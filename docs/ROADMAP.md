@@ -751,6 +751,9 @@ SaaS follow-ups after the 2026-09-14 browser run (none blocks a sale). Lane 0C (
   (`apps/web/src/data/hooks.ts`), so a 403 shows the server's Arabic refusal instead of a
   generic "could not load" sentence.
 
+**Update 2026-10-17:** the `GET /tenant` gap below is fixed — it answers a placeholder once the tenant
+is claimed (`auth-routes.ts:553`); see §4.3.1.
+
 Residual gaps the same review flagged as out of this lane's literal scope, left for a
 deliberate call rather than fixed silently: **`GET /tenant`** (`packages/backend/src/auth-routes.ts`)
 is still unauthenticated and still returns the tenant's real `name` to anyone who sends a
@@ -770,6 +773,33 @@ by the reviewers, deferred by owner decision (features first): no end-to-end clo
 → gate test, no test that a sign-out clears cached tenant data, plan-editor decimal-price body
 and 422 rendering, tenants-list loading/failed states (this last one is already covered per
 `TenantsPage.test.tsx`).
+
+### 4.3.1 SaaS security pass — landed 2026-10-17
+
+Owner, 2026-10-17: "handle anything related to the security in the roadmap … top priority", scoped to
+the cloud edition. Every item below is on `main` and was walked in a browser on `pnpm env:testing`.
+
+| Item | What landed | Where |
+|---|---|---|
+| Platform console session | Device-bound (`issueDeviceBound`), 8h absolute / 30min idle, password step-up after an address move for any change, server-side sign-out, every event on the platform security stream | `packages/backend/src/platform-auth.ts`, `packages/api/src/session-auth.ts` |
+| 6A — cookie sessions + CSRF (cloud only) | Tenant and console tokens move to HttpOnly SameSite=Strict cookies; CSRF = HMAC cookie echoed in `x-mezan-csrf` plus `Sec-Fetch-Site`/`Origin` checks; cookie bound to its tenant; the browser stores no token. Desktop, LAN and mobile keep bearer tokens | `apps/server/src/cookie-session.ts`, `apps/web/src/data/session.ts` |
+| Shared sessions (cloud) | Sessions in SQLite (`auth_session`, token hashes only), so a revoke holds on every instance and a restart signs nobody out; desktop stays in memory by decision | `packages/persistence/src/session-store.ts` |
+| Credential changes | Email change on the profile needs the current password; a self edit of email/PIN/password on the users route needs the current secret; a wrong current secret answers 403 (no longer signs the user out); same-device re-sign-in ends the earlier session | `profile-routes.ts`, `users-routes.ts` |
+| 5D — tenant backup export + restore drill | Owner-only, typed reason, passphrase-encrypted portable file the desktop imports, single-use 10-minute link, sign-in attempts/leases/sessions scrubbed from the copy; drill restores into a scratch copy only | `apps/server/src/tenant-backups.ts`, `TenantBackupCard.tsx` |
+| Multi-instance state | Login throttle, signup/deletion rate limits and HR punch/repayment leases in the database | `login-throttle.ts`, `keyed-lock.ts`, `rate-limit.ts` |
+| Audit tamper evidence | Ed25519-signed chain-head anchors every 15 min to an append-only sink (S3 or local), key rotation, verifier CLI detecting rewrite and rollback | `apps/server/src/audit-anchor*.ts` |
+| Encryption at rest | No change needed: EFS encrypted at rest and in transit, backup bucket SSE-AES256 + versioning + public-access block | `cyag-devops/apps/mezan/storage.tf` |
+
+**Needs the owner / devops repo:** S3 Object Lock on the anchor bucket and the
+`MEZAN_AUDIT_ANCHOR_SIGNING_KEY` secret (`cyag-devops`); Paymob live keys to confirm null-field HMAC
+(TEST-DEBT); code-signing certificates and the update feed (desktop).
+
+**Still open, known:** export download offers live in process memory (sticky routing needed until
+they move to the platform DB, `docs/ENVIRONMENTS.md`); true multi-instance needs per-tenant routing
+because `MEZAN_SQLITE_EXCLUSIVE=1` lets one process open a tenant file; the unlock-mail body
+(`lockMailBodies`) is per-process; the login screen's stale face row on a shared code-mode machine
+(above); desktop/LAN items in §5.2 (one-way LAN TLS, key rotation, audit sink on desktop) are outside
+this pass.
 
 Cloud-1 #6–8 (models only) and Cloud-3 #13 landed 2026-09-13 as `packages/domain/src/platform`,
 `packages/persistence/src/platform-store.ts` and `createPlatform` in `packages/backend`: tenant,
@@ -808,8 +838,8 @@ after (`docs/TEST-DEBT.md`); the test pass closes the build.
 | B | HR 2D self-service, clock-in, advance repayment · 3D self-serve signup · E1-01 owner cockpit · E2-02 recurring journals · E2-01 ETA pre-validation |
 | C | E2-10 segregation of duties · E1-04 guided close · E2-08 price floor · E2-04 expiry/FEFO · E2-09 AR dunning |
 | D | HR 4D employee/contract/run pages, scheduled accrual, payroll bank file · E2-03 scanner count · E2-11 provisioning · E3-03 reorder · E3-04 van reconciliation |
-| E | E3-06 CRM pipeline · E3-08 evidence pack · E3-02 owner digest · 6A cookie sessions (cloud) · 5D cloud backup export |
-| F | E3-10 health console · E3-09 integration API (cloud, DEC-27) · E3-01 glance · E3-07 funnel · open defects (D286, D288, `GET /tenant` name) |
+| E | E3-06 CRM pipeline · E3-08 evidence pack · E3-02 owner digest · ~~6A cookie sessions (cloud)~~ · ~~5D cloud backup export~~ (both landed 2026-10-17, §4.3.1) |
+| F | E3-10 health console · E3-09 integration API (cloud, DEC-27) · E3-01 glance · E3-07 funnel · open defects (D286, D288, ~~`GET /tenant` name~~ fixed) |
 | POS | **Resumes here** (owner, 2026-09-19: "finish everything first and then continue working on POS") — lanes 2A–5D of the POS plan, then E2-05/06/07 and E3-05 |
 | G | Close-out: the test pass (`docs/TEST-DEBT.md`, `FULL=1`), PLT-SAAS-01..08 live, ROADMAP and TESTING updated |
 

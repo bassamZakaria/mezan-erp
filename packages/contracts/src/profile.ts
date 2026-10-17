@@ -26,6 +26,7 @@ export const updateProfileSchema = z.object({
    * it is stored on the user row itself — see `PHOTO_MAX_CHARS`.
    */
   photoUrl: z.string().max(PHOTO_MAX_CHARS).nullable().default(null),
+  currentPassword: z.string().min(1).optional(),
 });
 
 export const changePasswordSchema = z.object({

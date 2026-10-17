@@ -25,6 +25,7 @@ import {
   UNATTRIBUTED_BRANCH_ID,
   withinBranchScope,
   type Account,
+  type AuthContext,
   type AccountRoutingRepository,
   type Cheque,
   type CockpitAccountSets,
@@ -93,9 +94,19 @@ export interface CockpitRoutesDeps {
   readonly now?: () => string;
 }
 
-function mayRead(c: Context, permission: string): boolean {
-  const ctx = getAuthContext(c);
-  return ctx ? can(ctx, permission) : false;
+export interface CockpitCaller {
+  readonly auth: AuthContext;
+  readonly branchScope: readonly string[] | undefined;
+  readonly warehouseScope: readonly string[] | undefined;
+}
+
+function mayRead(caller: CockpitCaller, permission: string): boolean {
+  return can(caller.auth, permission);
+}
+
+function callerOf(c: Context): CockpitCaller | null {
+  const auth = getAuthContext(c);
+  return auth ? { auth, branchScope: branchScopeOf(c), warehouseScope: warehouseScopeOf(c) } : null;
 }
 
 async function accountSets(deps: CockpitRoutesDeps, items: readonly Item[], cheques: readonly Cheque[], treasury: readonly TreasuryAccount[]): Promise<CockpitAccountSets> {
@@ -119,8 +130,8 @@ async function accountSets(deps: CockpitRoutesDeps, items: readonly Item[], cheq
   return { revenue: keep(revenue), cogs: keep(cogs), treasury: keep(treasuryIds), customerSide: keep(customerSide) };
 }
 
-function viewOf(c: Context, requested: string): CockpitBranchView & { readonly narrowed: boolean; readonly empty: boolean } {
-  const scope = branchScopeOf(c);
+function viewOf(caller: CockpitCaller, requested: string): CockpitBranchView & { readonly narrowed: boolean; readonly empty: boolean } {
+  const scope = caller.branchScope;
   const outOfScope = requested !== "" && requested !== UNATTRIBUTED_BRANCH_ID && scope !== undefined && !scope.includes(requested);
   return { branchId: requested, scope, narrowed: scope !== undefined || requested !== "", empty: outOfScope };
 }
@@ -138,7 +149,7 @@ function dayDTO(flow: CockpitDayFlow, withCost: boolean): CockpitDayDTO {
 
 async function cashByTreasury(
   deps: CockpitRoutesDeps,
-  c: Context,
+  caller: CockpitCaller,
   view: CockpitBranchView & { readonly narrowed: boolean },
   treasury: readonly TreasuryAccount[],
   cheques: readonly Cheque[],
@@ -155,7 +166,7 @@ async function cashByTreasury(
     if (account.branchId) branches.add(account.branchId);
     branchesPerGl.set(account.glAccountId, branches);
   }
-  const scoped = withinScope(treasury, branchScopeOf(c), (t) => t.branchId).filter(
+  const scoped = withinScope(treasury, caller.branchScope, (t) => t.branchId).filter(
     (t) => view.branchId === "" || t.branchId === view.branchId,
   );
   const seen = new Set<string>(underCollection);
@@ -195,8 +206,8 @@ async function cashByTreasury(
   return { total: Money.fromScaled(total).toString(), accounts: rows };
 }
 
-async function overdueSection(deps: CockpitRoutesDeps, c: Context, view: CockpitBranchView, today: string): Promise<CockpitOverdueDTO> {
-  const invoices = (await deps.salesInvoices.list({ statusIn: [...OPEN_STATUSES], branchScope: branchScopeOf(c), warehouseScope: warehouseScopeOf(c) })).filter(
+async function overdueSection(deps: CockpitRoutesDeps, caller: CockpitCaller, view: CockpitBranchView, today: string): Promise<CockpitOverdueDTO> {
+  const invoices = (await deps.salesInvoices.list({ statusIn: [...OPEN_STATUSES], branchScope: caller.branchScope, warehouseScope: caller.warehouseScope })).filter(
     (invoice) => view.branchId === "" || invoice.branchId === view.branchId,
   );
   const ids = invoices.map((invoice) => invoice.id);
@@ -222,10 +233,10 @@ async function overdueSection(deps: CockpitRoutesDeps, c: Context, view: Cockpit
   };
 }
 
-async function lowStockSection(deps: CockpitRoutesDeps, c: Context, items: readonly Item[], view: CockpitBranchView): Promise<CockpitLowStockDTO> {
+async function lowStockSection(deps: CockpitRoutesDeps, caller: CockpitCaller, items: readonly Item[], view: CockpitBranchView): Promise<CockpitLowStockDTO> {
   const [snapshots, warehouses] = await Promise.all([deps.wacSnapshots.list(), deps.warehouses.findAll()]);
   const branchOf = new Map(warehouses.map((w) => [w.id, w.branchId]));
-  const warehouseScope = warehouseScopeOf(c);
+  const warehouseScope = caller.warehouseScope;
   const onHand = new Map<string, Qty>();
   for (const position of snapshots) {
     const branch = branchOf.get(position.warehouseId) ?? null;
@@ -245,7 +256,7 @@ async function lowStockSection(deps: CockpitRoutesDeps, c: Context, items: reado
 
 async function moversSection(
   deps: CockpitRoutesDeps,
-  c: Context,
+  caller: CockpitCaller,
   view: CockpitBranchView,
   items: readonly Item[],
   today: string,
@@ -258,8 +269,8 @@ async function moversSection(
       statusIn: [...SOLD_STATUSES],
       fromDate: previousFrom,
       toDate: today,
-      branchScope: branchScopeOf(c),
-      warehouseScope: warehouseScopeOf(c),
+      branchScope: caller.branchScope,
+      warehouseScope: caller.warehouseScope,
     })
   ).filter((invoice) => view.branchId === "" || invoice.branchId === view.branchId);
   const lines: CockpitSaleLine[] = [];
@@ -308,6 +319,90 @@ async function moversSection(
   });
 }
 
+export async function composeCockpit(deps: CockpitRoutesDeps, caller: CockpitCaller, branchId: string, today: string, now: string): Promise<CockpitDTO> {
+  const bookVersion = deps.bookVersion();
+  const compareDate = cockpitAddDays(today, -COCKPIT_SPARK_DAYS);
+  const sparkFrom = cockpitAddDays(today, -(COCKPIT_SPARK_DAYS - 1));
+  const trendFrom = cockpitAddDays(today, -(COCKPIT_SPARK_DAYS * COCKPIT_MARGIN_WEEKS - 1));
+  const view = viewOf(caller, branchId);
+
+  const withCost = mayRead(caller, "sales.invoice.view_cost");
+  const withSales = mayRead(caller, "sales.invoice.view");
+  const withCash = mayRead(caller, "treasury.account.view");
+  const withStock = mayRead(caller, "inventory.item.view");
+
+  const [items, cheques, treasury] = await Promise.all([deps.items.list(), deps.cheques.list(), deps.treasuryAccounts.list()]);
+  const sets = await accountSets(deps, items, cheques, treasury);
+  const accountIds = [...new Set([...sets.revenue, ...sets.cogs, ...sets.treasury, ...sets.customerSide])];
+  const lines: readonly CockpitLedgerLine[] =
+    view.empty || accountIds.length === 0 ? [] : ((await deps.ledger.listLines?.({ fromDate: trendFrom, toDate: today, accountIds })) ?? []);
+
+  const flows = cockpitDailyFlows(lines, sets, trendFrom, today, (line) => cockpitLineInView(line.branchId, view));
+  const unattributedFlows = cockpitDailyFlows(lines, sets, compareDate, today, (line) => cockpitUnattributedLine(line.branchId, view));
+  const todayFlow = flows.get(today)!;
+  const compareFlow = flows.get(compareDate)!;
+  const sparkDays = [...flows.values()].filter((flow) => flow.date >= sparkFrom);
+  const unattributed7d = cockpitSumFlows([...unattributedFlows.values()].filter((flow) => flow.date >= sparkFrom));
+
+  const marginTrend: CockpitMarginWeekDTO[] = [];
+  for (let week = COCKPIT_MARGIN_WEEKS - 1; week >= 0; week -= 1) {
+    const to = cockpitAddDays(today, -week * COCKPIT_SPARK_DAYS);
+    const from = cockpitAddDays(to, -(COCKPIT_SPARK_DAYS - 1));
+    const sum = cockpitSumFlows([...flows.values()].filter((flow) => flow.date >= from && flow.date <= to));
+    marginTrend.push({
+      from,
+      to,
+      revenue: Money.fromScaled(sum.sales).toString(),
+      cogs: Money.fromScaled(sum.cogs).toString(),
+      grossProfit: Money.fromScaled(sum.sales - sum.cogs).toString(),
+      grossMarginPercent: cockpitMarginPercent(sum.sales, sum.cogs),
+    });
+  }
+
+  const [cash, overdue, lowStock, movers] = await Promise.all([
+    withCash ? cashByTreasury(deps, caller, view, view.empty ? [] : treasury, cheques, today) : Promise.resolve(null),
+    withSales && !view.empty && view.branchId !== UNATTRIBUTED_BRANCH_ID ? overdueSection(deps, caller, view, today) : Promise.resolve(null),
+    withStock && !view.empty && view.branchId !== UNATTRIBUTED_BRANCH_ID ? lowStockSection(deps, caller, items, view) : Promise.resolve(null),
+    withSales && !view.empty && view.branchId !== UNATTRIBUTED_BRANCH_ID ? moversSection(deps, caller, view, items, today) : Promise.resolve(null),
+  ]);
+
+  const money = (scaled: bigint) => Money.fromScaled(scaled).toString();
+  const body: CockpitDTO = {
+    generatedAt: now,
+    today,
+    compareDate,
+    windowFrom: sparkFrom,
+    bookVersion,
+    branchId: view.branchId,
+    branchNarrowed: view.narrowed,
+    pulse: {
+      sales: { today: money(todayFlow.sales), sameWeekdayLastWeek: money(compareFlow.sales) },
+      collections: { today: money(todayFlow.collections), sameWeekdayLastWeek: money(compareFlow.collections) },
+      grossProfit: withCost
+        ? { today: money(todayFlow.sales - todayFlow.cogs), sameWeekdayLastWeek: money(compareFlow.sales - compareFlow.cogs) }
+        : null,
+      grossMarginPercent: withCost
+        ? {
+            today: cockpitMarginPercent(todayFlow.sales, todayFlow.cogs),
+            sameWeekdayLastWeek: cockpitMarginPercent(compareFlow.sales, compareFlow.cogs),
+          }
+        : null,
+    },
+    days: sparkDays.map((flow) => dayDTO(flow, withCost)),
+    marginTrend: withCost ? marginTrend : null,
+    topMovers: movers,
+    cash,
+    overdueReceivables: overdue,
+    lowStock,
+    unattributed: {
+      salesToday: money(unattributedFlows.get(today)?.sales ?? 0n),
+      sales7d: money(unattributed7d.sales),
+      collections7d: money(unattributed7d.collections),
+    },
+  };
+  return body;
+}
+
 export function createCockpitRoutes(deps: CockpitRoutesDeps, resolveAuthContext: AuthContextResolver): Hono {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
@@ -332,88 +427,9 @@ export function createCockpitRoutes(deps: CockpitRoutesDeps, resolveAuthContext:
     if (!parsed.success) {
       return c.json({ error: "INVALID_QUERY", message: "معايير لوحة المالك غير صالحة.", messageEn: "Invalid cockpit parameters.", issues: parsed.error.issues }, 400);
     }
-    const bookVersion = deps.bookVersion();
-    const today = await todayOf(c);
-    const compareDate = cockpitAddDays(today, -COCKPIT_SPARK_DAYS);
-    const sparkFrom = cockpitAddDays(today, -(COCKPIT_SPARK_DAYS - 1));
-    const trendFrom = cockpitAddDays(today, -(COCKPIT_SPARK_DAYS * COCKPIT_MARGIN_WEEKS - 1));
-    const view = viewOf(c, parsed.data.branchId);
-
-    const withCost = mayRead(c, "sales.invoice.view_cost");
-    const withSales = mayRead(c, "sales.invoice.view");
-    const withCash = mayRead(c, "treasury.account.view");
-    const withStock = mayRead(c, "inventory.item.view");
-
-    const [items, cheques, treasury] = await Promise.all([deps.items.list(), deps.cheques.list(), deps.treasuryAccounts.list()]);
-    const sets = await accountSets(deps, items, cheques, treasury);
-    const accountIds = [...new Set([...sets.revenue, ...sets.cogs, ...sets.treasury, ...sets.customerSide])];
-    const lines: readonly CockpitLedgerLine[] =
-      view.empty || accountIds.length === 0 ? [] : ((await deps.ledger.listLines?.({ fromDate: trendFrom, toDate: today, accountIds })) ?? []);
-
-    const flows = cockpitDailyFlows(lines, sets, trendFrom, today, (line) => cockpitLineInView(line.branchId, view));
-    const unattributedFlows = cockpitDailyFlows(lines, sets, compareDate, today, (line) => cockpitUnattributedLine(line.branchId, view));
-    const todayFlow = flows.get(today)!;
-    const compareFlow = flows.get(compareDate)!;
-    const sparkDays = [...flows.values()].filter((flow) => flow.date >= sparkFrom);
-    const unattributed7d = cockpitSumFlows([...unattributedFlows.values()].filter((flow) => flow.date >= sparkFrom));
-
-    const marginTrend: CockpitMarginWeekDTO[] = [];
-    for (let week = COCKPIT_MARGIN_WEEKS - 1; week >= 0; week -= 1) {
-      const to = cockpitAddDays(today, -week * COCKPIT_SPARK_DAYS);
-      const from = cockpitAddDays(to, -(COCKPIT_SPARK_DAYS - 1));
-      const sum = cockpitSumFlows([...flows.values()].filter((flow) => flow.date >= from && flow.date <= to));
-      marginTrend.push({
-        from,
-        to,
-        revenue: Money.fromScaled(sum.sales).toString(),
-        cogs: Money.fromScaled(sum.cogs).toString(),
-        grossProfit: Money.fromScaled(sum.sales - sum.cogs).toString(),
-        grossMarginPercent: cockpitMarginPercent(sum.sales, sum.cogs),
-      });
-    }
-
-    const [cash, overdue, lowStock, movers] = await Promise.all([
-      withCash ? cashByTreasury(deps, c, view, view.empty ? [] : treasury, cheques, today) : Promise.resolve(null),
-      withSales && !view.empty && view.branchId !== UNATTRIBUTED_BRANCH_ID ? overdueSection(deps, c, view, today) : Promise.resolve(null),
-      withStock && !view.empty && view.branchId !== UNATTRIBUTED_BRANCH_ID ? lowStockSection(deps, c, items, view) : Promise.resolve(null),
-      withSales && !view.empty && view.branchId !== UNATTRIBUTED_BRANCH_ID ? moversSection(deps, c, view, items, today) : Promise.resolve(null),
-    ]);
-
-    const money = (scaled: bigint) => Money.fromScaled(scaled).toString();
-    const body: CockpitDTO = {
-      generatedAt: nowOf(),
-      today,
-      compareDate,
-      windowFrom: sparkFrom,
-      bookVersion,
-      branchId: view.branchId,
-      branchNarrowed: view.narrowed,
-      pulse: {
-        sales: { today: money(todayFlow.sales), sameWeekdayLastWeek: money(compareFlow.sales) },
-        collections: { today: money(todayFlow.collections), sameWeekdayLastWeek: money(compareFlow.collections) },
-        grossProfit: withCost
-          ? { today: money(todayFlow.sales - todayFlow.cogs), sameWeekdayLastWeek: money(compareFlow.sales - compareFlow.cogs) }
-          : null,
-        grossMarginPercent: withCost
-          ? {
-              today: cockpitMarginPercent(todayFlow.sales, todayFlow.cogs),
-              sameWeekdayLastWeek: cockpitMarginPercent(compareFlow.sales, compareFlow.cogs),
-            }
-          : null,
-      },
-      days: sparkDays.map((flow) => dayDTO(flow, withCost)),
-      marginTrend: withCost ? marginTrend : null,
-      topMovers: movers,
-      cash,
-      overdueReceivables: overdue,
-      lowStock,
-      unattributed: {
-        salesToday: money(unattributedFlows.get(today)?.sales ?? 0n),
-        sales7d: money(unattributed7d.sales),
-        collections7d: money(unattributed7d.collections),
-      },
-    };
-    return c.json(body);
+    const caller = callerOf(c);
+    if (!caller) return c.json({ error: "FORBIDDEN" }, 403);
+    return c.json(await composeCockpit(deps, caller, parsed.data.branchId, await todayOf(c), nowOf()));
   });
 
   return app;

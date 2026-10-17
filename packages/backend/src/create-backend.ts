@@ -1,4 +1,4 @@
-import { ReversalDocumentType, reversalPermissionSuccessors } from "@mezan/contracts";
+import { OWNER_DIGEST_EVENT, ReversalDocumentType, reversalPermissionSuccessors } from "@mezan/contracts";
 import { createHash, randomUUID } from "node:crypto";
 import { OwnerPinResetOutcome } from "./owner-pin-reset-outcome.js";
 import { createLeaveAccrualJob, startScheduledJobs, type ScheduledJobResult } from "./scheduled-jobs.js";
@@ -351,6 +351,7 @@ import {
   createSqliteProductTemplateStore,
   createSqliteNotificationRuleStore,
   createSqliteNotificationStore,
+  createSqliteOwnerDigestStore,
   createSqliteCollectionsStore,
   removeNotificationLinesMatching,
   createSqliteWorkflowConfigStore,
@@ -393,6 +394,7 @@ import {
   NotificationReadStatusCode,
   ConnectionTurnLostError,
   CustomerMessageStatus,
+  type DrainResult,
   SETTLED_AS,
   type DispatchOutcome,
   type NotificationTransport,
@@ -421,13 +423,13 @@ import {
 } from "./eta-receipts.js";
 import { createAuth, type AccountLockedEvent } from "./auth-routes.js";
 import { OutsideWork, OutsideWorkDeadlineError, withinDeadline } from "./outside-work.js";
-import { BranchAccess, BranchRecordKind, type BranchDirectory } from "@mezan/api";
+import { BranchAccess, BranchRecordKind, type BranchDirectory, type OwnerDigestBackupReading, type ScheduledDigestResult } from "@mezan/api";
 import { createSqliteBranchDirectory } from "./branch-directory.js";
 import { createWarehouseUse } from "./warehouse-use.js";
 import { createDashboardRoutes } from "./dashboard-routes.js";
 import { createPreferencesRoutes } from "./preferences-routes.js";
 import { isEmptyTenant, SEED_ADMIN_USER_ID, seedIfEmpty, type SeedStores } from "./seed.js";
-import type { BackendModuleContext } from "./module-context.js";
+import type { BackendModuleContext, OwnerDigestSlot } from "./module-context.js";
 import { mountPos } from "./pos/index.js";
 import { ENH_EMITTED_EVENT_CODES, mountEnhancements } from "./enh/index.js";
 import { createCrmOwnerDirectory, createCrmReminderJob, createCrmReminderService } from "./enh/e3-06.js";
@@ -782,6 +784,8 @@ export interface BackendHandle {
   backupTo(destination: string): Promise<void>;
   /** Runs one scheduler tick now; null when this backend was built with scheduled jobs off. */
   runScheduledJobs(): Promise<readonly ScheduledJobResult[]> | null;
+  /** Queues this tenant's scheduled owner digest for the day (idempotent per period and recipient); null when the tenant has not switched it on or this edition does not schedule it. */
+  runOwnerDigest(): Promise<ScheduledDigestResult | null>;
   /**
    * Resolves once the confirm-time e-receipt tasks still in flight have
    * settled. Those tasks deliberately outlive the confirm that started them,
@@ -941,6 +945,8 @@ export interface CreateBackendOptions {
    * `:memory:`, so dev, e2e and unit-test backends never write on a timer.
    */
   readonly scheduledJobs?: boolean;
+  /** What the host knows about its own backups; the backend cannot see them from inside the database. Absent, the owner digest says backup status is not reported. */
+  readonly backupStatus?: () => Promise<OwnerDigestBackupReading | null>;
 }
 
 /**
@@ -3661,6 +3667,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
     signInLadder.unlock(account);
   };
   const loginThrottle: LoginThrottle = { ...signInLadder, unlock: credentialsResetByAdministrator };
+  const ownerDigestStore = createSqliteOwnerDigestStore(sqlite);
   const sendMail = options.sendMail ?? sendNotificationEmail;
   const securitySmtp = async (): Promise<SmtpConfig | null> => {
     const tenant = (await settings.get()) ?? createDefaultSettings();
@@ -3688,8 +3695,9 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
       if (!recipientEmail) return { kind: "rejected", reason: "لا يوجد بريد إلكتروني مسجَّل لهذا المستخدم." };
       const body = notification.eventCode === ACCOUNT_LOCKED_NOTICE ? lockMailBodies.get(notification.id)?.body : notification.body;
       if (body === undefined) return { kind: "rejected", reason: "انتهت صلاحية رمز فكّ القفل قبل إرساله؛ يُرسل رمز جديد عند المحاولة التالية." };
+      const html = notification.eventCode === OWNER_DIGEST_EVENT ? ownerDigestStore.mailHtml(notification.id) : null;
       try {
-        const sent = await outsideTheTurn(() => withinDeadline(OutsideWork.Mail, () => sendMail(smtp, recipientEmail, { subject: notification.title, body })));
+        const sent = await outsideTheTurn(() => withinDeadline(OutsideWork.Mail, () => sendMail(smtp, recipientEmail, { subject: notification.title, body, ...(html ? { html } : {}) })));
         const outcome = dispatchOutcomeOf(sent);
         if (outcome.kind !== "offline") lockMailBodies.delete(notification.id);
         return outcome;
@@ -3730,6 +3738,14 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
       }
     },
   });
+  const drainNotificationsOnly = async (ids: ReadonlySet<string>): Promise<DrainResult> => {
+    const tenant = (await settings.get()) ?? createDefaultSettings();
+    return new NotificationDispatcher({
+      notifications,
+      recipientEmail: async (userId) => (await uow.users.findById(userId))?.email ?? null,
+      transports: [emailTransport(tenant.smtpEnabled ? tenant : null)],
+    }).drain({ only: ids });
+  };
   const notifyAccountLocked = async (event: AccountLockedEvent): Promise<void> => {
     const smtp = await securitySmtp();
     const admins = (await uow.users.list()).filter((u) => u.isCompanyAdmin && u.status === UserStatusCode.Active);
@@ -5583,6 +5599,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
   );
 
   const areaClosers: { close(): void }[] = [];
+  const ownerDigestSlot: OwnerDigestSlot = {};
   const areaContext: BackendModuleContext = {
     app,
     sqlite,
@@ -5643,6 +5660,15 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
     payrollBindings: { attendanceBound: Boolean(hrAttendance), exchangeRatesBound: Boolean(exchangeRates) },
     treasuryFx: { foreignCurrencyByGlAccount: foreignTreasuryCurrencies, rateOn: async (currency, date) => (await exchangeRates.findRate(currency, date))?.rate ?? null },
     periodCloseGuard,
+    cloud: options.sessionsInDatabase === true,
+    auditQuery: auditSink,
+    approvalRequests,
+    notificationOutbox: {
+      drainOnly: drainNotificationsOnly,
+      configured: async () => ((await settings.get()) ?? createDefaultSettings()).smtpEnabled,
+    },
+    backupStatus: options.backupStatus,
+    ownerDigestSlot,
     addCloser: (closer) => areaClosers.push(closer),
   };
   await mountPos(areaContext);
@@ -5874,6 +5900,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
     etaReceipts,
     backupTo: (destination) => sqlite.backup(destination).then(() => undefined),
     runScheduledJobs: () => scheduledJobs?.runNow() ?? null,
+    runOwnerDigest: () => (ownerDigestSlot.run ? ownerDigestSlot.run() : Promise.resolve(null)),
     async drain() {
       // The bridge's tasks call `scheduleSubmission()`, and a submission run
       // can queue more work, so neither one alone is "nothing left" — loop

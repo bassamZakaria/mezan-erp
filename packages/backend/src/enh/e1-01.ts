@@ -1,11 +1,28 @@
-import { createCockpitRoutes } from "@mezan/api";
+import { createCockpitRoutes, type CockpitRoutesDeps } from "@mezan/api";
 import {
   createSqliteAccountRoutingStore,
   createSqliteChequeRepository,
   createSqliteLedgerWatermark,
   createStandaloneSqliteSalesReturnStore,
 } from "@mezan/persistence";
-import type { BackendArea } from "../module-context.js";
+import type { BackendArea, BackendModuleContext } from "../module-context.js";
+
+export function cockpitDepsOf(ctx: BackendModuleContext, bookVersion: () => string): CockpitRoutesDeps {
+  const { stores } = ctx;
+  return {
+    ledger: stores.ledger,
+    accounts: stores.accounts,
+    accountRouting: createSqliteAccountRoutingStore(ctx.sqlite),
+    items: stores.items,
+    salesInvoices: stores.salesInvoices,
+    salesReturns: createStandaloneSqliteSalesReturnStore(ctx.sqlite),
+    treasuryAccounts: stores.treasuryAccounts,
+    cheques: createSqliteChequeRepository(ctx.sqlite),
+    wacSnapshots: stores.stockLedger.snapshots,
+    warehouses: stores.warehouses,
+    bookVersion,
+  };
+}
 
 export const area: BackendArea = {
   mount(ctx) {
@@ -14,25 +31,6 @@ export const area: BackendArea = {
       busVersion += 1;
     });
     const watermark = createSqliteLedgerWatermark(ctx.sqlite);
-    const { stores } = ctx;
-    ctx.app.route(
-      "/dashboard",
-      createCockpitRoutes(
-        {
-          ledger: stores.ledger,
-          accounts: stores.accounts,
-          accountRouting: createSqliteAccountRoutingStore(ctx.sqlite),
-          items: stores.items,
-          salesInvoices: stores.salesInvoices,
-          salesReturns: createStandaloneSqliteSalesReturnStore(ctx.sqlite),
-          treasuryAccounts: stores.treasuryAccounts,
-          cheques: createSqliteChequeRepository(ctx.sqlite),
-          wacSnapshots: stores.stockLedger.snapshots,
-          warehouses: stores.warehouses,
-          bookVersion: () => `${busVersion}.${watermark.read()}`,
-        },
-        ctx.resolveAuthContext,
-      ),
-    );
+    ctx.app.route("/dashboard", createCockpitRoutes(cockpitDepsOf(ctx, () => `${busVersion}.${watermark.read()}`), ctx.resolveAuthContext));
   },
 };

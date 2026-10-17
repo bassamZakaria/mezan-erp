@@ -1,5 +1,6 @@
 import { app } from "electron";
 import path from "node:path";
+import { backupsDirBesideUserData } from "../backup/status.js";
 import { RENDERER_ENTRY_URL } from "./renderer-protocol.js";
 
 /**
@@ -61,5 +62,5 @@ export function defaultDbPath(): string {
 }
 
 export function defaultBackupsDir(): string {
-  return path.join(path.dirname(app.getPath("userData")), "Mezan Backups");
+  return backupsDirBesideUserData(app.getPath("userData"));
 }

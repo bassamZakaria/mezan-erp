@@ -2,6 +2,7 @@
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
 import { screen, fireEvent, within } from "@testing-library/react";
+import { VanTripCashMovementKindDTO, VanTripCrewRoleDTO, VanTripStatusDTO } from "@mezan/contracts";
 import type { VanTripDTO, WarehouseDTO, TreasuryAccountDTO, BranchDTO, ItemDTO, VanDTO, EmployeeDTO } from "@mezan/contracts";
 import { VanTripsScreen } from "./VanTripsScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
@@ -108,10 +109,10 @@ const ongoingTrip: VanTripDTO = {
   sourceWarehouseId: "wh-main1",
   sourceTreasuryAccountId: "ta-main1",
   openingCashFloat: "500.000000",
-  crew: [{ employeeId: "emp-1", role: "driver" }],
+  crew: [{ employeeId: "emp-1", role: VanTripCrewRoleDTO.Driver }],
   loadedStock: [{ itemId: "item-1", qty: "20.000000" }],
-  cashMovements: [{ id: "cm-1", kind: "sale", amount: "150.000000", occurredAt: "2026-08-20T10:00:00.000Z", notes: null }],
-  status: "ongoing",
+  cashMovements: [{ id: "cm-1", kind: VanTripCashMovementKindDTO.Sale, amount: "150.000000", occurredAt: "2026-08-20T10:00:00.000Z", notes: null }],
+  status: VanTripStatusDTO.Ongoing,
   openedAt: "2026-08-20T08:00:00.000Z",
   settledAt: null,
   settlement: null,
@@ -148,7 +149,7 @@ function renderScreen(trips: VanTripDTO[] = [ongoingTrip]) {
         crew: body.crew,
         loadedStock: body.loadedStock ?? [],
         cashMovements: [],
-        status: "ongoing",
+        status: VanTripStatusDTO.Ongoing,
         openedAt: new Date().toISOString(),
         settledAt: null,
         settlement: null,
@@ -166,11 +167,22 @@ function renderScreen(trips: VanTripDTO[] = [ongoingTrip]) {
       current = [updated, ...current.slice(1)];
       return { body: updated };
     },
+    "GET /field/van-trips/vt-1/expected": () => ({
+      body: {
+        tripId: "vt-1",
+        asOf: "2026-08-20",
+        expectedCash: "618.400000",
+        cashBreakdown: { openingFloat: "500.000000", fieldSales: "150.000000", fieldCollections: "0.000000", voucherCollections: "0.000000", other: "-31.600000" },
+        lines: [{ itemId: "item-1", expectedQty: "20.000000", loadedQty: "20.000000", soldQty: "0.000000", returnedQty: "0.000000", otherQty: "0.000000", unitCost: "10.000000" }],
+        invoicedSales: "0.000000",
+        returnsValue: "0.000000",
+      },
+    }),
     "POST /field/van-trips/vt-1/settle": (init) => {
       const body = JSON.parse((init?.body as string) ?? "{}");
       const updated: VanTripDTO = {
         ...current[0]!,
-        status: "settled",
+        status: VanTripStatusDTO.AwaitingApproval,
         settledAt: new Date().toISOString(),
         settlement: {
           expectedCash: "618.400000",
@@ -181,8 +193,20 @@ function renderScreen(trips: VanTripDTO[] = [ongoingTrip]) {
             expectedQty: "20.000000",
             countedQty: c.countedQty,
             varianceQty: (Number(c.countedQty) - 20).toFixed(6),
+            loadedQty: "20.000000",
+            soldQty: "0.000000",
+            returnedQty: "0.000000",
+            otherQty: "0.000000",
+            unitCost: "10.000000",
+            varianceValue: ((Number(c.countedQty) - 20) * 10).toFixed(6),
           })),
           settledAt: new Date().toISOString(),
+          settledBy: "rep-user",
+          settlementDate: "2026-08-20",
+          cashBreakdown: null,
+          invoicedSales: "0.000000",
+          returnsValue: "0.000000",
+          reconciliation: null,
         },
       };
       current = [updated, ...current.slice(1)];
@@ -249,10 +273,11 @@ describe("VanTripsScreen", () => {
 
     const detail = screen.getByRole("dialog", { name: /رحلة/ });
     fireEvent.click(within(detail).getByRole("button", { name: "تسوية الرحلة" }));
-    typeMoney(within(detail).getByLabelText("النقدية المعدودة *"), "650");
+    typeMoney(await within(detail).findByLabelText("النقدية المعدودة *"), "650");
     fireEvent.click(within(detail).getByRole("button", { name: "تأكيد التسوية" }));
 
-    expect(await within(detail).findByText("31.6")).toBeInTheDocument();
+    expect(await within(detail).findByText("عدّها: rep-user")).toBeInTheDocument();
+    expect(within(detail).getByText("31.6")).toBeInTheDocument();
     expect(within(detail).getByText("650.00")).toBeInTheDocument();
   });
 });

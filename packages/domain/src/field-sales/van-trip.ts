@@ -8,8 +8,17 @@
 
 import type { Money, Qty } from "../money/index.js";
 
-export type VanTripStatus = "ongoing" | "settled" | "cancelled";
-export type VanTripCrewRole = "driver" | "rep" | "assistant";
+export enum VanTripStatus {
+  Ongoing = "ongoing",
+  AwaitingApproval = "awaiting_approval",
+  Settled = "settled",
+  Cancelled = "cancelled",
+}
+export enum VanTripCrewRole {
+  Driver = "driver",
+  Rep = "rep",
+  Assistant = "assistant",
+}
 
 export interface VanTripStatusDefinition {
   readonly code: VanTripStatus;
@@ -17,9 +26,10 @@ export interface VanTripStatusDefinition {
 }
 
 export const VAN_TRIP_STATUS_DEFINITIONS: readonly VanTripStatusDefinition[] = [
-  { code: "ongoing", labelAr: "جارية" },
-  { code: "settled", labelAr: "مسواة" },
-  { code: "cancelled", labelAr: "ملغاة" },
+  { code: VanTripStatus.Ongoing, labelAr: "جارية" },
+  { code: VanTripStatus.AwaitingApproval, labelAr: "بانتظار اعتماد التسوية" },
+  { code: VanTripStatus.Settled, labelAr: "مسواة" },
+  { code: VanTripStatus.Cancelled, labelAr: "ملغاة" },
 ] as const;
 
 export function getVanTripStatusLabel(status: VanTripStatus): string {
@@ -36,7 +46,10 @@ export interface VanTripStockLine {
   readonly qty: Qty;
 }
 
-export type VanTripCashMovementKind = "sale" | "collection";
+export enum VanTripCashMovementKind {
+  Sale = "sale",
+  Collection = "collection",
+}
 
 export interface VanTripCashMovement {
   readonly id: string;
@@ -48,18 +61,69 @@ export interface VanTripCashMovement {
 
 export interface VanTripStockCountLine {
   readonly itemId: string;
+  /** INVARIANT: the van warehouse's ledger on-hand at settlement — what approval brings the van back to zero from. */
   readonly expectedQty: Qty;
   readonly countedQty: Qty;
   readonly varianceQty: Qty;
+  readonly loadedQty: Qty;
+  readonly soldQty: Qty;
+  readonly returnedQty: Qty;
+  /** On-hand the trip's own documents do not explain: stock left from an earlier trip, or a movement from another screen. */
+  readonly otherQty: Qty;
+  /** The van's weighted-average cost at settlement, or the item's cost price when the van holds none. */
+  readonly unitCost: Money;
+  readonly varianceValue: Money;
+}
+
+export interface VanTripCashBreakdown {
+  readonly openingFloat: Money;
+  readonly fieldSales: Money;
+  readonly fieldCollections: Money;
+  readonly voucherCollections: Money;
+  readonly other: Money;
+}
+
+export enum VanReconciliationStepKind {
+  CashVariance = "cash_variance",
+  CashReturn = "cash_return",
+  OverageAdjustment = "overage_adjustment",
+  StockReturn = "stock_return",
+  ShortageAdjustment = "shortage_adjustment",
+}
+
+export enum VanReconciliationStepState {
+  Posted = "posted",
+  Held = "held",
+}
+
+export interface VanTripReconciliationStep {
+  readonly kind: VanReconciliationStepKind;
+  readonly documentId: string;
+  readonly state: VanReconciliationStepState;
+  readonly value: Money | null;
+}
+
+export interface VanTripReconciliation {
+  readonly approvedBy: string;
+  readonly startedAt: string;
+  readonly completedAt: string | null;
+  readonly steps: readonly VanTripReconciliationStep[];
 }
 
 export interface VanTripSettlement {
+  /** INVARIANT: the van till's own book balance at settlement, so an approved trip leaves the till at zero. */
   readonly expectedCash: Money;
   readonly countedCash: Money;
   /** countedCash - expectedCash; negative is a shortage, positive is an overage. */
   readonly cashVariance: Money;
   readonly stockCounts: readonly VanTripStockCountLine[];
   readonly settledAt: string;
+  readonly settledBy: string | null;
+  readonly settlementDate: string | null;
+  readonly cashBreakdown: VanTripCashBreakdown | null;
+  readonly invoicedSales: Money;
+  readonly returnsValue: Money;
+  readonly reconciliation: VanTripReconciliation | null;
 }
 
 export interface VanTrip {

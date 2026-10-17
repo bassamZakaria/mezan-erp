@@ -1,5 +1,5 @@
 import type { Money } from "../money/index.js";
-import type { VanTrip, VanTripCashMovementKind } from "./van-trip.js";
+import { VanTripStatus, type VanTrip, type VanTripCashMovementKind } from "./van-trip.js";
 import { VanTripNotOngoingError } from "./errors.js";
 
 export interface RecordVanCashMovementInput {
@@ -16,7 +16,7 @@ export interface RecordVanCashMovementInput {
  * persists the returned trip via `repo.update`.
  */
 export function recordVanCashMovement(trip: VanTrip, movement: RecordVanCashMovementInput): VanTrip {
-  if (trip.status !== "ongoing") {
+  if (trip.status !== VanTripStatus.Ongoing) {
     throw new VanTripNotOngoingError(trip.id, trip.status);
   }
   return {

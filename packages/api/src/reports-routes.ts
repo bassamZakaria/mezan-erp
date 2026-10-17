@@ -34,6 +34,7 @@ import {
   createInstallmentsOverviewReport,
   createInstallmentsOverdueReport,
   createVanSalesReport,
+  createRepDailyReport,
   createTrialBalanceReport,
   createIncomeStatementReport,
   createBalanceSheetReport,
@@ -1984,6 +1985,13 @@ export function createReportsRoutes(
     app.get("/field/van-sales", gate("field.van_trip.view"), async (c) => {
       const today = await tenantToday(c, deps.today);
       const definition = createVanSalesReport(firstOfMonth(today), today);
+      const [allTrips, employees] = await Promise.all([vanTrips.list(), deps.employees?.list() ?? []]);
+      const trips = withinScope(allTrips, branchScopeOf(c), (trip) => trip.branchId);
+      return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { trips, employees }));
+    });
+    app.get("/field/rep-daily", gate("field.van_trip.view"), async (c) => {
+      const today = await tenantToday(c, deps.today);
+      const definition = createRepDailyReport(firstOfMonth(today), today);
       const [allTrips, employees] = await Promise.all([vanTrips.list(), deps.employees?.list() ?? []]);
       const trips = withinScope(allTrips, branchScopeOf(c), (trip) => trip.branchId);
       return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { trips, employees }));

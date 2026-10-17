@@ -1,3 +1,4 @@
+import { VanTripCashMovementKind, VanTripCrewRole, VanTripStatus } from "../field-sales/van-trip.js";
 import { EmployeeRefStatus } from "../hr-shared/employee-ref.js";
 import { describe, it, expect } from "vitest";
 import { Money, Qty } from "../money/index.js";
@@ -49,6 +50,12 @@ function settlement(overrides: Partial<VanTripSettlement> = {}): VanTripSettleme
     cashVariance: Money.fromMajor("0.00"),
     stockCounts: [],
     settledAt: "2026-08-05T00:00:00.000Z",
+    settledBy: null,
+    settlementDate: null,
+    cashBreakdown: null,
+    invoicedSales: Money.zero(),
+    returnsValue: Money.zero(),
+    reconciliation: null,
     ...overrides,
   };
 }
@@ -68,7 +75,7 @@ function vanTrip(overrides: Partial<VanTrip> = {}): VanTrip {
     crew: [],
     loadedStock: [],
     cashMovements: [],
-    status: "ongoing",
+    status: VanTripStatus.Ongoing,
     openedAt: "2026-08-05T08:00:00.000Z",
     settledAt: null,
     settlement: null,
@@ -137,16 +144,16 @@ describe("createVanSalesReport", () => {
   it("filters by status, excluding every trip when none match", () => {
     const definition = createVanSalesReport("2026-08-01", "2026-08-31");
     const trips = [
-      vanTrip({ id: "t-ongoing", date: "2026-08-05", status: "ongoing" }),
-      vanTrip({ id: "t-settled", date: "2026-08-06", status: "settled", settlement: settlement() }),
+      vanTrip({ id: "t-ongoing", date: "2026-08-05", status: VanTripStatus.Ongoing }),
+      vanTrip({ id: "t-settled", date: "2026-08-06", status: VanTripStatus.Settled, settlement: settlement() }),
     ];
-    const settledOnly = runReport(definition, { ...baseParams, status: "settled" as const }, { trips, employees: [] });
+    const settledOnly = runReport(definition, { ...baseParams, status: VanTripStatus.Settled as const }, { trips, employees: [] });
     expect(settledOnly.ok).toBe(true);
     if (settledOnly.ok) {
       expect(settledOnly.rows.map((r) => r.tripId)).toEqual(["t-settled"]);
     }
 
-    const noneCancelled = runReport(definition, { ...baseParams, status: "cancelled" as const }, { trips, employees: [] });
+    const noneCancelled = runReport(definition, { ...baseParams, status: VanTripStatus.Cancelled as const }, { trips, employees: [] });
     expect(noneCancelled.ok).toBe(true);
     if (!noneCancelled.ok) return;
     expect(noneCancelled.rows).toHaveLength(0);
@@ -169,14 +176,14 @@ describe("createVanSalesReport", () => {
     const definition = createVanSalesReport("2026-08-01", "2026-08-31");
     const trip = vanTrip({
       id: "ongoing-1",
-      status: "ongoing",
+      status: VanTripStatus.Ongoing,
       settlement: null,
       openingCashFloat: Money.fromMajor("100.00"),
       loadedStock: [{ itemId: "item-a", qty: Qty.fromMajor("40") }],
       cashMovements: [
-        { id: "m1", kind: "sale", amount: Money.fromMajor("40.00"), occurredAt: "2026-08-05T10:00:00.000Z", notes: null },
-        { id: "m2", kind: "sale", amount: Money.fromMajor("35.00"), occurredAt: "2026-08-05T11:00:00.000Z", notes: null },
-        { id: "m3", kind: "collection", amount: Money.fromMajor("25.00"), occurredAt: "2026-08-05T12:00:00.000Z", notes: null },
+        { id: "m1", kind: VanTripCashMovementKind.Sale, amount: Money.fromMajor("40.00"), occurredAt: "2026-08-05T10:00:00.000Z", notes: null },
+        { id: "m2", kind: VanTripCashMovementKind.Sale, amount: Money.fromMajor("35.00"), occurredAt: "2026-08-05T11:00:00.000Z", notes: null },
+        { id: "m3", kind: VanTripCashMovementKind.Collection, amount: Money.fromMajor("25.00"), occurredAt: "2026-08-05T12:00:00.000Z", notes: null },
       ],
     });
     const outcome = runReport(definition, baseParams, { trips: [trip], employees: [] });
@@ -198,14 +205,25 @@ describe("createVanSalesReport", () => {
     const definition = createVanSalesReport("2026-08-01", "2026-08-31");
     const trip = vanTrip({
       id: "settled-1",
-      status: "settled",
+      status: VanTripStatus.Settled,
       loadedStock: [
         { itemId: "item-a", qty: Qty.fromMajor("60") },
         { itemId: "item-b", qty: Qty.fromMajor("40") },
       ],
       settlement: settlement({
         stockCounts: [
-          { itemId: "item-a", expectedQty: Qty.fromMajor("60"), countedQty: Qty.fromMajor("30"), varianceQty: Qty.fromMajor("-30") },
+          {
+            itemId: "item-a",
+            expectedQty: Qty.fromMajor("60"),
+            countedQty: Qty.fromMajor("30"),
+            varianceQty: Qty.fromMajor("-30"),
+            loadedQty: Qty.fromMajor("60"),
+            soldQty: Qty.zero(),
+            returnedQty: Qty.zero(),
+            otherQty: Qty.zero(),
+            unitCost: Money.zero(),
+            varianceValue: Money.zero(),
+          },
         ],
       }),
     });
@@ -222,7 +240,7 @@ describe("createVanSalesReport", () => {
     const definition = createVanSalesReport("2026-08-01", "2026-08-31");
     const trip = vanTrip({
       id: "settled-2",
-      status: "settled",
+      status: VanTripStatus.Settled,
       openingCashFloat: Money.fromMajor("50.00"),
       cashMovements: [],
       settlement: settlement({
@@ -247,8 +265,8 @@ describe("createVanSalesReport", () => {
     const trip = vanTrip({
       id: "trip-crew",
       crew: [
-        { employeeId: "emp-known", role: "driver" },
-        { employeeId: "emp-unknown", role: "rep" },
+        { employeeId: "emp-known", role: VanTripCrewRole.Driver },
+        { employeeId: "emp-unknown", role: VanTripCrewRole.Rep },
       ],
     });
     const outcome = runReport(definition, baseParams, { trips: [trip], employees });
@@ -260,8 +278,8 @@ describe("createVanSalesReport", () => {
   it("keeps the cashVariance KPI and grand total in agreement, and the tone follows the sign", () => {
     const definition = createVanSalesReport("2026-08-01", "2026-08-31");
     const trips = [
-      vanTrip({ id: "t1", date: "2026-08-05", status: "settled", settlement: settlement({ cashVariance: Money.fromMajor("-9.99") }) }),
-      vanTrip({ id: "t2", date: "2026-08-06", status: "settled", settlement: settlement({ cashVariance: Money.fromMajor("2.00") }) }),
+      vanTrip({ id: "t1", date: "2026-08-05", status: VanTripStatus.Settled, settlement: settlement({ cashVariance: Money.fromMajor("-9.99") }) }),
+      vanTrip({ id: "t2", date: "2026-08-06", status: VanTripStatus.Settled, settlement: settlement({ cashVariance: Money.fromMajor("2.00") }) }),
     ];
     const outcome = runReport(definition, baseParams, { trips, employees: [] });
     expect(outcome.ok).toBe(true);
@@ -274,7 +292,7 @@ describe("createVanSalesReport", () => {
     const balanced = runReport(
       definition,
       baseParams,
-      { trips: [vanTrip({ id: "t3", date: "2026-08-07", status: "settled", settlement: settlement({ cashVariance: Money.fromMajor("0.00") }) })], employees: [] },
+      { trips: [vanTrip({ id: "t3", date: "2026-08-07", status: VanTripStatus.Settled, settlement: settlement({ cashVariance: Money.fromMajor("0.00") }) })], employees: [] },
     );
     expect(balanced.ok).toBe(true);
     if (!balanced.ok) return;

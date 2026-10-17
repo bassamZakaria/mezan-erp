@@ -220,6 +220,12 @@ export {
   type VanSalesParams,
   type VanSalesRow,
 } from "./field-van-sales.js";
+export {
+  createRepDailyReport,
+  type RepDailyContext,
+  type RepDailyParams,
+  type RepDailyRow,
+} from "./field-rep-daily.js";
 
 // --- الأقساط — Installment reports ---------------------------------------
 

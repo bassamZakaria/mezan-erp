@@ -39,6 +39,7 @@ export {
 
 export {
   assertCashBalanceAllows,
+  treasuryAccountOwnBalance,
   type CashGuardDeps,
 } from "./cash-guard.js";
 

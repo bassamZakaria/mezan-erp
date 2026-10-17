@@ -2,6 +2,13 @@ import { z } from "zod";
 import { moneyString, nonNegativeMoneyString } from "./money-string.js";
 import { isoDateOrInstant } from "./iso-date.js";
 import { clientSuppliedId } from "./client-supplied-id.js";
+import {
+  VanTripCashMovementKindDTO,
+  VanTripCrewRoleDTO,
+  VanTripStatusDTO,
+  vanTripCashBreakdownSchema,
+  vanTripReconciliationSchema,
+} from "./enh/e3-04.js";
 
 /**
  * Wire contract for the Field/Van Sales module (docs/archive/catalog/07-mfg-projects-assets.md
@@ -14,9 +21,9 @@ const decimalString = moneyString;
 /** @see nonNegativeMoneyString — one guard for every exact-decimal field on the wire (D126). */
 const positiveDecimalString = nonNegativeMoneyString;
 
-export const vanTripStatusSchema = z.enum(["ongoing", "settled", "cancelled"]);
-export const vanTripCrewRoleSchema = z.enum(["driver", "rep", "assistant"]);
-export const vanTripCashMovementKindSchema = z.enum(["sale", "collection"]);
+export const vanTripStatusSchema = z.nativeEnum(VanTripStatusDTO);
+export const vanTripCrewRoleSchema = z.nativeEnum(VanTripCrewRoleDTO);
+export const vanTripCashMovementKindSchema = z.nativeEnum(VanTripCashMovementKindDTO);
 
 export const vanTripCrewMemberSchema = z.object({
   employeeId: z.string().min(1),
@@ -41,6 +48,12 @@ export const vanTripStockCountLineSchema = z.object({
   expectedQty: decimalString,
   countedQty: decimalString,
   varianceQty: decimalString,
+  loadedQty: decimalString,
+  soldQty: decimalString,
+  returnedQty: decimalString,
+  otherQty: decimalString,
+  unitCost: decimalString,
+  varianceValue: decimalString,
 });
 
 export const vanTripSettlementSchema = z.object({
@@ -49,6 +62,12 @@ export const vanTripSettlementSchema = z.object({
   cashVariance: decimalString,
   stockCounts: z.array(vanTripStockCountLineSchema),
   settledAt: z.string().min(1),
+  settledBy: z.string().nullable(),
+  settlementDate: z.string().nullable(),
+  cashBreakdown: vanTripCashBreakdownSchema.nullable(),
+  invoicedSales: decimalString,
+  returnsValue: decimalString,
+  reconciliation: vanTripReconciliationSchema.nullable(),
 });
 
 /** المركبات — the van registry (R3.13): a vehicle owns its warehouse and its till. */
@@ -127,20 +146,23 @@ export const recordVanCashMovementSchema = z.object({
 });
 
 export const settleVanTripSchema = z.object({
-  countedCash: decimalString,
+  countedCash: positiveDecimalString,
   stockCounts: z.array(
     z.object({
       itemId: z.string().min(1),
-      countedQty: decimalString,
+      countedQty: positiveDecimalString,
     }),
   ),
 });
 
+export const approveVanTripResponseSchema = z.object({
+  trip: vanTripSchema,
+  /** True while a generated adjustment or transfer waits in the approvals inbox; approving again resumes. */
+  held: z.boolean(),
+});
+
 export type VanDTO = z.infer<typeof vanSchema>;
 export type CreateVanDTO = z.infer<typeof createVanSchema>;
-export type VanTripStatusDTO = z.infer<typeof vanTripStatusSchema>;
-export type VanTripCrewRoleDTO = z.infer<typeof vanTripCrewRoleSchema>;
-export type VanTripCashMovementKindDTO = z.infer<typeof vanTripCashMovementKindSchema>;
 export type VanTripCrewMemberDTO = z.infer<typeof vanTripCrewMemberSchema>;
 export type VanTripStockLineDTO = z.infer<typeof vanTripStockLineSchema>;
 export type VanTripCashMovementDTO = z.infer<typeof vanTripCashMovementSchema>;
@@ -150,3 +172,4 @@ export type VanTripDTO = z.infer<typeof vanTripSchema>;
 export type OpenVanTripDTO = z.infer<typeof openVanTripSchema>;
 export type RecordVanCashMovementDTO = z.infer<typeof recordVanCashMovementSchema>;
 export type SettleVanTripDTO = z.infer<typeof settleVanTripSchema>;
+export type ApproveVanTripResponseDTO = z.infer<typeof approveVanTripResponseSchema>;

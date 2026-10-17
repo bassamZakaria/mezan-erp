@@ -853,12 +853,24 @@ describe("createBackend — CRM, Projects, Fixed Assets, Field/Van Sales (phase1
       status: string;
       settlement: { expectedCash: string; countedCash: string; cashVariance: string; stockCounts: { itemId: string; varianceQty: string }[] };
     };
-    expect(settled.status).toBe("settled");
-    // expected = opening float (500) + collection (300) = 800; counted 780 -> -20 shortage variance
-    expect(settled.settlement.expectedCash).toBe("800.000000");
-    expect(settled.settlement.cashVariance).toBe("-20.000000");
+    expect(settled.status).toBe("awaiting_approval");
+    // E3-04: expected is the van till's own book balance — float 500, the trip's
+    // collection 300 and the separate 300 voucher above; counted 780 -> -320.
+    expect(settled.settlement.expectedCash).toBe("1100.000000");
+    expect(settled.settlement.cashVariance).toBe("-320.000000");
     const line = settled.settlement.stockCounts.find((s) => s.itemId === "item-van1")!;
-    expect(line.varianceQty).toBe("-4.000000"); // loaded 10, counted 6
+    expect(line.varianceQty).toBe("-4.000000");
+
+    const supervisor = sessionHeaders(app, "u-supervisor", ["field.van_trip.approve", "field.van_trip.view"]);
+    const approve = await post(app, `/field/van-trips/${trip.id}/approve`, {}, supervisor);
+    expect(approve.status).toBe(200);
+    expect(((await approve.json()) as { trip: { status: string } }).trip.status).toBe("settled");
+    const balanceOf = async (warehouseId: string) =>
+      ((await (await app.fetch(new Request(`http://local/inventory/balance?itemId=item-van1&warehouseId=${warehouseId}`, { headers: admin(app) }))).json()) as { onHand: string }).onHand;
+    expect(await balanceOf("wh-van1")).toBe("0.000000");
+    expect(await balanceOf("WH-MAIN")).toBe("16.000000");
+    const rec = (await (await app.fetch(new Request("http://local/reconciliation", { headers: admin(app) }))).json()) as { rows: { key: string; glBalance: string; matched: boolean }[] };
+    expect(rec.rows.find((r) => r.key === "inventory")).toMatchObject({ glBalance: "800.000000", matched: true });
   });
 
   it("gates /crm, /projects, /assets and /field/van-trips behind their own permissions", async () => {

@@ -1,7 +1,7 @@
 import { Money } from "../money/index.js";
 import type { Qty } from "../money/index.js";
-import type { VanTrip, VanTripCrewRole, VanTripRepository } from "./van-trip.js";
-import { InvalidVanTripError, SameWarehouseVanTripError } from "./errors.js";
+import { VanTripStatus, type VanTrip, type VanTripCrewRole, type VanTripRepository } from "./van-trip.js";
+import { InvalidVanTripError, SameWarehouseVanTripError, VanBusyError } from "./errors.js";
 
 export interface OpenVanTripCommand {
   readonly id: string;
@@ -82,6 +82,15 @@ export async function openVanTrip(cmd: OpenVanTripCommand, deps: OpenVanTripDeps
     throw new SameWarehouseVanTripError(cmd.sourceWarehouseId);
   }
 
+  // INVARIANT: one unfinished trip per van warehouse. Settlement reads the van's
+  // stock and till from the ledgers, so a second open trip would be counted twice.
+  const unfinished = (await deps.trips.list()).find(
+    (t) =>
+      t.vanWarehouseId === cmd.vanWarehouseId &&
+      (t.status === VanTripStatus.Ongoing || t.status === VanTripStatus.AwaitingApproval),
+  );
+  if (unfinished) throw new VanBusyError(cmd.vanWarehouseId, unfinished.id);
+
   const loadedStock = cmd.loadedStock ?? [];
   if (loadedStock.length > 0) {
     await deps.stock.postTransfer({
@@ -121,7 +130,7 @@ export async function openVanTrip(cmd: OpenVanTripCommand, deps: OpenVanTripDeps
     crew: cmd.crew.map((c) => ({ employeeId: c.employeeId, role: c.role })),
     loadedStock: loadedStock.map((l) => ({ itemId: l.itemId, qty: l.qty })),
     cashMovements: [],
-    status: "ongoing",
+    status: VanTripStatus.Ongoing,
     openedAt: deps.now?.() ?? new Date().toISOString(),
     settledAt: null,
     settlement: null,

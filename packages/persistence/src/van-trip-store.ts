@@ -10,6 +10,9 @@ import {
   type VanTripCrewMember,
   type VanTripCrewRole,
   type VanTripRepository,
+  type VanTripReconciliation,
+  type VanReconciliationStepKind,
+  type VanReconciliationStepState,
   type VanTripSettlement,
   type VanTripStatus,
   type VanTripStockCountLine,
@@ -115,14 +118,49 @@ interface StockCountLineJson {
   expectedQty: string;
   countedQty: string;
   varianceQty: string;
+  loadedQty?: string;
+  soldQty?: string;
+  returnedQty?: string;
+  otherQty?: string;
+  unitCost?: string;
+  varianceValue?: string;
 }
 
+interface CashBreakdownJson {
+  openingFloat: string;
+  fieldSales: string;
+  fieldCollections: string;
+  voucherCollections: string;
+  other: string;
+}
+
+interface ReconciliationStepJson {
+  kind: VanReconciliationStepKind;
+  documentId: string;
+  state: VanReconciliationStepState;
+  value: string | null;
+}
+
+interface ReconciliationJson {
+  approvedBy: string;
+  startedAt: string;
+  completedAt: string | null;
+  steps: ReconciliationStepJson[];
+}
+
+/** Settlements written before E3-04 carry only the first five keys; the rest read as zero/null. */
 interface SettlementJson {
   expectedCash: string;
   countedCash: string;
   cashVariance: string;
   stockCounts: StockCountLineJson[];
   settledAt: string;
+  settledBy?: string | null;
+  settlementDate?: string | null;
+  cashBreakdown?: CashBreakdownJson | null;
+  invoicedSales?: string;
+  returnsValue?: string;
+  reconciliation?: ReconciliationJson | null;
 }
 
 function crewToJson(crew: readonly VanTripCrewMember[]): CrewJson[] {
@@ -167,8 +205,17 @@ function stockCountsToJson(lines: readonly VanTripStockCountLine[]): StockCountL
     expectedQty: l.expectedQty.toString(),
     countedQty: l.countedQty.toString(),
     varianceQty: l.varianceQty.toString(),
+    loadedQty: l.loadedQty.toString(),
+    soldQty: l.soldQty.toString(),
+    returnedQty: l.returnedQty.toString(),
+    otherQty: l.otherQty.toString(),
+    unitCost: l.unitCost.toString(),
+    varianceValue: l.varianceValue.toString(),
   }));
 }
+
+const qtyOr = (value: string | undefined): Qty => (value === undefined ? Qty.zero() : Qty.fromMajor(value));
+const moneyOr = (value: string | undefined): Money => (value === undefined ? Money.zero() : Money.fromMajor(value));
 
 function stockCountsFromJson(json: StockCountLineJson[]): VanTripStockCountLine[] {
   return json.map((l) => ({
@@ -176,26 +223,85 @@ function stockCountsFromJson(json: StockCountLineJson[]): VanTripStockCountLine[
     expectedQty: Qty.fromMajor(l.expectedQty),
     countedQty: Qty.fromMajor(l.countedQty),
     varianceQty: Qty.fromMajor(l.varianceQty),
+    loadedQty: l.loadedQty === undefined ? Qty.fromMajor(l.expectedQty) : Qty.fromMajor(l.loadedQty),
+    soldQty: qtyOr(l.soldQty),
+    returnedQty: qtyOr(l.returnedQty),
+    otherQty: qtyOr(l.otherQty),
+    unitCost: moneyOr(l.unitCost),
+    varianceValue: moneyOr(l.varianceValue),
   }));
 }
 
+function reconciliationToJson(rec: VanTripReconciliation): ReconciliationJson {
+  return {
+    approvedBy: rec.approvedBy,
+    startedAt: rec.startedAt,
+    completedAt: rec.completedAt,
+    steps: rec.steps.map((s) => ({ kind: s.kind, documentId: s.documentId, state: s.state, value: s.value?.toString() ?? null })),
+  };
+}
+
+function reconciliationFromJson(json: ReconciliationJson): VanTripReconciliation {
+  return {
+    approvedBy: json.approvedBy,
+    startedAt: json.startedAt,
+    completedAt: json.completedAt,
+    steps: json.steps.map((s) => ({
+      kind: s.kind,
+      documentId: s.documentId,
+      state: s.state,
+      value: s.value === null ? null : Money.fromMajor(s.value),
+    })),
+  };
+}
+
 function settlementToJson(settlement: VanTripSettlement): SettlementJson {
+  const b = settlement.cashBreakdown;
   return {
     expectedCash: settlement.expectedCash.toString(),
     countedCash: settlement.countedCash.toString(),
     cashVariance: settlement.cashVariance.toString(),
     stockCounts: stockCountsToJson(settlement.stockCounts),
     settledAt: settlement.settledAt,
+    settledBy: settlement.settledBy,
+    settlementDate: settlement.settlementDate,
+    cashBreakdown: b
+      ? {
+          openingFloat: b.openingFloat.toString(),
+          fieldSales: b.fieldSales.toString(),
+          fieldCollections: b.fieldCollections.toString(),
+          voucherCollections: b.voucherCollections.toString(),
+          other: b.other.toString(),
+        }
+      : null,
+    invoicedSales: settlement.invoicedSales.toString(),
+    returnsValue: settlement.returnsValue.toString(),
+    reconciliation: settlement.reconciliation ? reconciliationToJson(settlement.reconciliation) : null,
   };
 }
 
 function settlementFromJson(json: SettlementJson): VanTripSettlement {
+  const b = json.cashBreakdown;
   return {
     expectedCash: Money.fromMajor(json.expectedCash),
     countedCash: Money.fromMajor(json.countedCash),
     cashVariance: Money.fromMajor(json.cashVariance),
     stockCounts: stockCountsFromJson(json.stockCounts),
     settledAt: json.settledAt,
+    settledBy: json.settledBy ?? null,
+    settlementDate: json.settlementDate ?? null,
+    cashBreakdown: b
+      ? {
+          openingFloat: Money.fromMajor(b.openingFloat),
+          fieldSales: Money.fromMajor(b.fieldSales),
+          fieldCollections: Money.fromMajor(b.fieldCollections),
+          voucherCollections: Money.fromMajor(b.voucherCollections),
+          other: Money.fromMajor(b.other),
+        }
+      : null,
+    invoicedSales: moneyOr(json.invoicedSales),
+    returnsValue: moneyOr(json.returnsValue),
+    reconciliation: json.reconciliation ? reconciliationFromJson(json.reconciliation) : null,
   };
 }
 

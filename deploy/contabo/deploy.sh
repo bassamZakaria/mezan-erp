@@ -31,12 +31,12 @@ write_tags() {
 
 preflight() {
   local tool
-  for tool in docker rsync sqlite3 flock; do command -v "$tool" >/dev/null || die "$tool is not installed"; done
+  for tool in docker rsync od flock; do command -v "$tool" >/dev/null || die "$tool is not installed"; done
   for file in "$APP_ENV" "$SHARED_ENV"; do
     [ -f "$file" ] || die "$file is missing"
     [ "$(stat -c '%a' "$file")" = "600" ] || die "$file must be mode 0600"
   done
-  grep -Eq '^MEZAN_ORIGIN_SECRET=.{32,}$' "$SHARED_ENV" || die "MEZAN_ORIGIN_SECRET in $SHARED_ENV must be at least 32 characters"
+  grep -Eq '^MEZAN_ORIGIN_SECRET=[A-Za-z0-9_-]{32,}$' "$SHARED_ENV" || die "MEZAN_ORIGIN_SECRET in $SHARED_ENV must be at least 32 letters, digits, - or _ (it is substituted into the Caddyfile)"
   if grep -q '^MEZAN_AUDIT_CHAIN_KEY=' "$APP_ENV" && ! grep -Eq '^MEZAN_AUDIT_CHAIN_KEY=[0-9a-f]{64}$' "$APP_ENV"; then
     die "MEZAN_AUDIT_CHAIN_KEY in $APP_ENV must be 64 lower-case hex characters, or absent"
   fi
@@ -88,7 +88,10 @@ schema_versions() {
   local dir="$1"
   find "$dir" -path "$dir/backups" -prune -o -path "$dir/exports" -prune -o -type f \( -name '*.db' -o -name '*.sqlite' \) -print 2>/dev/null \
     | sort | while read -r file; do
-        printf '%s %s\n' "${file#"$dir"/}" "$(sqlite3 -readonly "$file" 'PRAGMA user_version;' 2>/dev/null || echo '?')"
+        # PRAGMA user_version is bytes 60-63 of the header, big-endian. Read
+        # directly: opening a WAL database with sqlite3 as root would leave
+        # root-owned -wal/-shm files the app cannot open.
+        printf '%s %s\n' "${file#"$dir"/}" "$(od -An -tu4 -j60 -N4 --endian=big "$file" 2>/dev/null | tr -d ' ' || echo '?')"
       done
 }
 

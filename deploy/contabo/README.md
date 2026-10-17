@@ -36,7 +36,8 @@ systemctl reload ssh
 apt update && apt install -y ufw fail2ban unattended-upgrades rsync sqlite3 restic curl
 ufw default deny incoming && ufw allow 22/tcp && ufw allow 80/tcp && ufw allow 443/tcp && ufw allow 443/udp && ufw enable
 dpkg-reconfigure -plow unattended-upgrades
-systemctl enable --now fail2ban                              # the default jail covers sshd
+printf '[sshd]\nenabled = true\nbackend = systemd\n' > /etc/fail2ban/jail.local   # 24.04 logs sshd to the journal only
+systemctl enable --now fail2ban
 ```
 
 Install Docker Engine (27 or newer) from Docker's own apt repository (docs.docker.com/engine/install/ubuntu), then write `/etc/docker/daemon.json`:
@@ -78,7 +79,7 @@ aws --endpoint-url https://eu2.contabostorage.com --region default s3api put-buc
   --bucket mezan-audit-anchors --versioning-configuration Status=Enabled
 ```
 
-Then test the one property the anchor sink relies on — a second write of the same key is refused:
+Then test the one property the anchor sink relies on — a second write of the same key is refused (`--if-none-match` needs aws-cli 2.17 or newer):
 
 ```
 echo a > /tmp/a.json
@@ -148,6 +149,8 @@ docker compose start mezan
 ```
 
 The tenant's db file name is its `dbFile` on the platform console. The platform database is restored the same way from `backups/platform/` onto `platform.db`. Afterwards verify the tenant's audit chain against its anchors (docs/ENVIRONMENTS.md, "Audit trail anchors"): run the CLI with `docker compose exec mezan node --import tsx apps/server/src/audit-anchor-cli.ts verify ...` on a copy.
+
+Restoring an older snapshot is, to the anchors, a rollback: the anchor sweep then refuses to re-anchor that tenant and logs `audit_anchor.refused_possible_tampering` at error level every interval (and the error-rate alert follows). There is no accept-the-restore command yet; until there is, expect that alert after a restore and record the restore (who, when, which snapshot) in the tenant's file.
 
 A lost VPS: new VPS, steps 1 to 4 with the same `/srv/mezan/env` (from the password manager), restore `platform.db` and every tenant from restic, start. The audit chains verify only with the key they were written with: `MEZAN_AUDIT_CHAIN_KEY` if it was set, otherwise the `audit-chain.key` files the backup job also copies (restore each beside its database, owner 1000, mode 0600) before the first start.
 

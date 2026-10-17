@@ -3,14 +3,15 @@ import {
   RowActionOutcome,
   Button,
   Card,
+  DocumentDetail,
   DocumentList,
   EmptyState,
   EntityPicker,
   Money as MoneyDisplay,
   MoneyInput,
   RowMenu,
-  SidePanel,
   StatusPill,
+  type DocumentDetailTab,
   type DocumentListColumn,
   type DocumentListStatusChip,
   type EntityPickerOption,
@@ -33,6 +34,13 @@ import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { employeeDisplayName } from "./hr-employee-name";
 import { EMPTY } from "../lib/empty";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
+import { useNameSubPage, useNavigation, useSubPage } from "../navigation";
+import { NEW_SEGMENT } from "./hr-permissions";
+
+enum ContractDetailTab {
+  Terms = "terms",
+  Lines = "lines",
+}
 
 /** العقود (Contracts) — docs/archive/catalog/06 §"العقود". Formal employment contract per employee: type/pay-basis/frequency, salary, currency, allowances/deductions, leave-entitlement overrides. */
 
@@ -73,9 +81,9 @@ interface ContractLineDraft {
   amount: number | null;
 }
 
-function blankDraft(): ContractDraft {
+function blankDraft(employeeId = ""): ContractDraft {
   return {
-    employeeId: "",
+    employeeId,
     type: "indefinite",
     payBasis: "monthly",
     payFrequency: "monthly",
@@ -108,13 +116,15 @@ export function ContractsScreen() {
   const [page, setPage] = useUrlNumber("page", 1);
   const [pageSize, setPageSize] = useUrlNumber("size", 25);
 
-  const [formOpen, setFormOpen] = useState(false);
-  const [draft, setDraft] = useState<ContractDraft>(blankDraft());
+  const subPage = useSubPage();
+  const { openScreenAt } = useNavigation();
+  const [firstSegment, secondSegment] = subPage.segments;
+  const creating = firstSegment === NEW_SEGMENT;
+  const [draft, setDraft] = useState<ContractDraft>(() => blankDraft(creating ? (secondSegment ?? "") : ""));
   const [formError, setFormError] = useState<string | null>(null);
-
-  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
+  const [detailTab, setDetailTab] = useState(ContractDetailTab.Terms);
 
   const employeeName = useCallback(
     (employeeId: string): string => {
@@ -142,7 +152,8 @@ export function ContractsScreen() {
     if (page > pageCount) setPage(1);
   }, [page, pageCount, setPage]);
 
-  const selected = selectedId ? (contracts.find((c) => c.id === selectedId) ?? null) : null;
+  const selected = firstSegment !== undefined && !creating ? (contracts.find((c) => c.id === firstSegment || c.number === firstSegment) ?? null) : null;
+  useNameSubPage(selected?.number ?? null, selected?.number ?? null);
 
   const employeeOptions: EntityPickerOption[] = employees.map((e) => ({ id: e.id, label: `${e.code} — ${employeeName(e.id)}` }));
   const componentOptions: EntityPickerOption[] = components
@@ -156,7 +167,12 @@ export function ContractsScreen() {
   function openCreateForm() {
     setDraft(blankDraft());
     setFormError(null);
-    setFormOpen(true);
+    subPage.open(NEW_SEGMENT);
+  }
+
+  function openContract(contract: ContractDTO) {
+    setDetailError(null);
+    subPage.open(contract.number);
   }
 
   function componentOf(componentId: string): PayrollComponentDTO | undefined {
@@ -185,9 +201,10 @@ export function ContractsScreen() {
       setFormError(t("contracts.anEndDateIsRequired"));
       return;
     }
+    if (createContract.isPending) return;
     setFormError(null);
     try {
-      await createContract.mutateAsync({
+      const created = await createContract.mutateAsync({
         employeeId: draft.employeeId,
         type: draft.type,
         payBasis: draft.payBasis,
@@ -204,7 +221,7 @@ export function ContractsScreen() {
         allowances: linePayload("earning"),
         deductions: linePayload("deduction"),
       });
-      setFormOpen(false);
+      subPage.open(created.number);
     } catch (err) {
       setFormError(err instanceof ApiError ? err.message : t("contracts.theContractCouldNotBe"));
     }
@@ -262,8 +279,300 @@ export function ContractsScreen() {
     { key: "status", header: t("common.status"), render: (c) => <StatusPill label={t(STATUS_KEY[c.status])} tone={STATUS_TONE[c.status]} /> },
   ];
 
+  const createPage = (
+    <div className="w-full">
+      <div className="mb-4">
+        <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-ink-muted">{t("eyebrow.hr.contracts")}</div>
+        <h1 className="font-display text-xl font-bold text-ink">{t("contracts.newContract")}</h1>
+        <p className="mt-[4px] text-[12.5px] text-ink-muted">{t("contracts.theContractSCoreDetails")}</p>
+      </div>
+      <Card className="p-[18px_20px]">
+        <form onSubmit={handleSubmit} className="grid gap-[14px] md:grid-cols-2">
+            {formError ? (
+              <div role="alert" className="rounded-md md:col-span-2 border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
+                {formError}
+              </div>
+            ) : null}
+            <EntityPicker
+              label={t("contracts.employee2")}
+              options={employeeOptions}
+              value={draft.employeeId ? (employeeOptions.find((o) => o.id === draft.employeeId) ?? null) : null}
+              onChange={(option) => setDraft((d) => ({ ...d, employeeId: option?.id ?? "" }))}
+            />
+            <SelectField
+              label={t("contracts.contractType2")}
+              value={draft.type}
+              onChange={(v) => setDraft((d) => ({ ...d, type: v as ContractTypeDTO }))}
+              options={(Object.keys(TYPE_KEY) as ContractTypeDTO[]).map((code) => ({ value: code, label: t(TYPE_KEY[code]) }))}
+            />
+            <SelectField
+              label={t("contracts.payBasis2")}
+              value={draft.payBasis}
+              onChange={(v) => setDraft((d) => ({ ...d, payBasis: v as PayBasisDTO }))}
+              options={(Object.keys(PAY_BASIS_KEY) as PayBasisDTO[]).map((p) => ({ value: p, label: t(PAY_BASIS_KEY[p]) }))}
+            />
+            <SelectField
+              label={t("contracts.payFrequency2")}
+              value={draft.payFrequency}
+              onChange={(v) => setDraft((d) => ({ ...d, payFrequency: v as PayFrequencyDTO }))}
+              options={(Object.keys(PAY_FREQUENCY_KEY) as PayFrequencyDTO[]).map((p) => ({ value: p, label: t(PAY_FREQUENCY_KEY[p]) }))}
+            />
+            <TextField label={t("contracts.startDate2")} value={draft.startDate} onChange={(v) => setDraft((d) => ({ ...d, startDate: v }))} placeholder="YYYY-MM-DD" />
+            <TextField
+              label={t("contracts.endDate")}
+              value={draft.endDate}
+              onChange={(v) => setDraft((d) => ({ ...d, endDate: v }))}
+              placeholder="YYYY-MM-DD"
+              disabled={draft.type === "indefinite"}
+              hint={draft.type === "indefinite" ? t("contracts.anOpenEndedContractHas") : undefined}
+            />
+            <div>
+              <div className="mb-[6px] text-[12.5px] font-semibold text-ink">
+                {draft.payBasis === "monthly" ? t("contracts.monthlySalary3") : `${t(RATE_KEY[draft.payBasis])} *`}
+              </div>
+              <MoneyInput
+                aria-label={draft.payBasis === "monthly" ? t("contracts.monthlySalary4") : t(RATE_KEY[draft.payBasis])}
+                value={draft.monthlySalary}
+                onChange={(v) => setDraft((d) => ({ ...d, monthlySalary: v }))}
+              />
+            </div>
+            <SelectField
+              label={t("contracts.currency")}
+              value={draft.currency}
+              onChange={(v) => setDraft((d) => ({ ...d, currency: v }))}
+              options={CURRENCIES.map((c) => ({ value: c, label: c }))}
+            />
+            <NumberField
+              label={t("contracts.annualLeaveDays")}
+              value={draft.annualLeaveDays ?? Number.NaN}
+              onChange={(v) => setDraft((d) => ({ ...d, annualLeaveDays: Number.isNaN(v) ? null : v }))}
+              hint={t("contracts.leaveEmptyToUseThe")}
+            />
+            <NumberField
+              label={t("contracts.sickLeaveDays")}
+              value={draft.sickLeaveDays ?? Number.NaN}
+              onChange={(v) => setDraft((d) => ({ ...d, sickLeaveDays: Number.isNaN(v) ? null : v }))}
+            />
+            <NumberField
+              label={t("contracts.personalLeaveDays")}
+              value={draft.personalLeaveDays ?? Number.NaN}
+              onChange={(v) => setDraft((d) => ({ ...d, personalLeaveDays: Number.isNaN(v) ? null : v }))}
+            />
+            <div className="flex flex-col gap-[10px] rounded-md border border-border p-[12px] md:col-span-2">
+              <div className="flex items-center justify-between gap-[10px]">
+                <span className="text-[12.5px] font-semibold text-ink">{t("contracts.allowancesAndDeductions")}</span>
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => setDraft((d) => ({ ...d, lines: [...d.lines, { key: `line-${Date.now()}`, componentId: "", amount: null }] }))}
+                >
+                  {t("contracts.addLine")}
+                </Button>
+              </div>
+              {draft.lines.length === 0 ? (
+                <p className="text-[12px] text-ink-muted">{t("contracts.noAllowanceOrDeductionLines")}</p>
+              ) : null}
+              {draft.lines.map((line, index) => (
+                <div key={line.key} className="flex flex-wrap items-end gap-[10px]">
+                  <div className="min-w-[220px] flex-1">
+                    <EntityPicker
+                      label={t("contracts.component")}
+                      options={componentOptions}
+                      value={componentOptions.find((option) => option.id === line.componentId) ?? null}
+                      onChange={(option) =>
+                        setDraft((d) => ({
+                          ...d,
+                          lines: d.lines.map((row, i) => (i === index ? { ...row, componentId: option?.id ?? "" } : row)),
+                        }))
+                      }
+                      placeholder={t("contracts.pickAComponent")}
+                    />
+                  </div>
+                  <div className="min-w-[140px]">
+                    <span className="mb-[4px] block text-[11.5px] font-semibold text-ink-muted">{t("contracts.amount")}</span>
+                    <MoneyInput
+                      aria-label={t("contracts.amount")}
+                      value={line.amount}
+                      onChange={(value) =>
+                        setDraft((d) => ({ ...d, lines: d.lines.map((row, i) => (i === index ? { ...row, amount: value } : row)) }))
+                      }
+                    />
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    aria-label={t("contracts.removeLine")}
+                    onClick={() => setDraft((d) => ({ ...d, lines: d.lines.filter((_, i) => i !== index) }))}
+                  >
+                    {t("contracts.removeLine")}
+                  </Button>
+                </div>
+              ))}
+            </div>
+            <div className="mt-[6px] flex justify-end gap-[9px] md:col-span-2">
+              <Button type="button" onClick={() => subPage.close()}>
+                {t("common.cancel")}
+              </Button>
+              <Button type="submit" variant="primary" disabled={createContract.isPending}>
+                {t("common.save")}
+              </Button>
+            </div>
+          </form>
+      </Card>
+    </div>
+  );
+
+  if (creating) return createPage;
+
+  if (firstSegment !== undefined && !selected) {
+    return (
+      <Card className="p-[18px_20px]">
+        <p className="text-[13px] text-ink-muted">{query.isLoading ? t("common.loading") : t("hrPages.contract.notFound", { ref: firstSegment })}</p>
+        <Button size="sm" className="mt-[10px]" onClick={() => subPage.close()}>
+          {t("hrPages.backToList")}
+        </Button>
+      </Card>
+    );
+  }
+
+  if (selected) {
+    const tabs: DocumentDetailTab[] = [
+      {
+        key: ContractDetailTab.Terms,
+        label: t("hrPages.contract.tabTerms"),
+        content: (
+          <div className="flex flex-col gap-[14px]">
+            <dl className="grid grid-cols-1 gap-[12px] text-[12.5px] sm:grid-cols-3">
+              <div>
+                <dt className="text-ink-faint">{t("contracts.payBasis")}</dt>
+                <dd className="text-ink">{t(PAY_BASIS_KEY[selected.payBasis])}</dd>
+              </div>
+              <div>
+                <dt className="text-ink-faint">{t("contracts.payFrequency")}</dt>
+                <dd className="text-ink">{t(PAY_FREQUENCY_KEY[selected.payFrequency])}</dd>
+              </div>
+              <div>
+                <dt className="text-ink-faint">{t("contracts.currency")}</dt>
+                <dd className="mz-num text-ink">{selected.currency}</dd>
+              </div>
+            </dl>
+            <div className="rounded-lg border border-border p-[14px]">
+              <h3 className="mb-[10px] font-display text-[13px] font-bold text-ink">{t("contracts.leaveEntitlement")}</h3>
+              <dl className="grid grid-cols-3 gap-[10px] text-[12.5px]">
+                <div>
+                  <dt className="text-ink-faint">{t("contracts.annualLeave")}</dt>
+                  <dd className="mz-num text-ink">{selected.leaveEntitlement.annualLeaveDays ?? "—"}</dd>
+                </div>
+                <div>
+                  <dt className="text-ink-faint">{t("contracts.sickLeave")}</dt>
+                  <dd className="mz-num text-ink">{selected.leaveEntitlement.sickLeaveDays ?? "—"}</dd>
+                </div>
+                <div>
+                  <dt className="text-ink-faint">{t("contracts.personalLeave")}</dt>
+                  <dd className="mz-num text-ink">{selected.leaveEntitlement.personalLeaveDays ?? "—"}</dd>
+                </div>
+              </dl>
+            </div>
+          </div>
+        ),
+      },
+      {
+        key: ContractDetailTab.Lines,
+        label: t("hrPages.contract.tabLines", { count: selected.allowances.length + selected.deductions.length }),
+        content: (
+          <div className="grid gap-[14px] md:grid-cols-2">
+            <div className="rounded-lg border border-border p-[14px]">
+              <h3 className="mb-[8px] font-display text-[13px] font-bold text-ink">{t("contracts.allowances")}</h3>
+              {selected.allowances.length > 0 ? (
+                <ul className="flex flex-col gap-[6px]">
+                  {selected.allowances.map((a) => (
+                    <li key={a.id} className="flex items-center justify-between text-[12.5px]">
+                      <span className="text-ink">{a.name}</span>
+                      <MoneyDisplay value={Number(a.amount)} />
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-[12.5px] text-ink-muted">{t("contracts.noAllowances")}</p>
+              )}
+            </div>
+            <div className="rounded-lg border border-border p-[14px]">
+              <h3 className="mb-[8px] font-display text-[13px] font-bold text-ink">{t("contracts.deductions")}</h3>
+              {selected.deductions.length > 0 ? (
+                <ul className="flex flex-col gap-[6px]">
+                  {selected.deductions.map((d) => (
+                    <li key={d.id} className="flex items-center justify-between text-[12.5px]">
+                      <span className="text-ink">{d.name}</span>
+                      <MoneyDisplay value={Number(d.amount)} />
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-[12.5px] text-ink-muted">{t("contracts.noDeductions")}</p>
+              )}
+            </div>
+          </div>
+        ),
+      },
+    ];
+    return (
+      <div className="w-full">
+        <DocumentDetail
+          title={t("hrPages.contract.title", { number: selected.number })}
+          statusLabel={t(STATUS_KEY[selected.status])}
+          statusTone={STATUS_TONE[selected.status]}
+          subtitle={
+            <button type="button" className="font-semibold text-brand underline" onClick={() => openScreenAt("employees", [selected.employeeId])}>
+              {employeeName(selected.employeeId)}
+            </button>
+          }
+          actions={
+            <>
+              <Button onClick={() => subPage.close()}>{t("hrPages.backToList")}</Button>
+              {selected.status === "active" ? (
+                <Button variant="danger-outline" disabled={pendingId === selected.id} onClick={() => void runTerminate(selected)}>
+                  {t("contracts.endContract")}
+                </Button>
+              ) : null}
+            </>
+          }
+          summary={[
+            { label: t("contracts.contractType"), value: t(TYPE_KEY[selected.type]) },
+            { label: t("contracts.startDate"), value: <span className="mz-num">{selected.startDate}</span> },
+            {
+              label: t("contracts.endDate"),
+              value: (
+                <span className="flex items-center gap-[6px]">
+                  <span className="mz-num">{selected.endDate ?? "—"}</span>
+                  {selected.expiringSoon ? <StatusPill label={t("contracts.expiringSoon")} tone="warning" /> : null}
+                </span>
+              ),
+            },
+            {
+              label: selected.payBasis === "monthly" ? t("contracts.basicSalary") : t(RATE_KEY[selected.payBasis]),
+              value: <MoneyDisplay value={Number(selected.monthlySalary)} currencyLabel={selected.currency === "EGP" ? undefined : selected.currency} />,
+            },
+          ]}
+          tabs={tabs}
+          activeTabKey={detailTab}
+          onTabChange={(key) => setDetailTab(key as ContractDetailTab)}
+        />
+        {detailError ? (
+          <div role="alert" className="mt-[14px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
+            {detailError}
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
   return (
     <div className="w-full">
+      {detailError ? (
+        <div role="alert" className="mb-[18px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
+          {detailError}
+        </div>
+      ) : null}
       {query.isError ? (
         <Card className="mb-[18px] p-[18px_20px]">
           <p className="text-[13px] font-semibold text-danger-ink">{query.error?.message ?? t("contracts.contractsCouldNotBeLoaded")}</p>
@@ -320,13 +629,10 @@ export function ContractsScreen() {
         rows={pageRows}
         loading={employeesQuery.isLoading}
         rowKey={(c) => c.id}
-        onRowClick={(c) => {
-          setDetailError(null);
-          setSelectedId(c.id);
-        }}
+        onRowClick={openContract}
         rowAction={(c) => {
           const menuItems: RowMenuItem[] = [
-            { key: "view", label: t("common.view"), onSelect: () => { setDetailError(null); setSelectedId(c.id); } },
+            { key: "view", label: t("common.view"), onSelect: () => openContract(c) },
             ...(c.status === "active"
               ? [{ key: "terminate", label: t("contracts.endContract"), tone: "danger" as const, disabled: pendingId === c.id, onSelect: () => runTerminate(c) }]
               : []),
@@ -356,245 +662,6 @@ export function ContractsScreen() {
         }
       />
 
-      <SidePanel open={selected !== null} onClose={() => setSelectedId(null)} title={selected ? selected.number : ""}>
-        {selected ? (
-          <div className="flex flex-col gap-[16px]">
-            <StatusPill label={t(STATUS_KEY[selected.status])} tone={STATUS_TONE[selected.status]} />
-            <Card className="grid grid-cols-2 overflow-hidden">
-              <div className="border-e border-b border-border p-[13px_15px]">
-                <div className="text-[11px] font-semibold text-ink-faint">{t("contracts.employee")}</div>
-                <div className="mt-[5px] text-[14px] font-bold text-ink">{employeeName(selected.employeeId)}</div>
-              </div>
-              <div className="border-b border-border p-[13px_15px]">
-                <div className="text-[11px] font-semibold text-ink-faint">{t("contracts.contractType")}</div>
-                <div className="mt-[5px] text-[14px] font-bold text-ink">{t(TYPE_KEY[selected.type])}</div>
-              </div>
-              <div className="border-e border-b border-border p-[13px_15px]">
-                <div className="text-[11px] font-semibold text-ink-faint">{t("contracts.payBasis")}</div>
-                <div className="mt-[5px] text-[14px] font-bold text-ink">{t(PAY_BASIS_KEY[selected.payBasis])}</div>
-              </div>
-              <div className="border-b border-border p-[13px_15px]">
-                <div className="text-[11px] font-semibold text-ink-faint">{t("contracts.payFrequency")}</div>
-                <div className="mt-[5px] text-[14px] font-bold text-ink">{t(PAY_FREQUENCY_KEY[selected.payFrequency])}</div>
-              </div>
-              <div className="border-e border-border p-[13px_15px]">
-                <div className="text-[11px] font-semibold text-ink-faint">{t("contracts.startDate")}</div>
-                <div className="mz-num mt-[5px] text-[14px] font-bold text-ink">{selected.startDate}</div>
-              </div>
-              <div className="p-[13px_15px]">
-                <div className="text-[11px] font-semibold text-ink-faint">{t("contracts.endDate")}</div>
-                <div className="mz-num mt-[5px] text-[14px] font-bold text-ink">{selected.endDate ?? "—"}</div>
-              </div>
-            </Card>
-
-            <Card className="p-[13px_15px]">
-              <div className="text-[11px] font-semibold text-ink-faint">
-                {selected.payBasis === "monthly" ? t("contracts.monthlySalary2") : `${t(RATE_KEY[selected.payBasis])} (`}
-                {selected.currency})
-              </div>
-              <div className="mt-[6px]">
-                <MoneyDisplay value={Number(selected.monthlySalary)} className="text-[18px] font-bold" />
-              </div>
-            </Card>
-
-            <div className="rounded-lg border border-border p-[14px]">
-              <h3 className="mb-[10px] font-display text-[13px] font-bold text-ink">{t("contracts.leaveEntitlement")}</h3>
-              <dl className="grid grid-cols-3 gap-[10px] text-[12.5px]">
-                <div>
-                  <dt className="text-ink-faint">{t("contracts.annualLeave")}</dt>
-                  <dd className="mz-num text-ink">{selected.leaveEntitlement.annualLeaveDays ?? "—"}</dd>
-                </div>
-                <div>
-                  <dt className="text-ink-faint">{t("contracts.sickLeave")}</dt>
-                  <dd className="mz-num text-ink">{selected.leaveEntitlement.sickLeaveDays ?? "—"}</dd>
-                </div>
-                <div>
-                  <dt className="text-ink-faint">{t("contracts.personalLeave")}</dt>
-                  <dd className="mz-num text-ink">{selected.leaveEntitlement.personalLeaveDays ?? "—"}</dd>
-                </div>
-              </dl>
-            </div>
-
-            <div className="rounded-lg border border-border p-[14px]">
-              <h3 className="mb-[8px] font-display text-[13px] font-bold text-ink">{t("contracts.allowances")}</h3>
-              {selected.allowances.length > 0 ? (
-                <ul className="flex flex-col gap-[6px]">
-                  {selected.allowances.map((a) => (
-                    <li key={a.id} className="flex items-center justify-between text-[12.5px]">
-                      <span className="text-ink">{a.name}</span>
-                      <MoneyDisplay value={Number(a.amount)} />
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="text-[12.5px] text-ink-muted">{t("contracts.noAllowances")}</p>
-              )}
-            </div>
-
-            <div className="rounded-lg border border-border p-[14px]">
-              <h3 className="mb-[8px] font-display text-[13px] font-bold text-ink">{t("contracts.deductions")}</h3>
-              {selected.deductions.length > 0 ? (
-                <ul className="flex flex-col gap-[6px]">
-                  {selected.deductions.map((d) => (
-                    <li key={d.id} className="flex items-center justify-between text-[12.5px]">
-                      <span className="text-ink">{d.name}</span>
-                      <MoneyDisplay value={Number(d.amount)} />
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="text-[12.5px] text-ink-muted">{t("contracts.noDeductions")}</p>
-              )}
-            </div>
-
-            {detailError ? (
-              <div role="alert" className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
-                {detailError}
-              </div>
-            ) : null}
-
-            {selected.status === "active" ? (
-              <Button variant="danger-outline" disabled={pendingId === selected.id} onClick={() => void runTerminate(selected)}>
-                {t("contracts.endContract")}
-              </Button>
-            ) : null}
-          </div>
-        ) : null}
-      </SidePanel>
-
-      <SidePanel open={formOpen} onClose={() => setFormOpen(false)} title={t("contracts.newContract")} description={t("contracts.theContractSCoreDetails")}>
-        <form onSubmit={handleSubmit} className="flex flex-col gap-[14px]">
-          {formError ? (
-            <div role="alert" className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
-              {formError}
-            </div>
-          ) : null}
-          <EntityPicker
-            label={t("contracts.employee2")}
-            options={employeeOptions}
-            value={draft.employeeId ? (employeeOptions.find((o) => o.id === draft.employeeId) ?? null) : null}
-            onChange={(option) => setDraft((d) => ({ ...d, employeeId: option?.id ?? "" }))}
-          />
-          <SelectField
-            label={t("contracts.contractType2")}
-            value={draft.type}
-            onChange={(v) => setDraft((d) => ({ ...d, type: v as ContractTypeDTO }))}
-            options={(Object.keys(TYPE_KEY) as ContractTypeDTO[]).map((code) => ({ value: code, label: t(TYPE_KEY[code]) }))}
-          />
-          <SelectField
-            label={t("contracts.payBasis2")}
-            value={draft.payBasis}
-            onChange={(v) => setDraft((d) => ({ ...d, payBasis: v as PayBasisDTO }))}
-            options={(Object.keys(PAY_BASIS_KEY) as PayBasisDTO[]).map((p) => ({ value: p, label: t(PAY_BASIS_KEY[p]) }))}
-          />
-          <SelectField
-            label={t("contracts.payFrequency2")}
-            value={draft.payFrequency}
-            onChange={(v) => setDraft((d) => ({ ...d, payFrequency: v as PayFrequencyDTO }))}
-            options={(Object.keys(PAY_FREQUENCY_KEY) as PayFrequencyDTO[]).map((p) => ({ value: p, label: t(PAY_FREQUENCY_KEY[p]) }))}
-          />
-          <TextField label={t("contracts.startDate2")} value={draft.startDate} onChange={(v) => setDraft((d) => ({ ...d, startDate: v }))} placeholder="YYYY-MM-DD" />
-          <TextField
-            label={t("contracts.endDate")}
-            value={draft.endDate}
-            onChange={(v) => setDraft((d) => ({ ...d, endDate: v }))}
-            placeholder="YYYY-MM-DD"
-            disabled={draft.type === "indefinite"}
-            hint={draft.type === "indefinite" ? t("contracts.anOpenEndedContractHas") : undefined}
-          />
-          <div>
-            <div className="mb-[6px] text-[12.5px] font-semibold text-ink">
-              {draft.payBasis === "monthly" ? t("contracts.monthlySalary3") : `${t(RATE_KEY[draft.payBasis])} *`}
-            </div>
-            <MoneyInput
-              aria-label={draft.payBasis === "monthly" ? t("contracts.monthlySalary4") : t(RATE_KEY[draft.payBasis])}
-              value={draft.monthlySalary}
-              onChange={(v) => setDraft((d) => ({ ...d, monthlySalary: v }))}
-            />
-          </div>
-          <SelectField
-            label={t("contracts.currency")}
-            value={draft.currency}
-            onChange={(v) => setDraft((d) => ({ ...d, currency: v }))}
-            options={CURRENCIES.map((c) => ({ value: c, label: c }))}
-          />
-          <NumberField
-            label={t("contracts.annualLeaveDays")}
-            value={draft.annualLeaveDays ?? Number.NaN}
-            onChange={(v) => setDraft((d) => ({ ...d, annualLeaveDays: Number.isNaN(v) ? null : v }))}
-            hint={t("contracts.leaveEmptyToUseThe")}
-          />
-          <NumberField
-            label={t("contracts.sickLeaveDays")}
-            value={draft.sickLeaveDays ?? Number.NaN}
-            onChange={(v) => setDraft((d) => ({ ...d, sickLeaveDays: Number.isNaN(v) ? null : v }))}
-          />
-          <NumberField
-            label={t("contracts.personalLeaveDays")}
-            value={draft.personalLeaveDays ?? Number.NaN}
-            onChange={(v) => setDraft((d) => ({ ...d, personalLeaveDays: Number.isNaN(v) ? null : v }))}
-          />
-          <div className="flex flex-col gap-[10px] rounded-md border border-border p-[12px]">
-            <div className="flex items-center justify-between gap-[10px]">
-              <span className="text-[12.5px] font-semibold text-ink">{t("contracts.allowancesAndDeductions")}</span>
-              <Button
-                type="button"
-                size="sm"
-                onClick={() => setDraft((d) => ({ ...d, lines: [...d.lines, { key: `line-${Date.now()}`, componentId: "", amount: null }] }))}
-              >
-                {t("contracts.addLine")}
-              </Button>
-            </div>
-            {draft.lines.length === 0 ? (
-              <p className="text-[12px] text-ink-muted">{t("contracts.noAllowanceOrDeductionLines")}</p>
-            ) : null}
-            {draft.lines.map((line, index) => (
-              <div key={line.key} className="flex flex-wrap items-end gap-[10px]">
-                <div className="min-w-[220px] flex-1">
-                  <EntityPicker
-                    label={t("contracts.component")}
-                    options={componentOptions}
-                    value={componentOptions.find((option) => option.id === line.componentId) ?? null}
-                    onChange={(option) =>
-                      setDraft((d) => ({
-                        ...d,
-                        lines: d.lines.map((row, i) => (i === index ? { ...row, componentId: option?.id ?? "" } : row)),
-                      }))
-                    }
-                    placeholder={t("contracts.pickAComponent")}
-                  />
-                </div>
-                <div className="min-w-[140px]">
-                  <span className="mb-[4px] block text-[11.5px] font-semibold text-ink-muted">{t("contracts.amount")}</span>
-                  <MoneyInput
-                    aria-label={t("contracts.amount")}
-                    value={line.amount}
-                    onChange={(value) =>
-                      setDraft((d) => ({ ...d, lines: d.lines.map((row, i) => (i === index ? { ...row, amount: value } : row)) }))
-                    }
-                  />
-                </div>
-                <Button
-                  type="button"
-                  size="sm"
-                  aria-label={t("contracts.removeLine")}
-                  onClick={() => setDraft((d) => ({ ...d, lines: d.lines.filter((_, i) => i !== index) }))}
-                >
-                  {t("contracts.removeLine")}
-                </Button>
-              </div>
-            ))}
-          </div>
-          <div className="mt-[6px] flex justify-end gap-[9px]">
-            <Button type="button" onClick={() => setFormOpen(false)}>
-              {t("common.cancel")}
-            </Button>
-            <Button type="submit" variant="primary">
-              {t("common.save")}
-            </Button>
-          </div>
-        </form>
-      </SidePanel>
     </div>
   );
 }

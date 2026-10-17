@@ -5,6 +5,7 @@ import { screen, fireEvent, within } from "@testing-library/react";
 import type { ContractDTO, EmployeeDTO } from "@mezan/contracts";
 import { ContractsScreen } from "./ContractsScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
+import { RoutedScreen } from "./routed-screen.test-support";
 
 function pickFromCombobox(dialog: HTMLElement, label: string, optionLabel: string) {
   const input = within(dialog).getByLabelText(label);
@@ -126,7 +127,12 @@ function renderScreen(contracts: ContractDTO[] = sampleContracts) {
       return { body: updated };
     },
   });
-  return renderWithProviders(<ContractsScreen />, { transport, initialSession: testAdminSession });
+  return renderWithProviders(
+    <RoutedScreen>
+      <ContractsScreen />
+    </RoutedScreen>,
+    { transport, initialSession: testAdminSession },
+  );
 }
 
 describe("ContractsScreen", () => {
@@ -137,27 +143,29 @@ describe("ContractsScreen", () => {
     expect(screen.getByText("أحمد محمود")).toBeInTheDocument();
   });
 
-  it("adds a new contract through the create panel", async () => {
+  it("adds a new contract on its own page, then lands on the new contract's page", async () => {
     renderScreen();
     await screen.findByText("CTR-0001");
     fireEvent.click(screen.getByRole("button", { name: "إضافة عقد" }));
 
-    const dialog = screen.getByRole("dialog", { name: "عقد جديد" });
-    pickFromCombobox(dialog, "اسم الموظف *", "EMP-0001");
-    fireEvent.change(textFieldInput(dialog, "تاريخ البداية *"), { target: { value: "2026-08-21" } });
-    typeMoney(within(dialog).getByLabelText("الراتب الشهري"), "15000");
-    fireEvent.click(within(dialog).getByRole("button", { name: "حفظ" }));
+    expect(await screen.findByRole("heading", { name: "عقد جديد" })).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    const page = document.body;
+    pickFromCombobox(page, "اسم الموظف *", "EMP-0001");
+    fireEvent.change(textFieldInput(page, "تاريخ البداية *"), { target: { value: "2026-08-21" } });
+    typeMoney(within(page).getByLabelText("الراتب الشهري"), "15000");
+    fireEvent.click(within(page).getByRole("button", { name: "حفظ" }));
 
-    expect(await screen.findByText("CTR-0002")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "العقد CTR-0002" })).toBeInTheDocument();
   });
 
-  it("terminates an active contract from the detail panel", async () => {
+  it("terminates an active contract from its page", async () => {
     renderScreen();
     fireEvent.click(await screen.findByText("CTR-0001"));
-    const dialog = screen.getByRole("dialog", { name: "CTR-0001" });
-    fireEvent.click(within(dialog).getByRole("button", { name: "إنهاء العقد" }));
+    expect(await screen.findByRole("heading", { name: "العقد CTR-0001" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "إنهاء العقد" }));
 
-    expect(await within(dialog).findByText("مفسوخ")).toBeInTheDocument();
+    expect(await screen.findByText("مفسوخ")).toBeInTheDocument();
   });
 
   it("shows an error banner with a retry action when contracts fail to load", async () => {

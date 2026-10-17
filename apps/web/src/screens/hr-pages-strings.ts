@@ -6,6 +6,11 @@ export const hrPagesAr = {
   "hrPages.bankFileCouldNotPreview": "تعذّر تجهيز معاينة ملف التحويل البنكي.",
   "hrPages.bankFileCouldNotExport": "تعذّر تصدير ملف التحويل البنكي.",
 
+  "hrPages.contract.title": "العقد {number}",
+  "hrPages.contract.notFound": "لا يوجد عقد بالرقم «{ref}».",
+  "hrPages.contract.tabTerms": "الشروط والإجازات",
+  "hrPages.contract.tabLines": "البدلات والاستقطاعات ({count})",
+
   "hrPages.run.title": "مسير الرواتب {number}",
   "hrPages.run.notFound": "لا يوجد مسير رواتب بالرقم «{ref}».",
   "hrPages.run.tabPayslips": "القسائم ({count})",
@@ -52,6 +57,11 @@ export const hrPagesEn: Record<keyof typeof hrPagesAr, string> = {
   "hrPages.bankFileLayoutsCouldNotLoad": "The bank file layouts could not be loaded.",
   "hrPages.bankFileCouldNotPreview": "The bank file preview could not be prepared.",
   "hrPages.bankFileCouldNotExport": "The bank file could not be exported.",
+
+  "hrPages.contract.title": "Contract {number}",
+  "hrPages.contract.notFound": "There is no contract «{ref}».",
+  "hrPages.contract.tabTerms": "Terms and leave",
+  "hrPages.contract.tabLines": "Allowances and deductions ({count})",
 
   "hrPages.run.title": "Payroll run {number}",
   "hrPages.run.notFound": "There is no payroll run «{ref}».",

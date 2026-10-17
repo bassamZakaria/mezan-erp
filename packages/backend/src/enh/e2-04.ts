@@ -128,13 +128,22 @@ function createScanner(ctx: BackendModuleContext, store: ReturnType<typeof creat
     }
     return emitted;
   };
+  let rerun: Promise<number> | null = null;
   const scan = (): Promise<number> => {
     if (!running) {
       running = run().finally(() => {
         running = null;
       });
+      return running;
     }
-    return running;
+    // A scan already reading stock cannot see a receipt that lands after its read; one more pass runs once it ends.
+    if (!rerun) {
+      rerun = running.catch(() => 0).then(() => {
+        rerun = null;
+        return scan();
+      });
+    }
+    return rerun;
   };
   const scanSafely = (): void => {
     void scan().catch((error: unknown) => areaLog.error({ err: error }, "scan failed"));

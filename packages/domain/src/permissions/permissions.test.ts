@@ -69,10 +69,10 @@ describe("permission catalog", () => {
     // Pinned deliberately. A code added without a route to check it, or a route
     // deleted while its code stays, moves one of these numbers — which is the
     // whole point of asserting them.
-    expect(PERMISSIONS).toHaveLength(286);
+    expect(PERMISSIONS).toHaveLength(287);
     expect(MODULES).toHaveLength(20);
     const summed = MODULES.reduce((n, m) => n + m.count, 0);
-    expect(summed).toBe(286);
+    expect(summed).toBe(287);
   });
 
   it("carries a `pos` module again, and the INVOICE discount ceiling still lives under sales", () => {

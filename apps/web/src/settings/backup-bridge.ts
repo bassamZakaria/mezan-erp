@@ -73,6 +73,8 @@ export type StatusResult =
       staleAfterDays: number;
       drillRunning: boolean;
       secondTarget: SecondTarget;
+      lastBackupAt?: string | null;
+      diskFreeBytes?: number | null;
     }
   | BackupFailure;
 export type DrillResult = { ok: true; drill: DrillRecord } | BackupFailure;

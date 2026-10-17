@@ -35,6 +35,7 @@ export interface DeviceSession {
   readonly userId: string;
   readonly deviceId: string;
   readonly deviceLabel: string;
+  readonly appVersion?: string;
   /** Epoch ms of first connect. */
   readonly connectedAt: number;
   /** Epoch ms of the most recent connect/heartbeat. */
@@ -131,6 +132,7 @@ export interface ConnectDeviceInput {
   /** A label the device names for itself (till id, tablet serial, ...). Not a security boundary. */
   readonly deviceId: string;
   readonly deviceLabel?: string;
+  readonly appVersion?: string;
   readonly at?: number;
 }
 
@@ -160,7 +162,7 @@ export function connectDevice(
   if (existingIndex >= 0) {
     const sessions = state.sessions.slice();
     const existing = sessions[existingIndex]!;
-    sessions[existingIndex] = { ...existing, lastSeenAt: now };
+    sessions[existingIndex] = { ...existing, lastSeenAt: now, ...(input.appVersion ? { appVersion: input.appVersion } : {}) };
     return { ...state, sessions };
   }
 
@@ -178,6 +180,7 @@ export function connectDevice(
     userId: input.userId,
     deviceId: input.deviceId,
     deviceLabel: input.deviceLabel?.trim() || input.deviceId,
+    ...(input.appVersion ? { appVersion: input.appVersion } : {}),
     connectedAt: now,
     lastSeenAt: now,
   };

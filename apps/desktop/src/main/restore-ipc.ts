@@ -1,7 +1,7 @@
 import { dialog } from "electron";
 import { handleGuarded } from "./ipc-guard.js";
 import { randomUUID } from "node:crypto";
-import { copyFile, mkdir, mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, rm, stat, statfs } from "node:fs/promises";
 import path from "node:path";
 import { tmpdir } from "node:os";
 import { extract as tarExtract } from "tar";
@@ -101,6 +101,21 @@ const VIEW_PERMISSION = "admin.backup.view";
  * short enough that nobody starts typing into a window that is about to close.
  */
 const RELAUNCH_DELAY_MS = 750;
+
+function newestBackupAt(entries: ReadonlyArray<{ createdAt: Date }>): string | null {
+  let newest: Date | null = null;
+  for (const entry of entries) if (newest === null || entry.createdAt > newest) newest = entry.createdAt;
+  return newest ? newest.toISOString() : null;
+}
+
+async function freeDiskBytes(dir: string): Promise<number | null> {
+  try {
+    const fsStats = await statfs(dir);
+    return Number(fsStats.bavail) * Number(fsStats.bsize);
+  } catch {
+    return null;
+  }
+}
 
 export interface RestoreIpcDeps {
   readonly dbPath: string;
@@ -584,6 +599,8 @@ export function registerRestoreOverIpc(deps: RestoreIpcDeps): void {
         staleAfterDays: DRILL_STALE_AFTER_DAYS,
         drillRunning: isDrillRunning(),
         secondTarget: secondTargetDto(await readSecondTarget(deps.backupsDir)),
+        lastBackupAt: newestBackupAt(await listBackups(deps.backupsDir)),
+        diskFreeBytes: await freeDiskBytes(deps.backupsDir),
       };
     },
   );

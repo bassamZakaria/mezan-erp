@@ -102,7 +102,18 @@ export interface ScheduledJobsOptions {
   readonly onError?: (kind: ScheduledJobKind, error: unknown) => void;
 }
 
+export interface ScheduledJobStatus {
+  readonly kind: ScheduledJobKind;
+  readonly lastRunAt: string | null;
+  readonly lastOkAt: string | null;
+  readonly lastError: string | null;
+  readonly lastRecorded: number;
+  readonly nextRunAt: string | null;
+  readonly intervalMs: number;
+}
+
 export interface ScheduledJobs {
+  status(): readonly ScheduledJobStatus[];
   runNow(): Promise<readonly ScheduledJobResult[]>;
   /** Resolves once a tick already in flight has settled. */
   settle(): Promise<void>;
@@ -122,6 +133,10 @@ export function startScheduledJobs(options: ScheduledJobsOptions): ScheduledJobs
   let stopped = false;
   let current: Promise<readonly ScheduledJobResult[]> = Promise.resolve([]);
   const stillRunning = () => !stopped;
+  const intervalMs = options.intervalMs ?? SCHEDULED_JOBS_INTERVAL_MS;
+  const states = new Map<ScheduledJobKind, { lastRunAt: string | null; lastOkAt: string | null; lastError: string | null; lastRecorded: number }>();
+  for (const job of options.jobs) states.set(job.kind, { lastRunAt: null, lastOkAt: null, lastError: null, lastRecorded: 0 });
+  let nextTickAt = Date.now() + (options.firstRunDelayMs ?? FIRST_RUN_DELAY_MS);
 
   const tick = (): Promise<readonly ScheduledJobResult[]> => {
     const previous = current;
@@ -132,11 +147,19 @@ export function startScheduledJobs(options: ScheduledJobsOptions): ScheduledJobs
         if (stopped) break;
         try {
           const today = await options.today();
-          results.push(await options.turn(() => job.run(today, stillRunning)));
+          const result = await options.turn(() => job.run(today, stillRunning));
+          results.push(result);
+          const at = new Date().toISOString();
+          Object.assign(states.get(job.kind)!, { lastRunAt: at, lastOkAt: at, lastError: null, lastRecorded: result.recorded.length });
         } catch (err) {
+          Object.assign(states.get(job.kind)!, {
+            lastRunAt: new Date().toISOString(),
+            lastError: (err instanceof Error ? err.message : String(err)).slice(0, 240),
+          });
           options.onError?.(job.kind, err);
         }
       }
+      nextTickAt = Date.now() + intervalMs;
       return results;
     });
     return current;
@@ -144,10 +167,17 @@ export function startScheduledJobs(options: ScheduledJobsOptions): ScheduledJobs
 
   const first = setTimeout(() => void tick(), options.firstRunDelayMs ?? FIRST_RUN_DELAY_MS);
   first.unref?.();
-  const every = setInterval(() => void tick(), options.intervalMs ?? SCHEDULED_JOBS_INTERVAL_MS);
+  const every = setInterval(() => void tick(), intervalMs);
   every.unref?.();
 
   return {
+    status: () =>
+      options.jobs.map((job) => ({
+        kind: job.kind,
+        ...states.get(job.kind)!,
+        nextRunAt: stopped ? null : new Date(nextTickAt).toISOString(),
+        intervalMs,
+      })),
     runNow: tick,
     settle: () => current.then(() => undefined),
     stop() {

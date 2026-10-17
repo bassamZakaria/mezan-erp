@@ -1,7 +1,8 @@
 import type Database from "better-sqlite3";
-import type { App, AuthContextResolver, PeriodCloseGuardSlot, ReconciliationControl, SessionRegistry } from "@mezan/api";
+import type { App, AuthContextResolver, LicenseStateResolver, PeriodCloseGuardSlot, ReconciliationControl, SessionRegistry } from "@mezan/api";
 import type { EtaReceiptIssuer } from "./eta-receipts.js";
-import type { AuditSink, DrainResult, EventBus, InventoryDomainEvent, PayrollBindings, UnitOfWork } from "@mezan/domain";
+import type { ScheduledJobStatus } from "./scheduled-jobs.js";
+import type { AuditChainHeadReason, AuditSink, DrainResult, EventBus, InventoryDomainEvent, PayrollBindings, UnitOfWork } from "@mezan/domain";
 import type {
   createScryptHasher,
   createSqliteAccountRepository,
@@ -87,6 +88,10 @@ export interface BackendModuleContext {
     rateOn(currency: string, date: string): Promise<string | null>;
   };
   readonly periodCloseGuard: PeriodCloseGuardSlot;
+  readonly auditChain: { verifyHead(): { reason: AuditChainHeadReason; headRowId: number | null } };
+  readonly scheduledJobStatus: () => readonly ScheduledJobStatus[];
+  readonly resolveLicenseState?: LicenseStateResolver;
+  readonly cloudTenant: boolean;
   readonly addCloser: (closer: { close(): void }) => void;
 }
 

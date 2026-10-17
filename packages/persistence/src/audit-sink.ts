@@ -13,7 +13,7 @@ import {
   withSqliteTransaction,
   type SqliteConnectionInput,
 } from "./sqlite-connection.js";
-import { auditChangedFieldNames, AuditStreamName, recordSecurityEventOrFallback } from "@mezan/domain";
+import { auditChangedFieldNames, AuditChainHeadReason, AuditStreamName, recordSecurityEventOrFallback } from "@mezan/domain";
 import { reportUntransactedAudit } from "./untransacted-audits.js";
 import type { AuditEvent, AuditQueryFilter, AuditQueryPort, AuditQueryResult, AuditSink, AuditStream, TurnObserver } from "@mezan/domain";
 
@@ -477,6 +477,23 @@ class SqliteAuditSink implements AuditSink, AuditQueryPort, AuditChainVerifyPort
     return { ok: true, checked, unchained, brokenRowId: null, reason: "OK" };
   }
 
+  verifyHead(): { reason: AuditChainHeadReason; headRowId: number | null } {
+    const head = this.sqlite.prepare(`SELECT row_id, row_hash, mac FROM audit_chain_head WHERE id = 1`).get() as
+      | { row_id: number; row_hash: string; mac: string }
+      | undefined;
+    const last = this.sqlite
+      .prepare(`SELECT id, row_hash FROM audit_event WHERE row_hash IS NOT NULL ORDER BY id DESC LIMIT 1`)
+      .get() as { id: number; row_hash: string } | undefined;
+    if (!head) return { reason: last ? AuditChainHeadReason.HeadMissing : AuditChainHeadReason.Empty, headRowId: null };
+    if (!macMatches(head.mac, macHead(this.chainKey, head.row_id, head.row_hash))) {
+      return { reason: AuditChainHeadReason.HeadAltered, headRowId: head.row_id };
+    }
+    if (!last || last.id !== head.row_id || last.row_hash !== head.row_hash) {
+      return { reason: AuditChainHeadReason.Truncated, headRowId: head.row_id };
+    }
+    return { reason: AuditChainHeadReason.Ok, headRowId: head.row_id };
+  }
+
   chainHead(): AuditChainHeadReading | null {
     const head = this.sqlite.prepare(`SELECT row_id, row_hash FROM audit_chain_head WHERE id = 1`).get() as
       | { row_id: number; row_hash: string }
@@ -552,6 +569,7 @@ export interface SqliteAuditSinkHandle extends AuditSink, AuditQueryPort, AuditC
   settled(): Promise<void>;
   turn<T>(fn: () => Promise<T>, observer?: TurnObserver): Promise<T>;
   outsideTurn<T>(fn: () => Promise<T>): Promise<T>;
+  verifyHead(): { reason: AuditChainHeadReason; headRowId: number | null };
   appendSync(event: AuditEvent): void;
   securityEventsOutlive<T>(fn: () => Promise<T>): Promise<T>;
   close(): void;

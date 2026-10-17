@@ -1,7 +1,7 @@
 import { ReversalDocumentType, reversalPermissionSuccessors } from "@mezan/contracts";
 import { createHash, randomUUID } from "node:crypto";
 import { OwnerPinResetOutcome } from "./owner-pin-reset-outcome.js";
-import { createLeaveAccrualJob, startScheduledJobs, type ScheduledJobResult } from "./scheduled-jobs.js";
+import { createLeaveAccrualJob, startScheduledJobs, type ScheduledJobResult, type ScheduledJobStatus } from "./scheduled-jobs.js";
 import {
   createApp,
   ACCOUNT_LOCK_FAILURES,
@@ -5578,6 +5578,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
   );
 
   const areaClosers: { close(): void }[] = [];
+  const scheduledJobsStatus: { read: () => readonly ScheduledJobStatus[] } = { read: () => [] };
   const areaContext: BackendModuleContext = {
     app,
     sqlite,
@@ -5638,6 +5639,10 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
     payrollBindings: { attendanceBound: Boolean(hrAttendance), exchangeRatesBound: Boolean(exchangeRates) },
     treasuryFx: { foreignCurrencyByGlAccount: foreignTreasuryCurrencies, rateOn: async (currency, date) => (await exchangeRates.findRate(currency, date))?.rate ?? null },
     periodCloseGuard,
+    auditChain: auditSink,
+    scheduledJobStatus: () => scheduledJobsStatus.read(),
+    ...(options.resolveLicenseState ? { resolveLicenseState: options.resolveLicenseState } : {}),
+    cloudTenant: options.tenantBinding !== undefined,
     addCloser: (closer) => areaClosers.push(closer),
   };
   await mountPos(areaContext);
@@ -5842,6 +5847,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
         onError: (kind, err) => console.error(`[scheduled-jobs] ${kind} failed`, err),
       })
     : null;
+  if (scheduledJobs) scheduledJobsStatus.read = () => scheduledJobs.status();
 
   return {
     app,

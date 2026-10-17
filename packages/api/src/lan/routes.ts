@@ -184,6 +184,7 @@ export function createLanRoutes(options: LanRoutesOptions) {
         userId,
         deviceId: parsed.data.deviceId,
         deviceLabel: parsed.data.deviceLabel,
+        appVersion: parsed.data.appVersion,
       });
       const token = readSessionToken(c);
       if (token) tokenBySessionId.set(session.sessionId, token);

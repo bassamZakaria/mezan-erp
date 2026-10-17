@@ -36,7 +36,6 @@ export const SCREEN_MODULES = {
    */
   "manufacturing-hub": () => import("../screens/hubs/ManufacturingHubScreen").then((m) => ({ Component: m.ManufacturingHubScreen })),
   "production-dashboard": () => import("../screens/hubs/ProductionDashboardScreen").then((m) => ({ Component: m.ProductionDashboardScreen })),
-  status: () => import("../screens/hubs/SystemStatusScreen").then((m) => ({ Component: m.SystemStatusScreen })),
   notifications: () => import("../screens/NotificationsScreen").then((m) => ({ Component: m.NotificationsScreen })),
   "sales-invoices": () => import("../screens/SalesInvoicesScreen").then((m) => ({ Component: m.SalesInvoicesScreen })),
   quotes: () => import("../screens/sales-quotes").then((m) => ({ Component: m.SalesQuotesScreen })),

@@ -14,6 +14,7 @@ export const deviceSessionSchema = z.object({
   userId: z.string().min(1),
   deviceId: z.string().min(1),
   deviceLabel: z.string().min(1),
+  appVersion: z.string().optional(),
   connectedAt: z.number().int().nonnegative(),
   lastSeenAt: z.number().int().nonnegative(),
 });
@@ -29,6 +30,7 @@ export const deviceSessionSchema = z.object({
 export const connectDeviceRequestSchema = z.object({
   deviceId: z.string().min(1),
   deviceLabel: z.string().min(1).optional(),
+  appVersion: z.string().trim().min(1).max(40).optional(),
 });
 
 export const lanStatusSchema = z.object({

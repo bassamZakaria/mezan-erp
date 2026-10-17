@@ -1,7 +1,7 @@
 import type Database from "better-sqlite3";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import path from "node:path";
-import { createBackup } from "./backup-service.js";
+import { createBackup, readIntegrityState, writeIntegrityState } from "./backup-service.js";
 import type { BackupReason } from "./manifest.js";
 import { loadRecoveryKey, type RecoveryKey, type RecoveryKeyStore } from "./recovery-key.js";
 import { copyToSecondTarget, readSecondTarget, sealToSecondTarget, type SecondTargetState } from "./secondary-target.js";
@@ -62,6 +62,8 @@ export async function copyBackupToSecondTarget(params: {
   try {
     await mkdir(tmpRoot, { recursive: true, mode: 0o700 });
     scratch = await mkdtemp(path.join(tmpRoot, SECOND_COPY_SCRATCH_PREFIX));
+    const integrity = await readIntegrityState(backupsDir);
+    if (integrity.lastIntegrityCheckAt) await writeIntegrityState(scratch, integrity.lastIntegrityCheckAt);
     const plain = await createBackup({
       sqlite: source.sqlite,
       backupsDir: scratch,

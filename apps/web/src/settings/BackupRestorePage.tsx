@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button, Card, StatusPill, TextInput, useFormat } from "@mezan/ui";
 import { useApi } from "../data/ApiContext";
+import { sessionHolds } from "../data/session";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import {
   backupBridge,
@@ -116,7 +117,8 @@ export function BackupRestorePage() {
   const [status, setStatus] = useState<Extract<StatusResult, { ok: true }> | null>(null);
   const protection = useBackupRecovery();
   const refreshProtection = useRefreshBackupRecovery();
-  const recovery = protection.data?.recovery ?? null;
+  const mayProtect = sessionHolds(session, "admin.backup.restore");
+  const recovery = mayProtect ? (protection.data?.recovery ?? null) : null;
 
   function reasonLabel(reason: string | null): string {
     if (reason === null) return "—";

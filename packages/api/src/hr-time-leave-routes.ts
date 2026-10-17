@@ -1,4 +1,5 @@
 import { BranchRecordKind, BranchRefusalCode, branchRefusal, recordInBranchGrant, recordsInBranchGrant } from "./branch-policy.js";
+import { atomically, type ConfigTransactor } from "./config-transactor.js";
 import { postingRefusalResponse } from "./posting-refusal.js";
 import { randomUUID } from "node:crypto";
 import { importRowLimit, linesOfCsvImport } from "./import-limit.js";
@@ -96,6 +97,8 @@ export interface HrTimeLeaveRoutesDeps {
   readonly leavePolicies: LeavePolicyRepository;
   readonly leaveBalances: LeaveBalanceRepository;
   readonly leaveAccrualBatches: LeaveAccrualBatchRepository;
+  /** The batch, every balance it credits and the number it spends land together or not at all — the scheduler relies on the same. */
+  readonly transactor?: ConfigTransactor;
   readonly numbering: { next(code: string): Promise<{ readonly formatted: string }> };
   /** Absent = no gate configured anywhere; approvals then decide directly on the `hr.leave.approve` permission alone. */
   readonly workflow?: {
@@ -561,23 +564,25 @@ export function createHrTimeLeaveRoutes(deps: HrTimeLeaveRoutesDeps, resolveAuth
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     const ctx = getAuthContext(c);
     try {
-      const { batch, created } = await runLeaveAccrual(
-        {
-          id: randomUUID(),
-          number: (await deps.numbering.next("LEAVE_ACCRUAL_BATCH")).formatted,
-          runDate: parsed.data.runDate,
-          frequency: parsed.data.frequency ?? "monthly",
-          runType: parsed.data.runType ?? "manual",
-          notes: parsed.data.notes ?? null,
-          runBy: ctx?.userId ?? null,
-        },
-        {
-          batches: deps.leaveAccrualBatches,
-          balances: deps.leaveBalances,
-          policies: deps.leavePolicies,
-          employees: createEmployeeDirectory(deps.employees),
-          generateId: () => randomUUID(),
-        },
+      const { batch, created } = await atomically(deps.transactor, async () =>
+        runLeaveAccrual(
+          {
+            id: randomUUID(),
+            number: (await deps.numbering.next("LEAVE_ACCRUAL_BATCH")).formatted,
+            runDate: parsed.data.runDate,
+            frequency: parsed.data.frequency ?? "monthly",
+            runType: parsed.data.runType ?? "manual",
+            notes: parsed.data.notes ?? null,
+            runBy: ctx?.userId ?? null,
+          },
+          {
+            batches: deps.leaveAccrualBatches,
+            balances: deps.leaveBalances,
+            policies: deps.leavePolicies,
+            employees: createEmployeeDirectory(deps.employees),
+            generateId: () => randomUUID(),
+          },
+        ),
       );
       return c.json({ batch: serializeAccrualBatch(batch), created }, created ? 201 : 200);
     } catch (err) {

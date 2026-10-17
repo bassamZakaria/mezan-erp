@@ -415,7 +415,7 @@ describe("createTenantRouter", () => {
         dataDir,
         sweepEveryMs: 0,
         now: () => new Date(T),
-        openBackend: async () => ({ app: stub, audit: { append: vi.fn(), query: vi.fn() }, sessions: createSessionRegistry(), credentialsResetByAdministrator: vi.fn(), lockedAccounts: vi.fn(() => []), unlockAccount: vi.fn(async () => false), ownerAccount: vi.fn(async () => null), companyAdmins: vi.fn(async () => []), recordOwnerAssigned: vi.fn(), resetOwnerPin: vi.fn(), backupTo: vi.fn(), drain: vi.fn(), close: vi.fn() }),
+        openBackend: async () => ({ app: stub, audit: { append: vi.fn(), query: vi.fn() }, sessions: createSessionRegistry(), credentialsResetByAdministrator: vi.fn(), lockedAccounts: vi.fn(() => []), unlockAccount: vi.fn(async () => false), ownerAccount: vi.fn(async () => null), companyAdmins: vi.fn(async () => []), recordOwnerAssigned: vi.fn(), resetOwnerPin: vi.fn(), backupTo: vi.fn(), runScheduledJobs: vi.fn(() => null), drain: vi.fn(), close: vi.fn() }),
       });
       routers.push(router);
       reachable(router.app);

@@ -1,3 +1,4 @@
+import { createHash, timingSafeEqual } from "node:crypto";
 import { serve } from "@hono/node-server";
 import type { Context, MiddlewareHandler } from "hono";
 import { parseEnv, PaymobMode } from "./env.js";
@@ -76,9 +77,11 @@ if (env.seedDemo) {
     console.error("[cloud] internet; the shared credential is the only thing in front of it.");
     process.exit(1);
   }
-  const expectedAuthorization = `Basic ${Buffer.from(`demo:${demoPassword}`).toString("base64")}`;
+  const digestOf = (value: string): Buffer => createHash("sha256").update(value, "utf8").digest();
+  const expectedAuthorization = digestOf(`Basic ${Buffer.from(`demo:${demoPassword}`).toString("base64")}`);
+  // SECURITY: compared as fixed-length digests in constant time, so the response time says nothing about how much of the credential matched.
   authMiddleware = async (c: Context, next) => {
-    if (c.req.header("authorization") !== expectedAuthorization) {
+    if (!timingSafeEqual(digestOf(c.req.header("authorization") ?? ""), expectedAuthorization)) {
       return c.text("Unauthorized", 401, { "WWW-Authenticate": 'Basic realm="Mezan demo"' });
     }
     await next();

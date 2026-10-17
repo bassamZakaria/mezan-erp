@@ -1,7 +1,7 @@
 import type Database from "better-sqlite3";
-import type { App, AuthContextResolver, PeriodCloseGuardSlot, ReconciliationControl, SessionRegistry } from "@mezan/api";
+import type { App, AuthContextResolver, OwnerDigestBackupReading, PeriodCloseGuardSlot, ReconciliationControl, ScheduledDigestResult, SessionRegistry } from "@mezan/api";
 import type { EtaReceiptIssuer } from "./eta-receipts.js";
-import type { AuditSink, DrainResult, EventBus, InventoryDomainEvent, PayrollBindings, UnitOfWork } from "@mezan/domain";
+import type { ApprovalRequestRepository, AuditQueryPort, AuditSink, DrainResult, EventBus, InventoryDomainEvent, PayrollBindings, UnitOfWork } from "@mezan/domain";
 import type {
   createScryptHasher,
   createSqliteAccountRepository,
@@ -87,7 +87,23 @@ export interface BackendModuleContext {
     rateOn(currency: string, date: string): Promise<string | null>;
   };
   readonly periodCloseGuard: PeriodCloseGuardSlot;
+  /** True on the cloud edition, where sessions live in the database. */
+  readonly cloud: boolean;
+  readonly auditQuery: AuditQueryPort;
+  readonly approvalRequests: ApprovalRequestRepository;
+  readonly notificationOutbox: {
+    /** Sends only these queued notifications through the tenant's SMTP session. */
+    readonly drainOnly: (ids: ReadonlySet<string>) => Promise<DrainResult>;
+    readonly configured: () => Promise<boolean>;
+  };
+  readonly backupStatus: (() => Promise<OwnerDigestBackupReading | null>) | undefined;
+  readonly ownerDigestSlot: OwnerDigestSlot;
   readonly addCloser: (closer: { close(): void }) => void;
+}
+
+/** Filled by the owner-digest area; read by the backend handle so a host timer can run the tenant's schedule without an HTTP request. */
+export interface OwnerDigestSlot {
+  run?: () => Promise<ScheduledDigestResult>;
 }
 
 export interface BackendArea {

@@ -66,13 +66,16 @@ describe("permission catalog", () => {
     //
     // 281 → 284. ENH-E3-03 reorder: inventory.reorder.view, .manage and .create.
     //
+    // 284 → 287. ENH-E3-02 owner digest: accounting.owner_digest.{view,manage,send}
+    // (manage and send are sensitive), gated by `/owner-digest`.
+    //
     // Pinned deliberately. A code added without a route to check it, or a route
     // deleted while its code stays, moves one of these numbers — which is the
     // whole point of asserting them.
-    expect(PERMISSIONS).toHaveLength(284);
+    expect(PERMISSIONS).toHaveLength(287);
     expect(MODULES).toHaveLength(20);
     const summed = MODULES.reduce((n, m) => n + m.count, 0);
-    expect(summed).toBe(284);
+    expect(summed).toBe(287);
   });
 
   it("carries a `pos` module again, and the INVOICE discount ceiling still lives under sales", () => {
@@ -127,7 +130,7 @@ describe("permission catalog", () => {
     // 26 → 27: the salary bank file carries every bank-paid employee's IBAN and net pay.
     expect(isSensitive("hr.payroll.bank_file")).toBe(true);
     const sensitiveCount = PERMISSIONS.filter((p) => p.sensitive).length;
-    expect(sensitiveCount).toBe(31);
+    expect(sensitiveCount).toBe(33);
   });
 
   it("marks the one platform-admin-only permission", () => {

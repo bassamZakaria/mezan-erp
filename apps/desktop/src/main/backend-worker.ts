@@ -14,6 +14,7 @@ import {
   type BridgePort,
   type CloneableLicence,
 } from "./backend-bridge.js";
+import { backupsDirBesideUserData, readBackupStatus } from "../backup/status.js";
 import { authorizeSeatedSession } from "./lan-authorization.js";
 import { cipherDriver } from "./encrypted-database.js";
 import { createLicenseGuardStore, decideCheckin } from "./license-checkin.js";
@@ -99,6 +100,7 @@ async function boot(payload: BackendBootPayload): Promise<{ pin: string; generat
       ? {}
       : { connection: { driver: cipherDriver, key: payload.cipherKey } }),
     lan: { resolveEntitlements: () => entitlements, registry: seats },
+    backupStatus: () => readBackupStatus(backupsDirBesideUserData(payload.userDataDir)),
     standardRoles: {
       resolveEntitlements: () => {
         const held = liveLicence();

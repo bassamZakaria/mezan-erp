@@ -29,6 +29,7 @@ import { provisionDemoTenant } from "./demo-tenant.js";
 import { provisionReviewTenant } from "./review-tenant.js";
 import { createLegalRoutes, LEGAL_BASE_PATH } from "./legal-routes.js";
 import { startDunningTimer } from "./dunning.js";
+import { startOwnerDigestTimer } from "./owner-digest.js";
 import { createBackupScheduler } from "./backup-scheduler.js";
 import { startAuditAnchorTimer } from "./audit-anchor-job.js";
 import { AnchorSinkKind, createAuditAnchorService } from "./audit-anchor-setup.js";
@@ -260,6 +261,13 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
     onError: (err) => console.error("[cloud] dunning sweep failed", err),
   });
 
+  const ownerDigestTimer = startOwnerDigestTimer({
+    platform,
+    router,
+    now,
+    onError: (err) => console.error("[cloud] owner digest sweep failed", err),
+  });
+
   const checkoutSweepTimer = checkoutService
     ? startCardCheckoutSweepTimer(checkoutService, {
         onError: (err) => console.error("[cloud] card checkout sweep failed", err),
@@ -407,6 +415,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
       await anchorTimer?.stop();
       tenantBackups.close();
       dunningTimer.stop();
+      await ownerDigestTimer.stop();
       checkoutSweepTimer?.stop();
       await router.close();
       await booksScanned;

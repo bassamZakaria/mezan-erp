@@ -148,7 +148,17 @@ function encodeHeader(value: string): string {
   return `=?UTF-8?B?${Buffer.from(value, "utf8").toString("base64")}?=`;
 }
 
-function buildMessage(settings: SmtpConfig, to: string, message?: { subject: string; body: string }): string {
+export interface OutgoingMail {
+  readonly subject: string;
+  readonly body: string;
+  readonly html?: string;
+}
+
+function base64Lines(value: string): string {
+  return Buffer.from(value, "utf8").toString("base64").replace(/(.{76})/g, "$1\r\n");
+}
+
+function buildMessage(settings: SmtpConfig, to: string, message?: OutgoingMail): string {
   const from = settings.smtpFromName
     ? `${encodeHeader(settings.smtpFromName)} <${settings.smtpFromEmail}>`
     : settings.smtpFromEmail;
@@ -160,6 +170,30 @@ function buildMessage(settings: SmtpConfig, to: string, message?: { subject: str
     `SMTP: ${settings.smtpHost}:${settings.smtpPort} (${settings.smtpSecurity})`,
   ].join("\r\n");
 
+  if (message?.html) {
+    const boundary = `mezan-alt-${Buffer.from(`${to}${subject}`, "utf8").toString("hex").slice(0, 24)}`;
+    return [
+      `From: ${from}`,
+      `To: ${to}`,
+      `Subject: ${subject}`,
+      "MIME-Version: 1.0",
+      `Content-Type: multipart/alternative; boundary="${boundary}"`,
+      "",
+      `--${boundary}`,
+      'Content-Type: text/plain; charset="UTF-8"',
+      "Content-Transfer-Encoding: base64",
+      "",
+      base64Lines(body),
+      `--${boundary}`,
+      'Content-Type: text/html; charset="UTF-8"',
+      "Content-Transfer-Encoding: base64",
+      "",
+      base64Lines(message.html),
+      `--${boundary}--`,
+      "",
+    ].join("\r\n");
+  }
+
   return [
     `From: ${from}`,
     `To: ${to}`,
@@ -168,7 +202,7 @@ function buildMessage(settings: SmtpConfig, to: string, message?: { subject: str
     'Content-Type: text/plain; charset="UTF-8"',
     "Content-Transfer-Encoding: base64",
     "",
-    Buffer.from(body, "utf8").toString("base64").replace(/(.{76})/g, "$1\r\n"),
+    base64Lines(body),
     "",
   ].join("\r\n");
 }
@@ -190,7 +224,7 @@ function isLoopbackHost(host: string): boolean {
 export async function sendTestEmail(
   settings: SmtpConfig,
   to: string,
-  message?: { subject: string; body: string },
+  message?: OutgoingMail,
 ): Promise<TestEmailResultDTO> {
   if (!settings.smtpEnabled) {
     return { ok: false, stage: "disabled", message: "البريد الإلكتروني غير مُفعَّل في الإعدادات." };
@@ -272,7 +306,7 @@ export async function sendTestEmail(
 export async function sendNotificationEmail(
   settings: SmtpConfig,
   to: string,
-  message: { subject: string; body: string },
+  message: OutgoingMail,
 ): Promise<{ outcome: "sent" | "offline" | "rejected"; detail: string }> {
   const result = await sendTestEmail(settings, to, message);
   if (result.ok) return { outcome: "sent", detail: result.message };

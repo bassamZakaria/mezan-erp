@@ -47,6 +47,7 @@ import {
 import { answerTenantDbFileRefusal, settleTenantDbFile, TenantDbFileBusyError, TenantDbFileForeignError, TenantDbFileUnreadableError } from "./tenant-db-file.js";
 import { createTenantResolvers, type TenantResolvers } from "./tenant-entitlements.js";
 import { requestHost, resolveTenantCode, tenantSlugOfHost, TENANT_HEADER } from "./tenant-resolver.js";
+import { readTenantBackupStatus } from "./tenant-backup-status.js";
 
 export interface TenantRouterOptions {
   readonly platform: PlatformHandle;
@@ -246,6 +247,7 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
       unlockLink: mail.unlockLink,
       platformOperatorUnlocks: true,
       sessionsInDatabase: true,
+      backupStatus: async () => readTenantBackupStatus(options.dataDir, books.tenantId, dbPath, options.now),
       resolveEntitlements: () => r.resolveEntitlements(),
       resolveLicenseState: () => r.resolveLicenseState(),
       onUserEmailChanged: hooks.onUserEmailChanged,

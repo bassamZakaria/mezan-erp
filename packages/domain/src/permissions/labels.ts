@@ -177,6 +177,7 @@ export const PERMISSION_ENTITY_LABELS = {
   collections: { ar: "تحصيل المستحقات", en: "Receivables collection" },
   pricing_guard: { ar: "رقابة الحد الأدنى للأسعار", en: "Price floor rules" },
   reorder: { ar: "إعادة الطلب", en: "Reorder" },
+  owner_digest: { ar: "ملخص المالك", en: "Owner digest" },
   terminal: { ar: "جهاز نقطة البيع", en: "POS terminal" },
   revaluation: { ar: "إعادة تقييم العملات", en: "FX revaluation" },
   year_end_close: { ar: "إقفال نهاية السنة", en: "Year-end close" },

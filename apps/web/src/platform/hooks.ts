@@ -12,7 +12,12 @@ import type {
   LockedTenantAccountsDTO,
   OwnerCandidateDTO,
   OwnerPinResetResultDTO,
+  TenantBackupDrillRequestDTO,
+  TenantBackupDrillResultDTO,
+  TenantBackupListDTO,
   TenantBooksDTO,
+  TenantExportOfferDTO,
+  ExportTenantBackupRequestDTO,
   PlatformUnrecordedSecurityEventsDTO,
   ProvisionResultDTO,
   ProvisionRetryRequestDTO,
@@ -452,6 +457,72 @@ export function useSweepCardCheckoutsMutation() {
     },
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: ["platform", "tenants"] });
+    },
+  });
+}
+
+const tenantBackupsKey = (tenantId: string) => ["platform", "tenants", tenantId, "backups"] as const;
+
+export function useTenantBackupsQuery(tenantId: string, enabled: boolean): UseQueryResult<TenantBackupListDTO, PlatformApiError> {
+  const { t } = useAppTranslation();
+  const { request } = usePlatformApi();
+  return useQuery<TenantBackupListDTO, PlatformApiError>({
+    queryKey: tenantBackupsKey(tenantId),
+    enabled,
+    queryFn: async () => {
+      const res = await request(`/tenants/${tenantId}/backups`);
+      if (!res.ok) throw new PlatformApiError(res.status, await readPlatformErrorMessage(res, t, "platform.backup.loadFailed"));
+      return res.json<TenantBackupListDTO>();
+    },
+  });
+}
+
+export function useExportTenantBackupMutation() {
+  const { t } = useAppTranslation();
+  const { request } = usePlatformApi();
+  return useMutation<TenantExportOfferDTO, PlatformApiError, { tenantId: string; body: ExportTenantBackupRequestDTO }>({
+    mutationFn: async ({ tenantId, body }) => {
+      const res = await request(`/tenants/${tenantId}/export`, { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) {
+        const failure = await readPlatformError(res, t, "platform.backup.export.failed");
+        throw new PlatformApiError(res.status, failure.message, failure.code);
+      }
+      return res.json<TenantExportOfferDTO>();
+    },
+  });
+}
+
+export function useBackupDrillMutation() {
+  const { t } = useAppTranslation();
+  const { request } = usePlatformApi();
+  return useMutation<TenantBackupDrillResultDTO, PlatformApiError, { tenantId: string; body: TenantBackupDrillRequestDTO }>({
+    mutationFn: async ({ tenantId, body }) => {
+      const res = await request(`/tenants/${tenantId}/backups/drill`, { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) {
+        const failure = await readPlatformError(res, t, "platform.backup.drill.failed");
+        throw new PlatformApiError(res.status, failure.message, failure.code);
+      }
+      return res.json<TenantBackupDrillResultDTO>();
+    },
+  });
+}
+
+export function useDownloadTenantExportMutation() {
+  const { t } = useAppTranslation();
+  const { request } = usePlatformApi();
+  return useMutation<void, PlatformApiError, { downloadPath: string; fileName: string }>({
+    mutationFn: async ({ downloadPath, fileName }) => {
+      const res = await request(downloadPath);
+      if (!res.ok || !res.blob) {
+        const failure = await readPlatformError(res, t, "platform.backup.download.failed");
+        throw new PlatformApiError(res.status, failure.message, failure.code);
+      }
+      const url = URL.createObjectURL(await res.blob());
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = fileName;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 0);
     },
   });
 }

@@ -21,6 +21,7 @@ import { SelectField, TextAreaField, ToggleField } from "../settings/form-contro
 import { LicenseStateChip, TenantStatusChip } from "./chips";
 import { TenantOwnerCard } from "./TenantOwnerCard";
 import { TenantBooksCard } from "./TenantBooksCard";
+import { TenantBackupCard } from "./TenantBackupCard";
 import { TenantLockedAccountsCard } from "./TenantLockedAccountsCard";
 import { PlatformApiError, usePlatformApi } from "./api";
 import { RecordPaymentDialog } from "./RecordPaymentDialog";
@@ -273,6 +274,8 @@ export function TenantDetailPage() {
       </div>
 
       <TenantLockedAccountsCard tenant={tenant} isOwner={isOwner} booksRefused={booksRefused} onError={onMutationError} />
+
+      <TenantBackupCard tenant={tenant} isOwner={isOwner} booksRefused={booksRefused} onError={onMutationError} />
 
       {mutationError ? (
         <Card className="p-[14px_16px]">

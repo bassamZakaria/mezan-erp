@@ -9,9 +9,10 @@ import {
   appendVerifyRecord,
   BackupVerifyOutcome,
   VERIFY_LOG_FILE_NAME,
+  type BackupInspection,
   type BackupVerifyRecord,
 } from "./backup-verify-core.js";
-import type { VerifyWorkerRequest, VerifyWorkerResponse } from "./backup-verify-worker.js";
+import type { InspectWorkerRequest, InspectWorkerResponse, VerifyWorkerRequest, VerifyWorkerResponse } from "./backup-verify-worker.js";
 
 export { BackupVerifyOutcome, VERIFY_LOG_FILE_NAME, type BackupVerifyRecord };
 
@@ -81,6 +82,38 @@ function runVerifyOffThread(backupPath: string, now: Date): Promise<BackupVerify
     });
 
     const request: VerifyWorkerRequest = { backupPath, now: now.toISOString() };
+    child.send(request);
+  });
+}
+
+/**
+ * The same forked-process check as `runVerifyOffThread`, for a file that is not
+ * a scheduled backup: it writes no `verify.jsonl` and never throws — a child
+ * that cannot run resolves to a FAILED inspection carrying the reason.
+ */
+export function inspectBackupOffThread(backupPath: string): Promise<BackupInspection> {
+  const failed = (report: string): BackupInspection => ({ outcome: BackupVerifyOutcome.Failed, report, tables: {}, boundTenantId: null, ms: 0 });
+  return new Promise((resolve) => {
+    let settled = false;
+    let child: ChildProcess;
+    try {
+      child = fork(VERIFY_WORKER_PATH, [], { execArgv: ["--import", "tsx"], stdio: ["ignore", "inherit", "inherit", "ipc"] });
+    } catch (err) {
+      resolve(failed(err instanceof Error ? err.message : String(err)));
+      return;
+    }
+    const finish = (inspection: BackupInspection) => {
+      if (settled) return;
+      settled = true;
+      child.kill();
+      resolve(inspection);
+    };
+    child.once("message", (msg: InspectWorkerResponse) => finish(msg.ok ? msg.inspection : failed(msg.error)));
+    child.once("error", (err) => finish(failed(err instanceof Error ? err.message : String(err))));
+    child.once("exit", (code) => {
+      if (code !== 0 && code !== null) finish(failed(`backup inspect worker exited with code ${code}`));
+    });
+    const request: InspectWorkerRequest = { kind: "inspect", backupPath };
     child.send(request);
   });
 }

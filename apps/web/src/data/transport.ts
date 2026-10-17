@@ -13,6 +13,7 @@ export interface TransportResponse {
   readonly sessionEnded?: string | null;
   json<T = unknown>(): Promise<T>;
   text(): Promise<string>;
+  blob?(): Promise<Blob>;
   header?(name: string): string | null;
 }
 
@@ -61,6 +62,7 @@ export function createHttpTransport(baseUrl = "/api"): Transport {
       sessionEnded: res.headers.get(SESSION_ENDED),
       json: <T,>() => res.json() as Promise<T>,
       text: () => res.text(),
+      blob: () => res.blob(),
       header: (name) => res.headers.get(name),
     };
   };

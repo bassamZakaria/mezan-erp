@@ -253,6 +253,9 @@ importers:
       hono:
         specifier: ^4.6.14
         version: 4.13.3
+      tar:
+        specifier: ^7.5.22
+        version: 7.5.22
 
   apps/web:
     dependencies:

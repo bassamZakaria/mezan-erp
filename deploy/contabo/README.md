@@ -98,6 +98,7 @@ mkdir -p /opt/mezan /srv/mezan/data && chown 1000:1000 /srv/mezan/data && chmod 
 cp /opt/mezan/.env.example /srv/mezan/env && cp /opt/mezan/shared.env.example /srv/mezan/shared.env
 cp /opt/mezan/backup/restic.env.example /srv/mezan/restic.env
 chmod 600 /srv/mezan/env /srv/mezan/shared.env /srv/mezan/restic.env       # then fill them in
+# before the first boot: MEZAN_AUDIT_CHAIN_KEY=$(openssl rand -hex 32) in /srv/mezan/env, never changed afterwards
 echo "<a GitHub token with read:packages>" | docker login ghcr.io -u <github user> --password-stdin
 /opt/mezan/deploy.sh <commit sha from the "Release image" workflow>
 ```
@@ -148,7 +149,9 @@ docker compose start mezan
 
 The tenant's db file name is its `dbFile` on the platform console. The platform database is restored the same way from `backups/platform/` onto `platform.db`. Afterwards verify the tenant's audit chain against its anchors (docs/ENVIRONMENTS.md, "Audit trail anchors"): run the CLI with `docker compose exec mezan node --import tsx apps/server/src/audit-anchor-cli.ts verify ...` on a copy.
 
-A lost VPS: new VPS, steps 1 to 4, restore `platform.db` and every tenant from restic, start.
+A lost VPS: new VPS, steps 1 to 4 with the same `/srv/mezan/env` (from the password manager), restore `platform.db` and every tenant from restic, start. The audit chains verify only with the key they were written with: `MEZAN_AUDIT_CHAIN_KEY` if it was set, otherwise the `audit-chain.key` files the backup job also copies (restore each beside its database, owner 1000, mode 0600) before the first start.
+
+**Keep in the password manager:** `/srv/mezan/env` (in particular `MEZAN_AUDIT_CHAIN_KEY`, `MEZAN_AUDIT_ANCHOR_SIGNING_KEY`, SMTP and Paymob keys), `/srv/mezan/shared.env`, and `RESTIC_PASSWORD`.
 
 ## 7. Logs
 

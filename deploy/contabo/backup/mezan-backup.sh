@@ -44,9 +44,12 @@ run_backup() {
   check_disk
   local sources=("$DATA_DIR/backups")
   [ -d "$DATA_DIR/audit-anchors" ] && sources+=("$DATA_DIR/audit-anchors")
+  local key
+  while IFS= read -r key; do sources+=("$key"); done < <(find "$DATA_DIR" -maxdepth 2 -path "$DATA_DIR/backups" -prune -o -name audit-chain.key -type f -print)
   # SECURITY / consistency: only the app's own snapshots (made with SQLite's
-  # backup API) and the local anchor fallback. Never tenants/ or platform.db*:
-  # a raw copy of a live WAL database can be torn.
+  # backup API), the local anchor fallback and the audit chain keys (without
+  # them a restored database's chain cannot be verified). Never tenants/*.db
+  # or platform.db*: a raw copy of a live WAL database can be torn.
   restic backup --host "$HOST_TAG" --tag mezan --exclude '*.tmp' --one-file-system "${sources[@]}"
   restic forget --host "$HOST_TAG" --tag mezan --keep-hourly 48 --keep-daily 30 --keep-weekly 12 --keep-monthly 12 --prune
   ping_heartbeat ""

@@ -37,6 +37,9 @@ preflight() {
     [ "$(stat -c '%a' "$file")" = "600" ] || die "$file must be mode 0600"
   done
   grep -Eq '^MEZAN_ORIGIN_SECRET=.{32,}$' "$SHARED_ENV" || die "MEZAN_ORIGIN_SECRET in $SHARED_ENV must be at least 32 characters"
+  if grep -q '^MEZAN_AUDIT_CHAIN_KEY=' "$APP_ENV" && ! grep -Eq '^MEZAN_AUDIT_CHAIN_KEY=[0-9a-f]{64}$' "$APP_ENV"; then
+    die "MEZAN_AUDIT_CHAIN_KEY in $APP_ENV must be 64 lower-case hex characters, or absent"
+  fi
   if grep -q '^MEZAN_ORIGIN_SECRET=' "$APP_ENV"; then die "MEZAN_ORIGIN_SECRET belongs in $SHARED_ENV only; remove it from $APP_ENV"; fi
   [ "$(stat -c '%u' "$DATA_DIR")" = "1000" ] || die "$DATA_DIR must be owned by uid 1000 (the image's node user)"
 }

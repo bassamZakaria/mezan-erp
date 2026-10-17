@@ -47,6 +47,10 @@ import { bilingualName, employeeDisplayName } from "./hr-employee-name";
 import { todayIso } from "../lib/dates";
 import { EMPTY } from "../lib/empty";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
+import { useNameSubPage, useNavigation, useSubPage } from "../navigation";
+import { NEW_SEGMENT } from "./hr-permissions";
+import { EmployeeSalaryPaymentTab, SALARY_PAYMENT_METHOD_KEY } from "./EmployeeSalaryPaymentTab";
+import { EntityHistoryPanel } from "./enh/audit-ledger/EntityHistoryPanel";
 
 /** الموظفون (Employees) — docs/archive/catalog/06 §"الموظفون". The HR hub record: personal info, department/job-title/manager/branch, hire date, worker category, overtime/standard hours, probation end, prior-service years (Article 47), attendance clock-in flags. */
 
@@ -402,16 +406,20 @@ export function EmployeesScreen() {
   const [page, setPage] = useUrlNumber("page", 1);
   const [pageSize, setPageSize] = useUrlNumber("size", 25);
 
-  const [formOpen, setFormOpen] = useState(false);
+  const subPage = useSubPage();
+  const { openScreenAt } = useNavigation();
+  const [firstSegment] = subPage.segments;
+  const creating = firstSegment === NEW_SEGMENT;
   const [draft, setDraft] = useState<EmployeeDraft>(blankDraft());
   const [formError, setFormError] = useState<string | null>(null);
 
-  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
 
-  const selected = selectedId ? (employees.find((e) => e.id === selectedId) ?? null) : null;
+  const selected = firstSegment !== undefined && !creating ? (employees.find((e) => e.id === firstSegment || e.code === firstSegment) ?? null) : null;
+  const selectedId = selected?.id ?? null;
   const contractsQuery = useEmployeeContracts(selectedId);
+  useNameSubPage(selected?.code ?? null, selected ? employeeDisplayName(selected, locale) : null);
   const [detailTab, setDetailTab] = useState("personal");
   const [terminateOpen, setTerminateOpen] = useState(false);
   const [terminateMode, setTerminateMode] = useState(TerminationPanelMode.Terminate);
@@ -484,7 +492,12 @@ export function EmployeesScreen() {
   function openCreateForm() {
     setDraft(blankDraft());
     setFormError(null);
-    setFormOpen(true);
+    subPage.open(NEW_SEGMENT);
+  }
+
+  function openEmployee(employee: EmployeeDTO) {
+    setDetailError(null);
+    subPage.open(employee.code);
   }
 
   async function handleSubmit(event: FormEvent) {
@@ -493,11 +506,12 @@ export function EmployeesScreen() {
       setFormError(t("employees.firstNameLastNameBranch"));
       return;
     }
+    if (createEmployee.isPending) return;
     setFormError(null);
     const hasAddress = [draft.street, draft.city, draft.governorate, draft.postalCode].some((v) => v.trim() !== "");
     const hasEmergency = [draft.emergencyName, draft.emergencyRelationship, draft.emergencyPhone, draft.emergencyAltPhone].some((v) => v.trim() !== "");
     try {
-      await createEmployee.mutateAsync({
+      const created = await createEmployee.mutateAsync({
         firstName: draft.firstName.trim(),
         lastName: draft.lastName.trim(),
         firstNameAr: draft.firstNameAr.trim() === "" ? null : draft.firstNameAr.trim(),
@@ -541,7 +555,7 @@ export function EmployeesScreen() {
             }
           : null,
       });
-      setFormOpen(false);
+      subPage.open(created.code);
     } catch (err) {
       setFormError(err instanceof ApiError ? err.message : t("employees.couldnTAddTheEmployee"));
     }
@@ -567,7 +581,7 @@ export function EmployeesScreen() {
     setTerminateError(null);
     setTerminateNotice(null);
     setTerminateDate(mode === TerminationPanelMode.Correct ? (employee.terminatedAt ?? todayIso()) : todayIso());
-    setSelectedId(employee.id);
+    if (employee.id !== selectedId) subPage.open(employee.code);
     setTerminateOpen(true);
   }
 
@@ -970,6 +984,16 @@ export function EmployeesScreen() {
               </table>
             ),
         },
+        {
+          key: "salary-payment",
+          label: t("hrPages.employee.tabSalary"),
+          content: <EmployeeSalaryPaymentTab key={selected.id} employee={selected} />,
+        },
+        {
+          key: "history",
+          label: t("hrPages.employee.tabHistory"),
+          content: <EntityHistoryPanel entityType="EMPLOYEE" entityId={selected.id} />,
+        },
         /*
          * Only for a leaver. A settlement quoted for a serving employee reads
          * as a figure they are owed today, and the server refuses it anyway —
@@ -987,6 +1011,172 @@ export function EmployeesScreen() {
       ]
     : [];
 
+  const createPage = (
+    <div className="w-full">
+      <div className="mb-4">
+        <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-ink-muted">{t("eyebrow.hr.employees")}</div>
+        <h1 className="font-display text-xl font-bold text-ink">{t("employees.newEmployee")}</h1>
+        <p className="mt-[4px] text-[12.5px] text-ink-muted">{t("employees.basicEmployeeDetails")}</p>
+      </div>
+      <Card className="p-[18px_20px]">
+        <form onSubmit={handleSubmit} className="grid gap-x-[16px] gap-y-[14px] md:grid-cols-2">
+            {formError ? (
+              <div role="alert" className="rounded-md md:col-span-2 border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
+                {formError}
+              </div>
+            ) : null}
+  
+            <h3 className="font-display text-[13px] font-bold text-ink md:col-span-2">{t("employees.personalInformation")}</h3>
+            <TextField label={t("employees.firstName")} value={draft.firstName} onChange={(v) => setDraft((d) => ({ ...d, firstName: v }))} />
+            <TextField label={t("employees.lastName")} value={draft.lastName} onChange={(v) => setDraft((d) => ({ ...d, lastName: v }))} />
+            <TextField label={t("employees.firstNameArabic")} value={draft.firstNameAr} onChange={(v) => setDraft((d) => ({ ...d, firstNameAr: v }))} />
+            <TextField label={t("employees.lastNameArabic")} value={draft.lastNameAr} onChange={(v) => setDraft((d) => ({ ...d, lastNameAr: v }))} />
+            <TextField label={t("common.email")} type="email" value={draft.email} onChange={(v) => setDraft((d) => ({ ...d, email: v }))} />
+            <TextField label={t("common.phone")} type="tel" value={draft.phone} onChange={(v) => setDraft((d) => ({ ...d, phone: v }))} />
+            <TextField label={t("employees.dateOfBirth")} value={draft.birthDate} onChange={(v) => setDraft((d) => ({ ...d, birthDate: v }))} placeholder="YYYY-MM-DD" />
+            <TextField label={t("employees.nationalId")} value={draft.nationalId} onChange={(v) => setDraft((d) => ({ ...d, nationalId: v }))} />
+            <SelectField
+              label={t("employees.gender")}
+              value={draft.gender}
+              onChange={(v) => setDraft((d) => ({ ...d, gender: v as GenderDTO | "" }))}
+              options={[{ value: "", label: t("employees.select") }, ...(Object.keys(GENDER_KEY) as GenderDTO[]).map((g) => ({ value: g, label: t(GENDER_KEY[g]) }))]}
+            />
+            <SelectField
+              label={t("employees.maritalStatus")}
+              value={draft.maritalStatus}
+              onChange={(v) => setDraft((d) => ({ ...d, maritalStatus: v as MaritalStatusDTO | "" }))}
+              options={[{ value: "", label: t("employees.select") }, ...(Object.keys(MARITAL_KEY) as MaritalStatusDTO[]).map((m) => ({ value: m, label: t(MARITAL_KEY[m]) }))]}
+            />
+  
+            <h3 className="mt-[6px] border-t border-border pt-[12px] font-display text-[13px] font-bold text-ink md:col-span-2">{t("employees.employmentInformation")}</h3>
+            <EntityPicker
+              label={t("employees.department")}
+              options={departmentOptions}
+              value={draft.departmentId ? (departmentOptions.find((o) => o.id === draft.departmentId) ?? null) : null}
+              onChange={(option) => setDraft((d) => ({ ...d, departmentId: option?.id ?? "", jobTitleId: "" }))}
+            />
+            <EntityPicker
+              label={t("employees.jobTitle")}
+              options={jobTitleOptions}
+              value={draft.jobTitleId ? (jobTitleOptions.find((o) => o.id === draft.jobTitleId) ?? null) : null}
+              onChange={(option) => setDraft((d) => ({ ...d, jobTitleId: option?.id ?? "" }))}
+            />
+            <EntityPicker
+              label={t("employees.directManager")}
+              options={managerOptions}
+              value={draft.managerId ? (managerOptions.find((o) => o.id === draft.managerId) ?? null) : null}
+              onChange={(option) => setDraft((d) => ({ ...d, managerId: option?.id ?? "" }))}
+            />
+            <EntityPicker
+              label={t("employees.branch")}
+              options={branchOptions}
+              value={draft.branchId ? (branchOptions.find((o) => o.id === draft.branchId) ?? null) : null}
+              onChange={(option) => setDraft((d) => ({ ...d, branchId: option?.id ?? "" }))}
+            />
+            <TextField label={t("employees.hireDate2")} value={draft.hireDate} onChange={(v) => setDraft((d) => ({ ...d, hireDate: v }))} placeholder="YYYY-MM-DD" />
+            <SelectField
+              label={t("employees.workerCategory2")}
+              value={draft.workerCategory}
+              onChange={(v) => setDraft((d) => ({ ...d, workerCategory: v as WorkerCategoryDTO }))}
+              options={(Object.keys(WORKER_CATEGORY_KEY) as WorkerCategoryDTO[]).map((c) => ({ value: c, label: t(WORKER_CATEGORY_KEY[c]) }))}
+            />
+            <SelectField
+              label={t("employees.employmentType")}
+              value={draft.employmentType}
+              onChange={(v) => setDraft((d) => ({ ...d, employmentType: v as "full_time" | "part_time" }))}
+              options={[{ value: "full_time", label: t("employees.fullTime") }, { value: "part_time", label: t("employees.partTime") }]}
+            />
+            <SelectField
+              label={t("employees.overtimeCalculation")}
+              value={draft.overtimeEligibility}
+              onChange={(v) => setDraft((d) => ({ ...d, overtimeEligibility: v as OvertimeEligibilityDTO }))}
+              options={(Object.keys(OVERTIME_KEY) as OvertimeEligibilityDTO[]).map((o) => ({ value: o, label: t(OVERTIME_KEY[o]) }))}
+            />
+            <NumberField
+              label={t("employees.standardWorkingHours")}
+              value={draft.standardWorkHours ?? Number.NaN}
+              onChange={(v) => setDraft((d) => ({ ...d, standardWorkHours: Number.isNaN(v) ? null : v }))}
+              hint={t("employees.byDepartmentCompany")}
+            />
+            <TextField label={t("employees.probationEndDate")} value={draft.probationEndDate} onChange={(v) => setDraft((d) => ({ ...d, probationEndDate: v }))} placeholder="YYYY-MM-DD" />
+            <NumberField
+              label={t("employees.priorYearsOfService")}
+              value={draft.priorServiceYears}
+              min={0}
+              onChange={(v) => setDraft((d) => ({ ...d, priorServiceYears: Number.isNaN(v) ? 0 : v }))}
+              hint={t("employees.usedToCalculateTheSeniority")}
+            />
+            <ToggleField
+              label={t("employees.requireAPhotoWhenClocking")}
+              checked={draft.requireSelfieAtClockIn}
+              onChange={(v) => setDraft((d) => ({ ...d, requireSelfieAtClockIn: v }))}
+            />
+            <ToggleField
+              label={t("employees.requireFingerprintVerificationWhenClocking")}
+              checked={draft.requireBiometricAtClockIn}
+              onChange={(v) => setDraft((d) => ({ ...d, requireBiometricAtClockIn: v }))}
+            />
+            <TextField
+              label={t("employees.deviceBadgeId")}
+              value={draft.deviceBadgeId}
+              onChange={(v) => setDraft((d) => ({ ...d, deviceBadgeId: v }))}
+              hint={t("employees.deviceBadgeIdHint")}
+            />
+            <SelectField
+              label={t("employees.pensionEntitlement")}
+              value={draft.hasPensionEntitlement}
+              onChange={(v) => setDraft((d) => ({ ...d, hasPensionEntitlement: v as EmployeeDraft["hasPensionEntitlement"] }))}
+              options={[
+                { value: "", label: t("employees.pensionNotRecorded") },
+                { value: "no", label: t("employees.pensionNo") },
+                { value: "yes", label: t("employees.pensionYes") },
+              ]}
+              hint={t("employees.pensionEntitlementHint")}
+            />
+            <ToggleField
+              label={t("employees.taxDisabilityExemption")}
+              checked={draft.taxDisabilityExemption}
+              onChange={(v) => setDraft((d) => ({ ...d, taxDisabilityExemption: v }))}
+            />
+  
+            <h3 className="mt-[6px] border-t border-border pt-[12px] font-display text-[13px] font-bold text-ink md:col-span-2">{t("employees.address")}</h3>
+            <TextField label={t("employees.street")} value={draft.street} onChange={(v) => setDraft((d) => ({ ...d, street: v }))} />
+            <TextField label={t("employees.city")} value={draft.city} onChange={(v) => setDraft((d) => ({ ...d, city: v }))} />
+            <TextField label={t("employees.governorate")} value={draft.governorate} onChange={(v) => setDraft((d) => ({ ...d, governorate: v }))} />
+            <TextField label={t("employees.postalCode")} value={draft.postalCode} onChange={(v) => setDraft((d) => ({ ...d, postalCode: v }))} />
+  
+            <h3 className="mt-[6px] border-t border-border pt-[12px] font-display text-[13px] font-bold text-ink md:col-span-2">{t("employees.emergencyContact")}</h3>
+            <TextField label={t("common.name")} value={draft.emergencyName} onChange={(v) => setDraft((d) => ({ ...d, emergencyName: v }))} />
+            <TextField label={t("employees.relationship")} value={draft.emergencyRelationship} onChange={(v) => setDraft((d) => ({ ...d, emergencyRelationship: v }))} />
+            <TextField label={t("employees.phoneNumber")} value={draft.emergencyPhone} onChange={(v) => setDraft((d) => ({ ...d, emergencyPhone: v }))} />
+            <TextField label={t("employees.alternatePhoneNumber")} value={draft.emergencyAltPhone} onChange={(v) => setDraft((d) => ({ ...d, emergencyAltPhone: v }))} />
+  
+            <div className="mt-[6px] flex justify-end gap-[9px] md:col-span-2">
+              <Button type="button" onClick={() => subPage.close()}>
+                {t("common.cancel")}
+              </Button>
+              <Button type="submit" variant="primary" disabled={createEmployee.isPending}>
+                {t("common.save")}
+              </Button>
+            </div>
+          </form>
+      </Card>
+    </div>
+  );
+
+  if (creating) return createPage;
+
+  if (firstSegment !== undefined && !selected) {
+    return (
+      <Card className="p-[18px_20px]">
+        <p className="text-[13px] text-ink-muted">{query.isLoading ? t("common.loading") : t("hrPages.employee.notFound", { ref: firstSegment })}</p>
+        <Button size="sm" className="mt-[10px]" onClick={() => subPage.close()}>
+          {t("hrPages.backToList")}
+        </Button>
+      </Card>
+    );
+  }
+
   if (selected) {
     return (
       <div className="w-full">
@@ -997,7 +1187,8 @@ export function EmployeesScreen() {
           subtitle={<span className="mz-num">{selected.code}</span>}
           actions={
             <>
-              <Button onClick={() => setSelectedId(null)}>{t("employees.backToTheList")}</Button>
+              <Button onClick={() => subPage.close()}>{t("employees.backToTheList")}</Button>
+              <Button onClick={() => openScreenAt("contracts", [NEW_SEGMENT, selected.id])}>{t("hrPages.employee.newContract")}</Button>
               {selected.status === "terminated" ? (
                 <>
                   <Button disabled={pendingId === selected.id} onClick={() => openTerminate(selected, TerminationPanelMode.Correct)}>
@@ -1026,6 +1217,10 @@ export function EmployeesScreen() {
             { label: t("employees.jobTitle"), value: jobTitleName(selected.jobTitleId) },
             { label: t("common.branch"), value: branchName(selected.branchId) },
             { label: t("employees.hireDate"), value: <span className="mz-num">{selected.hireDate}</span> },
+            {
+              label: t("hrPages.salary.method"),
+              value: selected.salaryPaymentMethod ? t(SALARY_PAYMENT_METHOD_KEY[selected.salaryPaymentMethod]) : <span className="text-warning-ink">{t("hrPages.salary.notRecorded")}</span>,
+            },
             {
               label: t("employees.outstanding"),
               value: <MoneyDisplay value={employeeAdvances.reduce((sum, a) => sum + Number(a.outstanding), 0)} />,
@@ -1101,13 +1296,10 @@ export function EmployeesScreen() {
         rows={pageRows}
         loading={attendanceQuery.isLoading}
         rowKey={(e) => e.id}
-        onRowClick={(e) => {
-          setDetailError(null);
-          setSelectedId(e.id);
-        }}
+        onRowClick={openEmployee}
         rowAction={(e) => {
           const menuItems: RowMenuItem[] = [
-            { key: "view", label: t("common.view"), onSelect: () => { setDetailError(null); setSelectedId(e.id); } },
+            { key: "view", label: t("common.view"), onSelect: () => openEmployee(e) },
             // Rehiring needs a hire date, so the entry opens the panel that asks for it.
             ...(e.status === "terminated"
               ? [
@@ -1122,8 +1314,7 @@ export function EmployeesScreen() {
                     label: t("employees.rehire"),
                     disabled: pendingId === e.id,
                     onSelect: () => {
-                      setDetailError(null);
-                      setSelectedId(e.id);
+                      openEmployee(e);
                       setRehireOpen(true);
                     },
                   },
@@ -1175,150 +1366,6 @@ export function EmployeesScreen() {
       />
 
 
-      {/* -------- Create employee panel -------- */}
-      <SidePanel open={formOpen} onClose={() => setFormOpen(false)} title={t("employees.newEmployee")} description={t("employees.basicEmployeeDetails")}>
-        <form onSubmit={handleSubmit} className="flex flex-col gap-[16px]">
-          {formError ? (
-            <div role="alert" className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
-              {formError}
-            </div>
-          ) : null}
-
-          <h3 className="font-display text-[13px] font-bold text-ink">{t("employees.personalInformation")}</h3>
-          <TextField label={t("employees.firstName")} value={draft.firstName} onChange={(v) => setDraft((d) => ({ ...d, firstName: v }))} />
-          <TextField label={t("employees.lastName")} value={draft.lastName} onChange={(v) => setDraft((d) => ({ ...d, lastName: v }))} />
-          <TextField label={t("employees.firstNameArabic")} value={draft.firstNameAr} onChange={(v) => setDraft((d) => ({ ...d, firstNameAr: v }))} />
-          <TextField label={t("employees.lastNameArabic")} value={draft.lastNameAr} onChange={(v) => setDraft((d) => ({ ...d, lastNameAr: v }))} />
-          <TextField label={t("common.email")} type="email" value={draft.email} onChange={(v) => setDraft((d) => ({ ...d, email: v }))} />
-          <TextField label={t("common.phone")} type="tel" value={draft.phone} onChange={(v) => setDraft((d) => ({ ...d, phone: v }))} />
-          <TextField label={t("employees.dateOfBirth")} value={draft.birthDate} onChange={(v) => setDraft((d) => ({ ...d, birthDate: v }))} placeholder="YYYY-MM-DD" />
-          <TextField label={t("employees.nationalId")} value={draft.nationalId} onChange={(v) => setDraft((d) => ({ ...d, nationalId: v }))} />
-          <SelectField
-            label={t("employees.gender")}
-            value={draft.gender}
-            onChange={(v) => setDraft((d) => ({ ...d, gender: v as GenderDTO | "" }))}
-            options={[{ value: "", label: t("employees.select") }, ...(Object.keys(GENDER_KEY) as GenderDTO[]).map((g) => ({ value: g, label: t(GENDER_KEY[g]) }))]}
-          />
-          <SelectField
-            label={t("employees.maritalStatus")}
-            value={draft.maritalStatus}
-            onChange={(v) => setDraft((d) => ({ ...d, maritalStatus: v as MaritalStatusDTO | "" }))}
-            options={[{ value: "", label: t("employees.select") }, ...(Object.keys(MARITAL_KEY) as MaritalStatusDTO[]).map((m) => ({ value: m, label: t(MARITAL_KEY[m]) }))]}
-          />
-
-          <h3 className="mt-[6px] font-display text-[13px] font-bold text-ink">{t("employees.employmentInformation")}</h3>
-          <EntityPicker
-            label={t("employees.department")}
-            options={departmentOptions}
-            value={draft.departmentId ? (departmentOptions.find((o) => o.id === draft.departmentId) ?? null) : null}
-            onChange={(option) => setDraft((d) => ({ ...d, departmentId: option?.id ?? "", jobTitleId: "" }))}
-          />
-          <EntityPicker
-            label={t("employees.jobTitle")}
-            options={jobTitleOptions}
-            value={draft.jobTitleId ? (jobTitleOptions.find((o) => o.id === draft.jobTitleId) ?? null) : null}
-            onChange={(option) => setDraft((d) => ({ ...d, jobTitleId: option?.id ?? "" }))}
-          />
-          <EntityPicker
-            label={t("employees.directManager")}
-            options={managerOptions}
-            value={draft.managerId ? (managerOptions.find((o) => o.id === draft.managerId) ?? null) : null}
-            onChange={(option) => setDraft((d) => ({ ...d, managerId: option?.id ?? "" }))}
-          />
-          <EntityPicker
-            label={t("employees.branch")}
-            options={branchOptions}
-            value={draft.branchId ? (branchOptions.find((o) => o.id === draft.branchId) ?? null) : null}
-            onChange={(option) => setDraft((d) => ({ ...d, branchId: option?.id ?? "" }))}
-          />
-          <TextField label={t("employees.hireDate2")} value={draft.hireDate} onChange={(v) => setDraft((d) => ({ ...d, hireDate: v }))} placeholder="YYYY-MM-DD" />
-          <SelectField
-            label={t("employees.workerCategory2")}
-            value={draft.workerCategory}
-            onChange={(v) => setDraft((d) => ({ ...d, workerCategory: v as WorkerCategoryDTO }))}
-            options={(Object.keys(WORKER_CATEGORY_KEY) as WorkerCategoryDTO[]).map((c) => ({ value: c, label: t(WORKER_CATEGORY_KEY[c]) }))}
-          />
-          <SelectField
-            label={t("employees.employmentType")}
-            value={draft.employmentType}
-            onChange={(v) => setDraft((d) => ({ ...d, employmentType: v as "full_time" | "part_time" }))}
-            options={[{ value: "full_time", label: t("employees.fullTime") }, { value: "part_time", label: t("employees.partTime") }]}
-          />
-          <SelectField
-            label={t("employees.overtimeCalculation")}
-            value={draft.overtimeEligibility}
-            onChange={(v) => setDraft((d) => ({ ...d, overtimeEligibility: v as OvertimeEligibilityDTO }))}
-            options={(Object.keys(OVERTIME_KEY) as OvertimeEligibilityDTO[]).map((o) => ({ value: o, label: t(OVERTIME_KEY[o]) }))}
-          />
-          <NumberField
-            label={t("employees.standardWorkingHours")}
-            value={draft.standardWorkHours ?? Number.NaN}
-            onChange={(v) => setDraft((d) => ({ ...d, standardWorkHours: Number.isNaN(v) ? null : v }))}
-            hint={t("employees.byDepartmentCompany")}
-          />
-          <TextField label={t("employees.probationEndDate")} value={draft.probationEndDate} onChange={(v) => setDraft((d) => ({ ...d, probationEndDate: v }))} placeholder="YYYY-MM-DD" />
-          <NumberField
-            label={t("employees.priorYearsOfService")}
-            value={draft.priorServiceYears}
-            min={0}
-            onChange={(v) => setDraft((d) => ({ ...d, priorServiceYears: Number.isNaN(v) ? 0 : v }))}
-            hint={t("employees.usedToCalculateTheSeniority")}
-          />
-          <ToggleField
-            label={t("employees.requireAPhotoWhenClocking")}
-            checked={draft.requireSelfieAtClockIn}
-            onChange={(v) => setDraft((d) => ({ ...d, requireSelfieAtClockIn: v }))}
-          />
-          <ToggleField
-            label={t("employees.requireFingerprintVerificationWhenClocking")}
-            checked={draft.requireBiometricAtClockIn}
-            onChange={(v) => setDraft((d) => ({ ...d, requireBiometricAtClockIn: v }))}
-          />
-          <TextField
-            label={t("employees.deviceBadgeId")}
-            value={draft.deviceBadgeId}
-            onChange={(v) => setDraft((d) => ({ ...d, deviceBadgeId: v }))}
-            hint={t("employees.deviceBadgeIdHint")}
-          />
-          <SelectField
-            label={t("employees.pensionEntitlement")}
-            value={draft.hasPensionEntitlement}
-            onChange={(v) => setDraft((d) => ({ ...d, hasPensionEntitlement: v as EmployeeDraft["hasPensionEntitlement"] }))}
-            options={[
-              { value: "", label: t("employees.pensionNotRecorded") },
-              { value: "no", label: t("employees.pensionNo") },
-              { value: "yes", label: t("employees.pensionYes") },
-            ]}
-            hint={t("employees.pensionEntitlementHint")}
-          />
-          <ToggleField
-            label={t("employees.taxDisabilityExemption")}
-            checked={draft.taxDisabilityExemption}
-            onChange={(v) => setDraft((d) => ({ ...d, taxDisabilityExemption: v }))}
-          />
-
-          <h3 className="mt-[6px] font-display text-[13px] font-bold text-ink">{t("employees.address")}</h3>
-          <TextField label={t("employees.street")} value={draft.street} onChange={(v) => setDraft((d) => ({ ...d, street: v }))} />
-          <TextField label={t("employees.city")} value={draft.city} onChange={(v) => setDraft((d) => ({ ...d, city: v }))} />
-          <TextField label={t("employees.governorate")} value={draft.governorate} onChange={(v) => setDraft((d) => ({ ...d, governorate: v }))} />
-          <TextField label={t("employees.postalCode")} value={draft.postalCode} onChange={(v) => setDraft((d) => ({ ...d, postalCode: v }))} />
-
-          <h3 className="mt-[6px] font-display text-[13px] font-bold text-ink">{t("employees.emergencyContact")}</h3>
-          <TextField label={t("common.name")} value={draft.emergencyName} onChange={(v) => setDraft((d) => ({ ...d, emergencyName: v }))} />
-          <TextField label={t("employees.relationship")} value={draft.emergencyRelationship} onChange={(v) => setDraft((d) => ({ ...d, emergencyRelationship: v }))} />
-          <TextField label={t("employees.phoneNumber")} value={draft.emergencyPhone} onChange={(v) => setDraft((d) => ({ ...d, emergencyPhone: v }))} />
-          <TextField label={t("employees.alternatePhoneNumber")} value={draft.emergencyAltPhone} onChange={(v) => setDraft((d) => ({ ...d, emergencyAltPhone: v }))} />
-
-          <div className="mt-[6px] flex justify-end gap-[9px]">
-            <Button type="button" onClick={() => setFormOpen(false)}>
-              {t("common.cancel")}
-            </Button>
-            <Button type="submit" variant="primary">
-              {t("common.save")}
-            </Button>
-          </div>
-        </form>
-      </SidePanel>
     </div>
   );
 }

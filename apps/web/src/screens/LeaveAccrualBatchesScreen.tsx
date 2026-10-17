@@ -111,6 +111,10 @@ export function LeaveAccrualBatchesScreen() {
         </div>
       ) : null}
 
+      <p role="note" className="mb-[14px] rounded-md border border-info bg-info-soft px-[12px] py-[10px] text-[12.5px] leading-relaxed text-info-ink">
+        {t("hrPages.accrual.scheduleNote")}
+      </p>
+
       <div className="mb-[14px] flex flex-wrap gap-[6px]" role="radiogroup" aria-label={t("leaveAccrual.runType")}>
         {RUN_TYPE_FILTERS.map((filter) => (
           <Chip

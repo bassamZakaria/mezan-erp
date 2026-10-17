@@ -2,6 +2,8 @@ import type Database from "better-sqlite3";
 import type { App, AuthContextResolver, LicenseStateResolver, OwnerDigestBackupReading, PeriodCloseGuardSlot, ReconciliationControl, ReportsRoutesDeps, ScheduledDigestResult, SessionRegistry } from "@mezan/api";
 import type { EtaReceiptIssuer } from "./eta-receipts.js";
 import type { ScheduledJobStatus } from "./scheduled-jobs.js";
+import type { IntegrationsGateway } from "./integrations/gateway.js";
+import type { WebhookTransport } from "./integrations/webhook-transport.js";
 import type { ApprovalRequestRepository, AuditChainHeadReason, AuditQueryPort, AuditSink, DrainResult, EventBus, InventoryDomainEvent, PayrollBindings, UnitOfWork } from "@mezan/domain";
 import type {
   createScryptHasher,
@@ -103,11 +105,23 @@ export interface BackendModuleContext {
   readonly scheduledJobStatus: () => readonly ScheduledJobStatus[];
   readonly resolveLicenseState?: LicenseStateResolver;
   readonly cloudTenant: boolean;
+  readonly integrations: IntegrationsSurface | null;
+  readonly integrationsSlot: IntegrationsSlot;
   readonly addCloser: (closer: { close(): void }) => void;
   /** The exact deps `/reports` runs on, so an area that reproduces a report reproduces the on-screen figure. */
   readonly reports: ReportsRoutesDeps;
   // SECURITY: the database encryption key (desktop: sealed in the OS keychain). Only for deriving install keys; never logged or returned.
   readonly databaseKey?: string;
+}
+
+export interface IntegrationsSurface {
+  readonly tenantCode: string;
+  readonly transport?: WebhookTransport;
+}
+
+/** Filled by the integrations area; read by the backend handle so the cloud gateway can verify an API key without an HTTP route. */
+export interface IntegrationsSlot {
+  gateway?: IntegrationsGateway;
 }
 
 /** Filled by the owner-digest area; read by the backend handle so a host timer can run the tenant's schedule without an HTTP request. */

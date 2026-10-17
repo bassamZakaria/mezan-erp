@@ -431,7 +431,8 @@ import { createWarehouseUse } from "./warehouse-use.js";
 import { createDashboardRoutes } from "./dashboard-routes.js";
 import { createPreferencesRoutes } from "./preferences-routes.js";
 import { isEmptyTenant, SEED_ADMIN_USER_ID, seedIfEmpty, type SeedStores } from "./seed.js";
-import type { BackendModuleContext, OwnerDigestSlot } from "./module-context.js";
+import type { BackendModuleContext, IntegrationsSlot, IntegrationsSurface, OwnerDigestSlot } from "./module-context.js";
+import type { IntegrationsGateway } from "./integrations/gateway.js";
 import { mountPos } from "./pos/index.js";
 import { ENH_EMITTED_EVENT_CODES, mountEnhancements } from "./enh/index.js";
 import { createCrmOwnerDirectory, createCrmReminderJob, createCrmReminderService } from "./enh/e3-06.js";
@@ -785,6 +786,8 @@ export interface BackendHandle {
    * pausing the connection.
    */
   backupTo(destination: string): Promise<void>;
+  // SECURITY: not an HTTP route. Null unless the host built this backend with `integrations`.
+  readonly integrations?: IntegrationsGateway | null;
   /** Runs one scheduler tick now; null when this backend was built with scheduled jobs off. */
   runScheduledJobs(): Promise<readonly ScheduledJobResult[]> | null;
   /** Queues this tenant's scheduled owner digest for the day (idempotent per period and recipient); null when the tenant has not switched it on or this edition does not schedule it. */
@@ -910,6 +913,10 @@ export interface CreateBackendOptions {
   // and compared on every open; a database bound to another tenant is refused
   // before anything else is written. Omitted by the desktop, which has no tenants.
   readonly tenantBinding?: string;
+  // SECURITY (DEC-17 / DEC-27): the cloud edition's integration surface — `/integrations`, the
+  // API-key verifier its `/api/v1` gateway calls and the webhook dispatcher. Omitted by the
+  // desktop, whose backend must expose none of it.
+  readonly integrations?: IntegrationsSurface;
   // SECURITY: false for a tenant that already has books. A database with no
   // chart of accounts is then left with no row added to it: seeding it would
   // create the fallback admin account, and topping it up would leave four
@@ -1362,11 +1369,9 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
     });
   });
 
-  // DEC-17: no webhook dispatcher subscribes to this bus. `/webhooks` is not
-  // mounted (packages/api/src/app.ts), so nothing in the product can register a
-  // target — a dispatcher here would only be an outbound HTTP surface with no
-  // caller and no verifier. Re-add it in the same place if that decision is
-  // reversed and the mount comes back.
+  // DEC-17 / DEC-27: the webhook dispatcher subscribes to this bus only in the
+  // cloud edition's integrations area (enh/e3-09.ts), mounted when the host
+  // passes `integrations`. The desktop never does.
   // --- w8/workflow-ui — إعدادات الموافقات chain-builder + الموافقات inbox
   // (docs/archive/catalog/09 §سير العمل). `workflowConfigs` is also the REAL
   // `resolveConfig` behind `createDocumentWorkflowGate` below — a tenant that
@@ -5629,6 +5634,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
 
   const areaClosers: { close(): void }[] = [];
   const ownerDigestSlot: OwnerDigestSlot = {};
+  const integrationsSlot: IntegrationsSlot = {};
   const scheduledJobsStatus: { read: () => readonly ScheduledJobStatus[] } = { read: () => [] };
   const areaContext: BackendModuleContext = {
     app,
@@ -5703,6 +5709,8 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
     scheduledJobStatus: () => scheduledJobsStatus.read(),
     ...(options.resolveLicenseState ? { resolveLicenseState: options.resolveLicenseState } : {}),
     cloudTenant: options.tenantBinding !== undefined,
+    integrations: options.integrations ?? null,
+    integrationsSlot,
     addCloser: (closer) => areaClosers.push(closer),
     reports: reportsDeps,
     ...(options.connection?.key ? { databaseKey: options.connection.key } : {}),
@@ -5938,6 +5946,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
     backupTo: (destination) => sqlite.backup(destination).then(() => undefined),
     runScheduledJobs: () => scheduledJobs?.runNow() ?? null,
     runOwnerDigest: () => (ownerDigestSlot.run ? ownerDigestSlot.run() : Promise.resolve(null)),
+    integrations: integrationsSlot.gateway ?? null,
     async drain() {
       // The bridge's tasks call `scheduleSubmission()`, and a submission run
       // can queue more work, so neither one alone is "nothing left" — loop

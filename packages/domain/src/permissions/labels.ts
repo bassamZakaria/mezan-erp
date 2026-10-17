@@ -180,6 +180,7 @@ export const PERMISSION_ENTITY_LABELS = {
   pricing_guard: { ar: "رقابة الحد الأدنى للأسعار", en: "Price floor rules" },
   reorder: { ar: "إعادة الطلب", en: "Reorder" },
   health: { ar: "صحة النظام", en: "System health" },
+  integrations: { ar: "التكامل وواجهة البرمجة", en: "Integrations and API" },
   expiry: { ar: "الصلاحية والتشغيلات", en: "Expiry and batches" },
   owner_digest: { ar: "ملخص المالك", en: "Owner digest" },
   glance: { ar: "نظرة سريعة عن بعد", en: "Remote glance" },

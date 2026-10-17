@@ -66,11 +66,9 @@ describe("sessionSchema", () => {
     expect(result.success).toBe(true);
   });
 
-  it("rejects a session missing token", () => {
+  it("accepts a session with no token, which is how the cloud edition's cookie session reaches the browser", () => {
     const { token, ...rest } = session;
-    const result = sessionSchema.safeParse(rest);
-    expect(result.success).toBe(false);
-    if (!result.success) expect(result.error.flatten().fieldErrors).toHaveProperty("token");
+    expect(sessionSchema.safeParse(rest).success).toBe(true);
   });
 
   it("rejects an invalid branchScope — neither '*' nor an array", () => {

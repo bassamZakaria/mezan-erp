@@ -122,7 +122,7 @@ describe("a credential changed three times at once from the same current passwor
     const t = await signedInClerk();
     const change = (racer: number) => t.clerk("POST", "/profile/change-password", { currentPassword: "first-password", newPassword: `next-password-${racer}` });
 
-    const answers = await raced(change, (got) => expect(statuses(got)).toEqual([204, 401, 401]));
+    const answers = await raced(change, (got) => expect(statuses(got)).toEqual([204, 403, 403]));
 
     const winner = answers.findIndex((answer) => answer.status === 204);
     const again = await t.clerk("POST", "/profile/change-password", { currentPassword: `next-password-${winner}`, newPassword: "settled-password" });

@@ -19,6 +19,7 @@ import type {
   TenantExportOfferDTO,
   ExportTenantBackupRequestDTO,
   PlatformUnrecordedSecurityEventsDTO,
+  PlatformOperationsDTO,
   ProvisionResultDTO,
   ProvisionRetryRequestDTO,
   RecordPaymentRequestDTO,
@@ -71,6 +72,23 @@ export function useUnrecordedSecurityEventsQuery(): UseQueryResult<PlatformUnrec
       const res = await request("/security/unrecorded");
       if (!res.ok) throw new PlatformApiError(res.status, await readPlatformErrorMessage(res, t, "platform.security.loadFailed"));
       return res.json<PlatformUnrecordedSecurityEventsDTO>();
+    },
+  });
+}
+
+const OPERATIONS_REFRESH_MS = 60_000;
+
+export function usePlatformOperationsQuery(): UseQueryResult<PlatformOperationsDTO, PlatformApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = usePlatformApi();
+  return useQuery<PlatformOperationsDTO, PlatformApiError>({
+    queryKey: ["platform", "operations"],
+    enabled: session?.user.role === "owner",
+    refetchInterval: OPERATIONS_REFRESH_MS,
+    queryFn: async () => {
+      const res = await request("/operations");
+      if (!res.ok) throw new PlatformApiError(res.status, await readPlatformErrorMessage(res, t, "platform.operations.loadFailed"));
+      return res.json<PlatformOperationsDTO>();
     },
   });
 }

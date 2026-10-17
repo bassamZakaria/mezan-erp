@@ -1,12 +1,13 @@
 import { ClientErrorKindDTO, ClientErrorPlatformDTO, type ClientErrorReportDTO } from "@mezan/contracts";
 import type { Transport } from "../data/transport";
+import { DesktopErrorSource, reportDesktopError } from "../lib/desktop-error-reporter";
 
 export const CLIENT_ERRORS_PATH = "/client-errors";
 
 export type ClientErrorSend = (report: ClientErrorReportDTO) => Promise<void>;
 
 export interface ClientErrorReporterOptions {
-  readonly send: ClientErrorSend;
+  readonly send?: ClientErrorSend;
   readonly platform?: ClientErrorPlatformDTO;
   readonly appVersion?: string | null;
   readonly target?: Pick<Window, "addEventListener" | "removeEventListener">;
@@ -22,6 +23,35 @@ export interface ClientErrorContext {
 const REPEAT_WINDOW_MS = 60_000;
 const MAX_REPORTS_PER_PAGE = 20;
 const STACK_LINES = 30;
+const PENDING_KEPT = 20;
+
+const DESKTOP_SOURCE: Readonly<Record<ClientErrorKindDTO, DesktopErrorSource>> = {
+  [ClientErrorKindDTO.RouteError]: DesktopErrorSource.RouteBoundary,
+  [ClientErrorKindDTO.WindowError]: DesktopErrorSource.Error,
+  [ClientErrorKindDTO.UnhandledRejection]: DesktopErrorSource.UnhandledRejection,
+  [ClientErrorKindDTO.JsError]: DesktopErrorSource.Error,
+  [ClientErrorKindDTO.FatalJsError]: DesktopErrorSource.Error,
+};
+
+let sender: ClientErrorSend | null = null;
+const pending: ClientErrorReportDTO[] = [];
+
+function deliver(report: ClientErrorReportDTO): void {
+  if (!sender) {
+    if (pending.length < PENDING_KEPT) pending.push(report);
+    return;
+  }
+  void sender(report).catch(() => undefined);
+}
+
+/**
+ * Names where reports go once the app can reach its server (the API provider is mounted). Reports
+ * raised before that are held, up to twenty, and sent then.
+ */
+export function setClientErrorSend(next: ClientErrorSend | null): void {
+  sender = next;
+  if (next) for (const report of pending.splice(0)) deliver(report);
+}
 
 interface ActiveReporter {
   report(kind: ClientErrorKindDTO, error: unknown, context?: ClientErrorContext): void;
@@ -71,7 +101,9 @@ export function transportSender(transport: Transport, headers: () => Record<stri
 /**
  * Reports what crashes in the client to `POST /client-errors`: the route error boundary calls
  * {@link reportClientError}, and the window's `error` / `unhandledrejection` events are caught
- * here. SECURITY: a report carries the error's message and stack, the route and the app version —
+ * here. Every report is also handed to the desktop shell's log (a no-op outside Electron), so a
+ * desktop renderer error lands both in `mezan.log` and in the tenant's health console.
+ * SECURITY: a report carries the error's message and stack, the route and the app version —
  * never form values, query strings or storage. The same message is sent at most once a minute and
  * a page sends at most twenty, so a render loop cannot flood the server. Reporting never throws.
  */
@@ -94,18 +126,19 @@ export function installClientErrorReporter(options: ClientErrorReporterOptions):
         if ((previous !== undefined && at - previous < REPEAT_WINDOW_MS) || sent >= MAX_REPORTS_PER_PAGE) return;
         lastSent.set(fingerprint, at);
         sent += 1;
-        void options
-          .send({
-            platform,
-            kind,
-            message,
-            stack,
-            route: context.route ?? routeOf(),
-            appVersion: options.appVersion ?? null,
-            userAgent: typeof navigator === "undefined" ? null : navigator.userAgent,
-            requestId: context.requestId ?? requestIdOf(error),
-          })
-          .catch(() => undefined);
+        reportDesktopError(DESKTOP_SOURCE[kind], error);
+        const report: ClientErrorReportDTO = {
+          platform,
+          kind,
+          message,
+          stack,
+          route: context.route ?? routeOf(),
+          appVersion: options.appVersion ?? null,
+          userAgent: typeof navigator === "undefined" ? null : navigator.userAgent,
+          requestId: context.requestId ?? requestIdOf(error),
+        };
+        if (options.send) void options.send(report).catch(() => undefined);
+        else deliver(report);
       } catch {
         // INVARIANT: the error reporter must never become a second error.
       }

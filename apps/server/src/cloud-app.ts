@@ -15,9 +15,9 @@ import {
   type RecordedActivation,
 } from "@mezan/backend";
 import { BodyLimitRefusal, LogEvent, createJobRegistry, createLogger, createSessionRegistry, requestLogging, type JobRegistry } from "@mezan/api";
-import { SubscriptionStatusKind, TenantNotFoundError, type Tenant } from "@mezan/domain";
+import { HealthLevel, SubscriptionStatusKind, TenantNotFoundError, jobLevel, type Tenant } from "@mezan/domain";
 import { createSqliteSessionStore, emptyBooksScratch } from "@mezan/persistence";
-import { PUBLIC_API_BASE_PATH, type CreateTenantRequestDTO, type OwnerPinResetResultDTO, type ProvisionResultDTO, type ProvisionRetryRequestDTO } from "@mezan/contracts";
+import { HealthLevelDTO, PUBLIC_API_BASE_PATH, type CreateTenantRequestDTO, type OwnerPinResetResultDTO, type PlatformOperationsDTO, type ProvisionResultDTO, type ProvisionRetryRequestDTO } from "@mezan/contracts";
 import { booksScratchDir, createTenantRouter, requireOriginSecret, type TenantBooksScan, type TenantRouter } from "./tenant-router.js";
 import { answerTenantDbFileRefusal } from "./tenant-db-file.js";
 import { platformActor, provisionResultDTOOf, provisionTenant, PlanRequiredError } from "./provision-tenant.js";
@@ -137,6 +137,32 @@ function reportTenantBooks(scan: TenantBooksScan): void {
   log.info({ checked }, `tenant books at start: ${checked} checked${counts === "" ? "" : `: ${counts}`}`);
   for (const tenant of scan.refused) log.warn({ tenantId: tenant.id }, `tenant books: "${tenant.code}" (${tenant.id}) is ${tenant.standing}`);
   for (const tenant of scan.unread) log.warn({ tenantId: tenant.id }, `tenant books: "${tenant.code}" (${tenant.id}) could not be read`);
+}
+
+const LEVEL_DTO: Readonly<Record<HealthLevel, HealthLevelDTO>> = {
+  [HealthLevel.Ok]: HealthLevelDTO.Ok,
+  [HealthLevel.Warn]: HealthLevelDTO.Warn,
+  [HealthLevel.Critical]: HealthLevelDTO.Critical,
+  [HealthLevel.Unknown]: HealthLevelDTO.Unknown,
+};
+
+function operationsOf(at: Date, verdict: Readiness, jobs: JobRegistry, alerter: Alerter): PlatformOperationsDTO {
+  return {
+    generatedAt: at.toISOString(),
+    ready: verdict.ready,
+    checks: verdict.checks,
+    alertsConfigured: alerter.configured,
+    jobs: jobs.status().map((job) => ({
+      level: LEVEL_DTO[jobLevel({ lastError: job.lastError, lastRunAt: job.lastRunAt, lastOkAt: job.lastOkAt, intervalMs: job.intervalMs, now: at })],
+      kind: job.kind,
+      lastRunAt: job.lastRunAt,
+      lastOkAt: job.lastOkAt,
+      lastError: job.lastError,
+      lastRecorded: job.lastRecorded,
+      nextRunAt: job.nextRunAt,
+    })),
+    alerts: alerter.recent(),
+  };
 }
 
 export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptions = {}): Promise<CloudApp> {
@@ -277,6 +303,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
     handOverMailConfigured: mailer !== undefined,
     reconcileOwner: reconcileOwnerQuietly,
     reconcileOpenOwners: () => router.reconcileOpenOwners(),
+    operations: () => operationsOf(now(), readiness(), jobs, alerter),
     invalidateEntitlements: router.invalidate,
     cardCheckout: checkoutService
       ? {

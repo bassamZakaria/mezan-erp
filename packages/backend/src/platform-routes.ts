@@ -106,12 +106,12 @@ import {
   type CardCheckoutDTO,
   type CardCheckoutSweepResultDTO,
   type PlatformCardCheckoutsDTO,
+  type PlatformOperationsDTO,
 } from "@mezan/contracts";
-import { connectionTurn } from "@mezan/api";
+import { connectionTurn, createLogger } from "@mezan/api";
 import { OwnerPinResetOutcome } from "./owner-pin-reset-outcome.js";
 import type { PlatformHandle } from "./create-platform.js";
 import type { PlatformAuth } from "./platform-auth.js";
-import { createLogger } from "@mezan/api";
 
 const platformLog = createLogger("platform");
 
@@ -249,6 +249,7 @@ export interface CreatePlatformRoutesOptions {
   readonly reconcileOwner?: (tenant: Tenant) => Promise<void>;
   // CONTRACT: only tenants whose backend is already open. The list must not open every tenant's database to draw itself.
   readonly reconcileOpenOwners?: () => Promise<void>;
+  readonly operations?: () => PlatformOperationsDTO;
   readonly invalidateEntitlements: (code: string) => void;
   readonly idOf?: () => string;
   /** Absent when card checkout is not configured on this deployment; the routes then answer 503. */
@@ -1331,6 +1332,11 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
     } catch (err) {
       return domainErrorResponse(c, err);
     }
+  });
+
+  app.get("/operations", requireOwner, (c) => {
+    if (!options.operations) return c.json({ error: "OPERATIONS_UNAVAILABLE", message: "حالة التشغيل غير متاحة على هذا الخادم.", messageEn: "Operations status is not available on this server." }, 404);
+    return c.json(options.operations());
   });
 
   app.get("/security/unrecorded", requireOwner, (c) => {

@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import { AppProviders } from "./data/AppProviders";
 import { redirectLegacyHashRoute } from "./router/legacy-hash";
+import { ClientErrorReporting } from "./observability/ClientErrorReporting";
 import "./index.css";
 
 // Before the router reads the address: every URL saved while the shell routed
@@ -19,6 +20,7 @@ if (!rootEl) throw new Error("Root element #root not found");
 createRoot(rootEl).render(
   <StrictMode>
     <AppProviders>
+      <ClientErrorReporting />
       <App />
     </AppProviders>
   </StrictMode>,

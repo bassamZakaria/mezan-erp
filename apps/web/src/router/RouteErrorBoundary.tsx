@@ -1,6 +1,9 @@
+import { useEffect } from "react";
 import { isRouteErrorResponse, useLocation, useNavigate, useRouteError } from "react-router";
+import { ClientErrorKindDTO } from "@mezan/contracts";
 import { Button } from "@mezan/ui";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { reportClientError } from "../observability/client-error-reporter";
 
 const HTTP_UNAUTHENTICATED = 401;
 const HTTP_FORBIDDEN = 403;
@@ -47,6 +50,11 @@ export function RouteErrorBoundary() {
   const status = isRouteErrorResponse(error) ? error.status : null;
   const thrownMessage = status === null ? (error instanceof Error ? error.message : String(error)) : null;
   const refusal = status === null ? null : t(refusalDetailKey(status), { status });
+
+  useEffect(() => {
+    if (status !== null && status < HTTP_SERVER_ERRORS_FROM) return;
+    reportClientError(ClientErrorKindDTO.RouteError, error, { route: location.pathname });
+  }, [error, status, location.pathname]);
 
   return (
     <div

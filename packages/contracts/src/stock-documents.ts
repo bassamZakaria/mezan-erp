@@ -120,6 +120,7 @@ export const physicalCountLineSchema = z.object({
   countedQty: decimalString.nullable(),
   varianceQty: decimalString.nullable(),
   varianceValue: decimalString.nullable(),
+  recount: z.boolean().optional(),
 });
 
 /** Over/short rollup — `over*`/`short*` are positive magnitudes, `net = over − short`. */
@@ -169,6 +170,7 @@ export const physicalCountSchema = z.object({
   memo: z.string(),
   status: physicalCountStatusSchema,
   blind: z.boolean(),
+  zoned: z.boolean().optional(),
   lines: z.array(physicalCountLineSchema),
   /** Null while a blind count is still in progress. */
   variance: physicalCountVarianceSummarySchema.nullable(),

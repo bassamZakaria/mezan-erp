@@ -29,6 +29,7 @@ export enum SodConflictId {
   PayrollCalculateApprove = "payroll_calculate_approve",
   HrAdvanceCreateApprove = "hr_advance_create_approve",
   HrLeaveCreateApprove = "hr_leave_create_approve",
+  CountScanApprove = "count_scan_approve",
 }
 
 export interface SodConflictRule {
@@ -226,6 +227,17 @@ export const SOD_CONFLICT_RULES: readonly SodConflictRule[] = [
     checkerLabelEn: "Approve the request",
     sideA: ["hr.leave.create"],
     sideB: ["hr.leave.approve"],
+  },
+  {
+    id: SodConflictId.CountScanApprove,
+    labelAr: "عدّ المخزون بالمسح واعتماد الجرد",
+    labelEn: "Count stock by scanning and approve the count",
+    sideLabelAr: "عدّ المخزون",
+    sideLabelEn: "Count the stock",
+    checkerLabelAr: "اعتماد الجرد",
+    checkerLabelEn: "Approve the count",
+    sideA: ["inventory.count.scan"],
+    sideB: ["inventory.count.approve"],
   },
 ];
 

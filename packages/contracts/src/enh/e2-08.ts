@@ -1,6 +1,5 @@
 import { z } from "zod";
 import { isoDay } from "../iso-date.js";
-import { clientSuppliedId } from "../client-supplied-id.js";
 import { moneyString, nonNegativeMoneyString, quantityString } from "../money-string.js";
 
 // CONTRACT: same string values as the pricing-guard enums in @mezan/domain, which contracts may not import.
@@ -63,7 +62,7 @@ export const pricingGuardRuleInputSchema = z.object({
 });
 export type PricingGuardRuleInputDTO = z.infer<typeof pricingGuardRuleInputSchema>;
 
-export const createPricingGuardRuleSchema = pricingGuardRuleInputSchema.extend({ id: clientSuppliedId.optional() });
+export const createPricingGuardRuleSchema = pricingGuardRuleInputSchema;
 export type CreatePricingGuardRuleDTO = z.infer<typeof createPricingGuardRuleSchema>;
 
 export const setPricingGuardRuleStatusSchema = z.object({ status: z.nativeEnum(PricingGuardRuleStatusDTO) });

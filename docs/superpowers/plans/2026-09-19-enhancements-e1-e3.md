@@ -171,6 +171,15 @@ per-scan audit, live variance, recount flag, approve, then post through the exis
 Barcode, QB Enterprise mobile barcode. Reviewers: warehouse-keeper, client-wholesale, internal-auditor, a11y,
 designer. Flag: no phone-over-LAN on desktop.
 
+*Built (2026-10-17).* Sessions are zoned (`physical_count.zoned`, `physical_count_zone`, append-only `physical_count_scan`); the
+count-mode API lives at `/inventory/count-mode` and the screens at `count-mode` (counters) and `count-review` (supervisors).
+A zoned count accepts quantities only as scans (the classic sheet refuses typed totals), counters see only their assigned
+zones, a blind count shows live variance only to a reviewer who is not counting, a zone cannot be reviewed or approved by
+anyone who counted in it, and `complete` waits for every zone to be approved before the existing `generate-adjustment` posts
+the variance. Permissions: `inventory.count.scan`, `.assign`, `.review`, `.approve` (SoD pair scan/approve). **Flag, not built:**
+phones are not supported over the desktop LAN (the screen is for a paired till or a cloud tenant), and weight- or
+price-embedded EAN barcodes are not parsed — only the item's stored barcodes and its code resolve.
+
 **E2-11 Provisioning** — `roles/templates.ts` (Cashier, Accountant, Warehouse keeper, Sales rep, Manager,
 Auditor-read-only), each validated against the catalog and **SoD-clean** (E2-10). `POST /roles/from-template`,
 `POST /users/import` (dry run, row errors, one-time PIN sheet), `POST /users/:id/clone`. Ref: QB Enterprise

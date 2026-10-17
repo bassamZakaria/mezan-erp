@@ -39,6 +39,8 @@ export interface PhysicalCountLine {
   readonly unitCost: Money;
   /** Counted quantity — null until entered. */
   readonly countedQty: Qty | null;
+  /** A reviewer asked for this line to be counted again; cleared by the next count of it. */
+  readonly recount: boolean;
 }
 
 export interface PhysicalCount {
@@ -54,6 +56,8 @@ export interface PhysicalCount {
    * it until the session is closed (see `revealsSystemQty`).
    */
   readonly blind: boolean;
+  /** Counted through count-mode zones: quantities arrive only as scans, never as typed sheet totals. */
+  readonly zoned: boolean;
   readonly lines: readonly PhysicalCountLine[];
   readonly createdAt: string;
   readonly completedAt: string | null;
@@ -98,6 +102,10 @@ export interface StockBalanceReader {
   getBalanceDetail(itemId: string, warehouseId: string): Promise<{ readonly averageCost: Money }>;
 }
 
+export interface PhysicalCountCompletionGate {
+  assertCompletable(count: PhysicalCount): Promise<void>;
+}
+
 export class PhysicalCountNotFoundError extends Error {
   readonly code = "PHYSICAL_COUNT_NOT_FOUND";
   constructor(readonly id: string) {
@@ -134,6 +142,7 @@ export interface PhysicalCountServiceDeps {
   readonly stockLedger: StockBalanceReader;
   readonly adjustments: DocumentService<StockAdjustmentDocLine>;
   readonly numbering?: PhysicalCountNumberingHook;
+  readonly completionGate?: PhysicalCountCompletionGate;
   readonly now?: () => string;
 }
 
@@ -146,11 +155,18 @@ export interface StartPhysicalCountCommand {
   readonly itemIds: readonly string[];
   /** جرد أعمى — hide system quantities from the counter until the count closes. */
   readonly blind?: boolean;
+  readonly zoned?: boolean;
 }
 
 export interface RecordCountedQtyEntry {
   readonly itemId: string;
   readonly countedQty: Qty;
+}
+
+export interface PhysicalCountLineUpdate {
+  readonly itemId: string;
+  readonly countedQty: Qty | null;
+  readonly recount: boolean;
 }
 
 export interface GenerateAdjustmentCommand {
@@ -189,7 +205,7 @@ export class PhysicalCountService {
     for (const itemId of cmd.itemIds) {
       const systemQty = await this.deps.stockLedger.getBalance(itemId, cmd.warehouseId);
       const { averageCost } = await this.deps.stockLedger.getBalanceDetail(itemId, cmd.warehouseId);
-      lines.push({ itemId, systemQty, unitCost: averageCost, countedQty: null });
+      lines.push({ itemId, systemQty, unitCost: averageCost, countedQty: null, recount: false });
     }
     const countNo = this.deps.numbering ? (await this.deps.numbering.next()).formatted : null;
     const count: PhysicalCount = {
@@ -200,6 +216,7 @@ export class PhysicalCountService {
       memo: cmd.memo ?? "",
       status: "IN_PROGRESS",
       blind: cmd.blind ?? false,
+      zoned: cmd.zoned ?? false,
       lines,
       createdAt: this.now(),
       completedAt: null,
@@ -215,10 +232,32 @@ export class PhysicalCountService {
     if (count.status !== "IN_PROGRESS") {
       throw new InvalidPhysicalCountStatusError(id, count.status, ["IN_PROGRESS"]);
     }
+    if (count.zoned) {
+      throw new InvalidPhysicalCountError(id, "هذا الجرد مقسّم إلى مناطق: تُسجَّل الكميات بالمسح من شاشة الجرد بالباركود فقط.");
+    }
     const byItem = new Map(entries.map((e) => [e.itemId, e.countedQty] as const));
     const lines = count.lines.map((line) => {
       const countedQty = byItem.get(line.itemId);
-      return countedQty ? { ...line, countedQty } : line;
+      return countedQty ? { ...line, countedQty, recount: false } : line;
+    });
+    const next: PhysicalCount = { ...count, lines };
+    await this.deps.repo.update(next);
+    return next;
+  }
+
+  /**
+   * The count-mode seam: replaces the counted quantity (and recount flag) of
+   * the named lines. Scans, not this call, are the evidence behind each value.
+   */
+  async applyLineCounts(id: string, updates: readonly PhysicalCountLineUpdate[]): Promise<PhysicalCount> {
+    const count = await this.require(id);
+    if (count.status !== "IN_PROGRESS") {
+      throw new InvalidPhysicalCountStatusError(id, count.status, ["IN_PROGRESS"]);
+    }
+    const byItem = new Map(updates.map((u) => [u.itemId, u] as const));
+    const lines = count.lines.map((line) => {
+      const update = byItem.get(line.itemId);
+      return update ? { ...line, countedQty: update.countedQty, recount: update.recount } : line;
     });
     const next: PhysicalCount = { ...count, lines };
     await this.deps.repo.update(next);
@@ -234,6 +273,7 @@ export class PhysicalCountService {
     if (count.lines.some((l) => l.countedQty === null)) {
       throw new InvalidPhysicalCountError(id, "لا يمكن إنهاء الجرد قبل إدخال الكميات المعدودة لكل الأصناف.");
     }
+    await this.deps.completionGate?.assertCompletable(count);
     const next: PhysicalCount = { ...count, status: "COMPLETED", completedAt: this.now() };
     await this.deps.repo.update(next);
     return next;

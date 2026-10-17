@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS physical_count (
   memo                   TEXT NOT NULL,
   status                 TEXT NOT NULL,
   blind                  INTEGER NOT NULL DEFAULT 0,
+  zoned                  INTEGER NOT NULL DEFAULT 0,
   lines_json             TEXT NOT NULL,
   created_at             TEXT NOT NULL,
   completed_at           TEXT,
@@ -43,6 +44,7 @@ interface CountRow {
   memo: string;
   status: string;
   blind: number;
+  zoned: number;
   lines_json: string;
   created_at: string;
   completed_at: string | null;
@@ -54,6 +56,7 @@ interface WireLine {
   systemQty: string;
   unitCost?: string;
   countedQty: string | null;
+  recount?: boolean;
 }
 
 function lineToWire(line: PhysicalCountLine): WireLine {
@@ -62,6 +65,7 @@ function lineToWire(line: PhysicalCountLine): WireLine {
     systemQty: line.systemQty.toString(),
     unitCost: line.unitCost.toString(),
     countedQty: line.countedQty ? line.countedQty.toString() : null,
+    recount: line.recount,
   };
 }
 
@@ -71,6 +75,7 @@ function lineFromWire(wire: WireLine): PhysicalCountLine {
     systemQty: Qty.fromMajor(wire.systemQty),
     unitCost: wire.unitCost ? Money.fromMajor(wire.unitCost) : Money.zero(),
     countedQty: wire.countedQty ? Qty.fromMajor(wire.countedQty) : null,
+    recount: wire.recount === true,
   };
 }
 
@@ -83,6 +88,7 @@ function toRow(count: PhysicalCount): Record<string, unknown> {
     memo: count.memo,
     status: count.status,
     blind: count.blind ? 1 : 0,
+    zoned: count.zoned ? 1 : 0,
     lines_json: JSON.stringify(count.lines.map(lineToWire)),
     created_at: count.createdAt,
     completed_at: count.completedAt,
@@ -100,6 +106,7 @@ function fromRow(row: CountRow): PhysicalCount {
     memo: row.memo,
     status: row.status as PhysicalCountStatus,
     blind: row.blind === 1,
+    zoned: row.zoned === 1,
     lines: wireLines.map(lineFromWire),
     createdAt: row.created_at,
     completedAt: row.completed_at,
@@ -116,6 +123,9 @@ function addMissingColumns(sqlite: Database.Database): void {
   if (!columns.some((c) => c.name === "blind")) {
     sqlite.exec(`ALTER TABLE physical_count ADD COLUMN blind INTEGER NOT NULL DEFAULT 0`);
   }
+  if (!columns.some((c) => c.name === "zoned")) {
+    sqlite.exec(`ALTER TABLE physical_count ADD COLUMN zoned INTEGER NOT NULL DEFAULT 0`);
+  }
 }
 
 class SqlitePhysicalCountStore implements PhysicalCountRepository {
@@ -128,14 +138,14 @@ class SqlitePhysicalCountStore implements PhysicalCountRepository {
     addMissingColumns(sqlite);
     this.insert = sqlite.prepare(`
       INSERT INTO physical_count
-        (id, count_no, warehouse_id, date, memo, status, blind, lines_json, created_at, completed_at, generated_adjustment_id)
+        (id, count_no, warehouse_id, date, memo, status, blind, zoned, lines_json, created_at, completed_at, generated_adjustment_id)
       VALUES
-        (@id, @count_no, @warehouse_id, @date, @memo, @status, @blind, @lines_json, @created_at, @completed_at, @generated_adjustment_id)
+        (@id, @count_no, @warehouse_id, @date, @memo, @status, @blind, @zoned, @lines_json, @created_at, @completed_at, @generated_adjustment_id)
     `);
     this.upsert = sqlite.prepare(`
       UPDATE physical_count SET
         count_no = @count_no, warehouse_id = @warehouse_id, date = @date, memo = @memo,
-        status = @status, blind = @blind, lines_json = @lines_json, completed_at = @completed_at,
+        status = @status, blind = @blind, zoned = @zoned, lines_json = @lines_json, completed_at = @completed_at,
         generated_adjustment_id = @generated_adjustment_id
       WHERE id = @id
     `);

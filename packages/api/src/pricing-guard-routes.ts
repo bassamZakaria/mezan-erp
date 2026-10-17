@@ -220,7 +220,7 @@ export function createPricingGuardRoutes(deps: PricingGuardRoutesDeps, resolveAu
     const refused = await refuseUnknownTargets(c, parsed.data);
     if (refused) return refused;
     try {
-      const rule = createPricingGuardRule(parsed.data.id ?? idGen(), ruleInputOf(parsed.data), actorOf(c), now());
+      const rule = createPricingGuardRule(idGen(), ruleInputOf(parsed.data), actorOf(c), now());
       await deps.rules.insert(rule);
       await recordFieldChanges(deps.audit, c, {
         entity: { module: AUDIT_MODULE, entityType: RULE_ENTITY, entityId: rule.id },

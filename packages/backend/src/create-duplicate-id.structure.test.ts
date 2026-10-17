@@ -414,6 +414,7 @@ const NOT_A_CREATE: Record<string, string> = {
   parseBarcodeRequestSchema: "the code is a scanned barcode to decode; nothing is stored",
   createProductTemplateSchema: "the row's key is an id the server mints; the code is a unique attribute with its own refusal",
   createRoleSchema: "the row's key is an id the server mints; the code is a unique attribute with its own refusal",
+  createRoleFromTemplateSchema: "templateId names a built-in template to copy; the role's id is minted by the server and its code has its own refusal",
   updateBranchSchema: UPDATE_BY_PATH,
   updateCustomerSchema: UPDATE_BY_PATH,
   updatePriceListSchema: UPDATE_BY_PATH,

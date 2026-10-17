@@ -35,6 +35,9 @@ export interface DesktopBackupHealth {
   readonly lastGoodDrillAt: string | null;
   readonly newestDrillOutcome: string | null;
   readonly diskFreeBytes: number | null;
+  /** Null when the host did not report it; false means no recovery secret was ever set. */
+  readonly recoverySet: boolean | null;
+  readonly recoverySetAt: string | null;
 }
 
 export function useDesktopBackupHealth(): UseQueryResult<DesktopBackupHealth | null, Error> {
@@ -54,6 +57,8 @@ export function useDesktopBackupHealth(): UseQueryResult<DesktopBackupHealth | n
         lastGoodDrillAt: result.lastGoodDrillAt,
         newestDrillOutcome: result.drills[0]?.outcome ?? null,
         diskFreeBytes: result.diskFreeBytes ?? null,
+        recoverySet: result.recovery ? result.recovery.mode !== null : null,
+        recoverySetAt: result.recovery?.setAt ?? null,
       };
     },
   });

@@ -15,6 +15,10 @@ import {
   type StatusResult,
 } from "./backup-bridge";
 import { PortableImportPanel } from "./PortableImportPanel";
+import { BackupProtectionPanel } from "./BackupProtectionPanel";
+import { useBackupRecovery, useRefreshBackupRecovery } from "./useBackupRecovery";
+
+export const BACKUP_PROTECTION_ANCHOR = "backup-protection";
 
 /**
  * النسخ الاحتياطي والاستعادة — the screen a restore was missing.
@@ -110,6 +114,9 @@ export function BackupRestorePage() {
   /** Per-action, never a page-wide flag: two buttons must not disable each other. */
   const [running, setRunning] = useState<"revert" | "export" | "drill" | "target" | null>(null);
   const [status, setStatus] = useState<Extract<StatusResult, { ok: true }> | null>(null);
+  const protection = useBackupRecovery();
+  const refreshProtection = useRefreshBackupRecovery();
+  const recovery = protection.data?.recovery ?? null;
 
   function reasonLabel(reason: string | null): string {
     if (reason === null) return "—";
@@ -298,6 +305,37 @@ export function BackupRestorePage() {
         </p>
       ) : null}
 
+      {recovery && recovery.mode === null && recovery.keyStoreAvailable ? (
+        <div role="alert" className="mb-[12px] rounded-[8px] border border-danger bg-danger-soft p-[12px_14px] text-danger-ink">
+          <div className="text-[13px] font-semibold">{t("backupProtection.banner.title")}</div>
+          <p className="mt-[4px] text-[12.5px]">{t("backupProtection.banner.body")}</p>
+          <div className="mt-[8px]">
+            <Button
+              variant="primary"
+              onClick={() => document.getElementById(BACKUP_PROTECTION_ANCHOR)?.scrollIntoView({ behavior: "smooth", block: "start" })}
+            >
+              {t("backupProtection.banner.action")}
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
+      {recovery && token ? (
+        <Card id={BACKUP_PROTECTION_ANCHOR} className="mb-[16px] p-[18px]">
+          <div className="text-[13px] font-semibold text-ink">{t("backupProtection.title")}</div>
+          <div className="mt-[6px]">
+            <BackupProtectionPanel
+              sessionToken={token}
+              recovery={recovery}
+              onSaved={() => {
+                void refreshProtection();
+                void refresh();
+              }}
+            />
+          </div>
+        </Card>
+      ) : null}
+
       <Card className="mb-[16px] p-[18px]">
         <div className="flex flex-wrap items-center justify-between gap-[12px]">
           <div>
@@ -415,6 +453,14 @@ export function BackupRestorePage() {
                 {t("secondTarget.lastFailed", { date: fmt.dateTime(secondTarget.lastCopyAt) })}
               </p>
             )
+          ) : null}
+          {secondTarget.dir && secondTarget.lastCopyOk && secondTarget.lastCopyPortable === false ? (
+            <p role="alert" className="mt-[4px] text-[12px] text-warning-ink">
+              {t("backupProtection.lastCopyNotPortable")}
+            </p>
+          ) : null}
+          {secondTarget.dir && secondTarget.lastCopyOk && secondTarget.lastCopyPortable === true ? (
+            <p className="mt-[4px] text-[12px] text-success-ink">{t("backupProtection.lastCopyPortable")}</p>
           ) : null}
           <div className="mt-[12px] flex flex-wrap items-center gap-[8px]">
             <Button variant="default" disabled={running !== null} onClick={() => void handleSecondTarget("choose")}>

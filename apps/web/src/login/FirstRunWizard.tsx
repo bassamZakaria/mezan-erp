@@ -19,6 +19,10 @@ import {
 import { useLicenceImport } from "../data/license-hooks";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { PortableImportPanel } from "../settings/PortableImportPanel";
+import { BackupProtectionPanel } from "../settings/BackupProtectionPanel";
+import { backupBridge } from "../settings/backup-bridge";
+import { useBackupRecovery, useRefreshBackupRecovery } from "../settings/useBackupRecovery";
+import { useApi } from "../data/ApiContext";
 
 /**
  * The base data one idempotent `POST /bootstrap/seed` creates. Each row's
@@ -42,14 +46,29 @@ const SEED_ROWS: readonly { key: SeedCountKey; labelKey: AppTranslationKey; hint
   { key: "warehouses", labelKey: "firstRun.mainWarehouse", hintKey: "firstRun.warehouseHint" },
 ];
 
-const STEPS = [
-  { key: "activate", labelKey: "firstRun.activateTheLicence" },
-  { key: "admin", labelKey: "firstRun.administratorAccount" },
-  { key: "seed", labelKey: "firstRun.coreData" },
-  { key: "import", labelKey: "firstRun.import" },
-] as const satisfies readonly { key: string; labelKey: AppTranslationKey }[];
+export enum FirstRunStep {
+  Activate = "activate",
+  Admin = "admin",
+  Protect = "protect",
+  Seed = "seed",
+  Import = "import",
+}
 
-type StepKey = (typeof STEPS)[number]["key"];
+const ALL_STEPS: readonly { key: FirstRunStep; labelKey: AppTranslationKey }[] = [
+  { key: FirstRunStep.Activate, labelKey: "firstRun.activateTheLicence" },
+  { key: FirstRunStep.Admin, labelKey: "firstRun.administratorAccount" },
+  { key: FirstRunStep.Protect, labelKey: "backupProtection.firstRun.step" },
+  { key: FirstRunStep.Seed, labelKey: "firstRun.coreData" },
+  { key: FirstRunStep.Import, labelKey: "firstRun.import" },
+];
+
+/**
+ * «حماية النسخ الاحتياطية» exists only where the main process can seal a
+ * recovery key — the desktop edition. The browser build never shows the step.
+ */
+function wizardSteps(): readonly { key: FirstRunStep; labelKey: AppTranslationKey }[] {
+  return backupBridge()?.setRecovery ? ALL_STEPS : ALL_STEPS.filter((step) => step.key !== FirstRunStep.Protect);
+}
 
 export interface FirstRunWizardProps {
   onFinish: () => void;
@@ -57,11 +76,17 @@ export interface FirstRunWizardProps {
   onOwnerSubmitted?: () => void;
 }
 
-function StepIndicator({ currentIndex }: { currentIndex: number }) {
+function StepIndicator({
+  steps,
+  currentIndex,
+}: {
+  steps: readonly { key: FirstRunStep; labelKey: AppTranslationKey }[];
+  currentIndex: number;
+}) {
   const { t } = useAppTranslation();
   return (
     <ol aria-label={t("firstRun.steps")} className="flex items-center gap-[8px]">
-      {STEPS.map((step, index) => {
+      {steps.map((step, index) => {
         const isDone = index < currentIndex;
         const isActive = index === currentIndex;
         return (
@@ -79,7 +104,7 @@ function StepIndicator({ currentIndex }: { currentIndex: number }) {
               {isDone ? "✓" : index + 1}
             </span>
             <span className={`text-[12px] font-semibold ${isActive ? "text-ink" : "text-ink-faint"}`}>{t(step.labelKey)}</span>
-            {index < STEPS.length - 1 ? <span aria-hidden className="mx-[4px] h-px w-[20px] bg-border" /> : null}
+            {index < steps.length - 1 ? <span aria-hidden className="mx-[4px] h-px w-[20px] bg-border" /> : null}
           </li>
         );
       })}
@@ -102,7 +127,15 @@ function StepIndicator({ currentIndex }: { currentIndex: number }) {
 export function FirstRunWizard({ onFinish, onCancel, onOwnerSubmitted }: FirstRunWizardProps) {
   const { t } = useAppTranslation();
   const [stepIndex, setStepIndex] = useState(0);
-  const step: StepKey = (STEPS[stepIndex] ?? STEPS[0]).key;
+  const [steps] = useState(wizardSteps);
+  const step: FirstRunStep = (steps[stepIndex] ?? steps[0])?.key ?? FirstRunStep.Activate;
+  const { session } = useApi();
+  const protection = useBackupRecovery();
+  const refreshProtection = useRefreshBackupRecovery();
+  const protectionReading = protection.data ?? null;
+  const protectionUnavailable =
+    protection.isError || (protection.isSuccess && protectionReading === null) || protectionReading?.recovery.keyStoreAvailable === false;
+  const protectionDone = protectionReading?.recovery.mode != null;
 
   const seedMutation = useBootstrapSeed();
   const seedStatus = useBootstrapStatus();
@@ -180,7 +213,7 @@ export function FirstRunWizard({ onFinish, onCancel, onOwnerSubmitted }: FirstRu
   }
 
   function goNext() {
-    setStepIndex((i) => Math.min(i + 1, STEPS.length - 1));
+    setStepIndex((i) => Math.min(i + 1, steps.length - 1));
   }
 
   function goBack() {
@@ -228,10 +261,10 @@ export function FirstRunWizard({ onFinish, onCancel, onOwnerSubmitted }: FirstRu
         </div>
 
         <div className="mb-[22px] overflow-x-auto">
-          <StepIndicator currentIndex={stepIndex} />
+          <StepIndicator steps={steps} currentIndex={stepIndex} />
         </div>
 
-        {step === "activate" ? (
+        {step === FirstRunStep.Activate ? (
           <section aria-label={t("firstRun.activateTheLicence")}>
             <h2 className="font-display text-[15px] font-bold text-ink">{t("firstRun.activateTheLicence")}</h2>
             <p className="mt-[4px] text-[12.5px] text-ink-muted">{t("firstRun.licenceFileHint")}</p>
@@ -288,7 +321,7 @@ export function FirstRunWizard({ onFinish, onCancel, onOwnerSubmitted }: FirstRu
           </section>
         ) : null}
 
-        {step === "admin" ? (
+        {step === FirstRunStep.Admin ? (
           <section aria-label={t("firstRun.createTheAdministratorAccount")}>
             <h2 className="font-display text-[15px] font-bold text-ink">{t("firstRun.createTheAdministratorAccount")}</h2>
             <p className="mt-[4px] text-[12.5px] text-ink-muted">{t("firstRun.thisAccountWillHoldFull")}</p>
@@ -364,7 +397,29 @@ export function FirstRunWizard({ onFinish, onCancel, onOwnerSubmitted }: FirstRu
           </section>
         ) : null}
 
-        {step === "seed" ? (
+        {step === FirstRunStep.Protect ? (
+          <section aria-label={t("backupProtection.title")}>
+            <h2 className="font-display text-[15px] font-bold text-ink">{t("backupProtection.title")}</h2>
+            <div className="mt-[8px]">
+              {protectionReading && session?.token ? (
+                <BackupProtectionPanel
+                  sessionToken={session.token}
+                  recovery={protectionReading.recovery}
+                  onSaved={() => void refreshProtection()}
+                />
+              ) : protectionUnavailable ? (
+                <p className="text-[12.5px] text-ink-muted">{t("backupProtection.firstRun.unavailable")}</p>
+              ) : (
+                <p className="text-[12.5px] text-ink-muted">{t("common.loading")}</p>
+              )}
+            </div>
+            {!protectionDone && !protectionUnavailable ? (
+              <p className="mt-[10px] text-[11.5px] text-ink-faint">{t("backupProtection.firstRun.required")}</p>
+            ) : null}
+          </section>
+        ) : null}
+
+        {step === FirstRunStep.Seed ? (
           <section aria-label={t("firstRun.seedTheCoreData")}>
             <div className="flex flex-wrap items-center justify-between gap-[10px]">
               <h2 className="font-display text-[15px] font-bold text-ink">{t("firstRun.seedTheCoreData")}</h2>
@@ -401,7 +456,7 @@ export function FirstRunWizard({ onFinish, onCancel, onOwnerSubmitted }: FirstRu
           </section>
         ) : null}
 
-        {step === "import" ? (
+        {step === FirstRunStep.Import ? (
           <section aria-label={t("firstRun.importData")}>
             <h2 className="font-display text-[15px] font-bold text-ink">{t("firstRun.importDataOptional")}</h2>
             <p className="mt-[4px] text-[12.5px] text-ink-muted">
@@ -423,7 +478,7 @@ export function FirstRunWizard({ onFinish, onCancel, onOwnerSubmitted }: FirstRu
                 {t("common.back")}
               </Button>
             ) : null}
-            {step === "activate" ? (
+            {step === FirstRunStep.Activate ? (
               // Never gated on the licence. A shop without a file yet must still
               // be able to finish setting up and read its data — the write gate
               // is what enforces the licence, not this button.
@@ -431,17 +486,22 @@ export function FirstRunWizard({ onFinish, onCancel, onOwnerSubmitted }: FirstRu
                 {t("firstRun.next")}
               </Button>
             ) : null}
-            {step === "admin" ? (
+            {step === FirstRunStep.Admin ? (
               <Button type="button" variant="primary" onClick={handleAdminNext}>
                 {t("firstRun.next")}
               </Button>
             ) : null}
-            {step === "seed" ? (
+            {step === FirstRunStep.Protect ? (
+              <Button type="button" variant="primary" disabled={!protectionDone && !protectionUnavailable} onClick={goNext}>
+                {t("firstRun.next")}
+              </Button>
+            ) : null}
+            {step === FirstRunStep.Seed ? (
               <Button type="button" variant="primary" disabled={!allSeeded} onClick={goNext}>
                 {t("firstRun.next")}
               </Button>
             ) : null}
-            {step === "import" ? (
+            {step === FirstRunStep.Import ? (
               <Button type="button" variant="primary" onClick={onFinish}>
                 {t("firstRun.finishAndGoIntoThe")}
               </Button>

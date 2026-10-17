@@ -44,6 +44,7 @@ import {
 import { entityName } from "../lib/entity-names";
 import { useContractingExceptionSummary } from "../data/contracting-controls-hooks";
 import { monthEndIsoOf, monthStartIsoOf } from "../lib/dates";
+import { BackupProtectionNotice } from "../settings/BackupProtectionNotice";
 
 type QuickAction = { labelKey: AppTranslationKey; screen: ScreenKey; permission: string; intent?: ScreenIntentInput; primary?: boolean };
 
@@ -467,6 +468,8 @@ export function DashboardScreen() {
           ))}
         </div>
       </div>
+
+      <BackupProtectionNotice />
 
       {cockpitFirst ? cockpit : null}
 

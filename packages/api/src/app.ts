@@ -1043,10 +1043,23 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     if (!can(await resolveAuth(c), permission)) return;
     const body: unknown = await c.req.json().catch(() => null);
     if (body === null || typeof body !== "object") return;
-    const { password, pin } = body as { password?: unknown; pin?: unknown };
+    const { password, pin, currentPin, currentPassword } = body as { password?: unknown; pin?: unknown; currentPin?: unknown; currentPassword?: unknown };
     const toHash = [password, pin].filter((secret): secret is string => typeof secret === "string" && secret !== "");
-    if (toHash.length === 0) return;
-    return secrets.precompute({ hash: toHash });
+    const toVerify = await ownSecretsToVerify(c, currentPin, currentPassword);
+    if (toHash.length === 0 && toVerify.length === 0) return;
+    return secrets.precompute({ hash: toHash, verify: toVerify });
+  }
+
+  async function ownSecretsToVerify(c: Context, currentPin: unknown, currentPassword: unknown): Promise<[string, string][]> {
+    if (c.req.method !== MutatingMethod.Put) return [];
+    const targetId = /\/users\/([^/]+)$/.exec(c.req.path)?.[1];
+    if (!targetId || (await resolveAuth(c)).userId !== decodeURIComponent(targetId)) return [];
+    const target = await uow.users.findById(decodeURIComponent(targetId));
+    if (!target) return [];
+    const pairs: [string, string][] = [];
+    if (typeof currentPin === "string" && target.pinHash) pairs.push([currentPin, target.pinHash]);
+    if (typeof currentPassword === "string") pairs.push([currentPassword, target.passwordHash]);
+    return pairs;
   }
 
   const app = new Hono();

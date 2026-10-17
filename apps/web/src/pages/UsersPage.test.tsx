@@ -230,6 +230,28 @@ describe("UsersPage", () => {
     );
   });
 
+  it("asks the signed-in user for their current PIN when they edit their own row, and sends it with the save", () => {
+    const onSave = vi.fn().mockResolvedValue({ ok: true });
+    const self = { ...inactiveUser, status: "active" as const };
+    renderPage({ users: [self], onSave, currentUserId: self.id });
+
+    fireEvent.click(screen.getByText(self.nameAr));
+    fireEvent.change(screen.getByPlaceholderText("123456"), { target: { value: "482913" } });
+    fireEvent.change(screen.getByLabelText(/^رمز PIN الحالي/), { target: { value: "13a5790" } });
+    fireEvent.click(screen.getByRole("button", { name: "حفظ المستخدم" }));
+
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ pin: "482913", currentPin: "135790" }), self.id);
+  });
+
+  it("does not ask for a current PIN on somebody else's row", () => {
+    const self = { ...inactiveUser, status: "active" as const };
+    renderPage({ users: [self], currentUserId: "someone-else" });
+
+    fireEvent.click(screen.getByText(self.nameAr));
+    expect(screen.getByPlaceholderText("123456")).toBeInTheDocument();
+    expect(screen.queryByLabelText(/^رمز PIN الحالي/)).toBeNull();
+  });
+
   it("toggling one branch checkbox off changes only that branch — the sibling stays checked, not cleared", () => {
     const onSave = vi.fn().mockResolvedValue({ ok: true });
     renderPage({ users: [allScopeUser], branches: twoBranches, warehouses: twoWarehouses, onSave });

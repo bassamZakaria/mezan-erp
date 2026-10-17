@@ -469,6 +469,7 @@ export function AppLayout() {
       phone: draft.phone.trim() === "" ? null : draft.phone,
       password: draft.password.trim() === "" ? undefined : draft.password,
       pin: draft.pin.trim() === "" ? undefined : draft.pin,
+      ...(draft.currentPin ? { currentPin: draft.currentPin } : {}),
       roleId: draft.roleId,
       isCompanyAdmin: draft.isCompanyAdmin,
       employeeId: draft.employeeId,
@@ -697,6 +698,7 @@ export function AppLayout() {
           warehouses={warehouses}
           employees={employees}
           onSave={handleSaveUser}
+          currentUserId={session?.userId ?? null}
           onToggleStatus={handleToggleUserStatus}
           onUnlock={handleUnlockUser}
           onErase={handleEraseUser}

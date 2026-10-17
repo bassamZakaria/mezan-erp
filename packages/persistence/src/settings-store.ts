@@ -80,7 +80,10 @@ class SqliteSettingsStore implements SettingsRepository {
     if (!row) return;
     const stored = JSON.parse(row.data) as Partial<TenantSettings>;
     if (!stored.smtpPassword || isSealedSecret(stored.smtpPassword)) return;
-    this.write({ ...stored, smtpPassword: this.sealPassword(stored.smtpPassword) });
+    // Only if the row is still the one read: a save from another process in between already sealed it.
+    this.sqlite
+      .prepare(`UPDATE tenant_settings SET data = ?, updated_at = ? WHERE id = ? AND data = ?`)
+      .run(JSON.stringify({ ...stored, smtpPassword: this.sealPassword(stored.smtpPassword) }), new Date().toISOString(), SETTINGS_ROW_ID, row.data);
   }
 
   private write(data: Partial<TenantSettings>): void {

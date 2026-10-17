@@ -234,7 +234,7 @@ export interface SmtpSendOptions {
 }
 
 const PUBLIC_SMTP_PORTS: ReadonlySet<number> = new Set([25, 465, 587]);
-const MAIL_HOST = /^[A-Za-z0-9.:[\]-]+$/;
+const MAIL_HOST = /^[A-Za-z0-9_.:[\]-]+$/;
 const MAILBOX = /^[^\s<>()@",;:\\[\]]+@[^\s<>()@",;:\\[\]]+\.[^\s<>()@",;:\\[\]]+$/;
 
 const REFUSED_DESTINATION =

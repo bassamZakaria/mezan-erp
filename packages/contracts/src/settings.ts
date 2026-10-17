@@ -73,7 +73,7 @@ export const tenantSettingsSchema = z.object({
 
   smtpEnabled: z.boolean(),
   // SECURITY: written into EHLO verbatim — no whitespace or CR/LF may reach the command line.
-  smtpHost: z.string().trim().regex(/^[A-Za-z0-9.:[\]-]*$/),
+  smtpHost: z.string().trim().regex(/^[A-Za-z0-9_.:[\]-]*$/),
   smtpPort: z.number().int().min(1).max(65535),
   smtpSecurity: z.enum(["NONE", "STARTTLS", "TLS"]),
   smtpUsername: z.string(),

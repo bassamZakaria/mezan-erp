@@ -1141,17 +1141,21 @@ function SubmissionsTab({ statusKeys }: { statusKeys: Record<EtaSubmissionStatus
     }
   }
 
-  function refreshOne(id: string) {
+  async function refreshOne(id: string) {
     if (pendingId !== null) return;
     setNotice(null);
     setActionError(null);
     setAuthorityUnreachable(false);
     setPendingId(id);
-    refreshMutation.mutate(id, {
-      onSuccess: (result) => setAuthorityUnreachable(result.authorityUnreachable),
-      onError: (err) => setActionError(errorMessage(err, t("eta.refreshFailed"))),
-      onSettled: () => setPendingId(null),
-    });
+    try {
+      const result = await refreshMutation.mutateAsync(id);
+      setAuthorityUnreachable(result.authorityUnreachable);
+    } catch (err) {
+      setActionError(errorMessage(err, t("eta.refreshFailed")));
+      return RowActionOutcome.Refused;
+    } finally {
+      setPendingId(null);
+    }
   }
 
   async function confirmRecordUuid() {

@@ -85,6 +85,27 @@ export const scenario: ScenarioFragment = {
       checkEq("20 units are on hand", received.onHand, 20);
       checkEq("at a blended WAC of (4×30 + 6×20 + 10×26) / 20", received.averageCost, 25);
 
+      const alertsOf = async () => {
+        const body = (await req("GET", "/inventory/expiry/alerts")).body;
+        return {
+          due: (body?.due ?? []).filter((r: any) => r.itemId === ITEM),
+          log: (body?.log ?? []).filter((l: any) => l.itemId === ITEM),
+          nearExpiryDays: n(body?.nearExpiryDays),
+        };
+      };
+      check("the expiry scan runs on demand", (await req("POST", "/inventory/expiry/scan", {})).ok);
+      const alerts = await alertsOf();
+      const dueOf = (batchNo: string) => alerts.due.find((r: any) => r.batchNo === batchNo);
+      same("the old lot is due as expired", dueOf(LOT_EXPIRED)?.status, "expired");
+      checkEq("for its 4 units", n(dueOf(LOT_EXPIRED)?.qty), 4);
+      same("the 30-day lot is due as near expiry", dueOf(LOT_NEAR)?.status, "near_expiry");
+      check("the 200-day lot is outside the warning window and not due", 200 > alerts.nearExpiryDays && !dueOf(LOT_FAR), JSON.stringify(alerts.due));
+      check(
+        "and the scan logged exactly one alert per due lot",
+        alerts.log.length === 2 && alerts.log.some((l: any) => l.batchNo === LOT_EXPIRED && l.kind === "expired") && alerts.log.some((l: any) => l.batchNo === LOT_NEAR && l.kind === "near_expiry"),
+        JSON.stringify(alerts.log),
+      );
+
       const blocked = await fefo("3");
       same("the FEFO preview says the next issue is blocked by expired stock", blocked?.blockedByExpired, true);
       checkEq("naming the 4 expired units", n(blocked?.expiredQty), 4);
@@ -139,6 +160,8 @@ export const scenario: ScenarioFragment = {
       checkEq("the near lot keeps 3", n((after?.slices ?? []).find((s: any) => s.batchNo === LOT_NEAR)?.available), 3);
       checkEq("the far lot is untouched", n((after?.slices ?? []).find((s: any) => s.batchNo === LOT_FAR)?.available), 10);
       check("and the expired lot is gone", !(after?.slices ?? []).some((s: any) => s.batchNo === LOT_EXPIRED), JSON.stringify(after?.slices));
+      check("a later scan finds nothing new to alert", (await req("POST", "/inventory/expiry/scan", {})).ok);
+      checkEq("the same lots are never alerted twice", (await alertsOf()).log.length, 2);
     });
 
     await it("expiry · in-date stock cannot be written off as expired", async () => {

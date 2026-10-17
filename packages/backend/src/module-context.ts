@@ -1,7 +1,7 @@
 import type Database from "better-sqlite3";
 import type { App, AuthContextResolver, PeriodCloseGuardSlot, ReconciliationControl, SessionRegistry } from "@mezan/api";
 import type { EtaReceiptIssuer } from "./eta-receipts.js";
-import type { AuditSink, EventBus, PayrollBindings, UnitOfWork } from "@mezan/domain";
+import type { AuditSink, CustomerMessageOutbox, DrainResult, EventBus, PayrollBindings, UnitOfWork } from "@mezan/domain";
 import type {
   createScryptHasher,
   createSqliteAccountRepository,
@@ -69,6 +69,12 @@ export interface BackendModuleContext {
   /** Issues a sale's e-receipt synchronously with the terminal's serial and tender (D283). */
   readonly etaReceipts: EtaReceiptIssuer;
   readonly stores: BackendStores;
+  /** The customer-addressed mail queue and the operator-initiated drain that sends it through the tenant's SMTP session. */
+  readonly customerMail: {
+    readonly outbox: CustomerMessageOutbox;
+    readonly drain: () => Promise<DrainResult>;
+    readonly configured: () => Promise<boolean>;
+  };
   /** LEDGER INVARIANT: the one derived cash-and-bank set (cash-and-bank-accounts.ts) — a module that says "cash" reads this, never the treasury directory or an account-code prefix. */
   readonly cashAndBankAccountIds: () => Promise<readonly string[]>;
   readonly reconciliationControls: (asOfDate?: string) => Promise<readonly ReconciliationControl[]>;

@@ -345,6 +345,7 @@ import {
   createSqliteProductTemplateStore,
   createSqliteNotificationRuleStore,
   createSqliteNotificationStore,
+  createSqliteCollectionsStore,
   removeNotificationLinesMatching,
   createSqliteWorkflowConfigStore,
   createSqliteApprovalRequestStore,
@@ -385,6 +386,7 @@ import {
   NotificationPriorityCode,
   NotificationReadStatusCode,
   ConnectionTurnLostError,
+  CustomerMessageStatus,
   SETTLED_AS,
   type DispatchOutcome,
   type NotificationTransport,
@@ -1299,6 +1301,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
   // for why a translation step is needed at all). ---
   const notificationRules = createSqliteNotificationRuleStore(sqlite);
   const notifications = createSqliteNotificationStore(sqlite);
+  const customerMail = createSqliteCollectionsStore(sqlite);
   removeNotificationLinesMatching(sqlite, ACCOUNT_LOCKED_NOTICE, STORED_UNLOCK_SECRET);
   const eventBus = new EventBus({
     onError: (error, event) => {
@@ -3670,6 +3673,28 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
         throw err;
       }
     },
+    async sendTo(address, message, claim, messageId) {
+      if (smtp === null) return { kind: "rejected", reason: "البريد الإلكتروني غير مُفعَّل في الإعدادات." };
+      try {
+        const sent = await outsideTheTurn(() => withinDeadline(OutsideWork.Mail, () => sendMail(smtp, address, { subject: message.subject, body: message.body })));
+        return dispatchOutcomeOf(sent);
+      } catch (err) {
+        if (err instanceof OutsideWorkDeadlineError) return { kind: "offline", reason: err.message };
+        if (err instanceof ConnectionTurnLostError && err.completed) {
+          const late = dispatchOutcomeOf(err.completed.value as MailResult);
+          const settled = late.kind === "sent" ? CustomerMessageStatus.Sent : late.kind === "rejected" ? CustomerMessageStatus.Failed : CustomerMessageStatus.Queued;
+          void recordLateInTheTurn(() =>
+            customerMail.outbox.settle(messageId, settled, claim, {
+              sentAt: late.kind === "sent" ? new Date().toISOString() : null,
+              failureReason: late.kind === "sent" ? null : late.reason,
+            }),
+          ).catch((error: unknown) => {
+            console.error(`[collections] could not record what the mail server answered for customer message ${messageId}`, error);
+          });
+        }
+        throw err;
+      }
+    },
   });
   const notifyAccountLocked = async (event: AccountLockedEvent): Promise<void> => {
     const smtp = await securitySmtp();
@@ -5473,6 +5498,8 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
         notifications,
         recipientEmail: async (userId) => (await uow.users.findById(userId))?.email ?? null,
         transports: [emailTransport(tenant.smtpEnabled ? tenant : null)],
+        customerMessages: customerMail.outbox,
+        customerEmail: async (customerId) => (await customers.findById(customerId))?.email ?? null,
       });
       return dispatcher.drain();
     },
@@ -5526,6 +5553,20 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
     eventBus,
     etaReceipts,
     cashAndBankAccountIds: resolveCashAndBankAccountIds,
+    customerMail: {
+      outbox: customerMail.outbox,
+      drain: async () => {
+        const tenant = (await settings.get()) ?? createDefaultSettings();
+        return new NotificationDispatcher({
+          notifications,
+          recipientEmail: async () => null,
+          transports: [emailTransport(tenant.smtpEnabled ? tenant : null)],
+          customerMessages: customerMail.outbox,
+          customerEmail: async (customerId) => (await customers.findById(customerId))?.email ?? null,
+        }).drainCustomerMessages();
+      },
+      configured: async () => ((await settings.get()) ?? createDefaultSettings()).smtpEnabled,
+    },
     stores: {
       settings,
       branches,

@@ -1,6 +1,6 @@
 # Environments
 
-Four places Mezan runs. Each is the same code; what differs is the entrypoint,
+Five places Mezan runs. Each is the same code; what differs is the entrypoint,
 the database, and who can reach it.
 
 | Environment | Where | Entrypoint | Platform dir | Branch |
@@ -9,6 +9,7 @@ the database, and who can reach it.
 | testing | `localhost:4101` | `apps/server/src/cloud.ts` | `.data/testing-platform` | `testing` |
 | staging | `localhost:4102` | `apps/server/src/cloud.ts` | `.data/staging-platform` | `main` |
 | demo | <https://mezan-demo.onrender.com> | `apps/server/src/cloud.ts` in Docker | `/tmp/platform` | see [DEPLOY-DEMO.md](DEPLOY-DEMO.md) |
+| production | Contabo VPS (EU, Germany), Caddy in front | `apps/server/src/cloud.ts` in Docker | `/srv/mezan/data` on the host, `/data` in the container | `production`, see [deploy/contabo/README.md](../deploy/contabo/README.md) |
 
 Every environment now runs the same multi-tenant entrypoint (`createCloudApp`,
 `apps/server/src/cloud-app.ts`): a platform database at `<platform dir>/platform.db`
@@ -22,7 +23,9 @@ manage tenants. See the environment contract table in
 Every open tenant, plus the platform database itself, is snapshotted on a timer
 into `<platform dir>/backups/` (`MEZAN_BACKUP_INTERVAL_MINUTES`, default 15).
 On the demo host that directory sits under `/tmp` and is lost on restart; on
-AWS a sidecar syncs it to S3 — see the `apps/mezan` README in `cyag-devops`.
+the Contabo VPS an hourly restic job copies it, encrypted, to Object Storage
+(`deploy/contabo/backup/`). AWS, no longer the production target, synced it to
+S3 with a sidecar (`apps/mezan` README in `cyag-devops`).
 
 Tenant export downloads (the encrypted file the console offers, valid ten
 minutes) are held by the instance that built them, in memory. The download
@@ -97,6 +100,7 @@ wrong machine:
 | --- | --- | --- |
 | dev, testing, staging on localhost | none | unset (`MEZAN_TRUST_PROXY=0`) |
 | Render demo | Cloudflare, then Render's load balancer | `1` in `render.yaml`; `2` if the check in [DEPLOY-DEMO.md](DEPLOY-DEMO.md) shows a Cloudflare address |
+| Contabo VPS (Caddy → app, `deploy/contabo`) | Caddy replaces any incoming `x-forwarded-for` with the caller it saw | `1` |
 | AWS (CloudFront → API Gateway → VPC link → task) | CloudFront appends the viewer, API Gateway appends the CloudFront edge | `2` |
 | `pnpm test:saas` | the test writes the client, the Vite dev proxy appends its own hop | `2` |
 

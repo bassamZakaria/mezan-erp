@@ -1,5 +1,9 @@
 # Deploying the cloud edition on AWS
 
+> **Not the current target.** Production runs on a Contabo VPS:
+> [deploy/contabo/README.md](../deploy/contabo/README.md). This page is kept
+> for the AWS stack in `cyag-devops` and is not maintained for new releases.
+
 The AWS footprint — Fargate task, EFS, CloudFront, API Gateway, Route 53 —
 now lives in a separate private repo, `bassamZakaria/cyag-devops`, under
 `apps/mezan`. See that repo's README for bootstrap, first apply, nameserver

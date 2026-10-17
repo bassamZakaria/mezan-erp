@@ -788,10 +788,11 @@ the cloud edition. Every item below is on `main` and was walked in a browser on 
 | 5D — tenant backup export + restore drill | Owner-only, typed reason, passphrase-encrypted portable file the desktop imports, single-use 10-minute link, sign-in attempts/leases/sessions scrubbed from the copy; drill restores into a scratch copy only | `apps/server/src/tenant-backups.ts`, `TenantBackupCard.tsx` |
 | Multi-instance state | Login throttle, signup/deletion rate limits and HR punch/repayment leases in the database | `login-throttle.ts`, `keyed-lock.ts`, `rate-limit.ts` |
 | Audit tamper evidence | Ed25519-signed chain-head anchors every 15 min to an append-only sink (S3 or local), key rotation, verifier CLI detecting rewrite and rollback | `apps/server/src/audit-anchor*.ts` |
-| Encryption at rest | No change needed: EFS encrypted at rest and in transit, backup bucket SSE-AES256 + versioning + public-access block | `cyag-devops/apps/mezan/storage.tf` |
+| Encryption at rest | Production is a Contabo VPS, whose disk is **not** encrypted by default: the owner accepts that or sets up LUKS. Off-box backups are restic, client-side encrypted, to versioned Object Storage. (The AWS stack had EFS and SSE-AES256; it is no longer the target.) | `deploy/contabo/README.md`, `deploy/contabo/backup/` |
 
-**Needs the owner / devops repo:** S3 Object Lock on the anchor bucket and the
-`MEZAN_AUDIT_ANCHOR_SIGNING_KEY` secret (`cyag-devops`); Paymob live keys to confirm null-field HMAC
+**Needs the owner (Contabo, `deploy/contabo/README.md`):** the anchor bucket created with Object Lock
+(GOVERNANCE) and the 412 test passed, or B2/Wasabi instead; the `MEZAN_AUDIT_ANCHOR_SIGNING_KEY`
+and `RESTIC_PASSWORD` secrets; disk encryption accepted or LUKS; Paymob live keys to confirm null-field HMAC
 (TEST-DEBT); code-signing certificates and the update feed (desktop).
 
 **Still open, known:** export download offers live in process memory (sticky routing needed until
@@ -846,8 +847,8 @@ after (`docs/TEST-DEBT.md`); the test pass closes the build.
 Done so far: wave 0 (#90, #91, #93, #95), 1A seams + POS master data (#96), 1B hourly/daily/FX pay (#94),
 1C Paymob card checkout (#97).
 
-**Needs the owner** (the build proceeds against test doubles meanwhile): Paymob merchant keys; the AWS
-apply; Render dashboard variables; SMTP credentials; an SMS/WhatsApp provider if wanted; a chartered
+**Needs the owner** (the build proceeds against test doubles meanwhile): Paymob merchant keys; the Contabo VPS
+set-up (`deploy/contabo/README.md`); Render dashboard variables; SMTP credentials; an SMS/WhatsApp provider if wanted; a chartered
 accountant's sign-off (DEC-12).
 
 ---

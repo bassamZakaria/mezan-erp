@@ -39,4 +39,8 @@ ENV MEZAN_PLATFORM_DIR=/data
 ENV PORT=8080
 EXPOSE 8080
 USER node
-CMD ["pnpm", "exec", "tsx", "apps/server/src/cloud.ts"]
+# SECURITY / read-only root fs: started by node itself, not `pnpm exec`. The
+# corepack pnpm download lives in root's cache and is missing for `node`, so
+# `pnpm exec` would fetch pnpm at boot and fail under deploy/contabo's
+# read_only container. tsx is a root devDependency linked at /app/node_modules.
+CMD ["node", "--import", "tsx", "apps/server/src/cloud.ts"]

@@ -1,0 +1,9 @@
+# Copy to platform-allowlist.caddyfile in this folder and list the owner's
+# addresses to keep the platform console off the open internet; every other
+# caller gets a plain 404. Apply with:
+#   docker compose exec caddy caddy reload --config /etc/caddy/Caddyfile
+@platform_not_owner {
+	path /api/platform /api/platform/* /platform /platform/*
+	not remote_ip 203.0.113.7/32 2001:db8::/64
+}
+respond @platform_not_owner 404

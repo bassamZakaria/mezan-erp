@@ -1,0 +1,10 @@
+[Unit]
+Description=Mezan off-box backup, hourly
+
+[Timer]
+OnCalendar=hourly
+RandomizedDelaySec=5min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

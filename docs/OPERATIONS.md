@@ -37,30 +37,9 @@ docker logs mezan 2>&1 | grep '"tenantId":"<tenant id>"'
 
 `jq` makes them readable: `docker logs mezan 2>&1 | grep '^{' | jq -r '[.ts,.level,.component,.event,.msg] | @tsv'`.
 
-Docker's default `json-file` driver keeps logs forever. Cap it when the container is started:
+Docker's default `json-file` driver keeps logs forever. `deploy/contabo/docker-compose.yml` caps them (`max-size: 20m`, `max-file: 5`) and is the only supported way to run the container: it publishes **no** port for the app (only Caddy's 80/443), because a Docker-published port bypasses ufw and a caller reaching the app directly writes its own `X-Forwarded-For`. Do not start the image with `docker run -p 8080:8080`. See [deploy/contabo/README.md](../deploy/contabo/README.md).
 
-```
-docker run -d --name mezan --restart unless-stopped \
-  --log-driver json-file --log-opt max-size=20m --log-opt max-file=5 \
-  -v /srv/mezan:/data -p 8080:8080 --env-file /srv/mezan/env mezan:latest
-```
-
-or in `docker-compose.yml`:
-
-```yaml
-services:
-  mezan:
-    image: mezan:latest
-    restart: unless-stopped
-    env_file: /srv/mezan/env
-    volumes: ["/srv/mezan:/data"]
-    ports: ["8080:8080"]
-    logging:
-      driver: json-file
-      options: { max-size: "20m", max-file: "5" }
-```
-
-`--restart unless-stopped` matters: an uncaught exception logs at `fatal` and exits with code 1 so Docker starts a clean process. An unhandled promise rejection is logged at `error` and alerted, and the server stays up (one process serves every tenant, and every route already answers its own failures). `SIGTERM` (`docker stop`) closes the timers, the tenants and the platform database before exiting 0.
+`restart: unless-stopped` matters: an uncaught exception logs at `fatal` and exits with code 1 so Docker starts a clean process. An unhandled promise rejection is logged at `error` and alerted, and the server stays up (one process serves every tenant, and every route already answers its own failures). `SIGTERM` (`docker stop`) closes the timers, the tenants and the platform database before exiting 0.
 
 `MEZAN_LOG_LEVEL` (`debug`, `info`, `warn`, `error`, `fatal`, `silent`; default `info`) sets the threshold. Successful requests to non-API paths (the web bundle, `/healthz`, `/readyz`) are logged at `debug`, so an uptime monitor does not fill the log.
 

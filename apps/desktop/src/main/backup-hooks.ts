@@ -4,7 +4,7 @@ import { CURRENT_SCHEMA_VERSION, holdsExistingBooks, readSchemaVersion } from "@
 import {
   BackupReason,
   abortDrill,
-  copyToSecondTarget,
+  copyBackupToSecondTarget,
   createBackup,
   hasArchive,
   isDrillDue,
@@ -13,6 +13,7 @@ import {
   runPreMigrationBackup,
   runRestoreDrill,
   withBackupLock,
+  type RecoveryKeyStore,
 } from "../backup/index.js";
 import { DrillTrigger } from "../shared/ipc-contract.js";
 import { defaultBackupsDir } from "./env.js";
@@ -129,12 +130,10 @@ export async function backupThenMigrate(params: {
  * migration, and on a configurable schedule (default daily + on app close)".
  * Returns a disposer to clear the interval/listener.
  *
- * EVERY ARCHIVE IS ENCRYPTED. There is no `portable` option here any more: it
- * used to be passed unconditionally by the call site, which rekeyed each daily
- * archive to plaintext and left the shop's complete books readable by anyone
- * who picked up the USB stick. Portability is answered instead by an explicit
- * «تصدير نسخة قابلة للنقل» that asks for a passphrase and encrypts the archive
- * under it (backup/portable-export.ts).
+ * EVERY ARCHIVE IS ENCRYPTED. The local archive is keyed to this machine. The
+ * copy in the second folder is sealed under the owner's recovery passphrase
+ * when one is set (backup/second-copy.ts), so it opens on replacement hardware;
+ * `portable` is passed for that copy only and never reaches the local archive.
  */
 export function scheduleBackups(params: {
   sqlite: Database.Database;
@@ -144,6 +143,10 @@ export function scheduleBackups(params: {
   encrypted?: boolean;
   /** Raw tenant key — moves the copy itself off this process. See `createBackup`. */
   cipher?: { readonly key: string };
+  /** The decrypting opener the second-folder copy needs; see the note above. */
+  portable?: { readonly key: string; readonly open: (file: string, key: string) => Database.Database };
+  /** Unseals the recovery key the second-folder copy is sealed with. */
+  recoveryKeyStore?: RecoveryKeyStore;
   /** Bounded wait for the on-close copy. Injected by the test; never by production. */
   onCloseTimeoutMs?: number;
 }): () => void {
@@ -175,7 +178,21 @@ export function scheduleBackups(params: {
           cipher: params.cipher,
         }),
       );
-      await copyToSecondTarget(backupsDir, result.archivePath);
+      await withBackupLock(() =>
+        copyBackupToSecondTarget({
+          backupsDir,
+          archivePath: result.archivePath,
+          reason,
+          source: {
+            sqlite: params.sqlite,
+            appVersion: params.appVersion,
+            encrypted: params.encrypted === true,
+            ...(params.cipher ? { cipher: params.cipher } : {}),
+            ...(params.portable ? { portable: params.portable } : {}),
+            ...(params.recoveryKeyStore ? { recoveryKeyStore: params.recoveryKeyStore } : {}),
+          },
+        }),
+      );
     } catch (err) {
       console.error(`[backup] ${reason} backup failed`, err);
       return;

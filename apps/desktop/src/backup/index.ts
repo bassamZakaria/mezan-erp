@@ -13,6 +13,7 @@ export {
   exportPortableBackup,
   encryptFile,
   decryptFile,
+  derivePortableKey,
   portableFileName,
   WeakPassphraseError,
   MIN_PASSPHRASE_LENGTH,
@@ -73,8 +74,20 @@ export {
   readSecondTarget,
   setSecondTargetDir,
   copyToSecondTarget,
+  sealToSecondTarget,
   type SecondTargetState,
 } from "./secondary-target.js";
+export { copyBackupToSecondTarget, type SecondCopySource } from "./second-copy.js";
+export {
+  RecoveryMode,
+  RecoveryKeyStoreUnavailableError,
+  readRecoveryStatus,
+  setRecoverySecret,
+  loadRecoveryKey,
+  type RecoveryKeyStore,
+  type RecoveryStatus,
+  type RecoveryKey,
+} from "./recovery-key.js";
 export {
   runRestoreDrill,
   readDrillHistory,

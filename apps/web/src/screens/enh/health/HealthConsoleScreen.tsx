@@ -378,15 +378,23 @@ export function HealthConsoleScreen() {
       });
     } else {
       const backupAge = reading.lastBackupAt ? healthDaysBetween(reading.lastBackupAt, readNow) : null;
+      const ageLevel = backupLevel(backupAge);
+      const unprotected = reading.recoverySet === false;
       items.push({
         key: HealthItemKey.Backup,
-        level: backupLevel(backupAge),
+        level: unprotected && ageLevel === HealthLevel.Ok ? HealthLevel.Warn : ageLevel,
         body: (
-          <p className="text-[12px] text-ink-muted">
-            {reading.lastBackupAt && backupAge !== null
-              ? t("health.backup.age", { days: String(backupAge), date: formatDateTime(reading.lastBackupAt, { locale }) })
-              : t("health.backup.never")}
-          </p>
+          <div className="flex flex-col gap-[2px] text-[12px] text-ink-muted">
+            <p>
+              {reading.lastBackupAt && backupAge !== null
+                ? t("health.backup.age", { days: String(backupAge), date: formatDateTime(reading.lastBackupAt, { locale }) })
+                : t("health.backup.never")}
+            </p>
+            {unprotected ? <p className="text-warning-ink">{t("backupProtection.health.notSet")}</p> : null}
+            {reading.recoverySet && reading.recoverySetAt ? (
+              <p>{t("backupProtection.health.set", { date: formatDateTime(reading.recoverySetAt, { locale }) })}</p>
+            ) : null}
+          </div>
         ),
       });
       const drillAge = reading.lastGoodDrillAt ? healthDaysBetween(reading.lastGoodDrillAt, readNow) : null;

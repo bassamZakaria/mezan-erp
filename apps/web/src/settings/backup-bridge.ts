@@ -23,6 +23,31 @@ export enum DrillTrigger {
   Scheduled = "scheduled",
 }
 
+export enum RecoveryMode {
+  Passphrase = "passphrase",
+  KeyCard = "key-card",
+}
+
+export enum BackupFailureCode {
+  Cancelled = "CANCELLED",
+  NotFound = "NOT_FOUND",
+  WeakPassphrase = "WEAK_PASSPHRASE",
+  WrongPin = "WRONG_PIN",
+  PinRequired = "PIN_REQUIRED",
+  KeyCardNotSaved = "KEY_CARD_NOT_SAVED",
+}
+
+export type RecoveryStatus = {
+  mode: RecoveryMode | null;
+  setAt: string | null;
+  keyCardAvailable: boolean;
+  keyStoreAvailable: boolean;
+};
+
+export type RecoverySetRequest = { mode: RecoveryMode; passphrase?: string; pin?: string };
+export type RecoveryResult = { ok: true; recovery: RecoveryStatus } | BackupFailure;
+export type KeyCardSaveResult = { ok: true; filePath: string } | BackupFailure;
+
 export type BackupEntry = {
   fileName: string;
   createdAt: string;
@@ -57,6 +82,7 @@ export type SecondTarget = {
   lastCopyOk: boolean | null;
   lastCopyFile: string | null;
   lastCopyError: string | null;
+  lastCopyPortable?: boolean | null;
 };
 
 export type ListResult = { backupsDir: string; entries: BackupEntry[]; archivesEncrypted?: boolean } | BackupFailure;
@@ -75,6 +101,7 @@ export type StatusResult =
       secondTarget: SecondTarget;
       lastBackupAt?: string | null;
       diskFreeBytes?: number | null;
+      recovery?: RecoveryStatus;
     }
   | BackupFailure;
 export type DrillResult = { ok: true; drill: DrillRecord } | BackupFailure;
@@ -93,6 +120,8 @@ export interface BackupBridge {
   importPortable?(sessionToken: string, pickId: string, passphrase: string): Promise<RestoreResult>;
   chooseSecondTarget?(sessionToken: string): Promise<SecondTargetResult>;
   clearSecondTarget?(sessionToken: string): Promise<SecondTargetResult>;
+  setRecovery?(sessionToken: string, request: RecoverySetRequest): Promise<RecoveryResult>;
+  saveKeyCard?(sessionToken: string): Promise<KeyCardSaveResult>;
 }
 
 export function backupBridge(): BackupBridge | undefined {

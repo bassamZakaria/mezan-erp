@@ -11,6 +11,8 @@ import {
   MEZAN_BACKUP_IMPORT_PORTABLE_CHANNEL,
   MEZAN_BACKUP_SECOND_TARGET_CHOOSE_CHANNEL,
   MEZAN_BACKUP_SECOND_TARGET_CLEAR_CHANNEL,
+  MEZAN_BACKUP_RECOVERY_SET_CHANNEL,
+  MEZAN_BACKUP_RECOVERY_SAVE_KEY_CARD_CHANNEL,
   MEZAN_APP_VERSION_CHANNEL,
   MEZAN_FETCH_CHANNEL,
   MEZAN_LICENCE_CHECKIN_CHANNEL,
@@ -37,6 +39,9 @@ import {
   type BackupFailure,
   type BackupListResult,
   type BackupRestoreResult,
+  type BackupKeyCardSaveResult,
+  type BackupRecoveryResult,
+  type BackupRecoverySetRequest,
   type IpcFetchRequest,
   type IpcFetchResponse,
   type LicenceCheckinResult,
@@ -142,6 +147,12 @@ const mezanBridge: MezanBridge = {
     },
     clearSecondTarget(sessionToken: string): Promise<BackupSecondTargetResult> {
       return ipcRenderer.invoke(MEZAN_BACKUP_SECOND_TARGET_CLEAR_CHANNEL, sessionToken);
+    },
+    setRecovery(sessionToken: string, request: BackupRecoverySetRequest): Promise<BackupRecoveryResult> {
+      return ipcRenderer.invoke(MEZAN_BACKUP_RECOVERY_SET_CHANNEL, sessionToken, request);
+    },
+    saveKeyCard(sessionToken: string): Promise<BackupKeyCardSaveResult> {
+      return ipcRenderer.invoke(MEZAN_BACKUP_RECOVERY_SAVE_KEY_CARD_CHANNEL, sessionToken);
     },
   },
   /** Drives the signed update channel (main/updater.ts + main/update-verify.ts). */

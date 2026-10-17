@@ -1,9 +1,12 @@
 import { copyFile, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { listBackups } from "./backup-service.js";
+import { BACKUP_FILE_EXTENSION, parseCreatedAtFromFileName } from "./backup-service.js";
+import { sealFileWithKey, PORTABLE_FILE_EXTENSION } from "./portable-export.js";
+import type { RecoveryKey } from "./recovery-key.js";
 import { applyRetention, DEFAULT_RETENTION_POLICY } from "./retention.js";
 
 const SETTINGS_FILE_NAME = ".backup-target.json";
+const SEALED_SUFFIX = PORTABLE_FILE_EXTENSION.slice(BACKUP_FILE_EXTENSION.length);
 
 export interface SecondTargetState {
   readonly dir: string | null;
@@ -11,6 +14,8 @@ export interface SecondTargetState {
   readonly lastCopyOk: boolean | null;
   readonly lastCopyFile: string | null;
   readonly lastCopyError: string | null;
+  /** True when the last copy was sealed under the recovery secret, so it opens on any machine. */
+  readonly lastCopyPortable: boolean | null;
   /**
    * Filenames THIS machine copied into `dir` that retention has not yet
    * removed — stored locally, beside `backupsDir` (never inside the shared
@@ -30,6 +35,7 @@ const EMPTY: SecondTargetState = {
   lastCopyOk: null,
   lastCopyFile: null,
   lastCopyError: null,
+  lastCopyPortable: null,
   ownFiles: [],
 };
 
@@ -54,6 +60,7 @@ export async function readSecondTarget(backupsDir: string): Promise<SecondTarget
       lastCopyOk: typeof raw["lastCopyOk"] === "boolean" ? raw["lastCopyOk"] : null,
       lastCopyFile: asString(raw["lastCopyFile"]),
       lastCopyError: asString(raw["lastCopyError"]),
+      lastCopyPortable: typeof raw["lastCopyPortable"] === "boolean" ? raw["lastCopyPortable"] : null,
       ownFiles: asStringArray(raw["ownFiles"]),
     };
   } catch {
@@ -75,46 +82,59 @@ export async function setSecondTargetDir(backupsDir: string, dir: string | null)
   return next;
 }
 
+async function ownFilesWithDates(
+  dir: string,
+  ownFiles: ReadonlySet<string>,
+): Promise<Array<{ id: string; createdAt: Date }>> {
+  const found: Array<{ id: string; createdAt: Date }> = [];
+  for (const name of ownFiles) {
+    const full = path.join(dir, name);
+    const info = await stat(full).catch(() => null);
+    if (!info) continue;
+    const createdAt = parseCreatedAtFromFileName(name.endsWith(SEALED_SUFFIX) ? name.slice(0, -SEALED_SUFFIX.length) : name);
+    found.push({ id: full, createdAt: createdAt ?? info.mtime });
+  }
+  return found;
+}
+
 /**
- * Copies one sealed archive to the operator's second folder (a USB stick or a
- * share) and prunes THIS MACHINE'S OWN files there with the same GFS policy —
- * never a file another machine wrote, even if it sits in the same folder (see
+ * Writes one file into the operator's second folder (a USB stick or a share)
+ * and prunes THIS MACHINE'S OWN files there with the same GFS policy — never a
+ * file another machine wrote, even if it sits in the same folder (see
  * {@link SecondTargetState.ownFiles}). Never throws: a missing stick must not
  * fail the backup it follows. The outcome is kept so the screen can say the
  * last copy failed instead of letting a silent gap grow.
  */
-export async function copyToSecondTarget(backupsDir: string, archivePath: string, now = new Date()): Promise<SecondTargetState> {
+async function placeInSecondTarget(
+  backupsDir: string,
+  fileName: string,
+  portable: boolean,
+  write: (partialPath: string) => Promise<void>,
+  now: Date,
+): Promise<SecondTargetState> {
   const current = await readSecondTarget(backupsDir);
   if (!current.dir) return current;
-  const fileName = path.basename(archivePath);
   const target = path.join(current.dir, fileName);
   const partial = `${target}.partial`;
   let next: SecondTargetState;
   try {
     const dirStat = await stat(current.dir);
     if (!dirStat.isDirectory()) throw new Error(`${current.dir} is not a folder`);
-    await copyFile(archivePath, partial);
-    const [source, copied] = await Promise.all([stat(archivePath), stat(partial)]);
-    if (source.size !== copied.size) {
-      throw new Error(`copied ${copied.size} of ${source.size} bytes`);
-    }
+    await write(partial);
     await rename(partial, target);
-    const ownAfterCopy = new Set([...current.ownFiles, fileName]);
-    const existing = await listBackups(current.dir);
-    const ownCandidates = existing.filter((b) => ownAfterCopy.has(path.basename(b.path)));
     const { remove, keep } = applyRetention(
-      ownCandidates.map((b) => ({ id: b.path, createdAt: b.createdAt })),
+      await ownFilesWithDates(current.dir, new Set([...current.ownFiles, fileName])),
       DEFAULT_RETENTION_POLICY,
     );
     for (const r of remove) await rm(r.id, { force: true });
-    const survivingOwnFiles = keep.map((k) => path.basename(k.id));
     next = {
       ...current,
-      ownFiles: survivingOwnFiles,
+      ownFiles: keep.map((k) => path.basename(k.id)),
       lastCopyAt: now.toISOString(),
       lastCopyOk: true,
       lastCopyFile: fileName,
       lastCopyError: null,
+      lastCopyPortable: portable,
     };
   } catch (err) {
     await rm(partial, { force: true }).catch(() => undefined);
@@ -124,6 +144,7 @@ export async function copyToSecondTarget(backupsDir: string, archivePath: string
       lastCopyOk: false,
       lastCopyFile: fileName,
       lastCopyError: err instanceof Error ? err.message : String(err),
+      lastCopyPortable: portable,
     };
     console.error(`[backup] copy to the second target ${current.dir} failed`, err);
   }
@@ -131,4 +152,43 @@ export async function copyToSecondTarget(backupsDir: string, archivePath: string
     console.error("[backup] could not record the second-target copy", err),
   );
   return next;
+}
+
+/** Copies one machine-keyed archive as it is. Opens only where this machine's key is held. */
+export async function copyToSecondTarget(backupsDir: string, archivePath: string, now = new Date()): Promise<SecondTargetState> {
+  return placeInSecondTarget(
+    backupsDir,
+    path.basename(archivePath),
+    false,
+    async (partial) => {
+      await copyFile(archivePath, partial);
+      const [source, copied] = await Promise.all([stat(archivePath), stat(partial)]);
+      if (source.size !== copied.size) {
+        throw new Error(`copied ${copied.size} of ${source.size} bytes`);
+      }
+    },
+    now,
+  );
+}
+
+/**
+ * Seals a PLAINTEXT archive under the recovery key straight into the second
+ * folder, as a MEZANPBK1 `.mezanbak.enc` that «استعادة نسخة قابلة للنقل» opens
+ * on any machine with the recovery passphrase. The readable archive is never
+ * copied there — only the sealed bytes are.
+ */
+export async function sealToSecondTarget(
+  backupsDir: string,
+  plainArchivePath: string,
+  archiveFileName: string,
+  recovery: RecoveryKey,
+  now = new Date(),
+): Promise<SecondTargetState> {
+  return placeInSecondTarget(
+    backupsDir,
+    `${archiveFileName}${SEALED_SUFFIX}`,
+    true,
+    (partial) => sealFileWithKey(plainArchivePath, partial, recovery.key, recovery.salt),
+    now,
+  );
 }

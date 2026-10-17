@@ -47,7 +47,7 @@ export const ar = {
   "backupDrill.doneFail": "فشل اختبار الاستعادة: {check}.",
   "secondTarget.title": "مجلد ثانٍ للنسخ",
   "secondTarget.hint":
-    "بعد كل نسخة احتياطية تُنسخ نسخة منها إلى فلاشة أو مجلد مشترك على جهاز آخر، فإذا تعطّل هذا الجهاز بقيت النسخ هناك. هذه النسخ مشفّرة بمفتاح هذا الجهاز، فاحتفظ أيضاً بنسخة قابلة للنقل أو بمفتاح التشفير.",
+    "بعد كل نسخة احتياطية تُنسخ نسخة منها إلى فلاشة أو مجلد مشترك على جهاز آخر، فإذا تعطّل هذا الجهاز بقيت النسخ هناك. بعد تفعيل «حماية النسخ الاحتياطية» تُكتب هذه النسخ مشفّرة بكلمة سر الاسترداد، فتُفتح على أي جهاز بها. قبل التفعيل تبقى مشفّرة بمفتاح هذا الجهاز وحده.",
   "secondTarget.hintUnencrypted":
     "بعد كل نسخة احتياطية تُنسخ نسخة منها إلى فلاشة أو مجلد مشترك على جهاز آخر، فإذا تعطّل هذا الجهاز بقيت النسخ هناك. هذه النسخ غير مشفّرة على هذا الجهاز: من يحمل الفلاشة يقرأ الدفاتر، فاحفظها في مكان آمن.",
   "secondTarget.none": "لم يُحدَّد مجلد ثانٍ.",
@@ -59,9 +59,9 @@ export const ar = {
     "فشل آخر نسخ إلى المجلد الثاني ({date}). تأكد أن الفلاشة موصولة أو أن المجلد المشترك متاح.",
   "portableImport.title": "استعادة نسخة قابلة للنقل",
   "portableImport.hint":
-    "لنقل بياناتك من جهاز سابق: اختر ملف النسخة القابلة للنقل واكتب كلمة السر التي اخترتها عند التصدير. يُفكّ التشفير ويُتحقق من الملف قبل أن يُمسّ أي شيء.",
+    "لنقل بياناتك من جهاز سابق: اختر ملف النسخة القابلة للنقل (.mezanbak.enc) — من التصدير أو من المجلد الثاني للنسخ — واكتب كلمة سر الاسترداد، أو المفتاح المكتوب في ملف مفتاح التشفير. يُفكّ التشفير ويُتحقق من الملف قبل أن يُمسّ أي شيء.",
   "portableImport.firstRunHint":
-    "هل لديك نسخة قابلة للنقل من جهازك السابق؟ استعدها هنا بدلاً من البدء من جديد، ثم ادخل بحساب من الجهاز السابق.",
+    "جهاز جديد بدلاً من جهاز تعطّل؟ اختر النسخة (.mezanbak.enc) من الفلاشة أو المجلد الثاني للنسخ، واكتب كلمة سر الاسترداد أو مفتاح التشفير، بدلاً من البدء من جديد، ثم ادخل بحساب من الجهاز السابق.",
   "portableImport.pick": "اختر الملف",
   "portableImport.picked": "الملف: {name} ({size} MB)",
   "portableImport.passphrase": "كلمة سر النسخة",
@@ -115,7 +115,7 @@ export const en: Record<keyof typeof ar, string> = {
   "backupDrill.doneFail": "The restore drill failed: {check}.",
   "secondTarget.title": "Second backup folder",
   "secondTarget.hint":
-    "After every backup a copy is written to a USB stick or a shared folder on another machine, so the copies survive if this machine dies. They are encrypted with this machine's key, so keep a portable copy or the key card too.",
+    "After every backup a copy is written to a USB stick or a shared folder on another machine, so the copies survive if this machine dies. Once «حماية النسخ الاحتياطية» is set they are sealed with the recovery passphrase and open on any machine with it. Until then they are keyed to this machine alone.",
   "secondTarget.hintUnencrypted":
     "After every backup a copy is written to a USB stick or a shared folder on another machine, so the copies survive this machine. These copies are not encrypted on this machine: whoever holds the stick can read the books, so keep it somewhere safe.",
   "secondTarget.none": "No second folder is set.",
@@ -127,9 +127,9 @@ export const en: Record<keyof typeof ar, string> = {
     "The last copy to the second folder failed ({date}). Check that the USB stick is plugged in or the shared folder is reachable.",
   "portableImport.title": "Restore a portable copy",
   "portableImport.hint":
-    "To move your data from a previous machine: choose the portable backup file and type the passphrase you chose when exporting it. It is decrypted and verified before anything is touched.",
+    "To move your data from a previous machine: choose the portable file (.mezanbak.enc) — an export or a copy from the second backup folder — and type the recovery passphrase, or the key printed on the key card. It is decrypted and verified before anything is touched.",
   "portableImport.firstRunHint":
-    "Have a portable copy from your previous machine? Restore it here instead of starting over, then sign in with an account from that machine.",
+    "Replacing a machine that died? Pick the copy (.mezanbak.enc) from the USB stick or the second backup folder and type the recovery passphrase or the key-card key, instead of starting over, then sign in with an account from that machine.",
   "portableImport.pick": "Choose the file",
   "portableImport.picked": "File: {name} ({size} MB)",
   "portableImport.passphrase": "Backup passphrase",

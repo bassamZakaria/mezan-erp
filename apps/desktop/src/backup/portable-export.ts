@@ -53,7 +53,7 @@ export class WeakPassphraseError extends Error {
   }
 }
 
-function deriveKey(passphrase: string, salt: Buffer): Promise<Buffer> {
+export function derivePortableKey(passphrase: string, salt: Buffer): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     scryptCb(
       passphrase.normalize("NFKC"),
@@ -73,8 +73,29 @@ export async function encryptFile(
 ): Promise<void> {
   if (passphrase.length < MIN_PASSPHRASE_LENGTH) throw new WeakPassphraseError();
   const salt = randomBytes(SALT_BYTES);
+  const key = await derivePortableKey(passphrase, salt);
+  await sealFileWithKey(sourcePath, targetPath, key, salt);
+}
+
+export function newPortableSalt(): Buffer {
+  return randomBytes(SALT_BYTES);
+}
+
+/**
+ * Writes the same MEZANPBK1 container `encryptFile` writes, from a key that was
+ * already derived from the passphrase and `salt`. The salt goes in the header,
+ * so `decryptFile` re-derives this exact key from the passphrase alone.
+ */
+export async function sealFileWithKey(
+  sourcePath: string,
+  targetPath: string,
+  key: Buffer,
+  salt: Buffer,
+): Promise<void> {
+  if (key.length !== KEY_BYTES || salt.length !== SALT_BYTES) {
+    throw new Error("A portable archive needs a 32-byte key and a 16-byte salt.");
+  }
   const iv = randomBytes(IV_BYTES);
-  const key = await deriveKey(passphrase, salt);
   const cipher = createCipheriv("aes-256-gcm", key, iv);
 
   const out = createWriteStream(targetPath, { mode: 0o600 });
@@ -107,7 +128,7 @@ export async function decryptFile(
   const tag = blob.subarray(blob.length - TAG_BYTES);
   const body = blob.subarray(headerLength, blob.length - TAG_BYTES);
 
-  const key = await deriveKey(passphrase, salt);
+  const key = await derivePortableKey(passphrase, salt);
   const decipher = createDecipheriv("aes-256-gcm", key, iv);
   decipher.setAuthTag(tag);
   const plain = Buffer.concat([decipher.update(body), decipher.final()]);

@@ -13,6 +13,7 @@ import {
   purchaseOrderTotal,
   createGoodsReceipt,
   confirmGoodsReceipt,
+  setGoodsReceiptLots,
   cancelGoodsReceipt,
   goodsReceiptTotalCost,
   buildInvoiceLinesFromReceipt,
@@ -88,6 +89,7 @@ import {
   InvoiceDocumentKind,
   type TaxClassificationDependentsPort,
   atomically,
+  LotDetailsRequiredError,
 } from "@mezan/domain";
 import {
   createPurchaseOrderSchema,
@@ -100,6 +102,7 @@ import {
   lineTaxClassificationSchema,
   TaxClassificationFilingOutcomeCode,
   type PurchaseInvoiceListQueryDTO,
+  goodsReceiptLotsSchema,
 } from "@mezan/contracts";
 import { refuseUnknownItems, type ItemCatalogCheck } from "./item-check.js";
 import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
@@ -378,6 +381,9 @@ function handleDomainError(c: Context, err: unknown): Response {
   if (taxRefusal) return taxRefusal;
   const postingRefusal = postingRefusalResponse(c, err);
   if (postingRefusal) return postingRefusal;
+  if (err instanceof LotDetailsRequiredError) {
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, issues: err.issues }, 422);
+  }
   if (
     err instanceof PurchaseOrderNotFoundError ||
     err instanceof GoodsReceiptNotFoundError ||
@@ -881,6 +887,23 @@ export function createPurchasesRoutes(
         now: deps.now,
       });
       emit("DOCUMENT_CONFIRMED", "GOODS_RECEIPT", receipt.id, receipt.number);
+      return c.json(serializeReceipt(receipt));
+    } catch (err) {
+      return handleDomainError(c, err);
+    }
+  });
+
+  app.put("/receipts/:id/lots", gate("purchases.receipt.create"), async (c) => {
+    const parsed = goodsReceiptLotsSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) {
+      return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    }
+    try {
+      const receipt = await setGoodsReceiptLots(c.req.param("id"), parsed.data.lots, {
+        receipts: deps.receipts,
+        audit: audit(c),
+        actor: actor(c),
+      });
       return c.json(serializeReceipt(receipt));
     } catch (err) {
       return handleDomainError(c, err);

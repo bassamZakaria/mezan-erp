@@ -138,6 +138,8 @@ export interface DocumentStockLine {
   readonly unitCost?: Money;
   readonly value?: Money;
   readonly warehouseId?: string;
+  readonly batchNo?: string | null;
+  readonly expiryDate?: string | null;
 }
 
 export interface DocumentStockPlan {

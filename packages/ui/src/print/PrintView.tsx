@@ -272,7 +272,26 @@ export function PrintView({ config, document, showToolbar = true, orientation = 
               {document.lines.map((line, i) => (
                 <tr key={i} className="border-b border-border">
                   {columns.showItemCode ? <td className="mz-num p-[6px_8px]">{line.code ?? ""}</td> : null}
-                  {columns.showDescription ? <td className="p-[6px_8px]">{line.description}</td> : null}
+                  {columns.showDescription ? (
+                    <td className="p-[6px_8px]">
+                      {line.description}
+                      {columns.showBatchExpiry !== false && line.lots && line.lots.length > 0 ? (
+                        <span data-print-lots className="mt-[2px] block text-[9.5px] text-ink-muted">
+                          {line.lots
+                            .map((lot) =>
+                              [
+                                lot.batchNo ? `${t("print.lot.batch")} ${lot.batchNo}` : null,
+                                lot.expiryDate ? `${t("print.lot.expiry")} ${formatDate(lot.expiryDate)}` : null,
+                                line.lots && line.lots.length > 1 ? `× ${formatNumber(lot.qty)}` : null,
+                              ]
+                                .filter(Boolean)
+                                .join(" · "),
+                            )
+                            .join(" ، ")}
+                        </span>
+                      ) : null}
+                    </td>
+                  ) : null}
                   {columns.showUnit ? <td className="p-[6px_8px]">{line.unit ?? ""}</td> : null}
                   <td className="mz-num p-[6px_8px] text-end">{formatNumber(line.qty)}</td>
                   <td className="mz-num p-[6px_8px] text-end">{formatNumber(line.unitPrice, { minimumFractionDigits: 2 })}</td>

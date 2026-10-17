@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { Card } from "@mezan/ui";
+import { Button, Card } from "@mezan/ui";
 import {
   createInventoryStockLevelsReport,
   createGoodsInTransitReport,
@@ -16,6 +16,8 @@ import { ReportScreen } from "./ReportScreen";
 import { ScreenTabs } from "../ScreenTabs";
 import { useReport } from "../../data/reports-hooks";
 import { useAppTranslation } from "../../i18n";
+import { useNavigation } from "../../navigation";
+import { ExpiryTab, EXPIRY_SCREEN_KEY } from "../enh/expiry/expiry-routes";
 import { monthStartIso, todayIso } from "../../lib/dates";
 
 /**
@@ -59,7 +61,16 @@ export function InventoryDriftReportScreen() {
 }
 
 export function InventoryExpiringReportScreen() {
-  return <ReportScreen definition={createInventoryExpiringReport(TODAY)} apiPath="/inventory/expiring" />;
+  const { t } = useAppTranslation();
+  const { openScreenAt } = useNavigation();
+  return (
+    <div className="flex flex-col gap-[12px]">
+      <div className="flex justify-end">
+        <Button onClick={() => openScreenAt(EXPIRY_SCREEN_KEY, [ExpiryTab.WriteOff])}>{t("expiry.writeOff.fromReport")}</Button>
+      </div>
+      <ReportScreen definition={createInventoryExpiringReport(TODAY)} apiPath="/inventory/expiring" />
+    </div>
+  );
 }
 
 export function InventorySlowMovingReportScreen() {

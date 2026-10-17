@@ -48,6 +48,7 @@ export interface PrintColumnsConfig {
   showLineDiscount: boolean;
   showLineTaxPercent: boolean;
   showLineTaxAmount: boolean;
+  showBatchExpiry?: boolean;
 }
 
 export interface PrintTotalsConfig {
@@ -134,6 +135,7 @@ export const DEFAULT_PRINT_TEMPLATE_CONFIG: PrintTemplateConfig = {
     showLineDiscount: true,
     showLineTaxPercent: false,
     showLineTaxAmount: false,
+    showBatchExpiry: true,
   },
   totals: {
     showSubtotal: true,
@@ -214,6 +216,13 @@ export interface PrintDocumentLine {
   taxName?: string;
   taxAmount?: number;
   lineTotal: number;
+  lots?: readonly PrintLineLot[];
+}
+
+export interface PrintLineLot {
+  readonly batchNo: string | null;
+  readonly expiryDate: string | null;
+  readonly qty: number;
 }
 
 export interface PrintTaxBreakdownRow {

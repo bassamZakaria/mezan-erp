@@ -50,6 +50,7 @@ import { useEntityName } from "../lib/entity-names";
 import { useNavigation } from "../navigation";
 import { todayIso } from "../lib/dates";
 import { EMPTY } from "../lib/empty";
+import { EMPTY_LOT, LotFields, lotIsComplete, lotPayload, tracksLots, type LotValue } from "./enh/expiry/LotFields";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 
 const STATUS_KEY: Record<WorkOrderStatusRecord, AppTranslationKey> = {
@@ -612,6 +613,7 @@ export function WorkOrdersScreen() {
   const [receiveQty, setReceiveQty] = useState(0);
   const [receiveStationId, setReceiveStationId] = useState("");
   const [receiveOperatorId, setReceiveOperatorId] = useState("");
+  const [receiveLot, setReceiveLot] = useState<LotValue>(EMPTY_LOT);
   const [actionError, setActionError] = useState<string | null>(null);
 
   /**
@@ -764,8 +766,10 @@ export function WorkOrdersScreen() {
           producedQty: String(receiveQty),
           stationId: receiveStationId === "" ? null : receiveStationId,
           operatorId: receiveOperatorId === "" ? null : receiveOperatorId,
+          ...(tracksLots(productItem) ? lotPayload(receiveLot) : {}),
         },
       });
+      setReceiveLot(EMPTY_LOT);
       await completeOrder.mutateAsync(selected.id);
       setBuildPanelOpen(false);
     } catch (err) {
@@ -843,6 +847,7 @@ export function WorkOrdersScreen() {
     })),
   ];
 
+  const productItem = selected ? items.find((i) => i.id === selected.productItemId) : undefined;
   const buildShortage = selected
     ? selected.materials.some((m) => {
         const available = m.availableQty === null || m.availableQty === undefined ? null : num(m.availableQty);
@@ -867,6 +872,7 @@ export function WorkOrdersScreen() {
         ) : null}
 
         <NumberField label={t("workOrders.buildQty")} value={receiveQty} min={0} onChange={setReceiveQty} />
+        <LotFields item={productItem} value={receiveLot} onChange={setReceiveLot} />
 
         {/* The components this build consumes, at the quantity being built —
             QuickBooks shows the same list on its build form, and it is the
@@ -913,7 +919,7 @@ export function WorkOrdersScreen() {
           <Button
             variant="primary"
             onClick={confirmBuild}
-            disabled={buildShortage || receiveQty <= 0 || issueOrder.isPending || receiveOrder.isPending || completeOrder.isPending}
+            disabled={buildShortage || receiveQty <= 0 || !lotIsComplete(productItem, receiveLot) || issueOrder.isPending || receiveOrder.isPending || completeOrder.isPending}
           >
             {t("workOrders.buildConfirm")}
           </Button>

@@ -45,6 +45,7 @@ export const printColumnsConfigSchema = z.object({
   showLineDiscount: z.boolean(),
   showLineTaxPercent: z.boolean(),
   showLineTaxAmount: z.boolean(),
+  showBatchExpiry: z.boolean().optional(),
 });
 
 export const printTotalsConfigSchema = z.object({

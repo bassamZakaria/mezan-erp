@@ -94,16 +94,33 @@ function sourcesUnder(dir: string): string[] {
   });
 }
 
+function enumSourcesUnder(dir: string): string[] {
+  return readdirSync(dir).flatMap((entry) => {
+    const path = join(dir, entry);
+    if (statSync(path).isDirectory()) return enumSourcesUnder(path);
+    return /\.tsx?$/.test(entry) && !/\.test\.tsx?$/.test(entry) ? [path] : [];
+  });
+}
+
 describe("no screen can put an internal id or a raw URL segment in the breadcrumb", () => {
   const SCREENS_DIR = join(process.cwd(), "apps/web/src/screens");
   const NAMED_BY_THE_SCREEN_ITSELF = ["BankReconciliationScreen.tsx"];
   const sources = sourcesUnder(SCREENS_DIR).map((path) => ({ path: path.slice(SCREENS_DIR.length + 1), text: readFileSync(path, "utf8") }));
+  const ENUM_MEMBER_VALUES = new Map<string, string>(
+    enumSourcesUnder(SCREENS_DIR).flatMap((path) =>
+      [...readFileSync(path, "utf8").matchAll(/export enum (\w+) \{([^}]*)\}/g)].flatMap((decl) =>
+        [...(decl[2] as string).matchAll(/(\w+)\s*=\s*"([^"]+)"/g)].map((member) => [`${decl[1] ?? ""}.${member[1] ?? ""}`, member[2] ?? ""] as [string, string]),
+      ),
+    ),
+  );
 
   it("every tab a screen addresses in the URL has an Arabic name in the breadcrumb's table", () => {
     const unnamed: string[] = [];
     for (const { path, text } of sources) {
       if (!text.includes("<ScreenTabs")) continue;
-      const keys = [...text.matchAll(/key:\s*"([a-z-]+)",\s*label:\s*t\([^)]*\),\s*render:/g)].map((match) => match[1] as string);
+      const keys = [...text.matchAll(/key:\s*(?:"([a-z-]+)"|([A-Z]\w*\.\w+)),\s*label:\s*t\([^)]*\),\s*render:/g)].map(
+        (match) => (match[1] ?? ENUM_MEMBER_VALUES.get(match[2] as string) ?? (match[2] as string)) as string,
+      );
       expect(keys.length, path).toBeGreaterThan(1);
       for (const key of keys.slice(1)) if (!NAMED_SUB_PAGE_SEGMENTS.has(key)) unnamed.push(`${path} → ${key}`);
     }

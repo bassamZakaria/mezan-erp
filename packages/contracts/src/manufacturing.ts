@@ -131,6 +131,8 @@ export const workOrderLineActionSchema = shopFloorAttributionSchema.extend({
 
 export const receiveProductSchema = shopFloorAttributionSchema.extend({
   producedQty: positiveDecimalString,
+  batchNo: z.string().trim().min(1).nullish(),
+  expiryDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullish(),
 });
 
 export const issueMaterialsSchema = shopFloorAttributionSchema;

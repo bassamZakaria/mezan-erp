@@ -276,6 +276,7 @@ export {
   type PrintCompanyInfo,
   type PrintPartyInfo,
   type PrintDocumentLine,
+  type PrintLineLot,
   type PrintTaxBreakdownRow,
   type PrintDocumentTotals,
   type PrintDocumentModel,

@@ -163,6 +163,7 @@ describe("PrintTemplatesPage", () => {
       showLineDiscount: true,
       showLineTaxPercent: false,
       showLineTaxAmount: false,
+      showBatchExpiry: true,
     });
     expect(saved.totals).toEqual({
       showSubtotal: false,

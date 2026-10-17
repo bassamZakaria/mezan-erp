@@ -78,6 +78,10 @@ export interface ManufacturingStockPort {
   postIssue(command: PostIssueCommand): Promise<PostIssueResult>;
   postReceipt(command: PostReceiptCommand): Promise<PostReceiptResult>;
   postTransfer(command: PostTransferCommand): Promise<PostTransferResult>;
+  checkLots?(
+    lines: readonly { itemId: string; batchNo?: string | null; expiryDate?: string | null }[],
+    receivedOn?: string | null,
+  ): Promise<void>;
 }
 
 // --- GL posting hook (no import of the accounting module) -------------------

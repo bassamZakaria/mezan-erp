@@ -2,6 +2,8 @@ import { AlreadySavedNotice, useAlreadySavedNotice, useDocumentId } from "../lib
 import { useEffect, useMemo, useState } from "react";
 import { HeldDocumentReapproval } from "../shell/ReapprovalNotice";
 import { errorMessage } from "../lib/error-message";
+import { FefoPreviewPanel } from "./enh/expiry/FefoPreviewPanel";
+import { tracksLots } from "./enh/expiry/LotFields";
 import {
   RowActionOutcome,
   Button,
@@ -575,6 +577,16 @@ function CreateTransferView({
               </Button>
             </div>
           </Card>
+          {fromWarehouseId !== "" && lines.some((l) => tracksLots(itemList.find((i) => i.id === l.itemId))) ? (
+            <Card className="flex flex-col gap-[10px] p-[14px]">
+              <h3 className="font-display text-[13px] font-bold text-ink">{t("expiry.fefo.transferTitle")}</h3>
+              {lines
+                .filter((l) => tracksLots(itemList.find((i) => i.id === l.itemId)))
+                .map((l) => (
+                  <FefoPreviewPanel key={l.key} warehouseId={fromWarehouseId} itemId={l.itemId} qty={l.qty} title={nameOf(itemList.find((i) => i.id === l.itemId), l.itemId)} />
+                ))}
+            </Card>
+          ) : null}
         </div>
 
         <div

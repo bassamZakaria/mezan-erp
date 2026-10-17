@@ -122,7 +122,7 @@ const ADJUSTMENTS = [
   },
   {
     id: "ADJ-DEMO-4",
-    reason: "EXPIRY",
+    reason: "DAMAGE",
     occurredAt: "2026-08-22",
     counterpartAccountId: SHRINKAGE_ACCOUNT,
     lines: [{ itemId: "ITEM-DEMO-8", direction: "OUT" as const, qty: "20" }],

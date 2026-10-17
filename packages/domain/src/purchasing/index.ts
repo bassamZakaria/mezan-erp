@@ -87,6 +87,8 @@ export {
   receiptLineInvoicedQty,
   receiptLineRemainingQty,
   type ReceiptLineBilling,
+  setGoodsReceiptLots,
+  type GoodsReceiptLotInput,
   buildReceiptLinesFromOrder,
   goodsReceiptCancelEntryId,
   goodsReceiptTotalCost,

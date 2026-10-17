@@ -9,18 +9,18 @@ import {
 } from "./catalog.js";
 
 describe("domain event catalog", () => {
-  it("encodes the 39 notification events from catalog 09 plus the cash-runway alert", () => {
-    expect(DOMAIN_EVENT_CATALOG).toHaveLength(40);
+  it("encodes the 39 notification events from catalog 09 plus the cash-runway and the two expiry alerts", () => {
+    expect(DOMAIN_EVENT_CATALOG).toHaveLength(42);
     expect(isEventCode("CASH_FORECAST_LOW")).toBe(true);
   });
 
   it("is versioned, and the version moved when the catalog gained an event", () => {
-    expect(EVENT_CATALOG_VERSION).toBe(2);
+    expect(EVENT_CATALOG_VERSION).toBe(3);
   });
 
   it("has unique codes", () => {
     const codes = new Set(DOMAIN_EVENT_CATALOG.map((e) => e.code));
-    expect(codes.size).toBe(40);
+    expect(codes.size).toBe(42);
   });
 
   it("matches the catalog's per-category counts", () => {
@@ -45,12 +45,12 @@ describe("domain event catalog", () => {
       installments: 4,
       cheques: 5,
       pos: 5,
-      inventory: 1,
+      inventory: 3,
       manufacturing: 2,
       platform: 1,
     });
     // Categories sum back to the whole catalog.
-    expect(Object.values(counts).reduce((a, b) => a + b, 0)).toBe(40);
+    expect(Object.values(counts).reduce((a, b) => a + b, 0)).toBe(42);
   });
 
   it("every event uses a declared category", () => {

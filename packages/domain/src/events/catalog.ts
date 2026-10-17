@@ -8,11 +8,12 @@
  *
  * These are the 39 notification-rule trigger events from docs/archive/catalog/09
  * (قواعد الإشعارات, `/notifications/rules`), plus CASH_FORECAST_LOW, which the
- * cash-runway feature raises. Bump EVENT_CATALOG_VERSION on any change so
+ * cash-runway feature raises, and STOCK_NEAR_EXPIRY / STOCK_EXPIRED, which the
+ * expiry scan raises. Bump EVENT_CATALOG_VERSION on any change so
  * consumers can detect drift.
  */
 
-export const EVENT_CATALOG_VERSION = 2;
+export const EVENT_CATALOG_VERSION = 3;
 
 export const EVENT_CATEGORIES = [
   "workflow",
@@ -85,8 +86,10 @@ export const DOMAIN_EVENT_CATALOG = [
   { code: "POS_SESSION_CLOSED", category: "pos", labelAr: "تم إغلاق وردية نقطة بيع" },
   { code: "POS_DISCOUNT_APPROVAL_REQUESTED", category: "pos", labelAr: "طلب اعتماد خصم نقطة بيع" },
 
-  // Inventory (1)
+  // Inventory (3)
   { code: "LOW_STOCK_DETECTED", category: "inventory", labelAr: "انخفاض مخزون عن الحد الأدنى" },
+  { code: "STOCK_NEAR_EXPIRY", category: "inventory", labelAr: "تشغيلة قاربت على انتهاء الصلاحية" },
+  { code: "STOCK_EXPIRED", category: "inventory", labelAr: "تشغيلة انتهت صلاحيتها في المخزون" },
 
   // Manufacturing (2)
   { code: "WORK_ORDER_STARTED", category: "manufacturing", labelAr: "بدأ أمر التصنيع" },

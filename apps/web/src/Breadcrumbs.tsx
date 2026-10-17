@@ -31,6 +31,11 @@ const SEGMENT_LABEL_KEY: Record<string, AppTranslationKey> = {
   due: "recurringJournals.tab.due",
   history: "recurringJournals.tab.history",
   depreciation: "recurringJournals.tab.depreciation",
+  "write-off": "expiry.tab.writeOff",
+  alerts: "expiry.tab.alerts",
+  fefo: "expiry.tab.fefo",
+  recall: "expiry.tab.recall",
+  settings: "expiry.tab.settings",
 };
 
 export const NAMED_SUB_PAGE_SEGMENTS: ReadonlySet<string> = new Set(Object.keys(SEGMENT_LABEL_KEY));

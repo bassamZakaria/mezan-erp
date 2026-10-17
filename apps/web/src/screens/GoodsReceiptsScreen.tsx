@@ -35,6 +35,7 @@ import { majorOf } from "../lib/money";
 import { todayIso } from "../lib/dates";
 import { AttachmentsTab } from "../attachments/AttachmentsTab";
 import { EMPTY } from "../lib/empty";
+import { EMPTY_LOT, LotFields, lotIsComplete, lotPayload, tracksLots, type LotValue } from "./enh/expiry/LotFields";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 
 const INVOICING_KEY: Record<GoodsReceiptInvoicingStatusDTO, AppTranslationKey> = {
@@ -82,6 +83,7 @@ interface FromOrderLine {
   outstandingQty: number;
   unitCost: number;
   costCategory: CostCategoryDTO | null;
+  lot: LotValue;
 }
 
 function buildFromOrderLines(order: PurchaseOrderDTO): FromOrderLine[] {
@@ -95,6 +97,7 @@ function buildFromOrderLines(order: PurchaseOrderDTO): FromOrderLine[] {
         outstandingQty,
         unitCost: Number(line.unitPrice),
         costCategory: null,
+        lot: EMPTY_LOT,
       };
     })
     .filter((line) => line.outstandingQty > 0);
@@ -428,10 +431,19 @@ export function GoodsReceiptsScreen() {
   // outstanding quantity is an over-receipt the server would refuse anyway.
   const usableFromOrderLines = fromOrderLines.filter((l) => l.qty > 0);
   const overReceiptLine = fromOrderLines.some((l) => l.qty > l.outstandingQty);
-  const canSave =
+  const lotRuleOf = (itemId: string) => {
+    const item = items.find((it) => it.id === itemId);
+    return item ? { trackExpiry: item.trackExpiry } : undefined;
+  };
+  const lotsComplete =
     method === "from-order"
+      ? usableFromOrderLines.every((l) => lotIsComplete(lotRuleOf(l.itemId), l.lot))
+      : usableAdHocLines.every((l) => lotIsComplete(lotRuleOf(l.itemId), { batchNo: l.batchNo, expiryDate: l.expiryDate }));
+  const canSave =
+    lotsComplete &&
+    (method === "from-order"
       ? pickedOrder !== null && usableFromOrderLines.length > 0 && !overReceiptLine
-      : !requirePoForGrn && supplier !== null && adHocWarehouseId !== "" && usableAdHocLines.length > 0;
+      : !requirePoForGrn && supplier !== null && adHocWarehouseId !== "" && usableAdHocLines.length > 0);
 
   async function save() {
     setFormError(null);
@@ -447,6 +459,7 @@ export function GoodsReceiptsScreen() {
             itemId: l.itemId,
             qty: String(l.qty),
             unitCost: String(l.unitCost),
+            ...(tracksLots(items.find((it) => it.id === l.itemId)) ? lotPayload(l.lot) : {}),
             costCategory: l.costCategory,
           })),
         });
@@ -579,6 +592,11 @@ export function GoodsReceiptsScreen() {
                         }
                       />
                     </div>
+                    <LotFields
+                      item={items.find((it) => it.id === line.itemId)}
+                      value={line.lot}
+                      onChange={(lot) => setFromOrderLines((prev) => prev.map((l) => (l.key === line.key ? { ...l, lot } : l)))}
+                    />
                     {line.qty > line.outstandingQty ? (
                       <p role="alert" className="mt-[8px] text-[12px] text-danger-ink">
                         {t("goodsReceipts.error.overReceipt", { outstanding: String(line.outstandingQty) })}
@@ -638,21 +656,11 @@ export function GoodsReceiptsScreen() {
                 {/* Receiving is the ONLY moment a batch and its expiry can be
                     captured. Without these the FEFO engine, the cost layers and
                     the expiring-soon report have nothing to order by. */}
-                {items.find((it) => it.id === line.itemId)?.trackBatches ? (
-                  <div className="mt-[10px] grid grid-cols-2 gap-[8px]">
-                    <TextField
-                      label={t("goodsReceipts.field.batchNo")}
-                      value={line.batchNo}
-                      onChange={(v) => setAdHocLines((prev) => prev.map((l) => (l.key === line.key ? { ...l, batchNo: v } : l)))}
-                    />
-                    <TextField
-                      label={t("goodsReceipts.field.expiryDate")}
-                      value={line.expiryDate}
-                      onChange={(v) => setAdHocLines((prev) => prev.map((l) => (l.key === line.key ? { ...l, expiryDate: v } : l)))}
-                      placeholder="YYYY-MM-DD"
-                    />
-                  </div>
-                ) : null}
+                <LotFields
+                  item={items.find((it) => it.id === line.itemId)}
+                  value={{ batchNo: line.batchNo, expiryDate: line.expiryDate }}
+                  onChange={(lot) => setAdHocLines((prev) => prev.map((l) => (l.key === line.key ? { ...l, ...lot } : l)))}
+                />
                 <div className="mt-[10px]">
                   <SelectField
                     label={t("common.costCategory")}

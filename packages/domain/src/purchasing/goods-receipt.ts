@@ -691,3 +691,48 @@ async function writeReceipt(
 ): Promise<void> {
   assertDocumentWritten(await receipts.writeFields(next, fields, { status: expectedStatus }), "GOODS_RECEIPT", next.id);
 }
+
+export interface GoodsReceiptLotInput {
+  readonly lineIndex: number;
+  readonly batchNo: string | null;
+  readonly expiryDate: string | null;
+}
+
+export async function setGoodsReceiptLots(
+  id: string,
+  lots: readonly GoodsReceiptLotInput[],
+  deps: Pick<ConfirmGoodsReceiptDeps, "receipts" | "audit" | "actor">,
+): Promise<GoodsReceipt> {
+  const receipt = await deps.receipts.findById(id);
+  if (!receipt) throw new GoodsReceiptNotFoundError(id);
+  if (receipt.status !== "draft") throw new PurchaseDocumentNotDraftError(id, receipt.status);
+  const reasons: string[] = [];
+  const byIndex = new Map<number, GoodsReceiptLotInput>();
+  for (const lot of lots) {
+    if (!Number.isInteger(lot.lineIndex) || lot.lineIndex < 0 || lot.lineIndex >= receipt.lines.length) {
+      reasons.push(`line ${lot.lineIndex}: no such line on the receipt`);
+      continue;
+    }
+    byIndex.set(lot.lineIndex, lot);
+  }
+  if (reasons.length > 0) throw new InvalidPurchaseDocumentError(reasons);
+  const updated: GoodsReceipt = {
+    ...receipt,
+    lines: receipt.lines.map((line, index) => {
+      const lot = byIndex.get(index);
+      if (!lot) return line;
+      return {
+        ...line,
+        batchNo: lot.batchNo && lot.batchNo.trim() !== "" ? lot.batchNo.trim() : null,
+        expiryDate: lot.expiryDate && lot.expiryDate.trim() !== "" ? lot.expiryDate.trim() : null,
+      };
+    }),
+  };
+  await deps.receipts.update(updated);
+  await recordPurchaseAudit(deps, "GOODS_RECEIPT", "UPDATE_LOTS", {
+    receiptId: updated.id,
+    number: updated.number,
+    lots: lots.map((l) => ({ lineIndex: l.lineIndex, batchNo: l.batchNo, expiryDate: l.expiryDate })),
+  }, updated.id);
+  return updated;
+}

@@ -48,6 +48,9 @@ import {
   type PostedTransferFilter,
 } from "./posted-stock-documents.js";
 import { getAdjustmentReasonDefinition, type AdjustmentReason } from "./reasons.js";
+import { assertLotDetails } from "../expiry/lot-tracking.js";
+import { ExpiryWriteOffExceedsExpiredError, expiredQtyAtHead } from "../expiry/write-off.js";
+import type { BatchTrailRecorder, LotRequirementLookup } from "../expiry/types.js";
 import type { CostCategory } from "../contracting/cost-category.js";
 import { extend, unitCostOf } from "./wac-math.js";
 import { replay, checkDrift, emptyPosition, recordedAbsorption, takeBackOrder, type WacPosition, type DriftReport } from "./wac.js";
@@ -127,6 +130,8 @@ export interface StockLedgerServiceDeps {
    * such an issue is refused rather than written at zero (D101).
    */
   readonly fallbackUnitCost?: (itemId: string) => Promise<Money | null> | Money | null;
+  readonly lotRequirement?: LotRequirementLookup;
+  readonly batchTrail?: BatchTrailRecorder;
 }
 
 export interface AdjustmentLine {
@@ -135,6 +140,8 @@ export interface AdjustmentLine {
   readonly qty: Qty;
   /** Required for an IN line (receipt-time cost); ignored for an OUT line. */
   readonly unitCost?: Money;
+  readonly batchNo?: string | null;
+  readonly expiryDate?: string | null;
 }
 
 export interface PostAdjustmentCommand {
@@ -573,6 +580,23 @@ export class StockLedgerService {
       }
     } else {
       consumed = await this.consumeLayers(input.itemId, input.warehouseId, input.qty, input.takesBackSourceDocId ?? null);
+      const traced = consumed.filter((slice) => slice.batchNo !== null || slice.expiryDate !== null);
+      if (this.deps.batchTrail && traced.length > 0) {
+        await this.deps.batchTrail.record(
+          traced.map((slice) => ({
+            movementId: input.movementId,
+            itemId: input.itemId,
+            warehouseId: input.warehouseId,
+            sourceDocType: input.sourceDocType,
+            sourceDocId: input.sourceDocId,
+            sourceDocNumber: input.sourceDocNumber,
+            batchNo: slice.batchNo,
+            expiryDate: slice.expiryDate,
+            qty: slice.qty,
+            occurredAt: input.occurredAt,
+          })),
+        );
+      }
     }
 
     const averageCost = unitCostOf(newTotalValue, newOnHand);
@@ -629,6 +653,30 @@ export class StockLedgerService {
     throw new ExpiredStockError(itemId, warehouseId, head.batchNo ?? null, head.expiryDate);
   }
 
+  /**
+   * INVARIANT: an EXPIRY write-off of an expiry-tracked item may only draw expired
+   * layers. A second draft written off the same expired batch would otherwise
+   * consume the next, in-date layer once the first one was confirmed.
+   */
+  private async refuseWritingOffGoodStock(command: PostAdjustmentCommand, occurredAt: string): Promise<void> {
+    const lookup = this.deps.lotRequirement;
+    if (!lookup) return;
+    const requested = new Map<string, Qty>();
+    for (const line of command.lines) {
+      if (line.direction !== "OUT") continue;
+      requested.set(line.itemId, (requested.get(line.itemId) ?? Qty.zero()).add(line.qty));
+    }
+    const asOf = occurredAt.slice(0, 10);
+    for (const [itemId, qty] of requested) {
+      const requirement = await lookup(itemId);
+      if (!requirement?.expiry) continue;
+      const expired = expiredQtyAtHead(await this.deps.layers.listByPosition(itemId, command.warehouseId), asOf);
+      if (qty.compare(expired) > 0) {
+        throw new ExpiryWriteOffExceedsExpiredError(itemId, requirement.labelAr ?? itemId, qty, expired);
+      }
+    }
+  }
+
   private async consumeLayers(itemId: string, warehouseId: string, qty: Qty, takenBackFrom: string | null = null): Promise<ConsumedSlice[]> {
     const layers = takeBackOrder(orderLayersForConsumption(await this.deps.layers.listByPosition(itemId, warehouseId)), takenBackFrom);
     const consumed: ConsumedSlice[] = [];
@@ -656,6 +704,13 @@ export class StockLedgerService {
     this.validateAdjustment(command);
     const occurredAt = command.occurredAt ?? this.now();
     await this.assertPeriodOpen(occurredAt);
+    if (command.reason !== "PHYSICAL_COUNT") {
+      await assertLotDetails(
+        command.lines.filter((l) => l.direction === "IN"),
+        this.deps.lotRequirement,
+      );
+    }
+    if (command.reason === "EXPIRY") await this.refuseWritingOffGoodStock(command, occurredAt);
 
     await this.runInTransaction(async () => {
       const movementIds: string[] = [];
@@ -677,6 +732,8 @@ export class StockLedgerService {
           sourceDocNumber: command.adjustmentNumber ?? null,
           reason: command.reason,
           occurredAt,
+          batchNo: line.direction === "IN" ? (line.batchNo ?? null) : null,
+          expiryDate: line.direction === "IN" ? (line.expiryDate ?? null) : null,
         });
         valueDelta = valueDelta.add(signedValue);
       }
@@ -838,6 +895,13 @@ export class StockLedgerService {
     });
   }
 
+  async checkLots(
+    lines: readonly { itemId: string; batchNo?: string | null; expiryDate?: string | null }[],
+    receivedOn?: string | null,
+  ): Promise<void> {
+    await assertLotDetails(lines, this.deps.lotRequirement, { receivedOn: receivedOn ?? null });
+  }
+
   /** Opening balance — a specialised INITIAL_STOCK adjustment (docs/archive/catalog/03). */
   async recordOpeningBalance(command: Omit<PostAdjustmentCommand, "reason" | "lines"> & {
     readonly lines: readonly { itemId: string; qty: Qty; unitCost: Money }[];
@@ -980,6 +1044,7 @@ export class StockLedgerService {
     }
     const occurredAt = command.occurredAt ?? this.now();
     await this.assertPeriodOpen(occurredAt);
+    await assertLotDetails(command.lines, this.deps.lotRequirement, { receivedOn: occurredAt.slice(0, 10) });
 
     return this.runInTransaction(async () => {
       let coverVariance = Money.zero();

@@ -26,6 +26,8 @@ import {
   type PhysicalCountStatus,
   PHYSICAL_COUNT_STATUSES,
   matchesSearch,
+  LotDetailsRequiredError,
+  ExpiryWriteOffExceedsExpiredError,
 } from "@mezan/domain";
 import {
   ReversalPermission,
@@ -72,6 +74,8 @@ function serializeAdjustment(doc: FrameworkDocument<StockAdjustmentDocLine>, app
       direction: l.direction,
       qty: l.qty.toString(),
       unitCost: l.unitCost ? l.unitCost.toString() : null,
+      batchNo: l.batchNo ?? null,
+      expiryDate: l.expiryDate ?? null,
     })),
     createdAt: doc.createdAt,
     confirmedAt: doc.confirmedAt,
@@ -220,6 +224,12 @@ function handleDocumentError(c: Context, err: unknown): Response {
   if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
   const postingRefusal = reversalRefusalResponse(c, err);
   if (postingRefusal) return postingRefusal;
+  if (err instanceof LotDetailsRequiredError) {
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, issues: err.issues }, 422);
+  }
+  if (err instanceof ExpiryWriteOffExceedsExpiredError) {
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, itemId: err.itemId }, 422);
+  }
   if (err instanceof DocumentNotFoundError || err instanceof PhysicalCountNotFoundError) {
     return c.json({ error: err.code, message: err.message }, 404);
   }
@@ -281,6 +291,8 @@ export function createStockAdjustmentsRoutes(
           direction: l.direction,
           qty: Qty.fromMajor(l.qty),
           unitCost: l.unitCost ? Money.fromMajor(l.unitCost) : undefined,
+          batchNo: l.direction === "IN" ? (l.batchNo ?? null) : null,
+          expiryDate: l.direction === "IN" ? (l.expiryDate ?? null) : null,
           projectId: parsed.data.projectId ?? null,
           costCategory: parsed.data.costCategory ?? null,
         })),

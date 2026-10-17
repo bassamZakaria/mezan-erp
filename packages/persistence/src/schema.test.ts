@@ -64,7 +64,8 @@ describe("drizzle schema", () => {
         photo_url TEXT,
         last_login_at TEXT,
         created_at TEXT NOT NULL,
-        erased_at TEXT
+        erased_at TEXT,
+        access_expires_at TEXT
       );
     `);
   }

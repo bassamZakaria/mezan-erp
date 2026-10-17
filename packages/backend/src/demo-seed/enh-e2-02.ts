@@ -3,11 +3,22 @@ import { ACCOUNTS, step } from "./shared.js";
 
 /**
  * One seeded recurring-journal template — رسوم اشتراك سحابي — so the
- * templates list, the due worklist and (once generated) the history are
- * never empty on a demo tenant. `startDate` is well before any seeding run,
- * so at least one period is already due the moment the screen opens.
+ * templates list, the due worklist and the history are never empty on a demo
+ * tenant.
+ *
+ * INVARIANT: every period but the latest is generated, and the latest is left
+ * outstanding. Generating with no date bound takes the latest too and the
+ * «المستحق» worklist opens empty; `period-close.ts` posts the January-to-July
+ * entries this leaves behind, so those must stay generated.
  */
 const TEMPLATE_ID = "RJT-DEMO-1";
+const FIRST_DAY_OF_PERIOD = 1;
+
+function dayBefore(day: string): string {
+  const at = new Date(`${day}T00:00:00.000Z`);
+  at.setUTCDate(at.getUTCDate() - 1);
+  return at.toISOString().slice(0, 10);
+}
 
 export const seed: SeedFragment = {
   async run(app) {
@@ -17,7 +28,7 @@ export const seed: SeedFragment = {
       nameEn: "Monthly cloud subscription fee",
       memo: "رسوم اشتراك الخدمات السحابية",
       frequency: "monthly",
-      dayOfPeriod: 1,
+      dayOfPeriod: FIRST_DAY_OF_PERIOD,
       yearlyMonth: null,
       startDate: "2026-01-01",
       endDate: null,
@@ -30,7 +41,13 @@ export const seed: SeedFragment = {
         { accountId: ACCOUNTS.cash, debit: "0.00", credit: "500.00" },
       ],
     });
-    // One generated period, so the History tab is never empty either.
-    await step(app, "POST", "/gl/recurring/generate-due", { templateIds: [TEMPLATE_ID] });
+    const worklist = (await step(app, "GET", "/gl/recurring/due")) as { due: readonly { templateId: string; periods: readonly string[] }[] };
+    const outstanding = worklist.due.find((entry) => entry.templateId === TEMPLATE_ID)?.periods ?? [];
+    const latest = outstanding[outstanding.length - 1];
+    if (!latest || outstanding.length < 2) return;
+    await step(app, "POST", "/gl/recurring/generate-due", {
+      templateIds: [TEMPLATE_ID],
+      asOfDate: dayBefore(`${latest}-${String(FIRST_DAY_OF_PERIOD).padStart(2, "0")}`),
+    });
   },
 };

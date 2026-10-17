@@ -60,7 +60,6 @@ const SELECTION_PROMPT = /^اختر/;
 // records: an empty one is their correct opening state.
 const WORK_TABLE_SCREENS = new Set<string>([
   "labels", // the print queue: rows are the items the operator adds for printing
-  "recurring-journals-due", // a work queue: empty once every due period has its entry generated, which is how the demo seed leaves it
 ]);
 
 const test = base.extend<object, { workerStorageState: string }>({

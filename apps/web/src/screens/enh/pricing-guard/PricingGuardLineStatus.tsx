@@ -31,7 +31,6 @@ export const COST_BASIS_LABEL: Record<PricingGuardCostBasisDTO, AppTranslationKe
   [PricingGuardCostBasisDTO.None]: "pricingGuard.costBasis.none",
 };
 
-/** One draft line's margin (only when the server sent cost) and its floor verdict. */
 export function PricingGuardLineStatus({ line, costVisible }: { line: PricingGuardLineEvaluationDTO | undefined; costVisible: boolean }) {
   const { t } = useAppTranslation();
   const format = useFormat();
@@ -70,7 +69,6 @@ export function PricingGuardLineStatus({ line, costVisible }: { line: PricingGua
   );
 }
 
-/** A banner above the save buttons, so a blocked or approval-bound draft is known before it is confirmed. */
 export function PricingGuardSummary({ evaluation }: { evaluation: PricingGuardEvaluationDTO | null }) {
   const { t } = useAppTranslation();
   if (!evaluation || evaluation.outcome === PricingGuardLineOutcomeDTO.Pass) return null;

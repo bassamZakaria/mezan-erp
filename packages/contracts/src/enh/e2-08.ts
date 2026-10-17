@@ -3,11 +3,7 @@ import { isoDay } from "../iso-date.js";
 import { clientSuppliedId } from "../client-supplied-id.js";
 import { moneyString, nonNegativeMoneyString, quantityString } from "../money-string.js";
 
-/**
- * Wire contracts for the price floor / minimum margin guard (ENH-E2-08).
- * Contracts must not depend on the domain, so the closed value sets are
- * re-declared with the same string values as `@mezan/domain`'s pricing-guard enums.
- */
+// CONTRACT: same string values as the pricing-guard enums in @mezan/domain, which contracts may not import.
 export enum PricingGuardModeDTO {
   Block = "block",
   Approval = "approval",
@@ -122,7 +118,7 @@ export const pricingGuardBreachSchema = z.object({
 });
 export type PricingGuardBreachDTO = z.infer<typeof pricingGuardBreachSchema>;
 
-/** `unitCost`, `costBasis` and `marginPercent` are present only for a caller holding `sales.invoice.view_cost` — omitted, never nulled. */
+// SECURITY: unitCost, costBasis and marginPercent reach only a caller holding sales.invoice.view_cost — omitted, never nulled.
 export const pricingGuardLineEvaluationSchema = z.object({
   lineId: z.string(),
   itemId: z.string(),
@@ -185,7 +181,6 @@ export const pricingGuardOverrideReportSchema = z.object({
 });
 export type PricingGuardOverrideReportDTO = z.infer<typeof pricingGuardOverrideReportSchema>;
 
-/** The refusal a confirm or a quote send answers with when a line breaks a rule; names lines and rules, never a cost. */
 export const pricingGuardRefusalSchema = z.object({
   error: z.string(),
   message: z.string(),

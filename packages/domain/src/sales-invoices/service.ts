@@ -189,7 +189,6 @@ export interface SalesInvoiceServiceDeps {
   readonly promotions?: SalesInvoicePromotionHook;
   /** Customer price lists; when omitted, no invoice is ever checked against one. */
   readonly pricing?: SalesInvoicePricingDeps;
-  /** Floor price / minimum margin rules (ENH-E2-08); omitted, no invoice is judged against them. */
   readonly pricingGuard?: DocumentPricingGuardPort;
   readonly audit?: AuditSink;
   /**
@@ -482,7 +481,20 @@ export class SalesInvoiceService {
       if (!decision.granted) {
         // Re-confirming while the request is still in the inbox is a no-op, not
         // an illegal pending → pending transition.
-        if (existing.status === "pending") return { invoice: existing, held: true, creditWarning: null, pricingVariances: [], taxRecalculated: false };
+        if (existing.status === "pending" && existing.workflowRequestId === decision.requestId) {
+          return { invoice: existing, held: true, creditWarning: null, pricingVariances: [], taxRecalculated: false };
+        }
+        // INVARIANT: a held invoice points at the request that now holds it. The
+        // price guard can move it between the ordinary and the price-floor
+        // request; left on the old id, neither approval could ever post it.
+        if (existing.status === "pending") {
+          const repointed: SalesInvoice = { ...existing, workflowRequestId: decision.requestId };
+          await this.deps.repo.transaction(async () => {
+            await this.writeFields(repointed, [SalesInvoiceField.WorkflowRequestId], SalesInvoiceStatusCode.Pending);
+            if (existing.workflowRequestId) await this.deps.workflow?.reopen?.(existing.workflowRequestId);
+          });
+          return { invoice: repointed, held: true, creditWarning: null, pricingVariances: [], taxRecalculated: false };
+        }
 
         const held = await this.deps.repo.transaction(async () => {
           const fresh = await this.require(id);
@@ -795,7 +807,6 @@ export class SalesInvoiceService {
     return { ...invoice, lines, notes };
   }
 
-  /** The document as the pricing guard reads it: each line's taxable base (after every discount, before VAT) in the document's currency. */
   pricingGuardInputOf(invoice: SalesInvoice, totals: SalesInvoiceTotals = this.totalsOf(invoice)): PricingGuardDocumentInput {
     const netByLine = new Map(totals.lines.map((line) => [line.lineId, line.taxableBase]));
     return {

@@ -95,11 +95,6 @@ export interface SalesQuoteRoutesDeps {
   readonly customerTax?: CustomerTaxProfileSource;
   readonly taxPolicy?: SalesTaxPolicySource;
   readonly numbering: DocumentNumberingHook;
-  /**
-   * Floor price / minimum margin (ENH-E2-08). A Block rule refuses the save and
-   * the send; an approve-mode breach is reported and recorded on send, and is
-   * bound where money moves — at the converted invoice's confirm.
-   */
   readonly pricingGuard?: DocumentPricingGuardPort;
   readonly now?: () => string;
   /** Generates a quote id when the request omits one. Defaults to a UUID. */

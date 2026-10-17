@@ -94,11 +94,6 @@ function useDebounced<T>(value: T, delayMs: number): T {
   return settled;
 }
 
-/**
- * Live line margin and floor check for a draft. PREVIEW ONLY: the server judges
- * again on save and confirm, and its cost is its own — none is ever sent from here.
- * A caller without the right to preview simply sees nothing.
- */
 export function usePricingGuardPreview(body: PricingGuardEvaluateRequestDTO | null): PricingGuardEvaluationDTO | null {
   const { request, session } = useApi();
   const serialized = body === null || body.lines.length === 0 ? null : JSON.stringify(body);

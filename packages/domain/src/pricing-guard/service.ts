@@ -14,13 +14,7 @@ import {
 } from "./types.js";
 
 export interface PricingGuardCostSource {
-  /**
-   * Weighted-average cost of ONE BASE unit at the close of `date`, replayed
-   * from the stock ledger — at `warehouseId`, or pooled over the branch's
-   * warehouses when the document names none. Null when nothing was on hand.
-   */
   unitCostAsOf(query: { readonly itemId: string; readonly warehouseId: string | null; readonly branchId: string; readonly date: string }): Promise<Money | null>;
-  /** The item master's own cost price, used only when the ledger holds no position. */
   itemCostPrice(itemId: string): Promise<Money | null>;
 }
 
@@ -28,7 +22,6 @@ export interface PricingGuardServiceDeps {
   readonly rules: Pick<PricingGuardRuleRepository, "list">;
   readonly overrides: PricingGuardOverrideRepository;
   readonly costs: PricingGuardCostSource;
-  /** The item's category and every ancestor of it, nearest first. */
   readonly categoryAncestry: (itemId: string) => Promise<readonly string[]>;
   readonly customerCategory: (customerId: string) => Promise<string | null>;
   readonly rateOn: (currency: string, date: string) => Promise<string | null>;
@@ -36,7 +29,6 @@ export interface PricingGuardServiceDeps {
   readonly approvalChainConfigured: () => Promise<boolean>;
 }
 
-/** What a document confirm consults: evaluation, whether approve-mode has anywhere to go, and the override record. */
 export interface DocumentPricingGuardPort {
   evaluate(input: PricingGuardDocumentInput): Promise<PricingGuardEvaluation>;
   approvalChainConfigured(): Promise<boolean>;

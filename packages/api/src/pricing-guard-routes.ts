@@ -57,7 +57,6 @@ export interface PricingGuardRoutesDeps {
   readonly itemExists: (itemId: string) => Promise<boolean>;
   readonly categoryExists: (categoryId: string) => Promise<boolean>;
   readonly customerTaxExempt?: (customerId: string) => Promise<boolean>;
-  /** Who submitted a price-floor request and who approved it, in decision order. */
   readonly approvalOf?: (requestId: string) => Promise<{ readonly submittedBy: string; readonly approvedBy: readonly string[] } | null>;
   readonly userName?: (userId: string) => Promise<string | null>;
   readonly audit?: AuditSink;
@@ -192,15 +191,7 @@ function handleRuleError(c: Context, err: unknown): Response {
   throw err;
 }
 
-/**
- * Price floor / minimum margin rules (ENH-E2-08), mounted under `/pricing-guard`:
- *   GET  /rules                rules              (sales.pricing_guard.view)
- *   POST /rules                create             (sales.pricing_guard.manage)
- *   PUT  /rules/:id            revise             (sales.pricing_guard.manage)
- *   POST /rules/:id/status     activate/deactivate (sales.pricing_guard.manage) — a rule is never deleted
- *   POST /evaluate             PREVIEW ONLY: the guard over a draft's lines; writes nothing
- *   GET  /overrides            below-floor override report (sales.pricing_guard.view)
- */
+// SECURITY: POST /evaluate is a preview and writes nothing; it never accepts a cost from the caller.
 export function createPricingGuardRoutes(deps: PricingGuardRoutesDeps, resolveAuthContext: AuthContextResolver) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);

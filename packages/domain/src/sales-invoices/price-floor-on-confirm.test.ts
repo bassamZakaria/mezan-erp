@@ -50,7 +50,7 @@ function floorRule(mode: PricingGuardMode): PricingGuardRule {
   };
 }
 
-async function build(opts: { mode: PricingGuardMode; chain: boolean; workflow?: DocumentWorkflowGate; actorRoles?: readonly string[] }) {
+async function build(opts: { mode: PricingGuardMode; chain: boolean; workflow?: DocumentWorkflowGate; actorRoles?: readonly string[]; rules?: PricingGuardRule[] }) {
   const accounts = new InMemoryAccountRepository();
   await accounts.create(account(AR));
   await accounts.create(account(REVENUE, { type: "revenue", naturalBalance: "credit" }));
@@ -64,7 +64,7 @@ async function build(opts: { mode: PricingGuardMode; chain: boolean; workflow?: 
   );
   const recorded: PricingGuardOverride[] = [];
   const guard = new PricingGuardService({
-    rules: { list: async () => [floorRule(opts.mode)] },
+    rules: { list: async () => opts.rules ?? [floorRule(opts.mode)] },
     overrides: { recordAll: async (rows) => void recorded.push(...rows), list: async () => recorded },
     costs: { unitCostAsOf: async () => null, itemCostPrice: async () => null },
     categoryAncestry: async () => [],
@@ -157,5 +157,18 @@ describe("SalesInvoiceService.confirm — price floor (ENH-E2-08)", () => {
     await svc.createDraft(draft());
     expect((await svc.confirm("inv-1")).invoice.status).toBe("confirmed");
     expect(recorded[0]?.kind).toBe(PricingGuardOverrideKind.AdminBypass);
+  });
+
+  it("re-points a held invoice at the request that now holds it once the breach is gone", async () => {
+    const seen: DocumentWorkflowInput[] = [];
+    const rules = [floorRule(PricingGuardMode.Approval)];
+    const { svc } = await build({ mode: PricingGuardMode.Approval, chain: true, workflow: recordingGate(false, seen), rules });
+    await svc.createDraft(draft());
+    expect((await svc.confirm("inv-1")).invoice.workflowRequestId).toBe("inv-1:price-floor");
+    rules.length = 0;
+    const again = await svc.confirm("inv-1");
+    expect(again.held).toBe(true);
+    expect(seen.at(-1)?.actionType).toBe("SALES_INVOICE_CONFIRM");
+    expect((await svc.findById("inv-1"))?.workflowRequestId).toBe("inv-1:confirm");
   });
 });

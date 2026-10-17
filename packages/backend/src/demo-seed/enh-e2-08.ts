@@ -15,11 +15,7 @@ async function onHandOf(app: App, itemId: string, code: string): Promise<number>
   return row?.onHand ? Math.floor(Number(row.onHand)) : 0;
 }
 
-/**
- * Approve-mode rules only: a later fragment confirming as a non-admin user must
- * never be refused by a seeded Block rule. One quote sent and one invoice
- * confirmed below the floor, so the override report opens with rows.
- */
+// INVARIANT: approve-mode rules only — a later fragment confirming as a non-admin user must never be refused by a seeded Block rule.
 async function run(app: App, ctx: SeedFragmentContext): Promise<void> {
   if (!ctx.licensed("sales") || !ctx.licensed("inventory") || !FLOOR_ITEM || !WHOLESALE_CUSTOMER) return;
 

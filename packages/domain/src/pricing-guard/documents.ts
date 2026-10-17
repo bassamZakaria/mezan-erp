@@ -3,7 +3,6 @@ import type { SalesQuoteTotals } from "../sales-quotes/totals.js";
 import { Money } from "../money/index.js";
 import { PricingGuardDocType, type PricingGuardDocumentInput } from "./types.js";
 
-/** A quote carries no warehouse and its lines are in base units, so its cost is pooled over the branch and its quantity is the base quantity. */
 export function quotePricingGuardInput(quote: Pick<SalesQuote, "id" | "date" | "customerId" | "branchId" | "currency" | "lines">, totals: SalesQuoteTotals): PricingGuardDocumentInput {
   const netByLine = new Map(totals.lines.map((line) => [line.lineId, line.taxableBase]));
   return {

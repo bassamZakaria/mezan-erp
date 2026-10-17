@@ -41,7 +41,6 @@ function divHalfUp(numerator: bigint, denominator: bigint): bigint {
   return negative ? -rounded : rounded;
 }
 
-/** Gross margin on the net selling price, in basis points: (net − cost) ÷ net — the same figure the invoice detail prints as الهامش. */
 export function marginBasisPointsOf(net: Money, cost: Money): bigint | null {
   if (net.scaled <= 0n) return null;
   return divHalfUp((net.scaled - cost.scaled) * BASIS_POINTS, net.scaled);
@@ -55,11 +54,9 @@ function lineCostOf(line: PricingGuardEvaluationLineInput): Money | null {
 function breachesOf(rule: PricingGuardRule, line: PricingGuardEvaluationLineInput, net: Money, cost: Money | null): PricingGuardBreach[] {
   const found: PricingGuardBreach[] = [];
   const base = { ruleId: rule.id, ruleNameAr: rule.nameAr, mode: rule.mode, floorPrice: rule.floorPrice, minMarginPercent: rule.minMarginPercent };
-  // net < floor × qty, cross-multiplied so no division or rounding enters the comparison.
   if (rule.floorPrice && net.scaled * SCALE < rule.floorPrice.scaled * line.baseQty.scaled) {
     found.push({ ...base, kind: PricingGuardBreachKind.BelowFloor });
   }
-  // (net − cost) ÷ net < m%, i.e. (net − cost) × 100 < m × net; a line at or below zero fails any positive minimum.
   if (rule.minMarginPercent !== null && cost) {
     const minimum = percentScaled(rule.minMarginPercent);
     const belowMargin = net.scaled <= 0n ? minimum > 0n : (net.scaled - cost.scaled) * 100n * SCALE < minimum * net.scaled;
@@ -83,12 +80,6 @@ export function strictestOutcome(outcomes: readonly PricingGuardLineOutcome[]): 
   return outcomes.reduce((worst, next) => (OUTCOME_RANK[next] > OUTCOME_RANK[worst] ? next : worst), PricingGuardLineOutcome.Pass);
 }
 
-/**
- * Every matching active rule applies and the line must satisfy all of them; a
- * line breaching any Block rule is blocked, otherwise any breach needs approval.
- * A line whose net in base currency is unknown is not judged here — the confirm
- * that would post it refuses a missing exchange rate on its own.
- */
 export function evaluatePricingGuard(
   rules: readonly PricingGuardRule[],
   lines: readonly PricingGuardEvaluationLineInput[],

@@ -145,7 +145,6 @@ export interface SalesInvoiceRoutesDeps {
   readonly promotions?: SalesInvoicePromotionHook;
   /** The customer's own price list, so a line under it is surfaced rather than silently accepted (D35). */
   readonly pricing?: SalesInvoicePricingDeps;
-  /** Floor price / minimum margin over WAC (ENH-E2-08), judged on confirm. */
   readonly pricingGuard?: DocumentPricingGuardPort;
   /** Refuses a line naming an item the catalogue does not hold (D38); omit for no check. */
   readonly itemCheck?: ItemCatalogCheck;

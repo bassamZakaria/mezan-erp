@@ -17,11 +17,7 @@ const CATEGORY_DEPTH_LIMIT = 32;
 
 const registry = new WeakMap<Database.Database, DocumentPricingGuardPort>();
 
-/**
- * The port the core sales-invoice and quote wiring holds. The core API mounts
- * before the enhancement areas, so it reads the guard at call time; until this
- * area has mounted, every document passes unjudged.
- */
+// ORDERING: the core API mounts before the enhancement areas, so the port reads the guard at call time.
 export function pricingGuardPortFor(sqlite: Database.Database): DocumentPricingGuardPort {
   return {
     evaluate: async (input) => registry.get(sqlite)?.evaluate(input) ?? { outcome: PricingGuardLineOutcome.Pass, lines: [] },

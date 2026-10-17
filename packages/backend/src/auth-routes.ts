@@ -15,6 +15,8 @@ import {
   type SecretHasher,
   type SettingsRepository,
   UserStatusCode,
+  accessExpiresAtMs,
+  isAccessExpired,
   type User,
 } from "@mezan/domain";
 import { CurrentSecretRefusal, loginRequestSchema, bootstrapAdminRequestSchema, unlockAccountRequestSchema, unlockAccountByLinkRequestSchema, stepUpRequestSchema, UNDISCLOSED_TENANT_NAME, type SessionDTO } from "@mezan/contracts";
@@ -97,6 +99,7 @@ export interface AccountLockedEvent {
   readonly reissued?: boolean;
 }
 
+export const ACCESS_EXPIRED_ERROR = "ACCESS_EXPIRED";
 const SIGN_IN_BUSY_RETRY_SECONDS = 2;
 const SIGN_IN_BUSY_STATUS = 503;
 const ACCOUNT_LOCKED_STATUS = 423;
@@ -142,7 +145,12 @@ async function toSession(user: User, deps: AuthRoutesDeps, origin: string | null
     // permissions travel too, but only so the UI can hide what the user cannot
     // do — the server re-reads them from this session on every request and
     // never from what comes back.
-    ...issueSession(deps.sessions, { userId: user.id, permissions, roleCode, branchScope: user.branchScope, warehouseScope: user.warehouseScope }, origin, device),
+    ...issueSession(
+      deps.sessions,
+      { userId: user.id, permissions, roleCode, branchScope: user.branchScope, warehouseScope: user.warehouseScope, accessExpiresAt: accessExpiresAtMs(user) },
+      origin,
+      device,
+    ),
   };
 }
 
@@ -421,6 +429,18 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
      * can sign in, so that a human decides who stays. Checked AFTER the
      * credential, so it can never tell an outsider how many users a tenant has.
      */
+    if (isAccessExpired(signedIn, Date.now())) {
+      guard.succeeded(needle, origin);
+      await security(c, "LOGIN_REFUSED_ACCESS_EXPIRED", AuditSeverityCode.Warning, { userId: signedIn.id, accessExpiresAt: signedIn.accessExpiresAt ?? null });
+      return c.json(
+        {
+          error: ACCESS_EXPIRED_ERROR,
+          message: "انتهت مدة الوصول الممنوحة لهذا الحساب. اطلب من مدير النظام تمديدها.",
+          messageEn: "This account's access period has ended. Ask the administrator to extend it.",
+        },
+        403,
+      );
+    }
     if (!signedIn.isCompanyAdmin) {
       const entitlements = await deps.resolveEntitlements?.(c);
       if (entitlements) {

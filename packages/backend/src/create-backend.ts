@@ -32,6 +32,7 @@ import {
   customerTaxProfileFrom,
   salesTaxRerating,
   type SalesItemTaxSource,
+  type ReportsRoutesDeps,
 } from "@mezan/api";
 import {
   withDerivedTreasuryFx,
@@ -4467,6 +4468,53 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
     });
   };
 
+  const reportsDeps = {
+    allocatable: vouchers.invoices,
+    // The customer aging ladder has to net every credit the GL already
+    // posted against 1105, or it and the dashboard tile report two
+    // different receivables (D37).
+    salesReturnDocs: salesReturns,
+    purchaseReturnDocs: purchaseReturns,
+    cheques,
+    voucherDocuments: vouchers.documents,
+    allocations: vouchers.allocations,
+    salesInvoices,
+    purchaseInvoices,
+    historicalArchives: {
+      sales: () => salesHistoricalImportArchives.list(),
+      purchases: () => historicalImportArchives.list(),
+    },
+    customers,
+    suppliers,
+    items,
+    boms: manufacturing.boms,
+    warehouses,
+    stockLedger: stockLedger.ledger,
+    costLayers: stockLedger.layers,
+    wacSnapshots: stockLedger.snapshots,
+    installmentPlans,
+    // القوائم المالية read the SAME posted GL + chart of accounts every other
+    // accounting surface uses — no fixture ledger behind the statements.
+    ledger,
+    accounts,
+    // مبيعات المندوبين reads the same van-trip store /field/van-trips writes.
+    vanTrips,
+    employees: hrEmployees,
+    // The HR reports read the SAME payroll runs, attendance and leave
+    // balances the HR screens write — no second source behind the returns.
+    hrPayroll: { runs: hrPayrollRuns, payslips: hrPayslips },
+    hrContracts,
+    hrAttendance,
+    hrLeave: { balances: hrLeaveBalances, policies: hrLeavePolicies },
+    // تقرير العروض reads the same promotion master /promotions writes, for a
+    // campaign's type; every figure comes off the invoices themselves.
+    promotions,
+    // إقرار الخصم والتحصيل covers both halves: tax withheld on a payment
+    // voucher and tax withheld on a subcontractor's certified bill.
+    subCertificates: subcontracts,
+    progressCertificates,
+  } satisfies ReportsRoutesDeps;
+
   const app = createApp(uow, {
     cashAndBankParentAccountId: resolveCashAndBankParentAccountId,
     connectionTurn: options.connectionTurn,
@@ -5495,52 +5543,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
       followUps,
       collect: collectFromCustomer,
     },
-    reports: {
-      allocatable: vouchers.invoices,
-      // The customer aging ladder has to net every credit the GL already
-      // posted against 1105, or it and the dashboard tile report two
-      // different receivables (D37).
-      salesReturnDocs: salesReturns,
-      purchaseReturnDocs: purchaseReturns,
-      cheques,
-      voucherDocuments: vouchers.documents,
-      allocations: vouchers.allocations,
-      salesInvoices,
-      purchaseInvoices,
-      historicalArchives: {
-        sales: () => salesHistoricalImportArchives.list(),
-        purchases: () => historicalImportArchives.list(),
-      },
-      customers,
-      suppliers,
-      items,
-      boms: manufacturing.boms,
-      warehouses,
-      stockLedger: stockLedger.ledger,
-      costLayers: stockLedger.layers,
-      wacSnapshots: stockLedger.snapshots,
-      installmentPlans,
-      // القوائم المالية read the SAME posted GL + chart of accounts every other
-      // accounting surface uses — no fixture ledger behind the statements.
-      ledger,
-      accounts,
-      // مبيعات المندوبين reads the same van-trip store /field/van-trips writes.
-      vanTrips,
-      employees: hrEmployees,
-      // The HR reports read the SAME payroll runs, attendance and leave
-      // balances the HR screens write — no second source behind the returns.
-      hrPayroll: { runs: hrPayrollRuns, payslips: hrPayslips },
-      hrContracts,
-      hrAttendance,
-      hrLeave: { balances: hrLeaveBalances, policies: hrLeavePolicies },
-      // تقرير العروض reads the same promotion master /promotions writes, for a
-      // campaign's type; every figure comes off the invoices themselves.
-      promotions,
-      // إقرار الخصم والتحصيل covers both halves: tax withheld on a payment
-      // voucher and tax withheld on a subcontractor's certified bill.
-      subCertificates: subcontracts,
-      progressCertificates,
-    },
+    reports: reportsDeps,
     financialReports: {
       ledger,
       accounts,
@@ -5701,6 +5704,8 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
     ...(options.resolveLicenseState ? { resolveLicenseState: options.resolveLicenseState } : {}),
     cloudTenant: options.tenantBinding !== undefined,
     addCloser: (closer) => areaClosers.push(closer),
+    reports: reportsDeps,
+    ...(options.connection?.key ? { databaseKey: options.connection.key } : {}),
   };
   await mountPos(areaContext);
   await mountEnhancements(areaContext);

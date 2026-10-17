@@ -16,7 +16,7 @@ import {
 } from "./index.js";
 
 describe("permission catalog", () => {
-  it("carries only what the product enforces — 295 permissions across 20 modules (DEC-14, DEC-23)", () => {
+  it("carries only what the product enforces — 298 permissions across 20 modules (DEC-14, DEC-23)", () => {
     // 298 → 231. DEC-14 removed the 67 codes that named nothing the server
     // checks: the `dashboard` and `transactions` modules, per-voucher-type
     // `.view` tiers over a single voucher list, print rights that are
@@ -76,13 +76,15 @@ describe("permission catalog", () => {
     //
     // 294 → 295. ENH-E3-01 remote glance: `dashboard.glance.view` (sensitive).
     //
+    // 295 → 298. ENH-E3-08 evidence pack: `audit.sequence_gaps.view`, `audit.evidence_pack.view`, `audit.evidence_pack.build` (sensitive).
+    //
     // Pinned deliberately. A code added without a route to check it, or a route
     // deleted while its code stays, moves one of these numbers — which is the
     // whole point of asserting them.
-    expect(PERMISSIONS).toHaveLength(295);
+    expect(PERMISSIONS).toHaveLength(298);
     expect(MODULES).toHaveLength(20);
     const summed = MODULES.reduce((n, m) => n + m.count, 0);
-    expect(summed).toBe(295);
+    expect(summed).toBe(298);
   });
 
   it("carries a `pos` module again, and the INVOICE discount ceiling still lives under sales", () => {
@@ -136,9 +138,11 @@ describe("permission catalog", () => {
     expect(isSensitive("purchases.landed_cost.void")).toBe(false);
     // 26 → 27: the salary bank file carries every bank-paid employee's IBAN and net pay.
     expect(isSensitive("hr.payroll.bank_file")).toBe(true);
+    // 31 → 32: the evidence pack carries the whole ledger, the audit trail and every user's grant.
+    expect(isSensitive("audit.evidence_pack.build")).toBe(true);
     const sensitiveCount = PERMISSIONS.filter((p) => p.sensitive).length;
     expect(isSensitive("field.van_trip.approve")).toBe(true);
-    expect(sensitiveCount).toBe(35);
+    expect(sensitiveCount).toBe(36);
   });
 
   it("marks the one platform-admin-only permission", () => {

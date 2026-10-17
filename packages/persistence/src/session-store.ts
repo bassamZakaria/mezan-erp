@@ -17,7 +17,8 @@ CREATE TABLE IF NOT EXISTS auth_session (
   last_seen_at      INTEGER NOT NULL,
   device_mismatches TEXT NOT NULL,
   idle_ms           INTEGER NOT NULL CHECK (idle_ms > 0),
-  max_ms            INTEGER NOT NULL CHECK (max_ms > 0)
+  max_ms            INTEGER NOT NULL CHECK (max_ms > 0),
+  access_expires_at INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_auth_session_user ON auth_session(user_id);
 CREATE INDEX IF NOT EXISTS idx_auth_session_device ON auth_session(device_hash) WHERE device_hash IS NOT NULL;
@@ -52,6 +53,7 @@ export interface PersistedSession {
   readonly deviceMismatches: readonly number[];
   readonly idleMs: number;
   readonly maxMs: number;
+  readonly accessExpiresAt?: number | null;
 }
 
 export interface PersistedDisplacedSession {
@@ -90,6 +92,7 @@ interface SessionRow {
   device_mismatches: string;
   idle_ms: number;
   max_ms: number;
+  access_expires_at: number | null;
 }
 
 interface DisplacedRow {
@@ -139,6 +142,7 @@ function toSession(row: SessionRow): PersistedSession {
     deviceMismatches: numbers(row.device_mismatches),
     idleMs: row.idle_ms,
     maxMs: row.max_ms,
+    accessExpiresAt: row.access_expires_at ?? null,
   };
 }
 
@@ -156,9 +160,9 @@ export function createSqliteSessionStore(input: SqliteConnectionInput): SqliteSe
   const get = sqlite.prepare(`SELECT * FROM auth_session WHERE token_hash = ?`);
   const put = sqlite.prepare(
     `INSERT INTO auth_session (token_hash, user_id, permissions, role_code, branch_scope, warehouse_scope, issued_at, issued_from, device_hash,
-       last_origin, moved_since_pin, last_seen_at, device_mismatches, idle_ms, max_ms)
+       last_origin, moved_since_pin, last_seen_at, device_mismatches, idle_ms, max_ms, access_expires_at)
      VALUES (@token_hash, @user_id, @permissions, @role_code, @branch_scope, @warehouse_scope, @issued_at, @issued_from, @device_hash,
-       @last_origin, @moved_since_pin, @last_seen_at, @device_mismatches, @idle_ms, @max_ms)
+       @last_origin, @moved_since_pin, @last_seen_at, @device_mismatches, @idle_ms, @max_ms, @access_expires_at)
      ON CONFLICT (token_hash) DO UPDATE SET
        last_origin = excluded.last_origin, moved_since_pin = excluded.moved_since_pin,
        last_seen_at = excluded.last_seen_at, device_mismatches = excluded.device_mismatches`,
@@ -166,7 +170,7 @@ export function createSqliteSessionStore(input: SqliteConnectionInput): SqliteSe
   const remove = sqlite.prepare(`DELETE FROM auth_session WHERE token_hash = ?`);
   const removeUser = sqlite.prepare(`DELETE FROM auth_session WHERE user_id = ?`);
   const onDevice = sqlite.prepare(`SELECT * FROM auth_session WHERE device_hash = ?`);
-  const expire = sqlite.prepare(`DELETE FROM auth_session WHERE ? - last_seen_at > idle_ms OR ? - issued_at > max_ms`);
+  const expire = sqlite.prepare(`DELETE FROM auth_session WHERE ? - last_seen_at > idle_ms OR ? - issued_at > max_ms OR (access_expires_at IS NOT NULL AND ? >= access_expires_at)`);
   const getDisplaced = sqlite.prepare(`SELECT user_id, issued_from, displaced_at FROM auth_session_displaced WHERE token_hash = ?`);
   const putDisplaced = sqlite.prepare(
     `INSERT INTO auth_session_displaced (token_hash, user_id, issued_from, displaced_at) VALUES (?, ?, ?, ?)
@@ -206,6 +210,7 @@ export function createSqliteSessionStore(input: SqliteConnectionInput): SqliteSe
         device_mismatches: JSON.stringify(session.deviceMismatches),
         idle_ms: session.idleMs,
         max_ms: session.maxMs,
+        access_expires_at: session.accessExpiresAt ?? null,
       });
     },
     remove: (key) => void remove.run(key),
@@ -224,7 +229,7 @@ export function createSqliteSessionStore(input: SqliteConnectionInput): SqliteSe
     forgetDisplaced: (key) => void forgetDisplaced.run(key),
     sweep(at, displacedForMs) {
       atomic(() => {
-        expire.run(at, at);
+        expire.run(at, at, at);
         expireDisplaced.run(at, displacedForMs);
       });
     },

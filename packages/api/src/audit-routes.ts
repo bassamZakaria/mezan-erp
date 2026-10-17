@@ -6,7 +6,7 @@ import { branchGrantOf, createPermissionGate, getAuthContext, type AuthContextRe
 
 const COST_FIELDS: ReadonlySet<string> = new Set(["costPrice"]);
 
-function redactCost(event: AuditEvent): AuditEvent {
+export function redactCost(event: AuditEvent): AuditEvent {
   const changes = event.details?.["changes"];
   if (!Array.isArray(changes)) return event;
   let touched = false;

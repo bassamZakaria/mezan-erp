@@ -27,6 +27,9 @@ function TemplateCard({ template, active, onUse }: TemplateCardProps) {
       {template.omittedPermissions.length > 0 ? (
         <p className="text-[12px] text-warning-ink">{t("provisioning.templates.omitted", { count: String(template.omittedPermissions.length) })}</p>
       ) : null}
+      {template.accessDays !== undefined ? (
+        <p className="text-[12px] text-info-ink">{t("provisioning.templates.timeBoxed", { days: String(template.accessDays) })}</p>
+      ) : null}
       <div className="flex flex-wrap items-center gap-[8px]">
         <Button variant="primary" size="sm" disabled={active} onClick={onUse}>
           {t("provisioning.templates.use")}

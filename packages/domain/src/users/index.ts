@@ -43,6 +43,15 @@ export {
 } from "./erase-user.js";
 
 export {
+  AccessExpiryProblem,
+  InvalidAccessExpiryError,
+  accessExpiresAtMs,
+  accessExpiryProblem,
+  isAccessExpired,
+  type AccessExpiryRule,
+} from "./access-expiry.js";
+
+export {
   USER_IMPORT_ROW_LIMIT,
   UserImportColumn,
   UserImportFileProblemCode,

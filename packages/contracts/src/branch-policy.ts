@@ -318,6 +318,8 @@ export const BRANCH_POLICY_TABLE: readonly BranchPolicyEntry[] = [
   companyWide("/installments/plans/overdue"),
 
   handlerScoped("/audit"),
+  companyWide("/audit/evidence-packs"),
+  companyWide("/audit/sequence-gaps"),
   handlerScoped("/dashboard"),
   handlerScoped("/collections", { params: { id: null } }),
   handlerScoped("/reorder", { params: { itemId: null, warehouseId: null } }),

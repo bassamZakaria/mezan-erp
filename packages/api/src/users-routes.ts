@@ -13,6 +13,7 @@ import {
   WILDCARD_PERMISSION,
   type AccountAuthority,
   InvalidUserError,
+  InvalidAccessExpiryError,
   DuplicateUserEmailError,
   EmailDomainNotAllowedError,
   UnknownRoleError,
@@ -75,12 +76,16 @@ function serializeUser(user: User) {
     lastLoginAt: user.lastLoginAt,
     createdAt: user.createdAt,
     erasedAt: user.erasedAt ?? null,
+    accessExpiresAt: user.accessExpiresAt ?? null,
   };
 }
 
 function userErrorResponse(c: Context, err: unknown) {
   if (err instanceof InvalidUserError) {
     return c.json({ error: err.code, message: err.message }, 400);
+  }
+  if (err instanceof InvalidAccessExpiryError) {
+    return c.json({ error: err.code, problem: err.problem, message: err.message }, 400);
   }
   if (err instanceof DuplicateUserEmailError) {
     return c.json({ error: err.code, message: err.message }, 409);
@@ -229,6 +234,7 @@ export function createUsersRoutes(
         status: user.status,
         branchScope: user.branchScope,
         warehouseScope: user.warehouseScope,
+        accessExpiresAt: user.accessExpiresAt ?? null,
         ...(credentials?.pinChanged ? { pinChanged: true } : {}),
         ...(credentials?.passwordChanged ? { passwordChanged: true } : {}),
         ...(before
@@ -238,6 +244,7 @@ export function createUsersRoutes(
               previousStatus: before.status,
               previousBranchScope: before.branchScope,
               previousWarehouseScope: before.warehouseScope,
+              previousAccessExpiresAt: before.accessExpiresAt ?? null,
             }
           : {}),
       },
@@ -821,6 +828,7 @@ export function createUsersRoutes(
           before.isCompanyAdmin !== user.isCompanyAdmin ||
           JSON.stringify(before.branchScope) !== JSON.stringify(user.branchScope) ||
           JSON.stringify(before.warehouseScope) !== JSON.stringify(user.warehouseScope) ||
+          (before.accessExpiresAt ?? null) !== (user.accessExpiresAt ?? null) ||
           user.status !== "active")
       ) {
         sessions.revokeUser(user.id);

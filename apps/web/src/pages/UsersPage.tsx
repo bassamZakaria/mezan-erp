@@ -72,6 +72,10 @@ export interface UserFormDraft {
   branchIds: string[];
   warehouseIds: string[];
   status: UserStatusDTO;
+  /** YYYY-MM-DD, the last day the account works; empty for no end date. */
+  accessExpiresOn?: string;
+  /** The day as loaded; while `accessExpiresOn` still equals it, the stored instant is left untouched. */
+  accessExpiresOnLoaded?: string;
   /** Carried through the admin form untouched; people set their own photo in الملف الشخصي. */
   photoUrl?: string | null;
   /** ENH-051 — set together, only when assigning a role trips a conflict. */
@@ -91,6 +95,7 @@ const RETENTION_KEY: Record<ErasureRetention, AppTranslationKey> = {
   [ErasureRetention.EmployeeDocumentAttachments]: "users.erase.retained.employee_document_attachments",
 };
 const STATUS_TONE: Record<UserStatusDTO, PillTone> = { active: "success", inactive: "neutral" };
+const ACCESS_ENDED_TONE: PillTone = "warning";
 
 function emptyDraft(): UserFormDraft {
   return {
@@ -127,8 +132,27 @@ function userToDraft(user: UserDTO, allBranchIds: string[], allWarehouseIds: str
     branchIds: scopeToIds(user.branchScope, allBranchIds),
     warehouseIds: scopeToIds(user.warehouseScope, allWarehouseIds),
     status: user.status,
+    accessExpiresOn: user.accessExpiresAt ? localDay(user.accessExpiresAt) : "",
+    accessExpiresOnLoaded: user.accessExpiresAt ? localDay(user.accessExpiresAt) : "",
     photoUrl: user.photoUrl,
   };
+}
+
+function localDay(iso: string): string {
+  const at = new Date(new Date(iso).getTime() - 1);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}`;
+}
+
+/** The account works through the whole of the chosen local day and stops at the next midnight. */
+export function accessExpiryInstant(day: string | undefined): string | null {
+  if (!day || !/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
+  const [year, month, date] = day.split("-").map(Number) as [number, number, number];
+  return new Date(year, month - 1, date + 1).toISOString();
+}
+
+function isAccessEnded(user: UserDTO): boolean {
+  return Boolean(user.accessExpiresAt) && Date.parse(user.accessExpiresAt ?? "") <= Date.now();
 }
 
 export function UsersPage({ users, roles, branches, warehouses, employees, onSave, onToggleStatus, onUnlock, onErase, currentUserId = null }: UsersPageProps) {
@@ -374,7 +398,8 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
     {
       key: "status",
       header: t("common.status"),
-      render: (row) => <StatusPill label={t(STATUS_KEY[row.status])} tone={STATUS_TONE[row.status]} />,
+      render: (row) =>
+        isAccessEnded(row) ? <StatusPill label={t("users.accessExpired")} tone={ACCESS_ENDED_TONE} /> : <StatusPill label={t(STATUS_KEY[row.status])} tone={STATUS_TONE[row.status]} />,
     },
     {
       key: "actions",
@@ -513,6 +538,15 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
               onChange={(v) => setDraft((d) => ({ ...d, password: v }))}
             />
             <TextField label={t("users.pinOptional46Digits")} value={draft.pin} onChange={(v) => setDraft((d) => ({ ...d, pin: v }))} placeholder="123456" />
+            {draft.isCompanyAdmin ? null : (
+              <TextField
+                label={t("users.accessExpiresAt")}
+                type="date"
+                value={draft.accessExpiresOn ?? ""}
+                onChange={(v) => setDraft((d) => ({ ...d, accessExpiresOn: v }))}
+                hint={t("users.accessExpiresAtHint")}
+              />
+            )}
             {editingSelf ? (
               <TextField
                 label={t("users.currentPin")}

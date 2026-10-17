@@ -67,6 +67,11 @@ class SqliteSequenceStore implements SequenceStore {
     return row?.value ?? 0;
   }
 
+  /** Every counter row as stored: `period` is the raw key — `""`, a year, and an optional `@scope` suffix. */
+  async counterRows(): Promise<readonly SequenceCounterRow[]> {
+    return this.sqlite.prepare(`SELECT code, period, value FROM sequence_counter ORDER BY code, period`).all() as SequenceCounterRow[];
+  }
+
   /**
    * Explicit, admin-guarded counter write — bypasses `increment`'s
    * gap-free allocation path entirely. Callers (the `/sequences/:code/counter`
@@ -91,9 +96,16 @@ class SqliteSequenceStore implements SequenceStore {
   }
 }
 
+export interface SequenceCounterRow {
+  readonly code: string;
+  readonly period: string;
+  readonly value: number;
+}
+
 export interface SqliteSequenceStoreHandle extends SequenceStore {
   close(): void;
   peek(code: string, period: number | null): Promise<number>;
+  counterRows(): Promise<readonly SequenceCounterRow[]>;
   setCounter(code: string, period: number | null, value: number): Promise<void>;
 }
 

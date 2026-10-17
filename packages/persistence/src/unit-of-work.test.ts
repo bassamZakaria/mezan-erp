@@ -40,6 +40,7 @@ const sampleUser: User = {
   lastLoginAt: null,
   createdAt: "2026-08-08T00:00:00.000Z",
   erasedAt: null,
+  accessExpiresAt: null,
 };
 
 describe("SQLite RoleRepository", () => {

@@ -175,17 +175,20 @@ export async function markOpportunityWonByQuote(deps: WonOnQuoteDeps, event: Dom
   if (!opportunity || opportunity.status === "won") return false;
   const winStage = (await deps.pipelineStages.list()).find((stage) => stage.isWinStage && stage.active) ?? null;
   const won = winOpportunity(opportunity, winStage, event.occurredAt);
-  await deps.opportunities.update(won);
-  await recordSensitiveEvent(deps.audit, {
-    module: "crm",
-    entityType: "OPPORTUNITY",
-    entityId: won.id,
-    action: "WON_BY_QUOTE",
-    actor: event.payload.actorUserId ?? "system",
-    branchId: won.branchId,
-    severity: "INFO",
-    details: { quoteId: event.payload.quoteId ?? null, event: event.code, fromStatus: opportunity.status, toStageId: won.stageId },
-  });
+  const write = async (): Promise<void> => {
+    await deps.opportunities.update(won);
+    await recordSensitiveEvent(deps.audit, {
+      module: "crm",
+      entityType: "OPPORTUNITY",
+      entityId: won.id,
+      action: "WON_BY_QUOTE",
+      actor: event.payload.actorUserId ?? "system",
+      branchId: won.branchId,
+      severity: "INFO",
+      details: { quoteId: event.payload.quoteId ?? null, event: event.code, fromStatus: opportunity.status, toStageId: won.stageId },
+    });
+  };
+  await (deps.audit.atomic ? deps.audit.atomic(write) : write());
   return true;
 }
 

@@ -28,6 +28,7 @@ function quote(overrides: Partial<SalesQuote> & { lines: SalesQuoteLine[] }): Sa
     customerNameAr: "محمد الشهابي",
     customerTaxExempt: false,
     branchId: "BR1",
+    opportunityId: null,
     currency: "EGP",
     notes: null,
     internalNotes: null,

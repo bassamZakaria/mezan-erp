@@ -17,6 +17,7 @@ export interface ConvertLeadCommand {
     readonly expectedValue: Money;
     readonly probability: number;
     readonly expectedCloseDate?: string | null;
+    readonly ownerUserId?: string | null;
   };
 }
 
@@ -77,6 +78,9 @@ export async function convertLead(cmd: ConvertLeadCommand, deps: ConvertLeadDeps
       probability: opportunityInput.probability,
       expectedCloseDate: opportunityInput.expectedCloseDate ?? null,
       notes: lead.notes,
+      ownerUserId: opportunityInput.ownerUserId ?? null,
+      lostReason: null,
+      lostNote: null,
       status: "open",
       createdAt: new Date().toISOString(),
       closedAt: null,

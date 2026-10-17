@@ -129,6 +129,7 @@ function quote(id: string, lines: SalesQuoteLine[]): SalesQuote {
     customerNameAr: "عميل",
     customerTaxExempt: false,
     branchId: "branch-1",
+    opportunityId: null,
     currency: "EGP",
     notes: null,
     internalNotes: null,

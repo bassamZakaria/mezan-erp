@@ -369,6 +369,7 @@ export interface SalesQuoteRecord {
   readonly respondedAt: string | null;
   readonly convertedAt: string | null;
   readonly convertedInvoiceId: string | null;
+  readonly opportunityId?: string | null;
   /** N-9 — the row version the detail read serves; sent back as `expectedVersion` on the next act. */
   readonly version?: number;
   readonly lines: readonly SalesQuoteLineRecord[];
@@ -1533,7 +1534,13 @@ function useSalesQuoteTransition(action: "send" | "accept" | "reject" | "cancel"
       }
       return res.json<SalesQuoteRecord>();
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["sales-quotes"] }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["sales-quotes"] });
+      if (action === "accept") {
+        void queryClient.invalidateQueries({ queryKey: ["crm-opportunities"] });
+        void queryClient.invalidateQueries({ queryKey: ["crm-pipeline"] });
+      }
+    },
   });
 }
 
@@ -3645,7 +3652,10 @@ export function useCreateOpportunity() {
       if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theOpportunityCouldNotBe"), t));
       return res.json<OpportunityDTO>();
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["crm-opportunities"] }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["crm-opportunities"] });
+      void queryClient.invalidateQueries({ queryKey: ["crm-pipeline"] });
+    },
   });
 }
 
@@ -3659,7 +3669,10 @@ export function useMoveOpportunityStage() {
       if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theOpportunityCouldNotBe2"), t));
       return res.json<OpportunityDTO>();
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["crm-opportunities"] }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["crm-opportunities"] });
+      void queryClient.invalidateQueries({ queryKey: ["crm-pipeline"] });
+    },
   });
 }
 

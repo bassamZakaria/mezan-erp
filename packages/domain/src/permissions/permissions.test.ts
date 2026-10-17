@@ -62,13 +62,17 @@ describe("permission catalog", () => {
     // `POST /hr/payroll/runs/:id/bank-file` (`packages/api/src/hr-payroll-routes.ts`) —
     // exporting the salary transfer file for a run.
     //
+    // 277 → 279. ENH-E3-06 added `crm.opportunity.view_own` (the rep tier, gated on the
+    // opportunity list/detail/forecast routes) and `crm.opportunity.assign`
+    // (`POST /crm/opportunities/:id/assign` and naming another owner on create).
+    //
     // Pinned deliberately. A code added without a route to check it, or a route
     // deleted while its code stays, moves one of these numbers — which is the
     // whole point of asserting them.
-    expect(PERMISSIONS).toHaveLength(277);
+    expect(PERMISSIONS).toHaveLength(279);
     expect(MODULES).toHaveLength(20);
     const summed = MODULES.reduce((n, m) => n + m.count, 0);
-    expect(summed).toBe(277);
+    expect(summed).toBe(279);
   });
 
   it("carries a `pos` module again, and the INVOICE discount ceiling still lives under sales", () => {
@@ -175,7 +179,8 @@ describe("dependency resolution", () => {
     const resolved = resolvePermissions(["crm.lead.convert"]);
     expect(resolved.has("crm.lead.view")).toBe(true);
     expect(resolved.has("crm.opportunity.create")).toBe(true);
-    expect(resolved.has("crm.opportunity.view")).toBe(true);
+    expect(resolved.has("crm.opportunity.view_own")).toBe(true);
+    expect(resolved.has("crm.opportunity.view")).toBe(false);
   });
 
   it("preserves the wildcard and unknown codes without expansion", () => {

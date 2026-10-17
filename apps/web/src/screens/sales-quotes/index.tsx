@@ -199,7 +199,7 @@ export function SalesQuotesScreen() {
   ];
 
   const [firstSegment] = subPage.segments;
-  if (firstSegment === "new") return <QuoteFormView onClose={subPage.close} initialCustomerId={subPage.segments[1] ?? ""} />;
+  if (firstSegment === "new") return <QuoteFormView onClose={subPage.close} initialCustomerId={subPage.segments[1] ?? ""} initialOpportunityId={subPage.segments[2] ?? ""} />;
   if (firstSegment !== undefined) {
     const quote = filtered.find((q) => q.id === firstSegment || q.docNo === firstSegment);
     // `#/sell/quotes/<docNo>/print` — a destination, not an overlay, the way

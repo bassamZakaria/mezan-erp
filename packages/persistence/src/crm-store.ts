@@ -10,6 +10,8 @@ import {
   type Opportunity,
   type OpportunityRepository,
   type OpportunityStatus,
+  type OpportunityLostReason,
+  type ActivityReminderLog,
   type PipelineStage,
   type PipelineStageRepository,
   type Activity,
@@ -156,6 +158,9 @@ CREATE TABLE IF NOT EXISTS crm_opportunity (
   probability          INTEGER NOT NULL,
   expected_close_date  TEXT,
   notes                TEXT,
+  owner_user_id        TEXT,
+  lost_reason          TEXT,
+  lost_note            TEXT,
   status               TEXT NOT NULL,
   created_at           TEXT NOT NULL,
   closed_at            TEXT
@@ -172,6 +177,9 @@ interface OpportunityRow {
   probability: number;
   expected_close_date: string | null;
   notes: string | null;
+  owner_user_id: string | null;
+  lost_reason: string | null;
+  lost_note: string | null;
   status: string;
   created_at: string;
   closed_at: string | null;
@@ -188,6 +196,9 @@ function toOpportunity(row: OpportunityRow): Opportunity {
     probability: row.probability,
     expectedCloseDate: row.expected_close_date,
     notes: row.notes,
+    ownerUserId: row.owner_user_id,
+    lostReason: row.lost_reason as OpportunityLostReason | null,
+    lostNote: row.lost_note,
     status: row.status as OpportunityStatus,
     createdAt: row.created_at,
     closedAt: row.closed_at,
@@ -202,8 +213,8 @@ class SqliteOpportunityRepository implements OpportunityRepository {
 
   constructor(private readonly sqlite: Database.Database) {
     this.upsert = sqlite.prepare(`
-      INSERT INTO crm_opportunity (id, title, customer_id, branch_id, stage_id, expected_value, probability, expected_close_date, notes, status, created_at, closed_at)
-      VALUES (@id, @title, @customer_id, @branch_id, @stage_id, @expected_value, @probability, @expected_close_date, @notes, @status, @created_at, @closed_at)
+      INSERT INTO crm_opportunity (id, title, customer_id, branch_id, stage_id, expected_value, probability, expected_close_date, notes, owner_user_id, lost_reason, lost_note, status, created_at, closed_at)
+      VALUES (@id, @title, @customer_id, @branch_id, @stage_id, @expected_value, @probability, @expected_close_date, @notes, @owner_user_id, @lost_reason, @lost_note, @status, @created_at, @closed_at)
       ON CONFLICT(id) DO UPDATE SET
         title = excluded.title,
         customer_id = excluded.customer_id,
@@ -213,6 +224,9 @@ class SqliteOpportunityRepository implements OpportunityRepository {
         probability = excluded.probability,
         expected_close_date = excluded.expected_close_date,
         notes = excluded.notes,
+        owner_user_id = excluded.owner_user_id,
+        lost_reason = excluded.lost_reason,
+        lost_note = excluded.lost_note,
         status = excluded.status,
         closed_at = excluded.closed_at
     `);
@@ -249,6 +263,9 @@ class SqliteOpportunityRepository implements OpportunityRepository {
       probability: opportunity.probability,
       expected_close_date: opportunity.expectedCloseDate,
       notes: opportunity.notes,
+      owner_user_id: opportunity.ownerUserId,
+      lost_reason: opportunity.lostReason,
+      lost_note: opportunity.lostNote,
       status: opportunity.status,
       created_at: opportunity.createdAt,
       closed_at: opportunity.closedAt,
@@ -360,9 +377,16 @@ CREATE TABLE IF NOT EXISTS crm_activity (
   related_lead_id          TEXT,
   related_opportunity_id   TEXT,
   due_date                 TEXT,
+  assignee_user_id         TEXT,
   status                   TEXT NOT NULL,
   notes                    TEXT,
   created_at               TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS crm_activity_reminder (
+  activity_id  TEXT NOT NULL,
+  due_date     TEXT NOT NULL,
+  notified_at  TEXT NOT NULL,
+  PRIMARY KEY (activity_id, due_date)
 );
 `;
 
@@ -373,6 +397,7 @@ interface ActivityRow {
   related_lead_id: string | null;
   related_opportunity_id: string | null;
   due_date: string | null;
+  assignee_user_id: string | null;
   status: string;
   notes: string | null;
   created_at: string;
@@ -386,6 +411,7 @@ function toActivity(row: ActivityRow): Activity {
     relatedLeadId: row.related_lead_id,
     relatedOpportunityId: row.related_opportunity_id,
     dueDate: row.due_date,
+    assigneeUserId: row.assignee_user_id,
     status: row.status as ActivityStatus,
     notes: row.notes,
     createdAt: row.created_at,
@@ -400,14 +426,15 @@ class SqliteActivityRepository implements ActivityRepository {
 
   constructor(private readonly sqlite: Database.Database) {
     this.upsert = sqlite.prepare(`
-      INSERT INTO crm_activity (id, subject, type, related_lead_id, related_opportunity_id, due_date, status, notes, created_at)
-      VALUES (@id, @subject, @type, @related_lead_id, @related_opportunity_id, @due_date, @status, @notes, @created_at)
+      INSERT INTO crm_activity (id, subject, type, related_lead_id, related_opportunity_id, due_date, assignee_user_id, status, notes, created_at)
+      VALUES (@id, @subject, @type, @related_lead_id, @related_opportunity_id, @due_date, @assignee_user_id, @status, @notes, @created_at)
       ON CONFLICT(id) DO UPDATE SET
         subject = excluded.subject,
         type = excluded.type,
         related_lead_id = excluded.related_lead_id,
         related_opportunity_id = excluded.related_opportunity_id,
         due_date = excluded.due_date,
+        assignee_user_id = excluded.assignee_user_id,
         status = excluded.status,
         notes = excluded.notes
     `);
@@ -441,6 +468,7 @@ class SqliteActivityRepository implements ActivityRepository {
       related_lead_id: activity.relatedLeadId,
       related_opportunity_id: activity.relatedOpportunityId,
       due_date: activity.dueDate,
+      assignee_user_id: activity.assigneeUserId,
       status: activity.status,
       notes: activity.notes,
       created_at: activity.createdAt,
@@ -481,11 +509,20 @@ function addOpportunityBranchColumnIfMissing(sqlite: Database.Database): void {
   }
 }
 
+function addMissingColumns(sqlite: Database.Database, table: string, columns: Readonly<Record<string, string>>): void {
+  const present = new Set((sqlite.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name));
+  for (const [name, type] of Object.entries(columns)) {
+    if (!present.has(name)) sqlite.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${type}`);
+  }
+}
+
 export function createSqliteOpportunityRepository(path: SqliteConnectionInput = ":memory:"): SqliteOpportunityRepositoryHandle {
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_OPPORTUNITY);
   addOpportunityBranchColumnIfMissing(sqlite);
+  addMissingColumns(sqlite, "crm_opportunity", { owner_user_id: "TEXT", lost_reason: "TEXT", lost_note: "TEXT" });
+  sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_crm_opportunity_owner ON crm_opportunity(owner_user_id)`);
   const repo = new SqliteOpportunityRepository(sqlite);
   return Object.assign(repo, { close: () => { if (owned) sqlite.close(); } }) as SqliteOpportunityRepositoryHandle;
 }
@@ -504,6 +541,39 @@ export function createSqliteActivityRepository(path: SqliteConnectionInput = ":m
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_ACTIVITY);
+  addMissingColumns(sqlite, "crm_activity", { assignee_user_id: "TEXT" });
   const repo = new SqliteActivityRepository(sqlite);
   return Object.assign(repo, { close: () => { if (owned) sqlite.close(); } }) as SqliteActivityRepositoryHandle;
+}
+
+class SqliteActivityReminderLog implements ActivityReminderLog {
+  private readonly selectOne: Database.Statement;
+  private readonly insertOne: Database.Statement;
+
+  constructor(sqlite: Database.Database) {
+    this.selectOne = sqlite.prepare(`SELECT 1 AS found FROM crm_activity_reminder WHERE activity_id = ? AND due_date = ?`);
+    this.insertOne = sqlite.prepare(
+      `INSERT OR IGNORE INTO crm_activity_reminder (activity_id, due_date, notified_at) VALUES (?, ?, ?)`,
+    );
+  }
+
+  async has(activityId: string, dueDate: string): Promise<boolean> {
+    return this.selectOne.get(activityId, dueDate) !== undefined;
+  }
+
+  async record(activityId: string, dueDate: string, notifiedAt: string): Promise<void> {
+    this.insertOne.run(activityId, dueDate, notifiedAt);
+  }
+}
+
+export interface SqliteActivityReminderLogHandle extends ActivityReminderLog {
+  close(): void;
+}
+
+/** Remembers which due date of which activity has already been reminded, so a rerun reminds nobody twice. */
+export function createSqliteActivityReminderLog(path: SqliteConnectionInput = ":memory:"): SqliteActivityReminderLogHandle {
+  const { sqlite, owned } = openSqliteConnection(path);
+  sqlite.exec(CREATE_ACTIVITY);
+  const log = new SqliteActivityReminderLog(sqlite);
+  return Object.assign(log, { close: () => { if (owned) sqlite.close(); } }) as SqliteActivityReminderLogHandle;
 }

@@ -33,6 +33,7 @@ function quote(overrides: Partial<SalesQuote> = {}): SalesQuote {
     customerNameAr: "عميل ١",
     customerTaxExempt: false,
     branchId: "branch-1",
+    opportunityId: null,
     currency: "EGP",
     notes: "ملاحظات",
     internalNotes: "داخلي",

@@ -13,6 +13,7 @@ import {
 
 export enum ScheduledJobKind {
   LeaveAccrual = "leave_accrual",
+  CrmActivityReminders = "crm_activity_reminders",
 }
 
 export interface ScheduledJobResult {

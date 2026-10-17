@@ -56,6 +56,7 @@ export interface CreateSalesQuoteCommand {
   /** SECURITY: server-derived — the 0% rate on the exempt customer's card; never map it from a request body. */
   readonly customerTaxExemptionRateId?: string | null;
   readonly branchId: string;
+  readonly opportunityId?: string | null;
   readonly currency?: string;
   readonly notes?: string | null;
   readonly internalNotes?: string | null;
@@ -225,6 +226,7 @@ export class SalesQuoteService {
       customerNameAr: cmd.customerNameAr,
       customerTaxExempt: cmd.customerTaxExempt ?? false,
       branchId: cmd.branchId,
+      opportunityId: cmd.opportunityId ?? null,
       currency: cmd.currency ?? "EGP",
       notes: cmd.notes ?? null,
       internalNotes: cmd.internalNotes ?? null,

@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS sales_quote (
   customer_name_ar       TEXT NOT NULL,
   customer_tax_exempt    INTEGER NOT NULL,
   branch_id              TEXT NOT NULL,
+  opportunity_id         TEXT,
   currency               TEXT NOT NULL,
   notes                  TEXT,
   internal_notes         TEXT,
@@ -81,6 +82,7 @@ interface QuoteRow {
   customer_name_ar: string;
   customer_tax_exempt: number;
   branch_id: string;
+  opportunity_id: string | null;
   currency: string;
   notes: string | null;
   internal_notes: string | null;
@@ -141,6 +143,7 @@ function quoteParams(quote: SalesQuote) {
     customer_name_ar: quote.customerNameAr,
     customer_tax_exempt: quote.customerTaxExempt ? 1 : 0,
     branch_id: quote.branchId,
+    opportunity_id: quote.opportunityId,
     currency: quote.currency,
     notes: quote.notes,
     internal_notes: quote.internalNotes,
@@ -169,12 +172,12 @@ class SqliteSalesQuoteRepository implements SalesQuoteRepository {
     this.insertQuote = sqlite.prepare(`
       INSERT INTO sales_quote (
         id, doc_type, doc_no, status, date, expiry_date, customer_id, customer_name_ar,
-        customer_tax_exempt, branch_id, currency, notes, internal_notes,
+        customer_tax_exempt, branch_id, opportunity_id, currency, notes, internal_notes,
         discount_type, discount_percent, discount_amount, price_list_id, coupon_code,
         created_at, sent_at, responded_at, converted_at, converted_invoice_id
       ) VALUES (
         @id, @doc_type, @doc_no, @status, @date, @expiry_date, @customer_id, @customer_name_ar,
-        @customer_tax_exempt, @branch_id, @currency, @notes, @internal_notes,
+        @customer_tax_exempt, @branch_id, @opportunity_id, @currency, @notes, @internal_notes,
         @discount_type, @discount_percent, @discount_amount, @price_list_id, @coupon_code,
         @created_at, @sent_at, @responded_at, @converted_at, @converted_invoice_id
       )
@@ -190,6 +193,7 @@ class SqliteSalesQuoteRepository implements SalesQuoteRepository {
         customer_name_ar = @customer_name_ar,
         customer_tax_exempt = @customer_tax_exempt,
         branch_id = @branch_id,
+        opportunity_id = @opportunity_id,
         currency = @currency,
         notes = @notes,
         internal_notes = @internal_notes,
@@ -253,6 +257,10 @@ class SqliteSalesQuoteRepository implements SalesQuoteRepository {
       clauses.push("customer_id = ?");
       params.push(filter.customerId);
     }
+    if (filter.opportunityId) {
+      clauses.push("opportunity_id = ?");
+      params.push(filter.opportunityId);
+    }
     if (filter.fromDate) {
       clauses.push("date >= ?");
       params.push(filter.fromDate);
@@ -311,6 +319,7 @@ class SqliteSalesQuoteRepository implements SalesQuoteRepository {
       customerNameAr: row.customer_name_ar,
       customerTaxExempt: row.customer_tax_exempt === 1,
       branchId: row.branch_id,
+      opportunityId: row.opportunity_id,
       currency: row.currency,
       notes: row.notes,
       internalNotes: row.internal_notes,
@@ -342,6 +351,11 @@ export function createSqliteSalesQuoteStore(path: SqliteConnectionInput = ":memo
     (sqlite.prepare(`PRAGMA table_info(sales_quote_line)`).all() as { name: string }[]).map((c) => c.name),
   );
   if (!lineColumns.has("tax_rate_id")) sqlite.exec(`ALTER TABLE sales_quote_line ADD COLUMN tax_rate_id TEXT`);
+  const quoteColumns = new Set(
+    (sqlite.prepare(`PRAGMA table_info(sales_quote)`).all() as { name: string }[]).map((c) => c.name),
+  );
+  if (!quoteColumns.has("opportunity_id")) sqlite.exec(`ALTER TABLE sales_quote ADD COLUMN opportunity_id TEXT`);
+  sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_sales_quote_opportunity ON sales_quote(opportunity_id)`);
   addVersionColumns(sqlite, "sales_quote");
   const versions = createDocumentVersionStore(sqlite, "sales_quote");
   const repo = new SqliteSalesQuoteRepository(sqlite, versions);

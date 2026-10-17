@@ -12,7 +12,7 @@
  * consumers can detect drift.
  */
 
-export const EVENT_CATALOG_VERSION = 2;
+export const EVENT_CATALOG_VERSION = 3;
 
 export const EVENT_CATEGORIES = [
   "workflow",
@@ -49,6 +49,8 @@ export const DOMAIN_EVENT_CATALOG = [
   { code: "SALES_QUOTE_SENT", category: "sales", labelAr: "تم إرسال عرض سعر" },
   { code: "SALES_QUOTE_ACCEPTED", category: "sales", labelAr: "تم قبول عرض سعر" },
   { code: "SALES_QUOTE_EXPIRED", category: "sales", labelAr: "انتهت صلاحية عرض السعر" },
+  { code: "SALES_QUOTE_CONVERTED", category: "sales", labelAr: "تم تحويل عرض سعر إلى فاتورة" },
+  { code: "CRM_ACTIVITY_DUE", category: "sales", labelAr: "حان موعد نشاط متابعة" },
 
   // Purchases (7)
   { code: "PURCHASE_ORDER_CONFIRMED", category: "purchases", labelAr: "تم إرسال أمر شراء للمورد" },

@@ -297,6 +297,7 @@ import {
   createSqliteOpportunityRepository,
   createSqlitePipelineStageRepository,
   createSqliteActivityRepository,
+  createSqliteActivityReminderLog,
   createSqliteProjectRepository,
   createSqliteWorksContractStore,
   createSqliteContractingSiteStore,
@@ -427,6 +428,7 @@ import { isEmptyTenant, SEED_ADMIN_USER_ID, seedIfEmpty, type SeedStores } from 
 import type { BackendModuleContext } from "./module-context.js";
 import { mountPos } from "./pos/index.js";
 import { ENH_EMITTED_EVENT_CODES, mountEnhancements } from "./enh/index.js";
+import { createCrmOwnerDirectory, createCrmReminderJob, createCrmReminderService } from "./enh/e3-06.js";
 import { pricingGuardPortFor } from "./enh/e2-08.js";
 import { readStockLedgerDateMismatches } from "./enh/e1-04.js";
 import { seedDemoTenant } from "./demo-seed.js";
@@ -4855,6 +4857,8 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
       masterData: masterDataChecks,
       numbering: { next: (opts) => ledger.numbering.next("SALES_QUOTE", { branchId: opts?.branchId }) },
       pricingGuard: pricingGuardPortFor(sqlite),
+      opportunities,
+      events: eventBus,
     },
     // --- phase9/accounting-depth ---
     exchangeRateRepo: exchangeRates,
@@ -4929,6 +4933,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
       activities,
       customers,
       masterData: masterDataChecks,
+      owners: createCrmOwnerDirectory(uow.users, uow.roles),
     },
     // --- hr/master-data ---
     hr: {
@@ -5808,6 +5813,18 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
             generateId: () => randomUUID(),
             allowed: () => (options.entitlements ? hasModule(options.entitlements, "hr") : true),
           }),
+          createCrmReminderJob(
+            createCrmReminderService({
+              activities,
+              opportunities,
+              log: createSqliteActivityReminderLog(sqlite),
+              notifications,
+              users: uow.users,
+              eventBus,
+              today: async () => tenantTodayIso((await settings.get())?.timezone || DEFAULT_TIME_ZONE),
+            }),
+            () => (options.entitlements ? hasModule(options.entitlements, "crm") : true),
+          ),
         ],
         today: async () => tenantTodayIso((await settings.get())?.timezone || DEFAULT_TIME_ZONE),
         turn: inTheTurn("scheduled jobs"),

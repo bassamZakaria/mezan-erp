@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { Money } from "../money/index.js";
+import { InvalidOpportunityError } from "./errors.js";
+import { OpportunityLostReason } from "./lost-reason.js";
 import { moveOpportunityStage } from "./move-opportunity-stage.js";
 import type { Opportunity } from "./opportunity.js";
 import type { PipelineStage } from "./pipeline-stage.js";
@@ -15,6 +17,9 @@ function opportunity(overrides: Partial<Opportunity> = {}): Opportunity {
     probability: 20,
     expectedCloseDate: null,
     notes: null,
+    ownerUserId: null,
+    lostReason: null,
+    lostNote: null,
     status: "open",
     createdAt: "2026-01-01T00:00:00.000Z",
     closedAt: null,
@@ -51,9 +56,28 @@ describe("moveOpportunityStage", () => {
     expect(next.probability).toBe(100);
   });
 
-  it("marks the opportunity 'lost' when moved to a loss stage", () => {
-    const next = moveOpportunityStage(opportunity(), stage({ id: "stage-loss", isLossStage: true, defaultProbability: 0 }));
+  it("marks the opportunity 'lost' with its reason and trimmed note when moved to a loss stage", () => {
+    const next = moveOpportunityStage(opportunity(), stage({ id: "stage-loss", isLossStage: true, defaultProbability: 0 }), undefined, {
+      reason: OpportunityLostReason.Price,
+      note: "  أرخص عند المنافس  ",
+    });
     expect(next.status).toBe("lost");
+    expect(next.lostReason).toBe(OpportunityLostReason.Price);
+    expect(next.lostNote).toBe("أرخص عند المنافس");
+  });
+
+  it("refuses a loss stage without a reason from the managed list", () => {
+    const loss = stage({ id: "stage-loss", isLossStage: true });
+    expect(() => moveOpportunityStage(opportunity(), loss)).toThrow(InvalidOpportunityError);
+    expect(() => moveOpportunityStage(opportunity(), loss, undefined, { reason: "FREE_TEXT" })).toThrow(InvalidOpportunityError);
+  });
+
+  it("clears the loss when the deal is moved back to an open stage", () => {
+    const lost = opportunity({ status: "lost", lostReason: OpportunityLostReason.Timing, lostNote: "x" });
+    const next = moveOpportunityStage(lost, stage());
+    expect(next.status).toBe("open");
+    expect(next.lostReason).toBeNull();
+    expect(next.lostNote).toBeNull();
   });
 
   it("stamps closedAt only when 'now' is supplied and the stage is win/loss", () => {

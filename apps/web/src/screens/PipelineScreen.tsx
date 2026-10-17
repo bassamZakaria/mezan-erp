@@ -2,7 +2,11 @@ import { useMemo, useState } from "react";
 import { Button, Card, Money as MoneyDisplay, SidePanel, StatCard } from "@mezan/ui";
 import type { OpportunityDTO, PipelineStageDTO } from "@mezan/contracts";
 import { NumberField, SelectField } from "../settings/form-controls";
-import { useCustomers, useMoveOpportunityStage, useOpportunities, usePipelineStages , useBranches} from "../data/hooks";
+import { useCustomers, useOpportunities, usePipelineStages, useBranches } from "../data/hooks";
+import { useCrmAccess, useCrmOwners } from "./enh/crm-pipeline/hooks";
+import { useLostReasonName, useOwnerName } from "./enh/crm-pipeline/parts";
+import { useStageMove } from "./enh/crm-pipeline/stage-move";
+import { useNavigation } from "../navigation";
 import { CreateOpportunityForm } from "./OpportunitiesScreen";
 import { useAppTranslation } from "../i18n";
 import { majorOf, sumMajor } from "../lib/money";
@@ -21,13 +25,18 @@ export function PipelineScreen() {
   const opportunitiesQuery = useOpportunities();
   const customersQuery = useCustomers();
   const branchesQuery = useBranches();
-  const moveStage = useMoveOpportunityStage();
+  const access = useCrmAccess();
+  const owners = useCrmOwners().data ?? [];
+  const ownerName = useOwnerName();
+  const lostReasonName = useLostReasonName();
+  const { openScreenAt } = useNavigation();
 
   const stages = useMemo(
     () => [...(stagesQuery.data ?? [])].filter((s) => s.active).sort((a, b) => a.order - b.order),
     [stagesQuery.data],
   );
   const allOpportunities = opportunitiesQuery.data ?? [];
+  const stageMove = useStageMove(stages);
 
   const customerName = useMemo(() => {
     const map = new Map<string, string>();
@@ -38,11 +47,10 @@ export function PipelineScreen() {
   const [view, setView] = useState<"board" | "list">("board");
   const [customerFilter, setCustomerFilter] = useUrlParam("customer");
   const [branchFilter, setBranchFilter] = useUrlParam("branch");
+  const [ownerFilter, setOwnerFilter] = useUrlParam("owner");
   const [valueFrom, setValueFrom] = useState(Number.NaN);
   const [valueTo, setValueTo] = useState(Number.NaN);
   const [formOpen, setFormOpen] = useState(false);
-  const [movingId, setMovingId] = useState<string | null>(null);
-  const [moveError, setMoveError] = useState<string | null>(null);
 
   /**
    * The stat strip and the columns read the SAME filtered set — a board whose
@@ -52,6 +60,7 @@ export function PipelineScreen() {
   const opportunities = allOpportunities.filter((opportunity) => {
     if (customerFilter && opportunity.customerId !== customerFilter) return false;
     if (branchFilter && opportunity.branchId !== branchFilter) return false;
+    if (ownerFilter && opportunity.ownerUserId !== ownerFilter) return false;
     const value = majorOf(opportunity.expectedValue);
     if (!Number.isNaN(valueFrom) && value < valueFrom) return false;
     if (!Number.isNaN(valueTo) && value > valueTo) return false;
@@ -63,18 +72,7 @@ export function PipelineScreen() {
   const wonOpportunities = opportunities.filter((o) => o.status === "won");
   const wonValue = sumMajor(wonOpportunities.map((o) => o.expectedValue));
 
-  async function moveOpportunity(opportunity: OpportunityDTO, stageId: string) {
-    if (stageId === opportunity.stageId || movingId) return;
-    setMovingId(opportunity.id);
-    setMoveError(null);
-    try {
-      await moveStage.mutateAsync({ id: opportunity.id, body: { stageId } });
-    } catch (err) {
-      setMoveError(err instanceof Error ? err.message : t("pipeline.theOpportunityCouldNotBe"));
-    } finally {
-      setMovingId(null);
-    }
-  }
+  const createQuote = (opportunity: OpportunityDTO) => openScreenAt("quotes", ["new", opportunity.customerId, opportunity.id]);
 
   return (
     <div className="w-full">
@@ -111,9 +109,9 @@ export function PipelineScreen() {
         <StatCard label={t("pipeline.valueWon")} value={<MoneyDisplay value={wonValue} />} />
       </div>
 
-      {moveError ? (
+      {stageMove.error ? (
         <div role="alert" className="mb-[18px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
-          {moveError}
+          {stageMove.error}
         </div>
       ) : null}
 
@@ -135,7 +133,7 @@ export function PipelineScreen() {
             </button>
           ))}
         </div>
-        <div className="grid flex-1 gap-2 sm:grid-cols-4">
+        <div className={`grid flex-1 gap-2 ${access.seesEveryDeal ? "sm:grid-cols-5" : "sm:grid-cols-4"}`}>
           <SelectField
             label={t("pipeline.filter.branch")}
             value={branchFilter}
@@ -145,6 +143,14 @@ export function PipelineScreen() {
               ...(branchesQuery.data ?? []).map((branch) => ({ value: branch.id, label: branch.name })),
             ]}
           />
+          {access.seesEveryDeal ? (
+            <SelectField
+              label={t("crmPipeline.owner.filter")}
+              value={ownerFilter}
+              onChange={setOwnerFilter}
+              options={[{ value: "", label: t("crmPipeline.owner.allOwners") }, ...owners.map((owner) => ({ value: owner.id, label: owner.name }))]}
+            />
+          ) : null}
           <SelectField
             label={t("pipeline.filter.customer")}
             value={customerFilter}
@@ -167,13 +173,14 @@ export function PipelineScreen() {
                 <th className="px-[15px] py-[9px] text-start">{t("pipeline.col.stage")}</th>
                 <th className="px-[15px] py-[9px] text-start">{t("pipeline.col.title")}</th>
                 <th className="px-[15px] py-[9px] text-start">{t("common.customer")}</th>
+                <th className="px-[15px] py-[9px] text-start">{t("crmPipeline.col.owner")}</th>
                 <th className="px-[15px] py-[9px] text-end">{t("pipeline.expectedValue")}</th>
               </tr>
             </thead>
             <tbody>
               {opportunities.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="p-[18px] text-center text-ink-muted">{t("pipeline.noMatching")}</td>
+                  <td colSpan={5} className="p-[18px] text-center text-ink-muted">{t("pipeline.noMatching")}</td>
                 </tr>
               ) : (
                 opportunities.map((opportunity) => {
@@ -188,6 +195,7 @@ export function PipelineScreen() {
                       </td>
                       <td className="px-[15px] py-[9px] text-ink">{opportunity.title}</td>
                       <td className="px-[15px] py-[9px] text-ink-muted">{customerName(opportunity.customerId)}</td>
+                      <td className="px-[15px] py-[9px] text-ink-muted">{ownerName(opportunity.ownerUserId)}</td>
                       <td className="px-[15px] py-[9px] text-end">
                         <MoneyDisplay value={majorOf(opportunity.expectedValue)} />
                       </td>
@@ -207,8 +215,11 @@ export function PipelineScreen() {
             stages={stages}
             opportunities={opportunities.filter((o) => o.stageId === stage.id)}
             customerName={customerName}
-            movingId={movingId}
-            onMove={moveOpportunity}
+            ownerName={ownerName}
+            lostReasonName={lostReasonName}
+            movingId={stageMove.pendingId}
+            onMove={stageMove.request}
+            onCreateQuote={access.mayQuote ? createQuote : null}
           />
         ))}
       </div>
@@ -217,6 +228,7 @@ export function PipelineScreen() {
       <SidePanel open={formOpen} onClose={() => setFormOpen(false)} title={t("pipeline.addOpportunity")} description={t("pipeline.opportunityDetails")}>
         <CreateOpportunityForm onDone={() => setFormOpen(false)} onCancel={() => setFormOpen(false)} />
       </SidePanel>
+      {stageMove.dialog}
     </div>
   );
 }
@@ -226,11 +238,14 @@ interface PipelineColumnProps {
   stages: PipelineStageDTO[];
   opportunities: OpportunityDTO[];
   customerName: (id: string) => string;
+  ownerName: (userId: string | null) => string;
+  lostReasonName: (code: string | null) => string | null;
   movingId: string | null;
   onMove: (opportunity: OpportunityDTO, stageId: string) => void;
+  onCreateQuote: ((opportunity: OpportunityDTO) => void) | null;
 }
 
-function PipelineColumn({ stage, stages, opportunities, customerName, movingId, onMove }: PipelineColumnProps) {
+function PipelineColumn({ stage, stages, opportunities, customerName, ownerName, lostReasonName, movingId, onMove, onCreateQuote }: PipelineColumnProps) {
   const { t } = useAppTranslation();
   return (
     <div className="w-[280px] flex-none">
@@ -251,10 +266,16 @@ function PipelineColumn({ stage, stages, opportunities, customerName, movingId, 
               <div key={opportunity.id} className="rounded-md border border-border bg-surface p-[11px]">
                 <div className="text-[12.5px] font-semibold text-ink">{opportunity.title}</div>
                 <div className="mt-[3px] text-[11px] text-ink-muted">{customerName(opportunity.customerId)}</div>
+                <div className="mt-[3px] text-[11px] text-ink-faint">{ownerName(opportunity.ownerUserId)}</div>
                 <div className="mt-[6px] flex items-center justify-between">
-                  <MoneyDisplay value={Number(opportunity.expectedValue)} className="text-[12px] font-bold" />
+                  <MoneyDisplay value={majorOf(opportunity.expectedValue)} className="text-[12px] font-bold" />
                   <span className="mz-num text-[11px] text-ink-faint">{opportunity.probability}%</span>
                 </div>
+                {opportunity.status === "lost" && opportunity.lostReason ? (
+                  <div className="mt-[6px] text-[11px] font-semibold text-danger-ink">
+                    {t("crmPipeline.lost.badge", { reason: lostReasonName(opportunity.lostReason) ?? opportunity.lostReason })}
+                  </div>
+                ) : null}
                 {opportunity.status === "open" ? (
                   <div className="mt-[8px]">
                     <SelectField
@@ -265,6 +286,11 @@ function PipelineColumn({ stage, stages, opportunities, customerName, movingId, 
                       options={stages.map((s) => ({ value: s.id, label: s.name }))}
                     />
                   </div>
+                ) : null}
+                {opportunity.status === "open" && onCreateQuote ? (
+                  <Button size="sm" className="mt-[8px]" onClick={() => onCreateQuote(opportunity)}>
+                    {t("crmPipeline.createQuote")}
+                  </Button>
                 ) : null}
               </div>
             ))

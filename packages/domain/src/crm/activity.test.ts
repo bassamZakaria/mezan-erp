@@ -11,6 +11,7 @@ function activity(overrides: Partial<Activity> = {}): Activity {
     relatedLeadId: null,
     relatedOpportunityId: null,
     dueDate: null,
+    assigneeUserId: null,
     status: "pending",
     notes: null,
     createdAt: "2026-01-01T00:00:00.000Z",

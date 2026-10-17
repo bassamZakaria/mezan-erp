@@ -39,6 +39,7 @@ import {
   type LineDraft,
 } from "./quote-model";
 import { EMPTY } from "../../lib/empty";
+import { useLinkedOpportunity } from "../enh/crm-pipeline/hooks";
 
 const NO_TAX_RATES: readonly TaxRateDTO[] = [];
 
@@ -52,7 +53,15 @@ const NO_TAX_RATES: readonly TaxRateDTO[] = [];
  * from the customer's price list when they have one, falling back to the
  * item's own sale price.
  */
-export function QuoteFormView({ onClose, initialCustomerId = "" }: { onClose: () => void; initialCustomerId?: string }) {
+export function QuoteFormView({
+  onClose,
+  initialCustomerId = "",
+  initialOpportunityId = "",
+}: {
+  onClose: () => void;
+  initialCustomerId?: string;
+  initialOpportunityId?: string;
+}) {
   const { t } = useAppTranslation();
   const format = useFormat();
   const customersQuery = useCustomers();
@@ -68,6 +77,8 @@ export function QuoteFormView({ onClose, initialCustomerId = "" }: { onClose: ()
   const agingQuery = useCustomerAging();
   const workingLocation = useWorkingLocation();
   const create = useCreateSalesQuote();
+  const deal = useLinkedOpportunity(initialOpportunityId).data;
+  const linkedDeal = deal && deal.customerId === initialCustomerId ? deal : null;
 
   // Carried in from «عرض سعر جديد» on a customer's page; the id is in the URL, so it survives a reload.
   const [customerId, setCustomerId] = useState(initialCustomerId);
@@ -194,6 +205,7 @@ export function QuoteFormView({ onClose, initialCustomerId = "" }: { onClose: ()
         customerNameAr: customer.nameAr,
         customerTaxExempt: customer.taxExempt,
         branchId: effectiveBranchId,
+        ...(linkedDeal ? { opportunityId: linkedDeal.id } : {}),
         currency,
         notes: notes.trim() === "" ? null : notes.trim(),
         internalNotes: internalNotes.trim() === "" ? null : internalNotes.trim(),
@@ -224,6 +236,7 @@ export function QuoteFormView({ onClose, initialCustomerId = "" }: { onClose: ()
         <div>
           <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-ink-muted">{t("eyebrow.sales.quotations")}</div>
           <h1 className="font-display text-xl font-bold text-ink">{t("quotes.new")}</h1>
+          {linkedDeal ? <p className="mt-1 text-[12px] font-semibold text-ink-muted">{t("crmPipeline.quote.linked", { title: linkedDeal.title })}</p> : null}
         </div>
         <div className="flex items-center gap-2">
           <Button variant="default" onClick={onClose}>

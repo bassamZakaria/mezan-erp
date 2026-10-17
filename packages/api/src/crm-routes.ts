@@ -39,6 +39,7 @@ import {
   type AuditSink,
 } from "@mezan/domain";
 import {
+  assignOpportunitySchema,
   createLeadSchema,
   transitionLeadSchema,
   convertLeadSchema,
@@ -47,7 +48,23 @@ import {
   createPipelineStageSchema,
   createActivitySchema,
 } from "@mezan/contracts";
-import { branchScopeOf, createPermissionGate, withinScope, type AuthContextResolver } from "./permission-gate.js";
+import {
+  callerUserId,
+  createAnyPermissionGate,
+  createPermissionGate,
+  permissionDeniedBody,
+  type AuthContextResolver,
+} from "./permission-gate.js";
+import {
+  mayAssignOpportunities,
+  OPPORTUNITY_ASSIGN,
+  OPPORTUNITY_VIEW_ALL,
+  OPPORTUNITY_VIEW_OWN,
+  seesEveryActivity,
+  visibleActivities,
+  visibleOpportunities,
+  type CrmOwnerDirectory,
+} from "./crm-visibility.js";
 import { nextMasterCode } from "./master-code.js";
 import { recordAdminEvent } from "./admin-audit.js";
 import { recordCustomerChange } from "./customers-routes.js";
@@ -73,6 +90,9 @@ export interface CrmRoutesDeps {
    */
   readonly audit?: AuditSink;
   readonly masterData?: MasterDataChecks;
+  /** Who may own a deal or an activity; omitted, any user id is accepted. */
+  readonly owners?: CrmOwnerDirectory;
+  readonly now?: () => string;
 }
 
 const movePipelineStageSchema = z.object({
@@ -108,6 +128,9 @@ function serializeOpportunity(opportunity: Opportunity) {
     probability: opportunity.probability,
     expectedCloseDate: opportunity.expectedCloseDate,
     notes: opportunity.notes,
+    ownerUserId: opportunity.ownerUserId,
+    lostReason: opportunity.lostReason,
+    lostNote: opportunity.lostNote,
     status: opportunity.status,
     createdAt: opportunity.createdAt,
     closedAt: opportunity.closedAt,
@@ -135,6 +158,7 @@ function serializeActivity(activity: Activity) {
     relatedLeadId: activity.relatedLeadId,
     relatedOpportunityId: activity.relatedOpportunityId,
     dueDate: activity.dueDate,
+    assigneeUserId: activity.assigneeUserId,
     status: activity.status,
     notes: activity.notes,
     createdAt: activity.createdAt,
@@ -171,6 +195,31 @@ function handleDomainError(c: Context, err: unknown): Response {
 export function createCrmRoutes(deps: CrmRoutesDeps, resolveAuthContext: AuthContextResolver): Hono {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
+  const gateAny = createAnyPermissionGate(resolveAuthContext);
+  const nowIso = deps.now ?? (() => new Date().toISOString());
+
+  type OwnerChoice = { readonly owner: string | null } | { readonly refusal: Response };
+
+  /**
+   * SECURITY: who a new deal or activity is assigned to is decided here, not by
+   * the caller. Leaving the owner out assigns it to the caller; naming anyone
+   * else (or nobody) needs the assign permission, and the named person must be
+   * a real user the directory knows.
+   */
+  async function resolveOwner(c: Context, requested: string | null | undefined): Promise<OwnerChoice> {
+    const me = callerUserId(c) ?? null;
+    if (requested === undefined) return { owner: me };
+    if (requested === me) return { owner: me };
+    if (!mayAssignOpportunities(c)) {
+      return { refusal: c.json(permissionDeniedBody(OPPORTUNITY_ASSIGN), 403) };
+    }
+    if (requested !== null && deps.owners && !(await deps.owners.has(requested))) {
+      return {
+        refusal: c.json({ error: "OWNER_NOT_ELIGIBLE", message: "المسؤول المختار غير موجود أو لا يملك صلاحية العمل على فرص البيع." }, 422),
+      };
+    }
+    return { owner: requested };
+  }
 
   // --- Leads ---------------------------------------------------------------
 
@@ -235,6 +284,9 @@ export function createCrmRoutes(deps: CrmRoutesDeps, resolveAuthContext: AuthCon
       { kind: MasterDataKind.Branch, ids: [parsed.data.opportunity?.branchId] },
     ]);
     if (branchRefusal) return branchRefusal;
+    const convertChoice: OwnerChoice = parsed.data.opportunity ? await resolveOwner(c, parsed.data.opportunity.ownerUserId) : { owner: null };
+    if ("refusal" in convertChoice) return convertChoice.refusal;
+    const convertOwner = convertChoice.owner;
     let customer: { id: string; code: string } | undefined;
     if (parsed.data.createCustomer) {
       const existing = (await deps.customers.findAll()).map((row) => row.code);
@@ -260,6 +312,7 @@ export function createCrmRoutes(deps: CrmRoutesDeps, resolveAuthContext: AuthCon
                 expectedValue: Money.fromMajor(parsed.data.opportunity.expectedValue),
                 probability: parsed.data.opportunity.probability,
                 expectedCloseDate: parsed.data.opportunity.expectedCloseDate,
+                ownerUserId: convertOwner,
               }
             : undefined,
         },
@@ -292,10 +345,10 @@ export function createCrmRoutes(deps: CrmRoutesDeps, resolveAuthContext: AuthCon
 
   // --- Opportunities ---------------------------------------------------------
 
-  app.get("/opportunities", gate("crm.opportunity.view"), async (c) => {
-    // Branch SCOPE first — no query parameter may widen what this caller may
-    // see — then the board's own branch filter narrows within it.
-    const scoped = withinScope(await deps.opportunities.list(), branchScopeOf(c), (o) => o.branchId);
+  app.get("/opportunities", gateAny(OPPORTUNITY_VIEW_ALL, OPPORTUNITY_VIEW_OWN), async (c) => {
+    // Branch SCOPE and ownership first — no query parameter may widen what this
+    // caller may see — then the board's own branch filter narrows within it.
+    const scoped = visibleOpportunities(c, await deps.opportunities.list());
     const branchId = c.req.query("branchId");
     const rows = branchId ? scoped.filter((o) => o.branchId === branchId) : scoped;
     return c.json(rows.map(serializeOpportunity));
@@ -311,6 +364,8 @@ export function createCrmRoutes(deps: CrmRoutesDeps, resolveAuthContext: AuthCon
       { kind: MasterDataKind.Branch, ids: [parsed.data.branchId] },
     ]);
     if (partyRefusal) return partyRefusal;
+    const choice = await resolveOwner(c, parsed.data.ownerUserId);
+    if ("refusal" in choice) return choice.refusal;
     try {
       const opportunity = await createOpportunity(
         {
@@ -323,18 +378,27 @@ export function createCrmRoutes(deps: CrmRoutesDeps, resolveAuthContext: AuthCon
           probability: parsed.data.probability,
           expectedCloseDate: parsed.data.expectedCloseDate,
           notes: parsed.data.notes,
+          ownerUserId: choice.owner,
         },
         deps.opportunities,
       );
+      await recordAdminEvent(deps.audit, c, {
+        module: "crm",
+        entityType: "OPPORTUNITY",
+        entityId: opportunity.id,
+        action: "CREATE",
+        severity: "INFO",
+        details: { title: opportunity.title, customerId: opportunity.customerId, ownerUserId: opportunity.ownerUserId },
+      });
       return c.json(serializeOpportunity(opportunity), 201);
     } catch (err) {
       return handleDomainError(c, err);
     }
   });
 
-  app.get("/opportunities/:id", gate("crm.opportunity.view"), async (c) => {
+  app.get("/opportunities/:id", gateAny(OPPORTUNITY_VIEW_ALL, OPPORTUNITY_VIEW_OWN), async (c) => {
     const opportunity = await deps.opportunities.findById(c.req.param("id"));
-    if (!opportunity) return c.json({ error: "OPPORTUNITY_NOT_FOUND" }, 404);
+    if (!opportunity || visibleOpportunities(c, [opportunity]).length === 0) return c.json({ error: "OPPORTUNITY_NOT_FOUND" }, 404);
     return c.json(serializeOpportunity(opportunity));
   });
 
@@ -344,16 +408,55 @@ export function createCrmRoutes(deps: CrmRoutesDeps, resolveAuthContext: AuthCon
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
     const opportunity = await deps.opportunities.findById(c.req.param("id"));
-    if (!opportunity) return c.json({ error: "OPPORTUNITY_NOT_FOUND" }, 404);
+    if (!opportunity || visibleOpportunities(c, [opportunity]).length === 0) return c.json({ error: "OPPORTUNITY_NOT_FOUND" }, 404);
     const stage = await deps.pipelineStages.findById(parsed.data.stageId);
     if (!stage) return c.json({ error: "PIPELINE_STAGE_NOT_FOUND" }, 404);
     try {
-      const moved = moveOpportunityStage(opportunity, stage);
+      const moved = moveOpportunityStage(opportunity, stage, nowIso(), {
+        reason: parsed.data.lostReason,
+        note: parsed.data.lostNote,
+      });
       await deps.opportunities.update(moved);
+      await recordAdminEvent(deps.audit, c, {
+        module: "crm",
+        entityType: "OPPORTUNITY",
+        entityId: moved.id,
+        action: "MOVE_STAGE",
+        severity: "INFO",
+        details: {
+          fromStageId: opportunity.stageId,
+          toStageId: moved.stageId,
+          status: moved.status,
+          lostReason: moved.lostReason,
+          lostNote: moved.lostNote,
+        },
+      });
       return c.json(serializeOpportunity(moved));
     } catch (err) {
       return handleDomainError(c, err);
     }
+  });
+
+  app.post("/opportunities/:id/assign", gate(OPPORTUNITY_ASSIGN), async (c) => {
+    const parsed = assignOpportunitySchema.safeParse(await c.req.json());
+    if (!parsed.success) {
+      return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    }
+    const opportunity = await deps.opportunities.findById(c.req.param("id"));
+    if (!opportunity || visibleOpportunities(c, [opportunity]).length === 0) return c.json({ error: "OPPORTUNITY_NOT_FOUND" }, 404);
+    const choice = await resolveOwner(c, parsed.data.ownerUserId);
+    if ("refusal" in choice) return choice.refusal;
+    const reassigned = { ...opportunity, ownerUserId: choice.owner };
+    await deps.opportunities.update(reassigned);
+    await recordAdminEvent(deps.audit, c, {
+      module: "crm",
+      entityType: "OPPORTUNITY",
+      entityId: reassigned.id,
+      action: "ASSIGN",
+      severity: "INFO",
+      details: { fromOwnerUserId: opportunity.ownerUserId, toOwnerUserId: reassigned.ownerUserId },
+    });
+    return c.json(serializeOpportunity(reassigned));
   });
 
   // --- Pipeline Stages ---------------------------------------------------------
@@ -406,8 +509,13 @@ export function createCrmRoutes(deps: CrmRoutesDeps, resolveAuthContext: AuthCon
 
   // --- Activities ---------------------------------------------------------
 
+  async function visibleActivityList(c: Context): Promise<readonly Activity[]> {
+    const all = await deps.activities.list();
+    return seesEveryActivity(c) ? all : visibleActivities(c, all, await deps.opportunities.list());
+  }
+
   app.get("/activities", gate("crm.activity.view"), async (c) => {
-    return c.json((await deps.activities.list()).map(serializeActivity));
+    return c.json((await visibleActivityList(c)).map(serializeActivity));
   });
 
   app.post("/activities", gate("crm.activity.create"), async (c) => {
@@ -415,6 +523,8 @@ export function createCrmRoutes(deps: CrmRoutesDeps, resolveAuthContext: AuthCon
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+    const assignee = await resolveOwner(c, parsed.data.assigneeUserId);
+    if ("refusal" in assignee) return assignee.refusal;
     try {
       const activity = await createActivity(
         {
@@ -424,6 +534,7 @@ export function createCrmRoutes(deps: CrmRoutesDeps, resolveAuthContext: AuthCon
           relatedLeadId: parsed.data.relatedLeadId,
           relatedOpportunityId: parsed.data.relatedOpportunityId,
           dueDate: parsed.data.dueDate,
+          assigneeUserId: assignee.owner,
           notes: parsed.data.notes,
         },
         deps.activities,
@@ -436,7 +547,7 @@ export function createCrmRoutes(deps: CrmRoutesDeps, resolveAuthContext: AuthCon
 
   app.post("/activities/:id/complete", gate("crm.activity.edit"), async (c) => {
     const activity = await deps.activities.findById(c.req.param("id"));
-    if (!activity) return c.json({ error: "ACTIVITY_NOT_FOUND" }, 404);
+    if (!activity || !(await visibleActivityList(c)).some((a) => a.id === activity.id)) return c.json({ error: "ACTIVITY_NOT_FOUND" }, 404);
     try {
       const completed = completeActivity(activity);
       await deps.activities.update(completed);
@@ -448,7 +559,7 @@ export function createCrmRoutes(deps: CrmRoutesDeps, resolveAuthContext: AuthCon
 
   app.post("/activities/:id/cancel", gate("crm.activity.edit"), async (c) => {
     const activity = await deps.activities.findById(c.req.param("id"));
-    if (!activity) return c.json({ error: "ACTIVITY_NOT_FOUND" }, 404);
+    if (!activity || !(await visibleActivityList(c)).some((a) => a.id === activity.id)) return c.json({ error: "ACTIVITY_NOT_FOUND" }, 404);
     try {
       const cancelled = cancelActivity(activity);
       await deps.activities.update(cancelled);

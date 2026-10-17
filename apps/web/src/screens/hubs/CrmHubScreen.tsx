@@ -5,6 +5,7 @@ import { useCrmActivities, useLeads, useOpportunities } from "../../data/hooks";
 import { useAppTranslation, type AppTranslationKey } from "../../i18n";
 import { DateAndDoc, HubActions, type HubAction } from "./hub-parts";
 import { EMPTY } from "../../lib/empty";
+import { sumMajor } from "../../lib/money";
 
 /**
  * إدارة علاقات العملاء hub — leads, opportunities and activities over the
@@ -23,10 +24,6 @@ const ACTIVITY_TYPE_KEY: Record<string, AppTranslationKey> = {
   todo: "crmHub.activityType.todo",
   email: "crmHub.activityType.email",
 };
-
-function num(value: string | undefined | null): number {
-  return value ? Number(value) : 0;
-}
 
 /**
  * Verbs only. A row of buttons that navigate to the same screens the bar one
@@ -54,7 +51,7 @@ export function CrmHubScreen() {
 
   const newLeads = useMemo(() => leads.filter((l) => l.status === "new").length, [leads]);
   const openOpportunities = useMemo(() => opportunities.filter((o) => o.status === "open"), [opportunities]);
-  const openPipelineValue = useMemo(() => openOpportunities.reduce((sum, o) => sum + num(o.expectedValue), 0), [openOpportunities]);
+  const openPipelineValue = useMemo(() => sumMajor(openOpportunities.map((o) => o.expectedValue)), [openOpportunities]);
   const pendingActivities = useMemo(() => activities.filter((a) => a.status === "pending").length, [activities]);
   const recentActivities = useMemo(
     () => [...activities].sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)).slice(0, 5),

@@ -18,6 +18,7 @@ import { useAuditLog } from "../../data/platform-hooks";
 import { useWorkingLocation } from "../../data/hub-hooks";
 import { useAppTranslation } from "../../i18n";
 import { useNavigation } from "../../navigation";
+import { useLinkedOpportunity } from "../enh/crm-pipeline/hooks";
 import { EMPTY } from "../../lib/empty";
 import { postedTaxRateLabel } from "../tax-rate-field";
 import { AttachmentsTab } from "../../attachments/AttachmentsTab";
@@ -52,6 +53,7 @@ const STEPS = [
 export function QuoteDetailView({ quote, onPrint, onBack }: { quote: SalesQuoteRecord; onPrint?: () => void; onBack: () => void }) {
   const { openScreenAt } = useNavigation();
   const { t } = useAppTranslation();
+  const linkedDeal = useLinkedOpportunity(quote.opportunityId ?? "").data ?? null;
   const format = useFormat();
   const items = useItems().data ?? [];
   const branches = useBranches().data ?? [];
@@ -307,6 +309,14 @@ export function QuoteDetailView({ quote, onPrint, onBack }: { quote: SalesQuoteR
                   </Button>
                 ) : null}
                 {expired ? <p className="text-[12.5px] text-danger">{t("quotes.expiredAgo", { days: daysExpired(quote) })}</p> : null}
+                {linkedDeal ? (
+                  <div className="flex items-center justify-between gap-2 text-[12px] text-ink-muted">
+                    <span>{t("crmPipeline.quote.linked", { title: linkedDeal.title })}</span>
+                    <Button size="sm" variant="ghost" onClick={() => openScreenAt("pipeline", [])}>
+                      {t("crmPipeline.quote.openDeal")}
+                    </Button>
+                  </div>
+                ) : null}
 
                 {quote.status === "draft" ? (
                   <Button variant="primary" onClick={() => send.mutate(quote.id)} disabled={send.isPending}>

@@ -1,4 +1,4 @@
-import { verifyBackupFile, type BackupVerifyRecord } from "./backup-verify-core.js";
+import { inspectBackupFile, verifyBackupFile, type BackupInspection, type BackupVerifyRecord } from "./backup-verify-core.js";
 
 /**
  * The forked-process entry point `runVerifyOffThread` (backup-scheduler.ts)
@@ -21,13 +21,25 @@ export interface VerifyWorkerRequest {
   readonly now: string;
 }
 
+export interface InspectWorkerRequest {
+  readonly kind: "inspect";
+  readonly backupPath: string;
+}
+
 export type VerifyWorkerResponse = { readonly ok: true; readonly record: BackupVerifyRecord } | { readonly ok: false; readonly error: string };
 
+export type InspectWorkerResponse = { readonly ok: true; readonly inspection: BackupInspection } | { readonly ok: false; readonly error: string };
+
+const errorOf = (err: unknown): { ok: false; error: string } => ({ ok: false, error: err instanceof Error ? err.message : String(err) });
+
 if (process.send) {
-  process.once("message", (msg: VerifyWorkerRequest) => {
-    verifyBackupFile(msg.backupPath, new Date(msg.now))
-      .then((record) => ({ ok: true, record }) satisfies VerifyWorkerResponse)
-      .catch((err: unknown) => ({ ok: false, error: err instanceof Error ? err.message : String(err) }) satisfies VerifyWorkerResponse)
+  process.once("message", (msg: VerifyWorkerRequest | InspectWorkerRequest) => {
+    const work: Promise<VerifyWorkerResponse | InspectWorkerResponse> =
+      "kind" in msg
+        ? inspectBackupFile(msg.backupPath).then((inspection) => ({ ok: true, inspection }) satisfies InspectWorkerResponse)
+        : verifyBackupFile(msg.backupPath, new Date(msg.now)).then((record) => ({ ok: true, record }) satisfies VerifyWorkerResponse);
+    work
+      .catch(errorOf)
       .then((response) => {
         process.send?.(response, () => process.exit(0));
       });

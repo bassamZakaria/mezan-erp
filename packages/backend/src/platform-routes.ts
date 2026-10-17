@@ -67,6 +67,13 @@ import {
   confirmTenantBooksRequestSchema,
   unbindTenantBooksRequestSchema,
   unlockTenantAccountRequestSchema,
+  exportTenantBackupRequestSchema,
+  tenantBackupDrillRequestSchema,
+  TenantBackupDrillOutcome,
+  TenantBackupRefusal,
+  type TenantBackupDrillResultDTO,
+  type TenantBackupListDTO,
+  type TenantExportOfferDTO,
   setBillingAnchorDayRequestSchema,
   startSubscriptionRequestSchema,
   changePlanRequestSchema,
@@ -157,6 +164,12 @@ export enum PlatformAuditAction {
   TenantAccountUnlockRequested = "TENANT_ACCOUNT_UNLOCK_REQUESTED",
   TenantAccountUnlocked = "TENANT_ACCOUNT_UNLOCKED",
   TenantAccountUnlockRefused = "TENANT_ACCOUNT_UNLOCK_REFUSED",
+  TenantBackupDrill = "TENANT_BACKUP_DRILL",
+  TenantBackupExportRequested = "TENANT_BACKUP_EXPORT_REQUESTED",
+  TenantBackupExported = "TENANT_BACKUP_EXPORTED",
+  TenantBackupExportFailed = "TENANT_BACKUP_EXPORT_FAILED",
+  TenantBackupExportDownloaded = "TENANT_BACKUP_EXPORT_DOWNLOADED",
+  TenantBackupExportRefused = "TENANT_BACKUP_EXPORT_REFUSED",
   TenantOwnerPinReset = "TENANT_OWNER_PIN_RESET",
   TenantOwnerPinResetRefused = "TENANT_OWNER_PIN_RESET_REFUSED",
   TenantOwnerPinResetRequested = "TENANT_OWNER_PIN_RESET_REQUESTED",
@@ -178,6 +191,28 @@ export interface PlatformTenantBooksPort {
   confirm(input: { tenant: Tenant; userId: string; companyName: string | null; actorId: string }): Promise<Tenant>;
   disown(input: { tenant: Tenant; actorId: string }): Promise<Tenant>;
   unbind(input: { tenant: Tenant; actorId: string }): Promise<Tenant>;
+}
+
+export class TenantBackupRefusalError extends Error {
+  constructor(
+    readonly code: TenantBackupRefusal,
+    message: string,
+    readonly messageEn: string,
+    readonly status: 404 | 409 | 422 | 503,
+  ) {
+    super(message);
+    this.name = "TenantBackupRefusalError";
+  }
+}
+
+export interface PlatformTenantBackupsPort {
+  list(tenant: Tenant): Promise<TenantBackupListDTO["backups"]>;
+  // CONTRACT: reads a scratch copy of a stored backup and never touches the tenant's live database.
+  drill(input: { tenant: Tenant; file?: string }): Promise<TenantBackupDrillResultDTO>;
+  // CONTRACT: the passphrase is used once and kept nowhere; the offer's path carries a single-use token.
+  exportTenant(input: { tenant: Tenant; passphrase: string }): Promise<TenantExportOfferDTO>;
+  // CONTRACT: single use. Null for any token that is unknown, spent, expired, or issued for another tenant.
+  takeExport(input: { tenant: Tenant; token: string }): Promise<{ readonly body: ReadableStream<Uint8Array>; readonly fileName: string; readonly bytes: number } | null>;
 }
 
 export interface OwnerPinResetAccount {
@@ -205,6 +240,7 @@ export interface CreatePlatformRoutesOptions {
   readonly declinePendingOwner?: (input: { tenant: Tenant; actorId: string }) => Promise<Tenant>;
   readonly resendPendingOwner?: (input: { tenant: Tenant; actorId: string }) => Promise<Tenant>;
   readonly tenantBooks?: PlatformTenantBooksPort;
+  readonly tenantBackups?: PlatformTenantBackupsPort;
   readonly handOverMailConfigured?: boolean;
   // CONTRACT: must not throw; it runs in front of a read.
   readonly reconcileOwner?: (tenant: Tenant) => Promise<void>;
@@ -348,6 +384,9 @@ function asCodeProvisioning(err: unknown): { readonly message: string; readonly 
 }
 
 function domainErrorResponse(c: Context, err: unknown): Response {
+  if (err instanceof TenantBackupRefusalError) {
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, err.status);
+  }
   if (err instanceof PlatformAuditUnavailableError) {
     console.error(err.cause);
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 503);
@@ -435,7 +474,7 @@ function domainErrorResponse(c: Context, err: unknown): Response {
 export type RecordedActivation = (activate: () => Promise<Tenant>) => Promise<Tenant>;
 
 export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono {
-  const { platform, auth, now, provisionTenant, provisionRetry, resetOwnerPin, releaseTenant, lockedAccounts, unlockAccount, ownerCandidates, assignOwner, confirmPendingOwner, declinePendingOwner, resendPendingOwner, tenantBooks, reconcileOwner, reconcileOpenOwners, invalidateEntitlements, idOf = randomUUID } = options;
+  const { platform, auth, now, provisionTenant, provisionRetry, resetOwnerPin, releaseTenant, lockedAccounts, unlockAccount, tenantBackups, ownerCandidates, assignOwner, confirmPendingOwner, declinePendingOwner, resendPendingOwner, tenantBooks, reconcileOwner, reconcileOpenOwners, invalidateEntitlements, idOf = randomUUID } = options;
   const nowIso = () => now().toISOString();
 
   const booksReadAgain = async (tenant: Tenant): Promise<TenantBooksStanding | null> => (tenantBooks ? tenantBooks.standingOf(tenant) : null);
@@ -743,6 +782,100 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
       await noted(c, unlocked ? PlatformAuditAction.TenantAccountUnlocked : PlatformAuditAction.TenantAccountUnlockRefused, tenant.id, details, AuditSeverityCode.Critical);
       if (!unlocked) return c.json({ error: "ACCOUNT_NOT_LOCKED", message: "هذا الحساب غير مقفل في هذه المنشأة.", messageEn: "This account is not locked in this tenant." }, 409);
       return c.json({ accounts: [...(await lockedAccounts(tenant))] });
+    } catch (err) {
+      return domainErrorResponse(c, err);
+    }
+  });
+
+  const BACKUPS_UNAVAILABLE = new TenantBackupRefusalError(TenantBackupRefusal.Unavailable, "النسخ الاحتياطي للمنشآت غير مفعّل في هذا النشر", "Tenant backups are not enabled on this deployment", 503);
+  const backupsPortOf = (): PlatformTenantBackupsPort => {
+    if (!tenantBackups) throw BACKUPS_UNAVAILABLE;
+    return tenantBackups;
+  };
+  const requireLiveForBackups = async (id: string): Promise<Tenant> => {
+    const tenant = await requireTenant(id);
+    if (!isLive(tenant)) {
+      throw new TenantBackupRefusalError(TenantBackupRefusal.NotLive, "النسخ والتصدير لمنشأة نشطة أو موقوفة فقط", "Backups and exports are for an active or suspended tenant only", 409);
+    }
+    return tenant;
+  };
+
+  app.get("/tenants/:id/backups", requireOwner, async (c) => {
+    try {
+      const port = backupsPortOf();
+      const tenant = await requireLiveForBackups(c.req.param("id"));
+      return c.json({ backups: await port.list(tenant) });
+    } catch (err) {
+      return domainErrorResponse(c, err);
+    }
+  });
+
+  app.post("/tenants/:id/backups/drill", requireOwner, async (c) => {
+    const parsed = tenantBackupDrillRequestSchema.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    try {
+      const port = backupsPortOf();
+      const tenant = await requireLiveForBackups(c.req.param("id"));
+      const result = await port.drill({ tenant, ...(parsed.data.file ? { file: parsed.data.file } : {}) });
+      const passed = result.outcome === TenantBackupDrillOutcome.Pass;
+      await noted(
+        c,
+        PlatformAuditAction.TenantBackupDrill,
+        tenant.id,
+        { code: tenant.code, file: result.file, outcome: result.outcome, report: result.report, tableCount: result.tableCount, totalRows: result.totalRows },
+        passed ? AuditSeverityCode.Info : AuditSeverityCode.Warning,
+      );
+      return c.json(result);
+    } catch (err) {
+      return domainErrorResponse(c, err);
+    }
+  });
+
+  // REQUIRED ORDERING: the request, with its reason, is recorded as CRITICAL (or
+  // refused with 503) BEFORE the tenant's books are read. SECURITY: neither the
+  // passphrase nor the download token reaches an audit row or a log line.
+  app.post("/tenants/:id/export", requireOwner, async (c) => {
+    const parsed = exportTenantBackupRequestSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    const { reason, passphrase } = parsed.data;
+    let tenant: Tenant | null = null;
+    try {
+      const port = backupsPortOf();
+      tenant = await requireLiveForBackups(c.req.param("id"));
+      const details = { code: tenant.code, reason };
+      await recordedWith(c, async () => ({ value: null, action: PlatformAuditAction.TenantBackupExportRequested, entityId: tenant!.id, details, severity: AuditSeverityCode.Critical }));
+      const offer = await port.exportTenant({ tenant, passphrase });
+      await noted(c, PlatformAuditAction.TenantBackupExported, tenant.id, { ...details, fileName: offer.fileName, bytes: offer.bytes, tableCount: offer.tableCount, totalRows: offer.totalRows, expiresAt: offer.expiresAt }, AuditSeverityCode.Critical);
+      c.header("Cache-Control", "no-store");
+      return c.json(offer);
+    } catch (err) {
+      if (tenant && err instanceof TenantBackupRefusalError) {
+        await noted(c, PlatformAuditAction.TenantBackupExportFailed, tenant.id, { code: tenant.code, reason, refusal: err.code }, AuditSeverityCode.Warning);
+      }
+      return domainErrorResponse(c, err);
+    }
+  });
+
+  app.get("/tenants/:id/export/:token", requireOwner, async (c) => {
+    try {
+      const port = backupsPortOf();
+      const tenant = await requireLiveForBackups(c.req.param("id"));
+      const taken = await port.takeExport({ tenant, token: c.req.param("token") });
+      if (!taken) {
+        await noted(c, PlatformAuditAction.TenantBackupExportRefused, tenant.id, { code: tenant.code }, AuditSeverityCode.Warning);
+        throw new TenantBackupRefusalError(TenantBackupRefusal.ExportGone, "رابط التنزيل غير صالح أو استُخدم أو انتهت مدته. أنشئ تصديرًا جديدًا.", "The download link is invalid, already used, or expired. Create a new export.", 404);
+      }
+      await noted(c, PlatformAuditAction.TenantBackupExportDownloaded, tenant.id, { code: tenant.code, fileName: taken.fileName, bytes: taken.bytes }, AuditSeverityCode.Critical);
+      return new Response(taken.body, {
+        status: 200,
+        headers: {
+          "content-type": "application/octet-stream",
+          "content-length": String(taken.bytes),
+          "content-disposition": `attachment; filename="${taken.fileName}"`,
+          "cache-control": "no-store",
+          "x-content-type-options": "nosniff",
+        },
+      });
     } catch (err) {
       return domainErrorResponse(c, err);
     }

@@ -145,6 +145,57 @@ export const unlockTenantAccountRequestSchema = z.object({
   account: z.string().trim().toLowerCase().min(1).max(320),
 });
 
+export const TENANT_EXPORT_MIN_PASSPHRASE_LENGTH = 10;
+
+export const exportTenantBackupRequestSchema = z.object({
+  reason: z.string().trim().min(1).max(500),
+  passphrase: z.string().min(TENANT_EXPORT_MIN_PASSPHRASE_LENGTH).max(256),
+});
+
+export const tenantBackupDrillRequestSchema = z.object({
+  file: z.string().min(1).max(200).optional(),
+});
+
+export enum TenantBackupDrillOutcome {
+  Pass = "pass",
+  Fail = "fail",
+}
+
+export enum TenantBackupRefusal {
+  NotLive = "TENANT_BACKUP_NOT_LIVE",
+  Busy = "TENANT_BACKUP_BUSY",
+  ExportFailed = "TENANT_EXPORT_FAILED",
+  ExportGone = "TENANT_EXPORT_GONE",
+  NoBackup = "TENANT_BACKUP_NONE",
+  BackupNotFound = "TENANT_BACKUP_NOT_FOUND",
+  Unavailable = "TENANT_BACKUP_UNAVAILABLE",
+}
+
+export const tenantBackupListSchema = z.object({
+  backups: z.array(z.object({ file: z.string(), bytes: z.number().int().nonnegative(), createdAt: z.string() })),
+});
+
+export const tenantExportOfferSchema = z.object({
+  downloadPath: z.string(),
+  fileName: z.string(),
+  bytes: z.number().int().nonnegative(),
+  expiresAt: z.string(),
+  tableCount: z.number().int().nonnegative(),
+  totalRows: z.number().int().nonnegative(),
+});
+
+export const tenantBackupDrillResultSchema = z.object({
+  file: z.string(),
+  at: z.string(),
+  outcome: z.nativeEnum(TenantBackupDrillOutcome),
+  report: z.string(),
+  tableCount: z.number().int().nonnegative(),
+  totalRows: z.number().int().nonnegative(),
+  emptyTables: z.number().int().nonnegative(),
+  largestTables: z.array(z.object({ name: z.string(), rows: z.number().int().nonnegative() })),
+  ms: z.number().int().nonnegative(),
+});
+
 export const lockedTenantAccountsSchema = z.object({
   accounts: z.array(z.string()),
 });
@@ -568,6 +619,11 @@ export type OwnerPinResetResultDTO = z.infer<typeof ownerPinResetResultSchema>;
 export type OwnerCandidateDTO = z.infer<typeof ownerCandidateSchema>;
 export type AssignOwnerRequestDTO = z.infer<typeof assignOwnerRequestSchema>;
 export type UnlockTenantAccountRequestDTO = z.infer<typeof unlockTenantAccountRequestSchema>;
+export type ExportTenantBackupRequestDTO = z.infer<typeof exportTenantBackupRequestSchema>;
+export type TenantBackupDrillRequestDTO = z.infer<typeof tenantBackupDrillRequestSchema>;
+export type TenantBackupListDTO = z.infer<typeof tenantBackupListSchema>;
+export type TenantExportOfferDTO = z.infer<typeof tenantExportOfferSchema>;
+export type TenantBackupDrillResultDTO = z.infer<typeof tenantBackupDrillResultSchema>;
 export type LockedTenantAccountsDTO = z.infer<typeof lockedTenantAccountsSchema>;
 export type PendingOwnerDTO = z.infer<typeof pendingOwnerSchema>;
 export type TenantBooksDTO = z.infer<typeof tenantBooksSchema>;

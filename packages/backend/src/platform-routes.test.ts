@@ -15,10 +15,10 @@ import {
   PlanKind,
   type CardCheckout,
 } from "@mezan/domain";
-import { tenantDTOOf, type CreateTenantRequestDTO, type ProvisionResultDTO, type ProvisionRetryRequestDTO } from "@mezan/contracts";
+import { TenantBackupDrillOutcome, tenantDTOOf, type CreateTenantRequestDTO, type ProvisionResultDTO, type ProvisionRetryRequestDTO } from "@mezan/contracts";
 import { createPlatform, type PlatformHandle } from "./create-platform.js";
 import { createPlatformAuth, type PlatformAuth } from "./platform-auth.js";
-import { createPlatformRoutes, serializeCardCheckout, serializeCardCheckoutForTenant, TenantOwnerAccountNotFoundError, type PlatformCardCheckoutPort, type RecordedActivation } from "./platform-routes.js";
+import { createPlatformRoutes, serializeCardCheckout, serializeCardCheckoutForTenant, TenantOwnerAccountNotFoundError, type PlatformCardCheckoutPort, type PlatformTenantBackupsPort, type RecordedActivation } from "./platform-routes.js";
 
 const FIXED_NOW = () => new Date("2026-01-01T00:00:00Z");
 
@@ -1502,5 +1502,149 @@ describe("createPlatformRoutes — card checkout operator actions", () => {
       req("/tenants/T-X/card-checkouts/CHK-1/apply", rig.ownerToken, { method: "POST", body: JSON.stringify({ amount: "1.00", reason: "matched" }) }),
     );
     expect([sweep.status, apply.status]).toEqual([503, 503]);
+  });
+});
+
+describe("a tenant's backup export and restore drill", () => {
+  const PASSPHRASE = "a long enough passphrase";
+
+  function backupsPort() {
+    const taken: string[] = [];
+    const exported: Array<{ tenantId: string; passphrase: string }> = [];
+    const live = new Map<string, string>();
+    const port: PlatformTenantBackupsPort = {
+      list: async () => [{ file: "2026-01-01T00-00-00.000Z.sqlite", bytes: 10, createdAt: "2026-01-01T00:00:00.000Z" }],
+      drill: async ({ tenant, file }) => ({
+        file: file ?? "latest.sqlite", at: "2026-01-01T00:00:00.000Z", outcome: TenantBackupDrillOutcome.Pass, report: "ok",
+        tableCount: 2, totalRows: 5, emptyTables: 0, largestTables: [{ name: `${tenant.code}_t`, rows: 5 }], ms: 1,
+      }),
+      exportTenant: async ({ tenant, passphrase }) => {
+        exported.push({ tenantId: tenant.id, passphrase });
+        const token = `tok-${exported.length}`;
+        live.set(token, tenant.id);
+        return { downloadPath: `/tenants/${tenant.id}/export/${token}`, fileName: "x.mezanbak.enc", bytes: 3, expiresAt: "2026-01-01T00:10:00.000Z", tableCount: 2, totalRows: 5 };
+      },
+      takeExport: async ({ tenant, token }) => {
+        taken.push(token);
+        if (live.get(token) !== tenant.id) return null;
+        live.delete(token);
+        return { body: new Response("abc").body!, fileName: "x.mezanbak.enc", bytes: 3 };
+      },
+    };
+    return { port, taken, exported };
+  }
+
+  const exportRows = async (rig: Rig) => (await rig.platform.audit.query("security")).filter((row) => row.action.startsWith("TENANT_BACKUP")).reverse();
+  const post = (rig: Rig, tenantId: string, token: string, body: unknown) =>
+    rig.app.fetch(req(`/tenants/${tenantId}/export`, token, { method: "POST", body: JSON.stringify(body) }));
+
+  it("requires a reason and a long passphrase, and reads nothing before they are given", async () => {
+    const b = backupsPort();
+    const rig = await buildRig({ tenantBackups: b.port });
+    const { body } = await provisionOne(rig);
+
+    const noReason = await post(rig, body.tenant.id, rig.ownerToken, { reason: "  ", passphrase: PASSPHRASE });
+    const shortPassphrase = await post(rig, body.tenant.id, rig.ownerToken, { reason: "migration", passphrase: "short" });
+
+    expect([noReason.status, shortPassphrase.status]).toEqual([400, 400]);
+    expect(b.exported).toEqual([]);
+    expect(await exportRows(rig)).toEqual([]);
+  });
+
+  it("is refused to a support operator for every action", async () => {
+    const b = backupsPort();
+    const rig = await buildRig({ tenantBackups: b.port });
+    const { body } = await provisionOne(rig);
+    const id = body.tenant.id;
+
+    const statuses = [
+      (await post(rig, id, rig.supportToken, { reason: "migration", passphrase: PASSPHRASE })).status,
+      (await rig.app.fetch(req(`/tenants/${id}/export/tok-1`, rig.supportToken))).status,
+      (await rig.app.fetch(req(`/tenants/${id}/backups`, rig.supportToken))).status,
+      (await rig.app.fetch(req(`/tenants/${id}/backups/drill`, rig.supportToken, { method: "POST", body: "{}" }))).status,
+    ];
+
+    expect(statuses).toEqual([403, 403, 403, 403]);
+    expect(b.exported).toEqual([]);
+  });
+
+  it("records the request with its reason before the export and the outcome after, without the passphrase or the token", async () => {
+    const b = backupsPort();
+    const rig = await buildRig({ tenantBackups: b.port });
+    const { body } = await provisionOne(rig);
+
+    const res = await post(rig, body.tenant.id, rig.ownerToken, { reason: " moving to desktop ", passphrase: PASSPHRASE });
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("cache-control")).toBe("no-store");
+    expect(await json(res)).toMatchObject({ downloadPath: `/tenants/${body.tenant.id}/export/tok-1`, bytes: 3 });
+    expect(b.exported).toEqual([{ tenantId: body.tenant.id, passphrase: PASSPHRASE }]);
+    const rows = await exportRows(rig);
+    expect(rows.map((row) => row.action)).toEqual(["TENANT_BACKUP_EXPORT_REQUESTED", "TENANT_BACKUP_EXPORTED"]);
+    expect(rows.every((row) => row.actor === "PU-OWNER" && row.severity === "CRITICAL")).toBe(true);
+    expect(rows[0]?.details).toMatchObject({ code: "acme", reason: "moving to desktop" });
+    const serialised = JSON.stringify(rows);
+    expect(serialised).not.toContain(PASSPHRASE);
+    expect(serialised).not.toContain("tok-1");
+  });
+
+  it("serves the file once, with download headers, and refuses the same link again", async () => {
+    const b = backupsPort();
+    const rig = await buildRig({ tenantBackups: b.port });
+    const { body } = await provisionOne(rig);
+    const offer = (await json(await post(rig, body.tenant.id, rig.ownerToken, { reason: "migration", passphrase: PASSPHRASE }))) as { downloadPath: string };
+
+    const first = await rig.app.fetch(req(offer.downloadPath, rig.ownerToken));
+    const second = await rig.app.fetch(req(offer.downloadPath, rig.ownerToken));
+
+    expect(first.status).toBe(200);
+    expect(first.headers.get("content-disposition")).toContain("attachment");
+    expect(first.headers.get("cache-control")).toBe("no-store");
+    expect(await first.text()).toBe("abc");
+    expect(second.status).toBe(404);
+    expect(await json(second)).toMatchObject({ error: "TENANT_EXPORT_GONE" });
+    const actions = (await exportRows(rig)).map((row) => row.action);
+    expect(actions).toContain("TENANT_BACKUP_EXPORT_DOWNLOADED");
+    expect(actions).toContain("TENANT_BACKUP_EXPORT_REFUSED");
+  });
+
+  it("does not hand one tenant's export to a link opened under another tenant", async () => {
+    const b = backupsPort();
+    const rig = await buildRig({ tenantBackups: b.port });
+    const { body: acme } = await provisionOne(rig);
+    const { body: other } = await provisionOne(rig, { code: "other", ownerEmail: "o@example.com" });
+    const offer = (await json(await post(rig, acme.tenant.id, rig.ownerToken, { reason: "migration", passphrase: PASSPHRASE }))) as { downloadPath: string };
+    const token = offer.downloadPath.split("/").pop()!;
+
+    const crossed = await rig.app.fetch(req(`/tenants/${other.tenant.id}/export/${token}`, rig.ownerToken));
+    const own = await rig.app.fetch(req(offer.downloadPath, rig.ownerToken));
+
+    expect(crossed.status).toBe(404);
+    expect(own.status).toBe(200);
+  });
+
+  it("answers 503 when tenant backups are not configured", async () => {
+    const rig = await buildRig();
+    const { body } = await provisionOne(rig);
+
+    const res = await post(rig, body.tenant.id, rig.ownerToken, { reason: "migration", passphrase: PASSPHRASE });
+
+    expect(res.status).toBe(503);
+    expect(await exportRows(rig)).toEqual([]);
+  });
+
+  it("runs a restore drill, answers pass or fail, and records it", async () => {
+    const b = backupsPort();
+    const rig = await buildRig({ tenantBackups: b.port });
+    const { body } = await provisionOne(rig);
+
+    const res = await rig.app.fetch(req(`/tenants/${body.tenant.id}/backups/drill`, rig.ownerToken, { method: "POST", body: JSON.stringify({ file: "a.sqlite" }) }));
+
+    expect(res.status).toBe(200);
+    expect(await json(res)).toMatchObject({ file: "a.sqlite", outcome: "pass", totalRows: 5 });
+    const rows = await exportRows(rig);
+    expect(rows.map((row) => row.action)).toEqual(["TENANT_BACKUP_DRILL"]);
+    expect(rows[0]).toMatchObject({ severity: "INFO" });
+    expect(rows[0]?.details).toMatchObject({ outcome: "pass", file: "a.sqlite" });
   });
 });

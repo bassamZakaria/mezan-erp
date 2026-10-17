@@ -31,6 +31,8 @@ export {
   serializeCardCheckoutForTenant,
   TenantOwnerAccountNotFoundError,
   PlatformAuditUnavailableError,
+  TenantBackupRefusalError,
+  type PlatformTenantBackupsPort,
   type CreatePlatformRoutesOptions,
   type OwnerPinResetAccount,
   type PlatformCardCheckoutPort,

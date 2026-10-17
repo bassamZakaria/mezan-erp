@@ -32,12 +32,41 @@ export function appendVerifyRecord(record: BackupVerifyRecord, backupPath: strin
   appendFileSync(path.join(path.dirname(backupPath), VERIFY_LOG_FILE_NAME), `${JSON.stringify(record)}\n`);
 }
 
+export interface BackupInspection {
+  readonly outcome: BackupVerifyOutcome;
+  readonly report: string;
+  readonly tables: Readonly<Record<string, number>>;
+  readonly boundTenantId: string | null;
+  readonly ms: number;
+}
+
+function countUserTables(sqlite: { prepare(sql: string): { all(): unknown[]; get(): unknown } }): Record<string, number> {
+  const names = sqlite.prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name`).all() as Array<{ name: string }>;
+  const counts: Record<string, number> = {};
+  for (const { name } of names) {
+    const row = sqlite.prepare(`SELECT COUNT(*) AS count FROM "${name.replace(/"/g, '""')}"`).get() as { count: number } | undefined;
+    counts[name] = row?.count ?? 0;
+  }
+  return counts;
+}
+
+function boundTenantIdOf(sqlite: { prepare(sql: string): { get(): unknown } }): string | null {
+  try {
+    const row = sqlite.prepare(`SELECT tenant_id FROM tenant_binding LIMIT 1`).get() as { tenant_id: string } | undefined;
+    return row?.tenant_id ?? null;
+  } catch {
+    return null;
+  }
+}
+
 // The COPY is opened, never the backup itself: opening a SQLite file can write to it.
-export async function verifyBackupFile(backupPath: string, now: Date = new Date()): Promise<BackupVerifyRecord> {
+export async function inspectBackupFile(backupPath: string): Promise<BackupInspection> {
   const started = Date.now();
   const sandbox = await mkdtemp(path.join(tmpdir(), "mezan-backup-verify-"));
   let outcome = BackupVerifyOutcome.Failed;
   let report: string;
+  let tables: Record<string, number> = {};
+  let boundTenantId: string | null = null;
   try {
     const copy = path.join(sandbox, "restore.sqlite");
     await copyFile(backupPath, copy);
@@ -45,7 +74,11 @@ export async function verifyBackupFile(backupPath: string, now: Date = new Date(
     try {
       const rows = sqlite.pragma("integrity_check") as Array<{ integrity_check: string }>;
       report = rows.map((r) => r.integrity_check).join("; ");
-      if (report === "ok") outcome = BackupVerifyOutcome.Ok;
+      if (report === "ok") {
+        outcome = BackupVerifyOutcome.Ok;
+        tables = countUserTables(sqlite);
+        boundTenantId = boundTenantIdOf(sqlite);
+      }
     } finally {
       sqlite.close();
     }
@@ -54,13 +87,12 @@ export async function verifyBackupFile(backupPath: string, now: Date = new Date(
   } finally {
     await rm(sandbox, { recursive: true, force: true });
   }
-  const record: BackupVerifyRecord = {
-    at: now.toISOString(),
-    file: path.basename(backupPath),
-    outcome,
-    ms: Date.now() - started,
-    report,
-  };
+  return { outcome, report, tables, boundTenantId, ms: Date.now() - started };
+}
+
+export async function verifyBackupFile(backupPath: string, now: Date = new Date()): Promise<BackupVerifyRecord> {
+  const { outcome, report, ms } = await inspectBackupFile(backupPath);
+  const record: BackupVerifyRecord = { at: now.toISOString(), file: path.basename(backupPath), outcome, ms, report };
   appendVerifyRecord(record, backupPath);
   return record;
 }

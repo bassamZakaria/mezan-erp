@@ -29,6 +29,7 @@ import { provisionReviewTenant } from "./review-tenant.js";
 import { createLegalRoutes, LEGAL_BASE_PATH } from "./legal-routes.js";
 import { startDunningTimer } from "./dunning.js";
 import { createBackupScheduler } from "./backup-scheduler.js";
+import { createTenantBackups } from "./tenant-backups.js";
 import { createCardCheckoutService, type CardCheckoutService } from "./card-checkout.js";
 import { startCardCheckoutSweepTimer } from "./card-checkout-sweep.js";
 import { createPaymobProvider, createPaymobTestProvider, type PaymobTestProvider } from "./paymob-provider.js";
@@ -199,6 +200,8 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
   }
   const checkoutService = cardCheckout;
 
+  const tenantBackups = createTenantBackups({ dir: env.platformDir, router, now });
+
   const platformApp = createPlatformRoutes({
     platform,
     auth,
@@ -214,6 +217,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
     confirmPendingOwner: ({ tenant, actorId }) => router.confirmPendingOwner({ tenantId: tenant.id, actor: platformActor(actorId) }),
     declinePendingOwner: ({ tenant, actorId }) => router.declinePendingOwner({ tenantId: tenant.id, actor: platformActor(actorId) }),
     resendPendingOwner: ({ tenant, actorId }) => router.resendPendingOwner({ tenantId: tenant.id, actor: platformActor(actorId) }),
+    tenantBackups,
     tenantBooks: {
       lastStandingOf: (tenant) => router.lastBooksStandingOf(tenant),
       standingOf: (tenant) => router.booksStandingOf(tenant),
@@ -369,6 +373,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
       if (closed) return;
       closed = true;
       stopBackups?.();
+      tenantBackups.close();
       dunningTimer.stop();
       checkoutSweepTimer?.stop();
       await router.close();

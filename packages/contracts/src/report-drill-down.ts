@@ -9,7 +9,7 @@ import { moneyString } from "./money-string.js";
  * is an aggregate, and the only honest way to answer "what is this made of" is
  * to go back to the documents, not to re-slice the aggregate in the browser.
  */
-export const reportDrillDownKindSchema = z.enum(["customer", "supplier", "item", "account"]);
+export const reportDrillDownKindSchema = z.enum(["customer", "supplier", "item", "account", "rep", "funnel-stage", "pipeline-stage"]);
 
 /** What kind of document a drill-down row points at — the client maps it to a screen. */
 export const reportDrillDownDocTypeSchema = z.enum([
@@ -17,6 +17,8 @@ export const reportDrillDownDocTypeSchema = z.enum([
   "PURCHASE_INVOICE",
   "STOCK_MOVEMENT",
   "JOURNAL_ENTRY",
+  "SALES_QUOTE",
+  "CRM_OPPORTUNITY",
 ]);
 
 export enum ReportDrillDownFactFormat {

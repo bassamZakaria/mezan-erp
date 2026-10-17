@@ -24,7 +24,15 @@ const SCREEN_BY_DOC_TYPE: Readonly<Record<ReportDrillDownDTO["documents"][number
   PURCHASE_INVOICE: "purchase-invoices",
   JOURNAL_ENTRY: "journals",
   STOCK_MOVEMENT: null,
+  SALES_QUOTE: "quotes",
+  CRM_OPPORTUNITY: null,
 };
+
+const SALES_FUNNEL_KINDS: ReadonlySet<string> = new Set(["rep", "funnel-stage", "pipeline-stage"]);
+
+function drillDownRoot(kind: string): string {
+  return SALES_FUNNEL_KINDS.has(kind) ? "/sales-funnel/drill-down" : "/reports/drill-down";
+}
 
 /**
  * A panel must be asked for the window its figure was computed over, as the
@@ -59,6 +67,8 @@ export function drillDownQuery(kind: string, reportParams?: Readonly<Record<stri
   // ones that carry the parameter.
   const warehouseId = kind === "item" ? text("warehouseId") : undefined;
   if (warehouseId) search.set("warehouseId", warehouseId);
+  const ownerUserId = SALES_FUNNEL_KINDS.has(kind) ? text("ownerUserId") : undefined;
+  if (ownerUserId) search.set("ownerUserId", ownerUserId);
   const qs = search.toString();
   return qs ? `?${qs}` : "";
 }
@@ -71,7 +81,7 @@ function useDrillDown(entity: ReportRunnerEntityRef | null, reportParams?: Reado
     queryKey: ["reports", "drill-down", entity?.kind, entity?.id, query],
     enabled: session !== null && entity !== null,
     queryFn: async () => {
-      const res = await request(`/reports/drill-down/${entity?.kind}/${encodeURIComponent(entity?.id ?? "")}${query}`);
+      const res = await request(`${drillDownRoot(entity?.kind ?? "")}/${entity?.kind}/${encodeURIComponent(entity?.id ?? "")}${query}`);
       if (!res.ok) throw await loaderError(res, t("reportDrill.failed"), t);
       return reportDrillDownSchema.parse(await res.json());
     },

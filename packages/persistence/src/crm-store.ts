@@ -11,6 +11,8 @@ import {
   type OpportunityRepository,
   type OpportunityStatus,
   type OpportunityLostReason,
+  type OpportunityStageEntry,
+  type OpportunityStageHistorySource,
   type ActivityReminderLog,
   type PipelineStage,
   type PipelineStageRepository,
@@ -167,6 +169,16 @@ CREATE TABLE IF NOT EXISTS crm_opportunity (
 );
 `;
 
+const CREATE_OPPORTUNITY_STAGE_ENTRY = `
+CREATE TABLE IF NOT EXISTS crm_opportunity_stage_entry (
+  seq             INTEGER PRIMARY KEY AUTOINCREMENT,
+  opportunity_id  TEXT NOT NULL,
+  stage_id        TEXT NOT NULL,
+  entered_at      TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_crm_opportunity_stage_entry_opp ON crm_opportunity_stage_entry(opportunity_id, seq);
+`;
+
 interface OpportunityRow {
   id: string;
   title: string;
@@ -210,8 +222,16 @@ class SqliteOpportunityRepository implements OpportunityRepository {
   private readonly insertOnly: Database.Statement;
   private readonly selectById: Database.Statement;
   private readonly selectAll: Database.Statement;
+  private readonly lastStage: Database.Statement;
+  private readonly selectStage: Database.Statement;
+  private readonly insertEntry: Database.Statement;
+  private readonly selectEntries: Database.Statement;
 
   constructor(private readonly sqlite: Database.Database) {
+    this.selectStage = sqlite.prepare(`SELECT stage_id FROM crm_opportunity WHERE id = ?`);
+    this.lastStage = sqlite.prepare(`SELECT stage_id FROM crm_opportunity_stage_entry WHERE opportunity_id = ? ORDER BY seq DESC LIMIT 1`);
+    this.insertEntry = sqlite.prepare(`INSERT INTO crm_opportunity_stage_entry (opportunity_id, stage_id, entered_at) VALUES (?, ?, ?)`);
+    this.selectEntries = sqlite.prepare(`SELECT opportunity_id, stage_id, entered_at FROM crm_opportunity_stage_entry ORDER BY seq`);
     this.upsert = sqlite.prepare(`
       INSERT INTO crm_opportunity (id, title, customer_id, branch_id, stage_id, expected_value, probability, expected_close_date, notes, owner_user_id, lost_reason, lost_note, status, created_at, closed_at)
       VALUES (@id, @title, @customer_id, @branch_id, @stage_id, @expected_value, @probability, @expected_close_date, @notes, @owner_user_id, @lost_reason, @lost_note, @status, @created_at, @closed_at)
@@ -252,7 +272,32 @@ class SqliteOpportunityRepository implements OpportunityRepository {
     this.write(opportunity);
   }
 
+  async entries(): Promise<OpportunityStageEntry[]> {
+    return (this.selectEntries.all() as { opportunity_id: string; stage_id: string; entered_at: string }[]).map((row) => ({
+      opportunityId: row.opportunity_id,
+      stageId: row.stage_id,
+      enteredAt: row.entered_at,
+    }));
+  }
+
+  private recordStageEntry(opportunity: Opportunity, priorStageId: string | null): void {
+    const last = this.lastStage.get(opportunity.id) as { stage_id: string } | undefined;
+    if (last === undefined) {
+      this.insertEntry.run(opportunity.id, priorStageId ?? opportunity.stageId, opportunity.createdAt);
+      if (priorStageId === null || priorStageId === opportunity.stageId) return;
+    } else if (last.stage_id === opportunity.stageId) return;
+    this.insertEntry.run(opportunity.id, opportunity.stageId, opportunity.closedAt ?? new Date().toISOString());
+  }
+
   private write(opportunity: Opportunity, statement: Database.Statement = this.upsert): void {
+    this.sqlite.transaction(() => {
+      const prior = this.selectStage.get(opportunity.id) as { stage_id: string } | undefined;
+      this.runWrite(opportunity, statement);
+      this.recordStageEntry(opportunity, prior?.stage_id ?? null);
+    })();
+  }
+
+  private runWrite(opportunity: Opportunity, statement: Database.Statement): void {
     statement.run({
       id: opportunity.id,
       title: opportunity.title,
@@ -481,7 +526,7 @@ class SqliteActivityRepository implements ActivityRepository {
 export interface SqliteLeadRepositoryHandle extends LeadRepository {
   close(): void;
 }
-export interface SqliteOpportunityRepositoryHandle extends OpportunityRepository {
+export interface SqliteOpportunityRepositoryHandle extends OpportunityRepository, OpportunityStageHistorySource {
   close(): void;
 }
 export interface SqlitePipelineStageRepositoryHandle extends PipelineStageRepository {
@@ -520,6 +565,7 @@ export function createSqliteOpportunityRepository(path: SqliteConnectionInput = 
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_OPPORTUNITY);
+  sqlite.exec(CREATE_OPPORTUNITY_STAGE_ENTRY);
   addOpportunityBranchColumnIfMissing(sqlite);
   addMissingColumns(sqlite, "crm_opportunity", { owner_user_id: "TEXT", lost_reason: "TEXT", lost_note: "TEXT" });
   sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_crm_opportunity_owner ON crm_opportunity(owner_user_id)`);

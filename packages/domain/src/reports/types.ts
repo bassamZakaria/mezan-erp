@@ -52,7 +52,7 @@ export interface ReportColumn<Row> {
   readonly entity?: ReportEntityRef<Row>;
 }
 
-export type ReportEntityKind = "customer" | "supplier" | "item" | "account";
+export type ReportEntityKind = "customer" | "supplier" | "item" | "account" | "rep" | "funnel-stage" | "pipeline-stage";
 
 export interface ReportEntityRef<Row> {
   readonly kind: ReportEntityKind;

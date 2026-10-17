@@ -64,6 +64,38 @@ export {
   type SalesBySalespersonRow,
 } from "./sales-by-salesperson.js";
 export {
+  FunnelStage,
+  FUNNEL_STAGE_ORDER,
+  FUNNEL_STAGE_LABELS,
+  buildFunnelCohort,
+  createSalesFunnelReport,
+  createStageAgingReport,
+  invoiceBaseGrandTotal,
+  openDealsInStage,
+  DEFAULT_STALE_AFTER_DAYS,
+  type FunnelCohort,
+  type FunnelMember,
+  type SalesFunnelContext,
+  type SalesFunnelParams,
+  type SalesFunnelRow,
+  type StageAgingContext,
+  type StageAgingParams,
+  type StageAgingRow,
+} from "./sales-funnel.js";
+export {
+  collectRepActivity,
+  createRepLeaderboardReport,
+  invoiceCostOfGoods,
+  repConversionRate,
+  repFigures,
+  type RepActivity,
+  type RepFigures,
+  type RepDirectoryEntry,
+  type RepLeaderboardContext,
+  type RepLeaderboardParams,
+  type RepLeaderboardRow,
+} from "./rep-leaderboard.js";
+export {
   createTopProductsReport,
   type TopProductsContext,
   type TopProductsParams,

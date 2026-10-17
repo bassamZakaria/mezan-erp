@@ -70,3 +70,11 @@ export {
   type WeightedForecast,
 } from "./forecast.js";
 export { dueActivityReminders, type ActivityReminder, type ActivityReminderLog } from "./activity-reminders.js";
+export {
+  dwellSegments,
+  isTerminalStage,
+  wholeDaysBetween,
+  type OpportunityStageEntry,
+  type OpportunityStageHistorySource,
+  type StageDwellSegment,
+} from "./stage-history.js";

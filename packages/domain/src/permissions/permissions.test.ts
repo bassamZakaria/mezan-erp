@@ -16,7 +16,7 @@ import {
 } from "./index.js";
 
 describe("permission catalog", () => {
-  it("carries only what the product enforces — 288 permissions across 20 modules (DEC-14, DEC-23)", () => {
+  it("carries only what the product enforces — 289 permissions across 20 modules (DEC-14, DEC-23)", () => {
     // 298 → 231. DEC-14 removed the 67 codes that named nothing the server
     // checks: the `dashboard` and `transactions` modules, per-voucher-type
     // `.view` tiers over a single voucher list, print rights that are
@@ -68,13 +68,15 @@ describe("permission catalog", () => {
     //
     // 284 → 288 after the merges: ENH-E2-04 expiry (`inventory.expiry.view`, `.manage`) and ENH-E3-06 CRM (`crm.opportunity.view_own`, `.assign`).
     //
+    // 288 → 289. ENH-E3-07 sales funnel: crm.funnel.view (GET /sales-funnel/*).
+    //
     // Pinned deliberately. A code added without a route to check it, or a route
     // deleted while its code stays, moves one of these numbers — which is the
     // whole point of asserting them.
-    expect(PERMISSIONS).toHaveLength(288);
+    expect(PERMISSIONS).toHaveLength(289);
     expect(MODULES).toHaveLength(20);
     const summed = MODULES.reduce((n, m) => n + m.count, 0);
-    expect(summed).toBe(288);
+    expect(summed).toBe(289);
   });
 
   it("carries a `pos` module again, and the INVOICE discount ceiling still lives under sales", () => {

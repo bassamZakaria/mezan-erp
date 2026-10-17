@@ -8,11 +8,12 @@
  *
  * These are the 39 notification-rule trigger events from docs/archive/catalog/09
  * (قواعد الإشعارات, `/notifications/rules`), plus CASH_FORECAST_LOW, which the
- * cash-runway feature raises. Bump EVENT_CATALOG_VERSION on any change so
+ * cash-runway feature raises, and STOCK_NEAR_EXPIRY / STOCK_EXPIRED, which the
+ * expiry scan raises. Bump EVENT_CATALOG_VERSION on any change so
  * consumers can detect drift.
  */
 
-export const EVENT_CATALOG_VERSION = 2;
+export const EVENT_CATALOG_VERSION = 3;
 
 export const EVENT_CATEGORIES = [
   "workflow",

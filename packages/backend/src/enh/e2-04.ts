@@ -83,6 +83,7 @@ function createScanner(ctx: BackendModuleContext, store: ReturnType<typeof creat
   let running: Promise<number> | null = null;
   let lastScanDay: string | null = null;
   const run = async (): Promise<number> => {
+    if (!ctx.sqlite.open) return 0;
     const today = toTenantDay(new Date().toISOString());
     lastScanDay = today;
     const settings = await store.getSettings();

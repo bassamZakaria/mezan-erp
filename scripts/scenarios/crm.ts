@@ -22,19 +22,23 @@ export async function run(ctx: Ctx): Promise<void> {
     checkEq("exactly 1 lead per status (new/contacted/qualified/converted/lost/unqualified)",
       new Set(leads.map((l: any) => l.status)).size, 6);
 
-    checkEq("7 seeded opportunities (6 explicit + 1 from LEAD-DEMO-4's conversion)", opportunities.length, 7);
+    // E3-06's seed adds OPP-DEMO-E306-1 (open, 72,000), -2 (open, 310,000) and
+    // -3 (13,000, won when its linked quote was accepted), plus one pending
+    // reminder activity on E306-1.
+    checkEq("10 seeded opportunities (6 explicit + 1 from LEAD-DEMO-4's conversion + 3 from E3-06)", opportunities.length, 10);
     const open = opportunities.filter((o: any) => o.status === "open");
-    checkEq("5 opportunities are open", open.length, 5);
-    checkEq("open opportunities' expected value sums to 575,000.00",
-      open.reduce((s: number, o: any) => s + n(o.expectedValue), 0), 575000);
-    checkEq("all 7 opportunities' expected value sums to 710,000.00",
-      opportunities.reduce((s: number, o: any) => s + n(o.expectedValue), 0), 710000);
+    checkEq("7 opportunities are open", open.length, 7);
+    checkEq("open opportunities' expected value sums to 575,000 + 72,000 + 310,000 = 957,000.00",
+      open.reduce((s: number, o: any) => s + n(o.expectedValue), 0), 957000);
+    checkEq("all 10 opportunities' expected value sums to 710,000 + 395,000 = 1,105,000.00",
+      opportunities.reduce((s: number, o: any) => s + n(o.expectedValue), 0), 1105000);
     const won = opportunities.filter((o: any) => o.status === "won");
-    checkEq("exactly 1 won opportunity, valued 95,000.00", won.length, 1);
-    checkEq("won value == 95,000.00", won.reduce((s: number, o: any) => s + n(o.expectedValue), 0), 95000);
+    checkEq("exactly 2 won opportunities — the seeded one and the quote-accepted E306-3", won.length, 2);
+    checkEq("won value == 95,000 + 13,000 = 108,000.00", won.reduce((s: number, o: any) => s + n(o.expectedValue), 0), 108000);
+    check("and the quote-accepted deal is one of them", won.some((o: any) => o.id === "OPP-DEMO-E306-3"), JSON.stringify(won.map((o: any) => o.id)));
 
-    checkEq("6 seeded activities", activities.length, 6);
-    checkEq("3 pending activities", activities.filter((a: any) => a.status === "pending").length, 3);
+    checkEq("7 seeded activities", activities.length, 7);
+    checkEq("4 pending activities", activities.filter((a: any) => a.status === "pending").length, 4);
     checkEq("2 completed activities", activities.filter((a: any) => a.status === "completed").length, 2);
     checkEq("1 cancelled activity", activities.filter((a: any) => a.status === "cancelled").length, 1);
   });
@@ -111,15 +115,21 @@ export async function run(ctx: Ctx): Promise<void> {
     checkEq("move to the win stage succeeds", won.status, 200);
     check("status flips to 'won' automatically", won.body.status === "won");
     checkEq("probability adopts the win stage's own 100%", won.body.probability, 100);
-    check("closedAt stays null — the route never passes `now` to moveOpportunityStage", won.body.closedAt === null);
+    check("closing it stamps closedAt (E3-06: the route passes `now` to moveOpportunityStage)", typeof won.body.closedAt === "string" && !Number.isNaN(Date.parse(won.body.closedAt)), JSON.stringify(won.body.closedAt));
 
     const opp2 = await req("GET", "/crm/opportunities/OPP-DEMO-2");
     check("OPP-DEMO-2 seeded open", opp2.body.status === "open");
 
-    const lost = await req("POST", "/crm/opportunities/OPP-DEMO-2/move-stage", { stageId: "STAGE-LOST" });
-    checkEq("move to the loss stage succeeds", lost.status, 200);
+    const unexplained = await req("POST", "/crm/opportunities/OPP-DEMO-2/move-stage", { stageId: "STAGE-LOST" });
+    checkEq("a loss with no reason is refused (E3-06 requires one)", unexplained.status, 422);
+    check("and the deal stays open", (await req("GET", "/crm/opportunities/OPP-DEMO-2")).body?.status === "open");
+
+    const lost = await req("POST", "/crm/opportunities/OPP-DEMO-2/move-stage", { stageId: "STAGE-LOST", lostReason: "COMPETITOR", lostNote: "SCN — عرض منافس أقل سعراً" });
+    checkEq("move to the loss stage with a reason succeeds", lost.status, 200);
     check("status flips to 'lost' automatically", lost.body.status === "lost");
     checkEq("probability adopts the loss stage's own 0%", lost.body.probability, 0);
+    check("the reason is kept on the deal", lost.body.lostReason === "COMPETITOR" && lost.body.lostNote === "SCN — عرض منافس أقل سعراً", JSON.stringify(lost.body));
+    check("and closedAt is stamped", typeof lost.body.closedAt === "string" && !Number.isNaN(Date.parse(lost.body.closedAt)), JSON.stringify(lost.body.closedAt));
 
     const noop = await req("POST", "/crm/opportunities/OPP-DEMO-1/move-stage", { stageId: "STAGE-WON" });
     checkEq("moving to the same stage again still succeeds (no same-stage guard server-side)", noop.status, 200);
@@ -441,12 +451,20 @@ export async function run(ctx: Ctx): Promise<void> {
       stockCounts: [{ itemId: "ITEM-DEMO-4", countedQty: "9" }],
     });
     checkEq("settle succeeds", settled.status, 200);
-    check("status becomes 'settled'", settled.body.status === "settled");
+    check("E3-04: entering the count leaves the trip awaiting a second person's approval", settled.body.status === "awaiting_approval", String(settled.body.status));
     checkEq("expected == opening float 1,500 + 300 sale == 1,800.00", n(settled.body.settlement.expectedCash), 1800);
     checkEq("counted == 1,450.00", n(settled.body.settlement.countedCash), 1450);
     checkEq("variance == counted − expected == −350.00 exactly (a real shortage)", n(settled.body.settlement.cashVariance), -350);
     const item4 = settled.body.settlement.stockCounts.find((s: any) => s.itemId === "ITEM-DEMO-4");
     checkEq("ITEM-DEMO-4 variance == counted 9 − loaded 10 == −1 exactly", n(item4.varianceQty), -1);
+
+    // E3-04: approval is what posts the settlement, and it frees the van for
+    // the trips FLD-11, R3.13 and x21 open on it later — an unapproved trip
+    // leaves the van VAN_BUSY.
+    const approved = await req("POST", `/field/van-trips/${tripB.id}/approve`, {}, { "x-user-id": "SCN-VAN-SUPERVISOR", "x-permissions": "*" });
+    check("a second person approves the settlement", approved.status === 200 && approved.body?.held === false, `status ${approved.status} ${JSON.stringify(approved.body).slice(0, 250)}`);
+    check("status becomes 'settled'", approved.body?.trip?.status === "settled", String(approved.body?.trip?.status));
+    checkEq("the van's stock of ITEM-DEMO-4 is back to zero", n((await req("GET", `/inventory/balance?itemId=ITEM-DEMO-4&warehouseId=${tripB.vanWarehouseId}`)).body?.onHand), 0);
 
     const doubleSettle = await req("POST", `/field/van-trips/${tripB.id}/settle`, { countedCash: "0.00", stockCounts: [] });
     checkEq("settling an already-settled trip is rejected", doubleSettle.status, 409);
@@ -465,6 +483,13 @@ export async function run(ctx: Ctx): Promise<void> {
     });
     checkEq("open succeeds", opened.status, 201);
     check("the trip is stored under the id the caller sent (FLD-11 fixed with D111: the route no longer mints its own)", opened.body.id === "SCN-VANTRIP-FLD11", `returned id=${opened.body.id}`);
+    // E3-04: an unapproved trip keeps the van VAN_BUSY, which would answer the
+    // duplicate below before the id is ever looked at. Settled and approved,
+    // the van is free and the id check is what refuses it.
+    const emptySettle = await req("POST", "/field/van-trips/SCN-VANTRIP-FLD11/settle", { countedCash: "0.00", stockCounts: [] });
+    checkEq("the empty trip is settled with nothing counted", emptySettle.status, 200);
+    const freed = await req("POST", "/field/van-trips/SCN-VANTRIP-FLD11/approve", {}, { "x-user-id": "SCN-VAN-SUPERVISOR", "x-permissions": "*" });
+    check("and approved, which frees the van", freed.status === 200 && freed.body?.trip?.status === "settled", `status ${freed.status} ${JSON.stringify(freed.body).slice(0, 200)}`);
     const again = await req("POST", "/field/van-trips", {
       id: "SCN-VANTRIP-FLD11",
       date: "2026-08-24",

@@ -1257,10 +1257,16 @@ export async function run(ctx: Ctx): Promise<void> {
     const countLine = (settlement?.stockCounts ?? []).find((l: any) => l.itemId === itemId);
     checkEq("the van was expected to still hold the 10 it loaded — no roadside sale ever moved its stock", n(countLine?.expectedQty), 10);
     checkEq("3 were counted, so the settlement prices a 7-unit shortfall", n(countLine?.varianceQty), -7);
+    checkEq("entering the count alone hands nothing back (E3-04: the approval posts it)", (await gl("1300-2")) - vanCashBefore, expectedCash);
+
+    const approved = await req("POST", `/field/van-trips/${tripId}/approve`, {}, { "x-user-id": "SCN-X-VAN-SUPERVISOR", "x-permissions": "*" });
+    check("a second person approves the settlement", approved.status === 200 && approved.body?.held === false && approved.body?.trip?.status === "settled", `status ${approved.status} ${JSON.stringify(approved.body).slice(0, 250)}`);
+    checkEq("the counted 3 go back to the branch warehouse", (await stock(itemId, WH)).onHand - mainBefore.onHand, 3 - 10);
+    checkEq("and the van holds none of the item", (await stock(itemId, "WH-DEMO-VAN")).onHand, 0);
 
     const branchCashAfter = await gl(CASH);
     const vanCashAfter = await gl("1300-2");
-    checkEq("settling hands the counted cash back to the branch خزنة, net of the float it lent out", branchCashAfter - branchCashBefore, countedCash - 500);
+    checkEq("the approved settlement hands the counted cash back to the branch خزنة, net of the float it lent out", branchCashAfter - branchCashBefore, countedCash - 500);
     checkEq(
       "the van's treasury ends exactly where it started: the float and the takings went in, the counted cash went back, " +
         "and the 50.00 shortfall was written off to عجز الصندوق rather than left on the van's books (docs/archive/defect-register.md D22 — the regression guard)",

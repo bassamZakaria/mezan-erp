@@ -452,6 +452,13 @@ export async function run(ctx: Ctx): Promise<void> {
     check("and the van's till", opened.body?.vanTreasuryAccountId === van.treasuryAccountId, JSON.stringify(opened.body?.vanTreasuryAccountId));
     check("the crew keeps its roles", (opened.body?.crew ?? []).some((c: any) => c.role === "driver"), JSON.stringify(opened.body?.crew));
 
+    // E3-04: an open or unapproved trip keeps the van VAN_BUSY for x21 later;
+    // the float comes back whole and a second person approves.
+    const settled = await req("POST", "/field/van-trips/SCP-TRIP-1/settle", { countedCash: "1000", stockCounts: [] });
+    checkEq("the trip's untouched float is counted back", n(settled.body?.settlement?.cashVariance), 0);
+    const approved = await req("POST", "/field/van-trips/SCP-TRIP-1/approve", {}, { "x-user-id": "SCP-VAN-SUPERVISOR", "x-permissions": "*" });
+    check("and a second person's approval settles it, freeing the van", approved.status === 200 && approved.body?.trip?.status === "settled", `status ${approved.status} ${JSON.stringify(approved.body).slice(0, 200)}`);
+
     // Every crew member must be a real employee — a typed id is the defect
     // this registry exists to close.
     const invented = await req("POST", "/field/van-trips", {

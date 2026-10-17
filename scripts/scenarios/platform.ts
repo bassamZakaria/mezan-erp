@@ -717,7 +717,10 @@ export async function run(ctx: Ctx): Promise<void> {
   // ---------------------------------------------------------------------
   await ctx.scenario("platform / seed sanity", async () => {
     const notificationRules = await req("GET", "/notification-rules", undefined, {});
-    check("4 seeded notification rules, 1 inactive", rows(notificationRules.body).length === 4 && rows(notificationRules.body).filter((r: any) => !r.active).length === 1, JSON.stringify(rows(notificationRules.body).map((r: any) => ({ id: r.id, active: r.active }))));
+    const seededRules = rows(notificationRules.body);
+    const seededRulesDetail = JSON.stringify(seededRules.map((r: any) => ({ id: r.id, active: r.active })));
+    check("6 seeded notification rules — NR-DEMO-1..4 plus E2-04's two expiry rules — 1 inactive", seededRules.length === 6 && seededRules.filter((r: any) => !r.active).length === 1, seededRulesDetail);
+    check("the expiry area seeds its near-expiry and expired rules, both active", ["rule-expiry-near", "rule-expiry-expired"].every((id) => seededRules.some((r: any) => r.id === id && r.active === true)), seededRulesDetail);
 
     const workflowConfigs = await req("GET", "/workflow/configs", undefined, {});
     const seededConfigCount = rows(workflowConfigs.body).filter((c: any) => c.actionType === "SALES_INVOICE_CONFIRM" || c.actionType === "PURCHASE_INVOICE_CONFIRM").length;

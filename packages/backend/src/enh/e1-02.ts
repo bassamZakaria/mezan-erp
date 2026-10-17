@@ -49,7 +49,7 @@ function majorLabel(money: Money): string {
   return `${negative ? "-" : ""}${whole}.${fraction}`;
 }
 
-function reportsDeps(ctx: BackendModuleContext): CashForecastRoutesDeps["reports"] {
+export function reportsDeps(ctx: BackendModuleContext): CashForecastRoutesDeps["reports"] {
   const { sqlite, stores } = ctx;
   const salesArchives = createSqliteHistoricalSalesArchiveStore(sqlite);
   const purchaseArchives = createSqliteHistoricalPurchaseArchiveStore(sqlite);

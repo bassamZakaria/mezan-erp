@@ -18,7 +18,7 @@ import {
   type PillTone,
   type RowMenuItem,
 } from "@mezan/ui";
-import { ETA_BUYER_TYPES, SALES_INVOICE_ACTIVE_STATUSES, SALES_INVOICE_STATUS_LABELS_AR, TaxRateStatusCode, matchesSearch } from "@mezan/domain";
+import { ETA_BUYER_TYPES, can, createAuthContext, SALES_INVOICE_ACTIVE_STATUSES, SALES_INVOICE_STATUS_LABELS_AR, TaxRateStatusCode, matchesSearch } from "@mezan/domain";
 import type { CustomerDTO, EtaBuyerTypeDTO, SalesInvoiceStatusDTO } from "@mezan/contracts";
 import {
   useCreateCustomer,
@@ -35,6 +35,8 @@ import {
 } from "../data/hooks";
 import { AttachmentsTab } from "../attachments/AttachmentsTab";
 import { PartyStatementTab } from "./PartyStatementTab";
+import { CustomerCollectionsTab } from "./enh/collections/CustomerCollectionsTab";
+import { useApi } from "../data/ApiContext";
 import { EntityHistoryPanel } from "./enh/audit-ledger/EntityHistoryPanel";
 import { useAttachments } from "../data/attachment-hooks";
 import {
@@ -412,6 +414,11 @@ function CustomerDetail({ customer, onBack, onEdit }: { customer: CustomerDTO; o
   const taxRates = useTaxRates().data ?? EMPTY;
   const { t } = useAppTranslation();
   const { navigate } = useNavigation();
+  const { session } = useApi();
+  const mayCollections = can(
+    createAuthContext({ userId: session?.userId ?? "anonymous", permissions: session?.permissions ?? [], branchScope: "*", warehouseScope: "*" }),
+    "sales.collections.view",
+  );
   // Credit left is the limit minus what the customer owes TODAY. Measuring it
   // against the opening balance ignored every invoice since (D40). `owed` is
   // the server's figure, the customer's aging row (D195).
@@ -494,6 +501,7 @@ function CustomerDetail({ customer, onBack, onEdit }: { customer: CustomerDTO; o
         { key: "statement", label: t("customers.tab.statement"), content: <PartyStatementTab kind="customer" partyId={customer.id} /> },
         { key: "installments", label: t("customers.tab.installments"), content: <CustomerInstallmentsTab customerId={customer.id} /> },
         { key: "returns", label: t("customers.tab.returns"), content: <CustomerReturnsTab customerId={customer.id} /> },
+        ...(mayCollections ? [{ key: "collections", label: t("customers.tab.collections"), content: <CustomerCollectionsTab customerId={customer.id} /> }] : []),
         { key: "attachments", label: t("customers.tab.attachments"), content: <AttachmentsTab entityType="customer" entityId={customer.id} /> },
         { key: "audit", label: t("customers.tab.audit"), content: <CustomerAuditTab customerId={customer.id} /> },
       ]}

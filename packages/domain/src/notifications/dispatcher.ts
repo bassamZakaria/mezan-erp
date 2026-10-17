@@ -5,6 +5,7 @@ import {
   type NotificationChannelStatus,
   type NotificationRepository,
 } from "./types.js";
+import { CustomerMessageStatus, type CustomerMessage, type CustomerMessageOutbox } from "../collections/types.js";
 
 /**
  * Drains the outbound notification queue (ROADMAP §3.3).
@@ -49,6 +50,7 @@ export type DispatchOutcome =
 export interface NotificationTransport {
   readonly channel: NotificationChannel;
   send(notification: Notification, recipientEmail: string | null, claim: string): Promise<DispatchOutcome>;
+  sendTo?(address: string, message: { readonly subject: string; readonly body: string }, claim: string, messageId: string): Promise<DispatchOutcome>;
 }
 
 export interface DispatchPolicy {
@@ -81,6 +83,8 @@ export interface NotificationDispatcherDeps {
   readonly transports: readonly NotificationTransport[];
   /** The recipient's address, or null when the user has none on file. */
   readonly recipientEmail: (userId: string) => Promise<string | null>;
+  readonly customerMessages?: CustomerMessageOutbox;
+  readonly customerEmail?: (customerId: string) => Promise<string | null>;
   readonly now?: () => string;
   readonly policy?: DispatchPolicy;
 }
@@ -91,6 +95,7 @@ export enum DrainOutcomeKind {
   Failed = "failed",
 }
 
+export const NO_CUSTOMER_EMAIL_REASON = "لا يوجد بريد إلكتروني مسجَّل لهذا العميل.";
 export const STALE_MESSAGE_REASON = "تجاوزت الرسالة مدة صلاحيتها قبل أن تُرسَل، فتُركت دون إرسال.";
 export const NO_TRANSPORT_REASON = "لا توجد قناة إرسال موصولة لهذه القناة.";
 
@@ -128,6 +133,8 @@ export const SETTLED_AS: Readonly<Record<DispatchOutcome["kind"], NotificationCh
   rejected: NotificationChannelState.Failed,
   offline: NotificationChannelState.Queued,
 };
+
+const EMPTY_DRAIN: DrainResult = { attempted: 0, sent: 0, stillQueued: 0, failed: 0, skipped: 0, outcomes: [] };
 
 function hoursBetween(fromIso: string, toIso: string): number {
   return (Date.parse(toIso) - Date.parse(fromIso)) / 3_600_000;
@@ -192,6 +199,70 @@ export class NotificationDispatcher {
       }
     }
 
+    const customer = only ? EMPTY_DRAIN : await this.drainCustomerMessages();
+    return {
+      attempted: attempted + customer.attempted,
+      sent: sent + customer.sent,
+      stillQueued: stillQueued + customer.stillQueued,
+      failed: failed + customer.failed,
+      skipped: skipped + customer.skipped,
+      outcomes: [...outcomes, ...customer.outcomes],
+    };
+  }
+
+  async drainCustomerMessages(): Promise<DrainResult> {
+    const outbox = this.deps.customerMessages;
+    if (!outbox) return EMPTY_DRAIN;
+    const policy = this.deps.policy ?? DEFAULT_DISPATCH_POLICY;
+    const clock = this.deps.now ?? (() => new Date().toISOString());
+    const now = clock();
+    await outbox.requeueStaleSending(new Date(Date.parse(now) - policy.sendingTimeoutMinutes * 60_000).toISOString());
+    const transport = this.deps.transports.find((t) => t.channel === "email");
+    let attempted = 0;
+    let sent = 0;
+    let stillQueued = 0;
+    let failed = 0;
+    let skipped = 0;
+    const outcomes: DrainOutcome[] = [];
+    const record = (message: CustomerMessage, recipient: string | null, outcome: DrainOutcomeKind, reason: string | null) => {
+      outcomes.push({ notificationId: message.id, title: message.subject, channel: "email", recipient, outcome, reason });
+    };
+
+    for (const message of await outbox.listQueued(policy.batchSize)) {
+      const stale = hoursBetween(message.createdAt, now) > policy.maxAgeHours;
+      if (!stale && !transport?.sendTo) {
+        skipped += 1;
+        continue;
+      }
+      const claim = await outbox.claim(message.id, clock());
+      if (claim === null) continue;
+      if (stale || !transport?.sendTo) {
+        const reason = stale ? STALE_MESSAGE_REASON : NO_TRANSPORT_REASON;
+        if (await outbox.settle(message.id, CustomerMessageStatus.Failed, claim, { sentAt: null, failureReason: reason })) {
+          failed += 1;
+          record(message, null, DrainOutcomeKind.Failed, reason);
+        }
+        continue;
+      }
+      attempted += 1;
+      const address = (await this.deps.customerEmail?.(message.customerId)) ?? null;
+      if (!address) {
+        if (await outbox.settle(message.id, CustomerMessageStatus.Failed, claim, { sentAt: null, failureReason: NO_CUSTOMER_EMAIL_REASON })) {
+          failed += 1;
+          record(message, null, DrainOutcomeKind.Failed, NO_CUSTOMER_EMAIL_REASON);
+        }
+        continue;
+      }
+      const outcome = await transport.sendTo(address, { subject: message.subject, body: message.body }, claim, message.id);
+      const settled =
+        outcome.kind === "sent" ? CustomerMessageStatus.Sent : outcome.kind === "rejected" ? CustomerMessageStatus.Failed : CustomerMessageStatus.Queued;
+      const detail = { sentAt: outcome.kind === "sent" ? clock() : null, failureReason: outcome.kind === "sent" ? null : outcome.reason };
+      if (!(await outbox.settle(message.id, settled, claim, detail))) continue;
+      record(message, address, OUTCOME_OF[outcome.kind], outcome.kind === "sent" ? null : outcome.reason);
+      if (outcome.kind === "sent") sent += 1;
+      else if (outcome.kind === "rejected") failed += 1;
+      else stillQueued += 1;
+    }
     return { attempted, sent, stillQueued, failed, skipped, outcomes };
   }
 }

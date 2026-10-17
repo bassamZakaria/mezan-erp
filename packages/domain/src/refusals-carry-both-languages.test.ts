@@ -1,4 +1,16 @@
 import { describe, expect, it } from "vitest";
+import {
+  CustomerContactMissingError,
+  DunningHoldNotFoundError,
+  DunningReminderNotFoundError,
+  DunningReminderNotSendableError,
+  InvalidDunningPolicyError,
+  InvalidPromiseToPayError,
+  PromiseToPayNotFoundError,
+  SmsProviderNotConfiguredError,
+} from "./collections/errors.js";
+import { DunningChannel } from "./collections/types.js";
+import { assertValidDunningPolicy, defaultDunningPolicy } from "./collections/policy.js";
 import { ChequeBankRateMissingError } from "./cheques/errors.js";
 import { InvalidDocumentError } from "./documents/errors.js";
 import { EmployeeRefStatus } from "./hr-shared/employee-ref.js";
@@ -39,6 +51,23 @@ describe("a refusal the user can meet says why in Arabic and in English", () => 
       new EmployeeNotTerminatedError("EMP-1"),
       new TerminationRecoveryAlreadyCollectedError("EMP-1", "ADV-000007"),
       new InvalidEmployeeTransitionError(EmployeeRefStatus.Terminated, EmployeeRefStatus.Terminated),
+    ];
+    for (const refusal of refusals) bothLanguages(refusal);
+  });
+
+  it("every collections refusal carries both", () => {
+    const policy = defaultDunningPolicy();
+    const refusals: (Error & { readonly messageEn?: string })[] = [
+      new InvalidDunningPolicyError([{ ar: "سبب", en: "reason" }]),
+      new DunningReminderNotFoundError("R-1"),
+      new DunningReminderNotSendableError("R-1", "sent"),
+      new CustomerContactMissingError("C-1", "email"),
+      new CustomerContactMissingError("C-1", "whatsapp"),
+      new SmsProviderNotConfiguredError(),
+      new InvalidPromiseToPayError("سبب", "reason"),
+      new PromiseToPayNotFoundError("P-1"),
+      new DunningHoldNotFoundError("C-1"),
+      caught(() => assertValidDunningPolicy({ ...policy, steps: [{ ...policy.steps[0]!, channel: DunningChannel.Sms }] }, { smsAvailable: false })),
     ];
     for (const refusal of refusals) bothLanguages(refusal);
   });

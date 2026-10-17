@@ -78,6 +78,7 @@ export const AUDITED_MOUNTS: readonly AuditedMount[] = [
   { prefix: "/workflow" },
   { prefix: "/cash-forecast", only: /^\/threshold$/ },
   { prefix: "/contracting" },
+  { prefix: "/collections", only: /^(?!\/outbox\/drain$)/ },
 ];
 
 interface BoundaryState {

@@ -24,6 +24,7 @@ import {
   type FetchLike,
 } from "./backend-bridge.js";
 import { readBearerToken } from "./lan-authorization.js";
+import { createLineSplitter } from "./log.js";
 import type { DesktopLicense } from "./license.js";
 
 /**
@@ -102,6 +103,7 @@ export interface BackendProcessOptions {
   /** Shown when the worker has died twice. Defaults to `dialog.showErrorBox`. */
   readonly onFatal?: (messageAr: string, detail: string) => void;
   readonly log?: (line: string) => void;
+  readonly workerOutput?: WorkerOutputSink;
 }
 
 export interface BackendProcessHandle {
@@ -149,15 +151,22 @@ export function resolveBackendWorkerEntry(): string {
   return path.join(here, "backend-worker.ts");
 }
 
-function electronTransport(entry: string): BackendTransport {
+export type WorkerOutputSink = (stream: "stdout" | "stderr", line: string) => void;
+
+function electronTransport(entry: string, sink: WorkerOutputSink): BackendTransport {
   const { port1, port2 } = new MessageChannelMain();
   const child = utilityProcess.fork(entry, [], {
     serviceName: "mezan-backend",
-    stdio: "inherit",
+    stdio: "pipe",
     // A dev run that has not been through scripts/build.mjs resolves the
     // TypeScript source, which Electron's own loader cannot execute.
     ...(entry.endsWith(".ts") ? { execArgv: ["--import", "tsx"] } : {}),
   });
+  for (const stream of ["stdout", "stderr"] as const) {
+    const splitter = createLineSplitter((line) => sink(stream, line));
+    child[stream]?.on("data", (chunk: Buffer) => splitter.push(chunk));
+    child.once("exit", () => splitter.flush());
+  }
   child.postMessage(null, [port2]);
   port1.start();
   return {
@@ -173,7 +182,10 @@ function electronTransport(entry: string): BackendTransport {
 
 export function startBackendProcess(options: BackendProcessOptions): BackendProcessHandle {
   const log = options.log ?? ((line: string) => console.warn(line));
-  const spawn = options.spawn ?? electronTransport;
+  const sink: WorkerOutputSink =
+    options.workerOutput ??
+    ((stream, line) => (stream === "stderr" ? console.error(line) : console.log(line)));
+  const spawn = options.spawn ?? ((entry: string) => electronTransport(entry, sink));
   const entry = resolveBackendWorkerEntry();
 
   let licence: CloneableLicence = toCloneableLicence(options.licence);

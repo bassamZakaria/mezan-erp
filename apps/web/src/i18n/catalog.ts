@@ -7895,6 +7895,12 @@ const webAr = {
   "support.diagnosticSaved": "تم حفظ ملف التشخيص في {path}.",
   "support.diagnosticDesktopOnly": "يُحفَظ ملف التشخيص من برنامج سطح المكتب على الجهاز الرئيسي.",
   "support.diagnosticFailed": "تعذّر حفظ ملف التشخيص.",
+  "support.saveLogs": "حفظ السجلات للدعم",
+  "support.openLogs": "فتح مجلد السجلات",
+  "support.logsSaved": "تم حفظ السجلات في {path}. أرسل هذا الملف إلى الدعم.",
+  "support.logsDesktopOnly": "تُحفَظ السجلات من برنامج سطح المكتب على الجهاز الرئيسي.",
+  "support.logsFailed": "تعذّر حفظ السجلات.",
+  "support.logsOpenFailed": "تعذّر فتح مجلد السجلات.",
   "keyRisk.title": "ملفات حسّاسة ما زالت على هذا الجهاز",
   "keyRisk.keyCard":
     "ملف مفتاح قاعدة البيانات ما زال بجوار قاعدة البيانات، والمفتاح مكتوب فيه بوضوح. هو النسخة الوحيدة الواضحة من المفتاح الذي يفتح نسخك الاحتياطية على أي جهاز آخر: انسخه إلى مكان آمن خارج هذا الجهاز أولاً، ثم احذفه من هنا.",
@@ -17944,6 +17950,12 @@ const webEn: Record<WebTranslationKey, string> = {
   "support.diagnosticDesktopOnly":
     "The diagnostic file is saved from the desktop app on the host machine.",
   "support.diagnosticFailed": "The diagnostic file could not be saved.",
+  "support.saveLogs": "Save logs for support",
+  "support.openLogs": "Open the logs folder",
+  "support.logsSaved": "The logs were saved to {path}. Send this file to support.",
+  "support.logsDesktopOnly": "Logs are saved from the desktop app on the host machine.",
+  "support.logsFailed": "The logs could not be saved.",
+  "support.logsOpenFailed": "The logs folder could not be opened.",
   "keyRisk.title": "Sensitive files are still on this machine",
   "keyRisk.keyCard":
     "The database key file is still beside the database, with the key written out in plain text. It is the only plaintext copy of the key that opens your backups on any other machine: copy it somewhere safe off this machine first, then delete it here.",

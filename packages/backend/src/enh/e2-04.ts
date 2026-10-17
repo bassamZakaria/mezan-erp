@@ -165,6 +165,7 @@ export const area: BackendArea = {
       warehouses: ctx.stores.warehouses,
       layers: ctx.stores.stockLedger.layers,
       stockLedger: ctx.stores.stockLedger.ledger,
+      snapshots: ctx.stores.stockLedger.snapshots,
       trail,
       store,
       audit: ctx.audit,

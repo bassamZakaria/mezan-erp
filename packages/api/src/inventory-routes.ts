@@ -28,6 +28,7 @@ import {
   type StockReservations,
   ReversalDateBeforeOriginalError,
   LotDetailsRequiredError,
+  ExpiryWriteOffExceedsExpiredError,
 } from "@mezan/domain";
 import {
   ReversalPermission,
@@ -154,6 +155,9 @@ function handleDomainError(c: Context, err: unknown) {
   if (err instanceof StockAdjustmentAlreadyReversedError) return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
   if (err instanceof LotDetailsRequiredError) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, issues: err.issues }, 422);
+  }
+  if (err instanceof ExpiryWriteOffExceedsExpiredError) {
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, itemId: err.itemId }, 422);
   }
   if (err instanceof NegativeStockError) {
     return c.json(

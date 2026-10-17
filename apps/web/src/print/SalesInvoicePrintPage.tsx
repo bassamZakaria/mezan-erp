@@ -5,6 +5,7 @@ import { useAppTranslation } from "../i18n";
 import { useDisplaySettings, usePrintTemplateConfig, useSalesInvoicePrintContext, useTaxRates } from "../data/hooks";
 import { salesInvoicePrintModel } from "./sales-invoice-print";
 import { EMPTY } from "../lib/empty";
+import { useBatchTrail } from "../data/expiry-hooks";
 
 /**
  * The compliant print path for a sales invoice — the page the «طباعة» button
@@ -26,6 +27,7 @@ export function SalesInvoicePrintPage({ invoice }: { invoice: SalesInvoiceDTO })
   // to list every customer, branch, warehouse and the e-invoice queue to find
   // five values, which a role that may only view invoices is refused.
   const context = useSalesInvoicePrintContext(invoice.id).data ?? null;
+  const batchTrail = useBatchTrail(invoice.status === "draft" ? null : invoice.id).data;
 
   const document = useMemo(
     () =>
@@ -45,8 +47,9 @@ export function SalesInvoicePrintPage({ invoice }: { invoice: SalesInvoiceDTO })
         customerRoleLabel: t("common.customer"),
         vatLabel: t("salesInvoices.print.vat"),
         taxRates,
+        batchTrail,
       }),
-    [invoice, settings, context, taxRates, format.currencyLabel, t],
+    [invoice, settings, context, taxRates, batchTrail, format.currencyLabel, t],
   );
 
   if (configQuery.isLoading) return null;

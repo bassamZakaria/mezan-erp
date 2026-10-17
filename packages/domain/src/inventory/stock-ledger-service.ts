@@ -49,6 +49,7 @@ import {
 } from "./posted-stock-documents.js";
 import { getAdjustmentReasonDefinition, type AdjustmentReason } from "./reasons.js";
 import { assertLotDetails } from "../expiry/lot-tracking.js";
+import { ExpiryWriteOffExceedsExpiredError, expiredQtyAtHead } from "../expiry/write-off.js";
 import type { BatchTrailRecorder, LotRequirementLookup } from "../expiry/types.js";
 import type { CostCategory } from "../contracting/cost-category.js";
 import { extend, unitCostOf } from "./wac-math.js";
@@ -652,6 +653,30 @@ export class StockLedgerService {
     throw new ExpiredStockError(itemId, warehouseId, head.batchNo ?? null, head.expiryDate);
   }
 
+  /**
+   * INVARIANT: an EXPIRY write-off of an expiry-tracked item may only draw expired
+   * layers. A second draft written off the same expired batch would otherwise
+   * consume the next, in-date layer once the first one was confirmed.
+   */
+  private async refuseWritingOffGoodStock(command: PostAdjustmentCommand, occurredAt: string): Promise<void> {
+    const lookup = this.deps.lotRequirement;
+    if (!lookup) return;
+    const requested = new Map<string, Qty>();
+    for (const line of command.lines) {
+      if (line.direction !== "OUT") continue;
+      requested.set(line.itemId, (requested.get(line.itemId) ?? Qty.zero()).add(line.qty));
+    }
+    const asOf = occurredAt.slice(0, 10);
+    for (const [itemId, qty] of requested) {
+      const requirement = await lookup(itemId);
+      if (!requirement?.expiry) continue;
+      const expired = expiredQtyAtHead(await this.deps.layers.listByPosition(itemId, command.warehouseId), asOf);
+      if (qty.compare(expired) > 0) {
+        throw new ExpiryWriteOffExceedsExpiredError(itemId, requirement.labelAr ?? itemId, qty, expired);
+      }
+    }
+  }
+
   private async consumeLayers(itemId: string, warehouseId: string, qty: Qty, takenBackFrom: string | null = null): Promise<ConsumedSlice[]> {
     const layers = takeBackOrder(orderLayersForConsumption(await this.deps.layers.listByPosition(itemId, warehouseId)), takenBackFrom);
     const consumed: ConsumedSlice[] = [];
@@ -685,6 +710,7 @@ export class StockLedgerService {
         this.deps.lotRequirement,
       );
     }
+    if (command.reason === "EXPIRY") await this.refuseWritingOffGoodStock(command, occurredAt);
 
     await this.runInTransaction(async () => {
       const movementIds: string[] = [];

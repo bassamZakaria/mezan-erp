@@ -59,3 +59,33 @@ export function expiredWriteOffLines(input: {
   }
   return lines.sort((a, b) => a.itemId.localeCompare(b.itemId));
 }
+
+export function expiredQtyAtHead(layers: readonly CostLayer[], asOf: string): Qty {
+  let qty = Qty.zero();
+  for (const layer of orderLayersForConsumption(layers)) {
+    if (layer.remainingQty.scaled <= 0n) continue;
+    if (!layer.expiryDate || layer.expiryDate >= asOf) break;
+    qty = qty.add(layer.remainingQty);
+  }
+  return qty;
+}
+
+export class ExpiryWriteOffExceedsExpiredError extends Error {
+  readonly code = "EXPIRY_WRITE_OFF_EXCEEDS_EXPIRED";
+  readonly messageEn: string;
+  constructor(
+    readonly itemId: string,
+    readonly itemLabel: string,
+    readonly requested: Qty,
+    readonly expired: Qty,
+  ) {
+    super(
+      `الصنف "${itemLabel}": كمية شطب انتهاء الصلاحية ${requested.toString()} أكبر من الرصيد المنتهي فعلاً ${expired.toString()} — ` +
+        `الباقي سليم الصلاحية ولا يُشطب بهذا السبب.`,
+    );
+    this.messageEn =
+      `Item "${itemLabel}": the expiry write-off of ${requested.toString()} exceeds the ${expired.toString()} actually expired — ` +
+      `the rest is still in date and cannot be written off as expired.`;
+    this.name = "ExpiryWriteOffExceedsExpiredError";
+  }
+}

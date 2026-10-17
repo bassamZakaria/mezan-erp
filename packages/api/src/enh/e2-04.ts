@@ -7,6 +7,7 @@ import {
   Qty,
   createInventoryBatchesReport,
   expiredWriteOffLines,
+  extend,
   previewFefo,
   runReport,
   summarizeBatchStock,
@@ -21,6 +22,7 @@ import {
   type Item,
   type StockLedgerRepository,
   type Warehouse,
+  type WacSnapshotRepository,
 } from "@mezan/domain";
 import {
   expirySettingsSchema,
@@ -46,6 +48,7 @@ export interface ExpiryRoutesDeps {
   readonly warehouses: { findAll(): Promise<readonly Warehouse[]> };
   readonly layers: CostLayerRepository;
   readonly stockLedger: StockLedgerRepository;
+  readonly snapshots: WacSnapshotRepository;
   readonly trail: BatchTrailRepository;
   readonly store: ExpiryStore;
   readonly audit?: AuditSink;
@@ -77,11 +80,35 @@ function serializeTrail(entry: BatchTrailEntry) {
   };
 }
 
-function serializeWriteOffLine(line: ExpiredWriteOffLine): ExpiredWriteOffLineDTO {
+/** What the EXPIRY adjustment will actually post: OUT leaves at the moving average, never at the layers' receipt cost. */
+async function valueAtWac(snapshots: WacSnapshotRepository, warehouseId: string, line: ExpiredWriteOffLine): Promise<Money> {
+  const snapshot = await snapshots.get(line.itemId, warehouseId);
+  if (!snapshot) return line.value;
+  if (snapshot.onHand.compare(line.qty) === 0) return snapshot.totalValue;
+  return extend(line.qty, snapshot.averageCost);
+}
+
+async function serializeWriteOffLines(
+  snapshots: WacSnapshotRepository,
+  warehouseId: string,
+  lines: readonly ExpiredWriteOffLine[],
+): Promise<{ lines: ExpiredWriteOffLineDTO[]; total: Money }> {
+  const out: ExpiredWriteOffLineDTO[] = [];
+  let total = Money.zero();
+  for (const line of lines) {
+    const value = await valueAtWac(snapshots, warehouseId, line);
+    total = total.add(value);
+    out.push(serializeWriteOffLine(line, value));
+  }
+  return { lines: out, total };
+}
+
+function serializeWriteOffLine(line: ExpiredWriteOffLine, value: Money): ExpiredWriteOffLineDTO {
   return {
     itemId: line.itemId,
     qty: line.qty.toString(),
-    value: line.value.toString(),
+    value: value.toString(),
+    layerValue: line.value.toString(),
     batches: line.batches.map((b) => ({
       batchNo: b.batchNo,
       expiryDate: b.expiryDate,
@@ -191,11 +218,12 @@ export function createExpiryRoutes(deps: ExpiryRoutesDeps, resolveAuthContext: A
     if (refusal) return refusal;
     const asOf = today();
     const lines = expiredWriteOffLines({ layers: await loadAllCostLayers(deps), warehouseId, asOf });
+    const serialized = await serializeWriteOffLines(deps.snapshots, warehouseId, lines);
     return c.json({
       warehouseId,
       asOf,
-      lines: lines.map(serializeWriteOffLine),
-      totalValue: Money.sum(lines.map((l) => l.value)).toString(),
+      lines: serialized.lines,
+      totalValue: serialized.total.toString(),
     });
   });
 
@@ -245,12 +273,14 @@ export function createExpiryRoutes(deps: ExpiryRoutesDeps, resolveAuthContext: A
     });
     const body = (await response.json().catch(() => ({}))) as { docNo?: string | null; status?: string };
     if (!response.ok) return c.json(body, response.status as 400);
+    const serialized = await serializeWriteOffLines(deps.snapshots, parsed.data.warehouseId, lines);
     return c.json(
       {
         adjustmentId,
         docNo: body.docNo ?? null,
         status: body.status ?? "draft",
-        lines: lines.map(serializeWriteOffLine),
+        lines: serialized.lines,
+        totalValue: serialized.total.toString(),
       },
       201,
     );

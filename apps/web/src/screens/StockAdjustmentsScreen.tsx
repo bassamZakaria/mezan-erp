@@ -4,6 +4,7 @@ import { useReverseDocumentAction } from "../reversal/ReverseDocumentAction";
 import { useEffect, useMemo, useState } from "react";
 import { HeldDocumentReapproval } from "../shell/ReapprovalNotice";
 import { errorMessage } from "../lib/error-message";
+import { EMPTY_LOT, LotCells, lotIsComplete, lotPayload, tracksLots, type LotValue } from "./enh/expiry/LotFields";
 import {
   RowActionOutcome,
   Button,
@@ -125,6 +126,7 @@ interface LineDraft {
   direction: StockMovementDirection;
   qty: number;
   unitCost: number;
+  lot: LotValue;
 }
 
 /** Projects still open for new spend/income — a finished or cancelled project cannot take new lines. */
@@ -135,7 +137,7 @@ const COST_CATEGORY_VALUES: readonly CostCategoryDTO[] = ["materials", "labour",
 let lineSeq = 0;
 function blankLine(direction: StockMovementDirection): LineDraft {
   lineSeq += 1;
-  return { key: `l${lineSeq}`, itemId: "", direction, qty: 0, unitCost: 0 };
+  return { key: `l${lineSeq}`, itemId: "", direction, qty: 0, unitCost: 0, lot: EMPTY_LOT };
 }
 
 export function StockAdjustmentsScreen() {
@@ -378,10 +380,22 @@ export function StockAdjustmentsScreen() {
       <div className="w-full">
         <AlreadySavedNotice notice={savedNotice} openId={selected.id} message={t("documents.alreadySaved")} dismissLabel={t("documents.alreadySaved.dismiss")} />
         <HeldDocumentReapproval document={selected} pending={listConfirm.isPending} confirm={(id) => listConfirm.mutateAsync(id)} />
+        {rowError ? (
+          <div role="alert" className="mb-[16px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
+            {rowError}
+          </div>
+        ) : null}
         <DocumentDetail
           title={selected.docNo ?? t("stockAdj.stockAdjustment")}
           statusLabel={documentStatusLabel(selected.status, t)}
           statusTone={DOC_STATUS_TONE[selected.status]}
+          actions={
+            selected.status === "draft" ? (
+              <Button variant="primary" disabled={listConfirm.isPending} onClick={() => void confirmRow(selected.id)}>
+                {t("stockAdj.row.confirm")}
+              </Button>
+            ) : undefined
+          }
           subtitle={<DocumentStatusStepper steps={STEPPER_KEYS.map((step): DocumentStatusStep => ({ key: step.key, label: t(step.labelKey) }))} currentKey={selected.status} />}
           summary={[
             { label: t("common.warehouse"), value: warehouseLabel(warehouseId) },
@@ -711,8 +725,15 @@ function CreateAdjustmentView({
     setLines((prev) => (prev.length <= 1 ? prev : prev.filter((_, i) => i !== index)));
   }
 
+  const itemById = (id: string) => itemList.find((i) => i.id === id);
+  const countsLotsFree = reason.code === "PHYSICAL_COUNT";
+  const showLotColumns = !countsLotsFree && lines.some((l) => l.direction === "IN" && tracksLots(itemById(l.itemId)));
   const allLinesValid = lines.every(
-    (l) => l.itemId !== "" && l.qty > 0 && (l.direction === "OUT" || l.unitCost > 0),
+    (l) =>
+      l.itemId !== "" &&
+      l.qty > 0 &&
+      (l.direction === "OUT" || l.unitCost > 0) &&
+      (l.direction === "OUT" || countsLotsFree || lotIsComplete(itemById(l.itemId), l.lot)),
   );
   const busy = createAdjustment.isPending || confirmAdjustment.isPending;
   const canPost = allLinesValid && warehouseId !== "" && !busy;
@@ -732,6 +753,7 @@ function CreateAdjustmentView({
           direction: l.direction,
           qty: String(l.qty),
           unitCost: l.direction === "IN" ? String(l.unitCost) : undefined,
+          ...(l.direction === "IN" && tracksLots(itemById(l.itemId)) ? lotPayload(l.lot) : {}),
         })),
         projectId: projectId || null,
         costCategory: projectId && costCategory ? costCategory : null,
@@ -804,6 +826,12 @@ function CreateAdjustmentView({
                     ) : null}
                     <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">{t("common.qty")}</th>
                     <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">{t("stockAdj.costPrice")}</th>
+                    {showLotColumns ? (
+                      <>
+                        <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">{t("expiry.lot.batchNo")}</th>
+                        <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">{t("expiry.lot.expiryDate")}</th>
+                      </>
+                    ) : null}
                     <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px]" />
                   </tr>
                 </thead>
@@ -860,6 +888,15 @@ function CreateAdjustmentView({
                           onChange={(e) => updateLine(i, { unitCost: e.target.valueAsNumber || 0 })}
                         />
                       </td>
+                      {showLotColumns ? (
+                        <LotCells
+                          item={itemById(line.itemId)}
+                          value={line.lot}
+                          disabled={line.direction === "OUT"}
+                          lineNumber={i + 1}
+                          onChange={(lot) => updateLine(i, { lot })}
+                        />
+                      ) : null}
                       <td className="px-[12px] py-[8px] text-center">
                         <IconButton aria-label={t("stockAdj.removeLine", { number: i + 1 })} disabled={lines.length <= 1} onClick={() => removeLine(i)}>
                           ✕

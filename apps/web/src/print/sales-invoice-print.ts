@@ -1,5 +1,6 @@
 import { amountInWords } from "@mezan/domain";
-import type { PrintDocumentLine, PrintDocumentModel } from "@mezan/ui";
+import type { PrintDocumentLine, PrintDocumentModel, PrintLineLot } from "@mezan/ui";
+import type { BatchTrailEntryDTO } from "@mezan/contracts";
 import type { DisplaySettingsDTO } from "../data/hooks";
 import type { SalesInvoiceDTO, SalesInvoiceLineRowDTO } from "../data/hooks";
 import { majorOf, scaledOf, toMajorNumber } from "../lib/money";
@@ -47,6 +48,22 @@ export interface SalesInvoicePrintContext {
   readonly customerRoleLabel: string;
   readonly vatLabel: string;
   readonly taxRates?: readonly { readonly id: string; readonly name: string }[];
+  /** The batches the confirmed invoice actually drew, read from the stock ledger's batch trail. */
+  readonly batchTrail?: readonly BatchTrailEntryDTO[];
+}
+
+function lotsByItem(trail: readonly BatchTrailEntryDTO[] | undefined): Map<string, PrintLineLot[]> {
+  const byItem = new Map<string, Map<string, { batchNo: string | null; expiryDate: string | null; qty: bigint }>>();
+  for (const entry of trail ?? []) {
+    const lots = byItem.get(entry.itemId) ?? new Map();
+    const key = `${entry.batchNo ?? ""}|${entry.expiryDate ?? ""}`;
+    const lot = lots.get(key) ?? { batchNo: entry.batchNo, expiryDate: entry.expiryDate, qty: 0n };
+    lots.set(key, { ...lot, qty: lot.qty + scaledOf(entry.qty) });
+    byItem.set(entry.itemId, lots);
+  }
+  return new Map(
+    [...byItem].map(([itemId, lots]) => [itemId, [...lots.values()].map((l) => ({ batchNo: l.batchNo, expiryDate: l.expiryDate, qty: toMajorNumber(l.qty) }))]),
+  );
 }
 
 function lineGrossScaled(line: SalesInvoiceLineRowDTO): bigint {
@@ -63,7 +80,11 @@ function lineDiscountScaled(line: SalesInvoiceLineRowDTO): bigint {
 export function salesInvoicePrintModel(ctx: SalesInvoicePrintContext): PrintDocumentModel {
   const { invoice, settings } = ctx;
 
+  const lots = lotsByItem(ctx.batchTrail);
+  const lotsShown = new Set<string>();
   const lines: PrintDocumentLine[] = invoice.lines.map((line: SalesInvoiceLineRowDTO) => {
+    const itemLots = lotsShown.has(line.itemId) ? undefined : lots.get(line.itemId);
+    lotsShown.add(line.itemId);
     const net = lineGrossScaled(line) - lineDiscountScaled(line);
     const rate = BigInt(Math.round((line.taxRatePercent ?? 0) * 1_000_000));
     const tax = (net * rate) / 100_000_000n;
@@ -78,6 +99,7 @@ export function salesInvoicePrintModel(ctx: SalesInvoicePrintContext): PrintDocu
       taxName: (line.taxRateId ? ctx.taxRates?.find((r) => r.id === line.taxRateId)?.name : undefined) ?? undefined,
       taxAmount: toMajorNumber(tax),
       lineTotal: toMajorNumber(net + tax),
+      lots: itemLots,
     };
   });
 

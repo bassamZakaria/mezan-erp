@@ -56,6 +56,7 @@ const TRI_STATE_FIELDS: {
   { section: "columns", key: "showLineDiscount", labelKey: "printTemplates.lineDiscount" },
   { section: "columns", key: "showLineTaxPercent", labelKey: "printTemplates.lineTaxRate" },
   { section: "columns", key: "showLineTaxAmount", labelKey: "printTemplates.lineTaxAmount" },
+  { section: "columns", key: "showBatchExpiry", labelKey: "expiry.print.showBatchExpiry" },
   { section: "totals", key: "showSubtotal", labelKey: "printTemplates.subtotal" },
   { section: "totals", key: "showTotalDiscount", labelKey: "printTemplates.totalDiscount" },
   { section: "totals", key: "showTaxBreakdown", labelKey: "printTemplates.taxBreakdown" },
@@ -258,6 +259,7 @@ function PrintTemplatesPageContent() {
               <ToggleField label={t("printTemplates.lineDiscount")} checked={config.columns.showLineDiscount} onChange={(v) => patchSection("columns", { showLineDiscount: v })} />
               <ToggleField label={t("printTemplates.lineTaxRate")} checked={config.columns.showLineTaxPercent} onChange={(v) => patchSection("columns", { showLineTaxPercent: v })} />
               <ToggleField label={t("printTemplates.lineTaxAmount")} checked={config.columns.showLineTaxAmount} onChange={(v) => patchSection("columns", { showLineTaxAmount: v })} />
+              <ToggleField label={t("expiry.print.showBatchExpiry")} checked={config.columns.showBatchExpiry !== false} onChange={(v) => patchSection("columns", { showBatchExpiry: v })} />
             </SectionCard>
           ),
         },

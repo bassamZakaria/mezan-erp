@@ -99,6 +99,7 @@ export interface ExpiredWriteOffLineDTO {
   readonly itemId: string;
   readonly qty: string;
   readonly value: string;
+  readonly layerValue: string;
   readonly batches: readonly ExpiredWriteOffBatchDTO[];
 }
 
@@ -114,9 +115,28 @@ export interface ExpiryWriteOffResultDTO {
   readonly docNo: string | null;
   readonly status: string;
   readonly lines: readonly ExpiredWriteOffLineDTO[];
+  readonly totalValue: string;
 }
 
 export interface ExpiryScanResultDTO {
   readonly scannedAt: string;
   readonly emitted: number;
+}
+
+export interface ExpiryDueBatchDTO {
+  readonly itemId: string;
+  readonly warehouseId: string;
+  readonly batchNo: string | null;
+  readonly expiryDate: string | null;
+  readonly daysToExpiry: number | null;
+  readonly status: string;
+  readonly qty: string;
+  readonly value: string;
+}
+
+export interface ExpiryAlertsDTO {
+  readonly asOf: string;
+  readonly nearExpiryDays: number;
+  readonly due: readonly ExpiryDueBatchDTO[];
+  readonly log: readonly ExpiryAlertDTO[];
 }

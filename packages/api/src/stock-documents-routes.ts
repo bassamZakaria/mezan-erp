@@ -27,6 +27,7 @@ import {
   PHYSICAL_COUNT_STATUSES,
   matchesSearch,
   LotDetailsRequiredError,
+  ExpiryWriteOffExceedsExpiredError,
 } from "@mezan/domain";
 import {
   ReversalPermission,
@@ -223,6 +224,9 @@ function handleDocumentError(c: Context, err: unknown): Response {
   if (postingRefusal) return postingRefusal;
   if (err instanceof LotDetailsRequiredError) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, issues: err.issues }, 422);
+  }
+  if (err instanceof ExpiryWriteOffExceedsExpiredError) {
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, itemId: err.itemId }, 422);
   }
   if (err instanceof DocumentNotFoundError || err instanceof PhysicalCountNotFoundError) {
     return c.json({ error: err.code, message: err.message }, 404);

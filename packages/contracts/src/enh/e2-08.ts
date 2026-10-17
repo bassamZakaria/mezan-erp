@@ -170,7 +170,10 @@ export const pricingGuardOverrideSchema = z.object({
   breaches: z.array(pricingGuardBreachSchema),
   kind: z.nativeEnum(PricingGuardOverrideKindDTO),
   approvalRequestId: z.string().nullable(),
+  submittedBy: z.string(),
+  submittedByName: z.string().nullable(),
   approvedBy: z.array(z.string()),
+  approvedByNames: z.array(z.string()),
   actor: z.string(),
   recordedAt: z.string(),
 });

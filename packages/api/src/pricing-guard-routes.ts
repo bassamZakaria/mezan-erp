@@ -57,8 +57,9 @@ export interface PricingGuardRoutesDeps {
   readonly itemExists: (itemId: string) => Promise<boolean>;
   readonly categoryExists: (categoryId: string) => Promise<boolean>;
   readonly customerTaxExempt?: (customerId: string) => Promise<boolean>;
-  /** Who approved a price-floor request, in decision order. */
-  readonly approversOf?: (requestId: string) => Promise<readonly string[]>;
+  /** Who submitted a price-floor request and who approved it, in decision order. */
+  readonly approvalOf?: (requestId: string) => Promise<{ readonly submittedBy: string; readonly approvedBy: readonly string[] } | null>;
+  readonly userName?: (userId: string) => Promise<string | null>;
   readonly audit?: AuditSink;
   readonly now?: () => string;
   readonly idGen?: () => string;
@@ -142,7 +143,14 @@ function ruleInputOf(dto: PricingGuardRuleInputDTO) {
   };
 }
 
-function serializeOverride(row: PricingGuardOverride, showCost: boolean, approvedBy: readonly string[]) {
+interface OverridePeople {
+  readonly submittedBy: string;
+  readonly submittedByName: string | null;
+  readonly approvedBy: readonly string[];
+  readonly approvedByNames: readonly string[];
+}
+
+function serializeOverride(row: PricingGuardOverride, showCost: boolean, people: OverridePeople) {
   return {
     id: row.id,
     docType: row.docType,
@@ -167,7 +175,10 @@ function serializeOverride(row: PricingGuardOverride, showCost: boolean, approve
     breaches: row.breaches.map(serializeBreach),
     kind: row.kind,
     approvalRequestId: row.approvalRequestId,
-    approvedBy: [...approvedBy],
+    submittedBy: people.submittedBy,
+    submittedByName: people.submittedByName,
+    approvedBy: [...people.approvedBy],
+    approvedByNames: [...people.approvedByNames],
     actor: row.actor,
     recordedAt: row.recordedAt,
   };
@@ -343,13 +354,29 @@ export function createPricingGuardRoutes(deps: PricingGuardRoutesDeps, resolveAu
       branchScope: branchScopeOf(c) ?? null,
     });
     const showCost = maySeeCost(c);
-    const approvers = new Map<string, readonly string[]>();
-    for (const requestId of new Set(rows.map((row) => row.approvalRequestId).filter((id): id is string => id !== null))) {
-      approvers.set(requestId, (await deps.approversOf?.(requestId)) ?? []);
+    const names = new Map<string, string | null>();
+    const nameOf = async (userId: string) => {
+      if (!names.has(userId)) names.set(userId, (await deps.userName?.(userId)) ?? null);
+      return names.get(userId) ?? null;
+    };
+    const approvals = new Map<string, { submittedBy: string; approvedBy: readonly string[] } | null>();
+    const people: OverridePeople[] = [];
+    for (const row of rows) {
+      const requestId = row.approvalRequestId;
+      if (requestId && !approvals.has(requestId)) approvals.set(requestId, (await deps.approvalOf?.(requestId)) ?? null);
+      const approval = requestId ? approvals.get(requestId) ?? null : null;
+      const submittedBy = approval?.submittedBy ?? row.actor;
+      const approvedBy = approval?.approvedBy ?? [];
+      people.push({
+        submittedBy,
+        submittedByName: await nameOf(submittedBy),
+        approvedBy,
+        approvedByNames: await Promise.all(approvedBy.map(async (id) => (await nameOf(id)) ?? id)),
+      });
     }
     return c.json({
       costVisible: showCost,
-      rows: rows.map((row) => serializeOverride(row, showCost, row.approvalRequestId ? (approvers.get(row.approvalRequestId) ?? []) : [])),
+      rows: rows.map((row, index) => serializeOverride(row, showCost, people[index] as OverridePeople)),
     });
   });
 

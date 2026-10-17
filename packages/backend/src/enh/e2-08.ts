@@ -99,10 +99,15 @@ export const area: BackendArea = {
           itemExists: async (itemId) => (await items.findById(itemId)) !== null,
           categoryExists: async (categoryId) => (await catalog.categories.findById(categoryId)) !== null,
           customerTaxExempt: async (customerId) => (await customers.findById(customerId))?.taxExempt ?? false,
-          approversOf: async (requestId) => {
+          approvalOf: async (requestId) => {
             const request = await approvalRequests.findById(requestId);
-            return request ? request.decisions.filter((decision) => decision.kind === "approve" || decision.kind === "bypass").map((decision) => decision.actorId) : [];
+            if (!request) return null;
+            return {
+              submittedBy: request.submittedBy,
+              approvedBy: request.decisions.filter((decision) => decision.kind === "approve" || decision.kind === "bypass").map((decision) => decision.actorId),
+            };
           },
+          userName: async (userId) => (await ctx.uow.users.findById(userId))?.nameAr ?? null,
           audit: ctx.audit,
         },
         ctx.resolveAuthContext,

@@ -376,7 +376,7 @@ function OverridesTab() {
       ),
     },
     { key: "kind", header: t("pricingGuard.report.kind"), render: (row) => <StatusPill label={t(OVERRIDE_KIND_LABEL[row.kind])} tone={row.kind === PricingGuardOverrideKindDTO.AdminBypass ? "danger" : "warning"} /> },
-    { key: "actor", header: t("pricingGuard.report.actor"), render: (row) => <span className="text-[12px]">{[row.actor, ...row.approvedBy.filter((a) => a !== row.actor)].join(" ← ")}</span> },
+    { key: "actor", header: t("pricingGuard.report.actor"), render: (row) => <span className="text-[12px]">{[row.submittedByName ?? row.submittedBy, ...row.approvedByNames].join(" ← ")}</span> },
   ];
 
   return (

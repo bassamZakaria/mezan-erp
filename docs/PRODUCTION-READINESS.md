@@ -19,9 +19,9 @@ Contabo deployment lane. Each item says who acts: **code** (we build it), **owne
 | # | Item | Who | Status |
 |---|---|---|---|
 | S1 | Tenant SMTP host can reach the VPS's internal network (SSRF via "send test") — apply the webhook address check on the cloud | code | in progress (`fix/prod-security`) |
-| S2 | No security headers (CSP, HSTS, frame-ancestors, nosniff) | code | in progress (Contabo lane, Caddy) |
-| S3 | App port must not be published on the host, or X-Forwarded-For spoofing bypasses rate limits and login lockout | code | in progress (Contabo lane) |
-| S4 | No encryption at rest on Contabo — backups must be encrypted before leaving the box; webhook secrets / tenant SMTP passwords encrypted in the DB | code | in progress (both lanes) |
+| S2 | No security headers (CSP, HSTS, frame-ancestors, nosniff) | code | **built** `feat/deploy-contabo`: CSP, HSTS, nosniff, Referrer-Policy in `deploy/contabo/Caddyfile`; owner checks the CSP in a browser after the first deploy |
+| S3 | App port must not be published on the host, or X-Forwarded-For spoofing bypasses rate limits and login lockout | code | **built** `feat/deploy-contabo`: app `expose` only, Caddy the one hop, `MEZAN_TRUSTED_PROXY_HOPS=1`, Docker userland proxy off for IPv6 |
+| S4 | No encryption at rest on Contabo — backups must be encrypted before leaving the box; webhook secrets / tenant SMTP passwords encrypted in the DB | code | backups: **built** `feat/deploy-contabo` (restic, client-side encrypted); disk: owner accepts or sets up LUKS (`deploy/contabo/README.md`); DB secrets: `fix/prod-security` |
 | S5 | Salary allowances/deductions leaked to holders of `hr.employee.view` without `view_salary` | code | **fixed** `3e763a86` |
 
 ### Customer operations
@@ -46,7 +46,7 @@ Contabo deployment lane. Each item says who acts: **code** (we build it), **owne
 - Desktop evidence pack fails above ~8 MiB over IPC; save to disk via a dialog. **code**
 - Arabic number agreement: 15 strings say «{n} يوماً» (wrong for 3–10). One plural helper. **code**
 - Audit anchors need an off-box object-locked store (Backblaze B2 / Wasabi if Contabo lacks Object Lock) and the signing key provisioned. **owner + code**
-- Restrict `/api/platform` to the owner's IPs or add a second factor. **code + owner**
+- Restrict `/api/platform` to the owner's IPs or add a second factor. **code + owner** — IP allowlist toggle built (`deploy/contabo/caddy.d/platform-allowlist.caddyfile.example`); owner switches it on.
 - `pnpm audit --prod`: upgrade hono (in progress); track mobile/desktop toolchain advisories. **code**
 - Licence register: `licence:issue` appends to a ledger; renewal reminders. **code + owner**
 - Arabic user guide; merge `bassamZakaria/Manuel-testing-plan` (guide + 21 manual test plans). **owner + code**

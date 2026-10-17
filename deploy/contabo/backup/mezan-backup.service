@@ -1,0 +1,10 @@
+[Unit]
+Description=Mezan off-box backup (restic)
+Wants=network-online.target
+After=network-online.target docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/mezan/backup/mezan-backup.sh backup
+Nice=10
+IOSchedulingClass=idle

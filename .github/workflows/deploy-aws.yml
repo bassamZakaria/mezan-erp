@@ -1,7 +1,9 @@
 name: Deploy AWS
 
-# The ONLY workflow in this repository, and it runs only when something is
-# merged into `production`. Everything else — typecheck, lint, the unit suite,
+# AWS is not the current production target (deploy/contabo is; its image is
+# built by release-image.yml on the same `production` push). This workflow
+# runs only when something is merged into `production`, and fails at its
+# first step when the stack's variables are unset. Everything else — typecheck, lint, the unit suite,
 # the scenarios — runs locally in the git hooks (.githooks/pre-commit and
 # pre-push), so a merge to `main` costs no Actions minutes at all.
 #

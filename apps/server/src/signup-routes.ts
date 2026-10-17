@@ -33,7 +33,7 @@ import { forwardedOrigin } from "./billing-routes.js";
 import { servedTenantLookup, trustedPublicOrigin } from "./public-origin.js";
 import { MailOutcome, type PlatformMailer } from "./platform-mail.js";
 import { callerSource, requireCloudSource, type SourceReporter } from "./client-source.js";
-import { createRateLimiter } from "./rate-limit.js";
+import { platformRateLimiter } from "./rate-limit.js";
 import type { CloudEnv } from "./env.js";
 import type { TenantRouter } from "./tenant-router.js";
 
@@ -154,10 +154,10 @@ export function createSignupRoutes(options: SignupRoutesOptions): Hono {
   // Deliberately generous per-IP, tighter per-email — an office behind one
   // NAT address signing up several trials in an hour is normal; the same
   // inbox doing it is not.
-  const startIpLimit = createRateLimiter(8, 60 * 60_000);
-  const startEmailLimit = createRateLimiter(3, 60 * 60_000);
-  const checkCodeLimit = createRateLimiter(40, 60 * 60_000);
-  const verifyIpLimit = createRateLimiter(30, 60 * 60_000);
+  const startIpLimit = platformRateLimiter(platform, "signup-start-ip", 8, 60 * 60_000);
+  const startEmailLimit = platformRateLimiter(platform, "signup-start-email", 3, 60 * 60_000);
+  const checkCodeLimit = platformRateLimiter(platform, "signup-check-code", 40, 60 * 60_000);
+  const verifyIpLimit = platformRateLimiter(platform, "signup-verify-ip", 30, 60 * 60_000);
 
   const app = new Hono();
   app.use("*", requireCloudSource(env.clientSource, options.sourceReporter));

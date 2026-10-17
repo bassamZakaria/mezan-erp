@@ -73,6 +73,8 @@ export interface SessionGrant {
   readonly roleCode: string | null;
   readonly branchScope: ScopeSelection;
   readonly warehouseScope: ScopeSelection;
+  // SECURITY: epoch ms the user's access ends (User.accessExpiresAt), resolved at sign-in. The session dies at that instant however fresh it is.
+  readonly accessExpiresAt?: number | null;
 }
 
 export interface StoredSession extends SessionGrant {
@@ -95,6 +97,7 @@ export enum SessionRefusalKind {
   Moved = "moved",
   Device = "device",
   Displaced = "displaced",
+  AccessExpired = "access_expired",
 }
 
 export const DISPLACED_SESSIONS_REMEMBERED = 1000;
@@ -130,6 +133,7 @@ export interface SessionStore {
 }
 
 function expiredAt(session: StoredSession, at: number, limits: SessionLimits): SessionRefusalKind | null {
+  if (session.accessExpiresAt !== undefined && session.accessExpiresAt !== null && at >= session.accessExpiresAt) return SessionRefusalKind.AccessExpired;
   if (at - session.lastSeenAt > Math.min(session.idleMs, limits.idleMs)) return SessionRefusalKind.Idle;
   if (at - session.issuedAt > Math.min(session.maxMs, limits.maxMs)) return SessionRefusalKind.Aged;
   return null;
@@ -371,6 +375,7 @@ export function createSessionRegistry(
       roleCode: grant.roleCode,
       branchScope: grant.branchScope,
       warehouseScope: grant.warehouseScope,
+      accessExpiresAt: grant.accessExpiresAt ?? null,
       issuedAt: at,
       issuedFrom: from,
       deviceHash,
@@ -675,6 +680,17 @@ export function sessionOriginReporting(sessions: SessionRegistry, audit: AuditSi
           actor: refusal.userId,
           severity: "CRITICAL",
           details: { issuedFrom: refusal.issuedFrom, presentedFrom: refusal.presentedFrom, sessionEnded: refusal.sessionEnded, method: c.req.method, path: new URL(c.req.url).pathname },
+        });
+      }
+      if (refusal?.reason === SessionRefusalKind.AccessExpired) {
+        await recordSecurityEventOrFallback(audit, {
+          module: "auth",
+          entityType: "AUTH_USER",
+          entityId: refusal.userId,
+          action: "SESSION_ACCESS_EXPIRED",
+          actor: refusal.userId,
+          severity: "WARNING",
+          details: { issuedFrom: refusal.issuedFrom, presentedFrom: refusal.presentedFrom, method: c.req.method, path: new URL(c.req.url).pathname },
         });
       }
       if (refusal?.reason === SessionRefusalKind.Moved) {

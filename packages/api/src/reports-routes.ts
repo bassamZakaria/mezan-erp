@@ -92,6 +92,7 @@ import {
   createEmployeeDirectory,
   LEAVE_LIABILITY_CONTROL_ACCOUNT,
   type RunReportOutcome,
+  type ReportColumn,
   salesReturnGrandTotal,
   salesReturnCreditByInvoice,
   voucherBaseAmount,
@@ -2295,4 +2296,45 @@ export async function openPartyAgingInputs(deps: ReportsRoutesDeps, asOfDate: st
     customers: { invoices: salesInvoices, ...customerTerms },
     suppliers: { invoices: purchaseInvoices, ...supplierTerms },
   };
+}
+
+export enum AgingLadderSide {
+  Customers = "customers",
+  Suppliers = "suppliers",
+}
+
+export interface ReportTable {
+  readonly columns: readonly ReportColumn<unknown>[];
+  readonly outcome: RunReportOutcome<unknown, unknown>;
+}
+
+/**
+ * The aging ladder exactly as `GET /reports/aging/{customers,suppliers}` runs it
+ * for an unrestricted caller, so a figure in an evidence pack is the figure on
+ * the screen. Callers must refuse branch-scoped sessions first.
+ */
+export async function agingLadderTable(deps: ReportsRoutesDeps, c: Context, side: AgingLadderSide, asOfDate: string): Promise<ReportTable> {
+  const today = await tenantToday(c, deps.today);
+  if (side === AgingLadderSide.Customers) {
+    const definition = createAgingCustomersReport(today);
+    const { invoices, terms } = await customerAgingSetOf(deps, c, asOfDate);
+    const control = await partyControlTie(deps, RECEIVABLES_CONTROL_ACCOUNT_ID, "debit", asOfDate);
+    const outcome = runReport(definition, { ...definition.defaultParams, asOfDate }, {
+      invoices,
+      ...terms,
+      receivablesControlBalance: () => control.balance,
+      fxRevaluationOnControl: () => control.revaluation,
+    });
+    return { columns: definition.columns as readonly ReportColumn<unknown>[], outcome: outcome as RunReportOutcome<unknown, unknown> };
+  }
+  const definition = createAgingSuppliersReport(today);
+  const { invoices, terms } = await supplierAgingSetOf(deps, c, asOfDate);
+  const control = await partyControlTie(deps, PAYABLES_CONTROL_ACCOUNT_ID, "credit", asOfDate);
+  const outcome = runReport(definition, { ...definition.defaultParams, asOfDate }, {
+    invoices,
+    ...terms,
+    payablesControlBalance: () => control.balance,
+    fxRevaluationOnControl: () => control.revaluation,
+  });
+  return { columns: definition.columns as readonly ReportColumn<unknown>[], outcome: outcome as RunReportOutcome<unknown, unknown> };
 }

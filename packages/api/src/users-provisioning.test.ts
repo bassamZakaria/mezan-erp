@@ -138,7 +138,7 @@ describe("role templates", () => {
     const res = await send(h, "GET", "/roles/templates");
     expect(res.status).toBe(200);
     const templates = (await res.json()) as { id: string; permissions: string[]; omittedPermissions: string[] }[];
-    expect(templates.map((template) => template.id)).toEqual(["cashier", "accountant", "warehouse_keeper", "sales_rep", "manager", "auditor"]);
+    expect(templates.map((template) => template.id)).toEqual(["cashier", "accountant", "warehouse_keeper", "sales_rep", "manager", "auditor", "external_auditor"]);
     const rep = templates.find((template) => template.id === "sales_rep")!;
     expect(rep.permissions).toContain("sales.invoice.create");
     expect(rep.omittedPermissions).toEqual(["inventory.stock.view"]);

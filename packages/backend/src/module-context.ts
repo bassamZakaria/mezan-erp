@@ -1,5 +1,5 @@
 import type Database from "better-sqlite3";
-import type { App, AuthContextResolver, PeriodCloseGuardSlot, ReconciliationControl, SessionRegistry } from "@mezan/api";
+import type { App, AuthContextResolver, PeriodCloseGuardSlot, ReconciliationControl, ReportsRoutesDeps, SessionRegistry } from "@mezan/api";
 import type { EtaReceiptIssuer } from "./eta-receipts.js";
 import type { AuditSink, DrainResult, EventBus, PayrollBindings, UnitOfWork } from "@mezan/domain";
 import type {
@@ -86,6 +86,10 @@ export interface BackendModuleContext {
   };
   readonly periodCloseGuard: PeriodCloseGuardSlot;
   readonly addCloser: (closer: { close(): void }) => void;
+  /** The exact deps `/reports` runs on, so an area that reproduces a report reproduces the on-screen figure. */
+  readonly reports: ReportsRoutesDeps;
+  // SECURITY: the database encryption key (desktop: sealed in the OS keychain). Only for deriving install keys; never logged or returned.
+  readonly databaseKey?: string;
 }
 
 export interface BackendArea {

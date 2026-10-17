@@ -196,6 +196,7 @@ export function createRolesRoutes(
         descriptionEn: template.descriptionEn,
         permissions: [...granted],
         omittedPermissions: [...omitted],
+        ...(template.accessDays !== undefined ? { accessDays: template.accessDays } : {}),
       };
     });
     return c.json(templates);

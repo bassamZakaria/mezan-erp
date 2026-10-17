@@ -12,6 +12,7 @@ export const roleTemplateSchema = z.object({
   descriptionEn: z.string(),
   permissions: z.array(z.string()),
   omittedPermissions: z.array(z.string()),
+  accessDays: z.number().int().positive().optional(),
 });
 export type RoleTemplateDTO = z.infer<typeof roleTemplateSchema>;
 

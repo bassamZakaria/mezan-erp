@@ -50,6 +50,7 @@ export {
 } from "./schema.js";
 export {
   createSqliteSequenceStore,
+  type SequenceCounterRow,
   type SqliteSequenceStoreHandle,
 } from "./sequence-store.js";
 export {

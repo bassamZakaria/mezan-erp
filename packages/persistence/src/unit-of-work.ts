@@ -61,7 +61,8 @@ CREATE TABLE IF NOT EXISTS user (
   photo_url         TEXT,
   last_login_at     TEXT,
   created_at        TEXT NOT NULL,
-  erased_at         TEXT
+  erased_at         TEXT,
+  access_expires_at TEXT
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_user_email ON user(email);
 `;
@@ -209,6 +210,7 @@ class DrizzleUserRepository implements UserRepository {
         lastLoginAt: u.lastLoginAt,
         createdAt: u.createdAt,
         erasedAt: u.erasedAt ?? null,
+        accessExpiresAt: u.accessExpiresAt ?? null,
       })
       .onConflictDoUpdate({
         target: user.id,
@@ -228,6 +230,7 @@ class DrizzleUserRepository implements UserRepository {
           photoUrl: u.photoUrl,
           lastLoginAt: u.lastLoginAt,
           erasedAt: u.erasedAt ?? null,
+          accessExpiresAt: u.accessExpiresAt ?? null,
         },
       })
       .run();
@@ -267,6 +270,7 @@ function rowToUser(row: typeof user.$inferSelect): User {
     lastLoginAt: row.lastLoginAt,
     createdAt: row.createdAt,
     erasedAt: row.erasedAt,
+    accessExpiresAt: row.accessExpiresAt,
   };
 }
 

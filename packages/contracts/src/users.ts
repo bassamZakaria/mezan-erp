@@ -51,6 +51,8 @@ export const userSchema = z.object({
   createdAt: z.string(),
   /** When the person's data was erased (D348); the row then carries only placeholders. */
   erasedAt: z.string().nullable().optional(),
+  /** When the account stops working (time-boxed access, e.g. an external auditor). Null is no end date. */
+  accessExpiresAt: z.string().nullable().optional(),
   isCompanyOwner: z.boolean().optional(),
   ownerHandOver: z.nativeEnum(OwnerHandOverOutcome).optional(),
 });
@@ -72,6 +74,8 @@ const userBaseFields = {
    * unbounded string here is how one 4MB camera photo lands in every user list.
    */
   photoUrl: z.string().max(PHOTO_MAX_CHARS).nullable().default(null),
+  // CONTRACT: optional, not defaulted — a caller that omits it keeps the stored expiry; null clears it.
+  accessExpiresAt: z.string().datetime({ offset: true }).nullable().optional(),
 };
 
 export const createUserSchema = z

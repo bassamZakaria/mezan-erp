@@ -10,6 +10,7 @@ export enum RoleTemplateId {
   SalesRep = "sales_rep",
   Manager = "manager",
   Auditor = "auditor",
+  ExternalAuditor = "external_auditor",
 }
 
 export interface RoleTemplate {
@@ -20,9 +21,65 @@ export interface RoleTemplate {
   readonly descriptionAr: string;
   readonly descriptionEn: string;
   readonly permissions: readonly string[];
+  readonly accessDays?: number;
 }
 
 const DASHBOARD = "dashboard.view";
+
+const AUDITOR_READS: readonly string[] = [
+  DASHBOARD,
+  "accounting.coa.view",
+  "accounting.journal.view",
+  "accounting.period.view",
+  "accounting.reports.view",
+  "accounting.tax.view",
+  "accounting.eta.view",
+  "sales.invoice.view",
+  "sales.invoice.view_all",
+  "sales.invoice.view_cost",
+  "sales.customer.view",
+  "sales.quote.view",
+  "sales.return.view",
+  "sales.price_list.view",
+  "sales.promotion.view",
+  "purchases.supplier.view",
+  "purchases.supplier360.view",
+  "purchases.order.view",
+  "purchases.receipt.view",
+  "purchases.invoice.view",
+  "purchases.return.view",
+  "purchases.landed_cost.view",
+  "inventory.item.view",
+  "inventory.stock.view",
+  "inventory.valuation.view",
+  "inventory.transfer.view",
+  "inventory.count.view",
+  "inventory.adjustment.view",
+  "inventory.writedown.view",
+  "treasury.account.view",
+  "treasury.cash_voucher.view",
+  "treasury.allocation.view",
+  "treasury.reconciliation.view",
+  "cheques.view",
+  "crm.customer360.view",
+  "installments.plan.view",
+  "assets.view",
+  "assets.depreciation.view",
+  "workflow.view",
+  "audit.logs.view",
+  "audit.sequence_gaps.view",
+  "audit.evidence_pack.view",
+  "admin.users.view",
+  "admin.roles.view",
+  "admin.settings.view",
+  "projects.project.view",
+  "contracting.boq.view",
+  "contracting.certificate.view",
+  "contracting.guarantee.view",
+];
+
+export const EXTERNAL_AUDITOR_ACCESS_DAYS = 30;
+export const EXTERNAL_AUDITOR_MAX_ACCESS_DAYS = 180;
 
 export const ROLE_TEMPLATES: readonly RoleTemplate[] = [
   {
@@ -171,60 +228,29 @@ export const ROLE_TEMPLATES: readonly RoleTemplate[] = [
     nameEn: "Auditor (read-only)",
     descriptionAr: "يقرأ كل شيء ولا يغيّر أي شيء.",
     descriptionEn: "Reads everything and changes nothing.",
-    permissions: [
-      DASHBOARD,
-      "accounting.coa.view",
-      "accounting.journal.view",
-      "accounting.period.view",
-      "accounting.reports.view",
-      "accounting.tax.view",
-      "accounting.eta.view",
-      "sales.invoice.view",
-      "sales.invoice.view_all",
-      "sales.invoice.view_cost",
-      "sales.customer.view",
-      "sales.quote.view",
-      "sales.return.view",
-      "sales.price_list.view",
-      "sales.promotion.view",
-      "purchases.supplier.view",
-      "purchases.supplier360.view",
-      "purchases.order.view",
-      "purchases.receipt.view",
-      "purchases.invoice.view",
-      "purchases.return.view",
-      "purchases.landed_cost.view",
-      "inventory.item.view",
-      "inventory.stock.view",
-      "inventory.valuation.view",
-      "inventory.transfer.view",
-      "inventory.count.view",
-      "inventory.adjustment.view",
-      "inventory.writedown.view",
-      "treasury.account.view",
-      "treasury.cash_voucher.view",
-      "treasury.allocation.view",
-      "treasury.reconciliation.view",
-      "cheques.view",
-      "crm.customer360.view",
-      "installments.plan.view",
-      "assets.view",
-      "assets.depreciation.view",
-      "workflow.view",
-      "audit.logs.view",
-      "admin.users.view",
-      "admin.roles.view",
-      "admin.settings.view",
-      "projects.project.view",
-      "contracting.boq.view",
-      "contracting.certificate.view",
-      "contracting.guarantee.view",
-    ],
+    permissions: AUDITOR_READS,
+  },
+  {
+    id: RoleTemplateId.ExternalAuditor,
+    code: "EXTERNAL_AUDITOR",
+    nameAr: "مراجع خارجي (وصول مؤقت، قراءة فقط)",
+    nameEn: "Auditor (time-boxed, read-only)",
+    descriptionAr: "لمراقب الحسابات من خارج المنشأة: يقرأ الدفاتر ويُعدّ حزمة أدلة المراجعة الموقّعة، ولا يغيّر شيئًا، وينتهي دخوله تلقائيًا في التاريخ المحدد للمستخدم.",
+    descriptionEn: "For an outside auditor: reads the books and builds the signed evidence pack, changes nothing, and loses access automatically on the user's expiry date.",
+    permissions: [...AUDITOR_READS, "audit.evidence_pack.build"],
+    accessDays: EXTERNAL_AUDITOR_ACCESS_DAYS,
   },
 ];
 
 export function findRoleTemplate(id: string): RoleTemplate | undefined {
   return ROLE_TEMPLATES.find((template) => template.id === id);
+}
+
+export function timeBoxedTemplateForRoleCode(roleCode: string | null | undefined): RoleTemplate | undefined {
+  if (!roleCode) return undefined;
+  return ROLE_TEMPLATES.find(
+    (template) => template.accessDays !== undefined && (roleCode === template.code || roleCode.startsWith(`${template.code}_`)),
+  );
 }
 
 export interface RoleTemplateProblems {

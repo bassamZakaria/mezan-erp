@@ -88,6 +88,7 @@ export const PERMISSION_ACTION_LABELS = {
   reverse: { ar: "عكس", en: "Reverse" },
   scan: { ar: "مسح وعدّ بالباركود", en: "Scan and count" },
   review: { ar: "مراجعة", en: "Review" },
+  build: { ar: "إعداد وتنزيل", en: "Build and download" },
 } as const satisfies Record<string, PermissionLabel>;
 
 export const PERMISSION_ENTITY_LABELS = {
@@ -183,6 +184,8 @@ export const PERMISSION_ENTITY_LABELS = {
   provision: { ar: "مخصص الإجازات ونهاية الخدمة", en: "Leave and end-of-service provision" },
   equipment_log: { ar: "سجل تشغيل المعدات", en: "Equipment log" },
   consumption: { ar: "صرف مواد للموقع", en: "Site material consumption" },
+  evidence_pack: { ar: "حزمة أدلة المراجعة", en: "Audit evidence pack" },
+  sequence_gaps: { ar: "فجوات تسلسل الترقيم", en: "Numbering sequence gaps" },
 } as const satisfies Record<string, PermissionLabel>;
 
 type ActionSegment = keyof typeof PERMISSION_ACTION_LABELS;

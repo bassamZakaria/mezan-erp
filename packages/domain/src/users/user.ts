@@ -55,6 +55,8 @@ export interface User {
   readonly createdAt: string;
   /** Set once the person's data was erased (D348); the anonymised row stays because immutable records name its id. */
   readonly erasedAt?: string | null;
+  // SECURITY: the instant this account stops working — sign-in is refused from it on and every live session ends on its next request (session-auth.ts).
+  readonly accessExpiresAt?: string | null;
 }
 
 /** Persistence port for users. The domain depends on this interface only. */

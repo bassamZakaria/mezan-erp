@@ -64,13 +64,17 @@ describe("permission catalog", () => {
     //
     // 277 → 281. ENH-E2-03 count mode: inventory.count.scan, .assign, .review and .approve (sensitive).
     //
+    // 281 → 284. ENH-E3-08 evidence pack: audit.sequence_gaps.view (`GET /audit/sequence-gaps`),
+    // audit.evidence_pack.view (pack register and public key) and audit.evidence_pack.build
+    // (sensitive, `POST /audit/evidence-packs`).
+    //
     // Pinned deliberately. A code added without a route to check it, or a route
     // deleted while its code stays, moves one of these numbers — which is the
     // whole point of asserting them.
-    expect(PERMISSIONS).toHaveLength(281);
+    expect(PERMISSIONS).toHaveLength(284);
     expect(MODULES).toHaveLength(20);
     const summed = MODULES.reduce((n, m) => n + m.count, 0);
-    expect(summed).toBe(281);
+    expect(summed).toBe(284);
   });
 
   it("carries a `pos` module again, and the INVOICE discount ceiling still lives under sales", () => {
@@ -124,8 +128,10 @@ describe("permission catalog", () => {
     expect(isSensitive("purchases.landed_cost.void")).toBe(false);
     // 26 → 27: the salary bank file carries every bank-paid employee's IBAN and net pay.
     expect(isSensitive("hr.payroll.bank_file")).toBe(true);
+    // 31 → 32: the evidence pack carries the whole ledger, the audit trail and every user's grant.
+    expect(isSensitive("audit.evidence_pack.build")).toBe(true);
     const sensitiveCount = PERMISSIONS.filter((p) => p.sensitive).length;
-    expect(sensitiveCount).toBe(31);
+    expect(sensitiveCount).toBe(32);
   });
 
   it("marks the one platform-admin-only permission", () => {

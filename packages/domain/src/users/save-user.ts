@@ -1,6 +1,7 @@
 import { ALL_SCOPE, type ScopeSelection } from "../permissions/auth-context.js";
 import type { UnitOfWork } from "../journal.js";
 import type { SecretHasher, User, UserStatus } from "./user.js";
+import { accessExpiryProblem } from "./access-expiry.js";
 
 export class InvalidUserError extends Error {
   readonly code = "INVALID_USER";
@@ -110,6 +111,8 @@ export interface SaveUserCommand {
   readonly warehouseScope: ScopeSelection;
   readonly status: UserStatus;
   readonly createdAt: string;
+  /** ISO instant the account stops working. `undefined` keeps what is stored, `null` clears it. */
+  readonly accessExpiresAt?: string | null;
 }
 
 function isScopeEmpty(scope: ScopeSelection): boolean {
@@ -148,6 +151,7 @@ export interface SaveUserOptions {
    * settings dependency it would otherwise need only for this one rule.
    */
   readonly allowedEmailDomains?: readonly string[];
+  readonly now?: () => number;
 }
 
 /**
@@ -196,10 +200,8 @@ export async function saveUser(
     throw new InvalidUserError("يجب أن يتكون الرقم السري من 4 إلى 6 أرقام.");
   }
 
-  if (cmd.roleId) {
-    const role = await uow.roles.findById(cmd.roleId);
-    if (!role) throw new UnknownRoleError(cmd.roleId);
-  }
+  const role = cmd.roleId ? await uow.roles.findById(cmd.roleId) : null;
+  if (cmd.roleId && !role) throw new UnknownRoleError(cmd.roleId);
 
   const existingByEmail = await uow.users.findByEmail(email);
   if (existingByEmail && existingByEmail.id !== cmd.id) {
@@ -207,6 +209,15 @@ export async function saveUser(
   }
 
   const prior = await uow.users.findById(cmd.id);
+
+  const accessExpiresAt = cmd.accessExpiresAt === undefined ? (prior?.accessExpiresAt ?? null) : cmd.accessExpiresAt;
+  const expiryRefusal = accessExpiryProblem(
+    { accessExpiresAt, isCompanyAdmin: cmd.isCompanyAdmin, roleCode: role?.code ?? null },
+    (opts?.now ?? Date.now)(),
+  );
+  if (expiryRefusal && (cmd.accessExpiresAt !== undefined || !prior || prior.roleId !== cmd.roleId || prior.isCompanyAdmin !== cmd.isCompanyAdmin)) {
+    throw expiryRefusal;
+  }
 
   const staysAdmin = cmd.isCompanyAdmin && cmd.status === "active";
   if (prior && !staysAdmin && (await isLastActiveCompanyAdmin(prior, uow))) {
@@ -244,6 +255,7 @@ export async function saveUser(
     photoUrl: cmd.photoUrl === undefined ? (prior?.photoUrl ?? null) : cmd.photoUrl,
     lastLoginAt: prior?.lastLoginAt ?? null,
     createdAt: prior?.createdAt ?? cmd.createdAt,
+    accessExpiresAt,
   };
 
   await uow.users.save(user);

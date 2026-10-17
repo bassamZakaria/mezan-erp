@@ -886,7 +886,7 @@ describe("the audit of a console PIN reset", () => {
     const signedIn = await auth.app.fetch(
       new Request("http://x/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email: OPERATOR.email, password: OPERATOR.password }) }),
     );
-    const { token } = (await signedIn.json()) as { token: string };
+    const { token, deviceSecret } = (await signedIn.json()) as { token: string; deviceSecret: string };
     const app = createPlatformRoutes({
       platform: c.platform,
       auth,
@@ -898,7 +898,7 @@ describe("the audit of a console PIN reset", () => {
       invalidateEntitlements: (code) => c.router.invalidate(code),
     });
     const reset = async (tenantId: string) => {
-      const res = await app.fetch(new Request(`http://x/tenants/${tenantId}/owner-pin/reset`, { method: "POST", headers: { authorization: `Bearer ${token}` } }));
+      const res = await app.fetch(new Request(`http://x/tenants/${tenantId}/owner-pin/reset`, { method: "POST", headers: { authorization: `Bearer ${token}`, "x-mezan-device": deviceSecret } }));
       return { status: res.status, json: (await res.json()) as Record<string, unknown> };
     };
     const rows = async () =>

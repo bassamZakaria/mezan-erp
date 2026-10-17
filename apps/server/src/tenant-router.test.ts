@@ -155,7 +155,7 @@ async function bootstrapAdmin(router: TenantRouter, code: string): Promise<strin
   );
   expect(signedIn.status).toBe(200);
   const session = (await signedIn.json()) as SessionDTO;
-  return session.token;
+  return session.token ?? "";
 }
 
 describe("createTenantRouter", () => {

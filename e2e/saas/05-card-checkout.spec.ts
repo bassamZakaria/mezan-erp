@@ -1,7 +1,7 @@
 import { type APIRequestContext, type Page } from "@playwright/test";
 import { test, expect } from "./support/test";
 import { ApiError, CodePrefix, HttpMethod, PlanId, SAAS_API_URL, SubscriptionStatus, uniqueCode } from "./support/env";
-import { openTenantDetail, platformSignIn, platformToken, provisionTenant, tenantApiLogin, tenantCall, tenantSignIn, type TenantLogin } from "./support/saas";
+import { bearer, openTenantDetail, platformSignIn, platformToken, provisionTenant, tenantApiLogin, tenantCall, tenantSignIn, type TenantLogin } from "./support/saas";
 
 const BILLING_PATH = "/setup/settings-billing";
 const WEBHOOK_URL = `${SAAS_API_URL}/api/billing/paymob/webhook`;
@@ -33,7 +33,7 @@ async function subscriptionOf(request: APIRequestContext, tenant: TenantLogin): 
 
 async function paymentCount(request: APIRequestContext, tenant: TenantLogin): Promise<number> {
   const token = await platformToken(request);
-  const response = await request.get(`${SAAS_API_URL}/api/platform/tenants/${tenant.id}/payments`, { headers: { authorization: `Bearer ${token}` } });
+  const response = await request.get(`${SAAS_API_URL}/api/platform/tenants/${tenant.id}/payments`, { headers: { ...bearer(token) } });
   expect(response.status()).toBe(200);
   return ((await response.json()) as unknown[]).length;
 }

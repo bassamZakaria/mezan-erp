@@ -5,7 +5,7 @@ import type { Context } from "hono";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createCloudApp, type CloudApp } from "./cloud-app.js";
 import { parseEnv, type CloudEnv } from "./env.js";
-import { reachable } from "./cloud-harness.js";
+import { platformBearer, reachable, rememberPlatformDevice } from "./cloud-harness.js";
 
 const PROXY_HOPS = 2;
 const PROXIED = { MEZAN_TRUST_PROXY: "1", MEZAN_TRUSTED_PROXY_HOPS: String(PROXY_HOPS) };
@@ -89,6 +89,7 @@ async function platformLogin(app: CloudApp, email: string, password: string): Pr
   );
   expect(res.status).toBe(200);
   const body = (await res.json()) as { token: string };
+  rememberPlatformDevice(body);
   return body.token;
 }
 
@@ -96,7 +97,7 @@ async function provisionCyag(app: CloudApp, token: string): Promise<{ tenant: { 
   const res = await app.root.fetch(
     new Request("http://cloud.internal/api/platform/tenants", {
       method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+      headers: { "content-type": "application/json", ...platformBearer(token) },
       body: JSON.stringify({
         code: "cyag",
         nameAr: "سياج",
@@ -189,7 +190,7 @@ describe("createCloudApp", () => {
     const env = testEnv();
     const app = await boot(env);
     const token = await platformLogin(app, "owner@mezan.local", "owner-password-123");
-    const authed = { "content-type": "application/json", authorization: `Bearer ${token}` };
+    const authed = { "content-type": "application/json", ...platformBearer(token) };
 
     const doomedPlanRes = await app.root.fetch(
       new Request("http://cloud.internal/api/platform/plans", {

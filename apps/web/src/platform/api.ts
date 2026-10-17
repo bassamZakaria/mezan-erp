@@ -1,8 +1,29 @@
-import { createContext, createElement, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
+import { createContext, createElement, Fragment, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
+import { CsrfCookie, DEVICE_BINDING_HEADER, DeviceBinding } from "@mezan/contracts";
 import { QueryClientContext } from "@tanstack/react-query";
 import { createHttpTransport, type Transport, type TransportResponse } from "../data/transport";
 import type { AppTranslationKey } from "../i18n";
+import { sessionCredential } from "../data/session";
+import { StepUpDialog, StepUpSecret, type StepUpPrompt } from "../data/StepUpDialog";
 import { loadPersistedPlatformSession, persistPlatformSession, type PlatformSession } from "./session";
+
+const SIGN_IN_PATH = "/auth/login";
+const SIGN_OUT_PATH = "/auth/logout";
+const STEP_UP_PATH = "/auth/step-up";
+const STEP_UP_STATUS = 403;
+const STEP_UP_REQUIRED = "STEP_UP_REQUIRED";
+
+function errorOf(text: string): { error?: string; message?: string } | null {
+  try {
+    return JSON.parse(text) as { error?: string; message?: string };
+  } catch {
+    return null;
+  }
+}
+
+function replayable(response: TransportResponse, text: string): TransportResponse {
+  return { status: response.status, ok: response.ok, json: async <T,>() => JSON.parse(text) as T, text: async () => text };
+}
 
 /**
  * The platform console's own door onto the shared Hono app: every path here
@@ -51,10 +72,57 @@ export function PlatformApiProvider({ children, transport, initialSession }: Pla
     persistPlatformSession(next);
   }, []);
   const queryClient = useContext(QueryClientContext);
-  const endSession = useCallback(() => {
+  const [stepUp, setStepUp] = useState<StepUpPrompt | null>(null);
+
+  const credentialed = useCallback(
+    (path: string, init?: RequestInit): RequestInit => {
+      const headers = new Headers(init?.headers);
+      if (session) for (const [name, value] of Object.entries(sessionCredential(session, CsrfCookie.Platform))) headers.set(name, value);
+      if (init?.body && !headers.has("content-type")) headers.set("content-type", "application/json");
+      if (path === SIGN_IN_PATH) headers.set(DEVICE_BINDING_HEADER, DeviceBinding.Cookie);
+      return { ...init, headers };
+    },
+    [session],
+  );
+
+  const forget = useCallback(() => {
     queryClient?.clear();
     setSession(null);
   }, [queryClient, setSession]);
+
+  const endSession = useCallback(() => {
+    // The session lives in HttpOnly cookies the page cannot clear: only the
+    // server can end it and expire them.
+    void resolvedTransport(SIGN_OUT_PATH, credentialed(SIGN_OUT_PATH, { method: "POST" })).catch(() => undefined);
+    forget();
+  }, [resolvedTransport, credentialed, forget]);
+
+  const afterStepUp = useCallback(
+    async (refused: TransportResponse, resend: () => Promise<TransportResponse>): Promise<TransportResponse> => {
+      const text = await refused.text();
+      const replayed = replayable(refused, text);
+      const body = errorOf(text);
+      if (body?.error !== STEP_UP_REQUIRED) return replayed;
+      const confirmed = await new Promise<boolean>((resolve) => {
+        setStepUp({
+          message: body.message ?? "",
+          secret: StepUpSecret.Password,
+          cancel: () => resolve(false),
+          confirm: async (password) => {
+            const answer = await resolvedTransport(STEP_UP_PATH, credentialed(STEP_UP_PATH, { method: "POST", body: JSON.stringify({ password }) }));
+            if (answer.ok) {
+              resolve(true);
+              return null;
+            }
+            return errorOf(await answer.text())?.message ?? "";
+          },
+        });
+      });
+      setStepUp(null);
+      return confirmed ? resend() : replayed;
+    },
+    [resolvedTransport, credentialed],
+  );
 
   const value = useMemo<PlatformApiContextValue>(
     () => ({
@@ -62,24 +130,27 @@ export function PlatformApiProvider({ children, transport, initialSession }: Pla
       setSession,
       endSession,
       async request(path, init) {
-        const headers = new Headers(init?.headers);
-        if (session) headers.set("authorization", `Bearer ${session.token}`);
-        if (init?.body && !headers.has("content-type")) headers.set("content-type", "application/json");
-        const response = await resolvedTransport(path, { ...init, headers });
-        // A 401 means this bearer token is no longer good — expired, revoked,
+        const send = () => resolvedTransport(path, credentialed(path, init));
+        const first = await send();
+        const response = first.status === STEP_UP_STATUS && session !== null ? await afterStepUp(first, send) : first;
+        // A 401 means this session is no longer good — expired, revoked,
         // or the server restarted. The login POST is excluded: a wrong
         // password is a 401 the login screen reports itself, not a session
         // that went stale.
-        if (response.status === 401 && session !== null && !path.startsWith("/auth/login")) {
-          endSession();
+        if (response.status === 401 && session !== null && !path.startsWith(SIGN_IN_PATH)) {
+          forget();
         }
         return response;
       },
     }),
-    [session, setSession, endSession, resolvedTransport],
+    [session, setSession, endSession, resolvedTransport, credentialed, afterStepUp, forget],
   );
 
-  return createElement(PlatformApiContext.Provider, { value }, children);
+  return createElement(
+    PlatformApiContext.Provider,
+    { value },
+    createElement(Fragment, null, children, stepUp ? createElement(StepUpDialog, { prompt: stepUp }) : null),
+  );
 }
 
 export function usePlatformApi(): PlatformApiContextValue {

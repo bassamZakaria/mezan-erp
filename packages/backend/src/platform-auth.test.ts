@@ -1,9 +1,10 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { Hono } from "hono";
-import { createSessionRegistry } from "@mezan/api";
+import { createSessionRegistry, DEVICE_MISMATCH_LIMIT } from "@mezan/api";
+import { DEVICE_SECRET_HEADER } from "@mezan/contracts";
 import { ALL_SCOPE, createMemorySecurityEventFallback, createPlatformUser, type PlatformUser } from "@mezan/domain";
 import { createPlatform, type PlatformHandle } from "./create-platform.js";
-import { createPlatformAuth } from "./platform-auth.js";
+import { createPlatformAuth, PLATFORM_SESSION_LIMITS, PlatformSecurityAction } from "./platform-auth.js";
 
 const FIXED_NOW = () => new Date("2026-01-01T00:00:00Z");
 
@@ -110,9 +111,9 @@ describe("createPlatformAuth", () => {
         body: JSON.stringify({ email: "owner@mezan.app", password: "correct horse battery" }),
       }),
     );
-    const { token } = (await json(loginRes)) as { token: string };
+    const { token, deviceSecret } = (await json(loginRes)) as { token: string; deviceSecret: string };
 
-    const meRes = await auth.app.fetch(new Request("http://x/me", { headers: { authorization: `Bearer ${token}` } }));
+    const meRes = await auth.app.fetch(new Request("http://x/me", { headers: { authorization: `Bearer ${token}`, [DEVICE_SECRET_HEADER]: deviceSecret } }));
     expect(meRes.status).toBe(200);
     expect(await json(meRes)).toEqual({ id: "PU-OWNER", email: "owner@mezan.app", role: "owner" });
 
@@ -132,12 +133,14 @@ describe("createPlatformAuth", () => {
         body: JSON.stringify({ email: "owner@mezan.app", password: "correct horse battery" }),
       }),
     );
-    const { token } = (await json(loginRes)) as { token: string };
+    const { token, deviceSecret } = (await json(loginRes)) as { token: string; deviceSecret: string };
+    const headers = { authorization: `Bearer ${token}`, [DEVICE_SECRET_HEADER]: deviceSecret };
 
-    const logoutRes = await auth.app.fetch(new Request("http://x/logout", { method: "POST", headers: { authorization: `Bearer ${token}` } }));
+    const logoutRes = await auth.app.fetch(new Request("http://x/logout", { method: "POST", headers }));
     expect(logoutRes.status).toBe(200);
+    expect((await platform.audit.query("security")).map((e) => e.action)).toContain("PLATFORM_LOGGED_OUT");
 
-    const meRes = await auth.app.fetch(new Request("http://x/me", { headers: { authorization: `Bearer ${token}` } }));
+    const meRes = await auth.app.fetch(new Request("http://x/me", { headers }));
     expect(meRes.status).toBe(401);
   });
 
@@ -158,16 +161,17 @@ describe("createPlatformAuth", () => {
           body: JSON.stringify({ email, password: "correct horse battery" }),
         }),
       );
-      return ((await json(res)) as { token: string }).token;
+      const { token, deviceSecret } = (await json(res)) as { token: string; deviceSecret: string };
+      return { authorization: `Bearer ${token}`, [DEVICE_SECRET_HEADER]: deviceSecret };
     }
 
-    const ownerToken = await login("owner@mezan.app");
-    const supportToken = await login("support@mezan.app");
+    const ownerHeaders = await login("owner@mezan.app");
+    const supportHeaders = await login("support@mezan.app");
 
-    const ownerRes = await testApp.fetch(new Request("http://x/owner-only", { headers: { authorization: `Bearer ${ownerToken}` } }));
+    const ownerRes = await testApp.fetch(new Request("http://x/owner-only", { headers: ownerHeaders }));
     expect(ownerRes.status).toBe(200);
 
-    const supportRes = await testApp.fetch(new Request("http://x/owner-only", { headers: { authorization: `Bearer ${supportToken}` } }));
+    const supportRes = await testApp.fetch(new Request("http://x/owner-only", { headers: supportHeaders }));
     expect(supportRes.status).toBe(403);
     expect(await json(supportRes)).toEqual({ error: "OWNER_ONLY", message: "هذا الإجراء لمالك المنصة فقط" });
   });
@@ -255,5 +259,96 @@ describe("createPlatformAuth", () => {
     expect(summary.recent.map((entry) => entry.action)).toEqual(["PLATFORM_LOGIN_FAILED", "PLATFORM_LOGIN_SUCCEEDED"]);
     expect(summary.recent.every((entry) => entry.reason === "audit sink down")).toBe(true);
     expect(JSON.stringify(summary)).not.toMatch(/correct horse battery|not the password/);
+  });
+});
+
+describe("the platform console session", () => {
+  const SOURCE = "x-test-source";
+
+  async function rig() {
+    const platform = await newPlatform();
+    await seedOwner(platform);
+    let clock = Date.parse("2026-01-01T09:00:00Z");
+    const sessions = createSessionRegistry(() => clock, PLATFORM_SESSION_LIMITS);
+    const auth = createPlatformAuth({ platform, sessions, now: FIXED_NOW, sourceOf: (c) => c.req.header(SOURCE) ?? null });
+    const app = new Hono();
+    app.route("/auth", auth.app);
+    app.get("/read", auth.requirePlatform(), (c) => c.json({ ok: true }));
+    app.post("/write", auth.requirePlatform(), (c) => c.json({ ok: true }));
+    const login = async (from = "41.33.10.10") => {
+      const res = await app.fetch(
+        new Request("http://x/auth/login", {
+          method: "POST",
+          headers: { "content-type": "application/json", [SOURCE]: from },
+          body: JSON.stringify({ email: "owner@mezan.app", password: "correct horse battery" }),
+        }),
+      );
+      const { token, deviceSecret } = (await json(res)) as { token: string; deviceSecret: string };
+      return { token, deviceSecret };
+    };
+    const call = (method: string, path: string, headers: Record<string, string>, body?: unknown) =>
+      app.fetch(new Request(`http://x${path}`, { method, headers: { "content-type": "application/json", ...headers }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }));
+    const actions = async () => (await platform.audit.query("security")).map((e) => e.action);
+    return { app, login, call, actions, advance: (ms: number) => (clock += ms) };
+  }
+
+  it("is bound to the device that signed in: the token alone is refused, and the refusal is audited", async () => {
+    const r = await rig();
+    const { token, deviceSecret } = await r.login();
+    expect((await r.call("GET", "/read", { authorization: `Bearer ${token}`, [SOURCE]: "41.33.10.10", [DEVICE_SECRET_HEADER]: deviceSecret })).status).toBe(200);
+    expect((await r.call("GET", "/read", { authorization: `Bearer ${token}`, [SOURCE]: "41.33.10.10" })).status).toBe(401);
+    expect(await r.actions()).toContain(PlatformSecurityAction.SessionDeviceRejected);
+  });
+
+  it("counts one refused device secret once per request, so the session ends on the documented limit and not before", async () => {
+    const r = await rig();
+    const { token, deviceSecret } = await r.login();
+    for (let i = 1; i < DEVICE_MISMATCH_LIMIT; i++) {
+      expect((await r.call("POST", "/write", { authorization: `Bearer ${token}`, [SOURCE]: "41.33.10.10" })).status).toBe(401);
+    }
+    expect((await r.call("GET", "/read", { authorization: `Bearer ${token}`, [SOURCE]: "41.33.10.10", [DEVICE_SECRET_HEADER]: deviceSecret })).status).toBe(200);
+  });
+
+  it("after a change of address reads on, but changes nothing until the password is entered again", async () => {
+    const r = await rig();
+    const { token, deviceSecret } = await r.login();
+    const moved = { authorization: `Bearer ${token}`, [DEVICE_SECRET_HEADER]: deviceSecret, [SOURCE]: "102.44.7.1" };
+    expect((await r.call("GET", "/read", moved)).status).toBe(200);
+    const refused = await r.call("POST", "/write", moved);
+    expect(refused.status).toBe(403);
+    expect(((await json(refused)) as { error: string }).error).toBe("STEP_UP_REQUIRED");
+
+    expect((await r.call("POST", "/auth/step-up", moved, { password: "wrong password" })).status).toBe(401);
+    expect((await r.call("POST", "/write", moved)).status).toBe(403);
+    expect((await r.call("POST", "/auth/step-up", moved, { password: "correct horse battery" })).status).toBe(200);
+    expect((await r.call("POST", "/write", moved)).status).toBe(200);
+
+    expect(await r.actions()).toEqual(
+      expect.arrayContaining([
+        PlatformSecurityAction.SessionAddressChanged,
+        PlatformSecurityAction.StepUpRequired,
+        PlatformSecurityAction.StepUpFailed,
+        PlatformSecurityAction.StepUpConfirmed,
+      ]),
+    );
+  });
+
+  it("ends after half an hour idle, and after eight hours however busy, and says so in the audit", async () => {
+    const r = await rig();
+    const idle = await r.login();
+    const idleHeaders = { authorization: `Bearer ${idle.token}`, [DEVICE_SECRET_HEADER]: idle.deviceSecret, [SOURCE]: "41.33.10.10" };
+    r.advance(PLATFORM_SESSION_LIMITS.idleMs + 1);
+    expect((await r.call("GET", "/read", idleHeaders)).status).toBe(401);
+
+    const busy = await r.login();
+    const busyHeaders = { authorization: `Bearer ${busy.token}`, [DEVICE_SECRET_HEADER]: busy.deviceSecret, [SOURCE]: "41.33.10.10" };
+    const step = PLATFORM_SESSION_LIMITS.idleMs / 2;
+    for (let at = step; at <= PLATFORM_SESSION_LIMITS.maxMs - step; at += step) {
+      r.advance(step);
+      expect((await r.call("GET", "/read", busyHeaders)).status).toBe(200);
+    }
+    r.advance(step + 1);
+    expect((await r.call("GET", "/read", busyHeaders)).status).toBe(401);
+    expect((await r.actions()).filter((a) => a === PlatformSecurityAction.SessionExpired)).toHaveLength(2);
   });
 });

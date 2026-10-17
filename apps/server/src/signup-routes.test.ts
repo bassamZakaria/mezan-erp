@@ -10,7 +10,7 @@ import { createTenant, InvalidTenantTransitionError, startSubscription, TenantSt
 import { releaseProvisioningTenant } from "./release-tenant.js";
 import { createCloudApp, type CloudApp } from "./cloud-app.js";
 import { createSignupRoutes } from "./signup-routes.js";
-import { reachable } from "./cloud-harness.js";
+import { platformBearer as bearerHeaders, reachable, rememberPlatformDevice } from "./cloud-harness.js";
 import { provisionTenant } from "./provision-tenant.js";
 import { createTenantRouter, TENANT_HEADER, type TenantRouter, type TenantRouterOptions } from "./tenant-router.js";
 import { COMPANY_NAME_MAX_LENGTH } from "@mezan/domain";
@@ -90,7 +90,9 @@ function signupBody(code: string, nameAr: string): Record<string, string> {
 async function platformBearer(app: CloudApp): Promise<string> {
   const login = await post(app, "/api/platform/auth/login", { email: OWNER_EMAIL, password: OWNER_PASSWORD });
   expect(login.status).toBe(200);
-  return ((await login.json()) as { token: string }).token;
+  const body = (await login.json()) as { token: string };
+  rememberPlatformDevice(body);
+  return body.token;
 }
 
 async function startAndReadToken(app: CloudApp, code: string, nameAr = "متجر الياسمين"): Promise<string> {
@@ -103,11 +105,13 @@ async function startAndReadToken(app: CloudApp, code: string, nameAr = "متجر
 async function moveTenant(app: CloudApp, tenantId: string, transition: TenantTransition): Promise<void> {
   const login = await post(app, "/api/platform/auth/login", { email: OWNER_EMAIL, password: OWNER_PASSWORD });
   expect(login.status).toBe(200);
-  const { token } = (await login.json()) as { token: string };
+  const signedIn = (await login.json()) as { token: string };
+  rememberPlatformDevice(signedIn);
+  const { token } = signedIn;
   const moved = await app.root.fetch(
     new Request(`http://cloud.internal/api/platform/tenants/${tenantId}/${transition}`, {
       method: "POST",
-      headers: { authorization: `Bearer ${token}` },
+      headers: { ...bearerHeaders(token) },
     }),
   );
   expect(moved.status).toBe(200);
@@ -115,8 +119,10 @@ async function moveTenant(app: CloudApp, tenantId: string, transition: TenantTra
 
 async function listedTenantCodes(app: CloudApp): Promise<string[]> {
   const login = await post(app, "/api/platform/auth/login", { email: OWNER_EMAIL, password: OWNER_PASSWORD });
-  const { token } = (await login.json()) as { token: string };
-  const listed = await app.root.fetch(new Request("http://cloud.internal/api/platform/tenants", { headers: { authorization: `Bearer ${token}` } }));
+  const signedIn = (await login.json()) as { token: string };
+  rememberPlatformDevice(signedIn);
+  const { token } = signedIn;
+  const listed = await app.root.fetch(new Request("http://cloud.internal/api/platform/tenants", { headers: { ...bearerHeaders(token) } }));
   return ((await listed.json()) as { tenant: { code: string } }[]).map((row) => row.tenant.code);
 }
 
@@ -302,7 +308,7 @@ describe("self-serve signup routes", () => {
     const refused = await app.root.fetch(
       new Request("http://cloud.internal/api/platform/tenants", {
         method: "POST",
-        headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+        headers: { "content-type": "application/json", ...bearerHeaders(token) },
         body: JSON.stringify({ ...signupBody("console", nameAr), trial: true }),
       }),
     );
@@ -340,7 +346,7 @@ function resetOwnerPin(app: CloudApp, tenantId: string, bearer: string | null): 
     app.root.fetch(
       new Request(`http://cloud.internal/api/platform/tenants/${tenantId}/owner-pin/reset`, {
         method: "POST",
-        headers: bearer ? { authorization: `Bearer ${bearer}` } : {},
+        headers: bearer ? { ...bearerHeaders(bearer) } : {},
       }),
     ),
   );
@@ -354,9 +360,11 @@ describe("a trailing slash on an /api route", () => {
 
     const platformLogin = await post(app, "/api/platform/auth/login/", { email: OWNER_EMAIL, password: OWNER_PASSWORD });
     expect(platformLogin.status).toBe(200);
-    const bearer = ((await platformLogin.json()) as { token: string }).token;
+    const platformSession = (await platformLogin.json()) as { token: string };
+    rememberPlatformDevice(platformSession);
+    const bearer = platformSession.token;
 
-    const tenants = await app.root.fetch(new Request("http://cloud.internal/api/platform/tenants/", { headers: { authorization: `Bearer ${bearer}` } }));
+    const tenants = await app.root.fetch(new Request("http://cloud.internal/api/platform/tenants/", { headers: { ...bearerHeaders(bearer) } }));
     expect(tenants.status).toBe(200);
     expect(((await tenants.json()) as { tenant: { code: string } }[]).map((row) => row.tenant.code)).toContain("slashes");
 
@@ -375,7 +383,7 @@ describe("a trailing slash on an /api route", () => {
     const session = ((await tenantLoginAnswer.json()) as { token: string }).token;
 
     const customers = await app.root.fetch(
-      new Request("http://cloud.internal/api/customers/?pageSize=5", { headers: { authorization: `Bearer ${session}`, "x-mezan-tenant": "slashes" } }),
+      new Request("http://cloud.internal/api/customers/?pageSize=5", { headers: { ...bearerHeaders(session), "x-mezan-tenant": "slashes" } }),
     );
     expect(customers.status).toBe(200);
   });
@@ -397,7 +405,7 @@ describe("the platform owner resets a tenant owner's PIN", () => {
     const oldPin = first.adminPin ?? "";
     const session = ((await (await cloudLogin(app, "locked", oldPin)).json()) as { token: string }).token;
     const customers = () =>
-      app.root.fetch(new Request("http://cloud.internal/api/customers", { headers: { authorization: `Bearer ${session}`, "x-mezan-tenant": "locked" } }));
+      app.root.fetch(new Request("http://cloud.internal/api/customers", { headers: { ...bearerHeaders(session), "x-mezan-tenant": "locked" } }));
     expect((await customers()).status).toBe(200);
 
     const reset = await resetOwnerPin(app, first.tenant.id, await platformBearer(app));
@@ -450,7 +458,7 @@ describe("the platform owner resets a tenant owner's PIN", () => {
       const answer = await app.root.fetch(
         new Request(`http://cloud.internal${route}`, {
           method: "POST",
-          headers: { "content-type": "application/json", authorization: `Bearer ${tenantSession}`, "x-mezan-tenant": "inside" },
+          headers: { "content-type": "application/json", ...bearerHeaders(tenantSession), "x-mezan-tenant": "inside" },
           body: JSON.stringify({ email: "owner@inside.example", pin: "000000" }),
         }),
       );
@@ -469,12 +477,12 @@ describe("the platform owner resets a tenant owner's PIN", () => {
     const linkToken = await startAndReadToken(app, "moved");
     const first = (await (await post(app, "/api/signup/verify", { token: linkToken })).json()) as VerifyBody;
     const session = ((await (await cloudLogin(app, "moved", first.adminPin ?? "")).json()) as { token: string }).token;
-    const tenantHeaders = { authorization: `Bearer ${session}`, "x-mezan-tenant": "moved", "content-type": "application/json" };
+    const tenantHeaders = { ...bearerHeaders(session), "x-mezan-tenant": "moved", "content-type": "application/json" };
     const users = (await (await app.root.fetch(new Request("http://cloud.internal/api/users", { headers: tenantHeaders }))).json()) as Record<string, unknown>[];
     const owner = users.find((user) => user["email"] === "owner@moved.example");
     const bearer = await platformBearer(app);
     const recordedOwner = async () =>
-      ((await (await app.root.fetch(new Request("http://cloud.internal/api/platform/tenants", { headers: { authorization: `Bearer ${bearer}` } }))).json()) as {
+      ((await (await app.root.fetch(new Request("http://cloud.internal/api/platform/tenants", { headers: { ...bearerHeaders(bearer) } }))).json()) as {
         tenant: { code: string; ownerEmail: string };
       }[]).find((row) => row.tenant.code === "moved")?.tenant.ownerEmail;
 
@@ -531,7 +539,7 @@ describe("the platform owner resets a tenant owner's PIN", () => {
         router.app.fetch(
           new Request(`http://ignored${route}`, {
             method,
-            headers: { authorization: `Bearer ${session}`, [TENANT_HEADER]: "steady", "content-type": "application/json" },
+            headers: { ...bearerHeaders(session), [TENANT_HEADER]: "steady", "content-type": "application/json" },
             ...(body === undefined ? {} : { body: JSON.stringify(body) }),
           }),
         ),
@@ -566,7 +574,7 @@ describe("the platform owner resets a tenant owner's PIN", () => {
       app.root.fetch(
         new Request(`http://cloud.internal/api/platform${route}`, {
           method: body === undefined ? "GET" : "POST",
-          headers: { "content-type": "application/json", authorization: `Bearer ${bearer}` },
+          headers: { "content-type": "application/json", ...bearerHeaders(bearer) },
           ...(body === undefined ? {} : { body: JSON.stringify(body) }),
         }),
       );
@@ -582,7 +590,7 @@ describe("the platform owner resets a tenant owner's PIN", () => {
     const { adminPin } = (await retried.json()) as { adminPin: string };
     const session = ((await (await cloudLogin(app, "retried", adminPin)).json()) as { token: string }).token;
     const audit = await app.root.fetch(
-      new Request("http://cloud.internal/api/audit?stream=security&action=OWNER_PIN_RESET", { headers: { authorization: `Bearer ${session}`, "x-mezan-tenant": "retried" } }),
+      new Request("http://cloud.internal/api/audit?stream=security&action=OWNER_PIN_RESET", { headers: { ...bearerHeaders(session), "x-mezan-tenant": "retried" } }),
     );
     expect(audit.status).toBe(200);
     const { events } = (await audit.json()) as { events: { action: string; actor: string }[] };
@@ -1097,7 +1105,7 @@ describe("a stored subscription status this build does not know", () => {
     raw.close();
 
     const listed = await app.root.fetch(
-      new Request("http://cloud.internal/api/platform/tenants", { headers: { authorization: `Bearer ${await platformBearer(app)}` } }),
+      new Request("http://cloud.internal/api/platform/tenants", { headers: { ...bearerHeaders(await platformBearer(app)) } }),
     );
 
     expect(listed.status).toBe(200);
@@ -1107,7 +1115,7 @@ describe("a stored subscription status this build does not know", () => {
       fineone: SubscriptionStatusCode.Trialing,
     });
     const billing = await app.root.fetch(
-      new Request("http://cloud.internal/api/billing/subscription", { headers: { authorization: `Bearer ${session}`, "x-mezan-tenant": "oddone" } }),
+      new Request("http://cloud.internal/api/billing/subscription", { headers: { ...bearerHeaders(session), "x-mezan-tenant": "oddone" } }),
     );
     expect(billing.status).toBe(200);
     expect(((await billing.json()) as { subscription: { status: string } }).subscription.status).toBe(SubscriptionStatusCode.Unknown);

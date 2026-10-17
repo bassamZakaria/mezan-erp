@@ -26,6 +26,7 @@ export type Connection = z.infer<typeof connectionSchema>;
 
 export async function saveSession(session: SessionDTO): Promise<void> {
   const { token, deviceSecret, ...profile } = session;
+  if (!token) throw new Error("the server answered a sign-in with no session token");
   await SecureStore.setItemAsync(TOKEN_KEY, token, {
     keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
   });

@@ -273,7 +273,14 @@ function originLabel(origin: string | null): string {
  * specific origin — the in-process mount — and matches only null, so a token
  * minted over IPC is refused the moment it appears on the wire.
  */
-export function createSessionRegistry(now: () => number = Date.now): SessionRegistry {
+export interface SessionLimits {
+  readonly idleMs: number;
+  readonly maxMs: number;
+}
+
+export const DEFAULT_SESSION_LIMITS: SessionLimits = { idleMs: IDLE_TIMEOUT_MS, maxMs: MAX_SESSION_MS };
+
+export function createSessionRegistry(now: () => number = Date.now, limits: SessionLimits = DEFAULT_SESSION_LIMITS): SessionRegistry {
   const byHash = new Map<string, StoredSession>();
   // SECURITY: a record that a session ENDED, kept only so its holder can be
   // told why. It grants nothing, is bounded, and is forgotten after the idle
@@ -301,8 +308,8 @@ export function createSessionRegistry(now: () => number = Date.now): SessionRegi
   }
 
   function expired(session: StoredSession, at: number): SessionRefusalKind | null {
-    if (at - session.lastSeenAt > IDLE_TIMEOUT_MS) return SessionRefusalKind.Idle;
-    if (at - session.issuedAt > MAX_SESSION_MS) return SessionRefusalKind.Aged;
+    if (at - session.lastSeenAt > limits.idleMs) return SessionRefusalKind.Idle;
+    if (at - session.issuedAt > limits.maxMs) return SessionRefusalKind.Aged;
     return null;
   }
 
@@ -311,7 +318,7 @@ export function createSessionRegistry(now: () => number = Date.now): SessionRegi
       if (expired(session, at)) byHash.delete(key);
     }
     for (const [key, ended] of displaced) {
-      if (at - ended.at > IDLE_TIMEOUT_MS) displaced.delete(key);
+      if (at - ended.at > limits.idleMs) displaced.delete(key);
     }
   }
 
@@ -353,7 +360,7 @@ export function createSessionRegistry(now: () => number = Date.now): SessionRegi
       const session = byHash.get(key);
       if (!session) {
         const ended = displaced.get(key);
-        if (!ended || at - ended.at > IDLE_TIMEOUT_MS) return { grant: null, refusal: null };
+        if (!ended || at - ended.at > limits.idleMs) return { grant: null, refusal: null };
         return {
           grant: null,
           refusal: { reason: SessionRefusalKind.Displaced, sessionEnded: true, userId: ended.userId, issuedFrom: originLabel(ended.issuedFrom), presentedFrom: originLabel(canonicalOrigin(origin)) },

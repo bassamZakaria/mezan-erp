@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, it, expect, afterEach } from "vitest";
 import { drainForeignWrites } from "@mezan/persistence";
 import { createSessionRegistry } from "@mezan/api";
+import { DEVICE_SECRET_HEADER } from "@mezan/contracts";
 import {
   activateTenant,
   CardPaymentNotApplicableError,
@@ -69,7 +70,9 @@ async function buildRig(overrides: Partial<Parameters<typeof createPlatformRoute
         body: JSON.stringify({ email, password: "correct horse battery" }),
       }),
     );
-    return ((await json(res)) as { token: string }).token;
+    const { token, deviceSecret } = (await json(res)) as { token: string; deviceSecret: string };
+    devices.set(token, deviceSecret);
+    return token;
   }
 
   const invalidated: string[] = [];
@@ -148,10 +151,18 @@ async function buildRig(overrides: Partial<Parameters<typeof createPlatformRoute
 const RESET_PIN = "305917";
 const OWNER_WHO_LEFT = "gone@acme.eg";
 
+const devices = new Map<string, string>();
+
 function req(path: string, token: string, init: RequestInit = {}) {
+  const device = devices.get(token);
   return new Request(`http://x${path}`, {
     ...init,
-    headers: { ...(init.body ? { "content-type": "application/json" } : {}), authorization: `Bearer ${token}`, ...(init.headers ?? {}) },
+    headers: {
+      ...(init.body ? { "content-type": "application/json" } : {}),
+      authorization: `Bearer ${token}`,
+      ...(device ? { [DEVICE_SECRET_HEADER]: device } : {}),
+      ...(init.headers ?? {}),
+    },
   });
 }
 

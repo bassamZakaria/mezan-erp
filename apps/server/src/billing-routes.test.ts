@@ -8,7 +8,7 @@ import { createPaymobWebhookRoutes, PAYMOB_WEBHOOK_PATH, trustedReturnOrigin } f
 import type { CardCheckoutService, WebhookResult } from "./card-checkout.js";
 import { SettlementDetail, SettlementStatus } from "./card-checkout.js";
 import { parseEnv, type CloudEnv } from "./env.js";
-import { reachable } from "./cloud-harness.js";
+import { platformBearer, reachable, rememberPlatformDevice } from "./cloud-harness.js";
 
 const PROXY_HOPS = 2;
 const PROXIED = { MEZAN_TRUST_PROXY: "1", MEZAN_TRUSTED_PROXY_HOPS: String(PROXY_HOPS) };
@@ -51,7 +51,7 @@ async function boot(): Promise<CloudApp> {
 function send(app: CloudApp, pathname: string, init: RequestInit & { token?: string; tenant?: string } = {}) {
   const headers = new Headers(init.headers);
   if (init.body) headers.set("content-type", "application/json");
-  if (init.token) headers.set("authorization", `Bearer ${init.token}`);
+  if (init.token) for (const [name, value] of Object.entries(platformBearer(init.token))) headers.set(name, value);
   if (init.tenant) headers.set("x-mezan-tenant", init.tenant);
   return app.root.fetch(new Request(`http://cloud.internal${pathname}`, { ...init, headers }));
 }
@@ -61,7 +61,9 @@ async function platformToken(app: CloudApp): Promise<string> {
     method: "POST",
     body: JSON.stringify({ email: "owner@mezan.local", password: "owner-password-123" }),
   });
-  return ((await res.json()) as { token: string }).token;
+  const body = (await res.json()) as { token: string };
+  rememberPlatformDevice(body);
+  return body.token;
 }
 
 interface TenantLogin {

@@ -23,6 +23,7 @@ import {
   errorOf,
   openTenantDetail,
   platformSignIn,
+  bearer,
   platformToken,
   provisionTenant,
   rowsOf,
@@ -68,7 +69,7 @@ async function periodEnd(page: Page): Promise<Date> {
 
 async function platformGet<T>(request: APIRequestContext, path: string): Promise<T> {
   const token = await platformToken(request);
-  const response = await request.get(`${SAAS_API_URL}/api/platform${path}`, { headers: { authorization: `Bearer ${token}` } });
+  const response = await request.get(`${SAAS_API_URL}/api/platform${path}`, { headers: { ...bearer(token) } });
   expect(response.status()).toBe(200);
   return (await response.json()) as T;
 }

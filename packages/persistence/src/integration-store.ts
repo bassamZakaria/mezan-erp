@@ -1,5 +1,4 @@
-import { ApiKeyScopeDTO, WebhookDeliveryStatusDTO } from "@mezan/contracts";
-import { isApiKeyScope, type ApiKeyRecord, type WebhookDeliveryRecord, type WebhookRecord } from "@mezan/domain";
+import { WebhookDeliveryState as WebhookDeliveryStatusDTO, isApiKeyScope, type ApiKeyRecord, type ApiKeyScope as ApiKeyScopeDTO, type WebhookDeliveryRecord, type WebhookRecord } from "@mezan/domain";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 
 // DEC-17 drops `api_key`, `webhook` and `webhook_delivery` on every open (create-backend.ts):

@@ -95,7 +95,16 @@ export function webhookTargetProblem(raw: string): string | null {
     return "لا يمكن إرسال webhook إلى عنوان داخلي.";
   }
   if (host.includes(":")) return "عناوين IPv6 المباشرة غير مسموح بها؛ استخدم اسم مضيف.";
+  if (isPrivateIpv4Literal(host)) return "لا يمكن إرسال webhook إلى عنوان داخلي.";
   return null;
+}
+
+const IPV4_LITERAL = /^\d{1,3}(\.\d{1,3}){3}$/;
+
+function isPrivateIpv4Literal(host: string): boolean {
+  if (!IPV4_LITERAL.test(host)) return false;
+  const [a, b] = host.split(".").map(Number) as [number, number, number, number];
+  return a === 0 || a === 10 || a === 127 || a >= 224 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127);
 }
 
 function publicData(payload: unknown): unknown {

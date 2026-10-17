@@ -1,7 +1,17 @@
+import { Plug } from "lucide-react";
 import type { NavFragment, NavIconFragment, ScreenLoaderFragment } from "../../../fragments";
 
-export const navFragment: NavFragment = {};
-export const screens = {} satisfies ScreenLoaderFragment;
-export const icons: NavIconFragment = {};
-export const ar = {} as const;
-export const en: Record<keyof typeof ar, string> = {};
+export { ar, en } from "../integrations/strings";
+
+export const navFragment: NavFragment = {
+  placements: [{ group: "setup", section: "permissions", itemKeys: ["integrations"] }],
+  access: { integrations: { permission: "admin.integrations.view", module: "integrations" } },
+};
+
+export const screens = {
+  integrations: () => import("../integrations/IntegrationsScreen").then((m) => ({ Component: m.IntegrationsScreen })),
+} satisfies ScreenLoaderFragment;
+
+export const icons: NavIconFragment = {
+  items: { integrations: Plug },
+};

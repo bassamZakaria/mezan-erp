@@ -231,6 +231,17 @@ export function createCollectionsRoutes(deps: CollectionsRoutesDeps, resolveAuth
     }
   }
 
+  async function settledReminder(id: string): Promise<DunningReminder> {
+    const stored = await deps.store.reminders.findById(id);
+    if (!stored) throw new DunningReminderNotFoundError(id);
+    const [effective] = await effectiveStatuses([stored]);
+    if (effective && effective.status !== stored.status) {
+      await deps.store.reminders.update(effective);
+      return effective;
+    }
+    return stored;
+  }
+
   function reminderDTO(reminder: DunningReminder, customers: ReadonlyMap<string, Customer>): DunningReminderDTO {
     const customer = customers.get(reminder.customerId);
     const live = reminder.status === DunningReminderStatus.Prepared || reminder.status === DunningReminderStatus.Sent;
@@ -389,7 +400,7 @@ export function createCollectionsRoutes(deps: CollectionsRoutesDeps, resolveAuth
 
   app.get("/worklist", gate("sales.collections.view"), async (c) => {
     const day = await today(c);
-    const [items, customers, { policy }, reminders, holds, promises] = await Promise.all([
+    const [items, customers, { policy }, storedReminders, holds, promises] = await Promise.all([
       receivableItems(c, day, true),
       customerDirectory(),
       currentPolicy(),
@@ -399,6 +410,7 @@ export function createCollectionsRoutes(deps: CollectionsRoutesDeps, resolveAuth
     ]);
     const rows = buildCollectionWorklist(items, day);
     const names = nameMap(customers);
+    const reminders = await effectiveStatuses(storedReminders);
     const pending = new Map(promises.filter((p) => p.status === PromiseToPayStatus.Pending).map((p) => [p.customerId, p]));
     const holdMap = new Map(holds.map((h) => [h.customerId, h]));
     const result: CollectionsWorklistDTO = {
@@ -569,8 +581,7 @@ export function createCollectionsRoutes(deps: CollectionsRoutesDeps, resolveAuth
 
   app.post("/reminders/:id/send", gate("sales.collections.send"), async (c) => {
     try {
-      const reminder = await deps.store.reminders.findById(c.req.param("id"));
-      if (!reminder) throw new DunningReminderNotFoundError(c.req.param("id"));
+      const reminder = await settledReminder(c.req.param("id"));
       const customerOrResponse = await customerOrRefusal(c, reminder.customerId);
       if (customerOrResponse instanceof Response) return customerOrResponse;
       const customer = customerOrResponse;
@@ -695,8 +706,7 @@ export function createCollectionsRoutes(deps: CollectionsRoutesDeps, resolveAuth
     try {
       const parsed = dismissReminderSchema.safeParse(await c.req.json().catch(() => ({})));
       if (!parsed.success) return c.json(body(CollectionsRefusal.InvalidRequest, "الطلب غير صالح.", "The request is not valid.", { issues: parsed.error.issues }), 400);
-      const reminder = await deps.store.reminders.findById(c.req.param("id"));
-      if (!reminder) throw new DunningReminderNotFoundError(c.req.param("id"));
+      const reminder = await settledReminder(c.req.param("id"));
       const customerOrResponse = await customerOrRefusal(c, reminder.customerId);
       if (customerOrResponse instanceof Response) return customerOrResponse;
       if (reminder.status !== DunningReminderStatus.Prepared && reminder.status !== DunningReminderStatus.Failed) {
@@ -853,15 +863,16 @@ export function createCollectionsRoutes(deps: CollectionsRoutesDeps, resolveAuth
       deps.store.activities.list({ customerId }),
     ]);
     const names = nameMap(customers);
+    const effectiveReminders = await effectiveStatuses(reminders);
     const row = buildCollectionWorklist(items.filter((item) => item.partyId === customerId), day)[0] ?? null;
     const holdMap = new Map(hold ? [[customerId, hold]] : []);
     const pending = new Map(promises.filter((p) => p.status === PromiseToPayStatus.Pending).map((p) => [p.customerId, p]));
     const result: CustomerCollectionsDTO = {
       asOfDate: day,
       customerId,
-      row: row ? rowDTO(row, policy, reminders, customers, holdMap, pending, names, day) : null,
+      row: row ? rowDTO(row, policy, effectiveReminders, customers, holdMap, pending, names, day) : null,
       hold: hold && holdActive(hold, day) ? holdDTO(hold) : null,
-      reminders: (await effectiveStatuses(reminders)).map((reminder) => reminderDTO(reminder, customers)),
+      reminders: effectiveReminders.map((reminder) => reminderDTO(reminder, customers)),
       promises: promises.map((promise) => promiseDTO(promise, names)),
       activities: activities.map<CollectionActivityDTO>((activity) => ({
         id: activity.id,

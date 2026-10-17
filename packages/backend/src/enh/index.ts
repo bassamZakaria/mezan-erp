@@ -8,7 +8,7 @@ import { area as e1_06 } from "./e1-06.js";
 import { area as e2_01 } from "./e2-01.js";
 import { area as e2_02 } from "./e2-02.js";
 import { area as e2_03 } from "./e2-03.js";
-import { area as e2_04 } from "./e2-04.js";
+import { area as e2_04, EXPIRY_EVENT_CODES } from "./e2-04.js";
 import { area as e2_08 } from "./e2-08.js";
 import { area as e2_09 } from "./e2-09.js";
 import { area as e2_10 } from "./e2-10.js";
@@ -28,7 +28,7 @@ import { area as e3_10 } from "./e3-10.js";
  * `/notification-rules/triggers`' `emitted` flag, so an event a rule author can
  * subscribe to is never listed as one nothing raises.
  */
-export const ENH_EMITTED_EVENT_CODES = [CASH_FORECAST_ALERT_EVENT] as const;
+export const ENH_EMITTED_EVENT_CODES = [CASH_FORECAST_ALERT_EVENT, ...EXPIRY_EVENT_CODES] as const;
 
 export const ENH_AREAS: readonly (readonly [string, BackendArea])[] = [
   ["enh-e1-01", e1_01],

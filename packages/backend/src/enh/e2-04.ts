@@ -119,7 +119,7 @@ function createScanner(ctx: BackendModuleContext, store: ReturnType<typeof creat
         daysToExpiry: alert.daysToExpiry,
         qty: layer.remainingQty.toString(),
         nearExpiryDays: settings.nearExpiryDays,
-        link: "/inventory/batches",
+        link: "/stock/inventory-batches",
       });
     }
     return emitted;

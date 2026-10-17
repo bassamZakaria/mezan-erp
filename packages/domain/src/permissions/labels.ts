@@ -171,6 +171,7 @@ export const PERMISSION_ENTITY_LABELS = {
   cockpit: { ar: "لوحة المالك", en: "owner cockpit" },
   cash_forecast: { ar: "توقع السيولة", en: "cash forecast" },
   recurring: { ar: "القيود المتكررة", en: "Recurring journals" },
+  expiry: { ar: "الصلاحية والتشغيلات", en: "Expiry and batches" },
   terminal: { ar: "جهاز نقطة البيع", en: "POS terminal" },
   revaluation: { ar: "إعادة تقييم العملات", en: "FX revaluation" },
   year_end_close: { ar: "إقفال نهاية السنة", en: "Year-end close" },

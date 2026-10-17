@@ -424,7 +424,7 @@ import type { BackendModuleContext } from "./module-context.js";
 import { mountPos } from "./pos/index.js";
 import { ENH_EMITTED_EVENT_CODES, mountEnhancements } from "./enh/index.js";
 import { readStockLedgerDateMismatches } from "./enh/e1-04.js";
-import { EXPIRY_EVENT_CODES, lotRequirementFromItems } from "./enh/e2-04.js";
+import { lotRequirementFromItems } from "./enh/e2-04.js";
 import { seedDemoTenant } from "./demo-seed.js";
 import { ensureStandardRoles } from "./standard-roles.js";
 import { createHrTreasuryDisbursementPort } from "./hr-treasury-disbursement.js";
@@ -5461,7 +5461,6 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
     emittedEventCodes: [
       ...emittedEventCodesOf(returnsEventMapping, salesInvoiceEventMapping, purchasesEventMapping, voucherEventMapping),
       ...ENH_EMITTED_EVENT_CODES,
-      ...EXPIRY_EVENT_CODES,
     ],
     notificationRepo: notifications,
     /**

@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { Item } from "../items/item.js";
 import type { Warehouse } from "../settings/warehouse.js";
 import type { CostLayer } from "../inventory/cost-layer.js";
-import type { ReportDefinition } from "../reports/types.js";
+import { ReportParamKind, type ReportDefinition } from "../reports/types.js";
 import { sumRows } from "../reports/kpi.js";
 import { BRANCH_PARAM_FIELD, branchIdParamSchema, branchOfWarehouse, matchesBranch } from "../reports/branch-filter.js";
 import { summarizeBatchStock } from "./batch-stock.js";
@@ -75,7 +75,7 @@ export function createInventoryBatchesReport(
     defaultParams: { status: "", search: "", warehouseId: "", itemId: "", branchId: "" },
     paramFields: [
       {
-        kind: "select",
+        kind: ReportParamKind.Select,
         key: "status",
         label: "الحالة",
         options: [
@@ -86,7 +86,7 @@ export function createInventoryBatchesReport(
           { value: ExpiryStatus.NoExpiry, label: EXPIRY_STATUS_LABEL_AR[ExpiryStatus.NoExpiry] },
         ],
       },
-      { kind: "text", key: "search", label: "بحث", placeholder: "اسم الصنف أو كوده أو رقم التشغيلة" },
+      { kind: ReportParamKind.Text, key: "search", label: "بحث", placeholder: "اسم الصنف أو كوده أو رقم التشغيلة" },
       BRANCH_PARAM_FIELD,
     ],
     rowKey: (row) => row.key,

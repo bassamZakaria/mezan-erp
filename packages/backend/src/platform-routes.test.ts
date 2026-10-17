@@ -1510,6 +1510,7 @@ describe("a tenant's backup export and restore drill", () => {
 
   function backupsPort() {
     const taken: string[] = [];
+    const cancelled: string[] = [];
     const exported: Array<{ tenantId: string; passphrase: string }> = [];
     const live = new Map<string, string>();
     const port: PlatformTenantBackupsPort = {
@@ -1528,10 +1529,15 @@ describe("a tenant's backup export and restore drill", () => {
         taken.push(token);
         if (live.get(token) !== tenant.id) return null;
         live.delete(token);
-        return { body: new Response("abc").body!, fileName: "x.mezanbak.enc", bytes: 3 };
+        const body = new ReadableStream<Uint8Array>({
+          start: (controller) => controller.enqueue(new TextEncoder().encode("abc")),
+          pull: (controller) => controller.close(),
+          cancel: () => void cancelled.push(token),
+        });
+        return { body, fileName: "x.mezanbak.enc", bytes: 3 };
       },
     };
-    return { port, taken, exported };
+    return { port, taken, exported, cancelled };
   }
 
   const exportRows = async (rig: Rig) => (await rig.platform.audit.query("security")).filter((row) => row.action.startsWith("TENANT_BACKUP")).reverse();
@@ -1606,6 +1612,25 @@ describe("a tenant's backup export and restore drill", () => {
     const actions = (await exportRows(rig)).map((row) => row.action);
     expect(actions).toContain("TENANT_BACKUP_EXPORT_DOWNLOADED");
     expect(actions).toContain("TENANT_BACKUP_EXPORT_REFUSED");
+  });
+
+  it("closes the taken export's stream and answers 503 when the audit cannot record the download", async () => {
+    const b = backupsPort();
+    const rig = await buildRig({ tenantBackups: b.port });
+    const { body } = await provisionOne(rig);
+    const offer = (await json(await post(rig, body.tenant.id, rig.ownerToken, { reason: "migration", passphrase: PASSPHRASE }))) as { downloadPath: string };
+    const append = rig.platform.audit.append.bind(rig.platform.audit);
+    rig.platform.audit.append = async (event) => {
+      if (event.action === "TENANT_BACKUP_EXPORT_DOWNLOADED") throw new Error("audit sink down");
+      await append(event);
+    };
+
+    const res = await rig.app.fetch(req(offer.downloadPath, rig.ownerToken));
+    rig.platform.audit.append = append;
+
+    expect(res.status).toBe(503);
+    expect(await json(res)).toMatchObject({ error: "AUDIT_UNAVAILABLE" });
+    expect(b.cancelled).toEqual([offer.downloadPath.split("/").pop()]);
   });
 
   it("does not hand one tenant's export to a link opened under another tenant", async () => {

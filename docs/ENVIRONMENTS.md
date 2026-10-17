@@ -24,6 +24,15 @@ into `<platform dir>/backups/` (`MEZAN_BACKUP_INTERVAL_MINUTES`, default 15).
 On the demo host that directory sits under `/tmp` and is lost on restart; on
 AWS a sidecar syncs it to S3 — see the `apps/mezan` README in `cyag-devops`.
 
+Tenant export downloads (the encrypted file the console offers, valid ten
+minutes) are held by the instance that built them, in memory. The download
+must reach that same instance (sticky routing, or one instance), until the
+offers move to the platform database. A start-up sweep of `<platform dir>/exports/`
+removes only entries older than that ten-minute window, so a second instance
+sharing the directory does not lose a download in flight. The exported database
+has the sign-in attempt log and the lease table emptied; the live database is
+never touched.
+
 ## Audit trail anchors (tamper evidence from outside the database)
 
 The audit trail is hash-chained, but anyone with the files can re-chain it or

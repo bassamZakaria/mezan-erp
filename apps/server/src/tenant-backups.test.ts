@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -36,7 +36,7 @@ function liveBooks(dir: string, tenantId: string, rows: number, boundTo: string 
   for (let i = 0; i < rows; i += 1) sqlite.prepare(`INSERT INTO invoice VALUES (?, ?)`).run(`${tenantId}-${i}`, "10.00");
   if (boundTo) bindTenantDatabase(sqlite, boundTo);
   closers.push(() => sqlite.close());
-  return { backupTo: (destination: string) => sqlite.backup(destination).then(() => undefined) };
+  return { sqlite, backupTo: (destination: string) => sqlite.backup(destination).then(() => undefined) };
 }
 
 function service(dir: string, books: Record<string, ReturnType<typeof liveBooks>>, ttlMs?: number) {
@@ -146,14 +146,57 @@ describe("a tenant's backup export", () => {
     expect(exportFiles(dir)).toEqual([]);
   });
 
-  it("clears exports a previous process left behind when it starts", () => {
+  it("clears exports and work folders a previous process left behind past their time, and leaves a younger instance's files alone", () => {
     const dir = tempDir("mezan-export-");
-    mkdirSync(path.join(dir, EXPORTS_FOLDER), { recursive: true });
-    writeFileSync(path.join(dir, EXPORTS_FOLDER, "left-over.enc"), "x");
+    const exports = path.join(dir, EXPORTS_FOLDER);
+    mkdirSync(path.join(exports, "work-stale"), { recursive: true });
+    mkdirSync(path.join(exports, "work-live"), { recursive: true });
+    writeFileSync(path.join(exports, "left-over.enc"), "x");
+    writeFileSync(path.join(exports, "another-instance.enc"), "x");
+    const longAgo = new Date(Date.now() - 60 * 60 * 1000);
+    for (const stale of ["left-over.enc", "work-stale"]) utimesSync(path.join(exports, stale), longAgo, longAgo);
 
     service(dir, {});
 
+    expect(exportFiles(dir).sort()).toEqual(["another-instance.enc", "work-live"]);
+  });
+
+  it("closes the stream and removes the file when the taker abandons the download before reading it", async () => {
+    const dir = tempDir("mezan-export-");
+    const svc = service(dir, { acme: liveBooks(dir, "acme", 1) });
+    const offer = await svc.exportTenant({ tenant: tenantOf("acme"), passphrase: PASSPHRASE });
+
+    const taken = await svc.takeExport({ tenant: tenantOf("acme"), token: tokenOf(offer.downloadPath) });
+    await taken!.body.cancel();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
     expect(exportFiles(dir)).toEqual([]);
+  });
+
+  it("leaves the sign-in log and the lease table empty in the exported database, and untouched in the live one", async () => {
+    const dir = tempDir("mezan-export-");
+    const books = liveBooks(dir, "acme", 2);
+    const live = books.sqlite;
+    live.exec(`CREATE TABLE sign_in_attempt (scope TEXT, key TEXT, failures INTEGER); CREATE TABLE resource_lease (lease_key TEXT PRIMARY KEY, owner TEXT, expires_at INTEGER)`);
+    live.prepare(`INSERT INTO sign_in_attempt VALUES ('account', 'ali@example.eg', 3)`).run();
+    live.prepare(`INSERT INTO resource_lease VALUES ('hr-punch:u1', 'o', 1)`).run();
+    const svc = service(dir, { acme: books });
+
+    const offer = await svc.exportTenant({ tenant: tenantOf("acme"), passphrase: PASSPHRASE });
+    const taken = await svc.takeExport({ tenant: tenantOf("acme"), token: tokenOf(offer.downloadPath) });
+    const encrypted = path.join(dir, "out.enc");
+    writeFileSync(encrypted, await drain(taken!.body));
+    const plain = path.join(dir, "plain.tar.gz");
+    await decryptFile(encrypted, plain, PASSPHRASE);
+    const target = path.join(dir, "desktop", "mezan.sqlite");
+    await restoreBackup({ archivePath: plain, targetDbPath: target, workDir: path.join(dir, "work") });
+    const { sqlite: exported } = openSqliteConnection(target);
+    closers.push(() => exported.close());
+    expect(exported.prepare(`SELECT count(*) AS n FROM sign_in_attempt`).get()).toEqual({ n: 0 });
+    expect(exported.prepare(`SELECT count(*) AS n FROM resource_lease`).get()).toEqual({ n: 0 });
+    expect(exported.prepare(`SELECT count(*) AS n FROM invoice`).get()).toEqual({ n: 2 });
+    expect(live.prepare(`SELECT count(*) AS n FROM sign_in_attempt`).get()).toEqual({ n: 1 });
+    expect(live.prepare(`SELECT count(*) AS n FROM resource_lease`).get()).toEqual({ n: 1 });
   });
 });
 

@@ -234,7 +234,19 @@ export async function loadOrCreateTenantKey(params: {
  */
 export async function writeKeyCard(dbPath: string, key: string): Promise<string> {
   const target = keyCardFilePath(dbPath);
-  const body = [
+  await writeOwnerOnly(target, keyCardBody(key));
+  return target;
+}
+
+/** The same card, written where the owner chose — «حماية النسخ الاحتياطية»'s key-card route. */
+export async function writeKeyCardTo(target: string, key: string): Promise<string> {
+  keyLiteral(key);
+  await writeOwnerOnly(target, keyCardBody(key));
+  return target;
+}
+
+function keyCardBody(key: string): string {
+  return [
     "============================================================",
     "مزان — مفتاح تشفير قاعدة البيانات",
     "Mezan — database encryption key",
@@ -255,6 +267,10 @@ export async function writeKeyCard(dbPath: string, key: string): Promise<string>
     "من يملك هذا الملف ونسخة احتياطية واحدة يستطيع قراءة كل دفاترك:",
     "العملاء والأسعار والمرتبات. لا تتركه على الجهاز ولا ترسله في رسالة.",
     "",
+    "على جهاز جديد: افتح «استعادة نسخة قابلة للنقل» واختر ملف النسخة",
+    "(.mezanbak.enc) من المجلد الثاني للنسخ، ثم اكتب هذا المفتاح في خانة",
+    "كلمة السر.",
+    "",
     "------------------------------------------------------------",
     "In English",
     "------------------------------------------------------------",
@@ -269,11 +285,13 @@ export async function writeKeyCard(dbPath: string, key: string): Promise<string>
     "Anyone holding this file and one backup archive can read your entire",
     "books — customers, prices, salaries. Do not leave it on the machine and",
     "do not send it in a message.",
+    "",
+    "On a new computer: open «استعادة نسخة قابلة للنقل», pick the copy",
+    "(.mezanbak.enc) from the second backup folder, and type this key as",
+    "the passphrase.",
     "============================================================",
     "",
   ].join("\n");
-  await writeOwnerOnly(target, body);
-  return target;
 }
 
 /** True when the process was started with `--allow-unencrypted-database`. */

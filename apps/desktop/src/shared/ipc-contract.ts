@@ -143,6 +143,10 @@ export type BackupFailureCode =
   | "WRONG_PASSPHRASE"
   | "CANCELLED"
   | "BUSY"
+  | "WEAK_PASSPHRASE"
+  | "WRONG_PIN"
+  | "PIN_REQUIRED"
+  | "KEY_CARD_NOT_SAVED"
   | "FAILED";
 
 export interface BackupFailure {
@@ -257,7 +261,43 @@ export interface SecondTargetStatusDTO {
   readonly lastCopyOk: boolean | null;
   readonly lastCopyFile: string | null;
   readonly lastCopyError: string | null;
+  /** True when the last copy was sealed under the recovery secret and opens on any machine. */
+  readonly lastCopyPortable: boolean | null;
 }
+
+export enum RecoveryMode {
+  Passphrase = "passphrase",
+  KeyCard = "key-card",
+}
+
+/**
+ * «حماية النسخ الاحتياطية»: the secret the owner will type on replacement
+ * hardware. Null `mode` means none was ever set, and every copy in the second
+ * folder is still keyed to this machine alone.
+ */
+export interface RecoveryStatusDTO {
+  readonly mode: RecoveryMode | null;
+  readonly setAt: string | null;
+  /** The key-card route exists only on an encrypted install: the card holds the database key. */
+  readonly keyCardAvailable: boolean;
+  /** False when the OS has no keyring to seal the recovery key with; nothing can be set then. */
+  readonly keyStoreAvailable: boolean;
+}
+
+export interface BackupRecoverySetRequest {
+  readonly mode: RecoveryMode;
+  /** Required for `RecoveryMode.Passphrase`; the key card's secret is supplied by the main process. */
+  readonly passphrase?: string;
+  /** The signed-in user's current PIN. Required once a recovery secret exists. */
+  readonly pin?: string;
+}
+
+export type BackupRecoveryResult = { readonly ok: true; readonly recovery: RecoveryStatusDTO } | BackupFailure;
+
+export type BackupKeyCardSaveResult = { readonly ok: true; readonly filePath: string } | BackupFailure;
+
+export const MEZAN_BACKUP_RECOVERY_SET_CHANNEL = "mezan:backup:recovery:set";
+export const MEZAN_BACKUP_RECOVERY_SAVE_KEY_CARD_CHANNEL = "mezan:backup:recovery:saveKeyCard";
 
 export interface BackupStatusResult {
   readonly ok: true;
@@ -270,6 +310,7 @@ export interface BackupStatusResult {
   readonly secondTarget: SecondTargetStatusDTO;
   readonly lastBackupAt: string | null;
   readonly diskFreeBytes: number | null;
+  readonly recovery: RecoveryStatusDTO;
 }
 
 export type BackupDrillResult = { readonly ok: true; readonly drill: DrillRecordDTO } | BackupFailure;
@@ -800,6 +841,9 @@ export interface MezanBridge {
     importPortable(sessionToken: string, pickId: string, passphrase: string): Promise<BackupRestoreResult>;
     chooseSecondTarget(sessionToken: string): Promise<BackupSecondTargetResult>;
     clearSecondTarget(sessionToken: string): Promise<BackupSecondTargetResult>;
+    setRecovery(sessionToken: string, request: BackupRecoverySetRequest): Promise<BackupRecoveryResult>;
+    /** Writes the key card where the owner picks in an OS dialog — a USB stick, not this disk. */
+    saveKeyCard(sessionToken: string): Promise<BackupKeyCardSaveResult>;
   };
   /** Drives a user-initiated update action; resolves with the resulting status. */
   update(action: UpdateAction): Promise<UpdateStatus>;

@@ -13,7 +13,7 @@ import {
 import { verifyArchive } from "./restore-service.js";
 import { ChecksumMismatchError, BackupKeyMismatchError } from "./errors.js";
 import { cipherDriver } from "../main/encrypted-database.js";
-import { assertSnapshotEncrypted, sqlStringLiteral } from "./backup-service.js";
+import { assertSnapshotEncrypted, assertSnapshotReadable, sqlStringLiteral } from "./backup-service.js";
 import { BACKUP_WORKER_FLAG } from "./worker-flags.js";
 
 /**
@@ -40,7 +40,7 @@ export interface BackupWorkerJob {
    * already taken the snapshot itself (an already-open connection, or a
    * portable `open` callback, cannot cross a process boundary).
    */
-  readonly snapshot: { readonly dbPath: string; readonly key: string } | null;
+  readonly snapshot: { readonly dbPath: string; readonly key: string; readonly decrypt?: boolean } | null;
   readonly manifestInput: {
     readonly appVersion: string;
     readonly reason: BackupReason;
@@ -139,7 +139,7 @@ async function countSnapshotRows(dbFilePath: string, key: string | null): Promis
   }
 }
 
-async function takeEncryptedSnapshot(dbPath: string, key: string, tmpDbPath: string): Promise<void> {
+async function takeEncryptedSnapshot(dbPath: string, key: string, tmpDbPath: string, decrypt = false): Promise<void> {
   if (!/^[0-9a-f]{64}$/.test(key)) {
     throw new Error("Backup worker cipher key must be 32 bytes of lowercase hex.");
   }
@@ -151,14 +151,25 @@ async function takeEncryptedSnapshot(dbPath: string, key: string, tmpDbPath: str
   } finally {
     db.close();
   }
-  await assertSnapshotEncrypted(tmpDbPath);
+  if (!decrypt) {
+    await assertSnapshotEncrypted(tmpDbPath);
+    return;
+  }
+  const copy = new cipherDriver(tmpDbPath);
+  try {
+    copy.pragma(`key = "x'${key}'"`);
+    copy.pragma("rekey=''");
+  } finally {
+    copy.close();
+  }
+  await assertSnapshotReadable(tmpDbPath);
 }
 
 /** Exported so `backup-worker.test.ts` can exercise the job logic directly, without paying for a real process fork per case. */
 export async function runBackupWorkerJob(job: BackupWorkerJob): Promise<BackupWorkerResult> {
   try {
     if (job.snapshot) {
-      await takeEncryptedSnapshot(job.snapshot.dbPath, job.snapshot.key, job.dbFilePath);
+      await takeEncryptedSnapshot(job.snapshot.dbPath, job.snapshot.key, job.dbFilePath, job.snapshot.decrypt === true);
     }
 
     if (job.looseAttachments.length > 0) {
@@ -169,7 +180,7 @@ export async function runBackupWorkerJob(job: BackupWorkerJob): Promise<BackupWo
     }
 
     const tables =
-      (await countSnapshotRows(job.dbFilePath, job.snapshot?.key ?? job.verifyCipherKey)) ??
+      (await countSnapshotRows(job.dbFilePath, job.snapshot?.decrypt ? null : (job.snapshot?.key ?? job.verifyCipherKey))) ??
       job.manifestInput.tables;
     const checksum = await sha256File(job.dbFilePath);
     const manifest = buildManifest({

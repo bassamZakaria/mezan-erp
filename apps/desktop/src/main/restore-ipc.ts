@@ -44,8 +44,13 @@ import {
   WeakPassphraseError,
   type BackupManifest,
   type RestoreCipher,
+  copyBackupToSecondTarget,
+  readRecoveryStatus,
+  setRecoverySecret,
+  type RecoveryKeyStore,
+  type SecondCopySource,
 } from "../backup/index.js";
-import { encryptPlaintextDatabase } from "./encrypted-database.js";
+import { encryptPlaintextDatabase, writeKeyCardTo } from "./encrypted-database.js";
 import {
   DrillTrigger,
   MEZAN_BACKUP_CREATE_CHANNEL,
@@ -59,6 +64,12 @@ import {
   MEZAN_BACKUP_SECOND_TARGET_CHOOSE_CHANNEL,
   MEZAN_BACKUP_SECOND_TARGET_CLEAR_CHANNEL,
   MEZAN_BACKUP_STATUS_CHANNEL,
+  MEZAN_BACKUP_RECOVERY_SET_CHANNEL,
+  MEZAN_BACKUP_RECOVERY_SAVE_KEY_CARD_CHANNEL,
+  RecoveryMode,
+  type BackupKeyCardSaveResult,
+  type BackupRecoveryResult,
+  type RecoveryStatusDTO,
   type BackupDrillResult,
   type BackupPickPortableResult,
   type BackupSecondTargetResult,
@@ -138,11 +149,12 @@ export interface RestoreIpcDeps {
    */
   readonly cipher?: RestoreCipher;
   /**
-   * The key and an opener for it, used ONLY by «تصدير نسخة قابلة للنقل» —
-   * decrypting a copy is the only way an archive can be restored on replacement
-   * hardware, and the copy is then re-encrypted under the operator's passphrase
-   * before it reaches the backups folder. Nothing else in this module may use
-   * it: a scheduled archive that took this path would be the books in the clear.
+   * The key and an opener for it, used ONLY by «تصدير نسخة قابلة للنقل» and
+   * the second-folder copy (backup/second-copy.ts) — decrypting a copy is the
+   * only way an archive can be restored on replacement hardware, and both
+   * re-encrypt it under the owner's passphrase before it leaves a private
+   * scratch directory. Nothing else may use it: an archive that took this path
+   * without that sealing step would be the books in the clear.
    */
   readonly portable?: {
     readonly key: string;
@@ -166,7 +178,31 @@ export interface RestoreIpcDeps {
    * exists yet. Omitted, a session is always required.
    */
   readonly tenantIsClaimed?: () => Promise<boolean>;
+  /**
+   * The OS keychain the recovery key is sealed with. Omitted, no recovery
+   * secret can be set and the second-folder copies stay machine-keyed.
+   */
+  readonly recoveryKeyStore?: RecoveryKeyStore;
+  /**
+   * Proves the caller's CURRENT PIN through the backend's own step-up route, so
+   * a wrong PIN is counted on the same sign-in ladder as a wrong sign-in.
+   */
+  readonly verifyPin?: (sessionToken: string, pin: string) => Promise<PinCheck>;
 }
+
+export enum PinCheckOutcome {
+  Confirmed = "confirmed",
+  Refused = "refused",
+}
+
+export interface PinCheck {
+  readonly outcome: PinCheckOutcome;
+  /** Arabic, from the backend, when refused. */
+  readonly message: string | null;
+}
+
+const KEY_CARD_SAVE_TTL_MS = 30 * 60 * 1000;
+let keyCardSavedAt: number | null = null;
 
 enum RestoreSource {
   Archive = "archive",
@@ -192,7 +228,41 @@ function secondTargetDto(state: SecondTargetState): SecondTargetStatusDTO {
     lastCopyOk: state.lastCopyOk,
     lastCopyFile: state.lastCopyFile,
     lastCopyError: state.lastCopyError,
+    lastCopyPortable: state.lastCopyPortable,
   };
+}
+
+async function recoveryDto(deps: RestoreIpcDeps): Promise<RecoveryStatusDTO> {
+  const status = await readRecoveryStatus(deps.backupsDir);
+  return {
+    mode: status.mode,
+    setAt: status.setAt,
+    keyCardAvailable: deps.cipher !== undefined,
+    keyStoreAvailable: deps.recoveryKeyStore?.isAvailable() === true,
+  };
+}
+
+function secondCopySource(deps: RestoreIpcDeps, sqlite: Database.Database): SecondCopySource {
+  return {
+    sqlite,
+    appVersion: deps.appVersion,
+    encrypted: deps.cipher !== undefined,
+    ...(deps.cipher ? { cipher: { key: deps.cipher.key } } : {}),
+    ...(deps.portable ? { portable: deps.portable } : {}),
+    ...(deps.recoveryKeyStore ? { recoveryKeyStore: deps.recoveryKeyStore } : {}),
+  };
+}
+
+async function copyToSecondFolder(
+  deps: RestoreIpcDeps,
+  archivePath: string,
+  reason: BackupReason,
+): Promise<SecondTargetState> {
+  const sqlite = deps.sqlite();
+  if (!sqlite) return copyToSecondTarget(deps.backupsDir, archivePath);
+  return withBackupLock(() =>
+    copyBackupToSecondTarget({ backupsDir: deps.backupsDir, archivePath, reason, source: secondCopySource(deps, sqlite) }),
+  );
 }
 
 function failure(code: BackupFailure["code"], message: string): BackupFailure {
@@ -296,6 +366,39 @@ async function recordSecondTargetEvent(
     );
   } catch (err) {
     console.error("[backup] could not record the second-target change in the audit trail", err);
+  }
+}
+
+enum RecoveryAuditAction {
+  Set = "backup.recovery.set",
+  Changed = "backup.recovery.changed",
+  KeyCardSaved = "backup.recovery.keyCardSaved",
+}
+
+async function recordRecoveryEvent(
+  deps: RestoreIpcDeps,
+  actor: string,
+  action: RecoveryAuditAction,
+  mode: RecoveryMode | null,
+): Promise<void> {
+  const sqlite = deps.sqlite();
+  if (!sqlite) return;
+  try {
+    const sink = createSqliteAuditSink(sqlite, deps.cipher ? { chainKey: deriveAuditChainKey(deps.cipher.key) } : {});
+    await sink.append(
+      createAuditEvent({
+        stream: "security",
+        module: "backup",
+        entityType: "BACKUP_RECOVERY_SECRET",
+        entityId: null,
+        action,
+        actor,
+        severity: "WARNING",
+        details: { mode },
+      }),
+    );
+  } catch (err) {
+    console.error("[backup] could not record the recovery-secret change in the audit trail", err);
   }
 }
 
@@ -459,7 +562,7 @@ export function registerRestoreOverIpc(deps: RestoreIpcDeps): void {
             cipher: deps.cipher ? { key: deps.cipher.key } : undefined,
           }),
         );
-        await copyToSecondTarget(deps.backupsDir, result.archivePath);
+        await copyToSecondFolder(deps, result.archivePath, BackupReason.Manual);
         return { ok: true, entry: await describeArchive(result.archivePath, new Date()) };
       } catch (err) {
         console.error("[backup] manual backup failed", err);
@@ -601,6 +704,7 @@ export function registerRestoreOverIpc(deps: RestoreIpcDeps): void {
         secondTarget: secondTargetDto(await readSecondTarget(deps.backupsDir)),
         lastBackupAt: newestBackupAt(await listBackups(deps.backupsDir)),
         diskFreeBytes: await freeDiskBytes(deps.backupsDir),
+        recovery: await recoveryDto(deps),
       };
     },
   );
@@ -632,7 +736,7 @@ export function registerRestoreOverIpc(deps: RestoreIpcDeps): void {
       await recordSecondTargetEvent(deps, await actorOf(deps, sessionToken), "backup.secondTarget.set", chosen);
       const newest = (await listBackups(deps.backupsDir)).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
       const state = newest
-        ? await withBackupLock(() => copyToSecondTarget(deps.backupsDir, newest.path))
+        ? await copyToSecondFolder(deps, newest.path, BackupReason.Manual)
         : await readSecondTarget(deps.backupsDir);
       return { ok: true, secondTarget: secondTargetDto(state) };
     },
@@ -647,6 +751,118 @@ export function registerRestoreOverIpc(deps: RestoreIpcDeps): void {
       const state = await setSecondTargetDir(deps.backupsDir, null);
       await recordSecondTargetEvent(deps, await actorOf(deps, sessionToken), "backup.secondTarget.cleared", null);
       return { ok: true, secondTarget: secondTargetDto(state) };
+    },
+  );
+
+  handleGuarded(
+    MEZAN_BACKUP_RECOVERY_SAVE_KEY_CARD_CHANNEL,
+    async (_event, sessionToken: unknown): Promise<BackupKeyCardSaveResult> => {
+      const denied = await authorize(deps, sessionToken, RESTORE_PERMISSION);
+      if (denied) return denied;
+      if (!deps.cipher) {
+        return failure("UNAVAILABLE", "قاعدة البيانات على هذا الجهاز غير مشفّرة، فلا يوجد مفتاح لحفظه. اختر كلمة سر للاسترداد بدلاً منه.");
+      }
+      let chosen: string | undefined;
+      try {
+        const picked = await dialog.showSaveDialog({
+          title: "احفظ ملف مفتاح التشفير على فلاشة أو قرص خارجي",
+          defaultPath: "mezan-database-key.txt",
+          filters: [{ name: "Text", extensions: ["txt"] }],
+        });
+        if (picked.canceled) return failure("CANCELLED", "لم يتم حفظ الملف.");
+        chosen = picked.filePath;
+      } catch (err) {
+        console.error("[backup] the save dialog could not be opened", err);
+        return failure("FAILED", "تعذّر فتح نافذة الحفظ.");
+      }
+      if (!chosen) return failure("CANCELLED", "لم يتم حفظ الملف.");
+      try {
+        await writeKeyCardTo(chosen, deps.cipher.key);
+      } catch (err) {
+        console.error("[backup] the key card could not be written", err);
+        return failure("FAILED", "تعذّر حفظ ملف المفتاح في المكان المختار. تأكد أن الفلاشة متصلة وغير محمية من الكتابة.");
+      }
+      keyCardSavedAt = Date.now();
+      await recordRecoveryEvent(deps, await actorOf(deps, sessionToken), RecoveryAuditAction.KeyCardSaved, RecoveryMode.KeyCard);
+      return { ok: true, filePath: chosen };
+    },
+  );
+
+  /**
+   * «حماية النسخ الاحتياطية». Setting the secret the first time needs only the
+   * restore grant; REPLACING one needs the caller's current PIN as well,
+   * proven by the backend, because whoever changes it decides who can open
+   * every copy that leaves the machine from now on.
+   */
+  handleGuarded(
+    MEZAN_BACKUP_RECOVERY_SET_CHANNEL,
+    async (_event, sessionToken: unknown, request: unknown): Promise<BackupRecoveryResult> => {
+      const denied = await authorize(deps, sessionToken, RESTORE_PERMISSION);
+      if (denied) return denied;
+      const body = (typeof request === "object" && request !== null ? request : {}) as Record<string, unknown>;
+      const mode = Object.values(RecoveryMode).find((m) => m === body["mode"]);
+      if (!mode) return failure("INVALID_NAME", "اختر طريقة حماية النسخ.");
+      if (!deps.recoveryKeyStore?.isAvailable()) {
+        return failure(
+          "UNAVAILABLE",
+          "لا توجد على هذا الجهاز خزنة مفاتيح من نظام التشغيل لحفظ مفتاح الاسترداد، فلا يمكن تفعيل الحماية هنا.",
+        );
+      }
+
+      let secret: string;
+      if (mode === RecoveryMode.Passphrase) {
+        const passphrase = body["passphrase"];
+        if (typeof passphrase !== "string" || passphrase.length < MIN_PASSPHRASE_LENGTH) {
+          return failure(
+            "WEAK_PASSPHRASE",
+            `اكتب كلمة سر لا تقل عن ${MIN_PASSPHRASE_LENGTH} حروف.`,
+          );
+        }
+        secret = passphrase;
+      } else {
+        if (!deps.cipher) {
+          return failure("UNAVAILABLE", "قاعدة البيانات على هذا الجهاز غير مشفّرة، فلا يوجد ملف مفتاح. اختر كلمة سر للاسترداد.");
+        }
+        if (keyCardSavedAt === null || Date.now() - keyCardSavedAt > KEY_CARD_SAVE_TTL_MS) {
+          return failure("KEY_CARD_NOT_SAVED", "احفظ ملف المفتاح على فلاشة أولاً، ثم أكّد أنك نقلته خارج هذا الجهاز.");
+        }
+        secret = deps.cipher.key;
+      }
+
+      const previous = await readRecoveryStatus(deps.backupsDir);
+      if (previous.mode !== null) {
+        const pin = body["pin"];
+        if (typeof pin !== "string" || pin === "") {
+          return failure("PIN_REQUIRED", "اكتب رمز PIN الخاص بك لتأكيد تغيير حماية النسخ.");
+        }
+        if (!deps.verifyPin) return failure("UNAVAILABLE", "تعذّر التحقق من رمز PIN على هذا الجهاز.");
+        const check = await deps.verifyPin(sessionToken as string, pin).catch(
+          (): PinCheck => ({ outcome: PinCheckOutcome.Refused, message: null }),
+        );
+        if (check.outcome !== PinCheckOutcome.Confirmed) {
+          return failure("WRONG_PIN", check.message ?? "رمز PIN غير صحيح.");
+        }
+      }
+
+      try {
+        await setRecoverySecret({
+          backupsDir: deps.backupsDir,
+          secret,
+          mode,
+          keyStore: deps.recoveryKeyStore,
+        });
+      } catch (err) {
+        console.error("[backup] the recovery secret could not be saved", err);
+        return failure("FAILED", "تعذّر حفظ إعداد حماية النسخ. حاول مرة أخرى.");
+      }
+      if (mode === RecoveryMode.KeyCard) keyCardSavedAt = null;
+      await recordRecoveryEvent(
+        deps,
+        await actorOf(deps, sessionToken),
+        previous.mode === null ? RecoveryAuditAction.Set : RecoveryAuditAction.Changed,
+        mode,
+      );
+      return { ok: true, recovery: await recoveryDto(deps) };
     },
   );
 
@@ -918,4 +1134,6 @@ export function registerClientBackupRefusalsOverIpc(hostUrl: string): void {
   handleGuarded(MEZAN_BACKUP_IMPORT_PORTABLE_CHANNEL, () => refusal);
   handleGuarded(MEZAN_BACKUP_SECOND_TARGET_CHOOSE_CHANNEL, () => refusal);
   handleGuarded(MEZAN_BACKUP_SECOND_TARGET_CLEAR_CHANNEL, () => refusal);
+  handleGuarded(MEZAN_BACKUP_RECOVERY_SET_CHANNEL, () => refusal);
+  handleGuarded(MEZAN_BACKUP_RECOVERY_SAVE_KEY_CARD_CHANNEL, () => refusal);
 }

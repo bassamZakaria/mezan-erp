@@ -6,7 +6,7 @@ import { startBackendProcess, type BackendProcessHandle } from "./backend-proces
 import { registerHonoOverIpc, registerHonoOverLanClient, registerPrintToPdfOverIpc, registerSavePdfOverIpc } from "./ipc.js";
 import { readClientConfig, readPairingRequest, writeClientConfig, type ClientConfig } from "./client-config.js";
 import { createLanClient, withSeatClaim } from "./lan-client.js";
-import { registerClientBackupRefusalsOverIpc, registerRestoreOverIpc } from "./restore-ipc.js";
+import { PinCheckOutcome, registerClientBackupRefusalsOverIpc, registerRestoreOverIpc } from "./restore-ipc.js";
 import { createWindow, hardenWebContents } from "./window.js";
 import { registerAutoUpdater } from "./updater.js";
 import { backupThenMigrate, isMigrationPending, scheduleBackups } from "./backup-hooks.js";
@@ -590,6 +590,10 @@ app.whenReady().then(async () => {
       appVersion: app.getVersion(),
       encrypted,
       cipher: cipher ? { key: cipher.key } : undefined,
+      ...(cipher
+        ? { portable: { key: cipher.key, open: (file: string, key: string) => openTenantConnection(file, { ...cipher!, key }) } }
+        : {}),
+      recoveryKeyStore: electronSafeStorageKeyStore(safeStorage),
     });
   }
 
@@ -775,10 +779,9 @@ app.whenReady().then(async () => {
     appVersion: app.getVersion(),
     sqlite: () => backupConn,
     cipher,
-    // ONLY «تصدير نسخة قابلة للنقل» uses this, and the archive it produces is
-    // re-encrypted under the operator's own passphrase before it is written.
-    // It used to be handed to `scheduleBackups`, where every daily archive came
-    // out in the clear.
+    // ONLY «تصدير نسخة قابلة للنقل» and the second-folder copy use this, and
+    // both re-encrypt under the owner's passphrase before anything is written
+    // outside a private scratch directory.
     ...(cipher
       ? {
           portable: {
@@ -810,6 +813,19 @@ app.whenReady().then(async () => {
       if (!res.ok) return true;
       const body = (await res.json()) as { claimed?: boolean };
       return body.claimed !== false;
+    },
+    recoveryKeyStore: electronSafeStorageKeyStore(safeStorage),
+    verifyPin: async (token, pin) => {
+      const res = await backend!.app.fetch(
+        new Request("http://mezan.local/auth/step-up", {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-session-token": token },
+          body: JSON.stringify({ pin }),
+        }),
+      );
+      if (res.ok) return { outcome: PinCheckOutcome.Confirmed, message: null };
+      const body = (await res.json().catch(() => ({}))) as { message?: unknown };
+      return { outcome: PinCheckOutcome.Refused, message: typeof body.message === "string" ? body.message : null };
     },
   });
   // Registered before the socket is opened, and reading `lanHost` through a

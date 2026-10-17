@@ -4,6 +4,7 @@ import { appendFile, copyFile, mkdir, mkdtemp, readdir, readFile, rm, stat } fro
 import path from "node:path";
 import { listBackups, resolveWorkerEntry } from "./backup-service.js";
 import { withBackupLock } from "./backup-lock.js";
+import { SECOND_COPY_SCRATCH_PREFIX } from "./second-copy.js";
 import { DRILL_WORKER_FLAG } from "./worker-flags.js";
 import type { DrillWorkerJob, DrillWorkerResult } from "./drill-worker.js";
 import { DrillCheck, DrillOutcome, DrillTrigger, type DrillRecordDTO } from "../shared/ipc-contract.js";
@@ -78,7 +79,12 @@ export async function sweepBackupScratch(backupsDir: string): Promise<void> {
     return;
   }
   for (const entry of entries) {
-    if (entry.startsWith("drill-") || entry.startsWith("import-") || entry.startsWith("restore-")) {
+    if (
+      entry.startsWith("drill-") ||
+      entry.startsWith("import-") ||
+      entry.startsWith("restore-") ||
+      entry.startsWith(SECOND_COPY_SCRATCH_PREFIX)
+    ) {
       await rm(path.join(tmpRoot, entry), { recursive: true, force: true }).catch(() => undefined);
     }
   }

@@ -136,7 +136,7 @@ export async function assertSnapshotEncrypted(filePath: string): Promise<void> {
  * moment they cannot afford to. So the header is read back and the archive is
  * refused unless it really is a plain SQLite file.
  */
-async function assertSnapshotReadable(filePath: string): Promise<void> {
+export async function assertSnapshotReadable(filePath: string): Promise<void> {
   const handle = await fsOpen(filePath, "r");
   try {
     const buffer = Buffer.alloc(SQLITE_HEADER.length);
@@ -325,9 +325,9 @@ export async function createBackup(params: {
   /**
    * Write the archive UNENCRYPTED so it can be restored on another machine.
    *
-   * ONE CALLER, and it must stay that way: `portable-export.ts`, which writes
-   * into a private staging directory, encrypts the result under the operator's
-   * passphrase and deletes the readable copy. It used to be passed on every
+   * TWO CALLERS, and it must stay that way: `portable-export.ts` and
+   * `second-copy.ts`. Both write into a private staging directory, encrypt the
+   * result under the owner's recovery passphrase and delete the readable copy. It used to be passed on every
    * scheduled backup, which left the shop's whole books in the clear in the
    * folder people carry out on a USB stick.
    *
@@ -385,10 +385,12 @@ export async function createBackup(params: {
   await mkdir(tmpDir, { recursive: true });
   const tmpDbPath = path.join(tmpDir, `snapshot-${now.getTime()}-${process.pid}.sqlite`);
 
-  let snapshotJob: { dbPath: string; key: string } | null = null;
+  let snapshotJob: { dbPath: string; key: string; decrypt?: boolean } | null = null;
 
   try {
-    if (encrypted && portable) {
+    if (encrypted && portable && cipher) {
+      snapshotJob = { dbPath: sqlite.name, key: cipher.key, decrypt: true };
+    } else if (encrypted && portable) {
       /*
        * PLAINTEXT ON PURPOSE — the owner's decision, and it has a cost.
        *

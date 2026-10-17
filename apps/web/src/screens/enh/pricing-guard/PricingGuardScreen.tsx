@@ -21,6 +21,10 @@ import {
   type PricingGuardRuleDTO,
 } from "@mezan/contracts";
 import { useCustomers, useItemCategories, useItems } from "../../../data/hooks";
+import { sessionHolds } from "../../../data/session";
+import { useApi } from "../../../data/ApiContext";
+
+const ITEM_CATALOG_VIEW = "inventory.item.view";
 import { SelectField, TextAreaField, TextField } from "../../../settings/form-controls";
 import { errorMessage } from "../../../lib/error-message";
 import { useAppTranslation, type AppTranslationKey } from "../../../i18n";
@@ -90,7 +94,7 @@ function useCustomerCategories(): string[] {
 function RuleForm({ editing, onClose }: { editing: PricingGuardRuleDTO | null; onClose: () => void }) {
   const { t } = useAppTranslation();
   const items = useItems().data ?? EMPTY;
-  const categories = useItemCategories().data ?? EMPTY;
+  const categories = useItemCategories(sessionHolds(useApi().session, ITEM_CATALOG_VIEW)).data ?? EMPTY;
   const customerCategories = useCustomerCategories();
   const save = useSavePricingGuardRule();
   const [draft, setDraft] = useState<RuleDraft>(() => draftOf(editing));
@@ -209,7 +213,7 @@ function RulesTab() {
   const format = useFormat();
   const query = usePricingGuardRules();
   const items = useItems().data ?? EMPTY;
-  const categories = useItemCategories().data ?? EMPTY;
+  const categories = useItemCategories(sessionHolds(useApi().session, ITEM_CATALOG_VIEW)).data ?? EMPTY;
   const setStatus = useSetPricingGuardRuleStatus();
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(false);

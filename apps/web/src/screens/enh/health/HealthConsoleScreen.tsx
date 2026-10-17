@@ -227,7 +227,7 @@ function JobsBody({ jobs }: { jobs: readonly HealthJobDTO[] }) {
 
 function DevicesBody() {
   const { t, locale } = useAppTranslation();
-  const status = useLanStatus();
+  const status = useLanStatus(isDesktopHost());
   const licensed = status.data?.licensed === true;
   const sessions = useLanSessions(licensed);
   if (!isDesktopHost()) return <p className="text-[12px] text-ink-muted">{t("health.devices.desktopOnly")}</p>;
@@ -289,7 +289,7 @@ export function HealthConsoleScreen() {
   const health = useSystemHealth();
   const desktop = isDesktopHost();
   const backup = useDesktopBackupHealth();
-  const lanStatus = useLanStatus();
+  const lanStatus = useLanStatus(desktop);
   const lanSessions = useLanSessions(desktop && lanStatus.data?.licensed === true);
   const [now] = useState(() => new Date());
 

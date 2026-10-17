@@ -7422,12 +7422,12 @@ export function useNotificationTriggers(): UseQueryResult<NotificationTriggerCat
  * shown anywhere. And `handleDisconnect` never checked `res.ok`, so a 403
  * rendered as a successful disconnect that silently did nothing.
  */
-export function useLanStatus(): UseQueryResult<LanStatusDTO, ApiError> {
+export function useLanStatus(enabled = true): UseQueryResult<LanStatusDTO, ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<LanStatusDTO, ApiError>({
     queryKey: ["lan", "status"],
-    enabled: session !== null,
+    enabled: session !== null && enabled,
     refetchInterval: 5000,
     queryFn: async () => {
       const res = await request("/lan/status");
@@ -8249,12 +8249,12 @@ export function useUpdateItemUnit() {
 }
 
 /** تصنيفات الأصناف — the category records an item's `categoryId` resolves against. */
-export function useItemCategories(): UseQueryResult<ItemCategoryDTO[], ApiError> {
+export function useItemCategories(enabled = true): UseQueryResult<ItemCategoryDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<ItemCategoryDTO[], ApiError>({
     queryKey: ["item-categories"],
-    enabled: session !== null,
+    enabled: session !== null && enabled,
     queryFn: async () => {
       const res = await request("/item-categories");
       if (!res.ok) throw await loaderError(res, t("api.itemCategoriesCouldNotBe"), t);

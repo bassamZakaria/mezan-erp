@@ -65,7 +65,7 @@ export const AUDITED_MOUNTS: readonly AuditedMount[] = [
   },
   { prefix: "/assets", only: /^\/([^/]+\/internal-hourly-rate|depreciation\/runs\/[^/]+\/discard)$/ },
   { prefix: "/revaluation", only: /^\/runs\/[^/]+\/reverse$/ },
-  { prefix: "/inventory", only: /^(\/(adjustments|stock-adjustments)\/[^/]+\/reverse$|\/count-mode(\/|$))/ },
+  { prefix: "/inventory", only: /^(\/(adjustments|stock-adjustments)\/[^/]+\/reverse$|\/count-mode(\/|$)|\/expiry\/settings$)/ },
   { prefix: "/sales-invoices", only: /^\/[^/]+\/(void|lines\/[^/]+)$/ },
   { prefix: "/price-lists" },
   { prefix: "/promotions" },

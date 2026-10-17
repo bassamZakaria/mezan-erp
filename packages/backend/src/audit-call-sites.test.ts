@@ -70,11 +70,31 @@ function isValueReference(node: ts.Identifier): boolean {
   return !ts.isParameter(parent) && !ts.isBindingElement(parent) && !ts.isPropertySignature(parent) && !ts.isTypeReferenceNode(parent);
 }
 
-function registrarCall(node: ts.Node): { readonly receiver: string; readonly verb: string; readonly literal: string; readonly call: ts.CallExpression } | null {
+function registrarCall(
+  node: ts.Node,
+  constants: ReadonlyMap<string, string>,
+): { readonly receiver: string; readonly verb: string; readonly literal: string; readonly call: ts.CallExpression } | null {
   if (!ts.isCallExpression(node) || !ts.isPropertyAccessExpression(node.expression)) return null;
   const first = node.arguments[0];
-  if (!first || !ts.isStringLiteralLike(first)) return null;
-  return { receiver: node.expression.expression.getText(), verb: node.expression.name.text, literal: first.text, call: node };
+  const literal = !first ? undefined : ts.isStringLiteralLike(first) ? first.text : ts.isIdentifier(first) ? constants.get(first.text) : undefined;
+  if (literal === undefined) return null;
+  return { receiver: node.expression.expression.getText(), verb: node.expression.name.text, literal, call: node };
+}
+
+function stringConstants(sources: readonly ts.SourceFile[]): Map<string, string> {
+  const values = new Map<string, string | null>();
+  for (const source of sources) {
+    for (const statement of source.statements) {
+      if (!ts.isVariableStatement(statement) || !(statement.declarationList.flags & ts.NodeFlags.Const)) continue;
+      for (const declaration of statement.declarationList.declarations) {
+        if (!ts.isIdentifier(declaration.name) || !declaration.initializer || !ts.isStringLiteralLike(declaration.initializer)) continue;
+        const name = declaration.name.text;
+        const value = declaration.initializer.text;
+        values.set(name, values.has(name) && values.get(name) !== value ? null : value);
+      }
+    }
+  }
+  return new Map([...values].filter((entry): entry is [string, string] => entry[1] !== null));
 }
 
 function scan(files: readonly string[]): StaticScan {
@@ -84,6 +104,7 @@ function scan(files: readonly string[]): StaticScan {
   const references = new Map<string, Set<string>>();
   const exportedBy = new Map<string, string[]>();
   const parsed = files.map((file) => ({ file, source: ts.createSourceFile(file, readFileSync(file, "utf8"), ts.ScriptTarget.Latest, true) }));
+  const constants = stringConstants(parsed.map(({ source }) => source));
 
   for (const { file, source } of parsed) {
     for (const statement of source.statements) {
@@ -145,7 +166,7 @@ function scan(files: readonly string[]): StaticScan {
       let nextOwner = name ? `${file}#${name}` : owner;
       let nextRegistration = name ? null : registration;
 
-      const registrar = registrarCall(node);
+      const registrar = registrarCall(node, constants);
       if (registrar && ROUTE_REGISTRARS.has(registrar.verb)) {
         const id = registrations.length;
         registrations.push({ id, file, factory, receiver: registrar.receiver, method: registrar.verb.toUpperCase(), path: registrar.literal });
@@ -252,10 +273,12 @@ const OUTSIDE_THE_BOUNDARY: Readonly<Record<string, string>> = {
   "POST /data-migration/items/preview": PREVIEW_OF_A_SHARED_STEP,
   "POST /data-migration/item-units/preview": PREVIEW_OF_A_SHARED_STEP,
   "POST /data-migration/chart-of-accounts/preview": PREVIEW_OF_A_SHARED_STEP,
+  "POST /audit/evidence-packs": "builds and streams a zip from files on disk, so it holds no transaction; the pack row and its event run together in deps.audit.atomic",
 };
 
 const NOT_ROUTE_REACHED: Readonly<Record<string, string>> = {
   "packages/backend/src/pos/master.ts:36": "injected into the POS settings routes as deps.ensureWalkInCustomer; it writes inside its own withSqliteTransaction",
+  "packages/backend/src/enh/e3-06.ts:183": "runs from the event bus when a quote is accepted, never from a route; the opportunity write and its event share deps.audit.atomic",
 };
 
 describe("every route-layer audit call site sits behind an audit boundary", () => {
@@ -265,7 +288,7 @@ describe("every route-layer audit call site sits behind an audit boundary", () =
   let reachedFrom: (registration: Registration) => Set<string>;
 
   beforeAll(async () => {
-    backend = await createBackend({ dbPath: ":memory:" });
+    backend = await createBackend({ dbPath: ":memory:", integrations: { tenantCode: "audit-call-sites" } });
     scanned = scan([...sourceFiles(API_SRC), ...sourceFiles(here)]);
     paths = mountedPaths(scanned);
     reachedFrom = (registration) => closure([`route:${registration.id}`], (name) => scanned.references.get(name) ?? []);

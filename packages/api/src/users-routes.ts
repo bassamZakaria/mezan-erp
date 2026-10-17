@@ -46,7 +46,7 @@ import { afterAuditCommit, insideAuditBoundary } from "./audit-boundary.js";
 import type { SessionRegistry } from "./session-auth.js";
 import { throttleKey, tooManyAttempts, type LoginThrottle } from "./login-throttle.js";
 import { requestOrigin } from "./request-origin.js";
-import { mountUserProvisioning, type ProvisioningPorts } from "./users-provisioning.js";
+import { createUserProvisioningRoutes, type ProvisioningPorts } from "./users-provisioning.js";
 import { createLogger } from "./observability/index.js";
 
 const log = createLogger("users");
@@ -920,27 +920,30 @@ export function createUsersRoutes(
     return c.json({ ok: true, userId: user.id });
   });
 
-  mountUserProvisioning(app, {
-    uow,
-    hasher,
-    audit,
-    ports: provisioning ?? {},
-    gate,
-    visibleTarget,
-    saveOptions,
-    refuseIfEscalating,
-    refuseIfDomainNotAllowed,
-    refuseIfTargetOutranks,
-    refuseIfOverSeatCap,
-    refuseSodConflicts,
-    refuseErased,
-    sodConflictsOfGrant,
-    auditUser,
-    auditSodOverride,
-    auditRefusal,
-    userErrorResponse,
-    userNotFound,
-  });
+  app.route(
+    "/",
+    createUserProvisioningRoutes({
+      uow,
+      hasher,
+      audit,
+      ports: provisioning ?? {},
+      gate,
+      visibleTarget,
+      saveOptions,
+      refuseIfEscalating,
+      refuseIfDomainNotAllowed,
+      refuseIfTargetOutranks,
+      refuseIfOverSeatCap,
+      refuseSodConflicts,
+      refuseErased,
+      sodConflictsOfGrant,
+      auditUser,
+      auditSodOverride,
+      auditRefusal,
+      userErrorResponse,
+      userNotFound,
+    }),
+  );
 
   if (erasure && audit) {
     const port = erasure;

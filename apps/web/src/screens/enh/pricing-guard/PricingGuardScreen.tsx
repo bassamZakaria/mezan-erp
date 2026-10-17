@@ -4,6 +4,7 @@ import {
   DocumentList,
   EmptyState,
   EntityPicker,
+  RowActionOutcome,
   RowMenu,
   SidePanel,
   StatusPill,
@@ -226,14 +227,18 @@ function RulesTab() {
   const pageCount = Math.max(1, Math.ceil(rules.length / PAGE_SIZE));
   const pageRows = rules.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
-  function toggle(rule: PricingGuardRuleDTO) {
+  async function toggle(rule: PricingGuardRuleDTO) {
     if (pendingId !== null) return;
     setPendingId(rule.id);
     setError(null);
-    setStatus.mutate(
-      { id: rule.id, status: rule.status === PricingGuardRuleStatusDTO.Active ? PricingGuardRuleStatusDTO.Inactive : PricingGuardRuleStatusDTO.Active },
-      { onError: (err) => setError(errorMessage(err, t("pricingGuard.ruleCouldNotBeSaved"))), onSettled: () => setPendingId(null) },
-    );
+    try {
+      await setStatus.mutateAsync({ id: rule.id, status: rule.status === PricingGuardRuleStatusDTO.Active ? PricingGuardRuleStatusDTO.Inactive : PricingGuardRuleStatusDTO.Active });
+    } catch (err) {
+      setError(errorMessage(err, t("pricingGuard.ruleCouldNotBeSaved")));
+      return RowActionOutcome.Refused;
+    } finally {
+      setPendingId(null);
+    }
   }
 
   const scopeOf = (rule: PricingGuardRuleDTO) =>

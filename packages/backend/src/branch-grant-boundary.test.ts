@@ -2042,7 +2042,7 @@ describe("D111 round 4 · a create cannot take over another branch's record by n
   }
   const TAKEOVERS: readonly Takeover[] = [
     { route: "/field/vans", schema: contracts.createVanSchema, table: "van", foreignIdSql: "SELECT id FROM van WHERE branch_id = 'BR-MAIN' LIMIT 1" },
-    { route: "/field/van-trips", schema: contracts.openVanTripSchema, table: "van_trip", foreignIdSql: "SELECT id FROM van_trip WHERE branch_id = 'BR-MAIN' LIMIT 1" },
+    { route: "/field/van-trips", schema: contracts.openVanTripSchema, table: "van_trip", foreignIdSql: "SELECT id FROM van_trip WHERE branch_id = 'BR-MAIN' LIMIT 1", valid: (sampled) => ({ ...sampled, vanId: undefined, vanWarehouseId: ALEX_WAREHOUSE }) },
     { route: "/crm/opportunities", schema: contracts.createOpportunitySchema, table: "crm_opportunity", foreignIdSql: "SELECT id FROM crm_opportunity WHERE id = 'OPP-DEMO-7'" },
     { route: "/hr/payroll/runs", schema: contracts.createPayrollRunSchema, table: "hr_payroll_run", foreignIdSql: "SELECT id FROM hr_payroll_run WHERE id = 'PR-DEMO-3'", valid: (sampled) => ({ ...sampled, year: 2099, month: 1 }) },
     { route: "/cheques", schema: contracts.createChequeSchema, table: "cheque", foreignIdSql: "SELECT id FROM cheque WHERE branch_id = 'BR-MAIN' LIMIT 1",

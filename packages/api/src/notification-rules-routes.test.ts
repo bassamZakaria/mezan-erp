@@ -140,7 +140,7 @@ describe("notification-rules router — CRUD", () => {
     const res = await app.fetch(req("/events", { permissions: "notifications.rule.view" }));
     expect(res.status).toBe(200);
     const events = (await res.json()) as { code: string }[];
-    expect(events.length).toBe(40);
+    expect(events.length).toBe(44);
     expect(events.map((e) => e.code)).toContain("SALES_INVOICE_CONFIRMED");
     expect(events.map((e) => e.code)).toContain("CASH_FORECAST_LOW");
   });

@@ -488,10 +488,12 @@ export class SalesInvoiceService {
         // price guard can move it between the ordinary and the price-floor
         // request; left on the old id, neither approval could ever post it.
         if (existing.status === "pending") {
-          const repointed: SalesInvoice = { ...existing, workflowRequestId: decision.requestId };
-          await this.deps.repo.transaction(async () => {
-            await this.writeFields(repointed, [SalesInvoiceField.WorkflowRequestId], SalesInvoiceStatusCode.Pending);
-            if (existing.workflowRequestId) await this.deps.workflow?.reopen?.(existing.workflowRequestId);
+          const repointed = await this.deps.repo.transaction(async () => {
+            const fresh = await this.require(id);
+            const next: SalesInvoice = { ...fresh, workflowRequestId: decision.requestId };
+            await this.writeFields(next, [SalesInvoiceField.WorkflowRequestId], SalesInvoiceStatusCode.Pending);
+            if (fresh.workflowRequestId) await this.deps.workflow?.reopen?.(fresh.workflowRequestId);
+            return next;
           });
           return { invoice: repointed, held: true, creditWarning: null, pricingVariances: [], taxRecalculated: false };
         }

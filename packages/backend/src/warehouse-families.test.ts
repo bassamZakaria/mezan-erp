@@ -282,10 +282,10 @@ describe("a van rep granted only the van's own store works the trip", () => {
     expect(one<{ status: string }>("SELECT status FROM van_trip WHERE id = ?", tripId)!.status).toBe("ongoing");
   });
 
-  it("settles its trip", async () => {
+  it("settles its trip, which then waits for a second user's approval", async () => {
     const loaded = (JSON.parse(one<{ l: string }>("SELECT loaded_stock AS l FROM van_trip WHERE id = ?", tripId)?.l ?? "[]") as { itemId: string; qty: string }[]) ?? [];
     const res = await vanRep("POST", `/field/van-trips/${tripId}/settle`, { countedCash: "1575.00", stockCounts: loaded.map((line) => ({ itemId: line.itemId, countedQty: String(line.qty) })) });
     expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
-    expect(one<{ status: string }>("SELECT status FROM van_trip WHERE id = ?", tripId)!.status).toBe("settled");
+    expect(one<{ status: string }>("SELECT status FROM van_trip WHERE id = ?", tripId)!.status).toBe("awaiting_approval");
   });
 });

@@ -69,11 +69,16 @@ export const WAREHOUSE_FAMILIES: readonly WarehouseFamily[] = [
   { kind: K.PosTerminal, table: "pos_terminal", standing: true },
 ];
 
-/** Tables that name a warehouse and are the stock ledger itself, not a document standing on it. */
+/** Tables that name a warehouse and are the stock ledger itself or state kept beside it, not a document standing on it. */
 export const WAREHOUSE_LEDGER_TABLES: Readonly<Record<string, string>> = {
   stock_movement: "the movement ledger; a posted document is read through it",
   wac_snapshot: "the on-hand position, which `holdsStock` reads",
   cost_layer: "cost layers of stock already received",
+  stock_batch_trail: "the batch and expiry of each posted movement, written beside the movement ledger",
+  expiry_alert_log: "which expiry alerts were already raised for a cost layer; no document",
+  item_warehouse_policy: "an item's reorder levels in a warehouse; a setting keyed by item and warehouse, never an unposted document",
+  reorder_alert_state: "whether an item's reorder alert in a warehouse is armed; derived from on-hand",
+  reorder_alert_outbox: "reorder alerts waiting to be published; derived from on-hand",
 };
 
 const WAREHOUSE_COLUMN = /(^|_)warehouse_id$/;

@@ -309,6 +309,7 @@ class SqliteGoodsReceiptStore implements GoodsReceiptRepository {
 const GOODS_RECEIPT_COLUMNS: Readonly<Record<GoodsReceiptField, readonly string[]>> = {
   [GoodsReceiptField.Status]: ["status"],
   [GoodsReceiptField.Billing]: ["invoiced", "lines"],
+  [GoodsReceiptField.Lots]: ["lines"],
 };
 
 function goodsReceiptLinesJson(receipt: GoodsReceipt): string {

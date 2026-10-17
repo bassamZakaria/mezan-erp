@@ -20,6 +20,7 @@ import { NumberField, SelectField, TextField, ToggleField } from "../settings/fo
 import { useConvertLead, useCreateLead, useLeads, usePipelineStages, useTransitionLead } from "../data/hooks";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { EMPTY } from "../lib/empty";
+import { majorOf } from "../lib/money";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 
 /** العملاء المحتملون (Leads) — docs/archive/catalog/06 §"العملاء المحتملون". List + detail + create + status transitions + convert. */
@@ -69,7 +70,7 @@ function validTransitions(status: LeadStatusDTO): LeadStatusDTO[] {
 }
 
 function toMajor(scaledDecimalString: string | null): number | null {
-  return scaledDecimalString === null ? null : Number(scaledDecimalString);
+  return scaledDecimalString === null ? null : majorOf(scaledDecimalString);
 }
 
 interface LeadDraft {

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { clientSuppliedId } from "./client-supplied-id.js";
+import { moneyString } from "./money-string.js";
 
 /**
  * Wire contracts for CRM (docs/archive/catalog/06-crm-hr.md "العملاء المحتملون /
@@ -62,11 +63,25 @@ export const convertLeadSchema = z.object({
       expectedValue: z.string(),
       probability: z.number().min(0).max(100),
       expectedCloseDate: z.string().nullable().optional(),
+      ownerUserId: z.string().min(1).nullable().optional(),
     })
     .optional(),
 });
 
 export const opportunityStatusSchema = z.enum(["open", "won", "lost"]);
+
+export enum OpportunityLostReasonDTO {
+  Price = "PRICE",
+  Competitor = "COMPETITOR",
+  Budget = "BUDGET",
+  Timing = "TIMING",
+  NoResponse = "NO_RESPONSE",
+  RequirementsNotMet = "REQUIREMENTS_NOT_MET",
+  CustomerDecidedNotToBuy = "CUSTOMER_DECIDED_NOT_TO_BUY",
+  Other = "OTHER",
+}
+
+export const opportunityLostReasonSchema = z.nativeEnum(OpportunityLostReasonDTO);
 
 export const opportunitySchema = z.object({
   id: z.string().min(1),
@@ -78,6 +93,9 @@ export const opportunitySchema = z.object({
   probability: z.number().min(0).max(100),
   expectedCloseDate: z.string().nullable(),
   notes: z.string().nullable(),
+  ownerUserId: z.string().nullable(),
+  lostReason: opportunityLostReasonSchema.nullable(),
+  lostNote: z.string().nullable(),
   status: opportunityStatusSchema,
   createdAt: z.string().min(1),
   closedAt: z.string().nullable(),
@@ -89,14 +107,21 @@ export const createOpportunitySchema = z.object({
   customerId: z.string().min(1),
   branchId: z.string().min(1).nullable().optional(),
   stageId: z.string().min(1),
-  expectedValue: z.string().optional(),
+  expectedValue: moneyString.optional(),
   probability: z.number().min(0).max(100).optional(),
   expectedCloseDate: z.string().nullable().optional(),
   notes: z.string().nullable().optional(),
+  ownerUserId: z.string().min(1).nullable().optional(),
 });
 
 export const moveOpportunityStageSchema = z.object({
   stageId: z.string().min(1),
+  lostReason: opportunityLostReasonSchema.nullish(),
+  lostNote: z.string().max(500).nullish(),
+});
+
+export const assignOpportunitySchema = z.object({
+  ownerUserId: z.string().min(1).nullable(),
 });
 
 export const pipelineStageSchema = z.object({
@@ -129,6 +154,7 @@ export const activitySchema = z.object({
   relatedLeadId: z.string().nullable(),
   relatedOpportunityId: z.string().nullable(),
   dueDate: z.string().nullable(),
+  assigneeUserId: z.string().nullable(),
   status: activityStatusSchema,
   notes: z.string().nullable(),
   createdAt: z.string().min(1),
@@ -141,6 +167,7 @@ export const createActivitySchema = z.object({
   relatedLeadId: z.string().nullable().optional(),
   relatedOpportunityId: z.string().nullable().optional(),
   dueDate: z.string().nullable().optional(),
+  assigneeUserId: z.string().min(1).nullable().optional(),
   notes: z.string().nullable().optional(),
 });
 
@@ -154,6 +181,7 @@ export type OpportunityStatusDTO = z.infer<typeof opportunityStatusSchema>;
 export type OpportunityDTO = z.infer<typeof opportunitySchema>;
 export type CreateOpportunityDTO = z.infer<typeof createOpportunitySchema>;
 export type MoveOpportunityStageDTO = z.infer<typeof moveOpportunityStageSchema>;
+export type AssignOpportunityDTO = z.infer<typeof assignOpportunitySchema>;
 export type PipelineStageDTO = z.infer<typeof pipelineStageSchema>;
 export type CreatePipelineStageDTO = z.infer<typeof createPipelineStageSchema>;
 export type ActivityTypeDTO = z.infer<typeof activityTypeSchema>;

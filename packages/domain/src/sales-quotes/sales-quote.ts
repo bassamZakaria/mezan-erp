@@ -51,6 +51,8 @@ export interface SalesQuote {
   /** Whether the customer is tax-exempt — forces every line's tax to zero. */
   readonly customerTaxExempt: boolean;
   readonly branchId: string;
+  /** The CRM opportunity this quote was raised for; null for a quote raised outside the pipeline. */
+  readonly opportunityId: string | null;
   readonly currency: string;
   /** Customer-facing notes (printed). */
   readonly notes: string | null;

@@ -23,8 +23,12 @@ import {
   type CreateSalesInvoiceCommand,
   type TaxRateRepository,
   QuotaKind,
+  EVENT_BRANCH_IDS_KEY,
+  type EventBus,
+  type OpportunityRepository,
   type SalesTaxPolicySource,
 } from "@mezan/domain";
+import { visibleOpportunities } from "./crm-visibility.js";
 import { withQuota, quotaRefusalResponse, type QuotaEnforcement } from "./plan-quota.js";
 import {
   createSalesQuoteSchema,
@@ -96,6 +100,14 @@ export interface SalesQuoteRoutesDeps {
   readonly taxPolicy?: SalesTaxPolicySource;
   readonly numbering: DocumentNumberingHook;
   readonly pricingGuard?: DocumentPricingGuardPort;
+  /**
+   * The CRM deal a quote may be raised for. The link is only accepted for a deal
+   * the caller may see in the CRM, so a quote can never be hung on someone
+   * else's opportunity.
+   */
+  readonly opportunities?: Pick<OpportunityRepository, "findById">;
+  /** Announces acceptance and conversion so the CRM (and tenant notification rules) can react. */
+  readonly events?: Pick<EventBus, "publish">;
   readonly now?: () => string;
   /** Generates a quote id when the request omits one. Defaults to a UUID. */
   readonly idGen?: () => string;
@@ -155,6 +167,7 @@ function serialize(quote: SalesQuote, totals: SalesQuoteTotals) {
     customerNameAr: quote.customerNameAr,
     customerTaxExempt: quote.customerTaxExempt,
     branchId: quote.branchId,
+    opportunityId: quote.opportunityId,
     currency: quote.currency,
     notes: quote.notes,
     internalNotes: quote.internalNotes,
@@ -290,6 +303,42 @@ export function createSalesQuotesRoutes(
     );
   }
 
+  async function refuseUnlinkableOpportunity(c: Context, opportunityId: string | null, customerId: string): Promise<Response | null> {
+    if (opportunityId === null) return null;
+    if (!deps.opportunities) {
+      return c.json({ error: "OPPORTUNITY_LINK_UNAVAILABLE", message: "ربط عرض السعر بفرصة بيع غير مُفعّل على هذا الخادم." }, 422);
+    }
+    const found = await deps.opportunities.findById(opportunityId);
+    if (!found || visibleOpportunities(c, [found]).length === 0) {
+      return c.json({ error: "OPPORTUNITY_NOT_FOUND", message: "فرصة البيع المختارة غير موجودة." }, 422);
+    }
+    if (found.customerId !== customerId) {
+      return c.json({ error: "OPPORTUNITY_CUSTOMER_MISMATCH", message: "عميل عرض السعر يختلف عن عميل فرصة البيع." }, 422);
+    }
+    if (found.status === "lost") {
+      return c.json({ error: "OPPORTUNITY_CLOSED", message: "فرصة البيع مغلقة كخاسرة؛ أعد فتحها قبل إنشاء عرض سعر لها." }, 422);
+    }
+    return null;
+  }
+
+  function announce(code: "SALES_QUOTE_ACCEPTED" | "SALES_QUOTE_CONVERTED", c: Context, quote: SalesQuote, svc: SalesQuoteService): void {
+    if (!deps.events) return;
+    deps.events.publish(
+      code,
+      {
+        [EVENT_BRANCH_IDS_KEY]: [quote.branchId],
+        documentNumber: quote.docNo ?? quote.id,
+        customerName: quote.customerNameAr,
+        amount: totalsFor(svc, quote).grandTotal.toString(),
+        quoteId: quote.id,
+        opportunityId: quote.opportunityId,
+        convertedInvoiceId: quote.convertedInvoiceId,
+        actorUserId: getAuthContext(c)?.userId ?? null,
+      },
+      deps.now?.() ?? new Date().toISOString(),
+    );
+  }
+
   app.post("/", gate("sales.quote.create"), async (c) => {
     const parsed = createSalesQuoteSchema.safeParse(await c.req.json());
     if (!parsed.success) {
@@ -306,6 +355,7 @@ export function createSalesQuotesRoutes(
       customerTaxExempt: customerTax.taxExempt,
       customerTaxExemptionRateId: customerTax.taxExemptionRateId,
       branchId: d.branchId,
+      opportunityId: d.opportunityId ?? null,
       currency: d.currency,
       notes: d.notes ?? null,
       internalNotes: d.internalNotes ?? null,
@@ -330,6 +380,8 @@ export function createSalesQuotesRoutes(
       { kind: MasterDataKind.Branch, ids: [cmd.branchId] },
     ]);
     if (partyRefusal) return partyRefusal;
+    const linkRefusal = await refuseUnlinkableOpportunity(c, cmd.opportunityId ?? null, cmd.customerId);
+    if (linkRefusal) return linkRefusal;
 
     const svc = service(c);
     try {
@@ -357,6 +409,7 @@ export function createSalesQuotesRoutes(
   interface QuoteListFilter {
     readonly status?: string;
     readonly customerId?: string;
+    readonly opportunityId?: string;
     readonly fromDate?: string;
     readonly toDate?: string;
     readonly branchId?: string;
@@ -369,6 +422,7 @@ export function createSalesQuotesRoutes(
     const parsed = salesQuoteListQuerySchema.safeParse({
       status: stored,
       customerId: c.req.query("customerId"),
+      opportunityId: c.req.query("opportunityId"),
       fromDate: c.req.query("fromDate"),
       toDate: c.req.query("toDate"),
     });
@@ -533,6 +587,7 @@ export function createSalesQuotesRoutes(
     try {
       const quote = await svc.accept(c.req.param("id"));
       await stampDocumentModifier(deps.versionGuard, quote.id, getAuthContext(c)?.userId);
+      announce("SALES_QUOTE_ACCEPTED", c, quote, svc);
       return c.json(serialize(quote, totalsFor(svc, quote)));
     } catch (err) {
       return handleDomainError(c, err);
@@ -664,6 +719,7 @@ export function createSalesQuotesRoutes(
       }
       if (outcome.refusal) return quotaRefusalResponse(c, outcome.refusal);
       const { invoice, converted } = outcome;
+      announce("SALES_QUOTE_CONVERTED", c, converted, quoteSvc);
       return c.json(
         {
           quote: serialize(converted, totalsFor(quoteSvc, converted)),

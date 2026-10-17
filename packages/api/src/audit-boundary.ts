@@ -55,7 +55,7 @@ export const AUDITED_MOUNTS: readonly AuditedMount[] = [
   { prefix: "/fiscal-periods", only: /^(?!\/[^/]+\/(close|lock)$)/ },
   { prefix: "/cheques" },
   { prefix: "/bank-statements", only: /^\/(rules(\/|$)|[^/]+\/finalize$)/ },
-  { prefix: "/crm", only: /^\/leads\/[^/]+\/convert$/ },
+  { prefix: "/crm", only: /^\/(leads\/[^/]+\/convert|opportunities|opportunities\/[^/]+\/(move-stage|assign))$/ },
   {
     prefix: "/hr",
     only: /^\/(advances\/[^/]+\/repay|payroll\/statutory-tables\/insurance-years\/[^/]+|payroll\/statutory-flag|self\/clock(\/credential)?|employees\/[^/]+\/clock-credential\/reset|attendance\/import\/commit|attendance\/(?!import)[^/]+|employees\/[^/]+\/correct-termination-date|employees\/[^/]+\/salary-payment|payroll\/runs\/[^/]+\/bank-file)$/,

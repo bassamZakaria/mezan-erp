@@ -232,6 +232,8 @@ export {
   createSqliteOpportunityRepository,
   createSqlitePipelineStageRepository,
   createSqliteActivityRepository,
+  createSqliteActivityReminderLog,
+  type SqliteActivityReminderLogHandle,
   type SqliteLeadRepositoryHandle,
   type SqliteOpportunityRepositoryHandle,
   type SqlitePipelineStageRepositoryHandle,

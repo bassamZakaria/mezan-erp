@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
-  RowActionOutcome,
   Button,
   Card,
   DocumentList,
@@ -19,9 +18,13 @@ import {
 } from "@mezan/ui";
 import type { OpportunityDTO, OpportunityStatusDTO } from "@mezan/contracts";
 import { NumberField, SelectField, TextField } from "../settings/form-controls";
-import { useCreateOpportunity, useCustomers, useMoveOpportunityStage, useOpportunities, usePipelineStages } from "../data/hooks";
+import { useCreateOpportunity, useCustomers, useOpportunities, usePipelineStages } from "../data/hooks";
+import { useCrmAccess } from "./enh/crm-pipeline/hooks";
+import { OwnerSelect, useLostReasonName, useOwnerName } from "./enh/crm-pipeline/parts";
+import { useStageMove } from "./enh/crm-pipeline/stage-move";
+import { useNavigation } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
-import { sumMajor } from "../lib/money";
+import { majorOf, sumMajor } from "../lib/money";
 import { EMPTY } from "../lib/empty";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 
@@ -40,10 +43,11 @@ interface OpportunityDraft {
   probability: number;
   expectedCloseDate: string;
   notes: string;
+  ownerUserId: string | null;
 }
 
 export function blankOpportunityDraft(defaultStageId: string): OpportunityDraft {
-  return { title: "", customerId: "", stageId: defaultStageId, expectedValue: null, probability: 50, expectedCloseDate: "", notes: "" };
+  return { title: "", customerId: "", stageId: defaultStageId, expectedValue: null, probability: 50, expectedCloseDate: "", notes: "", ownerUserId: null };
 }
 
 export /** Returns a catalogue KEY, so the caller decides the locale. */
@@ -66,6 +70,7 @@ export function CreateOpportunityForm({ onDone, onCancel, defaultStageId }: Crea
   const customersQuery = useCustomers();
   const stagesQuery = usePipelineStages();
   const createOpportunity = useCreateOpportunity();
+  const access = useCrmAccess();
   const stages = useMemo(() => [...(stagesQuery.data ?? [])].filter((s) => s.active).sort((a, b) => a.order - b.order), [stagesQuery.data]);
   const [draft, setDraft] = useState<OpportunityDraft>(() => blankOpportunityDraft(defaultStageId ?? stages[0]?.id ?? ""));
   const [error, setError] = useState<string | null>(null);
@@ -98,6 +103,7 @@ export function CreateOpportunityForm({ onDone, onCancel, defaultStageId }: Crea
         probability: draft.probability,
         expectedCloseDate: draft.expectedCloseDate.trim() === "" ? null : draft.expectedCloseDate.trim(),
         notes: draft.notes.trim() === "" ? null : draft.notes.trim(),
+        ...(access.mayAssign ? { ownerUserId: (draft.ownerUserId ?? access.userId ?? "") || null } : {}),
       });
       onDone();
     } catch (err) {
@@ -140,6 +146,7 @@ export function CreateOpportunityForm({ onDone, onCancel, defaultStageId }: Crea
         onChange={(v) => setDraft((d) => ({ ...d, expectedCloseDate: v }))}
         placeholder="YYYY-MM-DD"
       />
+      <OwnerSelect value={draft.ownerUserId ?? access.userId ?? ""} onChange={(v) => setDraft((d) => ({ ...d, ownerUserId: v }))} />
       <TextField label={t("common.notes")} value={draft.notes} onChange={(v) => setDraft((d) => ({ ...d, notes: v }))} />
 
       <div className="mt-[6px] flex justify-end gap-[9px]">
@@ -181,25 +188,19 @@ export function OpportunitiesScreen() {
   const [formOpen, setFormOpen] = useState(false);
   const [page, setPage] = useUrlNumber("page", 1);
   const [pageSize, setPageSize] = useUrlNumber("size", 25);
-  const [pendingId, setPendingId] = useState<string | null>(null);
-  const [rowError, setRowError] = useState<string | null>(null);
+  const access = useCrmAccess();
+  const ownerName = useOwnerName();
+  const lostReasonName = useLostReasonName();
+  const { openScreenAt } = useNavigation();
 
-  const moveStage = useMoveOpportunityStage();
+  const stageMove = useStageMove(stagesQuery.data ?? []);
+  const pendingId = stageMove.pendingId;
+  const rowError = stageMove.error;
   const winStage = (stagesQuery.data ?? []).find((s) => s.isWinStage);
   const lossStage = (stagesQuery.data ?? []).find((s) => s.isLossStage);
 
-  async function runMoveStage(opportunity: OpportunityDTO, stageId: string) {
-    if (pendingId) return;
-    setPendingId(opportunity.id);
-    setRowError(null);
-    try {
-      await moveStage.mutateAsync({ id: opportunity.id, body: { stageId } });
-    } catch (err) {
-      setRowError(err instanceof Error ? err.message : t("common.failed"));
-      return RowActionOutcome.Refused;
-    } finally {
-      setPendingId(null);
-    }
+  function runMoveStage(opportunity: OpportunityDTO, stageId: string): void {
+    stageMove.request(opportunity, stageId);
   }
 
   const filtered = useMemo(() => {
@@ -230,11 +231,17 @@ export function OpportunitiesScreen() {
   const columns: DocumentListColumn<OpportunityDTO>[] = [
     { key: "title", header: t("opportunities.title2"), render: (o) => <span className="font-semibold text-ink">{o.title}</span> },
     { key: "customer", header: t("common.customer"), render: (o) => <span className="text-ink-muted">{customerName(o.customerId)}</span> },
+    { key: "owner", header: t("crmPipeline.col.owner"), render: (o) => <span className="text-ink-muted">{ownerName(o.ownerUserId)}</span> },
     { key: "stage", header: t("opportunities.stage2"), render: (o) => stageName(o.stageId) },
     { key: "probability", header: t("opportunities.probability2"), render: (o) => <span className="mz-num">{o.probability}%</span> },
-    { key: "expectedValue", header: t("opportunities.expectedValue"), align: "end", render: (o) => <MoneyDisplay value={Number(o.expectedValue)} /> },
+    { key: "expectedValue", header: t("opportunities.expectedValue"), align: "end", render: (o) => <MoneyDisplay value={majorOf(o.expectedValue)} /> },
     { key: "expectedCloseDate", header: t("opportunities.expectedCloseDate"), render: (o) => <span className="mz-num">{o.expectedCloseDate ?? "—"}</span> },
     { key: "status", header: t("common.status"), render: (o) => <StatusPill label={t(STATUS_KEY[o.status])} tone={STATUS_TONE[o.status]} /> },
+    {
+      key: "lostReason",
+      header: t("crmPipeline.col.lostReason"),
+      render: (o) => <span className="text-ink-muted">{o.status === "lost" ? (lostReasonName(o.lostReason) ?? "—") : "—"}</span>,
+    },
   ];
 
   return (
@@ -290,6 +297,9 @@ export function OpportunitiesScreen() {
           const menuItems: RowMenuItem[] =
             o.status === "open"
               ? [
+                  ...(access.mayQuote
+                    ? [{ key: "quote", label: t("crmPipeline.createQuote"), onSelect: () => openScreenAt("quotes", ["new", o.customerId, o.id]) }]
+                    : []),
                   ...(winStage
                     ? [{ key: "won", label: t("opportunities.won"), disabled: pendingId === o.id, onSelect: () => runMoveStage(o, winStage.id) }]
                     : []),
@@ -334,6 +344,7 @@ export function OpportunitiesScreen() {
       <SidePanel open={formOpen} onClose={() => setFormOpen(false)} title={t("opportunities.newOpportunity")} description={t("opportunities.opportunityDetails")}>
         <CreateOpportunityForm onDone={() => setFormOpen(false)} onCancel={() => setFormOpen(false)} />
       </SidePanel>
+      {stageMove.dialog}
     </div>
   );
 }

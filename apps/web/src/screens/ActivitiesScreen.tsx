@@ -16,6 +16,8 @@ import {
 import type { ActivityDTO, ActivityStatusDTO, ActivityTypeDTO } from "@mezan/contracts";
 import { SelectField, TextField } from "../settings/form-controls";
 import { useCancelActivity, useCompleteActivity, useCreateActivity, useCrmActivities } from "../data/hooks";
+import { useCrmAccess } from "./enh/crm-pipeline/hooks";
+import { OwnerSelect, useOwnerName } from "./enh/crm-pipeline/parts";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { EMPTY } from "../lib/empty";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
@@ -34,10 +36,11 @@ interface ActivityDraft {
   type: ActivityTypeDTO;
   dueDate: string;
   notes: string;
+  assigneeUserId: string | null;
 }
 
 function blankDraft(): ActivityDraft {
-  return { subject: "", type: "call", dueDate: "", notes: "" };
+  return { subject: "", type: "call", dueDate: "", notes: "", assigneeUserId: null };
 }
 
 /** Returns a catalogue KEY, so the caller decides the locale. */
@@ -52,6 +55,8 @@ export function ActivitiesScreen() {
   const createActivity = useCreateActivity();
   const completeActivity = useCompleteActivity();
   const cancelActivity = useCancelActivity();
+  const access = useCrmAccess();
+  const ownerName = useOwnerName();
   const activities = query.data ?? EMPTY;
 
   const [searchText, setSearchText, search] = useUrlSearch();
@@ -102,6 +107,7 @@ export function ActivitiesScreen() {
         type: draft.type,
         dueDate: draft.dueDate.trim() === "" ? null : draft.dueDate.trim(),
         notes: draft.notes.trim() === "" ? null : draft.notes.trim(),
+        ...(access.mayAssign ? { assigneeUserId: (draft.assigneeUserId ?? access.userId ?? "") || null } : {}),
       });
       setFormOpen(false);
     } catch (err) {
@@ -134,6 +140,7 @@ export function ActivitiesScreen() {
     { key: "type", header: t("common.type"), render: (a) => t(TYPE_KEY[a.type]) },
     { key: "status", header: t("common.status"), render: (a) => <StatusPill label={t(STATUS_KEY[a.status])} tone={STATUS_TONE[a.status]} /> },
     { key: "dueDate", header: t("activities.dueDate"), render: (a) => <span className="mz-num">{a.dueDate ?? "—"}</span> },
+    { key: "assignee", header: t("crmPipeline.col.assignee"), render: (a) => <span className="text-ink-muted">{ownerName(a.assigneeUserId)}</span> },
   ];
 
   return (
@@ -232,6 +239,11 @@ export function ActivitiesScreen() {
             options={(Object.keys(TYPE_KEY) as ActivityTypeDTO[]).map((code) => ({ value: code, label: t(TYPE_KEY[code]) }))}
           />
           <TextField label={t("activities.dueDate")} value={draft.dueDate} onChange={(v) => setDraft((d) => ({ ...d, dueDate: v }))} placeholder="YYYY-MM-DD" />
+          <OwnerSelect
+            label={t("crmPipeline.activity.assignee")}
+            value={draft.assigneeUserId ?? access.userId ?? ""}
+            onChange={(v) => setDraft((d) => ({ ...d, assigneeUserId: v }))}
+          />
           <TextField label={t("common.notes")} value={draft.notes} onChange={(v) => setDraft((d) => ({ ...d, notes: v }))} />
 
           <div className="mt-[6px] flex justify-end gap-[9px]">

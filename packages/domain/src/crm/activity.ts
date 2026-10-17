@@ -16,6 +16,8 @@ export interface Activity {
   readonly relatedLeadId: string | null;
   readonly relatedOpportunityId: string | null;
   readonly dueDate: string | null;
+  /** The person the follow-up is for; the due-date reminder goes to them. */
+  readonly assigneeUserId: string | null;
   readonly status: ActivityStatus;
   readonly notes: string | null;
   readonly createdAt: string;
@@ -36,6 +38,7 @@ export interface CreateActivityCommand {
   readonly relatedLeadId?: string | null;
   readonly relatedOpportunityId?: string | null;
   readonly dueDate?: string | null;
+  readonly assigneeUserId?: string | null;
   readonly notes?: string | null;
 }
 
@@ -52,6 +55,7 @@ export async function createActivity(command: CreateActivityCommand, repo: Activ
     relatedLeadId: command.relatedLeadId ?? null,
     relatedOpportunityId: command.relatedOpportunityId ?? null,
     dueDate: command.dueDate ?? null,
+    assigneeUserId: command.assigneeUserId ?? null,
     status: "pending",
     notes: command.notes ?? null,
     createdAt: new Date().toISOString(),

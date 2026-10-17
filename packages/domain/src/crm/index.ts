@@ -51,3 +51,22 @@ export {
   cancelActivity,
   type CreateActivityCommand,
 } from "./activity.js";
+export {
+  OpportunityLostReason,
+  OPPORTUNITY_LOST_REASON_DEFINITIONS,
+  isOpportunityLostReason,
+  getOpportunityLostReasonLabel,
+  type OpportunityLostReasonDefinition,
+} from "./lost-reason.js";
+export type { OpportunityLoss } from "./move-opportunity-stage.js";
+export { winOpportunity } from "./win-opportunity.js";
+export {
+  buildWeightedForecast,
+  weightedAmount,
+  forecastMonthOf,
+  type ForecastFigures,
+  type ForecastMonthRow,
+  type ForecastOwnerRow,
+  type WeightedForecast,
+} from "./forecast.js";
+export { dueActivityReminders, type ActivityReminder, type ActivityReminderLog } from "./activity-reminders.js";

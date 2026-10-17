@@ -50,6 +50,7 @@ export const createSalesQuoteSchema = z.object({
   /** EXTERNAL CONTRACT: ignored — exemption is read off the customer record server-side. Kept so older clients still parse. */
   customerTaxExempt: z.boolean().optional(),
   branchId: z.string().min(1),
+  opportunityId: z.string().min(1).nullish(),
   currency: z.string().optional(),
   notes: z.string().nullish(),
   internalNotes: z.string().nullish(),
@@ -63,6 +64,7 @@ export const createSalesQuoteSchema = z.object({
 export const salesQuoteListQuerySchema = z.object({
   status: salesQuoteStatusSchema.optional(),
   customerId: z.string().optional(),
+  opportunityId: z.string().optional(),
   fromDate: z.string().optional(),
   toDate: z.string().optional(),
 });
@@ -136,6 +138,7 @@ export const salesQuoteSchema = z.object({
   customerNameAr: z.string(),
   customerTaxExempt: z.boolean(),
   branchId: z.string().min(1),
+  opportunityId: z.string().nullable().optional(),
   currency: z.string().min(1),
   notes: z.string().nullable(),
   internalNotes: z.string().nullable(),

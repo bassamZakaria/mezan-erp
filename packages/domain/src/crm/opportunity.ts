@@ -1,5 +1,6 @@
 import { Money } from "../money/index.js";
 import { InvalidOpportunityError } from "./errors.js";
+import type { OpportunityLostReason } from "./lost-reason.js";
 
 /**
  * Opportunities — core entity (docs/archive/catalog/06-crm-hr.md "الفرص"). An
@@ -24,6 +25,15 @@ export interface Opportunity {
   readonly probability: number;
   readonly expectedCloseDate: string | null;
   readonly notes: string | null;
+  /**
+   * The sales rep who owns the deal. Nullable: opportunities written before the
+   * column existed have none, and a rep limited to their own deals never sees a
+   * row nobody owns.
+   */
+  readonly ownerUserId: string | null;
+  /** Set only while `status` is `lost`; the loss move requires it. */
+  readonly lostReason: OpportunityLostReason | null;
+  readonly lostNote: string | null;
   readonly status: OpportunityStatus;
   readonly createdAt: string;
   readonly closedAt: string | null;
@@ -47,6 +57,7 @@ export interface CreateOpportunityCommand {
   readonly probability?: number;
   readonly expectedCloseDate?: string | null;
   readonly notes?: string | null;
+  readonly ownerUserId?: string | null;
 }
 
 function validate(title: string, probability: number): string[] {
@@ -79,6 +90,9 @@ export async function createOpportunity(
     probability,
     expectedCloseDate: command.expectedCloseDate ?? null,
     notes: command.notes ?? null,
+    ownerUserId: command.ownerUserId ?? null,
+    lostReason: null,
+    lostNote: null,
     status: "open",
     createdAt: new Date().toISOString(),
     closedAt: null,

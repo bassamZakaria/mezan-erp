@@ -21,6 +21,7 @@ export interface SalesQuoteRepository {
 export interface SalesQuoteListFilter {
   readonly status?: SalesQuote["status"];
   readonly customerId?: string;
+  readonly opportunityId?: string;
   readonly fromDate?: string;
   readonly toDate?: string;
 }

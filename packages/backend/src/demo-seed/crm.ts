@@ -177,6 +177,8 @@ const OPPORTUNITIES = [
     expectedCloseDate: "2026-08-15",
     notes: "اختار العميل مورداً آخر بسعر أقل.",
     finalStageId: "STAGE-LOST",
+    lostReason: "COMPETITOR",
+    lostNote: "اختار العميل مورداً آخر بسعر أقل.",
   },
 ] as const;
 
@@ -528,7 +530,10 @@ export async function seedCrm(app: App): Promise<void> {
       notes: opportunity.notes,
     });
     if (opportunity.finalStageId) {
-      await step(app, "POST", `/crm/opportunities/${opportunity.id}/move-stage`, { stageId: opportunity.finalStageId });
+      await step(app, "POST", `/crm/opportunities/${opportunity.id}/move-stage`, {
+        stageId: opportunity.finalStageId,
+        ...("lostReason" in opportunity ? { lostReason: opportunity.lostReason, lostNote: opportunity.lostNote } : {}),
+      });
     }
   }
 

@@ -81,9 +81,13 @@ interface SupportBridge {
     sessionToken: string,
     body: string,
   ): Promise<{ ok: true; path: string | null } | { ok: false; code: string; message: string }>;
+  saveLogs?(
+    sessionToken: string,
+    diagnostic: string,
+  ): Promise<{ ok: true; path: string | null } | { ok: false; code: string; message: string }>;
   reveal?(
     sessionToken: string,
-    target: "key-card" | "plaintext-archive",
+    target: "key-card" | "plaintext-archive" | "log",
   ): Promise<{ ok: true; path: string | null } | { ok: false; code: string; message: string }>;
   remove?(
     sessionToken: string,
@@ -201,6 +205,47 @@ export function SupportInfoCard() {
     }
   }
 
+  async function handleSaveLogs() {
+    const bridge = supportBridge();
+    const token = session?.token ?? null;
+    if (!bridge?.saveLogs || !token) {
+      setError(t("support.logsDesktopOnly"));
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await bridge.saveLogs(token, diagnostic);
+      if (result.ok) {
+        if (result.path) setNotice(t("support.logsSaved", { path: result.path }));
+      } else if (result.code !== "CANCELLED") {
+        setError(result.message);
+      }
+    } catch {
+      setError(t("support.logsFailed"));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleOpenLogs() {
+    const bridge = supportBridge();
+    const token = session?.token ?? null;
+    if (!bridge?.reveal || !token) {
+      setError(t("support.logsDesktopOnly"));
+      return;
+    }
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await bridge.reveal(token, "log");
+      if (!result.ok) setError(result.message);
+    } catch {
+      setError(t("support.logsOpenFailed"));
+    }
+  }
+
   return (
     <Card className="p-[18px]">
       <div className="text-[13px] font-semibold text-ink">{t("support.title")}</div>
@@ -246,6 +291,16 @@ export function SupportInfoCard() {
         {desktop ? (
           <Button type="button" disabled={saving} onClick={() => void handleSaveDiagnostic()}>
             {saving ? t("support.saving") : t("support.saveDiagnostic")}
+          </Button>
+        ) : null}
+        {desktop ? (
+          <Button type="button" disabled={saving} onClick={() => void handleSaveLogs()}>
+            {saving ? t("support.saving") : t("support.saveLogs")}
+          </Button>
+        ) : null}
+        {desktop ? (
+          <Button type="button" variant="ghost" onClick={() => void handleOpenLogs()}>
+            {t("support.openLogs")}
           </Button>
         ) : null}
       </div>

@@ -87,6 +87,10 @@ export const NAV_ITEM_API: Readonly<Record<string, string>> = {
   "user-provisioning": "/users",
   "evidence-pack": "/audit/evidence-packs",
   "sequence-gaps": "/audit/sequence-gaps",
+  status: "/system/health",
+  integrations: "/integrations",
+  "owner-digest": "/owner-digest/settings",
+  "pricing-guard": "/pricing-guard/rules",
 };
 
 export enum BranchGatedAction {
@@ -156,6 +160,7 @@ export const READ_ONLY_FAMILY_HOST: Readonly<Record<string, string>> = {
   "/eta/unit-codes": "eta",
   "/eta/unit-mappings": "eta",
   "/hr/payroll/statutory-flag": "payroll-statutory",
+  "/hr/payroll/bank-file/layouts": "payroll",
   "/bank-statements/rules": "bank-reconciliation",
   "/manufacturing/work-stations": "work-orders",
 };

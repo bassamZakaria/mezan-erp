@@ -22,6 +22,8 @@ import {
   MEZAN_SUPPORT_DELETE_CHANNEL,
   MEZAN_SUPPORT_DIAGNOSTIC_CHANNEL,
   MEZAN_SUPPORT_REVEAL_CHANNEL,
+  MEZAN_SUPPORT_SAVE_LOGS_CHANNEL,
+  MEZAN_LOG_RENDERER_ERROR_CHANNEL,
   MEZAN_UPDATE_EVENT_CHANNEL,
   MEZAN_UPDATE_INVOKE_CHANNEL,
   type SavePdfOptions,
@@ -44,6 +46,8 @@ import {
   type PairingRequestMessage,
   type PairingResponse,
   type PlaintextRiskTarget,
+  type RendererErrorReport,
+  type SupportRevealTarget,
   type PrintToPdfOptions,
   type SupportActionResult,
   type UpdateAction,
@@ -186,12 +190,21 @@ const mezanBridge: MezanBridge = {
   appVersion(): Promise<string> {
     return ipcRenderer.invoke(MEZAN_APP_VERSION_CHANNEL);
   },
+  reportError(report: RendererErrorReport): Promise<void> {
+    return ipcRenderer.invoke(MEZAN_LOG_RENDERER_ERROR_CHANNEL, report).then(
+      () => undefined,
+      () => undefined,
+    );
+  },
   support: {
     saveDiagnostic(sessionToken: string, body: string): Promise<SupportActionResult> {
       return ipcRenderer.invoke(MEZAN_SUPPORT_DIAGNOSTIC_CHANNEL, sessionToken, body);
     },
-    reveal(sessionToken: string, target: PlaintextRiskTarget): Promise<SupportActionResult> {
+    reveal(sessionToken: string, target: SupportRevealTarget): Promise<SupportActionResult> {
       return ipcRenderer.invoke(MEZAN_SUPPORT_REVEAL_CHANNEL, sessionToken, target);
+    },
+    saveLogs(sessionToken: string, diagnostic: string): Promise<SupportActionResult> {
+      return ipcRenderer.invoke(MEZAN_SUPPORT_SAVE_LOGS_CHANNEL, sessionToken, diagnostic);
     },
     remove(sessionToken: string, target: PlaintextRiskTarget): Promise<SupportActionResult> {
       return ipcRenderer.invoke(MEZAN_SUPPORT_DELETE_CHANNEL, sessionToken, target);

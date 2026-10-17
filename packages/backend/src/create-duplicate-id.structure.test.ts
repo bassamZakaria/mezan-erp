@@ -327,6 +327,7 @@ const CREATE_ROUTES: Record<string, CreateRoute> = {
   openVanTripSchema: {
     route: "/field/van-trips",
     table: "van_trip",
+    arrange: (sqlite) => sqlite.prepare("UPDATE van_trip SET status = 'settled' WHERE status IN ('ongoing', 'awaiting_approval')").run(),
     body: (sampled) => ({ ...sampled, date: TODAY, vanId: "VAN-DEMO-1", sourceWarehouseId: "WH-MAIN", sourceTreasuryAccountId: "TR-DEMO-CASH", crew: [{ employeeId: "EMP-DEMO-1", role: "driver" }] }),
   },
   postRecognitionRunSchema: { route: "/contracting/recognition/runs", table: "contracting_recognition_run", body: (sampled) => ({ ...sampled, contractId: "CTR-DEMO-1", periodEnd: "2026-09-30" }) },

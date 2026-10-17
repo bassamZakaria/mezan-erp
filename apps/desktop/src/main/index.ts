@@ -28,7 +28,8 @@ import {
   decideCheckin,
 } from "./license-checkin.js";
 import { reevaluateLicenseState } from "./license.js";
-import { createFileLogger } from "./log.js";
+import { registerCrashLogging } from "./crash-logging.js";
+import { createFileLogger, LogEvent, LogLevel, type FileLogger } from "./log.js";
 import { startLanHost, type LanHostHandle } from "./lan-host.js";
 import { advertiseLanHost } from "./lan-discovery.js";
 import { registerPairingOverIpc } from "./pairing-ipc.js";
@@ -208,16 +209,17 @@ async function startAsLanClient(config: ClientConfig): Promise<void> {
   });
 }
 
+let sharedLog: FileLogger | undefined;
+const mainLog = (): FileLogger => (sharedLog ??= createFileLogger(app.getPath("logs")));
+
 /**
  * A rejected promise that reaches the process must not end it. The LAN host
  * serves every till in the shop out of THIS process, and a single refused
  * posting — a document approved into a closed fiscal period — was taking it
- * down for all of them. Logged, never fatal; `app.onError` in @mezan/api has
- * already answered the request.
+ * down for all of them. Logged to the file, never fatal; `app.onError` in
+ * @mezan/api has already answered the request.
  */
-process.on("unhandledRejection", (reason) => {
-  console.error("[desktop] unhandled rejection (ignored, host stays up):", reason);
-});
+registerCrashLogging(mainLog);
 
 app.whenReady().then(async () => {
   const dbPath = isDev() ? ":memory:" : defaultDbPath();
@@ -244,7 +246,7 @@ app.whenReady().then(async () => {
    * routed to nobody. `log` puts it in a file the shop can send; `fatal` also
    * puts it on the screen before the process ends.
    */
-  const log = createFileLogger(app.getPath("logs"));
+  const log = mainLog();
   const fatal = (messageAr: string, detail: string): void => {
     log(`FATAL ${detail}`);
     try {
@@ -751,6 +753,13 @@ app.whenReady().then(async () => {
       MEZAN_SCHEMA_VERSION: String(CURRENT_SCHEMA_VERSION),
     },
     log,
+    workerOutput: (stream, line) =>
+      log.event(
+        stream === "stderr" ? LogLevel.Error : LogLevel.Info,
+        LogEvent.WorkerOutput,
+        { stream },
+        line,
+      ),
   });
   const backendProcess = backend;
 
@@ -860,6 +869,7 @@ app.whenReady().then(async () => {
     dbPath,
     backupsDir: defaultBackupsDir(),
     plaintextArchivePath: () => plaintextArchivePath,
+    logs: log,
     seatsUsed: async () => (await backendProcess.connectedDevices()).length,
     lanHost: () => lanHost,
     sessions: { find: (token) => backendProcess.findSession(token) },

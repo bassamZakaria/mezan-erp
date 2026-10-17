@@ -550,7 +550,34 @@ export const MEZAN_SUPPORT_DIAGNOSTIC_CHANNEL = "mezan:support:diagnostic";
 export const MEZAN_SUPPORT_REVEAL_CHANNEL = "mezan:support:reveal";
 export const MEZAN_SUPPORT_DELETE_CHANNEL = "mezan:support:delete";
 
+export const MEZAN_SUPPORT_SAVE_LOGS_CHANNEL = "mezan:support:save-logs";
+
 export type PlaintextRiskTarget = "key-card" | "plaintext-archive";
+
+/** `log` may be shown in the file manager but never deleted from the renderer. */
+export type SupportRevealTarget = PlaintextRiskTarget | "log";
+
+export const SUPPORT_LOG_TAIL_LINES = 500;
+
+/**
+ * Renderer errors reach the main-process log file over this one fire-and-forget
+ * style channel. The payload carries no form data: a message, a trimmed stack
+ * and the route only, and main redacts and rate-limits it again.
+ */
+export const MEZAN_LOG_RENDERER_ERROR_CHANNEL = "mezan:log:renderer-error";
+
+export enum RendererErrorSource {
+  Error = "window.error",
+  UnhandledRejection = "window.unhandledrejection",
+  RouteBoundary = "route-boundary",
+}
+
+export interface RendererErrorReport {
+  readonly source: RendererErrorSource;
+  readonly message: string;
+  readonly stack?: string | undefined;
+  readonly route?: string | undefined;
+}
 
 export type SupportActionResult =
   | { readonly ok: true; readonly path: string | null }
@@ -789,10 +816,14 @@ export interface MezanBridge {
   pairing(message: PairingRequestMessage): Promise<PairingResponse>;
   /** `app.getVersion()`. Unauthenticated: the login screen has to show it. */
   appVersion(): Promise<string>;
+  /** Fire-and-forget: forwards a renderer error to the main-process log. Never rejects. */
+  reportError(report: RendererErrorReport): Promise<void>;
   readonly support: {
     /** Writes the diagnostic JSON to a path the owner picks. */
     saveDiagnostic(sessionToken: string, body: string): Promise<SupportActionResult>;
-    reveal(sessionToken: string, target: PlaintextRiskTarget): Promise<SupportActionResult>;
+    reveal(sessionToken: string, target: SupportRevealTarget): Promise<SupportActionResult>;
+    /** Saves the diagnostic body plus the last 500 redacted log lines to a path the owner picks. */
+    saveLogs(sessionToken: string, diagnostic: string): Promise<SupportActionResult>;
     remove(sessionToken: string, target: PlaintextRiskTarget): Promise<SupportActionResult>;
   };
 }

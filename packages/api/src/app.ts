@@ -240,6 +240,7 @@ import { createFinancialReportsRoutes, type FinancialReportsRoutesDeps } from ".
 import { createLabelLayoutsRouter } from "./label-routes.js";
 import { createSequencesRoutes, type SequencesRoutesDeps } from "./sequences-routes.js";
 import { createAuditRoutes } from "./audit-routes.js";
+import { leaseBeforeTheTurn, type LeaseStore } from "./keyed-lock.js";
 import { AUDITED_MOUNTS, AuditBoundaryRefusal, MutatingMethod, auditBoundary, beforeTheTurn, connectionTurn, type BoundaryPreparation, type ConnectionTurnOptions } from "./audit-boundary.js";
 import { createPrecomputingHasher, type PrecomputingHasher } from "./precomputed-secrets.js";
 import { requestBodyLimit } from "./body-limit.js";
@@ -863,6 +864,7 @@ export interface CreateAppOptions {
   readonly idempotentRequests?: IdempotentRequests;
   readonly connectionTurn?: ConnectionTurnOptions;
   readonly beforeTheTurn?: Readonly<Record<string, BoundaryPreparation>>;
+  readonly hrLeases?: LeaseStore;
   /**
    * Mounts `/workflow` (docs/archive/catalog/09 §سير العمل — إعدادات الموافقات
    * chain-builder + الموافقات inbox) when present: `/workflow/configs` CRUD
@@ -1075,6 +1077,20 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     app.use(`${prefix}/*`, prepared);
   }
   for (const [path, prepare] of Object.entries(options.beforeTheTurn ?? {})) app.use(path, beforeTheTurn(prepare));
+  const leaseSink = options.auditSink;
+  if (options.hrLeases && leaseSink?.turn) {
+    const inTurn = <T>(work: () => Promise<T>): Promise<T> => leaseSink.turn!(work);
+    const hrLeaseKeys: Readonly<Record<string, (c: Context) => Promise<string | null>>> = {
+      "/hr/advances/:id/repay": async (c) => `hr-advance:${c.req.param("id")}`,
+      "/hr/self/clock": async (c) => {
+        const userId = (await resolveAuth(c))?.userId;
+        return userId ? `hr-punch:${userId}` : null;
+      },
+    };
+    for (const [path, keyFor] of Object.entries(hrLeaseKeys)) {
+      app.use(path, beforeTheTurn(leaseBeforeTheTurn({ store: options.hrLeases, inTurn, keyFor })));
+    }
+  }
 
   const idempotent = options.idempotentRequests
     ? idempotentCreate({

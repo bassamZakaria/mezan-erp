@@ -2,6 +2,8 @@ import { createHash, createHmac } from "node:crypto";
 import { parseSignedAnchor, assertSafeScope, type AuditAnchorSink, type SignedAuditAnchor } from "./audit-anchor.js";
 
 const SEQ_DIGITS = 12;
+const LATEST_POINTER = "latest.json";
+const ANCHOR_KEY = /\/\d{12}\.json$/;
 const LIST_PAGE_KEYS = 1000;
 const REQUEST_TIMEOUT_MS = 15_000;
 const ECS_CREDENTIALS_HOST = "http://169.254.170.2";
@@ -122,10 +124,29 @@ export function createS3AuditAnchorSink(options: S3AuditAnchorSinkOptions): Audi
       );
       if (!res.ok) throw new Error(`S3 ListObjectsV2 answered ${res.status}`);
       const xml = await res.text();
-      for (const match of xml.matchAll(/<Key>([^<]+)<\/Key>/g)) keys.push(match[1] as string);
+      for (const match of xml.matchAll(/<Key>([^<]+)<\/Key>/g)) if (ANCHOR_KEY.test(match[1] as string)) keys.push(match[1] as string);
       token = /<IsTruncated>true<\/IsTruncated>/.test(xml) ? /<NextContinuationToken>([^<]+)<\/NextContinuationToken>/.exec(xml)?.[1] : undefined;
     } while (token);
     return keys.sort();
+  }
+
+  async function anchorAt(key: string): Promise<SignedAuditAnchor | null> {
+    const res = await signedFetch("GET", key, {}, null);
+    if (res.status === 404) return null;
+    if (!res.ok) throw new Error(`S3 GetObject of ${key} answered ${res.status}`);
+    return parseSignedAnchor((await res.json()) as unknown);
+  }
+
+  // The pointer only names a sequence; the anchor object it names stays the authority, so a stale,
+  // forged or missing pointer can cost a full listing but never change what is believed.
+  async function pointTo(scope: string, seq: number): Promise<void> {
+    const res = await signedFetch("PUT", `${prefix}/${scope}/${LATEST_POINTER}`, {}, Buffer.from(JSON.stringify({ seq }), "utf8"), { "content-type": "application/json" });
+    if (!res.ok) throw new Error(`S3 PutObject of the latest pointer answered ${res.status}`);
+  }
+
+  async function newestByListing(scope: string): Promise<SignedAuditAnchor | null> {
+    const newest = (await listKeys(scope)).at(-1);
+    return newest === undefined ? null : anchorAt(newest);
   }
 
   return {
@@ -135,8 +156,24 @@ export function createS3AuditAnchorSink(options: S3AuditAnchorSinkOptions): Audi
         "content-type": "application/json",
         "if-none-match": "*",
       });
-      if (res.status === 412) return;
-      if (!res.ok) throw new Error(`S3 PutObject of ${key} answered ${res.status}`);
+      if (res.status !== 412 && !res.ok) throw new Error(`S3 PutObject of ${key} answered ${res.status}`);
+      await pointTo(signed.anchor.scope, signed.anchor.seq).catch(() => undefined);
+    },
+    async latest(scope) {
+      assertSafeScope(scope);
+      const pointer = await signedFetch("GET", `${prefix}/${scope}/${LATEST_POINTER}`, {}, null);
+      if (pointer.ok) {
+        const seq = ((await pointer.json().catch(() => null)) as { seq?: unknown } | null)?.seq;
+        if (typeof seq === "number" && Number.isInteger(seq) && seq >= 0) {
+          const named = await anchorAt(anchorObjectKey(prefix, scope, seq));
+          if (named) return named;
+        }
+      } else if (pointer.status !== 404) {
+        throw new Error(`S3 GetObject of the latest pointer answered ${pointer.status}`);
+      }
+      const found = await newestByListing(scope);
+      if (found) await pointTo(scope, found.anchor.seq).catch(() => undefined);
+      return found;
     },
     async list(scope, limit) {
       assertSafeScope(scope);

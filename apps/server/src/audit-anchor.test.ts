@@ -237,7 +237,9 @@ describe("S3 sink", () => {
     });
     const signed = signer.sign({ scope: SCOPE, seq: 42, headHash: "h42", anchoredAt: NOW.toISOString() });
     await s3.append(signed);
-    expect(calls).toHaveLength(1);
+    expect(calls).toHaveLength(2);
+    expect(calls[1]?.url).toBe("https://backups.s3.eu-south-1.amazonaws.com/audit-anchors/T-1/latest.json");
+    expect(JSON.parse(calls[1]?.body ?? "")).toEqual({ seq: 42 });
     expect(calls[0]?.method).toBe("PUT");
     expect(calls[0]?.url).toBe("https://backups.s3.eu-south-1.amazonaws.com/audit-anchors/T-1/000000000042.json");
     expect(calls[0]?.headers["if-none-match"]).toBe("*");
@@ -274,5 +276,106 @@ describe("S3 sink", () => {
       }) as unknown as typeof fetch,
     });
     expect((await s3.list(SCOPE, 2)).map((s) => s.anchor.seq)).toEqual([2, 3]);
+  });
+});
+
+describe("the newest anchor without reading the whole history", () => {
+  function fakeS3(stored: Map<string, string>, requests: string[]) {
+    return createS3AuditAnchorSink({
+      bucket: "b",
+      region: "r",
+      credentials: async () => ({ accessKeyId: "k", secretAccessKey: "s" }),
+      fetch: (async (url: string, init: RequestInit) => {
+        const parsed = new URL(url);
+        const key = decodeURIComponent(parsed.pathname.slice(1));
+        requests.push(`${init.method} ${parsed.searchParams.get("list-type") ? "LIST" : key}`);
+        if (init.method === "PUT") {
+          if (init.headers && (init.headers as Record<string, string>)["if-none-match"] && stored.has(key)) return new Response("", { status: 412 });
+          stored.set(key, Buffer.from(init.body as Uint8Array).toString("utf8"));
+          return new Response("", { status: 200 });
+        }
+        if (parsed.searchParams.get("list-type")) {
+          const listed = [...stored.keys()].filter((k) => k.startsWith(parsed.searchParams.get("prefix") ?? ""));
+          return new Response(`<ListBucketResult><IsTruncated>false</IsTruncated>${listed.map((k) => `<Contents><Key>${k}</Key></Contents>`).join("")}</ListBucketResult>`);
+        }
+        return new Response(stored.get(key) ?? "", { status: stored.has(key) ? 200 : 404 });
+      }) as unknown as typeof fetch,
+    });
+  }
+  const signedAt = (seq: number) => signer.sign({ scope: SCOPE, seq, headHash: `h${seq}`, anchoredAt: NOW.toISOString() });
+
+  it("S3: reads the pointer and the one anchor it names, never listing the scope", async () => {
+    const stored = new Map<string, string>();
+    const s3 = fakeS3(stored, []);
+    for (let seq = 1; seq <= 300; seq += 1) await s3.append(signedAt(seq));
+    const requests: string[] = [];
+    const reader = fakeS3(stored, requests);
+
+    const latest = await reader.latest(SCOPE);
+
+    expect(latest?.anchor.seq).toBe(300);
+    expect(requests).toEqual(["GET audit-anchors/T-1/latest.json", "GET audit-anchors/T-1/000000000300.json"]);
+  });
+
+  it("S3: without a pointer lists once, finds the real newest anchor past the pointer object, and writes the pointer", async () => {
+    const stored = new Map<string, string>();
+    for (const seq of [1, 2, 3]) stored.set(`audit-anchors/T-1/${String(seq).padStart(12, "0")}.json`, JSON.stringify(signedAt(seq)));
+    const requests: string[] = [];
+    const s3 = fakeS3(stored, requests);
+
+    expect((await s3.latest(SCOPE))?.anchor.seq).toBe(3);
+    expect(JSON.parse(stored.get("audit-anchors/T-1/latest.json") ?? "")).toEqual({ seq: 3 });
+    requests.length = 0;
+    expect((await s3.latest(SCOPE))?.anchor.seq).toBe(3);
+    expect(requests).not.toContain("GET LIST");
+    expect(requests.some((r) => r.includes("LIST"))).toBe(false);
+    expect((await s3.list(SCOPE, 10)).map((a) => a.anchor.seq)).toEqual([1, 2, 3]);
+  });
+
+  it("S3: a pointer naming an anchor that does not exist falls back to the listing instead of believing it", async () => {
+    const stored = new Map<string, string>();
+    for (const seq of [1, 2]) stored.set(`audit-anchors/T-1/${String(seq).padStart(12, "0")}.json`, JSON.stringify(signedAt(seq)));
+    stored.set("audit-anchors/T-1/latest.json", JSON.stringify({ seq: 99 }));
+
+    expect((await fakeS3(stored, []).latest(SCOPE))?.anchor.seq).toBe(2);
+  });
+
+  it("S3: no anchors at all is null", async () => {
+    expect(await fakeS3(new Map(), []).latest(SCOPE)).toBeNull();
+  });
+
+  it("file: reads the tail of a long file, skipping a torn last line", async () => {
+    for (let seq = 1; seq <= 120; seq += 1) await sink.append(signedAt(seq));
+    writeFileSync(path.join(dir, "anchors", `${SCOPE}.jsonl`), "{not json\n", { flag: "a" });
+
+    expect((await sink.latest(SCOPE))?.anchor.seq).toBe(120);
+    expect(await sink.latest("T-none")).toBeNull();
+  });
+});
+
+describe("signing key rotation", () => {
+  const retired = createAuditAnchorSigner(OTHER_SEED);
+
+  it("a retired key's anchors still verify when it is trusted, and are forged when it is not", async () => {
+    const old = retired.sign({ scope: SCOPE, seq: 3, headHash: "h3", anchoredAt: NOW.toISOString() });
+    const chain = { head: () => ({ rowId: 3, rowHash: "h3" }), rowHashAt: (id: number) => `h${id}` };
+
+    const trusted = await verifyAgainstAnchors({ scope: SCOPE, chain, anchors: [old], publicKeyHex: signer.publicKeyHex, trustedPublicKeys: [retired.publicKeyHex], verifyChain: false });
+    const untrusted = await verifyAgainstAnchors({ scope: SCOPE, chain, anchors: [old], publicKeyHex: signer.publicKeyHex, verifyChain: false });
+
+    expect(trusted.ok).toBe(true);
+    expect(untrusted.findings.map((f) => f.verdict)).toContain(AnchorVerdict.AnchorsForged);
+  });
+
+  it("the new key extends a chain whose newest anchor the retired key signed, but only while the retired key is trusted", async () => {
+    const old = retired.sign({ scope: SCOPE, seq: 1, headHash: "h1", anchoredAt: NOW.toISOString() });
+    const input = { scope: SCOPE, head: { rowId: 2, rowHash: "h2" }, rowHashAt: (id: number) => `h${id}`, latest: old, sink, now: () => NOW };
+
+    const refused = await anchorHead({ ...input, signer });
+    const extended = await anchorHead({ ...input, signer: createAuditAnchorSigner(SEED, [retired.publicKeyHex]) });
+
+    expect(refused.outcome).toBe(AnchorOutcome.Refused);
+    expect(extended.outcome).toBe(AnchorOutcome.Anchored);
+    expect(extended.anchor?.anchor.keyId).toBe(signer.keyId);
   });
 });

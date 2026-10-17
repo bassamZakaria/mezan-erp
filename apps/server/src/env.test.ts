@@ -28,6 +28,15 @@ describe("parseEnv audit anchoring", () => {
     ).toEqual({ intervalMinutes: 5, signingKey: "ab", s3: { bucket: "backups", region: "eu-south-1" } });
     expect(() => parseEnv({ MEZAN_AUDIT_ANCHOR_S3_BUCKET: "backups" })).toThrow(/MEZAN_AUDIT_ANCHOR_S3_REGION/);
   });
+
+  it("reads the retired public keys that still verify old anchors, and refuses one that is not 64 hex characters", () => {
+    const retired = "a".repeat(64);
+    const older = "B".repeat(64);
+
+    expect(parseEnv({ MEZAN_AUDIT_ANCHOR_TRUSTED_PUBLIC_KEYS: ` ${retired}, ${older} ,${retired}` }).auditAnchor?.trustedPublicKeys).toEqual([retired, "b".repeat(64)]);
+    expect(parseEnv({}).auditAnchor?.trustedPublicKeys).toBeUndefined();
+    expect(() => parseEnv({ MEZAN_AUDIT_ANCHOR_TRUSTED_PUBLIC_KEYS: `${retired},nope` })).toThrow(/MEZAN_AUDIT_ANCHOR_TRUSTED_PUBLIC_KEYS/);
+  });
 });
 
 describe("parseEnv", () => {

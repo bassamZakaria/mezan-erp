@@ -10,7 +10,6 @@ import {
   createPeriodCloseGuardSlot,
   createLoginThrottle,
   createSourceThrottle,
-  createLeasedKeyedLock,
   type LoginThrottle,
   type SmtpConfig,
   createSessionAuthContextResolver,
@@ -1278,7 +1277,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
   };
   const hrClockCredentials = createSqliteClockCredentialRepository(sqlite);
   const hrChallenges = createSqliteWebauthnChallengeRepository(sqlite);
-  const hrLocks = createLeasedKeyedLock({ store: createSqliteLeaseStore(sqlite) });
+  const hrLeases = createSqliteLeaseStore(sqlite);
   const hrPayrollRuns = createSqlitePayrollRunRepository(sqlite);
   const hrPayslips = createSqlitePayslipRepository(sqlite);
   const hrPayrollComponents = createSqlitePayrollComponentRepository(sqlite);
@@ -4368,6 +4367,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
     idempotentRequests: createSqliteIdempotentRequestStore(sqlite),
     secrets,
     beforeTheTurn: auth.beforeTheTurn,
+    hrLeases,
     // EXTERNAL CONTRACT: main/lan-client.ts reads both fields at startup and
     // blocks the client on a mismatch. Do not rename them.
     health: () => ({
@@ -4900,7 +4900,6 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
       audit: auditSink,
       clockCredentials: hrClockCredentials,
       challenges: hrChallenges,
-      locks: hrLocks,
       payroll: {
         masterData: masterDataChecks,
         advances: hrAdvances,

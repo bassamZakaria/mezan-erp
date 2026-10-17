@@ -14,7 +14,7 @@ import {
   type TenantExportOfferDTO,
 } from "@mezan/contracts";
 import type { Tenant } from "@mezan/domain";
-import { CURRENT_SCHEMA_VERSION } from "@mezan/persistence";
+import { CURRENT_SCHEMA_VERSION, openSqliteConnection } from "@mezan/persistence";
 import { BackupVerifyOutcome, type BackupInspection } from "./backup-verify-core.js";
 import { inspectBackupOffThread, tenantBackupFolder } from "./backup-scheduler.js";
 import type { TenantRouter } from "./tenant-router.js";
@@ -37,6 +37,11 @@ const LARGEST_TABLES = 8;
 const FILE_MODE = 0o600;
 const DIR_MODE = 0o700;
 const TOKEN_BYTES = 32;
+const WORK_DIR_PREFIX = "work-";
+const SCRUBBED_TABLES = [
+  { name: "sign_in_attempt", clear: "DELETE FROM sign_in_attempt" },
+  { name: "resource_lease", clear: "DELETE FROM resource_lease" },
+] as const;
 
 const refuse = (code: TenantBackupRefusal, message: string, messageEn: string, status: 404 | 409 | 422 | 503): TenantBackupRefusalError =>
   new TenantBackupRefusalError(code, message, messageEn, status);
@@ -108,6 +113,36 @@ function describeTables(tables: Readonly<Record<string, number>>) {
   };
 }
 
+// SECURITY/CORRECTNESS: only entries older than an offer can live are removed. Another instance
+// sharing this folder may be encrypting or serving a younger file right now.
+function removeOrphans(root: string, olderThan: number): void {
+  for (const entry of readdirSync(root)) {
+    if (!entry.startsWith(WORK_DIR_PREFIX) && !entry.endsWith(EXPORT_FILE_SUFFIX)) continue;
+    const target = path.join(root, entry);
+    try {
+      if (statSync(target).mtimeMs < olderThan) rmSync(target, { recursive: true, force: true });
+    } catch {
+      continue;
+    }
+  }
+}
+
+// SECURITY: the sign-in log holds accounts and source addresses of failed sign-ins, and the lease table
+// is another instance's coordination state. Neither belongs in a file that leaves the platform; the live
+// database is never touched, and VACUUM drops the deleted rows from free pages.
+function scrubSnapshot(file: string): void {
+  const { sqlite } = openSqliteConnection(file);
+  try {
+    for (const table of SCRUBBED_TABLES) {
+      if (sqlite.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(table.name)) sqlite.exec(table.clear);
+    }
+    sqlite.exec("VACUUM");
+    sqlite.pragma("wal_checkpoint(TRUNCATE)");
+  } finally {
+    sqlite.close();
+  }
+}
+
 export function createTenantBackups(options: TenantBackupsOptions): TenantBackupsService {
   const { dir, router, now } = options;
   const inspect = options.inspect ?? inspectBackupOffThread;
@@ -116,8 +151,8 @@ export function createTenantBackups(options: TenantBackupsOptions): TenantBackup
   const offers = new Map<string, PendingExport>();
   const busy = new Set<string>();
 
-  rmSync(root, { recursive: true, force: true });
   mkdirSync(root, { recursive: true, mode: DIR_MODE });
+  removeOrphans(root, Date.now() - ttlMs);
 
   const discard = (hash: string): void => {
     const offer = offers.get(hash);
@@ -158,7 +193,7 @@ export function createTenantBackups(options: TenantBackupsOptions): TenantBackup
     }
     return exclusive(tenant.id, async () => {
       discardOffersOf(tenant.id);
-      const work = await mkdtemp(path.join(root, "work-"));
+      const work = await mkdtemp(path.join(root, WORK_DIR_PREFIX));
       await mkdir(work, { recursive: true, mode: DIR_MODE });
       try {
         const stage = path.join(work, "stage");
@@ -166,6 +201,7 @@ export function createTenantBackups(options: TenantBackupsOptions): TenantBackup
         const dbFile = path.join(stage, "db.sqlite");
         const backend = await router.backendOf(tenant.id);
         await backend.backupTo(dbFile);
+        scrubSnapshot(dbFile);
 
         const inspection = await inspect(dbFile);
         if (inspection.outcome !== BackupVerifyOutcome.Ok) {

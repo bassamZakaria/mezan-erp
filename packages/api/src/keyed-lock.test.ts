@@ -3,7 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createSqliteLeaseStore } from "@mezan/persistence";
-import { createLeasedKeyedLock, createMemoryKeyedLock, LockBusyError } from "./keyed-lock.js";
+import { Hono } from "hono";
+import { createLeasedKeyedLock, createMemoryKeyedLock, leaseBeforeTheTurn, LockBusyError } from "./keyed-lock.js";
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -95,5 +96,44 @@ describe("createLeasedKeyedLock across two server instances over one database", 
     expect(store.tryAcquire("k", "other", 4_000, 2_000)).toBe(true);
     store.release("k", "dead-instance");
     expect(store.tryAcquire("k", "third", 5_000, 3_000)).toBe(false);
+  });
+});
+
+describe("leaseBeforeTheTurn", () => {
+  const request = async (prepare: ReturnType<typeof leaseBeforeTheTurn>) => {
+    const app = new Hono();
+    let released: (() => void) | void = undefined;
+    app.post("/x", async (c) => {
+      const outcome = await prepare(c);
+      if (outcome instanceof Response) return outcome;
+      released = outcome;
+      return c.json({ ok: true });
+    });
+    const res = await app.fetch(new Request("http://local/x", { method: "POST" }));
+    return { res, release: () => released?.() };
+  };
+
+  it("answers 409 RESOURCE_BUSY once the wait is spent, and frees the key when the holder releases", async () => {
+    const clock = { now: 1_000 };
+    const prepare = leaseBeforeTheTurn({
+      store: createSqliteLeaseStore(sharedFile()),
+      inTurn: (work) => work(),
+      keyFor: async () => "k",
+      now: () => clock.now,
+      leaseMs: 60_000,
+      waitMs: 50,
+      pollMs: 10,
+      sleep: async (ms) => void (clock.now += ms),
+    });
+    const first = await request(prepare);
+    expect(first.res.status).toBe(200);
+
+    const second = await request(prepare);
+    expect(second.res.status).toBe(409);
+    expect(await second.res.json()).toMatchObject({ error: "RESOURCE_BUSY" });
+
+    first.release();
+    await tick();
+    expect((await request(prepare)).res.status).toBe(200);
   });
 });

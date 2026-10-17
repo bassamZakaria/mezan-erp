@@ -867,7 +867,21 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
         await noted(c, PlatformAuditAction.TenantBackupExportRefused, tenant.id, { code: tenant.code }, AuditSeverityCode.Warning);
         throw new TenantBackupRefusalError(TenantBackupRefusal.ExportGone, "رابط التنزيل غير صالح أو استُخدم أو انتهت مدته. أنشئ تصديرًا جديدًا.", "The download link is invalid, already used, or expired. Create a new export.", 404);
       }
-      await noted(c, PlatformAuditAction.TenantBackupExportDownloaded, tenant.id, { code: tenant.code, fileName: taken.fileName, bytes: taken.bytes }, AuditSeverityCode.Critical);
+      try {
+        await recordSecurityEvent(platform.audit, {
+          module: "platform",
+          entityType: "PLATFORM",
+          entityId: tenant.id,
+          action: PlatformAuditAction.TenantBackupExportDownloaded,
+          actor: c.get("platformUser")?.id ?? "unknown",
+          severity: AuditSeverityCode.Critical,
+          timestamp: nowIso(),
+          details: { code: tenant.code, fileName: taken.fileName, bytes: taken.bytes, origin: auth.sourceOf(c) ?? "host" },
+        });
+      } catch (cause) {
+        await taken.body.cancel().catch(() => undefined);
+        throw new PlatformAuditUnavailableError(cause);
+      }
       return new Response(taken.body, {
         status: 200,
         headers: {

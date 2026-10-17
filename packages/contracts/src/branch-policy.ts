@@ -252,6 +252,7 @@ export const BRANCH_POLICY_TABLE: readonly BranchPolicyEntry[] = [
   readOnly("/crm/pipeline-stages"),
   readOnly("/assets/categories"),
   readOnly("/manufacturing/work-stations"),
+  readOnly("/hr/payroll/bank-file/layouts"),
 
   shared(
     "/items",
@@ -316,7 +317,12 @@ export const BRANCH_POLICY_TABLE: readonly BranchPolicyEntry[] = [
   companyWide("/eta/submissions/submit-all"),
   companyWide("/eta/submissions/bulk-requeue-submit"),
   companyWide("/installments/plans/overdue"),
+  companyWide("/integrations"),
 
+  handlerScoped("/crm-pipeline", { params: { id: K.CrmOpportunity }, companyWide: ["POST /reminders/run"] }),
+  handlerScoped("/owner-digest", { companyWide: ["/settings", "/recipients", "/runs", "/send"] }),
+  handlerScoped("/pricing-guard", { params: { id: null }, companyWide: ["/rules"] }),
+  handlerScoped("/sales-funnel", { params: { id: null } }),
   handlerScoped("/audit"),
   companyWide("/audit/evidence-packs"),
   companyWide("/audit/sequence-gaps"),
@@ -373,6 +379,7 @@ export const BRANCH_POLICY_TABLE: readonly BranchPolicyEntry[] = [
   scoped("/inventory/stock-adjustments", K.StockAdjustment, { handlerNarrowed: COUNTS_AND_STATS }),
   scoped("/inventory/stock-transfers", K.StockTransfer, { handlerNarrowed: COUNTS_AND_STATS, movesBetweenWarehouses: true }),
   scoped("/inventory/physical-counts", K.PhysicalCount, { handlerNarrowed: COUNTS_AND_STATS }),
+  scoped("/inventory/count-mode", K.PhysicalCount, { reads: ScopedReads.HandlerNarrows, params: { zoneId: null, scanId: null } }),
   scoped("/inventory/writedown-runs", K.WritedownRun),
   scoped("/inventory/adjustments", K.PostedStockDocument),
   scoped("/inventory/transfers", K.PostedStockDocument, { movesBetweenWarehouses: true }),

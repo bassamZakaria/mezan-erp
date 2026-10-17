@@ -19,6 +19,7 @@ beforeAll(async () => {
     dbPath: join(mkdtempSync(join(tmpdir(), "mezan-branch-policy-")), "books.db"),
     seedDemoData: false,
     lan: { resolveEntitlements },
+    integrations: { tenantCode: "branch-policy" },
     resolveEntitlements,
   });
   const concrete = handle.app.routes.filter((route) => !route.path.endsWith("*"));

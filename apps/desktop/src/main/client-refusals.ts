@@ -7,6 +7,7 @@ import {
   MEZAN_SUPPORT_DELETE_CHANNEL,
   MEZAN_SUPPORT_DIAGNOSTIC_CHANNEL,
   MEZAN_SUPPORT_REVEAL_CHANNEL,
+  MEZAN_SUPPORT_SAVE_LOGS_CHANNEL,
   MEZAN_UPDATE_INVOKE_CHANNEL,
   type BackupFailure,
   type LicenceCheckinResult,
@@ -98,6 +99,7 @@ export function registerClientMaintenanceRefusalsOverIpc(hostUrl: string): void 
   for (const channel of [
     MEZAN_SUPPORT_DIAGNOSTIC_CHANNEL,
     MEZAN_SUPPORT_REVEAL_CHANNEL,
+    MEZAN_SUPPORT_SAVE_LOGS_CHANNEL,
     MEZAN_SUPPORT_DELETE_CHANNEL,
   ]) {
     refuse(channel, (): SupportActionResult => support);

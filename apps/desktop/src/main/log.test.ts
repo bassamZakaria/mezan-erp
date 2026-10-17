@@ -30,8 +30,10 @@ describe("createFileLogger", () => {
     log("[crypto] no keyring on this machine");
 
     const contents = await readFile(log.filePath, "utf8");
-    expect(contents).toContain("[crypto] no keyring on this machine");
-    expect(contents).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(contents).toContain("no keyring on this machine");
+    const record = JSON.parse(contents.trim()) as { ts: string; level: string; event: string };
+    expect(record.ts).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(record).toMatchObject({ level: "info", event: "desktop.crypto" });
   });
 
   it("creates the directory if it does not exist yet", async () => {

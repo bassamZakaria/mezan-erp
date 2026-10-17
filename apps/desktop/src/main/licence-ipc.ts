@@ -11,6 +11,9 @@ import {
   MEZAN_SUPPORT_DELETE_CHANNEL,
   MEZAN_SUPPORT_DIAGNOSTIC_CHANNEL,
   MEZAN_SUPPORT_REVEAL_CHANNEL,
+  MEZAN_SUPPORT_SAVE_LOGS_CHANNEL,
+  SUPPORT_LOG_TAIL_LINES,
+  type SupportRevealTarget,
   type LicenceCheckinResult,
   type LicenceCode,
   type LicenceImportResult,
@@ -66,6 +69,8 @@ export interface LicenceIpcDeps {
   readonly backupsDir: string;
   /** The unencrypted pre-conversion archive, while it is still on this disk. */
   readonly plaintextArchivePath: () => string | null;
+  /** The rotating log file; absent in tests that do not exercise the log actions. */
+  readonly logs?: { readonly filePath: string; tail(maxLines: number): readonly string[] };
   /** Seats currently held, from the live seat registry. */
   /**
    * Async because the seat registry moved into the backend process with the
@@ -429,6 +434,11 @@ export function registerLicenceStatusOverIpc(deps: LicenceIpcDeps): void {
  * never be able to name a file for the main process to reveal or unlink.
  */
 function registerSupportActionsOverIpc(deps: LicenceIpcDeps): void {
+  function resolveLog(): string | null {
+    const file = deps.logs?.filePath;
+    return file && existsSync(file) ? file : null;
+  }
+
   function resolveTarget(target: unknown): string | null {
     if (target === "key-card") {
       const file = keyCardFilePath(deps.dbPath);
@@ -476,12 +486,51 @@ function registerSupportActionsOverIpc(deps: LicenceIpcDeps): void {
   );
 
   handleGuarded(
+    MEZAN_SUPPORT_SAVE_LOGS_CHANNEL,
+    async (_event, sessionToken: unknown, diagnostic: unknown): Promise<SupportActionResult> => {
+      if (!(await authorized(sessionToken))) {
+        return { ok: false, code: "UNAUTHORIZED", message: UNAUTHORIZED.message };
+      }
+      if (!deps.logs) {
+        return { ok: false, code: "NOT_FOUND", message: "لا يوجد سجل أخطاء على هذا الجهاز." };
+      }
+      try {
+        const picked = await dialog.showSaveDialog({
+          title: "حفظ السجلات للدعم",
+          defaultPath: path.join(
+            app.getPath("desktop"),
+            `mezan-support-logs-${new Date().toISOString().slice(0, 10)}.txt`,
+          ),
+          filters: [{ name: "Text", extensions: ["txt"] }],
+        });
+        if (picked.canceled || !picked.filePath) {
+          return { ok: false, code: "CANCELLED", message: "لم يتم حفظ الملف." };
+        }
+        const lines = deps.logs.tail(SUPPORT_LOG_TAIL_LINES);
+        const body = [
+          "=== Mezan support bundle ===",
+          typeof diagnostic === "string" ? diagnostic : "",
+          `=== mezan.log (last ${lines.length} lines, secrets redacted) ===`,
+          ...lines,
+          "",
+        ].join("\n");
+        writeFileSync(picked.filePath, body, { encoding: "utf8", mode: 0o600 });
+        return { ok: true, path: picked.filePath };
+      } catch (err) {
+        console.error("[support] the log bundle could not be written", err);
+        return { ok: false, code: "FAILED", message: "تعذّر حفظ السجلات." };
+      }
+    },
+  );
+
+  handleGuarded(
     MEZAN_SUPPORT_REVEAL_CHANNEL,
     async (_event, sessionToken: unknown, target: unknown): Promise<SupportActionResult> => {
       if (!(await authorized(sessionToken))) {
         return { ok: false, code: "UNAUTHORIZED", message: UNAUTHORIZED.message };
       }
-      const file = resolveTarget(target);
+      const revealTarget = target as SupportRevealTarget;
+      const file = revealTarget === "log" ? resolveLog() : resolveTarget(target);
       if (!file) return { ok: false, code: "NOT_FOUND", message: "الملف لم يعد موجوداً." };
       try {
         shell.showItemInFolder(file);

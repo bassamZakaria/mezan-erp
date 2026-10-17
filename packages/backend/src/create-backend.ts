@@ -4416,6 +4416,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
         : {}),
     settingsStore: settings,
     branchStore: branches,
+    userPreferences,
     branchDirectory: deferredBranchDirectory,
     warehouseStore: warehouses,
     warehouseUse: createWarehouseUse(sqlite),

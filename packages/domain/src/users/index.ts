@@ -10,6 +10,7 @@ export {
   setUserStatus,
   recordSuccessfulLogin,
   normalizeEmail,
+  isPlausibleEmail,
   normalizeEmailDomain,
   emailDomain,
   emailDomainRefusal,
@@ -40,3 +41,20 @@ export {
   scrubAttendanceNote,
   type UserErasureContext,
 } from "./erase-user.js";
+
+export {
+  USER_IMPORT_ROW_LIMIT,
+  UserImportColumn,
+  UserImportFileProblemCode,
+  UserImportRowProblemCode,
+  parseUserImportCsv,
+  resolveImportScope,
+  userImportFileProblemMessage,
+  userImportRowProblemMessage,
+  type BilingualProblem,
+  type ImportScopeTokens,
+  type ParsedUserImport,
+  type UserImportFileProblem,
+  type UserImportRow,
+  type UserImportRowProblem,
+} from "./user-import.js";

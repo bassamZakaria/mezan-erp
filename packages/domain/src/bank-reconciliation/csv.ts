@@ -13,7 +13,7 @@ export interface CsvTable {
  * `""` as an escaped quote, quoted fields may embed commas/newlines). Pure —
  * no I/O; the caller reads the uploaded file into a string first.
  */
-export function parseCsv(raw: string): CsvTable {
+export function parseCsv(raw: string, delimiter: string = ","): CsvTable {
   const text = raw.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
   const rows: string[][] = [];
   let row: string[] = [];
@@ -53,7 +53,7 @@ export function parseCsv(raw: string): CsvTable {
       i += 1;
       continue;
     }
-    if (ch === ",") {
+    if (ch === delimiter) {
       endField();
       i += 1;
       continue;

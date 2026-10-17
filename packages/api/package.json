@@ -10,8 +10,8 @@
     "@mezan/contracts": "workspace:*",
     "@mezan/domain": "workspace:*",
     "@mezan/persistence": "workspace:*",
-    "fflate": "0.8.2",
-    "hono": "^4.6.14",
+    "fflate": "0.8.3",
+    "hono": "^4.13.7",
     "pino": "^10.4.0",
     "zod": "^3.24.1"
   },

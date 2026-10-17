@@ -15,6 +15,7 @@ import { ReversalPermission } from "@mezan/contracts";
 function gatedCodes(): ReadonlySet<string> {
   const roots = [__dirname, join(__dirname, "..", "..", "backend", "src")];
   const found = new Set<string>();
+  const sources: string[] = [];
   // RECURSIVE, and it was not. `readdirSync` on the root alone never reached
   // `api/src/lan/`, so every code those routes gate on was counted as gating
   // nothing — the instrument was reporting a bigger gap than the product has.
@@ -29,14 +30,26 @@ function gatedCodes(): ReadonlySet<string> {
       // `module-gate.ts` gates on MODULE ids ("pos", "sales"), not permission
       // codes — a different vocabulary that would otherwise read as a typo.
       if (file.name === "module-gate.ts") continue;
-      const source = readFileSync(join(dir, file.name), "utf8");
+      sources.push(readFileSync(join(dir, file.name), "utf8"));
+    }
+  };
+  for (const root of roots) walk(root);
+  const shared = new Map<string, string>();
+  for (const source of sources) {
+    for (const match of source.matchAll(/\bexport\s+const\s+([A-Z][A-Z0-9_]*)\s*=\s*"([a-z_.]+)"/g)) shared.set(match[1] as string, match[2] as string);
+    for (const body of source.matchAll(/\benum\s+([A-Z][A-Za-z0-9]*)\s*\{([^}]*)\}/g)) {
+      for (const member of (body[2] as string).matchAll(/\b([A-Z][A-Za-z0-9]*)\s*=\s*"([a-z_]+\.[a-z_.]+)"/g)) shared.set(`${body[1]}.${member[1]}`, member[2] as string);
+    }
+  }
+  for (const source of sources) {
+    {
       // Module-level `const VIEW = "contracting.certificate.view";` bindings.
       // Reading only literal arguments made every route file that names its
       // codes once at the top — which is most of the contracting module —
       // register as gating NOTHING, so the instrument reported a bigger gap
       // than the product has. A gate is a gate whether the code is inlined or
       // named.
-      const constants = new Map<string, string>();
+      const constants = new Map<string, string>(shared);
       for (const match of source.matchAll(/\bconst\s+([A-Z][A-Z0-9_]*)\s*=\s*"([a-z_.]+)"/g)) {
         constants.set(match[1] as string, match[2] as string);
       }
@@ -48,11 +61,11 @@ function gatedCodes(): ReadonlySet<string> {
       // its first argument is the context, not a permission code, so it gets
       // its own alternative rather than joining the leading-argument group.
       for (const match of source.matchAll(
-        /(?:gate(?:Any)?|permission)\(\s*((?:(?:"[a-z_.]+"|[A-Z][A-Z0-9_]*)\s*,?\s*)+)\)|moduleRefusalFor\(\s*[A-Za-z_$][\w$]*\s*,\s*((?:(?:"[a-z_.]+"|[A-Z][A-Z0-9_]*)\s*,?\s*)+)\)/g,
+        /(?:gate(?:Any)?|permission)\(\s*((?:(?:"[a-z_.]+"|[A-Z][A-Za-z0-9_]*(?:\.[A-Z][A-Za-z0-9]*)?)\s*,?\s*)+)\)|moduleRefusalFor\(\s*[A-Za-z_$][\w$]*\s*,\s*((?:(?:"[a-z_.]+"|[A-Z][A-Za-z0-9_]*(?:\.[A-Z][A-Za-z0-9]*)?)\s*,?\s*)+)\)/g,
       )) {
         const args = match[1] ?? match[2] ?? "";
         for (const code of args.matchAll(/"([a-z_.]+)"/g)) found.add(code[1] as string);
-        for (const name of args.matchAll(/\b([A-Z][A-Z0-9_]*)\b/g)) {
+        for (const name of args.matchAll(/\b([A-Z][A-Za-z0-9_]*(?:\.[A-Z][A-Za-z0-9]*)?)/g)) {
           const resolved = constants.get(name[1] as string);
           if (resolved) found.add(resolved);
         }
@@ -63,8 +76,7 @@ function gatedCodes(): ReadonlySet<string> {
         if (code) found.add(code);
       }
     }
-  };
-  for (const root of roots) walk(root);
+  }
   return found;
 }
 

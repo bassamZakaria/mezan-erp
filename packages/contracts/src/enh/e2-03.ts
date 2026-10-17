@@ -86,12 +86,20 @@ export const countModeRecountSchema = z.object({
 });
 export type CountModeRecountDTO = z.infer<typeof countModeRecountSchema>;
 
+export const countModeUnitSchema = z.object({
+  code: z.string(),
+  name: z.string(),
+  factor: z.number().int().positive(),
+});
+export type CountModeUnitDTO = z.infer<typeof countModeUnitSchema>;
+
 export const countModeItemSchema = z.object({
   itemId: z.string(),
   code: z.string(),
   nameAr: z.string(),
   nameEn: z.string().nullable(),
   unitCode: z.string(),
+  units: z.array(countModeUnitSchema),
   zoneId: z.string(),
   countedQty: moneyString.nullable(),
   recount: z.boolean(),

@@ -141,10 +141,17 @@ interface ItemFacts {
   readonly nameAr: string;
   readonly nameEn: string | null;
   readonly unitCode: string;
+  readonly units: CountModeItemDTO["units"];
 }
 
 function factsOf(item: Item): ItemFacts {
-  return { code: item.code, nameAr: item.nameAr, nameEn: item.nameEn, unitCode: item.baseUnitCode };
+  return {
+    code: item.code,
+    nameAr: item.nameAr,
+    nameEn: item.nameEn,
+    unitCode: item.baseUnitCode,
+    units: item.alternateUnits.filter((u) => Number.isSafeInteger(u.factor) && u.factor > 0).map((u) => ({ code: u.code, name: u.name, factor: u.factor })),
+  };
 }
 
 function zoneSummary(zone: CountZone, count: PhysicalCount, viewer: Viewer, reveal: boolean): CountModeZoneSummaryDTO {
@@ -178,6 +185,7 @@ function itemRow(line: PhysicalCountLine, zoneId: string, facts: ItemFacts | und
     nameAr: facts?.nameAr ?? line.itemId,
     nameEn: facts?.nameEn ?? null,
     unitCode: facts?.unitCode ?? "",
+    units: facts?.units ?? [],
     zoneId,
     countedQty: line.countedQty ? line.countedQty.toString() : null,
     recount: line.recount,

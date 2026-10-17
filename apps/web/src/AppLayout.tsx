@@ -476,7 +476,9 @@ export function AppLayout() {
       branchScope: scopeIdsToSelection(draft.branchIds, allBranchIds),
       warehouseScope: scopeIdsToSelection(draft.warehouseIds, allWarehouseIds),
       status: draft.status,
-      ...(draft.accessExpiresOn === undefined ? {} : { accessExpiresAt: draft.isCompanyAdmin ? null : accessExpiryInstant(draft.accessExpiresOn) }),
+      ...(draft.accessExpiresOn === undefined || (draft.accessExpiresOn === draft.accessExpiresOnLoaded && !draft.isCompanyAdmin)
+        ? {}
+        : { accessExpiresAt: draft.isCompanyAdmin ? null : accessExpiryInstant(draft.accessExpiresOn) }),
       // The admin's user form does not edit photos — people set their own in
       // الملف الشخصي — so this carries the stored value through untouched.
       photoUrl: draft.photoUrl ?? null,

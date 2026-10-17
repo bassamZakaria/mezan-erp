@@ -22,7 +22,6 @@ async function run(app: App, ctx: SeedFragmentContext): Promise<void> {
   const now = Date.now();
   const auditors: readonly Auditor[] = [
     { nameAr: "عمرو الدسوقي (مراقب حسابات)", nameEn: "Amr El-Desouky (external auditor)", local: "amr.eldesouky", accessExpiresAt: new Date(now + ACTIVE_ACCESS_DAYS * DAY_MS).toISOString() },
-    { nameAr: "رانيا فوزي (مراجعة العام الماضي)", nameEn: "Rania Fawzy (last year's audit)", local: "rania.fawzy", accessExpiresAt: new Date(now - DAY_MS).toISOString() },
   ];
   for (const auditor of auditors) {
     await step(app, "POST", "/users", {

@@ -74,6 +74,8 @@ export interface UserFormDraft {
   status: UserStatusDTO;
   /** YYYY-MM-DD, the last day the account works; empty for no end date. */
   accessExpiresOn?: string;
+  /** The day as loaded; while `accessExpiresOn` still equals it, the stored instant is left untouched. */
+  accessExpiresOnLoaded?: string;
   /** Carried through the admin form untouched; people set their own photo in الملف الشخصي. */
   photoUrl?: string | null;
   /** ENH-051 — set together, only when assigning a role trips a conflict. */
@@ -131,6 +133,7 @@ function userToDraft(user: UserDTO, allBranchIds: string[], allWarehouseIds: str
     warehouseIds: scopeToIds(user.warehouseScope, allWarehouseIds),
     status: user.status,
     accessExpiresOn: user.accessExpiresAt ? localDay(user.accessExpiresAt) : "",
+    accessExpiresOnLoaded: user.accessExpiresAt ? localDay(user.accessExpiresAt) : "",
     photoUrl: user.photoUrl,
   };
 }

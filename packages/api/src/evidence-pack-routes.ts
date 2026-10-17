@@ -35,7 +35,7 @@ import {
   type EvidenceManifest,
   type FiscalPeriod,
   type LedgerRepository,
-  type Money,
+  Money,
   type NumberedDocumentRecord,
   type SequenceCounterState,
   type SequenceDefinition,
@@ -75,6 +75,7 @@ const ZIP_CONTENT_TYPE = "application/zip";
 const DAY_MS = 24 * 60 * 60 * 1000;
 const SPKI_ED25519_PREFIX_HEX = "302a300506032b6570032100";
 const PACK_ENTITY = "EVIDENCE_PACK";
+const MEMORANDUM_ACCOUNT_TYPE: Account["type"] = "memorandum";
 const PACK_BUILT_ACTION = "EVIDENCE_PACK_BUILT";
 const PACK_FAILED_ACTION = "EVIDENCE_PACK_BUILD_FAILED";
 
@@ -391,14 +392,28 @@ export function createEvidencePackRoutes(deps: EvidencePackRoutesDeps, resolveAu
       readme.close();
 
       const snapshot = buildTrialBalanceSnapshot(accounts, opening, closing);
+      const memorandum = new Set(accounts.filter((a) => a.type === MEMORANDUM_ACCOUNT_TYPE).map((a) => a.id));
       const tb = pack.open(EvidenceFileName.TrialBalance, true);
       tb.push(["رمز الحساب / Code", "اسم الحساب / Name", "Name (EN)", `رصيد أول المدة / Opening ${dayBefore(period.from)}`, "حركة الفترة / Movement", `رصيد آخر المدة / Closing ${period.to}`, "Debit closing", "Credit closing"]);
-      for (const row of snapshot.rows) {
+      const tbLine = (row: (typeof snapshot.rows)[number]) => {
         const debit = row.closing.scaled > 0n ? row.closing.toString() : "0";
         const credit = row.closing.scaled < 0n ? row.closing.negate().toString() : "0";
         tb.push([row.code, row.nameAr, row.nameEn, row.opening.toString(), row.movement.toString(), row.closing.toString(), debit, credit]);
+      };
+      let debitTotal = 0n;
+      let creditTotal = 0n;
+      for (const row of snapshot.rows) {
+        if (memorandum.has(row.accountId)) continue;
+        if (row.closing.scaled > 0n) debitTotal += row.closing.scaled;
+        else creditTotal -= row.closing.scaled;
+        tbLine(row);
       }
-      tb.push(["الإجمالي / Total", "", "", "", "", "", snapshot.totals.closingDebit.toString(), snapshot.totals.closingCredit.toString()]);
+      tb.push(["الإجمالي / Total", "", "", "", "", "", Money.fromScaled(debitTotal).toString(), Money.fromScaled(creditTotal).toString()]);
+      const offBalance = snapshot.rows.filter((row) => memorandum.has(row.accountId));
+      if (offBalance.length > 0) {
+        tb.push(["حسابات نظامية — خارج الميزان وخارج الإجمالي / Memorandum accounts — off balance sheet, excluded from the total"]);
+        for (const row of offBalance) tbLine(row);
+      }
       tb.close();
 
       const accountName = new Map(accounts.map((a) => [a.id, a]));

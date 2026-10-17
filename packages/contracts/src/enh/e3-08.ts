@@ -11,6 +11,20 @@ export enum EvidencePackRefusal {
   BuildFailed = "EVIDENCE_PACK_BUILD_FAILED",
 }
 
+export enum EvidencePackEncoding {
+  Base64 = "base64",
+}
+
+export const EVIDENCE_PACK_ENCODING_PARAM = "encoding";
+
+export const evidencePackInlineSchema = z.object({
+  packId: z.string(),
+  fileName: z.string(),
+  manifestSha256: z.string(),
+  zipBase64: z.string(),
+});
+export type EvidencePackInlineDTO = z.infer<typeof evidencePackInlineSchema>;
+
 export enum SequenceGapExplanationCode {
   CounterAdjusted = "counter_adjusted",
   DraftDeleted = "draft_deleted",

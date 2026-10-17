@@ -9,6 +9,7 @@
     "typecheck": "tsc -p tsconfig.json && pnpm --filter @mezan/ui typecheck && pnpm --filter web typecheck && pnpm --filter mobile typecheck",
     "test": "vitest run && pnpm --filter mobile test",
     "smoke": "tsx scripts/smoke.ts",
+    "evidence:verify": "tsx scripts/evidence-verify.ts",
     "check:seed": "tsx scripts/check-seed-coverage.ts",
     "scenarios": "tsx scripts/run-scenarios.ts",
     "trails": "node scripts/build-trail-pack.mjs",

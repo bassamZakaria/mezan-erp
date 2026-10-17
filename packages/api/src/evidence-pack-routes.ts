@@ -1,5 +1,5 @@
-import { createHash, randomUUID } from "node:crypto";
-import { closeSync, createReadStream, mkdtempSync, openSync, rmSync, statSync, writeSync } from "node:fs";
+import { createHash, createPrivateKey, createPublicKey, randomUUID, sign, type KeyObject } from "node:crypto";
+import { closeSync, createReadStream, mkdtempSync, openSync, readFileSync, rmSync, statSync, writeSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { Readable } from "node:stream";
@@ -21,12 +21,10 @@ import {
   csvLine,
   dayBefore,
   detectSodConflicts,
-  evidenceSigningIdentity,
   isErasedUser,
   parseSequenceNumber,
   recordSensitiveEvent,
   serializeEvidenceManifest,
-  signEvidenceManifest,
   type Account,
   type AuditEvent,
   type AuditSink,
@@ -46,10 +44,13 @@ import {
   type UnitOfWork,
 } from "@mezan/domain";
 import {
+  EVIDENCE_PACK_ENCODING_PARAM,
   EVIDENCE_PACK_HISTORY_LIMIT,
   EVIDENCE_PACK_MAX_SPAN_DAYS,
+  EvidencePackEncoding,
   EvidencePackRefusal,
   evidencePeriodSchema,
+  type EvidencePackInlineDTO,
   type EvidencePackRecordDTO,
   type EvidencePeriodDTO,
   type EvidencePublicKeyDTO,
@@ -120,6 +121,36 @@ function publicKeyPem(publicKeyHex: string): string {
 }
 
 const DELETED_NUMBER_SOURCE = "audit";
+const PKCS8_ED25519_PREFIX_HEX = "302e020100300506032b657004220420";
+const KEY_ID_LENGTH = 16;
+
+interface EvidenceSigner {
+  readonly publicKeyHex: string;
+  readonly keyId: string;
+  sign(bytes: Uint8Array): string;
+}
+
+const signers = new Map<string, EvidenceSigner>();
+
+/**
+ * Synchronous on purpose: an awaited WebCrypto call hands the event loop back
+ * while the request holds the tenant's connection. Same key derivation and key
+ * id as `evidenceSigningIdentity` in @mezan/domain, which verifiers use.
+ */
+function evidenceSigner(seedHex: string): EvidenceSigner {
+  const held = signers.get(seedHex);
+  if (held) return held;
+  const privateKey: KeyObject = createPrivateKey({ key: Buffer.from(`${PKCS8_ED25519_PREFIX_HEX}${seedHex}`, "hex"), format: "der", type: "pkcs8" });
+  const publicDer = createPublicKey(privateKey).export({ format: "der", type: "spki" });
+  const publicKeyHex = publicDer.subarray(publicDer.length - 32).toString("hex");
+  const signer: EvidenceSigner = {
+    publicKeyHex,
+    keyId: createHash("sha256").update(publicKeyHex, "utf8").digest("hex").slice(0, KEY_ID_LENGTH),
+    sign: (bytes) => sign(null, bytes, privateKey).toString("base64"),
+  };
+  signers.set(seedHex, signer);
+  return signer;
+}
 
 export async function computeSequenceGapReport(deps: EvidencePackRoutesDeps, window: EvidencePeriodDTO): Promise<SequenceGapReport> {
   const definitions = deps.definitions ?? SEQUENCE_DEFINITIONS;
@@ -308,7 +339,7 @@ export function createEvidencePackRoutes(deps: EvidencePackRoutesDeps, resolveAu
   });
 
   app.get("/evidence-packs/public-key", gate(EvidencePermission.View), async (c) => {
-    const { publicKeyHex, keyId } = await evidenceSigningIdentity(deps.signingSeed());
+    const { publicKeyHex, keyId } = evidenceSigner(deps.signingSeed());
     const body: EvidencePublicKeyDTO = { algorithm: EVIDENCE_SIGNATURE_ALGORITHM, keyId, publicKeyHex, publicKeyPem: publicKeyPem(publicKeyHex), format: EVIDENCE_PACK_FORMAT };
     return c.json(body);
   });
@@ -332,12 +363,8 @@ export function createEvidencePackRoutes(deps: EvidencePackRoutesDeps, resolveAu
     const packId = randomUUID();
     let pack: PackWriter | null = null;
     try {
-      const [company, actorUser, identity, chain] = await Promise.all([
-        deps.companyName(),
-        deps.uow.users.findById(actor),
-        evidenceSigningIdentity(deps.signingSeed()),
-        deps.auditChain(),
-      ]);
+      const identity = evidenceSigner(deps.signingSeed());
+      const [company, actorUser, chain] = await Promise.all([deps.companyName(), deps.uow.users.findById(actor), deps.auditChain()]);
       const verdict: EvidenceAuditChainVerdict = chain
         ? { ok: chain.ok, checkedRows: chain.checked, firstBrokenRowId: chain.brokenRowId, reason: chain.reason }
         : { ok: false, checkedRows: 0, firstBrokenRowId: null, reason: "UNSUPPORTED" };
@@ -456,7 +483,7 @@ export function createEvidencePackRoutes(deps: EvidencePackRoutesDeps, resolveAu
         notice: EVIDENCE_SIGNATURE_NOTICE,
       };
       const manifestBytes = serializeEvidenceManifest(manifest);
-      const signature = await signEvidenceManifest(manifestBytes, deps.signingSeed());
+      const signature = identity.sign(manifestBytes);
       pack.raw(EvidenceFileName.Manifest, manifestBytes);
       pack.raw(EvidenceFileName.Signature, new TextEncoder().encode(`${signature}\n`));
       pack.finish();
@@ -486,6 +513,12 @@ export function createEvidencePackRoutes(deps: EvidencePackRoutesDeps, resolveAu
         details: { from: period.from, to: period.to, manifestSha256, keyId: identity.keyId, files: manifest.files.map((f) => ({ name: f.name, sha256: f.sha256, rows: f.rows })), auditChainOk: verdict.ok, costRedacted: !seeCost },
       });
 
+      const fileName = `mezan-evidence-${period.from}_${period.to}.zip`;
+      if (c.req.query(EVIDENCE_PACK_ENCODING_PARAM) === EvidencePackEncoding.Base64) {
+        const inline: EvidencePackInlineDTO = { packId, fileName, manifestSha256, zipBase64: readFileSync(file).toString("base64") };
+        rmSync(dir, { recursive: true, force: true });
+        return c.json(inline);
+      }
       const stream = createReadStream(file);
       const cleanup = () => rmSync(dir, { recursive: true, force: true });
       stream.once("close", cleanup);
@@ -495,7 +528,7 @@ export function createEvidencePackRoutes(deps: EvidencePackRoutesDeps, resolveAu
         headers: {
           "content-type": ZIP_CONTENT_TYPE,
           "content-length": String(totalBytes),
-          "content-disposition": `attachment; filename="mezan-evidence-${period.from}_${period.to}.zip"`,
+          "content-disposition": `attachment; filename="${fileName}"`,
           "x-evidence-pack-id": packId,
           "x-evidence-manifest-sha256": manifestSha256,
           "cache-control": "no-store",

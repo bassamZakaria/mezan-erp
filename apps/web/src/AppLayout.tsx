@@ -51,7 +51,7 @@ import {
   useUsers,
   useWarehouses,
 } from "./data/hooks";
-import { UsersPage, type UserFormDraft } from "./pages/UsersPage";
+import { UsersPage, accessExpiryInstant, type UserFormDraft } from "./pages/UsersPage";
 import { RolesPage } from "./pages/RolesPage";
 import { RoleEditorPage, type RoleEditorSaveCommand } from "./pages/RoleEditorPage";
 import { BackendRefusedScreen, BackendStartingScreen } from "./login/BackendBootScreens";
@@ -476,6 +476,7 @@ export function AppLayout() {
       branchScope: scopeIdsToSelection(draft.branchIds, allBranchIds),
       warehouseScope: scopeIdsToSelection(draft.warehouseIds, allWarehouseIds),
       status: draft.status,
+      ...(draft.accessExpiresOn === undefined ? {} : { accessExpiresAt: draft.isCompanyAdmin ? null : accessExpiryInstant(draft.accessExpiresOn) }),
       // The admin's user form does not edit photos — people set their own in
       // الملف الشخصي — so this carries the stored value through untouched.
       photoUrl: draft.photoUrl ?? null,

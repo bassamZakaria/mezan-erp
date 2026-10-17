@@ -47,7 +47,7 @@ export function defaultDunningSteps(): DunningStep[] {
       level: 3,
       daysOverdue: 60,
       channel: DunningChannel.Email,
-      subjectAr: "إنذار أخير: مستحقات متأخرة على حسابكم",
+      subjectAr: "إشعار نهائي بالمستحقات المتأخرة على حسابكم",
       subjectEn: "Final notice: overdue balance on your account",
       bodyAr:
         "السادة {{customerName}}،\n\nرغم تذكيراتنا السابقة، ما زالت الفاتورة رقم {{documentNumber}} بمبلغ {{amount}} غير مسددة منذ {{daysOverdue}} يوماً، وإجمالي المتأخر على حسابكم {{totalOverdue}}.\nنرجو السداد خلال سبعة أيام من تاريخ هذه الرسالة تجنباً لإيقاف التعامل الآجل.\n\n{{companyName}}",

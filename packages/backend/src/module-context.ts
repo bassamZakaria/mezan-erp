@@ -1,12 +1,13 @@
 import type Database from "better-sqlite3";
 import type { App, AuthContextResolver, PeriodCloseGuardSlot, ReconciliationControl, SessionRegistry } from "@mezan/api";
 import type { EtaReceiptIssuer } from "./eta-receipts.js";
-import type { AuditSink, CustomerMessageOutbox, DrainResult, EventBus, PayrollBindings, UnitOfWork } from "@mezan/domain";
+import type { AuditSink, DrainResult, EventBus, PayrollBindings, UnitOfWork } from "@mezan/domain";
 import type {
   createScryptHasher,
   createSqliteAccountRepository,
   createSqliteBranchStore,
   createSqliteCostCenterRepository,
+  createSqliteCollectionsStore,
   createSqliteCustomerRepository,
   createSqliteEmployeeRepository,
   createSqliteEtaStore,
@@ -71,7 +72,7 @@ export interface BackendModuleContext {
   readonly stores: BackendStores;
   /** The customer-addressed mail queue and the operator-initiated drain that sends it through the tenant's SMTP session. */
   readonly customerMail: {
-    readonly outbox: CustomerMessageOutbox;
+    readonly store: ReturnType<typeof createSqliteCollectionsStore>;
     readonly drain: () => Promise<DrainResult>;
     readonly configured: () => Promise<boolean>;
   };

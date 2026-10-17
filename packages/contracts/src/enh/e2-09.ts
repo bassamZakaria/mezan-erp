@@ -53,7 +53,7 @@ export const dunningChannelSchema = z.nativeEnum(DunningChannelDTO);
 export const statementChannelSchema = z.nativeEnum(StatementChannelDTO);
 
 export const dunningStepSchema = z.object({
-  id: z.string().trim().min(1).max(40),
+  stepKey: z.string().trim().min(1).max(40),
   daysOverdue: z.number().int().min(1).max(3650),
   channel: dunningChannelSchema,
   subjectAr: z.string().max(300),
@@ -108,7 +108,7 @@ export const sendStatementSchema = z.object({
 export type SendStatementDTO = z.infer<typeof sendStatementSchema>;
 
 export interface DunningStepDTO {
-  readonly id: string;
+  readonly stepKey: string;
   readonly level: number;
   readonly daysOverdue: number;
   readonly channel: DunningChannelDTO;
@@ -226,6 +226,12 @@ export interface DunningRunResultDTO {
   readonly skippedHeld: number;
   readonly skippedPromised: number;
   readonly skippedBelowMinimum: number;
+}
+
+export interface ScheduledDunningRunResultDTO {
+  readonly alreadyRan: boolean;
+  readonly run: DunningRunResultDTO | null;
+  readonly queued: number;
 }
 
 export interface SendReminderResultDTO {

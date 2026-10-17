@@ -7,3 +7,4 @@ export * from "./dunning-run.js";
 export * from "./promise.js";
 export * from "./statement.js";
 export * from "./sms.js";
+export * from "./consolidate.js";

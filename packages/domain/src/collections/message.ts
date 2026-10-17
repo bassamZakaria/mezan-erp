@@ -11,6 +11,20 @@ export function formatMoneyLabel(money: Money, currency: string): string {
   return `${negative ? "-" : ""}${whole}.${fraction} ${currency}`;
 }
 
+const ARABIC_CURRENCY_LABELS: Readonly<Record<string, string>> = {
+  EGP: "ج.م",
+  USD: "دولار أمريكي",
+  EUR: "يورو",
+  SAR: "ر.س",
+  AED: "د.إ",
+  KWD: "د.ك",
+  GBP: "جنيه إسترليني",
+};
+
+export function currencyLabelAr(currency: string): string {
+  return ARABIC_CURRENCY_LABELS[currency] ?? currency;
+}
+
 export interface DunningMessageValues {
   readonly customerName: string;
   readonly companyName: string;
@@ -26,7 +40,7 @@ export interface RenderedMessage {
   readonly body: string;
 }
 
-const LANGUAGE_SEPARATOR = "\n\n— — —\n\n";
+export const LANGUAGE_SEPARATOR = "\n\n— — —\n\n";
 
 export function renderBilingual(
   subjectAr: string,
@@ -34,19 +48,20 @@ export function renderBilingual(
   bodyAr: string,
   bodyEn: string | null,
   values: Readonly<Record<string, unknown>>,
+  valuesEn: Readonly<Record<string, unknown>> = values,
 ): RenderedMessage {
   const arSubject = renderTemplate(subjectAr, values).trim();
-  const enSubject = subjectEn && subjectEn.trim() !== "" ? renderTemplate(subjectEn, values).trim() : "";
+  const enSubject = subjectEn && subjectEn.trim() !== "" ? renderTemplate(subjectEn, valuesEn).trim() : "";
   const arBody = renderTemplate(bodyAr, values).trim();
-  const enBody = bodyEn && bodyEn.trim() !== "" ? renderTemplate(bodyEn, values).trim() : "";
+  const enBody = bodyEn && bodyEn.trim() !== "" ? renderTemplate(bodyEn, valuesEn).trim() : "";
   return {
     subject: enSubject && arSubject ? `${arSubject} | ${enSubject}` : arSubject || enSubject,
     body: enBody ? `${arBody}${LANGUAGE_SEPARATOR}${enBody}` : arBody,
   };
 }
 
-export function renderDunningMessage(step: DunningStep, values: DunningMessageValues): RenderedMessage {
-  return renderBilingual(step.subjectAr, step.subjectEn, step.bodyAr, step.bodyEn, { ...values });
+export function renderDunningMessage(step: DunningStep, values: DunningMessageValues, valuesEn: DunningMessageValues = values): RenderedMessage {
+  return renderBilingual(step.subjectAr, step.subjectEn, step.bodyAr, step.bodyEn, { ...values }, { ...valuesEn });
 }
 
 export function whatsAppNumber(phone: string | null | undefined, defaultCountryCode = "20"): string | null {

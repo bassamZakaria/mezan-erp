@@ -1,5 +1,5 @@
 import { Money } from "../money/index.js";
-import { formatMoneyLabel, type RenderedMessage } from "./message.js";
+import { currencyLabelAr, formatMoneyLabel, type RenderedMessage } from "./message.js";
 import type { CollectionWorkItem } from "./types.js";
 
 export interface OpenItemStatementInput {
@@ -16,7 +16,7 @@ export function renderOpenItemStatement(input: OpenItemStatementInput): Rendered
   const ordered = [...input.items].sort((a, b) => (a.dueDate < b.dueDate ? -1 : a.dueDate > b.dueDate ? 1 : 0));
   const arLines = ordered.map(
     (item) =>
-      `• ${item.reference ?? "رصيد سابق"} — استحقاق ${item.dueDate} — ${formatMoneyLabel(item.amount, input.currency)}` +
+      `• ${item.reference ?? "رصيد سابق"} — استحقاق ${item.dueDate} — ${formatMoneyLabel(item.amount, currencyLabelAr(input.currency))}` +
       (item.daysOverdue > 0 ? ` (متأخر ${item.daysOverdue} يوماً)` : ""),
   );
   const enLines = ordered.map(
@@ -31,8 +31,8 @@ export function renderOpenItemStatement(input: OpenItemStatementInput): Rendered
     `كشف حساب بالبنود المفتوحة حتى ${input.asOfDate}:`,
     ...(arLines.length > 0 ? arLines : ["لا توجد بنود مفتوحة."]),
     "",
-    `الرصيد المستحق: ${formatMoneyLabel(input.balance, input.currency)}`,
-    `منه متأخر: ${formatMoneyLabel(overdue, input.currency)}`,
+    `الرصيد المستحق: ${formatMoneyLabel(input.balance, currencyLabelAr(input.currency))}`,
+    `منه متأخر: ${formatMoneyLabel(overdue, currencyLabelAr(input.currency))}`,
     ...(company ? ["", company] : []),
   ].join("\n");
   const en = [

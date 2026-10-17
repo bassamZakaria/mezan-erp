@@ -8,6 +8,9 @@ import { planDunningRun } from "./dunning-run.js";
 import { createPromiseToPay, evaluatePromise } from "./promise.js";
 import { whatsAppLink } from "./message.js";
 import { InvalidDunningPolicyError } from "./errors.js";
+import { consolidateReminders } from "./consolidate.js";
+import { currencyLabelAr } from "./message.js";
+import { renderOpenItemStatement } from "./statement.js";
 import { DunningChannel, DunningReminderStatus, DunningVoidReason, PromiseToPayStatus, type DunningReminder } from "./types.js";
 
 const TODAY = "2026-10-17";
@@ -160,5 +163,32 @@ describe("whatsapp link", () => {
   it("normalises an Egyptian mobile number to an international wa.me link", () => {
     expect(whatsAppLink("0100 123 4567", "مرحبا")).toBe(`https://wa.me/201001234567?text=${encodeURIComponent("مرحبا")}`);
     expect(whatsAppLink("", "x")).toBeNull();
+  });
+});
+
+describe("consolidated reminder and statement", () => {
+  const first = plan([item("receivable:INV-1", "2026-10-01", "100"), item("receivable:INV-2", "2026-08-01", "50.5")]).toInsert as DunningReminder[];
+
+  it("sends the most severe reminder once, listing every covered invoice and the total in Arabic", () => {
+    const message = consolidateReminders(first, "EGP");
+    expect(message?.body).toContain("INV-1");
+    expect(message?.body).toContain("INV-2");
+    expect(message?.body).toContain("150.50 ج.م");
+    expect(consolidateReminders([], "EGP")).toBeNull();
+  });
+
+  it("labels money in Arabic text with the Arabic currency name and keeps the code for English", () => {
+    expect(currencyLabelAr("EGP")).toBe("ج.م");
+    expect(currencyLabelAr("XYZ")).toBe("XYZ");
+    const rendered = renderOpenItemStatement({
+      customerName: "عميل",
+      companyName: "شركة",
+      asOfDate: TODAY,
+      currency: "EGP",
+      items: buildCollectionWorklist([item("receivable:INV-1", "2026-10-01", "100")], TODAY)[0]!.items,
+      balance: Money.fromMajor("100"),
+    });
+    expect(rendered.body).toContain("100.00 ج.م");
+    expect(rendered.body).toContain("100.00 EGP");
   });
 });

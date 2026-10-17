@@ -5554,7 +5554,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
     etaReceipts,
     cashAndBankAccountIds: resolveCashAndBankAccountIds,
     customerMail: {
-      outbox: customerMail.outbox,
+      store: customerMail,
       drain: async () => {
         const tenant = (await settings.get()) ?? createDefaultSettings();
         return new NotificationDispatcher({

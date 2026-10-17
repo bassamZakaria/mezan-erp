@@ -1,6 +1,5 @@
 import { createCollectionsRoutes } from "@mezan/api";
 import { createDefaultSettings } from "@mezan/domain";
-import { createSqliteCollectionsStore } from "@mezan/persistence";
 import type { BackendArea, BackendModuleContext } from "../module-context.js";
 import { reportsDeps } from "./e1-02.js";
 
@@ -13,7 +12,6 @@ import { reportsDeps } from "./e1-02.js";
  */
 export const area: BackendArea = {
   mount(ctx: BackendModuleContext) {
-    const store = createSqliteCollectionsStore(ctx.sqlite);
     ctx.app.route(
       "/collections",
       createCollectionsRoutes(
@@ -21,7 +19,7 @@ export const area: BackendArea = {
           reports: reportsDeps(ctx),
           customers: ctx.stores.customers,
           allocations: ctx.stores.vouchers.allocations,
-          store,
+          store: ctx.customerMail.store,
           company: async () => {
             const settings = (await ctx.stores.settings.get()) ?? createDefaultSettings();
             return { companyName: settings.companyName, currency: settings.currency };
@@ -33,6 +31,5 @@ export const area: BackendArea = {
         ctx.resolveAuthContext,
       ),
     );
-    ctx.addCloser(store);
   },
 };

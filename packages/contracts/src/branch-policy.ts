@@ -318,7 +318,7 @@ export const BRANCH_POLICY_TABLE: readonly BranchPolicyEntry[] = [
 
   handlerScoped("/audit"),
   handlerScoped("/dashboard"),
-  handlerScoped("/collections"),
+  handlerScoped("/collections", { params: { id: null } }),
   handlerScoped("/cash-forecast"),
   handlerScoped("/cost-center-pl"),
   handlerScoped("/financial-reports", { companyWide: ["/vat-return"] }),

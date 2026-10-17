@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
 import {
   AuditChangeAction,
+  CashForecastSourceKind,
   CollectionActivityKind,
   CustomerContactMissingError,
   CustomerMessageStatus,
@@ -19,7 +20,9 @@ import {
   SmsProviderNotConfiguredError,
   assertValidDunningPolicy,
   buildCollectionWorklist,
+  consolidateReminders,
   createPromiseToPay,
+  currencyLabelAr,
   defaultDunningPolicy,
   dueStepFor,
   evaluatePromise,
@@ -71,6 +74,7 @@ import {
   type DunningRunResultDTO,
   type EvaluatedPromiseDTO,
   type SendReminderResultDTO,
+  type ScheduledDunningRunResultDTO,
   type SendStatementResultDTO,
 } from "@mezan/contracts";
 import { createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
@@ -168,7 +172,7 @@ function promiseDTO(promise: EvaluatedPromise, names: ReadonlyMap<string, string
 }
 
 function documentLabel(item: CollectionWorkItem): string {
-  if (item.kind === "installment" && item.reference && item.detail) return `${item.reference} (${item.detail})`;
+  if (item.kind === CashForecastSourceKind.Installment && item.reference && item.detail) return `${item.reference} (${item.detail})`;
   return item.reference ?? item.detail ?? PRIOR_BALANCE_AR;
 }
 
@@ -261,7 +265,7 @@ export function createCollectionsRoutes(deps: CollectionsRoutesDeps, resolveAuth
 
   function policyDTO(policy: DunningPolicy, isDefault: boolean): DunningPolicyDTO {
     return {
-      steps: policy.steps.map((step) => ({ ...step, channel: step.channel as unknown as DunningChannelDTO })),
+      steps: policy.steps.map(({ id, ...step }) => ({ ...step, stepKey: id, channel: step.channel as unknown as DunningChannelDTO })),
       autoSendEnabled: policy.autoSendEnabled,
       minimumOverdueAmount: policy.minimumOverdueAmount.toString(),
       pauseWhilePromisePending: policy.pauseWhilePromisePending,
@@ -359,7 +363,7 @@ export function createCollectionsRoutes(deps: CollectionsRoutesDeps, resolveAuth
     try {
       const next = assertValidDunningPolicy(
         {
-          steps: parsed.data.steps.map((step, index) => ({ ...step, level: index + 1, channel: step.channel as unknown as DunningChannel })),
+          steps: parsed.data.steps.map(({ stepKey, ...step }, index) => ({ ...step, id: stepKey, level: index + 1, channel: step.channel as unknown as DunningChannel })),
           autoSendEnabled: parsed.data.autoSendEnabled,
           minimumOverdueAmount: Money.fromMajor(parsed.data.minimumOverdueAmount),
           pauseWhilePromisePending: parsed.data.pauseWhilePromisePending,
@@ -431,16 +435,20 @@ export function createCollectionsRoutes(deps: CollectionsRoutesDeps, resolveAuth
       now: at,
       actor: actorOf(c),
       idGen: newId,
-      render: (step, row, item) =>
-        renderDunningMessage(step, {
+      render: (step, row, item) => {
+        const common = {
           customerName: customers.get(row.customerId)?.nameAr ?? row.customerName,
           companyName: company.companyName,
           documentNumber: documentLabel(item),
-          amount: formatMoneyLabel(item.amount, company.currency),
           dueDate: item.dueDate,
           daysOverdue: String(item.daysOverdue),
-          totalOverdue: formatMoneyLabel(row.overdue, company.currency),
-        }),
+        };
+        return renderDunningMessage(
+          step,
+          { ...common, amount: formatMoneyLabel(item.amount, currencyLabelAr(company.currency)), totalOverdue: formatMoneyLabel(row.overdue, currencyLabelAr(company.currency)) },
+          { ...common, amount: formatMoneyLabel(item.amount, company.currency), totalOverdue: formatMoneyLabel(row.overdue, company.currency) },
+        );
+      },
     });
     let prepared = 0;
     for (const reminder of plan.toInsert) {
@@ -499,7 +507,7 @@ export function createCollectionsRoutes(deps: CollectionsRoutesDeps, resolveAuth
       );
     }
     const day = await today(c);
-    if (policy.lastScheduledRunDate === day) return c.json({ alreadyRan: true, run: null, queued: 0 });
+    if (policy.lastScheduledRunDate === day) return c.json<ScheduledDunningRunResultDTO>({ alreadyRan: true, run: null, queued: 0 });
     const run = await executeRun(c, day, undefined);
     const customers = await customerDirectory();
     let queued = 0;
@@ -511,7 +519,7 @@ export function createCollectionsRoutes(deps: CollectionsRoutesDeps, resolveAuth
       queued += 1;
     }
     await deps.store.policy.save({ ...policy, lastScheduledRunDate: day });
-    return c.json({ alreadyRan: false, run, queued });
+    return c.json<ScheduledDunningRunResultDTO>({ alreadyRan: false, run, queued });
   });
 
   async function queueEmail(reminder: DunningReminder, c: Context): Promise<DunningReminder> {
@@ -608,6 +616,75 @@ export function createCollectionsRoutes(deps: CollectionsRoutesDeps, resolveAuth
       }
       const customers = await customerDirectory();
       const result: SendReminderResultDTO = { reminder: reminderDTO(next, customers), whatsappLink: link };
+      return c.json(result);
+    } catch (err) {
+      return domainRefusal(c, err);
+    }
+  });
+
+  app.post("/customers/:id/send-reminders", gate("sales.collections.send"), async (c) => {
+    const parsed = sendStatementSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) {
+      return c.json(body(CollectionsRefusal.InvalidRequest, "قناة الإرسال غير صالحة.", "The channel is not valid.", { issues: parsed.error.issues }), 400);
+    }
+    try {
+      const customerOrResponse = await customerOrRefusal(c, c.req.param("id"));
+      if (customerOrResponse instanceof Response) return customerOrResponse;
+      const customer = customerOrResponse;
+      const channel = parsed.data.channel === StatementChannelDTO.Email ? DunningChannel.Email : DunningChannel.WhatsApp;
+      const day = await today(c);
+      const openKeys = new Set(
+        openReceivableItems(await receivableItems(c, day, false), day)
+          .filter((item) => item.customerId === customer.id && item.daysOverdue > 0)
+          .map((item) => item.key),
+      );
+      const candidates = (await deps.store.reminders.list({ customerId: customer.id, statuses: [DunningReminderStatus.Prepared, DunningReminderStatus.Failed], limit: REMINDER_LIST_LIMIT })).filter(
+        (reminder) => reminder.channel === channel && openKeys.has(reminder.itemKey),
+      );
+      const company = await deps.company();
+      const message = consolidateReminders(candidates, company.currency);
+      if (!message) return c.json(body(CollectionsRefusal.ItemSettled, SETTLED_ITEM_AR, SETTLED_ITEM_EN), 409);
+      let link: string | null = null;
+      let messageId: string | null = null;
+      if (channel === DunningChannel.Email) {
+        if (!customer.email) throw new CustomerContactMissingError(customer.id, DunningChannel.Email);
+        messageId = newId();
+        await deps.store.outbox.enqueue({
+          id: messageId,
+          customerId: customer.id,
+          subject: message.subject,
+          body: message.body,
+          status: CustomerMessageStatus.Queued,
+          failureReason: null,
+          createdAt: now(),
+          sentAt: null,
+        });
+      } else {
+        link = whatsAppLink(customer.phone, message.body);
+        if (!link) throw new CustomerContactMissingError(customer.id, DunningChannel.WhatsApp);
+      }
+      const at = now();
+      for (const reminder of candidates) {
+        await deps.store.reminders.update(
+          messageId !== null
+            ? { ...reminder, status: DunningReminderStatus.Queued, messageId, failureReason: null, sentBy: actorOf(c) }
+            : { ...reminder, status: DunningReminderStatus.Sent, sentAt: at, sentBy: actorOf(c), failureReason: null, outcome: ReminderOutcome.WhatsAppLink },
+        );
+      }
+      await recordAdminEvent(deps.audit, c, {
+        module: "sales",
+        entityType: "dunning_reminder",
+        entityId: customer.id,
+        action: messageId !== null ? CollectionsAuditAction.ReminderQueued : CollectionsAuditAction.ReminderSent,
+        details: { customerId: customer.id, channel, reminders: candidates.map((r) => r.id), consolidated: true },
+      });
+      const result: SendStatementResultDTO = {
+        channel: parsed.data.channel,
+        subject: message.subject,
+        body: message.body,
+        whatsappLink: link,
+        queuedMessageId: messageId,
+      };
       return c.json(result);
     } catch (err) {
       return domainRefusal(c, err);

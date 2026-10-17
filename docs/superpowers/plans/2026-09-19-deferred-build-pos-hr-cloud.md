@@ -89,7 +89,7 @@ New defects found in the receipt path (file in lane 0A, fix in 0D):
 | 15 | Billing | partial | manual payments, dunning (`server/dunning.ts`), `PaymentProvider` port with no implementation (`domain/platform/payment-provider.ts`) → 1C |
 | 16–17 | API keys, webhooks | missing | deleted by DEC-17; rebuild cloud-only → 6B (same as ENH-E3-09) |
 | 18 | Email + server PDF | partial | SMTP delivery exists (`api/smtp-client.ts`); no server PDF, PIN not emailed → 3D/6C |
-| 19 | Cloud backup | partial | scheduled in-app backups (`server/backup-scheduler.ts`), S3 in Terraform; no PITR, no per-tenant export → 5D |
+| 19 | Cloud backup | partial | scheduled in-app backups (`server/backup-scheduler.ts`), S3 in Terraform; no PITR. Per-tenant export (desktop-importable, passphrase-encrypted, single-use download) and restore drill built in the console: `server/tenant-backups.ts`, `web/src/platform/TenantBackupCard.tsx` (5D) |
 | 20 | Deploy shape | done | `Dockerfile`, `render.yaml`, `.github/workflows/deploy-aws.yml`, `server/cloud-app.ts`; apply **needs owner** |
 
 ### 1.4 §4.3 SaaS follow-ups and extras (13 items): 1 done · 3 partial · 8 missing · 1 by design

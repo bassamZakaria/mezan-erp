@@ -804,7 +804,7 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
     try {
       const port = backupsPortOf();
       const tenant = await requireLiveForBackups(c.req.param("id"));
-      return c.json({ backups: await port.list(tenant) });
+      return c.json({ backups: await platform.outsideTheTurn(() => port.list(tenant)) });
     } catch (err) {
       return domainErrorResponse(c, err);
     }
@@ -816,7 +816,7 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
     try {
       const port = backupsPortOf();
       const tenant = await requireLiveForBackups(c.req.param("id"));
-      const result = await port.drill({ tenant, ...(parsed.data.file ? { file: parsed.data.file } : {}) });
+      const result = await platform.outsideTheTurn(() => port.drill({ tenant, ...(parsed.data.file ? { file: parsed.data.file } : {}) }));
       const passed = result.outcome === TenantBackupDrillOutcome.Pass;
       await noted(
         c,
@@ -831,7 +831,9 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
     }
   });
 
-  // REQUIRED ORDERING: the request, with its reason, is recorded as CRITICAL (or
+  // REQUIRED ORDERING: the snapshot, the integrity check and the encryption all run
+  // outside the platform connection's turn, or every other operator waits behind them.
+  // The request, with its reason, is recorded as CRITICAL (or
   // refused with 503) BEFORE the tenant's books are read. SECURITY: neither the
   // passphrase nor the download token reaches an audit row or a log line.
   app.post("/tenants/:id/export", requireOwner, async (c) => {
@@ -844,7 +846,7 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
       tenant = await requireLiveForBackups(c.req.param("id"));
       const details = { code: tenant.code, reason };
       await recordedWith(c, async () => ({ value: null, action: PlatformAuditAction.TenantBackupExportRequested, entityId: tenant!.id, details, severity: AuditSeverityCode.Critical }));
-      const offer = await port.exportTenant({ tenant, passphrase });
+      const offer = await platform.outsideTheTurn(() => port.exportTenant({ tenant: tenant!, passphrase }));
       await noted(c, PlatformAuditAction.TenantBackupExported, tenant.id, { ...details, fileName: offer.fileName, bytes: offer.bytes, tableCount: offer.tableCount, totalRows: offer.totalRows, expiresAt: offer.expiresAt }, AuditSeverityCode.Critical);
       c.header("Cache-Control", "no-store");
       return c.json(offer);
@@ -860,7 +862,7 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
     try {
       const port = backupsPortOf();
       const tenant = await requireLiveForBackups(c.req.param("id"));
-      const taken = await port.takeExport({ tenant, token: c.req.param("token") });
+      const taken = await platform.outsideTheTurn(() => port.takeExport({ tenant, token: c.req.param("token") }));
       if (!taken) {
         await noted(c, PlatformAuditAction.TenantBackupExportRefused, tenant.id, { code: tenant.code }, AuditSeverityCode.Warning);
         throw new TenantBackupRefusalError(TenantBackupRefusal.ExportGone, "رابط التنزيل غير صالح أو استُخدم أو انتهت مدته. أنشئ تصديرًا جديدًا.", "The download link is invalid, already used, or expired. Create a new export.", 404);

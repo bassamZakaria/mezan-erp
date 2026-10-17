@@ -454,7 +454,7 @@ export class SalesInvoiceService {
 
     const submitterRoles = opts.actorRoles ?? this.deps.actorRoles;
     const submitterIsAdmin = submitterRoles?.includes(WILDCARD_PERMISSION) ?? false;
-    const priceGuard = await this.evaluatePriceGuard(await this.applyPromotion(existing));
+    const priceGuard = this.deps.pricingGuard ? await this.evaluatePriceGuard(await this.applyPromotion(existing)) : null;
     if (priceGuard?.outcome === PricingGuardLineOutcome.Blocked) throw new PricingGuardBlockedError(priceGuard.lines);
     const needsPriceApproval = priceGuard?.outcome === PricingGuardLineOutcome.NeedsApproval;
     // INVARIANT (fail closed): approve-mode with nowhere to route the request is

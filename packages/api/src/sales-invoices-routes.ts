@@ -110,7 +110,8 @@ import {
   type DocumentVersionGuard,
 } from "./document-version.js";
 import { duplicateIdRefusal } from "./duplicate-id.js";
-import { DuplicateRecordIdError } from "@mezan/domain";
+import { DuplicateRecordIdError, priceFloorRequestIdOf, type DocumentPricingGuardPort } from "@mezan/domain";
+import { pricingGuardRefusal } from "./pricing-guard-routes.js";
 import { partyIdsNamed, type PartyDirectory } from "./party-name-search.js";
 
 /**
@@ -144,6 +145,8 @@ export interface SalesInvoiceRoutesDeps {
   readonly promotions?: SalesInvoicePromotionHook;
   /** The customer's own price list, so a line under it is surfaced rather than silently accepted (D35). */
   readonly pricing?: SalesInvoicePricingDeps;
+  /** Floor price / minimum margin over WAC (ENH-E2-08), judged on confirm. */
+  readonly pricingGuard?: DocumentPricingGuardPort;
   /** Refuses a line naming an item the catalogue does not hold (D38); omit for no check. */
   readonly itemCheck?: ItemCatalogCheck;
   /** Refuses an invoice naming a customer, warehouse, branch or cost centre no master record holds (D310). */
@@ -497,6 +500,8 @@ class SalesInvoiceVoidRefusal extends Error {
 
 function handleDomainError(c: Context, err: unknown): Response {
   if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
+  const priceFloorRefusal = pricingGuardRefusal(c, err);
+  if (priceFloorRefusal) return priceFloorRefusal;
   const postingRefusal = postingRefusalResponse(c, err);
   if (postingRefusal) return postingRefusal;
   const taxRefusal = taxRateRefusal(c, err);
@@ -1318,6 +1323,7 @@ export function createSalesInvoicesRoutes(
         etaReceipt,
         ...(etaReceiptError ? { etaReceiptError } : {}),
         held: result.held,
+        priceFloorHeld: result.held && result.invoice.workflowRequestId === priceFloorRequestIdOf(result.invoice.id),
         ...(result.taxRecalculated ? { taxRecalculated: { message: SALES_TAX_RECALCULATED_NOTICE_AR } } : {}),
         creditWarning: serializeCreditWarning(result.creditWarning),
         // Lines charged under the customer's own price list (D35). Empty when

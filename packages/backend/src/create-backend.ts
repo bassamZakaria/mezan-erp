@@ -422,6 +422,7 @@ import { isEmptyTenant, SEED_ADMIN_USER_ID, seedIfEmpty, type SeedStores } from 
 import type { BackendModuleContext } from "./module-context.js";
 import { mountPos } from "./pos/index.js";
 import { ENH_EMITTED_EVENT_CODES, mountEnhancements } from "./enh/index.js";
+import { pricingGuardPortFor } from "./enh/e2-08.js";
 import { readStockLedgerDateMismatches } from "./enh/e1-04.js";
 import { seedDemoTenant } from "./demo-seed.js";
 import { ensureStandardRoles } from "./standard-roles.js";
@@ -4668,6 +4669,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
       // Without this a configured SALES_INVOICE_CONFIRM chain had zero effect —
       // SalesInvoiceService.confirm skips its gate entirely when absent.
       workflow: documentWorkflowGate,
+      pricingGuard: pricingGuardPortFor(sqlite),
       audit: auditSink,
       events: salesInvoiceEvents,
       // The tenant's real chart, so an invoice cannot name an account it does
@@ -4815,6 +4817,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
       itemCheck: items,
       masterData: masterDataChecks,
       numbering: { next: (opts) => ledger.numbering.next("SALES_QUOTE", { branchId: opts?.branchId }) },
+      pricingGuard: pricingGuardPortFor(sqlite),
     },
     // --- phase9/accounting-depth ---
     exchangeRateRepo: exchangeRates,

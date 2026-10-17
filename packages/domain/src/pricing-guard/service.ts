@@ -32,7 +32,7 @@ export interface PricingGuardServiceDeps {
   readonly categoryAncestry: (itemId: string) => Promise<readonly string[]>;
   readonly customerCategory: (customerId: string) => Promise<string | null>;
   readonly rateOn: (currency: string, date: string) => Promise<string | null>;
-  readonly baseCurrency: string;
+  readonly baseCurrency: () => Promise<string>;
   readonly approvalChainConfigured: () => Promise<boolean>;
 }
 
@@ -78,7 +78,7 @@ export class PricingGuardService implements DocumentPricingGuardPort {
   }
 
   private async rateFor(currency: string, date: string): Promise<string | null> {
-    if (!currency || currency === this.deps.baseCurrency) return "1";
+    if (!currency || currency === (await this.deps.baseCurrency())) return "1";
     return this.deps.rateOn(currency, date);
   }
 

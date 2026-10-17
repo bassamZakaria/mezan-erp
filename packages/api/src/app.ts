@@ -2103,6 +2103,7 @@ function buildHeldDocumentResolver(options: CreateAppOptions, salesInvoices: Sal
         await buildSalesInvoiceService(salesInvoices, HELD_DOCUMENT_SYSTEM_ACTOR).returnToDraft(docId);
       },
     };
+    actions.SALES_PRICE_FLOOR_OVERRIDE = actions.SALES_INVOICE_CONFIRM;
   }
   return (record: ApprovalRequestRecord): HeldDocumentActions | null => actions[record.actionType] ?? null;
 }

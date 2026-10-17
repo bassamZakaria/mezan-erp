@@ -44,7 +44,9 @@ import {
   type SalesInvoiceDiscount,
   type SalesInvoiceDiscountType,
   type SalesInvoiceLineDiscountType, itemTypeIsSellable, findCurrency, convertToBase, extend, SALES_INVOICE_ACTIVE_STATUSES,} from "@mezan/domain";
-import { IdempotencyRefusal } from "@mezan/contracts";
+import { IdempotencyRefusal, PricingGuardDiscountTypeDTO, PricingGuardDocTypeDTO, type PricingGuardEvaluateRequestDTO } from "@mezan/contracts";
+import { usePricingGuardPreview } from "./enh/pricing-guard/pricing-guard-hooks";
+import { PricingGuardLineStatus, PricingGuardSummary } from "./enh/pricing-guard/PricingGuardLineStatus";
 import type { ProjectDTO, SalesInvoiceListQueryDTO, SalesInvoiceStatusDTO, TaxRateDTO } from "@mezan/contracts";
 import { SalesInvoicePrintPage } from "../print/SalesInvoicePrintPage";
 import {
@@ -659,6 +661,37 @@ function CreateInvoicePage({
   );
   const totalsByLineId = useMemo(() => new Map(totals.lines.map((l) => [l.lineId, l])), [totals]);
 
+  const priceGuardBranchId = branchId || workingLocation.branchId || "";
+  const priceGuardRequest = useMemo<PricingGuardEvaluateRequestDTO | null>(() => {
+    if (!customer || priceGuardBranchId === "" || domainLines.length === 0) return null;
+    return {
+      docType: PricingGuardDocTypeDTO.SalesInvoice,
+      date,
+      customerId: customer.id,
+      branchId: priceGuardBranchId,
+      warehouseId: warehouseId || null,
+      currency,
+      taxInclusive,
+      discount:
+        discount.type === "percent"
+          ? { type: PricingGuardDiscountTypeDTO.Percent, percent: discount.percent }
+          : { type: PricingGuardDiscountTypeDTO.Amount, amount: discount.amount.toString() },
+      lines: domainLines.map((l) => ({
+        lineId: l.lineId,
+        itemId: l.itemId,
+        qty: l.qty.toString(),
+        unitFactor: l.unitFactor,
+        unitPrice: l.unitPrice.toString(),
+        discountType: l.discountType === "amount" ? PricingGuardDiscountTypeDTO.Amount : PricingGuardDiscountTypeDTO.Percent,
+        discountPercent: l.discountPercent,
+        discountAmount: l.discountAmount.toString(),
+        taxRatePercent: l.taxRatePercent,
+      })),
+    };
+  }, [customer, priceGuardBranchId, domainLines, date, warehouseId, currency, taxInclusive, discount]);
+  const priceGuard = usePricingGuardPreview(priceGuardRequest);
+  const priceGuardByLine = useMemo(() => new Map((priceGuard?.lines ?? []).map((l) => [l.lineId, l])), [priceGuard]);
+
   const canSubmit = customer !== null && domainLines.length > 0 && totals.grandTotal.scaled > 0n && !busy;
 
   /** What confirming will actually take out of the warehouse, in base units (R2.8). */
@@ -1054,6 +1087,7 @@ function CreateInvoicePage({
                         </span>
                       </div>
                     ) : null}
+                    <PricingGuardLineStatus line={priceGuardByLine.get(line.key)} costVisible={priceGuard?.costVisible ?? false} />
                     {item.type === "stock" ? (
                       <LineAvailability
                         itemId={item.id}
@@ -1155,6 +1189,8 @@ function CreateInvoicePage({
             ]}
           />
         ) : null}
+
+        <PricingGuardSummary evaluation={priceGuard} />
 
         <div className="flex justify-end gap-[9px]">
           <Button onClick={onClose}>{t("common.cancel")}</Button>

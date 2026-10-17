@@ -1,9 +1,9 @@
 /**
- * The 26 workflow-gateable action types (docs/archive/catalog/09 §workflow), as data.
+ * The 27 workflow-gateable action types (docs/archive/catalog/09 §workflow), as data.
  *
  * Each is a business action that a tenant MAY put behind a multi-step, sequential,
  * role-based approval chain via `/settings/workflow`. The list is authoritative:
- * the config UI's action-type combobox is exactly these 26 entries.
+ * the config UI's action-type combobox is exactly these 27 entries.
  */
 
 export interface GateableActionTypeDef {
@@ -33,10 +33,11 @@ export interface GateableActionTypeDef {
 }
 
 export const GATEABLE_ACTION_TYPES = [
-  // Sales (3)
+  // Sales (4)
   { code: "SALES_INVOICE_CONFIRM", labelAr: "تأكيد فاتورة المبيعات", labelEn: "Confirm sales invoice", category: "sales" },
   { code: "SALES_RETURN_CONFIRM", labelAr: "تأكيد مردودات المبيعات", labelEn: "Confirm sales return", category: "sales" },
   { code: "SALES_QUOTE_SEND", labelAr: "إرسال عرض سعر", labelEn: "Send quotation", category: "sales", enforced: false },
+  { code: "SALES_PRICE_FLOOR_OVERRIDE", labelAr: "اعتماد بيع دون الحد الأدنى للسعر", labelEn: "Approve a sale below the price floor", category: "sales" },
 
   // Purchases (5)
   { code: "PURCHASE_ORDER_CONFIRM", labelAr: "تأكيد أمر الشراء", labelEn: "Confirm purchase order", category: "purchases", enforced: false },
@@ -76,7 +77,7 @@ export const GATEABLE_ACTION_TYPES = [
   { code: "MANUFACTURING_WORK_ORDER_START", labelAr: "بدء أمر التصنيع", labelEn: "Start work order", category: "manufacturing", enforced: false },
 ] as const satisfies readonly GateableActionTypeDef[];
 
-/** Union of the 26 gateable action-type codes. */
+/** Union of the 27 gateable action-type codes. */
 export type GateableActionType = (typeof GATEABLE_ACTION_TYPES)[number]["code"];
 
 const ACTION_CODES: ReadonlySet<string> = new Set(

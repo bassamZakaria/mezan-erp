@@ -11,7 +11,7 @@ import {
 
 describe("gateable action types", () => {
   it("catalogs exactly the 26 documented actions", () => {
-    expect(GATEABLE_ACTION_TYPES).toHaveLength(26);
+    expect(GATEABLE_ACTION_TYPES).toHaveLength(27);
     expect(isGateableActionType("SALES_INVOICE_CONFIRM")).toBe(true);
     expect(isGateableActionType("NOT_A_REAL_ACTION")).toBe(false);
   });

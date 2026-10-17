@@ -2,7 +2,7 @@
  * Workflow config management — CRUD over the persisted {@link GateConfig} per
  * action type that backs `/settings/workflow`'s chain-builder screen. Thin
  * orchestration on top of the pure `action-types.ts` catalog: validates the
- * action type is one of the 26 gateable codes and that a config isn't
+ * action type is one of the 27 gateable codes and that a config isn't
  * silently duplicated for the same action type, then hands off to the port.
  */
 
@@ -29,7 +29,7 @@ export interface WorkflowConfigRepository {
 export class UnknownActionTypeError extends Error {
   readonly code = "UNKNOWN_ACTION_TYPE" as const;
   constructor(readonly actionType: string) {
-    super(`"${actionType}" is not one of the 26 gateable action types.`);
+    super(`"${actionType}" is not one of the 27 gateable action types.`);
     this.name = "UnknownActionTypeError";
   }
 }

@@ -2,8 +2,8 @@ import { describe, it, expect } from "vitest";
 import { GATEABLE_ACTION_TYPES, isGateableActionType } from "./action-types.js";
 
 describe("GATEABLE_ACTION_TYPES", () => {
-  it("has 26 unique codes, each with an Arabic and English label and a category", () => {
-    expect(GATEABLE_ACTION_TYPES).toHaveLength(26);
+  it("has 27 unique codes, each with an Arabic and English label and a category", () => {
+    expect(GATEABLE_ACTION_TYPES).toHaveLength(27);
     const codes = GATEABLE_ACTION_TYPES.map((a) => a.code);
     expect(new Set(codes).size).toBe(codes.length);
     for (const action of GATEABLE_ACTION_TYPES) {

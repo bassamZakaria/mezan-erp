@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { Hono } from "hono";
 import { createSessionRegistry, DEVICE_MISMATCH_LIMIT } from "@mezan/api";
-import { DEVICE_SECRET_HEADER } from "@mezan/contracts";
+import { CurrentSecretRefusal, DEVICE_SECRET_HEADER } from "@mezan/contracts";
 import { ALL_SCOPE, createMemorySecurityEventFallback, createPlatformUser, type PlatformUser } from "@mezan/domain";
 import { createPlatform, type PlatformHandle } from "./create-platform.js";
 import { createPlatformAuth, PLATFORM_SESSION_LIMITS, PlatformSecurityAction } from "./platform-auth.js";
@@ -318,7 +318,10 @@ describe("the platform console session", () => {
     expect(refused.status).toBe(403);
     expect(((await json(refused)) as { error: string }).error).toBe("STEP_UP_REQUIRED");
 
-    expect((await r.call("POST", "/auth/step-up", moved, { password: "wrong password" })).status).toBe(401);
+    const wrong = await r.call("POST", "/auth/step-up", moved, { password: "wrong password" });
+    expect(wrong.status).toBe(403);
+    expect(((await json(wrong)) as { error: string }).error).toBe(CurrentSecretRefusal.IncorrectPassword);
+    expect((await r.call("GET", "/read", moved)).status).toBe(200);
     expect((await r.call("POST", "/write", moved)).status).toBe(403);
     expect((await r.call("POST", "/auth/step-up", moved, { password: "correct horse battery" })).status).toBe(200);
     expect((await r.call("POST", "/write", moved)).status).toBe(200);

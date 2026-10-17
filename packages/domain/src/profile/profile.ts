@@ -1,3 +1,4 @@
+import { CurrentSecretRefusal } from "@mezan/contracts";
 import type { UnitOfWork } from "../journal.js";
 import { InvalidUserError, DuplicateUserEmailError, UserNotFoundError } from "../users/save-user.js";
 import type { SecretHasher, User } from "../users/user.js";
@@ -11,7 +12,7 @@ import type { SecretHasher, User } from "../users/user.js";
  */
 
 export class IncorrectPasswordError extends Error {
-  readonly code = "INCORRECT_PASSWORD";
+  readonly code = CurrentSecretRefusal.IncorrectPassword;
   constructor() {
     super("كلمة المرور الحالية غير صحيحة.");
     this.name = "IncorrectPasswordError";

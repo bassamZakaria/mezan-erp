@@ -17,7 +17,7 @@ import {
   UserStatusCode,
   type User,
 } from "@mezan/domain";
-import { loginRequestSchema, bootstrapAdminRequestSchema, unlockAccountRequestSchema, unlockAccountByLinkRequestSchema, stepUpRequestSchema, UNDISCLOSED_TENANT_NAME, type SessionDTO } from "@mezan/contracts";
+import { CurrentSecretRefusal, loginRequestSchema, bootstrapAdminRequestSchema, unlockAccountRequestSchema, unlockAccountByLinkRequestSchema, stepUpRequestSchema, UNDISCLOSED_TENANT_NAME, type SessionDTO } from "@mezan/contracts";
 import {
   accountLocked,
   signInBusy,
@@ -465,7 +465,7 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
       const failure = guard.failed(user.email, origin, true);
       await security(c, "STEP_UP_FAILED", AuditSeverityCode.Warning, { userId: user.id });
       if (failure.verdict === SignInVerdict.Locked || failure.verdict === SignInVerdict.Wait) return refused(c, failure);
-      return c.json({ error: "INVALID_CREDENTIALS", message: "رمز PIN غير صحيح." }, 401);
+      return c.json({ error: CurrentSecretRefusal.IncorrectPin, message: "رمز PIN غير صحيح." }, 403);
     }
     deps.sessions.confirmStepUp(token);
     await security(c, "STEP_UP_CONFIRMED", AuditSeverityCode.Info, { userId: user.id });

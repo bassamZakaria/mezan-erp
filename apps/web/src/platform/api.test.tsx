@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { CurrentSecretRefusal } from "@mezan/contracts";
 import type { TransportResponse } from "../data/transport";
 import { PlatformApiProvider, usePlatformApi } from "./api";
 import { stubPlatformTransport, testPlatformSession } from "./test-support";
@@ -93,7 +94,7 @@ describe("PlatformApiProvider", () => {
         Promise.resolve({ status, ok: status < 300, json: <T,>() => Promise.resolve(body as T), text: () => Promise.resolve(JSON.stringify(body)) });
       if (path === "/auth/step-up") {
         confirmed = JSON.parse(String(init?.body)).password === "correct horse";
-        return confirmed ? answer(200, { ok: true }) : answer(401, { message: "كلمة المرور غير صحيحة" });
+        return confirmed ? answer(200, { ok: true }) : answer(403, { error: CurrentSecretRefusal.IncorrectPassword, message: "كلمة المرور غير صحيحة" });
       }
       return confirmed ? answer(200, {}) : answer(403, { error: "STEP_UP_REQUIRED", message: "أعد إدخال كلمة المرور" });
     };

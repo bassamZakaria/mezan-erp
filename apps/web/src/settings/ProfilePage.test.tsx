@@ -2,9 +2,10 @@
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
 import { screen, fireEvent } from "@testing-library/react";
-import type { ProfileDTO } from "@mezan/contracts";
+import { CurrentSecretRefusal, type ProfileDTO } from "@mezan/contracts";
 import { ProfilePage } from "./ProfilePage";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
+import { sessionExpiredPending } from "../data/session";
 
 const baseProfile: ProfileDTO = {
   id: "USER-ADMIN",
@@ -34,7 +35,7 @@ function renderPage(overrides: Partial<ProfileDTO> = {}) {
     "POST /profile/change-password": (init) => {
       const body = JSON.parse((init?.body as string) ?? "{}");
       if (body.currentPassword !== "correct-pass") {
-        return { status: 400, body: { message: "كلمة المرور الحالية غير صحيحة" } };
+        return { status: 403, body: { error: CurrentSecretRefusal.IncorrectPassword, message: "كلمة المرور الحالية غير صحيحة" } };
       }
       return { body: {} };
     },
@@ -150,7 +151,7 @@ describe("ProfilePage — security tab", () => {
     expect(called).toBe(false);
   });
 
-  it("a wrong current password shows the server's Arabic refusal", async () => {
+  it("a wrong current password shows the server's Arabic refusal and keeps the user signed in", async () => {
     renderPage();
     await screen.findByRole("heading", { name: "محمد الشهابي" });
     fireEvent.click(screen.getByRole("tab", { name: "الأمان" }));
@@ -162,6 +163,8 @@ describe("ProfilePage — security tab", () => {
     fireEvent.click(screen.getByRole("button", { name: "تغيير كلمة المرور" }));
 
     expect(await screen.findByText("كلمة المرور الحالية غير صحيحة")).toBeInTheDocument();
+    expect(sessionExpiredPending()).toBe(false);
+    expect(screen.getByRole("heading", { name: "محمد الشهابي" })).toBeInTheDocument();
   });
 
   it("the change-password button stays disabled until both current and new password are filled", async () => {

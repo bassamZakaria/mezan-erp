@@ -16,6 +16,9 @@ import {
 } from "@mezan/domain";
 import { createSqliteBatchTrailStore, createSqliteExpiryStore, createSqliteNotificationRuleStore } from "@mezan/persistence";
 import type { BackendArea, BackendModuleContext } from "../module-context.js";
+import { createLogger } from "@mezan/api";
+
+const areaLog = createLogger("expiry");
 
 export const EXPIRY_EVENT_CODES: readonly EventCode[] = [ExpiryEventCode.NearExpiry, ExpiryEventCode.Expired];
 
@@ -134,7 +137,7 @@ function createScanner(ctx: BackendModuleContext, store: ReturnType<typeof creat
     return running;
   };
   const scanSafely = (): void => {
-    void scan().catch((error: unknown) => console.error("[expiry] scan failed", error));
+    void scan().catch((error: unknown) => areaLog.error({ err: error }, "scan failed"));
   };
   const staleDay = () => lastScanDay !== toTenantDay(new Date().toISOString());
   return { scan, scanSafely, staleDay };

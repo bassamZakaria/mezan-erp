@@ -1,6 +1,9 @@
 import type { Context, MiddlewareHandler, Next } from "hono";
 import { AuditRecordingError, ConnectionTurnLostError, type AuditSink } from "@mezan/domain";
 import { reportTurnYield } from "./turn-yields.js";
+import { createLogger } from "./observability/index.js";
+
+const log = createLogger("db");
 
 export enum MutatingMethod {
   Post = "POST",
@@ -194,14 +197,14 @@ export function preloadBody(c: Context): Promise<void> {
 }
 
 function defaultOnYield(c: Context): void {
-  console.error(
-    `[audit] ${c.req.method} ${c.req.routePath} gave the event loop back inside its audit transaction and was rolled back; ` +
-      "do its I/O before the transaction or leave it out of AUDITED_MOUNTS",
+  log.error(
+    { method: c.req.method, route: c.req.routePath },
+    `${c.req.method} ${c.req.routePath} gave the event loop back inside its audit transaction and was rolled back; do its I/O before the transaction or leave it out of AUDITED_MOUNTS`,
   );
 }
 
 function defaultOnAuditFailure(err: unknown, c: Context): void {
-  console.error(`[audit] could not record ${c.req.method} ${c.req.path}; the change was rolled back`, err);
+  log.error({ method: c.req.method, route: c.req.path, err }, `could not record ${c.req.method} ${c.req.path}; the change was rolled back`);
 }
 
 function refusal(c: Context, code: AuditBoundaryRefusal, status: 500 | 503, message: string, messageEn: string): Response {
@@ -315,7 +318,7 @@ function defaultTimeoutMs(c: Context): number {
 }
 
 function defaultOnHeldTooLong(c: Context, heldMs: number): void {
-  console.error(`[db] ${c.req.method} ${c.req.path} has held the tenant's connection for ${heldMs}ms; every other write is waiting behind it`);
+  log.warn({ method: c.req.method, route: c.req.path, heldMs }, `${c.req.method} ${c.req.path} has held the tenant's connection for ${heldMs}ms; every other write is waiting behind it`);
 }
 
 function defaultOnTurnYield(c: Context): void {
@@ -356,7 +359,7 @@ export function connectionTurn(audit: AuditSink | undefined, options: Connection
   let waiting = 0;
 
   const refuseTimedOut = (c: Context, timeoutMs: number): Response => {
-    console.error(`[db] ${c.req.method} ${c.req.path} waited ${timeoutMs}ms for the tenant's connection`);
+    log.error({ method: c.req.method, route: c.req.path, timeoutMs }, `${c.req.method} ${c.req.path} waited ${timeoutMs}ms for the tenant's connection`);
     return busy(c, ConnectionBusyReason.TimedOut);
   };
 
@@ -453,7 +456,7 @@ export function connectionTurn(audit: AuditSink | undefined, options: Connection
     const reason = await Promise.race([held.then(() => undefined), gaveUp]);
     if (reason === undefined) {
       if (!(c.error instanceof ConnectionTurnLostError)) return;
-      console.error(`[db] ${c.req.method} ${c.req.path} handed the tenant's connection back and could not take it again; it was stopped before it wrote`);
+      log.error({ method: c.req.method, route: c.req.path }, `${c.req.method} ${c.req.path} handed the tenant's connection back and could not take it again; it was stopped before it wrote`);
       c.res = undefined;
       c.res = busy(c, ConnectionBusyReason.TimedOut);
       return;

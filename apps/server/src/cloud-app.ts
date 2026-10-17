@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { bodyLimit } from "hono/body-limit";
 import path from "node:path";
@@ -14,7 +14,7 @@ import {
   type PlatformHandle,
   type RecordedActivation,
 } from "@mezan/backend";
-import { BodyLimitRefusal, createSessionRegistry } from "@mezan/api";
+import { BodyLimitRefusal, LogEvent, createJobRegistry, createLogger, createSessionRegistry, requestLogging, type JobRegistry } from "@mezan/api";
 import { SubscriptionStatusKind, TenantNotFoundError, type Tenant } from "@mezan/domain";
 import { createSqliteSessionStore, emptyBooksScratch } from "@mezan/persistence";
 import { PUBLIC_API_BASE_PATH, type CreateTenantRequestDTO, type OwnerPinResetResultDTO, type ProvisionResultDTO, type ProvisionRetryRequestDTO } from "@mezan/contracts";
@@ -50,6 +50,33 @@ import { MailOutcome, pendingHandOverEmail, smtpMailer, type PlatformMailer } fr
 import { servedTenantLookup, tenantPublicOrigin, tenantUnlockLink, UNLOCK_PATH } from "./public-origin.js";
 import { createCookieSessions } from "./cookie-session.js";
 import { createPublicApiRoutes, refuseApiKeysOutsidePublicApi } from "./public-api-routes.js";
+import { AlertKind, createAlerter, type Alerter } from "./alerter.js";
+
+const log = createLogger("cloud");
+
+export enum PlatformJobKind {
+  Dunning = "platform_dunning",
+  OwnerDigest = "platform_owner_digest",
+  CardCheckoutSweep = "platform_card_checkout_sweep",
+  Backups = "platform_backups",
+  AuditAnchor = "platform_audit_anchor",
+}
+
+export enum ReadinessCheck {
+  PlatformDatabase = "platform_database",
+  TenantRouter = "tenant_router",
+}
+
+export interface Readiness {
+  readonly ready: boolean;
+  readonly checks: Readonly<Record<ReadinessCheck, boolean>>;
+}
+
+const READINESS_WATCH_MS = 60_000;
+const DUNNING_INTERVAL_MS = 24 * 60 * 60_000;
+const OWNER_DIGEST_INTERVAL_MS = 30 * 60_000;
+const CHECKOUT_SWEEP_INTERVAL_MS = 15 * 60_000;
+export const OWNER_PASSWORD_FILE = "platform-owner-password.txt";
 
 const OPERATOR_SWEEP_BUDGET_MS = 20_000;
 
@@ -61,6 +88,7 @@ export interface CreateCloudAppOptions {
   readonly transformIndexHtml?: (html: string) => string;
   readonly backups?: { start(): () => void };
   readonly mailer?: PlatformMailer;
+  readonly alerter?: Alerter;
   readonly seedDemo?: (deps: {
     readonly platform: PlatformHandle;
     readonly router: TenantRouter;
@@ -72,6 +100,9 @@ export interface CloudApp {
   readonly root: Hono;
   // CONTRACT: settles once the start-up read of every tenant's books is over. Serving does not wait for it.
   readonly booksScanned: Promise<void>;
+  readonly jobs: JobRegistry;
+  readonly alerter: Alerter;
+  readiness(): Readiness;
   close(): Promise<void>;
 }
 
@@ -79,13 +110,16 @@ function generateOwnerPassword(): string {
   return randomBytes(10).toString("hex");
 }
 
-function printGeneratedOwnerPassword(password: string): void {
-  console.log("[cloud] ------------------------------------------------------------");
-  console.log("[cloud] The platform owner was seeded with a GENERATED PASSWORD. It is");
-  console.log("[cloud] shown once, here, and is not recoverable from the database.");
-  console.log(`[cloud]   owner password: ${password}`);
-  console.log("[cloud] Sign in, then change it.");
-  console.log("[cloud] ------------------------------------------------------------");
+// SECURITY: the generated password never reaches a log line: logs are shipped, rotated and read
+// by people who must not sign in as the owner. It is written once to a file only the server's
+// user can read, and the log names the file.
+function storeGeneratedOwnerPassword(platformDir: string, password: string): void {
+  const file = path.join(platformDir, OWNER_PASSWORD_FILE);
+  writeFileSync(file, `${password}\n`, { mode: 0o600 });
+  log.warn(
+    { event: LogEvent.OwnerPasswordGenerated, file },
+    "the platform owner was seeded with a GENERATED password, written once to this file; sign in, change it, then delete the file",
+  );
 }
 
 async function readIndexHtmlIfPresent(webDist: string): Promise<string | null> {
@@ -100,9 +134,9 @@ async function readIndexHtmlIfPresent(webDist: string): Promise<string | null> {
 function reportTenantBooks(scan: TenantBooksScan): void {
   const counts = [...scan.standings].map(([standing, count]) => `${standing} ${count}`).join(", ");
   const checked = [...scan.standings.values()].reduce((sum, count) => sum + count, 0);
-  console.log(`[cloud] tenant books at start: ${checked} checked${counts === "" ? "" : `: ${counts}`}`);
-  for (const tenant of scan.refused) console.warn(`[cloud] tenant books: "${tenant.code}" (${tenant.id}) is ${tenant.standing}`);
-  for (const tenant of scan.unread) console.warn(`[cloud] tenant books: "${tenant.code}" (${tenant.id}) could not be read`);
+  log.info({ checked }, `tenant books at start: ${checked} checked${counts === "" ? "" : `: ${counts}`}`);
+  for (const tenant of scan.refused) log.warn({ tenantId: tenant.id }, `tenant books: "${tenant.code}" (${tenant.id}) is ${tenant.standing}`);
+  for (const tenant of scan.unread) log.warn({ tenantId: tenant.id }, `tenant books: "${tenant.code}" (${tenant.id}) could not be read`);
 }
 
 export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptions = {}): Promise<CloudApp> {
@@ -119,7 +153,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
   });
 
   if (platform.ownerSeeded && !env.platformOwnerPassword && ownerPassword) {
-    printGeneratedOwnerPassword(ownerPassword);
+    storeGeneratedOwnerPassword(env.platformDir, ownerPassword);
   }
 
   const sessions = createSessionRegistry(Date.now, PLATFORM_SESSION_LIMITS, createSqliteSessionStore(platform.stores.sqlite));
@@ -128,6 +162,14 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
   const sourceGate = requireCloudSource(env.clientSource, sourceReporter);
 
   const mailer = env.platformSmtp ? (options.mailer ?? smtpMailer(env.platformSmtp)) : undefined;
+  const alerter = options.alerter ?? createAlerter({ mailer, to: env.alertEmail, now });
+  if (!alerter.configured) {
+    log.warn({ event: LogEvent.ConfigurationWarning }, "operational alerts are not mailed: set MEZAN_ALERT_EMAIL and the platform SMTP variables");
+  }
+  const jobs = createJobRegistry(now);
+  jobs.onFailure((failure) =>
+    alerter.raise({ kind: AlertKind.JobFailed, key: failure.kind, summary: `the ${failure.kind} job failed`, facts: { job: failure.kind, durationMs: failure.durationMs } }),
+  );
 
   const router = createTenantRouter({
     platform,
@@ -159,7 +201,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
 
   if (env.reviewTenant) {
     const created = await provisionReviewTenant({ platform, router, env, now }, env.reviewTenant);
-    if (created) console.log(`[cloud] reviewer tenant "${env.reviewTenant.code}" seeded; every login uses MEZAN_REVIEW_PIN.`);
+    if (created) log.info(`reviewer tenant "${env.reviewTenant.code}" seeded; every login uses MEZAN_REVIEW_PIN.`);
   }
 
   const provisionTenantForRoutes = async (cmd: CreateTenantRequestDTO & { actorId: string }, activation: RecordedActivation): Promise<ProvisionResultDTO> =>
@@ -193,7 +235,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
     resetTenantOwnerPin({ platform, router, now }, input);
 
   const reconcileOwnerQuietly = (tenant: Tenant): Promise<void> =>
-    router.reconcileOwnerOf(tenant.id).catch((err: unknown) => console.error(`[cloud] owner contact of "${tenant.code}" could not be reconciled`, err));
+    router.reconcileOwnerOf(tenant.id).catch((err: unknown) => log.error({ tenantId: tenant.id, err }, `owner contact of "${tenant.code}" could not be reconciled`));
 
   let testProvider: PaymobTestProvider | null = null;
   let cardCheckout: CardCheckoutService | null = null;
@@ -201,7 +243,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
     const provider = env.paymob.mode === PaymobMode.Live ? createPaymobProvider(env.paymob) : (testProvider = createPaymobTestProvider());
     cardCheckout = createCardCheckoutService({ platform, provider, now, invalidateEntitlements: router.invalidate });
     if (testProvider) {
-      console.log("[cloud] card checkout runs in TEST MODE: no Paymob keys are set, checkouts go to a local fake page.");
+      log.warn({ event: LogEvent.ConfigurationWarning }, "card checkout runs in TEST MODE: no Paymob keys are set, checkouts go to a local fake page.");
     }
   }
   const checkoutService = cardCheckout;
@@ -259,19 +301,25 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
 
   const dunningTimer = startDunningTimer(platform, {
     now,
-    onError: (err) => console.error("[cloud] dunning sweep failed", err),
+    intervalMs: DUNNING_INTERVAL_MS,
+    job: jobs.track(PlatformJobKind.Dunning, DUNNING_INTERVAL_MS),
+    onError: () => undefined,
   });
 
   const ownerDigestTimer = startOwnerDigestTimer({
     platform,
     router,
     now,
-    onError: (err) => console.error("[cloud] owner digest sweep failed", err),
+    intervalMs: OWNER_DIGEST_INTERVAL_MS,
+    job: jobs.track(PlatformJobKind.OwnerDigest, OWNER_DIGEST_INTERVAL_MS),
+    onError: (err) => log.error({ job: PlatformJobKind.OwnerDigest, err }, "owner digest sweep failed"),
   });
 
   const checkoutSweepTimer = checkoutService
     ? startCardCheckoutSweepTimer(checkoutService, {
-        onError: (err) => console.error("[cloud] card checkout sweep failed", err),
+        intervalMs: CHECKOUT_SWEEP_INTERVAL_MS,
+        job: jobs.track(PlatformJobKind.CardCheckoutSweep, CHECKOUT_SWEEP_INTERVAL_MS),
+        onError: () => undefined,
       })
     : null;
 
@@ -281,7 +329,8 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
     dir: env.platformDir,
     intervalMs: env.backupIntervalMinutes * 60_000,
     now,
-    onError: (err) => console.error("[cloud] backup run failed", err),
+    job: env.backupIntervalMinutes > 0 ? jobs.track(PlatformJobKind.Backups, env.backupIntervalMinutes * 60_000) : undefined,
+    onError: () => undefined,
   });
   let stopBackups: (() => void) | undefined;
   if (env.backupIntervalMinutes > 0) {
@@ -290,24 +339,58 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
 
   const anchorService = createAuditAnchorService(env.auditAnchor, env.platformDir);
   const anchorTimer = anchorService
-    ? startAuditAnchorTimer({ platform, router, signer: anchorService.signer, sink: anchorService.sink, intervalMs: anchorService.intervalMs, now })
+    ? startAuditAnchorTimer({
+        platform,
+        router,
+        signer: anchorService.signer,
+        sink: anchorService.sink,
+        intervalMs: anchorService.intervalMs,
+        now,
+        job: jobs.track(PlatformJobKind.AuditAnchor, anchorService.intervalMs),
+      })
     : null;
   if (!anchorService) {
-    console.error(
-      JSON.stringify({ event: "audit_anchor.disabled", service: "mezan-cloud", reason: "MEZAN_AUDIT_ANCHOR_SIGNING_KEY is not set (or the interval is 0): the audit trail is not anchored outside the database" }),
+    log.warn(
+      { event: "audit_anchor.disabled", reason: "MEZAN_AUDIT_ANCHOR_SIGNING_KEY is not set (or the interval is 0): the audit trail is not anchored outside the database" },
+      "audit anchoring is disabled",
     );
   } else if (anchorService.sinkKind === AnchorSinkKind.LocalFile) {
-    console.warn(
-      JSON.stringify({ event: "audit_anchor.local_sink", service: "mezan-cloud", reason: "anchors go to a local file, which is not external to this host; set MEZAN_AUDIT_ANCHOR_S3_BUCKET" }),
+    log.warn(
+      { event: "audit_anchor.local_sink", reason: "anchors go to a local file, which is not external to this host; set MEZAN_AUDIT_ANCHOR_S3_BUCKET" },
+      "audit anchors go to a local file",
     );
   }
 
-  const root = new Hono();
+  let closed = false;
+  const readiness = (): Readiness => {
+    let platformDatabase = false;
+    try {
+      platformDatabase = platform.stores.sqlite.prepare("SELECT 1 AS ok").get() !== undefined;
+    } catch {
+      platformDatabase = false;
+    }
+    const checks = { [ReadinessCheck.PlatformDatabase]: platformDatabase, [ReadinessCheck.TenantRouter]: !closed };
+    return { ready: platformDatabase && !closed, checks };
+  };
+  const readinessWatch = setInterval(() => {
+    const verdict = readiness();
+    if (verdict.ready || closed) return;
+    log.error({ event: LogEvent.ReadinessFailed, checks: verdict.checks }, "the server is not ready to serve");
+    alerter.raise({ kind: AlertKind.NotReady, summary: "the readiness check is failing", facts: Object.fromEntries(Object.entries(verdict.checks).map(([check, ok]) => [check, ok ? "ok" : "failing"])) });
+  }, READINESS_WATCH_MS);
+  readinessWatch.unref();
 
-  // A health check must never depend on the demo password: register it
-  // before `authMiddleware`, or Render's probe gets 401 the moment
+  const root = new Hono();
+  root.use("*", requestLogging({ isQuiet: (requestPath) => !requestPath.startsWith("/api/") }));
+
+  // A health check must never depend on the demo password: register them
+  // before `authMiddleware`, or the uptime probe gets 401 the moment
   // MEZAN_DEMO_PASSWORD is set.
   root.get("/healthz", (c) => c.text("ok"));
+  root.get("/readyz", (c) => {
+    const verdict = readiness();
+    return c.json({ status: verdict.ready ? "ready" : "not_ready", checks: verdict.checks }, verdict.ready ? 200 : 503);
+  });
 
   root.use("/api/*", async (c, next) => {
     const url = new URL(c.req.url);
@@ -383,7 +466,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
   }
 
   root.onError((err, c) => {
-    console.error(err);
+    log.error({ event: LogEvent.UnhandledError, method: c.req.method, route: c.req.path, err }, "unhandled error");
     return answerTenantDbFileRefusal(c, err) ?? c.json({ error: "INTERNAL", message: "حدث خطأ غير متوقع" }, 500);
   });
 
@@ -415,15 +498,19 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
   const booksScanned = router
     .scanBooks()
     .then(reportTenantBooks)
-    .catch((err: unknown) => console.error("[cloud] the start-up read of tenant books failed", err));
+    .catch((err: unknown) => log.error({ err }, "the start-up read of tenant books failed"));
 
-  let closed = false;
   return {
     root,
     booksScanned,
+    jobs,
+    alerter,
+    readiness,
     async close() {
       if (closed) return;
       closed = true;
+      clearInterval(readinessWatch);
+      alerter.close();
       stopBackups?.();
       await anchorTimer?.stop();
       tenantBackups.close();

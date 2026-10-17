@@ -134,6 +134,9 @@ import { branchesOfWarehouses, documentBranches, withinBranchGrant, withinBranch
 import { duplicateIdRefusal } from "./duplicate-id.js";
 import { DuplicateRecordIdError } from "@mezan/domain";
 import { normalizedSearchTerm, partyIdsNamed, type PartyDirectory } from "./party-name-search.js";
+import { createLogger } from "./observability/index.js";
+
+const log = createLogger("purchases");
 
 /**
  * Permission-gated routes for the purchase chain (docs/archive/catalog/02), mounted
@@ -683,7 +686,7 @@ export function createPurchasesRoutes(
     try {
       deps.events.publish({ type, docType, docId, docNo, occurredAt: deps.now?.() ?? new Date().toISOString() });
     } catch (error: unknown) {
-      console.error(`[purchases] event publish failed for ${docType}/${type}`, error);
+      log.error({ docType, eventType: type, err: error }, `event publish failed for ${docType}/${type}`);
     }
   }
 

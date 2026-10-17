@@ -10,6 +10,9 @@ import {
   type LeaveBalanceRepository,
   type LeavePolicyRepository,
 } from "@mezan/domain";
+import { LogEvent, createLogger } from "@mezan/api";
+
+const jobLog = createLogger("scheduled-jobs");
 
 export enum ScheduledJobKind {
   LeaveAccrual = "leave_accrual",
@@ -146,17 +149,20 @@ export function startScheduledJobs(options: ScheduledJobsOptions): ScheduledJobs
       if (stopped) return results;
       for (const job of options.jobs) {
         if (stopped) break;
+        const started = performance.now();
         try {
           const today = await options.today();
           const result = await options.turn(() => job.run(today, stillRunning));
           results.push(result);
           const at = new Date().toISOString();
           Object.assign(states.get(job.kind)!, { lastRunAt: at, lastOkAt: at, lastError: null, lastRecorded: result.recorded.length });
+          jobLog.info({ event: LogEvent.JobSucceeded, job: job.kind, durationMs: Math.round(performance.now() - started), recorded: result.recorded.length }, "job succeeded");
         } catch (err) {
           Object.assign(states.get(job.kind)!, {
             lastRunAt: new Date().toISOString(),
             lastError: (err instanceof Error ? err.message : String(err)).slice(0, 240),
           });
+          jobLog.error({ event: LogEvent.JobFailed, job: job.kind, durationMs: Math.round(performance.now() - started), err }, "job failed");
           options.onError?.(job.kind, err);
         }
       }

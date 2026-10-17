@@ -16,6 +16,9 @@ import { platformRateLimiter, type RateLimiter } from "./rate-limit.js";
 import { createTenantResolvers, type TenantResolvers } from "./tenant-entitlements.js";
 import type { TenantDoor, TenantRouter } from "./tenant-router.js";
 import { publicApiOpenApiDocument } from "./public-api-openapi.js";
+import { createLogger } from "@mezan/api";
+
+const log = createLogger("api-v1");
 
 const INTEGRATIONS_MODULE = "integrations";
 const MINUTE_MS = 60_000;
@@ -267,7 +270,7 @@ export function createPublicApiRoutes(deps: PublicApiDeps): Hono {
     const record = (status: number, replayed: boolean) =>
       gateway
         .recordWrite({ keyId: caller.auth.keyId, keyName: caller.auth.keyName, actor: caller.auth.grant.userId, method: c.req.method, path: `${PUBLIC_API_BASE_PATH}${route}`, status, idempotencyKey: key, replayed })
-        .catch((err: unknown) => console.error("[api-v1] the write could not be audited", err));
+        .catch((err: unknown) => log.error({ err: err }, "the write could not be audited"));
     const run = async () => {
       const result = await forward(c, target(body, key === null ? randomUUID() : recordIdFor(`${caller.tenant.id}:${caller.auth.keyId}:${route}:${key}`)));
       await record(result.status, false);

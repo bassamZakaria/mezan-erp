@@ -30,6 +30,9 @@ import {
   type VerifiedProviderTransaction,
 } from "@mezan/domain";
 import type { PlatformHandle } from "@mezan/backend";
+import { createLogger } from "@mezan/api";
+
+const checkoutLog = createLogger("billing");
 
 export interface OpenCardCheckoutInput {
   readonly tenantId: string;
@@ -211,7 +214,7 @@ export function createCardCheckoutService(options: CardCheckoutServiceOptions): 
     inquireTransaction: (input) => platform.outsideTheTurn(() => options.provider.inquireTransaction(input)),
   };
   const idOf = options.idOf ?? randomUUID;
-  const log = options.log ?? ((message: string, err?: unknown) => console.error(`[billing] ${message}`, err ?? ""));
+  const log = options.log ?? ((message: string, err?: unknown) => checkoutLog.error(err === undefined ? {} : { err }, message));
   const checkouts = platform.stores.cardCheckouts;
   const nowIso = () => now().toISOString();
 

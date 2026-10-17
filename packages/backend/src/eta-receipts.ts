@@ -55,6 +55,9 @@ import {
   type TaxRateRepository,
   type VoucherPaymentMethod,
 } from "@mezan/domain";
+import { createLogger } from "@mezan/api";
+
+const etaLog = createLogger("eta");
 
 /** What a till prints: the number, the identifier the QR encodes, and the QR itself. */
 export interface IssuedEtaReceipt {
@@ -121,7 +124,7 @@ export function createAfterTaxClassified(deps: {
   readonly returnsOf: (invoiceId: string) => Promise<readonly { readonly id: string; readonly docNo: string | null; readonly status: string; readonly reversesDocId: string | null }[]>;
   readonly log?: (message: string, error: unknown) => void;
 }): (invoiceId: string) => Promise<EtaReceiptCorrection | null> {
-  const log = deps.log ?? ((message: string, error: unknown) => console.error(message, error));
+  const log = deps.log ?? ((message: string, error: unknown) => etaLog.error({ err: error }, message));
   return async (invoiceId) => {
     const failures: string[] = [];
     let correction: EtaReceiptCorrection | null = null;
@@ -354,7 +357,7 @@ export function createEtaReceiptIssuer(deps: EtaReceiptIssuerDeps): EtaReceiptIs
     if (stopped) return;
     const run = drain().catch((error: unknown) => {
       if (error instanceof EtaOfflineError) return;
-      console.error("[eta] receipt submission run failed", error);
+      etaLog.error({ err: error }, "receipt submission run failed");
     });
     running = run;
     void run.finally(() => {
@@ -605,7 +608,7 @@ export function createEtaEnqueueBridge(deps: {
         await inTurn(() => enqueueInvoice(deps, invoice, taxNumber, event.occurredAt));
       })().catch((error: unknown) => {
         if (error instanceof DuplicateEtaSubmissionError) return;
-        console.error(`[eta] could not queue ${event.docType}/${event.docId}`, error);
+        etaLog.error({ err: error }, `could not queue ${event.docType}/${event.docId}`);
       });
       inFlight.add(task);
       void task.finally(() => inFlight.delete(task));
@@ -914,7 +917,7 @@ export function createReturnEtaEnqueueBridge(deps: ReturnCreditNoteDeps & {
         if (built) await deps.eta.enqueue(built.enqueueInput, built.prevalidation);
       })().catch((error: unknown) => {
         if (error instanceof DuplicateEtaSubmissionError) return;
-        console.error(`[eta] could not queue ${event.docType}/${event.docId}`, error);
+        etaLog.error({ err: error }, `could not queue ${event.docType}/${event.docId}`);
       });
     },
   };

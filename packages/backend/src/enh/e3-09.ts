@@ -4,6 +4,9 @@ import type { BackendArea, BackendModuleContext } from "../module-context.js";
 import { createIntegrationsGateway, currentUserGrant, type Turn } from "../integrations/gateway.js";
 import { startWebhookDeliveryWorker } from "../integrations/delivery-worker.js";
 import { createPinnedWebhookTransport } from "../integrations/webhook-transport.js";
+import { createLogger } from "@mezan/api";
+
+const areaLog = createLogger("integrations");
 
 function turnOf(ctx: BackendModuleContext): Turn {
   return <T>(work: () => Promise<T>): Promise<T> => (ctx.audit.turn ? ctx.audit.turn(work) : work());
@@ -24,7 +27,7 @@ export const area: BackendArea = {
       turn,
       grantOf: (userId) => currentUserGrant(ctx.uow, userId),
       now,
-      onError: (error) => console.error("[integrations] webhook delivery failed", error),
+      onError: (error) => areaLog.error({ err: error }, "webhook delivery failed"),
     });
     ctx.addCloser({ close: () => worker.stop() });
 
@@ -33,7 +36,7 @@ export const area: BackendArea = {
         .then((queued) => {
           if (queued > 0) worker.kick();
         })
-        .catch((error: unknown) => console.error(`[integrations] could not queue webhooks for "${event.code}"`, error));
+        .catch((error: unknown) => areaLog.error({ err: error }, `could not queue webhooks for "${event.code}"`));
     });
 
     ctx.app.route(

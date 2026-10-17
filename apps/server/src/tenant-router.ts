@@ -48,6 +48,9 @@ import { answerTenantDbFileRefusal, settleTenantDbFile, TenantDbFileBusyError, T
 import { createTenantResolvers, type TenantResolvers } from "./tenant-entitlements.js";
 import { requestHost, resolveTenantCode, tenantSlugOfHost, TENANT_HEADER } from "./tenant-resolver.js";
 import { readTenantBackupStatus } from "./tenant-backup-status.js";
+import { LogEvent, annotateRequest, createLogger } from "@mezan/api";
+
+const log = createLogger("cloud");
 
 export interface TenantRouterOptions {
   readonly platform: PlatformHandle;
@@ -232,7 +235,7 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
     onUserSignedIn: (user) => ownerContact.signedIn(tenantId, user),
     companyOwner: {
       currentOwnerUserId: async () => {
-        await reconcileOwnerOf(tenantId).catch((err: unknown) => console.error(`[cloud] owner contact of "${code}" could not be reconciled`, err));
+        await reconcileOwnerOf(tenantId).catch((err: unknown) => log.error({ err: err }, `owner contact of "${code}" could not be reconciled`));
         return ownerContact.effectiveOwnerUserId(tenantId, await opened(tenantId));
       },
       handOver: (input) => ownerContact.handOver(tenantId, input),
@@ -298,7 +301,7 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
       });
       if (bind) standings.set(tenantId, TenantBooksStanding.Bound);
       openCodes.set(tenantId, code);
-      await ownerContact.reconcile(tenantId, backend).catch((err: unknown) => console.error(`[cloud] owner contact of "${code}" could not be reconciled on open`, err));
+      await ownerContact.reconcile(tenantId, backend).catch((err: unknown) => log.error({ err: err }, `owner contact of "${code}" could not be reconciled on open`));
       return backend;
     },
   });
@@ -386,7 +389,7 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
     try {
       return (await outside(() => judged(tenant, booksFileOf(tenant)))).standing;
     } catch (err) {
-      console.error(`[cloud] the books of "${tenant.code}" could not be read`, err);
+      log.error({ err: err }, `the books of "${tenant.code}" could not be read`);
       return standings.get(tenant.id) ?? null;
     }
   }
@@ -423,7 +426,7 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
     if (err instanceof Error && err.message === "TENANT_NOT_FOUND") {
       return c.json({ error: "TENANT_NOT_FOUND", message: "المنشأة غير موجودة" }, 404);
     }
-    console.error(err);
+    log.error({ event: LogEvent.UnhandledError, method: c.req.method, route: c.req.path, err }, "unhandled error");
     return answerTenantDbFileRefusal(c, err) ?? c.json({ error: "INTERNAL", message: "حدث خطأ غير متوقع" }, 500);
   });
 
@@ -451,6 +454,7 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
     if (!tenant || !tenantIsServed(tenant)) {
       return c.json({ error: "TENANT_NOT_FOUND", message: "المنشأة غير موجودة" }, 404);
     }
+    annotateRequest({ tenantId: tenant.id });
     const door = doorTo(await opened(tenant.id));
     const prefixLen = c.req.routePath.length - REST_PATTERN.length;
     const subPath = c.req.path.slice(prefixLen) || "/";
@@ -502,7 +506,7 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
           if (!open) return;
           await ownerContact
             .reconcile(tenantId, await open)
-            .catch((err: unknown) => console.error(`[cloud] owner contact of "${code}" could not be reconciled`, err));
+            .catch((err: unknown) => log.error({ err: err }, `owner contact of "${code}" could not be reconciled`));
         }),
       );
     },
@@ -547,7 +551,7 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
           counted.set(standing, (counted.get(standing) ?? 0) + 1);
           if (REFUSED_TENANT_BOOKS.includes(standing)) refused.push({ id, code, standing });
         } catch (err) {
-          console.error(`[cloud] the books of "${code}" could not be read`, err);
+          log.error({ err: err }, `the books of "${code}" could not be read`);
           unread.push({ id, code });
         }
         await new Promise<void>((resolve) => setImmediate(resolve));

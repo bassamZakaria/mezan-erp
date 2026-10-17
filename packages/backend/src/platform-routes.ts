@@ -111,6 +111,9 @@ import { connectionTurn } from "@mezan/api";
 import { OwnerPinResetOutcome } from "./owner-pin-reset-outcome.js";
 import type { PlatformHandle } from "./create-platform.js";
 import type { PlatformAuth } from "./platform-auth.js";
+import { createLogger } from "@mezan/api";
+
+const platformLog = createLogger("platform");
 
 export enum PlatformCardCheckoutRefusal {
   NotConfigured = "CARD_CHECKOUT_NOT_CONFIGURED",
@@ -388,12 +391,12 @@ function domainErrorResponse(c: Context, err: unknown): Response {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, err.status);
   }
   if (err instanceof PlatformAuditUnavailableError) {
-    console.error(err.cause);
+    platformLog.error({ err: err.cause }, "the platform audit trail is unavailable");
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 503);
   }
   const dbFileRefusal = tenantDbFileRefusalOf(err) ?? tenantDbFileRefusalOf(err instanceof Error ? err.cause : undefined);
   if (dbFileRefusal) {
-    console.error(err);
+    platformLog.error({ err }, "a tenant database file was refused");
     if (dbFileRefusal.retryable) c.header("Retry-After", String(DB_FILE_RETRY_AFTER_SECONDS));
     return c.json({ error: dbFileRefusal.error, message: dbFileRefusal.message, messageEn: dbFileRefusal.messageEn }, 503);
   }
@@ -404,7 +407,7 @@ function domainErrorResponse(c: Context, err: unknown): Response {
     return c.json({ error: serverFailure.code, message: serverFailure.message, ...(serverFailure.tenantId ? { tenantId: serverFailure.tenantId } : {}) }, 422);
   }
   if (err instanceof Error && (err as { code?: unknown }).code === SERVER_OWNER_RETRY_CODE) {
-    console.error(err);
+    platformLog.error({ err }, "the server owner was busy; the caller was asked to retry");
     c.header("Retry-After", String(OWNER_RETRY_AFTER_SECONDS));
     return c.json({ error: SERVER_OWNER_RETRY_CODE, message: err.message }, 503);
   }
@@ -413,7 +416,7 @@ function domainErrorResponse(c: Context, err: unknown): Response {
     return c.json({ error: (err as unknown as { code: string }).code, message: err.message, ...(typeof messageEn === "string" ? { messageEn } : {}) }, 409);
   }
   if (err instanceof Error && (err as { code?: unknown }).code === "PAYMENT_PROVIDER_ERROR") {
-    console.error(err);
+    platformLog.error({ err }, "the payment provider could not be reached");
     return c.json({ error: "PAYMENT_PROVIDER_ERROR", message: "تعذّر الاتصال بمزوّد الدفع، حاول مرة أخرى", messageEn: "The payment provider could not be reached; try again" }, 502);
   }
   if (err instanceof CardCheckoutUnavailableError || err instanceof CardPaymentNotApplicableError) {
@@ -931,7 +934,7 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
       // is shown. An outcome row that cannot be written is logged, never turned
       // into a refusal: the intent row written before the PIN moved stands.
       await noted(c, PlatformAuditAction.TenantOwnerPinReset, tenant.id, { code: tenant.code, ...account, outcome: OwnerPinResetOutcome.Reset }, AuditSeverityCode.Critical).catch(
-        (err: unknown) => console.error(`[platform] the owner PIN of tenant "${tenant.id}" was reset, and its outcome row could not be written`, err),
+        (err: unknown) => platformLog.error({ err: err }, `the owner PIN of tenant "${tenant.id}" was reset, and its outcome row could not be written`),
       );
       return c.json(result, 200);
     } catch (err) {

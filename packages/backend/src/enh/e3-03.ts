@@ -8,6 +8,9 @@ import {
   type LowStockAlert,
 } from "@mezan/persistence";
 import type { BackendArea, BackendModuleContext } from "../module-context.js";
+import { createLogger } from "@mezan/api";
+
+const areaLog = createLogger("reorder");
 
 export const LOW_STOCK_EVENT = "LOW_STOCK_DETECTED" satisfies EventCode;
 const LOW_STOCK_LINK = "/inventory/reorder";
@@ -87,7 +90,7 @@ export const area: BackendArea = {
           alertId: randomUUID(),
         });
       } catch (error) {
-        console.error("[reorder] could not evaluate the reorder point for a stock movement", error);
+        areaLog.error({ err: error }, "could not evaluate the reorder point for a stock movement");
       }
     });
 
@@ -97,7 +100,7 @@ export const area: BackendArea = {
         try {
           ctx.eventBus.publish(LOW_STOCK_EVENT, alertPayload(alert), alert.detectedAt);
         } catch (error) {
-          console.error("[reorder] a low-stock subscriber failed", error);
+          areaLog.error({ err: error }, "a low-stock subscriber failed");
         }
         store.lowStock.markPublished(alert.id, new Date().toISOString());
       }
@@ -108,7 +111,7 @@ export const area: BackendArea = {
       try {
         await (ctx.audit.turn ? ctx.audit.turn(publishPending) : publishPending());
       } catch (error) {
-        console.error("[reorder] could not publish low-stock alerts", error);
+        areaLog.error({ err: error }, "could not publish low-stock alerts");
       } finally {
         flushing = false;
       }

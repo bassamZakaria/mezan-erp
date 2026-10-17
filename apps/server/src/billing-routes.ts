@@ -45,6 +45,9 @@ import type { TenantDoor, TenantRouter } from "./tenant-router.js";
 import { callerSource, requireCloudSource, type CloudSource, type SourceReporter } from "./client-source.js";
 import { resolveTenantCode } from "./tenant-resolver.js";
 import { servedTenantLookup, trustedPublicOrigin, type ServedTenantLookup } from "./public-origin.js";
+import { LogEvent, createLogger } from "@mezan/api";
+
+const log = createLogger("billing");
 
 export const PAYMOB_WEBHOOK_PATH = "/api/billing/paymob/webhook";
 const MAX_WEBHOOK_BYTES = 256 * 1024;
@@ -111,7 +114,7 @@ function unavailable(c: Context, err: unknown): Response {
     return c.json({ error: err.code, message: err.message }, 404);
   }
   if (err instanceof Error && (err as { code?: unknown }).code === "PAYMENT_PROVIDER_ERROR") {
-    console.error(err);
+    log.error({ err }, "the payment provider could not be reached");
     return c.json({ error: "PAYMENT_PROVIDER_ERROR", message: "تعذّر الاتصال بمزوّد الدفع، حاول مرة أخرى", messageEn: "The payment provider could not be reached; try again" }, 502);
   }
   throw err;
@@ -192,7 +195,7 @@ export function createTenantBillingRoutes(options: TenantBillingRoutesOptions): 
   app.use("*", connectionTurn(platform.audit));
 
   app.onError((err, c) => {
-    console.error(err);
+    log.error({ event: LogEvent.UnhandledError, method: c.req.method, route: c.req.path, err }, "unhandled error");
     return answerTenantDbFileRefusal(c, err) ?? c.json({ error: "INTERNAL", message: "حدث خطأ غير متوقع" }, 500);
   });
 

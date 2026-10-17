@@ -1,4 +1,7 @@
 import { keepRecent } from "../../persistence/src/untransacted-audits.js";
+import { createLogger } from "./observability/index.js";
+
+const log = createLogger("db");
 
 const reported: string[] = [];
 
@@ -11,9 +14,9 @@ function pendingWork(): string {
 export function reportTurnYield(route: string): void {
   const waitingOn = pendingWork();
   keepRecent(reported, `${route} [${waitingOn}]`);
-  console.error(
-    `[db] ${route} gave the event loop back while holding the tenant's connection (waiting on ${waitingOn}); ` +
-      "do that work before the turn, or through a port that hands the turn back (AuditSink.outsideTurn)",
+  log.error(
+    { route, waitingOn },
+    `${route} gave the event loop back while holding the tenant's connection (waiting on ${waitingOn}); do that work before the turn, or through a port that hands the turn back (AuditSink.outsideTurn)`,
   );
 }
 

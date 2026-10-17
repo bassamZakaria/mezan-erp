@@ -1,3 +1,4 @@
+import { createLogger, type JobTracker } from "@mezan/api";
 import { fork, type ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, renameSync, rmSync } from "node:fs";
 import path from "node:path";
@@ -13,6 +14,8 @@ import {
   type BackupVerifyRecord,
 } from "./backup-verify-core.js";
 import type { InspectWorkerRequest, InspectWorkerResponse, VerifyWorkerRequest, VerifyWorkerResponse } from "./backup-verify-worker.js";
+
+const backupLog = createLogger("backup");
 
 export { BackupVerifyOutcome, VERIFY_LOG_FILE_NAME, type BackupVerifyRecord };
 
@@ -123,7 +126,7 @@ function failedRecordAndLog(backupPath: string, now: Date, report: string): Back
   try {
     appendVerifyRecord(record, backupPath);
   } catch (err) {
-    console.error("[backup] could not append the verify log after an off-thread failure", err);
+    backupLog.error({ err: err }, "could not append the verify log after an off-thread failure");
   }
   return record;
 }
@@ -252,9 +255,9 @@ export async function runBackups(options: RunBackupsOptions): Promise<BackupRun>
       const refusal = tenantDbFileRefusalOf(err);
       if (refusal) {
         skipped.push({ tenantId: tenant.id, code: tenant.code, reason: refusal.error });
-        console.warn(`[backup] tenant "${tenant.code}" (${tenant.id}) was skipped: its books are refused (${refusal.error})`);
+        backupLog.warn(`tenant "${tenant.code}" (${tenant.id}) was skipped: its books are refused (${refusal.error})`);
       } else {
-        console.error(`[backup] tenant "${tenant.code}" (${tenant.id}) could not be backed up`, err);
+        backupLog.error({ err: err }, `tenant "${tenant.code}" (${tenant.id}) could not be backed up`);
         failures.push(`${tenant.code}: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
@@ -269,6 +272,7 @@ export async function runBackups(options: RunBackupsOptions): Promise<BackupRun>
 export interface StartBackupTimerOptions extends RunBackupsOptions {
   readonly intervalMs: number;
   readonly onError?: (error: unknown) => void;
+  readonly job?: JobTracker;
 }
 
 /**
@@ -281,7 +285,8 @@ export interface StartBackupTimerOptions extends RunBackupsOptions {
 export function startBackupTimer(options: StartBackupTimerOptions): () => Promise<void> {
   let current: Promise<void> = Promise.resolve();
   const run = () => {
-    current = runBackups(options).then(
+    const backup = () => runBackups(options);
+    current = (options.job ? options.job.run(backup) : backup()).then(
       () => undefined,
       (error: unknown) => options.onError?.(error),
     );

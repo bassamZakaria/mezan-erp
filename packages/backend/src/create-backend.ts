@@ -9,6 +9,8 @@ import {
   createAccountLocks,
   createPeriodCloseGuardSlot,
   createLoginThrottle,
+  createSourceThrottle,
+  createLeasedKeyedLock,
   type LoginThrottle,
   type SmtpConfig,
   createSessionAuthContextResolver,
@@ -353,6 +355,9 @@ import {
   createSqliteAuditSink,
   createSqliteIdempotentRequestStore,
   createSqliteAccountLockStore,
+  createSqliteAttemptStore,
+  createSqliteLeaseStore,
+  SignInAttemptScope,
   createSqlitePeriodCloseStore,
   deriveAuditChainKey,
   createSqliteLabelLayoutStore,
@@ -1273,6 +1278,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
   };
   const hrClockCredentials = createSqliteClockCredentialRepository(sqlite);
   const hrChallenges = createSqliteWebauthnChallengeRepository(sqlite);
+  const hrLocks = createLeasedKeyedLock({ store: createSqliteLeaseStore(sqlite) });
   const hrPayrollRuns = createSqlitePayrollRunRepository(sqlite);
   const hrPayslips = createSqlitePayslipRepository(sqlite);
   const hrPayrollComponents = createSqlitePayrollComponentRepository(sqlite);
@@ -3600,7 +3606,8 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
    * object: a per-router throttle would let an admin "unlock" an account that
    * stays locked at the login route.
    */
-  const signInLadder = createLoginThrottle(options.signInClock);
+  const signInLadder = createLoginThrottle(options.signInClock, createSqliteAttemptStore(sqlite, SignInAttemptScope.Ladder));
+  const signInSources = createSourceThrottle(options.signInClock, undefined, createSqliteAttemptStore(sqlite, SignInAttemptScope.Source));
   const accountLockStore = createSqliteAccountLockStore(sqlite, { now: options.signInClock, failureWindowMs: ACCOUNT_LOCK_WINDOW_MS });
   const accountLocks = createAccountLocks({ known: accountLockStore, unknown: accountLockStore.unknownNames, now: options.signInClock });
   // REQUIRED: every unlock in the product — the Users screen, a PIN reset, an
@@ -4331,6 +4338,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
     seedStores,
     sessions,
     loginThrottle: signInLadder,
+    sourceThrottle: signInSources,
     accountLocks,
     platformOperatorUnlocks: options.platformOperatorUnlocks === true,
     onAccountLocked: notifyAccountLocked,
@@ -4892,6 +4900,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
       audit: auditSink,
       clockCredentials: hrClockCredentials,
       challenges: hrChallenges,
+      locks: hrLocks,
       payroll: {
         masterData: masterDataChecks,
         advances: hrAdvances,

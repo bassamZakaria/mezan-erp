@@ -55,9 +55,31 @@ const DECAY_MS = 60 * 60_000;
  */
 const MAX_RECORDS = 10_000;
 
-interface AttemptRecord {
+export interface AttemptRecord {
   failures: number[];
   lockedUntil: number;
+}
+
+export interface AttemptChange<T> {
+  /** undefined leaves the stored record alone, null deletes it, a record replaces it. */
+  readonly record?: AttemptRecord | null;
+  readonly result: T;
+}
+
+/**
+ * CONTRACT: `update` is one atomic read-modify-write on the key across every
+ * process that shares the store. The ladder counts failures with it; an
+ * implementation that reads and writes as separate steps lets N server
+ * instances each grant an attacker a fresh set of free attempts.
+ */
+export interface AttemptStore {
+  update<T>(key: string, change: (held: AttemptRecord | null) => AttemptChange<T>): T;
+  /** A plain read for the common "no failures held" and "still locked" answers, which must not take the write lock. */
+  peek(key: string): AttemptRecord | null;
+  remove(key: string): void;
+  removeWithPrefix(prefix: string): void;
+  sweep(at: number, limits: { readonly decayMs: number; readonly maxRecords: number }): void;
+  size(): number;
 }
 
 export interface LoginThrottle {
@@ -141,23 +163,45 @@ function dropOutsideWindow(record: AttemptRecord, at: number): void {
   while (record.failures.length > 0 && at - record.failures[0]! > DECAY_MS) record.failures.shift();
 }
 
-function readRecord(records: Map<string, AttemptRecord>, key: string, at: number): AttemptRecord | undefined {
-  const record = records.get(key);
-  if (!record) return undefined;
+function liveRecord(held: AttemptRecord | null, at: number): AttemptRecord | null {
+  if (!held) return null;
+  const record: AttemptRecord = { failures: [...held.failures], lockedUntil: held.lockedUntil };
   dropOutsideWindow(record, at);
-  if (record.failures.length === 0 && record.lockedUntil <= at) {
-    records.delete(key);
-    return undefined;
-  }
-  return record;
+  return record.failures.length === 0 && record.lockedUntil <= at ? null : record;
 }
 
-function evictRecords(records: Map<string, AttemptRecord>, at: number): void {
-  for (const key of [...records.keys()]) readRecord(records, key, at);
-  if (records.size <= MAX_RECORDS) return;
-  const oldestFirst = [...records.entries()].sort((a, b) => lastFailureAt(a[1]) - lastFailureAt(b[1]));
-  for (const [key] of oldestFirst.slice(0, records.size - MAX_RECORDS)) records.delete(key);
+export function createMemoryAttemptStore(): AttemptStore {
+  const records = new Map<string, AttemptRecord>();
+  return {
+    update(key, change) {
+      const held = records.get(key);
+      const outcome = change(held ? { failures: [...held.failures], lockedUntil: held.lockedUntil } : null);
+      if (outcome.record === null) records.delete(key);
+      else if (outcome.record !== undefined) records.set(key, outcome.record);
+      return outcome.result;
+    },
+    peek(key) {
+      const held = records.get(key);
+      return held ? { failures: [...held.failures], lockedUntil: held.lockedUntil } : null;
+    },
+    remove: (key) => void records.delete(key),
+    removeWithPrefix(prefix) {
+      for (const held of [...records.keys()]) if (held.startsWith(prefix)) records.delete(held);
+    },
+    sweep(at, limits) {
+      for (const [key, record] of [...records]) {
+        const stale = record.lockedUntil <= at && at - lastFailureAt(record) > limits.decayMs;
+        if (stale) records.delete(key);
+      }
+      if (records.size <= limits.maxRecords) return;
+      const oldestFirst = [...records.entries()].sort((a, b) => lastFailureAt(a[1]) - lastFailureAt(b[1]));
+      for (const [key] of oldestFirst.slice(0, records.size - limits.maxRecords)) records.delete(key);
+    },
+    size: () => records.size,
+  };
 }
+
+const LIMITS = { decayMs: DECAY_MS, maxRecords: MAX_RECORDS } as const;
 
 function lockDuration(failures: number): number {
   if (failures <= FREE_ATTEMPTS) return 0;
@@ -207,52 +251,54 @@ function accountOf(key: string): string {
   return key.split(KEY_SEPARATOR)[0] ?? key;
 }
 
-export function createLoginThrottle(now: () => number = Date.now): LoginThrottle {
-  const records = new Map<string, AttemptRecord>();
-  const read = (key: string, at: number) => readRecord(records, key, at);
-
+export function createLoginThrottle(now: () => number = Date.now, store: AttemptStore = createMemoryAttemptStore()): LoginThrottle {
   return {
     retryAfter(key) {
       const at = now();
-      const record = read(key, at);
-      if (!record) return 0;
-      if (record.lockedUntil > at) return Math.ceil((record.lockedUntil - at) / 1000);
-      if (record.lockedUntil !== 0) {
-        // A SERVED LOCK STEPS THE LADDER DOWN ONE RUNG — it does not reset it.
-        // For the person who is simply locked out and needs to work now, the
-        // answer is `POST /users/:id/unlock`, not a weaker ladder.
-        record.failures.shift();
-        record.lockedUntil = 0;
-      }
-      return 0;
+      const seen = store.peek(key);
+      if (!seen) return 0;
+      const open = liveRecord(seen, at);
+      if (open && open.lockedUntil > at) return Math.ceil((open.lockedUntil - at) / 1000);
+      return store.update(key, (held) => {
+        const record = liveRecord(held, at);
+        if (!record) return { record: held ? null : undefined, result: 0 };
+        if (record.lockedUntil > at) return { record, result: Math.ceil((record.lockedUntil - at) / 1000) };
+        if (record.lockedUntil !== 0) {
+          // A SERVED LOCK STEPS THE LADDER DOWN ONE RUNG — it does not reset it.
+          // For the person who is simply locked out and needs to work now, the
+          // answer is `POST /users/:id/unlock`, not a weaker ladder.
+          record.failures.shift();
+          record.lockedUntil = 0;
+          return { record: record.failures.length === 0 ? null : record, result: 0 };
+        }
+        return { result: 0 };
+      });
     },
     fail(key) {
       const at = now();
-      const record = read(key, at) ?? { failures: [], lockedUntil: 0 };
-      record.failures.push(at);
-      const lock = lockDuration(record.failures.length);
-      record.lockedUntil = lock > 0 ? at + lock : 0;
-      records.set(key, record);
-
-      evictRecords(records, at);
+      const lock = store.update(key, (held) => {
+        const record = liveRecord(held, at) ?? { failures: [], lockedUntil: 0 };
+        record.failures.push(at);
+        const duration = lockDuration(record.failures.length);
+        record.lockedUntil = duration > 0 ? at + duration : 0;
+        return { record, result: duration };
+      });
+      store.sweep(at, LIMITS);
       return Math.ceil(lock / 1000);
     },
     // ONLY the key the credential was verified on. Clearing the whole account
     // here let anyone who could sign in from one address wipe the count an
     // attacker was building against the same account from another.
     succeed(key) {
-      records.delete(key);
+      store.remove(key);
     },
     unlock(account) {
       const needle = accountOf(throttleKey(account, null));
-      records.delete(needle);
-      const prefix = `${needle}${KEY_SEPARATOR}`;
-      for (const held of [...records.keys()]) {
-        if (held.startsWith(prefix)) records.delete(held);
-      }
+      store.remove(needle);
+      store.removeWithPrefix(`${needle}${KEY_SEPARATOR}`);
     },
     size() {
-      return records.size;
+      return store.size();
     },
   };
 }
@@ -270,28 +316,32 @@ export interface SourceThrottle {
  * valid account would otherwise reset the count for a sweep of every other.
  * The host's own console has no source and is never counted here.
  */
-export function createSourceThrottle(now: () => number = Date.now, freeAttempts: number = SOURCE_FREE_ATTEMPTS): SourceThrottle {
-  const records = new Map<string, AttemptRecord>();
-
+export function createSourceThrottle(
+  now: () => number = Date.now,
+  freeAttempts: number = SOURCE_FREE_ATTEMPTS,
+  store: AttemptStore = createMemoryAttemptStore(),
+): SourceThrottle {
   return {
     retryAfter(source) {
       const at = now();
-      const record = readRecord(records, source, at);
+      const record = liveRecord(store.peek(source), at);
       return record && record.lockedUntil > at ? Math.ceil((record.lockedUntil - at) / 1000) : 0;
     },
     fail(source) {
       const at = now();
-      const record = readRecord(records, source, at) ?? { failures: [], lockedUntil: 0 };
-      record.failures.push(at);
-      const doublings = record.failures.length - freeAttempts - 1;
-      const lock = doublings < 0 ? 0 : Math.min(BASE_LOCK_MS * 2 ** doublings, MAX_LOCK_MS);
-      record.lockedUntil = lock > 0 ? at + lock : 0;
-      records.set(source, record);
-      evictRecords(records, at);
+      const lock = store.update(source, (held) => {
+        const record = liveRecord(held, at) ?? { failures: [], lockedUntil: 0 };
+        record.failures.push(at);
+        const doublings = record.failures.length - freeAttempts - 1;
+        const duration = doublings < 0 ? 0 : Math.min(BASE_LOCK_MS * 2 ** doublings, MAX_LOCK_MS);
+        record.lockedUntil = duration > 0 ? at + duration : 0;
+        return { record, result: duration };
+      });
+      store.sweep(at, LIMITS);
       return Math.ceil(lock / 1000);
     },
     size() {
-      return records.size;
+      return store.size();
     },
   };
 }

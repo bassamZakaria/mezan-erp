@@ -1,3 +1,4 @@
+import type { KeyedLock } from "./keyed-lock.js";
 import { PayBasis } from "@mezan/domain";
 import { EmployeeRefStatus } from "@mezan/domain";
 import { postingRefusalResponse } from "./posting-refusal.js";
@@ -147,6 +148,7 @@ export interface HrRoutesDeps extends Partial<HrTimeLeaveDeps> {
   readonly clockCredentials?: ClockCredentialRepository;
   /** DB-backed WebAuthn challenge storage (create-backend.ts); omitted only where no persistence is available. */
   readonly challenges?: WebauthnChallengeRepository;
+  readonly locks?: KeyedLock;
   readonly attachments?: AttachmentRepository;
   readonly printTemplates?: Pick<PrintTemplateConfigRepository, "get">;
   readonly tenantSettings?: Pick<SettingsRepository, "get">;
@@ -949,6 +951,7 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
         attachments: deps.attachments,
         clockCredentials: deps.clockCredentials,
         challenges: deps.challenges,
+        locks: deps.locks,
         printTemplates: deps.printTemplates,
         tenantSettings: deps.tenantSettings ?? deps.payroll?.settings,
         statutoryOverrides: deps.payroll?.statutoryOverrides,
@@ -984,6 +987,7 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
       createHrPayrollRoutes(
         {
           ...deps.payroll,
+          locks: deps.locks,
           employees: deps.employees,
           contracts: deps.contracts,
           numbering: deps.numbering,

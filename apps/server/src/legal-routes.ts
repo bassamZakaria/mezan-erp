@@ -6,7 +6,7 @@ import { sendNotificationEmail } from "@mezan/api";
 import { recordSecurityEvent } from "@mezan/domain";
 import type { PlatformHandle } from "@mezan/backend";
 import { callerSource, requireCloudSource, SOCKET_ONLY, type ClientSourceOptions, type SourceReporter } from "./client-source.js";
-import { createRateLimiter, type RateLimiter } from "./rate-limit.js";
+import { platformRateLimiter, type RateLimiter } from "./rate-limit.js";
 import {
   ACCOUNT_DELETION,
   ASK_US,
@@ -195,7 +195,7 @@ function fieldOf(body: Record<string, unknown>, name: string): string {
  */
 export function createLegalRoutes(deps: LegalRoutesDeps): Hono {
   const app = new Hono();
-  const limiter = deps.limiter ?? createRateLimiter(DELETION_REQUESTS_PER_HOUR, HOUR_MS);
+  const limiter = deps.limiter ?? platformRateLimiter(deps.platform, "legal-deletion-ip", DELETION_REQUESTS_PER_HOUR, HOUR_MS);
   const send = deps.send ?? sendNotificationEmail;
   const channel =
     deps.supportEmail === undefined

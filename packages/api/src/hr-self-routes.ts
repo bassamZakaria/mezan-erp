@@ -1,3 +1,4 @@
+import { createMemoryKeyedLock, LockBusyError, LOCK_BUSY_AR, type KeyedLock } from "./keyed-lock.js";
 import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
 import {
@@ -81,6 +82,7 @@ import {
 } from "./hr-self-webauthn.js";
 
 export interface HrSelfRoutesDeps {
+  readonly locks?: KeyedLock;
   readonly users: Pick<UserRepository, "findById">;
   readonly employees: Pick<EmployeeRepository, "findById">;
   readonly departments: Pick<DepartmentRepository, "findById">;
@@ -492,7 +494,7 @@ export function createHrSelfRoutes(deps: HrSelfRoutesDeps, resolveAuthContext: A
     return joined.slice(0, 1000);
   }
 
-  const punchLocks = new Map<string, Promise<unknown>>();
+  const punchLocks = deps.locks ?? createMemoryKeyedLock();
 
   app.post("/self/clock", gate("hr.self.clock"), async (c) => {
     const parsed = selfClockPunchSchema.safeParse(await c.req.json().catch(() => ({})));
@@ -501,8 +503,8 @@ export function createHrSelfRoutes(deps: HrSelfRoutesDeps, resolveAuthContext: A
     const me = await caller(c);
     if (!me) return notLinked(c);
 
-    const previous = punchLocks.get(me.employee.id) ?? Promise.resolve();
-    const run = previous.catch(() => undefined).then(async () => {
+    try {
+      return c.json(await punchLocks.run(`hr-punch:${me.employee.id}`, async () => {
       assertMayClock(me.employee);
       const selfie = me.employee.requireSelfieAtClockIn ? readSelfie(body) : null;
       const now = await tenantClock(c);
@@ -573,16 +575,12 @@ export function createHrSelfRoutes(deps: HrSelfRoutesDeps, resolveAuthContext: A
         },
       });
       return { entry: serializeAttendance(entry), selfieAttachmentId };
-    });
-    punchLocks.set(me.employee.id, run);
-    try {
-      return c.json(await run, 201);
+      }), 201);
     } catch (err) {
+      if (err instanceof LockBusyError) return c.json({ error: "RESOURCE_BUSY", message: LOCK_BUSY_AR }, 409);
       if (err instanceof ClockPunchRefusedError) return refusal(c, err);
       if (err instanceof InvalidAttendanceEntryError) return domainRefusal(c, err, 422);
       throw err;
-    } finally {
-      if (punchLocks.get(me.employee.id) === run) punchLocks.delete(me.employee.id);
     }
   });
 

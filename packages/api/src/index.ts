@@ -97,8 +97,17 @@ export {
   type SessionRefusal,
 } from "./session-auth.js";
 export {
+  createMemoryKeyedLock,
+  createLeasedKeyedLock,
+  LockBusyError,
+  LOCK_BUSY_AR,
+  type KeyedLock,
+  type LeaseStore,
+} from "./keyed-lock.js";
+export {
   createLoginThrottle,
   createSourceThrottle,
+  createMemoryAttemptStore,
   throttleKey,
   throttleSource,
   tooManyAttempts,
@@ -108,6 +117,9 @@ export {
   SignInRefusal,
   type LoginThrottle,
   type SourceThrottle,
+  type AttemptStore,
+  type AttemptRecord,
+  type AttemptChange,
 } from "./login-throttle.js";
 export {
   ACCOUNT_LOCK_FAILURES,

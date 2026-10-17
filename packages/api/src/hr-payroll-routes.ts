@@ -1,3 +1,4 @@
+import { createMemoryKeyedLock, LockBusyError, LOCK_BUSY_AR, type KeyedLock } from "./keyed-lock.js";
 import { postingRefusalResponse } from "./posting-refusal.js";
 import { readReversalRequest, reversalRefusalResponse, requireReversalReason } from "./document-reversal.js";
 import { randomUUID } from "node:crypto";
@@ -131,6 +132,7 @@ import { DuplicateRecordIdError } from "@mezan/domain";
  * `packages/domain/src/permissions/catalog.ts`.
  */
 export interface HrPayrollRoutesDeps {
+  readonly locks?: KeyedLock;
   readonly masterData?: MasterDataChecks;
   readonly advances: EmployeeAdvanceRepository;
   readonly runs: PayrollRunRepository;
@@ -612,17 +614,8 @@ export function createHrPayrollRoutes(deps: HrPayrollRoutesDeps, resolveAuthCont
     }
   });
 
-  const advanceLocks = new Map<string, Promise<unknown>>();
-  async function withAdvanceLock<T>(advanceId: string, work: () => Promise<T>): Promise<T> {
-    const previous = advanceLocks.get(advanceId) ?? Promise.resolve();
-    const run = previous.catch(() => undefined).then(work);
-    advanceLocks.set(advanceId, run);
-    try {
-      return await run;
-    } finally {
-      if (advanceLocks.get(advanceId) === run) advanceLocks.delete(advanceId);
-    }
-  }
+  const advanceLocks = deps.locks ?? createMemoryKeyedLock();
+  const withAdvanceLock = <T>(advanceId: string, work: () => Promise<T>): Promise<T> => advanceLocks.run(`hr-advance:${advanceId}`, work);
 
   async function pendingPayrollRecovery(advanceId: string): Promise<Money> {
     const calculated = (await deps.runs.list()).filter((r) => r.status === "calculated");
@@ -695,6 +688,7 @@ export function createHrPayrollRoutes(deps: HrPayrollRoutesDeps, resolveAuthCont
       }
       return c.json(serializeAdvance(advance));
     } catch (err) {
+      if (err instanceof LockBusyError) return c.json({ error: "RESOURCE_BUSY", message: LOCK_BUSY_AR }, 409);
       return handleDomainError(c, err);
     }
   });

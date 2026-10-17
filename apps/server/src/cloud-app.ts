@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { bodyLimit } from "hono/body-limit";
 import path from "node:path";
@@ -116,6 +116,7 @@ function generateOwnerPassword(): string {
 function storeGeneratedOwnerPassword(platformDir: string, password: string): void {
   const file = path.join(platformDir, OWNER_PASSWORD_FILE);
   writeFileSync(file, `${password}\n`, { mode: 0o600 });
+  chmodSync(file, 0o600);
   log.warn(
     { event: LogEvent.OwnerPasswordGenerated, file },
     "the platform owner was seeded with a GENERATED password, written once to this file; sign in, change it, then delete the file",

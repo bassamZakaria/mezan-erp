@@ -16,7 +16,7 @@ import { platformRateLimiter, type RateLimiter } from "./rate-limit.js";
 import { createTenantResolvers, type TenantResolvers } from "./tenant-entitlements.js";
 import type { TenantDoor, TenantRouter } from "./tenant-router.js";
 import { publicApiOpenApiDocument } from "./public-api-openapi.js";
-import { createLogger } from "@mezan/api";
+import { annotateRequest, createLogger } from "@mezan/api";
 
 const log = createLogger("api-v1");
 
@@ -192,6 +192,7 @@ export function createPublicApiRoutes(deps: PublicApiDeps): Hono {
       c.header("retry-after", String(retry));
       return refuse(c, PublicApiRefusal.RateLimited, 429);
     }
+    annotateRequest({ tenantId: tenant.id });
     c.set("publicApiCaller", { tenant, door, auth, source });
     await next();
   });

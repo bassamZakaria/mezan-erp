@@ -172,6 +172,7 @@ export const PERMISSION_ENTITY_LABELS = {
   dashboard: { ar: "لوحة التحكم", en: "Dashboard" },
   writedown: { ar: "تخفيض القيمة", en: "Write-down" },
   cockpit: { ar: "لوحة المالك", en: "owner cockpit" },
+  funnel: { ar: "قمع المبيعات ولوحة المندوبين", en: "Sales funnel and rep leaderboard" },
   cash_forecast: { ar: "توقع السيولة", en: "cash forecast" },
   recurring: { ar: "القيود المتكررة", en: "Recurring journals" },
   collections: { ar: "تحصيل المستحقات", en: "Receivables collection" },

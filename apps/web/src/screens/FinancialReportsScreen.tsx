@@ -16,6 +16,7 @@ import {
   type VatReturnRow,
 } from "@mezan/domain";
 import { ReportScreen } from "./reports/ReportScreen";
+import { VatFilingAction, VatFilingsList } from "./VatFilingPanel";
 import { useAccounts } from "../data/hooks";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { todayIso, yearStartIso } from "../lib/dates";
@@ -118,12 +119,20 @@ const TABS: readonly TabDef[] = [
     id: VAT_RETURN_TAB,
     labelKey: "finReports.vatReturn",
     render: () => (
-      <ReportScreen
-        definition={vatReturn}
-        apiPath="/vat-return"
-        apiRoot="/financial-reports"
-        renderSummary={(rows) => <VatNetSummary rows={rows} />}
-      />
+      <>
+        <ReportScreen
+          definition={vatReturn}
+          apiPath="/vat-return"
+          apiRoot="/financial-reports"
+          renderSummary={(rows, params) => (
+            <>
+              <VatNetSummary rows={rows} />
+              <VatFilingAction rows={rows} periodFrom={params.periodFrom ?? ""} periodTo={params.periodTo ?? ""} />
+            </>
+          )}
+        />
+        <VatFilingsList />
+      </>
     ),
   },
   {

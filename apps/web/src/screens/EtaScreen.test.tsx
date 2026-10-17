@@ -728,6 +728,86 @@ describe("EtaScreen — الإرسالات (submissions)", () => {
 });
 
 
+describe("EtaScreen — تحديث الحالة (refreshing one transmitted document)", () => {
+  const sent = () => submission({ status: "submitted", etaUuid: "UUID-1", submittedAt: "2026-08-22T10:05:00.000Z" });
+  const base = {
+    "GET /eta/config": () => ({ body: { config: config(), readiness: readiness() } }),
+  };
+
+  async function openRowMenu() {
+    fireEvent.click(screen.getByRole("tab", { name: "الإرسالات" }));
+    const row = (await screen.findByText("INV-000014")).closest("tr") as HTMLElement;
+    fireEvent.click(within(row).getByRole("button", { name: "إجراءات INV-000014" }));
+    return row;
+  }
+
+  it("asks the authority about that one document via POST /eta/submissions/:id/refresh-status and shows its new state", async () => {
+    let current = sent();
+    const { transport, calls } = trackedTransport({
+      ...base,
+      "GET /eta/submissions": () => ({ body: [current] }),
+      "POST /eta/submissions/s1/refresh-status": () => {
+        current = { ...current, status: "accepted" };
+        return { body: current };
+      },
+    });
+    renderWithProviders(<EtaScreen />, { transport, initialSession: testAdminSession });
+
+    const row = await openRowMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: "تحديث الحالة" }));
+
+    await waitFor(() => expect(calls).toContain("POST /eta/submissions/s1/refresh-status"));
+    await waitFor(() => expect(within(row).getByText("مقبول")).toBeInTheDocument());
+  });
+
+  it("says the document is still with the authority when there is no connection (202), and changes nothing", async () => {
+    const { transport } = trackedTransport({
+      ...base,
+      "GET /eta/submissions": () => ({ body: [sent()] }),
+      "POST /eta/submissions/s1/refresh-status": () => ({ status: 202, body: { error: "ETA_OFFLINE", message: "offline" } }),
+    });
+    renderWithProviders(<EtaScreen />, { transport, initialSession: testAdminSession });
+
+    await openRowMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: "تحديث الحالة" }));
+    expect(await screen.findByText(/تعذّر الاتصال بالمصلحة الآن/)).toBeInTheDocument();
+  });
+
+  it("shows the server's Arabic refusal when the refresh is refused", async () => {
+    const { transport } = trackedTransport({
+      ...base,
+      "GET /eta/submissions": () => ({ body: [sent()] }),
+      "POST /eta/submissions/s1/refresh-status": () => ({ status: 422, body: { error: "INVALID_ETA_TRANSITION", message: "لا يمكن تحديث حالة مستند لم يُرسَل." } }),
+    });
+    renderWithProviders(<EtaScreen />, { transport, initialSession: testAdminSession });
+
+    await openRowMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: "تحديث الحالة" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("لا يمكن تحديث حالة مستند لم يُرسَل.");
+  });
+
+  it("does not offer it on a document that was never transmitted", async () => {
+    const { transport } = trackedTransport({ ...base, "GET /eta/submissions": () => ({ body: [submission()] }) });
+    renderWithProviders(<EtaScreen />, { transport, initialSession: testAdminSession });
+
+    await openRowMenu();
+    expect(screen.getByRole("menuitem", { name: "إرسال" })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "تحديث الحالة" })).not.toBeInTheDocument();
+  });
+
+  it("offers it to nobody who cannot submit to the authority", async () => {
+    const { transport } = trackedTransport({ ...base, "GET /eta/submissions": () => ({ body: [sent()] }) });
+    renderWithProviders(<EtaScreen />, {
+      transport,
+      initialSession: { ...testAdminSession, userId: "USER-R", isCompanyAdmin: false, permissions: ["accounting.eta.view"], roleCode: "R" },
+    });
+
+    fireEvent.click(screen.getByRole("tab", { name: "الإرسالات" }));
+    const row = (await screen.findByText("INV-000014")).closest("tr") as HTMLElement;
+    expect(within(row).queryByRole("button", { name: "إجراءات INV-000014" })).not.toBeInTheDocument();
+  });
+});
+
 describe("EtaScreen — الإيصالات الإلكترونية and the e-seal state", () => {
   function receiptSummary(overrides: Record<string, unknown> = {}) {
     return {

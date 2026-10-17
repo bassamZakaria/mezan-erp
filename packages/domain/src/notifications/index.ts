@@ -59,4 +59,8 @@ export {
   type DispatchOutcome,
   type DispatchPolicy,
   type DrainResult,
+  type DrainOutcome,
+  DrainOutcomeKind,
+  STALE_MESSAGE_REASON,
+  NO_TRANSPORT_REASON,
 } from "./dispatcher.js";

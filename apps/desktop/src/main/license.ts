@@ -26,9 +26,13 @@ import {
  * from the verified license. The pure part (`decideLicense`) is unit-tested;
  * the fs/exec/clock adapters are thin and injected.
  *
- * NOT in scope here (Phase 8 — the activation portal): fingerprinting UX,
- * air-gapped activation codes, key distribution. This reads an already-issued
- * `license.mezan` from disk and enforces it.
+ * This file reads an already-issued `license.mezan` from disk and enforces it.
+ * What surrounds it: `licence-ipc.ts` imports an issued file from the settings
+ * screen and reports the machine's binding, `machine-fingerprint.ts` reads that
+ * binding, and `license-checkin.ts` confirms the licence against
+ * `apps/licence-server` so a revoked one stops posting. A licence is still
+ * ISSUED by the vendor (`pnpm licence:issue`); there is no self-service
+ * activation portal and no air-gapped activation code.
  */
 
 /** State for the write-gate + banner when no authentic license is present. */

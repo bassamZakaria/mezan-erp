@@ -30,6 +30,9 @@ import {
   useYearEndClosePreview,
 } from "./data/hooks";
 import { useWorksContracts } from "./data/contracting-contracts-hooks";
+import { useFxResidues } from "./data/fx-residue-hooks";
+import { useOpeningBalanceDuplicates } from "./data/opening-balance-duplicates-hooks";
+import { useVatFilings } from "./data/vat-filing-hooks";
 import { useFinancialReport } from "./data/financial-reports-hooks";
 import { useEmployeeAdvances, usePayrollComponents, usePayrollStatutoryFlag } from "./data/hr-payroll-hooks";
 import { useSupplierAging } from "./data/partner-detail-hooks";
@@ -84,6 +87,9 @@ function InvoicePageReads() {
   useLeaveBalances(null, PREVIEWED_YEAR);
   useLeaveRequests({ employeeId: null, status: null, leaveType: null, from: null, to: null });
   useYearEndClosePreview(PREVIEWED_YEAR);
+  useVatFilings();
+  useOpeningBalanceDuplicates();
+  useFxResidues();
   return <div data-testid="page" />;
 }
 

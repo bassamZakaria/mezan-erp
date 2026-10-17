@@ -132,6 +132,45 @@ describe("FinancialReportsScreen (real GL API wiring)", () => {
   });
 });
 
+describe("FinancialReportsScreen — filing the VAT period shown on the return", () => {
+  function filingTransport(posted: Record<string, string>[]) {
+    const base = fullTransport();
+    const filings: Record<string, unknown>[] = [];
+    const own = stubTransport({
+      "GET /gl/vat-filings": () => ({ body: [...filings] }),
+      "POST /gl/vat-filings": (init) => {
+        const body = JSON.parse(String(init?.body)) as Record<string, string>;
+        posted.push(body);
+        const filed = { ...body, referenceNo: null, status: "filed", filedAt: "2026-08-05T09:00:00.000Z", filedBy: "USER-ADMIN", amendedAt: null, amendmentReason: null };
+        filings.push(filed);
+        return { status: 201, body: filed };
+      },
+    });
+    return ((path, init) => (path.startsWith("/gl/vat-filings") ? own(path, init) : base(path, init))) as ReturnType<typeof stubTransport>;
+  }
+
+  it("files exactly the window and the net the return is showing, and then shows the period as filed", async () => {
+    const posted: Record<string, string>[] = [];
+    renderWithProviders(<FinancialReportsScreen />, { transport: filingTransport(posted), initialSession: testAdminSession });
+    fireEvent.click(screen.getByRole("tab", { name: "إقرار ضريبة القيمة المضافة" }));
+
+    expect(await screen.findByRole("heading", { name: "الإقرارات المقدَّمة" })).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("button", { name: "الشهر الماضي" }));
+    const file = await screen.findByRole("button", { name: "تقديم إقرار هذه الفترة" });
+    await waitFor(() => expect(file).toBeEnabled());
+    fireEvent.click(file);
+    fireEvent.click(await screen.findByRole("button", { name: "تقديم الإقرار" }));
+
+    await waitFor(() => expect(posted).toHaveLength(1));
+    const now = new Date();
+    const first = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const last = new Date(now.getFullYear(), now.getMonth(), 0);
+    const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    expect(posted[0]).toMatchObject({ periodFrom: iso(first), periodTo: iso(last), netAmount: "140.00" });
+    expect(await screen.findByText("إقرار هذه الفترة مُقدَّم")).toBeInTheDocument();
+  });
+});
+
 describe("FinancialReportsScreen — drilling into an account answers for the figure clicked (D281)", () => {
   function drillTransport(drillPaths: string[]) {
     const account = { accountId: "1100", code: "1100", nameAr: "النقدية", debit: 100, credit: 0 };

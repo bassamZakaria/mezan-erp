@@ -89,6 +89,7 @@ import {
   type PromotionRepository,
   type NotificationRuleRepository,
   type NotificationRepository,
+  type DrainResult,
   createSalesInvoiceCustomerExposureHook,
   createSalesInvoicePromotionHook,
   type StockAdjustmentDocLine,
@@ -178,7 +179,7 @@ import { createSalesHistoricalImportRoutes } from "./sales-historical-import-rou
 import { createPriceListsRoutes } from "./price-lists-routes.js";
 import { createPromotionsRoutes } from "./promotions-routes.js";
 import { createNotificationRulesRoutes } from "./notification-rules-routes.js";
-import { createNotificationsRoutes } from "./notifications-routes.js";
+import { createNotificationsRoutes, type OutboxReadableRepository } from "./notifications-routes.js";
 import { createSalesQuotesRoutes, type SalesQuoteRoutesDeps } from "./sales-quotes-routes.js";
 import { createExchangeRatesRoutes } from "./exchange-rates-routes.js";
 import { createCostCenterPnLRoutes, type CostCenterPnLRoutesDeps } from "./cost-center-pl-routes.js";
@@ -530,15 +531,10 @@ export interface CreateAppOptions {
    */
   readonly emittedEventCodes?: readonly EventCode[];
   /** Mounts `/notifications` (the top-bar bell panel's own data) when present. */
-  readonly notificationRepo?: NotificationRepository;
+  readonly notificationRepo?: OutboxReadableRepository;
   /** Drains the outbound notification queue; omitted, `POST /notifications/drain` answers 503. */
-  readonly notificationDrain?: () => Promise<{
-    attempted: number;
-    sent: number;
-    stillQueued: number;
-    failed: number;
-    skipped: number;
-  }>;
+  readonly notificationDrain?: () => Promise<DrainResult>;
+  readonly notificationMailConfigured?: () => Promise<boolean>;
   /**
    * Mounts `/sales-quotes` (docs/archive/catalog/01 "عروض الأسعار") when present. Its
    * `invoice` bridge (for "إنشاء من عرض سعر") is auto-filled from
@@ -1393,7 +1389,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   if (options.notificationRepo) {
     app.route(
       "/notifications",
-      createNotificationsRoutes(options.notificationRepo, resolveAuth, { drain: options.notificationDrain }),
+      createNotificationsRoutes(options.notificationRepo, resolveAuth, { drain: options.notificationDrain, mailConfigured: options.notificationMailConfigured }),
     );
   }
   if (options.salesQuotes) {

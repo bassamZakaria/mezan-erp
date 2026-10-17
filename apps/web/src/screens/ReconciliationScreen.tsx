@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { DocumentList, EmptyState, StatusPill, Chip, Button, Card, Money as MoneyValue, Qty as QtyDisplay, formatNumber, type DocumentListColumn } from "@mezan/ui";
 import { StockPositionFaultCode, type ReconciliationRowDTO, type UnlinkedEntryLineDTO } from "@mezan/contracts";
 import { useReconciliation } from "../data/hooks";
+import { OpeningBalanceDuplicatesCard } from "./OpeningBalanceDuplicatesCard";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
 const STOCK_POSITION_FAULT_KEY: Record<StockPositionFaultCode, AppTranslationKey> = {
@@ -91,6 +92,8 @@ export function ReconciliationScreen() {
           {everythingTies ? t("reconciliation.everyBalanceMatches") : t("reconciliation.thereAreDifferencesThatNeed")}
         </div>
       ) : null}
+
+      <OpeningBalanceDuplicatesCard />
 
       {misdated.length > 0 ? (
         <div role="alert" className="mb-[16px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">

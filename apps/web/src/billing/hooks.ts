@@ -8,20 +8,27 @@ import type {
 import { ShellRequest } from "@mezan/domain";
 import { useApi } from "../data/ApiContext";
 import { sessionMayAsk } from "../data/session";
-import { ApiError, readError } from "../data/hooks";
+import { ApiError, readError, useEntitlements } from "../data/hooks";
+import { planServesRequest } from "../data/plan-modules";
 import { useAppTranslation } from "../i18n";
 import { CHECKOUT_POLL_LIMIT_MS, CHECKOUT_POLL_MS, absoluteCheckoutUrl } from "./CardCheckoutStatus";
 
+export function useEditionHasSubscriptionBilling(): boolean {
+  return planServesRequest(useEntitlements(), ShellRequest.Subscription);
+}
+
 /**
- * `null` when this edition has no subscription billing — the desktop and LAN
- * backends have no `/billing` routes, so the card simply does not render.
+ * Asked only where the entitlements say subscription billing exists; the
+ * desktop and LAN backends have no `/billing` routes and are never asked. A
+ * 404 or 403 still reads as `null`, for a server that mounted no billing.
  */
 export function useTenantBilling(): UseQueryResult<TenantBillingDTO | null, ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
+  const editionHasBilling = useEditionHasSubscriptionBilling();
   return useQuery<TenantBillingDTO | null, ApiError>({
     queryKey: ["billing", "subscription"],
-    enabled: sessionMayAsk(session, ShellRequest.Subscription),
+    enabled: sessionMayAsk(session, ShellRequest.Subscription) && editionHasBilling,
     retry: false,
     queryFn: async () => {
       const res = await request("/billing/subscription");

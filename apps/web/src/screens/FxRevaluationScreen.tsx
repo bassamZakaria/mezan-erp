@@ -24,6 +24,7 @@ import {
   useFxRevaluationPreview,
   usePartyBalancesByCurrency,
 } from "../data/hooks";
+import { FxResidueCard } from "./FxResidueCard";
 import { useAppTranslation } from "../i18n";
 import { monthEndIso } from "../lib/dates";
 import { useUrlNumber } from "../lib/url-state";
@@ -177,6 +178,8 @@ export function FxRevaluationScreen() {
       ) : (
         <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-ink-muted">{t("fx.pressPreviewToListThe")}</div>
       )}
+
+      <FxResidueCard date={toDate} />
 
       <PostedRunsCard />
 

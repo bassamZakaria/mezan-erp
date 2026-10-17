@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { ReportChart, ReportRunner, type ReportRunnerEntityRef } from "@mezan/ui";
 import type { ReportChartSpec, ReportColumn, ReportParamField } from "@mezan/domain";
 import { useReport } from "../../data/reports-hooks";
@@ -47,7 +47,7 @@ export interface ReportScreenProps<TParams, Row> {
    */
   readonly apiRoot?: string;
   /** Optional summary block rendered above the table (e.g. the VAT net-payable line). */
-  readonly renderSummary?: (rows: readonly Row[]) => ReactNode;
+  readonly renderSummary?: (rows: readonly Row[], params: Readonly<Record<string, string>>) => ReactNode;
   /** Overrides the definition's own `onDemand` — lets a caller auto-run a report the definition marks on-demand (e.g. the trial balance on the financial-statements page). */
   readonly onDemand?: boolean;
 }
@@ -73,6 +73,7 @@ export function ReportScreen<TParams extends object, Row>({ definition: rawDefin
 
   const fieldErrors = query.error?.fieldErrors;
   const raw = query.data ?? null;
+  const ranParams = useMemo(() => (raw?.params ? toStringParams(raw.params) : null), [raw?.params]);
 
   /**
    * The summary strip (R21.2). Labels are overlaid from the catalogue the same
@@ -197,7 +198,7 @@ export function ReportScreen<TParams extends object, Row>({ definition: rawDefin
                     caption={definition.chart?.captionAr ? tryReportLabel(`report.${definition.id}.chartCaption`, definition.chart.captionAr, t) : undefined}
                   />
                 ) : null}
-                {result && renderSummary ? renderSummary(result.rows) : null}
+                {result && renderSummary ? renderSummary(result.rows, ranParams ?? params) : null}
               </>
             )
           : undefined

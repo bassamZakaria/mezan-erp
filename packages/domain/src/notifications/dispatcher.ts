@@ -85,6 +85,30 @@ export interface NotificationDispatcherDeps {
   readonly policy?: DispatchPolicy;
 }
 
+export enum DrainOutcomeKind {
+  Sent = "sent",
+  StillQueued = "still_queued",
+  Failed = "failed",
+}
+
+export const STALE_MESSAGE_REASON = "تجاوزت الرسالة مدة صلاحيتها قبل أن تُرسَل، فتُركت دون إرسال.";
+export const NO_TRANSPORT_REASON = "لا توجد قناة إرسال موصولة لهذه القناة.";
+
+export interface DrainOutcome {
+  readonly notificationId: string;
+  readonly title: string;
+  readonly channel: string;
+  readonly recipient: string | null;
+  readonly outcome: DrainOutcomeKind;
+  readonly reason: string | null;
+}
+
+const OUTCOME_OF: Readonly<Record<DispatchOutcome["kind"], DrainOutcomeKind>> = {
+  sent: DrainOutcomeKind.Sent,
+  rejected: DrainOutcomeKind.Failed,
+  offline: DrainOutcomeKind.StillQueued,
+};
+
 export interface DrainResult {
   readonly attempted: number;
   readonly sent: number;
@@ -94,6 +118,7 @@ export interface DrainResult {
   readonly failed: number;
   /** No transport is wired for the channel, so it was never attempted. */
   readonly skipped: number;
+  readonly outcomes: readonly DrainOutcome[];
 }
 
 const ONLY_SCAN_LIMIT = 10_000;
@@ -132,6 +157,7 @@ export class NotificationDispatcher {
     let stillQueued = 0;
     let failed = 0;
     let skipped = 0;
+    const outcomes: DrainOutcome[] = [];
 
     for (const notification of queued) {
       for (const [channel, status] of Object.entries(notification.channelStatus)) {
@@ -145,25 +171,27 @@ export class NotificationDispatcher {
         }
         const claim = await notifications.claimChannel(notification.id, channel, clock());
         if (claim === null) continue;
+        const about = { notificationId: notification.id, title: notification.title, channel };
         if (stale || !transport) {
-          if (await notifications.settleChannel(notification.id, channel, NotificationChannelState.Failed, claim)) failed += 1;
+          if (await notifications.settleChannel(notification.id, channel, NotificationChannelState.Failed, claim)) {
+            failed += 1;
+            outcomes.push({ ...about, recipient: null, outcome: DrainOutcomeKind.Failed, reason: stale ? STALE_MESSAGE_REASON : NO_TRANSPORT_REASON });
+          }
           continue;
         }
 
         attempted += 1;
-        const outcome = await transport.send(
-          notification,
-          await this.deps.recipientEmail(notification.recipientUserId),
-          claim,
-        );
+        const recipient = await this.deps.recipientEmail(notification.recipientUserId);
+        const outcome = await transport.send(notification, recipient, claim);
         const settled = SETTLED_AS[outcome.kind];
         if (!(await notifications.settleChannel(notification.id, channel, settled, claim))) continue;
+        outcomes.push({ ...about, recipient, outcome: OUTCOME_OF[outcome.kind], reason: outcome.kind === "sent" ? null : outcome.reason });
         if (outcome.kind === "sent") sent += 1;
         else if (outcome.kind === "rejected") failed += 1;
         else stillQueued += 1;
       }
     }
 
-    return { attempted, sent, stillQueued, failed, skipped };
+    return { attempted, sent, stillQueued, failed, skipped, outcomes };
   }
 }

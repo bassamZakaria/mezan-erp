@@ -3,7 +3,7 @@ import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it } from "vitest";
 import { render, waitFor } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
-import { SHELL_REQUESTS, ShellRequest } from "@mezan/domain";
+import { SHELL_REQUESTS, SUBSCRIPTION_BILLING_FEATURE, ShellRequest } from "@mezan/domain";
 import { AppLayout } from "./AppLayout";
 import { AppProviders } from "./data/AppProviders";
 import { useSettings } from "./data/hooks";
@@ -13,8 +13,11 @@ import type { Transport } from "./data/transport";
 
 const ALL_SHELL_PERMISSIONS = [...new Set(Object.values(SHELL_REQUESTS).map((request) => request.permission))];
 
+const CLOUD_ENTITLEMENTS = { plan: "pro", activeModules: ["dashboard", "sales", "admin", "hr", "workflow", "notifications"], features: { [SUBSCRIPTION_BILLING_FEATURE]: true }, seats: 10, expiresAt: null };
+const LICENCE_ENTITLEMENTS = { ...CLOUD_ENTITLEMENTS, features: {} };
+
 const BODIES: Record<string, unknown> = {
-  "/entitlements": { plan: "pro", activeModules: ["dashboard", "sales", "admin", "hr", "workflow", "notifications"], features: {}, seats: 10, expiresAt: null },
+  "/entitlements": CLOUD_ENTITLEMENTS,
   "/workflow/requests/pending-count": { count: 0 },
   "/notifications/unread-count": { count: 0 },
   "/settings": { language: "ar", dateNumerals: "western" },
@@ -22,14 +25,14 @@ const BODIES: Record<string, unknown> = {
   "/billing/subscription": null,
 };
 
-function recordingTransport(session: Session): { transport: Transport; asked: string[] } {
+function recordingTransport(session: Session, entitlements: unknown = CLOUD_ENTITLEMENTS): { transport: Transport; asked: string[] } {
   const asked: string[] = [];
   const refusedFor = new Set(Object.values(SHELL_REQUESTS).filter((request) => !sessionHolds(session, request.permission)).map((request) => request.path));
   const transport: Transport = (path) => {
     const bare = path.split("?")[0] ?? path;
     asked.push(bare);
     const status = refusedFor.has(bare) ? 403 : 200;
-    const body = status === 403 ? { error: "FORBIDDEN" } : bare in BODIES ? BODIES[bare] : [];
+    const body = status === 403 ? { error: "FORBIDDEN" } : bare === "/entitlements" ? entitlements : bare in BODIES ? BODIES[bare] : [];
     return Promise.resolve({ status, ok: status === 200, json: <T,>() => Promise.resolve(body as T), text: () => Promise.resolve(JSON.stringify(body)), headers: new Headers() } as Awaited<ReturnType<Transport>>);
   };
   return { transport, asked };
@@ -40,8 +43,8 @@ function ScreenReadingSettings() {
   return <div data-testid="screen" />;
 }
 
-function renderShell(session: Session) {
-  const recorded = recordingTransport(session);
+function renderShell(session: Session, entitlements: unknown = CLOUD_ENTITLEMENTS) {
+  const recorded = recordingTransport(session, entitlements);
   const router = createMemoryRouter([{ path: "/", Component: AppLayout, children: [{ path: "*", element: <ScreenReadingSettings /> }] }], { initialEntries: ["/dashboard"] });
   render(
     <AppProviders transport={recorded.transport} initialSession={session}>
@@ -91,6 +94,16 @@ describe("the shell asks only for what the session may read", () => {
     const shellPaths = Object.values(SHELL_REQUESTS).map((request) => request.path);
 
     await waitFor(() => expect(shellPaths.filter((path) => !asked.includes(path))).toEqual([]));
+  });
+
+  it("an edition with no subscription billing is never asked for the subscription, by the administrator or anyone — and is asked for everything else", async () => {
+    const { asked } = renderShell(testAdminSession, LICENCE_ENTITLEMENTS);
+    const served = Object.values(SHELL_REQUESTS).filter((request) => request.servedByTenant).map((request) => request.path);
+
+    await waitFor(() => expect(served.filter((path) => !asked.includes(path))).toEqual([]));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(asked).not.toContain(SHELL_REQUESTS[ShellRequest.Subscription].path);
   });
 
   it("a role that may read roles but not settings asks for the roles and for neither the settings nor the subscription", async () => {

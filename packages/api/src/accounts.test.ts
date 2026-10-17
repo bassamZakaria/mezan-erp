@@ -87,10 +87,11 @@ describe("accounts router — CRUD", () => {
 
     const getRes = await app.fetch(req("/1000", { permissions: "accounting.coa.view" }));
     expect(getRes.status).toBe(200);
-    const body = (await getRes.json()) as { movementsStubbed: boolean; movements: unknown[] };
+    const body = (await getRes.json()) as Record<string, unknown>;
     expect(body).toMatchObject({ id: "1000", code: "1000", isHeader: true, status: "active" });
-    expect(body.movementsStubbed).toBe(true);
-    expect(body.movements).toEqual([]);
+    expect(body.balance).toBeNull();
+    expect(body).not.toHaveProperty("movements");
+    expect(body).not.toHaveProperty("movementsStubbed");
   });
 
   it("404s for an unknown account", async () => {

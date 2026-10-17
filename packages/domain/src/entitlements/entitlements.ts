@@ -97,3 +97,10 @@ export const UNLICENSED_ENTITLEMENTS: EntitlementsView = createEntitlements({
   seats: 0,
   expiresAt: null,
 });
+
+// INVARIANT: stamped by the edition that mounts the subscription billing routes beside the tenant backend (apps/server) and by nothing else; an offline licence never carries it, so the shell neither offers «الباقة والاستخدام» nor asks `/billing/subscription` there.
+export const SUBSCRIPTION_BILLING_FEATURE = "billing.subscription";
+
+export function withSubscriptionBilling(data: Entitlements): EntitlementsView {
+  return createEntitlements({ ...data, features: { ...data.features, [SUBSCRIPTION_BILLING_FEATURE]: true } });
+}

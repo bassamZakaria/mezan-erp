@@ -19,6 +19,7 @@ import {
   buildNavGroups,
   buildTopNavItem,
   filterNavGroupsByEntitlements,
+  withoutScreensThisEditionLacks,
   PINNED_NAV_ITEM_KEYS,
   moduleOutsideLicence,
 } from "./nav-config";
@@ -281,7 +282,8 @@ export function AppLayout() {
       permissions: session?.permissions ?? EMPTY,
       activeModules: entitlements?.activeModules ?? null,
     });
-    const visible = branchRestricted ? withoutBranchUnavailable(permitted) : permitted;
+    const inEdition = withoutScreensThisEditionLacks(permitted, entitlements ?? null);
+    const visible = branchRestricted ? withoutBranchUnavailable(inEdition) : inEdition;
     return visible.map((group) => ({
       ...group,
       items: wire(group.items),

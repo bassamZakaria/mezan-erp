@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { createPlatform, type PlatformHandle } from "@mezan/backend";
-import { createTenant, activateTenant, startSubscription, cancelSubscription } from "@mezan/domain";
+import { createTenant, activateTenant, startSubscription, cancelSubscription, planServesShellRequest, ShellRequest, SUBSCRIPTION_BILLING_FEATURE } from "@mezan/domain";
 import { createTenantResolvers } from "./tenant-entitlements.js";
 
 const T = new Date("2026-01-15T00:00:00.000Z").getTime();
@@ -17,6 +17,28 @@ async function newPlatform(): Promise<PlatformHandle> {
 }
 
 describe("createTenantResolvers", () => {
+  it("stamps subscription billing onto a cloud tenant's entitlements, subscribed or not — the shell offers the billing page on that alone", async () => {
+    const platform = await newPlatform();
+    const now = new Date(T).toISOString();
+    const subscribed = await createTenant({ id: "t-paid", code: "paid", nameAr: "مشترك", ownerEmail: "o@paid.example", now }, platform.stores.tenants);
+    await activateTenant({ id: subscribed.id, now }, platform.stores.tenants);
+    await startSubscription(
+      { id: "sub-paid", tenantId: subscribed.id, planId: "PLAN-BUSINESS", billingCycle: "monthly", extraSeats: 0, now },
+      platform.stores.subscriptions,
+      platform.stores.plans,
+    );
+    await createTenant({ id: "t-bare", code: "bare", nameAr: "بلا اشتراك", ownerEmail: "o@bare.example", now }, platform.stores.tenants);
+
+    const paid = await createTenantResolvers(platform, "paid", { now: () => new Date(T) }).resolveEntitlements();
+    const bare = await createTenantResolvers(platform, "bare", { now: () => new Date(T) }).resolveEntitlements();
+
+    expect(paid.plan).toBe("business");
+    expect(planServesShellRequest(paid, ShellRequest.Subscription)).toBe(true);
+    expect(bare.plan).toBe("UNLICENSED");
+    expect(bare.features[SUBSCRIPTION_BILLING_FEATURE]).toBe(true);
+    expect(planServesShellRequest(bare, ShellRequest.Subscription)).toBe(true);
+  });
+
   it("resolves entitlements and licence state from the tenant's live subscription", async () => {
     const platform = await newPlatform();
     const tenant = await createTenant(

@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { Hono } from "hono";
 import { createSqliteNotificationStore, type SqliteNotificationStoreHandle } from "@mezan/persistence";
-import { ALL_SCOPE, createAuthContext, createEntitlements, type Notification } from "@mezan/domain";
+import { ALL_SCOPE, createAuthContext, createEntitlements, type DrainResult, type Notification } from "@mezan/domain";
 import { createNotificationsRoutes } from "./notifications-routes.js";
 import { entitlementsBinding } from "./module-gate.js";
 
@@ -183,7 +183,7 @@ describe("an unidentified caller (D132)", () => {
 });
 
 describe("POST /notifications/drain — sending what is waiting (ROADMAP §3.3)", () => {
-  function drainApp(drain?: () => Promise<{ attempted: number; sent: number; stillQueued: number; failed: number; skipped: number }>) {
+  function drainApp(drain?: () => Promise<DrainResult>) {
     const repo = createSqliteNotificationStore();
     handles.push(repo);
     return createNotificationsRoutes(repo, insecureHeaderAuthContextResolver, { drain });
@@ -197,17 +197,17 @@ describe("POST /notifications/drain — sending what is waiting (ROADMAP §3.3)"
   }
 
   it("refuses a caller who cannot edit the settings — draining reaches the tenant's customers", async () => {
-    const app = drainApp(async () => ({ attempted: 0, sent: 0, stillQueued: 0, failed: 0, skipped: 0 }));
+    const app = drainApp(async () => ({ attempted: 0, sent: 0, stillQueued: 0, failed: 0, skipped: 0, outcomes: [] }));
     const res = await app.fetch(post("/drain", "notifications.view"));
     expect(res.status).toBe(403);
     expect(((await res.json()) as { permission: string }).permission).toBe("admin.settings.edit");
   });
 
   it("drains for a caller who can, and reports what happened", async () => {
-    const app = drainApp(async () => ({ attempted: 3, sent: 2, stillQueued: 1, failed: 0, skipped: 0 }));
+    const app = drainApp(async () => ({ attempted: 3, sent: 2, stillQueued: 1, failed: 0, skipped: 0, outcomes: [] }));
     const res = await app.fetch(post("/drain", "admin.settings.edit"));
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ attempted: 3, sent: 2, stillQueued: 1, failed: 0, skipped: 0 });
+    expect(await res.json()).toEqual({ attempted: 3, sent: 2, stillQueued: 1, failed: 0, skipped: 0, outcomes: [] });
   });
 
   it("answers 503 with no transport wired, not 404 — the button exists either way", async () => {
@@ -216,6 +216,87 @@ describe("POST /notifications/drain — sending what is waiting (ROADMAP §3.3)"
     const res = await app.fetch(post("/drain", "admin.settings.edit"));
     expect(res.status).toBe(503);
     expect(((await res.json()) as { error: string }).error).toBe("NOTIFICATION_TRANSPORT_UNAVAILABLE");
+  });
+});
+
+describe("GET /notifications/outbox — what is waiting to be sent, and whether it can be", () => {
+  const EMPTY_DRAIN = { attempted: 0, sent: 0, stillQueued: 0, failed: 0, skipped: 0, outcomes: [] };
+
+  function outboxApp(mailConfigured: boolean, drained: { count: number } = { count: 0 }) {
+    const repo = createSqliteNotificationStore();
+    handles.push(repo);
+    const app = createNotificationsRoutes(repo, insecureHeaderAuthContextResolver, {
+      mailConfigured: async () => mailConfigured,
+      drain: async () => {
+        drained.count += 1;
+        return EMPTY_DRAIN;
+      },
+    });
+    return { app, repo };
+  }
+
+  function call(method: string, path: string, permissions: string) {
+    return new Request(`http://local${path}`, { method, headers: new Headers({ "x-user-id": "u-1", "x-permissions": permissions }) });
+  }
+
+  function queuedEmail(id: string, createdAt: string, emailStatus: string): Notification {
+    return {
+      id,
+      ruleId: "r1",
+      recipientUserId: "u-9",
+      eventCode: "SALES_INVOICE_CONFIRMED",
+      title: "فاتورة جديدة",
+      body: "تم تأكيد الفاتورة",
+      priority: "normal",
+      channels: ["in_app", "email"],
+      channelStatus: { in_app: "delivered", email: emailStatus },
+      status: "unread",
+      payload: {},
+      createdAt,
+      readAt: null,
+    } as Notification;
+  }
+
+  it("refuses a caller who cannot edit the settings", async () => {
+    const { app } = outboxApp(true);
+    const res = await app.fetch(call("GET", "/outbox", "notifications.view"));
+    expect(res.status).toBe(403);
+    expect(((await res.json()) as { permission: string }).permission).toBe("admin.settings.edit");
+  });
+
+  it("counts the messages still waiting — whoever they are addressed to — and names the oldest", async () => {
+    const { app, repo: store } = outboxApp(true);
+    await store.save(queuedEmail("n-new", "2026-09-14T10:00:00.000Z", "queued"));
+    await store.save(queuedEmail("n-old", "2026-09-12T08:00:00.000Z", "queued"));
+    await store.save(queuedEmail("n-sent", "2026-09-10T08:00:00.000Z", "sent"));
+    const res = await app.fetch(call("GET", "/outbox", "admin.settings.edit"));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ queued: 2, queuedIsCapped: false, oldestQueuedAt: "2026-09-12T08:00:00.000Z", mailConfigured: true, transportAvailable: true });
+  });
+
+  it("says so when the mail server is not configured", async () => {
+    const { app } = outboxApp(false);
+    const res = await app.fetch(call("GET", "/outbox", "admin.settings.edit"));
+    expect(await res.json()).toEqual({ queued: 0, queuedIsCapped: false, oldestQueuedAt: null, mailConfigured: false, transportAvailable: true });
+  });
+
+  it("refuses to drain while mail is not configured, in Arabic, and attempts nothing — a drain then would fail every waiting message for good", async () => {
+    const drained = { count: 0 };
+    const { app } = outboxApp(false, drained);
+    const res = await app.fetch(call("POST", "/drain", "admin.settings.edit"));
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as { error: string; message: string };
+    expect(body.error).toBe("NOTIFICATION_MAIL_NOT_CONFIGURED");
+    expect(body.message).toMatch(/البريد الإلكتروني غير مُفعَّل/);
+    expect(drained.count).toBe(0);
+  });
+
+  it("drains when mail is configured", async () => {
+    const drained = { count: 0 };
+    const { app } = outboxApp(true, drained);
+    const res = await app.fetch(call("POST", "/drain", "admin.settings.edit"));
+    expect(res.status).toBe(200);
+    expect(drained.count).toBe(1);
   });
 });
 

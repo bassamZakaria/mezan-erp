@@ -72,6 +72,7 @@ export class InMemoryGoodsReceipts implements GoodsReceiptRepository {
 const GOODS_RECEIPT_PROPERTIES: Readonly<Record<GoodsReceiptField, readonly (keyof GoodsReceipt)[]>> = {
   [GoodsReceiptField.Status]: ["status"],
   [GoodsReceiptField.Billing]: ["invoiced", "lines"],
+  [GoodsReceiptField.Lots]: ["lines"],
 };
 
 export class InMemoryPurchaseInvoices implements PurchaseInvoiceRepository {

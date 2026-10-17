@@ -2,6 +2,7 @@ import { Field, TextInput } from "@mezan/ui";
 import { can, createAuthContext } from "@mezan/domain";
 import type { EvidencePeriodDTO } from "@mezan/contracts";
 import { useApi } from "../../../data/ApiContext";
+import { localIsoDay } from "../../../lib/dates";
 import { useAppTranslation } from "../../../i18n";
 
 export enum EvidenceCode {
@@ -17,7 +18,7 @@ export function useGrants(...codes: readonly EvidenceCode[]): readonly boolean[]
 }
 
 export function defaultPeriod(today = new Date()): EvidencePeriodDTO {
-  const to = today.toISOString().slice(0, 10);
+  const to = localIsoDay(today);
   return { from: `${to.slice(0, 4)}-01-01`, to };
 }
 

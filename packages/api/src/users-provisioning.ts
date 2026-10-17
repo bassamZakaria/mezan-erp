@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import type { Context, Hono, MiddlewareHandler } from "hono";
+import { Hono, type Context, type MiddlewareHandler } from "hono";
 import {
   UserImportRowProblemCode,
   UserStatusCode,
@@ -103,7 +103,8 @@ interface PlannedRow {
   readonly conflicts: readonly SodConflictMatch[];
 }
 
-export function mountUserProvisioning(app: Hono, kit: ProvisioningKit): void {
+export function createUserProvisioningRoutes(kit: ProvisioningKit): Hono {
+  const app = new Hono();
   const { uow, hasher, audit, ports, gate } = kit;
 
   async function seatRoom(c: Context): Promise<{ limit: number | null; active: number; available: number | null }> {
@@ -363,4 +364,6 @@ export function mountUserProvisioning(app: Hono, kit: ProvisioningKit): void {
       return kit.userErrorResponse(c, err);
     }
   });
+
+  return app;
 }

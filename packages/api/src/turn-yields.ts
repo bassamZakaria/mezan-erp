@@ -1,5 +1,5 @@
 import { keepRecent } from "../../persistence/src/untransacted-audits.js";
-import { createLogger } from "./observability/index.js";
+import { createLogger } from "./observability/logger.js";
 
 const log = createLogger("db");
 

@@ -131,6 +131,7 @@ export interface GoodsReceipt {
 export enum GoodsReceiptField {
   Status = "status",
   Billing = "billing",
+  Lots = "lots",
 }
 
 export interface GoodsReceiptRepository {
@@ -728,7 +729,7 @@ export async function setGoodsReceiptLots(
       };
     }),
   };
-  await deps.receipts.update(updated);
+  await writeReceipt(deps.receipts, updated, [GoodsReceiptField.Lots], receipt.status);
   await recordPurchaseAudit(deps, "GOODS_RECEIPT", "UPDATE_LOTS", {
     receiptId: updated.id,
     number: updated.number,

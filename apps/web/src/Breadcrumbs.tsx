@@ -36,6 +36,14 @@ const SEGMENT_LABEL_KEY: Record<string, AppTranslationKey> = {
   fefo: "expiry.tab.fefo",
   recall: "expiry.tab.recall",
   settings: "expiry.tab.settings",
+  reminders: "collections.tab.reminders",
+  promises: "collections.tab.promises",
+  policy: "collections.tab.policy",
+  webhooks: "integrations.tab.webhooks",
+  deliveries: "integrations.tab.deliveries",
+  docs: "integrations.tab.docs",
+  overrides: "pricingGuard.tab.overrides",
+  policies: "reorder.tab.policies",
 };
 
 export const NAMED_SUB_PAGE_SEGMENTS: ReadonlySet<string> = new Set(Object.keys(SEGMENT_LABEL_KEY));

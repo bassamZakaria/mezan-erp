@@ -145,7 +145,7 @@ export const BRANCH_GATED_ACTION_API: Readonly<Record<BranchGatedAction, string>
   [BranchGatedAction.ContractingExceptions]: "/contracting/reports",
 };
 
-export const COMPANY_WIDE_WITHOUT_A_SURFACE: readonly string[] = ["/bootstrap"];
+export const COMPANY_WIDE_WITHOUT_A_SURFACE: readonly string[] = ["/bootstrap", "/client-errors"];
 
 export const READ_ONLY_WITHOUT_A_SURFACE: readonly string[] = ["/label-layouts"];
 

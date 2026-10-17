@@ -331,6 +331,7 @@ function readMe(manifestFormat: string, company: string, period: EvidencePeriodD
 }
 
 export function createEvidencePackRoutes(deps: EvidencePackRoutesDeps, resolveAuthContext: AuthContextResolver) {
+  const atomically = <T>(work: () => Promise<T>): Promise<T> => (deps.audit.atomic ? deps.audit.atomic(work) : work());
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
 
@@ -508,27 +509,29 @@ export function createEvidencePackRoutes(deps: EvidencePackRoutesDeps, resolveAu
 
       const manifestSha256 = createHash("sha256").update(manifestBytes).digest("hex");
       const totalBytes = statSync(file).size;
-      deps.store.record({
-        id: packId,
-        periodFrom: period.from,
-        periodTo: period.to,
-        builtBy: actor,
-        builtByName: manifest.generatedBy.name,
-        builtAt: manifest.generatedAt,
-        manifestSha256,
-        keyId: identity.keyId,
-        fileCount: manifest.files.length,
-        totalBytes,
-        auditChainOk: verdict.ok,
-      });
-      await recordSensitiveEvent(deps.audit, {
-        module: "audit",
-        entityType: PACK_ENTITY,
-        entityId: packId,
-        action: PACK_BUILT_ACTION,
-        actor,
-        severity: "WARNING",
-        details: { from: period.from, to: period.to, manifestSha256, keyId: identity.keyId, files: manifest.files.map((f) => ({ name: f.name, sha256: f.sha256, rows: f.rows })), auditChainOk: verdict.ok, costRedacted: !seeCost },
+      await atomically(async () => {
+        deps.store.record({
+          id: packId,
+          periodFrom: period.from,
+          periodTo: period.to,
+          builtBy: actor,
+          builtByName: manifest.generatedBy.name,
+          builtAt: manifest.generatedAt,
+          manifestSha256,
+          keyId: identity.keyId,
+          fileCount: manifest.files.length,
+          totalBytes,
+          auditChainOk: verdict.ok,
+        });
+        await recordSensitiveEvent(deps.audit, {
+          module: "audit",
+          entityType: PACK_ENTITY,
+          entityId: packId,
+          action: PACK_BUILT_ACTION,
+          actor,
+          severity: "WARNING",
+          details: { from: period.from, to: period.to, manifestSha256, keyId: identity.keyId, files: manifest.files.map((f) => ({ name: f.name, sha256: f.sha256, rows: f.rows })), auditChainOk: verdict.ok, costRedacted: !seeCost },
+        });
       });
 
       const fileName = `mezan-evidence-${period.from}_${period.to}.zip`;
@@ -556,15 +559,17 @@ export function createEvidencePackRoutes(deps: EvidencePackRoutesDeps, resolveAu
       pack?.abort();
       rmSync(dir, { recursive: true, force: true });
       log.error({ err }, "building the evidence pack failed");
-      await recordSensitiveEvent(deps.audit, {
-        module: "audit",
-        entityType: PACK_ENTITY,
-        entityId: packId,
-        action: PACK_FAILED_ACTION,
-        actor,
-        severity: "WARNING",
-        details: { from: period.from, to: period.to },
-      }).catch(() => undefined);
+      await atomically(() =>
+        recordSensitiveEvent(deps.audit, {
+          module: "audit",
+          entityType: PACK_ENTITY,
+          entityId: packId,
+          action: PACK_FAILED_ACTION,
+          actor,
+          severity: "WARNING",
+          details: { from: period.from, to: period.to },
+        }),
+      ).catch(() => undefined);
       return c.json({ error: EvidencePackRefusal.BuildFailed, message: "تعذّر إعداد حزمة الأدلة. أعد المحاولة أو راجع سجل الخادم." }, 500);
     }
   });

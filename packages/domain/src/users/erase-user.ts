@@ -125,6 +125,7 @@ export function erasedEmployee(employee: Employee): Employee {
     deviceBadgeId: null,
     address: null,
     emergencyContact: null,
+    bankAccount: null,
   };
 }
 

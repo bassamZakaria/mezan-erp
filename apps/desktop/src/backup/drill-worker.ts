@@ -68,6 +68,7 @@ function scaledOf(value: unknown): bigint | null {
 async function computeInvariants(dbPath: string, cipherKey: string | null): Promise<DrillInvariantsDTO> {
   const backend = await createBackend({
     dbPath,
+    scheduledJobs: false,
     ...(cipherKey ? { connection: { driver: cipherDriver, key: cipherKey } } : {}),
     resolveEntitlements: () =>
       createEntitlements({ plan: "DRILL", activeModules: MODULE_CATALOG, features: {}, seats: 1000, expiresAt: null }),

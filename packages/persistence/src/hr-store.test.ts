@@ -1,3 +1,4 @@
+import { SalaryPaymentMethod } from "@mezan/domain";
 import { PayBasis } from "@mezan/domain";
 import { EmployeeRefStatus } from "@mezan/domain";
 import { ContractStatus } from "@mezan/domain";
@@ -86,6 +87,8 @@ describe("SqliteEmployeeRepository", () => {
       requireBiometricAtClockIn: false, deviceBadgeId: null, hasPensionEntitlement: null, taxDisabilityExemption: false,
       address: { street: "شارع النصر", city: "القاهرة", governorate: "القاهرة", postalCode: null },
       emergencyContact: { name: "سارة", relationship: "زوجة", phone: "0100000000", altPhone: null },
+      salaryPaymentMethod: SalaryPaymentMethod.BankTransfer,
+      bankAccount: { iban: "EG380003024431615217447010180", accountName: "Ahmed Hassan", bankName: null },
       status: EmployeeRefStatus.Active,
       terminatedAt: null,
       createdAt: "2026-01-01T00:00:00.000Z",
@@ -94,6 +97,8 @@ describe("SqliteEmployeeRepository", () => {
     expect(found?.address).toEqual({ street: "شارع النصر", city: "القاهرة", governorate: "القاهرة", postalCode: null });
     expect(found?.emergencyContact?.name).toBe("سارة");
     expect(found?.requireSelfieAtClockIn).toBe(true);
+    expect(found?.salaryPaymentMethod).toBe(SalaryPaymentMethod.BankTransfer);
+    expect(found?.bankAccount).toEqual({ iban: "EG380003024431615217447010180", accountName: "Ahmed Hassan", bankName: null });
     expect(await repo.list()).toHaveLength(1);
   });
 });

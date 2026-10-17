@@ -1,6 +1,7 @@
 import { ReversalDocumentType, reversalPermissionSuccessors } from "@mezan/contracts";
 import { createHash, randomUUID } from "node:crypto";
 import { OwnerPinResetOutcome } from "./owner-pin-reset-outcome.js";
+import { createLeaveAccrualJob, startScheduledJobs, type ScheduledJobResult } from "./scheduled-jobs.js";
 import {
   createApp,
   ACCOUNT_LOCK_FAILURES,
@@ -230,6 +231,8 @@ import {
   type OpeningBalanceDuplicatesContext,
   type OpeningBalanceEntryRef,
   tenantTodayIso,
+  hasModule,
+  DEFAULT_TIME_ZONE,
   BASE_CURRENCY,
   EVENT_BRANCH_IDS_KEY,
   correctedSeededRolePermissions,
@@ -771,6 +774,8 @@ export interface BackendHandle {
    * pausing the connection.
    */
   backupTo(destination: string): Promise<void>;
+  /** Runs one scheduler tick now; null when this backend was built with scheduled jobs off. */
+  runScheduledJobs(): Promise<readonly ScheduledJobResult[]> | null;
   /**
    * Resolves once the confirm-time e-receipt tasks still in flight have
    * settled. Those tasks deliberately outlive the confirm that started them,
@@ -924,6 +929,12 @@ export interface CreateBackendOptions {
    * two editions with no way to state what it is entitled to.
    */
   readonly resolveEntitlements?: CreateAppOptions["resolveEntitlements"];
+  /**
+   * Runs the shared scheduled jobs (`scheduled-jobs.ts`) — today the leave
+   * accrual catch-up. Defaults to on for a file-backed database and off for
+   * `:memory:`, so dev, e2e and unit-test backends never write on a timer.
+   */
+  readonly scheduledJobs?: boolean;
 }
 
 /**
@@ -4954,6 +4965,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
         // 2180 already carries, so it reads the posted ledger.
         ledger,
         audit: auditSink,
+        treasuryAccounts,
       },
       users: uow.users,
       numbering: ledger.numbering,
@@ -5782,6 +5794,27 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
     );
   };
 
+  const scheduledJobsEnabled = pass === BackendPass.Serve && (options.scheduledJobs ?? dbPath !== ":memory:");
+  const scheduledJobs = scheduledJobsEnabled
+    ? startScheduledJobs({
+        jobs: [
+          createLeaveAccrualJob({
+            batches: hrLeaveAccrualBatches,
+            balances: hrLeaveBalances,
+            policies: hrLeavePolicies,
+            employees: hrEmployees,
+            numbering: ledger.numbering,
+            transactor: configTransactor,
+            generateId: () => randomUUID(),
+            allowed: () => (options.entitlements ? hasModule(options.entitlements, "hr") : true),
+          }),
+        ],
+        today: async () => tenantTodayIso((await settings.get())?.timezone || DEFAULT_TIME_ZONE),
+        turn: inTheTurn("scheduled jobs"),
+        onError: (kind, err) => console.error(`[scheduled-jobs] ${kind} failed`, err),
+      })
+    : null;
+
   return {
     app,
     audit: auditSink,
@@ -5795,10 +5828,12 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
     resetOwnerPin,
     etaReceipts,
     backupTo: (destination) => sqlite.backup(destination).then(() => undefined),
+    runScheduledJobs: () => scheduledJobs?.runNow() ?? null,
     async drain() {
       // The bridge's tasks call `scheduleSubmission()`, and a submission run
       // can queue more work, so neither one alone is "nothing left" — loop
       // until both are idle.
+      await scheduledJobs?.settle();
       let settled = false;
       while (!settled) {
         await etaEnqueueBridge.drain();
@@ -5813,6 +5848,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
       // parked e-receipt task resumes against a closed connection. `drain()`
       // is the caller's chance to let that work FINISH first — `close()`
       // alone only makes it stop quietly.
+      scheduledJobs?.stop();
       etaEnqueueBridge.stop();
       etaReceipts.stop();
       // Every store above shares the ONE `sqlite` connection opened at the

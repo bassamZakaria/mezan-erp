@@ -93,6 +93,8 @@ export async function createEmployee(command: CreateEmployeeCommand, repo: Emplo
     taxDisabilityExemption: command.taxDisabilityExemption ?? false,
     address: command.address ?? null,
     emergencyContact: command.emergencyContact ?? null,
+    salaryPaymentMethod: null,
+    bankAccount: null,
     status: EmployeeRefStatus.Active,
     terminatedAt: null,
     createdAt: new Date().toISOString(),
@@ -103,7 +105,7 @@ export async function createEmployee(command: CreateEmployeeCommand, repo: Emplo
 }
 
 /** Editable employee fields (excludes id/code/status/createdAt/terminatedAt, which have their own commands). */
-export type EmployeeEditableFields = Omit<Employee, "id" | "code" | "status" | "terminatedAt" | "createdAt">;
+export type EmployeeEditableFields = Omit<Employee, "id" | "code" | "status" | "terminatedAt" | "createdAt" | "salaryPaymentMethod" | "bankAccount">;
 
 /** Applies a patch to an existing employee (the edit form), re-validating. */
 export function updateEmployee(current: Employee, patch: Partial<EmployeeEditableFields>): Employee {

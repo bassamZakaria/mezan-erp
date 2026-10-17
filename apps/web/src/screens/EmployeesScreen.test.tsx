@@ -6,6 +6,7 @@ import type { BranchDTO, EmployeeDTO } from "@mezan/contracts";
 import { EmployeesScreen } from "./EmployeesScreen";
 import { todayIso } from "../lib/dates";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
+import { RoutedScreen } from "./routed-screen.test-support";
 
 function pickFromCombobox(dialog: HTMLElement, label: string, optionLabel: string) {
   const input = within(dialog).getByLabelText(label);
@@ -114,7 +115,12 @@ function renderScreen(
       return { body: updated };
     },
   });
-  return renderWithProviders(<EmployeesScreen />, { transport, initialSession: testAdminSession });
+  return renderWithProviders(
+    <RoutedScreen>
+      <EmployeesScreen />
+    </RoutedScreen>,
+    { transport, initialSession: testAdminSession },
+  );
 }
 
 const employee2: EmployeeDTO = {
@@ -147,25 +153,27 @@ describe("EmployeesScreen", () => {
     expect(screen.getByText("EMP-0001")).toBeInTheDocument();
   });
 
-  it("adds a new employee through the create panel", async () => {
+  it("adds a new employee on its own page, then opens the new employee's page", async () => {
     renderScreen();
     await screen.findByText("أحمد محمود");
     fireEvent.click(screen.getByRole("button", { name: "إضافة موظف" }));
 
-    const dialog = screen.getByRole("dialog", { name: "موظف جديد" });
+    expect(await screen.findByRole("heading", { name: "موظف جديد" })).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    const dialog = document.body;
     fireEvent.change(fieldInput(dialog, "الاسم الأول *"), { target: { value: "Sara" } });
     fireEvent.change(fieldInput(dialog, "اسم العائلة *"), { target: { value: "Aly" } });
     pickFromCombobox(dialog, "الفرع *", "الفرع الرئيسي");
     fireEvent.change(fieldInput(dialog, "تاريخ التعيين *"), { target: { value: "2026-08-21" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "حفظ" }));
 
-    expect(await screen.findByText("Sara Aly")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Sara Aly" })).toBeInTheDocument();
   });
 
-  it("opens the detail panel and transitions the employee to on_leave", async () => {
+  it("opens the employee's page and transitions the employee to on_leave", async () => {
     renderScreen();
     fireEvent.click(await screen.findByText("أحمد محمود"));
-    expect(screen.getByRole("heading", { name: "أحمد محمود" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "أحمد محمود" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "في إجازة" }));
 
     expect(await screen.findByRole("button", { name: "نشط" })).toBeInTheDocument();

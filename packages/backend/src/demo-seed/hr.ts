@@ -1,4 +1,5 @@
 import type { App } from "@mezan/api";
+import { SalaryPaymentMethodDTO } from "@mezan/contracts";
 import { ADMIN_HEADERS, BRANCH_ID, CORE, FORMER_SALES_REP_EMPLOYEE_ID, SALES_REP_EMPLOYEE_ID, seedActorHeaders, seedToday, step } from "./shared.js";
 
 /**
@@ -794,6 +795,17 @@ function isWeekend(date: string): boolean {
   return day === 5 || day === 6;
 }
 
+const SALARY_PAYMENTS: readonly { id: string; payment: { method: SalaryPaymentMethodDTO; iban?: string; accountName?: string; bankName?: string } }[] = [
+  { id: "EMP-DEMO-1", payment: { method: SalaryPaymentMethodDTO.BankTransfer, iban: "EG930003010100000000123456701", bankName: "البنك الأهلي المصري" } },
+  { id: "EMP-DEMO-2", payment: { method: SalaryPaymentMethodDTO.BankTransfer, iban: "EG660003010100000000123456702", bankName: "البنك الأهلي المصري" } },
+  { id: "EMP-DEMO-3", payment: { method: SalaryPaymentMethodDTO.BankTransfer, iban: "EG740002020300000000765432101", bankName: "بنك مصر" } },
+  { id: "EMP-DEMO-4", payment: { method: SalaryPaymentMethodDTO.BankTransfer, iban: "EG380010030400000000555000001", bankName: "البنك التجاري الدولي" } },
+  { id: "EMP-DEMO-5", payment: { method: SalaryPaymentMethodDTO.BankTransfer, iban: "EG110010030400000000555000002", bankName: "البنك التجاري الدولي" } },
+  { id: "EMP-DEMO-6", payment: { method: SalaryPaymentMethodDTO.BankTransfer, iban: "EG390003010100000000123456703", accountName: "Mahmoud S. Hassan", bankName: "البنك الأهلي المصري" } },
+  { id: "EMP-DEMO-7", payment: { method: SalaryPaymentMethodDTO.Cash } },
+  { id: "EMP-DEMO-8", payment: { method: SalaryPaymentMethodDTO.Cheque } },
+];
+
 export async function seedHr(app: App): Promise<void> {
   for (const department of DEPARTMENTS) {
     await step(app, "POST", "/hr/departments", department);
@@ -812,6 +824,9 @@ export async function seedHr(app: App): Promise<void> {
   }
   for (const { id, patch } of CORE_EMPLOYEE_PATCHES) {
     await step(app, "PUT", `/hr/employees/${id}`, patch);
+  }
+  for (const { id, payment } of SALARY_PAYMENTS) {
+    await step(app, "PUT", `/hr/employees/${id}/salary-payment`, payment);
   }
 
   // Departments carry their manager, so the heads must exist as employees first.

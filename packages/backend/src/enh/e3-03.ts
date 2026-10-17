@@ -5,7 +5,6 @@ import {
   createSqliteInventoryOpsStore,
   createSqliteReorderStore,
   createSqlitePurchaseOrderStore,
-  sqliteTransactionsSettled,
   type LowStockAlert,
 } from "@mezan/persistence";
 import type { BackendArea, BackendModuleContext } from "../module-context.js";
@@ -93,19 +92,21 @@ export const area: BackendArea = {
     });
 
     let flushing = false;
+    const publishPending = async (): Promise<void> => {
+      for (const alert of store.lowStock.pending()) {
+        try {
+          ctx.eventBus.publish(LOW_STOCK_EVENT, alertPayload(alert), alert.detectedAt);
+        } catch (error) {
+          console.error("[reorder] a low-stock subscriber failed", error);
+        }
+        store.lowStock.markPublished(alert.id, new Date().toISOString());
+      }
+    };
     const flush = async (): Promise<void> => {
       if (flushing) return;
       flushing = true;
       try {
-        await sqliteTransactionsSettled(ctx.sqlite);
-        for (const alert of store.lowStock.pending()) {
-          try {
-            ctx.eventBus.publish(LOW_STOCK_EVENT, alertPayload(alert), alert.detectedAt);
-          } catch (error) {
-            console.error("[reorder] a low-stock subscriber failed", error);
-          }
-          store.lowStock.markPublished(alert.id, new Date().toISOString());
-        }
+        await (ctx.audit.turn ? ctx.audit.turn(publishPending) : publishPending());
       } catch (error) {
         console.error("[reorder] could not publish low-stock alerts", error);
       } finally {
@@ -115,12 +116,5 @@ export const area: BackendArea = {
     const timer = setInterval(() => void flush(), FLUSH_INTERVAL_MS);
     timer.unref();
     ctx.addCloser({ close: () => clearInterval(timer) });
-    lowStockFlushers.set(ctx.sqlite, flush);
   },
 };
-
-const lowStockFlushers = new WeakMap<object, () => Promise<void>>();
-
-export function flushLowStockAlerts(sqlite: object): Promise<void> {
-  return lowStockFlushers.get(sqlite)?.() ?? Promise.resolve();
-}

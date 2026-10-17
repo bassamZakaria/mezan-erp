@@ -81,6 +81,7 @@ export const AUDITED_MOUNTS: readonly AuditedMount[] = [
   { prefix: "/pricing-guard", only: /^\/rules(\/|$)/ },
   { prefix: "/contracting" },
   { prefix: "/collections", only: /^(?!\/outbox\/drain$)/ },
+  { prefix: "/reorder" },
 ];
 
 interface BoundaryState {

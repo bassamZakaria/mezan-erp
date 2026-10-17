@@ -1,7 +1,7 @@
 import type Database from "better-sqlite3";
 import type { App, AuthContextResolver, PeriodCloseGuardSlot, ReconciliationControl, SessionRegistry } from "@mezan/api";
 import type { EtaReceiptIssuer } from "./eta-receipts.js";
-import type { AuditSink, DrainResult, EventBus, PayrollBindings, UnitOfWork } from "@mezan/domain";
+import type { AuditSink, DrainResult, EventBus, InventoryDomainEvent, PayrollBindings, UnitOfWork } from "@mezan/domain";
 import type {
   createScryptHasher,
   createSqliteAccountRepository,
@@ -70,6 +70,8 @@ export interface BackendModuleContext {
   /** Issues a sale's e-receipt synchronously with the terminal's serial and tender (D283). */
   readonly etaReceipts: EtaReceiptIssuer;
   readonly stores: BackendStores;
+  /** Runs synchronously INSIDE the posting's transaction: a subscriber must not await, must not throw, and may only write rows that belong with the posting. */
+  readonly inventoryEvents: { readonly subscribe: (handler: (event: InventoryDomainEvent) => void) => () => void };
   /** The customer-addressed mail queue and the operator-initiated drain that sends it through the tenant's SMTP session. */
   readonly customerMail: {
     readonly store: ReturnType<typeof createSqliteCollectionsStore>;

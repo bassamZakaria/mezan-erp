@@ -42,6 +42,7 @@ import {
   ALL_SCOPE,
   SiteService,
   StockLedgerService,
+  type InventoryDomainEvent,
   applyAllocatedSettlement,
   EtaSubmissionStatusCode,
   EtaReceiptSourceKind,
@@ -1421,7 +1422,19 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
     },
     transaction: <T>(fn: () => Promise<T>): Promise<T> => ledger.transaction(fn),
   };
+  const inventoryEventHandlers = new Set<(event: InventoryDomainEvent) => void>();
   const stockService = new StockLedgerService({
+    events: {
+      publish: (event) => {
+        for (const handler of inventoryEventHandlers) {
+          try {
+            handler(event);
+          } catch (error) {
+            console.error("[inventory] a stock-event subscriber failed", error);
+          }
+        }
+      },
+    },
     ledger: stockLedger.ledger,
     layers: stockLedger.layers,
     snapshots: stockLedger.snapshots,
@@ -5572,6 +5585,14 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
     eventBus,
     etaReceipts,
     cashAndBankAccountIds: resolveCashAndBankAccountIds,
+    inventoryEvents: {
+      subscribe: (handler) => {
+        inventoryEventHandlers.add(handler);
+        return () => {
+          inventoryEventHandlers.delete(handler);
+        };
+      },
+    },
     customerMail: {
       store: customerMail,
       drain: async () => {

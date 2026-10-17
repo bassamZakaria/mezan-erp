@@ -15,7 +15,7 @@ import { area as e2_10 } from "./e2-10.js";
 import { area as e2_11 } from "./e2-11.js";
 import { area as e3_01 } from "./e3-01.js";
 import { area as e3_02 } from "./e3-02.js";
-import { area as e3_03 } from "./e3-03.js";
+import { area as e3_03, LOW_STOCK_EVENT } from "./e3-03.js";
 import { area as e3_04 } from "./e3-04.js";
 import { area as e3_06 } from "./e3-06.js";
 import { area as e3_07 } from "./e3-07.js";
@@ -28,7 +28,7 @@ import { area as e3_10 } from "./e3-10.js";
  * `/notification-rules/triggers`' `emitted` flag, so an event a rule author can
  * subscribe to is never listed as one nothing raises.
  */
-export const ENH_EMITTED_EVENT_CODES = [CASH_FORECAST_ALERT_EVENT] as const;
+export const ENH_EMITTED_EVENT_CODES = [CASH_FORECAST_ALERT_EVENT, LOW_STOCK_EVENT] as const;
 
 export const ENH_AREAS: readonly (readonly [string, BackendArea])[] = [
   ["enh-e1-01", e1_01],

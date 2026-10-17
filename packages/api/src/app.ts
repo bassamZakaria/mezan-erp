@@ -243,6 +243,8 @@ import { createAuditRoutes } from "./audit-routes.js";
 import { leaseBeforeTheTurn, type LeaseStore } from "./keyed-lock.js";
 import { AUDITED_MOUNTS, AuditBoundaryRefusal, MutatingMethod, auditBoundary, beforeTheTurn, connectionTurn, type BoundaryPreparation, type ConnectionTurnOptions } from "./audit-boundary.js";
 import { createPrecomputingHasher, type PrecomputingHasher } from "./precomputed-secrets.js";
+import { CLONE_SECRETS_KEY, generateOneTimeSecrets, plaintextOf, stashProvisionedSecrets, type OneTimeSecrets } from "./provisioning-secrets.js";
+import { parseUserImportCsv, type UserPreferencesRepository } from "@mezan/domain";
 import { requestBodyLimit } from "./body-limit.js";
 import { IDEMPOTENT_CREATES, idempotentCreate, type IdempotentRequests } from "./idempotent-create.js";
 import { branchesOfWarehouses, documentBranches, returnBranches } from "./stored-branches.js";
@@ -405,6 +407,7 @@ export interface CreateAppOptions {
   readonly settingsStore?: SettingsRepository;
   /** Mounts `/branches` (docs/archive/catalog/09) when present — omit it for no `/branches` route. */
   readonly branchStore?: BranchRepository;
+  readonly userPreferences?: UserPreferencesRepository;
   readonly branchDirectory?: BranchDirectory;
   /** Mounts `/warehouses` (docs/archive/catalog/09) when present — omit it for no `/warehouses` route. */
   readonly warehouseStore?: WarehouseRepository;
@@ -1043,11 +1046,34 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     if (!can(await resolveAuth(c), permission)) return;
     const body: unknown = await c.req.json().catch(() => null);
     if (body === null || typeof body !== "object") return;
+    const provisioned = provisioningSecretsFor(c, body);
+    if (provisioned) return secrets.precompute({ hash: provisioned.flatMap((entry) => plaintextOf(entry)) });
     const { password, pin, currentPin, currentPassword } = body as { password?: unknown; pin?: unknown; currentPin?: unknown; currentPassword?: unknown };
     const toHash = [password, pin].filter((secret): secret is string => typeof secret === "string" && secret !== "");
     const toVerify = await ownSecretsToVerify(c, currentPin, currentPassword);
     if (toHash.length === 0 && toVerify.length === 0) return;
     return secrets.precompute({ hash: toHash, verify: toVerify });
+  }
+
+  // The PIN sheet's secrets are generated here, not read from the request, so
+  // they are hashed ahead of the audit transaction like any other; the handler
+  // then takes the same plaintexts back out. Only a commit (dryRun: false) buys
+  // the hashes, and never for a file the handler will refuse for its size.
+  function provisioningSecretsFor(c: Context, body: object): readonly OneTimeSecrets[] | null {
+    if (c.req.method !== MutatingMethod.Post) return null;
+    if (/\/users\/[^/]+\/clone$/.test(c.req.path)) {
+      const one = generateOneTimeSecrets();
+      stashProvisionedSecrets(c, new Map([[CLONE_SECRETS_KEY, one]]));
+      return [one];
+    }
+    if (!/\/users\/import$/.test(c.req.path)) return null;
+    const { csv, dryRun } = body as { csv?: unknown; dryRun?: unknown };
+    if (dryRun !== false || typeof csv !== "string") return null;
+    const parsed = parseUserImportCsv(csv);
+    if (parsed.fileProblems.length > 0) return null;
+    const generated = new Map(parsed.rows.filter((row) => row.problems.length === 0).map((row) => [row.rowNumber, generateOneTimeSecrets()] as const));
+    stashProvisionedSecrets(c, generated);
+    return [...generated.values()];
   }
 
   async function ownSecretsToVerify(c: Context, currentPin: unknown, currentPassword: unknown): Promise<[string, string][]> {
@@ -1870,6 +1896,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
       onCredentialSetByOther: options.onUserCredentialSetByOther,
       sessions: options.security?.sessions,
       loginThrottle: options.security?.loginThrottle,
+      provisioning: { branches: options.branchStore, warehouses: options.warehouseStore, preferences: options.userPreferences },
       erasure: options.hr
         ? createUserErasurePort({
             employees: options.hr.employees,

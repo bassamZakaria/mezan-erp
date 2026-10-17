@@ -65,6 +65,10 @@ const PIN_PATTERN = /^\d{4,6}$/;
  */
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@.]+(\.[^\s@.]+)+$/;
 
+export function isPlausibleEmail(email: string): boolean {
+  return EMAIL_PATTERN.test(email);
+}
+
 /** Trimmed and lower-cased — emails are compared, stored and matched in this form only. */
 export function normalizeEmail(raw: string): string {
   return raw.trim().toLowerCase();

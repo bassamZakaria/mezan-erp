@@ -7,6 +7,7 @@ export {
   LAYOUT_NAME_MAX_LENGTH,
   InvalidUserPreferencesError,
   createDefaultUserPreferences,
+  cloneUserPreferences,
   validateUserPreferences,
   updateUserPreferences,
   recordRecentlyOpened,

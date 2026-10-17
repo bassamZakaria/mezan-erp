@@ -45,6 +45,7 @@ import { afterAuditCommit, insideAuditBoundary } from "./audit-boundary.js";
 import type { SessionRegistry } from "./session-auth.js";
 import { throttleKey, tooManyAttempts, type LoginThrottle } from "./login-throttle.js";
 import { requestOrigin } from "./request-origin.js";
+import { mountUserProvisioning, type ProvisioningPorts } from "./users-provisioning.js";
 
 export enum UsersRefusal {
   CurrentSecretRequired = "CURRENT_SECRET_REQUIRED",
@@ -171,6 +172,7 @@ export interface UsersRoutesOptions {
    * quietly skipping the record.
    */
   readonly erasure?: UserErasurePort;
+  readonly provisioning?: ProvisioningPorts;
 }
 
 /**
@@ -198,7 +200,7 @@ export function createUsersRoutes(
   resolveAuthContext: AuthContextResolver,
   options: UsersRoutesOptions = {},
 ) {
-  const { readAllowedEmailDomains, audit, sessions, loginThrottle, erasure, onEmailChanged, owner, onCredentialSetByOther } = options;
+  const { readAllowedEmailDomains, audit, sessions, loginThrottle, erasure, onEmailChanged, owner, onCredentialSetByOther, provisioning } = options;
   const gate = createPermissionGate(resolveAuthContext);
   const app = new Hono();
 
@@ -905,6 +907,28 @@ export function createUsersRoutes(
       details: { email: user.email },
     });
     return c.json({ ok: true, userId: user.id });
+  });
+
+  mountUserProvisioning(app, {
+    uow,
+    hasher,
+    audit,
+    ports: provisioning ?? {},
+    gate,
+    visibleTarget,
+    saveOptions,
+    refuseIfEscalating,
+    refuseIfDomainNotAllowed,
+    refuseIfTargetOutranks,
+    refuseIfOverSeatCap,
+    refuseSodConflicts,
+    refuseErased,
+    sodConflictsOfGrant,
+    auditUser,
+    auditSodOverride,
+    auditRefusal,
+    userErrorResponse,
+    userNotFound,
   });
 
   if (erasure && audit) {

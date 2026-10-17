@@ -4,6 +4,9 @@ import {
   deleteRole,
   ungrantablePermissions,
   detectSodConflicts,
+  ROLE_TEMPLATES,
+  findRoleTemplate,
+  licensedTemplatePermissions,
   UnknownPermissionError,
   UnlicensedPermissionError,
   PlatformOnlyPermissionError,
@@ -17,7 +20,7 @@ import {
   type SodConflictMatch,
   type UnitOfWork,
 } from "@mezan/domain";
-import { createRoleSchema, updateRoleSchema } from "@mezan/contracts";
+import { createRoleFromTemplateSchema, createRoleSchema, updateRoleSchema, type RoleFromTemplateResultDTO, type RoleTemplateDTO } from "@mezan/contracts";
 import {
   createPermissionGate,
   getAuthContext,
@@ -112,7 +115,7 @@ export function createRolesRoutes(
    * The permission LIST travels, not just the role name. "Role edited" is not
    * evidence; "this role gained `workflow.approve`" is.
    */
-  function auditRole(c: Context, role: Role, action: "CREATE" | "UPDATE", before?: Role | null) {
+  function auditRole(c: Context, role: Role, action: "CREATE" | "UPDATE", before?: Role | null, extra?: Record<string, unknown>) {
     return recordAdminEvent(audit, c, {
       module: "admin",
       entityType: "ROLE",
@@ -122,6 +125,7 @@ export function createRolesRoutes(
         code: role.code,
         name: role.name,
         permissions: [...role.permissions],
+        ...extra,
         ...(before
           ? {
               previousPermissions: [...before.permissions],
@@ -177,6 +181,79 @@ export function createRolesRoutes(
     const roles = await uow.roles.list();
     return c.json(roles.map(serializeRole));
   });
+
+  app.get("/templates", gate("admin.roles.view"), async (c) => {
+    const entitlements = await resolveEntitlements(c);
+    if (!entitlements) return c.json({ error: "ENTITLEMENTS_UNAVAILABLE" }, 500);
+    const templates: RoleTemplateDTO[] = ROLE_TEMPLATES.map((template) => {
+      const { granted, omitted } = licensedTemplatePermissions(template, entitlements);
+      return {
+        id: template.id,
+        code: template.code,
+        nameAr: template.nameAr,
+        nameEn: template.nameEn,
+        descriptionAr: template.descriptionAr,
+        descriptionEn: template.descriptionEn,
+        permissions: [...granted],
+        omittedPermissions: [...omitted],
+      };
+    });
+    return c.json(templates);
+  });
+
+  app.post("/from-template", gate("admin.roles.manage"), async (c) => {
+    const parsed = createRoleFromTemplateSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) {
+      return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    }
+    const template = findRoleTemplate(parsed.data.templateId);
+    if (!template) {
+      return c.json({ error: "UNKNOWN_ROLE_TEMPLATE", message: "قالب الدور غير موجود.", messageEn: "The role template does not exist." }, 404);
+    }
+    const actor = getAuthContext(c);
+    if (!actor) return refuseUnauthenticated(c);
+    const entitlements = await resolveEntitlements(c);
+    if (!entitlements) return c.json({ error: "ENTITLEMENTS_UNAVAILABLE" }, 500);
+    const { granted, omitted } = licensedTemplatePermissions(template, entitlements);
+    if (granted.length === 0) {
+      return c.json(
+        { error: "TEMPLATE_NOT_LICENSED", message: "لا توجد وحدات مرخصة تغطي صلاحيات هذا القالب.", messageEn: "None of this template's permissions belong to a licensed module." },
+        422,
+      );
+    }
+    const escalation = refuseUngrantable(c, granted);
+    if (escalation) return escalation;
+    const conflicts = detectSodConflicts(granted);
+    if (conflicts.length > 0) return refuseSodConflicts(c, conflicts);
+    const code = parsed.data.code ?? (await freeRoleCode(template.code));
+    try {
+      const role = await saveRole(
+        {
+          id: crypto.randomUUID(),
+          code,
+          name: parsed.data.name ?? template.nameAr,
+          description: parsed.data.description ?? template.descriptionAr,
+          permissions: granted,
+          createdAt: new Date().toISOString(),
+        },
+        uow,
+        entitlements,
+        actor,
+      );
+      await auditRole(c, role, "CREATE", null, { templateId: template.id, omittedPermissions: [...omitted] });
+      const result: RoleFromTemplateResultDTO = { ...serializeRole(role), permissions: [...role.permissions], templateId: template.id, omittedPermissions: [...omitted] };
+      return c.json(result, 201);
+    } catch (err) {
+      return roleErrorResponse(c, err);
+    }
+  });
+
+  async function freeRoleCode(base: string): Promise<string> {
+    for (let attempt = 1; ; attempt += 1) {
+      const candidate = attempt === 1 ? base : `${base}_${attempt}`;
+      if (!(await uow.roles.findByCode(candidate))) return candidate;
+    }
+  }
 
   app.get("/:id", gate("admin.roles.view"), async (c) => {
     const role = await uow.roles.findById(c.req.param("id"));

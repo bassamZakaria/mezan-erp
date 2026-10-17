@@ -424,3 +424,8 @@ export function sanitizeStoredUserPreferences(
   };
   return validateUserPreferences(candidate).length === 0 ? normalize(candidate) : defaults;
 }
+
+export function cloneUserPreferences(source: UserPreferences, targetUserId: string, now: () => Date = () => new Date()): UserPreferences {
+  const timestamp = now().toISOString();
+  return { ...source, userId: targetUserId, recentRecords: [], createdAt: timestamp, updatedAt: timestamp };
+}

@@ -84,6 +84,7 @@ export const NAV_ITEM_API: Readonly<Record<string, string>> = {
   "settings-workflow": "/workflow/configs",
   "notification-rules": "/notification-rules",
   roles: "/roles",
+  "user-provisioning": "/users",
 };
 
 export enum BranchGatedAction {

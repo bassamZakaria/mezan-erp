@@ -19,6 +19,7 @@ import { ErasureRetention, type OwnerHandOverOutcome, type EraseUserDTO, type Ro
 import { OWNER_HAND_OVER_NOTICE_KEYS } from "../data/owner-hand-over-notice";
 import { markOwnerHandOver } from "../data/session";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { useNavigation } from "../navigation";
 import { useUrlParam } from "../lib/url-state";
 
 export interface StoreResult<T> {
@@ -131,6 +132,7 @@ function userToDraft(user: UserDTO, allBranchIds: string[], allWarehouseIds: str
 
 export function UsersPage({ users, roles, branches, warehouses, employees, onSave, onToggleStatus, onUnlock, onErase, currentUserId = null }: UsersPageProps) {
   const { t } = useAppTranslation();
+  const { openScreenAt } = useNavigation();
   const [statusFilter, setStatusFilter] = useUrlParam("status", "all") as [
     UserStatusDTO | "all",
     (next: string) => void,
@@ -390,6 +392,18 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
               }}
             >
               {t("users.erase.action")}
+            </Button>
+          ) : null}
+          {row.status === "active" && !row.erasedAt && !row.isCompanyAdmin && row.roleId !== null ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={(e) => {
+                e.stopPropagation();
+                openScreenAt("user-provisioning", ["clone", row.id]);
+              }}
+            >
+              {t("users.clone")}
             </Button>
           ) : null}
           {onUnlock && row.status === "active" && !row.erasedAt ? (

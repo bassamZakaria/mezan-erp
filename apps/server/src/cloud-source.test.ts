@@ -242,6 +242,41 @@ describe("a cloud caller behind the two-hop proxy", () => {
       expect((await h.send("/api/profile", { tenant: "acme", headers: { cookie: jar.cookie } })).status).toBe(401);
     });
 
+    it("signs in again over a cookie whose session the server has already forgotten, and expires a dead cookie on first contact", async () => {
+      const h = await boot();
+      const admin = await provision(h);
+      const stale = "mezan_session=acme.forgotten; mezan_csrf=forgotten";
+      const again = await browserSignIn(h, admin, { cookie: stale });
+      expect(again.status).toBe(200);
+      expect(again.jar.setCookies.some((line) => line.startsWith("mezan_session=acme."))).toBe(true);
+
+      const dead = await h.send("/api/profile", { tenant: "acme", headers: { cookie: stale } });
+      expect(dead.status).toBe(401);
+      expect(dead.headers.getSetCookie().some((line) => line.startsWith("mezan_session=;") && /Max-Age=0/.test(line))).toBe(true);
+
+      const platform = await h.send("/api/platform/auth/login", {
+        method: "POST", headers: { "x-mezan-device-binding": "cookie", cookie: "mezan_platform_session=forgotten" },
+        body: JSON.stringify({ email: "owner@mezan.local", password: "owner-password-123" }),
+      });
+      expect(platform.status).toBe(200);
+      const deadConsole = await h.send("/api/platform/tenants", { headers: { cookie: "mezan_platform_session=forgotten" } });
+      expect(deadConsole.status).toBe(401);
+      expect(deadConsole.headers.getSetCookie().some((line) => line.startsWith("mezan_platform_session=;"))).toBe(true);
+    });
+
+    it("keeps the cookies when a live session's request is refused for a wrong password", async () => {
+      const h = await boot();
+      const admin = await provision(h);
+      const { jar } = await browserSignIn(h, admin);
+      const wrong = await h.send("/api/profile/change-password", {
+        method: "POST", tenant: "acme", headers: { cookie: jar.cookie, "x-mezan-csrf": jar.csrf },
+        body: JSON.stringify({ currentPassword: "not-the-password", newPassword: "a-new-password-1" }),
+      });
+      expect(wrong.status).toBe(401);
+      expect(wrong.headers.getSetCookie()).toEqual([]);
+      expect((await h.send("/api/profile", { tenant: "acme", headers: { cookie: jar.cookie } })).status).toBe(200);
+    });
+
     it("keeps the platform console's session in its own cookies, with the same CSRF rule", async () => {
       const h = await boot();
       const login = await h.send("/api/platform/auth/login", {

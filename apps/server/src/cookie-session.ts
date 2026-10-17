@@ -78,6 +78,22 @@ function fromThisOrigin(c: Context, trustProxy: boolean): boolean {
   return originHost(origin) === host;
 }
 
+enum SessionGone {
+  Expired = "SESSION_EXPIRED",
+  Displaced = "SESSION_DISPLACED",
+  Unauthenticated = "UNAUTHENTICATED",
+}
+
+const SESSION_GONE: ReadonlySet<string> = new Set(Object.values(SessionGone));
+
+// A wrong password inside a live session is also a 401; only an answer that
+// names the session as gone may expire the cookies that carry it.
+async function sessionIsGone(answer: Response): Promise<boolean> {
+  if (answer.status !== 401) return false;
+  const body = (await answer.clone().json().catch(() => null)) as { error?: unknown } | null;
+  return typeof body?.error === "string" && SESSION_GONE.has(body.error);
+}
+
 function withHeaders(c: Context, change: (headers: Headers) => void): void {
   const headers = new Headers(c.req.raw.headers);
   change(headers);
@@ -173,7 +189,7 @@ export function createCookieSessions(options: CookieSessionOptions): CookieSessi
       const secure = isHttps(c.req.raw, options.trustProxy);
       const code = bindsTenant ? tenantOf(c) : undefined;
       const device = getCookie(c, jar.device);
-      const stored = presentsBearer(c) ? undefined : getCookie(c, jar.session);
+      const stored = presentsBearer(c) || signingIn ? undefined : getCookie(c, jar.session);
       let token: string | null = null;
       if (stored) {
         const at = stored.indexOf(SESSION_SEPARATOR);
@@ -182,7 +198,7 @@ export function createCookieSessions(options: CookieSessionOptions): CookieSessi
         // SECURITY: a tenant cookie names the tenant it was issued by, and is
         // never presented to any other one.
         if (bindsTenant && (code === null || boundTo !== code)) {
-          if (code !== null && !signingIn) await refuse(c, CookieSecurityAction.TenantMismatch, { cookieTenant: boundTo ?? null, requestTenant: code });
+          if (code !== null) await refuse(c, CookieSecurityAction.TenantMismatch, { cookieTenant: boundTo ?? null, requestTenant: code });
           token = null;
         }
       }
@@ -202,7 +218,7 @@ export function createCookieSessions(options: CookieSessionOptions): CookieSessi
       await next();
       if (signingIn) {
         c.res = await intoCookies(jar, c.res, secure, (issued) => (bindsTenant ? `${code ?? ""}${SESSION_SEPARATOR}${issued}` : issued));
-      } else if (c.req.method === "POST" && pathname === jar.signOut) {
+      } else if ((c.req.method === "POST" && pathname === jar.signOut) || (token !== null && (await sessionIsGone(c.res)))) {
         c.res = clearing(jar, c.res, secure);
       }
     };

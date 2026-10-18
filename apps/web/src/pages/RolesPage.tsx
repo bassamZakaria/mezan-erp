@@ -46,7 +46,7 @@ export function RolesPage({ roles, usersByRoleId, onCreate, onEdit, onDuplicate,
 
   const columns: DocumentListColumn<Role>[] = [
     { key: "name", header: t("roles.roleName"), sortable: true, render: (row) => <span className="font-semibold text-ink">{row.name}</span> },
-    { key: "code", header: t("common.code"), render: (row) => <span className="mz-lat font-mono text-[11.5px] text-ink-faint">{row.code}</span> },
+    { key: "code", header: t("common.code"), render: (row) => <code dir="ltr" className="mz-lat font-mono text-[11.5px] text-ink-faint">{row.code}</code> },
     { key: "count", header: t("roles.permissions"), align: "end", render: (row) => <span className="mz-num">{row.permissions.length}</span> },
     {
       key: "kind",

@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Button, Card, EmptyState, Money as MoneyValue, StatusPill, formatQty } from "@mezan/ui";
-import { ExpiryStatus, can, createAuthContext, createInventoryBatchesReport, DEFAULT_NEAR_EXPIRY_DAYS } from "@mezan/domain";
+import { ExpiryStatus, can, createAuthContext, createInventoryBatchesReport, DEFAULT_NEAR_EXPIRY_DAYS, type InventoryBatchesRow } from "@mezan/domain";
 import type { BatchTrailEntryDTO, ExpiryWriteOffResultDTO } from "@mezan/contracts";
 import { useApi } from "../../../data/ApiContext";
 import { useConfirmStockAdjustment, useItems, useWarehouses } from "../../../data/hooks";
@@ -45,6 +45,8 @@ const STATUS_KEY: Record<string, AppTranslationKey> = {
   [ExpiryStatus.NoExpiry]: "expiry.status.noExpiry",
 };
 
+const STATUS_LABEL_COLUMN = "statusLabel";
+
 const TH = "border-b border-border bg-surface-2 px-[12px] py-[9px] text-start text-[11px] font-bold uppercase text-ink-muted";
 const TH_END = "border-b border-border bg-surface-2 px-[12px] py-[9px] text-end text-[11px] font-bold uppercase text-ink-muted";
 const TD = "px-[12px] py-[9px]";
@@ -79,11 +81,19 @@ function ErrorNote({ message }: { message: string }) {
 }
 
 function BatchesTab() {
+  const { t } = useAppTranslation();
   const settings = useExpirySettings();
   const days = settings.data?.nearExpiryDays ?? DEFAULT_NEAR_EXPIRY_DAYS;
-  const definition = useMemo(() => createInventoryBatchesReport(todayIso(), days), [days]);
+  const definition = useMemo(() => {
+    const report = createInventoryBatchesReport(todayIso(), days);
+    return {
+      ...report,
+      descriptionAr: t("expiry.batches.description", { days }),
+      columns: report.columns.map((column) => (column.key === STATUS_LABEL_COLUMN ? { ...column, value: (row: InventoryBatchesRow) => t(STATUS_KEY[row.status] ?? "expiry.status.noExpiry") } : column)),
+    };
+  }, [days, t]);
   if (settings.isLoading) return null;
-  return <ReportScreen key={days} definition={definition} apiPath="/inventory/batches" />;
+  return <ReportScreen key={days} definition={definition} apiPath="/inventory/batches" nested />;
 }
 
 function WriteOffTab() {

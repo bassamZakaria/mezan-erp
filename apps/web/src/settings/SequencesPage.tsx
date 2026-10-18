@@ -57,7 +57,7 @@ export function SequencesPage() {
   const annualResetCount = sequences.filter((s) => s.annualReset).length;
 
   const columns: DocumentListColumn<SequenceListItemDTO>[] = [
-    { key: "code", header: t("sequences.col.code"), render: (s) => <span className="mz-num font-semibold text-ink">{s.code}</span> },
+    { key: "code", header: t("sequences.col.code"), render: (s) => <code dir="ltr" className="mz-lat font-mono text-[11.5px] font-semibold text-ink">{s.code}</code> },
     { key: "labelAr", header: t("sequences.col.label"), render: (s) => <span className="text-ink">{sequenceLabel(s, t)}</span> },
     { key: "prefix", header: t("sequences.col.prefix"), render: (s) => <span className="mz-num text-ink-muted">{s.prefix || "—"}</span> },
     { key: "padLength", header: t("sequences.col.padLength"), align: "end", render: (s) => <span className="mz-num">{s.padLength}</span> },

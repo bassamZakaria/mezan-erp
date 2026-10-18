@@ -621,6 +621,7 @@ function ItemsTable({ forecast, selectedDay, onClearDay }: { forecast: CashForec
 
   return (
     <DocumentList<CashForecastItemDTO>
+      nested
       title={t("cashForecast.items.title")}
       description={t("cashForecast.items.hint")}
       filterBarExtra={

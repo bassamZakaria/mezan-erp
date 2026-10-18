@@ -38,6 +38,7 @@ export interface ReportScreenDefinition<TParams, Row> {
 
 export interface ReportScreenProps<TParams, Row> {
   readonly definition: ReportScreenDefinition<TParams, Row>;
+  readonly nested?: boolean;
   readonly apiPath: string;
   /**
    * Mount the path hangs off. The seven financial statements live under
@@ -58,7 +59,7 @@ function toStringParams(defaults: object): Record<string, string> {
   );
 }
 
-export function ReportScreen<TParams extends object, Row>({ definition: rawDefinition, apiPath, apiRoot, renderSummary, onDemand: onDemandOverride }: ReportScreenProps<TParams, Row>) {
+export function ReportScreen<TParams extends object, Row>({ definition: rawDefinition, apiPath, apiRoot, renderSummary, onDemand: onDemandOverride, nested }: ReportScreenProps<TParams, Row>) {
   const { t, locale } = useAppTranslation();
   const definition = localizeReportDefinition(rawDefinition, t);
   const onDemand = onDemandOverride ?? definition.onDemand ?? false;
@@ -172,6 +173,7 @@ export function ReportScreen<TParams extends object, Row>({ definition: rawDefin
   return (
     <ReportRunner
       title={definition.titleAr}
+      nested={nested}
       description={caveat ? [definition.descriptionAr, caveat].filter(Boolean).join(" ") : definition.descriptionAr}
       notice={query.data?.branchCaveat ? <BranchCaveatNote caveat={query.data.branchCaveat} /> : undefined}
       paramFields={paramFields}

@@ -69,6 +69,8 @@ export interface DocumentListSort {
 
 export interface DocumentListProps<Row> {
   title: string;
+  /** Set when the list sits under a screen that already carries the page's one h1. */
+  nested?: boolean;
   description?: string;
   actions?: ReactNode;
   stats?: DocumentListStat[];
@@ -230,6 +232,7 @@ function getPageItems(current: number, total: number): (number | "ellipsis")[] {
 
 export function DocumentList<Row>({
   title,
+  nested = false,
   description,
   actions,
   stats,
@@ -393,7 +396,7 @@ export function DocumentList<Row>({
     <div className={cn("w-full", className)}>
       <div className="mb-[16px] flex flex-wrap items-end justify-between gap-[18px]">
         <div>
-          {title ? <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">{title}</h1> : null}
+          {title ? nested ? <h2 className="mt-[5px] font-display text-2xl font-bold text-ink">{title}</h2> : <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">{title}</h1> : null}
           {description ? <p className="mt-[5px] max-w-[62ch] text-[12.5px] text-ink-muted">{description}</p> : null}
         </div>
         {actions ? <div className="flex flex-wrap items-center gap-[9px]">{actions}</div> : null}

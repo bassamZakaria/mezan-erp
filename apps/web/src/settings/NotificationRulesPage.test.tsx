@@ -88,7 +88,7 @@ describe("NotificationRulesPage", () => {
 
     const dialog = screen.getByRole("dialog", { name: "إضافة قاعدة" });
     await user.type(textboxByLabel(dialog, "اسم القاعدة *"), "نقص مخزون حرج");
-    chooseSelectOption("الحدث *", /LOW_STOCK_DETECTED/);
+    chooseSelectOption("الحدث *", /^انخفاض مخزون عن الحد الأدنى/);
     chooseSelectOption("قيمة المستلم *", /sales\.invoice\.view$/);
     await user.click(within(dialog).getByRole("button", { name: "إضافة" }));
 

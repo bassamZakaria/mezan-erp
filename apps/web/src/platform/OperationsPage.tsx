@@ -4,6 +4,9 @@ import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { usePlatformApi } from "./api";
 import { usePlatformOperationsQuery } from "./hooks";
 
+// INVARIANT: the server reads its alert address from this environment variable (apps/server/src/env.ts).
+const ALERT_EMAIL_VARIABLE = "MEZAN_ALERT_EMAIL";
+
 const LEVEL_TONE: Readonly<Record<HealthLevelDTO, PillTone>> = {
   [HealthLevelDTO.Ok]: "success",
   [HealthLevelDTO.Warn]: "warning",
@@ -108,7 +111,16 @@ export function OperationsPage() {
               ))}
             </ul>
             <p className={data.alertsConfigured ? "text-[12px] text-ink-muted" : "text-[12px] font-semibold text-warning-ink"}>
-              {t(data.alertsConfigured ? "platform.operations.alertsConfigured" : "platform.operations.alertsNotConfigured")}
+              {data.alertsConfigured ? (
+                t("platform.operations.alertsConfigured")
+              ) : (
+                <>
+                  {t("platform.operations.alertsNotConfigured")}{" "}
+                  <code dir="ltr" className="mz-lat font-mono">
+                    {ALERT_EMAIL_VARIABLE}
+                  </code>
+                </>
+              )}
             </p>
           </Card>
           <div className="grid grid-cols-1 gap-[14px] md:grid-cols-2">

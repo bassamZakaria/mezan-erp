@@ -634,6 +634,7 @@ export function RetentionScreen() {
       </Card>
 
       <DocumentList<RetentionReleaseDTO>
+        nested
         title={t("retention.releasesTitle")}
         description={t("retention.releasesDescription")}
         listKey="contracting-retention-releases"

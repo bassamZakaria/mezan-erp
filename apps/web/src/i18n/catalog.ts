@@ -5,6 +5,7 @@ import { enhAr, enhEn } from "../screens/enh/nav";
 import { hrSelfAr, hrSelfEn } from "../screens/hr-self-strings";
 import { reversalAr, reversalEn } from "../reversal/strings";
 import { hrPagesAr, hrPagesEn } from "../screens/hr-pages-strings";
+import { auditCodeAr, auditCodeEn } from "../screens/enh/audit-ledger/audit-code-strings";
 import { backupProtectionAr, backupProtectionEn } from "../settings/backup-protection-strings";
 
 /**
@@ -10058,6 +10059,7 @@ const webAr = {
   ...hrSelfAr,
   ...reversalAr,
   ...hrPagesAr,
+  ...auditCodeAr,
   ...backupProtectionAr,
 } as const;
 
@@ -20116,6 +20118,7 @@ const webEn: Record<WebTranslationKey, string> = {
   ...hrSelfEn,
   ...reversalEn,
   ...hrPagesEn,
+  ...auditCodeEn,
   ...backupProtectionEn,
 };
 

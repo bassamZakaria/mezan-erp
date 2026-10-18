@@ -139,7 +139,7 @@ test.describe("PLT-SAAS-01..06 — the platform console and the tenant it create
     await openTenantDetail(page, TENANT_CODE);
     await expect(page.getByRole("heading", { name: TENANT_NAME, level: 1 })).toBeVisible();
     await expect(page.locator("main")).toContainText(/حالة الاشتراك\s*تجريبي/);
-    await expect(page.locator("main")).toContainText(/نهاية التجربة\s*\d{2}\/\d{2}\/\d{4}/);
+    await expect(page.locator("main")).toContainText(/نهاية الفترة التجريبية\s*\d{2}\/\d{2}\/\d{4}/);
   });
 
   test("PLT-SAAS-02 the tenants list marks the trialing tenant as تجريبي, not as a paid licence [guards D-SAAS-09]", async ({ page }) => {

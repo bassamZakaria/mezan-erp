@@ -35,6 +35,13 @@ export enum CurrentSecretRefusal {
   IncorrectPin = "INCORRECT_PIN",
 }
 
+// CONTRACT: a browser whose session cookie was issued by one tenant and whose
+// request names another answers 403 with this code; the cookie is neither
+// presented to that tenant nor expired, so the session it belongs to lives on.
+export enum SessionRefusal {
+  TenantMismatch = "SESSION_TENANT_MISMATCH",
+}
+
 export const stepUpRequestSchema = z.object({ pin: z.string().regex(/^\d{6}$/) });
 export type StepUpRequestDTO = z.infer<typeof stepUpRequestSchema>;
 

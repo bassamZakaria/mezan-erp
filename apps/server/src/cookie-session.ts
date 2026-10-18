@@ -1,7 +1,7 @@
 import { createHmac, randomBytes } from "node:crypto";
 import type { Context, MiddlewareHandler } from "hono";
 import { generateCookie, getCookie } from "hono/cookie";
-import { CSRF_HEADER, CsrfCookie, DEVICE_BINDING_HEADER, DEVICE_SECRET_HEADER, DeviceBinding } from "@mezan/contracts";
+import { CSRF_HEADER, CsrfCookie, DEVICE_BINDING_HEADER, DEVICE_SECRET_HEADER, DeviceBinding, SessionRefusal } from "@mezan/contracts";
 import { MAX_SESSION_MS, tokensMatch } from "@mezan/api";
 import { recordSecurityEventOrFallback, type AuditSink } from "@mezan/domain";
 import { requestHost, resolveTenantCode, type TenantResolverOptions } from "./tenant-resolver.js";
@@ -39,6 +39,8 @@ const SESSION_SEPARATOR = ".";
 const UNSAFE_METHOD = /^(?!GET$|HEAD$|OPTIONS$)/;
 const SAME_ORIGIN = "same-origin";
 const NO_FETCH_SITE = "none";
+const TENANT_MISMATCH_MESSAGE = "جلستك الحالية تخص شركة أخرى. افتح الشركة التي سجّلت الدخول إليها، أو سجّل الدخول إلى هذه الشركة.";
+const TENANT_MISMATCH_MESSAGE_EN = "Your session belongs to another company. Open the company you signed in to, or sign in to this one.";
 
 export interface CookieSessionOptions {
   readonly trustProxy: boolean;
@@ -191,6 +193,7 @@ export function createCookieSessions(options: CookieSessionOptions): CookieSessi
       const device = getCookie(c, jar.device);
       const stored = presentsBearer(c) || signingIn ? undefined : getCookie(c, jar.session);
       let token: string | null = null;
+      let otherTenant = false;
       if (stored) {
         const at = stored.indexOf(SESSION_SEPARATOR);
         const boundTo = bindsTenant ? stored.slice(0, Math.max(at, 0)) : undefined;
@@ -198,7 +201,10 @@ export function createCookieSessions(options: CookieSessionOptions): CookieSessi
         // SECURITY: a tenant cookie names the tenant it was issued by, and is
         // never presented to any other one.
         if (bindsTenant && (code === null || boundTo !== code)) {
-          if (code !== null) await refuse(c, CookieSecurityAction.TenantMismatch, { cookieTenant: boundTo ?? null, requestTenant: code });
+          if (code !== null) {
+            await refuse(c, CookieSecurityAction.TenantMismatch, { cookieTenant: boundTo ?? null, requestTenant: code });
+            otherTenant = true;
+          }
           token = null;
         }
       }
@@ -212,11 +218,13 @@ export function createCookieSessions(options: CookieSessionOptions): CookieSessi
       }
       withHeaders(c, (headers) => {
         if (token !== null) headers.set("authorization", `Bearer ${token}`);
-        if (device && !headers.has(DEVICE_SECRET_HEADER)) headers.set(DEVICE_SECRET_HEADER, device);
+        if (device && !otherTenant && !headers.has(DEVICE_SECRET_HEADER)) headers.set(DEVICE_SECRET_HEADER, device);
         if (signingIn) headers.set(DEVICE_BINDING_HEADER, DeviceBinding.Header);
       });
       await next();
-      if (signingIn) {
+      if (otherTenant) {
+        if (c.res.status === 401) c.res = c.json({ error: SessionRefusal.TenantMismatch, message: TENANT_MISMATCH_MESSAGE, messageEn: TENANT_MISMATCH_MESSAGE_EN }, 403);
+      } else if (signingIn) {
         c.res = await intoCookies(jar, c.res, secure, (issued) => (bindsTenant ? `${code ?? ""}${SESSION_SEPARATOR}${issued}` : issued));
       } else if ((c.req.method === "POST" && pathname === jar.signOut) || (token !== null && (await sessionIsGone(c.res)))) {
         c.res = clearing(jar, c.res, secure);

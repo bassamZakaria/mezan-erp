@@ -1,4 +1,4 @@
-import { useId, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Button, Card, Money, TextInput } from "@mezan/ui";
 import type { BillingCycleDTO, PublicPlanDTO, StartSignupRequestDTO, StartSignupResultDTO } from "@mezan/contracts";
@@ -7,8 +7,38 @@ import { COMPANY_NAME_MAX_LENGTH } from "@mezan/contracts";
 import { Field, FormError, TextField } from "../settings/form-controls";
 import { SignupLayout } from "./SignupLayout";
 import { checkCodeAvailability, fetchPublicPlans, SignupApiError, startSignup } from "./signup-api";
+import type { AppTranslationKey } from "../i18n";
 
 const TENANT_CODE_RE = /^[a-z0-9](?:[a-z0-9-]{1,30}[a-z0-9])$/;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+enum SignupField {
+  NameAr = "nameAr",
+  Code = "code",
+  OwnerNameAr = "ownerNameAr",
+  OwnerEmail = "ownerEmail",
+  Plan = "planId",
+}
+
+const FIELD_ORDER: readonly SignupField[] = [SignupField.NameAr, SignupField.Code, SignupField.OwnerNameAr, SignupField.OwnerEmail, SignupField.Plan];
+
+const FIELD_LABEL: Record<SignupField, AppTranslationKey> = {
+  [SignupField.NameAr]: "signup.companyNameAr",
+  [SignupField.Code]: "signup.tenantCode",
+  [SignupField.OwnerNameAr]: "signup.ownerNameAr",
+  [SignupField.OwnerEmail]: "signup.ownerEmail",
+  [SignupField.Plan]: "signup.error.planField",
+};
+
+const FIELD_REQUIRED: Record<SignupField, AppTranslationKey> = {
+  [SignupField.NameAr]: "signup.error.nameArRequired",
+  [SignupField.Code]: "signup.error.codeRequired",
+  [SignupField.OwnerNameAr]: "signup.error.ownerNameRequired",
+  [SignupField.OwnerEmail]: "signup.error.ownerEmailRequired",
+  [SignupField.Plan]: "signup.error.planRequired",
+};
+
+type FieldErrors = Partial<Record<SignupField, string>>;
 
 type CodeStatus = "idle" | "checking" | "available" | "taken" | "invalid" | "unknown";
 
@@ -90,6 +120,46 @@ export function SignupScreen() {
   const [codeStatus, setCodeStatus] = useState<CodeStatus>("idle");
   const codeId = useId();
   const [formError, setFormError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
+  const planErrorId = useId();
+  const codeErrorId = useId();
+  const nameArRef = useRef<HTMLInputElement>(null);
+  const codeRef = useRef<HTMLInputElement>(null);
+  const ownerNameRef = useRef<HTMLInputElement>(null);
+  const ownerEmailRef = useRef<HTMLInputElement>(null);
+  const planRef = useRef<HTMLDivElement>(null);
+
+  function edit(field: SignupField | null, change: (d: Draft) => Draft) {
+    setDraft(change);
+    if (field !== null) setFieldErrors((errors) => (errors[field] ? { ...errors, [field]: undefined } : errors));
+  }
+
+  function focusField(field: SignupField) {
+    const target = {
+      [SignupField.NameAr]: nameArRef,
+      [SignupField.Code]: codeRef,
+      [SignupField.OwnerNameAr]: ownerNameRef,
+      [SignupField.OwnerEmail]: ownerEmailRef,
+      [SignupField.Plan]: planRef,
+    }[field].current;
+    target?.scrollIntoView?.({ block: "center" });
+    target?.focus();
+  }
+
+  function validate(): FieldErrors {
+    const errors: FieldErrors = {};
+    const blank: Record<SignupField, boolean> = {
+      [SignupField.NameAr]: draft.nameAr.trim() === "",
+      [SignupField.Code]: draft.code.trim() === "",
+      [SignupField.OwnerNameAr]: draft.ownerNameAr.trim() === "",
+      [SignupField.OwnerEmail]: draft.ownerEmail.trim() === "",
+      [SignupField.Plan]: draft.planId === "",
+    };
+    for (const field of FIELD_ORDER) if (blank[field]) errors[field] = t(FIELD_REQUIRED[field]);
+    if (!blank[SignupField.Code] && !TENANT_CODE_RE.test(draft.code)) errors[SignupField.Code] = t("signup.tenantCodeInvalid");
+    if (!blank[SignupField.OwnerEmail] && !EMAIL_RE.test(draft.ownerEmail.trim())) errors[SignupField.OwnerEmail] = t("signup.error.ownerEmailInvalid");
+    return errors;
+  }
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<StartSignupResultDTO | null>(null);
 
@@ -113,18 +183,12 @@ export function SignupScreen() {
 
   async function handleSubmit() {
     setFormError(null);
-    if (
-      draft.nameAr.trim() === "" ||
-      draft.code.trim() === "" ||
-      draft.ownerNameAr.trim() === "" ||
-      draft.ownerEmail.trim() === "" ||
-      draft.planId === ""
-    ) {
-      setFormError(t("signup.error.required"));
-      return;
-    }
-    if (!TENANT_CODE_RE.test(draft.code)) {
-      setFormError(t("signup.tenantCodeInvalid"));
+    const errors = validate();
+    setFieldErrors(errors);
+    const invalid = FIELD_ORDER.filter((field) => errors[field]);
+    if (invalid.length > 0) {
+      setFormError(t("signup.error.requiredList", { fields: invalid.map((field) => t(FIELD_LABEL[field])).join(t("signup.error.fieldSeparator")) }));
+      focusField(invalid[0]!);
       return;
     }
     const body: StartSignupRequestDTO = {
@@ -177,35 +241,58 @@ export function SignupScreen() {
         <FormError message={formError} />
 
         <div className="grid gap-[12px] sm:grid-cols-2">
-          <TextField label={t("signup.companyNameAr")} value={draft.nameAr} maxLength={COMPANY_NAME_MAX_LENGTH} onChange={(v) => setDraft((d) => ({ ...d, nameAr: v }))} />
+          <TextField
+            label={t("signup.companyNameAr")}
+            value={draft.nameAr}
+            maxLength={COMPANY_NAME_MAX_LENGTH}
+            error={fieldErrors[SignupField.NameAr]}
+            inputRef={nameArRef}
+            onChange={(v) => edit(SignupField.NameAr, (d) => ({ ...d, nameAr: v }))}
+          />
           <TextField
             label={t("signup.companyNameEn")}
             value={draft.nameEn}
             placeholder={t("signup.companyNameEnOptional")}
-            onChange={(v) => setDraft((d) => ({ ...d, nameEn: v }))}
+            onChange={(v) => edit(null, (d) => ({ ...d, nameEn: v }))}
           />
         </div>
 
-        <Field label={t("signup.tenantCode")} hint={codeHint} htmlFor={codeId}>
+        <Field
+          label={t("signup.tenantCode")}
+          hint={fieldErrors[SignupField.Code] ? undefined : codeHint}
+          error={fieldErrors[SignupField.Code] ? <span id={codeErrorId}>{fieldErrors[SignupField.Code]}</span> : undefined}
+          htmlFor={codeId}
+        >
           <TextInput
             id={codeId}
+            ref={codeRef}
             value={draft.code}
             dir="ltr"
             className="mz-lat"
             placeholder="acme"
-            invalid={codeStatus === "taken" || codeStatus === "invalid"}
-            onChange={(e) => setDraft((d) => ({ ...d, code: e.target.value.toLowerCase() }))}
+            invalid={codeStatus === "taken" || codeStatus === "invalid" || Boolean(fieldErrors[SignupField.Code])}
+            aria-invalid={fieldErrors[SignupField.Code] ? true : undefined}
+            aria-describedby={fieldErrors[SignupField.Code] ? codeErrorId : undefined}
+            onChange={(e) => edit(SignupField.Code, (d) => ({ ...d, code: e.target.value.toLowerCase() }))}
             onBlur={handleCodeBlur}
           />
         </Field>
 
         <div className="grid gap-[12px] sm:grid-cols-2">
-          <TextField label={t("signup.ownerNameAr")} value={draft.ownerNameAr} onChange={(v) => setDraft((d) => ({ ...d, ownerNameAr: v }))} />
+          <TextField
+            label={t("signup.ownerNameAr")}
+            value={draft.ownerNameAr}
+            error={fieldErrors[SignupField.OwnerNameAr]}
+            inputRef={ownerNameRef}
+            onChange={(v) => edit(SignupField.OwnerNameAr, (d) => ({ ...d, ownerNameAr: v }))}
+          />
           <TextField
             label={t("signup.ownerEmail")}
             type="email"
             value={draft.ownerEmail}
-            onChange={(v) => setDraft((d) => ({ ...d, ownerEmail: v }))}
+            error={fieldErrors[SignupField.OwnerEmail]}
+            inputRef={ownerEmailRef}
+            onChange={(v) => edit(SignupField.OwnerEmail, (d) => ({ ...d, ownerEmail: v }))}
           />
         </div>
 
@@ -219,11 +306,20 @@ export function SignupScreen() {
             tabIndex={-1}
             autoComplete="off"
             value={draft.website}
-            onChange={(e) => setDraft((d) => ({ ...d, website: e.target.value }))}
+            onChange={(e) => edit(null, (d) => ({ ...d, website: e.target.value }))}
           />
         </label>
 
-        <div>
+        <div
+          ref={planRef}
+          tabIndex={-1}
+          role="group"
+          aria-label={t("signup.plan")}
+          aria-invalid={fieldErrors[SignupField.Plan] ? true : undefined}
+          aria-describedby={fieldErrors[SignupField.Plan] ? planErrorId : undefined}
+          data-testid="signup-plan-picker"
+          className={`rounded-md outline-none ${fieldErrors[SignupField.Plan] ? "border-2 border-danger p-[10px]" : ""}`}
+        >
           <span className="mb-[8px] block text-xs font-semibold text-ink">{t("signup.plan")}</span>
           <div className="mb-[10px] inline-flex rounded-md border border-border p-[2px]">
             {(["monthly", "yearly"] as const).map((cycle) => (
@@ -248,10 +344,15 @@ export function SignupScreen() {
           ) : (
             <div className="flex flex-col gap-[10px] sm:flex-row">
               {plans.map((plan) => (
-                <PlanCard key={plan.id} plan={plan} cycle={draft.billingCycle} selected={draft.planId === plan.id} onSelect={() => setDraft((d) => ({ ...d, planId: plan.id }))} />
+                <PlanCard key={plan.id} plan={plan} cycle={draft.billingCycle} selected={draft.planId === plan.id} onSelect={() => edit(SignupField.Plan, (d) => ({ ...d, planId: plan.id }))} />
               ))}
             </div>
           )}
+          {fieldErrors[SignupField.Plan] ? (
+            <p id={planErrorId} className="mt-[8px] text-[12px] font-semibold text-danger-ink">
+              {fieldErrors[SignupField.Plan]}
+            </p>
+          ) : null}
         </div>
 
         <p className="text-[11px] text-ink-faint">{t("signup.afterTrialNote")}</p>

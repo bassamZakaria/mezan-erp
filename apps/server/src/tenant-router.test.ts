@@ -508,7 +508,10 @@ describe("createTenantRouter", () => {
 
       expect(res.status).toBe(409);
       expect(await res.json()).toEqual({ error: "TENANT_ALREADY_PROVISIONED", message: "تم إعداد هذه المنشأة بالفعل. سجّل الدخول بحسابك." });
-      expect(await status.json()).toMatchObject({ claimed: true, users: 1 });
+      const statusBody = (await status.json()) as Record<string, unknown>;
+      expect(statusBody).toMatchObject({ claimed: true });
+      expect(statusBody).not.toHaveProperty("users");
+      expect(statusBody).not.toHaveProperty("accounts");
     });
 
     it("leaves a tenant still being provisioned claimable by the platform's own provisioning, which reaches its backend directly", async () => {

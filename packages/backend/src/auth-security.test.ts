@@ -81,6 +81,25 @@ describe("POST /bootstrap/admin — claiming an install, and only an unclaimed o
     expect(((await second.json()) as { error: string }).error).toBe("TENANT_ALREADY_PROVISIONED");
   });
 
+  it("answers a claimed tenant's record counts only to a signed-in session; an anonymous caller learns the flags", async () => {
+    const app = await newBackend();
+    const before = (await (await get(app, "/bootstrap/status")).json()) as Record<string, unknown>;
+    expect(before).toMatchObject({ claimed: false });
+    expect(before).toHaveProperty("accounts");
+
+    const claim = await post(app, "/bootstrap/admin", { nameAr: "بسام زكريا", email: "owner@shop.test", pin: "246813", companyName: "متجر الاختبار" });
+    const session = (await claim.json()) as SessionDTO & { token: string };
+
+    const anonymous = (await (await get(app, "/bootstrap/status")).json()) as Record<string, unknown>;
+    expect(anonymous).toEqual({ claimed: true, demoSeeded: false });
+    const forged = (await (await get(app, "/bootstrap/status", { authorization: "Bearer not-a-session" })).json()) as Record<string, unknown>;
+    expect(forged).not.toHaveProperty("users");
+
+    const signedIn = (await (await get(app, "/bootstrap/status", { authorization: `Bearer ${session.token}` })).json()) as Record<string, unknown>;
+    expect(signedIn).toMatchObject({ claimed: true });
+    expect(signedIn["users"]).toBeGreaterThan(0);
+  });
+
   it("hands back NO session when it refuses — not a token, not a permission list", async () => {
     // The status code alone is not the security property. A 409 that still
     // carried a token would be the same takeover with a different number on

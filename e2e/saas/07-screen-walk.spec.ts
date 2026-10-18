@@ -241,6 +241,8 @@ interface TenantScreen {
   readonly checksEnglishCopy?: boolean;
 }
 
+// A dev server compiling a screen chunk for the first time, on a loaded machine, can hold the splash past the default.
+const FIRST_PAINT_TIMEOUT_MS = 60_000;
 const NOT_A_NAV_DESTINATION: readonly string[] = ["role-editor"];
 const PAYABLE_RUN_STATUSES: readonly string[] = ["approved", "disbursed"];
 
@@ -370,7 +372,7 @@ test.describe("Every tenant-app screen the nav reaches — the seeded Enterprise
         const page = await context.newPage();
         const watch = watchPage(page);
         await page.goto(`${DEMO_WEB_URL}${screen.path()}`);
-        await expect(page.locator("h1").first()).toBeVisible();
+        await expect(page.locator("h1").first()).toBeVisible({ timeout: FIRST_PAINT_TIMEOUT_MS });
         await screen.open?.(page, look);
         await expect.soft(page.locator("html"), `${screen.name}: text direction follows the locale`).toHaveAttribute("dir", look.locale === Locale.Arabic ? "rtl" : "ltr");
         await expect.soft(page.locator("html"), `${screen.name}: theme applies`).toHaveAttribute("data-theme", look.theme);

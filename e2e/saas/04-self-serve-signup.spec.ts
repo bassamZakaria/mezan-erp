@@ -1,6 +1,6 @@
 import { test, expect } from "./support/test";
 import { ApiError, BillingCycle, CodePrefix, HttpMethod, PlanCode, PlanId, SAAS_API_URL, SubscriptionStatus, TENANT_HEADER, FORWARDED_FOR_HEADER, browserSource, proxiedSource, uniqueCode } from "./support/env";
-import { errorOf, invoiceDrafts, rowsOf, storedSession, tenantApiLogin, tenantCall, tenantSignIn, type TenantLogin } from "./support/saas";
+import { errorOf, fillPin, invoiceDrafts, provisionTenant, rowsOf, storedSession, tenantApiLogin, tenantCall, tenantSignIn, tenantSignOut, type TenantLogin } from "./support/saas";
 
 const CODE = uniqueCode(CodePrefix.SignedUp);
 const COMPANY = "متجر الياسمين";
@@ -180,6 +180,37 @@ test.describe("Self-serve signup — form, verification link, first sign-in", ()
     await expect(sheet.getByText(COMPANY, { exact: true }).first()).toBeVisible();
     await expect(sheet).not.toContainText(VENDOR_NAME);
     expect(rowsOf((await tenantCall(request, api, HttpMethod.Get, "/sales-invoices")).body)).toHaveLength(1);
+  });
+
+  test("«الذهاب لتسجيل الدخول» opens sign-in on the company just activated, with its owner's address and no other company's face — not on the company this browser used before", async ({ page, request }) => {
+    for (const prefix of [CodePrefix.SignedInBefore, CodePrefix.SignedInBeforeToo]) {
+      const earlier = await provisionTenant(request, { code: uniqueCode(prefix), nameAr: "منشأة سابقة", ownerNameAr: "مدير سابق", planId: PlanId.Core, trial: true });
+      await tenantSignIn(page, earlier);
+      await tenantSignOut(page);
+    }
+    await expect(page.getByRole("radio"), "the device now remembers an earlier company's face").not.toHaveCount(0);
+
+    const code = uniqueCode(CodePrefix.HandedOver);
+    const ownerEmail = `owner@${code}.example`;
+    const start = await request.post(`${SAAS_API_URL}/api/signup`, {
+      headers: freshSource(),
+      data: { code, nameAr: "منشأة التسليم", ownerEmail, ownerNameAr: "هالة التسليم", planId: PlanId.Core, billingCycle: BillingCycle.Monthly },
+    });
+    expect(start.status(), await start.text()).toBe(201);
+    const verifyLink = new URL(((await start.json()) as { devVerifyUrl: string }).devVerifyUrl);
+
+    const verified = page.waitForResponse((r) => new URL(r.url()).pathname === "/api/signup/verify");
+    await page.goto(verifyLink.pathname + verifyLink.search);
+    const { adminPin } = (await (await verified).json()) as { adminPin: string };
+    await page.getByRole("button", { name: "الذهاب لتسجيل الدخول" }).click();
+
+    await expect(page.getByRole("textbox", { name: "رمز المنشأة" })).toHaveValue(code);
+    await expect(page.getByRole("textbox", { name: "البريد الإلكتروني" })).toHaveValue(ownerEmail);
+    await expect(page.getByRole("radio"), "no earlier company's face is offered").toHaveCount(0);
+
+    await fillPin(page, adminPin);
+    await expect(page.getByRole("button", { name: "تسجيل الخروج" })).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1 })).toContainText("هالة");
   });
 
   test("the request body cannot choose its own trial plan", async ({ request }) => {

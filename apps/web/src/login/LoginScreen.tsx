@@ -10,6 +10,7 @@ import { OWNER_HAND_OVER_NOTICE_KEYS } from "../data/owner-hand-over-notice";
 import {
   SignInNotice,
   clearOwnerHandOver,
+  clearSignInHandOff,
   clearSignInNotice,
   clearTenantCode,
   forgetTenantCodeForEmail,
@@ -20,6 +21,7 @@ import {
   pendingSignInNotice,
   rememberTenantCodeForEmail,
   pendingOwnerHandOver,
+  pendingSignInHandOff,
   tenantCodeIsLeftover,
   tenantCodeConfirmedThisVisit,
   tenantCodeForEmail,
@@ -133,11 +135,12 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
   });
   const tenantNotFound = resolvedCode !== "" && tenantInfo.isError && tenantInfo.error?.status === 404;
 
+  const [handOff] = useState(pendingSignInHandOff);
   const [remembered, setRemembered] = useState<DeviceUser[]>(() => readDeviceUsers(openingTenantCode()));
-  const [selected, setSelected] = useState<DeviceUser | null>(remembered[0] ?? null);
-  /** True once «آخر» is chosen, or when the device remembers nobody at all. */
-  const [typing, setTyping] = useState(remembered.length === 0);
-  const [username, setUsername] = useState(remembered[0]?.email ?? "");
+  const [selected, setSelected] = useState<DeviceUser | null>(handOff ? null : (remembered[0] ?? null));
+  /** True once «آخر» is chosen, when the device remembers nobody at all, or when activation handed over its owner's address. */
+  const [typing, setTyping] = useState(handOff !== null || remembered.length === 0);
+  const [username, setUsername] = useState(handOff?.email ?? remembered[0]?.email ?? "");
   const desktopHost = isDesktopHost();
   const oneCompanyHost = holdsItsOwnBooks(lookupHost, noPlatformInFront(platformResolve.error));
   const bootstrap = useBootstrapStatus({ enabled: oneCompanyHost });
@@ -158,7 +161,7 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
    * be corrected straight back to whichever one they used last, and could
    * never reach the second (security review, item 3 finding 1).
    */
-  const codeConfirmedThisVisitRef = useRef(tenantCodeConfirmedThisVisit());
+  const codeConfirmedThisVisitRef = useRef(tenantCodeConfirmedThisVisit() || handOff !== null);
 
   /**
    * A different company's rows must never survive a tenant switch on the
@@ -180,6 +183,7 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
     const before = loadTenantCode();
     apply();
     if (loadTenantCode() === before) return;
+    clearSignInHandOff();
     queryClient.clear();
     const list = readDeviceUsers();
     setRemembered(list);
@@ -352,6 +356,7 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
       {
         onSuccess: (session) => {
           clearSignInNotice();
+          clearSignInHandOff();
           clearOwnerHandOver();
           clearTenantCodeConfirmed();
           rememberDeviceUser(session);

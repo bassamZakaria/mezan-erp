@@ -301,7 +301,40 @@ export function deviceSharedAcrossTenants(): boolean {
 }
 
 export function tenantCodeIsLeftover(): boolean {
-  return loadTenantCode() !== null && deviceSharedAcrossTenants() && !tenantCodeConfirmedThisVisit();
+  return loadTenantCode() !== null && deviceSharedAcrossTenants() && !tenantCodeConfirmedThisVisit() && pendingSignInHandOff() === null;
+}
+
+const SIGN_IN_HAND_OFF_KEY = "mezan.signInHandOff";
+
+export interface SignInHandOff {
+  readonly tenantCode: string;
+  readonly email: string;
+}
+
+// SECURITY: tab storage only. The address is the one the activation screen in
+// this same tab has just shown; a sign-in screen opened anywhere else must
+// still name no account.
+export function handOffSignIn(tenantCode: string, email: string): void {
+  persistTenantCode(tenantCode);
+  const code = loadTenantCode();
+  if (!code) return;
+  getTabStorage()?.setItem(SIGN_IN_HAND_OFF_KEY, JSON.stringify({ tenantCode: code, email: email.trim() }));
+}
+
+export function pendingSignInHandOff(): SignInHandOff | null {
+  const raw = getTabStorage()?.getItem(SIGN_IN_HAND_OFF_KEY) ?? null;
+  if (raw === null) return null;
+  try {
+    const parsed = JSON.parse(raw) as { tenantCode?: unknown; email?: unknown };
+    if (typeof parsed.tenantCode !== "string" || typeof parsed.email !== "string") return null;
+    return parsed.tenantCode === loadTenantCode() ? { tenantCode: parsed.tenantCode, email: parsed.email } : null;
+  } catch {
+    return null;
+  }
+}
+
+export function clearSignInHandOff(): void {
+  getTabStorage()?.removeItem(SIGN_IN_HAND_OFF_KEY);
 }
 
 export function rememberTenantCodeForEmail(email: string, code: string): void {

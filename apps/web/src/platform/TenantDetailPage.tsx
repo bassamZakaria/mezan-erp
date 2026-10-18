@@ -433,8 +433,14 @@ export function TenantDetailPage() {
             <Fact label={t("platform.tenantDetail.billingCycle")} value={t(BILLING_CYCLE_LABEL[subscription.billingCycle])} />
             <Fact label={t("platform.tenantDetail.subscriptionStatus")} value={t(SUBSCRIPTION_STATUS_LABEL[subscription.status])} />
             <Fact numeric label={t("platform.tenantDetail.periodStart")} value={format.date(subscription.currentPeriodStart)} />
-            <Fact numeric label={t("platform.tenantDetail.periodEnd")} value={format.date(subscription.currentPeriodEnd)} />
-            {subscription.trialEndsAt ? <Fact numeric label={t("platform.tenantDetail.trialEndsAt")} value={format.date(subscription.trialEndsAt)} /> : null}
+            {subscription.status === SubscriptionStatusCode.Trialing && subscription.trialEndsAt ? (
+              <Fact numeric label={t("platform.tenants.trialEnd")} value={format.date(subscription.trialEndsAt)} />
+            ) : (
+              <>
+                <Fact numeric label={t("platform.tenantDetail.periodEnd")} value={format.date(subscription.currentPeriodEnd)} />
+                {subscription.trialEndsAt ? <Fact numeric label={t("platform.tenantDetail.trialEndsAt")} value={format.date(subscription.trialEndsAt)} /> : null}
+              </>
+            )}
             <Fact numeric label={t("platform.tenantDetail.graceDays")} value={String(subscription.graceDays)} />
             <BillingAnchorDay tenantId={tenant.id} subscription={subscription} editable={isOwner && canChangeAnchorDay(subscription.status)} onError={onMutationError} />
 

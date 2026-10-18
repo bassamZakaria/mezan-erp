@@ -173,34 +173,6 @@ export function cockpitTopMovers(
   }));
 }
 
-export interface CockpitOpenInvoice {
-  readonly customerId: string;
-  readonly dueDate: string | null;
-  readonly remaining: bigint;
-}
-
-export interface CockpitOverdue {
-  readonly amount: Money;
-  readonly invoiceCount: number;
-  readonly customerCount: number;
-  readonly oldestDueDate: string | null;
-}
-
-export function cockpitOverdue(invoices: readonly CockpitOpenInvoice[], today: string): CockpitOverdue {
-  let amount = 0n;
-  let invoiceCount = 0;
-  let oldest: string | null = null;
-  const customers = new Set<string>();
-  for (const invoice of invoices) {
-    if (invoice.remaining <= 0n || invoice.dueDate === null || invoice.dueDate >= today) continue;
-    amount += invoice.remaining;
-    invoiceCount += 1;
-    customers.add(invoice.customerId);
-    if (oldest === null || invoice.dueDate < oldest) oldest = invoice.dueDate;
-  }
-  return { amount: Money.fromScaled(amount), invoiceCount, customerCount: customers.size, oldestDueDate: oldest };
-}
-
 export enum CockpitStockState {
   Out = "out",
   Low = "low",

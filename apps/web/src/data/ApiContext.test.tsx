@@ -8,6 +8,7 @@ import { ApiProvider, useApi } from "./ApiContext";
 import { AppI18nProvider } from "../i18n";
 import { createQueryClient } from "./queryClient";
 import { stubTransport, testAdminSession } from "./test-support";
+import { SessionRefusal } from "@mezan/contracts";
 import { SignInNotice, pendingSignInNotice, sessionExpiredPending, type Session } from "./session";
 
 const STORAGE_KEY = "mezan.session";
@@ -152,6 +153,21 @@ describe("ApiProvider request() — 401 session expiry", () => {
 
   it("a 403 (a real permission refusal) does NOT sign the user out or touch the cache — only 401 means the session itself is gone", async () => {
     const transport = stubTransport({ "GET /items": () => ({ status: 403, body: { message: "لا تملك صلاحية" } }) });
+    const { queryClient } = renderRequestProbe("/items", transport);
+    const clearSpy = vi.spyOn(queryClient, "clear");
+
+    fireEvent.click(screen.getByText("call"));
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(screen.getByTestId("session-id")).toHaveTextContent("USER-ADMIN");
+    expect(sessionExpiredPending()).toBe(false);
+    expect(clearSpy).not.toHaveBeenCalled();
+  });
+
+  it("a 403 saying the session belongs to another company keeps the user signed in and their cache", async () => {
+    const transport = stubTransport({
+      "GET /items": () => ({ status: 403, body: { error: SessionRefusal.TenantMismatch, message: "جلستك الحالية تخص شركة أخرى." } }),
+    });
     const { queryClient } = renderRequestProbe("/items", transport);
     const clearSpy = vi.spyOn(queryClient, "clear");
 

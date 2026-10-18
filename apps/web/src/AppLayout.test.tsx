@@ -20,6 +20,7 @@ import { PLATFORM_LOOKUP_FIRST_RETRY_MS } from "./data/hooks";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient } from "@tanstack/react-query";
 import { createMemoryRouter, RouterProvider, useLocation } from "react-router";
+import { GLANCE_PERMISSION } from "./screens/enh/glance/permission";
 import type { EntitlementsDTO, RoleDTO, UserDTO } from "@mezan/contracts";
 import { SUBSCRIPTION_BILLING_FEATURE, moduleNotLicensedMessageAr } from "@mezan/domain";
 import { AppLayout } from "./AppLayout";
@@ -441,6 +442,24 @@ describe("AppLayout — dashboard.view", () => {
     expect(notice).toHaveTextContent("لوحة التحكم غير متاحة لدورك");
     expect(screen.queryByRole("button", { name: "لوحة التحكم" })).not.toBeInTheDocument();
     expect(screen.queryByTestId("location-probe")).not.toBeInTheDocument();
+  });
+
+  it("a glance-only seat that lands on the dashboard path, as it does after signing in, is taken to the glance", async () => {
+    const router = createMemoryRouter(
+      [
+        { path: "/", Component: AppLayout, children: [{ path: "*", element: <IntentProbe /> }] },
+        { path: "/glance/*", element: <div data-testid="glance-probe" /> },
+      ],
+      { initialEntries: [pathForRoute("dashboard")] },
+    );
+    render(
+      <AppProviders transport={stubTransport(handlers())} initialSession={seat([GLANCE_PERMISSION])}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+    expect(await screen.findByTestId("glance-probe")).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe("/glance");
+    expect(screen.queryByTestId("dashboard-not-permitted")).not.toBeInTheDocument();
   });
 
   it("the same seat still reaches every other screen its role opens", async () => {

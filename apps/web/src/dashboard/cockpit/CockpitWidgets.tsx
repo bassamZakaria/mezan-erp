@@ -354,6 +354,11 @@ export function CockpitOverdueTile({ data, branchParam }: CockpitWidgetProps) {
           </div>
         </>
       )}
+      {scaledOf(overdue.unallocatedCredits) > 0n ? (
+        <div data-testid="cockpit-overdue-unallocated" className="mt-[6px] text-2xs text-ink-muted">
+          {t("cockpit.overdue.unallocated")}: <Money value={majorOf(overdue.unallocatedCredits)} />
+        </div>
+      ) : null}
     </TileShell>
   );
 }

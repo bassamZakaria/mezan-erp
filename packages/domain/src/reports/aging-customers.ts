@@ -216,19 +216,21 @@ export function agingBucketsTotal(totals: Omit<AgingBucketTotals, "customerNameA
   );
 }
 
+interface CustomerLedgerFold<T> {
+  empty(customerNameAr: string, customerNameEn: string | null): T;
+  add(totals: T, dueDate: string, amount: Money): T;
+  credit(totals: T, credit: Money): T;
+}
+
 /**
- * The ladder per customer, in `Money`; the customers screen's «المستحق» reads
- * it too (D195). Invoices age at their BASE total, the amount 1105 was debited
- * with (D194), and a credit beyond the debt stays as a negative «جاري» because
- * 1105 still carries it.
+ * The AR sub-ledger per customer: every open invoice balance and open item
+ * where it falls due, and every credit no invoice carries. The ladder and the
+ * overdue figure both fold it, so the two cannot net a customer differently.
  */
-export function customerAgingBalances(
-  params: AgingCustomersParams,
-  ctx: AgingCustomersContext,
-): Map<string, CustomerAgingBalance> {
+function foldCustomerLedger<T>(params: AgingCustomersParams, ctx: AgingCustomersContext, fold: CustomerLedgerFold<T>): Map<string, T> {
   const namesEn = new Map((ctx.customers ?? []).map((c) => [c.id, c.nameEn ?? null]));
   const namesAr = new Map((ctx.customers ?? []).map((c) => [c.id, c.nameAr]));
-  const byCustomer = new Map<string, AgingBucketTotals>();
+  const byCustomer = new Map<string, T>();
   const credits = new Map<string, bigint>();
   const addCredit = (customerId: string, scaled: bigint) => credits.set(customerId, (credits.get(customerId) ?? 0n) + scaled);
   for (const invoice of ctx.invoices) {
@@ -246,9 +248,8 @@ export function customerAgingBalances(
     // 1105 carries that credit until it is refunded.
     if (balance.scaled < 0n) addCredit(invoice.customerId, -balance.scaled);
     if (balance.scaled <= 0n) continue;
-    const existing = byCustomer.get(invoice.customerId) ?? emptyBucketTotals(invoice.customerNameAr, namesEn.get(invoice.customerId) ?? null);
-    const days = daysPastDue(invoice.dueDate, params.asOfDate);
-    byCustomer.set(invoice.customerId, addToBucket(existing, days, balance));
+    const existing = byCustomer.get(invoice.customerId) ?? fold.empty(invoice.customerNameAr, namesEn.get(invoice.customerId) ?? null);
+    byCustomer.set(invoice.customerId, fold.add(existing, invoice.dueDate, balance));
   }
   for (const [customerId, credit] of ctx.unappliedCreditsByCustomerId ?? []) {
     if (credit.scaled > 0n) addCredit(customerId, credit.scaled);
@@ -261,19 +262,96 @@ export function customerAgingBalances(
       continue;
     }
     if (item.amount.scaled === 0n) continue;
-    const existing =
-      byCustomer.get(item.partyId) ??
-      emptyBucketTotals(namesAr.get(item.partyId) ?? item.partyId, namesEn.get(item.partyId) ?? null);
-    byCustomer.set(item.partyId, addToBucket(existing, daysPastDue(item.dueDate ?? item.date, params.asOfDate), item.amount));
+    const existing = byCustomer.get(item.partyId) ?? fold.empty(namesAr.get(item.partyId) ?? item.partyId, namesEn.get(item.partyId) ?? null);
+    byCustomer.set(item.partyId, fold.add(existing, item.dueDate ?? item.date, item.amount));
   }
   for (const [customerId, scaled] of credits) {
-    const credit = Money.fromScaled(scaled);
     const existing = byCustomer.get(customerId);
     // A branch-narrowed ladder cannot say which branch an unapplied credit
     // belongs to, so it only nets one against a row the branch already has.
     if (!existing && params.branchId !== "") continue;
-    const start = existing ?? emptyBucketTotals(namesAr.get(customerId) ?? customerId, namesEn.get(customerId) ?? null);
-    byCustomer.set(customerId, applyCredit(start, credit));
+    const start = existing ?? fold.empty(namesAr.get(customerId) ?? customerId, namesEn.get(customerId) ?? null);
+    byCustomer.set(customerId, fold.credit(start, Money.fromScaled(scaled)));
   }
   return byCustomer;
+}
+
+/**
+ * The ladder per customer, in `Money`; the customers screen's «المستحق» reads
+ * it too (D195). Invoices age at their BASE total, the amount 1105 was debited
+ * with (D194), and a credit beyond the debt stays as a negative «جاري» because
+ * 1105 still carries it.
+ */
+export function customerAgingBalances(
+  params: AgingCustomersParams,
+  ctx: AgingCustomersContext,
+): Map<string, CustomerAgingBalance> {
+  return foldCustomerLedger(params, ctx, {
+    empty: emptyBucketTotals,
+    add: (totals, dueDate, amount) => addToBucket(totals, daysPastDue(dueDate, params.asOfDate), amount),
+    credit: applyCredit,
+  });
+}
+
+export interface CustomerOverdueBalance {
+  readonly customerNameAr: string;
+  readonly customerNameEn: string | null;
+  /** Past due as of `asOfDate`, after the customer's unallocated credit is drawn against it. */
+  readonly overdue: Money;
+  /** Not yet due; negative when a credit exceeds everything the customer owes, as on the ladder. */
+  readonly notDue: Money;
+  /** Credit no invoice carries (an unallocated collection, a return beyond the invoice, a credit opening balance), netted above. */
+  readonly unallocatedCredit: Money;
+  readonly overdueCount: number;
+  readonly oldestOverdueDate: string | null;
+}
+
+interface OverdueFold {
+  readonly customerNameAr: string;
+  readonly customerNameEn: string | null;
+  readonly overdue: readonly { readonly dueDate: string; readonly scaled: bigint }[];
+  readonly notDue: bigint;
+  readonly credit: bigint;
+}
+
+function overdueOf(fold: OverdueFold): CustomerOverdueBalance {
+  const open = fold.overdue.filter((item) => item.scaled > 0n);
+  return {
+    customerNameAr: fold.customerNameAr,
+    customerNameEn: fold.customerNameEn,
+    overdue: Money.fromScaled(open.reduce((sum, item) => sum + item.scaled, 0n)),
+    notDue: Money.fromScaled(fold.notDue),
+    unallocatedCredit: Money.fromScaled(fold.credit),
+    overdueCount: open.length,
+    oldestOverdueDate: open.reduce<string | null>((min, item) => (min === null || item.dueDate < min ? item.dueDate : min), null),
+  };
+}
+
+/**
+ * What each customer owes past due, on the ladder's own netting: the same open
+ * balances, with the customer's unallocated credit drawn oldest debt first and
+ * then from what is not yet due. So `overdue + notDue` is the ladder's row
+ * total, and the overdue figure can never exceed what the control account says
+ * is owed.
+ */
+export function customerOverdueBalances(params: AgingCustomersParams, ctx: AgingCustomersContext): Map<string, CustomerOverdueBalance> {
+  const folded = foldCustomerLedger<OverdueFold>(params, ctx, {
+    empty: (customerNameAr, customerNameEn) => ({ customerNameAr, customerNameEn, overdue: [], notDue: 0n, credit: 0n }),
+    add: (totals, dueDate, amount) =>
+      dueDate < params.asOfDate
+        ? { ...totals, overdue: [...totals.overdue, { dueDate, scaled: amount.scaled }] }
+        : { ...totals, notDue: totals.notDue + amount.scaled },
+    credit: (totals, credit) => {
+      let remaining = credit.scaled;
+      const overdue = [...totals.overdue]
+        .sort((a, b) => a.dueDate.localeCompare(b.dueDate))
+        .map((item) => {
+          const taken = item.scaled < remaining ? item.scaled : remaining;
+          remaining -= taken;
+          return { ...item, scaled: item.scaled - taken };
+        });
+      return { ...totals, overdue, notDue: totals.notDue - remaining, credit: totals.credit + credit.scaled };
+    },
+  });
+  return new Map([...folded].map(([customerId, fold]) => [customerId, overdueOf(fold)]));
 }

@@ -11,11 +11,11 @@ import {
   cockpitLineInView,
   cockpitLowStock,
   cockpitMarginPercent,
-  cockpitOverdue,
   cockpitSumFlows,
   cockpitTopMovers,
   cockpitUnattributedLine,
   convertToBase,
+  customerOverdueBalances,
   routedAccountId,
   salesInvoiceBaseGrandTotal,
   salesInvoiceTotals,
@@ -25,6 +25,7 @@ import {
   UNATTRIBUTED_BRANCH_ID,
   withinBranchScope,
   type Account,
+  type AgingCustomersContext,
   type AuthContext,
   type AccountRoutingRepository,
   type Cheque,
@@ -64,19 +65,26 @@ import {
   type AuthContextResolver,
 } from "./permission-gate.js";
 import { tenantToday } from "./tenant-day.js";
+import { VIEW_UNATTRIBUTED_PERMISSION, type BranchLineView } from "./branch-view.js";
 
 export const COCKPIT_PERMISSION = "accounting.cockpit.view";
 
 const CUSTOMER_RECEIVABLE_CODES = new Set(["1105", "1110", "1360"]);
 const REVENUE_SLOTS = ["item_type.revenue", "item_type.service_revenue", "contracting.revenue", "sales_discount.contra"];
 const COGS_SLOTS = COST_OF_SALES_ROUTING_KEYS;
-const OPEN_STATUSES = ["confirmed", "partially_paid"] as const satisfies readonly SalesInvoice["status"][];
 const SOLD_STATUSES = ["confirmed", "partially_paid", "paid"] as const satisfies readonly SalesInvoice["status"][];
 
 export interface CockpitSalesReturns {
   list(filter?: { readonly status?: "confirmed" }): Promise<readonly SalesReturnDocument[]>;
   listByLineRef?(field: string, ids: readonly string[], filter?: { readonly status?: "confirmed" }): Promise<readonly SalesReturnDocument[]>;
 }
+
+/**
+ * The AR sub-ledger's netting terms for a line view as of a day — the ones the
+ * customer aging ladder folds (reports-routes `customerAgingSetIn`), so the
+ * overdue figure ties to the receivables control account like the ladder does.
+ */
+export type CockpitReceivablesLedger = (view: BranchLineView, asOfDate: string) => Promise<AgingCustomersContext>;
 
 export interface CockpitRoutesDeps {
   readonly ledger: Pick<LedgerRepository, "listLines" | "accountBalance">;
@@ -85,6 +93,7 @@ export interface CockpitRoutesDeps {
   readonly items: { list(): Promise<readonly Item[]> };
   readonly salesInvoices: Pick<SalesInvoiceRepository, "list">;
   readonly salesReturns: CockpitSalesReturns;
+  readonly receivables: CockpitReceivablesLedger;
   readonly treasuryAccounts: { list(): Promise<readonly TreasuryAccount[]> };
   readonly cheques: { list(): Promise<readonly Cheque[]> };
   readonly wacSnapshots: { list(): Promise<readonly WacSnapshot[]> };
@@ -207,29 +216,30 @@ async function cashByTreasury(
 }
 
 async function overdueSection(deps: CockpitRoutesDeps, caller: CockpitCaller, view: CockpitBranchView, today: string): Promise<CockpitOverdueDTO> {
-  const invoices = (await deps.salesInvoices.list({ statusIn: [...OPEN_STATUSES], branchScope: caller.branchScope, warehouseScope: caller.warehouseScope })).filter(
-    (invoice) => view.branchId === "" || invoice.branchId === view.branchId,
-  );
-  const ids = invoices.map((invoice) => invoice.id);
-  const docs = ids.length === 0
-    ? []
-    : deps.salesReturns.listByLineRef
-      ? await deps.salesReturns.listByLineRef("sourceInvoiceId", ids, { status: "confirmed" })
-      : await deps.salesReturns.list({ status: "confirmed" });
-  const credits = salesReturnCreditByInvoice(docs);
-  const summary = cockpitOverdue(
-    invoices.map((invoice) => {
-      const base = salesInvoiceBaseGrandTotal(salesInvoiceTotals(invoice), invoice.fxRate);
-      const credit = credits.get(invoice.id) ?? Money.zero();
-      return { customerId: invoice.customerId, dueDate: invoice.dueDate, remaining: base.scaled - invoice.amountPaid.scaled - credit.scaled };
-    }),
-    today,
-  );
+  const lineView: BranchLineView = {
+    scope: caller.branchScope,
+    includeUnattributed: caller.branchScope === undefined || can(caller.auth, VIEW_UNATTRIBUTED_PERMISSION),
+  };
+  const ledger = await deps.receivables(lineView, today);
+  let amount = 0n;
+  let credit = 0n;
+  let invoiceCount = 0;
+  let customerCount = 0;
+  let oldest: string | null = null;
+  for (const balance of customerOverdueBalances({ asOfDate: today, branchId: view.branchId }, ledger).values()) {
+    credit += balance.unallocatedCredit.scaled;
+    if (balance.overdueCount === 0) continue;
+    amount += balance.overdue.scaled;
+    invoiceCount += balance.overdueCount;
+    customerCount += 1;
+    if (balance.oldestOverdueDate !== null && (oldest === null || balance.oldestOverdueDate < oldest)) oldest = balance.oldestOverdueDate;
+  }
   return {
-    amount: summary.amount.toString(),
-    invoiceCount: summary.invoiceCount,
-    customerCount: summary.customerCount,
-    oldestDueDate: summary.oldestDueDate,
+    amount: Money.fromScaled(amount).toString(),
+    invoiceCount,
+    customerCount,
+    oldestDueDate: oldest,
+    unallocatedCredits: Money.fromScaled(credit).toString(),
   };
 }
 

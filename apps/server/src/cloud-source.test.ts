@@ -202,14 +202,20 @@ describe("a cloud caller behind the two-hop proxy", () => {
       expect((await write({ "x-mezan-csrf": jar.csrf, origin: "http://cloud.internal" })).status).toBe(201);
     });
 
-    it("never presents one tenant's cookie to another tenant", async () => {
+    it("never presents one tenant's cookie to another tenant, and refuses that request without ending the session it belongs to", async () => {
       const h = await boot();
       const admin = await provision(h);
       await provision(h, "other");
       const { jar } = await browserSignIn(h, admin);
-      expect((await h.send("/api/profile", { tenant: "other", headers: { cookie: jar.cookie } })).status).toBe(401);
+      const read = await h.send("/api/profile", { tenant: "other", headers: { cookie: jar.cookie } });
       const write = await h.send("/api/item-brands", { method: "POST", tenant: "other", headers: { cookie: jar.cookie, "x-mezan-csrf": jar.csrf }, body: JSON.stringify(brand) });
-      expect(write.status).toBe(401);
+      const out = await h.send("/api/auth/logout", { method: "POST", tenant: "other", headers: { cookie: jar.cookie, "x-mezan-csrf": jar.csrf } });
+      for (const refused of [read, write]) {
+        expect(refused.status).toBe(403);
+        expect(((await refused.json()) as { error: string }).error).toBe("SESSION_TENANT_MISMATCH");
+      }
+      for (const answer of [read, write, out]) expect(answer.headers.getSetCookie()).toEqual([]);
+      expect((await h.send("/api/profile", { tenant: "acme", headers: { cookie: jar.cookie } })).status).toBe(200);
     });
 
     it("keeps a device-bound phone and a bearer client working beside the browser", async () => {

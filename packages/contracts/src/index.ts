@@ -961,6 +961,7 @@ export {
   CSRF_HEADER,
   CsrfCookie,
   CurrentSecretRefusal,
+  SessionRefusal,
   type StepUpRequestDTO,
   type UnlockAccountRequestDTO,
   type UnlockAccountByLinkRequestDTO,

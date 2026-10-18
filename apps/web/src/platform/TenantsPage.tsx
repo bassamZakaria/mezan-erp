@@ -6,6 +6,7 @@ import { useAppTranslation } from "../i18n";
 import { BillingDayReviewChip, OwnerContactChip, TenantBooksChip, TenantLicenceChip, TenantStatusChip } from "./chips";
 import { PlatformApiError, usePlatformApi } from "./api";
 import { NewTenantDialog } from "./NewTenantDialog";
+import { subscriptionEndOf } from "./subscription-end";
 import { usePlansQuery, useTenantsQuery } from "./hooks";
 import { useMediaQuery } from "../lib/use-media-query";
 
@@ -67,7 +68,16 @@ export function TenantsPage() {
     {
       key: "periodEnd",
       header: t("platform.tenants.periodEnd"),
-      render: (row) => (row.subscription ? <span className="mz-num">{format.date(row.subscription.currentPeriodEnd)}</span> : "—"),
+      render: (row) => {
+        if (!row.subscription) return "—";
+        const end = subscriptionEndOf(row.subscription);
+        return (
+          <span className="flex flex-col">
+            <span className="mz-num">{format.date(end.date)}</span>
+            {end.isTrial ? <span className="text-[11px] text-ink-muted">{t(end.labelKey)}</span> : null}
+          </span>
+        );
+      },
     },
   ];
 
@@ -118,8 +128,8 @@ export function TenantsPage() {
                       <dd className="font-semibold text-ink">{row.plan?.nameAr ?? "—"}</dd>
                     </div>
                     <div>
-                      <dt>{t("platform.tenants.periodEnd")}</dt>
-                      <dd className="mz-num font-semibold text-ink">{row.subscription ? format.date(row.subscription.currentPeriodEnd) : "—"}</dd>
+                      <dt>{t(row.subscription ? subscriptionEndOf(row.subscription).labelKey : "platform.tenants.periodEnd")}</dt>
+                      <dd className="mz-num font-semibold text-ink">{row.subscription ? format.date(subscriptionEndOf(row.subscription).date) : "—"}</dd>
                     </div>
                   </dl>
                   <Link

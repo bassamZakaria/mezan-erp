@@ -169,13 +169,20 @@ function GlanceCards({ data }: { data: GlanceDTO }) {
         <Stat
           label={t("glance.receivables")}
           detail={
-            overdue && overdue.invoiceCount > 0 ? (
-              <span className="text-danger-ink">
-                {t("glance.receivables.overdue")}: <Money value={majorOf(overdue.amount)} /> · {t("glance.receivables.detail", { invoices: format.number(overdue.invoiceCount), customers: format.number(overdue.customerCount) })}
-              </span>
-            ) : (
-              t("glance.receivables.clear")
-            )
+            <>
+              {overdue && overdue.invoiceCount > 0 ? (
+                <span className="text-danger-ink">
+                  {t("glance.receivables.overdue")}: <Money value={majorOf(overdue.amount)} /> · {t("glance.receivables.detail", { invoices: format.number(overdue.invoiceCount), customers: format.number(overdue.customerCount) })}
+                </span>
+              ) : (
+                t("glance.receivables.clear")
+              )}
+              {overdue && scaledOf(overdue.unallocatedCredits) > 0n ? (
+                <span data-testid="glance-unallocated" className="mt-1 block">
+                  {t("glance.receivables.unallocated")}: <Money value={majorOf(overdue.unallocatedCredits)} />
+                </span>
+              ) : null}
+            </>
           }
         >
           <Money value={majorOf(data.receivables.amount)} />

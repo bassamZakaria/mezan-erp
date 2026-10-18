@@ -290,6 +290,22 @@ describe("TenantsPage", () => {
     expect(within(row).queryByText("الترخيص نشط")).not.toBeInTheDocument();
   });
 
+  it("shows a trialing tenant's trial end, labelled «نهاية التجربة», instead of its billing period end", async () => {
+    const trialing: TenantSummaryDTO = {
+      ...tenantSummary,
+      subscription: { ...tenantSummary.subscription!, status: SubscriptionStatusCode.Trialing, trialEndsAt: "2026-09-14T00:00:00.000Z" },
+    };
+    renderWithPlatformProviders(<TenantsPage />, {
+      transport: stubPlatformTransport({ ...baseHandlers(), "GET /tenants": () => ({ body: [trialing] }) }),
+      initialSession: testPlatformSession,
+    });
+
+    const row = (await screen.findByText("acme")).closest("tr")!;
+    expect(within(row).getByText("14/09/2026")).toBeInTheDocument();
+    expect(within(row).getByText("نهاية التجربة")).toBeInTheDocument();
+    expect(within(row).queryByText("01/10/2026")).not.toBeInTheDocument();
+  });
+
   it("keeps the licence state when a trialing tenant's licence is no longer active", async () => {
     const lapsed: TenantSummaryDTO = {
       ...tenantSummary,

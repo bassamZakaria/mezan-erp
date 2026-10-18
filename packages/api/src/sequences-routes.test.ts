@@ -235,6 +235,37 @@ describe("sequences router — overrides (PATCH)", () => {
     expect(await config.getOverride("PURCHASE_ORDER")).toEqual({ annualReset: true, branchScoped: true });
   });
 
+  it("a branch-scoped counter reads its branch's row, for the shell's single branch or ?branchId", async () => {
+    const { app, counters } = newApp();
+    await app.fetch(
+      req("/PURCHASE_ORDER", { method: "PATCH", permissions: "admin.sequences.edit", body: JSON.stringify({ branchScoped: true }) }),
+    );
+    await counters.increment("PURCHASE_ORDER", null, "BR-A");
+    await counters.increment("PURCHASE_ORDER", null, "BR-A");
+    await counters.increment("PURCHASE_ORDER", null, "BR-B");
+
+    const viaShell = await app.fetch(
+      req("/PURCHASE_ORDER", { permissions: "admin.sequences.view", headers: { "x-branch-scope": "BR-A" } }),
+    );
+    expect(((await json(viaShell)) as { currentValue: number }).currentValue).toBe(2);
+    const viaQuery = await app.fetch(req("/PURCHASE_ORDER?branchId=BR-B", { permissions: "admin.sequences.view" }));
+    expect(((await json(viaQuery)) as { currentValue: number }).currentValue).toBe(1);
+    const outOfScope = await app.fetch(
+      req("/PURCHASE_ORDER?branchId=BR-B", { permissions: "admin.sequences.view", headers: { "x-branch-scope": "BR-A" } }),
+    );
+    expect(((await json(outOfScope)) as { currentValue: number }).currentValue).toBe(0);
+
+    const raise = await app.fetch(
+      req("/PURCHASE_ORDER/counter?branchId=BR-A", {
+        method: "POST",
+        permissions: "admin.sequences.reset",
+        body: JSON.stringify({ value: 1, confirm: true }),
+      }),
+    );
+    expect(raise.status).toBe(422);
+    expect(await counters.peek("PURCHASE_ORDER", null, "BR-A")).toBe(2);
+  });
+
   it("an annualReset override scopes the counter to the calendar year, independent of other years", async () => {
     const y2026 = () => new Date("2026-06-01T00:00:00.000Z");
     const y2027 = () => new Date("2027-01-15T00:00:00.000Z");

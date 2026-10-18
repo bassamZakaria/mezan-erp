@@ -9,7 +9,7 @@ import {
   type SequenceOverride,
 } from "@mezan/domain";
 import { sequenceOverrideSchema, resetSequenceCounterSchema, type SequenceListItemDTO } from "@mezan/contracts";
-import { createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
+import { branchScopeOf, createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
 import { atomically, type ConfigTransactor } from "./config-transactor.js";
 
 /**
@@ -21,8 +21,8 @@ import { atomically, type ConfigTransactor } from "./config-transactor.js";
 
 /** The counter-read/write surface these routes need — a narrow slice of `SqliteSequenceStoreHandle`. */
 export interface SequenceCounterPort {
-  peek(code: string, period: number | null): Promise<number>;
-  setCounter(code: string, period: number | null, value: number): Promise<void>;
+  peek(code: string, period: number | null, scope?: string | null): Promise<number>;
+  setCounter(code: string, period: number | null, value: number, scope?: string | null): Promise<void>;
 }
 
 /** The override-read/write surface these routes need — a narrow slice of `SqliteSequenceConfigStoreHandle`. */
@@ -46,15 +46,28 @@ function periodFor(def: SequenceDefinition, now: Date): number | null {
   return def.annualReset ? now.getUTCFullYear() : null;
 }
 
+function requestBranch(c: Context): string | null {
+  const scope = branchScopeOf(c);
+  const asked = c.req.query("branchId");
+  if (asked) return !scope || scope.includes(asked) ? asked : null;
+  return scope?.length === 1 ? scope[0]! : null;
+}
+
+function counterScope(def: SequenceDefinition, branchId: string | null): string | null {
+  return def.branchScoped ? branchId : null;
+}
+
 async function toListItem(
   def: SequenceDefinition,
   override: SequenceOverride | undefined,
   deps: SequencesRoutesDeps,
   now: Date,
+  branchId: string | null,
 ): Promise<SequenceListItemDTO> {
   const effective = applySequenceOverride(def, override ?? null);
   const period = periodFor(effective, now);
-  const currentValue = await deps.counters.peek(effective.code, period);
+  const scope = counterScope(effective, branchId);
+  const currentValue = await deps.counters.peek(effective.code, period, scope);
   return {
     code: effective.code,
     labelAr: effective.labelAr,
@@ -64,7 +77,7 @@ async function toListItem(
     annualReset: effective.annualReset,
     branchScoped: effective.branchScoped ?? false,
     currentValue,
-    nextNumber: formatSequenceNumber(effective, currentValue + 1),
+    nextNumber: formatSequenceNumber(effective, currentValue + 1, scope),
     isOverridden: override !== undefined,
   };
 }
@@ -89,7 +102,7 @@ export function createSequencesRoutes(
   app.get("/", gate("admin.sequences.view"), async (c) => {
     const now = deps.now?.() ?? new Date();
     const overrides = await deps.config.getAllOverrides();
-    const items = await Promise.all(defs.map((def) => toListItem(def, overrides.get(def.code), deps, now)));
+    const items = await Promise.all(defs.map((def) => toListItem(def, overrides.get(def.code), deps, now, requestBranch(c))));
     return c.json(items);
   });
 
@@ -99,7 +112,7 @@ export function createSequencesRoutes(
     if (!def) return c.json({ error: "NOT_FOUND" }, 404);
     const now = deps.now?.() ?? new Date();
     const override = await deps.config.getOverride(code);
-    return c.json(await toListItem(def, override ?? undefined, deps, now));
+    return c.json(await toListItem(def, override ?? undefined, deps, now, requestBranch(c)));
   });
 
   app.patch("/:code", gate("admin.sequences.edit"), async (c) => {
@@ -129,7 +142,7 @@ export function createSequencesRoutes(
 
     const now = deps.now?.() ?? new Date();
     const override = await deps.config.getOverride(code);
-    return c.json(await toListItem(def, override ?? undefined, deps, now));
+    return c.json(await toListItem(def, override ?? undefined, deps, now, requestBranch(c)));
   });
 
   /**
@@ -153,7 +166,8 @@ export function createSequencesRoutes(
     const override = await deps.config.getOverride(code);
     const effective = applySequenceOverride(def, override);
     const period = periodFor(effective, now);
-    const current = await deps.counters.peek(effective.code, period);
+    const scope = counterScope(effective, requestBranch(c));
+    const current = await deps.counters.peek(effective.code, period, scope);
     if (parsed.data.value < current) {
       return c.json(
         {
@@ -166,7 +180,7 @@ export function createSequencesRoutes(
     }
 
     await atomically(deps.transactor, async () => {
-      await deps.counters.setCounter(effective.code, period, parsed.data.value);
+      await deps.counters.setCounter(effective.code, period, parsed.data.value, scope);
       if (deps.audit) {
         await recordSensitiveEvent(deps.audit, {
           module: "admin",
@@ -175,12 +189,12 @@ export function createSequencesRoutes(
           action: "SEQUENCE_COUNTER_ADJUSTED",
           actor: actorOf(c),
           severity: "CRITICAL",
-          details: { code, from: current, to: parsed.data.value },
+          details: { code, branchId: scope, from: current, to: parsed.data.value },
         });
       }
     });
 
-    return c.json(await toListItem(def, override ?? undefined, deps, now));
+    return c.json(await toListItem(def, override ?? undefined, deps, now, requestBranch(c)));
   });
 
   return app;

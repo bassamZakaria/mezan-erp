@@ -26,6 +26,10 @@ CREATE TABLE IF NOT EXISTS sequence_counter (
 );
 `;
 
+function counterKey(period: number | null, scope?: string | null): string {
+  return `${period === null ? "" : String(period)}${scope ? `@${scope}` : ""}`;
+}
+
 class SqliteSequenceStore implements SequenceStore {
   private readonly upsert: Database.Statement;
   private readonly read: Database.Statement;
@@ -44,7 +48,7 @@ class SqliteSequenceStore implements SequenceStore {
     // The scope rides in the period key rather than in a third column: an
     // unscoped counter keeps its exact existing row, so no migration is needed
     // and every number already issued keeps its meaning (D33).
-    const p = `${period === null ? "" : String(period)}${scope ? `@${scope}` : ""}`;
+    const p = counterKey(period, scope);
     return withSqliteTransaction(
       this.sqlite,
       async () => {
@@ -61,8 +65,8 @@ class SqliteSequenceStore implements SequenceStore {
    * Used by the sequences admin screen to show "Current Value" without
    * consuming one, unlike `increment`.
    */
-  async peek(code: string, period: number | null): Promise<number> {
-    const p = period === null ? "" : String(period);
+  async peek(code: string, period: number | null, scope?: string | null): Promise<number> {
+    const p = counterKey(period, scope);
     const row = this.read.get(code, p) as { value: number } | undefined;
     return row?.value ?? 0;
   }
@@ -79,8 +83,8 @@ class SqliteSequenceStore implements SequenceStore {
    * method performs no such check, since going backward is exactly what would
    * let two documents share a number.
    */
-  async setCounter(code: string, period: number | null, value: number): Promise<void> {
-    const p = period === null ? "" : String(period);
+  async setCounter(code: string, period: number | null, value: number, scope?: string | null): Promise<void> {
+    const p = counterKey(period, scope);
     await withSqliteTransaction(
       this.sqlite,
       async () => {
@@ -104,9 +108,9 @@ export interface SequenceCounterRow {
 
 export interface SqliteSequenceStoreHandle extends SequenceStore {
   close(): void;
-  peek(code: string, period: number | null): Promise<number>;
+  peek(code: string, period: number | null, scope?: string | null): Promise<number>;
   counterRows(): Promise<readonly SequenceCounterRow[]>;
-  setCounter(code: string, period: number | null, value: number): Promise<void>;
+  setCounter(code: string, period: number | null, value: number, scope?: string | null): Promise<void>;
 }
 
 /** Open a SQLite-backed SequenceStore. ":memory:" for tests, a path for real. */

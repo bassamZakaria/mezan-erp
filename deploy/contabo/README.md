@@ -48,7 +48,7 @@ Install Docker Engine (27 or newer) from Docker's own apt repository (docs.docke
 
 and `systemctl restart docker`. **Why:** ufw does not filter Docker-published ports, which is why the app publishes none and only Caddy's 80/443 are published. With the userland proxy on, IPv6 clients reach Caddy through `docker-proxy` and all arrive from one gateway address, so every per-address throttle and lockout would key on that one address. The compose network has IPv6 enabled for the same reason. Check after go-live: from a phone on mobile data (usually IPv6), get a company code throttled with wrong PINs, then confirm a laptop on another network can still sign in to it at once. If it cannot, every caller shares one address: remove the `AAAA` record until this is fixed.
 
-**Disk encryption:** Contabo VPS disks are not encrypted at rest. Either accept that (the provider can read the disk) or set up LUKS from the rescue system before installing. The privacy policy currently claims encrypted disks (`apps/server/src/legal-content.ts`) and must be corrected if you accept the risk. Off-box backups are always encrypted by restic before they leave the box.
+**Disk encryption:** Contabo VPS disks are not encrypted at rest. Either accept that (the provider can read the disk) or set up LUKS from the rescue system before installing. The privacy policy (`apps/server/src/legal-content.ts`) says the server disk is not encrypted; if you set up LUKS, follow the `[[TODO: …]]` there to say it is. Off-box backups are always encrypted by restic before they leave the box.
 
 ## 2. DNS, mail, monitors
 

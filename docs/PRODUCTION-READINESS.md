@@ -35,7 +35,7 @@ Contabo deployment lane. Each item says who acts: **code** (we build it), **owne
 ### Legal / tax (Egypt) — a qualified lawyer / محاسب قانوني must confirm
 | # | Item | Who | Status |
 |---|---|---|---|
-| L1 | Privacy policy says AWS Frankfurt + encrypted disks; production is Contabo — correct region and encryption claims, remove the «مسودة» banner after review | code + lawyer | open |
+| L1 | Privacy policy rewritten for Contabo (2026-10-19, `apps/server/src/legal-content.ts`): Contabo Germany, controller/processor roles, desktop edition, sub-processors, first-party error reports, PDPL bases, retention numbers from `deploy/contabo`, 72-hour breach notice, disk encryption stated as not enabled. Remaining: fill every `[[TODO: …]]` in that file (`grep -n "\[\[TODO:" apps/server/src/legal-content.ts`), lawyer review, then remove the «مسودة» banner | owner fills TODOs + lawyer | code done; owner + lawyer open |
 | L2 | PDPL 151/2020: Data Protection Center licence, cross-border transfer licence (hosting outside Egypt), DPO, 72-hour breach procedure; financial data may be sensitive | owner + lawyer | open |
 | L3 | Terms of service, DPA (we are processor), subscription/refund terms; recorded acceptance at signup (Paymob also requires public terms + refund pages) | lawyer drafts; code adds pages + acceptance | open |
 | L4 | Our own subscription sales: 14% VAT and ETA e-invoices/e-receipts | accountant + owner | open |
@@ -53,7 +53,7 @@ Contabo deployment lane. Each item says who acts: **code** (we build it), **owne
 - LAN host must not sleep while tills are paired. **code**
 - Paymob live keys and one real paid renewal end to end. **owner**
 - Public status page + support hours. **owner**
-- Retention/purge schedule for terminated tenants; sub-processor list in the DPA; mobile privacy text mentions first-party error reports; font OFL licence + third-party notices file. **code + lawyer/accountant**
+- Retention/purge schedule for terminated tenants; sub-processor list in the DPA (the privacy policy now lists them); font OFL licence + third-party notices file. **code + lawyer/accountant**
 - Docs out of date: TEST-DEBT misses most waves C–F lanes; ROADMAP §1 still says enhancements "none started"; `.claude/stakeholders/context.md` says cloud is descoped. **code + owner decides which governs**
 
 ## Later

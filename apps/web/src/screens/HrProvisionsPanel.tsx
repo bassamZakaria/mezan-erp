@@ -34,7 +34,7 @@ function ProvisionRow({ kind, asOfDate }: { kind: HrProvisionKindDTO; asOfDate: 
     confirm.ask({
       title: t("provisions.confirmTitle"),
       consequence: t("provisions.confirmBody", {
-        label: data.labelAr,
+        label: t(`provisions.${kind}`),
         movement: formatMoney(Number(data.movement)),
         expense: data.expenseAccountId,
         liability: data.liabilityAccountId,
@@ -56,7 +56,7 @@ function ProvisionRow({ kind, asOfDate }: { kind: HrProvisionKindDTO; asOfDate: 
     <div className="border-b border-border py-[12px] last:border-b-0">
       <div className="flex flex-wrap items-center justify-between gap-[10px]">
         <div>
-          <h3 className="font-display text-[13px] font-bold text-ink">{data?.labelAr ?? t(`provisions.${kind}`)}</h3>
+          <h3 className="font-display text-[13px] font-bold text-ink">{t(`provisions.${kind}`)}</h3>
           {data ? (
             <p className="mz-num mt-[2px] text-[11.5px] text-ink-faint">
               {data.expenseAccountId} → {data.liabilityAccountId}
@@ -110,7 +110,7 @@ function ProvisionRow({ kind, asOfDate }: { kind: HrProvisionKindDTO; asOfDate: 
                 {posting.reversible ? (
                   <ReverseDocumentAction
                     type={ReversalDocumentType.HrLeaveProvision}
-                    target={{ id: posting.journalEntryId, params: { kind, asOfDate: posting.asOfDate }, subject: `${data?.labelAr ?? t(`provisions.${kind}`)} ${posting.asOfDate}` }}
+                    target={{ id: posting.journalEntryId, params: { kind, asOfDate: posting.asOfDate }, subject: `${t(`provisions.${kind}`)} ${posting.asOfDate}` }}
                   />
                 ) : null}
               </li>

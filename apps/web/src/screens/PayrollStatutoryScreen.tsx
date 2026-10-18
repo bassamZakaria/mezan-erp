@@ -10,13 +10,22 @@ import {
   useSetPayrollStatutoryFlag,
   useStatutoryTables,
 } from "../data/hr-payroll-hooks";
-import { useAppTranslation } from "../i18n";
+import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useConfirmAction } from "../lib/use-confirm-action";
 
 /**
  * الجداول القانونية للرواتب — what payroll computes against, whether each figure
  * has been checked against the law, and the switch that lets payroll use them.
  */
+
+const SHARE_LABEL: Readonly<Record<string, AppTranslationKey>> = {
+  pension: "statutory.share.pension",
+  end_of_service: "statutory.share.end_of_service",
+  sickness: "statutory.share.sickness",
+  unemployment: "statutory.share.unemployment",
+  work_injury: "statutory.share.work_injury",
+  martyrs_fund: "statutory.levy.martyrs_fund",
+};
 
 function Section({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
   return (
@@ -33,7 +42,9 @@ function Citation({ text, source, verified }: { text: string; source: string; ve
   return (
     <div className="mt-[8px] flex flex-wrap items-center gap-[8px]">
       {verified ? null : <StatusPill label={t("statutory.unverified")} tone="warning" />}
-      <p className="text-[11.5px] leading-relaxed text-ink-faint">{text}</p>
+      <p lang="ar" dir="rtl" className="text-[11.5px] leading-relaxed text-ink-faint">
+        {text}
+      </p>
       <p className="mz-num min-w-0 max-w-full text-[11px] text-ink-faint [overflow-wrap:anywhere]" dir="ltr">
         {source}
       </p>
@@ -124,6 +135,10 @@ function StatutorySwitch() {
 
 export function PayrollStatutoryScreen() {
   const { t } = useAppTranslation();
+  const shareLabel = (share: { readonly code: string; readonly labelAr: string }) => {
+    const key = SHARE_LABEL[share.code];
+    return key ? t(key) : share.labelAr;
+  };
   const query = useStatutoryTables();
   const saveYear = useSaveInsuranceYear();
   const removeYear = useRemoveInsuranceYear();
@@ -261,8 +276,8 @@ export function PayrollStatutoryScreen() {
           {tables.socialInsurance.map((row) => (
             <li key={`${row.code}-shares`}>
               <span className="mz-num font-semibold text-ink">{row.effectiveFrom.slice(0, 4)}</span> — {t("statutory.employeeShare")}:{" "}
-              {row.employeeShares.map((sh) => `${sh.labelAr} ${sh.ratePercent}%`).join(" · ")} · {t("statutory.employerShare")}:{" "}
-              {row.employerShares.map((sh) => `${sh.labelAr} ${sh.ratePercent}%`).join(" · ")}
+              {row.employeeShares.map((sh) => `${shareLabel(sh)} ${sh.ratePercent}%`).join(" · ")} · {t("statutory.employerShare")}:{" "}
+              {row.employerShares.map((sh) => `${shareLabel(sh)} ${sh.ratePercent}%`).join(" · ")}
               <Citation text={row.citationAr} source={row.source} verified={row.verified} />
             </li>
           ))}
@@ -371,7 +386,7 @@ export function PayrollStatutoryScreen() {
           <ul className="flex flex-col gap-[4px] text-[12.5px] text-ink">
             {table.levies.map((levy) => (
               <li key={levy.code}>
-                {levy.labelAr}: <span className="mz-num font-semibold">{levy.ratePercent}%</span>
+                {shareLabel(levy)}: <span className="mz-num font-semibold">{levy.ratePercent}%</span>
                 {levy.exemptPayBases.includes("daily") ? <span className="ms-[8px] text-ink-muted">{t("statutory.dailyExempt")}</span> : null}
               </li>
             ))}

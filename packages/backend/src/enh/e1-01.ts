@@ -1,4 +1,4 @@
-import { createCockpitRoutes, type CockpitRoutesDeps } from "@mezan/api";
+import { createCockpitRoutes, customerAgingSetIn, type CockpitRoutesDeps } from "@mezan/api";
 import {
   createSqliteAccountRoutingStore,
   createSqliteChequeRepository,
@@ -16,6 +16,10 @@ export function cockpitDepsOf(ctx: BackendModuleContext, bookVersion: () => stri
     items: stores.items,
     salesInvoices: stores.salesInvoices,
     salesReturns: createStandaloneSqliteSalesReturnStore(ctx.sqlite),
+    receivables: async (view, asOfDate) => {
+      const { invoices, terms } = await customerAgingSetIn(ctx.reports, view, asOfDate, asOfDate);
+      return { invoices, ...terms };
+    },
     treasuryAccounts: stores.treasuryAccounts,
     cheques: createSqliteChequeRepository(ctx.sqlite),
     wacSnapshots: stores.stockLedger.snapshots,

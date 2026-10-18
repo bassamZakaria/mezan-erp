@@ -67,6 +67,7 @@ function deps(): CockpitRoutesDeps {
     items: { async list() { return []; } },
     salesInvoices: { async list() { return []; } },
     salesReturns: { async list() { return []; } },
+    receivables: async () => ({ invoices: [] }),
     treasuryAccounts: { async list() { return [treasury("TA-MAIN", "BR-MAIN", SHARED_GL), treasury("TA-ALEX", "BR-ALEX", SHARED_GL)]; } },
     cheques: { async list() { return []; } },
     wacSnapshots: { async list() { return []; } },

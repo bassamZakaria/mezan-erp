@@ -222,6 +222,8 @@ export {
 export {
   createAgingCustomersReport,
   customerAgingBalances,
+  customerOverdueBalances,
+  type CustomerOverdueBalance,
   agingBucketsTotal,
   type CustomerAgingBalance,
   type AgingCustomersContext,

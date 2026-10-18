@@ -47,6 +47,7 @@ export const ar = {
   "cockpit.overdue.detail": "{invoices} فاتورة · {customers} عميل",
   "cockpit.overdue.oldest": "أقدم استحقاق {date}",
   "cockpit.overdue.clear": "لا فواتير متأخرة",
+  "cockpit.overdue.unallocated": "دفعات غير مخصصة (مخصومة من المتأخر)",
 
   "cockpit.lowStock.title": "أصناف تحت حد الطلب",
   "cockpit.lowStock.detail": "أولها: {name}",
@@ -121,6 +122,7 @@ export const en: Record<keyof typeof ar, string> = {
   "cockpit.overdue.detail": "{invoices} invoices · {customers} customers",
   "cockpit.overdue.oldest": "Oldest due {date}",
   "cockpit.overdue.clear": "No overdue invoices",
+  "cockpit.overdue.unallocated": "Unallocated receipts (already netted from overdue)",
 
   "cockpit.lowStock.title": "Items below reorder point",
   "cockpit.lowStock.detail": "First: {name}",

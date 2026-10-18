@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { Money, Qty } from "../money/index.js";
 import { runReport } from "./engine.js";
-import { agingBucketsTotal, createAgingCustomersReport, customerAgingBalances } from "./aging-customers.js";
+import { agingBucketsTotal, createAgingCustomersReport, customerAgingBalances, customerOverdueBalances } from "./aging-customers.js";
 import type { SalesInvoice, SalesInvoiceLine } from "../sales-invoices/sales-invoice.js";
 
 function line(overrides: Partial<SalesInvoiceLine> = {}): SalesInvoiceLine {
@@ -282,5 +282,39 @@ describe("customerAgingBalances — a settlement applied after the snapshot does
       },
     );
     expect(agingBucketsTotal(map.get("c1")!).toString()).toBe("150.000000");
+  });
+});
+
+describe("customerOverdueBalances — the overdue figure on the ladder's own netting", () => {
+  const ctx = {
+    invoices: [
+      invoice({ id: "old", dueDate: "2026-06-15" }),
+      invoice({ id: "settled", dueDate: "2026-06-20" }),
+      invoice({ id: "late", dueDate: "2026-07-01", customerId: "c2", customerNameAr: "عميل ب" }),
+      invoice({ id: "soon", dueDate: "2026-09-30", customerId: "c2", customerNameAr: "عميل ب" }),
+    ],
+    allocatedByInvoiceId: new Map([["settled", Money.fromMajor("200")]]),
+    unappliedCreditsByCustomerId: new Map([["c1", Money.fromMajor("50")], ["c2", Money.fromMajor("300")]]),
+  };
+  const params = { asOfDate: "2026-08-22", branchId: "" };
+
+  it("nets allocations and draws an unallocated credit oldest debt first, so overdue + not due is the ladder's row total", () => {
+    const overdue = customerOverdueBalances(params, ctx);
+    const ladder = customerAgingBalances(params, ctx);
+    expect(overdue.get("c1")?.overdue.toString()).toBe("150.000000");
+    expect(overdue.get("c1")?.overdueCount).toBe(1);
+    expect(overdue.get("c1")?.unallocatedCredit.toString()).toBe("50.000000");
+    for (const [customerId, row] of ladder) {
+      const split = overdue.get(customerId);
+      expect(split ? split.overdue.add(split.notDue).toString() : null).toBe(agingBucketsTotal(row).toString());
+    }
+  });
+
+  it("never lets a credit larger than the overdue debt turn overdue negative; the rest comes off what is not yet due", () => {
+    const c2 = customerOverdueBalances(params, ctx).get("c2");
+    expect(c2?.overdue.toString()).toBe("0.000000");
+    expect(c2?.overdueCount).toBe(0);
+    expect(c2?.oldestOverdueDate).toBeNull();
+    expect(c2?.notDue.toString()).toBe("100.000000");
   });
 });

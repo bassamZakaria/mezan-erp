@@ -375,11 +375,13 @@ exports[`PrintView > matches the rendered structure snapshot for the sample invo
       >
         <div
           class="border-t border-border pt-[6px] text-center text-[10.5px] text-ink-muted"
+          lang="ar"
         >
           أعده
         </div>
         <div
           class="border-t border-border pt-[6px] text-center text-[10.5px] text-ink-muted"
+          lang="ar"
         >
           اعتمده
         </div>

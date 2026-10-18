@@ -1,6 +1,6 @@
 import { Suspense, useCallback, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Outlet, useLocation, useNavigate } from "react-router";
+import { Navigate, Outlet, useLocation, useNavigate } from "react-router";
 import { AppShell, SkeletonTable, filterNavGroups, isNavItemVisible, navGroupItems, type NavGroup, type NavItem } from "@mezan/ui";
 import { ALL_SCOPE, ShellRequest, moduleNotLicensedMessageAr, type UserStatusCode } from "@mezan/domain";
 import { BranchRestrictedAccess, type BranchDTO, type EraseUserDTO, type RoleDTO, type ScopeSelectionDTO } from "@mezan/contracts";
@@ -28,6 +28,7 @@ import { isBranchRestricted, navItemAccess, withoutBranchUnavailable } from "./b
 import { BranchReadOnlyNotice, BranchUnavailableState, DashboardNotPermittedState, ModuleNotLicensedState } from "./shell/BranchRestrictionNotices";
 import { ReadOnlyForm } from "./shell/ReadOnlyForm";
 import { useApi } from "./data/ApiContext";
+import { GLANCE_HOME_PATH, isGlanceOnly } from "./router/HomeRedirect";
 import type { CommandItem, ShellUser, UserMenuItem } from "@mezan/ui";
 import {
   BackendBootPhase,
@@ -677,7 +678,7 @@ export function AppLayout() {
         Suspense still wraps it for anything a screen suspends on internally.
       */}
       {activeScreen === "dashboard" && !dashboardPermitted ? (
-        <DashboardNotPermittedState />
+        isGlanceOnly(session) ? <Navigate to={GLANCE_HOME_PATH} replace /> : <DashboardNotPermittedState />
       ) : unlicensedModule !== null ? (
         <ModuleNotLicensedState message={moduleNotLicensedMessageAr(unlicensedModule, entitlements?.planNameAr)} />
       ) : screenAccess === BranchRestrictedAccess.Unavailable ? (

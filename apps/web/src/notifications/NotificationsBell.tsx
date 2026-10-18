@@ -2,6 +2,7 @@ import { ArabicCase, CountedNoun } from "@mezan/domain";
 import { useCountPhrase, type CountPhrase } from "../lib/count-phrase";
 import { useState } from "react";
 import { useAppTranslation, type AppI18n } from "../i18n";
+import { notificationText } from "./notification-text";
 import { NotificationsPanel, type NotificationPanelItem } from "@mezan/ui";
 import type { NotificationDTO, NotificationPriorityDTO } from "@mezan/contracts";
 import {
@@ -24,11 +25,12 @@ function relativeTime(iso: string, now: number, t: AppI18n["t"], countPhrase: Co
   return t("notifications.daysAgo", { n: countPhrase(Math.floor(diff / DAY), CountedNoun.Day, ArabicCase.Oblique) });
 }
 
-function toPanelItem(n: NotificationDTO, now: number, t: AppI18n["t"], countPhrase: CountPhrase): NotificationPanelItem {
+function toPanelItem(n: NotificationDTO, now: number, t: AppI18n["t"], countPhrase: CountPhrase, locale: string): NotificationPanelItem {
+  const text = notificationText(n, locale, t);
   return {
     id: n.id,
-    title: n.title,
-    body: n.body,
+    title: text.title,
+    body: text.body,
     timeLabel: relativeTime(n.createdAt, now, t, countPhrase),
     read: n.status === "read",
     priority: n.priority as NotificationPriorityDTO,
@@ -45,7 +47,7 @@ export function useNotificationsBell(onViewAll?: () => void) {
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<"all" | "unread">("all");
 
-  const { t } = useAppTranslation();
+  const { t, locale } = useAppTranslation();
   const countPhrase = useCountPhrase();
   const listQuery = useNotifications(tab === "unread" ? "unread" : undefined);
   const unreadCountQuery = useUnreadNotificationCount();
@@ -53,7 +55,7 @@ export function useNotificationsBell(onViewAll?: () => void) {
   const markAllRead = useMarkAllNotificationsRead();
 
   const now = Date.now();
-  const items = (listQuery.data ?? []).map((n) => toPanelItem(n, now, t, countPhrase));
+  const items = (listQuery.data ?? []).map((n) => toPanelItem(n, now, t, countPhrase, locale));
   const unreadCount = unreadCountQuery.data ?? 0;
 
   const panel = (

@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { type Browser, type BrowserContext, type Page } from "@playwright/test";
 import type { Entitlements } from "@mezan/domain";
@@ -280,7 +280,7 @@ const FEATURE_WAVE_SCREENS: ReadonlySet<string> = new Set([...Object.keys(enhScr
 
 const ROUTED_SCREENS: readonly TenantScreen[] = screenRouteEntries()
   .filter(([key]) => !NOT_A_NAV_DESTINATION.includes(key))
-  .map(([key, route]) => ({ name: key, key, path: () => `/${route}`, checksEnglishCopy: FEATURE_WAVE_SCREENS.has(key) }));
+  .map(([key, route]) => ({ name: key, key, path: () => `/${route}`, checksEnglishCopy: true }));
 
 const DEEP_SCREENS: readonly TenantScreen[] = [
   { name: "integrations-webhooks", key: "integrations", path: () => "/setup/integrations", open: openTab("integrations.tab.webhooks"), checksEnglishCopy: true },
@@ -308,8 +308,24 @@ const LONG_UI_STRING = 15;
 const ARABIC_UI_STRINGS: readonly string[] = Object.entries(webCatalogs[Locale.Arabic])
   .filter(([key, value]) => ARABIC.test(value) && webCatalogs[Locale.English][key as WebTranslationKey] !== value && !PLACEHOLDER.test(value))
   .map(([, value]) => value.trim());
-const ARABIC_UI_LINES: ReadonlySet<string> = new Set(ARABIC_UI_STRINGS);
-const LONG_ARABIC_UI_STRINGS: readonly string[] = ARABIC_UI_STRINGS.filter((value) => value.length >= LONG_UI_STRING);
+const SERVER_COPY_ROOTS: readonly string[] = ["packages/domain/src", "packages/backend/src", "packages/api/src"];
+const SERVER_COPY_SKIPPED = /(\.test\.|\.structure\.|demo-seed|standard-roles|\/seed|fixtures?)/;
+const ARABIC_LITERAL = /"([^"\n]*[\u0600-\u06FF][^"\n]*)"|'([^'\n]*[\u0600-\u06FF][^'\n]*)'/g;
+
+function serverCopyFiles(dir: string): string[] {
+  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) return serverCopyFiles(full);
+    return entry.name.endsWith(".ts") && !SERVER_COPY_SKIPPED.test(full) ? [full] : [];
+  });
+}
+
+const SERVER_ARABIC_STRINGS: readonly string[] = SERVER_COPY_ROOTS.flatMap((root) => serverCopyFiles(path.resolve(process.cwd(), root))).flatMap((file) =>
+  [...readFileSync(file, "utf8").matchAll(ARABIC_LITERAL)].map((match) => (match[1] ?? match[2] ?? "").trim()),
+);
+const ALL_ARABIC_UI_STRINGS: readonly string[] = [...new Set([...ARABIC_UI_STRINGS, ...SERVER_ARABIC_STRINGS])].filter((value) => value.length > 0 && !value.includes("${"));
+const ARABIC_UI_LINES: ReadonlySet<string> = new Set(ALL_ARABIC_UI_STRINGS);
+const LONG_ARABIC_UI_STRINGS: readonly string[] = ALL_ARABIC_UI_STRINGS.filter((value) => value.length >= LONG_UI_STRING);
 
 /** A line the catalogue ships as interface copy, as opposed to a record's own Arabic name. */
 // An element marked lang="ar" declares its text a quotation in Arabic (a cited Egyptian statute), not interface copy.
@@ -324,14 +340,51 @@ async function textOutsideQuotedArabic(page: Page): Promise<string> {
   });
 }
 
-async function expectNoArabicUiCopy(page: Page, name: string): Promise<void> {
-  const lines = (await textOutsideQuotedArabic(page)).split("\n").map((line) => line.trim());
-  expect.soft(lines.filter(isArabicUiString), `${name}: no Arabic interface text in English`).toEqual([]);
+const DATA_NAME_KEY = /name|title|^(subject|values?|unit\w*|memo|notes?|reason|description|entityLabel|category|reference)$/i;
+const DATA_LABEL_KEY = /^labelAr$/;
+const COPY_BEARING_PATH = /\/(notifications|security-reports)\b/;
+const DATA_LABEL_PATH = /garnishment/;
+const MIN_DATA_NAME_LENGTH = 2;
+const MIN_REMOVABLE_NAME_LENGTH = 3;
+const MIN_COPY_FRAGMENT_LENGTH = 8;
+
+function collectDataNames(page: Page): () => ReadonlySet<string> {
+  const names = new Set<string>();
+  const visit = (value: unknown, key: string, pathname: string): void => {
+    if (typeof value === "string") {
+      const isData = (DATA_NAME_KEY.test(key) && !COPY_BEARING_PATH.test(pathname)) || (DATA_LABEL_KEY.test(key) && DATA_LABEL_PATH.test(pathname));
+      if (isData && ARABIC.test(value) && value.trim().length >= MIN_DATA_NAME_LENGTH) names.add(value.trim());
+      return;
+    }
+    if (Array.isArray(value)) value.forEach((entry) => visit(entry, key, pathname));
+    else if (value !== null && typeof value === "object") Object.entries(value).forEach(([entryKey, entry]) => visit(entry, entryKey, pathname));
+  };
+  page.on("response", (response) => {
+    const { pathname } = new URL(response.url());
+    if (!pathname.startsWith("/api/") || !(response.headers()["content-type"] ?? "").includes("json")) return;
+    response.json().then((body: unknown) => visit(body, "", pathname), () => undefined);
+  });
+  return () => names;
 }
 
-function isArabicUiString(line: string): boolean {
+async function expectNoArabicUiCopy(page: Page, name: string, dataNames: ReadonlySet<string> = new Set()): Promise<void> {
+  const lines = (await textOutsideQuotedArabic(page)).split("\n").map((line) => line.trim());
+  expect.soft(lines.filter((line) => isArabicUiString(line, dataNames)), `${name}: no Arabic interface text in English`).toEqual([]);
+}
+
+function withoutDataNames(cell: string, dataNames: ReadonlySet<string>): string {
+  const known = [...recordNames, ...dataNames].filter((name) => name.length >= MIN_REMOVABLE_NAME_LENGTH).sort((a, b) => b.length - a.length);
+  return known.reduce((rest, entry) => (rest.includes(entry) ? rest.split(entry).join(" ") : rest), cell);
+}
+
+function isArabicUiString(line: string, dataNames: ReadonlySet<string>): boolean {
   const cells = line.split("\t").map((cell) => cell.replace(/ total$/, "").trim());
-  return cells.some((cell) => ARABIC.test(cell) && !recordNames.has(cell) && (ARABIC_UI_LINES.has(cell) || LONG_ARABIC_UI_STRINGS.some((value) => cell.includes(value))));
+  return cells.some((cell) => {
+    if (!ARABIC.test(cell) || recordNames.has(cell) || dataNames.has(cell)) return false;
+    const rest = withoutDataNames(cell, dataNames).trim();
+    if (!ARABIC.test(rest)) return false;
+    return ARABIC_UI_LINES.has(rest) || ALL_ARABIC_UI_STRINGS.some((value) => value.length >= MIN_COPY_FRAGMENT_LENGTH && rest.includes(value)) || LONG_ARABIC_UI_STRINGS.some((value) => cell.includes(value));
+  });
 }
 
 // The look is written into the stored origin rather than by an init script: an init script is injected
@@ -400,13 +453,14 @@ test.describe("Every tenant-app screen the nav reaches — the seeded Enterprise
         const context = await browser.newContext({ viewport: VIEWPORT_SIZE[look.viewport], storageState: withLook(demoState, look) });
         const page = await context.newPage();
         const watch = watchPage(page);
+        const dataNames = collectDataNames(page);
         await page.goto(`${DEMO_WEB_URL}${screen.path()}`);
         await expect(page.locator("h1").first()).toBeVisible({ timeout: FIRST_PAINT_TIMEOUT_MS });
         await screen.open?.(page, look);
         await expect.soft(page.locator("html"), `${screen.name}: text direction follows the locale`).toHaveAttribute("dir", look.locale === Locale.Arabic ? "rtl" : "ltr");
         await expect.soft(page.locator("html"), `${screen.name}: theme applies`).toHaveAttribute("data-theme", look.theme);
         await expectHealthyScreen(page, { name: `tenant-${label}-${screen.name}`, locale: look.locale, watch });
-        if (look.locale === Locale.English && screen.checksEnglishCopy) await expectNoArabicUiCopy(page, screen.name);
+        if (look.locale === Locale.English && screen.checksEnglishCopy) await expectNoArabicUiCopy(page, screen.name, dataNames());
         await context.close();
       });
     }

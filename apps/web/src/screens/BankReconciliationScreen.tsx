@@ -15,7 +15,8 @@ import {
   type EntityPickerOption,
   type PillTone,
 } from "@mezan/ui";
-import { BANK_STATEMENT_STATUS_DEFINITIONS, getBankStatementStatusLabel, parseCsv } from "@mezan/domain";
+import { BANK_STATEMENT_STATUS_DEFINITIONS, parseCsv } from "@mezan/domain";
+import { bankStatementStatusLabel } from "../domain-labels";
 import {
   StatementFileFormatCode,
   StatementSourceCode,
@@ -154,7 +155,7 @@ export function BankReconciliationScreen() {
 
   const statusChips: DocumentListStatusChip[] = [
     { key: "all", label: t("common.all"), count: counts.all },
-    ...BANK_STATEMENT_STATUS_DEFINITIONS.map((d) => ({ key: d.code, label: d.labelAr, count: counts[d.code] })),
+    ...BANK_STATEMENT_STATUS_DEFINITIONS.map((d) => ({ key: d.code, label: bankStatementStatusLabel(d.code, t), count: counts[d.code] })),
   ];
 
   const columns: DocumentListColumn<BankStatementListItemDTO>[] = [
@@ -189,7 +190,7 @@ export function BankReconciliationScreen() {
         </span>
       ),
     },
-    { key: "status", header: t("common.status"), render: (s) => <StatusPill label={getBankStatementStatusLabel(s.status)} tone={STATUS_TONE[s.status]} /> },
+    { key: "status", header: t("common.status"), render: (s) => <StatusPill label={bankStatementStatusLabel(s.status, t)} tone={STATUS_TONE[s.status]} /> },
   ];
 
   return (

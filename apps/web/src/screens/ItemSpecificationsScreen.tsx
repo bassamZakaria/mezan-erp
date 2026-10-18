@@ -21,6 +21,7 @@ import {
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { EMPTY } from "../lib/empty";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
+import { displayName } from "../display-name";
 
 /**
  * المواصفات — the reusable specification/attribute registry over the item
@@ -259,7 +260,7 @@ function SpecificationFormPage({
 }
 
 export function ItemSpecificationsScreen() {
-  const { t } = useAppTranslation();
+  const { t, locale } = useAppTranslation();
   const query = useItemSpecifications();
   const deleteSpecification = useDeleteItemSpecification();
 
@@ -320,7 +321,7 @@ export function ItemSpecificationsScreen() {
       render: (s) => (
         <div className="flex flex-col">
           <span className="flex items-center gap-[8px] font-semibold text-ink">
-            {s.nameAr}
+            {displayName(s, locale)}
             {s.status === "active" ? null : <StatusPill label={t("specs.inactive")} tone="neutral" />}
           </span>
           <span className="font-mono text-[11.5px] text-ink-faint">{s.code}</span>

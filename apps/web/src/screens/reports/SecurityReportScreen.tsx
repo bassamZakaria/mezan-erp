@@ -4,6 +4,7 @@ import type { ReportCoverageDTO, ReportGapDTO } from "@mezan/contracts";
 import { useReport } from "../../data/reports-hooks";
 import { useAppTranslation, type AppTranslationKey } from "../../i18n";
 import { tryReportLabel } from "../../report-labels";
+import { WEB_TRANSLATION_KEYS } from "../../i18n/catalog";
 
 /** One of the four exception reports this shell renders, keyed the way `securityReports.<report>.*` i18n keys are. */
 export type SecurityReportKey = "exceptions" | "postPosting" | "afterHours" | "newAccounts" | "sod";
@@ -22,6 +23,11 @@ export function securityCopy(
   t: (key: AppTranslationKey) => string,
 ): string {
   return tryReportLabel(`securityReports.${report}.${kind}.${key}`, fallbackAr, t);
+}
+
+function groupLabel(report: SecurityReportKey, key: string, fallbackAr: string, t: (key: AppTranslationKey) => string): string {
+  const catalogKey = `securityReports.${report}.group.${key}`;
+  return WEB_TRANSLATION_KEYS.has(catalogKey) ? t(catalogKey as AppTranslationKey) : fallbackAr;
 }
 
 /**
@@ -85,7 +91,7 @@ export function SecurityReportScreen<Row>({
   const result = raw
     ? {
         rows: raw.rows,
-        groups: raw.groups.map((g) => ({ key: g.key, label: g.labelAr, rows: g.rows, totals: g.totals })),
+        groups: raw.groups.map((g) => ({ key: g.key, label: groupLabel(report, g.key, g.labelAr, t), rows: g.rows, totals: g.totals })),
         grandTotals: raw.grandTotals,
         reconciliation: null,
         summary:

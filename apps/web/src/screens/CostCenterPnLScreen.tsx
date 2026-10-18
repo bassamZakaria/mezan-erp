@@ -46,7 +46,7 @@ export function CostCenterPnLScreen() {
 
   const columns: DocumentListColumn<CostCenterPnLRowDTO>[] = [
     { key: "code", header: t("common.code"), render: (r) => <span className="mz-num text-ink-muted">{r.code}</span> },
-    { key: "name", header: t("costCenterPnl.costCentre"), render: (r) => <span className="font-semibold text-ink">{r.name}</span> },
+    { key: "name", header: t("costCenterPnl.costCentre"), render: (r) => <span className="font-semibold text-ink">{r.costCenterId === null ? t("costCenterPnl.unassigned") : r.name}</span> },
     { key: "revenue", header: t("costCenterPnl.revenue"), render: (r) => <span className="mz-num text-ink">{fmt(r.revenue)}</span> },
     { key: "expense", header: t("costCenterPnl.expenses"), render: (r) => <span className="mz-num text-ink">{fmt(r.expense)}</span> },
     {

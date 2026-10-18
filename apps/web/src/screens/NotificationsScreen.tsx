@@ -17,6 +17,7 @@ import { NOTIFICATION_PRIORITIES, type NotificationPriority } from "@mezan/domai
 import type { NotificationDTO } from "@mezan/contracts";
 import { useMarkAllNotificationsRead, useMarkNotificationRead, useNotifications, useUnreadNotificationCount } from "../data/hooks";
 import { eventLabelByCode } from "../domain-labels";
+import { notificationText } from "../notifications/notification-text";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useNavigation } from "../navigation";
 import { EMPTY } from "../lib/empty";
@@ -83,10 +84,13 @@ export function NotificationsScreen() {
     return tabRows.filter((n) => {
       if (priorityFilter && n.priority !== priorityFilter) return false;
       if (eventFilter && n.eventCode !== eventFilter) return false;
-      if (term && !`${n.title} ${n.body}`.toLowerCase().includes(term)) return false;
+      if (term) {
+        const shown = notificationText(n, locale, t);
+        if (!`${n.title} ${n.body} ${shown.title} ${shown.body}`.toLowerCase().includes(term)) return false;
+      }
       return true;
     });
-  }, [tabRows, priorityFilter, eventFilter, search]);
+  }, [tabRows, priorityFilter, eventFilter, search, locale, t]);
 
   const activeFilterCount = (priorityFilter ? 1 : 0) + (eventFilter ? 1 : 0);
   // Zero rows means something different depending on WHY: nothing has ever
@@ -127,14 +131,14 @@ export function NotificationsScreen() {
         render: (n) => (
           <div className="flex items-center gap-[8px]">
             {n.status === "unread" ? <span aria-hidden className="h-[6px] w-[6px] flex-none rounded-full bg-brand" /> : null}
-            <span className={n.status === "unread" ? "font-bold text-ink" : "text-ink-muted"}>{n.title}</span>
+            <span className={n.status === "unread" ? "font-bold text-ink" : "text-ink-muted"}>{notificationText(n, locale, t).title}</span>
           </div>
         ),
       },
       {
         key: "body",
         header: t("notifications.screen.col.body"),
-        render: (n) => <span className="line-clamp-1 text-ink-muted">{n.body}</span>,
+        render: (n) => <span className="line-clamp-1 text-ink-muted">{notificationText(n, locale, t).body}</span>,
       },
       {
         key: "eventCode",
@@ -233,7 +237,7 @@ export function NotificationsScreen() {
             n.status === "unread"
               ? [{ key: "markRead", label: t("common.markRead"), disabled: pendingId === n.id, onSelect: () => void markOneRead(n) }]
               : [];
-          return <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: n.title })} />;
+          return <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: notificationText(n, locale, t).title })} />;
         }}
         page={page}
         pageCount={pageCount}

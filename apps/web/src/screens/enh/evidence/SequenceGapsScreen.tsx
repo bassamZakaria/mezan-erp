@@ -5,6 +5,8 @@ import { useAppTranslation } from "../../../i18n";
 import { Notice, NoticeTone } from "../provisioning/Notice";
 import { useSequenceGaps } from "./hooks";
 import { EvidenceCode, PeriodFields, defaultPeriod, isValidPeriod, useGrants } from "./PeriodFields";
+import { SEQUENCE_DEFINITIONS } from "@mezan/domain";
+import { sequenceLabel } from "../../../domain-labels";
 
 const SKELETON_LINES = 6;
 
@@ -13,6 +15,11 @@ const EXPLANATION_TONE: Readonly<Record<SequenceGapExplanationCode, PillTone>> =
   [SequenceGapExplanationCode.DraftDeleted]: "warning",
   [SequenceGapExplanationCode.Unexplained]: "danger",
 };
+
+function sequenceName(labelAr: string, t: ReturnType<typeof useAppTranslation>["t"]): string {
+  const definition = SEQUENCE_DEFINITIONS.find((entry) => entry.labelAr === labelAr);
+  return definition ? sequenceLabel(definition, t) : labelAr;
+}
 
 function SeriesCard({ series, onlyInPeriod }: { readonly series: SequenceSeriesDTO; readonly onlyInPeriod: boolean }) {
   const { t } = useAppTranslation();
@@ -23,7 +30,7 @@ function SeriesCard({ series, onlyInPeriod }: { readonly series: SequenceSeriesD
     <Card className="flex flex-col gap-[8px] p-[14px]">
       <div className="flex flex-wrap items-baseline justify-between gap-[8px]">
         <h3 className="text-[14px] font-bold text-ink">
-          {series.labelAr} <span className="font-mono text-[12px] text-ink-muted" dir="ltr">{series.series}</span>
+          {sequenceName(series.labelAr, t)} <span className="font-mono text-[12px] text-ink-muted" dir="ltr">{series.series}</span>
         </h3>
         <dl className="flex flex-wrap gap-[12px] text-[12px] text-ink-muted">
           <div><dt className="inline">{t("sequenceGaps.col.issued")}: </dt><dd className="inline mz-num text-ink">{format.number(series.issued)}</dd></div>

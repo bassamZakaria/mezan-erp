@@ -51,6 +51,7 @@ import { errorMessage } from "../lib/error-message";
 import { JournalEntryPrintPage } from "../print/documents";
 import { useNameSubPage, useSubPage } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { storedMemoLabel } from "../domain-labels";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 import { useEntityName } from "../lib/entity-names";
 import { majorOf, scaledOf, sumMajor } from "../lib/money";
@@ -170,7 +171,7 @@ const PAGE_SIZES = [10, 25, 50, 100] as const;
 
 export function JournalsScreen() {
   const nameOf = useEntityName();
-  const { t } = useAppTranslation();
+  const { t, locale } = useAppTranslation();
   const accountsQuery = useAccounts();
   const costCentersQuery = useCostCenters();
   const projectsQuery = useProjects();
@@ -295,7 +296,7 @@ export function JournalsScreen() {
       render: (d) => <span className="mz-num font-semibold text-ink">{d.entryNo ?? "—"}</span>,
     },
     { key: "date", header: t("common.date"), sortable: true, render: (d) => <span className="mz-num text-ink-muted">{d.date}</span> },
-    { key: "memo", header: t("journals.description"), render: (d) => <span className="text-ink">{d.memo}</span> },
+    { key: "memo", header: t("journals.description"), render: (d) => <span className="text-ink">{storedMemoLabel(d.memo, locale)}</span> },
     {
       key: "sourceModule",
       header: t("journals.col.sourceModule"),

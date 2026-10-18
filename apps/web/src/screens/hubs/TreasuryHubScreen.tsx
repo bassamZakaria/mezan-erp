@@ -3,6 +3,7 @@ import { Money, WorkspaceHub } from "@mezan/ui";
 import { ScreenRequest } from "@mezan/domain";
 import { useCheques, useDashboardSummary, useHoldsScreenRequest, useTreasuryAccounts, useVouchers } from "../../data/hooks";
 import { useAppTranslation } from "../../i18n";
+import { storedMemoLabel } from "../../domain-labels";
 import { DateAndDoc, HubActions, type HubAction } from "./hub-parts";
 import { EMPTY } from "../../lib/empty";
 
@@ -29,7 +30,7 @@ const quickActions: HubAction[] = [
 ];
 
 export function TreasuryHubScreen() {
-  const { t } = useAppTranslation();
+  const { t, locale } = useAppTranslation();
   const accountsQuery = useTreasuryAccounts();
   const vouchersQuery = useVouchers();
   const chequesQuery = useCheques();
@@ -66,7 +67,7 @@ export function TreasuryHubScreen() {
         empty: t("treasuryHub.noVouchersYetTheFirst"),
         rows: recentVouchers.map((v) => ({
           key: v.id,
-          primary: v.memo || v.docNo || v.id,
+          primary: storedMemoLabel(v.memo, locale) || v.docNo || v.id,
           secondary: <DateAndDoc date={v.date} docNo={v.docNo} />,
           trailing: <Money value={num(v.amount)} />,
         })),

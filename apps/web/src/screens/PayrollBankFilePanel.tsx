@@ -9,6 +9,7 @@ import { useEntityName } from "../lib/entity-names";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { todayIso } from "../lib/dates";
 import { EMPTY } from "../lib/empty";
+import { codedLabel } from "../domain-labels";
 
 const EXCEPTION_REASON_KEY: Record<BankFileExceptionReasonDTO, AppTranslationKey> = {
   [BankFileExceptionReasonDTO.PaidInCash]: "hrPages.bankFile.reason.paid_in_cash",
@@ -82,7 +83,7 @@ export function PayrollBankFilePanel({ run }: { run: PayrollRunDTO }) {
       {layout ? (
         <div className="flex flex-wrap items-start gap-[8px] text-[12px] text-ink-muted">
           {layout.verified ? null : <StatusPill label={t("statutory.unverified")} tone="warning" />}
-          <p className="min-w-0 flex-1 leading-relaxed">{layout.descriptionAr}</p>
+          <p className="min-w-0 flex-1 leading-relaxed">{codedLabel("hrPages.bankFile.description", layout.format, layout.descriptionAr, t)}</p>
         </div>
       ) : null}
       {layout && !layout.verified ? (

@@ -13,7 +13,8 @@ import {
   type EntityPickerOption,
   type PillTone,
 } from "@mezan/ui";
-import { getBankStatementStatusLabel, ArabicCase, CountedNoun } from "@mezan/domain";
+import { ArabicCase, CountedNoun } from "@mezan/domain";
+import { bankStatementStatusLabel } from "../domain-labels";
 import {
   BankRuleDirectionCode,
   BankRuleMatchTypeCode,
@@ -157,7 +158,7 @@ export function StatementWorkspace({
       {statement ? (
         <div className="flex flex-col gap-4">
           <div className="flex flex-wrap items-center gap-[10px]">
-            <StatusPill label={getBankStatementStatusLabel(statement.status)} tone={STATUS_TONE[statement.status] ?? "neutral"} />
+            <StatusPill label={bankStatementStatusLabel(statement.status, t)} tone={STATUS_TONE[statement.status] ?? "neutral"} />
             <span className="mz-num text-[12px] text-ink-muted">
               {statement.periodStart} — {statement.periodEnd}
             </span>

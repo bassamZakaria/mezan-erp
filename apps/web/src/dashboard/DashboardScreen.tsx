@@ -12,6 +12,7 @@ import { sessionHolds } from "../data/session";
 import { DeskTiles, useDeskTiles } from "./DeskTiles";
 import { displayName } from "../display-name";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { storedMemoLabel } from "../domain-labels";
 import { BalanceBeam, beamTiltDegrees } from "./BalanceBeam";
 import { KpiTile, type BeamDirection, type DeltaTone } from "./KpiStrip";
 import { AttentionQueue, type AttentionItem } from "./AttentionQueue";
@@ -432,7 +433,7 @@ export function DashboardScreen() {
                 <li key={entry.id} className="flex items-start gap-[10px]">
                   <span aria-hidden className="mt-[6px] h-[6px] w-[6px] flex-none rounded-full bg-brand" />
                   <div className="min-w-0">
-                    <div className="truncate text-sm text-ink">{entry.memo || entry.entryNo || entry.id}</div>
+                    <div className="truncate text-sm text-ink">{storedMemoLabel(entry.memo, locale) || entry.entryNo || entry.id}</div>
                     <div className="mt-[1px] text-2xs text-ink-faint">
                       <span className="mz-num">{entry.date}</span>
                       {entry.entryNo ? <span className="mz-lat"> · {entry.entryNo}</span> : null}

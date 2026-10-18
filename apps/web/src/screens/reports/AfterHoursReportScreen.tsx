@@ -46,11 +46,11 @@ export function AfterHoursReportScreen() {
   const columns: ReportRunnerColumn<AfterHoursRowDTO>[] = [
     { key: "localDate", header: securityCopy(REPORT, "col", "localDate", "التاريخ", t), format: "date", value: (r) => r.localDate },
     { key: "localTime", header: securityCopy(REPORT, "col", "localTime", "الوقت", t), value: (r) => r.localTime },
-    { key: "weekdayLabelAr", header: securityCopy(REPORT, "col", "weekdayLabelAr", "اليوم", t), value: (r) => r.weekdayLabelAr },
+    { key: "weekdayLabelAr", header: securityCopy(REPORT, "col", "weekdayLabelAr", "اليوم", t), value: (r) => t(`securityReports.weekday.${r.weekday}` as AppTranslationKey) },
     {
       key: "outsideReasonLabelAr",
       header: securityCopy(REPORT, "col", "outsideReasonLabelAr", "سبب الاستثناء", t),
-      value: (r) => r.outsideReasonLabelAr,
+      value: (r) => t(`securityReports.afterHours.reason.${r.outsideReason}` as AppTranslationKey),
     },
     { key: "actor", header: securityCopy(REPORT, "col", "actor", "المستخدم", t), value: (r) => r.actor },
     { key: "action", header: securityCopy(REPORT, "col", "action", "الإجراء", t), value: (r) => labels.actionLabel(r.action) },

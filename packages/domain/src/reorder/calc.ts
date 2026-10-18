@@ -1,3 +1,4 @@
+import { ArabicCase, arabicDays } from "../text/counted-noun.js";
 import { Qty } from "../money/index.js";
 import { InvalidReorderPolicyError } from "./errors.js";
 import type { BilingualReason } from "../collections/errors.js";
@@ -73,7 +74,7 @@ export function buildReorderPolicy(input: ReorderPolicyInput): ItemWarehousePoli
   if (input.maxQty.compare(input.minQty) < 0) reasons.push({ ar: "الحد الأقصى يجب ألا يقل عن الحد الأدنى.", en: "The maximum cannot be below the minimum." });
   if (!Number.isInteger(input.leadDays) || input.leadDays < 0 || input.leadDays > REORDER_LEAD_DAYS_MAX) {
     reasons.push({
-      ar: `مدة التوريد يجب أن تكون عدداً صحيحاً من 0 إلى ${REORDER_LEAD_DAYS_MAX} يوماً.`,
+      ar: `مدة التوريد يجب أن تكون عدداً صحيحاً من 0 إلى ${arabicDays(REORDER_LEAD_DAYS_MAX, ArabicCase.Oblique)}.`,
       en: `The lead time must be a whole number of days from 0 to ${REORDER_LEAD_DAYS_MAX}.`,
     });
   }

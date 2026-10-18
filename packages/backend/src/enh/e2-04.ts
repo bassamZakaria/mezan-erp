@@ -6,8 +6,10 @@ import {
   loadAllCostLayers,
 } from "@mezan/api";
 import {
+  ArabicCase,
   ExpiryAlertKind,
   ExpiryEventCode,
+  arabicDays,
   dueExpiryAlerts,
   toTenantDay,
   type EventCode,
@@ -59,7 +61,7 @@ function defaultRules(now: string): NotificationRule[] {
       priority: "high",
       channels: ["in_app"],
       titleAr: "قرب انتهاء صلاحية: {{itemName}}",
-      bodyAr: "التشغيلة {{batchNo}} في {{warehouseName}} تنتهي في {{expiryDate}} (بعد {{daysToExpiry}} يوماً) — الكمية {{qty}}.",
+      bodyAr: "التشغيلة {{batchNo}} في {{warehouseName}} تنتهي في {{expiryDate}} (بعد {{daysToExpiryLabel}}) — الكمية {{qty}}.",
       active: true,
       createdAt: now,
       updatedAt: now,
@@ -121,6 +123,7 @@ function createScanner(ctx: BackendModuleContext, store: ReturnType<typeof creat
         documentNumber: layer.batchNo ?? layer.sourceDocNumber ?? layer.sourceDocId,
         expiryDate: layer.expiryDate,
         daysToExpiry: alert.daysToExpiry,
+        daysToExpiryLabel: arabicDays(alert.daysToExpiry, ArabicCase.Oblique),
         qty: layer.remainingQty.toString(),
         nearExpiryDays: settings.nearExpiryDays,
         link: "/stock/inventory-batches",

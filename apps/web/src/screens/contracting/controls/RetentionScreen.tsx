@@ -1,3 +1,4 @@
+import { useCountPhrase } from "../../../lib/count-phrase";
 import { useMemo, useState } from "react";
 import {
   Button,
@@ -16,7 +17,7 @@ import {
   type PillTone,
   type RowMenuItem,
 } from "@mezan/ui";
-import { can, createAuthContext } from "@mezan/domain";
+import { can, createAuthContext, ArabicCase, CountedNoun } from "@mezan/domain";
 import type { RetentionCalendarRowDTO, RetentionReleaseDTO, RetentionReleaseKindDTO } from "@mezan/contracts";
 import { useApi } from "../../../data/ApiContext";
 import { useWorksContracts } from "../../../data/contracting-contracts-hooks";
@@ -89,6 +90,7 @@ function blankDraft(): Draft {
 
 export function RetentionScreen() {
   const { t } = useAppTranslation();
+  const countPhrase = useCountPhrase();
   const format = useFormat();
   const { session } = useApi();
   const subPage = useSubPage();
@@ -522,7 +524,7 @@ export function RetentionScreen() {
                     <td className="p-[7px_8px]">
                       {row.event.due ? (
                         <StatusPill
-                          label={t("retention.duePill", { days: format.number(row.event.ageDays ?? 0) })}
+                          label={t("retention.duePill", { days: countPhrase(row.event.ageDays ?? 0, CountedNoun.Day, ArabicCase.Oblique) })}
                           tone="danger"
                         />
                       ) : (

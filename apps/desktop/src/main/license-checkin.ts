@@ -1,7 +1,7 @@
 import { createHmac, randomBytes } from "node:crypto";
 import { chmodSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { verifyCheckinResponse, type CheckinClaim } from "@mezan/domain";
+import { verifyCheckinResponse, type CheckinClaim, ArabicCase, arabicDays } from "@mezan/domain";
 
 /**
  * HOW LONG AN INSTALL MAY GO WITHOUT CONFIRMING ITS LICENCE ONLINE.
@@ -485,14 +485,14 @@ export function checkinMessageAr(verdict: CheckinVerdict, daysSince: number): st
   }
   if (verdict === "read-only") {
     return (
-      `لم يتم التحقق من الترخيص عبر الإنترنت منذ ${daysSince} يوماً. ` +
+      `لم يتم التحقق من الترخيص عبر الإنترنت منذ ${arabicDays(daysSince, ArabicCase.Oblique)}. ` +
       `يمكنك الاطلاع على البيانات وطباعتها وتصديرها، ولا يمكن تسجيل قيود جديدة حتى يتم التحقق. ` +
       `اتصل بالإنترنت أو تواصل مع الدعم.`
     );
   }
   if (verdict === "blocked") {
     return (
-      `لم يتم التحقق من الترخيص عبر الإنترنت منذ ${daysSince} يوماً. ` +
+      `لم يتم التحقق من الترخيص عبر الإنترنت منذ ${arabicDays(daysSince, ArabicCase.Oblique)}. ` +
       `بياناتك كاملة ومتاحة للعرض والطباعة والتصدير، ولا يمكن تسجيل قيود جديدة. ` +
       `اتصل بالإنترنت ثم اضغط «تحقق الآن»، أو تواصل مع الدعم للحصول على ملف ترخيص جديد.`
     );

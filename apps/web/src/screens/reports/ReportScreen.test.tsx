@@ -2,7 +2,9 @@
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
 import { screen, waitFor } from "@testing-library/react";
+import { ArabicCase, CountedNoun, countPhrase, createInventoryBatchesReport, ExpiryStatus } from "@mezan/domain";
 import { SalesByPeriodReportScreen } from "./SalesReportsScreens";
+import { ReportScreen } from "./ReportScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../../data/test-support";
 import { monthStartIso } from "../../lib/dates";
 
@@ -51,5 +53,32 @@ describe("ReportScreen (real data-client wiring)", () => {
     renderWithProviders(<SalesByPeriodReportScreen />, { transport, initialSession: testAdminSession });
 
     await waitFor(() => expect(screen.getByText("لا توجد بيانات لعرضها.")).toBeInTheDocument());
+  });
+
+  it("renders the batches report's status and no-batch cells and its description in English", async () => {
+    window.localStorage.setItem("mezan.locale", "en");
+    const row = {
+      key: "k1", itemId: "ITEM-1", itemCode: "A1", itemNameAr: "أرز", itemNameEn: "Rice", warehouseId: "WH-1", warehouseName: "Main",
+      batchNo: null, batchLabel: "بدون تشغيلة", expiryDate: "2026-10-25", daysToExpiry: 7, status: ExpiryStatus.NearExpiry,
+      statusLabel: "قاربت على الانتهاء", fefoRank: 1, qty: 3, qtyExact: "3", totalValue: 30, valueExact: "30", receivedOn: "2026-09-01",
+    };
+    const transport = stubTransport({
+      "GET /reports/inventory/batches": () => ({
+        body: { rows: [row], groups: [{ key: "WH-1", label: "Main", rows: [row], totals: {} }], grandTotals: {}, reconciliation: null },
+      }),
+    });
+    const definition = {
+      ...createInventoryBatchesReport("2026-10-18", 30),
+      descriptionParams: { days: countPhrase("en", 30, CountedNoun.Day, { grammaticalCase: ArabicCase.Oblique }) },
+    };
+    renderWithProviders(<ReportScreen definition={definition} apiPath="/inventory/batches" />, { transport, initialSession: testAdminSession });
+
+    try {
+      await waitFor(() => expect(screen.getByRole("cell", { name: "Near expiry" })).toBeInTheDocument());
+      expect(screen.getByRole("cell", { name: "No batch" })).toBeInTheDocument();
+      expect(screen.getByText(/«Near expiry» means within 30 days\./)).toBeInTheDocument();
+    } finally {
+      window.localStorage.removeItem("mezan.locale");
+    }
   });
 });

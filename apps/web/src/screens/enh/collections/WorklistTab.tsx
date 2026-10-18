@@ -1,3 +1,5 @@
+import { CountedNoun } from "@mezan/domain";
+import { useCountPhrase } from "../../../lib/count-phrase";
 import { useState } from "react";
 import { Button, Card, EmptyState, Money, StatCard, StatusPill, useFormat } from "@mezan/ui";
 import { CollectionItemKindDTO, type CollectionCustomerRowDTO, type DunningRunResultDTO } from "@mezan/contracts";
@@ -154,6 +156,7 @@ interface FragmentRowProps {
 
 function FragmentRow({ row, open, onToggle, canRun, runBusy, onRun, mayPromise, promiseOpen, onPromise, onOpenCustomer }: FragmentRowProps) {
   const { t } = useAppTranslation();
+  const countPhrase = useCountPhrase();
   const fmt = useFormat();
   return (
     <>
@@ -179,7 +182,7 @@ function FragmentRow({ row, open, onToggle, canRun, runBusy, onRun, mayPromise, 
         <td className="p-3">
           <Money value={row.notYetDue} />
         </td>
-        <td className="p-3 mz-num">{t("collections.worklist.days", { days: row.oldestDaysOverdue })}</td>
+        <td className="p-3 mz-num">{t("collections.worklist.days", { days: countPhrase(row.oldestDaysOverdue, CountedNoun.Day) })}</td>
         <td className="p-3">
           <div className="flex flex-wrap justify-end gap-2">
             {canRun ? (
@@ -218,6 +221,7 @@ function FragmentRow({ row, open, onToggle, canRun, runBusy, onRun, mayPromise, 
 
 export function WorkItems({ row }: { row: CollectionCustomerRowDTO }) {
   const { t } = useAppTranslation();
+  const countPhrase = useCountPhrase();
   const fmt = useFormat();
   return (
     <div className="overflow-x-auto">
@@ -241,7 +245,7 @@ export function WorkItems({ row }: { row: CollectionCustomerRowDTO }) {
                 {item.kind === CollectionItemKindDTO.Installment && item.detail ? <div className="text-[11px] text-ink-faint">{item.detail}</div> : null}
               </td>
               <td className="p-2">{fmt.date(item.dueDate)}</td>
-              <td className="p-2 mz-num">{t("collections.worklist.days", { days: item.daysOverdue })}</td>
+              <td className="p-2 mz-num">{t("collections.worklist.days", { days: countPhrase(item.daysOverdue, CountedNoun.Day) })}</td>
               <td className="p-2">
                 <Money value={item.amount} />
               </td>

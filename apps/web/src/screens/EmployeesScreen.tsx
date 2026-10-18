@@ -1,5 +1,6 @@
+import { useCountPhrase } from "../lib/count-phrase";
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
-import { Money } from "@mezan/domain";
+import { Money, ArabicCase, CountedNoun } from "@mezan/domain";
 import {
   RowActionOutcome,
   Button,
@@ -380,6 +381,7 @@ enum TerminationPanelMode {
 
 export function EmployeesScreen() {
   const { t, locale } = useAppTranslation();
+  const countPhrase = useCountPhrase();
   const statutoryEnabled = usePayrollStatutoryFlag().data?.enabled === true;
   const query = useEmployees();
   const departmentsQuery = useDepartments();
@@ -601,10 +603,10 @@ export function EmployeesScreen() {
       const parts = payRecovery
         ? [
             payRecovery.payableReduced && Money.fromMajor(payRecovery.payableReduced).scaled > 0n
-              ? t("employees.payRecoveryOffPayable", { days: payRecovery.days, paidThrough: payRecovery.paidThrough, amount: twoPlaces(payRecovery.payableReduced) })
+              ? t("employees.payRecoveryOffPayable", { days: countPhrase(Number(payRecovery.days), CountedNoun.Day, ArabicCase.Oblique), paidThrough: payRecovery.paidThrough, amount: twoPlaces(payRecovery.payableReduced) })
               : null,
             payRecovery.advanceNumber
-              ? t("employees.payRecoveryBooked", { days: payRecovery.days, paidThrough: payRecovery.paidThrough, number: payRecovery.advanceNumber, amount: twoPlaces(payRecovery.amount) })
+              ? t("employees.payRecoveryBooked", { days: countPhrase(Number(payRecovery.days), CountedNoun.Day, ArabicCase.Oblique), paidThrough: payRecovery.paidThrough, number: payRecovery.advanceNumber, amount: twoPlaces(payRecovery.amount) })
               : null,
           ].filter((part): part is string => part !== null)
         : [];

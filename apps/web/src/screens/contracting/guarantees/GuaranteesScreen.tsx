@@ -1,3 +1,4 @@
+import { useCountPhrase } from "../../../lib/count-phrase";
 import { ReversalDocumentType } from "@mezan/contracts";
 import { useReverseDocumentAction } from "../../../reversal/ReverseDocumentAction";
 import { useMemo, useState } from "react";
@@ -19,7 +20,7 @@ import {
   type PillTone,
   type RowMenuItem,
 } from "@mezan/ui";
-import { can, createAuthContext } from "@mezan/domain";
+import { can, createAuthContext, ArabicCase, CountedNoun } from "@mezan/domain";
 import type { GuaranteeDTO, GuaranteeKindDTO, GuaranteeStatusDTO } from "@mezan/contracts";
 import { useApi } from "../../../data/ApiContext";
 import { useProjects, useTreasuryAccounts } from "../../../data/hooks";
@@ -126,6 +127,7 @@ function toMoneyString(value: number | null): string {
 export function GuaranteesScreen() {
   const reversal = useReverseDocumentAction(ReversalDocumentType.LetterOfGuarantee);
   const { t } = useAppTranslation();
+  const countPhrase = useCountPhrase();
   const format = useFormat();
   const { session } = useApi();
   const subPage = useSubPage();
@@ -220,7 +222,7 @@ export function GuaranteesScreen() {
     if ((status === "active" || status === "reduced") && guarantee.daysToExpiry <= 30) {
       return (
         <StatusPill
-          label={t("guarantees.expiresInDays", { days: format.number(guarantee.daysToExpiry) })}
+          label={t("guarantees.expiresInDays", { days: countPhrase(guarantee.daysToExpiry, CountedNoun.Day, ArabicCase.Oblique) })}
           tone="warning"
         />
       );

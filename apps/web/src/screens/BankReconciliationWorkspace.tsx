@@ -1,3 +1,4 @@
+import { useCountPhrase } from "../lib/count-phrase";
 import { useMemo, useState } from "react";
 import {
   Button,
@@ -12,7 +13,7 @@ import {
   type EntityPickerOption,
   type PillTone,
 } from "@mezan/ui";
-import { getBankStatementStatusLabel } from "@mezan/domain";
+import { getBankStatementStatusLabel, ArabicCase, CountedNoun } from "@mezan/domain";
 import {
   BankRuleDirectionCode,
   BankRuleMatchTypeCode,
@@ -413,6 +414,7 @@ function SuggestionRow({
   onReject: () => void;
 }) {
   const { t } = useAppTranslation();
+  const countPhrase = useCountPhrase();
   return (
     <div className="flex flex-col gap-2 rounded-[8px] border border-border bg-surface px-3 py-2">
       <div className="flex flex-wrap items-center gap-2">
@@ -428,7 +430,7 @@ function SuggestionRow({
             counterparty: String(suggestion.counterpartyScore),
           })}
           {" · "}
-          {t("bankRecX.daysApart", { days: String(suggestion.dateDeltaDays) })}
+          {t("bankRecX.daysApart", { days: countPhrase(suggestion.dateDeltaDays, CountedNoun.Day, ArabicCase.Oblique) })}
         </span>
       </div>
       <ul className="flex flex-col gap-1">

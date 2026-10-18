@@ -1,3 +1,4 @@
+import { ArabicCase, arabicDays } from "../text/counted-noun.js";
 import { Money } from "../money/index.js";
 import { LANGUAGE_SEPARATOR, currencyLabelAr, formatMoneyLabel, type RenderedMessage } from "./message.js";
 import type { DunningReminder } from "./types.js";
@@ -14,7 +15,7 @@ export function consolidateReminders(reminders: readonly DunningReminder[], curr
   const totalAr = formatMoneyLabel(sum, currencyLabelAr(currency));
   const totalEn = formatMoneyLabel(sum, currency);
   const ar = ordered
-    .map((r) => `• ${r.reference ?? PRIOR_BALANCE_AR} — استحقاق ${r.dueDate} — ${formatMoneyLabel(r.amount, currencyLabelAr(currency))} (متأخر ${r.daysOverdue} يوماً)`)
+    .map((r) => `• ${r.reference ?? PRIOR_BALANCE_AR} — استحقاق ${r.dueDate} — ${formatMoneyLabel(r.amount, currencyLabelAr(currency))} (متأخر ${arabicDays(r.daysOverdue, ArabicCase.Oblique)})`)
     .join("\n");
   const en = ordered
     .map((r) => `• ${r.reference ?? PRIOR_BALANCE_EN} — due ${r.dueDate} — ${formatMoneyLabel(r.amount, currency)} (${r.daysOverdue} days overdue)`)

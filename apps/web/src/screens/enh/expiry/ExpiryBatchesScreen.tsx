@@ -1,8 +1,9 @@
 import { useMemo, useState } from "react";
 import { Button, Card, EmptyState, Money as MoneyValue, StatusPill, formatQty } from "@mezan/ui";
-import { ExpiryStatus, can, createAuthContext, createInventoryBatchesReport, DEFAULT_NEAR_EXPIRY_DAYS } from "@mezan/domain";
+import { ArabicCase, CountedNoun, ExpiryStatus, can, createAuthContext, createInventoryBatchesReport, DEFAULT_NEAR_EXPIRY_DAYS } from "@mezan/domain";
 import type { BatchTrailEntryDTO, ExpiryWriteOffResultDTO } from "@mezan/contracts";
 import { useApi } from "../../../data/ApiContext";
+import { useCountPhrase } from "../../../lib/count-phrase";
 import { useConfirmStockAdjustment, useItems, useWarehouses } from "../../../data/hooks";
 import {
   useBatchRecall,
@@ -79,9 +80,13 @@ function ErrorNote({ message }: { message: string }) {
 }
 
 function BatchesTab() {
+  const countPhrase = useCountPhrase();
   const settings = useExpirySettings();
   const days = settings.data?.nearExpiryDays ?? DEFAULT_NEAR_EXPIRY_DAYS;
-  const definition = useMemo(() => createInventoryBatchesReport(todayIso(), days), [days]);
+  const definition = useMemo(
+    () => ({ ...createInventoryBatchesReport(todayIso(), days), descriptionParams: { days: countPhrase(days, CountedNoun.Day, ArabicCase.Oblique) } }),
+    [days, countPhrase],
+  );
   if (settings.isLoading) return null;
   return <ReportScreen key={days} definition={definition} apiPath="/inventory/batches" />;
 }
@@ -222,6 +227,7 @@ function WriteOffTab() {
 
 function AlertsTab() {
   const { t } = useAppTranslation();
+  const countPhrase = useCountPhrase();
   const { itemLabel, warehouseLabel } = useLabels();
   const alerts = useExpiryAlerts();
   if (alerts.isError) return <ErrorNote message={alerts.error.message} />;
@@ -229,7 +235,7 @@ function AlertsTab() {
   const { due, nearExpiryDays } = alerts.data;
   return (
     <div className="flex flex-col gap-[14px]">
-      <p className="text-[12.5px] text-ink-muted">{t("expiry.alerts.window", { days: String(nearExpiryDays) })}</p>
+      <p className="text-[12.5px] text-ink-muted">{t("expiry.alerts.window", { days: countPhrase(nearExpiryDays, CountedNoun.Day, ArabicCase.Oblique) })}</p>
       {due.length === 0 ? (
         <EmptyState title={t("expiry.alerts.noneTitle")} description={t("expiry.alerts.noneBody")} />
       ) : (

@@ -354,7 +354,7 @@ describe("ItemsScreen — an item waiting for head office to price it", () => {
 
   it("head office is told how many items wait and that they cannot be sold until priced", async () => {
     renderScreen([...sampleItems, pendingItem]);
-    expect(await screen.findByText("1 صنف بانتظار التسعير — لا يُباع ولا يدخل مستنداً قبل أن تحدّد سعره.")).toBeInTheDocument();
+    expect(await screen.findByText("صنف واحد بانتظار التسعير — البيع والإدراج في المستندات متوقفان حتى تحدّد السعر.")).toBeInTheDocument();
   });
 
   it("the row says «بانتظار التسعير», not «نشط»", async () => {
@@ -366,7 +366,7 @@ describe("ItemsScreen — an item waiting for head office to price it", () => {
 
   it("the branch is told its item waits for head office", async () => {
     renderScreen([...sampleItems, pendingItem], { session: branchSession });
-    expect(await screen.findByText("1 صنف أنشأه الفرع بانتظار تسعير الإدارة — لا يُباع ولا يدخل مستنداً قبل ذلك.")).toBeInTheDocument();
+    expect(await screen.findByText("صنف واحد من إنشاء الفرع بانتظار تسعير الإدارة — البيع والإدراج في المستندات متوقفان حتى ذلك.")).toBeInTheDocument();
   });
 
   it("the branch's create form says the new item will wait for pricing", async () => {

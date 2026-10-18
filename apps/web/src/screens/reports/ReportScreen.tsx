@@ -6,6 +6,7 @@ import { useBranchParam } from "./branch-param";
 import { BranchCaveatNote } from "./BranchCaveatNote";
 import { localizeGroupLabel, localizeReportDefinition, tryReportLabel } from "../../report-labels";
 import { useAppTranslation, type AppTranslationKey } from "../../i18n";
+import type { TranslationParams } from "@mezan/ui";
 import { reportChartPoints } from "./chart-points";
 import { ReportDrillDownPanel } from "./ReportDrillDownPanel";
 
@@ -26,6 +27,7 @@ export interface ReportScreenDefinition<TParams, Row> {
   readonly id: string;
   readonly titleAr: string;
   readonly descriptionAr?: string;
+  readonly descriptionParams?: TranslationParams;
   readonly paramFields: readonly ReportParamField[];
   readonly defaultParams: TParams;
   readonly onDemand?: boolean;

@@ -1,3 +1,5 @@
+import { ArabicCase, CountedNoun } from "@mezan/domain";
+import { useCountPhrase } from "../../lib/count-phrase";
 import { useEffect, useState } from "react";
 import { Button, Card, Field, Money, Select, StatusPill, TextArea, TextInput, type PillTone } from "@mezan/ui";
 import type { RecordSimplifiedRegimeDTO, SimplifiedRegimeStateDTO } from "@mezan/contracts";
@@ -107,6 +109,7 @@ function SectionCard({ title, children }: { title: string; children: React.React
 
 export function SimplifiedRegimeScreen() {
   const { t, locale } = useAppTranslation();
+  const countPhrase = useCountPhrase();
   const { navigate } = useNavigation();
   const query = useSimplifiedRegime();
   const record = useRecordSimplifiedRegime();
@@ -389,7 +392,7 @@ export function SimplifiedRegimeScreen() {
                 <span className="mz-num text-[22px] font-bold text-ink">{concentration.topSharePercent}%</span>
                 <span className="text-[12px] text-ink-muted">
                   {t("simplifiedRegime.concentrationOf", {
-                    count: String(concentration.topClients.length),
+                    count: countPhrase(concentration.topClients.length, CountedNoun.Customer, ArabicCase.Oblique),
                     threshold: String(concentration.thresholdPercent),
                   })}
                 </span>

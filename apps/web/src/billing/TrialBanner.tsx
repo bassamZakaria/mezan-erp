@@ -1,3 +1,5 @@
+import { CountedNoun } from "@mezan/domain";
+import { useCountPhrase } from "../lib/count-phrase";
 import { Link } from "react-router";
 import { useTenantBilling } from "./hooks";
 import { routePathForScreen } from "../routing";
@@ -14,6 +16,7 @@ import { useAppTranslation } from "../i18n";
  */
 export function TrialBanner() {
   const { t } = useAppTranslation();
+  const countPhrase = useCountPhrase();
   const billing = useTenantBilling().data;
   const daysLeft = billing?.trialDaysLeft ?? null;
   if (billing?.subscription?.status !== "trialing" || daysLeft === null) return null;
@@ -27,7 +30,7 @@ export function TrialBanner() {
       }`}
     >
       <span className="font-semibold">
-        {daysLeft === 0 ? t("trial.endsToday") : t("trial.daysLeft", { days: String(daysLeft) })}
+        {daysLeft === 0 ? t("trial.endsToday") : t("trial.daysLeft", { days: countPhrase(daysLeft, CountedNoun.Day) })}
       </span>
       <span className="text-ink-muted">{t("trial.thenFree")}</span>
       <Link

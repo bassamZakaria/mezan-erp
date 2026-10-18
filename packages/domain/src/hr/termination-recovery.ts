@@ -1,3 +1,4 @@
+import { ArabicCase, arabicDays } from "../text/counted-noun.js";
 import { postJournalEntry, reverseJournalEntry, type JournalLineInput, type JournalPostingDeps } from "../gl/index.js";
 import { Money, allocateScaled } from "../money/index.js";
 import { EmployeeRefStatus } from "../hr-shared/employee-ref.js";
@@ -230,7 +231,7 @@ async function bookPayRecovery(employee: Employee, effectiveDate: string, today:
     ...debitLines.map(([accountId, scaled]) => ({ accountId, debit: Money.fromScaled(scaled), credit: Money.zero(), branchId })),
     ...[...credits].map(([accountId, scaled]) => ({ accountId, debit: Money.zero(), credit: Money.fromScaled(scaled), branchId })),
   ];
-  const reason = `أجر ${days} يوماً على أساس شهر ${divisor} يوماً مدفوعة بعد آخر يوم عمل ${effectiveDate} (حتى ${paidThrough})`;
+  const reason = `أجر ${arabicDays(days, ArabicCase.Oblique)} على أساس شهر ${arabicDays(divisor, ArabicCase.Oblique)} مدفوعة بعد آخر يوم عمل ${effectiveDate} (حتى ${paidThrough})`;
   const entry = await postJournalEntry(
     {
       id: recoveryEntryId(id),

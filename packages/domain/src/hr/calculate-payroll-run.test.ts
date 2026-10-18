@@ -306,7 +306,7 @@ describe("calculatePayrollRun", () => {
 
     expect(payslip!.paidDays).toBe(10);
     expect(payslip!.grossEarnings.toString()).toBe("436.666666");
-    expect(calculated.warnings.some((w) => w.includes("احتُسب 10 من 31 يوماً بالتناسب"))).toBe(true);
+    expect(calculated.warnings.some((w) => w.includes("احتُسب 10 من 31 يومًا بالتناسب"))).toBe(true);
   });
 
   it("pays someone who was in service during the month even though they have left since — a run is for its period, not for today's staff list", async () => {

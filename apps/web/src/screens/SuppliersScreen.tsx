@@ -1,5 +1,6 @@
+import { useCountPhrase } from "../lib/count-phrase";
 import { useMemo, useState, type ReactNode } from "react";
-import { matchesSearch } from "@mezan/domain";
+import { matchesSearch, CountedNoun } from "@mezan/domain";
 import {
   Button,
   Card,
@@ -291,6 +292,7 @@ function draftFromSupplier(supplier: SupplierDTO): SupplierDraft {
 
 function SupplierDetail({ supplier, onBack, onEdit }: { supplier: SupplierDTO; onBack: () => void; onEdit: () => void }) {
   const { t } = useAppTranslation();
+  const countPhrase = useCountPhrase();
   const { navigate } = useNavigation();
   const address = [supplier.addressStreet, supplier.addressDistrict, supplier.addressCity].filter(Boolean).join(t("suppliers.addressSeparator"));
   return (
@@ -318,7 +320,7 @@ function SupplierDetail({ supplier, onBack, onEdit }: { supplier: SupplierDTO; o
       }
       summary={[
         { label: t("suppliers.detail.category"), value: supplier.category ?? t("common.uncategorized") },
-        { label: t("suppliers.detail.paymentTerms"), value: <span className="mz-num">{t("suppliers.detail.days", { days: supplier.paymentTermsDays })}</span> },
+        { label: t("suppliers.detail.paymentTerms"), value: <span className="mz-num">{t("suppliers.detail.days", { days: countPhrase(supplier.paymentTermsDays, CountedNoun.Day) })}</span> },
         { label: t("suppliers.detail.currency"), value: supplier.currency },
         { label: t("common.phone"), value: supplier.phone ?? t("common.none") },
         {
@@ -369,6 +371,7 @@ function SupplierDetail({ supplier, onBack, onEdit }: { supplier: SupplierDTO; o
 
 export function SuppliersScreen() {
   const { t } = useAppTranslation();
+  const countPhrase = useCountPhrase();
   const createSupplier = useCreateSupplier();
   const updateSupplier = useUpdateSupplier();
   const locked = useLockedFields(SUPPLIERS_API);
@@ -432,7 +435,7 @@ export function SuppliersScreen() {
       ),
     },
     { key: "phone", header: t("common.phone"), render: (s) => s.phone ?? "—" },
-    { key: "terms", header: t("suppliers.detail.paymentTerms"), render: (s) => <span className="mz-num">{t("suppliers.detail.days", { days: s.paymentTermsDays })}</span> },
+    { key: "terms", header: t("suppliers.detail.paymentTerms"), render: (s) => <span className="mz-num">{t("suppliers.detail.days", { days: countPhrase(s.paymentTermsDays, CountedNoun.Day) })}</span> },
     { key: "category", header: t("suppliers.detail.category"), render: (s) => s.category ?? t("common.uncategorized") },
     { key: "payable", header: t("suppliers.col.payable"), align: "end", render: (s) => <MoneyValue value={payableOf(s.id)} /> },
     {

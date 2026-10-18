@@ -1,6 +1,7 @@
+import { useCountPhrase } from "../../../lib/count-phrase";
 import { useState } from "react";
 import { Button, Card, Money, Select, TextArea, TextInput, useFormat } from "@mezan/ui";
-import { can, createAuthContext } from "@mezan/domain";
+import { can, createAuthContext, CountedNoun } from "@mezan/domain";
 import { CollectionActivityKindDTO, StatementChannelDTO, type CustomerCollectionsDTO } from "@mezan/contracts";
 import { useApi } from "../../../data/ApiContext";
 import { useAppTranslation, type AppTranslationKey } from "../../../i18n";
@@ -188,6 +189,7 @@ function StatementControl({ customerId }: { customerId: string }) {
 
 export function CustomerCollectionsTab({ customerId }: { customerId: string }) {
   const { t } = useAppTranslation();
+  const countPhrase = useCountPhrase();
   const fmt = useFormat();
   const { session } = useApi();
   const query = useCustomerCollections(customerId);
@@ -217,7 +219,7 @@ export function CustomerCollectionsTab({ customerId }: { customerId: string }) {
         {data.row ? (
           <>
             <div className="text-[12.5px] text-ink-muted">
-              {t("collections.customer.overdueSummary", { amount: fmt.money(data.row.overdue), days: data.row.oldestDaysOverdue })}
+              {t("collections.customer.overdueSummary", { amount: fmt.money(data.row.overdue), days: countPhrase(data.row.oldestDaysOverdue, CountedNoun.Day) })}
             </div>
             <WorkItems row={data.row} />
           </>

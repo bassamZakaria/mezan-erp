@@ -1,3 +1,4 @@
+import { ArabicCase, arabicDays } from "../text/counted-noun.js";
 import { PayBasis } from "./contract.js";
 import { ContractStatus } from "./contract.js";
 import { Money, allocate, roundMoney } from "../money/index.js";
@@ -402,7 +403,7 @@ export async function calculatePayrollRun(runId: string, deps: PayrollCalculatio
       );
     }
     if (paidDays < periodDays) {
-      warnings.push(`${employee.fullNameAr} (${employee.code}): احتُسب ${paidDays} من ${periodDays} يوماً بالتناسب.`);
+      warnings.push(`${employee.fullNameAr} (${employee.code}): احتُسب ${paidDays} من ${arabicDays(periodDays, ArabicCase.Oblique)} بالتناسب.`);
       if (statutory) warnings.push(`${employee.fullNameAr} (${employee.code}): ${PART_MONTH_TAX_NOTICE.ar}`);
     }
     let fx: EmployeePayrollInput["fx"] = null;

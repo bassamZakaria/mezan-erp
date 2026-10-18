@@ -1,3 +1,5 @@
+import { ArabicCase, CountedNoun } from "@mezan/domain";
+import { useCountPhrase } from "../lib/count-phrase";
 import { useState } from "react";
 import { useLocation } from "react-router";
 import { Button, Card, Money, StatusPill } from "@mezan/ui";
@@ -43,6 +45,7 @@ const MODULE_STATE_TONE: Record<BillingModuleDTO["state"], "success" | "info" | 
  */
 export function BillingScreen() {
   const { t, locale } = useAppTranslation();
+  const countPhrase = useCountPhrase();
   const location = useLocation();
   const editionHasBilling = useEditionHasSubscriptionBilling();
   const entitlementsKnown = useEntitlements().data !== undefined;
@@ -77,7 +80,7 @@ export function BillingScreen() {
               tone={data.subscription.planKind === "free" ? "info" : "success"}
             />
             {data.trialDaysLeft !== null ? (
-              <StatusPill label={t("trial.daysLeft", { days: String(data.trialDaysLeft) })} tone="warning" />
+              <StatusPill label={t("trial.daysLeft", { days: countPhrase(data.trialDaysLeft, CountedNoun.Day) })} tone="warning" />
             ) : null}
           </div>
           {data.subscription.planKind === "free" ? (
@@ -135,7 +138,7 @@ export function BillingScreen() {
                   >
                     {pendingModule === m.id
                       ? t("plan.modules.starting")
-                      : t("plan.modules.try", { days: String(data.moduleTrialDays) })}
+                      : t("plan.modules.try", { days: countPhrase(data.moduleTrialDays, CountedNoun.Day, ArabicCase.Oblique) })}
                   </Button>
                 ) : m.trialUsed && m.state !== "trialing" ? (
                   <StatusPill label={t("plan.modules.trialUsed")} tone="neutral" />

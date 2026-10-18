@@ -280,3 +280,6 @@ export * from "./pos/index.js";
 export * from "./enh/index.js";
 
 export * from "./records/duplicate-record-id.js";
+
+export { ArabicCase, CountLocale, CountedNoun, arabicDays, countPhrase } from "./text/counted-noun.js";
+export type { CountPhraseOptions } from "./text/counted-noun.js";

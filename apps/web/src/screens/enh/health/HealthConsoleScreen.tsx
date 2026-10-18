@@ -1,17 +1,8 @@
+import { useCountPhrase } from "../../../lib/count-phrase";
 import { useState, type ReactNode } from "react";
 import { Link } from "react-router";
 import { Button, Card, StatusPill, formatDateTime } from "@mezan/ui";
-import {
-  HealthItemKey,
-  HealthLevel,
-  backupLevel,
-  deviceLevel,
-  diskLevel,
-  drillLevel,
-  healthDaysBetween,
-  DrillVerdict,
-  worstLevel,
-} from "@mezan/domain";
+import { HealthItemKey, HealthLevel, backupLevel, deviceLevel, diskLevel, drillLevel, healthDaysBetween, DrillVerdict, worstLevel, ArabicCase, CountedNoun } from "@mezan/domain";
 import { HealthLevelDTO, HealthSectionDTO, type HealthJobDTO, type SystemHealthDTO } from "@mezan/contracts";
 import { useApi } from "../../../data/ApiContext";
 import { isDesktopHost, useLanSessions, useLanStatus } from "../../../data/hooks";
@@ -285,6 +276,7 @@ function devicesLevel(rows: readonly { lastSeenAt: number }[] | undefined, now: 
 
 export function HealthConsoleScreen() {
   const { t, locale } = useAppTranslation();
+  const countPhrase = useCountPhrase();
   const { session } = useApi();
   const mayView = useMayViewSystemHealth();
   const health = useSystemHealth();
@@ -331,7 +323,7 @@ export function HealthConsoleScreen() {
           <p>{t("health.licence.state", { state: data.licence.state })}</p>
           <p>
             {data.licence.expiresAt && data.licence.daysLeft !== null
-              ? t("health.licence.expires", { days: String(Math.max(0, data.licence.daysLeft)), date: formatDateTime(data.licence.expiresAt, { locale }) })
+              ? t("health.licence.expires", { days: countPhrase(Math.max(0, data.licence.daysLeft), CountedNoun.Day, ArabicCase.Oblique), date: formatDateTime(data.licence.expiresAt, { locale }) })
               : t("health.licence.noExpiry")}
           </p>
           {!data.licence.canWrite ? <p className="text-danger-ink">{t("health.licence.readOnly")}</p> : null}
@@ -387,7 +379,7 @@ export function HealthConsoleScreen() {
           <div className="flex flex-col gap-[2px] text-[12px] text-ink-muted">
             <p>
               {reading.lastBackupAt && backupAge !== null
-                ? t("health.backup.age", { days: String(backupAge), date: formatDateTime(reading.lastBackupAt, { locale }) })
+                ? t("health.backup.age", { days: countPhrase(backupAge, CountedNoun.Day, ArabicCase.Oblique), date: formatDateTime(reading.lastBackupAt, { locale }) })
                 : t("health.backup.never")}
             </p>
             {unprotected ? <p className="text-warning-ink">{t("backupProtection.health.notSet")}</p> : null}
@@ -407,7 +399,7 @@ export function HealthConsoleScreen() {
             {verdict === DrillVerdict.Fail
               ? t("health.drill.failed")
               : drillAge !== null
-                ? t("health.drill.lastGood", { days: String(drillAge) })
+                ? t("health.drill.lastGood", { days: countPhrase(drillAge, CountedNoun.Day, ArabicCase.Oblique) })
                 : t("health.drill.never")}
           </p>
         ),

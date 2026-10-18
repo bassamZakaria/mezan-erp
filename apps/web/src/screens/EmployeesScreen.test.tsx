@@ -242,7 +242,7 @@ describe("EmployeesScreen", () => {
     fireEvent.click(screen.getByRole("button", { name: "إنهاء الخدمة" }));
     fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "تأكيد إنهاء الخدمة" }));
 
-    expect(await screen.findByText(/سُجّل أجر 18 يوماً مدفوعة حتى 2026-06-30 سلفة على الموظف برقم ADV-000009/)).toBeInTheDocument();
+    expect(await screen.findByText(/سُجّل أجر 18 يومًا مدفوعة حتى 2026-06-30 سلفة على الموظف برقم ADV-000009/)).toBeInTheDocument();
   });
 
   it.each([
@@ -260,7 +260,7 @@ describe("EmployeesScreen", () => {
     fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "تأكيد إنهاء الخدمة" }));
 
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-    const said = screen.queryByText(/خُصم أجر 18 يوماً مدفوعة حتى 2026-06-30/);
+    const said = screen.queryByText(/خُصم أجر 18 يومًا مدفوعة حتى 2026-06-30/);
     if (says) expect(said).toHaveTextContent(`بمبلغ ${payableReduced.slice(0, payableReduced.indexOf(".") + 3)} من صافي الراتب`);
     else expect(said).toBeNull();
   });

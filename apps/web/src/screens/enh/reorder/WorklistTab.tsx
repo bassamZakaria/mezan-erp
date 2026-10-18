@@ -1,3 +1,5 @@
+import { ArabicCase, CountedNoun } from "@mezan/domain";
+import { useCountPhrase } from "../../../lib/count-phrase";
 import { useMemo, useState } from "react";
 import { Button, Card, Checkbox, DecimalStringInput, EmptyState, Money, Select, StatCard, StatusPill, useFormat } from "@mezan/ui";
 import {
@@ -32,6 +34,7 @@ function reasonTone(row: ReorderRowDTO): "danger" | "warning" {
 
 export function WorklistTab({ mayCreate }: WorklistTabProps) {
   const { t } = useAppTranslation();
+  const countPhrase = useCountPhrase();
   const fmt = useFormat();
   const { openScreenAt } = useNavigation();
   const [warehouseId, setWarehouseId] = useState(ALL_WAREHOUSES);
@@ -55,7 +58,7 @@ export function WorklistTab({ mayCreate }: WorklistTabProps) {
     () => [{ value: ALL_WAREHOUSES, label: t("reorder.worklist.allWarehouses") }, ...(warehouses.data ?? []).map((w) => ({ value: w.id, label: w.name }))],
     [warehouses.data, t],
   );
-  const windowOptions = WINDOW_OPTIONS.map((days) => ({ value: String(days), label: t("reorder.worklist.windowDays", { days }) }));
+  const windowOptions = WINDOW_OPTIONS.map((days) => ({ value: String(days), label: t("reorder.worklist.windowDays", { days: countPhrase(days, CountedNoun.Day, ArabicCase.Oblique) }) }));
 
   const qtyOf = (row: ReorderRowDTO) => qtyDraft[row.key] ?? trimQty(row.suggestedQty);
   const supplierOf = (row: ReorderRowDTO) => supplierDraft[row.key] ?? row.supplierId ?? "";
@@ -198,10 +201,10 @@ export function WorklistTab({ mayCreate }: WorklistTabProps) {
                     <td className="p-3">
                       <span className="mz-num">{fmt.qty(Number(row.minQty))}</span>
                       {row.maxQty ? <div className="text-[11px] text-ink-faint mz-num">{t("reorder.worklist.col.max")} {fmt.qty(Number(row.maxQty))}</div> : null}
-                      {row.leadDays > 0 ? <div className="text-[11px] text-ink-faint">{t("reorder.worklist.leadDays", { days: row.leadDays })}</div> : null}
+                      {row.leadDays > 0 ? <div className="text-[11px] text-ink-faint">{t("reorder.worklist.leadDays", { days: countPhrase(row.leadDays, CountedNoun.Day) })}</div> : null}
                     </td>
                     <td className="p-3">
-                      <span className="mz-num">{row.daysOfCover === null ? t("reorder.worklist.coverNone") : t("reorder.worklist.coverDays", { days: fmt.number(row.daysOfCover) })}</span>
+                      <span className="mz-num">{row.daysOfCover === null ? t("reorder.worklist.coverNone") : t("reorder.worklist.coverDays", { days: countPhrase(row.daysOfCover, CountedNoun.Day) })}</span>
                       {Number(row.dailyVelocity) > 0 ? <div className="text-[11px] text-ink-faint">{t("reorder.worklist.perDay", { qty: fmt.qty(Number(row.dailyVelocity)) })}</div> : null}
                     </td>
                     <td className="p-3">

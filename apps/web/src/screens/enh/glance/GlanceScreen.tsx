@@ -1,7 +1,8 @@
+import { useCountPhrase } from "../../../lib/count-phrase";
 import { useCallback, useEffect, useRef, useState, type ReactNode, type TouchEvent } from "react";
 import { Button, Card, Money, Select, cn, useFormat, type SelectOption } from "@mezan/ui";
 import { OwnerDigestExceptionKind, OwnerDigestSeverity, type GlanceDTO, type OwnerDigestExceptionDTO } from "@mezan/contracts";
-import { UNATTRIBUTED_BRANCH_ID } from "@mezan/domain";
+import { UNATTRIBUTED_BRANCH_ID, CountedNoun } from "@mezan/domain";
 import { useAppTranslation, type AppTranslationKey } from "../../../i18n";
 import { majorOf, scaledOf } from "../../../lib/money";
 import { useGlance } from "./hooks";
@@ -117,6 +118,7 @@ function ExceptionRow({ exception }: { exception: OwnerDigestExceptionDTO }) {
 
 function GlanceCards({ data }: { data: GlanceDTO }) {
   const { t, locale } = useAppTranslation();
+  const countPhrase = useCountPhrase();
   const format = useFormat();
   const { cockpit } = data;
   const day = weekdayName(cockpit.compareDate, locale);
@@ -171,7 +173,7 @@ function GlanceCards({ data }: { data: GlanceDTO }) {
           detail={
             overdue && overdue.invoiceCount > 0 ? (
               <span className="text-danger-ink">
-                {t("glance.receivables.overdue")}: <Money value={majorOf(overdue.amount)} /> · {t("glance.receivables.detail", { invoices: format.number(overdue.invoiceCount), customers: format.number(overdue.customerCount) })}
+                {t("glance.receivables.overdue")}: <Money value={majorOf(overdue.amount)} /> · {t("glance.receivables.detail", { invoices: countPhrase(overdue.invoiceCount, CountedNoun.Invoice), customers: countPhrase(overdue.customerCount, CountedNoun.Customer) })}
               </span>
             ) : (
               t("glance.receivables.clear")

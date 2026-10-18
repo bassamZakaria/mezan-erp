@@ -1,3 +1,4 @@
+import { useCountPhrase } from "../../lib/count-phrase";
 import { useEffect, useMemo, useState } from "react";
 import { errorMessage } from "../../lib/error-message";
 import { Button, DocumentDetail, DocumentStatusStepper, Money as MoneyDisplay, useFormat } from "@mezan/ui";
@@ -22,7 +23,7 @@ import { useLinkedOpportunity } from "../enh/crm-pipeline/hooks";
 import { EMPTY } from "../../lib/empty";
 import { postedTaxRateLabel } from "../tax-rate-field";
 import { AttachmentsTab } from "../../attachments/AttachmentsTab";
-import { Money, Qty, computeQuoteTotals, type SalesQuoteDiscount, type SalesQuoteLine } from "@mezan/domain";
+import { Money, Qty, computeQuoteTotals, type SalesQuoteDiscount, type SalesQuoteLine, ArabicCase, CountedNoun } from "@mezan/domain";
 import {
   AR_ACCOUNT_ID,
   COGS_ACCOUNT_ID,
@@ -53,6 +54,7 @@ const STEPS = [
 export function QuoteDetailView({ quote, onPrint, onBack }: { quote: SalesQuoteRecord; onPrint?: () => void; onBack: () => void }) {
   const { openScreenAt } = useNavigation();
   const { t } = useAppTranslation();
+  const countPhrase = useCountPhrase();
   const linkedDeal = useLinkedOpportunity(quote.opportunityId ?? "").data ?? null;
   const format = useFormat();
   const items = useItems().data ?? [];
@@ -308,7 +310,7 @@ export function QuoteDetailView({ quote, onPrint, onBack }: { quote: SalesQuoteR
                     {t("print.action.print")}
                   </Button>
                 ) : null}
-                {expired ? <p className="text-[12.5px] text-danger">{t("quotes.expiredAgo", { days: daysExpired(quote) })}</p> : null}
+                {expired ? <p className="text-[12.5px] text-danger">{t("quotes.expiredAgo", { days: countPhrase(daysExpired(quote), CountedNoun.Day, ArabicCase.Oblique) })}</p> : null}
                 {linkedDeal ? (
                   <div className="flex items-center justify-between gap-2 text-[12px] text-ink-muted">
                     <span>{t("crmPipeline.quote.linked", { title: linkedDeal.title })}</span>

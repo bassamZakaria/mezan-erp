@@ -1,3 +1,4 @@
+import { useCountPhrase } from "../../../lib/count-phrase";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router";
 import {
@@ -15,7 +16,7 @@ import {
   useFormat,
   type DocumentListColumn,
 } from "@mezan/ui";
-import { can, createAuthContext, UNATTRIBUTED_BRANCH_ID } from "@mezan/domain";
+import { can, createAuthContext, UNATTRIBUTED_BRANCH_ID, ArabicCase, CountedNoun } from "@mezan/domain";
 import {
   CashForecastDirectionDTO,
   CashForecastHorizonDTO,
@@ -89,6 +90,7 @@ function useItemOpener() {
 
 export function CashForecastScreen() {
   const { t } = useAppTranslation();
+  const countPhrase = useCountPhrase();
   const { session } = useApi();
   const auth = createAuthContext({
     userId: session?.userId ?? "anonymous",
@@ -128,7 +130,7 @@ export function CashForecastScreen() {
         <div className="flex flex-wrap items-center gap-[9px]">
           <Segmented
             aria-label={t("cashForecast.horizon")}
-            options={HORIZONS.map((h) => ({ key: h, label: t("cashForecast.horizonDays", { days: h }) }))}
+            options={HORIZONS.map((h) => ({ key: h, label: t("cashForecast.horizonDays", { days: countPhrase(Number(h), CountedNoun.Day) }) }))}
             value={horizon}
             onChange={(key) => setHorizonParam(key)}
           />
@@ -180,6 +182,7 @@ export function CashForecastScreen() {
 
 function ForecastBody({ forecast, mayManage }: { forecast: CashForecastDTO; mayManage: boolean }) {
   const { t } = useAppTranslation();
+  const countPhrase = useCountPhrase();
   const fmt = useFormat();
   const [selectedDay, setSelectedDay] = useUrlParam("day", "");
   const [view, setView] = useState<ChartView>(ChartView.Chart);
@@ -209,7 +212,7 @@ function ForecastBody({ forecast, mayManage }: { forecast: CashForecastDTO; mayM
           label={t("cashForecast.kpi.runway")}
           value={
             <span className="mz-num">
-              {forecast.runwayDays === null ? t("cashForecast.kpi.runwayBeyond", { days: forecast.horizon }) : t("cashForecast.kpi.runwayDays", { days: forecast.runwayDays })}
+              {forecast.runwayDays === null ? t("cashForecast.kpi.runwayBeyond", { days: countPhrase(Number(forecast.horizon), CountedNoun.Day, ArabicCase.Oblique) }) : t("cashForecast.kpi.runwayDays", { days: countPhrase(forecast.runwayDays, CountedNoun.Day) })}
             </span>
           }
           valueTone={forecast.runwayDays === null ? "default" : "danger"}

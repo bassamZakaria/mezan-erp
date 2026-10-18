@@ -51,7 +51,7 @@ describe("pay for days after the last day, on a month that is approved and not y
       { accountId: "5120", debit: 0n, credit: 6_000n * EGP },
       { accountId: "5121", debit: 0n, credit: 66_667n * PIASTRE },
     ]);
-    expect(memoOf(recovery.journalEntryId)).toContain("20 يوماً على أساس شهر 30 يوماً");
+    expect(memoOf(recovery.journalEntryId)).toContain("20 يومًا على أساس شهر 30 يومًا");
     expect(world.balance("1160")).toBe(balances.advances);
     expect(world.balance("2170") - balances.payable).toBe(666_667n * PIASTRE);
 

@@ -1,3 +1,5 @@
+import { ArabicCase, CountedNoun } from "@mezan/domain";
+import { useCountPhrase } from "../lib/count-phrase";
 import { useEffect, useState, type FormEvent } from "react";
 import { READ_ONLY_CLOSE } from "../shell/ReadOnlyForm";
 import { Button, Card, DocumentList, EmptyState, IconButton, SidePanel, StatusPill, type DocumentListColumn } from "@mezan/ui";
@@ -76,6 +78,7 @@ const PAGE_SIZES = [10, 25, 50, 100] as const;
 
 export function LeavePoliciesScreen() {
   const { t } = useAppTranslation();
+  const countPhrase = useCountPhrase();
   const query = useLeavePolicies();
   const presetsQuery = useLeavePolicyPresets();
   const createPolicy = useCreateLeavePolicy();
@@ -200,7 +203,7 @@ export function LeavePoliciesScreen() {
       header: t("leavePolicies.carryOver"),
       render: (p) => (
         <span className="text-ink">
-          {p.carryOver ? (p.maxCarryOverDays === null ? t("leavePolicies.yes") : t("leavePolicies.carryOverUpTo", { days: formatDays(p.maxCarryOverDays) })) : t("leavePolicies.no")}
+          {p.carryOver ? (p.maxCarryOverDays === null ? t("leavePolicies.yes") : t("leavePolicies.carryOverUpTo", { days: countPhrase(Number(formatDays(p.maxCarryOverDays)), CountedNoun.Day, ArabicCase.Oblique) })) : t("leavePolicies.no")}
         </span>
       ),
     },

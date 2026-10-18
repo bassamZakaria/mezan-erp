@@ -125,7 +125,7 @@ async function createConfirmedPurchaseInvoice(page: Page, supplierName: string, 
   await page.getByRole("button", { name: "إيصال استلام جديد" }).first().click();
   await expect(page.getByRole("heading", { name: "إيصال استلام جديد", level: 1 })).toBeVisible();
   // "من أمر شراء" is the default (already pressed) creation-method choice.
-  await page.getByRole("button", { name: "متابعة" }).click();
+  await page.getByRole("button", { name: "متابعة", exact: true }).click();
 
   await chooseCombo(page, page, "أمر الشراء *", new RegExp(poNumber));
   await page.getByRole("button", { name: "حفظ مسودة" }).click();
@@ -159,7 +159,7 @@ async function createConfirmedPurchaseInvoice(page: Page, supplierName: string, 
   await expect(page.getByRole("heading", { name: "فاتورة مشتريات جديدة", level: 1 })).toBeVisible();
   // "إنشاء فاتورة جديدة" (manual) is the default-pressed method here.
   await page.getByRole("button", { name: /^من إيصال استلام/ }).click();
-  await page.getByRole("button", { name: "متابعة" }).click();
+  await page.getByRole("button", { name: "متابعة", exact: true }).click();
 
   await chooseCombo(page, page, "إيصال الاستلام *", new RegExp(grNumber));
   await page.getByRole("button", { name: "حفظ مسودة" }).click();

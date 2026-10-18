@@ -226,7 +226,7 @@ test.describe("The clock moves — a trial lands on Free, the Free quota holds, 
     await page.goto(`${CLOCK_WEB_URL}/sell/sales-invoices`);
     await page.getByRole("button", { name: "فاتورة جديدة" }).first().click();
     await expect(page.getByRole("heading", { name: "فاتورة مبيعات جديدة", level: 1 })).toBeVisible();
-    await page.getByRole("button", { name: "متابعة" }).click();
+    await page.getByRole("button", { name: "متابعة", exact: true }).click();
     await pickEntity(page, "العميل *", CUSTOMER_NAME);
     await pickEntity(page, "الصنف — سطر 1", QUOTA_ITEM_NAME);
     const save = page.getByRole("button", { name: "حفظ كمسودة" });

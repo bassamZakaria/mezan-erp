@@ -125,7 +125,7 @@ async function createConfirmedPurchaseInvoice(page: Page, supplierName: string, 
   await gotoScreen(page, "استلام البضائع", "إيصالات الاستلام");
   await page.getByRole("button", { name: "إيصال استلام جديد" }).first().click();
   await expect(page.getByRole("heading", { name: "إيصال استلام جديد", level: 1 })).toBeVisible();
-  await page.getByRole("button", { name: "متابعة" }).click();
+  await page.getByRole("button", { name: "متابعة", exact: true }).click();
   await chooseCombo(page, "أمر الشراء *", new RegExp(poNumber));
   await page.getByRole("button", { name: "حفظ مسودة" }).click();
   await expect(page.getByRole("heading", { name: "إيصالات الاستلام" })).toBeVisible();
@@ -156,7 +156,7 @@ async function createConfirmedPurchaseInvoice(page: Page, supplierName: string, 
   await page.getByRole("button", { name: "فاتورة مشتريات جديدة" }).first().click();
   await expect(page.getByRole("heading", { name: "فاتورة مشتريات جديدة", level: 1 })).toBeVisible();
   await page.getByRole("button", { name: /^من إيصال استلام/ }).click();
-  await page.getByRole("button", { name: "متابعة" }).click();
+  await page.getByRole("button", { name: "متابعة", exact: true }).click();
   await chooseCombo(page, "إيصال الاستلام *", new RegExp(grNumber));
   await page.getByRole("button", { name: "حفظ مسودة" }).click();
   await expect(page.getByRole("heading", { name: "فواتير المشتريات" })).toBeVisible();
@@ -176,7 +176,7 @@ async function createConfirmedSalesInvoice(page: Page, customerName: string, ite
   await expect(page.getByRole("heading", { name: "فواتير المبيعات" })).toBeVisible();
   await page.getByRole("button", { name: "فاتورة جديدة" }).first().click();
   await expect(page.getByRole("heading", { name: "فاتورة مبيعات جديدة", level: 1 })).toBeVisible();
-  await page.getByRole("button", { name: "متابعة" }).click();
+  await page.getByRole("button", { name: "متابعة", exact: true }).click();
   await chooseCombo(page, "العميل *", customerName);
   await chooseCombo(page, "الصنف — سطر 1", itemName);
   await page.getByRole("button", { name: "تأكيد الفاتورة" }).click();

@@ -147,7 +147,7 @@ test.describe("Purchase chain — PO → GRN → Purchase Invoice", () => {
     await expect(page.getByRole("heading", { name: "إيصال استلام جديد", level: 1 })).toBeVisible();
     await expect(page.getByText(/الاستلام يبدأ دائماً من أمر شراء/)).toBeVisible();
     // "من أمر شراء" is the default (already pressed) creation-method choice.
-    await page.getByRole("button", { name: "متابعة" }).click();
+    await page.getByRole("button", { name: "متابعة", exact: true }).click();
 
     await chooseCombo(page, "أمر الشراء *", new RegExp(poNumber));
     await expect(page.getByText("البنود (معبأة تلقائياً من أمر الشراء)")).toBeVisible();
@@ -186,7 +186,7 @@ test.describe("Purchase chain — PO → GRN → Purchase Invoice", () => {
     // "إنشاء فاتورة جديدة" (manual) is the default-pressed method here, not
     // "من إيصال استلام" — pick it explicitly before continuing.
     await page.getByRole("button", { name: /^من إيصال استلام/ }).click();
-    await page.getByRole("button", { name: "متابعة" }).click();
+    await page.getByRole("button", { name: "متابعة", exact: true }).click();
 
     await chooseCombo(page, "إيصال الاستلام *", new RegExp(grNumber));
     await expect(page.getByText("البنود (معبأة تلقائياً من الإيصال)")).toBeVisible();

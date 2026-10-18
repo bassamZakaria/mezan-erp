@@ -119,7 +119,7 @@ async function createConfirmedSalesInvoice(page: Page, customerName: string, ite
   // Create is a full sub-PAGE with a "طريقة الإنشاء" step, not a dialog —
   // see sales-invoices.spec.ts.
   await expect(page.getByRole("heading", { name: "فاتورة مبيعات جديدة", level: 1 })).toBeVisible();
-  await page.getByRole("button", { name: "متابعة" }).click();
+  await page.getByRole("button", { name: "متابعة", exact: true }).click();
   await pickEntity(page, "العميل *", customerName);
   await pickEntity(page, "الصنف — سطر 1", itemName);
   await page.getByRole("button", { name: "تأكيد الفاتورة" }).click();

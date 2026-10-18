@@ -64,6 +64,10 @@ const OUTPUT_TAIL_CHARS = 4000;
 
 export const API_SERVER_COMMAND = "pnpm exec tsx apps/server/src/index.ts";
 
+export function webServerCommand(port: number): string {
+  return `cd apps/web && pnpm exec vite --config vite.saas.config.ts --port ${port} --strictPort --host ${LOOPBACK}`;
+}
+
 export function apiServerEnv(options: ApiServerOptions): Record<string, string> {
   const env: Record<string, string> = {
     PORT: String(options.port),

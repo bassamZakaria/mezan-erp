@@ -1,14 +1,11 @@
-import { rmSync } from "node:fs";
 import { type APIRequestContext, type BrowserContext, type Page } from "@playwright/test";
 import { test, expect, directApi } from "./support/test";
 import {
   ApiError,
   CodePrefix,
-  DEMO_API_PORT,
   DEMO_API_URL,
   DEMO_SERVER_TODAY,
   DEMO_TENANT,
-  DEMO_WEB_PORT,
   DEMO_WEB_URL,
   HttpMethod,
   Locale,
@@ -31,7 +28,6 @@ import {
   type TenantApi,
   type TenantLogin,
 } from "./support/saas";
-import { DEMO_BOOT_TIMEOUT_MS, RunDir, newRunDir, startApiServer, startWebServer, type ServerHandle } from "./support/servers";
 
 type StorageState = Awaited<ReturnType<BrowserContext["storageState"]>>;
 
@@ -60,9 +56,6 @@ const HEAVIEST_LISTS: readonly ListScreen[] = [
   { name: "warehouses", path: "/setup/settings-warehouses", api: "/warehouses" },
 ];
 
-let api: ServerHandle | null = null;
-let web: ServerHandle | null = null;
-let platformDir = "";
 let demo: TenantLogin;
 let beside: TenantLogin;
 let demoState: StorageState;
@@ -89,11 +82,6 @@ test.describe.configure({ mode: "serial" });
 
 test.describe("A populated tenant — the seeded demo beside a freshly provisioned one, on one server", () => {
   test.beforeAll(async ({ browser, playwright }) => {
-    test.setTimeout(DEMO_BOOT_TIMEOUT_MS + 300_000);
-    platformDir = newRunDir(RunDir.Demo);
-    api = await startApiServer({ port: DEMO_API_PORT, platformDir, seedDemo: true, fakeToday: DEMO_SERVER_TODAY, bootTimeoutMs: DEMO_BOOT_TIMEOUT_MS });
-    web = await startWebServer({ port: DEMO_WEB_PORT, apiUrl: DEMO_API_URL });
-
     const request = await directApi(playwright);
     const listed = await platformTenant(request, (row) => row.tenant.code === DEMO_TENANT.code);
     demo = { id: listed.tenant.id, ...DEMO_TENANT };
@@ -111,18 +99,6 @@ test.describe("A populated tenant — the seeded demo beside a freshly provision
     await tenantSignIn(page, demo, DEMO_WEB_URL);
     demoState = await context.storageState();
     await context.close();
-  });
-
-  test.afterAll(async () => {
-    try {
-      await web?.stop();
-    } finally {
-      try {
-        await api?.stop();
-      } finally {
-        if (platformDir) rmSync(platformDir, { recursive: true, force: true });
-      }
-    }
   });
 
   test("the demo tenant signs in on the server's day and greets its seeded admin", async ({ page }) => {

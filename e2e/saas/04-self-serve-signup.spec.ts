@@ -183,12 +183,11 @@ test.describe("Self-serve signup — form, verification link, first sign-in", ()
   });
 
   test("«الذهاب لتسجيل الدخول» opens sign-in on the company just activated, with its owner's address and no other company's face — not on the company this browser used before", async ({ page, request }) => {
-    for (const prefix of [CodePrefix.SignedInBefore, CodePrefix.SignedInBeforeToo]) {
-      const earlier = await provisionTenant(request, { code: uniqueCode(prefix), nameAr: "منشأة سابقة", ownerNameAr: "مدير سابق", planId: PlanId.Core, trial: true });
-      await tenantSignIn(page, earlier);
-      await tenantSignOut(page);
-    }
-    await expect(page.getByRole("radio"), "the device now remembers an earlier company's face").not.toHaveCount(0);
+    const earlier = await provisionTenant(request, { code: uniqueCode(CodePrefix.SignedInBefore), nameAr: "منشأة سابقة", ownerNameAr: "مدير سابق", planId: PlanId.Core, trial: true });
+    await tenantSignIn(page, earlier);
+    await tenantSignOut(page);
+    await expect(page.getByRole("textbox", { name: "رمز المنشأة" }), "the browser now remembers the earlier company").toHaveValue(earlier.code);
+    await expect(page.getByRole("radio"), "and offers its admin's face").not.toHaveCount(0);
 
     const code = uniqueCode(CodePrefix.HandedOver);
     const ownerEmail = `owner@${code}.example`;

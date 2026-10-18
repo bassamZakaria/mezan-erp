@@ -171,7 +171,6 @@ export enum CodePrefix {
   Walk = "walk",
   BesideDemo = "beside",
   SignedInBefore = "before",
-  SignedInBeforeToo = "earlier",
   HandedOver = "handed",
 }
 

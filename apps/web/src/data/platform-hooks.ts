@@ -19,14 +19,19 @@ import { useAppTranslation } from "../i18n";
  */
 
 /** GET /sequences — the effective definition + live counter state for every sequence type. */
-export function useSequences(): UseQueryResult<SequenceListItemDTO[], ApiError> {
+function sequencesBranchQuery(branchId: string | null): string {
+  return branchId ? `?branchId=${encodeURIComponent(branchId)}` : "";
+}
+
+/** `branchId` reads a branch-scoped sequence's counter for that branch; null reads the company-wide one. */
+export function useSequences(branchId: string | null = null): UseQueryResult<SequenceListItemDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<SequenceListItemDTO[], ApiError>({
-    queryKey: ["sequences"],
+    queryKey: ["sequences", branchId],
     enabled: session !== null,
     queryFn: async () => {
-      const res = await request("/sequences");
+      const res = await request(`/sequences${sequencesBranchQuery(branchId)}`);
       if (!res.ok) throw new ApiError(res.status, await readError(res, t("sequences.loadFailed"), t));
       return res.json<SequenceListItemDTO[]>();
     },
@@ -66,9 +71,9 @@ export function useResetSequenceCounter() {
   const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
-  return useMutation<SequenceListItemDTO, ApiError, { code: string; body: ResetSequenceCounterDTO }>({
-    mutationFn: async ({ code, body }) => {
-      const res = await request(`/sequences/${encodeURIComponent(code)}/counter`, {
+  return useMutation<SequenceListItemDTO, ApiError, { code: string; body: ResetSequenceCounterDTO; branchId?: string | null }>({
+    mutationFn: async ({ code, body, branchId = null }) => {
+      const res = await request(`/sequences/${encodeURIComponent(code)}/counter${sequencesBranchQuery(branchId)}`, {
         method: "POST",
         body: JSON.stringify(body),
       });

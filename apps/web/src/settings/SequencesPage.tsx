@@ -4,6 +4,7 @@ import {
   Card,
   Checkbox,
   DocumentList,
+  Select,
   SidePanel,
   StatusPill,
   type DocumentListColumn,
@@ -11,7 +12,7 @@ import {
 } from "@mezan/ui";
 import type { SequenceListItemDTO } from "@mezan/contracts";
 import { useSequences, useUpdateSequence, useResetSequenceCounter } from "../data/platform-hooks";
-import { ApiError } from "../data/hooks";
+import { ApiError, useBranches } from "../data/hooks";
 import { TextField, NumberField, ToggleField } from "./form-controls";
 import { sequenceLabel } from "../domain-labels";
 import { useAppTranslation } from "../i18n";
@@ -35,7 +36,9 @@ function editForm(seq: SequenceListItemDTO) {
 
 export function SequencesPage() {
   const { t } = useAppTranslation();
-  const query = useSequences();
+  const [branchId, setBranchId] = useState("");
+  const query = useSequences(branchId === "" ? null : branchId);
+  const branches = useBranches().data ?? EMPTY;
   const updateSequence = useUpdateSequence();
   const resetCounter = useResetSequenceCounter();
   const sequences = query.data ?? EMPTY;
@@ -55,6 +58,8 @@ export function SequencesPage() {
   }, [sequences, search]);
 
   const annualResetCount = sequences.filter((s) => s.annualReset).length;
+  const anyBranchScoped = sequences.some((s) => s.branchScoped);
+  const branchOptions = [{ value: "", label: t("sequences.branch.companyWide") }, ...branches.map((b) => ({ value: b.id, label: b.name }))];
 
   const columns: DocumentListColumn<SequenceListItemDTO>[] = [
     { key: "code", header: t("sequences.col.code"), render: (s) => <span className="mz-num font-semibold text-ink">{s.code}</span> },
@@ -122,6 +127,11 @@ export function SequencesPage() {
         searchValue={searchText}
         onSearchChange={setSearchText}
         searchPlaceholder={t("sequences.searchPlaceholder")}
+        filterBarExtra={
+          anyBranchScoped ? (
+            <Select value={branchId} onChange={setBranchId} options={branchOptions} aria-label={t("sequences.branch.label")} size="sm" />
+          ) : undefined
+        }
         columns={columns}
         rows={filtered}
         rowKey={(s) => s.code}
@@ -191,7 +201,7 @@ export function SequencesPage() {
                   busy={resetCounter.isPending}
                   onCancel={() => setCounterOpen(false)}
                   onConfirm={async (value) => {
-                    await resetCounter.mutateAsync({ code: selected.code, body: { value, confirm: true } });
+                    await resetCounter.mutateAsync({ code: selected.code, body: { value, confirm: true }, branchId: branchId === "" ? null : branchId });
                     setCounterOpen(false);
                   }}
                 />

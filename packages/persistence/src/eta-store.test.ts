@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach } from "vitest";
 import Database from "better-sqlite3";
 import { DEFAULT_ETA_CONFIG, type EtaSubmission } from "@mezan/domain";
 import { createSqliteEtaStore, type SqliteEtaStoreHandle } from "./eta-store.js";
+import { createAesGcmSecretBox } from "./secret-box.js";
 
 let store: SqliteEtaStoreHandle;
 afterEach(() => store?.close());
@@ -179,5 +180,30 @@ describe("POS device credentials", () => {
     expect(listed).not.toContain("pos-secret");
     expect(listed).not.toContain("psk\"");
     expect(listed).toContain('"hasPosPresharedKey":true');
+  });
+
+  it("are sealed under the platform key when one is given, and rows written as base64 are sealed on open", async () => {
+    const sqlite = new Database(":memory:");
+    const legacy = createSqliteEtaStore(sqlite);
+    await legacy.config.setClientSecret("cfg-secret");
+    await legacy.branchCodes.save({
+      branchId: "b1", etaBranchCode: "1", deviceSerialNumber: "POS-A", posClientId: "pos-cid",
+      hasPosClientSecret: false, posOsVersion: "windows", posModelFramework: "1",
+    });
+    await legacy.branchCodes.setPosClientSecret("b1", "pos-secret");
+    await legacy.branchCodes.setPosPresharedKey!("b1", "psk");
+    expect((sqlite.prepare("SELECT pos_client_secret_enc AS v FROM eta_branch_code").get() as { v: string }).v).toBe(Buffer.from("pos-secret").toString("base64"));
+
+    const box = createAesGcmSecretBox(Buffer.alloc(32, 7));
+    store = createSqliteEtaStore(sqlite, box);
+    const raw = sqlite.prepare("SELECT c.client_secret_enc AS c, b.pos_client_secret_enc AS s, b.pos_preshared_key_enc AS k FROM eta_config c, eta_branch_code b").get() as Record<string, string>;
+    for (const value of Object.values(raw)) expect(value.startsWith("mzs1:")).toBe(true);
+    expect(await store.config.getClientSecret()).toBe("cfg-secret");
+    expect(await store.posCredentialsForSerial("POS-A")).toMatchObject({ clientSecret: "pos-secret", presharedKey: "psk" });
+
+    const otherKey = createSqliteEtaStore(sqlite, createAesGcmSecretBox(Buffer.alloc(32, 9)));
+    expect(await otherKey.config.getClientSecret()).toBeNull();
+    expect(await otherKey.posCredentialsForSerial("POS-A")).toBeNull();
+    sqlite.close();
   });
 });

@@ -1119,7 +1119,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
   const promotions = createSqlitePromotionStore(sqlite);
   const salesQuotes = createSqliteSalesQuoteStore(sqlite);
   const exchangeRates = createSqliteExchangeRateRepository(sqlite);
-  const etaStore = createSqliteEtaStore(sqlite);
+  const etaStore = createSqliteEtaStore(sqlite, options.secrets);
   /**
    * The real ETA leg (P-1). Offline-safe by construction: the transmit port
    * refuses with `EtaOfflineError` until a client id AND a stored secret exist,

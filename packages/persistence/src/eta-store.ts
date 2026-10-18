@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
+import { isSealedSecret, SecretUnsealError, type SecretBox } from "./secret-box.js";
 import { insertingNew, prepareInsertOnly } from "./insert-new.js";
 import {
   DEFAULT_ETA_CONFIG,
@@ -112,18 +113,73 @@ CREATE TABLE IF NOT EXISTS eta_unit_mapping (
 const SINGLETON = "singleton";
 
 /** Columns added after the first release; existing files get them here rather than on a rebuild. */
+// CONTRACT: these are the associated data each sealed value is bound to; changing one orphans
+// every value already sealed under it.
+const CLIENT_SECRET_CONTEXT = "eta.clientSecret";
+const posSecretContext = (branchId: string) => `eta.pos.clientSecret:${branchId}`;
+const posPresharedKeyContext = (branchId: string) => `eta.pos.presharedKey:${branchId}`;
+
 /**
- * Placeholder secret-at-rest transform. A real deployment swaps this for
- * AES-256 (the catalog's "يحفظ السر مشفراً"); base64 here keeps the secret out
- * of plain reads and out of every API response without pulling a crypto
- * dependency into this spike. It is NEVER returned by the config port.
+ * Secret-at-rest for the ETA credentials. With the platform's secret box (the
+ * cloud) a value is AES-256-GCM sealed under the same key as the webhook and
+ * SMTP secrets; without one (the desktop, whose whole database file is
+ * encrypted) it stays base64, as it always was. Either way it is NEVER returned
+ * by the config port.
  */
-function seal(secret: string): string {
-  return Buffer.from(secret, "utf8").toString("base64");
+class EtaSecretCodec {
+  constructor(private readonly secrets?: SecretBox) {}
+
+  seal(plain: string, context: string): string {
+    return this.secrets ? this.secrets.seal(plain, context) : Buffer.from(plain, "utf8").toString("base64");
+  }
+
+  // SECURITY: a value this process cannot open — sealed on the cloud and carried to a desktop, or
+  // sealed under a key since replaced — reads as unset, so it is entered again rather than sent as ciphertext.
+  open(stored: string, context: string): string | null {
+    if (!isSealedSecret(stored)) return Buffer.from(stored, "base64").toString("utf8");
+    if (!this.secrets) return null;
+    try {
+      return this.secrets.open(stored, context);
+    } catch (err) {
+      if (err instanceof SecretUnsealError) return null;
+      throw err;
+    }
+  }
+
+  needsSealing(stored: string | null): stored is string {
+    return this.secrets !== undefined && stored !== null && !isSealedSecret(stored);
+  }
 }
 
-function unseal(sealed: string): string {
-  return Buffer.from(sealed, "base64").toString("utf8");
+/** Seals every ETA credential written before sealing existed; a no-op without a key. */
+function sealStoredEtaSecrets(sqlite: Database.Database, codec: EtaSecretCodec): void {
+  const config = sqlite.prepare(`SELECT client_secret_enc FROM eta_config WHERE id = ?`).get(SINGLETON) as { client_secret_enc: string | null } | undefined;
+  const branches = sqlite.prepare(`SELECT branch_id, pos_client_secret_enc, pos_preshared_key_enc FROM eta_branch_code`).all() as {
+    branch_id: string;
+    pos_client_secret_enc: string | null;
+    pos_preshared_key_enc: string | null;
+  }[];
+  sqlite.transaction(() => {
+    const stored = config?.client_secret_enc ?? null;
+    if (codec.needsSealing(stored)) {
+      const plain = codec.open(stored, CLIENT_SECRET_CONTEXT) ?? "";
+      sqlite.prepare(`UPDATE eta_config SET client_secret_enc = ? WHERE id = ? AND client_secret_enc = ?`).run(codec.seal(plain, CLIENT_SECRET_CONTEXT), SINGLETON, stored);
+    }
+    for (const row of branches) {
+      if (codec.needsSealing(row.pos_client_secret_enc)) {
+        const plain = codec.open(row.pos_client_secret_enc, posSecretContext(row.branch_id)) ?? "";
+        sqlite
+          .prepare(`UPDATE eta_branch_code SET pos_client_secret_enc = ? WHERE branch_id = ? AND pos_client_secret_enc = ?`)
+          .run(codec.seal(plain, posSecretContext(row.branch_id)), row.branch_id, row.pos_client_secret_enc);
+      }
+      if (codec.needsSealing(row.pos_preshared_key_enc)) {
+        const plain = codec.open(row.pos_preshared_key_enc, posPresharedKeyContext(row.branch_id)) ?? "";
+        sqlite
+          .prepare(`UPDATE eta_branch_code SET pos_preshared_key_enc = ? WHERE branch_id = ? AND pos_preshared_key_enc = ?`)
+          .run(codec.seal(plain, posPresharedKeyContext(row.branch_id)), row.branch_id, row.pos_preshared_key_enc);
+      }
+    }
+  })();
 }
 
 interface ConfigRow {
@@ -152,7 +208,10 @@ class SqliteEtaConfigRepository implements EtaConfigRepository {
   private readonly setSecret: Database.Statement;
   private readonly readSecret: Database.Statement;
 
-  constructor(sqlite: Database.Database) {
+  constructor(
+    sqlite: Database.Database,
+    private readonly codec: EtaSecretCodec,
+  ) {
     this.read = sqlite.prepare(`SELECT * FROM eta_config WHERE id = ?`);
     this.upsert = sqlite.prepare(`
       INSERT INTO eta_config
@@ -243,14 +302,14 @@ class SqliteEtaConfigRepository implements EtaConfigRepository {
   async getClientSecret(): Promise<string | null> {
     const row = this.readSecret.get(SINGLETON) as { client_secret_enc: string | null } | undefined;
     if (!row?.client_secret_enc) return null;
-    return unseal(row.client_secret_enc);
+    return this.codec.open(row.client_secret_enc, CLIENT_SECRET_CONTEXT);
   }
 
   /** Store a new client secret (sealed). Ensures a config row exists first. */
   async setClientSecret(secret: string): Promise<void> {
     const existing = this.read.get(SINGLETON);
     if (!existing) await this.save(DEFAULT_ETA_CONFIG);
-    this.setSecret.run(seal(secret), SINGLETON);
+    this.setSecret.run(this.codec.seal(secret, CLIENT_SECRET_CONTEXT), SINGLETON);
   }
 }
 
@@ -537,7 +596,10 @@ class SqliteEtaBranchCodeRepository implements EtaBranchCodeRepository {
   private readonly setPresharedKey: Database.Statement;
   private readonly selectBySerial: Database.Statement;
 
-  constructor(sqlite: Database.Database) {
+  constructor(
+    sqlite: Database.Database,
+    private readonly codec: EtaSecretCodec,
+  ) {
     this.selectAll = sqlite.prepare(`SELECT * FROM eta_branch_code ORDER BY branch_id`);
     this.upsert = sqlite.prepare(`
       INSERT INTO eta_branch_code (branch_id, eta_branch_code, device_serial_number, pos_client_id, pos_os_version, pos_model_framework)
@@ -582,11 +644,11 @@ class SqliteEtaBranchCodeRepository implements EtaBranchCodeRepository {
   }
 
   async setPosClientSecret(branchId: string, secret: string): Promise<void> {
-    this.setSecret.run(seal(secret), branchId);
+    this.setSecret.run(this.codec.seal(secret, posSecretContext(branchId)), branchId);
   }
 
   async setPosPresharedKey(branchId: string, key: string): Promise<void> {
-    this.setPresharedKey.run(seal(key), branchId);
+    this.setPresharedKey.run(this.codec.seal(key, posPresharedKeyContext(branchId)), branchId);
   }
 
   /**
@@ -596,13 +658,15 @@ class SqliteEtaBranchCodeRepository implements EtaBranchCodeRepository {
   posCredentialsForSerial(serial: string): EtaPosCredentials | null {
     const row = this.selectBySerial.get(serial) as BranchCodeRow | undefined;
     if (!row?.pos_client_id || !row.pos_client_secret_enc) return null;
+    const clientSecret = this.codec.open(row.pos_client_secret_enc, posSecretContext(row.branch_id));
+    if (clientSecret === null) return null;
     return {
       serial,
       clientId: row.pos_client_id,
-      clientSecret: unseal(row.pos_client_secret_enc),
+      clientSecret,
       osVersion: row.pos_os_version ?? null,
       modelFramework: row.pos_model_framework ?? null,
-      presharedKey: row.pos_preshared_key_enc ? unseal(row.pos_preshared_key_enc) : null,
+      presharedKey: row.pos_preshared_key_enc ? this.codec.open(row.pos_preshared_key_enc, posPresharedKeyContext(row.branch_id)) : null,
     };
   }
 }
@@ -713,16 +777,18 @@ function seedReceiptChainFromSubmissions(sqlite: Database.Database): void {
 }
 
 /** Open the SQLite-backed ETA stores. ":memory:" for tests, a path for real. */
-export function createSqliteEtaStore(path: SqliteConnectionInput = ":memory:"): SqliteEtaStoreHandle {
+export function createSqliteEtaStore(path: SqliteConnectionInput = ":memory:", secrets?: SecretBox): SqliteEtaStoreHandle {
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_TABLES);
   migrateEtaTables(sqlite);
+  const codec = new EtaSecretCodec(secrets);
+  sealStoredEtaSecrets(sqlite, codec);
   const submissions = new SqliteEtaSubmissionRepository(sqlite);
-  const branchCodes = new SqliteEtaBranchCodeRepository(sqlite);
+  const branchCodes = new SqliteEtaBranchCodeRepository(sqlite, codec);
   seedReceiptChainFromSubmissions(sqlite);
   return {
-    config: new SqliteEtaConfigRepository(sqlite),
+    config: new SqliteEtaConfigRepository(sqlite, codec),
     submissions,
     branchCodes,
     receiptChain: new SqliteEtaReceiptChainRepository(sqlite, submissions),

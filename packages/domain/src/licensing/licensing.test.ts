@@ -295,6 +295,7 @@ describe("signLicense — the vendor half", () => {
     const dir = await mkdtemp(nodePath.join(tmpdir(), "mezan-issue-"));
     try {
       const out = nodePath.join(dir, "license.mezan");
+      const ledger = nodePath.join(dir, "licences.csv");
       execFileSync(
         process.execPath,
         [
@@ -307,6 +308,7 @@ describe("signLicense — the vendor half", () => {
           "--not-before", "2026-01-01",
           "--bind", boundHash,
           "--out", out,
+          "--ledger", ledger,
         ],
         {
           encoding: "utf8",
@@ -321,6 +323,20 @@ describe("signLicense — the vendor half", () => {
       expect(result.state).toBe("ACTIVE");
       expect(result.payload?.licensee).toBe("النور للتجارة");
       expect(result.payload?.machineBinding).toEqual([boundHash]);
+
+      const { createHash } = await import("node:crypto");
+      const register = await readFile(ledger, "utf8");
+      const [header, row] = register.trim().split("\n");
+      expect(header).toBe("issuedAt,licenseId,licensee,plan,modules,seats,notBefore,expiresAt,graceDays,fingerprints,file,fileSha256");
+      expect(row).toContain("النور للتجارة,CORE,sales;inventory,2,");
+      expect(row).toContain(boundHash);
+      expect(row?.endsWith(createHash("sha256").update(raw, "utf8").digest("hex"))).toBe(true);
+      expect(register).not.toContain(bytesToHex(secretKey));
+
+      const due = (now: string) =>
+        execFileSync(process.execPath, [nodePath.join(repoRoot, "scripts", "licence-due.mjs"), "--ledger", ledger, "--now", now], { encoding: "utf8" });
+      expect(due("2026-06-01T00:00:00Z")).toContain("no licence ends within 30 days");
+      expect(due("2026-12-15T00:00:00Z")).toMatch(/2027-01-01 +17d left +النور للتجارة/);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

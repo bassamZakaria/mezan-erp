@@ -27,6 +27,7 @@
     "server": "tsx apps/server/src/index.ts",
     "licence:keygen": "node scripts/licence-keygen.mjs",
     "licence:issue": "node scripts/licence-issue.mjs",
+    "licence:due": "node scripts/licence-due.mjs",
     "licence:server": "tsx apps/licence-server/src/index.ts",
     "desktop:demo": "pnpm --filter desktop demo",
     "desktop:package": "node scripts/package-desktop.mjs",

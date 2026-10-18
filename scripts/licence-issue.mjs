@@ -14,15 +14,21 @@
 //     --seats 3 \
 //     --expires 2027-01-01 \
 //     --bind <fingerprint from `Mezan --print-machine-fingerprint`> \
-//     --out license.mezan
+//     --out license.mezan \
+//     --ledger licences.csv
+//
+// `--ledger <file>` (or `MEZAN_LICENCE_LEDGER`) appends the issue to a CSV
+// register — customer, fingerprints, modules, seats, expiry, issued-at and the
+// file's sha256, never the key — that `pnpm licence:due` reads renewals from.
 //
 // The private key comes from `--key <file>` or `MEZAN_LICENSE_PRIVATE_KEY`.
 // The finished file goes in the install's userData directory as
 // `license.mezan` — see docs/INSTALL.md §7A.3.
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { publicHexFor, signLicensePayload } from "./licence-crypto.mjs";
+import { appendLedgerRow, ledgerPathFrom } from "./licence-ledger.mjs";
 
 function parseArgs(argv) {
   const out = {};
@@ -109,7 +115,28 @@ if (!Number.isInteger(payload.graceDays) || payload.graceDays < 0) fail("--grace
 
 const licence = signLicensePayload(payload, privateKeyHex);
 const outPath = path.resolve(String(args.out ?? "license.mezan"));
-writeFileSync(outPath, `${licence}\n`, { encoding: "utf8", mode: 0o600 });
+const fileText = `${licence}\n`;
+writeFileSync(outPath, fileText, { encoding: "utf8", mode: 0o600 });
+
+const ledger = ledgerPathFrom(args, process.env);
+if (ledger) {
+  const ledgerPath = path.resolve(ledger);
+  appendLedgerRow(ledgerPath, {
+    issuedAt: payload.issuedAt,
+    licenseId: payload.licenseId,
+    licensee: payload.licensee,
+    plan: payload.plan,
+    modules: payload.activeModules,
+    seats: payload.seats,
+    notBefore: payload.notBefore,
+    expiresAt: payload.expiresAt,
+    graceDays: payload.graceDays,
+    fingerprints: payload.machineBinding,
+    file: path.basename(outPath),
+    fileSha256: createHash("sha256").update(fileText, "utf8").digest("hex"),
+  });
+  console.log(`recorded in ${ledgerPath}`);
+}
 
 console.log(`licence written to ${outPath}`);
 console.log(`  id        ${payload.licenseId}`);

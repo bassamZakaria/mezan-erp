@@ -52,6 +52,7 @@ interface Screen {
   readonly door: Door;
   readonly path: () => string;
   readonly refusals?: readonly Refusal[];
+  readonly checksEnglishCopy?: boolean;
 }
 
 interface Look {
@@ -81,7 +82,7 @@ const SCREENS: readonly Screen[] = [
   { name: "platform-plan-editor", door: Door.Platform, path: () => `/platform/plans/${PlanId.Business}` },
   { name: "platform-operators", door: Door.Platform, path: () => "/platform/users" },
   { name: "platform-security", door: Door.Platform, path: () => "/platform/security" },
-  { name: "platform-operations", door: Door.Platform, path: () => "/platform/operations" },
+  { name: "platform-operations", door: Door.Platform, path: () => "/platform/operations", checksEnglishCopy: true },
   { name: "tenant-dashboard", door: Door.Tenant, path: () => "/dashboard" },
   { name: "tenant-billing", door: Door.Tenant, path: () => "/setup/settings-billing" },
   { name: "tenant-customers", door: Door.Tenant, path: () => "/sell/customers" },
@@ -129,6 +130,7 @@ test.describe("Every SaaS screen — both locales, both themes, desktop and 390p
           await expect.soft(page.locator("html"), `${screen.name}: text direction follows the locale`).toHaveAttribute("dir", look.locale === Locale.Arabic ? "rtl" : "ltr");
           await expect.soft(page.locator("html"), `${screen.name}: theme applies`).toHaveAttribute("data-theme", look.theme);
           await expectHealthyScreen(page, { name: `${label}-${screen.name}`, locale: look.locale, watch });
+          if (look.locale === Locale.English && screen.checksEnglishCopy) await expectNoArabicUiCopy(page, screen.name);
           await context.close();
         });
       }
@@ -264,7 +266,17 @@ let payableRunId = "";
 let reconciledTripNo = "";
 let recordNames: ReadonlySet<string> = new Set();
 
-const FEATURE_WAVE_SCREENS: ReadonlySet<string> = new Set(Object.keys(enhScreens));
+const PAYROLL_WAVE_SCREENS: readonly string[] = [
+  "payroll",
+  "payroll-components",
+  "garnishments",
+  "payroll-statutory",
+  "leave-accrual-batches",
+  "report-payroll-register",
+  "report-social-insurance",
+  "report-salary-tax",
+];
+const FEATURE_WAVE_SCREENS: ReadonlySet<string> = new Set([...Object.keys(enhScreens), ...PAYROLL_WAVE_SCREENS]);
 
 const ROUTED_SCREENS: readonly TenantScreen[] = screenRouteEntries()
   .filter(([key]) => !NOT_A_NAV_DESTINATION.includes(key))
@@ -300,6 +312,23 @@ const ARABIC_UI_LINES: ReadonlySet<string> = new Set(ARABIC_UI_STRINGS);
 const LONG_ARABIC_UI_STRINGS: readonly string[] = ARABIC_UI_STRINGS.filter((value) => value.length >= LONG_UI_STRING);
 
 /** A line the catalogue ships as interface copy, as opposed to a record's own Arabic name. */
+// An element marked lang="ar" declares its text a quotation in Arabic (a cited Egyptian statute), not interface copy.
+async function textOutsideQuotedArabic(page: Page): Promise<string> {
+  return page.evaluate(() => {
+    const quoted = [...document.querySelectorAll<HTMLElement>('[lang="ar"]')].filter((element) => element !== document.documentElement);
+    const before = quoted.map((element) => element.style.getPropertyValue("display"));
+    quoted.forEach((element) => element.style.setProperty("display", "none"));
+    const text = document.body.innerText;
+    quoted.forEach((element, index) => element.style.setProperty("display", before[index] ?? ""));
+    return text;
+  });
+}
+
+async function expectNoArabicUiCopy(page: Page, name: string): Promise<void> {
+  const lines = (await textOutsideQuotedArabic(page)).split("\n").map((line) => line.trim());
+  expect.soft(lines.filter(isArabicUiString), `${name}: no Arabic interface text in English`).toEqual([]);
+}
+
 function isArabicUiString(line: string): boolean {
   const cells = line.split("\t").map((cell) => cell.replace(/ total$/, "").trim());
   return cells.some((cell) => ARABIC.test(cell) && !recordNames.has(cell) && (ARABIC_UI_LINES.has(cell) || LONG_ARABIC_UI_STRINGS.some((value) => cell.includes(value))));
@@ -342,7 +371,7 @@ test.describe("Every tenant-app screen the nav reaches — the seeded Enterprise
     const trips = rowsOf((await tenantCall(request, api, HttpMethod.Get, "/field/van-trips", undefined, DEMO_API_URL)).body);
     reconciledTripNo = String(trips.find((trip) => trip["settlement"] !== null && trip["tripNo"])?.["tripNo"] ?? "");
     const named = await Promise.all(
-      ["/branches", "/warehouses", "/crm/pipeline-stages"].map(async (route) => rowsOf((await tenantCall(request, api, HttpMethod.Get, route, undefined, DEMO_API_URL)).body)),
+      ["/branches", "/warehouses", "/crm/pipeline-stages", "/accounts?pageSize=500", "/treasury-accounts"].map(async (route) => rowsOf((await tenantCall(request, api, HttpMethod.Get, route, undefined, DEMO_API_URL)).body)),
     );
     recordNames = new Set(named.flat().flatMap((record) => [record["name"], record["nameAr"]]).filter((name): name is string => typeof name === "string"));
     await request.dispose();
@@ -377,10 +406,7 @@ test.describe("Every tenant-app screen the nav reaches — the seeded Enterprise
         await expect.soft(page.locator("html"), `${screen.name}: text direction follows the locale`).toHaveAttribute("dir", look.locale === Locale.Arabic ? "rtl" : "ltr");
         await expect.soft(page.locator("html"), `${screen.name}: theme applies`).toHaveAttribute("data-theme", look.theme);
         await expectHealthyScreen(page, { name: `tenant-${label}-${screen.name}`, locale: look.locale, watch });
-        if (look.locale === Locale.English && screen.checksEnglishCopy) {
-          const lines = (await page.locator("body").innerText()).split("\n").map((line) => line.trim());
-          expect.soft(lines.filter(isArabicUiString), `${screen.name}: no Arabic interface text in English`).toEqual([]);
-        }
+        if (look.locale === Locale.English && screen.checksEnglishCopy) await expectNoArabicUiCopy(page, screen.name);
         await context.close();
       });
     }

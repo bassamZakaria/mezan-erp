@@ -112,7 +112,7 @@ export const ar = {
   "countMode.zeroFill": "تسجيل المتبقي صفراً",
   "countMode.submitZone": "تسليم المنطقة للمراجعة",
   "countMode.submitNeedsAll": "بقي {count} دون عدّ — عدّها أو سجّلها صفراً صراحةً قبل التسليم.",
-  "countMode.zeroFillConfirm": "ستُسجَّل الكمية صفراً باسمك لـ {count} لم تُعدّ. هل الرف فارغ منها فعلاً؟",
+  "countMode.zeroFillConfirm": "ستُسجَّل باسمك كمية صفر لعدد {count} لم تُعدّ. هل الرف فارغ منها فعلاً؟",
   "countMode.submitConfirm": "بعد التسليم لا يمكنك تعديل العدّ إلا إذا طلب المراجع إعادة العدّ. تسليم المنطقة؟",
 
   "countMode.status.pending": "جارٍ الإرسال",

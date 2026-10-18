@@ -13,7 +13,7 @@ import { reportsDeps } from "./e1-02.js";
  * its own. Customer email only ever leaves through the operator-initiated drain.
  */
 const SCHEDULER_ACTOR = "system:collections-schedule";
-const SCHEDULER_PERMISSION = "sales.collections.run";
+const SCHEDULER_PERMISSIONS = ["sales.collections.run", "sales.collections.send"];
 const AUTO_SEND_DISABLED_STATUS = 409;
 
 export const area: BackendArea = {
@@ -42,7 +42,7 @@ export const area: BackendArea = {
     scheduler.route(
       "/",
       createCollectionsRoutes(deps, () =>
-        createAuthContext({ userId: SCHEDULER_ACTOR, permissions: [SCHEDULER_PERMISSION], branchScope: "*", warehouseScope: "*" }),
+        createAuthContext({ userId: SCHEDULER_ACTOR, permissions: SCHEDULER_PERMISSIONS, branchScope: "*", warehouseScope: "*" }),
       ),
     );
 
@@ -53,9 +53,11 @@ export const area: BackendArea = {
       const result = (await res.json()) as ScheduledDunningRunResultDTO;
       if (result.alreadyRan) return { ran: false, queued: 0, sent: 0 };
       if (result.queued === 0) return { ran: true, queued: 0, sent: 0 };
-      const drain = () => ctx.customerMail.drain();
-      const drained = await (ctx.audit.turn ? ctx.audit.turn(drain) : drain());
-      return { ran: true, queued: result.queued, sent: drained.sent };
+      // The same drain an operator presses: it sends through the tenant's SMTP outside the
+      // connection's turn and then marks the reminders it delivered as sent.
+      const drained = await scheduler.fetch(new Request("http://collections.internal/outbox/drain", { method: "POST" }));
+      const sent = drained.ok ? ((await drained.json()) as { sent: number }).sent : 0;
+      return { ran: true, queued: result.queued, sent };
     };
   },
 };

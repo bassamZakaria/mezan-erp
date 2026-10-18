@@ -830,7 +830,7 @@ export function GoodsReceiptsScreen() {
           itemName={itemName}
           projectName={projectName}
           lotRuleOf={(itemId) => items.find((it) => it.id === itemId)}
-          confirmError={confirmReceipt.error?.message ?? null}
+          confirmError={confirmReceipt.variables === selected.id ? (confirmReceipt.error?.message ?? null) : null}
           onBack={() => subPage.close()}
           onConfirm={() => confirmSelected(selected.id)}
           onPrint={() => subPage.open(selected.number ?? selected.id, "print")}

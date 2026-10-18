@@ -3808,7 +3808,7 @@ const webAr = {
   "attendance.import.matchedGroups": "أيام مطابقة لموظفين",
   "attendance.import.readyCount": "جاهز للتسجيل",
   "attendance.import.createdCount": "تم تسجيله",
-  "attendance.import.commitSuccess": "سُجّل الحضور: {created}. تُخطّي ما كان مسجَّلاً مسبقاً: {skipped}.",
+  "attendance.import.commitSuccess": "سُجّل الحضور: {created}. ولم يُعَد تسجيل ما كان مسجَّلاً مسبقاً: {skipped}.",
   "attendance.import.unmatchedBadges": "شارات غير معروفة",
   "attendance.import.parseErrors": "أخطاء في الملف",
   "attendance.import.noGroupsYet": "لا توجد بيانات بعد — اختر ملفاً واضغط معاينة",

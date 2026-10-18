@@ -1,6 +1,7 @@
-import { createHash, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { serve } from "@hono/node-server";
 import type { Context, MiddlewareHandler } from "hono";
+import { getCookie, setCookie } from "hono/cookie";
 import { parseEnv, PaymobMode } from "./env.js";
 import { createCloudApp } from "./cloud-app.js";
 import { LogEvent, createLogger } from "@mezan/api";
@@ -68,6 +69,8 @@ if (env.reviewTenant && !env.supportEmail) {
  * 401 there marks the service unhealthy and restarts it in a loop.
  */
 const MIN_DEMO_PASSWORD_LENGTH = 12;
+const DEMO_GATE_COOKIE = "mezan_demo_gate";
+const DEMO_GATE_MAX_AGE_SECONDS = 12 * 60 * 60;
 let authMiddleware: MiddlewareHandler | undefined;
 if (env.seedDemo) {
   const demoPassword = env.demoPassword ?? "";
@@ -80,9 +83,24 @@ if (env.seedDemo) {
   const digestOf = (value: string): Buffer => createHash("sha256").update(value, "utf8").digest();
   const expectedAuthorization = digestOf(`Basic ${Buffer.from(`demo:${demoPassword}`).toString("base64")}`);
   // SECURITY: compared as fixed-length digests in constant time, so the response time says nothing about how much of the credential matched.
+  const gateToken = createHmac("sha256", demoPassword).update("mezan-demo-gate-v1").digest("base64url");
+  const expectedGateToken = digestOf(gateToken);
+  // SECURITY: browsers drop a cached Basic credential after any 401 the app itself sends (a wrong PIN, an ended session),
+  // which bounced demo visitors to the password prompt; the gate also accepts an HttpOnly cookie derived from the password.
   authMiddleware = async (c: Context, next) => {
-    if (!timingSafeEqual(digestOf(c.req.header("authorization") ?? ""), expectedAuthorization)) {
+    const basicOk = timingSafeEqual(digestOf(c.req.header("authorization") ?? ""), expectedAuthorization);
+    const cookieOk = timingSafeEqual(digestOf(getCookie(c, DEMO_GATE_COOKIE) ?? ""), expectedGateToken);
+    if (!basicOk && !cookieOk) {
       return c.text("Unauthorized", 401, { "WWW-Authenticate": 'Basic realm="Mezan demo"' });
+    }
+    if (basicOk && !cookieOk) {
+      setCookie(c, DEMO_GATE_COOKIE, gateToken, {
+        path: "/",
+        httpOnly: true,
+        sameSite: "Lax",
+        secure: new URL(c.req.url).protocol === "https:" || c.req.header("x-forwarded-proto") === "https",
+        maxAge: DEMO_GATE_MAX_AGE_SECONDS,
+      });
     }
     await next();
   };

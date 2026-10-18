@@ -94,7 +94,7 @@ export const cockpitOverdueSchema = z.object({
   customerCount: z.number().int(),
   oldestDueDate: z.string().nullable(),
   /** Customer credit no invoice carries, already netted from `amount` oldest debt first. */
-  unallocatedCredits: moneyString,
+  unallocatedCredits: moneyString.default("0.000000"),
 });
 export type CockpitOverdueDTO = z.infer<typeof cockpitOverdueSchema>;
 

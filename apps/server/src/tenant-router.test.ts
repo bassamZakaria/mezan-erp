@@ -415,7 +415,7 @@ describe("createTenantRouter", () => {
         dataDir,
         sweepEveryMs: 0,
         now: () => new Date(T),
-        openBackend: async () => ({ app: stub, audit: { append: vi.fn(), query: vi.fn() }, sessions: createSessionRegistry(), credentialsResetByAdministrator: vi.fn(), lockedAccounts: vi.fn(() => []), unlockAccount: vi.fn(async () => false), ownerAccount: vi.fn(async () => null), companyAdmins: vi.fn(async () => []), recordOwnerAssigned: vi.fn(), resetOwnerPin: vi.fn(), backupTo: vi.fn(), runScheduledJobs: vi.fn(() => null), runOwnerDigest: vi.fn(async () => null), drain: vi.fn(), close: vi.fn() }),
+        openBackend: async () => ({ app: stub, audit: { append: vi.fn(), query: vi.fn() }, sessions: createSessionRegistry(), credentialsResetByAdministrator: vi.fn(), lockedAccounts: vi.fn(() => []), unlockAccount: vi.fn(async () => false), ownerAccount: vi.fn(async () => null), companyAdmins: vi.fn(async () => []), recordOwnerAssigned: vi.fn(), resetOwnerPin: vi.fn(), backupTo: vi.fn(), runScheduledJobs: vi.fn(() => null), runOwnerDigest: vi.fn(async () => null), runScheduledCollections: vi.fn(async () => null), drain: vi.fn(), close: vi.fn() }),
       });
       routers.push(router);
       reachable(router.app);
@@ -508,7 +508,10 @@ describe("createTenantRouter", () => {
 
       expect(res.status).toBe(409);
       expect(await res.json()).toEqual({ error: "TENANT_ALREADY_PROVISIONED", message: "تم إعداد هذه المنشأة بالفعل. سجّل الدخول بحسابك." });
-      expect(await status.json()).toMatchObject({ claimed: true, users: 1 });
+      const statusBody = (await status.json()) as Record<string, unknown>;
+      expect(statusBody).toMatchObject({ claimed: true });
+      expect(statusBody).not.toHaveProperty("users");
+      expect(statusBody).not.toHaveProperty("accounts");
     });
 
     it("leaves a tenant still being provisioned claimable by the platform's own provisioning, which reaches its backend directly", async () => {

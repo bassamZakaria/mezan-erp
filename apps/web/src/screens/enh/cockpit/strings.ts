@@ -37,14 +37,14 @@ export const ar = {
   "cockpit.pulse.marginHidden": "الهامش يحتاج صلاحية عرض التكلفة.",
 
   "cockpit.runway.title": "مدى النقدية",
-  "cockpit.runway.days": "{days} يوم",
+  "cockpit.runway.days": "{days}",
   "cockpit.runway.safe": "لا نفاد خلال 90 يوماً",
   "cockpit.runway.lowest": "أدنى رصيد {amount} يوم {date}",
   "cockpit.runway.belowThreshold": "ينخفض عن حد التنبيه يوم {date}",
   "cockpit.runway.unavailable": "تعذّر حساب التوقع.",
 
   "cockpit.overdue.title": "مستحقات متأخرة",
-  "cockpit.overdue.detail": "{invoices} فاتورة · {customers} عميل",
+  "cockpit.overdue.detail": "{invoices} · {customers}",
   "cockpit.overdue.oldest": "أقدم استحقاق {date}",
   "cockpit.overdue.clear": "لا فواتير متأخرة",
   "cockpit.overdue.unallocated": "دفعات غير مخصصة (مخصومة من المتأخر)",
@@ -112,14 +112,14 @@ export const en: Record<keyof typeof ar, string> = {
   "cockpit.pulse.marginHidden": "Margin needs the view-cost permission.",
 
   "cockpit.runway.title": "Cash runway",
-  "cockpit.runway.days": "{days} days",
+  "cockpit.runway.days": "{days}",
   "cockpit.runway.safe": "No shortfall within 90 days",
   "cockpit.runway.lowest": "Lowest {amount} on {date}",
   "cockpit.runway.belowThreshold": "Falls below the alert level on {date}",
   "cockpit.runway.unavailable": "The forecast could not be computed.",
 
   "cockpit.overdue.title": "Overdue receivables",
-  "cockpit.overdue.detail": "{invoices} invoices · {customers} customers",
+  "cockpit.overdue.detail": "{invoices} · {customers}",
   "cockpit.overdue.oldest": "Oldest due {date}",
   "cockpit.overdue.clear": "No overdue invoices",
   "cockpit.overdue.unallocated": "Unallocated receipts (already netted from overdue)",

@@ -1,3 +1,4 @@
+import { ArabicCase, arabicDays } from "../text/counted-noun.js";
 import { Money } from "../money/index.js";
 import { currencyLabelAr, formatMoneyLabel, type RenderedMessage } from "./message.js";
 import type { CollectionWorkItem } from "./types.js";
@@ -17,7 +18,7 @@ export function renderOpenItemStatement(input: OpenItemStatementInput): Rendered
   const arLines = ordered.map(
     (item) =>
       `• ${item.reference ?? "رصيد سابق"} — استحقاق ${item.dueDate} — ${formatMoneyLabel(item.amount, currencyLabelAr(input.currency))}` +
-      (item.daysOverdue > 0 ? ` (متأخر ${item.daysOverdue} يوماً)` : ""),
+      (item.daysOverdue > 0 ? ` (متأخر ${arabicDays(item.daysOverdue, ArabicCase.Oblique)})` : ""),
   );
   const enLines = ordered.map(
     (item) =>

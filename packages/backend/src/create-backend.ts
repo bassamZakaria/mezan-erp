@@ -434,7 +434,7 @@ import { createWarehouseUse } from "./warehouse-use.js";
 import { createDashboardRoutes } from "./dashboard-routes.js";
 import { createPreferencesRoutes } from "./preferences-routes.js";
 import { isEmptyTenant, SEED_ADMIN_USER_ID, seedIfEmpty, type SeedStores } from "./seed.js";
-import type { BackendModuleContext, IntegrationsSlot, IntegrationsSurface, OwnerDigestSlot } from "./module-context.js";
+import type { BackendModuleContext, CollectionsScheduleSlot, IntegrationsSlot, IntegrationsSurface, OwnerDigestSlot, ScheduledCollectionsResult } from "./module-context.js";
 import type { IntegrationsGateway } from "./integrations/gateway.js";
 import { mountPos } from "./pos/index.js";
 import { ENH_EMITTED_EVENT_CODES, mountEnhancements } from "./enh/index.js";
@@ -798,6 +798,8 @@ export interface BackendHandle {
   runScheduledJobs(): Promise<readonly ScheduledJobResult[]> | null;
   /** Queues this tenant's scheduled owner digest for the day (idempotent per period and recipient); null when the tenant has not switched it on or this edition does not schedule it. */
   runOwnerDigest(): Promise<ScheduledDigestResult | null>;
+  /** Runs this tenant's scheduled dunning for the day and sends the customer mail it queued; null when the tenant's policy has not switched automatic sending on. Only the cloud host calls it (DEC-28). */
+  runScheduledCollections(): Promise<ScheduledCollectionsResult | null>;
   /**
    * Resolves once the confirm-time e-receipt tasks still in flight have
    * settled. Those tasks deliberately outlive the confirm that started them,
@@ -1119,7 +1121,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
   const promotions = createSqlitePromotionStore(sqlite);
   const salesQuotes = createSqliteSalesQuoteStore(sqlite);
   const exchangeRates = createSqliteExchangeRateRepository(sqlite);
-  const etaStore = createSqliteEtaStore(sqlite);
+  const etaStore = createSqliteEtaStore(sqlite, options.secrets);
   /**
    * The real ETA leg (P-1). Offline-safe by construction: the transmit port
    * refuses with `EtaOfflineError` until a client id AND a stored secret exist,
@@ -5650,6 +5652,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
 
   const areaClosers: { close(): void }[] = [];
   const ownerDigestSlot: OwnerDigestSlot = {};
+  const collectionsScheduleSlot: CollectionsScheduleSlot = {};
   const integrationsSlot: IntegrationsSlot = {};
   const scheduledJobsStatus: { read: () => readonly ScheduledJobStatus[] } = { read: () => [] };
   const areaContext: BackendModuleContext = {
@@ -5721,6 +5724,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
     },
     backupStatus: options.backupStatus,
     ownerDigestSlot,
+    collectionsScheduleSlot,
     auditChain: auditSink,
     scheduledJobStatus: () => scheduledJobsStatus.read(),
     ...(options.resolveLicenseState ? { resolveLicenseState: options.resolveLicenseState } : {}),
@@ -5962,6 +5966,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
     backupTo: (destination) => sqlite.backup(destination).then(() => undefined),
     runScheduledJobs: () => scheduledJobs?.runNow() ?? null,
     runOwnerDigest: () => (ownerDigestSlot.run ? ownerDigestSlot.run() : Promise.resolve(null)),
+    runScheduledCollections: () => (collectionsScheduleSlot.run ? collectionsScheduleSlot.run() : Promise.resolve(null)),
     integrations: integrationsSlot.gateway ?? null,
     async drain() {
       // The bridge's tasks call `scheduleSubmission()`, and a submission run

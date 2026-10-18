@@ -64,7 +64,7 @@ describe("a fresh on-premises install is given the standard roles, and nothing e
       });
       expect(unlicensed).toEqual([]);
     }
-    expect((await call(backend, "GET", "/bootstrap/status")).body.roles).toBe(roles.length);
+    expect((await call(backend, "GET", "/bootstrap/status", token)).body.roles).toBe(roles.length);
 
     for (const path of ["/customers?page=1&pageSize=5", "/sales-invoices?page=1&pageSize=5", "/items?page=1&pageSize=5"]) {
       const listed = (await call(backend, "GET", path, token)).body;

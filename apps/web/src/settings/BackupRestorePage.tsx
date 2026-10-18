@@ -1,3 +1,5 @@
+import { ArabicCase, CountedNoun } from "@mezan/domain";
+import { useCountPhrase } from "../lib/count-phrase";
 import { useCallback, useEffect, useState } from "react";
 import { Button, Card, StatusPill, TextInput, useFormat } from "@mezan/ui";
 import { useApi } from "../data/ApiContext";
@@ -100,6 +102,7 @@ const DRILL_TRIGGER_KEYS: Record<DrillTrigger, AppTranslationKey> = {
 
 export function BackupRestorePage() {
   const { t } = useAppTranslation();
+  const countPhrase = useCountPhrase();
   const fmt = useFormat();
   const { session } = useApi();
   const [entries, setEntries] = useState<BackupEntry[]>([]);
@@ -303,7 +306,7 @@ export function BackupRestorePage() {
       <p className="mb-[16px] text-[12.5px] text-ink-muted">{t("backup.hint")}</p>
       {newestBackupAge !== null && newestBackupAge > BACKUP_STALE_AFTER_DAYS ? (
         <p role="alert" className="mb-[12px] rounded-[8px] border border-warning bg-warning-soft p-[10px] text-[12.5px] text-warning-ink">
-          {t("backupDrill.backupStale", { days: fmt.number(newestBackupAge) })}
+          {t("backupDrill.backupStale", { days: countPhrase(newestBackupAge, CountedNoun.Day, ArabicCase.Oblique) })}
         </p>
       ) : null}
 
@@ -366,7 +369,7 @@ export function BackupRestorePage() {
                 {status.lastGoodDrillAt && lastGoodAge !== null
                   ? t("backupDrill.lastGood", {
                       date: fmt.dateTime(status.lastGoodDrillAt),
-                      days: fmt.number(lastGoodAge),
+                      days: countPhrase(lastGoodAge, CountedNoun.Day, ArabicCase.Oblique),
                     })
                   : t("backupDrill.never")}
               </p>
@@ -381,7 +384,7 @@ export function BackupRestorePage() {
           </div>
           {drillStale ? (
             <p role="alert" className="mt-[10px] text-[12px] text-warning-ink">
-              {t("backupDrill.stale", { days: fmt.number(status.staleAfterDays) })}
+              {t("backupDrill.stale", { days: countPhrase(status.staleAfterDays, CountedNoun.Day, ArabicCase.Oblique) })}
             </p>
           ) : null}
           <div className="mt-[14px] text-[12.5px] font-semibold text-ink">{t("backupDrill.history")}</div>

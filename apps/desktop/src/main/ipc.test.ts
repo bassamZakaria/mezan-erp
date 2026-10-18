@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { App } from "@mezan/api";
-import { MEZAN_FETCH_CHANNEL, MEZAN_SAVE_PDF_CHANNEL, type IpcFetchResponse } from "../shared/ipc-contract.js";
+import { MEZAN_FETCH_CHANNEL, MEZAN_FETCH_TO_FILE_CHANNEL, MEZAN_SAVE_PDF_CHANNEL, type IpcFetchResponse } from "../shared/ipc-contract.js";
 import { LanClientError, MAX_RESPONSE_BYTES } from "./lan-client.js";
 
 /**
@@ -54,7 +54,7 @@ vi.mock("node:fs/promises", () => ({
  */
 const RENDERER_EVENT = { senderFrame: { url: "app://mezan/index.html" } } as never;
 
-const { registerHonoOverIpc, registerHonoOverLanClient, registerSavePdfOverIpc } = await import("./ipc.js");
+const { registerFetchToFileOverIpc, registerHonoOverIpc, registerHonoOverLanClient, registerSavePdfOverIpc } = await import("./ipc.js");
 
 const HOST = "https://192.168.1.7:4173";
 const PINNED = "3D:9A:1F:04";
@@ -257,5 +257,47 @@ describe("registerSavePdfOverIpc — the PDF is written, not handed back", () =>
     expect(result["ok"]).toBe(false);
     expect(result["cancelled"]).toBe(false);
     expect(String(result["message"])).toContain("تعذّر حفظ ملف PDF");
+  });
+});
+
+describe("mezan:fetch:to-file — a download too large for the IPC ceiling goes straight to disk", () => {
+  const PACK = "/audit/evidence-packs";
+
+  function register() {
+    handlers.clear();
+    const calls: { url: string; filePath: string }[] = [];
+    registerFetchToFileOverIpc(async (request, filePath) => {
+      calls.push({ url: request.url, filePath });
+      return { status: 200, headers: { "x-evidence-manifest-sha256": "abc" }, body: new Uint8Array(0) };
+    });
+    return { calls, handler: handlers.get(MEZAN_FETCH_TO_FILE_CHANNEL)! };
+  }
+
+  it("asks where to save, then has the worker stream the pack into that file", async () => {
+    saveDialogResult = { canceled: false, filePath: "/tmp/pack.zip" };
+    const { calls, handler } = register();
+    const result = (await handler(RENDERER_EVENT, { url: `http://mezan.local${PACK}`, method: "POST", body: "{}", defaultFileName: "mezan-evidence.zip" })) as Record<string, unknown>;
+
+    expect(calls).toEqual([{ url: `http://mezan.local${PACK}`, filePath: "/tmp/pack.zip" }]);
+    expect(result).toMatchObject({ status: 200, savedPath: "/tmp/pack.zip", cancelled: false });
+    expect((result["headers"] as Record<string, string>)["x-evidence-manifest-sha256"]).toBe("abc");
+  });
+
+  it("builds nothing when the operator cancels the dialog", async () => {
+    saveDialogResult = { canceled: true };
+    const { calls, handler } = register();
+    const result = (await handler(RENDERER_EVENT, { url: `http://mezan.local${PACK}`, method: "POST", defaultFileName: "p.zip" })) as Record<string, unknown>;
+
+    expect(calls).toHaveLength(0);
+    expect(result).toMatchObject({ cancelled: true, savedPath: null });
+  });
+
+  it("refuses any other route, so the channel cannot be used to write arbitrary responses to disk", async () => {
+    saveDialogResult = { canceled: false, filePath: "/tmp/x.zip" };
+    const { calls, handler } = register();
+    const result = (await handler(RENDERER_EVENT, { url: "http://mezan.local/customers", defaultFileName: "x.zip" })) as Record<string, unknown>;
+
+    expect(calls).toHaveLength(0);
+    expect(result["status"]).toBe(404);
   });
 });

@@ -1,3 +1,5 @@
+import { ArabicCase, CountedNoun } from "@mezan/domain";
+import { useCountPhrase } from "../../lib/count-phrase";
 import { useMemo, useState } from "react";
 import { errorMessage } from "../../lib/error-message";
 import {
@@ -60,6 +62,7 @@ function money(value: unknown): number {
  */
 export function SalesQuotesScreen() {
   const { t } = useAppTranslation();
+  const countPhrase = useCountPhrase();
   const format = useFormat();
 
   const customers = useCustomers().data ?? EMPTY;
@@ -180,7 +183,7 @@ export function SalesQuotesScreen() {
         <div>
           <div className="mz-num">{q.expiryDate}</div>
           {isExpired(q) ? (
-            <div className="text-[11px] text-danger">{t("quotes.expiredAgo", { days: daysExpired(q) })}</div>
+            <div className="text-[11px] text-danger">{t("quotes.expiredAgo", { days: countPhrase(daysExpired(q), CountedNoun.Day, ArabicCase.Oblique) })}</div>
           ) : null}
         </div>
       ),

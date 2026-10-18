@@ -67,6 +67,8 @@ export interface Subscription {
    * tenant may still READ is derived from this.
    */
   readonly previousPlanId: string | null;
+  /** The plan the customer picked at sign-up (DEC-31: the trial itself runs on the top plan). A suggestion for the upgrade screen, never an entitlement. */
+  readonly intendedPlanId?: string | null;
   readonly graceDays: number;
   readonly cancelledAt: string | null;
   readonly createdAt: string;
@@ -312,6 +314,7 @@ export interface StartSubscriptionCommand {
   readonly extraWarehouses?: number;
   readonly graceDays?: number;
   readonly now: string;
+  readonly intendedPlanId?: string | null;
 }
 
 function validateExtras(s: Pick<Subscription, "addOnModules" | "extraSeats" | "extraBranches" | "extraWarehouses" | "graceDays">): string[] {
@@ -365,6 +368,7 @@ export async function startSubscription(
     billingAnchorDay: businessDayOfMonth(now),
     trialEndsAt: trial ? addDays(now, plan.trialDays) : null,
     previousPlanId: null,
+    intendedPlanId: cmd.intendedPlanId ?? null,
     graceDays,
     cancelledAt: null,
     createdAt: now,

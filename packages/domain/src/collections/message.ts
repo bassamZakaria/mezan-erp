@@ -32,6 +32,7 @@ export interface DunningMessageValues {
   readonly amount: string;
   readonly dueDate: string;
   readonly daysOverdue: string;
+  readonly daysOverdueLabel: string;
   readonly totalOverdue: string;
 }
 

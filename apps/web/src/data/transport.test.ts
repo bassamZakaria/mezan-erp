@@ -147,6 +147,19 @@ describe("createElectronTransport", () => {
     expect(res.ok).toBe(false);
   });
 
+  it("routes a saveAs request to the bridge's file channel and reports where it landed", async () => {
+    const bridgeFetch = vi.fn(async () => ({ status: 200, headers: {}, body: "{}" }));
+    const fetchToFile = vi.fn(async () => ({ status: 200, headers: { "x-evidence-manifest-sha256": "abc" }, body: "", savedPath: "/tmp/p.zip", cancelled: false }));
+    const transport = createElectronTransport({ fetch: bridgeFetch, fetchToFile });
+
+    const res = await transport("/audit/evidence-packs", { method: "POST", body: "{}", saveAs: "p.zip" } as RequestInit);
+
+    expect(bridgeFetch).not.toHaveBeenCalled();
+    expect(fetchToFile).toHaveBeenCalledWith("http://mezan.local/audit/evidence-packs", { method: "POST", body: "{}" }, "p.zip");
+    expect(res.savedPath).toBe("/tmp/p.zip");
+    expect(res.header?.("x-evidence-manifest-sha256")).toBe("abc");
+  });
+
   it("parses the IPC response body as JSON and echoes it as text", async () => {
     const bridgeFetch = vi.fn(async () => ({ status: 200, headers: {}, body: '{"a":1}' }));
     const transport = createElectronTransport({ fetch: bridgeFetch });

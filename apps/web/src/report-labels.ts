@@ -1,6 +1,7 @@
 import { ReportParamKind, type ReportColumn, type ReportParamField } from "@mezan/domain";
 import { WEB_TRANSLATION_KEYS } from "./i18n/catalog";
 import type { AppTranslationKey } from "./i18n";
+import type { TranslationParams } from "@mezan/ui";
 import type { ReportScreenDefinition } from "./screens/reports/ReportScreen";
 
 /**
@@ -17,15 +18,15 @@ import type { ReportScreenDefinition } from "./screens/reports/ReportScreen";
  * Percent" and look deliberate.
  */
 
-type Translate = (key: AppTranslationKey) => string;
+type Translate = (key: AppTranslationKey, params?: TranslationParams) => string;
 
 /** Same overlay the column headers use, exposed for the summary strip's KPI labels. */
 export function tryReportLabel(key: string, fallback: string, t: Translate): string {
   return tryTranslate(key, fallback, t);
 }
 
-function tryTranslate(key: string, fallback: string, t: Translate): string {
-  if (WEB_TRANSLATION_KEYS.has(key)) return t(key as AppTranslationKey);
+function tryTranslate(key: string, fallback: string, t: Translate, params?: TranslationParams): string {
+  if (WEB_TRANSLATION_KEYS.has(key)) return t(key as AppTranslationKey, params);
   // A key derived from the WRONG identifier falls back to Arabic and looks
   // deliberate — the parameter keys here were first written from the labels
   // rather than the field keys, and the report read correctly in Arabic while
@@ -103,6 +104,11 @@ const CELL_LABEL_KEYS: Readonly<Record<string, string>> = {
   "أمر إنتاج": "reportCell.sourceDoc.WORK_ORDER",
   "إلغاء استلام/فاتورة مشتريات": "reportCell.sourceDoc.PURCHASE_CANCELLATION",
   "غير محسوب": "reportCell.notComputed",
+  "منتهية الصلاحية": "reportCell.expiryStatus.expired",
+  "قاربت على الانتهاء": "reportCell.expiryStatus.nearExpiry",
+  "سليمة": "reportCell.expiryStatus.ok",
+  "بدون تاريخ صلاحية": "reportCell.expiryStatus.noExpiry",
+  "بدون تشغيلة": "reportCell.noBatch",
 };
 
 /** Columns holding copy. Everything not named here is data and is left alone. */
@@ -114,6 +120,7 @@ const LABEL_COLUMN_KEYS: ReadonlySet<string> = new Set([
   "verdictLabel",
   "direction",
   "sourceDocTypeLabel",
+  "batchLabel",
   // Normally numeric (format: "money"); the server sends the "غير محسوب"
   // label in its place for a payslip whose employer cost predates D191 — a
   // number stays untouched, only that one Arabic string is looked up.
@@ -179,7 +186,7 @@ export function localizeReportDefinition<TParams, Row>(
     descriptionAr:
       definition.descriptionAr === undefined
         ? undefined
-        : tryTranslate(`report.${id}.description`, definition.descriptionAr, t),
+        : tryTranslate(`report.${id}.description`, definition.descriptionAr, t, definition.descriptionParams),
     paramFields: definition.paramFields.map((field) => localizeParamField(id, field, t)),
     columns: definition.columns.map(
       (column): ReportColumn<Row> => ({

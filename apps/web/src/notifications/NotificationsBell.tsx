@@ -1,3 +1,5 @@
+import { ArabicCase, CountedNoun } from "@mezan/domain";
+import { useCountPhrase, type CountPhrase } from "../lib/count-phrase";
 import { useState } from "react";
 import { useAppTranslation, type AppI18n } from "../i18n";
 import { NotificationsPanel, type NotificationPanelItem } from "@mezan/ui";
@@ -14,20 +16,20 @@ const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
 
 /** "قبل N دقيقة/ساعة/يوم" — matches the reference panel's relative timestamps (docs/archive/catalog/09 §الإشعارات). */
-function relativeTime(iso: string, now: number, t: AppI18n["t"]): string {
+function relativeTime(iso: string, now: number, t: AppI18n["t"], countPhrase: CountPhrase): string {
   const diff = Math.max(0, now - new Date(iso).getTime());
   if (diff < MINUTE) return t("notifications.justNow");
   if (diff < HOUR) return t("notifications.minutesAgo", { n: String(Math.floor(diff / MINUTE)) });
   if (diff < DAY) return t("notifications.hoursAgo", { n: String(Math.floor(diff / HOUR)) });
-  return t("notifications.daysAgo", { n: String(Math.floor(diff / DAY)) });
+  return t("notifications.daysAgo", { n: countPhrase(Math.floor(diff / DAY), CountedNoun.Day, ArabicCase.Oblique) });
 }
 
-function toPanelItem(n: NotificationDTO, now: number, t: AppI18n["t"]): NotificationPanelItem {
+function toPanelItem(n: NotificationDTO, now: number, t: AppI18n["t"], countPhrase: CountPhrase): NotificationPanelItem {
   return {
     id: n.id,
     title: n.title,
     body: n.body,
-    timeLabel: relativeTime(n.createdAt, now, t),
+    timeLabel: relativeTime(n.createdAt, now, t, countPhrase),
     read: n.status === "read",
     priority: n.priority as NotificationPriorityDTO,
   };
@@ -44,13 +46,14 @@ export function useNotificationsBell(onViewAll?: () => void) {
   const [tab, setTab] = useState<"all" | "unread">("all");
 
   const { t } = useAppTranslation();
+  const countPhrase = useCountPhrase();
   const listQuery = useNotifications(tab === "unread" ? "unread" : undefined);
   const unreadCountQuery = useUnreadNotificationCount();
   const markRead = useMarkNotificationRead();
   const markAllRead = useMarkAllNotificationsRead();
 
   const now = Date.now();
-  const items = (listQuery.data ?? []).map((n) => toPanelItem(n, now, t));
+  const items = (listQuery.data ?? []).map((n) => toPanelItem(n, now, t, countPhrase));
   const unreadCount = unreadCountQuery.data ?? 0;
 
   const panel = (

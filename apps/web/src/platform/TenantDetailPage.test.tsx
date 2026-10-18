@@ -178,6 +178,19 @@ describe("TenantDetailPage", () => {
     expect(screen.getByRole("button", { name: "إلغاء الاشتراك" })).toBeInTheDocument();
   });
 
+  it("offers a trialing tenant the tenant-level suspend, and says why the subscription one is absent", async () => {
+    const summary = makeSummary({}, { status: SubscriptionStatusCode.Trialing });
+    const transport = stubPlatformTransport({
+      "GET /tenants/tenant-1": () => ({ body: summary }),
+      "GET /plans": () => ({ body: [plan, plan2] }),
+    });
+    renderDetail({ transport, session: testPlatformSession });
+
+    expect(await screen.findByRole("button", { name: "إيقاف المنشأة" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "إيقاف الاشتراك" })).not.toBeInTheDocument();
+    expect(screen.getByText(/الاشتراك في فترة التجربة فلا يُوقَف من هنا/)).toBeInTheDocument();
+  });
+
   it("shows resume, not suspend, for a suspended tenant", async () => {
     const summary = makeSummary({ status: TenantWireStatus.Suspended });
     const transport = stubPlatformTransport({

@@ -6,7 +6,12 @@ import {
   CollectionActivityKind,
   CustomerContactMissingError,
   CustomerMessageStatus,
+  ArabicCase,
+  CountLocale,
+  CountedNoun,
   DUNNING_PLACEHOLDERS,
+  arabicDays,
+  countPhrase,
   DunningChannel,
   DunningHoldNotFoundError,
   DunningReminderNotFoundError,
@@ -457,8 +462,8 @@ export function createCollectionsRoutes(deps: CollectionsRoutesDeps, resolveAuth
         };
         return renderDunningMessage(
           step,
-          { ...common, amount: formatMoneyLabel(item.amount, currencyLabelAr(company.currency)), totalOverdue: formatMoneyLabel(row.overdue, currencyLabelAr(company.currency)) },
-          { ...common, amount: formatMoneyLabel(item.amount, company.currency), totalOverdue: formatMoneyLabel(row.overdue, company.currency) },
+          { ...common, daysOverdueLabel: arabicDays(item.daysOverdue, ArabicCase.Oblique), amount: formatMoneyLabel(item.amount, currencyLabelAr(company.currency)), totalOverdue: formatMoneyLabel(row.overdue, currencyLabelAr(company.currency)) },
+          { ...common, daysOverdueLabel: countPhrase(CountLocale.En, item.daysOverdue, CountedNoun.Day), amount: formatMoneyLabel(item.amount, company.currency), totalOverdue: formatMoneyLabel(row.overdue, company.currency) },
         );
       },
     });

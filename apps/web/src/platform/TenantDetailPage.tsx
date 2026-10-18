@@ -473,6 +473,9 @@ export function TenantDetailPage() {
                     </Button>
                   </>
                 ) : null}
+                {subscription.status === SubscriptionStatusCode.Trialing ? (
+                  <p className="basis-full text-[12px] text-ink-muted">{t("platform.tenantDetail.trialSuspendHint")}</p>
+                ) : null}
                 {canSuspendSubscription(subscription.status) ? (
                   <Button
                     variant="default"

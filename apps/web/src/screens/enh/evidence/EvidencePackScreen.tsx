@@ -133,7 +133,10 @@ export function EvidencePackScreen() {
     if (build.isPending) return;
     setNotice(null);
     build.mutate(period, {
-      onSuccess: (built) => setNotice({ tone: NoticeTone.Success, message: t("evidence.built", { sha: built.manifestSha256 }) }),
+      onSuccess: (built) => {
+        if (built.cancelled) return;
+        setNotice({ tone: NoticeTone.Success, message: t("evidence.built", { sha: built.manifestSha256 }) });
+      },
       onError: (error) => setNotice({ tone: NoticeTone.Danger, message: error.message }),
     });
   };

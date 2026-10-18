@@ -20,6 +20,7 @@ import { cipherDriver } from "./encrypted-database.js";
 import { createLicenseGuardStore, decideCheckin } from "./license-checkin.js";
 import { reevaluateLicenseState, type DesktopLicense } from "./license.js";
 import { MAX_RESPONSE_BYTES, tooLargeResponse } from "./lan-client.js";
+import { writeResponseToFile } from "./response-to-file.js";
 
 /**
  * THE PROCESS THAT OWNS SQLITE (docs/artifacts/audit-2026-09-07.md Q-1).
@@ -146,6 +147,14 @@ async function run(call: BackendCall): Promise<BackendCallResult> {
   const live = state;
   if (!live) throw new Error("the backend worker has not booted");
   switch (call.op) {
+    case "fetch.toFile": {
+      const env = bridgeEnv(call.request.remoteAddress);
+      const response = await live.backend.app.fetch(
+        decodeBridgeRequest({ op: "fetch", ...call.request }),
+        env as Parameters<typeof live.backend.app.fetch>[1],
+      );
+      return await writeResponseToFile(response, call.filePath, MAX_RESPONSE_BYTES);
+    }
     case "fetch": {
       const env = bridgeEnv(call.remoteAddress);
       const response = await live.backend.app.fetch(

@@ -9,6 +9,7 @@ import {
   type SequenceGapReportDTO,
 } from "@mezan/contracts";
 import { useApi } from "../../../data/ApiContext";
+import { SAVE_TO_FILE_UNSUPPORTED_STATUS, canSaveToFile, type SaveToFileInit } from "../../../data/transport";
 import { ApiError, loaderError, readError } from "../../../data/hooks";
 import { useAppTranslation } from "../../../i18n";
 
@@ -20,6 +21,7 @@ const MANIFEST_HEADER = "x-evidence-manifest-sha256";
 
 export interface BuiltPack {
   readonly manifestSha256: string;
+  readonly cancelled?: boolean;
 }
 
 function usesBridge(): boolean {
@@ -85,6 +87,15 @@ export function useBuildEvidencePack() {
     gcTime: 0,
     mutationFn: async (period) => {
       const fileName = `mezan-evidence-${period.from}_${period.to}.zip`;
+      if (canSaveToFile()) {
+        const toDisk: SaveToFileInit = { method: "POST", body: JSON.stringify(period), saveAs: fileName };
+        const saved = await request("/audit/evidence-packs", toDisk);
+        if (saved.cancelled) return { manifestSha256: "", cancelled: true };
+        if (saved.status !== SAVE_TO_FILE_UNSUPPORTED_STATUS) {
+          if (!saved.ok) throw new ApiError(saved.status, await readError(saved, t("evidence.buildFailed"), t));
+          return { manifestSha256: saved.header?.(MANIFEST_HEADER) ?? "" };
+        }
+      }
       const inline = usesBridge();
       const path = inline ? `/audit/evidence-packs?${EVIDENCE_PACK_ENCODING_PARAM}=${EvidencePackEncoding.Base64}` : "/audit/evidence-packs";
       const res = await request(path, { method: "POST", body: JSON.stringify(period) });

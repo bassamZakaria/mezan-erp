@@ -15,6 +15,7 @@ import {
   MEZAN_BACKUP_RECOVERY_SAVE_KEY_CARD_CHANNEL,
   MEZAN_APP_VERSION_CHANNEL,
   MEZAN_FETCH_CHANNEL,
+  MEZAN_FETCH_TO_FILE_CHANNEL,
   MEZAN_LICENCE_CHECKIN_CHANNEL,
   MEZAN_LICENCE_IMPORT_CHANNEL,
   MEZAN_LICENCE_STATUS_CHANNEL,
@@ -44,6 +45,8 @@ import {
   type BackupRecoverySetRequest,
   type IpcFetchRequest,
   type IpcFetchResponse,
+  type IpcFetchToFileRequest,
+  type IpcFetchToFileResponse,
   type LicenceCheckinResult,
   type LicenceImportResult,
   type LicenceStatusResult,
@@ -97,6 +100,10 @@ const mezanBridge: MezanBridge = {
   fetch(input: string, init?: RequestInit): Promise<IpcFetchResponse> {
     const request: IpcFetchRequest = { url: input, ...normalizeInit(init) };
     return ipcRenderer.invoke(MEZAN_FETCH_CHANNEL, request);
+  },
+  fetchToFile(input: string, init: RequestInit | undefined, defaultFileName: string): Promise<IpcFetchToFileResponse> {
+    const request: IpcFetchToFileRequest = { url: input, ...normalizeInit(init), defaultFileName };
+    return ipcRenderer.invoke(MEZAN_FETCH_TO_FILE_CHANNEL, request);
   },
   printToPDF(options?: PrintToPdfOptions): Promise<Uint8Array> {
     return ipcRenderer.invoke(MEZAN_PRINT_TO_PDF_CHANNEL, options);

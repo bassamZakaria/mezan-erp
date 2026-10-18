@@ -1,6 +1,7 @@
+import { useCountPhrase } from "./lib/count-phrase";
 import { useState } from "react";
 import { Button, Checkbox } from "@mezan/ui";
-import { LicenseReasonCode } from "@mezan/domain";
+import { LicenseReasonCode, CountedNoun } from "@mezan/domain";
 import { useDesktopLicence } from "./data/hooks";
 import {
   useLicenceCheckin,
@@ -54,6 +55,7 @@ interface BannerCopy {
 
 export function LicenseBanner() {
   const { t, locale } = useAppTranslation();
+  const countPhrase = useCountPhrase();
   const server = useLicenseState().data;
   const desktop = useDesktopLicence().data;
   const desktopStatus = desktop && desktop.ok ? desktop : null;
@@ -89,7 +91,7 @@ export function LicenseBanner() {
         body:
           daysSince === null
             ? t("licenceUi.checkinBodyNoCount")
-            : t("licenceUi.checkinBody", { days: String(daysSince) }),
+            : t("licenceUi.checkinBody", { days: countPhrase(daysSince, CountedNoun.Day) }),
         tone: state === "READ_ONLY" || state === "UNLICENSED" ? "danger" : "warning",
         showCheckin: true,
         showImport: true,
@@ -323,7 +325,7 @@ export function LicenseBanner() {
           <p className="mt-[8px] text-[13px] text-ink">
             {daysSince === null
               ? t("licenceUi.blockedBodyNoCount")
-              : t("licenceUi.blockedBody", { days: String(daysSince) })}
+              : t("licenceUi.blockedBody", { days: countPhrase(daysSince, CountedNoun.Day) })}
           </p>
           <p className="mt-[6px] text-[12.5px] text-ink-muted">{t("licenceUi.blockedDataSafe")}</p>
           {identity}

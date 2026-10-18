@@ -5,44 +5,7 @@ import path from "node:path";
 import { Readable } from "node:stream";
 import { Hono, type Context } from "hono";
 import { Zip, ZipDeflate } from "fflate";
-import {
-  CSV_BOM,
-  EVIDENCE_PACK_FORMAT,
-  EVIDENCE_SIGNATURE_ALGORITHM,
-  EVIDENCE_SIGNATURE_NOTICE,
-  EvidenceFileName,
-  SEQUENCE_DEFINITIONS,
-  SequenceSourceCoverage,
-  WILDCARD_PERMISSION,
-  applySequenceOverride,
-  buildSequenceGapReport,
-  buildTrialBalanceSnapshot,
-  can,
-  csvLine,
-  dayBefore,
-  detectSodConflicts,
-  isErasedUser,
-  parseSequenceNumber,
-  recordSensitiveEvent,
-  serializeEvidenceManifest,
-  type Account,
-  type AuditEvent,
-  type AuditSink,
-  type CounterAdjustment,
-  type DeletedNumber,
-  type EvidenceAuditChainVerdict,
-  type EvidenceFileEntry,
-  type EvidenceManifest,
-  type FiscalPeriod,
-  type LedgerRepository,
-  Money,
-  type NumberedDocumentRecord,
-  type SequenceCounterState,
-  type SequenceDefinition,
-  type SequenceGapReport,
-  type SequenceOverride,
-  type UnitOfWork,
-} from "@mezan/domain";
+import { CSV_BOM, EVIDENCE_PACK_FORMAT, EVIDENCE_SIGNATURE_ALGORITHM, EVIDENCE_SIGNATURE_NOTICE, EvidenceFileName, SEQUENCE_DEFINITIONS, SequenceSourceCoverage, WILDCARD_PERMISSION, applySequenceOverride, buildSequenceGapReport, buildTrialBalanceSnapshot, can, csvLine, dayBefore, detectSodConflicts, isErasedUser, parseSequenceNumber, recordSensitiveEvent, serializeEvidenceManifest, type Account, type AuditEvent, type AuditSink, type CounterAdjustment, type DeletedNumber, type EvidenceAuditChainVerdict, type EvidenceFileEntry, type EvidenceManifest, type FiscalPeriod, type LedgerRepository, Money, type NumberedDocumentRecord, type SequenceCounterState, type SequenceDefinition, type SequenceGapReport, type SequenceOverride, type UnitOfWork, ArabicCase, arabicDays } from "@mezan/domain";
 import {
   EVIDENCE_PACK_ENCODING_PARAM,
   EVIDENCE_PACK_HISTORY_LIMIT,
@@ -114,7 +77,7 @@ function periodFromBody(c: Context, body: unknown): EvidencePeriodDTO | Response
   if (!parsed.success) return c.json({ error: EvidencePackRefusal.InvalidPeriod, message: "حدّد فترة صحيحة: من تاريخ وإلى تاريخ.", details: parsed.error.flatten() }, 400);
   const span = (Date.parse(`${parsed.data.to}T00:00:00Z`) - Date.parse(`${parsed.data.from}T00:00:00Z`)) / DAY_MS;
   if (span > EVIDENCE_PACK_MAX_SPAN_DAYS) {
-    return c.json({ error: EvidencePackRefusal.PeriodTooLong, message: `الفترة لا تتجاوز ${EVIDENCE_PACK_MAX_SPAN_DAYS} يومًا في حزمة واحدة.` }, 400);
+    return c.json({ error: EvidencePackRefusal.PeriodTooLong, message: `الفترة لا تتجاوز ${arabicDays(EVIDENCE_PACK_MAX_SPAN_DAYS, ArabicCase.Oblique)} في حزمة واحدة.` }, 400);
   }
   return parsed.data;
 }

@@ -1,3 +1,4 @@
+import { useCountPhrase } from "../../lib/count-phrase";
 import type { ReactNode } from "react";
 import { Link } from "react-router";
 import { Card, Money, cn, useFormat } from "@mezan/ui";
@@ -8,7 +9,7 @@ import {
   type CockpitDTO,
   type CockpitDayDTO,
 } from "@mezan/contracts";
-import { UNATTRIBUTED_BRANCH_ID } from "@mezan/domain";
+import { UNATTRIBUTED_BRANCH_ID, CountedNoun } from "@mezan/domain";
 import { useAppTranslation } from "../../i18n";
 import { pathForRoute } from "../../routing";
 import type { ScreenKey } from "../../router/screens";
@@ -295,6 +296,7 @@ export function CockpitPulse({ data, rtl, branchParam }: CockpitWidgetProps) {
 
 export function CockpitRunway({ companyWide }: { readonly companyWide: boolean }) {
   const { t } = useAppTranslation();
+  const countPhrase = useCountPhrase();
   const format = useFormat();
   const forecast = useCashForecast(CashForecastHorizonDTO.Days90, CashForecastOverdueDTO.Today, "");
   const title = t("cockpit.runway.title");
@@ -315,7 +317,7 @@ export function CockpitRunway({ companyWide }: { readonly companyWide: boolean }
               data.runwayDays === null ? "text-success-ink" : data.runwayDays <= 30 ? "text-danger-ink" : "text-warning-ink",
             )}
           >
-            {data.runwayDays === null ? t("cockpit.runway.safe") : t("cockpit.runway.days", { days: format.number(data.runwayDays) })}
+            {data.runwayDays === null ? t("cockpit.runway.safe") : t("cockpit.runway.days", { days: countPhrase(data.runwayDays, CountedNoun.Day) })}
           </div>
           <div className="mt-[6px] text-2xs text-ink-muted">
             {t("cockpit.runway.lowest", { amount: format.money(majorOf(data.lowest.balance)), date: format.date(data.lowest.date) })}
@@ -331,6 +333,7 @@ export function CockpitRunway({ companyWide }: { readonly companyWide: boolean }
 
 export function CockpitOverdueTile({ data, branchParam }: CockpitWidgetProps) {
   const { t } = useAppTranslation();
+  const countPhrase = useCountPhrase();
   const format = useFormat();
   const overdue = data.overdueReceivables;
   if (!overdue) return null;
@@ -350,7 +353,7 @@ export function CockpitOverdueTile({ data, branchParam }: CockpitWidgetProps) {
             <Money value={majorOf(overdue.amount)} />
           </div>
           <div className="mt-[6px] text-2xs text-ink-muted">
-            {t("cockpit.overdue.detail", { invoices: format.number(overdue.invoiceCount), customers: format.number(overdue.customerCount) })}
+            {t("cockpit.overdue.detail", { invoices: countPhrase(overdue.invoiceCount, CountedNoun.Invoice), customers: countPhrase(overdue.customerCount, CountedNoun.Customer) })}
           </div>
         </>
       )}

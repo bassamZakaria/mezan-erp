@@ -675,9 +675,9 @@ describe("a served company whose database file does not hold its own books", () 
     const answers = await everyWayIn(second, emptied);
     await second.app.close();
 
-    const NOT_SEEDED = { accounts: 0, users: 0, branches: 0, warehouses: 0, taxRates: 0, fiscalPeriods: 0 };
-    expect(answers.seed.json).toMatchObject(NOT_SEEDED);
-    expect(answers.status.json).toMatchObject({ ...NOT_SEEDED, claimed: true });
+    expect(answers.seed.json).toEqual({ claimed: true });
+    expect(answers.status.json).toMatchObject({ claimed: true });
+    expect(answers.status.json).not.toHaveProperty("accounts");
     expect([answers.login.status, answers.attacker.status, answers.seedAdmin.status]).toEqual([401, 401, 401]);
     expect(answers.claim.status).toBe(409);
     expect(inBooks(emptied.file, (sqlite) => sqlite.prepare("SELECT COUNT(*) AS n FROM user").get())).toEqual({ n: 0 });

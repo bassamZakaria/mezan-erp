@@ -15,6 +15,7 @@ export interface ProvisionTenantCommand {
   readonly ownerEmail: string;
   readonly ownerNameAr: string;
   readonly planId: string;
+  readonly intendedPlanId?: string | null;
   readonly billingCycle: BillingCycle;
   readonly trial: boolean;
   readonly actorId?: string;
@@ -220,7 +221,7 @@ async function provisionUnderItsClaim(cmd: ProvisionTenantCommand, deps: Provisi
           await stillProvisionable();
           if (live || (await subscriptions.findLiveByTenant(registered.id))) return;
           await startSubscription(
-            { id: randomUUID(), tenantId: registered.id, planId: cmd.planId, billingCycle: cmd.billingCycle, trial: cmd.trial, now: nowIso },
+            { id: randomUUID(), tenantId: registered.id, planId: cmd.planId, intendedPlanId: cmd.intendedPlanId ?? null, billingCycle: cmd.billingCycle, trial: cmd.trial, now: nowIso },
             subscriptions,
             plans,
           );

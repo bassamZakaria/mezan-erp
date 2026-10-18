@@ -171,6 +171,31 @@ describe("GoodsReceiptsScreen", () => {
     expect(screen.queryByText("MAIN-WH")).not.toBeInTheDocument();
   });
 
+  it("fixes a draft receipt's missing lot in place: the edit-lots action PUTs the batch and expiry for the tracked line", async () => {
+    const tracked: ItemDTO = { ...items[0]!, trackBatches: true, trackExpiry: true };
+    let sent: unknown = null;
+    renderScreen(
+      stubTransport({
+        ...baseHandlers,
+        "GET /items": () => ({ body: [tracked] }),
+        "GET /purchases/receipts": () => ({ body: [goodsReceipt({ status: "draft" })] }),
+        "PUT /purchases/receipts/gr-1/lots": (init) => {
+          sent = JSON.parse(String(init?.body));
+          return { body: goodsReceipt({ status: "draft" }) };
+        },
+      }),
+    );
+
+    fireEvent.click(await screen.findByText("GR-000010"));
+    fireEvent.click(await screen.findByRole("button", { name: "تعديل التشغيلات والصلاحية" }));
+    fireEvent.change(screen.getByLabelText("رقم التشغيلة"), { target: { value: "B-77" } });
+    fireEvent.change(screen.getByLabelText("تاريخ انتهاء الصلاحية"), { target: { value: "2027-03-01" } });
+    fireEvent.click(screen.getByRole("button", { name: "حفظ التشغيلات" }));
+
+    await waitFor(() => expect(sent).toEqual({ lots: [{ lineIndex: 0, batchNo: "B-77", expiryDate: "2027-03-01" }] }));
+    expect(await screen.findByText("حُفظت التشغيلات. يمكنك تأكيد الاستلام الآن.")).toBeInTheDocument();
+  });
+
   it("shows an honest empty state when the server returns no receipts", async () => {
     const transport = stubTransport({
       ...baseHandlers,

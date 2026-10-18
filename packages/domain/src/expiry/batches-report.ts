@@ -1,3 +1,4 @@
+import { ArabicCase, arabicDays } from "../text/counted-noun.js";
 import { z } from "zod";
 import type { Item } from "../items/item.js";
 import type { Warehouse } from "../settings/warehouse.js";
@@ -70,7 +71,7 @@ export function createInventoryBatchesReport(
   return {
     id: INVENTORY_BATCHES_REPORT_ID,
     titleAr: "المخزون حسب التشغيلة والصلاحية",
-    descriptionAr: `رصيد كل تشغيلة في كل مستودع بترتيب الصرف (الأقرب انتهاءً أولاً). «قاربت على الانتهاء» = خلال ${nearExpiryDays} يوماً.`,
+    descriptionAr: `رصيد كل تشغيلة في كل مستودع بترتيب الصرف (الأقرب انتهاءً أولاً). «قاربت على الانتهاء» = خلال ${arabicDays(nearExpiryDays, ArabicCase.Oblique)}.`,
     paramsSchema,
     defaultParams: { status: "", search: "", warehouseId: "", itemId: "", branchId: "" },
     paramFields: [

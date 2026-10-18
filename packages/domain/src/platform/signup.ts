@@ -79,6 +79,8 @@ export interface SignupRequest {
   readonly ownerEmail: string;
   readonly ownerNameAr: string;
   readonly planId: string;
+  /** The public plan the visitor picked on the form, kept as the suggested plan once the reverse trial ends. */
+  readonly intendedPlanId?: string | null;
   readonly billingCycle: BillingCycle;
   /** sha256 hex of the raw token — the raw value is never stored, mirroring `@mezan/api`'s session tokens. */
   readonly tokenHash: string;
@@ -125,6 +127,7 @@ export interface StartSignupCommand {
   readonly ownerEmail: string;
   readonly ownerNameAr: string;
   readonly planId: string;
+  readonly intendedPlanId?: string | null;
   readonly billingCycle: BillingCycle;
   readonly tokenHash: string;
   readonly now: string;
@@ -168,6 +171,8 @@ export async function startSignup(
 
   const plan = await plans.findById(cmd.planId);
   if (!plan || !plan.isPublic || plan.status !== "active") throw new PlanNotFoundError(cmd.planId);
+  const intended = cmd.intendedPlanId ? await plans.findById(cmd.intendedPlanId) : null;
+  const intendedPlanId = intended && intended.isPublic && intended.status === "active" ? intended.id : null;
 
   const request: SignupRequest = {
     id: cmd.id,
@@ -177,6 +182,7 @@ export async function startSignup(
     ownerEmail: normalizeEmail(cmd.ownerEmail),
     ownerNameAr: cmd.ownerNameAr.trim(),
     planId: plan.id,
+    intendedPlanId,
     billingCycle: cmd.billingCycle,
     tokenHash: cmd.tokenHash,
     status: SignupRequestStatus.Pending,

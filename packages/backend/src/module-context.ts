@@ -102,6 +102,7 @@ export interface BackendModuleContext {
   };
   readonly backupStatus: (() => Promise<OwnerDigestBackupReading | null>) | undefined;
   readonly ownerDigestSlot: OwnerDigestSlot;
+  readonly collectionsScheduleSlot: CollectionsScheduleSlot;
   readonly auditChain: { verifyHead(): { reason: AuditChainHeadReason; headRowId: number | null } };
   readonly scheduledJobStatus: () => readonly ScheduledJobStatus[];
   readonly resolveLicenseState?: LicenseStateResolver;
@@ -129,6 +130,17 @@ export interface IntegrationsSlot {
 /** Filled by the owner-digest area; read by the backend handle so a host timer can run the tenant's schedule without an HTTP request. */
 export interface OwnerDigestSlot {
   run?: () => Promise<ScheduledDigestResult>;
+}
+
+export interface ScheduledCollectionsResult {
+  readonly ran: boolean;
+  readonly queued: number;
+  readonly sent: number;
+}
+
+/** Filled by the collections area; read by the backend handle so the cloud host's timer can run the tenant's opted-in dunning without an HTTP request. */
+export interface CollectionsScheduleSlot {
+  run?: () => Promise<ScheduledCollectionsResult | null>;
 }
 
 export interface BackendArea {

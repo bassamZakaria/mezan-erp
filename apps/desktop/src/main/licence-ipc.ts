@@ -1,3 +1,4 @@
+import { ArabicCase, arabicDays } from "@mezan/domain";
 import { copyFileSync, existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { app, dialog, shell } from "electron";
@@ -172,7 +173,7 @@ function messageFor(
 ): string {
   if (fromLicence) return fromLicence;
   if (code === "LIC-CHECKIN" && daysSince !== null) {
-    return `لم يُؤكَّد هذا الترخيص عبر الإنترنت منذ ${daysSince} يوماً. اتصل بالإنترنت ثم اضغط «تحقّق الآن».`;
+    return `لم يُؤكَّد هذا الترخيص عبر الإنترنت منذ ${arabicDays(daysSince, ArabicCase.Oblique)}. اتصل بالإنترنت ثم اضغط «تحقّق الآن».`;
   }
   return MESSAGE_AR[code];
 }

@@ -1,3 +1,4 @@
+import { useCountPhrase } from "../lib/count-phrase";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useLocation } from "react-router";
 import {
@@ -18,7 +19,7 @@ import {
   type PillTone,
   type RowMenuItem,
 } from "@mezan/ui";
-import { ETA_BUYER_TYPES, can, createAuthContext, SALES_INVOICE_ACTIVE_STATUSES, SALES_INVOICE_STATUS_LABELS_AR, TaxRateStatusCode, matchesSearch } from "@mezan/domain";
+import { ETA_BUYER_TYPES, can, createAuthContext, SALES_INVOICE_ACTIVE_STATUSES, SALES_INVOICE_STATUS_LABELS_AR, TaxRateStatusCode, matchesSearch, CountedNoun } from "@mezan/domain";
 import type { CustomerDTO, EtaBuyerTypeDTO, SalesInvoiceStatusDTO } from "@mezan/contracts";
 import {
   useCreateCustomer,
@@ -413,6 +414,7 @@ function CustomerLogoField({
 function CustomerDetail({ customer, onBack, onEdit }: { customer: CustomerDTO; onBack: () => void; onEdit: () => void }) {
   const taxRates = useTaxRates().data ?? EMPTY;
   const { t } = useAppTranslation();
+  const countPhrase = useCountPhrase();
   const { navigate } = useNavigation();
   const { session } = useApi();
   const mayCollections = can(
@@ -449,7 +451,7 @@ function CustomerDetail({ customer, onBack, onEdit }: { customer: CustomerDTO; o
       }
       summary={[
         { label: t("customers.detail.category"), value: customer.category ?? t("common.uncategorized") },
-        { label: t("customers.detail.paymentTerms"), value: <span className="mz-num">{t("customers.detail.days", { days: customer.paymentTermsDays })}</span> },
+        { label: t("customers.detail.paymentTerms"), value: <span className="mz-num">{t("customers.detail.days", { days: countPhrase(customer.paymentTermsDays, CountedNoun.Day) })}</span> },
         { label: t("customers.detail.creditLimit"), value: <MoneyValue value={num(customer.creditLimit)} /> },
         { label: t("customers.detail.openingBalance"), value: <MoneyValue value={num(customer.openingBalance)} /> },
         {
@@ -511,6 +513,7 @@ function CustomerDetail({ customer, onBack, onEdit }: { customer: CustomerDTO; o
 
 export function CustomersScreen() {
   const { t } = useAppTranslation();
+  const countPhrase = useCountPhrase();
   const { navigate } = useNavigation();
   const createCustomer = useCreateCustomer();
   const locked = useLockedFields(CUSTOMERS_API);
@@ -617,7 +620,7 @@ export function CustomersScreen() {
       ),
     },
     { key: "phone", header: t("common.phone"), render: (c) => c.phone ?? "—" },
-    { key: "terms", header: t("customers.detail.paymentTerms"), render: (c) => <span className="mz-num">{t("customers.detail.days", { days: c.paymentTermsDays })}</span> },
+    { key: "terms", header: t("customers.detail.paymentTerms"), render: (c) => <span className="mz-num">{t("customers.detail.days", { days: countPhrase(c.paymentTermsDays, CountedNoun.Day) })}</span> },
     { key: "category", header: t("customers.detail.category"), render: (c) => c.category ?? t("common.uncategorized") },
     { key: "creditLimit", header: t("customers.detail.creditLimit"), align: "end", render: (c) => <MoneyValue value={num(c.creditLimit)} /> },
     { key: "owed", header: t("customers.col.owed"), align: "end", render: (c) => <MoneyValue value={num(c.owed ?? undefined)} /> },

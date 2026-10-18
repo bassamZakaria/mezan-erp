@@ -22,6 +22,25 @@ export interface IpcFetchResponse {
   readonly body: string;
 }
 
+/**
+ * A backend response too large for the 8 MiB IPC ceiling, written straight to
+ * a file the operator picks. The worker streams the body to disk, so the bytes
+ * never cross into this process or the renderer. Only the paths in
+ * `FETCH_TO_FILE_PATHS` (main/ipc.ts) are accepted.
+ */
+export const MEZAN_FETCH_TO_FILE_CHANNEL = "mezan:fetch:to-file";
+
+export interface IpcFetchToFileRequest extends IpcFetchRequest {
+  readonly defaultFileName: string;
+}
+
+export interface IpcFetchToFileResponse extends IpcFetchResponse {
+  readonly savedPath: string | null;
+  readonly cancelled: boolean;
+}
+
+export const FETCH_TO_FILE_UNSUPPORTED_STATUS = 501;
+
 export const MEZAN_PRINT_TO_PDF_CHANNEL = "mezan:printToPdf";
 
 export interface PrintToPdfOptions {
@@ -823,6 +842,7 @@ export interface UpdateStatus {
 
 export interface MezanBridge {
   fetch(input: string, init?: RequestInit): Promise<IpcFetchResponse>;
+  fetchToFile(input: string, init: RequestInit | undefined, defaultFileName: string): Promise<IpcFetchToFileResponse>;
   printToPDF(options?: PrintToPdfOptions): Promise<Uint8Array>;
   /** Renders the current page to PDF and writes it where the operator chooses. */
   savePDF(options?: SavePdfOptions): Promise<SavePdfResult>;

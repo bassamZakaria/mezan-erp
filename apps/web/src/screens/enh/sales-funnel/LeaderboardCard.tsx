@@ -1,3 +1,5 @@
+import { CountedNoun } from "@mezan/domain";
+import { useCountPhrase } from "../../../lib/count-phrase";
 import { useQuery } from "@tanstack/react-query";
 import { leaderboardCardSchema, type LeaderboardCardDTO } from "@mezan/contracts";
 import { Card, EmptyState, Money as MoneyDisplay } from "@mezan/ui";
@@ -22,6 +24,7 @@ function useLeaderboardCard(): ReturnType<typeof useQuery<LeaderboardCardDTO, Ap
 
 export function LeaderboardCard() {
   const { t, locale } = useAppTranslation();
+  const countPhrase = useCountPhrase();
   const query = useLeaderboardCard();
   const card = query.data ?? null;
 
@@ -53,7 +56,7 @@ export function LeaderboardCard() {
                 <span className="mz-num inline-flex h-[24px] w-[24px] items-center justify-center rounded-full bg-surface-2 text-[12px] font-bold text-ink">{entry.rank}</span>
                 <span className="flex flex-col">
                   <span className="text-[13px] font-semibold text-ink">{locale === "en" ? entry.nameEn : entry.nameAr}</span>
-                  <span className="text-[11px] text-ink-muted">{t("salesFunnel.card.deals", { count: String(entry.invoiceCount) })}</span>
+                  <span className="text-[11px] text-ink-muted">{t("salesFunnel.card.deals", { count: countPhrase(entry.invoiceCount, CountedNoun.Invoice) })}</span>
                 </span>
               </span>
               <span className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-ink-muted">

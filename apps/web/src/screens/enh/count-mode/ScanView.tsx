@@ -1,3 +1,5 @@
+import { ArabicCase, CountedNoun } from "@mezan/domain";
+import { useCountPhrase } from "../../../lib/count-phrase";
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, ArrowLeft, Check, CircleSlash, Keyboard, Loader2, Undo2, Volume2, VolumeX, WifiOff } from "lucide-react";
@@ -53,6 +55,7 @@ function VarianceText({ item }: { item: CountModeItemDTO }) {
 
 export function ScanView({ countId, zoneId }: { countId: string; zoneId: string }) {
   const { t, locale } = useAppTranslation();
+  const countPhrase = useCountPhrase();
   const { openSubPage } = useNavigation();
   const queryClient = useQueryClient();
   const sessionQuery = useCountModeSession(countId, true);
@@ -254,7 +257,7 @@ export function ScanView({ countId, zoneId }: { countId: string; zoneId: string 
       {recountItems.length > 0 ? (
         <div role="alert" className="flex items-start gap-[8px] rounded-md border border-warning bg-warning-soft px-[12px] py-[10px] text-[13px] text-warning-ink">
           <AlertTriangle aria-hidden className="mt-[2px] h-[16px] w-[16px] flex-none" />
-          <span>{t("countMode.recountBanner", { count: recountItems.length })}</span>
+          <span>{t("countMode.recountBanner", { count: countPhrase(recountItems.length, CountedNoun.Item, ArabicCase.Oblique) })}</span>
         </div>
       ) : null}
 
@@ -455,12 +458,12 @@ export function ScanView({ countId, zoneId }: { countId: string; zoneId: string 
             <Button variant="primary" className="min-h-[48px] justify-center" disabled={uncounted > 0 || submitZone.isPending || queue.pending > 0} onMouseDown={keepFocus} onClick={() => setConfirming(Confirming.Submit)}>
               {t("countMode.submitZone")}
             </Button>
-            {uncounted > 0 ? <p className="text-[12px] text-ink-muted sm:col-span-2">{t("countMode.submitNeedsAll", { count: uncounted })}</p> : null}
+            {uncounted > 0 ? <p className="text-[12px] text-ink-muted sm:col-span-2">{t("countMode.submitNeedsAll", { count: countPhrase(uncounted, CountedNoun.Item) })}</p> : null}
           </div>
         ) : (
           <div role="alertdialog" aria-labelledby="count-mode-confirm-title" className="flex flex-col gap-[10px] rounded-lg border-2 border-brand bg-surface p-[14px]">
             <p id="count-mode-confirm-title" className="text-[14px] font-semibold text-ink">
-              {confirming === Confirming.ZeroFill ? t("countMode.zeroFillConfirm", { count: uncounted }) : t("countMode.submitConfirm")}
+              {confirming === Confirming.ZeroFill ? t("countMode.zeroFillConfirm", { count: countPhrase(uncounted, CountedNoun.Item, ArabicCase.Oblique) }) : t("countMode.submitConfirm")}
             </p>
             <div className="flex gap-[8px]">
               <Button variant="primary" autoFocus onClick={() => void run(confirming)}>

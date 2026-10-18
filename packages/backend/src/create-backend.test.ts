@@ -5999,3 +5999,24 @@ describe("createBackend — a ladder run as of a past day ties to its control ac
     }
   });
 });
+
+describe("createBackend — scheduled collections for the cloud host's timer (DEC-28)", () => {
+  it("does nothing until the policy opts in, then runs once a day as the system actor", async () => {
+    const handle = await createBackend({ dbPath: ":memory:" });
+    const app = keep(handle);
+    expect(await handle.runScheduledCollections()).toBeNull();
+
+    const policy = (await (await app.fetch(new Request("http://local/collections/policy", { headers: admin(app) }))).json()) as Record<string, unknown>;
+    const saved = await app.fetch(
+      new Request("http://local/collections/policy", {
+        method: "PUT",
+        headers: { "content-type": "application/json", ...admin(app) },
+        body: JSON.stringify({ steps: policy["steps"], autoSendEnabled: true, minimumOverdueAmount: policy["minimumOverdueAmount"], pauseWhilePromisePending: policy["pauseWhilePromisePending"] }),
+      }),
+    );
+    expect(saved.status).toBe(200);
+
+    expect(await handle.runScheduledCollections()).toMatchObject({ ran: true, queued: 0 });
+    expect(await handle.runScheduledCollections()).toEqual({ ran: false, queued: 0, sent: 0 });
+  });
+});

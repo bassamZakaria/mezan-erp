@@ -747,11 +747,11 @@ export async function run(ctx: Ctx): Promise<void> {
     // a green suite, and caught only by replaying these four steps in order.
     const fresh = await createBackend({ dbPath: ":memory:" });
     try {
-      const post = (path: string, body: unknown) =>
+      const post = (path: string, body: unknown, token?: string) =>
         fresh.app.fetch(
           new Request(`http://wizard${path}`, {
             method: "POST",
-            headers: { "content-type": "application/json" },
+            headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
             body: JSON.stringify(body),
           }),
         );
@@ -765,10 +765,14 @@ export async function run(ctx: Ctx): Promise<void> {
       });
       check("step 2 creates the owner's admin", admin.status === 201, `got ${admin.status}`);
 
-      const seed = await post("/bootstrap/seed", {});
+      // The wizard holds the session step 2 handed back, so step 3 carries it.
+      const { token } = (await admin.json()) as { token: string };
+      const seed = await post("/bootstrap/seed", {}, token);
       check("step 3 SEEDS, rather than 409-ing on the tenant it just claimed", seed.status === 200, `got ${seed.status}`);
       const counts = (await seed.json()) as { accounts: number; users: number };
       check("and reports what the tenant holds", counts.accounts > 0 && counts.users > 0, JSON.stringify(counts));
+      const anonymous = (await (await post("/bootstrap/seed", {})).json()) as Record<string, unknown>;
+      check("while a caller with no session learns only that it is claimed", !("accounts" in anonymous) && anonymous["claimed"] === true, JSON.stringify(anonymous));
 
       const again = await post("/bootstrap/admin", {
         nameAr: "دخيل", nameEn: "Intruder", email: "intruder@fresh.example", pin: "111111", companyName: "متجر الاختبار",

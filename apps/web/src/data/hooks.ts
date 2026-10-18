@@ -148,6 +148,7 @@ import type {
   GenerateVariantsResultDTO,
   GlJournalListQueryDTO,
   GoodsReceiptDTO,
+  GoodsReceiptLotsInput,
   ImportBankStatementDTO,
   InstallmentPlanDocumentDTO,
   ItemDTO,
@@ -3147,6 +3148,23 @@ export function useConfirmGoodsReceipt() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["goods-receipts"] });
       queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
+    },
+  });
+}
+
+/** Corrects a DRAFT receipt's batch numbers and expiry dates in place, so a confirm refused for a missing lot can be fixed. */
+export function useSetGoodsReceiptLots() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<GoodsReceiptDTO, ApiError, { id: string; lots: GoodsReceiptLotsInput["lots"] }>({
+    mutationFn: async ({ id, lots }) => {
+      const res = await request(`/purchases/receipts/${id}/lots`, { method: "PUT", body: JSON.stringify({ lots }) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("goodsReceipts.editLots.failed"), t));
+      return res.json<GoodsReceiptDTO>();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["goods-receipts"] });
     },
   });
 }

@@ -77,7 +77,7 @@ export const ar = {
   "countMode.sessionStatus.COMPLETED": "مكتمل",
   "countMode.sessionStatus.ADJUSTMENT_GENERATED": "تم إنشاء التسوية",
   "countMode.sessionStatus.CANCELLED": "ملغي",
-  "countMode.recountBanner": "طلب المراجع إعادة عدّ {count} صنف. عدّها من جديد قبل التسليم.",
+  "countMode.recountBanner": "طلب المراجع إعادة عدّ {count}. عدّها من جديد قبل التسليم.",
   "countMode.sessionClosed": "هذه الجلسة لم تعد قيد التنفيذ.",
   "countMode.zoneLocked": "سُلِّمت المنطقة للمراجعة ولا يمكن تغيير العدّ إلا إذا طُلبت إعادة العدّ.",
 
@@ -111,8 +111,8 @@ export const ar = {
   "countMode.recentScans": "آخر عمليات المسح",
   "countMode.zeroFill": "تسجيل المتبقي صفراً",
   "countMode.submitZone": "تسليم المنطقة للمراجعة",
-  "countMode.submitNeedsAll": "عدّ {count} صنف متبقٍ أو سجّله صفراً صراحةً قبل التسليم.",
-  "countMode.zeroFillConfirm": "سيُسجَّل {count} صنف لم يُعدّ بكمية صفر باسمك. هل الرف فارغ منها فعلاً؟",
+  "countMode.submitNeedsAll": "بقي {count} دون عدّ — عدّها أو سجّلها صفراً صراحةً قبل التسليم.",
+  "countMode.zeroFillConfirm": "ستُسجَّل باسمك كمية صفر لعدد {count} لم تُعدّ. هل الرف فارغ منها فعلاً؟",
   "countMode.submitConfirm": "بعد التسليم لا يمكنك تعديل العدّ إلا إذا طلب المراجع إعادة العدّ. تسليم المنطقة؟",
 
   "countMode.status.pending": "جارٍ الإرسال",
@@ -251,7 +251,7 @@ export const en: Record<keyof typeof ar, string> = {
   "countMode.sessionStatus.COMPLETED": "Completed",
   "countMode.sessionStatus.ADJUSTMENT_GENERATED": "Adjustment created",
   "countMode.sessionStatus.CANCELLED": "Cancelled",
-  "countMode.recountBanner": "The reviewer asked for {count} item(s) to be counted again. Count them afresh before submitting.",
+  "countMode.recountBanner": "The reviewer asked for {count} to be counted again. Count them afresh before submitting.",
   "countMode.sessionClosed": "This session is no longer in progress.",
   "countMode.zoneLocked": "The zone was submitted for review and cannot change unless a recount is requested.",
 
@@ -285,8 +285,8 @@ export const en: Record<keyof typeof ar, string> = {
   "countMode.recentScans": "Recent scans",
   "countMode.zeroFill": "Record the rest as zero",
   "countMode.submitZone": "Submit zone for review",
-  "countMode.submitNeedsAll": "Count the {count} remaining item(s), or record them as zero explicitly, before submitting.",
-  "countMode.zeroFillConfirm": "{count} uncounted item(s) will be recorded as zero under your name. Is the shelf really empty of them?",
+  "countMode.submitNeedsAll": "{count} remain uncounted — count them, or record them as zero explicitly, before submitting.",
+  "countMode.zeroFillConfirm": "Zero will be recorded under your name for {count} not counted. Is the shelf really empty of them?",
   "countMode.submitConfirm": "After submitting you cannot change the count unless the reviewer requests a recount. Submit the zone?",
 
   "countMode.status.pending": "Sending",

@@ -287,6 +287,12 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
    * fully provisioned shop could be walked back to "unclaimed" and re-taken
    * with one anonymous POST.
    */
+  function hasLiveSession(c: Context): boolean {
+    const token = readSessionToken(c);
+    if (!token) return false;
+    return deps.sessions.find(token, requestOrigin(c), c.req.header(DEVICE_SECRET_HEADER) ?? null) !== null;
+  }
+
   async function tenantIsClaimed(): Promise<boolean> {
     if (await deps.claimedElsewhere?.()) return true;
     return claimedInThisDatabase();
@@ -589,7 +595,13 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
    * install inside ninety seconds. The client can now open the wizard instead.
    */
   app.get("/bootstrap/status", async (c) => {
-    return c.json({ ...(await currentCounts(deps.seedStores)), claimed: await tenantIsClaimed(), demoSeeded: deps.demoSeeded === true });
+    const claimed = await tenantIsClaimed();
+    const demoSeeded = deps.demoSeeded === true;
+    // SECURITY: this route is unauthenticated and a tenant code is guessable,
+    // so once someone owns the tenant its record counts are answered only to a
+    // signed-in session (the first-run wizard's seed step holds one).
+    if (claimed && !hasLiveSession(c)) return c.json({ claimed, demoSeeded });
+    return c.json({ ...(await currentCounts(deps.seedStores)), claimed, demoSeeded });
   });
 
   /**
@@ -605,12 +617,13 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
    * The real invariant is emptiness, and `seedIfEmpty` already enforces it: on
    * a tenant that has any accounts this is a no-op that returns the current
    * counts. So the worst an anonymous caller achieves is seeding a tenant that
-   * has nothing in it yet, or reading the same counts `/bootstrap/status`
-   * reports — and on the desktop edition neither is reachable from the LAN
+   * has nothing in it yet; a claimed tenant's counts go only to a signed-in
+   * session, as on `/bootstrap/status` — and on the desktop edition neither is reachable from the LAN
    * socket at all, because `/bootstrap/*` is off its path allow-list.
    */
   app.post("/bootstrap/seed", async (c) => {
     const result = deps.seedWhenEmpty === false ? await currentCounts(deps.seedStores) : await seedIfEmpty(deps.seedStores);
+    if (!hasLiveSession(c) && (await tenantIsClaimed())) return c.json({ claimed: true });
     return c.json(result);
   });
 

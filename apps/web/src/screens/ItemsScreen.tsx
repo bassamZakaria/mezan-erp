@@ -1,7 +1,8 @@
+import { useCountPhrase } from "../lib/count-phrase";
 import { LockedFieldset } from "../shell/LockedFieldset";
 import { useLockedFields } from "../shell/useLockedFields";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { matchesSearch } from "@mezan/domain";
+import { matchesSearch, CountedNoun } from "@mezan/domain";
 import {
   Button,
   Card,
@@ -679,6 +680,7 @@ function serverSortKey(key: string): (typeof SERVER_SORT_KEYS)[number] {
 
 export function ItemsScreen() {
   const { t } = useAppTranslation();
+  const countPhrase = useCountPhrase();
   const nameOf = useEntityName();
   const { openScreenAt, navigate } = useNavigation();
   const brands = useItemBrands().data ?? [];
@@ -1645,7 +1647,7 @@ export function ItemsScreen() {
         attentionBanners={[
           {
             key: ItemStatusCode.PendingPricing,
-            label: t(branchSeat ? "items.banner.pendingPricing.branch" : "items.banner.pendingPricing.headOffice", { count: pendingPricingCount }),
+            label: t(branchSeat ? "items.banner.pendingPricing.branch" : "items.banner.pendingPricing.headOffice", { count: countPhrase(pendingPricingCount, CountedNoun.Item) }),
             count: pendingPricingCount,
             tone: "warning",
             onApply: () => {

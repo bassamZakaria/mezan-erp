@@ -220,6 +220,9 @@ function addMissingColumns(sqlite: Database.Database): void {
     (sqlite.prepare(`PRAGMA table_info(subscription)`).all() as { name: string }[]).map((c) => c.name),
   );
   if (!onSubscription.has("previous_plan_id")) sqlite.exec(`ALTER TABLE subscription ADD COLUMN previous_plan_id TEXT`);
+  if (!onSubscription.has("intended_plan_id")) sqlite.exec(`ALTER TABLE subscription ADD COLUMN intended_plan_id TEXT`);
+  const onSignup = new Set((sqlite.prepare(`PRAGMA table_info(signup_request)`).all() as { name: string }[]).map((c) => c.name));
+  if (!onSignup.has("intended_plan_id")) sqlite.exec(`ALTER TABLE signup_request ADD COLUMN intended_plan_id TEXT`);
   const onPayment = new Set(
     (sqlite.prepare(`PRAGMA table_info(payment)`).all() as { name: string }[]).map((c) => c.name),
   );
@@ -526,6 +529,7 @@ interface SubscriptionRow {
   extra_seats: number; extra_branches: number; extra_warehouses: number;
   current_period_start: string; current_period_end: string; trial_ends_at: string | null;
   previous_plan_id: string | null;
+  intended_plan_id?: string | null;
   billing_anchor_day: number | null;
   billing_anchor_review: number;
   grace_days: number; cancelled_at: string | null; created_at: string; updated_at: string;
@@ -538,6 +542,7 @@ function toSubscription(r: SubscriptionRow): Subscription {
     extraSeats: r.extra_seats, extraBranches: r.extra_branches, extraWarehouses: r.extra_warehouses,
     currentPeriodStart: r.current_period_start, currentPeriodEnd: r.current_period_end,
     trialEndsAt: r.trial_ends_at, previousPlanId: r.previous_plan_id, graceDays: r.grace_days, cancelledAt: r.cancelled_at,
+    ...(r.intended_plan_id ? { intendedPlanId: r.intended_plan_id } : {}),
     createdAt: r.created_at, updatedAt: r.updated_at,
     ...(r.billing_anchor_day === null ? {} : { billingAnchorDay: r.billing_anchor_day }),
     ...(r.billing_anchor_review === 1 ? { billingAnchorNeedsReview: true } : {}),
@@ -651,17 +656,18 @@ class SqliteSubscriptionStore implements SubscriptionTransitionRepository {
     this.upsert = sqlite.prepare(
       `INSERT INTO subscription (id, tenant_id, plan_id, status, billing_cycle, add_on_modules, extra_seats,
          extra_branches, extra_warehouses, current_period_start, current_period_end, trial_ends_at, previous_plan_id,
-         billing_anchor_day, billing_anchor_review, grace_days, cancelled_at, created_at, updated_at)
+         billing_anchor_day, billing_anchor_review, grace_days, cancelled_at, created_at, updated_at, intended_plan_id)
        VALUES (@id, @tenantId, @planId, @status, @billingCycle, @addOnModules, @extraSeats, @extraBranches,
          @extraWarehouses, @currentPeriodStart, @currentPeriodEnd, @trialEndsAt, @previousPlanId, @billingAnchorDay, @billingAnchorReview, @graceDays, @cancelledAt,
-         @createdAt, @updatedAt)
+         @createdAt, @updatedAt, @intendedPlanId)
        ON CONFLICT(id) DO UPDATE SET
          tenant_id = @tenantId, plan_id = @planId, status = @status, billing_cycle = @billingCycle,
          add_on_modules = @addOnModules, extra_seats = @extraSeats, extra_branches = @extraBranches,
          extra_warehouses = @extraWarehouses, current_period_start = @currentPeriodStart,
          current_period_end = @currentPeriodEnd, trial_ends_at = @trialEndsAt, previous_plan_id = @previousPlanId,
          billing_anchor_day = @billingAnchorDay, billing_anchor_review = @billingAnchorReview, grace_days = @graceDays,
-         cancelled_at = @cancelledAt, created_at = @createdAt, updated_at = @updatedAt`,
+         cancelled_at = @cancelledAt, created_at = @createdAt, updated_at = @updatedAt,
+         intended_plan_id = COALESCE(@intendedPlanId, intended_plan_id)`,
     );
     this.byId = sqlite.prepare(`SELECT * FROM subscription WHERE id = ?`);
     this.liveByTenant = sqlite.prepare(`SELECT * FROM subscription WHERE tenant_id = ? AND status <> 'cancelled'`);
@@ -739,7 +745,7 @@ class SqliteSubscriptionStore implements SubscriptionTransitionRepository {
       trialEndsAt: s.trialEndsAt, previousPlanId: s.previousPlanId, billingAnchorDay: s.billingAnchorDay ?? null,
       billingAnchorReview: s.billingAnchorNeedsReview === true ? 1 : 0,
       graceDays: s.graceDays, cancelledAt: s.cancelledAt,
-      createdAt: s.createdAt, updatedAt: s.updatedAt,
+      createdAt: s.createdAt, updatedAt: s.updatedAt, intendedPlanId: s.intendedPlanId ?? null,
     });
   }
 }
@@ -1095,6 +1101,7 @@ interface SignupRequestRow {
   id: string; code: string; name_ar: string; name_en: string | null;
   owner_email: string; owner_name_ar: string; plan_id: string; billing_cycle: SignupRequest["billingCycle"];
   token_hash: string; status: SignupRequest["status"]; expires_at: string; created_at: string; verified_at: string | null;
+  intended_plan_id?: string | null;
 }
 
 function toSignupRequest(r: SignupRequestRow): SignupRequest {
@@ -1102,6 +1109,7 @@ function toSignupRequest(r: SignupRequestRow): SignupRequest {
     id: r.id, code: r.code, nameAr: r.name_ar, nameEn: r.name_en,
     ownerEmail: r.owner_email, ownerNameAr: r.owner_name_ar, planId: r.plan_id, billingCycle: r.billing_cycle,
     tokenHash: r.token_hash, status: r.status, expiresAt: r.expires_at, createdAt: r.created_at, verifiedAt: r.verified_at,
+    ...(r.intended_plan_id ? { intendedPlanId: r.intended_plan_id } : {}),
   };
 }
 
@@ -1147,13 +1155,13 @@ class SqliteSignupRequestStore implements SignupRequestRepository {
     this.claimedAt = sqlite.prepare(`SELECT claimed_at FROM signup_provision_claim WHERE token_hash = ?`);
     this.upsert = sqlite.prepare(
       `INSERT INTO signup_request (id, code, name_ar, name_en, owner_email, owner_name_ar, plan_id, billing_cycle,
-         token_hash, status, expires_at, created_at, verified_at)
+         token_hash, status, expires_at, created_at, verified_at, intended_plan_id)
        VALUES (@id, @code, @nameAr, @nameEn, @ownerEmail, @ownerNameAr, @planId, @billingCycle,
-         @tokenHash, @status, @expiresAt, @createdAt, @verifiedAt)
+         @tokenHash, @status, @expiresAt, @createdAt, @verifiedAt, @intendedPlanId)
        ON CONFLICT(id) DO UPDATE SET
          code = @code, name_ar = @nameAr, name_en = @nameEn, owner_email = @ownerEmail, owner_name_ar = @ownerNameAr,
          plan_id = @planId, billing_cycle = @billingCycle, token_hash = @tokenHash, status = @status,
-         expires_at = @expiresAt, created_at = @createdAt, verified_at = @verifiedAt`,
+         expires_at = @expiresAt, created_at = @createdAt, verified_at = @verifiedAt, intended_plan_id = @intendedPlanId`,
     );
     this.byTokenHash = sqlite.prepare(`SELECT * FROM signup_request WHERE token_hash = ?`);
     this.activeByCode = sqlite.prepare(
@@ -1222,6 +1230,7 @@ class SqliteSignupRequestStore implements SignupRequestRepository {
       id: r.id, code: r.code, nameAr: r.nameAr, nameEn: r.nameEn,
       ownerEmail: r.ownerEmail, ownerNameAr: r.ownerNameAr, planId: r.planId, billingCycle: r.billingCycle,
       tokenHash: r.tokenHash, status: r.status, expiresAt: r.expiresAt, createdAt: r.createdAt, verifiedAt: r.verifiedAt,
+      intendedPlanId: r.intendedPlanId ?? null,
     });
   }
 }

@@ -9,6 +9,7 @@ export const DUNNING_PLACEHOLDERS = [
   "amount",
   "dueDate",
   "daysOverdue",
+  "daysOverdueLabel",
   "totalOverdue",
 ] as const;
 
@@ -24,9 +25,9 @@ export function defaultDunningSteps(): DunningStep[] {
       subjectAr: "تذكير ودي: فاتورة {{documentNumber}} مستحقة السداد",
       subjectEn: "Friendly reminder: invoice {{documentNumber}} is overdue",
       bodyAr:
-        "السادة {{customerName}}،\n\nنود تذكيركم بأن الفاتورة رقم {{documentNumber}} بمبلغ {{amount}} كانت مستحقة في {{dueDate}}، وقد مضى على استحقاقها {{daysOverdue}} يوماً.\nإذا كنتم قد سددتم بالفعل فنرجو تجاهل هذه الرسالة، وإلا فنرجو التكرم بالسداد في أقرب وقت.\n\nمع خالص الشكر،\n{{companyName}}",
+        "السادة {{customerName}}،\n\nنود تذكيركم بأن الفاتورة رقم {{documentNumber}} بمبلغ {{amount}} كانت مستحقة في {{dueDate}}، وقد تأخر سدادها {{daysOverdueLabel}}.\nإذا كنتم قد سددتم بالفعل فنرجو تجاهل هذه الرسالة، وإلا فنرجو التكرم بالسداد في أقرب وقت.\n\nمع خالص الشكر،\n{{companyName}}",
       bodyEn:
-        "Dear {{customerName}},\n\nThis is a friendly reminder that invoice {{documentNumber}} for {{amount}} was due on {{dueDate}} ({{daysOverdue}} days ago).\nIf you have already paid, please disregard this message.\n\nThank you,\n{{companyName}}",
+        "Dear {{customerName}},\n\nThis is a friendly reminder that invoice {{documentNumber}} for {{amount}} was due on {{dueDate}} ({{daysOverdueLabel}} ago).\nIf you have already paid, please disregard this message.\n\nThank you,\n{{companyName}}",
       active: true,
     },
     {
@@ -37,9 +38,9 @@ export function defaultDunningSteps(): DunningStep[] {
       subjectAr: "متابعة سداد الفاتورة {{documentNumber}}",
       subjectEn: "Follow-up on invoice {{documentNumber}}",
       bodyAr:
-        "السادة {{customerName}}، تحية طيبة.\nالفاتورة رقم {{documentNumber}} بمبلغ {{amount}} متأخرة {{daysOverdue}} يوماً عن تاريخ استحقاقها {{dueDate}}. إجمالي المتأخر على حسابكم {{totalOverdue}}.\nنرجو إفادتنا بموعد السداد.\n{{companyName}}",
+        "السادة {{customerName}}، تحية طيبة.\nالفاتورة رقم {{documentNumber}} بمبلغ {{amount}} متأخرة {{daysOverdueLabel}} عن تاريخ استحقاقها {{dueDate}}. إجمالي المتأخر على حسابكم {{totalOverdue}}.\nنرجو إفادتنا بموعد السداد.\n{{companyName}}",
       bodyEn:
-        "Dear {{customerName}}, invoice {{documentNumber}} for {{amount}} is {{daysOverdue}} days past its due date {{dueDate}}. Your total overdue balance is {{totalOverdue}}. Please let us know when payment will be made.\n{{companyName}}",
+        "Dear {{customerName}}, invoice {{documentNumber}} for {{amount}} is {{daysOverdueLabel}} past its due date {{dueDate}}. Your total overdue balance is {{totalOverdue}}. Please let us know when payment will be made.\n{{companyName}}",
       active: true,
     },
     {
@@ -50,9 +51,9 @@ export function defaultDunningSteps(): DunningStep[] {
       subjectAr: "إشعار نهائي بالمستحقات المتأخرة على حسابكم",
       subjectEn: "Final notice: overdue balance on your account",
       bodyAr:
-        "السادة {{customerName}}،\n\nرغم تذكيراتنا السابقة، ما زالت الفاتورة رقم {{documentNumber}} بمبلغ {{amount}} غير مسددة منذ {{daysOverdue}} يوماً، وإجمالي المتأخر على حسابكم {{totalOverdue}}.\nنرجو السداد خلال سبعة أيام من تاريخ هذه الرسالة تجنباً لإيقاف التعامل الآجل.\n\n{{companyName}}",
+        "السادة {{customerName}}،\n\nرغم تذكيراتنا السابقة، ما زالت الفاتورة رقم {{documentNumber}} بمبلغ {{amount}} غير مسددة منذ {{daysOverdueLabel}}، وإجمالي المتأخر على حسابكم {{totalOverdue}}.\nنرجو السداد خلال سبعة أيام من تاريخ هذه الرسالة تجنباً لإيقاف التعامل الآجل.\n\n{{companyName}}",
       bodyEn:
-        "Dear {{customerName}},\n\nDespite our earlier reminders, invoice {{documentNumber}} for {{amount}} remains unpaid {{daysOverdue}} days after it fell due; your total overdue balance is {{totalOverdue}}.\nPlease settle within seven days of this notice to avoid suspension of credit terms.\n\n{{companyName}}",
+        "Dear {{customerName}},\n\nDespite our earlier reminders, invoice {{documentNumber}} for {{amount}} remains unpaid {{daysOverdueLabel}} after it fell due; your total overdue balance is {{totalOverdue}}.\nPlease settle within seven days of this notice to avoid suspension of credit terms.\n\n{{companyName}}",
       active: true,
     },
   ];

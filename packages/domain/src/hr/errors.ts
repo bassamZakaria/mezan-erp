@@ -1,3 +1,4 @@
+import { arabicDays } from "../text/counted-noun.js";
 import { fiscalPeriodLabel } from "../fiscal-periods/labels.js";
 import { getEmployeeStatusLabel, type EmployeeStatus } from "./employee.js";
 import { getLeaveRequestStatusLabel, type LeaveRequestStatus } from "./leave-request.js";
@@ -247,7 +248,7 @@ export class LeaveBalanceExceededError extends Error {
     readonly availableDays: number,
   ) {
     super(
-      `الرصيد المتاح ${availableDays} يوم لا يغطي الطلب (${requestedDays} يوم). ` +
+      `الرصيد المتاح ${arabicDays(availableDays)} لا يغطي الطلب (${arabicDays(requestedDays)}). ` +
         "عدّل الطلب أو زد الرصيد قبل الاعتماد.",
     );
     this.name = "LeaveBalanceExceededError";

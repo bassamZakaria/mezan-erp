@@ -1,3 +1,4 @@
+import { ArabicCase, arabicDays } from "../text/counted-noun.js";
 import { EXTERNAL_AUDITOR_MAX_ACCESS_DAYS, timeBoxedTemplateForRoleCode } from "../roles/templates.js";
 import type { User } from "./user.js";
 
@@ -60,7 +61,7 @@ export function accessExpiryProblem(rule: AccessExpiryRule, nowMs: number): Inva
   if (timeBoxedTemplateForRoleCode(rule.roleCode) && at - nowMs > EXTERNAL_AUDITOR_MAX_ACCESS_DAYS * DAY_MS) {
     return new InvalidAccessExpiryError(
       AccessExpiryProblem.TooLong,
-      `الوصول المؤقت لا يتجاوز ${EXTERNAL_AUDITOR_MAX_ACCESS_DAYS} يومًا من اليوم.`,
+      `الوصول المؤقت لا يتجاوز ${arabicDays(EXTERNAL_AUDITOR_MAX_ACCESS_DAYS, ArabicCase.Oblique)} من اليوم.`,
     );
   }
   return null;

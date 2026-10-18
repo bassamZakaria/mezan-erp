@@ -1,3 +1,5 @@
+import { CountedNoun } from "@mezan/domain";
+import { useCountPhrase } from "../lib/count-phrase";
 import { BranchGatedAction } from "../branch-restriction";
 import { useBranchGate } from "../shell/useBranchGate";
 import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from "react";
@@ -88,6 +90,7 @@ function EditIcon() {
 export function AttendanceScreen() {
   const branchGate = useBranchGate();
   const { t, locale } = useAppTranslation();
+  const countPhrase = useCountPhrase();
   const [month, setMonth] = useState(currentMonth());
   const [employeeId, setEmployeeId] = useState("");
   const [status, setStatus] = useState("");
@@ -631,8 +634,8 @@ export function AttendanceScreen() {
               {"createdCount" in importResult ? (
                 <div role="status" className="rounded-md border border-success bg-success-soft px-[12px] py-[10px] text-[12.5px] text-success-ink">
                   {t("attendance.import.commitSuccess", {
-                    created: String(importResult.createdCount),
-                    skipped: String(importResult.skippedAlreadyRecordedCount),
+                    created: countPhrase(importResult.createdCount, CountedNoun.Day),
+                    skipped: countPhrase(importResult.skippedAlreadyRecordedCount, CountedNoun.Day),
                   })}
                 </div>
               ) : null}

@@ -1,14 +1,18 @@
 import { writeFile } from "node:fs/promises";
 import { BrowserWindow, dialog } from "electron";
 import { handleGuarded } from "./ipc-guard.js";
-import type { FetchLike } from "./backend-bridge.js";
+import type { BridgeFetchResult, FetchLike } from "./backend-bridge.js";
 import { LanClientError, MAX_RESPONSE_BYTES, tooLargeResponse } from "./lan-client.js";
 import {
+  FETCH_TO_FILE_UNSUPPORTED_STATUS,
   MEZAN_FETCH_CHANNEL,
+  MEZAN_FETCH_TO_FILE_CHANNEL,
   MEZAN_PRINT_TO_PDF_CHANNEL,
   MEZAN_SAVE_PDF_CHANNEL,
   type IpcFetchRequest,
   type IpcFetchResponse,
+  type IpcFetchToFileRequest,
+  type IpcFetchToFileResponse,
   type PrintToPdfOptions,
   type SavePdfOptions,
   type SavePdfResult,
@@ -223,5 +227,57 @@ export function registerSavePdfOverIpc(): void {
         };
       }
     },
+  );
+}
+
+export enum FetchToFilePath {
+  EvidencePack = "/audit/evidence-packs",
+}
+
+const FETCH_TO_FILE_PATHS: ReadonlySet<string> = new Set(Object.values(FetchToFilePath));
+
+function safeFileName(name: string): string {
+  return name.replace(/[/\\:*?"<>|]/g, "-");
+}
+
+/**
+ * The host's large-download channel. The save dialog runs FIRST, so nothing is
+ * built for an operator who cancels; then `toFile` runs the request in the
+ * backend worker, which streams the body straight into the chosen file. Only
+ * the bounded error body of a refusal crosses back.
+ */
+export function registerFetchToFileOverIpc(toFile: (request: Request, filePath: string) => Promise<BridgeFetchResult>): void {
+  handleGuarded(
+    MEZAN_FETCH_TO_FILE_CHANNEL,
+    async (event, req: IpcFetchToFileRequest): Promise<IpcFetchToFileResponse> => {
+      const url = new URL(req.url);
+      // SECURITY: a renderer may only ask for the downloads that need this path;
+      // any other route keeps the ordinary capped channel.
+      if (!FETCH_TO_FILE_PATHS.has(url.pathname)) {
+        return { status: 404, headers: {}, body: JSON.stringify({ error: "NOT_FOUND" }), savedPath: null, cancelled: false };
+      }
+      const owner = BrowserWindow.fromWebContents(event.sender);
+      const defaultPath = safeFileName(req.defaultFileName);
+      const filters = [{ name: "ZIP", extensions: ["zip"] }];
+      const choice = await (owner ? dialog.showSaveDialog(owner, { defaultPath, filters }) : dialog.showSaveDialog({ defaultPath, filters }));
+      if (choice.canceled || !choice.filePath) return { status: 200, headers: {}, body: "", savedPath: null, cancelled: true };
+      const result = await toFile(new Request(req.url, { method: req.method ?? "GET", headers: req.headers, body: req.body }), choice.filePath);
+      const ok = result.status >= 200 && result.status < 300;
+      return {
+        status: result.status,
+        headers: result.headers,
+        body: new TextDecoder().decode(result.body),
+        savedPath: ok ? choice.filePath : null,
+        cancelled: false,
+      };
+    },
+  );
+}
+
+/** A paired till has no backend of its own: it says so, and the renderer falls back to the ordinary channel. */
+export function registerFetchToFileUnsupportedOverIpc(): void {
+  handleGuarded(
+    MEZAN_FETCH_TO_FILE_CHANNEL,
+    async (): Promise<IpcFetchToFileResponse> => ({ status: FETCH_TO_FILE_UNSUPPORTED_STATUS, headers: {}, body: "", savedPath: null, cancelled: false }),
   );
 }

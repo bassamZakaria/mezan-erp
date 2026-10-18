@@ -1,3 +1,4 @@
+import { useCountPhrase } from "../lib/count-phrase";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlreadySavedNotice, useAlreadySavedNotice, useDocumentId } from "../lib/document-id";
 import { useQueryClient } from "@tanstack/react-query";
@@ -31,19 +32,7 @@ import {
   useFormat,
   ConfirmDialog,
 } from "@mezan/ui";
-import {
-  Money,
-  Qty,
-  computeInvoiceTotals,
-  resolveUnitFactor,
-  toBaseQty,
-  SALES_INVOICE_STATUS_LABELS_AR,
-  ETA_RECEIPT_PAYMENT_METHODS,
-  type EtaReceiptPaymentMethod,
-  type SalesInvoiceLine,
-  type SalesInvoiceDiscount,
-  type SalesInvoiceDiscountType,
-  type SalesInvoiceLineDiscountType, itemTypeIsSellable, findCurrency, convertToBase, extend, SALES_INVOICE_ACTIVE_STATUSES,} from "@mezan/domain";
+import { Money, Qty, computeInvoiceTotals, resolveUnitFactor, toBaseQty, SALES_INVOICE_STATUS_LABELS_AR, ETA_RECEIPT_PAYMENT_METHODS, type EtaReceiptPaymentMethod, type SalesInvoiceLine, type SalesInvoiceDiscount, type SalesInvoiceDiscountType, type SalesInvoiceLineDiscountType, itemTypeIsSellable, findCurrency, convertToBase, extend, SALES_INVOICE_ACTIVE_STATUSES, ArabicCase, CountedNoun } from "@mezan/domain";
 import { IdempotencyRefusal, PricingGuardDiscountTypeDTO, PricingGuardDocTypeDTO, type PricingGuardEvaluateRequestDTO } from "@mezan/contracts";
 import { usePricingGuardPreview } from "./enh/pricing-guard/pricing-guard-hooks";
 import { PricingGuardLineStatus, PricingGuardSummary } from "./enh/pricing-guard/PricingGuardLineStatus";
@@ -2000,6 +1989,7 @@ function InvoiceDetailView({
 
 export function SalesInvoicesScreen() {
   const { t } = useAppTranslation();
+  const countPhrase = useCountPhrase();
   const [statusFilter, setStatusFilter] = useUrlParam("status", "all") as [
     InvoiceFilterKey,
     (next: string) => void,
@@ -2182,7 +2172,7 @@ export function SalesInvoicesScreen() {
           {isOverdue(inv, today) ? (
             <StatusPill
               label={t("salesInvoices.overdueBy", {
-                days: Math.max(0, Math.floor((new Date(today).getTime() - new Date(inv.dueDate).getTime()) / 86_400_000)),
+                days: countPhrase(Math.max(0, Math.floor((new Date(today).getTime() - new Date(inv.dueDate).getTime()) / 86_400_000)), CountedNoun.Day, ArabicCase.Oblique),
               })}
               tone="danger"
             />

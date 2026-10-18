@@ -19,7 +19,7 @@ import {
   Qty as QtyDisplay,
 } from "@mezan/ui";
 import { GoodsReceiptInvoicingStatusDTO, type CostCategoryDTO, type GoodsReceiptDTO, type GoodsReceiptStatusDTO, type PurchaseOrderDTO } from "@mezan/contracts";
-import { useConfirmGoodsReceipt, useCreateGoodsReceipt, useGoodsReceiptCounts, useGoodsReceipts, useGoodsReceiptStats, useItems, useProjects, usePurchaseOrders, useTenantSettings, useSuppliers,
+import { useConfirmGoodsReceipt, useCreateGoodsReceipt, useSetGoodsReceiptLots, useGoodsReceiptCounts, useGoodsReceipts, useGoodsReceiptStats, useItems, useProjects, usePurchaseOrders, useTenantSettings, useSuppliers,
   useUsers,
   useBranches,
   useWarehouses,
@@ -35,7 +35,7 @@ import { majorOf } from "../lib/money";
 import { todayIso } from "../lib/dates";
 import { AttachmentsTab } from "../attachments/AttachmentsTab";
 import { EMPTY } from "../lib/empty";
-import { EMPTY_LOT, LotFields, lotIsComplete, lotPayload, tracksLots, type LotValue } from "./enh/expiry/LotFields";
+import { EMPTY_LOT, LotFields, lotIsComplete, lotPayload, tracksLots, type LotTracking, type LotValue } from "./enh/expiry/LotFields";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 
 const INVOICING_KEY: Record<GoodsReceiptInvoicingStatusDTO, AppTranslationKey> = {
@@ -120,6 +120,72 @@ function blankAdHocLine(): AdHocLine {
   return { key: `ah${adHocSeq}`, itemId: "", qty: 1, unitCost: 0, batchNo: "", expiryDate: "", costCategory: null };
 }
 
+function ReceiptLotsEditor({
+  receipt,
+  itemName,
+  lotRuleOf,
+  onDone,
+}: {
+  receipt: GoodsReceiptDTO;
+  itemName: (id: string) => string;
+  lotRuleOf: (itemId: string) => LotTracking | undefined;
+  onDone: () => void;
+}) {
+  const { t } = useAppTranslation();
+  const save = useSetGoodsReceiptLots();
+  const tracked = receipt.lines.map((line, lineIndex) => ({ line, lineIndex })).filter(({ line }) => tracksLots(lotRuleOf(line.itemId)));
+  const [lots, setLots] = useState<Record<number, LotValue>>(() =>
+    Object.fromEntries(tracked.map(({ line, lineIndex }) => [lineIndex, { batchNo: line.batchNo ?? "", expiryDate: line.expiryDate ?? "" }])),
+  );
+  const [error, setError] = useState<string | null>(null);
+  const complete = tracked.every(({ line, lineIndex }) => lotIsComplete(lotRuleOf(line.itemId), lots[lineIndex] ?? EMPTY_LOT));
+
+  async function submit() {
+    if (save.isPending) return;
+    if (!complete) {
+      setError(t("goodsReceipts.editLots.incomplete"));
+      return;
+    }
+    setError(null);
+    try {
+      await save.mutateAsync({
+        id: receipt.id,
+        lots: tracked.map(({ lineIndex }) => ({ lineIndex, ...lotPayload(lots[lineIndex] ?? EMPTY_LOT) })),
+      });
+      onDone();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("goodsReceipts.editLots.failed"));
+    }
+  }
+
+  return (
+    <Card className="mb-[14px] flex flex-col gap-[12px] border-brand p-[16px]">
+      <p className="text-[12.5px] text-ink-muted">{t("goodsReceipts.editLots.intro")}</p>
+      {error ? (
+        <div role="alert" className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
+          {error}
+        </div>
+      ) : null}
+      {tracked.map(({ line, lineIndex }) => (
+        <div key={lineIndex} className="border-b border-border pb-[10px] last:border-b-0">
+          <p className="text-[13px] font-semibold text-ink">{itemName(line.itemId)}</p>
+          <LotFields
+            item={lotRuleOf(line.itemId)}
+            value={lots[lineIndex] ?? EMPTY_LOT}
+            onChange={(next) => setLots((prev) => ({ ...prev, [lineIndex]: next }))}
+          />
+        </div>
+      ))}
+      <div className="flex flex-wrap gap-[9px]">
+        <Button variant="primary" disabled={save.isPending} onClick={() => void submit()}>
+          {t("goodsReceipts.editLots.save")}
+        </Button>
+        <Button onClick={onDone}>{t("common.cancel")}</Button>
+      </div>
+    </Card>
+  );
+}
+
 function ReceiptDetail({
   receipt,
   order,
@@ -127,6 +193,8 @@ function ReceiptDetail({
   warehouseName,
   itemName,
   projectName,
+  lotRuleOf,
+  confirmError,
   onBack,
   onConfirm,
   onPrint,
@@ -137,11 +205,16 @@ function ReceiptDetail({
   warehouseName: (id: string) => string;
   itemName: (id: string) => string;
   projectName: (id: string | null) => string;
+  lotRuleOf: (itemId: string) => LotTracking | undefined;
+  confirmError: string | null;
   onBack: () => void;
   onConfirm: () => void;
   onPrint: () => void;
 }) {
   const { t } = useAppTranslation();
+  const [editingLots, setEditingLots] = useState(false);
+  const [lotsSaved, setLotsSaved] = useState(false);
+  const mayEditLots = receipt.status === "draft" && receipt.lines.some((line) => tracksLots(lotRuleOf(line.itemId)));
   return (
     <DocumentDetail
       title={t("goodsReceipts.detailTitle", { number: receipt.number })}
@@ -153,6 +226,16 @@ function ReceiptDetail({
           {receipt.status === "draft" ? (
             <Button variant="primary" onClick={onConfirm}>
               {t("goodsReceipts.confirm")}
+            </Button>
+          ) : null}
+          {mayEditLots && !editingLots ? (
+            <Button
+              onClick={() => {
+                setLotsSaved(false);
+                setEditingLots(true);
+              }}
+            >
+              {t("goodsReceipts.editLots")}
             </Button>
           ) : null}
           <Button onClick={onPrint}>{t("print.action.print")}</Button>
@@ -184,11 +267,31 @@ function ReceiptDetail({
           key: "lines",
           label: t("goodsReceipts.tab.lines", { count: receipt.lines.length }),
           content: (
+            <>
+            {confirmError && receipt.status === "draft" ? (
+              <div role="alert" className="mb-[12px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
+                {confirmError}
+              </div>
+            ) : null}
+            {lotsSaved && !editingLots ? <p className="mb-[12px] text-[12.5px] text-success-ink">{t("goodsReceipts.editLots.saved")}</p> : null}
+            {editingLots && mayEditLots ? (
+              <ReceiptLotsEditor
+                receipt={receipt}
+                itemName={itemName}
+                lotRuleOf={lotRuleOf}
+                onDone={() => {
+                  setEditingLots(false);
+                  setLotsSaved(true);
+                }}
+              />
+            ) : null}
             <div className="overflow-x-auto">
               <table className="w-full min-w-[620px] border-collapse text-[13px]">
                 <thead>
                   <tr className="border-b border-border text-[11px] uppercase text-ink-muted">
                     <th className="px-[12px] py-[9px] text-start">{t("common.item")}</th>
+                    <th className="px-[12px] py-[9px] text-start">{t("expiry.lot.batchNo")}</th>
+                    <th className="px-[12px] py-[9px] text-start">{t("expiry.lot.expiryDate")}</th>
                     <th className="px-[12px] py-[9px] text-start">{t("common.costCategory")}</th>
                     <th className="px-[12px] py-[9px] text-end">{t("goodsReceipts.col.receivedQty")}</th>
                     <th className="px-[12px] py-[9px] text-end">{t("goodsReceipts.col.invoicedQty")}</th>
@@ -201,6 +304,8 @@ function ReceiptDetail({
                   {receipt.lines.map((l, i) => (
                     <tr key={i} className="border-b border-border last:border-b-0">
                       <td className="px-[12px] py-[10px]">{itemName(l.itemId)}</td>
+                      <td className="px-[12px] py-[10px]">{l.batchNo ?? "—"}</td>
+                      <td className="px-[12px] py-[10px] mz-num">{l.expiryDate ?? "—"}</td>
                       <td className="px-[12px] py-[10px]">{l.costCategory ? t(COST_CATEGORY_KEY[l.costCategory]) : "—"}</td>
                       <td className="px-[12px] py-[10px] text-end"><QtyDisplay value={l.qty} /></td>
                       <td className="px-[12px] py-[10px] text-end"><QtyDisplay value={l.invoicedQty} /></td>
@@ -212,6 +317,7 @@ function ReceiptDetail({
                 </tbody>
               </table>
             </div>
+            </>
           ),
         },
         {
@@ -723,6 +829,8 @@ export function GoodsReceiptsScreen() {
           warehouseName={(id) => filterWarehouses.find((warehouse) => warehouse.id === id)?.name ?? id}
           itemName={itemName}
           projectName={projectName}
+          lotRuleOf={(itemId) => items.find((it) => it.id === itemId)}
+          confirmError={confirmReceipt.variables === selected.id ? (confirmReceipt.error?.message ?? null) : null}
           onBack={() => subPage.close()}
           onConfirm={() => confirmSelected(selected.id)}
           onPrint={() => subPage.open(selected.number ?? selected.id, "print")}

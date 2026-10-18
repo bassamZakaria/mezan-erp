@@ -50,7 +50,7 @@ export const ar = {
   "health.audit.verifiedBad": "فشل التحقق الكامل ({reason}) عند السجل {row}.",
 
   "health.licence.state": "حالة الترخيص: {state}",
-  "health.licence.expires": "ينتهي بعد {days} يوماً ({date})",
+  "health.licence.expires": "ينتهي بعد {days} ({date})",
   "health.licence.readOnly": "الترخيص لا يسمح بالكتابة حالياً؛ البيانات للقراءة فقط.",
   "health.licence.noExpiry": "بلا تاريخ انتهاء.",
 
@@ -80,12 +80,12 @@ export const ar = {
   "health.devices.desktopOnly": "الأجهزة المتصلة متاحة في نسخة سطح المكتب فقط.",
   "health.devices.notLicensed": "وضع تعدد الصناديق عبر الشبكة المحلية غير مرخّص.",
 
-  "health.backup.age": "منذ {days} يوم ({date})",
+  "health.backup.age": "منذ {days} ({date})",
   "health.backup.never": "لم تُؤخذ نسخة احتياطية على هذا الجهاز.",
   "health.backup.unavailable": "تعذّرت قراءة حالة النسخ الاحتياطي من هذا الجهاز.",
   "health.backup.cloud": "النسخ الاحتياطي للنسخة السحابية تديره المنصّة.",
   "health.drill.never": "لم يُجرَ اختبار استعادة ناجح بعد.",
-  "health.drill.lastGood": "آخر اختبار ناجح منذ {days} يوم",
+  "health.drill.lastGood": "آخر اختبار ناجح منذ {days}",
   "health.drill.failed": "آخر اختبار استعادة فشل.",
   "health.disk.free": "{size} حرة",
 
@@ -128,6 +128,7 @@ export const ar = {
   "platform.operations.job.platform_card_checkout_sweep": "مراجعة مدفوعات البطاقات المعلّقة",
   "platform.operations.job.platform_backups": "النسخ الاحتياطي للمنشآت",
   "platform.operations.job.platform_audit_anchor": "تثبيت سجل التدقيق خارج القاعدة",
+  "platform.operations.job.platform_collections_dunning": "متابعة تحصيل العملاء وإرسال تذكيراتهم",
   "platform.operations.alert.error_burst": "تتابع أخطاء",
   "platform.operations.alert.job_failed": "فشل مهمة",
   "platform.operations.alert.unclean_restart": "إعادة تشغيل بعد توقف غير سليم",
@@ -190,7 +191,7 @@ export const en: Record<keyof typeof ar, string> = {
   "health.audit.verifiedBad": "Full verification failed ({reason}) at record {row}.",
 
   "health.licence.state": "Licence state: {state}",
-  "health.licence.expires": "Expires in {days} days ({date})",
+  "health.licence.expires": "Expires in {days} ({date})",
   "health.licence.readOnly": "The licence does not allow writing right now; data is read-only.",
   "health.licence.noExpiry": "No expiry date.",
 
@@ -220,12 +221,12 @@ export const en: Record<keyof typeof ar, string> = {
   "health.devices.desktopOnly": "Connected devices are available in the desktop edition only.",
   "health.devices.notLicensed": "LAN multi-till mode is not licensed.",
 
-  "health.backup.age": "{days} days ago ({date})",
+  "health.backup.age": "{days} ago ({date})",
   "health.backup.never": "No backup has been taken on this machine.",
   "health.backup.unavailable": "The backup status could not be read from this machine.",
   "health.backup.cloud": "Backups of the cloud edition are managed by the platform.",
   "health.drill.never": "No successful restore drill has run yet.",
-  "health.drill.lastGood": "Last successful drill {days} days ago",
+  "health.drill.lastGood": "Last successful drill {days} ago",
   "health.drill.failed": "The latest restore drill failed.",
   "health.disk.free": "{size} free",
 
@@ -268,6 +269,7 @@ export const en: Record<keyof typeof ar, string> = {
   "platform.operations.job.platform_card_checkout_sweep": "Pending card payment sweep",
   "platform.operations.job.platform_backups": "Tenant backups",
   "platform.operations.job.platform_audit_anchor": "Audit trail anchoring",
+  "platform.operations.job.platform_collections_dunning": "Customer collections follow-up and reminders",
   "platform.operations.alert.error_burst": "Error burst",
   "platform.operations.alert.job_failed": "Job failed",
   "platform.operations.alert.unclean_restart": "Restart after an unclean exit",

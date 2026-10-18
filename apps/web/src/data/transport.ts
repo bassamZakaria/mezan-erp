@@ -15,7 +15,22 @@ export interface TransportResponse {
   text(): Promise<string>;
   blob?(): Promise<Blob>;
   header?(name: string): string | null;
+  /** Where a `saveAs` request's body was written, on the desktop host. */
+  readonly savedPath?: string | null;
+  /** The operator dismissed the save dialog of a `saveAs` request. */
+  readonly cancelled?: boolean;
 }
+
+/**
+ * A request whose successful body is written to a file the operator picks
+ * rather than returned (desktop host only). Other transports ignore it.
+ */
+export interface SaveToFileInit extends RequestInit {
+  readonly saveAs?: string;
+}
+
+/** What the desktop answers a `saveAs` request with when it cannot stream to disk (a paired till). */
+export const SAVE_TO_FILE_UNSUPPORTED_STATUS = 501;
 
 export type Transport = (path: string, init?: RequestInit) => Promise<TransportResponse>;
 
@@ -25,8 +40,19 @@ interface MezanIpcResponse {
   body: string;
 }
 
+interface MezanIpcFileResponse extends MezanIpcResponse {
+  savedPath: string | null;
+  cancelled: boolean;
+}
+
 interface MezanBridge {
   fetch(input: string, init?: RequestInit): Promise<MezanIpcResponse>;
+  fetchToFile?(input: string, init: RequestInit | undefined, defaultFileName: string): Promise<MezanIpcFileResponse>;
+}
+
+/** Whether this renderer can stream a download straight to disk. */
+export function canSaveToFile(): boolean {
+  return typeof getBridge()?.fetchToFile === "function";
 }
 
 const RETRY_AFTER = "retry-after";
@@ -101,11 +127,14 @@ function plainHeaders(headers: HeadersInit | undefined): Record<string, string> 
 
 export function createElectronTransport(bridge: MezanBridge): Transport {
   return async (path, init) => {
-    const res = await bridge.fetch(`http://mezan.local${path}`, {
-      ...init,
-      headers: plainHeaders(init?.headers),
-    });
+    const { saveAs, ...rest } = (init ?? {}) as SaveToFileInit;
+    const plain = { ...rest, headers: plainHeaders(rest.headers) };
+    const res = saveAs !== undefined && bridge.fetchToFile
+      ? await bridge.fetchToFile(`http://mezan.local${path}`, plain, saveAs)
+      : await bridge.fetch(`http://mezan.local${path}`, plain);
     return {
+      savedPath: "savedPath" in res ? (res as MezanIpcFileResponse).savedPath : undefined,
+      cancelled: "cancelled" in res ? (res as MezanIpcFileResponse).cancelled : undefined,
       status: res.status,
       ok: res.status >= 200 && res.status < 400,
       retryAfterSeconds: retryAfterSecondsOf(headerOf(res.headers, RETRY_AFTER)),

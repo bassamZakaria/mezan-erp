@@ -119,6 +119,11 @@ export type BackendCall =
        */
       readonly remoteAddress: string | null;
     }
+  | {
+      readonly op: "fetch.toFile";
+      readonly request: Omit<Extract<BackendCall, { op: "fetch" }>, "op">;
+      readonly filePath: string;
+    }
   | { readonly op: "session.find"; readonly token: string }
   | { readonly op: "lan.authorize"; readonly token: string; readonly origin: string }
   | { readonly op: "seats.list" }

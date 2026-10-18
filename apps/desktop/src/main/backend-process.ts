@@ -124,6 +124,8 @@ export interface BackendProcessHandle {
   /** The LAN gate: a live session for this origin whose user still holds a seat. */
   authorizeLanClient(request: Request, remote: string): Promise<boolean>;
   connectedDevices(): Promise<readonly DeviceSession[]>;
+  /** Runs `request` in the worker and streams a successful body to `filePath` there; an error body comes back. */
+  fetchToFile(request: Request, filePath: string): Promise<BridgeFetchResult>;
   /** Rebinds the licence the worker's per-request write gate resolves against. */
   replaceLicence(licence: DesktopLicense): void;
   /** Closes the database in the worker and waits for it to exit. */
@@ -353,6 +355,15 @@ export function startBackendProcess(options: BackendProcessOptions): BackendProc
     connectedDevices: async () => {
       if (status !== "ready") return [];
       return await call<readonly DeviceSession[]>({ op: "seats.list" });
+    },
+    fetchToFile: async (request, filePath) => {
+      if (status !== "ready") return unavailable(notServing());
+      const encoded = await encodeBridgeRequest(request, null);
+      return await call<BridgeFetchResult>({
+        op: "fetch.toFile",
+        request: { url: encoded.url, method: encoded.method, headers: encoded.headers, body: encoded.body, remoteAddress: null },
+        filePath,
+      });
     },
     replaceLicence: (next) => {
       licence = toCloneableLicence(next);

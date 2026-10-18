@@ -1,13 +1,14 @@
 import { hostname } from "node:os";
 import path from "node:path";
-import { app, BrowserWindow, dialog, safeStorage } from "electron";
+import { app, BrowserWindow, dialog, powerSaveBlocker, safeStorage } from "electron";
 import Database from "better-sqlite3";
 import { startBackendProcess, type BackendProcessHandle } from "./backend-process.js";
-import { registerHonoOverIpc, registerHonoOverLanClient, registerPrintToPdfOverIpc, registerSavePdfOverIpc } from "./ipc.js";
+import { registerFetchToFileOverIpc, registerFetchToFileUnsupportedOverIpc, registerHonoOverIpc, registerHonoOverLanClient, registerPrintToPdfOverIpc, registerSavePdfOverIpc } from "./ipc.js";
 import { readClientConfig, readPairingRequest, writeClientConfig, type ClientConfig } from "./client-config.js";
 import { createLanClient, withSeatClaim } from "./lan-client.js";
 import { PinCheckOutcome, registerClientBackupRefusalsOverIpc, registerRestoreOverIpc } from "./restore-ipc.js";
 import { createWindow, hardenWebContents } from "./window.js";
+import { startTillWakeLock, type TillWakeLock } from "./till-wake-lock.js";
 import { registerAutoUpdater } from "./updater.js";
 import { backupThenMigrate, isMigrationPending, scheduleBackups } from "./backup-hooks.js";
 import { registerStartupBusy, unregisterStartupBusy } from "./startup-busy.js";
@@ -92,6 +93,7 @@ let lanHost: LanHostHandle | undefined;
 let mainWindow: BrowserWindow | undefined;
 /** Stops the `_mezan._tcp` advertisement. Undefined until the socket has bound. */
 let stopAdvertising: (() => Promise<void>) | undefined;
+let tillWakeLock: TillWakeLock | undefined;
 /**
  * The unencrypted copy of the whole database taken before this install was
  * converted to encrypted storage, while it is still on disk. It was reported
@@ -177,6 +179,7 @@ async function startAsLanClient(config: ClientConfig): Promise<void> {
     config.hostUrl,
     config.fingerprintSha256,
   );
+  registerFetchToFileUnsupportedOverIpc();
   registerPrintToPdfOverIpc();
   registerSavePdfOverIpc();
   registerClientLicenceStatusOverIpc(config);
@@ -768,6 +771,7 @@ app.whenReady().then(async () => {
   const backendProcess = backend;
 
   registerHonoOverIpc(backend.app);
+  registerFetchToFileOverIpc((request, filePath) => backendProcess.fetchToFile(request, filePath));
   registerPrintToPdfOverIpc();
   registerSavePdfOverIpc();
   // The verified restore in backup/restore-service.ts had no caller at all —
@@ -983,6 +987,7 @@ app.whenReady().then(async () => {
   void lanHost.ready.then((info) => {
     const fingerprint = lanHost?.fingerprint();
     if (!info || !fingerprint || lanHost?.closedReason() !== null) return;
+    tillWakeLock = startTillWakeLock({ blocker: powerSaveBlocker, connectedDevices: () => backendProcess.connectedDevices(), log });
     stopAdvertising = advertiseLanHost({
       port: info.port,
       fingerprintSha256: fingerprint,
@@ -1043,6 +1048,7 @@ app.on("will-quit", () => {
   // Withdrawn before the socket closes, so a till browsing for hosts is not
   // offered an address that has already stopped answering.
   void stopAdvertising?.();
+  tillWakeLock?.stop();
   void lanHost?.close();
   disposeBackupSchedule?.();
   backupConn?.close();

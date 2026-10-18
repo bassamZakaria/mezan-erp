@@ -3,9 +3,11 @@ import {
   GATEABLE_ACTION_TYPES,
   MODULES,
   SEQUENCE_DEFINITIONS,
+  VOUCHER_TYPE_DEFINITIONS,
   WAREHOUSE_TYPE_DEFINITIONS,
 } from "@mezan/domain";
 import type { AppTranslationKey } from "./i18n";
+import { WEB_TRANSLATION_KEYS } from "./i18n/catalog";
 
 /**
  * `@mezan/domain`'s catalogues carry a single `labelAr` per entry, so their copy
@@ -66,4 +68,34 @@ export function actionTypeLabel(code: string, t: Translate): string {
  */
 export function salesInvoiceStatusLabel(status: string, t: Translate): string {
   return t(`salesInvoiceStatus.${status}` as AppTranslationKey);
+}
+
+export function codedLabel(prefix: string, code: string, fallback: string, t: Translate): string {
+  const key = `${prefix}.${code}`;
+  return WEB_TRANSLATION_KEYS.has(key) ? t(key as AppTranslationKey) : fallback;
+}
+
+export function treasuryAccountTypeLabel(type: string, t: Translate): string {
+  return codedLabel("treasuryAccountType", type, type, t);
+}
+
+export function bankStatementStatusLabel(status: string, t: Translate): string {
+  return codedLabel("bankStatementStatus", status, status, t);
+}
+
+const VOUCHER_TYPE_LABELS_BY_ARABIC: ReadonlyMap<string, string> = new Map(
+  VOUCHER_TYPE_DEFINITIONS.map((definition) => [definition.labelAr, definition.labelEn]),
+);
+
+export function storedMemoLabel(memo: string, locale: string): string {
+  return locale === "en" ? (VOUCHER_TYPE_LABELS_BY_ARABIC.get(memo) ?? memo) : memo;
+}
+
+const SYSTEM_NOTE_KEYS: Readonly<Record<string, string>> = {
+  "استحقاق تلقائي — سجّله المجدول": "scheduledAccrual.note",
+};
+
+export function systemNoteLabel(note: string, t: Translate): string {
+  const key = SYSTEM_NOTE_KEYS[note];
+  return key ? t(key as AppTranslationKey) : note;
 }

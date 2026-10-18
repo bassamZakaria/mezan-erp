@@ -31,6 +31,12 @@ export interface PrintViewProps {
   className?: string;
 }
 
+const ARABIC_SCRIPT = /[\u0600-\u06FF]/;
+
+function scriptLang(text: string): string | undefined {
+  return ARABIC_SCRIPT.test(text) ? "ar" : undefined;
+}
+
 const PAGE_WIDTH_MM: Record<"A4" | "A5", number> = { A4: 210, A5: 148 };
 const PAGE_HEIGHT_MM: Record<"A4" | "A5", number> = { A4: 297, A5: 210 };
 const CSS_PX_PER_MM = 96 / 25.4;
@@ -348,7 +354,7 @@ export function PrintView({ config, document, showToolbar = true, orientation = 
           )}
 
           {totalsConfig.showAmountInWords && document.totals.amountInWords ? (
-            <p className="rounded-md bg-surface-2 p-[8px_10px] text-[11px] font-semibold text-ink">
+            <p lang={scriptLang(document.totals.amountInWords)} className="rounded-md bg-surface-2 p-[8px_10px] text-[11px] font-semibold text-ink">
               {document.totals.amountInWords}
             </p>
           ) : null}
@@ -358,7 +364,7 @@ export function PrintView({ config, document, showToolbar = true, orientation = 
           {footer.showSignatures && footer.signatureCount > 0 ? (
             <div className="mt-[10px] grid gap-[24px] pt-[18px]" style={{ gridTemplateColumns: `repeat(${footer.signatureCount}, 1fr)` }}>
               {signatureLabels.map((label, i) => (
-                <div key={i} className="border-t border-border pt-[6px] text-center text-[10.5px] text-ink-muted">
+                <div key={i} lang={scriptLang(label)} className="border-t border-border pt-[6px] text-center text-[10.5px] text-ink-muted">
                   {label}
                 </div>
               ))}

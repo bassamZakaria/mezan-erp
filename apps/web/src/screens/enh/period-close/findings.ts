@@ -13,6 +13,7 @@ import {
   type PeriodCloseFixTargetDTO,
 } from "@mezan/contracts";
 import type { AppI18n, AppTranslationKey } from "../../../i18n";
+import { codedLabel } from "../../../domain-labels";
 
 export type Translate = AppI18n["t"];
 
@@ -125,7 +126,7 @@ export function findingStateLabel(finding: PeriodCloseFindingDTO, t: Translate):
 
 function tieName(finding: PeriodCloseFindingDTO, t: Translate): string {
   const key = periodCloseTieKeySchema.safeParse(finding.ref);
-  return key.success ? t(TIE_KEY[key.data]) : (finding.label ?? finding.ref);
+  return key.success ? t(TIE_KEY[key.data]) : codedLabel("periodClose.tie", finding.ref, finding.label ?? finding.ref, t);
 }
 
 export function findingTitle(finding: PeriodCloseFindingDTO, t: Translate, format: FindingFormatters): string {

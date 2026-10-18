@@ -2,6 +2,7 @@ import type { SecurityExceptionRowDTO, SecurityWatchlistEntryDTO, UnrecordedSecu
 import type { ReportRunnerColumn, ReportRunnerParamField } from "@mezan/ui";
 import { SecurityReportScreen, securityCopy, type SecurityReportResult } from "./SecurityReportScreen";
 import { useAppTranslation } from "../../i18n";
+import { useAuditLabels } from "../enh/audit-ledger/audit-changes";
 import { monthStartIso, todayIso } from "../../lib/dates";
 
 /** تقرير الاستثناءات الأمنية — `/security-reports/exceptions` (P-4). */
@@ -10,8 +11,14 @@ const REPORT = "exceptions" as const;
 
 const SEVERITY_OPTIONS = ["", "INFO", "WARNING", "ERROR", "CRITICAL"] as const;
 
+function knownActionLabel(labels: ReturnType<typeof useAuditLabels>, action: string, fallbackAr: string): string {
+  const label = labels.actionLabel(action);
+  return label === action ? fallbackAr : label;
+}
+
 export function ExceptionsReportScreen() {
   const { t } = useAppTranslation();
+  const labels = useAuditLabels();
   const today = todayIso();
 
   const paramFields: ReportRunnerParamField[] = [
@@ -31,7 +38,7 @@ export function ExceptionsReportScreen() {
 
   const columns: ReportRunnerColumn<SecurityExceptionRowDTO>[] = [
     { key: "actor", header: securityCopy(REPORT, "col", "actor", "المستخدم", t), value: (r) => r.actor },
-    { key: "actionLabelAr", header: securityCopy(REPORT, "col", "actionLabelAr", "الحدث", t), value: (r) => r.actionLabelAr },
+    { key: "actionLabelAr", header: securityCopy(REPORT, "col", "actionLabelAr", "الحدث", t), value: (r) => knownActionLabel(labels, r.action, r.actionLabelAr) },
     {
       key: "count",
       header: securityCopy(REPORT, "col", "count", "العدد", t),
@@ -82,6 +89,7 @@ export function ExceptionsReportScreen() {
  */
 function Watchlist({ result }: { result: SecurityReportResult<SecurityExceptionRowDTO> }) {
   const { t } = useAppTranslation();
+  const labels = useAuditLabels();
   const watchlist = (result as { watchlist?: readonly SecurityWatchlistEntryDTO[] }).watchlist ?? [];
   if (watchlist.length === 0) return null;
   return (
@@ -90,7 +98,7 @@ function Watchlist({ result }: { result: SecurityReportResult<SecurityExceptionR
       <ul className="grid gap-[4px] md:grid-cols-2">
         {watchlist.map((entry) => (
           <li key={entry.action} className="flex items-baseline justify-between gap-[8px]">
-            <span className={entry.count > 0 ? "text-ink" : "text-ink-muted"}>{entry.labelAr}</span>
+            <span className={entry.count > 0 ? "text-ink" : "text-ink-muted"}>{knownActionLabel(labels, entry.action, entry.labelAr)}</span>
             <span className="mz-num font-semibold text-ink">{entry.count}</span>
           </li>
         ))}

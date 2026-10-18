@@ -4,6 +4,7 @@ import { StockPositionFaultCode, type ReconciliationRowDTO, type UnlinkedEntryLi
 import { useReconciliation } from "../data/hooks";
 import { OpeningBalanceDuplicatesCard } from "./OpeningBalanceDuplicatesCard";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { codedLabel } from "../domain-labels";
 
 const STOCK_POSITION_FAULT_KEY: Record<StockPositionFaultCode, AppTranslationKey> = {
   [StockPositionFaultCode.ValueWithoutQuantity]: "reconciliation.stockPositions.valueWithoutQuantity",
@@ -52,7 +53,7 @@ export function ReconciliationScreen() {
   }, [unlinkedPage, unlinkedPageCount]);
 
   const summaryColumns: DocumentListColumn<ReconciliationRowDTO>[] = [
-    { key: "label", header: t("reconciliation.reconciliation"), render: (r) => <span className="font-semibold text-ink">{r.label}</span> },
+    { key: "label", header: t("reconciliation.reconciliation"), render: (r) => <span className="font-semibold text-ink">{codedLabel("periodClose.tie", r.key, r.label, t)}</span> },
     { key: "sub", header: t("reconciliation.subLedgerBalance"), render: (r) => <span className="mz-num">{fmt(r.subLedgerBalance)}</span> },
     { key: "gl", header: t("reconciliation.ledgerBalance"), render: (r) => <span className="mz-num">{fmt(r.glBalance)}</span> },
     { key: "diff", header: t("reconciliation.difference"), render: (r) => <span className={`mz-num ${r.matched ? "text-ink-muted" : "text-danger-ink font-bold"}`}>{fmt(r.difference)}</span> },

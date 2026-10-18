@@ -12,6 +12,7 @@ import { buildLabelBatch, LABEL_TEMPLATES, Money, type LabelBatchLineInput, type
 import { useItems } from "../data/hooks";
 import { useAppTranslation } from "../i18n";
 import { EMPTY } from "../lib/empty";
+import { codedLabel } from "../domain-labels";
 
 /**
  * طباعة الملصقات (Label Printing) — docs/archive/catalog/03-inventory.md §"طباعة
@@ -173,7 +174,7 @@ export function LabelPrintingScreen() {
                 size="sm"
                 value={templateCode}
                 onChange={(value) => setTemplateCode(value as LabelTemplateCode)}
-                options={LABEL_TEMPLATES.map((template) => ({ value: template.code, label: template.labelAr }))}
+                options={LABEL_TEMPLATES.map((template) => ({ value: template.code, label: codedLabel("labelTemplate", template.code, template.labelAr, t) }))}
               />
             </div>
           </div>

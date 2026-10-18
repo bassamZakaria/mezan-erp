@@ -1,7 +1,7 @@
 import type { PostPostingChangeRowDTO } from "@mezan/contracts";
 import { formatDateTime, type ReportRunnerColumn, type ReportRunnerParamField } from "@mezan/ui";
 import { SecurityReportScreen, securityCopy } from "./SecurityReportScreen";
-import { useAppTranslation } from "../../i18n";
+import { useAppTranslation, type AppTranslationKey } from "../../i18n";
 import { useAuditLabels } from "../enh/audit-ledger/audit-changes";
 import { monthStartIso, todayIso } from "../../lib/dates";
 
@@ -36,7 +36,7 @@ export function PostPostingChangesReportScreen() {
     {
       key: "changeTypeLabelAr",
       header: securityCopy(REPORT, "col", "changeTypeLabelAr", "نوع التعديل", t),
-      value: (r) => r.changeTypeLabelAr,
+      value: (r) => t(`securityReports.changeType.${r.changeType}` as AppTranslationKey),
     },
     { key: "entityType", header: securityCopy(REPORT, "col", "entityType", "نوع المستند", t), value: (r) => labels.entityLabel(r.entityType) },
     { key: "docNo", header: securityCopy(REPORT, "col", "docNo", "رقم المستند", t), value: (r) => r.docNo },

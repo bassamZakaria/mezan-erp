@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useAppTranslation, type AppI18n } from "../i18n";
+import { notificationText } from "./notification-text";
 import { NotificationsPanel, type NotificationPanelItem } from "@mezan/ui";
 import type { NotificationDTO, NotificationPriorityDTO } from "@mezan/contracts";
 import {
@@ -22,11 +23,12 @@ function relativeTime(iso: string, now: number, t: AppI18n["t"]): string {
   return t("notifications.daysAgo", { n: String(Math.floor(diff / DAY)) });
 }
 
-function toPanelItem(n: NotificationDTO, now: number, t: AppI18n["t"]): NotificationPanelItem {
+function toPanelItem(n: NotificationDTO, now: number, t: AppI18n["t"], locale: string): NotificationPanelItem {
+  const text = notificationText(n, locale, t);
   return {
     id: n.id,
-    title: n.title,
-    body: n.body,
+    title: text.title,
+    body: text.body,
     timeLabel: relativeTime(n.createdAt, now, t),
     read: n.status === "read",
     priority: n.priority as NotificationPriorityDTO,
@@ -43,14 +45,14 @@ export function useNotificationsBell(onViewAll?: () => void) {
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<"all" | "unread">("all");
 
-  const { t } = useAppTranslation();
+  const { t, locale } = useAppTranslation();
   const listQuery = useNotifications(tab === "unread" ? "unread" : undefined);
   const unreadCountQuery = useUnreadNotificationCount();
   const markRead = useMarkNotificationRead();
   const markAllRead = useMarkAllNotificationsRead();
 
   const now = Date.now();
-  const items = (listQuery.data ?? []).map((n) => toPanelItem(n, now, t));
+  const items = (listQuery.data ?? []).map((n) => toPanelItem(n, now, t, locale));
   const unreadCount = unreadCountQuery.data ?? 0;
 
   const panel = (

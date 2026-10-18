@@ -17,7 +17,7 @@ import type { ReportScreenDefinition } from "./screens/reports/ReportScreen";
  * Percent" and look deliberate.
  */
 
-type Translate = (key: AppTranslationKey) => string;
+type Translate = (key: AppTranslationKey, params?: Record<string, string>) => string;
 
 /** Same overlay the column headers use, exposed for the summary strip's KPI labels. */
 export function tryReportLabel(key: string, fallback: string, t: Translate): string {
@@ -103,7 +103,32 @@ const CELL_LABEL_KEYS: Readonly<Record<string, string>> = {
   "أمر إنتاج": "reportCell.sourceDoc.WORK_ORDER",
   "إلغاء استلام/فاتورة مشتريات": "reportCell.sourceDoc.PURCHASE_CANCELLATION",
   "غير محسوب": "reportCell.notComputed",
+  "طبيعي": "reportCell.stockStatus.normal",
+  "منخفض": "reportCell.stockStatus.low",
+  "نافد": "reportCell.stockStatus.out",
+  "نسبة خصم": "reportCell.promotionType.percentage",
+  "خصم مبلغ": "reportCell.promotionType.fixed_amount",
+  "سعر خاص": "reportCell.promotionType.special_price",
+  "حزمة": "reportCell.promotionType.bundle",
+  "اشترِ واحصل": "reportCell.promotionType.buy_x_get_y",
+  "تكاليف إضافية": "reportCell.sourceDoc.LANDED_COST",
+  "إذن صرف للموقع": "reportCell.sourceDoc.SITE_ISSUE",
+  "استلام بالموقع": "reportCell.sourceDoc.SITE_RECEIPT",
+  "استهلاك مواد": "reportCell.sourceDoc.MATERIAL_CONSUMPTION",
 };
+
+/**
+ * Placeholder buckets the server names in Arabic inside ANY column — the
+ * salesperson report's unattributed sales, a branch-less ledger line. Each is
+ * a fixed sentinel, never tenant data, so it translates wherever it appears.
+ */
+const SENTINEL_CELL_KEYS: Readonly<Record<string, string>> = {
+  "غير محدد": "reportCell.unassigned",
+  "غير مخصص": "reportCell.unattributed",
+};
+
+const EMBEDDED_LABEL_COLUMN_KEYS: ReadonlySet<string> = new Set(["event"]);
+const EMBEDDED_LABEL_KEY_PREFIX = "reportCell.sourceDoc.";
 
 /** Columns holding copy. Everything not named here is data and is left alone. */
 const LABEL_COLUMN_KEYS: ReadonlySet<string> = new Set([
@@ -114,6 +139,8 @@ const LABEL_COLUMN_KEYS: ReadonlySet<string> = new Set([
   "verdictLabel",
   "direction",
   "sourceDocTypeLabel",
+  "status",
+  "type",
   // Normally numeric (format: "money"); the server sends the "غير محسوب"
   // label in its place for a payslip whose employer cost predates D191 — a
   // number stays untouched, only that one Arabic string is looked up.
@@ -128,6 +155,55 @@ function localizeCell(value: string | number | null, t: Translate): string | num
   if (key) return t(key as AppTranslationKey);
   if (import.meta.env.DEV) console.warn(`[i18n] report cell "${value}" has no catalogue key — falling back to Arabic.`);
   return value;
+}
+
+function localizeSentinelCell(value: string | number | null, t: Translate): string | number | null {
+  if (typeof value !== "string") return value;
+  const key = SENTINEL_CELL_KEYS[value];
+  return key ? t(key as AppTranslationKey) : value;
+}
+
+function localizeEmbeddedLabel(value: string | number | null, t: Translate): string | number | null {
+  if (typeof value !== "string" || !ARABIC.test(value)) return value;
+  const labels = Object.entries(CELL_LABEL_KEYS)
+    .filter(([, key]) => key.startsWith(EMBEDDED_LABEL_KEY_PREFIX))
+    .sort(([a], [b]) => b.length - a.length);
+  const match = labels.find(([label]) => value.includes(label));
+  return match ? value.replace(match[0], t(match[1] as AppTranslationKey)) : value;
+}
+
+const RATES_BASIS = /^(\d+(?:\.\d+)?)% من حجم الأعمال مقابل (\d+(?:\.\d+)?)% من صافي الربح$/;
+const REGIME_OUT_OF_RANGE_BASIS = "خارج حدود النظام المبسط";
+const REGIME_BASE_ROW_KEY = "base";
+const REGIME_INCOME_TAX_ROW_KEY = "incomeTax";
+
+type RowCellLocalizer = (row: Record<string, unknown>, value: string | number | null, t: Translate) => string | number | null;
+
+function regimeItem(row: Record<string, unknown>, value: string | number | null, t: Translate): string | number | null {
+  const key = `taxRegime.item.${String(row["key"])}`;
+  return WEB_TRANSLATION_KEYS.has(key) ? t(key as AppTranslationKey) : value;
+}
+
+function regimeBasis(row: Record<string, unknown>, value: string | number | null, t: Translate): string | number | null {
+  if (typeof value !== "string") return value;
+  if (row["key"] === REGIME_BASE_ROW_KEY) return t("taxRegime.basis.base");
+  if (row["key"] === REGIME_INCOME_TAX_ROW_KEY) {
+    if (value === REGIME_OUT_OF_RANGE_BASIS) return t("taxRegime.basis.outOfRange");
+    const rates = RATES_BASIS.exec(value);
+    if (rates) return t("taxRegime.basis.rates", { simplified: rates[1] ?? "", normal: rates[2] ?? "" });
+    return value;
+  }
+  return ARABIC.test(value) ? t("taxRegime.basis.exempt") : value;
+}
+
+const ROW_CELL_LOCALIZERS: Readonly<Record<string, Readonly<Record<string, RowCellLocalizer>>>> = {
+  "tax.simplified-regime-comparison": { item: regimeItem, basis: regimeBasis },
+};
+
+function localizeColumnCell(columnKey: string, value: string | number | null, t: Translate): string | number | null {
+  if (LABEL_COLUMN_KEYS.has(columnKey)) return localizeCell(localizeSentinelCell(value, t), t);
+  if (EMBEDDED_LABEL_COLUMN_KEYS.has(columnKey)) return localizeEmbeddedLabel(value, t);
+  return localizeSentinelCell(value, t);
 }
 
 /**
@@ -163,9 +239,16 @@ const GROUP_LABEL_KEYS: Readonly<Record<string, string>> = {
 };
 
 /** A section name the map does not know is tenant data (an account, a customer) and stays as it is. */
+const LEAVE_TYPE_GROUP = /^نوع الإجازة: (.+)$/;
+
 export function localizeGroupLabel(label: string, t: Translate): string {
   const key = GROUP_LABEL_KEYS[label];
-  return key ? t(key as AppTranslationKey) : label;
+  if (key) return t(key as AppTranslationKey);
+  const leaveType = LEAVE_TYPE_GROUP.exec(label)?.[1];
+  if (leaveType === undefined) return label;
+  const typeKey = `leaveType.${leaveType}`;
+  const typeName = WEB_TRANSLATION_KEYS.has(typeKey) ? t(typeKey as AppTranslationKey) : leaveType;
+  return t("report.leaveTypeGroup", { type: typeName });
 }
 
 export function localizeReportDefinition<TParams, Row>(
@@ -185,7 +268,11 @@ export function localizeReportDefinition<TParams, Row>(
       (column): ReportColumn<Row> => ({
         ...column,
         header: tryTranslate(`report.${id}.col.${column.key}`, column.header, t),
-        value: LABEL_COLUMN_KEYS.has(column.key) ? (row: Row) => localizeCell(column.value(row), t) : column.value,
+        value: (row: Row) => {
+          const rowLocalizer = ROW_CELL_LOCALIZERS[id]?.[column.key];
+          const value = column.value(row);
+          return rowLocalizer ? rowLocalizer(row as Record<string, unknown>, value, t) : localizeColumnCell(column.key, value, t);
+        },
       }),
     ),
   };

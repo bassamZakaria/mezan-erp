@@ -63,6 +63,17 @@ const KIND_KEY: Record<RetentionReleaseKindDTO, AppTranslationKey> = {
   other: "retention.kind.other",
 };
 
+const STATUS_KEY: Record<string, AppTranslationKey> = {
+  draft: "retention.status.draft",
+  released: "retention.status.released",
+  cancelled: "retention.status.cancelled",
+};
+
+function statusLabel(release: RetentionReleaseDTO, t: (key: AppTranslationKey) => string): string {
+  const key = STATUS_KEY[release.status];
+  return key ? t(key) : release.statusLabelAr;
+}
+
 const STATUS_TONE: Record<string, PillTone> = {
   draft: "neutral",
   released: "success",
@@ -285,7 +296,7 @@ export function RetentionScreen() {
         ) : null}
         <DocumentDetail
           title={selected.docNo}
-          statusLabel={selected.statusLabelAr}
+          statusLabel={statusLabel(selected, t)}
           statusTone={STATUS_TONE[selected.status] ?? "neutral"}
           subtitle={
             <span className="mz-num">
@@ -333,7 +344,7 @@ export function RetentionScreen() {
             </div>
           }
           summary={[
-            { label: t("retention.kind"), value: selected.kindLabelAr },
+            { label: t("retention.kind"), value: t(KIND_KEY[selected.kind]) },
             { label: t("retention.amount"), value: <MoneyValue value={majorOf(selected.amount)} /> },
             {
               label: t("retention.eventDate"),
@@ -396,7 +407,7 @@ export function RetentionScreen() {
   const releaseColumns: DocumentListColumn<RetentionReleaseDTO>[] = [
     { key: "docNo", header: t("retention.col.docNo"), render: (r) => <span className="mz-num">{r.docNo}</span> },
     { key: "contract", header: t("retention.col.contract"), render: (r) => <span className="mz-num">{r.contractDocNo}</span> },
-    { key: "kind", header: t("retention.col.kind"), render: (r) => r.kindLabelAr },
+    { key: "kind", header: t("retention.col.kind"), render: (r) => t(KIND_KEY[r.kind]) },
     { key: "date", header: t("retention.col.date"), render: (r) => <span className="mz-num">{r.date}</span> },
     {
       key: "eventDate",
@@ -409,7 +420,7 @@ export function RetentionScreen() {
       header: t("common.status"),
       render: (r) => (
         <div className="flex flex-wrap items-center gap-[6px]">
-          <StatusPill label={r.statusLabelAr} tone={STATUS_TONE[r.status] ?? "neutral"} />
+          <StatusPill label={statusLabel(r, t)} tone={STATUS_TONE[r.status] ?? "neutral"} />
           {r.earlyRelease ? <StatusPill label={t("retention.earlyPill")} tone="danger" /> : null}
         </div>
       ),

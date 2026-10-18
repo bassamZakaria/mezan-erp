@@ -3,6 +3,7 @@ import { Money, WorkspaceHub } from "@mezan/ui";
 import { ScreenRequest } from "@mezan/domain";
 import { useAccounts, useDashboardSummary, useFiscalPeriods, useHoldsScreenRequest, useMayAskScreen } from "../../data/hooks";
 import { useAppTranslation } from "../../i18n";
+import { storedMemoLabel } from "../../domain-labels";
 import { DateAndDoc, HubActions, type HubAction } from "./hub-parts";
 import { EMPTY } from "../../lib/empty";
 
@@ -27,7 +28,7 @@ const quickActions: HubAction[] = [
 ];
 
 export function AccountingHubScreen() {
-  const { t } = useAppTranslation();
+  const { t, locale } = useAppTranslation();
   const summaryQuery = useDashboardSummary({});
   const accountsQuery = useAccounts();
   const periodsQuery = useFiscalPeriods();
@@ -73,7 +74,7 @@ export function AccountingHubScreen() {
         empty: t("accountingHub.noActivityYetPostedEntries"),
         rows: (summary?.recentActivity ?? []).map((entry) => ({
           key: entry.id,
-          primary: entry.memo || entry.entryNo || entry.id,
+          primary: storedMemoLabel(entry.memo, locale) || entry.entryNo || entry.id,
           secondary: <DateAndDoc date={entry.date} docNo={entry.entryNo} />,
         })),
       }}

@@ -93,7 +93,11 @@ const EMPTY_FORM: FormState = {
 
 /** A quiet line of small print naming the article a figure came from. */
 function SourceNote({ children }: { children: React.ReactNode }) {
-  return <p className="mt-[6px] text-[11px] leading-[1.6] text-ink-faint">{children}</p>;
+  return (
+    <p lang="ar" dir="auto" className="mt-[6px] text-[11px] leading-[1.6] text-ink-faint">
+      {children}
+    </p>
+  );
 }
 
 function SectionCard({ title, children }: { title: string; children: React.ReactNode }) {

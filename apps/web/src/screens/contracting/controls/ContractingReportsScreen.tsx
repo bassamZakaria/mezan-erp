@@ -167,7 +167,7 @@ export function ContractingReportsScreen() {
         <ReportTab
           exportName="contracting-boq-overrun"
           loading={boqOverrun.isFetching}
-          ruleAr={boqOverrun.data?.ruleAr ?? ""}
+          ruleAr={boqOverrun.data ? t("contractingReports.rule.boq-overrun") : ""}
           rows={boqOverrun.data?.rows ?? []}
           hasResult={boqOverrun.data !== undefined}
           paramFields={baseFields}
@@ -194,7 +194,7 @@ export function ContractingReportsScreen() {
         <ReportTab
           exportName="contracting-unreceived-issues"
           loading={unreceived.isFetching}
-          ruleAr={unreceived.data?.ruleAr ?? ""}
+          ruleAr={unreceived.data ? t("contractingReports.rule.unreceived-issues") : ""}
           rows={unreceived.data?.rows ?? []}
           hasResult={unreceived.data !== undefined}
           paramFields={[...baseFields, daysField]}
@@ -220,7 +220,7 @@ export function ContractingReportsScreen() {
         <ReportTab
           exportName="contracting-consumption-variance"
           loading={consumption.isFetching}
-          ruleAr={consumption.data?.ruleAr ?? ""}
+          ruleAr={consumption.data ? t("contractingReports.rule.consumption-variance") : ""}
           rows={consumption.data?.rows ?? []}
           hasResult={consumption.data !== undefined}
           paramFields={[...baseFields, thresholdField]}
@@ -249,7 +249,7 @@ export function ContractingReportsScreen() {
         <ReportTab
           exportName="contracting-equipment-without-certificate"
           loading={equipment.isFetching}
-          ruleAr={equipment.data?.ruleAr ?? ""}
+          ruleAr={equipment.data ? t("contractingReports.rule.equipment-without-certificate") : ""}
           rows={equipment.data?.rows ?? []}
           hasResult={equipment.data !== undefined}
           paramFields={[...baseFields, daysField]}
@@ -277,7 +277,7 @@ export function ContractingReportsScreen() {
         <ReportTab
           exportName="contracting-late-variation-approvals"
           loading={lateVariation.isFetching}
-          ruleAr={lateVariation.data?.ruleAr ?? ""}
+          ruleAr={lateVariation.data ? t("contractingReports.rule.late-variation-approvals") : ""}
           rows={lateVariation.data?.rows ?? []}
           hasResult={lateVariation.data !== undefined}
           paramFields={baseFields}
@@ -305,7 +305,7 @@ export function ContractingReportsScreen() {
         <ReportTab
           exportName="contracting-early-retention-release"
           loading={earlyRelease.isFetching}
-          ruleAr={earlyRelease.data?.ruleAr ?? ""}
+          ruleAr={earlyRelease.data ? t("contractingReports.rule.early-retention-release") : ""}
           rows={earlyRelease.data?.rows ?? []}
           hasResult={earlyRelease.data !== undefined}
           paramFields={baseFields}
@@ -330,7 +330,7 @@ export function ContractingReportsScreen() {
         <ReportTab
           exportName="contracting-cost-overrun-vs-estimate"
           loading={costOverrun.isFetching}
-          ruleAr={costOverrun.data?.ruleAr ?? ""}
+          ruleAr={costOverrun.data ? t("contractingReports.rule.cost-overrun-vs-estimate") : ""}
           rows={costOverrun.data?.rows ?? []}
           hasResult={costOverrun.data !== undefined}
           paramFields={[...baseFields, thresholdField, stalenessField]}

@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { errorMessage } from "../lib/error-message";
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { DocumentList, EmptyState, Money as MoneyDisplay, StatusPill, Chip, Card, Button, RowMenu, SidePanel, MoneyInput, TextInput, useFormat, type DocumentListColumn, type PillTone } from "@mezan/ui";
-import { TREASURY_ACCOUNT_TYPE_DEFINITIONS, getTreasuryAccountTypeLabel, type TreasuryAccountType as DomainTreasuryAccountType } from "@mezan/domain";
+import { TREASURY_ACCOUNT_TYPE_DEFINITIONS } from "@mezan/domain";
+import { treasuryAccountTypeLabel } from "../domain-labels";
 import type { BranchDTO, ListCountsDTO, TreasuryAccountDTO, TreasuryAccountStatusDTO, TreasuryAccountTypeDTO } from "@mezan/contracts";
 import { ApiError, loaderError, useAccountLedger, useBranches, useCreateJournalEntry, useCreateTreasuryAccount, useTreasuryAccounts, useUpdateTreasuryAccount,
   useTreasuryAccountStats,
@@ -263,7 +264,7 @@ export function TreasuryAccountsScreen() {
         </div>
       ),
     },
-    { key: "type", header: t("treasuryAcc.accountType"), render: (a) => <StatusPill label={getTreasuryAccountTypeLabel(a.type as DomainTreasuryAccountType)} tone="info" /> },
+    { key: "type", header: t("treasuryAcc.accountType"), render: (a) => <StatusPill label={treasuryAccountTypeLabel(a.type, t)} tone="info" /> },
     { key: "currency", header: t("treasuryAcc.currency"), render: (a) => a.currency },
     { key: "balance", header: t("treasuryAcc.balance"), align: "end", render: (a) => (
         <div>
@@ -457,7 +458,7 @@ export function TreasuryAccountsScreen() {
             <div className="flex flex-wrap items-center justify-between gap-[8px]">
               <div className="flex flex-wrap items-center gap-[8px]">
                 <StatusPill label={t(STATUS_KEY[selected.status])} tone={STATUS_TONE[selected.status]} />
-                <StatusPill label={getTreasuryAccountTypeLabel(selected.type as DomainTreasuryAccountType)} tone="info" />
+                <StatusPill label={treasuryAccountTypeLabel(selected.type, t)} tone="info" />
               </div>
               <Button variant="primary" onClick={() => openEditForm(selected)}>
                 {t("common.edit")}
@@ -507,7 +508,7 @@ export function TreasuryAccountsScreen() {
             label={t("treasuryAcc.accountType2")}
             value={draft.type}
             onChange={(v) => setDraft((d) => ({ ...d, type: v as TreasuryAccountTypeDTO }))}
-            options={TREASURY_ACCOUNT_TYPE_DEFINITIONS.map((d) => ({ value: d.code, label: d.labelAr }))}
+            options={TREASURY_ACCOUNT_TYPE_DEFINITIONS.map((d) => ({ value: d.code, label: treasuryAccountTypeLabel(d.code, t) }))}
           />
           <TextField label={t("treasuryAcc.currency2")} value={draft.currency} onChange={(v) => setDraft((d) => ({ ...d, currency: v.toUpperCase() }))} />
           {draft.type === "bank" ? (

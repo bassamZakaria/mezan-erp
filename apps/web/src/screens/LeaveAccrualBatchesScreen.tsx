@@ -8,6 +8,7 @@ import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { sumMajor } from "../lib/money";
 import { todayIso } from "../lib/dates";
 import { useUrlNumber } from "../lib/url-state";
+import { systemNoteLabel } from "../domain-labels";
 
 /** استحقاقات الإجازات (Leave Accrual Batches) — docs/archive/catalog/06 §"استحقاقات الإجازات". Manual and scheduled runs that credit entitlement across every eligible employee; a period already run is never credited twice. */
 
@@ -89,7 +90,7 @@ export function LeaveAccrualBatchesScreen() {
       header: t("leaveAccrual.runType"),
       render: (b) => <StatusPill label={b.runType === "manual" ? t("leaveAccrual.manual") : t("leaveAccrual.scheduled")} tone={b.runType === "manual" ? "neutral" : "info"} />,
     },
-    { key: "notes", header: t("common.notes"), render: (b) => <span className="text-ink-muted">{b.notes ?? "—"}</span> },
+    { key: "notes", header: t("common.notes"), render: (b) => <span className="text-ink-muted">{b.notes === null ? "—" : systemNoteLabel(b.notes, t)}</span> },
     { key: "employees", header: t("leaveAccrual.employees"), align: "end", render: (b) => <span className="mz-num text-ink">{b.employeeCount}</span> },
     { key: "totalDays", header: t("leaveAccrual.totalDays"), align: "end", render: (b) => <span className="mz-num text-ink">{formatDays(b.totalDays)}</span> },
     { key: "runBy", header: t("leaveAccrual.runBy"), render: (b) => <span className="text-ink-muted">{b.runBy ?? "—"}</span> },

@@ -19,6 +19,7 @@ import { SelectField, TextField, ToggleField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { EMPTY } from "../lib/empty";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
+import { codedLabel } from "../domain-labels";
 
 /**
  * الضرائب (Taxes) — docs/archive/catalog/04 §"الضرائب". List + add/edit dialog with
@@ -550,7 +551,7 @@ export function TaxesScreen() {
               label={t("taxes.vatSubtype")}
               value={draft.etaSubType}
               onChange={(v) => setDraft((d) => ({ ...d, etaSubType: v as EtaVatSubType }))}
-              options={ETA_VAT_SUBTYPE_DEFINITIONS.map((d) => ({ value: d.code, label: getEtaVatSubTypeLabel(d.code) }))}
+              options={ETA_VAT_SUBTYPE_DEFINITIONS.map((d) => ({ value: d.code, label: codedLabel("etaVatSubType", d.code, getEtaVatSubTypeLabel(d.code), t) }))}
             />
           </div>
 

@@ -17,6 +17,7 @@ export const icons: NavIconFragment = {
 export const ar = {
   "nav.item.inventory-batches": "التشغيلات والصلاحية",
   "expiry.title": "التشغيلات والصلاحية",
+  "expiry.batches.description": "رصيد كل تشغيلة في كل مستودع بترتيب الصرف (الأقرب انتهاءً أولاً). «قاربت على الانتهاء» = خلال {days} يوماً.",
   "expiry.subtitle": "رصيد كل تشغيلة بترتيب الصرف (الأقرب انتهاءً أولاً)، وتنبيهات قرب الانتهاء، وشطب المنتهي بتسوية تُرحَّل بمتوسط التكلفة.",
   "expiry.tab.batches": "المخزون حسب التشغيلة",
   "expiry.tab.writeOff": "شطب المنتهي",
@@ -120,6 +121,7 @@ export const ar = {
 export const en: Record<keyof typeof ar, string> = {
   "nav.item.inventory-batches": "Batches & expiry",
   "expiry.title": "Batches & expiry",
+  "expiry.batches.description": "Each batch's balance in each warehouse, in issue order (soonest expiry first). «Near expiry» means within {days} days.",
   "expiry.subtitle": "Each batch's stock in issue order (soonest expiry first), near-expiry alerts, and writing off expired stock through an adjustment posted at weighted-average cost.",
   "expiry.tab.batches": "Stock by batch",
   "expiry.tab.writeOff": "Write off expired",

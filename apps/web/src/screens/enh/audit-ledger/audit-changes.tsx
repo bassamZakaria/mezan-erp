@@ -3,6 +3,8 @@ import { useMemo } from "react";
 import { AuditChangeAction } from "@mezan/domain";
 import { useAppTranslation, type AppTranslationKey } from "../../../i18n";
 import { ar as fragmentAr } from "../nav/e1-05";
+import { WEB_TRANSLATION_KEYS } from "../../../i18n/catalog";
+import { AUDIT_ACTION_PREFIX, AUDIT_ENTITY_PREFIX, auditCodeAr } from "./audit-code-strings";
 
 const FIELD_KEY_PREFIX = "auditLedger.fieldName.";
 
@@ -37,10 +39,24 @@ function buildAuditLabels(t: ReturnType<typeof useAppTranslation>["t"]) {
     return key in fragmentAr ? t(key as AppTranslationKey) : field;
   }
 
+  function codeLabel(prefix: string, code: string): string {
+    const key = `${prefix}${code}`;
+    return key in auditCodeAr ? t(key as AppTranslationKey) : code;
+  }
+
   function actionLabel(action: string): string {
     return (Object.values(AuditChangeAction) as string[]).includes(action)
       ? t(`auditLedger.action.${action}` as AppTranslationKey)
-      : action;
+      : codeLabel(AUDIT_ACTION_PREFIX, action);
+  }
+
+  function entityLabel(entityType: string): string {
+    return codeLabel(AUDIT_ENTITY_PREFIX, entityType);
+  }
+
+  function moduleLabel(module: string): string {
+    const key = `module.${module}`;
+    return WEB_TRANSLATION_KEYS.has(key) ? t(key as AppTranslationKey) : module;
   }
 
   function valueLabel(value: unknown): string {
@@ -59,7 +75,7 @@ function buildAuditLabels(t: ReturnType<typeof useAppTranslation>["t"]) {
     return change.redacted ? t("auditLedger.redacted") : valueLabel(change.to);
   }
 
-  return { fieldLabel, actionLabel, valueLabel, fromLabel, toLabel };
+  return { fieldLabel, actionLabel, entityLabel, moduleLabel, valueLabel, fromLabel, toLabel };
 }
 
 export function ChangeSummary({ changes, max = 2 }: { changes: readonly AuditFieldChangeDTO[]; max?: number }) {

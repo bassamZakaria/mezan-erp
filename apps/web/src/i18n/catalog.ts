@@ -5,6 +5,8 @@ import { enhAr, enhEn } from "../screens/enh/nav";
 import { hrSelfAr, hrSelfEn } from "../screens/hr-self-strings";
 import { reversalAr, reversalEn } from "../reversal/strings";
 import { hrPagesAr, hrPagesEn } from "../screens/hr-pages-strings";
+import { auditCodeAr, auditCodeEn } from "../screens/enh/audit-ledger/audit-code-strings";
+import { hrPayrollReportAr, hrPayrollReportEn } from "../screens/reports/hr-payroll-report-strings";
 import { backupProtectionAr, backupProtectionEn } from "../settings/backup-protection-strings";
 
 /**
@@ -9899,6 +9901,12 @@ const webAr = {
   "statutory.ceiling": "الحد الأقصى الشهري",
   "statutory.ceilingHint": "ما زاد عن هذا الحد لا يخضع للاشتراك.",
   "statutory.employeeShare": "حصة الموظف",
+  "statutory.share.pension": "الشيخوخة والعجز والوفاة",
+  "statutory.share.end_of_service": "مكافأة نهاية الخدمة",
+  "statutory.share.sickness": "المرض",
+  "statutory.share.unemployment": "التعطل",
+  "statutory.share.work_injury": "إصابة العمل",
+  "statutory.levy.martyrs_fund": "صندوق تكريم الشهداء",
   "statutory.employerShare": "حصة صاحب العمل",
   "statutory.source": "المصدر",
   "statutory.shippedWithApp": "واردة مع النظام",
@@ -10067,6 +10075,8 @@ const webAr = {
   ...hrSelfAr,
   ...reversalAr,
   ...hrPagesAr,
+  ...auditCodeAr,
+  ...hrPayrollReportAr,
   ...backupProtectionAr,
 } as const;
 
@@ -19966,6 +19976,12 @@ const webEn: Record<WebTranslationKey, string> = {
   "statutory.ceiling": "Monthly ceiling",
   "statutory.ceilingHint": "Anything above this carries no contribution.",
   "statutory.employeeShare": "Employee share",
+  "statutory.share.pension": "Old age, disability and death",
+  "statutory.share.end_of_service": "End of service",
+  "statutory.share.sickness": "Sickness",
+  "statutory.share.unemployment": "Unemployment",
+  "statutory.share.work_injury": "Work injury",
+  "statutory.levy.martyrs_fund": "Martyrs' fund",
   "statutory.employerShare": "Employer share",
   "statutory.source": "Source",
   "statutory.shippedWithApp": "Shipped with the app",
@@ -20134,6 +20150,8 @@ const webEn: Record<WebTranslationKey, string> = {
   ...hrSelfEn,
   ...reversalEn,
   ...hrPagesEn,
+  ...auditCodeEn,
+  ...hrPayrollReportEn,
   ...backupProtectionEn,
 };
 

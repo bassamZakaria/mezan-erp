@@ -47,6 +47,8 @@ const PLAN_OPTION: Record<PlanId, RegExp> = {
 
 const RAW_ENUM = /\b(?:[A-Z]{2,}_[A-Z_]{2,}|[a-z]{3,}_[a-z_]{3,})\b/;
 const OVERFLOW_TOLERANCE = 2;
+const SANDBOXED_PREVIEW = "about:srcdoc";
+const SANDBOX_REFUSAL = /^Blocked script execution in 'about:srcdoc' because the document's frame is sandboxed and the 'allow-scripts' permission is not set\.$/;
 
 export async function platformSignIn(page: Page, baseUrl = ""): Promise<void> {
   await page.goto(`${baseUrl}/platform/login`);
@@ -332,6 +334,9 @@ export function watchPage(page: Page, allowed: readonly Refusal[] = []): PageWat
   page.on("console", (message) => {
     if (message.type() !== "error") return;
     if (/Failed to load resource/.test(message.text())) return;
+    // The test runner's own scripts are refused by a fully sandboxed srcdoc frame (an e-mail preview);
+    // the frame runs nothing of the app's, so the refusal says nothing about the screen.
+    if (message.location().url === SANDBOXED_PREVIEW && SANDBOX_REFUSAL.test(message.text())) return;
     problems.push(`console ${message.text()}`);
   });
   page.on("response", (response) => {
@@ -377,6 +382,19 @@ export interface ScreenCheck {
   readonly watch: PageWatch;
 }
 
+// A <code> element declares its text a machine literal — an API scope, an environment variable, a
+// code an administrator typed — which is the one place an identifier is the content, not a leak.
+async function textOutsideCode(page: Page): Promise<string> {
+  return page.evaluate(() => {
+    const literals = [...document.querySelectorAll<HTMLElement>("code")];
+    const before = literals.map((element) => element.style.getPropertyValue("display"));
+    literals.forEach((element) => element.style.setProperty("display", "none"));
+    const text = document.body.innerText;
+    literals.forEach((element, index) => element.style.setProperty("display", before[index] ?? ""));
+    return text;
+  });
+}
+
 export async function expectHealthyScreen(page: Page, check: ScreenCheck): Promise<void> {
   await check.watch.settled();
   const headings = (await page.locator("h1").allInnerTexts()).map((text) => text.trim());
@@ -388,7 +406,7 @@ export async function expectHealthyScreen(page: Page, check: ScreenCheck): Promi
   });
   expect.soft(overflow, `${check.name}: no horizontal page scroll`).toBeLessThanOrEqual(OVERFLOW_TOLERANCE);
   if (check.locale === Locale.Arabic) {
-    const text = await page.locator("body").innerText();
+    const text = await textOutsideCode(page);
     expect.soft(text.match(RAW_ENUM)?.[0] ?? null, `${check.name}: no raw enum text in Arabic`).toBeNull();
   }
   mkdirSync(WALK_DIR, { recursive: true });

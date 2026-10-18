@@ -25,7 +25,7 @@ import { useElectronSavePdf } from "../print/useElectronSavePdf";
 /** A figure as the report carries it: a number, or an exact decimal string for money (D345). */
 export type ReportRunnerFigure = number | string;
 
-export type ReportRunnerColumnFormat = "text" | "money" | "qty" | "date" | "percent" | "variance" | "share";
+export type ReportRunnerColumnFormat = "text" | "money" | "qty" | "date" | "percent" | "variance" | "share" | "code";
 
 export interface ReportRunnerColumn<Row> {
   readonly key: string;
@@ -119,6 +119,8 @@ export interface ReportRunnerResult<Row> {
 
 export interface ReportRunnerProps<Row> {
   title: string;
+  /** Set when the report sits under a screen that already carries the page's one h1. */
+  nested?: boolean;
   description?: string;
   /** A caveat about the figures themselves; shown above them and printed with them. */
   notice?: ReactNode;
@@ -238,6 +240,7 @@ function absoluteFigure(value: ReportRunnerFigure): ReportRunnerFigure {
 
 function formatCell(value: string | number | null, format: ReportRunnerColumnFormat | undefined, fmt: ReturnType<typeof useFormat>): ReactNode {
   if (value === null) return "—";
+  if (format === "code") return <code dir="ltr" className="mz-lat font-mono text-[11.5px]">{value}</code>;
   if (format === "money" && (typeof value === "number" || DECIMAL_FIGURE.test(value))) return <Money value={value} currencyLabel={fmt.currencyLabel} />;
   if (format === "qty" && typeof value === "number") return <span className="mz-num">{fmt.number(value)}</span>;
   if (format === "percent" && typeof value === "number") return <span className="mz-num">{fmt.number(value)}%</span>;
@@ -332,6 +335,7 @@ function ParamField({
 
 export function ReportRunner<Row>({
   title,
+  nested = false,
   description,
   notice,
   paramFields,
@@ -418,7 +422,7 @@ export function ReportRunner<Row>({
       <style>{`@media print { @page { size: A4 ${landscape ? "landscape" : "portrait"}; margin: 12mm 10mm; } }`}</style>
       <div className="mb-[16px] flex flex-wrap items-end justify-between gap-[18px]">
         <div>
-          <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">{title}</h1>
+          {nested ? <h2 className="mt-[5px] font-display text-2xl font-bold text-ink">{title}</h2> : <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">{title}</h1>}
           {description ? <p className="mt-[5px] max-w-[62ch] text-[12.5px] text-ink-muted">{description}</p> : null}
         </div>
         <div className="flex flex-wrap items-center gap-[9px] print:hidden">

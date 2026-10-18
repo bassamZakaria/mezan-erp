@@ -3,6 +3,7 @@ import { useSearchParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { Button, Card } from "@mezan/ui";
 import type { VerifySignupResultDTO } from "@mezan/contracts";
+import { handOffSignIn } from "../data/session";
 import { useAppTranslation } from "../i18n";
 import { SignupLayout } from "./SignupLayout";
 import { SignupApiError, SignupErrorCode, verifySignup } from "./signup-api";
@@ -40,11 +41,16 @@ function VerifiedPanel({ result }: { result: VerifySignupResultDTO }) {
           {t("signup.verify.oneTime")}
         </p>
       ) : null}
-      <Button variant="primary" className="w-full" onClick={goSignIn}>
+      <Button variant="primary" className="w-full" onClick={() => goSignInAs(result)}>
         {t("signup.verify.goSignIn")}
       </Button>
     </Card>
   );
+}
+
+function goSignInAs(result: VerifySignupResultDTO) {
+  handOffSignIn(result.tenant.code, result.adminEmail);
+  goSignIn();
 }
 
 function goSignIn() {

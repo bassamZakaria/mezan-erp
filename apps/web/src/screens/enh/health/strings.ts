@@ -63,6 +63,7 @@ export const ar = {
   "health.jobs.neverRun": "لم تعمل بعد منذ بدء التشغيل.",
   "health.jobs.lastError": "آخر خطأ: {error}",
   "health.jobs.kind.leave_accrual": "استحقاق رصيد الإجازات",
+  "health.jobs.kind.crm_activity_reminders": "تذكيرات أنشطة العملاء",
 
   "health.database.summary": "حجم القاعدة {size}",
   "health.database.wal": "ملف السجل المؤقت {size}",
@@ -113,7 +114,7 @@ export const ar = {
   "platform.operations.checkOk": "سليم",
   "platform.operations.checkFailing": "متعطّل",
   "platform.operations.alertsConfigured": "التنبيهات تُرسل بالبريد.",
-  "platform.operations.alertsNotConfigured": "التنبيهات لا تُرسل: اضبط MEZAN_ALERT_EMAIL وإعدادات البريد للمنصة.",
+  "platform.operations.alertsNotConfigured": "التنبيهات لا تُرسل: اضبط إعدادات البريد للمنصة وعنوان التنبيهات في المتغير",
   "platform.operations.jobs": "المهام الدورية",
   "platform.operations.noJobs": "لا توجد مهام دورية تعمل على هذا الخادم.",
   "platform.operations.alerts": "التنبيهات منذ بدء التشغيل",
@@ -202,6 +203,7 @@ export const en: Record<keyof typeof ar, string> = {
   "health.jobs.neverRun": "Has not run yet since startup.",
   "health.jobs.lastError": "Last error: {error}",
   "health.jobs.kind.leave_accrual": "Leave accrual",
+  "health.jobs.kind.crm_activity_reminders": "CRM activity reminders",
 
   "health.database.summary": "Database size {size}",
   "health.database.wal": "Write-ahead log {size}",
@@ -252,7 +254,7 @@ export const en: Record<keyof typeof ar, string> = {
   "platform.operations.checkOk": "OK",
   "platform.operations.checkFailing": "Failing",
   "platform.operations.alertsConfigured": "Alerts are mailed.",
-  "platform.operations.alertsNotConfigured": "Alerts are not mailed: set MEZAN_ALERT_EMAIL and the platform mail settings.",
+  "platform.operations.alertsNotConfigured": "Alerts are not mailed: set the platform mail settings and the alert address in the variable",
   "platform.operations.jobs": "Periodic jobs",
   "platform.operations.noJobs": "No periodic job runs on this server.",
   "platform.operations.alerts": "Alerts since start-up",

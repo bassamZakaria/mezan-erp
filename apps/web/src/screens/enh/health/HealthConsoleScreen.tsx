@@ -84,6 +84,7 @@ const DTO_LEVEL: Readonly<Record<HealthLevelDTO, HealthLevel>> = {
 
 const JOB_LABEL: Readonly<Record<string, AppTranslationKey>> = {
   leave_accrual: "health.jobs.kind.leave_accrual",
+  crm_activity_reminders: "health.jobs.kind.crm_activity_reminders",
 };
 
 const BYTES_UNITS = ["B", "KB", "MB", "GB", "TB"] as const;
@@ -503,7 +504,7 @@ export function HealthConsoleScreen() {
       ) : null}
 
       <section aria-label={t("health.services")} className="flex flex-col gap-[8px]">
-        <SystemStatusScreen />
+        <SystemStatusScreen nested />
         <MaintenancePanel />
       </section>
     </div>

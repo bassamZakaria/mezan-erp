@@ -2,6 +2,7 @@ import { auditStreamSchema, type AfterHoursRowDTO, type WorkingHoursDTO } from "
 import type { ReportRunnerColumn, ReportRunnerParamField } from "@mezan/ui";
 import { SecurityReportScreen, securityCopy, type SecurityReportResult } from "./SecurityReportScreen";
 import { useAppTranslation, type AppTranslationKey } from "../../i18n";
+import { useAuditLabels } from "../enh/audit-ledger/audit-changes";
 import { monthStartIso, todayIso } from "../../lib/dates";
 
 /** نشاط خارج أوقات العمل — `/security-reports/after-hours` (P-4). */
@@ -17,6 +18,7 @@ const SEVERITIES = ["", "INFO", "WARNING", "ERROR", "CRITICAL"] as const;
 
 export function AfterHoursReportScreen() {
   const { t } = useAppTranslation();
+  const labels = useAuditLabels();
 
   const paramFields: ReportRunnerParamField[] = [
     { kind: "dateRange", fromKey: "from", toKey: "to", label: t("securityReports.period") },
@@ -51,8 +53,8 @@ export function AfterHoursReportScreen() {
       value: (r) => r.outsideReasonLabelAr,
     },
     { key: "actor", header: securityCopy(REPORT, "col", "actor", "المستخدم", t), value: (r) => r.actor },
-    { key: "action", header: securityCopy(REPORT, "col", "action", "الإجراء", t), value: (r) => r.action },
-    { key: "entityType", header: securityCopy(REPORT, "col", "entityType", "النوع", t), value: (r) => r.entityType },
+    { key: "action", header: securityCopy(REPORT, "col", "action", "الإجراء", t), value: (r) => labels.actionLabel(r.action) },
+    { key: "entityType", header: securityCopy(REPORT, "col", "entityType", "النوع", t), value: (r) => labels.entityLabel(r.entityType) },
     { key: "entityId", header: securityCopy(REPORT, "col", "entityId", "المرجع", t), value: (r) => r.entityId },
     { key: "branchId", header: securityCopy(REPORT, "col", "branchId", "الفرع", t), value: (r) => r.branchId },
   ];

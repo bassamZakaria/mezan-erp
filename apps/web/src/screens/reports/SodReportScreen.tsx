@@ -29,7 +29,7 @@ export function SodReportScreen() {
     },
     { key: "conflictLabelAr", header: securityCopy(REPORT, "col", "conflictLabelAr", "التعارض", t), value: (r) => r.conflictLabelAr },
     { key: "subjectLabelAr", header: securityCopy(REPORT, "col", "subjectLabelAr", "الدور/المستخدم", t), value: (r) => r.subjectLabelAr },
-    { key: "roleCode", header: securityCopy(REPORT, "col", "roleCode", "رمز الدور", t), value: (r) => r.roleCode },
+    { key: "roleCode", header: securityCopy(REPORT, "col", "roleCode", "رمز الدور", t), format: "code", value: (r) => r.roleCode },
     { key: "sideAActor", header: securityCopy(REPORT, "col", "sideAActor", "الطرف الأول", t), value: (r) => r.sideAActor },
     { key: "sideBActor", header: securityCopy(REPORT, "col", "sideBActor", "الطرف الثاني", t), value: (r) => r.sideBActor },
   ];

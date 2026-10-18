@@ -161,8 +161,8 @@ export function AuditLogScreen() {
         header: t("common.type"),
         render: (e) => <StatusPill label={t(STREAM_KEY[e.stream])} tone={STREAM_TONE[e.stream]} />,
       },
-      { key: "module", header: t("audit.module"), render: (e) => <span className="text-ink">{e.module}</span> },
-      { key: "entityType", header: t("audit.entity"), render: (e) => <span className="mz-num text-ink-muted">{e.entityType}</span> },
+      { key: "module", header: t("audit.module"), render: (e) => <span className="text-ink">{labels.moduleLabel(e.module)}</span> },
+      { key: "entityType", header: t("audit.entity"), render: (e) => <span className="text-ink-muted">{labels.entityLabel(e.entityType)}</span> },
       { key: "action", header: t("audit.action"), render: (e) => <span className="font-semibold text-ink">{labels.actionLabel(e.action)}</span> },
       { key: "changes", header: t("auditLedger.changes"), render: (e) => <ChangeSummary changes={auditChangesOfEvent(e)} /> },
       { key: "actor", header: t("audit.user"), render: (e) => <span className="text-ink-muted">{e.actor}</span> },
@@ -374,7 +374,7 @@ export function AuditLogScreen() {
               </div>
               <div className="flex items-center justify-between">
                 <dt className="text-ink-muted">{t("audit.entity")}</dt>
-                <dd className="text-ink">{selected.entityType}</dd>
+                <dd className="text-ink">{labels.entityLabel(selected.entityType)}</dd>
               </div>
               <div className="flex items-center justify-between">
                 <dt className="text-ink-muted">{t("audit.action")}</dt>

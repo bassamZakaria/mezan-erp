@@ -48,9 +48,11 @@ SMTP, S3 and the Contabo VPS (test doubles and local stubs only); load testing.
 | Scenario | Priority | Automated? | Last verified |
 |---|---|---|---|
 | PLT-SAAS-01..08 (console, isolation, resolution, signup, card checkout, trial expiry, screen walk, demo tenant) | P0 | ✅ `e2e/saas/*.spec.ts` | running 2026-10-18 |
+| Every tenant screen the nav reaches (route table × entitlements, incl. P1 screens, integrations tabs, payroll bank-file tab, van-trip reconciliation, `/glance`) × 8 looks on the seeded Enterprise demo; English copy of the P1 screens | P0 | ✅ `e2e/saas/07-screen-walk.spec.ts` | 2026-10-18 |
 | Cookie session + CSRF + email-change guard + sign-out | P0 | ❌ manual (walked 2026-10-17) | 2026-10-17 |
 | Backup export single-use link | P0 | ❌ manual (walked 2026-10-17) | 2026-10-17 |
 | P1 features (16 areas) | P1 | ❌ manual only; ledger arithmetic of E3-04/E2-04/E2-03/E2-08 in `scripts/scenarios` | — |
 
 ## Changelog
 - 2026-10-18: first version.
+- 2026-10-18: screen walk extended to every tenant screen in all eight looks; the demo server pair boots once from `playwright.saas.config.ts`.

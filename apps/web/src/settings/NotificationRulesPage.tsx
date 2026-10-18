@@ -139,11 +139,11 @@ export function NotificationRulesPage() {
   const eventOptions = useMemo(() => {
     const triggers = triggerCatalog.data?.triggers;
     if (!triggers) {
-      return DOMAIN_EVENT_CATALOG.map((e) => ({ value: e.code, label: `${eventLabel(e, t)} (${e.code})` }));
+      return DOMAIN_EVENT_CATALOG.map((e) => ({ value: e.code, label: eventLabel(e, t) }));
     }
     return triggers.map((trigger) => ({
       value: trigger.code,
-      label: `${eventLabel(trigger, t)} (${trigger.code})${trigger.emitted ? "" : t("notifRules.notEmittedSuffix")}`,
+      label: `${eventLabel(trigger, t)}${trigger.emitted ? "" : t("notifRules.notEmittedSuffix")}`,
     }));
   }, [triggerCatalog.data, t]);
 

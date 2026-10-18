@@ -9,6 +9,7 @@ export const DEMO_API_PORT = 3323;
 export const DEMO_WEB_PORT = 5323;
 
 export const PLATFORM_DIR_ENV = "MEZAN_SAAS_E2E_PLATFORM_DIR";
+export const DEMO_PLATFORM_DIR_ENV = "MEZAN_SAAS_E2E_DEMO_PLATFORM_DIR";
 
 export const SAAS_API_URL = `http://127.0.0.1:${SAAS_API_PORT}`;
 export const SAAS_WEB_URL = `http://127.0.0.1:${SAAS_WEB_PORT}`;
@@ -169,6 +170,8 @@ export enum CodePrefix {
   Lapsing = "lapse",
   Walk = "walk",
   BesideDemo = "beside",
+  SignedInBefore = "before",
+  HandedOver = "handed",
 }
 
 export const SUITE_TENANT_CODE = new RegExp(`^(?:${Object.values(CodePrefix).join("|")})-[a-z0-9]{8}$`);

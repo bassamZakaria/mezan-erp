@@ -417,6 +417,7 @@ function ReportTab<Row>({
   return (
     <div className="flex flex-col gap-[14px]">
       <ReportRunner<Row>
+        nested
         title={title}
         paramFields={paramFields}
         params={params}

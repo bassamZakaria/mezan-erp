@@ -30,6 +30,7 @@ import { provisionReviewTenant } from "./review-tenant.js";
 import { createLegalRoutes, LEGAL_BASE_PATH } from "./legal-routes.js";
 import { startDunningTimer } from "./dunning.js";
 import { startOwnerDigestTimer } from "./owner-digest.js";
+import { startCollectionsTimer } from "./collections-schedule.js";
 import { createBackupScheduler } from "./backup-scheduler.js";
 import { startAuditAnchorTimer } from "./audit-anchor-job.js";
 import { AnchorSinkKind, createAuditAnchorService } from "./audit-anchor-setup.js";
@@ -61,6 +62,7 @@ export enum PlatformJobKind {
   CardCheckoutSweep = "platform_card_checkout_sweep",
   Backups = "platform_backups",
   AuditAnchor = "platform_audit_anchor",
+  CollectionsDunning = "platform_collections_dunning",
 }
 
 export enum ReadinessCheck {
@@ -76,6 +78,7 @@ export interface Readiness {
 const READINESS_WATCH_MS = 60_000;
 const DUNNING_INTERVAL_MS = 24 * 60 * 60_000;
 const OWNER_DIGEST_INTERVAL_MS = 30 * 60_000;
+const COLLECTIONS_INTERVAL_MS = 60 * 60_000;
 const CHECKOUT_SWEEP_INTERVAL_MS = 15 * 60_000;
 export const OWNER_PASSWORD_FILE = "platform-owner-password.txt";
 
@@ -346,6 +349,15 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
     onError: (err) => log.error({ job: PlatformJobKind.OwnerDigest, err }, "owner digest sweep failed"),
   });
 
+  const collectionsTimer = startCollectionsTimer({
+    platform,
+    router,
+    now,
+    intervalMs: COLLECTIONS_INTERVAL_MS,
+    job: jobs.track(PlatformJobKind.CollectionsDunning, COLLECTIONS_INTERVAL_MS),
+    onError: (err) => log.error({ job: PlatformJobKind.CollectionsDunning, err }, "collections dunning sweep failed"),
+  });
+
   const checkoutSweepTimer = checkoutService
     ? startCardCheckoutSweepTimer(checkoutService, {
         intervalMs: CHECKOUT_SWEEP_INTERVAL_MS,
@@ -551,6 +563,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
       tenantBackups.close();
       dunningTimer.stop();
       await ownerDigestTimer.stop();
+      await collectionsTimer.stop();
       checkoutSweepTimer?.stop();
       await router.close();
       await booksScanned;

@@ -29,6 +29,7 @@ const JOB_LABEL: Readonly<Record<string, AppTranslationKey>> = {
   platform_card_checkout_sweep: "platform.operations.job.platform_card_checkout_sweep",
   platform_backups: "platform.operations.job.platform_backups",
   platform_audit_anchor: "platform.operations.job.platform_audit_anchor",
+  platform_collections_dunning: "platform.operations.job.platform_collections_dunning",
 };
 
 const ALERT_LABEL: Readonly<Record<string, AppTranslationKey>> = {

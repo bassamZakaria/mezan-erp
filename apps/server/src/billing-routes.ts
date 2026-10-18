@@ -253,6 +253,8 @@ export function createTenantBillingRoutes(options: TenantBillingRoutesOptions): 
     }
     const usage = await planUsage(caller);
     const plans = (await platform.stores.plans.list()).filter((p) => p.status === "active" && p.isPublic);
+    const intendedPlan =
+      subscription?.intendedPlanId && subscription.intendedPlanId !== plan?.id ? (plans.find((p) => p.id === subscription.intendedPlanId) ?? null) : null;
     const checkouts: CardCheckout[] = service ? (await service.listByTenant(caller.tenant.id)).slice(0, 10) : [];
 
     const body: TenantBillingDTO = {
@@ -275,6 +277,7 @@ export function createTenantBillingRoutes(options: TenantBillingRoutesOptions): 
       month: usage.month,
       trialEndsAt: subscription?.status === SubscriptionStatusKind.Trialing ? subscription.trialEndsAt : null,
       trialDaysLeft: trialDaysLeft(subscription?.status === SubscriptionStatusKind.Trialing ? subscription.trialEndsAt : null, usage.today),
+      intendedPlan: intendedPlan ? { id: intendedPlan.id, nameAr: intendedPlan.nameAr, nameEn: intendedPlan.nameEn } : null,
       moduleTrialDays: MODULE_TRIAL_DAYS,
       quotas: usage.quotas as BillingQuotaDTO[],
       limits: usage.limits as BillingLimitDTO[],
@@ -287,7 +290,7 @@ export function createTenantBillingRoutes(options: TenantBillingRoutesOptions): 
           modules: [...p.modules], seatsIncluded: p.seatsIncluded, branchesIncluded: p.branchesIncluded,
           warehousesIncluded: p.warehousesIncluded, quotas: { ...p.quotas },
           priceMonthly: p.priceMonthly.toString(), priceYearly: p.priceYearly.toString(),
-          trialDays: p.trialDays, current: p.id === plan?.id,
+          trialDays: p.trialDays, current: p.id === plan?.id, suggested: p.id === intendedPlan?.id,
         })),
       checkouts: checkouts.map(serializeCardCheckoutForTenant),
     };

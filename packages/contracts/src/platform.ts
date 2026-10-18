@@ -578,7 +578,11 @@ export const billingPlanOfferSchema = planSchema
     seatsIncluded: true, branchesIncluded: true, warehousesIncluded: true, quotas: true,
     priceMonthly: true, priceYearly: true, trialDays: true,
   })
-  .extend({ current: z.boolean() });
+  .extend({
+    current: z.boolean(),
+    /** The plan the customer picked at sign-up — the one to suggest when the reverse trial ends. */
+    suggested: z.boolean(),
+  });
 
 export const tenantBillingSchema = z.object({
   cardCheckout: z.boolean(),
@@ -601,6 +605,8 @@ export const tenantBillingSchema = z.object({
   /** The reverse trial's end, and how many of the tenant's own days are left. */
   trialEndsAt: z.string().nullable(),
   trialDaysLeft: z.number().int().nullable(),
+  /** The plan the customer picked at sign-up, while it is still on offer and not the plan they are on. */
+  intendedPlan: z.object({ id: z.string(), nameAr: z.string(), nameEn: z.string() }).nullable(),
   moduleTrialDays: z.number().int().nonnegative(),
   quotas: z.array(billingQuotaSchema),
   limits: z.array(billingLimitSchema),

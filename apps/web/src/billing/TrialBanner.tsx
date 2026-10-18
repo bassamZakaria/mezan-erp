@@ -15,7 +15,7 @@ import { useAppTranslation } from "../i18n";
  * and a countdown with no ending reads as a threat.
  */
 export function TrialBanner() {
-  const { t } = useAppTranslation();
+  const { t, locale } = useAppTranslation();
   const countPhrase = useCountPhrase();
   const billing = useTenantBilling().data;
   const daysLeft = billing?.trialDaysLeft ?? null;
@@ -33,6 +33,11 @@ export function TrialBanner() {
         {daysLeft === 0 ? t("trial.endsToday") : t("trial.daysLeft", { days: countPhrase(daysLeft, CountedNoun.Day) })}
       </span>
       <span className="text-ink-muted">{t("trial.thenFree")}</span>
+      {billing.intendedPlan ? (
+        <span className="text-ink-muted">
+          {t("trial.intendedPlan", { plan: locale === "ar" ? billing.intendedPlan.nameAr : billing.intendedPlan.nameEn })}
+        </span>
+      ) : null}
       <Link
         to={`/${routePathForScreen("settings-billing")}`}
         className="font-semibold text-brand underline underline-offset-2"

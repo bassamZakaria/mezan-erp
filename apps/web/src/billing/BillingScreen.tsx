@@ -153,7 +153,7 @@ export function BillingScreen() {
         <Card className="p-[16px]">
           <h2 className="mb-[12px] text-[13px] font-bold text-ink">{t("plan.offers.title")}</h2>
           <div className="flex flex-col gap-[12px]">
-            {data.plans.map((p) => (
+            {[...data.plans].sort((a, b) => Number(b.suggested) - Number(a.suggested)).map((p) => (
               <PlanOffer key={p.id} plan={p} nameOf={name} />
             ))}
           </div>
@@ -207,11 +207,12 @@ function PlanOffer({
   const invoiceQuota = plan.quotas["sales_invoices_per_month"];
   return (
     <div
-      className={`rounded-md border p-[12px] ${plan.current ? "border-brand bg-brand-soft" : "border-border bg-surface-2"}`}
+      className={`rounded-md border p-[12px] ${plan.current || plan.suggested ? "border-brand bg-brand-soft" : "border-border bg-surface-2"}`}
     >
       <div className="flex flex-wrap items-center gap-[8px]">
         <span className="text-[12.5px] font-bold text-ink">{nameOf(plan.nameAr, plan.nameEn)}</span>
         {plan.current ? <StatusPill label={t("plan.offers.current")} tone="info" /> : null}
+        {plan.suggested && !plan.current ? <StatusPill label={t("plan.offers.suggested")} tone="success" /> : null}
         {plan.kind === "free" ? <StatusPill label={t("plan.kind.free")} tone="success" /> : null}
       </div>
       <div className="mt-[6px] flex flex-wrap items-center gap-[12px] text-[12px] text-ink-muted">

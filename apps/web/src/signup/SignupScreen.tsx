@@ -2,7 +2,9 @@ import { useId, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Button, Card, Money, TextInput } from "@mezan/ui";
 import type { BillingCycleDTO, PublicPlanDTO, StartSignupRequestDTO, StartSignupResultDTO } from "@mezan/contracts";
+import { ArabicCase, CountedNoun } from "@mezan/domain";
 import { useAppTranslation } from "../i18n";
+import { useCountPhrase } from "../lib/count-phrase";
 import { COMPANY_NAME_MAX_LENGTH } from "@mezan/contracts";
 import { Field, FormError, TextField } from "../settings/form-controls";
 import { SignupLayout } from "./SignupLayout";
@@ -56,9 +58,6 @@ function PlanCard({
         <Money value={Number(price)} />
         <span className="text-[11px] text-ink-muted">/{cycle === "monthly" ? t("platform.billingCycle.monthly") : t("platform.billingCycle.yearly")}</span>
       </span>
-      {plan.trialDays > 0 ? (
-        <span className="text-[11px] font-semibold text-accent-strong">{t("signup.plan.trialDays", { days: String(plan.trialDays) })}</span>
-      ) : null}
     </button>
   );
 }
@@ -86,6 +85,7 @@ function SuccessPanel({ result, email }: { result: StartSignupResultDTO; email: 
 
 export function SignupScreen() {
   const { t } = useAppTranslation();
+  const countPhrase = useCountPhrase();
   const [draft, setDraft] = useState<Draft>(emptyDraft());
   const [codeStatus, setCodeStatus] = useState<CodeStatus>("idle");
   const codeId = useId();
@@ -156,6 +156,7 @@ export function SignupScreen() {
   }
 
   const plans = plansQuery.data ?? [];
+  const trialDays = plans.reduce((most, plan) => Math.max(most, plan.trialDays), 0);
   const codeHint =
     codeStatus === "checking"
       ? t("signup.tenantCode.checking")
@@ -224,7 +225,12 @@ export function SignupScreen() {
         </label>
 
         <div>
-          <span className="mb-[8px] block text-xs font-semibold text-ink">{t("signup.plan")}</span>
+          <span className="mb-[4px] block text-xs font-semibold text-ink">{t("signup.plan")}</span>
+          {trialDays > 0 ? (
+            <p className="mb-[8px] text-[12px] font-semibold text-accent-strong">
+              {t("signup.plan.trialDays", { days: countPhrase(trialDays, CountedNoun.Day, ArabicCase.Oblique) })}
+            </p>
+          ) : null}
           <div className="mb-[10px] inline-flex rounded-md border border-border p-[2px]">
             {(["monthly", "yearly"] as const).map((cycle) => (
               <button

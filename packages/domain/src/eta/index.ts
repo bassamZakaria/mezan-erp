@@ -185,6 +185,7 @@ export {
 export {
   resolveEtaVatSubType,
   findLineTaxRate,
+  lineTaxPercent,
   resolveLineTaxRate,
   isZeroRatedLineUnclassified,
   ZERO_RATED_SUBTYPES,

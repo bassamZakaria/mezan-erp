@@ -44,6 +44,17 @@ export function isZeroRatedLineUnclassified<
   );
 }
 
+// INVARIANT: a line whose stored percent is missing takes the percent of the rate it names; with neither, the
+// answer is null — never 0%. Filing an unknown rate as 0% is a classification the books never made.
+export function lineTaxPercent<T extends { readonly id: string; readonly rate: number }>(
+  taxRates: readonly T[],
+  line: { readonly taxRateId?: string | null; readonly taxRatePercent?: number | null },
+): number | null {
+  if (line.taxRatePercent !== null && line.taxRatePercent !== undefined) return line.taxRatePercent;
+  const named = line.taxRateId ? taxRates.find((r) => r.id === line.taxRateId) : undefined;
+  return named ? named.rate : null;
+}
+
 export interface LineTaxIdentity {
   readonly taxRateId?: string | null;
   readonly taxRatePercent: number;

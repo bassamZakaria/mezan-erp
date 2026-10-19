@@ -18,6 +18,7 @@ import {
   etaReceiptIssuedAt,
   extend as extendQtyByPrice,
   resolveLineTaxRate,
+  lineTaxPercent,
   isZeroRatedLineUnclassified,
   Money,
   prevalidateEtaInvoice,
@@ -810,7 +811,8 @@ async function buildReturnCreditNoteInputs(
   const lines = doc.lines.map((line, index) => {
     const item = lineItems[index] ?? null;
     const net = extendQtyByPrice(line.qty, line.unitPrice);
-    const rate = line.taxRatePercent ?? 0;
+    const known = lineTaxPercent(taxRates, line);
+    const rate = known ?? 0;
     const taxRate = resolveLineTaxRate(taxRates, { taxRateId: line.taxRateId, taxRatePercent: rate });
     const unitCode = item?.baseUnitCode ?? "";
     totalNet = totalNet.add(net);
@@ -824,7 +826,8 @@ async function buildReturnCreditNoteInputs(
       etaUnitCode: unitByCode.get(unitCode) ?? null,
       taxRatePercent: rate,
       etaTaxSubType: taxRate?.etaSubType ?? null,
-      taxClassificationMissing: isZeroRatedLineUnclassified(taxRates, { taxRateId: line.taxRateId, taxRatePercent: rate }),
+      taxClassificationMissing: known !== null && isZeroRatedLineUnclassified(taxRates, { taxRateId: line.taxRateId, taxRatePercent: rate }),
+      taxRateUnknown: known === null,
       netTotal: net.toString(),
       taxAmount: line.taxAmount.toString(),
     });
@@ -974,7 +977,8 @@ async function assertFiledConsistent(
   if (!filed) throw new TaxClassificationFiledUnreadableError(documentNumber);
   const taxRates = await deps.taxRates.list();
   const declared = after.map((line) => {
-    const percent = line.taxRatePercent ?? 0;
+    const percent = lineTaxPercent(taxRates, line);
+    if (percent === null) return null;
     return resolveEtaVatSubType(resolveLineTaxRate(taxRates, { taxRateId: line.taxRateId, taxRatePercent: percent })?.etaSubType, percent);
   });
   if (declared.some((subType, index) => subType !== filed[index])) throw new TaxClassificationAlreadyFiledError(documentNumber);

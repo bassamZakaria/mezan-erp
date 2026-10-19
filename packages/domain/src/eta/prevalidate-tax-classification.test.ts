@@ -8,7 +8,7 @@ import {
   prevalidateEtaInvoice,
   type EtaPrevalidationLineInput,
 } from "./prevalidate.js";
-import { isZeroRatedLineUnclassified } from "./tax-subtype.js";
+import { isZeroRatedLineUnclassified, lineTaxPercent } from "./tax-subtype.js";
 
 const rate = (id: string, percent: number, etaSubType: string, status = "active") => ({ id, rate: percent, etaSubType, status });
 const VAT = rate("VAT14", 14, "V009");
@@ -72,6 +72,22 @@ describe("prevalidateEtaInvoice — a 0% line nobody classified (D79)", () => {
     expect(findings).toHaveLength(1);
     expect(findings[0]?.severity).toBe(EtaPrevalidationSeverity.Warning);
     expect(hasBlockingEtaFindings(findings)).toBe(false);
+  });
+
+  it("BLOCKS a line whose tax percent is unknown instead of filing it at 0% (D79)", () => {
+    const findings = findingsFor(line({ taxRateUnknown: true, lineRef: "L3" }));
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toMatchObject({ severity: EtaPrevalidationSeverity.Blocking, fixRefId: "L3" });
+    expect(findings[0]?.messageAr).toContain("0%");
+  });
+
+  it("reads a missing percent off the rate the line names, and answers null — never 0 — when it names none", () => {
+    const rates = [{ id: "EXEMPT", rate: 0 }, { id: "VAT14", rate: 14 }];
+    expect(lineTaxPercent(rates, { taxRateId: "VAT14", taxRatePercent: null })).toBe(14);
+    expect(lineTaxPercent(rates, { taxRateId: "EXEMPT" })).toBe(0);
+    expect(lineTaxPercent(rates, { taxRateId: null, taxRatePercent: null })).toBeNull();
+    expect(lineTaxPercent(rates, { taxRateId: "GONE", taxRatePercent: undefined })).toBeNull();
+    expect(lineTaxPercent(rates, { taxRateId: "VAT14", taxRatePercent: 5 })).toBe(5);
   });
 
   it("points the blocking finding at the LINE, so the screen can open «تصنيف ضريبة البند» on it", () => {

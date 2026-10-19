@@ -310,6 +310,32 @@ describe("approval request routes", () => {
     expect((await rejected.json() as { status: string }).status).toBe("rejected");
   });
 
+  it("approving a sale below the price floor needs sales.pricing_guard.approve on top of workflow.approve; rejecting it does not", async () => {
+    const { app, req } = newApp();
+    await app.fetch(
+      req("/configs", {
+        method: "POST",
+        permissions: "workflow.config.manage",
+        body: JSON.stringify({ actionType: "SALES_PRICE_FLOOR_OVERRIDE", steps: [{ role: "BRANCH_MANAGER" }] }),
+      }),
+    );
+    const submit = async () =>
+      ((await (await app.fetch(req("/requests", { method: "POST", userId: "rep-1", permissions: "workflow.view", body: JSON.stringify({ actionType: "SALES_PRICE_FLOOR_OVERRIDE" }) }))).json()) as { id: string }).id;
+    const decide = (id: string, permissions: string, decision: string) =>
+      app.fetch(req(`/requests/${id}/decide`, { method: "POST", userId: "bm-1", permissions, roleCode: "BRANCH_MANAGER", body: JSON.stringify({ decision }) }));
+
+    const first = await submit();
+    const denied = await decide(first, "workflow.view,workflow.approve,sales.pricing_guard.manage", "approve");
+    expect(denied.status).toBe(403);
+    expect(JSON.stringify(await denied.json())).toContain("sales.pricing_guard.approve");
+
+    const approved = await decide(first, "workflow.view,workflow.approve,sales.pricing_guard.approve", "approve");
+    expect(((await approved.json()) as { status: string }).status).toBe("approved");
+
+    const rejected = await decide(await submit(), "workflow.view,workflow.reject", "reject");
+    expect(((await rejected.json()) as { status: string }).status).toBe("rejected");
+  });
+
   /**
    * `POST /workflow/requests` is deliberately ungated — submitting is a side
    * effect of whatever the caller was already allowed to do — so no permission

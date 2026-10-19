@@ -20,6 +20,8 @@ import {
   REAPPROVAL_REQUIRED_REASON_AR,
   REAPPROVAL_REQUIRED_REASON_EN,
   WorkflowError,
+  PRICE_FLOOR_ACTION_TYPE,
+  PRICE_FLOOR_APPROVE_PERMISSION,
   type ApproverRoleResolver,
   type AuditSink,
   type ApprovalRequestRecord,
@@ -358,6 +360,13 @@ export function createWorkflowRoutes(
     const requiredPermission = parsed.data.decision === "reject" ? "workflow.reject" : "workflow.approve";
     if (!can(ctx, requiredPermission)) {
       return c.json(permissionDeniedBody(requiredPermission), 403);
+    }
+    if (parsed.data.decision !== "reject") {
+      const pending = await deps.requests.findById(c.req.param("id"));
+      // SECURITY (segregation of duties): whoever writes the price-floor rules does not also approve the sales below them.
+      if (pending?.actionType === PRICE_FLOOR_ACTION_TYPE && !can(ctx, PRICE_FLOOR_APPROVE_PERMISSION)) {
+        return c.json(permissionDeniedBody(PRICE_FLOOR_APPROVE_PERMISSION), 403);
+      }
     }
     try {
       const record = await decideApproval(

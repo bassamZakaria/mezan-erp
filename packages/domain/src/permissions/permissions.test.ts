@@ -80,13 +80,15 @@ describe("permission catalog", () => {
     //
     // 298 → 300. ENH-E3-09 integration API (cloud only): `admin.integrations.view` and `.manage` (both sensitive).
     //
+    // 300 → 301. `sales.pricing_guard.approve` (sensitive) — approving a sale below the price floor is its own grant, so the rule writer (`.manage`) can be kept from approving under their own rules (SoD `pricing_guard_manage_approve`).
+    //
     // Pinned deliberately. A code added without a route to check it, or a route
     // deleted while its code stays, moves one of these numbers — which is the
     // whole point of asserting them.
-    expect(PERMISSIONS).toHaveLength(300);
+    expect(PERMISSIONS).toHaveLength(301);
     expect(MODULES).toHaveLength(20);
     const summed = MODULES.reduce((n, m) => n + m.count, 0);
-    expect(summed).toBe(300);
+    expect(summed).toBe(301);
   });
 
   it("carries a `pos` module again, and the INVOICE discount ceiling still lives under sales", () => {
@@ -144,7 +146,9 @@ describe("permission catalog", () => {
     expect(isSensitive("audit.evidence_pack.build")).toBe(true);
     const sensitiveCount = PERMISSIONS.filter((p) => p.sensitive).length;
     expect(isSensitive("field.van_trip.approve")).toBe(true);
-    expect(sensitiveCount).toBe(38);
+    // 38 → 39: approving a sale below the price floor overrides a pricing control.
+    expect(isSensitive("sales.pricing_guard.approve")).toBe(true);
+    expect(sensitiveCount).toBe(39);
   });
 
   it("marks the one platform-admin-only permission", () => {

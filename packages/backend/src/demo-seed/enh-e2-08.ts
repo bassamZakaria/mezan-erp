@@ -94,8 +94,8 @@ async function run(app: App, ctx: SeedFragmentContext): Promise<void> {
 export const seed: SeedFragment = {
   roleGrants: {
     SUPERVISOR: ["sales.pricing_guard.view"],
-    BRANCH_MANAGER: ["sales.pricing_guard.view", "sales.pricing_guard.manage", "workflow.approve", "workflow.reject"],
-    FINANCE_MANAGER: ["sales.pricing_guard.view"],
+    BRANCH_MANAGER: ["sales.pricing_guard.view", "sales.pricing_guard.approve", "workflow.approve", "workflow.reject"],
+    FINANCE_MANAGER: ["sales.pricing_guard.view", "sales.pricing_guard.manage"],
     AUDITOR: ["sales.pricing_guard.view"],
   },
   run,

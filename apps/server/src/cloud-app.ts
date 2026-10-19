@@ -34,6 +34,7 @@ import { startCollectionsTimer } from "./collections-schedule.js";
 import { createBackupScheduler } from "./backup-scheduler.js";
 import { startAuditAnchorTimer } from "./audit-anchor-job.js";
 import { tenantAuditAnchorPort } from "./audit-anchor-console.js";
+import { createTenantPurge, startTenantPurgeTimer } from "./tenant-purge.js";
 import { AnchorSinkKind, createAuditAnchorService } from "./audit-anchor-setup.js";
 import { createTenantBackups } from "./tenant-backups.js";
 import { createCardCheckoutService, type CardCheckoutService } from "./card-checkout.js";
@@ -64,6 +65,7 @@ export enum PlatformJobKind {
   Backups = "platform_backups",
   AuditAnchor = "platform_audit_anchor",
   CollectionsDunning = "platform_collections_dunning",
+  TenantPurge = "platform_tenant_purge",
 }
 
 export enum ReadinessCheck {
@@ -81,6 +83,7 @@ const DUNNING_INTERVAL_MS = 24 * 60 * 60_000;
 const OWNER_DIGEST_INTERVAL_MS = 30 * 60_000;
 const COLLECTIONS_INTERVAL_MS = 60 * 60_000;
 const CHECKOUT_SWEEP_INTERVAL_MS = 15 * 60_000;
+const TENANT_PURGE_INTERVAL_MS = 24 * 60 * 60_000;
 export const OWNER_PASSWORD_FILE = "platform-owner-password.txt";
 
 const OPERATOR_SWEEP_BUDGET_MS = 20_000;
@@ -284,6 +287,15 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
 
   const tenantBackups = createTenantBackups({ dir: env.platformDir, router, now });
   const anchorService = createAuditAnchorService(env.auditAnchor, env.platformDir);
+  const tenantPurge = createTenantPurge({
+    platform,
+    router,
+    dataDir: env.platformDir,
+    retentionDays: env.tenantRetentionDays,
+    localAnchorDir: anchorService ? anchorService.localDir : path.join(env.platformDir, "audit-anchors"),
+    discardExports: (tenantId) => tenantBackups.discardExportsOf(tenantId),
+    now,
+  });
 
   const platformApp = createPlatformRoutes({
     platform,
@@ -315,6 +327,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
     operations: () => operationsOf(now(), readiness(), jobs, alerter),
     invalidateEntitlements: router.invalidate,
     auditAnchors: anchorService ? tenantAuditAnchorPort({ platform, router, anchors: anchorService, now }) : undefined,
+    tenantRetention: tenantPurge,
     cardCheckout: checkoutService
       ? {
           testMode: checkoutService.provider.testMode,
@@ -394,6 +407,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
         job: jobs.track(PlatformJobKind.AuditAnchor, anchorService.intervalMs),
       })
     : null;
+  const tenantPurgeTimer = startTenantPurgeTimer(tenantPurge, { intervalMs: TENANT_PURGE_INTERVAL_MS, job: jobs.track(PlatformJobKind.TenantPurge, TENANT_PURGE_INTERVAL_MS) });
   const productionCloud = process.env["NODE_ENV"] === "production" && !env.seedDemo;
   if (!anchorService) {
     const disabled = { event: "audit_anchor.disabled", reason: "MEZAN_AUDIT_ANCHOR_SIGNING_KEY is not set (or the interval is 0): the audit trail is not anchored outside the database" };
@@ -562,6 +576,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
       alerter.close();
       stopBackups?.();
       await anchorTimer?.stop();
+      await tenantPurgeTimer.stop();
       tenantBackups.close();
       dunningTimer.stop();
       await ownerDigestTimer.stop();

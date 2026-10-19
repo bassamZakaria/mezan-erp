@@ -47,6 +47,8 @@ export interface CloudEnv {
   readonly seedDemo: boolean;
   readonly seedAdminPin?: string;
   readonly backupIntervalMinutes: number;
+  // CONTRACT: the privacy policy promises deletion this many days after a tenant is archived.
+  readonly tenantRetentionDays: number;
   readonly webDist: string;
   readonly demoPassword?: string;
   readonly analyticsToken?: string;
@@ -133,6 +135,8 @@ function trimmedOrUndefined(value: string | undefined): string | undefined {
   const trimmed = value?.trim();
   return trimmed ? trimmed : undefined;
 }
+
+export const DEFAULT_TENANT_RETENTION_DAYS = 90;
 
 function parseNonNegativeInt(value: string | undefined, name: string, fallback: number): number {
   if (value === undefined) return fallback;
@@ -341,6 +345,7 @@ export function parseEnv(env: Record<string, string | undefined> = process.env, 
     seedDemo: flag(env["MEZAN_SEED_DEMO"]),
     seedAdminPin: trimmedOrUndefined(env["MEZAN_SEED_ADMIN_PIN"]),
     backupIntervalMinutes: parseNonNegativeInt(env["MEZAN_BACKUP_INTERVAL_MINUTES"], "MEZAN_BACKUP_INTERVAL_MINUTES", 15),
+    tenantRetentionDays: parsePositiveInt(env["MEZAN_TENANT_RETENTION_DAYS"], "MEZAN_TENANT_RETENTION_DAYS", DEFAULT_TENANT_RETENTION_DAYS),
     webDist: env["MEZAN_WEB_DIST"] ?? "./apps/web/dist",
     demoPassword: trimmedOrUndefined(env["MEZAN_DEMO_PASSWORD"]),
     analyticsToken: trimmedOrUndefined(env["MEZAN_ANALYTICS_TOKEN"]),

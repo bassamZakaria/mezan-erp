@@ -206,7 +206,8 @@ export const PRIVACY: Record<LegalLanguage, LegalDocument> = {
         heading: "مدة الاحتفاظ",
         paragraphs: [],
         bullets: [
-          "بيانات شركتك: نحتفظ بها ما دام اشتراكها قائماً. بعد انتهاء الاشتراك نحتفظ بها [[TODO: عدد الأيام]] يوماً تستطيع شركتك خلالها طلب نسخة كاملة من دفاترها، ثم نحذفها [[TODO: الحذف بعد انتهاء الاشتراك غير مؤتمت بعد — تأكيد الإجراء]].",
+          "بيانات شركتك: نحتفظ بها ما دامت الخدمة قائمة. بعد إنهاء الخدمة وأرشفة حساب شركتك نحتفظ بها 90 يوماً [[TODO: تأكيد المدة قانونياً — تُضبط على الخادم بالمتغير MEZAN_TENANT_RETENTION_DAYS]] تستطيع شركتك خلالها طلب نسخة كاملة من دفاترها، ثم تُحذف تلقائياً قاعدة بياناتها ونسخها الاحتياطية على الخادم وملفات التصدير وجلسات الدخول. ويبقى سجل يثبت الحذف (معرّف الحساب ورمزه وتاريخ الحذف) دون أي بيانات تجارية.",
+          "النسخ الاحتياطية المشفّرة خارج الخادم لا تُحذف فوراً: تنتهي وحدها وفق مدة الاحتفاظ بها، وأقصاها 12 شهراً [[TODO: تأكيد المدة مع إعداد restic على الخادم]]. وتبقى سجلاتنا للفواتير والمدفوعات وسجل التدقيق الخاص بالمنصة لأنها سجلاتنا نحن.",
           "الالتزامات القانونية بالاحتفاظ بالدفاتر والمستندات، ومنها ما يفرضه قانون الضرائب والقانون التجاري في مصر، تقع على شركتك. لذلك احرص على تنزيل نسختك قبل نهاية المهلة.",
           "حذف مستخدم: عند محو بيانات مستخدم تُزال بياناته الشخصية (الاسم والبريد والهاتف والرقم السري والصورة والرقم القومي والعنوان والحساب البنكي وصور الحضور ومواقعه ومفاتيح البصمة)، ويبقى حسابه باسم «مستخدم محذوف» لأن المستندات المحاسبية التي أنشأها لا تُعدَّل.",
           "سجلات التشغيل: تُدوَّر حسب الحجم (خمسة ملفات بحد أقصى 20 ميجابايت لكل منها)، فيُكتب الجديد فوق الأقدم. [[TODO: قِس المدة الفعلية التي تغطيها السجلات على الخادم واذكرها بالأيام]]",
@@ -372,7 +373,8 @@ export const PRIVACY: Record<LegalLanguage, LegalDocument> = {
         heading: "How long we keep it",
         paragraphs: [],
         bullets: [
-          "Your company's data: kept for as long as its subscription runs. After the subscription ends we keep it for [[TODO: number of days]] days, during which your company can ask for a full copy of its books; then we delete it [[TODO: deletion after termination is not automated yet — confirm the process]].",
+          "Your company's data: kept for as long as the service runs. Once the service ends and your company's account is archived we keep it for 90 days [[TODO: legal to confirm the period — set on the server by MEZAN_TENANT_RETENTION_DAYS]], during which your company can ask for a full copy of its books; then its database, its backups on the server, export files and sign-in sessions are deleted automatically. A record proving the deletion (the account's id, its code and the deletion date) remains, with no business data.",
+          "Encrypted backups kept off the server are not deleted at once: they expire on their own under their retention period, at most 12 months [[TODO: confirm the period against the server's restic settings]]. Our own records of invoices, payments and the platform's audit trail are kept, because they are ours.",
           "Any legal duty to keep books and documents, including under Egyptian tax and commercial law, is your company's. Download your copy before that period ends.",
           "Erasing a user: their personal data is removed (name, email, phone, PIN, photo, national ID number, address, bank account, clock-in photos and locations, and biometric check keys). The account stays, named \"Deleted user\", because the accounting documents it created cannot be changed.",
           "Server logs: rotated by size (five files of at most 20 MB each), so the newest entries overwrite the oldest. [[TODO: measure how many days the logs actually cover on the server and state it]]",

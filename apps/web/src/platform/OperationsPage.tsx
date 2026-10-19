@@ -33,6 +33,7 @@ const JOB_LABEL: Readonly<Record<string, AppTranslationKey>> = {
   platform_backups: "platform.operations.job.platform_backups",
   platform_audit_anchor: "platform.operations.job.platform_audit_anchor",
   platform_collections_dunning: "platform.operations.job.platform_collections_dunning",
+  platform_tenant_purge: "platform.operations.job.platform_tenant_purge",
 };
 
 const ALERT_LABEL: Readonly<Record<string, AppTranslationKey>> = {

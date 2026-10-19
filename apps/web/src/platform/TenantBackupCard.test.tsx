@@ -7,7 +7,8 @@ import { TenantWireStatus, type TenantDTO } from "@mezan/contracts";
 import type { Transport, TransportResponse } from "../data/transport";
 import { TenantBackupCard } from "./TenantBackupCard";
 import { TenantAuditAnchorCard } from "./TenantAuditAnchorCard";
-import { renderWithPlatformProviders, testPlatformSession } from "./test-support";
+import { TenantRetentionCard } from "./TenantRetentionCard";
+import { renderWithPlatformProviders, stubPlatformTransport, testPlatformSession } from "./test-support";
 
 const tenant: TenantDTO = {
   id: "tenant-1",
@@ -226,5 +227,37 @@ describe("TenantAuditAnchorCard — accepting a legitimate restore", () => {
     renderAnchorCard({ ...refused, refusal: "NEWEST_ANCHOR_FORGED", canAcceptRestore: false }, []);
     expect(await screen.findByRole("alert")).toHaveTextContent("لا يحمل توقيعًا صحيحًا");
     expect(screen.queryByRole("button", { name: "اعتماد الاستعادة" })).not.toBeInTheDocument();
+  });
+});
+
+describe("TenantRetentionCard — deletion after the service ends", () => {
+  const archived = { ...tenant, status: TenantWireStatus.Archived };
+  const retention = { retentionDays: 90, retention: { terminatedAt: "2026-10-01T00:00:00.000Z", deleteAfter: "2026-12-30T00:00:00.000Z", lastExtension: null } };
+
+  it("shows the deletion date and that off-server snapshots age out on their own, and deletes now only with the typed code, a reason and the password", async () => {
+    const purged: unknown[] = [];
+    const transport = stubPlatformTransport({
+      "GET /tenants/tenant-1/retention": () => ({ body: retention }),
+      "POST /tenants/tenant-1/retention/purge": (init) => (purged.push(JSON.parse(String(init?.body))), { body: { tenantId: "tenant-1", code: "acme", deletedAt: "2026-10-19T00:00:00.000Z", removed: [] } }),
+    });
+    renderWithPlatformProviders(<TenantRetentionCard tenant={archived} isOwner onError={vi.fn()} />, { transport, initialSession: testPlatformSession });
+
+    expect(await screen.findByText(/مجدول للحذف في/)).toBeInTheDocument();
+    expect(screen.getByText(/restic/)).toHaveTextContent("تنتهي وحدها");
+    fireEvent.click(screen.getByRole("button", { name: "حذف البيانات الآن" }));
+    const dialog = await screen.findByRole("dialog", { name: "حذف كل بيانات هذه المنشأة الآن؟" });
+    fireEvent.change(within(dialog).getByLabelText("السبب"), { target: { value: "المالك صدّر بياناته وطلب الحذف" } });
+    fireEvent.change(within(dialog).getByLabelText("كلمة مرورك للتأكيد"), { target: { value: "correct horse battery" } });
+    fireEvent.change(within(dialog).getByLabelText("رمز المنشأة"), { target: { value: "acm" } });
+    expect(within(dialog).getByRole("button", { name: "حذف نهائي" })).toBeDisabled();
+    fireEvent.change(within(dialog).getByLabelText("رمز المنشأة"), { target: { value: "acme" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "حذف نهائي" }));
+
+    await waitFor(() => expect(purged).toEqual([{ reason: "المالك صدّر بياناته وطلب الحذف", password: "correct horse battery", confirmCode: "acme" }]));
+  });
+
+  it("shows nothing for a live tenant — its data is never scheduled for deletion", async () => {
+    const { container } = renderWithPlatformProviders(<TenantRetentionCard tenant={tenant} isOwner onError={vi.fn()} />, { transport: stubPlatformTransport({}), initialSession: testPlatformSession });
+    expect(container).toBeEmptyDOMElement();
   });
 });

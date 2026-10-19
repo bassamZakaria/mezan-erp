@@ -6,6 +6,7 @@ import { createBackend, createPlatform, PlatformAuditUnavailableError, type Back
 import { withSqliteTransaction } from "@mezan/persistence";
 import {
   activateTenant,
+  archiveTenant,
   createTenant,
   InvalidTenantTransitionError,
   SignupRequestStatus,
@@ -15,6 +16,8 @@ import {
   type Tenant,
 } from "@mezan/domain";
 import { releaseProvisioningTenant } from "./release-tenant.js";
+import { createTenantPurge, TENANT_DATA_PURGED_AUDIT, TENANT_PURGE_SYSTEM_ACTOR, TenantNotTerminatedError, TenantPurgeTrigger } from "./tenant-purge.js";
+import { tenantBackupFolder } from "./backup-scheduler.js";
 import { provisionTenant } from "./provision-tenant.js";
 import { createTenantRouter, type TenantRouter, type TenantRouterOptions } from "./tenant-router.js";
 import { reachable } from "./cloud-harness.js";
@@ -191,5 +194,85 @@ describe("releasing a tenant stuck in provisioning", () => {
     expect(await platform.stores.subscriptions.listByTenant(tenant.id)).toEqual([]);
     expect(await platform.stores.tenants.findById(tenant.id)).toMatchObject({ status: TenantStatusCode.Archived, code: `released-${tenant.id}` });
     expect(databasesIn(dataDir)).toEqual(before);
+  });
+});
+
+describe("deleting a terminated tenant's data after the retention period", () => {
+  const DAY = 24 * 60 * 60 * 1000;
+
+  async function terminatedWorld() {
+    const { dataDir, platform } = await world();
+    let clock = Date.parse(T);
+    const evicted: string[] = [];
+    const exportsDiscarded: string[] = [];
+    const anchorDir = path.join(dataDir, "audit-anchors");
+    const purge = createTenantPurge({
+      platform,
+      router: { evict: async (id) => void evicted.push(id), invalidate: () => undefined },
+      dataDir,
+      retentionDays: 90,
+      localAnchorDir: anchorDir,
+      discardExports: (id) => exportsDiscarded.push(id),
+      now: () => new Date(clock),
+    });
+    const created = await createTenant({ id: "t-gone", code: "gone", nameAr: "شركة منتهية", ownerEmail: "o@gone.example", now: T }, platform.stores.tenants);
+    const tenant = await activateTenant({ id: created.id, now: T }, platform.stores.tenants);
+    mkdirSync(path.join(dataDir, "tenants"), { recursive: true });
+    for (const suffix of ["", "-wal", "-shm"]) writeFileSync(path.join(dataDir, `${tenant.dbFile}${suffix}`), "THE BOOKS");
+    mkdirSync(tenantBackupFolder(dataDir, tenant.id), { recursive: true });
+    writeFileSync(path.join(tenantBackupFolder(dataDir, tenant.id), "2026-10-13T00-00-00-000Z.sqlite"), "A BACKUP");
+    mkdirSync(path.join(dataDir, "backups", "gone"), { recursive: true });
+    writeFileSync(path.join(dataDir, "backups", "gone", "2026-10-14T00-00-00-000Z.sqlite"), "A LEGACY BACKUP");
+    writeFileSync(path.join(dataDir, "backups", "gone", "2020-01-01T00-00-00-000Z.sqlite"), "AN EARLIER HOLDER'S BACKUP");
+    mkdirSync(anchorDir, { recursive: true });
+    writeFileSync(path.join(anchorDir, `${tenant.id}.jsonl`), "{}\n");
+    return { dataDir, platform, purge, tenant, evicted, exportsDiscarded, advance: (days: number) => (clock += days * DAY), anchorDir };
+  }
+
+  it("never touches an active tenant, and refuses to purge one outright", async () => {
+    const { dataDir, purge, tenant } = await terminatedWorld();
+    expect(await purge.sweep()).toEqual({ scheduled: 0, purged: 0, failed: 0 });
+    await expect(purge.purge(tenant, { actor: "x", reason: "a test of the refusal", trigger: TenantPurgeTrigger.Owner })).rejects.toBeInstanceOf(TenantNotTerminatedError);
+    expect(existsSync(path.join(dataDir, tenant.dbFile))).toBe(true);
+  });
+
+  it("schedules the deletion at archive, waits out the period and its extension, then deletes every local copy, leaves a tombstone and an audit row, and does it once", async () => {
+    const { dataDir, platform, purge, tenant, evicted, exportsDiscarded, advance, anchorDir } = await terminatedWorld();
+    const archived = await archiveTenant({ id: tenant.id, now: T }, platform.stores.tenants);
+    purge.scheduleOnArchive(archived, T);
+    expect(purge.view(archived).retention?.deleteAfter).toBe(new Date(Date.parse(T) + 90 * DAY).toISOString());
+
+    advance(89);
+    expect(await purge.sweep()).toMatchObject({ purged: 0 });
+    expect(purge.extend({ tenant: archived, deleteAfter: "2027-02-01T00:00:00.000Z", reason: "the owner asked for more time to export", actorId: "op-1", at: T })).toBe(true);
+    expect(purge.extend({ tenant: archived, deleteAfter: "2027-01-01T00:00:00.000Z", reason: "an earlier date is refused", actorId: "op-1", at: T })).toBe(false);
+    advance(2);
+    expect(await purge.sweep()).toMatchObject({ purged: 0 });
+    expect(existsSync(path.join(dataDir, tenant.dbFile))).toBe(true);
+
+    advance(30);
+    expect(await purge.sweep()).toEqual({ scheduled: 0, purged: 1, failed: 0 });
+    for (const suffix of ["", "-wal", "-shm"]) expect(existsSync(path.join(dataDir, `${tenant.dbFile}${suffix}`))).toBe(false);
+    expect(existsSync(tenantBackupFolder(dataDir, tenant.id))).toBe(false);
+    expect(readdirSync(path.join(dataDir, "backups", "gone"))).toEqual(["2020-01-01T00-00-00-000Z.sqlite"]);
+    expect(existsSync(path.join(anchorDir, `${tenant.id}.jsonl`))).toBe(false);
+    expect(evicted).toEqual([tenant.id]);
+    expect(exportsDiscarded).toEqual([tenant.id]);
+    expect(await platform.stores.tenants.findById(tenant.id)).toBeNull();
+    const tombstone = platform.stores.sqlite.prepare("SELECT * FROM tenant_tombstone").all();
+    expect(tombstone).toEqual([{ id: tenant.id, code: "gone", deleted_at: expect.any(String) }]);
+    const row = (await platform.audit.query("security")).find((r) => r.action === TENANT_DATA_PURGED_AUDIT);
+    expect(row).toMatchObject({ severity: "CRITICAL", actor: TENANT_PURGE_SYSTEM_ACTOR, entityId: tenant.id });
+
+    expect(await purge.sweep()).toEqual({ scheduled: 0, purged: 0, failed: 0 });
+    expect((await purge.purge(archived, { actor: "x", reason: "a second call is a no-op", trigger: TenantPurgeTrigger.Owner })).removed).toEqual([]);
+  });
+
+  it("starts the clock for a tenant archived before the schedule existed the first time it is seen, never backdated", async () => {
+    const { platform, purge, tenant, advance } = await terminatedWorld();
+    const archived = await archiveTenant({ id: tenant.id, now: T }, platform.stores.tenants);
+    advance(400);
+    expect(await purge.sweep()).toEqual({ scheduled: 1, purged: 0, failed: 0 });
+    expect(Date.parse(purge.view(archived).retention!.deleteAfter) - Date.parse(T)).toBe(490 * DAY);
   });
 });

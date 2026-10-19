@@ -113,6 +113,10 @@ import {
   TenantLifecycleRefusal,
   type AcceptAuditRestoreResultDTO,
   type TenantAuditAnchorDTO,
+  extendTenantRetentionRequestSchema,
+  purgeTenantNowRequestSchema,
+  type TenantPurgeResultDTO,
+  type TenantRetentionDTO,
 } from "@mezan/contracts";
 import { connectionTurn, createLogger } from "@mezan/api";
 import { OwnerPinResetOutcome } from "./owner-pin-reset-outcome.js";
@@ -189,6 +193,8 @@ export enum PlatformAuditAction {
   TenantAuditRestoreAcceptRequested = "TENANT_AUDIT_RESTORE_ACCEPT_REQUESTED",
   TenantAuditRestoreAccepted = "TENANT_AUDIT_RESTORE_ACCEPTED",
   TenantAuditRestoreRefused = "TENANT_AUDIT_RESTORE_REFUSED",
+  TenantRetentionExtended = "TENANT_RETENTION_EXTENDED",
+  TenantPurgeRequested = "TENANT_PURGE_REQUESTED",
 }
 
 export interface PlatformTenantBooksPort {
@@ -235,6 +241,16 @@ export interface PlatformAuditAnchorPort {
   // CONTRACT: reads only; never signs or writes an anchor.
   status(tenant: Tenant): Promise<TenantAuditAnchorDTO>;
   acceptRestore(input: { readonly tenant: Tenant; readonly reason: string; readonly actorId: string }): Promise<PlatformAcceptRestoreResult>;
+}
+
+export interface PlatformTenantRetentionPort {
+  view(tenant: Tenant): TenantRetentionDTO;
+  // REQUIRED ORDERING: called inside the archive's own write, so an archived tenant always has its deletion date.
+  scheduleOnArchive(tenant: Tenant, at: string): void;
+  // CONTRACT: false when `deleteAfter` is not later than the date already set.
+  extend(input: { readonly tenant: Tenant; readonly deleteAfter: string; readonly reason: string; readonly actorId: string; readonly at: string }): boolean;
+  // CONTRACT: refuses anything but an archived tenant; writes its own CRITICAL audit row with the deletion.
+  purgeNow(input: { readonly tenant: Tenant; readonly reason: string; readonly actorId: string }): Promise<TenantPurgeResultDTO>;
 }
 
 const AUDIT_RESTORE_REFUSAL_COPY: Readonly<Record<AuditRestoreRefusal, { readonly message: string; readonly messageEn: string }>> = {
@@ -285,6 +301,8 @@ export interface CreatePlatformRoutesOptions {
   readonly cardCheckout?: PlatformCardCheckoutPort;
   /** Absent when audit anchoring is off on this deployment. */
   readonly auditAnchors?: PlatformAuditAnchorPort;
+  /** Absent where tenant data is never purged (a rig, the desktop edition). */
+  readonly tenantRetention?: PlatformTenantRetentionPort;
 }
 
 const serializeTenant = (t: Tenant): TenantDTO => tenantDTOOf(t);
@@ -1045,6 +1063,94 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
     }
   });
 
+  const tenantRetention = options.tenantRetention;
+  const purgeUnavailable = (c: Context) =>
+    c.json({ error: TenantLifecycleRefusal.PurgeUnavailable, message: "حذف بيانات المنشآت غير مفعّل على هذه المنصة.", messageEn: "Tenant data deletion is not enabled on this platform." }, 503);
+  const notTerminated = (c: Context) =>
+    c.json(
+      { error: TenantLifecycleRefusal.NotTerminated, message: "لا تُحذف بيانات منشأة إلا بعد أرشفتها.", messageEn: "A tenant's data is deleted only after the tenant is archived." },
+      409,
+    );
+
+  app.get("/tenants/:id/retention", requireAny, async (c) => {
+    try {
+      const tenant = await requireTenant(c.req.param("id"));
+      if (!tenantRetention) return c.json({ retentionDays: 0, retention: null } satisfies TenantRetentionDTO);
+      return c.json(tenantRetention.view(tenant));
+    } catch (err) {
+      return domainErrorResponse(c, err);
+    }
+  });
+
+  app.post("/tenants/:id/retention/extend", requireOwner, async (c) => {
+    const parsed = extendTenantRetentionRequestSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    try {
+      const tenant = await requireTenant(c.req.param("id"));
+      if (!tenantRetention) return purgeUnavailable(c);
+      if (tenant.status !== TenantStatusCode.Archived) return notTerminated(c);
+      const refused = await auth.confirmPassword(c, parsed.data.password);
+      if (refused) return refused;
+      const before = tenantRetention.view(tenant).retention;
+      const deleteAfter = `${parsed.data.deleteAfter}T00:00:00.000Z`;
+      const at = nowIso();
+      const moved = before !== null && deleteAfter > before.deleteAfter && await recordedWith(c, async () => {
+        const extended = tenantRetention.extend({ tenant, deleteAfter, reason: parsed.data.reason, actorId: c.get("platformUser")!.id, at });
+        return {
+          value: extended,
+          action: PlatformAuditAction.TenantRetentionExtended,
+          entityId: tenant.id,
+          details: { code: tenant.code, from: before?.deleteAfter ?? null, to: deleteAfter, reason: parsed.data.reason, applied: extended },
+          severity: AuditSeverityCode.Critical,
+        };
+      });
+      if (!moved) {
+        return c.json(
+          {
+            error: TenantLifecycleRefusal.RetentionNotLater,
+            message: "التاريخ الجديد يجب أن يكون بعد موعد الحذف الحالي. لتقديم الحذف استخدم «حذف البيانات الآن».",
+            messageEn: "The new date must be later than the current deletion date. To delete sooner, use “Delete the data now”.",
+          },
+          409,
+        );
+      }
+      return c.json(tenantRetention.view(tenant));
+    } catch (err) {
+      return domainErrorResponse(c, err);
+    }
+  });
+
+  app.post("/tenants/:id/retention/purge", requireOwner, async (c) => {
+    const parsed = purgeTenantNowRequestSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    try {
+      const tenant = await requireTenant(c.req.param("id"));
+      if (!tenantRetention) return purgeUnavailable(c);
+      if (tenant.status !== TenantStatusCode.Archived) return notTerminated(c);
+      if (parsed.data.confirmCode !== tenant.code) {
+        return c.json(
+          { error: TenantLifecycleRefusal.ConfirmCodeMismatch, message: "الرمز المكتوب لا يطابق رمز المنشأة.", messageEn: "The code typed does not match the tenant's code." },
+          422,
+        );
+      }
+      const refused = await auth.confirmPassword(c, parsed.data.password);
+      if (refused) return refused;
+      const actorId = c.get("platformUser")!.id;
+      await recordedWith(c, async () => ({
+        value: null,
+        action: PlatformAuditAction.TenantPurgeRequested,
+        entityId: tenant.id,
+        details: { code: tenant.code, reason: parsed.data.reason },
+        severity: AuditSeverityCode.Critical,
+      }));
+      const result = await tenantRetention.purgeNow({ tenant, reason: parsed.data.reason, actorId });
+      invalidateEntitlements(tenant.code);
+      return c.json(result);
+    } catch (err) {
+      return domainErrorResponse(c, err);
+    }
+  });
+
   app.post("/tenants/:id/suspend", requireOwner, async (c) => {
     try {
       const tenant = await recordedWith(c, async () => {
@@ -1074,8 +1180,11 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
   app.post("/tenants/:id/archive", requireOwner, async (c) => {
     try {
       const tenant = await recordedWith(c, async () => {
-        const moved = await archiveTenant({ id: c.req.param("id"), now: nowIso() }, platform.stores.tenants);
-        return { value: moved, action: "TENANT_ARCHIVED", entityId: moved.id, details: {} };
+        const at = nowIso();
+        const moved = await archiveTenant({ id: c.req.param("id"), now: at }, platform.stores.tenants);
+        options.tenantRetention?.scheduleOnArchive(moved, at);
+        const deleteAfter = options.tenantRetention?.view(moved).retention?.deleteAfter ?? null;
+        return { value: moved, action: "TENANT_ARCHIVED", entityId: moved.id, details: deleteAfter ? { deleteAfter } : {} };
       });
       invalidateEntitlements(tenant.code);
       return c.json(await summaryOf(tenant));

@@ -55,6 +55,7 @@ describe("parseEnv", () => {
       seedDemo: false,
       seedAdminPin: undefined,
       backupIntervalMinutes: 15,
+      tenantRetentionDays: 90,
       webDist: "./apps/web/dist",
       demoPassword: undefined,
       analyticsToken: undefined,
@@ -123,6 +124,7 @@ describe("parseEnv", () => {
       MEZAN_SEED_DEMO: "1",
       MEZAN_SEED_ADMIN_PIN: "654321",
       MEZAN_BACKUP_INTERVAL_MINUTES: "30",
+      MEZAN_TENANT_RETENTION_DAYS: "120",
       MEZAN_WEB_DIST: "./dist",
       MEZAN_DEMO_PASSWORD: "demo-pass",
       MEZAN_ANALYTICS_TOKEN: "token-123",
@@ -153,6 +155,7 @@ describe("parseEnv", () => {
       seedDemo: true,
       seedAdminPin: "654321",
       backupIntervalMinutes: 30,
+      tenantRetentionDays: 120,
       webDist: "./dist",
       demoPassword: "demo-pass",
       analyticsToken: "token-123",
@@ -199,6 +202,11 @@ describe("parseEnv", () => {
 
   it("accepts MEZAN_BACKUP_INTERVAL_MINUTES=0 (disables the scheduler)", () => {
     expect(parseEnv({ MEZAN_BACKUP_INTERVAL_MINUTES: "0" }).backupIntervalMinutes).toBe(0);
+  });
+
+  it("refuses a MEZAN_TENANT_RETENTION_DAYS that is not a positive whole number of days", () => {
+    expect(() => parseEnv({ MEZAN_TENANT_RETENTION_DAYS: "0" })).toThrow(/MEZAN_TENANT_RETENTION_DAYS/);
+    expect(() => parseEnv({ MEZAN_TENANT_RETENTION_DAYS: "ninety" })).toThrow(/MEZAN_TENANT_RETENTION_DAYS/);
   });
 
   it("throws on a non-positive PORT", () => {

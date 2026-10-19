@@ -419,3 +419,4 @@ export { createSqliteUpgradeLedger, UpgradeStepId, type UpgradeLedger } from "./
 export { markApprovalsNeedingReapproval } from "./approval-request-store.js";
 export { createSqliteOwnerPinFence, type OwnerPinFence } from "./owner-pin-fence.js";
 export { createSqliteCredentialResetMarks, type CredentialResetMarks } from "./credential-reset-marks.js";
+export { createTenantRetentionStore, type TenantRetentionRecord, type TenantRetentionStore, type TenantTombstone } from "./tenant-retention-store.js";

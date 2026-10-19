@@ -27,6 +27,25 @@ the Contabo VPS an hourly restic job copies it, encrypted, to Object Storage
 (`deploy/contabo/backup/`). AWS, no longer the production target, synced it to
 S3 with a sidecar (`apps/mezan` README in `cyag-devops`).
 
+A tenant's data is deleted `MEZAN_TENANT_RETENTION_DAYS` days (default 90,
+a positive whole number) after the tenant is ARCHIVED — never while it is
+active or suspended, and a cancelled subscription alone starts no clock. The
+date is fixed when the tenant is archived (a tenant archived before this
+existed is scheduled the first time the daily job sees it, never backdated),
+shown on the console, and can be moved later or brought forward to "now" by the
+platform owner (typed reason + password, audited CRITICAL). The daily
+`platform_tenant_purge` job logs `tenant_purge.planned` with every file it is
+about to remove, overwrites then unlinks the database and its `-wal`/`-shm`,
+the tenant's local backups (and its own files in the legacy by-code folder),
+its export offers and, with a local anchor store, its anchor file; then, in
+one platform transaction, removes the tenant row, its signup requests and
+module trials, writes a `tenant_tombstone` row (id, code, deleted_at) and a
+CRITICAL `TENANT_DATA_PURGED` audit row. Subscriptions, payments, card
+checkouts and the platform audit trail are the platform's own records and
+stay. Off-server restic snapshots and S3 anchors are not touched: the
+snapshots age out under restic's retention. Overwriting is best effort on an
+SSD and the server disk is not encrypted.
+
 Tenant export downloads (the encrypted file the console offers, valid ten
 minutes) are held by the instance that built them, in memory. The download
 must reach that same instance (sticky routing, or one instance), until the

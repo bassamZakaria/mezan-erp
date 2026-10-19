@@ -188,6 +188,16 @@ function stampOf(date: string): string {
   return isoSafeTimestamp(new Date(date));
 }
 
+/** The tenant's own backups still in the legacy by-code folder: only those stamped at or after it was created. */
+export function legacyBackupsOf(dir: string, tenant: Pick<Tenant, "code" | "createdAt">): string[] {
+  const legacy = path.join(dir, "backups", tenant.code);
+  if (tenant.code === PLATFORM_BACKUP_FOLDER || tenant.code === TENANT_BACKUPS_FOLDER || !existsSync(legacy)) return [];
+  const earliest = `${stampOf(tenant.createdAt)}.sqlite`;
+  return readdirSync(legacy)
+    .filter((file) => file.endsWith(".sqlite") && file >= earliest)
+    .map((file) => path.join(legacy, file));
+}
+
 // REQUIRED ORDERING: only a backup stamped at or after the tenant was created
 // is moved, and never over a file already there. Anything older was written
 // for an earlier holder of the same code and stays exactly where it is.

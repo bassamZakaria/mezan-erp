@@ -19,7 +19,7 @@ import {
 import { AuditRestoreRefusal, TenantAnchorRefusal, TenantAnchorState, TenantBackupDrillOutcome, tenantDTOOf, type TenantAuditAnchorDTO, type CreateTenantRequestDTO, type ProvisionResultDTO, type ProvisionRetryRequestDTO } from "@mezan/contracts";
 import { createPlatform, type PlatformHandle } from "./create-platform.js";
 import { createPlatformAuth, type PlatformAuth } from "./platform-auth.js";
-import { createPlatformRoutes, serializeCardCheckout, serializeCardCheckoutForTenant, TenantOwnerAccountNotFoundError, type PlatformAuditAnchorPort, type PlatformCardCheckoutPort, type PlatformTenantBackupsPort, type RecordedActivation } from "./platform-routes.js";
+import { createPlatformRoutes, serializeCardCheckout, serializeCardCheckoutForTenant, TenantOwnerAccountNotFoundError, type PlatformAuditAnchorPort, type PlatformTenantRetentionPort, type PlatformCardCheckoutPort, type PlatformTenantBackupsPort, type RecordedActivation } from "./platform-routes.js";
 
 const FIXED_NOW = () => new Date("2026-01-01T00:00:00Z");
 
@@ -1750,5 +1750,75 @@ describe("accepting a tenant's restore so its audit anchoring resumes", () => {
     const { body } = await provisionOne(rig);
     expect(await json(await rig.app.fetch(req(`/tenants/${body.tenant.id}/audit-anchor`, rig.ownerToken)))).toMatchObject({ state: "disabled", canAcceptRestore: false });
     expect((await accept(rig, body.tenant.id, rig.ownerToken, { reason: REASON, password: "correct horse battery" })).status).toBe(503);
+  });
+});
+
+describe("the deletion of a terminated tenant's data, from the console", () => {
+  const REASON = "the owner confirmed the export and asked for deletion";
+
+  function retentionPort(log: string[]): PlatformTenantRetentionPort {
+    const schedule = new Map<string, { terminatedAt: string; deleteAfter: string }>();
+    return {
+      view: (tenant) => ({ retentionDays: 90, retention: schedule.has(tenant.id) ? { ...schedule.get(tenant.id)!, lastExtension: null } : null }),
+      scheduleOnArchive: (tenant, at) => void schedule.set(tenant.id, { terminatedAt: at, deleteAfter: "2026-04-01T00:00:00.000Z" }),
+      extend: ({ tenant, deleteAfter }) => {
+        log.push(`extend ${deleteAfter}`);
+        schedule.set(tenant.id, { ...schedule.get(tenant.id)!, deleteAfter });
+        return true;
+      },
+      purgeNow: async ({ tenant, reason, actorId }) => {
+        log.push(`purge ${tenant.code} by ${actorId}: ${reason}`);
+        return { tenantId: tenant.id, code: tenant.code, deletedAt: "2026-01-01T00:00:00.000Z", removed: [] };
+      },
+    };
+  }
+  const post = (rig: Rig, path: string, token: string, body: unknown) => rig.app.fetch(req(path, token, { method: "POST", body: JSON.stringify(body) }));
+
+  it("archiving schedules the deletion in the same write, and an active tenant can be neither extended nor purged", async () => {
+    const log: string[] = [];
+    const rig = await buildRig({ tenantRetention: retentionPort(log) });
+    const { body } = await provisionOne(rig);
+    const id = body.tenant.id;
+    expect((await post(rig, `/tenants/${id}/retention/purge`, rig.ownerToken, { reason: REASON, password: "correct horse battery", confirmCode: "acme" })).status).toBe(409);
+
+    await rig.app.fetch(req(`/tenants/${id}/archive`, rig.ownerToken, { method: "POST" }));
+    expect(await json(await rig.app.fetch(req(`/tenants/${id}/retention`, rig.supportToken)))).toMatchObject({ retentionDays: 90, retention: { deleteAfter: "2026-04-01T00:00:00.000Z" } });
+    const archivedRow = (await rig.platform.audit.query("security")).find((r) => r.action === "TENANT_ARCHIVED");
+    expect(archivedRow?.details).toMatchObject({ deleteAfter: "2026-04-01T00:00:00.000Z" });
+    expect(log).toEqual([]);
+  });
+
+  it("extends only forward, only for the owner, only with the password and a reason, and audits it", async () => {
+    const log: string[] = [];
+    const rig = await buildRig({ tenantRetention: retentionPort(log) });
+    const { body } = await provisionOne(rig);
+    const id = body.tenant.id;
+    await rig.app.fetch(req(`/tenants/${id}/archive`, rig.ownerToken, { method: "POST" }));
+
+    expect((await post(rig, `/tenants/${id}/retention/extend`, rig.supportToken, { reason: REASON, password: "correct horse battery", deleteAfter: "2026-06-01" })).status).toBe(403);
+    expect((await post(rig, `/tenants/${id}/retention/extend`, rig.ownerToken, { reason: REASON, password: "wrong", deleteAfter: "2026-06-01" })).status).toBe(403);
+    expect((await post(rig, `/tenants/${id}/retention/extend`, rig.ownerToken, { reason: REASON, password: "correct horse battery", deleteAfter: "2026-03-01" })).status).toBe(409);
+    const ok = await post(rig, `/tenants/${id}/retention/extend`, rig.ownerToken, { reason: REASON, password: "correct horse battery", deleteAfter: "2026-06-01" });
+    expect(ok.status).toBe(200);
+    expect(log).toEqual(["extend 2026-06-01T00:00:00.000Z"]);
+    const row = (await rig.platform.audit.query("security")).find((r) => r.action === "TENANT_RETENTION_EXTENDED");
+    expect(row).toMatchObject({ severity: "CRITICAL", actor: "PU-OWNER" });
+    expect(row?.details).toMatchObject({ from: "2026-04-01T00:00:00.000Z", to: "2026-06-01T00:00:00.000Z", reason: REASON });
+  });
+
+  it("deletes now only when the typed code matches and the password is re-entered, and records the request", async () => {
+    const log: string[] = [];
+    const rig = await buildRig({ tenantRetention: retentionPort(log) });
+    const { body } = await provisionOne(rig);
+    const id = body.tenant.id;
+    await rig.app.fetch(req(`/tenants/${id}/archive`, rig.ownerToken, { method: "POST" }));
+
+    expect((await post(rig, `/tenants/${id}/retention/purge`, rig.ownerToken, { reason: REASON, password: "correct horse battery", confirmCode: "acm" })).status).toBe(422);
+    expect((await post(rig, `/tenants/${id}/retention/purge`, rig.ownerToken, { reason: REASON, password: "wrong", confirmCode: "acme" })).status).toBe(403);
+    expect(log).toEqual([]);
+    const ok = await post(rig, `/tenants/${id}/retention/purge`, rig.ownerToken, { reason: REASON, password: "correct horse battery", confirmCode: "acme" });
+    expect(ok.status).toBe(200);
+    expect(log).toEqual([`purge acme by PU-OWNER: ${REASON}`]);
+    expect((await rig.platform.audit.query("security")).some((r) => r.action === "TENANT_PURGE_REQUESTED")).toBe(true);
   });
 });

@@ -188,7 +188,7 @@ a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 </ol>
 <h3 id="4-6-other-security-findings">4.6 Other security findings</h3>
 <ul>
-<li><strong><span class="tag sec">S‑1</span></strong> The public demo (<code>render.yaml</code>) ships a published admin PIN <code>123456</code>, applies basic auth only if an undeclared variable is set, binds <code>0.0.0.0</code>, and passes no licence state, so it is a writable admin session on the open internet running the same app the desktop serves. <code>apps/server/src/cloud.ts:28‑37,59</code>.</li>
+<li><strong><span class="tag sec">S‑1</span></strong> The public demo  ships a published admin PIN <code>123456</code>, applies basic auth only if an undeclared variable is set, binds <code>0.0.0.0</code>, and passes no licence state, so it is a writable admin session on the open internet running the same app the desktop serves. <code>apps/server/src/cloud.ts:28‑37,59</code>.</li>
 <li><strong><span class="tag sec">S‑2</span></strong> <code>apps/server/src/index.ts:37</code> binds every interface while printing <code>127.0.0.1</code>.</li>
 <li><strong><span class="tag sec">S‑3</span></strong> The audit trail is append‑only against the app's own SQL, not against the person holding the file: <code>DROP TRIGGER</code> works, and a restore replaces the trail wholesale and writes no audit event. Hash‑chain the rows, MAC the head, record restores as CRITICAL. <code>audit-sink.ts:37‑42</code>; <code>restore-ipc.ts</code>.</li>
 <li><strong><span class="tag sec">S‑4</span></strong> <code>database-key.txt</code> and <code>recovery-pin.txt</code> are plaintext credentials beside the database, removed only by hand. <code>encrypted-database.ts:235</code>; <code>recovery.ts:107</code>.</li>

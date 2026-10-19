@@ -90,7 +90,7 @@ New defects found in the receipt path (file in lane 0A, fix in 0D):
 | 16–17 | API keys, webhooks | missing | deleted by DEC-17; rebuild cloud-only → 6B (same as ENH-E3-09) |
 | 18 | Email + server PDF | partial | SMTP delivery exists (`api/smtp-client.ts`); no server PDF, PIN not emailed → 3D/6C |
 | 19 | Cloud backup | partial | scheduled in-app backups (`server/backup-scheduler.ts`); no PITR. Per-tenant export (desktop-importable, passphrase-encrypted, single-use download) and restore drill built in the console: `server/tenant-backups.ts`, `web/src/platform/TenantBackupCard.tsx` (5D) |
-| 20 | Deploy shape | done | `Dockerfile`, `render.yaml`, `deploy/contabo`, `server/cloud-app.ts` |
+| 20 | Deploy shape | done | `Dockerfile`, `deploy/contabo`, `server/cloud-app.ts` |
 
 ### 1.4 §4.3 SaaS follow-ups and extras (13 items): 1 done · 3 partial · 8 missing · 1 by design
 
@@ -273,7 +273,6 @@ Order rationale: wave 0 unblocks e-receipts (without D284 no POS receipt is ever
 
 ## 7. Needs owner
 - A Paymob (or other EGP card processor) merchant account, API keys and HMAC secret (1C live test; sandbox and test double until then).
-- Render dashboard environment variables for the staging re-run.
 - SMTP / sending-domain credentials with SPF and DKIM (3D).
 - ETA pre-production registration of a POS device: serial, POS client id and secret (0D/2B live verification).
 - Hardware: an 80 mm ESC/POS printer, an RJ11 cash drawer, a USB barcode scanner, optionally a scale and a touch screen (5C).

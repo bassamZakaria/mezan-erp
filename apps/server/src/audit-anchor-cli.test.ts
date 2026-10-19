@@ -1,7 +1,10 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { createAuditEvent } from "@mezan/domain";
+import { createSqliteAuditSink, openAuditChainFile } from "@mezan/persistence";
+import { anchorHead, createAuditAnchorSigner, createFileAuditAnchorSink } from "./audit-anchor.js";
 import { hasPendingWal, main, VerifyExit } from "./audit-anchor-cli.js";
 
 const NO_WAL = -1;
@@ -33,6 +36,37 @@ describe("the anchor verifier on a database copied without its write-ahead log",
     expect(message).toMatch(/[؀-ۿ]/);
     expect(message).toMatch(/ROLLED_BACK/);
     expect(message).toMatch(/sqlite3 \.backup/);
+  });
+
+  it("accept-restore signs a rebase for a restored older snapshot, after which verify passes and reports the superseded history", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "anchor-cli-"));
+    dirs.push(dir);
+    const db = path.join(dir, "tenant.sqlite");
+    const env = { MEZAN_AUDIT_ANCHOR_SIGNING_KEY: "44".repeat(32), MEZAN_AUDIT_ANCHOR_DIR: path.join(dir, "anchors") };
+    const signer = createAuditAnchorSigner(env.MEZAN_AUDIT_ANCHOR_SIGNING_KEY);
+    const sink = createFileAuditAnchorSink(env.MEZAN_AUDIT_ANCHOR_DIR);
+    const handle = createSqliteAuditSink(db);
+    const row = () => createAuditEvent({ stream: "security", module: "auth", entityType: "AUTH_USER", action: "X", actor: "u", severity: "INFO" });
+    for (let i = 0; i < 2; i += 1) await handle.append(row());
+    handle.db.pragma("wal_checkpoint(TRUNCATE)");
+    copyFileSync(db, path.join(dir, "snapshot.sqlite"));
+    for (let i = 0; i < 2; i += 1) await handle.append(row());
+    handle.db.pragma("wal_checkpoint(TRUNCATE)");
+    const reader = openAuditChainFile(db);
+    await anchorHead({ scope: "T-1", head: reader.head(), rowHashAt: (id) => reader.rowHashAt(id), signer, latest: null, sink, now: () => new Date() });
+    reader.close();
+    handle.close();
+    copyFileSync(path.join(dir, "snapshot.sqlite"), db);
+    const printed = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    expect(await main(["verify", "--db", db, "--scope", "T-1"], env)).toBe(VerifyExit.Tampering);
+    expect(await main(["accept-restore", "--db", db, "--scope", "T-1", "--actor", "ops"], env)).toBe(VerifyExit.Failure);
+    expect(await main(["accept-restore", "--db", db, "--scope", "T-1", "--reason", "restored the nightly snapshot after a disk failure", "--actor", "ops"], env)).toBe(VerifyExit.Verified);
+    expect(await main(["accept-restore", "--db", db, "--scope", "T-1", "--reason", "restored the nightly snapshot after a disk failure", "--actor", "ops"], env)).toBe(VerifyExit.Failure);
+    expect(await main(["verify", "--db", db, "--scope", "T-1"], env)).toBe(VerifyExit.Verified);
+    expect(printed.mock.calls.map((call) => String(call[0])).join("\n")).toContain("SUPERSEDED_BY_RESTORE");
+    expect((await sink.latest("T-1"))?.anchor.rebase).toMatchObject({ supersededSeq: 4, acceptedBy: "cli:ops" });
   });
 
   it("counts only a non-empty -wal file", () => {

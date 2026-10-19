@@ -107,6 +107,12 @@ import {
   type CardCheckoutSweepResultDTO,
   type PlatformCardCheckoutsDTO,
   type PlatformOperationsDTO,
+  acceptAuditRestoreRequestSchema,
+  AuditRestoreRefusal,
+  TenantAnchorState,
+  TenantLifecycleRefusal,
+  type AcceptAuditRestoreResultDTO,
+  type TenantAuditAnchorDTO,
 } from "@mezan/contracts";
 import { connectionTurn, createLogger } from "@mezan/api";
 import { OwnerPinResetOutcome } from "./owner-pin-reset-outcome.js";
@@ -180,6 +186,9 @@ export enum PlatformAuditAction {
   TenantProvisionRetried = "TENANT_PROVISION_RETRIED",
   TenantResumed = "TENANT_RESUMED",
   TenantSuspended = "TENANT_SUSPENDED",
+  TenantAuditRestoreAcceptRequested = "TENANT_AUDIT_RESTORE_ACCEPT_REQUESTED",
+  TenantAuditRestoreAccepted = "TENANT_AUDIT_RESTORE_ACCEPTED",
+  TenantAuditRestoreRefused = "TENANT_AUDIT_RESTORE_REFUSED",
 }
 
 export interface PlatformTenantBooksPort {
@@ -218,6 +227,26 @@ export interface PlatformTenantBackupsPort {
   takeExport(input: { tenant: Tenant; token: string }): Promise<{ readonly body: ReadableStream<Uint8Array>; readonly fileName: string; readonly bytes: number } | null>;
 }
 
+export type PlatformAcceptRestoreResult =
+  | { readonly accepted: true; readonly result: AcceptAuditRestoreResultDTO }
+  | { readonly accepted: false; readonly refusal: AuditRestoreRefusal; readonly reason: string };
+
+export interface PlatformAuditAnchorPort {
+  // CONTRACT: reads only; never signs or writes an anchor.
+  status(tenant: Tenant): Promise<TenantAuditAnchorDTO>;
+  acceptRestore(input: { readonly tenant: Tenant; readonly reason: string; readonly actorId: string }): Promise<PlatformAcceptRestoreResult>;
+}
+
+const AUDIT_RESTORE_REFUSAL_COPY: Readonly<Record<AuditRestoreRefusal, { readonly message: string; readonly messageEn: string }>> = {
+  [AuditRestoreRefusal.ReasonTooShort]: { message: "اكتب سبب الاستعادة بعشرة أحرف على الأقل.", messageEn: "Give the reason for the restore in at least ten characters." },
+  [AuditRestoreRefusal.NoChain]: { message: "لا يوجد سجل تدقيق مسلسل لهذه المنشأة بعد.", messageEn: "This tenant has no chained audit trail yet." },
+  [AuditRestoreRefusal.NothingAnchored]: { message: "لم يُختم سجل هذه المنشأة خارج الخادم بعد، فلا استعادة لاعتمادها.", messageEn: "Nothing has been anchored for this tenant yet, so there is no restore to accept." },
+  [AuditRestoreRefusal.NothingToAccept]: { message: "سجل التدقيق يكمل آخر ختم مسجّل؛ لا توجد استعادة لاعتمادها.", messageEn: "The audit trail extends its newest anchor; there is no restore to accept." },
+  [AuditRestoreRefusal.HeadInconsistent]: { message: "رأس سجل التدقيق لا يطابق صفّه؛ هذا ليس استعادة سليمة ولا يُعتمد.", messageEn: "The audit trail's head does not match its row; this is not a clean restore and cannot be accepted." },
+  [AuditRestoreRefusal.NewestAnchorForged]: { message: "آخر ختم مسجّل لا يحمل توقيعًا صحيحًا؛ لا يُعتمد شيء فوقه. افحص مخزن الأختام.", messageEn: "The newest anchor on record is not validly signed; nothing is accepted over it. Inspect the anchor store." },
+  [AuditRestoreRefusal.ChainBroken]: { message: "سلسلة سجل التدقيق المستعادة لا تتحقق بنفسها؛ لا تُعتمد.", messageEn: "The restored audit chain does not verify on its own; it cannot be accepted." },
+};
+
 export interface OwnerPinResetAccount {
   readonly userId: string;
   readonly signInEmail: string;
@@ -254,6 +283,8 @@ export interface CreatePlatformRoutesOptions {
   readonly idOf?: () => string;
   /** Absent when card checkout is not configured on this deployment; the routes then answer 503. */
   readonly cardCheckout?: PlatformCardCheckoutPort;
+  /** Absent when audit anchoring is off on this deployment. */
+  readonly auditAnchors?: PlatformAuditAnchorPort;
 }
 
 const serializeTenant = (t: Tenant): TenantDTO => tenantDTOOf(t);
@@ -943,6 +974,73 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
         await ownerPinResetRefused(c, tenantId, err.code, undefined, err.outcome);
         return c.json({ error: err.code, message: err.message }, 409);
       }
+      return domainErrorResponse(c, err);
+    }
+  });
+
+  const auditAnchors = options.auditAnchors;
+  const anchoringDisabled = (c: Context) =>
+    c.json(
+      {
+        error: TenantLifecycleRefusal.AnchoringDisabled,
+        message: "ختم سجل التدقيق خارج الخادم غير مفعّل على هذه المنصة.",
+        messageEn: "Audit anchoring outside the server is not enabled on this platform.",
+      },
+      503,
+    );
+  const tenantNotLive = (c: Context) =>
+    c.json({ error: TenantLifecycleRefusal.TenantNotLive, message: "هذا الإجراء لمنشأة نشطة أو موقوفة فقط.", messageEn: "This is only for an active or suspended tenant." }, 409);
+  const isLiveTenant = (tenant: Tenant) => tenant.status === TenantStatusCode.Active || tenant.status === TenantStatusCode.Suspended;
+  const DISABLED_ANCHOR: TenantAuditAnchorDTO = {
+    state: TenantAnchorState.Disabled,
+    refusal: null,
+    latestAnchoredSeq: null,
+    latestAnchoredAt: null,
+    liveHeadSeq: null,
+    lastRebase: null,
+    canAcceptRestore: false,
+  };
+
+  app.get("/tenants/:id/audit-anchor", requireOwner, async (c) => {
+    try {
+      const tenant = await requireTenant(c.req.param("id"));
+      if (!auditAnchors || !isLiveTenant(tenant)) return c.json(DISABLED_ANCHOR);
+      return c.json(await auditAnchors.status(tenant));
+    } catch (err) {
+      return domainErrorResponse(c, err);
+    }
+  });
+
+  app.post("/tenants/:id/audit-anchor/accept-restore", requireOwner, async (c) => {
+    const parsed = acceptAuditRestoreRequestSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    try {
+      const tenant = await requireTenant(c.req.param("id"));
+      if (!auditAnchors) return anchoringDisabled(c);
+      if (!isLiveTenant(tenant)) return tenantNotLive(c);
+      const refused = await auth.confirmPassword(c, parsed.data.password);
+      if (refused) return refused;
+      const actorId = c.get("platformUser")!.id;
+      const { reason } = parsed.data;
+      await recordedWith(c, async () => ({
+        value: null,
+        action: PlatformAuditAction.TenantAuditRestoreAcceptRequested,
+        entityId: tenant.id,
+        details: { code: tenant.code, reason },
+        severity: AuditSeverityCode.Critical,
+      }));
+      const outcome = await auditAnchors.acceptRestore({ tenant, reason, actorId });
+      if (!outcome.accepted) {
+        await noted(c, PlatformAuditAction.TenantAuditRestoreRefused, tenant.id, { code: tenant.code, reason, refusal: outcome.refusal, detail: outcome.reason }, AuditSeverityCode.Critical);
+        return c.json({ error: TenantLifecycleRefusal.RestoreNotAccepted, reason: outcome.refusal, ...AUDIT_RESTORE_REFUSAL_COPY[outcome.refusal], detail: outcome.reason }, 409);
+      }
+      // SECURITY: the rebase is already signed and stored outside the server; an outcome row that cannot be
+      // written is logged rather than turned into a refusal, and the intent row above stands.
+      await noted(c, PlatformAuditAction.TenantAuditRestoreAccepted, tenant.id, { code: tenant.code, reason, ...outcome.result }, AuditSeverityCode.Critical).catch((err: unknown) =>
+        platformLog.error({ err }, `the restore of tenant "${tenant.id}" was accepted, and its outcome row could not be written`),
+      );
+      return c.json(outcome.result);
+    } catch (err) {
       return domainErrorResponse(c, err);
     }
   });

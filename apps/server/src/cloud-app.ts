@@ -33,6 +33,7 @@ import { startOwnerDigestTimer } from "./owner-digest.js";
 import { startCollectionsTimer } from "./collections-schedule.js";
 import { createBackupScheduler } from "./backup-scheduler.js";
 import { startAuditAnchorTimer } from "./audit-anchor-job.js";
+import { tenantAuditAnchorPort } from "./audit-anchor-console.js";
 import { AnchorSinkKind, createAuditAnchorService } from "./audit-anchor-setup.js";
 import { createTenantBackups } from "./tenant-backups.js";
 import { createCardCheckoutService, type CardCheckoutService } from "./card-checkout.js";
@@ -282,6 +283,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
   const checkoutService = cardCheckout;
 
   const tenantBackups = createTenantBackups({ dir: env.platformDir, router, now });
+  const anchorService = createAuditAnchorService(env.auditAnchor, env.platformDir);
 
   const platformApp = createPlatformRoutes({
     platform,
@@ -312,6 +314,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
     reconcileOpenOwners: () => router.reconcileOpenOwners(),
     operations: () => operationsOf(now(), readiness(), jobs, alerter),
     invalidateEntitlements: router.invalidate,
+    auditAnchors: anchorService ? tenantAuditAnchorPort({ platform, router, anchors: anchorService, now }) : undefined,
     cardCheckout: checkoutService
       ? {
           testMode: checkoutService.provider.testMode,
@@ -380,7 +383,6 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
     stopBackups = backups.start();
   }
 
-  const anchorService = createAuditAnchorService(env.auditAnchor, env.platformDir);
   const anchorTimer = anchorService
     ? startAuditAnchorTimer({
         platform,

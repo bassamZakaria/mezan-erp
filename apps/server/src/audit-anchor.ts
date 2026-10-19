@@ -4,11 +4,19 @@ import path from "node:path";
 import type { AuditChainVerification } from "@mezan/persistence";
 
 export const AUDIT_ANCHOR_VERSION = "mezan-audit-anchor-v1";
+export const AUDIT_ANCHOR_REBASE_VERSION = "mezan-audit-anchor-rebase-v1";
 export const PLATFORM_ANCHOR_SCOPE = "platform";
 
 const PKCS8_ED25519_PREFIX = Buffer.from("302e020100300506032b657004220420", "hex");
 const SPKI_ED25519_PREFIX = Buffer.from("302a300506032b6570032100", "hex");
 const HEX_32_BYTES = /^[0-9a-f]{64}$/;
+
+export interface AnchorRebase {
+  readonly supersededSeq: number;
+  readonly supersededHeadHash: string;
+  readonly reason: string;
+  readonly acceptedBy: string;
+}
 
 export interface AuditAnchor {
   readonly scope: string;
@@ -16,6 +24,7 @@ export interface AuditAnchor {
   readonly headHash: string;
   readonly anchoredAt: string;
   readonly keyId: string;
+  readonly rebase?: AnchorRebase;
 }
 
 export interface SignedAuditAnchor {
@@ -46,8 +55,13 @@ export interface AuditAnchorSigner {
   sign(anchor: Omit<AuditAnchor, "keyId">): SignedAuditAnchor;
 }
 
+// EXTERNAL CONTRACT: these tuples are what every stored anchor was signed over. A plain anchor keeps the v1 tuple byte for byte;
+// a rebase signs its own, so the reason and the superseded head cannot be swapped after the fact.
 function canonicalAnchor(anchor: AuditAnchor): Buffer {
-  return Buffer.from(JSON.stringify([AUDIT_ANCHOR_VERSION, anchor.scope, anchor.seq, anchor.headHash, anchor.anchoredAt, anchor.keyId]), "utf8");
+  const fields = anchor.rebase
+    ? [AUDIT_ANCHOR_REBASE_VERSION, anchor.scope, anchor.seq, anchor.headHash, anchor.anchoredAt, anchor.keyId, anchor.rebase.supersededSeq, anchor.rebase.supersededHeadHash, anchor.rebase.reason, anchor.rebase.acceptedBy]
+    : [AUDIT_ANCHOR_VERSION, anchor.scope, anchor.seq, anchor.headHash, anchor.anchoredAt, anchor.keyId];
+  return Buffer.from(JSON.stringify(fields), "utf8");
 }
 
 function publicKeyObject(publicKeyHex: string): KeyObject {
@@ -110,7 +124,19 @@ export function parseSignedAnchor(raw: unknown): SignedAuditAnchor | null {
   ) {
     return null;
   }
-  return { anchor: { scope: anchor.scope, seq: anchor.seq, headHash: anchor.headHash, anchoredAt: anchor.anchoredAt, keyId: anchor.keyId }, signature };
+  const base = { scope: anchor.scope, seq: anchor.seq, headHash: anchor.headHash, anchoredAt: anchor.anchoredAt, keyId: anchor.keyId };
+  if (anchor.rebase === undefined) return { anchor: base, signature };
+  const rebase = parseRebase(anchor.rebase);
+  return rebase ? { anchor: { ...base, rebase }, signature } : null;
+}
+
+function parseRebase(raw: unknown): AnchorRebase | null {
+  if (typeof raw !== "object" || raw === null) return null;
+  const { supersededSeq, supersededHeadHash, reason, acceptedBy } = raw as Partial<AnchorRebase>;
+  if (typeof supersededSeq !== "number" || !Number.isInteger(supersededSeq) || typeof supersededHeadHash !== "string" || typeof reason !== "string" || typeof acceptedBy !== "string") {
+    return null;
+  }
+  return { supersededSeq, supersededHeadHash, reason, acceptedBy };
 }
 
 const SAFE_SCOPE = /^[A-Za-z0-9._-]{1,128}$/;
@@ -206,7 +232,10 @@ export enum AnchorVerdict {
   Rewritten = "REWRITTEN",
   AnchorsForged = "ANCHORS_FORGED",
   AnchorsRegressed = "ANCHORS_REGRESSED",
+  Superseded = "SUPERSEDED_BY_RESTORE",
 }
+
+const INFORMATIONAL_VERDICTS: ReadonlySet<AnchorVerdict> = new Set([AnchorVerdict.NoAnchors, AnchorVerdict.Superseded]);
 
 export interface AnchorFinding {
   readonly verdict: AnchorVerdict;
@@ -254,8 +283,22 @@ export async function verifyAgainstAnchors(input: VerifyAgainstAnchorsInput): Pr
     }
   }
 
+  const rebaseAt = genuine.reduce((found, signed, index) => (signed.anchor.rebase !== undefined ? index : found), -1);
+  const superseded = rebaseAt > 0 ? genuine.slice(0, rebaseAt) : [];
+  const current = rebaseAt >= 0 ? genuine.slice(rebaseAt) : genuine;
+  const rebase = rebaseAt >= 0 ? (genuine[rebaseAt] as SignedAuditAnchor).anchor : null;
+  if (rebase?.rebase) {
+    findings.push({
+      verdict: AnchorVerdict.Superseded,
+      detail:
+        `a restore was accepted at ${rebase.anchoredAt} by ${rebase.rebase.acceptedBy}: «${rebase.rebase.reason}». ` +
+        `The anchored head before it (seq ${rebase.rebase.supersededSeq}, ${rebase.rebase.supersededHeadHash}) and ${superseded.length} earlier anchor(s) in this window are superseded; ` +
+        `the restored chain is anchored from seq ${rebase.seq}`,
+    });
+  }
+
   let previous: AuditAnchor | null = null;
-  for (const { anchor } of genuine) {
+  for (const { anchor } of current) {
     if (previous !== null && anchor.seq < previous.seq) {
       findings.push({ verdict: AnchorVerdict.AnchorsRegressed, detail: `anchor sequence went backwards: ${previous.seq} then ${anchor.seq}` });
     }
@@ -275,7 +318,7 @@ export async function verifyAgainstAnchors(input: VerifyAgainstAnchorsInput): Pr
     }
   }
 
-  for (const { anchor } of genuine) {
+  for (const { anchor } of current) {
     if (liveHeadSeq === null || liveHeadSeq < anchor.seq) {
       findings.push({
         verdict: AnchorVerdict.RolledBack,
@@ -295,7 +338,7 @@ export async function verifyAgainstAnchors(input: VerifyAgainstAnchorsInput): Pr
   const latest = genuine.length === 0 ? null : (genuine[genuine.length - 1] as SignedAuditAnchor).anchor;
   if (input.anchors.length === 0) findings.push({ verdict: AnchorVerdict.NoAnchors, detail: "no anchor has been recorded for this scope yet" });
 
-  const faults = findings.filter((f) => f.verdict !== AnchorVerdict.NoAnchors);
+  const faults = findings.filter((f) => !INFORMATIONAL_VERDICTS.has(f.verdict));
   return {
     scope: input.scope,
     ok: faults.length === 0 && input.anchors.length > 0,
@@ -313,6 +356,13 @@ export enum AnchorOutcome {
   Refused = "REFUSED",
 }
 
+export enum AnchorRefusal {
+  HeadInconsistent = "HEAD_INCONSISTENT",
+  NewestAnchorForged = "NEWEST_ANCHOR_FORGED",
+  RolledBack = "ROLLED_BACK",
+  Rewritten = "REWRITTEN",
+}
+
 export interface AnchorHeadInput {
   readonly scope: string;
   readonly head: { readonly rowId: number; readonly rowHash: string } | null;
@@ -325,36 +375,104 @@ export interface AnchorHeadInput {
 
 export interface AnchorHeadResult {
   readonly outcome: AnchorOutcome;
+  readonly refusal?: AnchorRefusal;
   readonly reason?: string;
   readonly anchor?: SignedAuditAnchor;
+}
+
+/** What `anchorHead` would do with this head, without signing or writing anything. */
+export function judgeHead(input: Pick<AnchorHeadInput, "head" | "rowHashAt" | "signer" | "latest">): AnchorHeadResult {
+  const { head } = input;
+  if (head === null) return { outcome: AnchorOutcome.NoChain };
+  if (input.rowHashAt(head.rowId) !== head.rowHash) {
+    return { outcome: AnchorOutcome.Refused, refusal: AnchorRefusal.HeadInconsistent, reason: `the chain head names row ${head.rowId}, which is missing or carries another hash` };
+  }
+  const { latest } = input;
+  if (latest) {
+    if (!verifyAnchorSignatureAmong(latest, input.signer.trustedPublicKeys)) {
+      return { outcome: AnchorOutcome.Refused, refusal: AnchorRefusal.NewestAnchorForged, reason: `the newest anchor on record (seq ${latest.anchor.seq}) does not carry a valid signature` };
+    }
+    if (head.rowId < latest.anchor.seq) {
+      return { outcome: AnchorOutcome.Refused, refusal: AnchorRefusal.RolledBack, reason: `the chain ends at ${head.rowId}, behind the anchored ${latest.anchor.seq} (rollback)` };
+    }
+    if (input.rowHashAt(latest.anchor.seq) !== latest.anchor.headHash) {
+      return { outcome: AnchorOutcome.Refused, refusal: AnchorRefusal.Rewritten, reason: `row ${latest.anchor.seq} no longer matches its anchor (rewrite)` };
+    }
+    if (head.rowId === latest.anchor.seq) return { outcome: AnchorOutcome.Unchanged };
+  }
+  return { outcome: AnchorOutcome.Anchored };
 }
 
 /**
  * REQUIRED ORDERING: a head is signed only after it is shown to extend the
  * newest anchor already on record. Signing whatever the file says would let a
  * rollback or a rewrite launder itself into the new "truth" at the next tick;
- * instead the job refuses and the discrepancy keeps shouting.
+ * instead the job refuses and the discrepancy keeps shouting — until an owner
+ * accepts the restore (`acceptRestore`), which leaves its own signed record.
  */
 export async function anchorHead(input: AnchorHeadInput): Promise<AnchorHeadResult> {
-  const { head } = input;
-  if (head === null) return { outcome: AnchorOutcome.NoChain };
-  if (input.rowHashAt(head.rowId) !== head.rowHash) {
-    return { outcome: AnchorOutcome.Refused, reason: `the chain head names row ${head.rowId}, which is missing or carries another hash` };
-  }
-  const { latest } = input;
-  if (latest) {
-    if (!verifyAnchorSignatureAmong(latest, input.signer.trustedPublicKeys)) {
-      return { outcome: AnchorOutcome.Refused, reason: `the newest anchor on record (seq ${latest.anchor.seq}) does not carry a valid signature` };
-    }
-    if (head.rowId < latest.anchor.seq) {
-      return { outcome: AnchorOutcome.Refused, reason: `the chain ends at ${head.rowId}, behind the anchored ${latest.anchor.seq} (rollback)` };
-    }
-    if (input.rowHashAt(latest.anchor.seq) !== latest.anchor.headHash) {
-      return { outcome: AnchorOutcome.Refused, reason: `row ${latest.anchor.seq} no longer matches its anchor (rewrite)` };
-    }
-    if (head.rowId === latest.anchor.seq) return { outcome: AnchorOutcome.Unchanged };
-  }
-  const signed = input.signer.sign({ scope: input.scope, seq: head.rowId, headHash: head.rowHash, anchoredAt: input.now().toISOString() });
+  const judged = judgeHead(input);
+  if (judged.outcome !== AnchorOutcome.Anchored || input.head === null) return judged;
+  const signed = input.signer.sign({ scope: input.scope, seq: input.head.rowId, headHash: input.head.rowHash, anchoredAt: input.now().toISOString() });
   await input.sink.append(signed);
   return { outcome: AnchorOutcome.Anchored, anchor: signed };
+}
+
+export const ACCEPT_RESTORE_MIN_REASON = 10;
+
+export enum AcceptRestoreRefusal {
+  ReasonTooShort = "REASON_TOO_SHORT",
+  NoChain = "NO_CHAIN",
+  NothingAnchored = "NOTHING_ANCHORED",
+  NothingToAccept = "NOTHING_TO_ACCEPT",
+  HeadInconsistent = "HEAD_INCONSISTENT",
+  NewestAnchorForged = "NEWEST_ANCHOR_FORGED",
+  ChainBroken = "CHAIN_BROKEN",
+}
+
+export interface AcceptRestoreInput extends AnchorHeadInput {
+  readonly reason: string;
+  readonly acceptedBy: string;
+  readonly verifyChain?: () => Promise<AuditChainVerification>;
+}
+
+export type AcceptRestoreResult =
+  | { readonly accepted: true; readonly anchor: SignedAuditAnchor; readonly superseded: AuditAnchor }
+  | { readonly accepted: false; readonly refusal: AcceptRestoreRefusal; readonly reason: string };
+
+/**
+ * SECURITY: the one way past a refused anchor. It signs a rebase only for the
+ * two refusals a legitimate restore produces (the live chain is behind, or has
+ * replaced, the anchored head), only over a chain that verifies on its own,
+ * and only with a reason — the rebase names the head it supersedes, so the
+ * verifier keeps reporting the history it replaced. Anything else (a forged
+ * anchor trail, an inconsistent head, a broken chain) stays refused.
+ */
+export async function acceptRestore(input: AcceptRestoreInput): Promise<AcceptRestoreResult> {
+  const reason = input.reason.trim();
+  if (reason.length < ACCEPT_RESTORE_MIN_REASON) {
+    return { accepted: false, refusal: AcceptRestoreRefusal.ReasonTooShort, reason: `the reason must be at least ${ACCEPT_RESTORE_MIN_REASON} characters` };
+  }
+  const { head, latest } = input;
+  if (head === null) return { accepted: false, refusal: AcceptRestoreRefusal.NoChain, reason: "the database has no audit chain" };
+  if (latest === null) return { accepted: false, refusal: AcceptRestoreRefusal.NothingAnchored, reason: "nothing has been anchored for this scope yet" };
+  const judged = judgeHead(input);
+  if (judged.refusal === AnchorRefusal.HeadInconsistent) return { accepted: false, refusal: AcceptRestoreRefusal.HeadInconsistent, reason: judged.reason ?? "" };
+  if (judged.refusal === AnchorRefusal.NewestAnchorForged) return { accepted: false, refusal: AcceptRestoreRefusal.NewestAnchorForged, reason: judged.reason ?? "" };
+  if (judged.refusal !== AnchorRefusal.RolledBack && judged.refusal !== AnchorRefusal.Rewritten) {
+    return { accepted: false, refusal: AcceptRestoreRefusal.NothingToAccept, reason: "the live chain extends its newest anchor; there is no restore to accept" };
+  }
+  if (input.verifyChain) {
+    const chain = await input.verifyChain();
+    if (!chain.ok) return { accepted: false, refusal: AcceptRestoreRefusal.ChainBroken, reason: `the live chain does not verify: ${chain.reason}` };
+  }
+  const signed = input.signer.sign({
+    scope: input.scope,
+    seq: head.rowId,
+    headHash: head.rowHash,
+    anchoredAt: input.now().toISOString(),
+    rebase: { supersededSeq: latest.anchor.seq, supersededHeadHash: latest.anchor.headHash, reason, acceptedBy: input.acceptedBy },
+  });
+  await input.sink.append(signed);
+  return { accepted: true, anchor: signed, superseded: latest.anchor };
 }

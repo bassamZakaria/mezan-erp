@@ -3,7 +3,9 @@ import { parseSignedAnchor, assertSafeScope, type AuditAnchorSink, type SignedAu
 
 const SEQ_DIGITS = 12;
 const LATEST_POINTER = "latest.json";
-const ANCHOR_KEY = /\/\d{12}\.json$/;
+const ANCHOR_KEY = /\/(?:r\d{13}\/)?\d{12}\.json$/;
+const EPOCH_DIGITS = 13;
+const EPOCH_OF_KEY = /\/(r\d{13})\/\d{12}\.json$/;
 const LIST_PAGE_KEYS = 1000;
 const REQUEST_TIMEOUT_MS = 15_000;
 const ECS_CREDENTIALS_HOST = "http://169.254.170.2";
@@ -51,10 +53,18 @@ const sha256Hex = (data: string | Buffer): string => createHash("sha256").update
 const hmac = (key: Buffer | string, data: string): Buffer => createHmac("sha256", key).update(data, "utf8").digest();
 const encodeSegment = (value: string): string => encodeURIComponent(value).replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
 
-export function anchorObjectKey(prefix: string, scope: string, seq: number): string {
+// EXTERNAL CONTRACT: anchors before any accepted restore live at <scope>/<seq>.json; an accepted restore opens an epoch
+// <scope>/r<13-digit ms>/ holding the rebase and every anchor after it. Keys sort lexically into the order they were written.
+export function anchorObjectKey(prefix: string, scope: string, seq: number, epoch: string | null = null): string {
   assertSafeScope(scope);
-  return `${prefix}/${scope}/${String(seq).padStart(SEQ_DIGITS, "0")}.json`;
+  return `${prefix}/${scope}/${epoch ? `${epoch}/` : ""}${String(seq).padStart(SEQ_DIGITS, "0")}.json`;
 }
+
+export function rebaseEpochOf(anchoredAt: string): string {
+  return `r${String(Date.parse(anchoredAt)).padStart(EPOCH_DIGITS, "0")}`;
+}
+
+const epochOfKey = (key: string): string | null => EPOCH_OF_KEY.exec(key)?.[1] ?? null;
 
 /**
  * One immutable object per anchor, written with `If-None-Match: *` so an
@@ -137,44 +147,62 @@ export function createS3AuditAnchorSink(options: S3AuditAnchorSinkOptions): Audi
     return parseSignedAnchor((await res.json()) as unknown);
   }
 
-  // The pointer only names a sequence; the anchor object it names stays the authority, so a stale,
-  // forged or missing pointer can cost a full listing but never change what is believed.
-  async function pointTo(scope: string, seq: number): Promise<void> {
-    const res = await signedFetch("PUT", `${prefix}/${scope}/${LATEST_POINTER}`, {}, Buffer.from(JSON.stringify({ seq }), "utf8"), { "content-type": "application/json" });
+  // The pointer only names a sequence (and its epoch); the anchor object it names stays the authority, so a
+  // missing pointer costs a full listing, and a stale one names an older anchor — which makes the job refuse
+  // loudly, never anchor something it should not.
+  async function pointTo(scope: string, seq: number, epoch: string | null): Promise<void> {
+    const body = epoch ? { seq, epoch } : { seq };
+    const res = await signedFetch("PUT", `${prefix}/${scope}/${LATEST_POINTER}`, {}, Buffer.from(JSON.stringify(body), "utf8"), { "content-type": "application/json" });
     if (!res.ok) throw new Error(`S3 PutObject of the latest pointer answered ${res.status}`);
   }
 
+  const epochs = new Map<string, string | null>();
+
   async function newestByListing(scope: string): Promise<SignedAuditAnchor | null> {
     const newest = (await listKeys(scope)).at(-1);
-    return newest === undefined ? null : anchorAt(newest);
+    if (newest === undefined) return null;
+    const found = await anchorAt(newest);
+    if (found) epochs.set(scope, epochOfKey(newest));
+    return found;
+  }
+
+  async function latestOf(scope: string): Promise<SignedAuditAnchor | null> {
+    assertSafeScope(scope);
+    const pointer = await signedFetch("GET", `${prefix}/${scope}/${LATEST_POINTER}`, {}, null);
+    if (pointer.ok) {
+      const named = (await pointer.json().catch(() => null)) as { seq?: unknown; epoch?: unknown } | null;
+      const seq = named?.seq;
+      const epoch = typeof named?.epoch === "string" && /^r\d{13}$/.test(named.epoch) ? named.epoch : null;
+      if (typeof seq === "number" && Number.isInteger(seq) && seq >= 0) {
+        const anchor = await anchorAt(anchorObjectKey(prefix, scope, seq, epoch));
+        if (anchor) {
+          epochs.set(scope, epoch);
+          return anchor;
+        }
+      }
+    } else if (pointer.status !== 404) {
+      throw new Error(`S3 GetObject of the latest pointer answered ${pointer.status}`);
+    }
+    const found = await newestByListing(scope);
+    if (found) await pointTo(scope, found.anchor.seq, epochs.get(scope) ?? null).catch(() => undefined);
+    return found;
   }
 
   return {
     async append(signed: SignedAuditAnchor) {
-      const key = anchorObjectKey(prefix, signed.anchor.scope, signed.anchor.seq);
+      const scope = signed.anchor.scope;
+      if (!signed.anchor.rebase && !epochs.has(scope)) await latestOf(scope);
+      const epoch = signed.anchor.rebase ? rebaseEpochOf(signed.anchor.anchoredAt) : (epochs.get(scope) ?? null);
+      const key = anchorObjectKey(prefix, scope, signed.anchor.seq, epoch);
       const res = await signedFetch("PUT", key, {}, Buffer.from(JSON.stringify(signed), "utf8"), {
         "content-type": "application/json",
         "if-none-match": "*",
       });
       if (res.status !== 412 && !res.ok) throw new Error(`S3 PutObject of ${key} answered ${res.status}`);
-      await pointTo(signed.anchor.scope, signed.anchor.seq).catch(() => undefined);
+      epochs.set(scope, epoch);
+      await pointTo(scope, signed.anchor.seq, epoch).catch(() => undefined);
     },
-    async latest(scope) {
-      assertSafeScope(scope);
-      const pointer = await signedFetch("GET", `${prefix}/${scope}/${LATEST_POINTER}`, {}, null);
-      if (pointer.ok) {
-        const seq = ((await pointer.json().catch(() => null)) as { seq?: unknown } | null)?.seq;
-        if (typeof seq === "number" && Number.isInteger(seq) && seq >= 0) {
-          const named = await anchorAt(anchorObjectKey(prefix, scope, seq));
-          if (named) return named;
-        }
-      } else if (pointer.status !== 404) {
-        throw new Error(`S3 GetObject of the latest pointer answered ${pointer.status}`);
-      }
-      const found = await newestByListing(scope);
-      if (found) await pointTo(scope, found.anchor.seq).catch(() => undefined);
-      return found;
-    },
+    latest: latestOf,
     async list(scope, limit) {
       assertSafeScope(scope);
       const keys = (await listKeys(scope)).slice(-limit);

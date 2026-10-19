@@ -6,6 +6,7 @@ import userEvent from "@testing-library/user-event";
 import { TenantWireStatus, type TenantDTO } from "@mezan/contracts";
 import type { Transport, TransportResponse } from "../data/transport";
 import { TenantBackupCard } from "./TenantBackupCard";
+import { TenantAuditAnchorCard } from "./TenantAuditAnchorCard";
 import { renderWithPlatformProviders, testPlatformSession } from "./test-support";
 
 const tenant: TenantDTO = {
@@ -168,5 +169,62 @@ describe("TenantBackupCard", () => {
     expect(await screen.findByText("فشلت الاستعادة")).toBeInTheDocument();
     expect(screen.getByText("database disk image is malformed")).toBeInTheDocument();
     expect(asked).toEqual([{ file: "a.sqlite" }]);
+  });
+});
+
+describe("TenantAuditAnchorCard — accepting a legitimate restore", () => {
+  const refused = {
+    state: "refused",
+    refusal: "ROLLED_BACK",
+    latestAnchoredSeq: 6,
+    latestAnchoredAt: "2026-10-17T10:00:00.000Z",
+    liveHeadSeq: 3,
+    lastRebase: null,
+    canAcceptRestore: true,
+  };
+
+  function renderAnchorCard(status: unknown, accepted: unknown[]) {
+    const transport: Transport = async (path, init) => {
+      const method = (init?.method ?? "GET").toUpperCase();
+      let result: { status: number; body: unknown } = { status: 404, body: { error: "NOT_FOUND" } };
+      if (method === "GET" && path === "/tenants/tenant-1/audit-anchor") result = { status: 200, body: status };
+      if (method === "POST" && path === "/tenants/tenant-1/audit-anchor/accept-restore") {
+        accepted.push(JSON.parse(String(init?.body)));
+        result = { status: 200, body: { seq: 3, headHash: "h3", supersededSeq: 6, supersededHeadHash: "h6", anchoredAt: "2026-10-18T08:00:00.000Z" } };
+      }
+      return {
+        status: result.status,
+        ok: result.status < 400,
+        json: <T,>() => Promise.resolve(result.body as T),
+        text: () => Promise.resolve(JSON.stringify(result.body)),
+        blob: () => Promise.resolve(new Blob([])),
+      };
+    };
+    renderWithPlatformProviders(<TenantAuditAnchorCard tenant={tenant} isOwner booksRefused={false} onError={vi.fn()} />, { transport, initialSession: testPlatformSession });
+  }
+
+  it("explains the refusal in Arabic and accepts the restore only with a reason of ten characters and the password", async () => {
+    const accepted: unknown[] = [];
+    renderAnchorCard(refused, accepted);
+
+    expect(await screen.findByText("متوقف — احتمال عبث")).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("أقصر من آخر ختم");
+    fireEvent.click(screen.getByRole("button", { name: "اعتماد الاستعادة" }));
+    const dialog = await screen.findByRole("dialog", { name: "اعتماد استعادة سجل التدقيق؟" });
+    fireEvent.change(within(dialog).getByLabelText("سبب الاستعادة"), { target: { value: "قصير" } });
+    fireEvent.change(within(dialog).getByLabelText("كلمة مرورك للتأكيد"), { target: { value: "correct horse battery" } });
+    expect(within(dialog).getByRole("button", { name: "اعتماد وتوقيع" })).toBeDisabled();
+
+    fireEvent.change(within(dialog).getByLabelText("سبب الاستعادة"), { target: { value: "استعدنا نسخة الليلة الماضية بعد عطل القرص" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "اعتماد وتوقيع" }));
+
+    await waitFor(() => expect(accepted).toEqual([{ reason: "استعدنا نسخة الليلة الماضية بعد عطل القرص", password: "correct horse battery" }]));
+    expect(await screen.findByText(/يُستأنف ختم السجل/)).toBeInTheDocument();
+  });
+
+  it("offers no accept button for a forged anchor trail", async () => {
+    renderAnchorCard({ ...refused, refusal: "NEWEST_ANCHOR_FORGED", canAcceptRestore: false }, []);
+    expect(await screen.findByRole("alert")).toHaveTextContent("لا يحمل توقيعًا صحيحًا");
+    expect(screen.queryByRole("button", { name: "اعتماد الاستعادة" })).not.toBeInTheDocument();
   });
 });

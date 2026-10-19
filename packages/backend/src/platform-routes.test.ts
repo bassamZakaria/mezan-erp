@@ -16,10 +16,10 @@ import {
   PlanKind,
   type CardCheckout,
 } from "@mezan/domain";
-import { TenantBackupDrillOutcome, tenantDTOOf, type CreateTenantRequestDTO, type ProvisionResultDTO, type ProvisionRetryRequestDTO } from "@mezan/contracts";
+import { AuditRestoreRefusal, TenantAnchorRefusal, TenantAnchorState, TenantBackupDrillOutcome, tenantDTOOf, type TenantAuditAnchorDTO, type CreateTenantRequestDTO, type ProvisionResultDTO, type ProvisionRetryRequestDTO } from "@mezan/contracts";
 import { createPlatform, type PlatformHandle } from "./create-platform.js";
 import { createPlatformAuth, type PlatformAuth } from "./platform-auth.js";
-import { createPlatformRoutes, serializeCardCheckout, serializeCardCheckoutForTenant, TenantOwnerAccountNotFoundError, type PlatformCardCheckoutPort, type PlatformTenantBackupsPort, type RecordedActivation } from "./platform-routes.js";
+import { createPlatformRoutes, serializeCardCheckout, serializeCardCheckoutForTenant, TenantOwnerAccountNotFoundError, type PlatformAuditAnchorPort, type PlatformCardCheckoutPort, type PlatformTenantBackupsPort, type RecordedActivation } from "./platform-routes.js";
 
 const FIXED_NOW = () => new Date("2026-01-01T00:00:00Z");
 
@@ -1682,5 +1682,73 @@ describe("a tenant's backup export and restore drill", () => {
     expect(rows.map((row) => row.action)).toEqual(["TENANT_BACKUP_DRILL"]);
     expect(rows[0]).toMatchObject({ severity: "INFO" });
     expect(rows[0]?.details).toMatchObject({ outcome: "pass", file: "a.sqlite" });
+  });
+});
+
+describe("accepting a tenant's restore so its audit anchoring resumes", () => {
+  const REFUSED: TenantAuditAnchorDTO = {
+    state: TenantAnchorState.Refused,
+    refusal: TenantAnchorRefusal.RolledBack,
+    latestAnchoredSeq: 6,
+    latestAnchoredAt: "2026-01-01T00:00:00.000Z",
+    liveHeadSeq: 3,
+    lastRebase: null,
+    canAcceptRestore: true,
+  };
+  const REASON = "restored the nightly snapshot after a disk failure";
+
+  function anchorsPort(accepted: Array<{ tenantId: string; reason: string; actorId: string }>, refuse = false): PlatformAuditAnchorPort {
+    return {
+      status: async () => REFUSED,
+      acceptRestore: async ({ tenant, reason, actorId }) => {
+        accepted.push({ tenantId: tenant.id, reason, actorId });
+        return refuse
+          ? { accepted: false, refusal: AuditRestoreRefusal.NothingToAccept, reason: "the live chain extends its newest anchor" }
+          : { accepted: true, result: { seq: 3, headHash: "h3", supersededSeq: 6, supersededHeadHash: "h6", anchoredAt: "2026-01-01T00:00:00.000Z" } };
+      },
+    };
+  }
+  const accept = (rig: Rig, id: string, token: string, body: unknown) =>
+    rig.app.fetch(req(`/tenants/${id}/audit-anchor/accept-restore`, token, { method: "POST", body: JSON.stringify(body) }));
+
+  it("is the platform owner's alone, needs a typed reason and the owner's password again, and leaves an intent and an outcome row", async () => {
+    const accepted: Array<{ tenantId: string; reason: string; actorId: string }> = [];
+    const rig = await buildRig({ auditAnchors: anchorsPort(accepted) });
+    const { body } = await provisionOne(rig);
+
+    expect(await json(await rig.app.fetch(req(`/tenants/${body.tenant.id}/audit-anchor`, rig.ownerToken)))).toMatchObject({ state: "refused", canAcceptRestore: true });
+    expect((await accept(rig, body.tenant.id, rig.supportToken, { reason: REASON, password: "correct horse battery" })).status).toBe(403);
+    expect((await accept(rig, body.tenant.id, rig.ownerToken, { reason: "restored", password: "correct horse battery" })).status).toBe(400);
+    expect((await accept(rig, body.tenant.id, rig.ownerToken, { reason: REASON, password: "wrong password" })).status).toBe(403);
+    expect(accepted).toEqual([]);
+
+    const ok = await accept(rig, body.tenant.id, rig.ownerToken, { reason: REASON, password: "correct horse battery" });
+    expect(ok.status).toBe(200);
+    expect(await json(ok)).toMatchObject({ seq: 3, supersededSeq: 6 });
+    expect(accepted).toEqual([{ tenantId: body.tenant.id, reason: REASON, actorId: "PU-OWNER" }]);
+    const rows = (await rig.platform.audit.query("security")).filter((r) => r.action.startsWith("TENANT_AUDIT_RESTORE"));
+    expect(rows.map((r) => r.action).sort()).toEqual(["TENANT_AUDIT_RESTORE_ACCEPTED", "TENANT_AUDIT_RESTORE_ACCEPT_REQUESTED"]);
+    const outcomeRow = rows.find((r) => r.action === "TENANT_AUDIT_RESTORE_ACCEPTED");
+    expect(outcomeRow).toMatchObject({ severity: "CRITICAL", actor: "PU-OWNER", entityId: body.tenant.id });
+    expect(outcomeRow?.details).toMatchObject({ reason: REASON, supersededSeq: 6, supersededHeadHash: "h6", seq: 3 });
+    expect(JSON.stringify(rows)).not.toContain("correct horse battery");
+  });
+
+  it("refuses in Arabic when there is nothing to accept, and records the refusal", async () => {
+    const rig = await buildRig({ auditAnchors: anchorsPort([], true) });
+    const { body } = await provisionOne(rig);
+    const res = await accept(rig, body.tenant.id, rig.ownerToken, { reason: REASON, password: "correct horse battery" });
+    expect(res.status).toBe(409);
+    const answer = (await json(res)) as { error: string; reason: string; message: string; messageEn: string };
+    expect(answer).toMatchObject({ error: "AUDIT_RESTORE_NOT_ACCEPTED", reason: "NOTHING_TO_ACCEPT" });
+    expect(answer.message).toMatch(/[؀-ۿ]/);
+    expect((await rig.platform.audit.query("security")).some((r) => r.action === "TENANT_AUDIT_RESTORE_REFUSED")).toBe(true);
+  });
+
+  it("answers 503 when anchoring is off, and shows the card as disabled", async () => {
+    const rig = await buildRig();
+    const { body } = await provisionOne(rig);
+    expect(await json(await rig.app.fetch(req(`/tenants/${body.tenant.id}/audit-anchor`, rig.ownerToken)))).toMatchObject({ state: "disabled", canAcceptRestore: false });
+    expect((await accept(rig, body.tenant.id, rig.ownerToken, { reason: REASON, password: "correct horse battery" })).status).toBe(503);
   });
 });

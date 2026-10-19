@@ -59,7 +59,7 @@ start-up, and on a production platform that seeds no demo it logs
 - `MEZAN_AUDIT_ANCHOR_SIGNING_KEY`: the 32-byte Ed25519 seed as 64 lowercase hex characters. A secret; never commit it.
 - `MEZAN_AUDIT_ANCHOR_PUBLIC_KEY`: the matching public key, for verifying elsewhere (derived from the signing key when that is present).
 - `MEZAN_AUDIT_ANCHOR_TRUSTED_PUBLIC_KEYS`: comma-separated Ed25519 public keys (64 hex each) of retired signing keys. Anchors signed by them still verify, and a new signing key extends a chain whose newest anchor a retired key signed. To rotate: put the old key's public key here, then change `MEZAN_AUDIT_ANCHOR_SIGNING_KEY`. Only the current key signs; remove a retired key from the list only when its anchors no longer matter.
-- `MEZAN_AUDIT_ANCHOR_S3_BUCKET`, `MEZAN_AUDIT_ANCHOR_S3_REGION` (else `AWS_REGION`), `MEZAN_AUDIT_ANCHOR_S3_PREFIX` (default `audit-anchors`), `MEZAN_AUDIT_ANCHOR_S3_ENDPOINT` (S3-compatible stores): one object per anchor at `<prefix>/<scope>/<12-digit seq>.json`, written with `If-None-Match: *`. Credentials come from `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` or an ECS task role. For real immutability the bucket needs S3 Object Lock; the code works with or without it.
+- `MEZAN_AUDIT_ANCHOR_S3_BUCKET`, `MEZAN_AUDIT_ANCHOR_S3_REGION` (else `AWS_REGION`), `MEZAN_AUDIT_ANCHOR_S3_PREFIX` (default `audit-anchors`), `MEZAN_AUDIT_ANCHOR_S3_ENDPOINT` (S3-compatible stores): one object per anchor at `<prefix>/<scope>/<12-digit seq>.json`, written with `If-None-Match: *`. An accepted restore opens an epoch: the rebase and every anchor after it live under `<prefix>/<scope>/r<13-digit ms>/<12-digit seq>.json`, so a restored chain never collides with the sequence numbers it superseded, and keys still sort in the order they were written. Credentials come from `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` or an ECS task role. For real immutability the bucket needs S3 Object Lock; the code works with or without it.
 - `MEZAN_AUDIT_ANCHOR_DIR`: without a bucket, anchors are appended to `<dir>/<scope>.jsonl` (default `<platform dir>/audit-anchors`). That is for dev and test: a file on the same host is not external.
 
 Each sweep reads only the newest anchor per scope: the S3 sink keeps a
@@ -83,6 +83,22 @@ anchors, and 1 when it could not run. A scope whose newest anchor no longer
 matches its database is never re-anchored; the sweep logs
 `audit_anchor.refused_possible_tampering` at error level every interval until
 someone looks.
+
+After a LEGITIMATE restore of an older snapshot, the platform owner accepts it:
+on the console (tenant page, «ختم سجل التدقيق خارج الخادم» → «اعتماد الاستعادة»,
+with a typed reason and their password; audited CRITICAL), or with the CLI on the
+restored database with the server stopped (needs `MEZAN_AUDIT_ANCHOR_SIGNING_KEY`;
+the only way for the `platform` scope):
+
+```sh
+pnpm exec tsx apps/server/src/audit-anchor-cli.ts accept-restore --db <restored db> --scope <tenant id | platform> --reason "<why>" --actor <who>
+```
+
+It signs a rebase anchor naming the head it supersedes and the reason, and is
+refused unless the sweep is refusing that chain as a rollback or rewrite AND the
+live chain verifies on its own — a forged anchor trail or a broken chain stays
+refused. The sweep then resumes, and `verify` passes while reporting
+`SUPERSEDED_BY_RESTORE` with the old head, who accepted it and why.
 
 ## Behind a proxy: which address a request is counted against
 

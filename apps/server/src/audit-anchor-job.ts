@@ -1,10 +1,15 @@
 import { createLogger, type JobTracker } from "@mezan/api";
 import type { PlatformHandle } from "@mezan/backend";
-import { isAuditChainAnchorSource, type AuditChainAnchorSource } from "@mezan/persistence";
+import { isAuditChainAnchorSource, type AuditChainAnchorSource, type AuditChainVerification } from "@mezan/persistence";
 import type { AuditSink } from "@mezan/domain";
 import {
+  acceptRestore,
+  AcceptRestoreRefusal,
   anchorHead,
   AnchorOutcome,
+  judgeHead,
+  type AcceptRestoreResult,
+  type AnchorRefusal,
   PLATFORM_ANCHOR_SCOPE,
   type AuditAnchorSigner,
   type AuditAnchorSink,
@@ -88,6 +93,63 @@ export async function anchorOneScope(
     latest,
     sink: options.sink,
     now: options.now ?? (() => new Date()),
+  });
+}
+
+export interface AnchorScopeStatus {
+  readonly outcome: AnchorOutcome;
+  readonly refusal: AnchorRefusal | null;
+  readonly reason: string | null;
+  readonly latestAnchoredSeq: number | null;
+  readonly latestAnchoredAt: string | null;
+  readonly liveHeadSeq: number | null;
+  readonly lastRebase: { readonly anchoredAt: string; readonly acceptedBy: string; readonly reason: string; readonly supersededSeq: number } | null;
+}
+
+/** What the next sweep would do for this scope. CONTRACT: reads only — it never signs or appends. */
+export async function anchorStatusOf(scope: string, audit: AuditSink, options: Pick<AuditAnchorJobOptions, "signer" | "sink">): Promise<AnchorScopeStatus> {
+  const latest = await options.sink.latest(scope);
+  const snapshot = await snapshotOf(audit, latest?.anchor.seq ?? null);
+  const judged: { outcome: AnchorOutcome; refusal?: AnchorRefusal; reason?: string } = snapshot
+    ? judgeHead({ head: snapshot.head, rowHashAt: (rowId) => snapshot.hashes.get(rowId) ?? null, signer: options.signer, latest })
+    : { outcome: AnchorOutcome.Refused, reason: "the audit sink cannot report its chain head" };
+  const rebase = latest?.anchor.rebase;
+  return {
+    outcome: judged.outcome,
+    refusal: judged.refusal ?? null,
+    reason: judged.reason ?? null,
+    latestAnchoredSeq: latest?.anchor.seq ?? null,
+    latestAnchoredAt: latest?.anchor.anchoredAt ?? null,
+    liveHeadSeq: snapshot?.head?.rowId ?? null,
+    lastRebase: rebase ? { anchoredAt: latest.anchor.anchoredAt, acceptedBy: rebase.acceptedBy, reason: rebase.reason, supersededSeq: rebase.supersededSeq } : null,
+  };
+}
+
+function chainVerifierOf(audit: AuditSink): (() => Promise<AuditChainVerification>) | undefined {
+  const verifyChain = (audit as { verifyChain?: () => Promise<AuditChainVerification> }).verifyChain;
+  return typeof verifyChain === "function" ? () => verifyChain.call(audit) : undefined;
+}
+
+export async function acceptRestoreForScope(
+  scope: string,
+  audit: AuditSink,
+  options: Pick<AuditAnchorJobOptions, "signer" | "sink" | "now"> & { readonly reason: string; readonly acceptedBy: string },
+): Promise<AcceptRestoreResult> {
+  const latest = await options.sink.latest(scope);
+  const snapshot = await snapshotOf(audit, latest?.anchor.seq ?? null);
+  if (snapshot === null) return { accepted: false, refusal: AcceptRestoreRefusal.NoChain, reason: "the audit sink cannot report its chain head" };
+  const verifyChain = chainVerifierOf(audit);
+  return acceptRestore({
+    scope,
+    head: snapshot.head,
+    rowHashAt: (rowId) => snapshot.hashes.get(rowId) ?? null,
+    signer: options.signer,
+    latest,
+    sink: options.sink,
+    now: options.now ?? (() => new Date()),
+    reason: options.reason,
+    acceptedBy: options.acceptedBy,
+    ...(verifyChain ? { verifyChain } : {}),
   });
 }
 

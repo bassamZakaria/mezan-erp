@@ -9,6 +9,7 @@ import { auditCodeAr, auditCodeEn } from "../screens/enh/audit-ledger/audit-code
 import { hrPayrollReportAr, hrPayrollReportEn } from "../screens/reports/hr-payroll-report-strings";
 import { backupProtectionAr, backupProtectionEn } from "../settings/backup-protection-strings";
 import { englishGapsAr, englishGapsEn } from "./english-gaps-strings";
+import { platformLifecycleAr, platformLifecycleEn } from "../platform/lifecycle-strings";
 
 /**
  * The web app's own strings. Arabic is the source language and `webEn` is typed
@@ -10091,6 +10092,7 @@ const webAr = {
   ...hrPayrollReportAr,
   ...backupProtectionAr,
   ...englishGapsAr,
+  ...platformLifecycleAr,
 } as const;
 
 export type WebTranslationKey = keyof typeof webAr;
@@ -20178,6 +20180,7 @@ const webEn: Record<WebTranslationKey, string> = {
   ...hrPayrollReportEn,
   ...backupProtectionEn,
   ...englishGapsEn,
+  ...platformLifecycleEn,
 };
 
 export const webCatalogs: LocaleCatalogs = { ar: webAr, en: webEn };

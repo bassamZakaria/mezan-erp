@@ -37,6 +37,8 @@ export {
   type OwnerPinResetAccount,
   type PlatformCardCheckoutPort,
   type RecordedActivation,
+  type PlatformAuditAnchorPort,
+  type PlatformAcceptRestoreResult,
 } from "./platform-routes.js";
 export { materialiseEndedTrial, resolveTenantPlan, type TenantPlanView } from "./reverse-trial.js";
 export type { ApiKeyAuthentication, ApiWriteRecord, IdempotentApiAnswer, IntegrationsGateway } from "./integrations/gateway.js";

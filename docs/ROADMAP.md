@@ -996,7 +996,7 @@ need a measured reading in the running app before anyone fixes them.
 | D171 | Every SQLite call ran on the Electron main-process event loop, so one report or the daily backup froze the host and every till [Q-1/Q-2] | `apps/desktop/src/main/index.ts`, `apps/desktop/src/backup/backup-service.ts` | see the perf pass in this commit for what landed |
 | D172 | `/sales-invoices/counts` hydrated the whole filtered table on every keystroke; every report loaded whole tables into JS; 58 of 66 route files had no `LIMIT`; five screens paged in the browser [Q-5..Q-9] | `packages/api/src/sales-invoices-routes.ts`, `reports-routes.ts`, `packages/persistence/src/ledger-store.ts` | see the perf pass in this commit for what landed |
 | D173 | 198 GET error paths threw a fixed sentence and discarded the server's Arabic reason; email notification rules saved as if they delivered [support #13/#10] | `apps/web/src/data/*.ts`, `NotificationRulesPage.tsx` | see the support-hardening pass in this commit |
-| D174 | The public demo shipped a published admin PIN with optional auth on `0.0.0.0` [S-1]; `apps/server` bound every interface while printing `127.0.0.1` [S-2]; the audit trail could be edited past its trigger and a restore wrote no audit event [S-3] | `render.yaml`, `apps/server/src/`, `packages/persistence/src/audit-sink.ts` | see the support-hardening pass in this commit |
+| D174 | The public demo shipped a published admin PIN with optional auth on `0.0.0.0` [S-1]; `apps/server` bound every interface while printing `127.0.0.1` [S-2]; the audit trail could be edited past its trigger and a restore wrote no audit event [S-3] | the demo blueprint (retired), `apps/server/src/`, `packages/persistence/src/audit-sink.ts` | see the support-hardening pass in this commit |
 | D175 | ETA e-invoicing could not transmit (stub port throws unconditionally); four exception reports were mounted with no screen; no open AR/AP, chart or opening-TB import; no report was branch-scoped; concurrent edits were last-write-wins [P-1/P-4/P-5/P-7/N-9] | `packages/domain/src/eta/service.ts`, `packages/api/src/security-reports-routes.ts`, `data-migration-routes.ts` | see the product-compliance pass in this commit |
 | D176 | Partner opening balances were one fact with three figures, none the GL [B-2, D142 wider]; the customer/supplier statements were browser-built, the supplier one omitting returns, landed costs and cheques [C-2]; closing a month checked nothing [C-3]; all fiscal-period refusals were English [C-4, D74] | `packages/api/src/customers-routes.ts`, `apps/web/src/screens/SuppliersScreen.tsx`, `packages/domain/src/fiscal-periods/` | B-2 fixed 2026-09-07 (`PartyOpeningBalancePoster`, idempotent `OB-CUST-JE:<id>`); the rest: see the month-end pass in this commit |
 
@@ -2528,7 +2528,7 @@ mails customers unattended is a support ticket. WhatsApp uses free `wa.me` links
 
 #### DEC-21 — The public demo keeps a published login, scoped to the demo tenant; a shared password is the real gate
 
-The Render demo auto-deployed from git with `MEZAN_SEED_ADMIN_PIN=123456`. PR #55's cloud entrypoint
+The hosted demo auto-deployed from git with `MEZAN_SEED_ADMIN_PIN=123456`. PR #55's cloud entrypoint
 **refuses to boot** with that variable set (its audit finding S-1: "a writable ERP on the open
 internet behind a published PIN") and otherwise generates a random PIN, printed once to the deploy log.
 
@@ -2537,10 +2537,10 @@ internet behind a published PIN") and otherwise generates a random PIN, printed 
 1. **The refusal protected nothing on the demo tenant.** Its seed creates ~20 personas, all on
    `123456`, including a second company admin with the `*` wildcard. A random PIN on one admin still
    leaves a published admin login.
-2. **A per-deploy PIN is unusable on a free instance.** Render's free plan sleeps after 15 idle minutes
-   and the demo re-seeds on every wake, so the PIN would change on every wake.
-3. **The refusal did not take the demo down — it froze it.** Render keeps environment variables that
-   are removed from `render.yaml` and never prompts for `sync: false` ones after creation, and a deploy
+2. **A per-deploy PIN is unusable on a free instance.** The free demo host slept after 15 idle minutes
+   and the demo re-seeded on every wake, so the PIN would change on every wake.
+3. **The refusal did not take the demo down — it froze it.** The host kept environment variables that
+   were removed from its blueprint and never prompted for new secret ones after creation, and a deploy
    that fails its health check leaves the previous one serving. So every new build failed and the
    **old** build — with optional auth and the published PIN — stayed on the internet.
 4. **The variable is genuinely dangerous process-wide.** It fed the seed-admin secrets of every tenant,
@@ -2565,9 +2565,7 @@ mandatory wherever the demo is seeded, and the password is never published. **Di
 `security-officer` prefers per-visitor ephemeral tenants, as QuickBooks does — deferred, because a
 seeded tenant is ~375 MB on a 512 MB free instance; recorded as the target for the demo.
 
-**Ops step that only the dashboard can do** (Render keeps removed variables): delete
-`MEZAN_SEED_ADMIN_PIN`, set `MEZAN_DEMO_PASSWORD`, set the platform-owner credentials, deploy, and check
-`/` answers 401 without credentials and `/healthz` answers 200. (The Render demo, `render.yaml` and `docs/DEPLOY-DEMO.md` were removed 2026-10-19; Contabo is the only host.)
+The hosted demo was retired on 2026-10-19; Contabo is the only host.
 
 **Also fixed by this:** `pnpm env:testing` / `env:staging` could not start on `main` — `scripts/env.mjs`
 set the refused variable and not the now-required password. And the demo seeder's own second lock

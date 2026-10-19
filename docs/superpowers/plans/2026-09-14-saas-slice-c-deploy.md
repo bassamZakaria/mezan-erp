@@ -40,8 +40,8 @@
 - [ ] Commit `feat(server): the demo tenant, the plan prices, and the first platform owner`
 
 ### C4: local, Render and container shapes; docs
-**Files:** `scripts/env.mjs`, `render.yaml`, `Dockerfile`, `docs/ENVIRONMENTS.md`, `docs/DEPLOY-DEMO.md`, `docs/ROADMAP.md` §4.3, `docs/TESTING.md` §11 (new scenarios `PLT-SAAS-01..08` exactly as spec §3 lists them, with steps and expected results) if any name changed.
-- [ ] `env.mjs`: `MEZAN_PLATFORM_DIR=.data/<env>-platform`, `MEZAN_SEED_DEMO=1`, `MEZAN_PLATFORM_OWNER_EMAIL=owner@mezan.local`, `MEZAN_PLATFORM_OWNER_PASSWORD=owner-password-123`; `render.yaml`: `MEZAN_PLATFORM_DIR=/tmp/platform`, `MEZAN_SEED_DEMO=1`, owner email, password `sync: false`; `Dockerfile`: drop `MEZAN_DB`, set `MEZAN_PLATFORM_DIR=/data`, healthcheck-free (ECS does it), `USER node` after `chown`.
+**Files:** `scripts/env.mjs`, `Dockerfile`, `docs/ENVIRONMENTS.md`, `docs/DEPLOY-DEMO.md`, `docs/ROADMAP.md` §4.3, `docs/TESTING.md` §11 (new scenarios `PLT-SAAS-01..08` exactly as spec §3 lists them, with steps and expected results) if any name changed.
+- [ ] `env.mjs`: `MEZAN_PLATFORM_DIR=.data/<env>-platform`, `MEZAN_SEED_DEMO=1`, `MEZAN_PLATFORM_OWNER_EMAIL=owner@mezan.local`, `MEZAN_PLATFORM_OWNER_PASSWORD=owner-password-123`; `Dockerfile`: drop `MEZAN_DB`, set `MEZAN_PLATFORM_DIR=/data`, healthcheck-free (ECS does it), `USER node` after `chown`.
 - [ ] Commit `docs(deploy): every environment runs the multi-tenant entrypoint, and the eight SaaS scenarios are written down`
 
 ### C5: browser proof

@@ -82,8 +82,9 @@ export function outboxLevel(input: { queued: number; oldestAgeMinutes: number | 
   return HealthLevel.Ok;
 }
 
-export function etaLevel(input: { errors: number; unsent: number; oldestUnsentAgeHours: number | null }): HealthLevel {
+export function etaLevel(input: { errors: number; unsent: number; oldestUnsentAgeHours: number | null; clientSecretNeedsReentry?: boolean }): HealthLevel {
   const age = input.oldestUnsentAgeHours ?? 0;
+  if (input.clientSecretNeedsReentry) return input.unsent > 0 ? HealthLevel.Critical : HealthLevel.Warn;
   if (input.unsent > 0 && age >= HEALTH_THRESHOLDS.etaCriticalHours) return HealthLevel.Critical;
   if (input.errors > 0 || (input.unsent > 0 && age >= HEALTH_THRESHOLDS.etaWarnHours)) return HealthLevel.Warn;
   return HealthLevel.Ok;

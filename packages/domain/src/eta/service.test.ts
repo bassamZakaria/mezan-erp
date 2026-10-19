@@ -241,6 +241,12 @@ describe("EtaService — lifecycle", () => {
     await expect(unset.svc.testConnection()).resolves.toMatchObject({ ok: false, reason: "missing_credentials" });
     expect(called).toBe(0);
 
+    const unreadable = service({ clientId: "cid", hasClientSecret: false, clientSecretNeedsReentry: true }, checking);
+    const needsReentry = await unreadable.svc.testConnection();
+    expect(needsReentry).toMatchObject({ ok: false, reason: "secret_needs_reentry" });
+    expect(needsReentry.detail).toContain("أعد إدخاله");
+    expect(called).toBe(0);
+
     const set = service({ clientId: "cid", hasClientSecret: true }, checking);
     await expect(set.svc.testConnection()).resolves.toMatchObject({ ok: true, reason: "connected" });
     expect(called).toBe(1);

@@ -112,6 +112,12 @@ CREATE TABLE IF NOT EXISTS eta_unit_mapping (
 
 const SINGLETON = "singleton";
 
+enum StoredSecretState {
+  None = "none",
+  Readable = "readable",
+  Unreadable = "unreadable",
+}
+
 /** Columns added after the first release; existing files get them here rather than on a rebuild. */
 // CONTRACT: these are the associated data each sealed value is bound to; changing one orphans
 // every value already sealed under it.
@@ -249,6 +255,12 @@ class SqliteEtaConfigRepository implements EtaConfigRepository {
   async get(): Promise<EtaConfig> {
     const row = this.read.get(SINGLETON) as ConfigRow | undefined;
     if (!row) return DEFAULT_ETA_CONFIG;
+    const secretState =
+      row.client_secret_enc == null
+        ? StoredSecretState.None
+        : this.codec.open(row.client_secret_enc, CLIENT_SECRET_CONTEXT) === null
+          ? StoredSecretState.Unreadable
+          : StoredSecretState.Readable;
     const address = row.address ? (JSON.parse(row.address) as EtaCompanyAddress) : null;
     return {
       environment: row.environment as EtaEnvironment,
@@ -260,7 +272,8 @@ class SqliteEtaConfigRepository implements EtaConfigRepository {
       autoSubmitOnConfirm: row.auto_submit_on_confirm === 1,
       signingMethod: row.signing_method as EtaSigningMethod,
       clientId: row.client_id,
-      hasClientSecret: row.client_secret_enc != null,
+      hasClientSecret: secretState === StoredSecretState.Readable,
+      clientSecretNeedsReentry: secretState === StoredSecretState.Unreadable,
       preproductionIdentityUrl: row.preproduction_identity_url ?? ETA_DEFAULT_ENDPOINTS.preproductionIdentityUrl,
       preproductionApiUrl: row.preproduction_api_url ?? ETA_DEFAULT_ENDPOINTS.preproductionApiUrl,
       productionIdentityUrl: row.production_identity_url ?? ETA_DEFAULT_ENDPOINTS.productionIdentityUrl,

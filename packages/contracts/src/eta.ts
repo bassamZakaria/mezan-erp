@@ -34,6 +34,8 @@ export const etaConfigSchema = z.object({
   signingMethod: etaSigningMethodSchema,
   clientId: z.string().nullable(),
   hasClientSecret: z.boolean(),
+  /** A secret is stored but cannot be opened on this install (sealed under another key) — it must be entered again. */
+  clientSecretNeedsReentry: z.boolean(),
   preproductionIdentityUrl: z.string(),
   preproductionApiUrl: z.string(),
   productionIdentityUrl: z.string(),
@@ -173,7 +175,7 @@ export const etaTransmitLogEntrySchema = z.object({
 
 export const etaConnectionCheckSchema = z.object({
   ok: z.boolean(),
-  reason: z.enum(["connected", "missing_credentials", "rejected", "unreachable"]),
+  reason: z.enum(["connected", "missing_credentials", "secret_needs_reentry", "rejected", "unreachable"]),
   detail: z.string().nullable(),
   identityUrl: z.string(),
   checkedAt: z.string(),

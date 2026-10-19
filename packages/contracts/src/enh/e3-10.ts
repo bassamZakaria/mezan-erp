@@ -37,6 +37,8 @@ export interface HealthEtaDTO {
   readonly submitted: number;
   readonly oldestUnsentAt: string | null;
   readonly recentErrors: readonly HealthEtaErrorDTO[];
+  /** The stored ETA client secret cannot be opened here and must be entered again. */
+  readonly clientSecretNeedsReentry: boolean;
 }
 
 export interface HealthAuditChainDTO {

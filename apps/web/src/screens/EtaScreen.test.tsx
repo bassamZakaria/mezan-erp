@@ -66,6 +66,7 @@ function config(overrides: Partial<EtaConfigDTO> = {}): EtaConfigDTO {
     signingMethod: "none",
     clientId: null,
     hasClientSecret: false,
+    clientSecretNeedsReentry: false,
     preproductionIdentityUrl: "https://id.preprod.eta.gov.eg",
     preproductionApiUrl: "https://api.preprod.invoicing.eta.gov.eg/api/v1",
     productionIdentityUrl: "https://id.eta.gov.eg",
@@ -276,6 +277,18 @@ describe("EtaScreen — عام (general)", () => {
 });
 
 describe("EtaScreen — بيانات الربط (credentials)", () => {
+  it("says the stored secret needs re-entry when it cannot be opened, instead of «stored»", async () => {
+    const { transport } = trackedTransport({
+      "GET /eta/config": () => ({ body: { config: config({ clientId: "cid", hasClientSecret: false, clientSecretNeedsReentry: true }), readiness: readiness() } }),
+      "GET /eta/submissions": () => ({ body: [] }),
+    });
+    renderWithProviders(<EtaScreen />, { transport, initialSession: testAdminSession });
+
+    fireEvent.click(screen.getByRole("tab", { name: "بيانات الربط" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("يلزم إعادة الإدخال");
+    expect(screen.queryByText("محفوظ — لا يُعرض مرة أخرى")).not.toBeInTheDocument();
+  });
+
   it("saves client id and signing method without overwriting the secret when left blank, via PUT /eta/config", async () => {
     let saved: unknown = null;
     const { transport } = trackedTransport({

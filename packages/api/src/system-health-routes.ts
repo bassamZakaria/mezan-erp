@@ -49,6 +49,7 @@ export interface SystemHealthRoutesDeps {
     oldestUnsentAt: string | null;
     recentErrors: readonly { internalId: string; documentType: string; updatedAt: string; message: string | null }[];
   };
+  readonly etaCredentials?: () => Promise<{ readonly clientSecretNeedsReentry: boolean }>;
   readonly database: () => { dbBytes: number; walBytes: number | null; freeListBytes: number };
   readonly auditChain?: { verifyHead(): { reason: AuditChainHeadReason; headRowId: number | null } };
   readonly jobs: () => readonly SystemHealthJobReading[];
@@ -97,9 +98,10 @@ export function createSystemHealthRoutes(deps: SystemHealthRoutesDeps, resolveAu
       const reading = deps.eta(ETA_RECENT_ERRORS);
       const unsent = reading.ready + reading.pendingSignature + reading.error;
       const oldestUnsentAgeHours = reading.oldestUnsentAt ? Math.floor((now.getTime() - new Date(reading.oldestUnsentAt).getTime()) / MS_PER_HOUR) : null;
-      const level = etaLevel({ errors: reading.error, unsent, oldestUnsentAgeHours });
+      const clientSecretNeedsReentry = (await deps.etaCredentials?.())?.clientSecretNeedsReentry === true;
+      const level = etaLevel({ errors: reading.error, unsent, oldestUnsentAgeHours, clientSecretNeedsReentry });
       levels.push(level);
-      eta = { level: LEVEL_DTO[level], ...reading };
+      eta = { level: LEVEL_DTO[level], ...reading, clientSecretNeedsReentry };
     } else withheld.push(HealthSectionDTO.Eta);
 
     let auditChain: SystemHealthDTO["auditChain"] = null;

@@ -628,14 +628,21 @@ function CredentialsTab({ config }: { config: EtaConfigDTO | null }) {
         ? t("eta.testConnected")
         : result.reason === "missing_credentials"
           ? t("eta.testMissingCredentials")
-          : result.reason === "rejected"
-            ? t("eta.testRejected")
-            : t("eta.testUnreachable");
+          : result.reason === "secret_needs_reentry"
+            ? t("eta.testSecretNeedsReentry")
+            : result.reason === "rejected"
+              ? t("eta.testRejected")
+              : t("eta.testUnreachable");
     setTestResult({ tone: result.ok ? "ok" : "warn", text, detail: result.detail });
   }
 
   return (
     <Card className="p-[16px_18px]">
+      {config?.clientSecretNeedsReentry ? (
+        <p role="alert" className="mb-[12px] rounded-md border border-danger bg-danger-soft p-[10px_12px] text-[12.5px] font-semibold leading-[1.8] text-danger-ink">
+          {t("eta.clientSecretNeedsReentry")}
+        </p>
+      ) : null}
       <div className="grid gap-[14px] md:grid-cols-2">
         <Field label={t("eta.clientId")} htmlFor="eta-client-id">
           <TextInput id="eta-client-id" value={clientId} onChange={(e) => setClientId(e.target.value)} />

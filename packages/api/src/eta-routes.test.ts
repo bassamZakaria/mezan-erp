@@ -1,3 +1,6 @@
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { describe, it, expect, afterEach } from "vitest";
 import {
   EtaService,
@@ -14,6 +17,7 @@ import {
   type EtaDocumentInput,
 } from "@mezan/domain";
 import {
+  createAesGcmSecretBox,
   createSqliteEtaStore,
   createSqliteItemStore,
   createSqliteItemCatalogStore,
@@ -602,6 +606,28 @@ describe("eta router — test-connection (اختبار الاتصال)", () => {
     const { app } = newApp();
     const res = await app.fetch(req("/test-connection", { method: "POST", permissions: VIEW }));
     expect(res.status).toBe(403);
+  });
+
+  it("a secret sealed under another key reads as «needs re-entry», not configured, and entering it again clears the flag", async () => {
+    const file = path.join(mkdtempSync(path.join(tmpdir(), "eta-secret-")), "books.db");
+    const sealedElsewhere = createSqliteEtaStore(file, createAesGcmSecretBox(Buffer.alloc(32, 1)));
+    await sealedElsewhere.config.setClientSecret("sealed-under-the-old-key");
+    sealedElsewhere.close();
+    const store = createSqliteEtaStore(file, createAesGcmSecretBox(Buffer.alloc(32, 2)));
+    handles.push(store);
+    const service = new EtaService({ config: store.config, submissions: store.submissions, signer: fakeSigner, now: () => "2026-08-22T10:00:00.000Z", newId: () => "sub-1" });
+    const app = createEtaRoutes({ service, setClientSecret: (s) => store.config.setClientSecret(s) }, insecureHeaderAuthContextResolver);
+
+    const read = async () => ((await (await app.fetch(req("/config", { permissions: VIEW }))).json()) as { config: { hasClientSecret: boolean; clientSecretNeedsReentry: boolean }; readiness: { items: { key: string; complete: boolean }[] } });
+    const before = await read();
+    expect(before.config).toMatchObject({ hasClientSecret: false, clientSecretNeedsReentry: true });
+    expect(before.readiness.items.find((item) => item.key === "clientSecret")?.complete).toBe(false);
+    await app.fetch(req("/config", { method: "PUT", permissions: SUBMIT, body: JSON.stringify({ clientId: "cid" }) }));
+    const tested = (await (await app.fetch(req("/test-connection", { method: "POST", permissions: SUBMIT }))).json()) as { reason: string };
+    expect(tested.reason).toBe("secret_needs_reentry");
+
+    await app.fetch(req("/config", { method: "PUT", permissions: SUBMIT, body: JSON.stringify({ clientSecret: "entered-again" }) }));
+    expect((await read()).config).toMatchObject({ hasClientSecret: true, clientSecretNeedsReentry: false });
   });
 });
 

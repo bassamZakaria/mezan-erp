@@ -17,6 +17,7 @@ export const area: BackendArea = {
         {
           outbox: () => store.outbox(),
           eta: (limit) => store.eta(limit),
+          etaCredentials: async () => ({ clientSecretNeedsReentry: (await ctx.stores.eta.config.get()).clientSecretNeedsReentry === true }),
           database: () => store.database(),
           auditChain: ctx.auditChain,
           jobs: () => ctx.scheduledJobStatus(),

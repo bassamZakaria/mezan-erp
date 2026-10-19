@@ -76,6 +76,7 @@ describe("etaConfigSchema", () => {
     signingMethod: "none" as const,
     clientId: null,
     hasClientSecret: false,
+    clientSecretNeedsReentry: false,
     // guards P-1 — the gateway addresses and the external signer are part of the
     // config the screen round-trips, not hidden constants.
     preproductionIdentityUrl: "https://id.preprod.eta.gov.eg",

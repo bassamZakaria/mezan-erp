@@ -101,7 +101,7 @@ cp /opt/mezan/backup/restic.env.example /srv/mezan/restic.env
 chmod 600 /srv/mezan/env /srv/mezan/shared.env /srv/mezan/restic.env       # then fill them in
 # before the first boot: MEZAN_AUDIT_CHAIN_KEY=$(openssl rand -hex 32) in /srv/mezan/env, never changed afterwards
 echo "<a GitHub token with read:packages>" | docker login ghcr.io -u <github user> --password-stdin
-/opt/mezan/deploy.sh <commit sha from the "Release image" workflow>
+/opt/mezan/deploy.sh <commit sha printed by build-image.sh>
 ```
 
 The image is private on GHCR unless the package is made public; the token above only needs `read:packages`. On first boot without `MEZAN_PLATFORM_OWNER_PASSWORD` the owner password is written to `/srv/mezan/data/platform-owner-password.txt`: sign in at `/platform/login`, change it, delete the file.
@@ -118,7 +118,7 @@ After the first deploy, in a browser: sign in to a tenant, print an invoice and 
 
 ## 5. Update and rollback
 
-Merge into `production` → the **Release image** workflow pushes `ghcr.io/bassamzakaria/mezan-erp:<sha>` (linux/amd64). On the VPS:
+On your machine, from a clean checkout of the commit to ship, run `deploy/contabo/build-image.sh`: it builds `ghcr.io/bassamzakaria/mezan-erp:<sha>` (linux/amd64) and pushes it (`docker login ghcr.io` first, with a token that has `write:packages`). There is no GitHub Action for this. On the VPS:
 
 ```
 sudo /opt/mezan/deploy.sh <sha>
@@ -129,7 +129,7 @@ sudo /opt/mezan/deploy.sh --rollback        # back to the tag that ran before
 
 **Downtime:** about a minute per deploy. The app is the only writer of its SQLite files (`MEZAN_SQLITE_EXCLUSIVE=1`), so the old and new versions cannot overlap.
 
-The server's own shutdown budget is 10 s (`apps/server/src/process-lifecycle.ts`); if a backup run takes longer the process exits 1 with the marker left behind and `deploy.sh` refuses. Wait a minute, `docker compose start mezan`, and deploy again.
+The server's own shutdown budget is 75 s (`apps/server/src/process-lifecycle.ts`); if a backup run takes longer the process exits 1 with the marker left behind and `deploy.sh` refuses. Wait a minute, `docker compose start mezan`, and deploy again.
 
 ## 6. Restore
 

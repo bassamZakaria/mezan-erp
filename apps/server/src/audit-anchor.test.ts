@@ -228,6 +228,7 @@ describe("S3 sink", () => {
     const s3 = createS3AuditAnchorSink({
       bucket: "backups",
       region: "eu-south-1",
+      endpoint: "https://s3.test",
       credentials: async () => ({ accessKeyId: "AKIDEXAMPLE", secretAccessKey: "secret" }),
       now: () => NOW,
       fetch: (async (url: string, init: RequestInit) => {
@@ -238,10 +239,10 @@ describe("S3 sink", () => {
     const signed = signer.sign({ scope: SCOPE, seq: 42, headHash: "h42", anchoredAt: NOW.toISOString() });
     await s3.append(signed);
     expect(calls).toHaveLength(2);
-    expect(calls[1]?.url).toBe("https://backups.s3.eu-south-1.amazonaws.com/audit-anchors/T-1/latest.json");
+    expect(calls[1]?.url).toBe("https://s3.test/backups/audit-anchors/T-1/latest.json");
     expect(JSON.parse(calls[1]?.body ?? "")).toEqual({ seq: 42 });
     expect(calls[0]?.method).toBe("PUT");
-    expect(calls[0]?.url).toBe("https://backups.s3.eu-south-1.amazonaws.com/audit-anchors/T-1/000000000042.json");
+    expect(calls[0]?.url).toBe("https://s3.test/backups/audit-anchors/T-1/000000000042.json");
     expect(calls[0]?.headers["if-none-match"]).toBe("*");
     expect(calls[0]?.headers["authorization"]).toMatch(/^AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE\/20261017\/eu-south-1\/s3\/aws4_request, SignedHeaders=.*content-type.*host.*if-none-match.*, Signature=[0-9a-f]{64}$/);
     expect(JSON.parse(calls[0]?.body ?? "")).toEqual(signed);
@@ -252,6 +253,7 @@ describe("S3 sink", () => {
       createS3AuditAnchorSink({
         bucket: "b",
         region: "r",
+      endpoint: "https://s3.test",
         credentials: async () => ({ accessKeyId: "k", secretAccessKey: "s" }),
         fetch: (async () => new Response("", { status })) as unknown as typeof fetch,
       });
@@ -266,13 +268,14 @@ describe("S3 sink", () => {
     const s3 = createS3AuditAnchorSink({
       bucket: "b",
       region: "r",
+      endpoint: "https://s3.test",
       credentials: async () => ({ accessKeyId: "k", secretAccessKey: "s" }),
       fetch: (async (url: string) => {
         const parsed = new URL(url);
         if (parsed.searchParams.get("list-type")) {
           return new Response(`<ListBucketResult><IsTruncated>false</IsTruncated>${[...stored.keys()].map((k) => `<Contents><Key>${k}</Key></Contents>`).join("")}</ListBucketResult>`);
         }
-        return new Response(stored.get(parsed.pathname.slice(1)) ?? "", { status: stored.has(parsed.pathname.slice(1)) ? 200 : 404 });
+        return new Response(stored.get(parsed.pathname.slice(3)) ?? "", { status: stored.has(parsed.pathname.slice(3)) ? 200 : 404 });
       }) as unknown as typeof fetch,
     });
     expect((await s3.list(SCOPE, 2)).map((s) => s.anchor.seq)).toEqual([2, 3]);
@@ -284,10 +287,11 @@ describe("the newest anchor without reading the whole history", () => {
     return createS3AuditAnchorSink({
       bucket: "b",
       region: "r",
+      endpoint: "https://s3.test",
       credentials: async () => ({ accessKeyId: "k", secretAccessKey: "s" }),
       fetch: (async (url: string, init: RequestInit) => {
         const parsed = new URL(url);
-        const key = decodeURIComponent(parsed.pathname.slice(1));
+        const key = decodeURIComponent(parsed.pathname.slice(3));
         requests.push(`${init.method} ${parsed.searchParams.get("list-type") ? "LIST" : key}`);
         if (init.method === "PUT") {
           if (init.headers && (init.headers as Record<string, string>)["if-none-match"] && stored.has(key)) return new Response("", { status: 412 });

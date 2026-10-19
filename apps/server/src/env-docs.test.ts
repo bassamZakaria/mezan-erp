@@ -49,13 +49,13 @@ function renderBlueprintVariables(): Record<string, string> {
   return variables;
 }
 
-const DOCUMENTED = ["docs/DEPLOY-AWS.md", "docs/DEPLOY-REVIEW.md", "docs/DEPLOY-DEMO.md"].flatMap((file) =>
+const DOCUMENTED = ["docs/DEPLOY-DEMO.md"].flatMap((file) =>
   documentedTables(file).map((table) => ({ file, ...table })),
 );
 
 describe("every deployment's documented environment", () => {
-  it("has a table for AWS, the reviewer stack and the Render demo", () => {
-    expect(DOCUMENTED.map((table) => table.name).sort()).toEqual(["aws", "render", "review"]);
+  it("has a table for the Render demo", () => {
+    expect(DOCUMENTED.map((table) => table.name).sort()).toEqual(["render"]);
   });
 
   it.each(DOCUMENTED)("starts the server as $file documents it ($name), with a counted proxy hop and a public origin", ({ variables }) => {
@@ -66,14 +66,14 @@ describe("every deployment's documented environment", () => {
     expect(env.publicOrigin).toMatch(/^https:\/\//);
   });
 
-  it("counts two hops behind CloudFront and API Gateway and one behind Render's proxy", () => {
+  it("counts one hop behind Render's proxy", () => {
     const hops = Object.fromEntries(DOCUMENTED.map((table) => [table.name, table.variables["MEZAN_TRUSTED_PROXY_HOPS"]]));
-    expect(hops).toEqual({ aws: "2", review: "2", render: "1" });
+    expect(hops).toEqual({ render: "1" });
   });
 
   it("refuses to start on the proxy variable alone, which is what a stack that has not been given the hop count sets", () => {
-    const aws = DOCUMENTED.find((table) => table.name === "aws")!.variables;
-    const { MEZAN_TRUSTED_PROXY_HOPS: _hops, ...withoutTheCount } = aws;
+    const render = DOCUMENTED.find((table) => table.name === "render")!.variables;
+    const { MEZAN_TRUSTED_PROXY_HOPS: _hops, ...withoutTheCount } = render;
 
     expect(() => parseEnv(withoutTheCount)).toThrow(/MEZAN_TRUSTED_PROXY_HOPS/);
   });

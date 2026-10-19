@@ -126,7 +126,7 @@ describe("resolveTenantCode", () => {
     expect(resolveTenantCode(req({ host: "CYAG.mezan.app:8080" }), { tenantDomain: "mezan.app" })).toBe("cyag");
   });
   it("prefers x-forwarded-host over host", () => {
-    expect(resolveTenantCode(req({ host: "d1.cloudfront.net", "x-forwarded-host": "nile.mezan.app" }), { tenantDomain: "mezan.app" })).toBe("nile");
+    expect(resolveTenantCode(req({ host: "d1.proxy.example", "x-forwarded-host": "nile.mezan.app" }), { tenantDomain: "mezan.app" })).toBe("nile");
   });
   it("gives null for the bare domain, a deeper label, or a host outside the domain", () => {
     expect(resolveTenantCode(req({ host: "mezan.app" }), { tenantDomain: "mezan.app" })).toBeNull();

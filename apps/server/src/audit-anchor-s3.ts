@@ -6,12 +6,10 @@ const LATEST_POINTER = "latest.json";
 const ANCHOR_KEY = /\/\d{12}\.json$/;
 const LIST_PAGE_KEYS = 1000;
 const REQUEST_TIMEOUT_MS = 15_000;
-const ECS_CREDENTIALS_HOST = "http://169.254.170.2";
 
 export interface S3Credentials {
   readonly accessKeyId: string;
   readonly secretAccessKey: string;
-  readonly sessionToken?: string;
 }
 
 export type S3CredentialSource = () => Promise<S3Credentials>;
@@ -20,30 +18,21 @@ export interface S3AuditAnchorSinkOptions {
   readonly bucket: string;
   readonly region: string;
   readonly prefix?: string;
-  /** Path-style endpoint override for S3-compatible stores and tests. */
-  readonly endpoint?: string;
+  readonly endpoint: string;
   readonly credentials?: S3CredentialSource;
   readonly fetch?: typeof fetch;
   readonly now?: () => Date;
 }
 
-export function envCredentialSource(env: Record<string, string | undefined> = process.env, fetchImpl: typeof fetch = fetch): S3CredentialSource {
-  let cached: { creds: S3Credentials; expiresAt: number } | null = null;
+const ACCESS_KEY_VAR = "MEZAN_AUDIT_ANCHOR_S3_ACCESS_KEY_ID";
+const SECRET_KEY_VAR = "MEZAN_AUDIT_ANCHOR_S3_SECRET_ACCESS_KEY";
+
+export function envCredentialSource(env: Record<string, string | undefined> = process.env): S3CredentialSource {
   return async () => {
-    const accessKeyId = env["AWS_ACCESS_KEY_ID"];
-    const secretAccessKey = env["AWS_SECRET_ACCESS_KEY"];
-    if (accessKeyId && secretAccessKey) {
-      return { accessKeyId, secretAccessKey, ...(env["AWS_SESSION_TOKEN"] ? { sessionToken: env["AWS_SESSION_TOKEN"] } : {}) };
-    }
-    const relative = env["AWS_CONTAINER_CREDENTIALS_RELATIVE_URI"];
-    if (!relative) throw new Error("no AWS credentials: set AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY or run under an ECS task role");
-    if (cached && cached.expiresAt - Date.now() > 60_000) return cached.creds;
-    const res = await fetchImpl(`${ECS_CREDENTIALS_HOST}${relative}`, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
-    if (!res.ok) throw new Error(`the ECS credentials endpoint answered ${res.status}`);
-    const body = (await res.json()) as { AccessKeyId: string; SecretAccessKey: string; Token?: string; Expiration?: string };
-    const creds: S3Credentials = { accessKeyId: body.AccessKeyId, secretAccessKey: body.SecretAccessKey, ...(body.Token ? { sessionToken: body.Token } : {}) };
-    cached = { creds, expiresAt: body.Expiration ? Date.parse(body.Expiration) : Date.now() + 5 * 60_000 };
-    return creds;
+    const accessKeyId = env[ACCESS_KEY_VAR] || env["AWS_ACCESS_KEY_ID"];
+    const secretAccessKey = env[SECRET_KEY_VAR] || env["AWS_SECRET_ACCESS_KEY"];
+    if (!accessKeyId || !secretAccessKey) throw new Error(`no object-storage credentials: set ${ACCESS_KEY_VAR} and ${SECRET_KEY_VAR}`);
+    return { accessKeyId, secretAccessKey };
   };
 }
 
@@ -67,10 +56,10 @@ export function createS3AuditAnchorSink(options: S3AuditAnchorSinkOptions): Audi
   const credentials = options.credentials ?? envCredentialSource();
   const doFetch = options.fetch ?? fetch;
   const now = options.now ?? (() => new Date());
-  const endpoint = options.endpoint?.replace(/\/+$/, "");
-  const host = endpoint ? new URL(endpoint).host : `${options.bucket}.s3.${options.region}.amazonaws.com`;
-  const origin = endpoint ?? `https://${host}`;
-  const pathPrefix = endpoint ? `/${options.bucket}` : "";
+  const endpoint = options.endpoint.replace(/\/+$/, "");
+  const host = new URL(endpoint).host;
+  const origin = endpoint;
+  const pathPrefix = `/${options.bucket}`;
 
   async function signedFetch(method: string, objectKey: string, query: Record<string, string>, body: Buffer | null, extra: Record<string, string> = {}): Promise<Response> {
     const creds = await credentials();
@@ -78,7 +67,6 @@ export function createS3AuditAnchorSink(options: S3AuditAnchorSinkOptions): Audi
     const date = stamp.slice(0, 8);
     const payloadHash = sha256Hex(body ?? "");
     const headers: Record<string, string> = { host, "x-amz-content-sha256": payloadHash, "x-amz-date": stamp, ...extra };
-    if (creds.sessionToken) headers["x-amz-security-token"] = creds.sessionToken;
     const names = Object.keys(headers).sort();
     const canonicalPath = `${pathPrefix}/${objectKey.split("/").map(encodeSegment).join("/")}`.replace(/\/$/, "") || "/";
     const canonicalQuery = Object.keys(query)

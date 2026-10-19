@@ -124,7 +124,7 @@ function safeEqual(provided: string, secret: string): boolean {
 
 /**
  * Rejects every request under this middleware with 403 unless it carries
- * `x-mezan-origin: <secret>` — CloudFront adds this as a custom origin
+ * `x-mezan-origin: <secret>` — the reverse proxy (Caddy on the Contabo VPS) sets this
  * header, so only traffic through the app's own edge (not a direct hit on
  * the origin) passes. A caller with no secret configured never applies this.
  */

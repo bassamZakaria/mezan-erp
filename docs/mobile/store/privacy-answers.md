@@ -67,7 +67,7 @@ holds only while the app has no link to the web sign-up; the readiness check's
 **Shared with third parties?** No. The hosting provider stores data on our
 behalf and is a service provider, which Google's form does not count as
 sharing. Policy: "The hosting provider that stores the data on our behalf:
-Amazon Web Services (AWS)…"
+Contabo GmbH (Germany)…"
 
 | Google category → type | Collected | Shared | Ephemeral | Required / optional | Purposes |
 |---|---|---|---|---|---|

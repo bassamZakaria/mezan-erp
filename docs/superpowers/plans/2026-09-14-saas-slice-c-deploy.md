@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development or superpowers:executing-plans. Steps use checkbox (`- [ ]`) syntax.
 
-**Goal:** One cloud entrypoint that composes the platform database, the platform API, the tenant router, provisioning, dunning and backups from environment variables; a seeded demo tenant and platform owner; the local, Render and AWS deploy shapes updated; and the eight browser scenarios proven on `pnpm env:testing`.
+**Goal:** One cloud entrypoint that composes the platform database, the platform API, the tenant router, provisioning, dunning and backups from environment variables; a seeded demo tenant and platform owner; the local, Render and Contabo deploy shapes updated; and the eight browser scenarios proven on `pnpm env:testing`.
 
 **Architecture:** `apps/server/src/cloud-app.ts` exports `createCloudApp(env, options)` returning `{ root: Hono, close }`; `cloud.ts` and `index.ts` become thin. Spec: `docs/superpowers/specs/2026-09-14-saas-completion-design.md` §3, plus the slice D review's app-side items (origin secret, `/data/backups`, env wiring).
 
@@ -13,9 +13,9 @@
 |---|---|---|
 | `MEZAN_PLATFORM_DIR` | `.data/platform` | holds `platform.db`, `tenants/<code>.db`, `backups/` |
 | `MEZAN_TENANT_DOMAIN` | unset | wildcard base domain; unset means code-at-login only |
-| `MEZAN_TRUST_PROXY` | `0` | `1` trusts `x-forwarded-host` (behind CloudFront) |
-| `MEZAN_ORIGIN_SECRET` | unset | when set, every `/api/*` request must carry `x-mezan-origin: <secret>` (CloudFront adds it as a custom origin header); missing → 403 |
-| `MEZAN_SQLITE_EXCLUSIVE` | `0` | `1` opens every SQLite file with `exclusive: true` (EFS) |
+| `MEZAN_TRUST_PROXY` | `0` | `1` trusts `x-forwarded-host` (behind a reverse proxy) |
+| `MEZAN_ORIGIN_SECRET` | unset | when set, every `/api/*` request must carry `x-mezan-origin: <secret>` (the reverse proxy adds it); missing → 403 |
+| `MEZAN_SQLITE_EXCLUSIVE` | `0` | `1` opens every SQLite file with `exclusive: true` (network filesystems) |
 | `MEZAN_PLATFORM_OWNER_EMAIL` / `_PASSWORD` | unset | seeds the first platform owner when the table is empty; a missing password is generated and printed once |
 | `MEZAN_SEED_DEMO` | `0` | `1` provisions tenant `demo` (nameAr «شركة سياج التجريبية», owner `admin@cyag.example`, PIN from `MEZAN_SEED_ADMIN_PIN` or `123456`) on the enterprise plan with the existing demo seed, once |
 | `MEZAN_BACKUP_INTERVAL_MINUTES` | `15` | `0` disables the in-app backup scheduler |
@@ -40,7 +40,7 @@
 - [ ] Commit `feat(server): the demo tenant, the plan prices, and the first platform owner`
 
 ### C4: local, Render and container shapes; docs
-**Files:** `scripts/env.mjs`, `render.yaml`, `Dockerfile`, `docs/ENVIRONMENTS.md`, `docs/DEPLOY-DEMO.md`, `docs/ROADMAP.md` §4.3, `docs/TESTING.md` §11 (new scenarios `PLT-SAAS-01..08` exactly as spec §3 lists them, with steps and expected results), `infra/terraform/compute.tf` env block if any name changed.
+**Files:** `scripts/env.mjs`, `render.yaml`, `Dockerfile`, `docs/ENVIRONMENTS.md`, `docs/DEPLOY-DEMO.md`, `docs/ROADMAP.md` §4.3, `docs/TESTING.md` §11 (new scenarios `PLT-SAAS-01..08` exactly as spec §3 lists them, with steps and expected results) if any name changed.
 - [ ] `env.mjs`: `MEZAN_PLATFORM_DIR=.data/<env>-platform`, `MEZAN_SEED_DEMO=1`, `MEZAN_PLATFORM_OWNER_EMAIL=owner@mezan.local`, `MEZAN_PLATFORM_OWNER_PASSWORD=owner-password-123`; `render.yaml`: `MEZAN_PLATFORM_DIR=/tmp/platform`, `MEZAN_SEED_DEMO=1`, owner email, password `sync: false`; `Dockerfile`: drop `MEZAN_DB`, set `MEZAN_PLATFORM_DIR=/data`, healthcheck-free (ECS does it), `USER node` after `chown`.
 - [ ] Commit `docs(deploy): every environment runs the multi-tenant entrypoint, and the eight SaaS scenarios are written down`
 

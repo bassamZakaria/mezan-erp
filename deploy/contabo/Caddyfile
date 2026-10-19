@@ -20,8 +20,5 @@
 		# this proxy; it overwrites whatever the caller sent under that name.
 		header_up X-Mezan-Origin {$MEZAN_ORIGIN_SECRET}
 		header_up X-Request-Id {http.request.uuid}
-		# SECURITY: only CloudFront may set this header and nothing here is
-		# CloudFront, so a caller's copy is dropped before the app compares it.
-		header_up -CloudFront-Viewer-Address
 	}
 }

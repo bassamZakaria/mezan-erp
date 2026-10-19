@@ -8636,7 +8636,7 @@ stay serial because each test continues the one before it.
 | PLT-SAAS-07 | pass | Same server, same session tab: `cyag` listed no customers, then switching the code to `demo` listed 27. |
 | PLT-SAAS-08 | pass at the API | Second instance with `MEZAN_TENANT_DOMAIN=localhost` on :4103: `/api/platform/resolve` with host `demo.localhost` → subdomain mode and tenant `demo`; `POST /api/auth/login` with that host and no header succeeded and `GET /api/customers` returned 27 rows; without the host the same login answered 400 `TENANT_REQUIRED`. The code-field-hidden branch is covered by `LoginScreen.test.tsx`; the Chrome extension refuses `*.localhost` navigation, so the screen itself was not driven. |
 
-Found by the final code review the same day and fixed: cached tenant answers and the remembered-users list survived a sign-out and a code switch (cross-tenant leak in one browser); the CloudFront origin secret was never set; a failed provisioning could not be retried from the console.
+Found by the final code review the same day and fixed: cached tenant answers and the remembered-users list survived a sign-out and a code switch (cross-tenant leak in one browser); the origin secret was never set; a failed provisioning could not be retried from the console.
 
 ### Run record — 2026-10-11, `pnpm test:saas` on :3321/:5321 and :3322/:5322, Chromium
 

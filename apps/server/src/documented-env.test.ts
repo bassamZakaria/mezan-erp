@@ -2,17 +2,16 @@ import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { parseEnv, type CloudEnv } from "./env.js";
-import { tenantPublicOrigin, trustedPublicOrigin } from "./public-origin.js";
+import { parseEnv } from "./env.js";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const docsDir = path.join(repoRoot, "docs");
 
-const DEPLOYMENT_DOMAIN = "review.example.com";
+const DEPLOYMENT_DOMAIN = "demo.example.com";
 
 const SAMPLE_VALUES: Record<string, string> = {
   MEZAN_TENANT_DOMAIN: DEPLOYMENT_DOMAIN,
-  MEZAN_ORIGIN_SECRET: "an-origin-secret-cloudfront-adds",
+  MEZAN_ORIGIN_SECRET: "an-origin-secret-of-sufficient-length",
   MEZAN_PLATFORM_OWNER_EMAIL: "owner@example.com",
   MEZAN_PLATFORM_OWNER_PASSWORD: "owner-password-123",
   MEZAN_REVIEW_PIN: "654321",
@@ -115,23 +114,10 @@ const DOCUMENTED: DocumentedDeployment[] = [
 const varsOf = (deployment: DocumentedDeployment, withMail: boolean): Record<string, string> =>
   Object.fromEntries(deployment.variables.filter((variable) => withMail || !variable.onlyWithMail).map((variable) => [variable.name, variable.value]));
 
-const SIGNUP_HOSTS = [DEPLOYMENT_DOMAIN, `www.${DEPLOYMENT_DOMAIN}`, `signup.${DEPLOYMENT_DOMAIN}`, `demo.${DEPLOYMENT_DOMAIN}`];
-const servesNoTenant = async (): Promise<boolean> => false;
-
-function arrivingOn(host: string): Request {
-  return new Request("http://internal/api/signup", { method: "POST", headers: { host, "x-forwarded-host": host } });
-}
-
-async function signupLinkOrigins(env: CloudEnv): Promise<(string | null)[]> {
-  return Promise.all(SIGNUP_HOSTS.map((host) => trustedPublicOrigin(arrivingOn(host), env, servesNoTenant)));
-}
-
 describe("every deployment this repository documents", () => {
-  it("is found: the three deploy guides' tables, the demo's two command lines and the Render blueprint", () => {
+  it("is found: the demo guide's table, its two command lines and the Render blueprint", () => {
     expect(DOCUMENTED.map((deployment) => deployment.source)).toEqual([
-      "docs/DEPLOY-AWS.md",
       "docs/DEPLOY-DEMO.md",
-      "docs/DEPLOY-REVIEW.md",
       "docs/DEPLOY-DEMO.md (command 1)",
       "docs/DEPLOY-DEMO.md (command 2)",
       "render.yaml",
@@ -140,19 +126,5 @@ describe("every deployment this repository documents", () => {
 
   it.each(DOCUMENTED)("$source starts on exactly the variables it lists", (deployment) => {
     expect(() => parseEnv(varsOf(deployment, false))).not.toThrow();
-  });
-
-  const withMailDocumented = DOCUMENTED.filter((deployment) => deployment.variables.some((variable) => variable.name === "MEZAN_SMTP_HOST"));
-
-  it("includes at least one that documents platform mail", () => {
-    expect(withMailDocumented.map((deployment) => deployment.source)).toContain("docs/DEPLOY-REVIEW.md");
-  });
-
-  it.each(withMailDocumented)("$source, with the mail variables it lists, starts and builds every mailed link on its own public address", async (deployment) => {
-    const env = parseEnv(varsOf(deployment, true));
-
-    expect(env.platformSmtp).toBeDefined();
-    expect(await signupLinkOrigins(env)).toEqual(SIGNUP_HOSTS.map(() => `https://${DEPLOYMENT_DOMAIN}`));
-    expect(tenantPublicOrigin(env, "demo")).toBe(`https://${DEPLOYMENT_DOMAIN}`);
   });
 });

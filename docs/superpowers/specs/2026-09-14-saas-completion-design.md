@@ -18,7 +18,7 @@ gates and browser proof pass.
 
 ### 1.1 Resolver
 `apps/server/src/tenant-resolver.ts`: `resolveTenantCode(request, { tenantDomain })`.
-- The host is `Host`, or `x-forwarded-host` when `trustForwardedHost` is on (CloudFront rewrites
+- The host is `Host`, or `x-forwarded-host` when `trustForwardedHost` is on (a fronting proxy may rewrite
   `Host` to the origin's, so the edge copies the viewer host into that header; only a deployment
   behind such a proxy turns this on). The port is stripped.
 - If `tenantDomain` is set and the host ends with `.<tenantDomain>`, the code is the
@@ -188,65 +188,6 @@ dialog, following the existing screen test style.
   advances; operator suspends the tenant and a posting is refused in Arabic while reads still
   work; a second tenant `nile` lists no customers of `cyag`; hosts-file entry `cyag.mezan.test`
   with `MEZAN_TENANT_DOMAIN=mezan.test` logs in with no code field.
-
-## 4. Slice D — AWS infrastructure in Terraform (added 2026-09-14)
-
-Decisions: region `eu-central-1`; the domain lives in a Route 53 hosted zone Terraform creates
-(the registrar's nameservers point at it); tenant databases on EFS; minimal cost, no load
-balancer, no NAT gateway.
-
-### 4.1 Layout
-`infra/terraform/bootstrap/` (run once: state bucket with versioning, DynamoDB lock table) and
-`infra/terraform/` (the root: `providers.tf`, `variables.tf`, `network.tf`, `storage.tf`,
-`registry.tf`, `compute.tf`, `api.tf`, `cdn.tf`, `dns.tf`, `secrets.tf`, `outputs.tf`,
-`envs/demo.tfvars`). Provider versions pinned from the registry at authoring time. No community
-modules.
-
-### 4.2 Resources
-- **Network**: one VPC, two public subnets in two AZs, internet gateway, no NAT. Security groups:
-  task allows 8080 from the VPC link's group and 2049 to EFS; EFS allows 2049 from the task.
-- **Frontend**: private S3 bucket, CloudFront distribution with origin access control, default
-  root `index.html`, 403 and 404 mapped to `/index.html` 200 (SPA), ACM certificate in
-  `us-east-1` for `<domain>` and `*.<domain>` validated by DNS, aliases for both. A CloudFront
-  Function on viewer-request copies `host` into `x-forwarded-host`. Cache behaviour `/api/*` →
-  API Gateway origin, caching disabled, all headers forwarded except `Host`, all methods.
-- **Backend**: ECR repository (keep last 10 images); ECS cluster; Fargate task definition on
-  ARM64, 256 CPU / 512 MB, containers: `app` (image from ECR, port 8080, env
-  `MEZAN_PLATFORM_DIR=/data`, `MEZAN_SQLITE_EXCLUSIVE=1`, `MEZAN_TENANT_DOMAIN=<domain>`, secrets
-  from SSM) and `backup` sidecar (image `public.ecr.aws/aws-cli/aws-cli`, entrypoint a shell loop
-  every 15 minutes syncing `/data/backups` to the backup bucket; the app writes its own
-  verified archives there through the existing backup feature). EFS filesystem (encrypted,
-  bursting, lifecycle to IA after 30 days), access point at `/data` owned by the app UID, mount
-  targets in both subnets, task volume with transit encryption. ECS service: desired count 1,
-  `assign_public_ip = true`, deployment min 0 / max 100 percent (one writer, so the old task
-  stops before the new one starts), Cloud Map service discovery in a private DNS namespace,
-  circuit breaker with rollback.
-- **API**: API Gateway HTTP API, VPC link in the two subnets, integration to the Cloud Map
-  service on port 8080, `$default` route, auto-deploy stage, throttling 50 rps burst 100.
-- **DNS**: hosted zone for `<domain>`, A/AAAA alias records for apex and `*.<domain>` to
-  CloudFront, ACM validation records.
-- **Secrets**: SSM SecureString parameters `/mezan/<env>/platform-owner-email`,
-  `/mezan/<env>/platform-owner-password`, values supplied out of band (Terraform creates them
-  with `ignore_changes` on value, initial value from a variable).
-- **Backups**: versioned S3 bucket, lifecycle expiring noncurrent versions after 30 days,
-  bucket policy for the task role only.
-- **IAM**: task execution role (ECR pull, logs, SSM read), task role (S3 backup bucket write,
-  EFS client). CloudWatch log group with 14-day retention.
-
-### 4.3 Delivery
-`.github/workflows/deploy-aws.yml` on push to `main`: build and push the ARM image to ECR with
-the commit SHA tag, `terraform apply -auto-approve -var image_tag=<sha>` (state in the bootstrap
-bucket, OIDC role, no long-lived keys), `aws s3 sync apps/web/dist s3://<bucket> --delete`,
-CloudFront invalidation `/*`. `docs/DEPLOY-AWS.md` documents the one-time bootstrap, the
-registrar nameserver step, secrets, cost, and how to run `terraform plan` locally.
-
-### 4.4 App changes this slice needs
-`MEZAN_SQLITE_EXCLUSIVE=1` makes `openSqliteConnection` set `locking_mode = EXCLUSIVE` before
-WAL, the documented way to run WAL on NFS with a single writer. Nothing else.
-
-### 4.5 Cost target
-Fargate ≈ 9 USD, API Gateway < 1 USD, Route 53 0.50 USD, EFS + S3 + ECR + logs cents, CloudFront
-and ACM in the free tier: about 11 to 13 USD per month.
 
 ## 5. Out of scope
 Card checkout, public signup, Postgres, cross-tenant reporting, e-mail delivery of the PIN,

@@ -545,7 +545,7 @@ Its first run found D328–D343; the defects still open are D335–D343, with tw
 | No purchasing inside the app, and no link to buy — the subscription is sold outside it (Paymob, web). Apple 3.1.1/3.1.3: a B2B service paid elsewhere may be used in-app provided the app neither sells nor points to a purchase | Apple | **to verify** — grep the app for any pricing, upgrade or checkout link |
 | Sign in with Apple is required only when an app offers third-party social login; Mezan signs in with its own email + PIN | Apple | not required — say so in review notes if asked |
 | iPad: `supportsTablet: true` means the reviewer may test on an iPad and every screen must hold up there, with iPad screenshots in the listing | Apple | **decide**: test and screenshot on iPad, or set `supportsTablet: false` for v1 |
-| IPv6-only networks: Apple reviews on one | Apple | **to verify** — the server must be reachable over IPv6 (Render and AWS both are; a raw IPv4 literal anywhere would fail) |
+| IPv6-only networks: Apple reviews on one | Apple | **to verify** — the server must be reachable over IPv6 (Render is; the Contabo VPS is once Docker IPv6 is set up; a raw IPv4 literal anywhere would fail) |
 | Android permissions: request only what is used — camera yes, `RECORD_AUDIO` no (already off), no storage or location unless a screen uses them; audit the merged manifest `expo prebuild` generates | Google | **to audit** |
 | Target API level at or above Google Play's current minimum | Google | **to verify** against Expo SDK 56's default before building |
 | Store listing in **Arabic and English**: name, subtitle/short description, full description, keywords, category (Business), support URL, marketing URL, age rating questionnaire | both | **to write** |
@@ -596,10 +596,10 @@ below was taken against the current published rule, quoted in the lane's report.
 
 | Row | State | Evidence |
 |---|---|---|
-| **S1** reviewer environment | **prepared, not deployed — needs the owner** | Infrastructure lives in `cyag-devops`, not here: branch `feat/mezan-review-env` adds `apps/mezan/envs/review.tfvars` — always-on Fargate, EFS storage, no basic auth, a generated reviewer PIN in SSM, `/legal/*` routed to the server; `terraform validate` passes, nothing applied. In this repo, `MEZAN_REVIEW_TENANT_CODE`/`MEZAN_REVIEW_PIN` seed the demo once and move every account onto the private PIN (measured locally: the reviewer PIN 200, `123456` 401), and the runbook is `docs/DEPLOY-REVIEW.md` |
+| **S1** reviewer environment | **not prepared — no host chosen** | The AWS reviewer stack was dropped (production is Contabo only). In this repo, `MEZAN_REVIEW_TENANT_CODE`/`MEZAN_REVIEW_PIN` seed the demo once and move every account onto the private PIN (measured locally: the reviewer PIN 200, `123456` 401); a reviewer host still has to be chosen and deployed |
 | **S2** privacy policy | **built, draft — needs legal sign-off** | `/legal/privacy` and `/legal/account-deletion`, served by `apps/server` before any auth and outside `/api`, Arabic by default and English with `?lang=en`, headed «مسودة — تحتاج مراجعة قانونية». Written from what the code actually collects |
 | Account deletion | **built — needs a commitment** | The page lists only channels that reach someone (the company admin; a support mailbox if configured; a form only when SMTP is configured, recorded in the platform security audit). Apple 5.1.1(v) applies only to apps that support account creation, which this one does not; **Corrected 2026-09-23:** the policy text is scoped to an account created *from within* the app, and does **not** reach an app that merely directs users elsewhere — the earlier claim here was wrong. The readiness check still fails the build on any `/signup` link in the app, now as an Apple 3.1.3(f) precaution rather than a Google requirement. **There is no erasure tool — only deactivation (D348)** |
-| IPv6 | **met on the AWS path; the §3.5 row above was wrong** | CloudFront has IPv6 on and every alias gets an AAAA record. `mezan-demo.onrender.com` publishes **no** AAAA record at all — one more reason it cannot be the reviewer host |
+| IPv6 | **needs the host** | `mezan-demo.onrender.com` publishes **no** AAAA record at all, so it cannot be the reviewer host; the Contabo VPS serves IPv6 once the Docker IPv6 step in `deploy/contabo/README.md` is done |
 | Target API level | **met** | Google: new apps and updates from 31 August 2026 must target API 36; Expo SDK 56 defaults to 36. Enforced by the readiness check |
 | No purchase path | **met, enforced** | Apple 3.1.3(f) — a companion app needs no in-app purchase provided there is no purchasing, or call to action to purchase, inside it. The check scans string literals, not identifiers (it first flagged an `AppState` subscription as a sale — fixed) |
 | Metadata, Arabic + English | **written** | `docs/mobile/store/`: both stores' listings in both languages, the privacy answers (each quoting the policy sentence it rests on), the age rating and the review notes. Nothing claims e-invoicing, POS or pricing |
@@ -611,7 +611,7 @@ below was taken against the current published rule, quoted in the lane's report.
 - **Apple 3.1.3(c)** says consumer, single-user or family sales must use in-app purchase. The web's self-serve sign-up lets an individual buy a plan, which weakens a submission resting on the enterprise clause. The submission rests on **3.1.3(f)** instead; keeping the web sign-up open to individuals is a business call with a review consequence.
 - **Google's 12-tester rule** is stated for *personal* accounts created after 13 November 2023; Google's own page does not say organisation accounts are exempt. Enrol as the company and expect the question.
 
-**What the owner must provide or decide**, all blocking submission: legal sign-off on the policy and deletion text and the operating company's legal name; the deletion commitment (a manual erasure process, or D348 built first); the review domain, support mailbox, marketing URL and state bucket, then `terraform apply` of `envs/review.tfvars` and the GitHub secret and variables in `docs/DEPLOY-REVIEW.md`; optionally SMTP, which turns the deletion form on; the Apple Developer (organisation, with a D-U-N-S number) and Play Console accounts; and whether the web sign-up stays open to individuals.
+**What the owner must provide or decide**, all blocking submission: legal sign-off on the policy and deletion text and the operating company's legal name; the deletion commitment (a manual erasure process, or D348 built first); the reviewer host and its domain, support mailbox and marketing URL; optionally SMTP, which turns the deletion form on; the Apple Developer (organisation, with a D-U-N-S number) and Play Console accounts; and whether the web sign-up stays open to individuals.
 
 **Order of work:** finish D335–D343 → S1 and S2 (the reviewer environment and the privacy
 policy, which need an owner decision each) → the manifest, permissions and export-compliance
@@ -814,7 +814,7 @@ Slice C (deploy, seed and proof) is landing alongside it: `apps/server/src/cloud
 composes the platform database, the platform API, the tenant router, provisioning, dunning and
 in-app backups from `MEZAN_*` env vars — the contract is in
 `superpowers/plans/2026-09-14-saas-slice-c-deploy.md`. Local (`pnpm env:testing`/`:staging`),
-Render and the AWS container image now all run this one entrypoint, each seeding its own
+Render and the Contabo container image now all run this one entrypoint, each seeding its own
 platform owner and demo tenant (code `demo`) from `MEZAN_SEED_DEMO` — see `ENVIRONMENTS.md` and
 `DEPLOY-DEMO.md`. The eight scenarios `PLT-SAAS-01..08` are written down in `TESTING.md` §11;
 they still need a live-browser pass before this slice is called proven.
@@ -2543,7 +2543,7 @@ instance is disposable and isolated.** None of them put one on a host that also 
 `seedAdminPin` to `createBackend`, which refuses it unless the demo is being seeded). The process-wide
 variable stays refused. `MEZAN_DEMO_PASSWORD` (basic auth) becomes mandatory exactly when the demo is
 seeded, and is the real gate — handed to each prospect by sales, rotated monthly and after any leak,
-never published. Without `MEZAN_SEED_DEMO=1` neither applies, so the future AWS SaaS is not behind a
+never published. Without `MEZAN_SEED_DEMO=1` neither applies, so the future production SaaS is not behind a
 `demo:` prompt. A test proves the pinned PIN does not reach a platform-provisioned tenant.
 
 **Panel:** `owner`, `support-agent`, `product` backed the known PIN — a demo that needs a log lookup
@@ -2551,7 +2551,7 @@ before every call does not get used. `it-admin` backed it on condition the dashb
 `security-officer` backed it on three conditions, all met: the process-wide refusal stays, the gate is
 mandatory wherever the demo is seeded, and the password is never published. **Dissent:**
 `security-officer` prefers per-visitor ephemeral tenants, as QuickBooks does — deferred, because a
-seeded tenant is ~375 MB on a 512 MB free instance; recorded as the target for the AWS demo.
+seeded tenant is ~375 MB on a 512 MB free instance; recorded as the target for the demo.
 
 **Ops step that only the dashboard can do** (Render keeps removed variables): delete
 `MEZAN_SEED_ADMIN_PIN`, set `MEZAN_DEMO_PASSWORD`, set the platform-owner credentials, deploy, and check

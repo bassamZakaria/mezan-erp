@@ -94,9 +94,6 @@ dashboard and is not listed here.
 
 <!-- /env-table -->
 
-On AWS the same two proxy variables are set by `cyag-devops`, not by this file:
-see "Owner must do before deploy" in [DEPLOY-AWS.md](DEPLOY-AWS.md).
-
 ### Whose address the demo counts
 
 `render.yaml` sets `MEZAN_TRUST_PROXY=1` and `MEZAN_TRUSTED_PROXY_HOPS=1`. The
@@ -215,8 +212,7 @@ docker run --rm -p 8080:8080 \
   -e MEZAN_PLATFORM_OWNER_PASSWORD=owner-password-123 mezan-demo
 ```
 
-## Moving to AWS or Firebase later
+## Moving to Firebase later
 
-The same `Dockerfile` runs unchanged on AWS App Runner, ECS/Fargate, an EC2 box, or
-Google Cloud Run behind Firebase Hosting. Both require a credit card on the account —
-that is the only reason the demo starts on Render.
+The same `Dockerfile` runs unchanged on Google Cloud Run behind Firebase Hosting, which
+needs a credit card on the account — that is the only reason the demo starts on Render.

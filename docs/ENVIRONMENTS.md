@@ -24,8 +24,7 @@ Every open tenant, plus the platform database itself, is snapshotted on a timer
 into `<platform dir>/backups/` (`MEZAN_BACKUP_INTERVAL_MINUTES`, default 15).
 On the demo host that directory sits under `/tmp` and is lost on restart; on
 the Contabo VPS an hourly restic job copies it, encrypted, to Object Storage
-(`deploy/contabo/backup/`). AWS, no longer the production target, synced it to
-S3 with a sidecar (`apps/mezan` README in `cyag-devops`).
+(`deploy/contabo/backup/`).
 
 Tenant export downloads (the encrypted file the console offers, valid ten
 minutes) are held by the instance that built them, in memory. The download
@@ -59,7 +58,7 @@ start-up, and on a production platform that seeds no demo it logs
 - `MEZAN_AUDIT_ANCHOR_SIGNING_KEY`: the 32-byte Ed25519 seed as 64 lowercase hex characters. A secret; never commit it.
 - `MEZAN_AUDIT_ANCHOR_PUBLIC_KEY`: the matching public key, for verifying elsewhere (derived from the signing key when that is present).
 - `MEZAN_AUDIT_ANCHOR_TRUSTED_PUBLIC_KEYS`: comma-separated Ed25519 public keys (64 hex each) of retired signing keys. Anchors signed by them still verify, and a new signing key extends a chain whose newest anchor a retired key signed. To rotate: put the old key's public key here, then change `MEZAN_AUDIT_ANCHOR_SIGNING_KEY`. Only the current key signs; remove a retired key from the list only when its anchors no longer matter.
-- `MEZAN_AUDIT_ANCHOR_S3_BUCKET`, `MEZAN_AUDIT_ANCHOR_S3_REGION` (else `AWS_REGION`), `MEZAN_AUDIT_ANCHOR_S3_PREFIX` (default `audit-anchors`), `MEZAN_AUDIT_ANCHOR_S3_ENDPOINT` (S3-compatible stores): one object per anchor at `<prefix>/<scope>/<12-digit seq>.json`, written with `If-None-Match: *`. Credentials come from `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` or an ECS task role. For real immutability the bucket needs S3 Object Lock; the code works with or without it.
+- `MEZAN_AUDIT_ANCHOR_S3_BUCKET`, `MEZAN_AUDIT_ANCHOR_S3_REGION`, `MEZAN_AUDIT_ANCHOR_S3_PREFIX` (default `audit-anchors`), `MEZAN_AUDIT_ANCHOR_S3_ENDPOINT` (required with the bucket: the S3-compatible store's URL, for example Contabo Object Storage): one object per anchor at `<prefix>/<scope>/<12-digit seq>.json`, written with `If-None-Match: *`. Credentials come from `MEZAN_AUDIT_ANCHOR_S3_ACCESS_KEY_ID` and `MEZAN_AUDIT_ANCHOR_S3_SECRET_ACCESS_KEY`. For real immutability the bucket needs S3 Object Lock; the code works with or without it.
 - `MEZAN_AUDIT_ANCHOR_DIR`: without a bucket, anchors are appended to `<dir>/<scope>.jsonl` (default `<platform dir>/audit-anchors`). That is for dev and test: a file on the same host is not external.
 
 Each sweep reads only the newest anchor per scope: the S3 sink keeps a
@@ -97,8 +96,8 @@ therefore never reads the leftmost entry. It counts from the right
 | --- | --- | --- |
 | `MEZAN_TRUST_PROXY` | `0` | `1` trusts `x-forwarded-host` and lets the two settings below apply; the socket is then never read. `0`: the socket's peer is the address, whatever the headers say. |
 | `MEZAN_TRUSTED_PROXY_HOPS` | none — **required** with `MEZAN_TRUST_PROXY=1` | How many proxies in front of the server append to `x-forwarded-for` (1 or more). The client is the entry that many places from the right. The server **refuses to start** with `MEZAN_TRUST_PROXY=1` and no count, and with a count but no `MEZAN_TRUST_PROXY=1`. |
-| `MEZAN_TRUST_VIEWER_ADDRESS` | `0` | `1` reads the client from `CloudFront-Viewer-Address` when present (falling back to the hop count). Refused without `MEZAN_TRUST_PROXY=1` **and** `MEZAN_ORIGIN_SECRET`: the header is only CloudFront's word when nothing reaches the origin except through CloudFront. The deletion form's `POST /legal/account-deletion` passes the origin-secret gate before its address is read, like `/api/*`; the legal pages themselves stay public. |
-| `MEZAN_TRUSTED_CLIENT_ADDRESS_HEADER` | unset | The name of ONE header the deployment's edge overwrites with the caller's address on every request (`cf-connecting-ip` behind Cloudflare, `cloudfront-viewer-address` behind CloudFront). When set, the caller is read from that header and from nothing else: a request without a usable value there is refused (`503 SOURCE_UNRESOLVED`), never read from `x-forwarded-for` instead. Refused at start-up without `MEZAN_TRUST_PROXY=1`, and for `x-forwarded-for` / `forwarded`, which a caller writes. Every other address header is ignored whatever it says. Set it only where the platform documents that its edge sets the header and a client cannot — and that nothing reaches the server except through that edge. |
+| `MEZAN_ORIGIN_SECRET` | unset | When set, every `/api/*` request and `POST /legal/account-deletion` must carry `x-mezan-origin: <secret>` or is refused with 403; the legal pages themselves stay public. The Contabo Caddy sets the header on every request it forwards. |
+| `MEZAN_TRUSTED_CLIENT_ADDRESS_HEADER` | unset | The name of ONE header the deployment's edge overwrites with the caller's address on every request (`cf-connecting-ip` behind Cloudflare). When set, the caller is read from that header and from nothing else: a request without a usable value there is refused (`503 SOURCE_UNRESOLVED`), never read from `x-forwarded-for` instead. Refused at start-up without `MEZAN_TRUST_PROXY=1`, and for `x-forwarded-for` / `forwarded`, which a caller writes. Every other address header is ignored whatever it says. Set it only where the platform documents that its edge sets the header and a client cannot — and that nothing reaches the server except through that edge. |
 
 Set the hop count to the deployment's real chain, or the limits key on the
 wrong machine:
@@ -108,7 +107,6 @@ wrong machine:
 | dev, testing, staging on localhost | none | unset (`MEZAN_TRUST_PROXY=0`) |
 | Render demo | Cloudflare, then Render's load balancer | `1` in `render.yaml`; `2` if the check in [DEPLOY-DEMO.md](DEPLOY-DEMO.md) shows a Cloudflare address |
 | Contabo VPS (Caddy → app, `deploy/contabo`) | Caddy replaces any incoming `x-forwarded-for` with the caller it saw | `1` |
-| AWS (CloudFront → API Gateway → VPC link → task) | CloudFront appends the viewer, API Gateway appends the CloudFront edge | `2` |
 | `pnpm test:saas` | the test writes the client, the Vite dev proxy appends its own hop | `2` |
 
 Too low a count keys every client behind one proxy address (one office's typos
@@ -122,12 +120,6 @@ SOURCE_UNRESOLVED` in Arabic and the server logs `CLIENT ADDRESS UNRESOLVED`
 never as the socket's peer. An entry carrying a port (`1.2.3.4:5678`,
 `[2001:db8::1]:5678`) is read without it, and one IPv6 address is one key
 however it is spelled.
-
-Where `MEZAN_ORIGIN_SECRET` is set, every request also carries CloudFront's own
-`CloudFront-Viewer-Address`, and the server compares it with the address the
-hop count produced. A disagreement means the hop count is wrong for the
-deployment; it is logged as `CLIENT ADDRESS MISMATCH` (at most one line a
-minute) and should be treated as a misconfiguration alarm.
 
 The tenant router hands the address it worked out to the tenant backend with
 each forwarded request, so a tenant session is bound to the address that signed

@@ -19,21 +19,11 @@ export function isResolvedSource(source: CloudSource): boolean {
   return source !== UNRESOLVED_SOURCE;
 }
 
-export interface ViewerMismatch {
-  readonly counted: CloudSource;
-  readonly viewer: string;
-  readonly trustedProxyHops: number;
-}
-
 export interface ClientSourceOptions {
   readonly trustedProxyHops: number;
-  readonly trustViewerAddress: boolean;
-  readonly compareViewerAddress: boolean;
-  readonly onViewerMismatch?: (mismatch: ViewerMismatch) => void;
   readonly trustedAddressHeader?: string;
 }
 
-const VIEWER_ADDRESS = "cloudfront-viewer-address";
 const FORWARDED_FOR = "x-forwarded-for";
 const V4_WITH_PORT = /^(\d{1,3}(?:\.\d{1,3}){3}):\d{1,5}$/;
 const BRACKETED = /^\[([^\]]+)\](?::\d{1,5})?$/;
@@ -48,13 +38,6 @@ function forwardedEntry(entry: string | undefined): CloudSource | null {
   if (text === "") return null;
   const bare = V4_WITH_PORT.exec(text)?.[1] ?? BRACKETED.exec(text)?.[1] ?? text;
   return canonical(bare);
-}
-
-function viewerAddress(header: string | undefined): CloudSource | null {
-  const text = header?.trim().toLowerCase() ?? "";
-  const portAt = text.lastIndexOf(":");
-  if (portAt <= 0) return null;
-  return canonical(text.slice(0, portAt).replace(/^\[/, "").replace(/\]$/, ""));
 }
 
 // SECURITY: a client writes `x-forwarded-for` itself and each trusted proxy
@@ -79,15 +62,10 @@ function countedSource(c: Context, trustedProxyHops: number, trustedAddressHeade
 }
 
 export function cloudSource(c: Context, options: ClientSourceOptions): CloudSource {
-  const viewer = options.trustViewerAddress || options.compareViewerAddress ? viewerAddress(c.req.header(VIEWER_ADDRESS)) : null;
-  const counted = countedSource(c, options.trustedProxyHops, options.trustedAddressHeader);
-  if (options.compareViewerAddress && viewer !== null && viewer !== counted) {
-    options.onViewerMismatch?.({ counted, viewer, trustedProxyHops: options.trustedProxyHops });
-  }
-  return options.trustViewerAddress && viewer !== null ? viewer : counted;
+  return countedSource(c, options.trustedProxyHops, options.trustedAddressHeader);
 }
 
-export const SOCKET_ONLY: ClientSourceOptions = { trustedProxyHops: 0, trustViewerAddress: false, compareViewerAddress: false };
+export const SOCKET_ONLY: ClientSourceOptions = { trustedProxyHops: 0 };
 
 export interface OriginEnv {
   readonly incoming: { readonly socket: { readonly remoteAddress: string } };
@@ -110,7 +88,6 @@ const REPORT_EVERY_MS = 60_000;
 
 export interface SourceReporter {
   unresolved(path: string): void;
-  viewerMismatch(mismatch: ViewerMismatch): void;
 }
 
 export function createSourceReporter(log: (line: string) => void = (line) => sourceLog.error(line), now: () => number = Date.now): SourceReporter {
@@ -130,10 +107,6 @@ export function createSourceReporter(log: (line: string) => void = (line) => sou
       report("unresolved", () =>
         `[cloud] CLIENT ADDRESS UNRESOLVED on ${path}: the forwarded chain did not carry an address at the trusted hop. Check MEZAN_TRUSTED_PROXY_HOPS against the proxies in front of this process. The request was refused.`);
     },
-    viewerMismatch(mismatch) {
-      report("viewer", () =>
-        `[cloud] CLIENT ADDRESS MISMATCH: hop ${mismatch.trustedProxyHops} from the right of x-forwarded-for reads ${mismatch.counted}, CloudFront-Viewer-Address reads ${mismatch.viewer}. MEZAN_TRUSTED_PROXY_HOPS is wrong for this deployment: throttles and sessions are keyed on the wrong machine.`);
-    },
   };
 }
 
@@ -144,7 +117,7 @@ export function createSourceReporter(log: (line: string) => void = (line) => sou
 export function requireCloudSource(options: ClientSourceOptions, reporter: SourceReporter = createSourceReporter()): MiddlewareHandler {
   return async (c, next) => {
     if (c.get("cloudSource") !== undefined) return next();
-    const source = cloudSource(c, { ...options, onViewerMismatch: (m) => reporter.viewerMismatch(m) });
+    const source = cloudSource(c, options);
     if (!isResolvedSource(source)) {
       reporter.unresolved(c.req.path);
       c.header("retry-after", String(SOURCE_UNRESOLVED_RETRY_SECONDS));

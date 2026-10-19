@@ -81,7 +81,7 @@ New defects found in the receipt path (file in lane 0A, fix in 0D):
 | 7 | Postgres RLS | superseded | DB-per-tenant is stronger isolation |
 | 8 | Platform admin tier | done | platform-owner/support, `requirePlatform` (`backend/platform-routes.ts`) |
 | 9 | Tenant resolution, server hardening | done | `server/tenant-resolver.ts`, `tenant-router.ts`, `backend-cache.ts` |
-| 10 | SSE + Redis realtime | partial | SSE only for `/lan/events`; one Fargate task, so Redis is not needed; no tenant event stream → lane 3C |
+| 10 | SSE + Redis realtime | partial | SSE only for `/lan/events`; one server process, so Redis is not needed; no tenant event stream → lane 3C |
 | 11 | FileStore S3 | missing | attachments are BLOBs in the tenant DB → lane 6C (optional) |
 | 12 | KDS realtime | missing | → lane 5A |
 | 13 | Plan → entitlements | done | `domain/platform/derive.ts`, `server/tenant-entitlements.ts` |
@@ -89,8 +89,8 @@ New defects found in the receipt path (file in lane 0A, fix in 0D):
 | 15 | Billing | partial | manual payments, dunning (`server/dunning.ts`), `PaymentProvider` port with no implementation (`domain/platform/payment-provider.ts`) → 1C |
 | 16–17 | API keys, webhooks | missing | deleted by DEC-17; rebuild cloud-only → 6B (same as ENH-E3-09) |
 | 18 | Email + server PDF | partial | SMTP delivery exists (`api/smtp-client.ts`); no server PDF, PIN not emailed → 3D/6C |
-| 19 | Cloud backup | partial | scheduled in-app backups (`server/backup-scheduler.ts`), S3 in Terraform; no PITR. Per-tenant export (desktop-importable, passphrase-encrypted, single-use download) and restore drill built in the console: `server/tenant-backups.ts`, `web/src/platform/TenantBackupCard.tsx` (5D) |
-| 20 | Deploy shape | done | `Dockerfile`, `render.yaml`, `.github/workflows/deploy-aws.yml`, `server/cloud-app.ts`; apply **needs owner** |
+| 19 | Cloud backup | partial | scheduled in-app backups (`server/backup-scheduler.ts`); no PITR. Per-tenant export (desktop-importable, passphrase-encrypted, single-use download) and restore drill built in the console: `server/tenant-backups.ts`, `web/src/platform/TenantBackupCard.tsx` (5D) |
+| 20 | Deploy shape | done | `Dockerfile`, `render.yaml`, `deploy/contabo`, `server/cloud-app.ts` |
 
 ### 1.4 §4.3 SaaS follow-ups and extras (13 items): 1 done · 3 partial · 8 missing · 1 by design
 
@@ -108,7 +108,6 @@ New defects found in the receipt path (file in lane 0A, fix in 0D):
 | PLT-SAAS-01..08 browser pass | partial | run 2026-09-14 (`TESTING.md` §11 run record): 01–07 pass, 08 at the API only; re-run after this build (6D) |
 | Self-serve signup | missing | → 3D |
 | Card checkout | missing | → 1C, **needs owner** |
-| AWS apply | missing | Terraform in cyag-devops; **needs owner** |
 
 ## 2. Decisions to record in ROADMAP §6.4 (lane 0A — panel + industry check, no questions to the owner)
 
@@ -274,7 +273,6 @@ Order rationale: wave 0 unblocks e-receipts (without D284 no POS receipt is ever
 
 ## 7. Needs owner
 - A Paymob (or other EGP card processor) merchant account, API keys and HMAC secret (1C live test; sandbox and test double until then).
-- AWS apply: the domain and registrar nameserver change, AWS account/billing, `TF_VAR_platform_owner_password`, `AWS_APP_CI_ROLE_ARN`, `DEVOPS_DISPATCH_TOKEN`, repository variables.
 - Render dashboard environment variables for the staging re-run.
 - SMTP / sending-domain credentials with SPF and DKIM (3D).
 - ETA pre-production registration of a POS device: serial, POS client id and secret (0D/2B live verification).

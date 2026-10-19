@@ -129,7 +129,7 @@ sudo /opt/mezan/deploy.sh --rollback        # back to the tag that ran before
 
 **Downtime:** about a minute per deploy. The app is the only writer of its SQLite files (`MEZAN_SQLITE_EXCLUSIVE=1`), so the old and new versions cannot overlap.
 
-The server's own shutdown budget is 10 s (`apps/server/src/process-lifecycle.ts`); if a backup run takes longer the process exits 1 with the marker left behind and `deploy.sh` refuses. Wait a minute, `docker compose start mezan`, and deploy again.
+The server's own shutdown budget is 75 s (`apps/server/src/process-lifecycle.ts`); if a backup run takes longer the process exits 1 with the marker left behind and `deploy.sh` refuses. Wait a minute, `docker compose start mezan`, and deploy again.
 
 ## 6. Restore
 

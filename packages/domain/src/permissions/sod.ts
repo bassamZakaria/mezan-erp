@@ -30,6 +30,13 @@ export enum SodConflictId {
   HrAdvanceCreateApprove = "hr_advance_create_approve",
   HrLeaveCreateApprove = "hr_leave_create_approve",
   CountScanApprove = "count_scan_approve",
+  PricingGuardManageApprove = "pricing_guard_manage_approve",
+  SalaryPaymentEditBankFile = "salary_payment_edit_bank_file",
+}
+
+export enum SodSideMatch {
+  Any = "any",
+  All = "all",
 }
 
 export interface SodConflictRule {
@@ -42,6 +49,7 @@ export interface SodConflictRule {
   readonly checkerLabelEn: string;
   readonly sideA: readonly string[];
   readonly sideB: readonly string[];
+  readonly sideAMatch?: SodSideMatch;
 }
 
 export const SOD_CONFLICT_RULES: readonly SodConflictRule[] = [
@@ -239,6 +247,29 @@ export const SOD_CONFLICT_RULES: readonly SodConflictRule[] = [
     sideA: ["inventory.count.scan"],
     sideB: ["inventory.count.approve"],
   },
+  {
+    id: SodConflictId.PricingGuardManageApprove,
+    labelAr: "وضع قواعد الحد الأدنى للسعر واعتماد البيع دونها",
+    labelEn: "Write price-floor rules and approve sales below them",
+    sideLabelAr: "إدارة قواعد الحد الأدنى",
+    sideLabelEn: "Manage the floor rules",
+    checkerLabelAr: "اعتماد البيع دون الحد الأدنى",
+    checkerLabelEn: "Approve a sale below the floor",
+    sideA: ["sales.pricing_guard.manage"],
+    sideB: ["sales.pricing_guard.approve"],
+  },
+  {
+    id: SodConflictId.SalaryPaymentEditBankFile,
+    labelAr: "تعديل حساب صرف راتب الموظف وتصدير ملف تحويل الرواتب",
+    labelEn: "Edit an employee's salary account and export the salary transfer file",
+    sideLabelAr: "تعديل طريقة صرف الراتب والحساب البنكي",
+    sideLabelEn: "Edit how and where the salary is paid",
+    checkerLabelAr: "تصدير ملف تحويل الرواتب للبنك",
+    checkerLabelEn: "Export the bank salary file",
+    sideA: ["hr.employee.edit", "hr.employee.view_salary"],
+    sideAMatch: SodSideMatch.All,
+    sideB: ["hr.payroll.bank_file"],
+  },
 ];
 
 export interface SodConflictMatch {
@@ -273,7 +304,8 @@ export function detectSodConflicts(granted: Iterable<string>): readonly SodConfl
   for (const rule of SOD_CONFLICT_RULES) {
     const matchedA = hasWildcard ? rule.sideA : rule.sideA.filter((code) => resolved.has(code));
     const matchedB = hasWildcard ? rule.sideB : rule.sideB.filter((code) => resolved.has(code));
-    if (matchedA.length > 0 && matchedB.length > 0) {
+    const sideAHeld = rule.sideAMatch === SodSideMatch.All ? matchedA.length === rule.sideA.length : matchedA.length > 0;
+    if (sideAHeld && matchedB.length > 0) {
       out.push({
         ruleId: rule.id,
         labelAr: rule.labelAr,

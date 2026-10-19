@@ -3488,6 +3488,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
   await upgradeLedger.runOnce(UpgradeStepId.SeededRoleDutySplit, () => separateSeededDuties(SeededRoleSplit.Duties));
   await upgradeLedger.runOnce(UpgradeStepId.SeededRoleReconciliationSplit, () => separateSeededDuties(SeededRoleSplit.BankReconciliation));
   await upgradeLedger.runOnce(UpgradeStepId.SeededRoleGoodsReceiving, () => separateSeededDuties(SeededRoleSplit.GoodsReceiving));
+  await upgradeLedger.runOnce(UpgradeStepId.SeededRolePriceFloor, () => separateSeededDuties(SeededRoleSplit.PriceFloor));
   await upgradeLedger.runOnce(UpgradeStepId.ApprovalFingerprint, async () => {
     const marked = markApprovalsNeedingReapproval(sqlite);
     if (marked.length > 0) backendLog.info({ area: "workflow" }, `${marked.length} approval(s) given before this version need re-approval: ${marked.join(", ")}`);

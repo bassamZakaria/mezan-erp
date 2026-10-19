@@ -2020,3 +2020,6 @@ export { DOCUMENT_REVERSAL_PATHS, ReversalDocumentType, ReversalPermission, reve
 
 // --- hr-bank.ts — employee salary payment method, IBAN and the payroll bank file (lane 4D) ---
 export * from "./hr-bank.js";
+
+// --- tenant-lifecycle.ts — audit anchor restore acceptance and tenant data purge (console) ---
+export * from "./tenant-lifecycle.js";

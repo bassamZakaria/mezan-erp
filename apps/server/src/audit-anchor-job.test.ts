@@ -5,8 +5,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createAuditEvent } from "@mezan/domain";
 import { createSqliteAuditSink } from "@mezan/persistence";
 import type { PlatformHandle } from "@mezan/backend";
-import { createAuditAnchorSigner, createFileAuditAnchorSink, PLATFORM_ANCHOR_SCOPE } from "./audit-anchor.js";
-import { AnchorLogEvent, runAuditAnchorSweep, type AnchorLogRecord } from "./audit-anchor-job.js";
+import { AnchorOutcome, AnchorRefusal, createAuditAnchorSigner, createFileAuditAnchorSink, PLATFORM_ANCHOR_SCOPE } from "./audit-anchor.js";
+import { acceptRestoreForScope, AnchorLogEvent, anchorStatusOf, runAuditAnchorSweep, type AnchorLogRecord } from "./audit-anchor-job.js";
 import type { TenantRouter } from "./tenant-router.js";
 
 let dir: string;
@@ -59,5 +59,41 @@ describe("runAuditAnchorSweep", () => {
     });
     expect(result).toMatchObject({ anchored: 1, failed: 1 });
     expect(records.find((r) => r.event === AnchorLogEvent.Failed)).toMatchObject({ scope: "T-1", reason: "books refused" });
+  });
+
+  it("a tenant restored from an older snapshot is refused every sweep until the restore is accepted, then anchoring resumes", async () => {
+    const platformAudit = createSqliteAuditSink();
+    await platformAudit.append(event());
+    const live = createSqliteAuditSink();
+    for (let i = 0; i < 3; i += 1) await live.append(event());
+    let tenantAudit = live;
+    const sink = createFileAuditAnchorSink(path.join(dir, "anchors"));
+    const signer = createAuditAnchorSigner("33".repeat(32));
+    const records: AnchorLogRecord[] = [];
+    const options = {
+      platform: { audit: platformAudit } as unknown as PlatformHandle,
+      router: { openTenants: () => [{ id: "T-1", code: "t1" }], backendOf: async () => ({ audit: tenantAudit }) } as unknown as TenantRouter,
+      signer,
+      sink,
+      log: (r: AnchorLogRecord) => records.push(r),
+    };
+    await runAuditAnchorSweep(options);
+
+    const restored = createSqliteAuditSink();
+    await restored.append(event());
+    tenantAudit = restored;
+    expect(await runAuditAnchorSweep(options)).toMatchObject({ refused: 1 });
+    expect(await runAuditAnchorSweep(options)).toMatchObject({ refused: 1 });
+    expect((await anchorStatusOf("T-1", restored, options)).refusal).toBe(AnchorRefusal.RolledBack);
+    expect(await sink.list("T-1", 10)).toHaveLength(1);
+
+    const accepted = await acceptRestoreForScope("T-1", restored, { ...options, reason: "restored last night's snapshot after a disk failure", acceptedBy: "owner-1" });
+    expect(accepted.accepted).toBe(true);
+    const status = await anchorStatusOf("T-1", restored, options);
+    expect(status).toMatchObject({ outcome: AnchorOutcome.Unchanged, lastRebase: { acceptedBy: "owner-1", supersededSeq: 3 } });
+
+    await restored.append(event());
+    expect(await runAuditAnchorSweep(options)).toMatchObject({ anchored: 1, refused: 0 });
+    expect((await sink.list("T-1", 10)).map((s) => s.anchor.seq)).toEqual([3, 1, 2]);
   });
 });

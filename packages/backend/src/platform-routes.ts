@@ -107,6 +107,16 @@ import {
   type CardCheckoutSweepResultDTO,
   type PlatformCardCheckoutsDTO,
   type PlatformOperationsDTO,
+  acceptAuditRestoreRequestSchema,
+  AuditRestoreRefusal,
+  TenantAnchorState,
+  TenantLifecycleRefusal,
+  type AcceptAuditRestoreResultDTO,
+  type TenantAuditAnchorDTO,
+  extendTenantRetentionRequestSchema,
+  purgeTenantNowRequestSchema,
+  type TenantPurgeResultDTO,
+  type TenantRetentionDTO,
 } from "@mezan/contracts";
 import { connectionTurn, createLogger } from "@mezan/api";
 import { OwnerPinResetOutcome } from "./owner-pin-reset-outcome.js";
@@ -180,6 +190,11 @@ export enum PlatformAuditAction {
   TenantProvisionRetried = "TENANT_PROVISION_RETRIED",
   TenantResumed = "TENANT_RESUMED",
   TenantSuspended = "TENANT_SUSPENDED",
+  TenantAuditRestoreAcceptRequested = "TENANT_AUDIT_RESTORE_ACCEPT_REQUESTED",
+  TenantAuditRestoreAccepted = "TENANT_AUDIT_RESTORE_ACCEPTED",
+  TenantAuditRestoreRefused = "TENANT_AUDIT_RESTORE_REFUSED",
+  TenantRetentionExtended = "TENANT_RETENTION_EXTENDED",
+  TenantPurgeRequested = "TENANT_PURGE_REQUESTED",
 }
 
 export interface PlatformTenantBooksPort {
@@ -218,6 +233,36 @@ export interface PlatformTenantBackupsPort {
   takeExport(input: { tenant: Tenant; token: string }): Promise<{ readonly body: ReadableStream<Uint8Array>; readonly fileName: string; readonly bytes: number } | null>;
 }
 
+export type PlatformAcceptRestoreResult =
+  | { readonly accepted: true; readonly result: AcceptAuditRestoreResultDTO }
+  | { readonly accepted: false; readonly refusal: AuditRestoreRefusal; readonly reason: string };
+
+export interface PlatformAuditAnchorPort {
+  // CONTRACT: reads only; never signs or writes an anchor.
+  status(tenant: Tenant): Promise<TenantAuditAnchorDTO>;
+  acceptRestore(input: { readonly tenant: Tenant; readonly reason: string; readonly actorId: string }): Promise<PlatformAcceptRestoreResult>;
+}
+
+export interface PlatformTenantRetentionPort {
+  view(tenant: Tenant): TenantRetentionDTO;
+  // REQUIRED ORDERING: called inside the archive's own write, so an archived tenant always has its deletion date.
+  scheduleOnArchive(tenant: Tenant, at: string): void;
+  // CONTRACT: false when `deleteAfter` is not later than the date already set.
+  extend(input: { readonly tenant: Tenant; readonly deleteAfter: string; readonly reason: string; readonly actorId: string; readonly at: string }): boolean;
+  // CONTRACT: refuses anything but an archived tenant; writes its own CRITICAL audit row with the deletion.
+  purgeNow(input: { readonly tenant: Tenant; readonly reason: string; readonly actorId: string }): Promise<TenantPurgeResultDTO>;
+}
+
+const AUDIT_RESTORE_REFUSAL_COPY: Readonly<Record<AuditRestoreRefusal, { readonly message: string; readonly messageEn: string }>> = {
+  [AuditRestoreRefusal.ReasonTooShort]: { message: "اكتب سبب الاستعادة بعشرة أحرف على الأقل.", messageEn: "Give the reason for the restore in at least ten characters." },
+  [AuditRestoreRefusal.NoChain]: { message: "لا يوجد سجل تدقيق مسلسل لهذه المنشأة بعد.", messageEn: "This tenant has no chained audit trail yet." },
+  [AuditRestoreRefusal.NothingAnchored]: { message: "لم يُختم سجل هذه المنشأة خارج الخادم بعد، فلا استعادة لاعتمادها.", messageEn: "Nothing has been anchored for this tenant yet, so there is no restore to accept." },
+  [AuditRestoreRefusal.NothingToAccept]: { message: "سجل التدقيق يكمل آخر ختم مسجّل؛ لا توجد استعادة لاعتمادها.", messageEn: "The audit trail extends its newest anchor; there is no restore to accept." },
+  [AuditRestoreRefusal.HeadInconsistent]: { message: "رأس سجل التدقيق لا يطابق صفّه؛ هذا ليس استعادة سليمة ولا يُعتمد.", messageEn: "The audit trail's head does not match its row; this is not a clean restore and cannot be accepted." },
+  [AuditRestoreRefusal.NewestAnchorForged]: { message: "آخر ختم مسجّل لا يحمل توقيعًا صحيحًا؛ لا يُعتمد شيء فوقه. افحص مخزن الأختام.", messageEn: "The newest anchor on record is not validly signed; nothing is accepted over it. Inspect the anchor store." },
+  [AuditRestoreRefusal.ChainBroken]: { message: "سلسلة سجل التدقيق المستعادة لا تتحقق بنفسها؛ لا تُعتمد.", messageEn: "The restored audit chain does not verify on its own; it cannot be accepted." },
+};
+
 export interface OwnerPinResetAccount {
   readonly userId: string;
   readonly signInEmail: string;
@@ -254,6 +299,10 @@ export interface CreatePlatformRoutesOptions {
   readonly idOf?: () => string;
   /** Absent when card checkout is not configured on this deployment; the routes then answer 503. */
   readonly cardCheckout?: PlatformCardCheckoutPort;
+  /** Absent when audit anchoring is off on this deployment. */
+  readonly auditAnchors?: PlatformAuditAnchorPort;
+  /** Absent where tenant data is never purged (a rig, the desktop edition). */
+  readonly tenantRetention?: PlatformTenantRetentionPort;
 }
 
 const serializeTenant = (t: Tenant): TenantDTO => tenantDTOOf(t);
@@ -947,6 +996,164 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
     }
   });
 
+  const auditAnchors = options.auditAnchors;
+  const anchoringDisabled = (c: Context) =>
+    c.json(
+      {
+        error: TenantLifecycleRefusal.AnchoringDisabled,
+        message: "ختم سجل التدقيق خارج الخادم غير مفعّل على هذه المنصة.",
+        messageEn: "Audit anchoring outside the server is not enabled on this platform.",
+      },
+      503,
+    );
+  const tenantNotLive = (c: Context) =>
+    c.json({ error: TenantLifecycleRefusal.TenantNotLive, message: "هذا الإجراء لمنشأة نشطة أو موقوفة فقط.", messageEn: "This is only for an active or suspended tenant." }, 409);
+  const isLiveTenant = (tenant: Tenant) => tenant.status === TenantStatusCode.Active || tenant.status === TenantStatusCode.Suspended;
+  const DISABLED_ANCHOR: TenantAuditAnchorDTO = {
+    state: TenantAnchorState.Disabled,
+    refusal: null,
+    latestAnchoredSeq: null,
+    latestAnchoredAt: null,
+    liveHeadSeq: null,
+    lastRebase: null,
+    canAcceptRestore: false,
+  };
+
+  app.get("/tenants/:id/audit-anchor", requireOwner, async (c) => {
+    try {
+      const tenant = await requireTenant(c.req.param("id"));
+      if (!auditAnchors || !isLiveTenant(tenant)) return c.json(DISABLED_ANCHOR);
+      return c.json(await auditAnchors.status(tenant));
+    } catch (err) {
+      return domainErrorResponse(c, err);
+    }
+  });
+
+  app.post("/tenants/:id/audit-anchor/accept-restore", requireOwner, async (c) => {
+    const parsed = acceptAuditRestoreRequestSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    try {
+      const tenant = await requireTenant(c.req.param("id"));
+      if (!auditAnchors) return anchoringDisabled(c);
+      if (!isLiveTenant(tenant)) return tenantNotLive(c);
+      const refused = await auth.confirmPassword(c, parsed.data.password);
+      if (refused) return refused;
+      const actorId = c.get("platformUser")!.id;
+      const { reason } = parsed.data;
+      await recordedWith(c, async () => ({
+        value: null,
+        action: PlatformAuditAction.TenantAuditRestoreAcceptRequested,
+        entityId: tenant.id,
+        details: { code: tenant.code, reason },
+        severity: AuditSeverityCode.Critical,
+      }));
+      const outcome = await auditAnchors.acceptRestore({ tenant, reason, actorId });
+      if (!outcome.accepted) {
+        await noted(c, PlatformAuditAction.TenantAuditRestoreRefused, tenant.id, { code: tenant.code, reason, refusal: outcome.refusal, detail: outcome.reason }, AuditSeverityCode.Critical);
+        return c.json({ error: TenantLifecycleRefusal.RestoreNotAccepted, reason: outcome.refusal, ...AUDIT_RESTORE_REFUSAL_COPY[outcome.refusal], detail: outcome.reason }, 409);
+      }
+      // SECURITY: the rebase is already signed and stored outside the server; an outcome row that cannot be
+      // written is logged rather than turned into a refusal, and the intent row above stands.
+      await noted(c, PlatformAuditAction.TenantAuditRestoreAccepted, tenant.id, { code: tenant.code, reason, ...outcome.result }, AuditSeverityCode.Critical).catch((err: unknown) =>
+        platformLog.error({ err }, `the restore of tenant "${tenant.id}" was accepted, and its outcome row could not be written`),
+      );
+      return c.json(outcome.result);
+    } catch (err) {
+      return domainErrorResponse(c, err);
+    }
+  });
+
+  const tenantRetention = options.tenantRetention;
+  const purgeUnavailable = (c: Context) =>
+    c.json({ error: TenantLifecycleRefusal.PurgeUnavailable, message: "حذف بيانات المنشآت غير مفعّل على هذه المنصة.", messageEn: "Tenant data deletion is not enabled on this platform." }, 503);
+  const notTerminated = (c: Context) =>
+    c.json(
+      { error: TenantLifecycleRefusal.NotTerminated, message: "لا تُحذف بيانات منشأة إلا بعد أرشفتها.", messageEn: "A tenant's data is deleted only after the tenant is archived." },
+      409,
+    );
+
+  app.get("/tenants/:id/retention", requireAny, async (c) => {
+    try {
+      const tenant = await requireTenant(c.req.param("id"));
+      if (!tenantRetention) return c.json({ retentionDays: 0, retention: null } satisfies TenantRetentionDTO);
+      return c.json(tenantRetention.view(tenant));
+    } catch (err) {
+      return domainErrorResponse(c, err);
+    }
+  });
+
+  app.post("/tenants/:id/retention/extend", requireOwner, async (c) => {
+    const parsed = extendTenantRetentionRequestSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    try {
+      const tenant = await requireTenant(c.req.param("id"));
+      if (!tenantRetention) return purgeUnavailable(c);
+      if (tenant.status !== TenantStatusCode.Archived) return notTerminated(c);
+      const before = tenantRetention.view(tenant).retention;
+      const deleteAfter = `${parsed.data.deleteAfter}T00:00:00.000Z`;
+      const later = before !== null && deleteAfter > before.deleteAfter;
+      if (later) {
+        const refused = await auth.confirmPassword(c, parsed.data.password);
+        if (refused) return refused;
+      }
+      const at = nowIso();
+      const moved = later && await recordedWith(c, async () => {
+        const extended = tenantRetention.extend({ tenant, deleteAfter, reason: parsed.data.reason, actorId: c.get("platformUser")!.id, at });
+        return {
+          value: extended,
+          action: PlatformAuditAction.TenantRetentionExtended,
+          entityId: tenant.id,
+          details: { code: tenant.code, from: before?.deleteAfter ?? null, to: deleteAfter, reason: parsed.data.reason, applied: extended },
+          severity: AuditSeverityCode.Critical,
+        };
+      });
+      if (!moved) {
+        return c.json(
+          {
+            error: TenantLifecycleRefusal.RetentionNotLater,
+            message: "التاريخ الجديد يجب أن يكون بعد موعد الحذف الحالي. لتقديم الحذف استخدم «حذف البيانات الآن».",
+            messageEn: "The new date must be later than the current deletion date. To delete sooner, use “Delete the data now”.",
+          },
+          409,
+        );
+      }
+      return c.json(tenantRetention.view(tenant));
+    } catch (err) {
+      return domainErrorResponse(c, err);
+    }
+  });
+
+  app.post("/tenants/:id/retention/purge", requireOwner, async (c) => {
+    const parsed = purgeTenantNowRequestSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    try {
+      const tenant = await requireTenant(c.req.param("id"));
+      if (!tenantRetention) return purgeUnavailable(c);
+      if (tenant.status !== TenantStatusCode.Archived) return notTerminated(c);
+      if (parsed.data.confirmCode !== tenant.code) {
+        return c.json(
+          { error: TenantLifecycleRefusal.ConfirmCodeMismatch, message: "الرمز المكتوب لا يطابق رمز المنشأة.", messageEn: "The code typed does not match the tenant's code." },
+          422,
+        );
+      }
+      const refused = await auth.confirmPassword(c, parsed.data.password);
+      if (refused) return refused;
+      const actorId = c.get("platformUser")!.id;
+      await recordedWith(c, async () => ({
+        value: null,
+        action: PlatformAuditAction.TenantPurgeRequested,
+        entityId: tenant.id,
+        details: { code: tenant.code, reason: parsed.data.reason },
+        severity: AuditSeverityCode.Critical,
+      }));
+      const result = await tenantRetention.purgeNow({ tenant, reason: parsed.data.reason, actorId });
+      invalidateEntitlements(tenant.code);
+      return c.json(result);
+    } catch (err) {
+      return domainErrorResponse(c, err);
+    }
+  });
+
   app.post("/tenants/:id/suspend", requireOwner, async (c) => {
     try {
       const tenant = await recordedWith(c, async () => {
@@ -976,8 +1183,11 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
   app.post("/tenants/:id/archive", requireOwner, async (c) => {
     try {
       const tenant = await recordedWith(c, async () => {
-        const moved = await archiveTenant({ id: c.req.param("id"), now: nowIso() }, platform.stores.tenants);
-        return { value: moved, action: "TENANT_ARCHIVED", entityId: moved.id, details: {} };
+        const at = nowIso();
+        const moved = await archiveTenant({ id: c.req.param("id"), now: at }, platform.stores.tenants);
+        options.tenantRetention?.scheduleOnArchive(moved, at);
+        const deleteAfter = options.tenantRetention?.view(moved).retention?.deleteAfter ?? null;
+        return { value: moved, action: "TENANT_ARCHIVED", entityId: moved.id, details: deleteAfter ? { deleteAfter } : {} };
       });
       invalidateEntitlements(tenant.code);
       return c.json(await summaryOf(tenant));

@@ -6,6 +6,7 @@ export enum UpgradeStepId {
   ApprovalFingerprint = "approval_fingerprint",
   SeededRoleReconciliationSplit = "seeded_role_reconciliation_split",
   SeededRoleGoodsReceiving = "seeded_role_goods_receiving",
+  SeededRolePriceFloor = "seeded_role_price_floor",
   StandardRoles = "standard_roles",
 }
 

@@ -1,7 +1,7 @@
 import { ConnectionTurnLostError } from "../audit/index.js";
 import { describe, expect, it } from "vitest";
 import { DEFAULT_ETA_CONFIG, resolveEtaEndpoints, type EtaConfig } from "./config.js";
-import { EtaOfflineError } from "./errors.js";
+import { EtaClientSecretNeedsReentryError, EtaOfflineError } from "./errors.js";
 import { createEtaHttpTransmitPort, type EtaHttpClient, type EtaHttpRequest, type EtaHttpResponse } from "./transmit.js";
 import type { EtaSubmission } from "./submission.js";
 
@@ -261,6 +261,19 @@ describe("createEtaHttpTransmitPort", () => {
       sleep: noSleep,
     });
     await expect(unset.checkCredentials!(CONFIG)).resolves.toMatchObject({ ok: false, reason: "missing_credentials" });
+  });
+
+  it("a stored secret this install cannot open asks for no token, keeps the document queued and says the secret must be entered again", async () => {
+    const { http, seen } = fakeServer(() => tokenResponse());
+    const port = createEtaHttpTransmitPort({ http, credentials: noCredentials, now: nowStamp, sleep: noSleep });
+    const unreadable: EtaConfig = { ...CONFIG, hasClientSecret: false, clientSecretNeedsReentry: true };
+
+    const refusal = await port.transmit(SUBMISSION, unreadable).catch((err: unknown) => err);
+    expect(refusal).toBeInstanceOf(EtaClientSecretNeedsReentryError);
+    expect(refusal).toBeInstanceOf(EtaOfflineError);
+    expect((refusal as Error).message).toContain("أعد إدخاله");
+    await expect(port.checkCredentials!(unreadable)).resolves.toMatchObject({ ok: false, reason: "secret_needs_reentry" });
+    expect(seen).toEqual([]);
   });
 });
 

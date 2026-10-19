@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ArabicCase, CountLocale, CountedNoun, arabicDays, countPhrase } from "./counted-noun.js";
+import { ArabicCase, CountLocale, CountedNoun, arabicDayQuantity, arabicDays, countPhrase } from "./counted-noun.js";
 
 describe("countPhrase", () => {
   it("agrees an Arabic day count across every plural category", () => {
@@ -20,6 +20,14 @@ describe("countPhrase", () => {
     expect(countPhrase(CountLocale.Ar, 12, CountedNoun.Customer)).toBe("12 عميلًا");
     expect(countPhrase(CountLocale.Ar, 1, CountedNoun.Item)).toBe("صنف واحد");
     expect(countPhrase(CountLocale.Ar, 2, CountedNoun.Invoice, { grammaticalCase: ArabicCase.Oblique })).toBe("فاتورتين");
+  });
+
+  it("counts a whole day quantity in agreement and a fractional one with the singular noun", () => {
+    expect(arabicDayQuantity(3)).toBe("3 أيام");
+    expect(arabicDayQuantity(1)).toBe("يوم واحد");
+    expect(arabicDayQuantity(22)).toBe("22 يومًا");
+    expect(arabicDayQuantity(2.5)).toBe("2.5 يوم");
+    expect(arabicDayQuantity(0.5, (n) => n.toFixed(1))).toBe("0.5 يوم");
   });
 
   it("pluralises English", () => {

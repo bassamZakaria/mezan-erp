@@ -9,6 +9,8 @@ import { InMemoryLedgerRepository, InMemorySequenceStore } from "../gl/test-help
 import { StockLedgerService } from "../inventory/index.js";
 import { InMemoryStockLedger, InMemoryCostLayers, InMemorySnapshots } from "../inventory/test-helpers/in-memory-stores.js";
 import type { DocumentWorkflowGate, DocumentWorkflowInput } from "../documents/hooks.js";
+import { createDocumentWorkflowGate } from "../documents/journal-document.js";
+import { decideApproval, type ApprovalRequestRecord, type ApprovalRequestRepository, type GateConfig, type GateableActionType } from "../workflow/index.js";
 import { SalesInvoiceService, createSalesInvoiceGlHook, createSalesInvoiceStockHook, type CreateSalesInvoiceCommand } from "./index.js";
 import { InMemorySalesInvoiceRepository } from "./test-helpers/in-memory-sales-invoice-repository.js";
 import {
@@ -50,7 +52,7 @@ function floorRule(mode: PricingGuardMode): PricingGuardRule {
   };
 }
 
-async function build(opts: { mode: PricingGuardMode; chain: boolean; workflow?: DocumentWorkflowGate; actorRoles?: readonly string[]; rules?: PricingGuardRule[] }) {
+async function build(opts: { mode: PricingGuardMode; chain: boolean; workflow?: DocumentWorkflowGate; actorRoles?: readonly string[]; rules?: PricingGuardRule[]; unitCost?: () => Money | null }) {
   const accounts = new InMemoryAccountRepository();
   await accounts.create(account(AR));
   await accounts.create(account(REVENUE, { type: "revenue", naturalBalance: "credit" }));
@@ -66,7 +68,7 @@ async function build(opts: { mode: PricingGuardMode; chain: boolean; workflow?: 
   const guard = new PricingGuardService({
     rules: { list: async () => opts.rules ?? [floorRule(opts.mode)] },
     overrides: { recordAll: async (rows) => void recorded.push(...rows), list: async () => recorded },
-    costs: { unitCostAsOf: async () => null, itemCostPrice: async () => null },
+    costs: { unitCostAsOf: async () => opts.unitCost?.() ?? null, itemCostPrice: async () => null },
     categoryAncestry: async () => [],
     customerCategory: async () => null,
     rateOn: async () => null,
@@ -170,5 +172,101 @@ describe("SalesInvoiceService.confirm — price floor (ENH-E2-08)", () => {
     expect(again.held).toBe(true);
     expect(seen.at(-1)?.actionType).toBe("SALES_INVOICE_CONFIRM");
     expect((await svc.findById("inv-1"))?.workflowRequestId).toBe("inv-1:confirm");
+  });
+});
+
+function marginRule(): PricingGuardRule {
+  return { ...floorRule(PricingGuardMode.Approval), id: "R-MARGIN", floorPrice: null, minMarginPercent: 20 };
+}
+
+function inMemoryRequests(): ApprovalRequestRepository & { readonly rows: Map<string, ApprovalRequestRecord> } {
+  const rows = new Map<string, ApprovalRequestRecord>();
+  return {
+    rows,
+    list: async () => [...rows.values()],
+    findById: async (id: string) => rows.get(id) ?? null,
+    insert: async (record: ApprovalRequestRecord) => {
+      if (rows.has(record.id)) throw new Error(`duplicate ${record.id}`);
+      rows.set(record.id, record);
+    },
+    save: async (record: ApprovalRequestRecord) => void rows.set(record.id, record),
+    listPendingForRoles: async () => [...rows.values()].filter((row) => row.status === "pending"),
+    listBySubmitter: async (submittedBy: string) => [...rows.values()].filter((row) => row.submittedBy === submittedBy),
+  };
+}
+
+function realGate() {
+  const requests = inMemoryRequests();
+  const chains: Partial<Record<GateableActionType, GateConfig>> = {
+    SALES_INVOICE_CONFIRM: { actionType: "SALES_INVOICE_CONFIRM", steps: [{ role: "SUPERVISOR" }] },
+    SALES_PRICE_FLOOR_OVERRIDE: { actionType: "SALES_PRICE_FLOOR_OVERRIDE", steps: [{ role: "BRANCH_MANAGER" }] },
+  };
+  return { requests, gate: createDocumentWorkflowGate((actionType) => chains[actionType] ?? null, requests) };
+}
+
+describe("SalesInvoiceService.confirm — the price floor is judged again when an ordinary approval posts", () => {
+  it("an invoice approved under the ordinary chain whose cost has since broken a margin rule is re-routed to the price-floor chain, not posted", async () => {
+    let cost = Money.fromMajor("100");
+    const { requests, gate } = realGate();
+    const { svc, recorded } = await build({ mode: PricingGuardMode.Approval, chain: true, workflow: gate, actorRoles: ["SALES_REP"], rules: [marginRule()], unitCost: () => cost });
+    await svc.createDraft(draft());
+
+    const submitted = await svc.confirm("inv-1");
+    expect(submitted.held).toBe(true);
+    expect(submitted.invoice.workflowRequestId).toBe("inv-1:confirm");
+
+    cost = Money.fromMajor("450");
+    await decideApproval("inv-1:confirm", { actorId: "sup-1", actorRoles: ["SUPERVISOR"], decision: "approve" }, requests);
+    const afterApproval = await svc.confirm("inv-1");
+
+    expect(afterApproval.held).toBe(true);
+    const stored = await svc.findById("inv-1");
+    expect(stored?.status).toBe("pending");
+    expect(stored?.workflowRequestId).toBe("inv-1:price-floor");
+    expect(requests.rows.get("inv-1:price-floor")?.status).toBe("pending");
+    expect(requests.rows.get("inv-1:price-floor")?.actionType).toBe("SALES_PRICE_FLOOR_OVERRIDE");
+    expect(recorded).toHaveLength(0);
+  });
+
+  it("a margin breach that first appears inside the posting transaction holds the invoice under the price-floor chain instead of refusing it", async () => {
+    let calls = 0;
+    const { requests, gate } = realGate();
+    const { svc, recorded } = await build({
+      mode: PricingGuardMode.Approval,
+      chain: true,
+      workflow: gate,
+      actorRoles: ["SALES_REP"],
+      rules: [marginRule()],
+      unitCost: () => (++calls <= 2 ? Money.fromMajor("100") : Money.fromMajor("450")),
+    });
+    await svc.createDraft(draft());
+    expect((await svc.confirm("inv-1")).invoice.workflowRequestId).toBe("inv-1:confirm");
+    await decideApproval("inv-1:confirm", { actorId: "sup-1", actorRoles: ["SUPERVISOR"], decision: "approve" }, requests);
+
+    const result = await svc.confirm("inv-1");
+
+    expect(result.held).toBe(true);
+    const stored = await svc.findById("inv-1");
+    expect(stored?.status).toBe("pending");
+    expect(stored?.journalEntryId ?? null).toBeNull();
+    expect(stored?.workflowRequestId).toBe("inv-1:price-floor");
+    expect(requests.rows.get("inv-1:price-floor")?.status).toBe("pending");
+    expect(recorded).toHaveLength(0);
+  });
+
+  it("a Block rule the cost now breaches refuses the approved invoice with the price guard's Arabic error", async () => {
+    let cost = Money.fromMajor("100");
+    const { requests, gate } = realGate();
+    const block = { ...marginRule(), mode: PricingGuardMode.Block };
+    const { svc } = await build({ mode: PricingGuardMode.Block, chain: true, workflow: gate, actorRoles: ["SALES_REP"], rules: [block], unitCost: () => cost });
+    await svc.createDraft(draft());
+    await svc.confirm("inv-1");
+    cost = Money.fromMajor("450");
+    await decideApproval("inv-1:confirm", { actorId: "sup-1", actorRoles: ["SUPERVISOR"], decision: "approve" }, requests);
+
+    const refusal = await svc.confirm("inv-1").catch((err: unknown) => err);
+    expect(refusal).toBeInstanceOf(PricingGuardBlockedError);
+    expect((refusal as Error).message).toMatch(/[؀-ۿ]/);
+    expect((await svc.findById("inv-1"))?.status).toBe("pending");
   });
 });

@@ -43,8 +43,10 @@ export interface EtaConfig {
   readonly autoSubmitOnConfirm: boolean;
   readonly signingMethod: EtaSigningMethod;
   readonly clientId: string | null;
-  /** True when a client secret is stored (encrypted); the secret itself is never returned. */
+  /** True when a client secret is stored (encrypted) AND this install can open it; the secret itself is never returned. */
   readonly hasClientSecret: boolean;
+  /** A secret is stored but this install cannot open it (sealed under another key): it must be entered again. */
+  readonly clientSecretNeedsReentry?: boolean;
   /** عناوين بوابة المصلحة — per-environment gateway addresses, configurable because the authority moves them. */
   readonly preproductionIdentityUrl: string;
   readonly preproductionApiUrl: string;

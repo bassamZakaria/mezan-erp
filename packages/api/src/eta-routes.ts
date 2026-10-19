@@ -28,6 +28,7 @@ import {
   EtaReissueSameInternalIdError,
   ETA_RECEIPT_PAYMENT_METHODS,
   EtaOfflineError,
+  EtaClientSecretNeedsReentryError,
   EtaPrevalidationFailedError,
   EtaPrevalidationSeverity,
   EtaReceiptUuidUnavailableError,
@@ -154,6 +155,7 @@ function serializeConfig(config: EtaConfig, counts?: EtaReadinessCounts) {
       signingMethod: config.signingMethod,
       clientId: config.clientId,
       hasClientSecret: config.hasClientSecret,
+      clientSecretNeedsReentry: config.clientSecretNeedsReentry === true,
       preproductionIdentityUrl: config.preproductionIdentityUrl,
       preproductionApiUrl: config.preproductionApiUrl,
       productionIdentityUrl: config.productionIdentityUrl,
@@ -213,7 +215,7 @@ function handleError(c: Context, err: unknown): Response {
   }
   // Not configured for the network yet: the document stays queued, which is a
   // state, not a failure.
-  if (err instanceof EtaOfflineError) return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 202);
+  if (err instanceof EtaOfflineError) return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, ...(err instanceof EtaClientSecretNeedsReentryError ? { reason: err.reason } : {}) }, 202);
   if (err instanceof EtaSignerNotConfiguredError) return c.json({ error: err.code, message: err.message }, 422);
   if (err instanceof EtaSigningFailedError) return c.json({ error: err.code, message: err.message }, 422);
   // No UUID service means no receipt can be issued at all — a configuration

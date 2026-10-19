@@ -148,6 +148,11 @@ function EtaBody({ health, now }: { health: NonNullable<SystemHealthDTO["eta"]>;
           submitted: String(health.submitted),
         })}
       </p>
+      {health.clientSecretNeedsReentry ? (
+        <p role="alert" className="text-[12px] font-semibold text-danger-ink">
+          {t("health.eta.secretNeedsReentry")}
+        </p>
+      ) : null}
       {oldestHours !== null ? <p className="text-[12px] text-ink-muted">{t("health.eta.oldest", { hours: String(oldestHours) })}</p> : null}
       {health.recentErrors.length === 0 ? (
         <p className="text-[12px] text-ink-faint">{t("health.eta.noErrors")}</p>

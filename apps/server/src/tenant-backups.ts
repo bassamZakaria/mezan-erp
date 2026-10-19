@@ -66,6 +66,8 @@ export interface TenantBackupsOptions {
 }
 
 export interface TenantBackupsService extends PlatformTenantBackupsPort {
+  // CONTRACT: removes every export offer of the tenant and its file; a purged tenant leaves none behind.
+  discardExportsOf(tenantId: string): void;
   close(): void;
 }
 
@@ -319,6 +321,7 @@ export function createTenantBackups(options: TenantBackupsOptions): TenantBackup
     drill,
     exportTenant,
     takeExport,
+    discardExportsOf: discardOffersOf,
     close() {
       for (const hash of [...offers.keys()]) discard(hash);
     },

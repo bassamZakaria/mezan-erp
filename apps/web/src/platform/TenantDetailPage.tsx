@@ -22,6 +22,8 @@ import { LicenseStateChip, TenantStatusChip } from "./chips";
 import { TenantOwnerCard } from "./TenantOwnerCard";
 import { TenantBooksCard } from "./TenantBooksCard";
 import { TenantBackupCard } from "./TenantBackupCard";
+import { TenantAuditAnchorCard } from "./TenantAuditAnchorCard";
+import { TenantRetentionCard } from "./TenantRetentionCard";
 import { TenantLockedAccountsCard } from "./TenantLockedAccountsCard";
 import { PlatformApiError, usePlatformApi } from "./api";
 import { RecordPaymentDialog } from "./RecordPaymentDialog";
@@ -276,6 +278,10 @@ export function TenantDetailPage() {
       <TenantLockedAccountsCard tenant={tenant} isOwner={isOwner} booksRefused={booksRefused} onError={onMutationError} />
 
       <TenantBackupCard tenant={tenant} isOwner={isOwner} booksRefused={booksRefused} onError={onMutationError} />
+
+      <TenantAuditAnchorCard tenant={tenant} isOwner={isOwner} booksRefused={booksRefused} onError={onMutationError} />
+
+      <TenantRetentionCard tenant={tenant} isOwner={isOwner} onError={onMutationError} />
 
       {mutationError ? (
         <Card className="p-[14px_16px]">

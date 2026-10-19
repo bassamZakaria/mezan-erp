@@ -11,7 +11,8 @@ const COGS = "5100";
 const OUTPUT_TAX = "2200";
 const PRICE_FLOOR_ACTION = "SALES_PRICE_FLOOR_OVERRIDE";
 const CLERK = { "x-user-id": "SCN-PF-CLERK", "x-permissions": "sales.invoice.create,sales.invoice.confirm,sales.invoice.view", "x-role-codes": "SALES_REP" };
-const MANAGER = { "x-user-id": "SCN-PF-MANAGER", "x-permissions": "workflow.view,workflow.approve,workflow.reject", "x-role-codes": "BRANCH_MANAGER" };
+const MANAGER = { "x-user-id": "SCN-PF-MANAGER", "x-permissions": "workflow.view,workflow.approve,workflow.reject,sales.pricing_guard.view,sales.pricing_guard.approve", "x-role-codes": "BRANCH_MANAGER" };
+const RULE_WRITER = { "x-user-id": "SCN-PF-RULES", "x-permissions": "workflow.view,workflow.approve,sales.pricing_guard.view,sales.pricing_guard.manage", "x-role-codes": "BRANCH_MANAGER" };
 
 /**
  * Price floor (ENH-E2-08) on an item of its own (WAC 50.00), sold 2 × 70.00
@@ -95,6 +96,9 @@ export const scenario: ScenarioFragment = {
 
         const selfDecision = await req("POST", `/workflow/requests/${encodeURIComponent(requestId)}/decide`, { decision: "approve" }, CLERK);
         check("the clerk cannot approve their own request", selfDecision.status === 403, `status ${selfDecision.status}`);
+
+        const byRuleWriter = await req("POST", `/workflow/requests/${encodeURIComponent(requestId)}/decide`, { decision: "approve" }, RULE_WRITER);
+        check("whoever writes the floor rules cannot approve a sale below them (SoD)", byRuleWriter.status === 403, `status ${byRuleWriter.status}`);
 
         const approved = await req("POST", `/workflow/requests/${encodeURIComponent(requestId)}/decide`, { decision: "approve" }, MANAGER);
         check("the chain's manager approves it", approved.status === 200 && approved.body?.status === "approved", `status ${approved.status} ${JSON.stringify(approved.body).slice(0, 250)}`);

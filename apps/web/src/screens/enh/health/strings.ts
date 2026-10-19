@@ -41,6 +41,7 @@ export const ar = {
   "health.eta.oldest": "أقدم مستند غير مرسل منذ {hours} ساعة",
   "health.eta.recentErrors": "آخر الأخطاء",
   "health.eta.noErrors": "لا توجد أخطاء إرسال.",
+  "health.eta.secretNeedsReentry": "سر الربط مع مصلحة الضرائب (Client Secret) المحفوظ لا يمكن فتحه على هذا النظام، فلن يُرسل أي مستند حتى يُعاد إدخاله من «الفاتورة الإلكترونية» ← بيانات الربط.",
 
   "health.audit.ok": "رأس السلسلة سليم ويطابق آخر سجل.",
   "health.audit.bad": "رأس السلسلة لا يطابق السجل ({reason}). شغّل التحقق الكامل وأبلغ المسؤول عن الأمان.",
@@ -129,6 +130,7 @@ export const ar = {
   "platform.operations.job.platform_backups": "النسخ الاحتياطي للمنشآت",
   "platform.operations.job.platform_audit_anchor": "تثبيت سجل التدقيق خارج القاعدة",
   "platform.operations.job.platform_collections_dunning": "متابعة تحصيل العملاء وإرسال تذكيراتهم",
+  "platform.operations.job.platform_tenant_purge": "حذف بيانات المنشآت المؤرشفة بعد مهلة الاحتفاظ",
   "platform.operations.alert.error_burst": "تتابع أخطاء",
   "platform.operations.alert.job_failed": "فشل مهمة",
   "platform.operations.alert.unclean_restart": "إعادة تشغيل بعد توقف غير سليم",
@@ -182,6 +184,7 @@ export const en: Record<keyof typeof ar, string> = {
   "health.eta.oldest": "Oldest unsent document is {hours} h old",
   "health.eta.recentErrors": "Recent errors",
   "health.eta.noErrors": "No submission errors.",
+  "health.eta.secretNeedsReentry": "The stored ETA Client Secret cannot be opened on this system, so no document is sent until it is entered again under E-invoicing → Credentials.",
 
   "health.audit.ok": "The chain head is intact and matches the newest record.",
   "health.audit.bad": "The chain head does not match the trail ({reason}). Run the full verification and tell your security officer.",
@@ -270,6 +273,7 @@ export const en: Record<keyof typeof ar, string> = {
   "platform.operations.job.platform_backups": "Tenant backups",
   "platform.operations.job.platform_audit_anchor": "Audit trail anchoring",
   "platform.operations.job.platform_collections_dunning": "Customer collections follow-up and reminders",
+  "platform.operations.job.platform_tenant_purge": "Deleting archived tenants' data after the retention period",
   "platform.operations.alert.error_burst": "Error burst",
   "platform.operations.alert.job_failed": "Job failed",
   "platform.operations.alert.unclean_restart": "Restart after an unclean exit",

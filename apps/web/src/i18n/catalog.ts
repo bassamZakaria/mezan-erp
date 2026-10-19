@@ -9,6 +9,7 @@ import { auditCodeAr, auditCodeEn } from "../screens/enh/audit-ledger/audit-code
 import { hrPayrollReportAr, hrPayrollReportEn } from "../screens/reports/hr-payroll-report-strings";
 import { backupProtectionAr, backupProtectionEn } from "../settings/backup-protection-strings";
 import { englishGapsAr, englishGapsEn } from "./english-gaps-strings";
+import { platformLifecycleAr, platformLifecycleEn } from "../platform/lifecycle-strings";
 
 /**
  * The web app's own strings. Arabic is the source language and `webEn` is typed
@@ -4129,6 +4130,8 @@ const webAr = {
   "eta.clientSecret": "السر (Client Secret)",
   "eta.clientSecretStored": "محفوظ — لا يُعرض مرة أخرى",
   "eta.clientSecretPlaceholder": "اكتب سراً جديداً لاستبداله",
+  "eta.clientSecretNeedsReentry": "يلزم إعادة الإدخال: السر المحفوظ لا يمكن فتحه على هذا النظام (حُفظ بمفتاح آخر)، فلن يُطلب رمز دخول ولن يُرسل أي مستند حتى تكتبه من جديد وتحفظ.",
+  "eta.testSecretNeedsReentry": "تعذّر الاختبار: السر المحفوظ لا يمكن فتحه — أعد إدخاله واحفظ.",
   "eta.signingMethod": "طريقة التوقيع",
   "eta.signingNone": "بدون توقيع",
   "eta.signingEseal": "ختم إلكتروني (e-Seal)",
@@ -10091,6 +10094,7 @@ const webAr = {
   ...hrPayrollReportAr,
   ...backupProtectionAr,
   ...englishGapsAr,
+  ...platformLifecycleAr,
 } as const;
 
 export type WebTranslationKey = keyof typeof webAr;
@@ -14214,6 +14218,8 @@ const webEn: Record<WebTranslationKey, string> = {
   "eta.clientSecret": "Client secret",
   "eta.clientSecretStored": "Stored — never shown again",
   "eta.clientSecretPlaceholder": "Type a new secret to replace it",
+  "eta.clientSecretNeedsReentry": "Needs re-entry: the stored secret cannot be opened on this system (it was sealed under another key), so no token is requested and no document is sent until you type it again and save.",
+  "eta.testSecretNeedsReentry": "Cannot test: the stored secret cannot be opened — enter it again and save.",
   "eta.signingMethod": "Signing method",
   "eta.signingNone": "None",
   "eta.signingEseal": "Electronic seal (e-Seal)",
@@ -20178,6 +20184,7 @@ const webEn: Record<WebTranslationKey, string> = {
   ...hrPayrollReportEn,
   ...backupProtectionEn,
   ...englishGapsEn,
+  ...platformLifecycleEn,
 };
 
 export const webCatalogs: LocaleCatalogs = { ar: webAr, en: webEn };

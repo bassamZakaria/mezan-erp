@@ -174,3 +174,7 @@ export function scopeOfRule(rule: Pick<PricingGuardRule, "itemId" | "categoryId"
   if (rule.customerCategory) return PricingGuardScope.CustomerCategory;
   return PricingGuardScope.All;
 }
+
+export const PRICE_FLOOR_ACTION_TYPE = "SALES_PRICE_FLOOR_OVERRIDE" as const;
+export const PRICE_FLOOR_APPROVE_PERMISSION = "sales.pricing_guard.approve";
+export const PRICE_FLOOR_MANAGE_PERMISSION = "sales.pricing_guard.manage";

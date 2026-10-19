@@ -125,6 +125,7 @@ describe("EtaScreen", () => {
       receiptReportingWindowHours: 24,
       clientId: "client-1",
       hasClientSecret: true,
+      clientSecretNeedsReentry: false,
       preproductionIdentityUrl: "https://id.preprod.eta.gov.eg",
       preproductionApiUrl: "https://api.preprod.invoicing.eta.gov.eg/api/v1",
       productionIdentityUrl: "https://id.eta.gov.eg",

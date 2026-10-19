@@ -100,4 +100,23 @@ describe("seeded role corrections", () => {
     expect(grant.body).toContain("purchases.receipt.create");
     expect(separation.title).toContain("بين المهام");
   });
+
+  it("moves price-floor rule writing from the branch manager to the finance manager, and leaves the branch manager approving", () => {
+    const oldBranch = ["sales.invoice.view", "sales.pricing_guard.view", "sales.pricing_guard.manage", "workflow.view", "workflow.approve", "workflow.reject"];
+    const oldFinance = ["sales.invoice.view", "sales.pricing_guard.view", "workflow.approve"];
+
+    const branch = correctedSeededRolePermissions(SeededRoleCode.BranchManager, oldBranch, undefined, SeededRoleSplit.PriceFloor);
+    const finance = correctedSeededRolePermissions(SeededRoleCode.FinanceManager, oldFinance, undefined, SeededRoleSplit.PriceFloor);
+
+    expect(branch).toEqual(["sales.invoice.view", "sales.pricing_guard.view", "workflow.view", "workflow.approve", "workflow.reject", "sales.pricing_guard.approve"]);
+    expect(finance).toEqual([...oldFinance, "sales.pricing_guard.manage"]);
+    expect(detectSodConflicts([...branch!, "sales.pricing_guard.manage"]).map((match) => match.ruleId)).toEqual(["pricing_guard_manage_approve"]);
+    expect(detectSodConflicts(branch!)).toEqual([]);
+    expect(detectSodConflicts(finance!)).toEqual([]);
+  });
+
+  it("the price-floor move touches no role that never held the price-floor screen", () => {
+    expect(correctedSeededRolePermissions(SeededRoleCode.BranchManager, OLD_MANAGER, undefined, SeededRoleSplit.PriceFloor)).toBeNull();
+    expect(correctedSeededRolePermissions(SeededRoleCode.FinanceManager, OLD_FINANCE, undefined, SeededRoleSplit.PriceFloor)).toBeNull();
+  });
 });

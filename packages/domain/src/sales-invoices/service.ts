@@ -426,7 +426,6 @@ export class SalesInvoiceService {
 
   async confirm(id: string, opts: ConfirmSalesInvoiceOptions = {}): Promise<ConfirmSalesInvoiceResult> {
     const stored = await this.require(id);
-    const requestId = confirmRequestIdOf(id);
     // INVARIANT: a draft the VAT setting has re-rated is never posted — or
     // sent for approval — at figures its screen did not show. Unacknowledged
     // it is refused with the new totals; acknowledged, the re-rated lines are
@@ -461,58 +460,97 @@ export class SalesInvoiceService {
     if (needsPriceApproval && !submitterIsAdmin && (!this.deps.workflow || !(await this.deps.pricingGuard?.approvalChainConfigured()))) {
       throw new PricingGuardApprovalUnconfiguredError(priceGuard.lines);
     }
-    let priceClearance: PriceFloorClearance | null = needsPriceApproval && !this.deps.workflow ? { kind: PricingGuardOverrideKind.AdminBypass, requestId: null } : null;
-
-    // --- Workflow gate on confirm ---
-    if (this.deps.workflow) {
-      const baseLabel = existing.docNo ?? approvalLabel({ type: "فاتورة مبيعات", amount: this.totalsOf(existing).grandTotal, currency: existing.currency, party: existing.customerNameAr });
-      const decision = await this.deps.workflow.evaluate({
-        actionType: needsPriceApproval ? PRICE_FLOOR_GATE_ACTION : GATE_ACTION,
-        requestId: needsPriceApproval ? priceFloorRequestIdOf(id) : requestId,
-        submittedBy: opts.actor ?? this.deps.actor ?? "system",
-        submitterRoles,
-        entityLabel: needsPriceApproval ? `${baseLabel} — ${PRICE_FLOOR_LABEL_AR}` : baseLabel,
-        document: { id, branchId: statedBranchOf(existing), content: existing, heldRequestId: existing.workflowRequestId },
-      });
-      if (decision.granted && needsPriceApproval) {
-        const bypassed = submitterIsAdmin && existing.status !== SalesInvoiceStatusCode.Pending;
-        priceClearance = { kind: bypassed ? PricingGuardOverrideKind.AdminBypass : PricingGuardOverrideKind.ApprovedByChain, requestId: decision.requestId };
-      }
-      if (!decision.granted) {
-        // Re-confirming while the request is still in the inbox is a no-op, not
-        // an illegal pending → pending transition.
-        if (existing.status === "pending" && existing.workflowRequestId === decision.requestId) {
-          return { invoice: existing, held: true, creditWarning: null, pricingVariances: [], taxRecalculated: false };
-        }
-        // INVARIANT: a held invoice points at the request that now holds it. The
-        // price guard can move it between the ordinary and the price-floor
-        // request; left on the old id, neither approval could ever post it.
-        if (existing.status === "pending") {
-          const repointed = await this.deps.repo.transaction(async () => {
-            const fresh = await this.require(id);
-            const next: SalesInvoice = { ...fresh, workflowRequestId: decision.requestId };
-            await this.writeFields(next, [SalesInvoiceField.WorkflowRequestId], SalesInvoiceStatusCode.Pending);
-            if (fresh.workflowRequestId) await this.deps.workflow?.reopen?.(fresh.workflowRequestId);
-            return next;
-          });
-          return { invoice: repointed, held: true, creditWarning: null, pricingVariances: [], taxRecalculated: false };
-        }
-
-        const held = await this.deps.repo.transaction(async () => {
-          const fresh = await this.require(id);
-          assertTransition(id, fresh.status, "pending");
-          const next: SalesInvoice = { ...fresh, status: "pending", workflowRequestId: decision.requestId };
-          await this.writeFields(next, [SalesInvoiceField.Status, SalesInvoiceField.WorkflowRequestId], fresh.status);
-          return next;
-        });
-        this.emit("DOCUMENT_SUBMITTED", held);
-        return { invoice: held, held: true, creditWarning: null, pricingVariances: [], taxRecalculated: reratedBeforeGate };
-      }
-    }
+    const gated = await this.passWorkflowGate(existing, { needsPriceApproval, submitterIsAdmin, submitterRoles, actor: opts.actor, reratedBeforeGate });
+    if (gated.held) return gated.held;
+    const priceClearance: PriceFloorClearance | null = gated.priceClearance ?? (needsPriceApproval && !this.deps.workflow ? { kind: PricingGuardOverrideKind.AdminBypass, requestId: null } : null);
 
     assertTransition(id, existing.status, "confirmed");
 
-    const outcome = await this.deps.repo.transaction(async () => {
+    let outcome = await this.postConfirmed(id, opts, priceClearance);
+    if (!outcome.posted && outcome.priceFloorBreach) {
+      // INVARIANT (maker-checker): an approval covers the figures and the cost it was given for. A price-floor
+      // breach first seen at posting time (the cost moved after an ordinary approval) is held under the
+      // price-floor chain, never posted on the ordinary approval and never refused outright.
+      if (!submitterIsAdmin && (!this.deps.workflow || !(await this.deps.pricingGuard?.approvalChainConfigured()))) {
+        throw new PricingGuardApprovalUnconfiguredError(outcome.priceFloorBreach);
+      }
+      const rerouted = await this.passWorkflowGate(await this.require(id), { needsPriceApproval: true, submitterIsAdmin, submitterRoles, actor: opts.actor, reratedBeforeGate });
+      if (rerouted.held) return rerouted.held;
+      outcome = await this.postConfirmed(id, opts, rerouted.priceClearance ?? { kind: PricingGuardOverrideKind.AdminBypass, requestId: null });
+      if (!outcome.posted && outcome.priceFloorBreach) throw new PricingGuardChangedError();
+    }
+
+    if (!outcome.posted) {
+      const handedBack = outcome.handedBack as SalesInvoice;
+      this.emit("DOCUMENT_DRAFTED", handedBack);
+      throw new ApprovedSalesInvoiceReratedError(id, displayAmount(outcome.approvedTotal as Money), displayAmount(this.totalsOf(handedBack).grandTotal));
+    }
+    const { confirmed, creditWarning, pricingVariances, taxRecalculated } = outcome;
+    this.emit("DOCUMENT_CONFIRMED", confirmed);
+    return { invoice: confirmed, held: false, creditWarning, pricingVariances, taxRecalculated: taxRecalculated || reratedBeforeGate };
+  }
+
+  private async passWorkflowGate(
+    existing: SalesInvoice,
+    ctx: {
+      readonly needsPriceApproval: boolean;
+      readonly submitterIsAdmin: boolean;
+      readonly submitterRoles: readonly string[] | undefined;
+      readonly actor: string | undefined;
+      readonly reratedBeforeGate: boolean;
+    },
+  ): Promise<{ readonly held: ConfirmSalesInvoiceResult | null; readonly priceClearance: PriceFloorClearance | null }> {
+    const workflow = this.deps.workflow;
+    if (!workflow) return { held: null, priceClearance: null };
+    const id = existing.id;
+    const { needsPriceApproval, submitterIsAdmin } = ctx;
+    const baseLabel = existing.docNo ?? approvalLabel({ type: "فاتورة مبيعات", amount: this.totalsOf(existing).grandTotal, currency: existing.currency, party: existing.customerNameAr });
+    const decision = await workflow.evaluate({
+      actionType: needsPriceApproval ? PRICE_FLOOR_GATE_ACTION : GATE_ACTION,
+      requestId: needsPriceApproval ? priceFloorRequestIdOf(id) : confirmRequestIdOf(id),
+      submittedBy: ctx.actor ?? this.deps.actor ?? "system",
+      submitterRoles: ctx.submitterRoles,
+      entityLabel: needsPriceApproval ? `${baseLabel} — ${PRICE_FLOOR_LABEL_AR}` : baseLabel,
+      document: { id, branchId: statedBranchOf(existing), content: existing, heldRequestId: existing.workflowRequestId },
+    });
+    if (decision.granted) {
+      if (!needsPriceApproval) return { held: null, priceClearance: null };
+      const bypassed = submitterIsAdmin && existing.status !== SalesInvoiceStatusCode.Pending;
+      return { held: null, priceClearance: { kind: bypassed ? PricingGuardOverrideKind.AdminBypass : PricingGuardOverrideKind.ApprovedByChain, requestId: decision.requestId } };
+    }
+    // Re-confirming while the request is still in the inbox is a no-op, not
+    // an illegal pending → pending transition.
+    if (existing.status === "pending" && existing.workflowRequestId === decision.requestId) {
+      return { held: { invoice: existing, held: true, creditWarning: null, pricingVariances: [], taxRecalculated: false }, priceClearance: null };
+    }
+    // INVARIANT: a held invoice points at the request that now holds it. The
+    // price guard can move it between the ordinary and the price-floor
+    // request; left on the old id, neither approval could ever post it.
+    if (existing.status === "pending") {
+      const repointed = await this.deps.repo.transaction(async () => {
+        const fresh = await this.require(id);
+        const next: SalesInvoice = { ...fresh, workflowRequestId: decision.requestId };
+        await this.writeFields(next, [SalesInvoiceField.WorkflowRequestId], SalesInvoiceStatusCode.Pending);
+        if (fresh.workflowRequestId) await this.deps.workflow?.reopen?.(fresh.workflowRequestId);
+        return next;
+      });
+      return { held: { invoice: repointed, held: true, creditWarning: null, pricingVariances: [], taxRecalculated: false }, priceClearance: null };
+    }
+
+    const held = await this.deps.repo.transaction(async () => {
+      const fresh = await this.require(id);
+      assertTransition(id, fresh.status, "pending");
+      const next: SalesInvoice = { ...fresh, status: "pending", workflowRequestId: decision.requestId };
+      await this.writeFields(next, [SalesInvoiceField.Status, SalesInvoiceField.WorkflowRequestId], fresh.status);
+      return next;
+    });
+    this.emit("DOCUMENT_SUBMITTED", held);
+    return { held: { invoice: held, held: true, creditWarning: null, pricingVariances: [], taxRecalculated: ctx.reratedBeforeGate }, priceClearance: null };
+  }
+
+  private async postConfirmed(id: string, opts: ConfirmSalesInvoiceOptions, priceClearance: PriceFloorClearance | null) {
+    const requestId = confirmRequestIdOf(id);
+    return this.deps.repo.transaction(async () => {
       // INVARIANT: the invoice is re-read and every guard re-run inside the
       // transaction that posts it. A draft edited, cancelled or confirmed since
       // the request began is posted as it now stands, or refused — an earlier
@@ -539,7 +577,7 @@ export class SalesInvoiceService {
           approvedTotal: this.totalsOf(stored).grandTotal.toString(),
           recalculatedTotal: this.totalsOf(handedBack).grandTotal.toString(),
         });
-        return { posted: false, handedBack, approvedTotal: this.totalsOf(stored).grandTotal } as const;
+        return { posted: false, handedBack, approvedTotal: this.totalsOf(stored).grandTotal, priceFloorBreach: null } as const;
       }
       const freshEffects = this.effectsOf(fresh);
       if (freshEffects.blocked) {
@@ -555,7 +593,9 @@ export class SalesInvoiceService {
       const totals = this.totalsOf(promoted);
       const postedGuard = await this.evaluatePriceGuard(promoted);
       if (postedGuard?.outcome === PricingGuardLineOutcome.Blocked) throw new PricingGuardBlockedError(postedGuard.lines);
-      if (postedGuard?.outcome === PricingGuardLineOutcome.NeedsApproval && !priceClearance) throw new PricingGuardChangedError();
+      if (postedGuard?.outcome === PricingGuardLineOutcome.NeedsApproval && !priceClearance) {
+        return { posted: false, handedBack: null, approvedTotal: null, priceFloorBreach: postedGuard.lines } as const;
+      }
 
       // A foreign-currency invoice needs the rate BEFORE anything is written:
       // resolved here, a missing rate refuses the confirm outright rather than
@@ -643,14 +683,6 @@ export class SalesInvoiceService {
       }
       return { posted: true, confirmed: next, creditWarning, pricingVariances, taxRecalculated } as const;
     });
-
-    if (!outcome.posted) {
-      this.emit("DOCUMENT_DRAFTED", outcome.handedBack);
-      throw new ApprovedSalesInvoiceReratedError(id, displayAmount(outcome.approvedTotal), displayAmount(this.totalsOf(outcome.handedBack).grandTotal));
-    }
-    const { confirmed, creditWarning, pricingVariances, taxRecalculated } = outcome;
-    this.emit("DOCUMENT_CONFIRMED", confirmed);
-    return { invoice: confirmed, held: false, creditWarning, pricingVariances, taxRecalculated: taxRecalculated || reratedBeforeGate };
   }
 
   /**

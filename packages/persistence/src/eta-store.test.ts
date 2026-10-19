@@ -201,8 +201,10 @@ describe("POS device credentials", () => {
     expect(await store.config.getClientSecret()).toBe("cfg-secret");
     expect(await store.posCredentialsForSerial("POS-A")).toMatchObject({ clientSecret: "pos-secret", presharedKey: "psk" });
 
+    expect(await store.config.get()).toMatchObject({ hasClientSecret: true, clientSecretNeedsReentry: false });
     const otherKey = createSqliteEtaStore(sqlite, createAesGcmSecretBox(Buffer.alloc(32, 9)));
     expect(await otherKey.config.getClientSecret()).toBeNull();
+    expect(await otherKey.config.get()).toMatchObject({ hasClientSecret: false, clientSecretNeedsReentry: true });
     expect(await otherKey.posCredentialsForSerial("POS-A")).toBeNull();
     sqlite.close();
   });

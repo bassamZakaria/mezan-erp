@@ -47,6 +47,7 @@ import {
   EtaDeviceSerialNotRegisteredError,
   EtaExclusionReasonRequiredError,
   EtaOfflineError,
+  ETA_CLIENT_SECRET_NEEDS_REENTRY_AR,
   EtaReissueNotRejectedError,
   EtaReissueSameInternalIdError,
   EtaReissueWindowExpiredError,
@@ -125,7 +126,7 @@ export interface EtaTransmitPort {
 /** The honest answer to اختبار الاتصال: what was tried, and what came back. */
 export interface EtaConnectionCheck {
   readonly ok: boolean;
-  readonly reason: "connected" | "missing_credentials" | "rejected" | "unreachable";
+  readonly reason: "connected" | "missing_credentials" | "secret_needs_reentry" | "rejected" | "unreachable";
   readonly detail: string | null;
   readonly identityUrl: string;
   readonly checkedAt: string;
@@ -934,6 +935,9 @@ export class EtaService {
   async testConnection(): Promise<EtaConnectionCheck> {
     const config = await this.deps.config.get();
     const identityUrl = resolveEtaEndpoints(config).identityUrl;
+    if (config.clientSecretNeedsReentry) {
+      return { ok: false, reason: "secret_needs_reentry", detail: ETA_CLIENT_SECRET_NEEDS_REENTRY_AR, identityUrl, checkedAt: this.now() };
+    }
     if (!config.clientId || !config.hasClientSecret) {
       return {
         ok: false,

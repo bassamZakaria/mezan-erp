@@ -22,7 +22,7 @@
  * document queued, exactly as the offline queue always did.
  */
 import { ConnectionTurnLostError } from "../audit/audit-event.js";
-import { EtaOfflineError } from "./errors.js";
+import { EtaClientSecretNeedsReentryError, EtaOfflineError } from "./errors.js";
 import { resolveEtaEndpoints, type EtaConfig } from "./config.js";
 import { ETA_RECEIPT_BATCH_MAX, serializeEtaReceiptSubmission } from "./receipt.js";
 import type { EtaSubmission, EtaTransmitLogEntry } from "./submission.js";
@@ -224,6 +224,7 @@ export function createEtaHttpTransmitPort(deps: EtaHttpTransmitDeps): EtaTransmi
   }
 
   async function token(config: EtaConfig, log: EtaTransmitLogEntry[]): Promise<string> {
+    if (config.clientSecretNeedsReentry) throw new EtaClientSecretNeedsReentryError();
     const credentials = await deps.credentials.read();
     if (!credentials || !credentials.clientId || !credentials.clientSecret) throw new EtaOfflineError();
     const { identityUrl } = resolveEtaEndpoints(config);
@@ -484,6 +485,9 @@ export function createEtaHttpTransmitPort(deps: EtaHttpTransmitDeps): EtaTransmi
         return { ok: true, reason: "connected", detail: null, identityUrl, checkedAt: now() };
       } catch (err) {
         stopOnLostTurn(err);
+        if (err instanceof EtaClientSecretNeedsReentryError) {
+          return { ok: false, reason: "secret_needs_reentry", detail: err.message, identityUrl, checkedAt: now() };
+        }
         if (err instanceof EtaOfflineError) {
           return {
             ok: false,

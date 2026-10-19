@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createAuditEvent } from "@mezan/domain";
 import { createSqliteAuditSink, openAuditChainFile, type SqliteAuditSinkHandle } from "@mezan/persistence";
 import {
+  acceptRestore,
+  AcceptRestoreRefusal,
   anchorHead,
   AnchorOutcome,
   AnchorVerdict,
@@ -135,6 +137,67 @@ describe("against a real audit chain", () => {
     expect(refused.reason).toMatch(/rollback/);
   });
 
+  async function acceptOnFile(reason: string, at = NOW) {
+    const reader = openAuditChainFile(file, { chainKey: CHAIN_KEY });
+    try {
+      const latest = await sink.latest(SCOPE);
+      return await acceptRestore({ scope: SCOPE, head: reader.head(), rowHashAt: (id) => reader.rowHashAt(id), signer, latest, sink, now: () => at, reason, acceptedBy: "owner-1", verifyChain: () => reader.verify() });
+    } finally {
+      reader.close();
+    }
+  }
+
+  it("an accepted restore records a signed rebase: the verifier reports the superseded history but passes, and anchoring resumes", async () => {
+    await appendRows(handle, 3, "a");
+    handle.db.pragma("wal_checkpoint(TRUNCATE)");
+    const backup = path.join(dir, "old.db");
+    copyFileSync(file, backup);
+    await appendRows(handle, 3, "b");
+    const before = await anchorFile(file);
+    handle.close();
+    copyFileSync(backup, file);
+
+    const accepted = await acceptOnFile("restored the 09:00 snapshot after the disk failed");
+    expect(accepted.accepted).toBe(true);
+    if (!accepted.accepted) return;
+    expect(accepted.anchor.anchor).toMatchObject({ seq: 3, rebase: { supersededSeq: 6, supersededHeadHash: before?.anchor.headHash, acceptedBy: "owner-1" } });
+    expect(verifyAnchorSignature(accepted.anchor, signer.publicKeyHex)).toBe(true);
+    expect(verifyAnchorSignature({ ...accepted.anchor, anchor: { ...accepted.anchor.anchor, rebase: { ...accepted.anchor.anchor.rebase!, reason: "something else" } } }, signer.publicKeyHex)).toBe(false);
+
+    const verified = await verifyFile(file);
+    expect(verified.ok).toBe(true);
+    const superseded = verified.findings.find((f) => f.verdict === AnchorVerdict.Superseded);
+    expect(superseded?.detail).toContain("seq 6");
+    expect(superseded?.detail).toContain("restored the 09:00 snapshot");
+
+    handle = createSqliteAuditSink(file, { chainKey: CHAIN_KEY });
+    await appendRows(handle, 2, "c");
+    expect((await anchorFile(file))?.anchor.seq).toBe(5);
+    expect((await verifyFile(file)).ok).toBe(true);
+  });
+
+  it("refuses to accept anything that is not a restore, or without a reason", async () => {
+    await appendRows(handle, 3, "a");
+    expect(await acceptOnFile("restored the 09:00 snapshot")).toMatchObject({ accepted: false, refusal: AcceptRestoreRefusal.NothingAnchored });
+    await anchorFile(file);
+    await appendRows(handle, 1, "b");
+    expect(await acceptOnFile("restored the 09:00 snapshot")).toMatchObject({ accepted: false, refusal: AcceptRestoreRefusal.NothingToAccept });
+    expect(await acceptOnFile("short")).toMatchObject({ accepted: false, refusal: AcceptRestoreRefusal.ReasonTooShort });
+    expect(await sink.list(SCOPE, 10)).toHaveLength(1);
+  });
+
+  it("refuses to accept a restore over a live chain that does not verify", async () => {
+    await appendRows(handle, 4, "a");
+    await anchorFile(file);
+    handle.db.exec("DROP TRIGGER audit_event_no_update");
+    handle.db.prepare("UPDATE audit_event SET action = 'FORGED' WHERE id = 4").run();
+    handle.db.pragma("wal_checkpoint(TRUNCATE)");
+    handle.close();
+    const result = await acceptOnFile("restored the 09:00 snapshot after the disk failed");
+    expect(result.accepted).toBe(false);
+    expect(await sink.list(SCOPE, 10)).toHaveLength(1);
+  });
+
   it("reports a rewritten row as REWRITTEN and a broken live chain", async () => {
     await appendRows(handle, 4, "a");
     await anchorFile(file);
@@ -232,12 +295,14 @@ describe("S3 sink", () => {
       credentials: async () => ({ accessKeyId: "AKIDEXAMPLE", secretAccessKey: "secret" }),
       now: () => NOW,
       fetch: (async (url: string, init: RequestInit) => {
+        if (init.method === "GET") return new URL(url).searchParams.get("list-type") ? new Response("<ListBucketResult><IsTruncated>false</IsTruncated></ListBucketResult>") : new Response("", { status: 404 });
         calls.push({ method: String(init.method), url, headers: init.headers as Record<string, string>, body: init.body ? Buffer.from(init.body as Uint8Array).toString("utf8") : undefined });
         return new Response("", { status: 200 });
       }) as unknown as typeof fetch,
     });
     const signed = signer.sign({ scope: SCOPE, seq: 42, headHash: "h42", anchoredAt: NOW.toISOString() });
     await s3.append(signed);
+    calls.splice(0, calls.length, ...calls.filter((call) => call.method === "PUT"));
     expect(calls).toHaveLength(2);
     expect(calls[1]?.url).toBe("https://s3.test/backups/audit-anchors/T-1/latest.json");
     expect(JSON.parse(calls[1]?.body ?? "")).toEqual({ seq: 42 });
@@ -255,7 +320,7 @@ describe("S3 sink", () => {
         region: "r",
       endpoint: "https://s3.test",
         credentials: async () => ({ accessKeyId: "k", secretAccessKey: "s" }),
-        fetch: (async () => new Response("", { status })) as unknown as typeof fetch,
+        fetch: (async (_url: string, init: RequestInit) => init.method === "PUT" ? new Response("", { status }) : new URL(_url).searchParams.get("list-type") ? new Response("<ListBucketResult><IsTruncated>false</IsTruncated></ListBucketResult>") : new Response("", { status: 404 })) as unknown as typeof fetch,
       });
     const signed = signer.sign({ scope: SCOPE, seq: 1, headHash: "h", anchoredAt: NOW.toISOString() });
     await expect(answer(412).append(signed)).resolves.toBeUndefined();
@@ -346,6 +411,27 @@ describe("the newest anchor without reading the whole history", () => {
 
   it("S3: no anchors at all is null", async () => {
     expect(await fakeS3(new Map(), []).latest(SCOPE)).toBeNull();
+  });
+
+  it("S3: an accepted restore opens an epoch, so the rebase and the anchors after it never collide with the superseded sequence numbers", async () => {
+    const stored = new Map<string, string>();
+    const s3 = fakeS3(stored, []);
+    for (const seq of [2, 4, 6]) await s3.append(signedAt(seq));
+    const rebaseAt = "2026-10-18T08:00:00.000Z";
+    await s3.append(signer.sign({ scope: SCOPE, seq: 3, headHash: "restored-3", anchoredAt: rebaseAt, rebase: { supersededSeq: 6, supersededHeadHash: "h6", reason: "restored the 09:00 snapshot", acceptedBy: "owner-1" } }));
+    expect((await s3.latest(SCOPE))?.anchor.seq).toBe(3);
+    await s3.append(signer.sign({ scope: SCOPE, seq: 4, headHash: "restored-4", anchoredAt: NOW.toISOString() }));
+
+    const epoch = `r${String(Date.parse(rebaseAt)).padStart(13, "0")}`;
+    expect(stored.has(`audit-anchors/T-1/${epoch}/000000000003.json`)).toBe(true);
+    expect(JSON.parse(stored.get(`audit-anchors/T-1/${epoch}/000000000004.json`) ?? "{}").anchor.headHash).toBe("restored-4");
+    expect(JSON.parse(stored.get("audit-anchors/T-1/000000000004.json") ?? "{}").anchor.headHash).toBe("h4");
+
+    const fresh = fakeS3(stored, []);
+    expect((await fresh.latest(SCOPE))?.anchor.headHash).toBe("restored-4");
+    stored.delete("audit-anchors/T-1/latest.json");
+    expect((await fakeS3(stored, []).latest(SCOPE))?.anchor.headHash).toBe("restored-4");
+    expect((await fresh.list(SCOPE, 10)).map((a) => a.anchor.headHash)).toEqual(["h2", "h4", "h6", "restored-3", "restored-4"]);
   });
 
   it("file: reads the tail of a long file, skipping a torn last line", async () => {

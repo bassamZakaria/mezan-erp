@@ -1,4 +1,5 @@
 import { Money, roundMoney } from "../money/index.js";
+import { arabicDayQuantity } from "../text/counted-noun.js";
 import {
   BASIS_POINTS_PER_UNIT,
   tableAmount,
@@ -325,7 +326,7 @@ export function overtimePay(input: OvertimePayInput, worked: Pick<PeriodOvertime
           : divRoundHalfUp(input.monthlyWage.scaled * BigInt(days) * BigInt(multipleBp), BigInt(Math.round(input.dayDivisor)) * BP);
       lines.push({
         kind,
-        labelAr: `${OVERTIME_LABELS[kind]} (${formatQuantity(days)} يوم × ${formatQuantity(multipleBp / BASIS_POINTS_PER_UNIT)} أجر يوم)`,
+        labelAr: `${OVERTIME_LABELS[kind]} (${arabicDayQuantity(days, formatQuantity)} × ${formatQuantity(multipleBp / BASIS_POINTS_PER_UNIT)} أجر يوم)`,
         quantity: days,
         tableCode: table.code,
         amount: roundMoney(Money.fromScaled(amount), STATUTORY_DECIMALS, "HALF_UP"),

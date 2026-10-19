@@ -253,7 +253,7 @@ export async function run(ctx: Ctx): Promise<void> {
     const run = (await ctx.req("GET", "/hr/payroll/runs/PR-DEMO-2")).body;
     const mostafa = run.payslips.find((p: any) => p.employeeId === "EMP-DEMO-6");
     const unpaidLine = mostafa.lines.find((l: any) => l.source === "unpaid_leave");
-    ctx.check("PR-17 مصطفى رزق — July payslip carries an unpaid-leave deduction line (LR-DEMO-8, 2 days)", !!unpaidLine && unpaidLine.nameAr.includes("2"), unpaidLine?.nameAr);
+    ctx.check("PR-17 مصطفى رزق — July payslip carries an unpaid-leave deduction line (LR-DEMO-8, 2 days)", !!unpaidLine && unpaidLine.nameAr.includes("(يومان)"), unpaidLine?.nameAr);
     if (unpaidLine) {
       // The tenant's day divisor prices the day: FIXED_30 by default, so a
       // July day is the monthly wage ÷ 30, not ÷ 31.

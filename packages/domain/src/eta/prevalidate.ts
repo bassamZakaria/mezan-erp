@@ -93,6 +93,8 @@ export interface EtaPrevalidationLineInput {
    */
   readonly etaTaxSubType: string | null;
   readonly taxClassificationMissing: boolean;
+  /** The line stores no tax percent and names no rate: its tax is unknown, never assumed 0%. */
+  readonly taxRateUnknown?: boolean;
   readonly netTotal: string;
   readonly taxAmount: string;
 }
@@ -227,7 +229,20 @@ export function prevalidateEtaInvoice(
         ),
       );
     }
-    if (line.taxClassificationMissing) {
+    if (line.taxRateUnknown) {
+      out.push(
+        finding(
+          EtaPrevalidationRuleCode.TaxSubtypeNotMapped,
+          EtaPrevalidationSeverity.Blocking,
+          `سطر «${line.itemLabel}» لا يحمل نسبة ضريبة ولا ضريبة مسماة، فلا يُرسل للمصلحة بنسبة 0% افتراضاً.`,
+          `Line "${line.itemLabel}" carries no tax percent and names no tax rate, so it is not filed at 0% by assumption.`,
+          "سمِّ ضريبة البند بإجراء «تصنيف ضريبة البند» على المستند ثم أعد الإرسال.",
+          "Name the line's tax rate with \"Classify line tax\" on the document, then resubmit.",
+          EtaPrevalidationFixScreen.SourceDocument,
+          line.lineRef ?? null,
+        ),
+      );
+    } else if (line.taxClassificationMissing) {
       out.push(
         finding(
           EtaPrevalidationRuleCode.TaxSubtypeNotMapped,

@@ -13,6 +13,8 @@ export interface AuditAnchorService {
   readonly sink: AuditAnchorSink;
   readonly sinkKind: AnchorSinkKind;
   readonly intervalMs: number;
+  /** The folder of the local anchor files; null when anchors are kept off the server. */
+  readonly localDir: string | null;
 }
 
 export function createAuditAnchorService(config: AuditAnchorEnv | undefined, platformDir: string): AuditAnchorService | null {
@@ -24,8 +26,10 @@ export function createAuditAnchorService(config: AuditAnchorEnv | undefined, pla
       signer,
       intervalMs,
       sinkKind: AnchorSinkKind.S3,
+      localDir: null,
       sink: createS3AuditAnchorSink({ bucket: config.s3.bucket, region: config.s3.region, prefix: config.s3.prefix, endpoint: config.s3.endpoint }),
     };
   }
-  return { signer, intervalMs, sinkKind: AnchorSinkKind.LocalFile, sink: createFileAuditAnchorSink(config.dir ?? path.join(platformDir, "audit-anchors")) };
+  const localDir = config.dir ?? path.join(platformDir, "audit-anchors");
+  return { signer, intervalMs, sinkKind: AnchorSinkKind.LocalFile, localDir, sink: createFileAuditAnchorSink(localDir) };
 }

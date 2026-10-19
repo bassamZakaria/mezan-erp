@@ -53,6 +53,7 @@ export { togglePermission, toggleAll } from "./role-editor.js";
 
 export {
   SodConflictId,
+  SodSideMatch,
   SOD_CONFLICT_RULES,
   detectSodConflicts,
   getSodConflictRule,

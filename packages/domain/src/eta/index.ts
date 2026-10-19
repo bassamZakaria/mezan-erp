@@ -139,6 +139,9 @@ export {
   DuplicateEtaSubmissionError,
   InvalidEtaTransitionError,
   EtaOfflineError,
+  EtaClientSecretNeedsReentryError,
+  ETA_CLIENT_SECRET_NEEDS_REENTRY_AR,
+  ETA_CLIENT_SECRET_NEEDS_REENTRY_EN,
   EtaExclusionReasonRequiredError,
   EtaSignerNotConfiguredError,
   EtaSigningFailedError,
@@ -182,6 +185,7 @@ export {
 export {
   resolveEtaVatSubType,
   findLineTaxRate,
+  lineTaxPercent,
   resolveLineTaxRate,
   isZeroRatedLineUnclassified,
   ZERO_RATED_SUBTYPES,

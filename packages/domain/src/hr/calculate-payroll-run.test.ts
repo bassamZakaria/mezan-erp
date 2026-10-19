@@ -469,7 +469,7 @@ describe("calculatePayrollRun", () => {
     expect(calculated.unpaidLeaveSource).toBe("provider");
     const [payslip] = await h.payslips.listByRunId(run.id);
     const unpaidLine = payslip!.lines.find((l) => l.source === "unpaid_leave")!;
-    expect(unpaidLine.nameAr).toBe("إجازة بدون أجر (3 يوم)");
+    expect(unpaidLine.nameAr).toBe("إجازة بدون أجر (3 أيام)");
     // 3100.00 / 31 * 3 = 300.000000 exactly.
     expect(unpaidLine.amount.toString()).toBe("300.000000");
   });

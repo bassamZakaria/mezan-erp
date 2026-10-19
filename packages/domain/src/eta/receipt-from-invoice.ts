@@ -21,7 +21,7 @@ import type {
   EtaReceiptLineInput,
   EtaReceiptPaymentMethod,
 } from "./receipt.js";
-import { isZeroRatedLineUnclassified, resolveLineTaxRate, resolveEtaVatSubType, type LineTaxIdentity } from "./tax-subtype.js";
+import { isZeroRatedLineUnclassified, lineTaxPercent, resolveLineTaxRate, resolveEtaVatSubType, type LineTaxIdentity } from "./tax-subtype.js";
 import { isEtaUnitCode } from "./mappings.js";
 import { EtaReceiptNotReadyError, EtaRefundTooLateError } from "./errors.js";
 import { extend, unitCostOf } from "../inventory/wac-math.js";
@@ -269,7 +269,10 @@ export function buildRefundReceiptInput(args: RefundReceiptBuildArgs): EtaUnchai
   const lines = args.returnLines.map((ret) => {
     const sold = soldLineOf(invoice, ret);
     const lt = sold ? byLine.get(sold.lineId) : undefined;
-    const rate = ret.taxRatePercent ?? sold?.taxRatePercent ?? 0;
+    const known =
+      lineTaxPercent(lookups.taxRates, ret) ?? (sold ? lineTaxPercent(lookups.taxRates, { taxRateId: sold.taxRateId, taxRatePercent: sold.taxRatePercent }) : null);
+    if (known === null) missing.add(`نسبة ضريبة البند غير معروفة (${ret.itemId})`);
+    const rate = known ?? 0;
     let f: ExTaxLine;
     if (sold && lt && sold.baseQty.scaled !== 0n) {
       const whole = exTaxLine(invoice, lt, sold.taxRatePercent);

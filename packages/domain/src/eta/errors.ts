@@ -60,10 +60,27 @@ export class EtaSubmissionInFlightError extends Error {
 export class EtaOfflineError extends Error {
   readonly code = "ETA_OFFLINE";
   readonly messageEn: string;
-  constructor() {
-    super("إرسال الفاتورة الإلكترونية يتطلب اتصالاً بالإنترنت وهو معطّل تجريبيًا في هذا الإصدار؛ تم وضع المستند في قائمة الانتظار.");
-    this.messageEn = "ETA transmission is online-only and is stubbed in this build; the document was queued.";
+  constructor(
+    message = "إرسال الفاتورة الإلكترونية يتطلب اتصالاً بالإنترنت وهو معطّل تجريبيًا في هذا الإصدار؛ تم وضع المستند في قائمة الانتظار.",
+    messageEn = "ETA transmission is online-only and is stubbed in this build; the document was queued.",
+  ) {
+    super(message);
+    this.messageEn = messageEn;
     this.name = "EtaOfflineError";
+  }
+}
+
+export const ETA_CLIENT_SECRET_NEEDS_REENTRY_AR =
+  "سر الربط (Client Secret) المحفوظ لا يمكن فتحه على هذا النظام — حُفظ بمفتاح آخر. أعد إدخاله من «الفاتورة الإلكترونية» ← بيانات الربط. بقي المستند في قائمة الانتظار.";
+export const ETA_CLIENT_SECRET_NEEDS_REENTRY_EN =
+  "The stored Client Secret cannot be opened on this system — it was sealed under another key. Enter it again under E-invoicing → Credentials. The document stays queued.";
+
+/** The stored client secret cannot be opened here: no token is requested, the document stays queued, and the user is told why. */
+export class EtaClientSecretNeedsReentryError extends EtaOfflineError {
+  readonly reason = "CLIENT_SECRET_NEEDS_REENTRY";
+  constructor() {
+    super(ETA_CLIENT_SECRET_NEEDS_REENTRY_AR, ETA_CLIENT_SECRET_NEEDS_REENTRY_EN);
+    this.name = "EtaClientSecretNeedsReentryError";
   }
 }
 

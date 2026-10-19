@@ -56,6 +56,9 @@ export interface PlatformAuth {
   readonly app: Hono;
   readonly sourceOf: (c: Context) => string | null;
   readonly requirePlatform: (role?: PlatformRole, onRefused?: (c: Context, user: { id: string; role: PlatformRole }) => Promise<void>) => MiddlewareHandler;
+  // SECURITY: re-checks the signed-in operator's own password for an irreversible action, under the sign-in throttle.
+  // Null when it matches; otherwise the refusal to answer with.
+  readonly confirmPassword: (c: Context, password: string) => Promise<Response | null>;
 }
 
 function lockedOut(c: Context, seconds: number) {
@@ -200,29 +203,33 @@ export function createPlatformAuth(deps: PlatformAuthDeps): PlatformAuth {
     return c.json({ token, deviceSecret, user: { id: user.id, email: user.email, role: user.role } });
   });
 
-  app.post("/step-up", async (c) => {
-    const parsed = platformStepUpRequestSchema.safeParse(await c.req.json().catch(() => null));
-    if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+  async function confirmPassword(c: Context, password: string): Promise<Response | null> {
     const caller = await signedIn(c);
     const user = caller ? await platform.stores.platformUsers.findById(caller.userId) : null;
     if (!caller || !user) return c.json({ error: "UNAUTHENTICATED" }, 401);
     const key = throttleKey(user.email, sourceOf(c));
     const waitSeconds = throttle.retryAfter(key);
     if (waitSeconds > 0) return lockedOut(c, waitSeconds);
-    const verified = await verifyPlatformLogin({ email: user.email, password: parsed.data.password }, platform.stores.platformUsers, platform.hasher);
+    const verified = await verifyPlatformLogin({ email: user.email, password }, platform.stores.platformUsers, platform.hasher);
     if (!verified || verified.id !== caller.userId) {
       const lockedFor = throttle.fail(key);
-      await security(c, PlatformSecurityAction.StepUpFailed, "WARNING", { userId: caller.userId });
+      await security(c, PlatformSecurityAction.StepUpFailed, "WARNING", { userId: caller.userId, path: new URL(c.req.url).pathname });
       if (lockedFor > 0) {
         sessions.revoke(caller.token);
         return lockedOut(c, lockedFor);
       }
-      return c.json({ error: CurrentSecretRefusal.IncorrectPassword, message: "كلمة المرور غير صحيحة" }, 403);
+      return c.json({ error: CurrentSecretRefusal.IncorrectPassword, message: "كلمة المرور غير صحيحة", messageEn: "The password is not correct" }, 403);
     }
     throttle.succeed(key);
     sessions.confirmStepUp(caller.token);
-    await security(c, PlatformSecurityAction.StepUpConfirmed, "INFO", { userId: caller.userId });
-    return c.json({ ok: true });
+    await security(c, PlatformSecurityAction.StepUpConfirmed, "INFO", { userId: caller.userId, path: new URL(c.req.url).pathname });
+    return null;
+  }
+
+  app.post("/step-up", async (c) => {
+    const parsed = platformStepUpRequestSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    return (await confirmPassword(c, parsed.data.password)) ?? c.json({ ok: true });
   });
 
   app.post("/logout", async (c) => {
@@ -241,5 +248,5 @@ export function createPlatformAuth(deps: PlatformAuthDeps): PlatformAuth {
     return c.json({ id: user.id, email: user.email, role: user.role });
   });
 
-  return { app, requirePlatform, sourceOf };
+  return { app, requirePlatform, sourceOf, confirmPassword };
 }

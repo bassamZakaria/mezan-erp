@@ -26,6 +26,25 @@ On the demo host that directory sits under `/tmp` and is lost on restart; on
 the Contabo VPS an hourly restic job copies it, encrypted, to Object Storage
 (`deploy/contabo/backup/`).
 
+A tenant's data is deleted `MEZAN_TENANT_RETENTION_DAYS` days (default 90,
+a positive whole number) after the tenant is ARCHIVED — never while it is
+active or suspended, and a cancelled subscription alone starts no clock. The
+date is fixed when the tenant is archived (a tenant archived before this
+existed is scheduled the first time the daily job sees it, never backdated),
+shown on the console, and can be moved later or brought forward to "now" by the
+platform owner (typed reason + password, audited CRITICAL). The daily
+`platform_tenant_purge` job logs `tenant_purge.planned` with every file it is
+about to remove, overwrites then unlinks the database and its `-wal`/`-shm`,
+the tenant's local backups (and its own files in the legacy by-code folder),
+its export offers and, with a local anchor store, its anchor file; then, in
+one platform transaction, removes the tenant row, its signup requests and
+module trials, writes a `tenant_tombstone` row (id, code, deleted_at) and a
+CRITICAL `TENANT_DATA_PURGED` audit row. Subscriptions, payments, card
+checkouts and the platform audit trail are the platform's own records and
+stay. Off-server restic snapshots and S3 anchors are not touched: the
+snapshots age out under restic's retention. Overwriting is best effort on an
+SSD and the server disk is not encrypted.
+
 Tenant export downloads (the encrypted file the console offers, valid ten
 minutes) are held by the instance that built them, in memory. The download
 must reach that same instance (sticky routing, or one instance), until the
@@ -58,7 +77,7 @@ start-up, and on a production platform that seeds no demo it logs
 - `MEZAN_AUDIT_ANCHOR_SIGNING_KEY`: the 32-byte Ed25519 seed as 64 lowercase hex characters. A secret; never commit it.
 - `MEZAN_AUDIT_ANCHOR_PUBLIC_KEY`: the matching public key, for verifying elsewhere (derived from the signing key when that is present).
 - `MEZAN_AUDIT_ANCHOR_TRUSTED_PUBLIC_KEYS`: comma-separated Ed25519 public keys (64 hex each) of retired signing keys. Anchors signed by them still verify, and a new signing key extends a chain whose newest anchor a retired key signed. To rotate: put the old key's public key here, then change `MEZAN_AUDIT_ANCHOR_SIGNING_KEY`. Only the current key signs; remove a retired key from the list only when its anchors no longer matter.
-- `MEZAN_AUDIT_ANCHOR_S3_BUCKET`, `MEZAN_AUDIT_ANCHOR_S3_REGION`, `MEZAN_AUDIT_ANCHOR_S3_PREFIX` (default `audit-anchors`), `MEZAN_AUDIT_ANCHOR_S3_ENDPOINT` (required with the bucket: the S3-compatible store's URL, for example Contabo Object Storage): one object per anchor at `<prefix>/<scope>/<12-digit seq>.json`, written with `If-None-Match: *`. Credentials come from `MEZAN_AUDIT_ANCHOR_S3_ACCESS_KEY_ID` and `MEZAN_AUDIT_ANCHOR_S3_SECRET_ACCESS_KEY`. For real immutability the bucket needs S3 Object Lock; the code works with or without it.
+- `MEZAN_AUDIT_ANCHOR_S3_BUCKET`, `MEZAN_AUDIT_ANCHOR_S3_REGION`, `MEZAN_AUDIT_ANCHOR_S3_PREFIX` (default `audit-anchors`), `MEZAN_AUDIT_ANCHOR_S3_ENDPOINT` (required with the bucket: the S3-compatible store's URL, for example Contabo Object Storage): one object per anchor at `<prefix>/<scope>/<12-digit seq>.json`, written with `If-None-Match: *`. An accepted restore opens an epoch: the rebase and every anchor after it live under `<prefix>/<scope>/r<13-digit ms>/<12-digit seq>.json`, so a restored chain never collides with the sequence numbers it superseded, and keys still sort in the order they were written. Credentials come from `MEZAN_AUDIT_ANCHOR_S3_ACCESS_KEY_ID` and `MEZAN_AUDIT_ANCHOR_S3_SECRET_ACCESS_KEY`. For real immutability the bucket needs S3 Object Lock; the code works with or without it.
 - `MEZAN_AUDIT_ANCHOR_DIR`: without a bucket, anchors are appended to `<dir>/<scope>.jsonl` (default `<platform dir>/audit-anchors`). That is for dev and test: a file on the same host is not external.
 
 Each sweep reads only the newest anchor per scope: the S3 sink keeps a
@@ -82,6 +101,22 @@ anchors, and 1 when it could not run. A scope whose newest anchor no longer
 matches its database is never re-anchored; the sweep logs
 `audit_anchor.refused_possible_tampering` at error level every interval until
 someone looks.
+
+After a LEGITIMATE restore of an older snapshot, the platform owner accepts it:
+on the console (tenant page, «ختم سجل التدقيق خارج الخادم» → «اعتماد الاستعادة»,
+with a typed reason and their password; audited CRITICAL), or with the CLI on the
+restored database with the server stopped (needs `MEZAN_AUDIT_ANCHOR_SIGNING_KEY`;
+the only way for the `platform` scope):
+
+```sh
+pnpm exec tsx apps/server/src/audit-anchor-cli.ts accept-restore --db <restored db> --scope <tenant id | platform> --reason "<why>" --actor <who>
+```
+
+It signs a rebase anchor naming the head it supersedes and the reason, and is
+refused unless the sweep is refusing that chain as a rollback or rewrite AND the
+live chain verifies on its own — a forged anchor trail or a broken chain stays
+refused. The sweep then resumes, and `verify` passes while reporting
+`SUPERSEDED_BY_RESTORE` with the old head, who accepted it and why.
 
 ## Behind a proxy: which address a request is counted against
 

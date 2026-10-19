@@ -132,7 +132,9 @@ describe("the permission catalogue against the routes that check it", () => {
     //     `accounting.reports.view_unattributed` (D111).
     //   - the period lock's override, an inline `can()` beside the route's own
     //     gate: `accounting.period.override_close`; and the till's discount
-    //     ceiling, the same shape: `pos.discount.approve`.
+    //     ceiling, the same shape: `pos.discount.approve`; and the price-floor
+    //     approval, checked inline in the decide route once the request it
+    //     decides is known: `sales.pricing_guard.approve` (D351).
     //
     // The count is pinned so the gap cannot quietly grow: adding a code without
     // anything to check it, or deleting the only consumer of one, moves this
@@ -151,6 +153,7 @@ describe("the permission catalogue against the routes that check it", () => {
       "purchases.supplier360.view",
       "sales.discount.approve",
       "sales.invoice.view_cost",
+      "sales.pricing_guard.approve",
       "workflow.approve",
       "workflow.reject",
     ]);

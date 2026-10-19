@@ -43,3 +43,7 @@ overrides:
   # buffer, but a transitive advisory nobody can see the reasoning for is a
   # standing question at every release. Pinned rather than argued about.
   uuid@<11.1.1: ^11.1.1
+  # GHSA (high) — js-yaml 4.0.0–4.3.1. Reached through electron-updater, which
+  # parses the update feed's latest.yml, and through the Expo CLI. electron-updater
+  # 6.8.9 is the newest and still asks for ^4.1.0, so the fixed 4.x is pinned here.
+  js-yaml@>=4.0.0 <4.3.2: ^4.3.2

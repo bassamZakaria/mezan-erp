@@ -10,7 +10,7 @@ describe("resolveTenantCode", () => {
   });
   it("prefers x-forwarded-host over host when trusted", () => {
     expect(
-      resolveTenantCode(req({ host: "d1.cloudfront.net", "x-forwarded-host": "nile.mezan.app" }), {
+      resolveTenantCode(req({ host: "d1.proxy.example", "x-forwarded-host": "nile.mezan.app" }), {
         tenantDomain: "mezan.app",
         trustForwardedHost: true,
       }),

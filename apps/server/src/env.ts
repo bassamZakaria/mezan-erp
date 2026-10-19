@@ -30,7 +30,7 @@ export interface AuditAnchorEnv {
   readonly publicKey?: string;
   readonly trustedPublicKeys?: readonly string[];
   readonly dir?: string;
-  readonly s3?: { readonly bucket: string; readonly region: string; readonly prefix?: string; readonly endpoint?: string };
+  readonly s3?: { readonly bucket: string; readonly region: string; readonly prefix?: string; readonly endpoint: string };
 }
 
 export interface CloudEnv {
@@ -233,13 +233,6 @@ function parseClientSource(env: Record<string, string | undefined>): ClientSourc
       "MEZAN_TRUST_PROXY=1 needs MEZAN_TRUSTED_PROXY_HOPS set to the number of proxies that append to x-forwarded-for (1 or more): a guessed count reads another machine's address as the caller's",
     );
   }
-  const originSecret = trimmedOrUndefined(env["MEZAN_ORIGIN_SECRET"]) !== undefined;
-  const viewer = flag(env["MEZAN_TRUST_VIEWER_ADDRESS"]);
-  if (viewer && (!trustProxy || !originSecret)) {
-    throw new Error(
-      "MEZAN_TRUST_VIEWER_ADDRESS needs MEZAN_TRUST_PROXY=1 and MEZAN_ORIGIN_SECRET: CloudFront-Viewer-Address is only CloudFront's word when nothing reaches the origin except through it",
-    );
-  }
   const header = trimmedOrUndefined(env[TRUSTED_ADDRESS_HEADER_VAR])?.toLowerCase();
   if (header !== undefined) {
     if (!trustProxy) {
@@ -253,8 +246,6 @@ function parseClientSource(env: Record<string, string | undefined>): ClientSourc
   }
   return {
     trustedProxyHops: hops,
-    trustViewerAddress: viewer,
-    compareViewerAddress: trustProxy && originSecret,
     ...(header === undefined ? {} : { trustedAddressHeader: header }),
   };
 }
@@ -306,15 +297,18 @@ function parseTrustedPublicKeys(raw: string | undefined): string[] {
 
 export function parseAuditAnchor(env: Record<string, string | undefined>): AuditAnchorEnv {
   const bucket = trimmedOrUndefined(env["MEZAN_AUDIT_ANCHOR_S3_BUCKET"]);
-  const region = trimmedOrUndefined(env["MEZAN_AUDIT_ANCHOR_S3_REGION"]) ?? trimmedOrUndefined(env["AWS_REGION"]);
+  const region = trimmedOrUndefined(env["MEZAN_AUDIT_ANCHOR_S3_REGION"]);
   if (bucket !== undefined && region === undefined) {
-    throw new Error("MEZAN_AUDIT_ANCHOR_S3_REGION (or AWS_REGION) is required once MEZAN_AUDIT_ANCHOR_S3_BUCKET is set");
+    throw new Error("MEZAN_AUDIT_ANCHOR_S3_REGION is required once MEZAN_AUDIT_ANCHOR_S3_BUCKET is set");
+  }
+  const endpoint = trimmedOrUndefined(env["MEZAN_AUDIT_ANCHOR_S3_ENDPOINT"]);
+  if (bucket !== undefined && endpoint === undefined) {
+    throw new Error("MEZAN_AUDIT_ANCHOR_S3_ENDPOINT is required once MEZAN_AUDIT_ANCHOR_S3_BUCKET is set (the S3-compatible object-storage URL)");
   }
   const signingKey = trimmedOrUndefined(env["MEZAN_AUDIT_ANCHOR_SIGNING_KEY"]);
   const publicKey = trimmedOrUndefined(env["MEZAN_AUDIT_ANCHOR_PUBLIC_KEY"]);
   const dir = trimmedOrUndefined(env["MEZAN_AUDIT_ANCHOR_DIR"]);
   const prefix = trimmedOrUndefined(env["MEZAN_AUDIT_ANCHOR_S3_PREFIX"]);
-  const endpoint = trimmedOrUndefined(env["MEZAN_AUDIT_ANCHOR_S3_ENDPOINT"]);
   const trustedPublicKeys = parseTrustedPublicKeys(env["MEZAN_AUDIT_ANCHOR_TRUSTED_PUBLIC_KEYS"]);
   return {
     intervalMinutes: parseNonNegativeInt(env["MEZAN_AUDIT_ANCHOR_INTERVAL_MINUTES"], "MEZAN_AUDIT_ANCHOR_INTERVAL_MINUTES", 15),
@@ -322,7 +316,7 @@ export function parseAuditAnchor(env: Record<string, string | undefined>): Audit
     ...(publicKey ? { publicKey } : {}),
     ...(trustedPublicKeys.length > 0 ? { trustedPublicKeys } : {}),
     ...(dir ? { dir } : {}),
-    ...(bucket && region ? { s3: { bucket, region, ...(prefix ? { prefix } : {}), ...(endpoint ? { endpoint } : {}) } } : {}),
+    ...(bucket && region && endpoint ? { s3: { bucket, region, endpoint, ...(prefix ? { prefix } : {}) } } : {}),
   };
 }
 

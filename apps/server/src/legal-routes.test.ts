@@ -133,7 +133,7 @@ describe("legal pages", () => {
     const send = vi.fn(async () => ({ outcome: "sent" as const, detail: "250" }));
     const app = createLegalRoutes({
       platform, supportEmail: "support@mezan.test", platformSmtp: SMTP, now: () => new Date(T), send,
-      clientSource: { trustedProxyHops: 2, trustViewerAddress: false, compareViewerAddress: false },
+      clientSource: { trustedProxyHops: 2 },
     });
     const from = (chain: string, i: number) => {
       const request = form({ companyCode: "acme", email: `u${i}@acme.test` });

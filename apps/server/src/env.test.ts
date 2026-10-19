@@ -17,16 +17,17 @@ describe("the Render blueprint", () => {
     const variables = renderBlueprintVariables();
 
     expect(variables).toMatchObject({ MEZAN_TRUST_PROXY: "1", MEZAN_TRUSTED_PROXY_HOPS: "1" });
-    expect(parseEnv(variables).clientSource).toEqual({ trustedProxyHops: 1, trustViewerAddress: false, compareViewerAddress: false });
+    expect(parseEnv(variables).clientSource).toEqual({ trustedProxyHops: 1 });
   });
 });
 
 describe("parseEnv audit anchoring", () => {
-  it("reads the S3 sink, falling back to AWS_REGION, and refuses a bucket without a region", () => {
+  it("reads the S3-compatible sink and refuses a bucket without a region or an endpoint", () => {
     expect(
-      parseEnv({ MEZAN_AUDIT_ANCHOR_S3_BUCKET: "backups", AWS_REGION: "eu-south-1", MEZAN_AUDIT_ANCHOR_INTERVAL_MINUTES: "5", MEZAN_AUDIT_ANCHOR_SIGNING_KEY: "ab" }).auditAnchor,
-    ).toEqual({ intervalMinutes: 5, signingKey: "ab", s3: { bucket: "backups", region: "eu-south-1" } });
-    expect(() => parseEnv({ MEZAN_AUDIT_ANCHOR_S3_BUCKET: "backups" })).toThrow(/MEZAN_AUDIT_ANCHOR_S3_REGION/);
+      parseEnv({ MEZAN_AUDIT_ANCHOR_S3_BUCKET: "backups", MEZAN_AUDIT_ANCHOR_S3_REGION: "default", MEZAN_AUDIT_ANCHOR_S3_ENDPOINT: "https://eu2.contabostorage.com", MEZAN_AUDIT_ANCHOR_INTERVAL_MINUTES: "5", MEZAN_AUDIT_ANCHOR_SIGNING_KEY: "ab" }).auditAnchor,
+    ).toEqual({ intervalMinutes: 5, signingKey: "ab", s3: { bucket: "backups", region: "default", endpoint: "https://eu2.contabostorage.com" } });
+    expect(() => parseEnv({ MEZAN_AUDIT_ANCHOR_S3_BUCKET: "backups", MEZAN_AUDIT_ANCHOR_S3_ENDPOINT: "https://x.test" })).toThrow(/MEZAN_AUDIT_ANCHOR_S3_REGION/);
+    expect(() => parseEnv({ MEZAN_AUDIT_ANCHOR_S3_BUCKET: "backups", MEZAN_AUDIT_ANCHOR_S3_REGION: "default" })).toThrow(/MEZAN_AUDIT_ANCHOR_S3_ENDPOINT/);
   });
 
   it("reads the retired public keys that still verify old anchors, and refuses one that is not 64 hex characters", () => {
@@ -47,7 +48,7 @@ describe("parseEnv", () => {
       auditAnchor: { intervalMinutes: 15 },
       tenantDomain: undefined,
       trustProxy: false,
-      clientSource: { trustedProxyHops: 0, trustViewerAddress: false, compareViewerAddress: false },
+      clientSource: { trustedProxyHops: 0 },
       originSecret: undefined,
       sqliteExclusive: false,
       platformOwnerEmail: undefined,
@@ -92,17 +93,15 @@ describe("parseEnv", () => {
   it("refuses to trust a proxy without being told how many hops it appends, and trusts none without one", () => {
     expect(() => parseEnv({ MEZAN_TRUST_PROXY: "1" })).toThrow(/MEZAN_TRUSTED_PROXY_HOPS/);
     expect(() => parseEnv({ MEZAN_TRUST_PROXY: "1", MEZAN_TRUSTED_PROXY_HOPS: "0" })).toThrow(/MEZAN_TRUSTED_PROXY_HOPS/);
-    expect(parseEnv({ MEZAN_TRUST_PROXY: "1", MEZAN_TRUSTED_PROXY_HOPS: "1" }).clientSource).toEqual({ trustedProxyHops: 1, trustViewerAddress: false, compareViewerAddress: false });
-    expect(parseEnv({ MEZAN_TRUST_PROXY: "1", MEZAN_TRUSTED_PROXY_HOPS: "2", MEZAN_ORIGIN_SECRET: "s3cr3t" }).clientSource).toEqual({ trustedProxyHops: 2, trustViewerAddress: false, compareViewerAddress: true });
+    expect(parseEnv({ MEZAN_TRUST_PROXY: "1", MEZAN_TRUSTED_PROXY_HOPS: "1" }).clientSource).toEqual({ trustedProxyHops: 1 });
+    expect(parseEnv({ MEZAN_TRUST_PROXY: "1", MEZAN_TRUSTED_PROXY_HOPS: "2", MEZAN_ORIGIN_SECRET: "s3cr3t" }).clientSource).toEqual({ trustedProxyHops: 2 });
     expect(parseEnv({ MEZAN_TRUST_PROXY: "1", MEZAN_TRUSTED_PROXY_HOPS: "2" }).clientSource.trustedProxyHops).toBe(2);
     expect(parseEnv({}).clientSource.trustedProxyHops).toBe(0);
   });
 
-  it("refuses to count forwarded hops or read the viewer address without the proxy that makes them true", () => {
+  it("refuses to count forwarded hops without the proxy that makes them true", () => {
     expect(() => parseEnv({ MEZAN_TRUSTED_PROXY_HOPS: "2" })).toThrow(/MEZAN_TRUST_PROXY/);
     expect(() => parseEnv({ MEZAN_TRUST_PROXY: "1", MEZAN_TRUSTED_PROXY_HOPS: "-1" })).toThrow(/MEZAN_TRUSTED_PROXY_HOPS/);
-    expect(() => parseEnv({ MEZAN_TRUST_PROXY: "1", MEZAN_TRUSTED_PROXY_HOPS: "2", MEZAN_TRUST_VIEWER_ADDRESS: "1" })).toThrow(/MEZAN_ORIGIN_SECRET/);
-    expect(() => parseEnv({ MEZAN_ORIGIN_SECRET: "s3cr3t", MEZAN_TRUST_VIEWER_ADDRESS: "1" })).toThrow(/MEZAN_TRUST_PROXY/);
   });
 
   it("refuses a support mailbox that is not an address", () => {
@@ -115,7 +114,6 @@ describe("parseEnv", () => {
       MEZAN_TENANT_DOMAIN: "mezan.test",
       MEZAN_TRUST_PROXY: "1",
       MEZAN_TRUSTED_PROXY_HOPS: "2",
-      MEZAN_TRUST_VIEWER_ADDRESS: "1",
       MEZAN_ORIGIN_SECRET: "s3cr3t",
       MEZAN_SQLITE_EXCLUSIVE: "1",
       MEZAN_PLATFORM_OWNER_EMAIL: "owner@mezan.local",
@@ -145,7 +143,7 @@ describe("parseEnv", () => {
       auditAnchor: { intervalMinutes: 15 },
       tenantDomain: "mezan.test",
       trustProxy: true,
-      clientSource: { trustedProxyHops: 2, trustViewerAddress: true, compareViewerAddress: true },
+      clientSource: { trustedProxyHops: 2 },
       originSecret: "s3cr3t",
       sqliteExclusive: true,
       platformOwnerEmail: "owner@mezan.local",
@@ -240,7 +238,7 @@ describe("MEZAN_PAYMOB_NOT_FOUND_CONFIRMED", () => {
 describe("MEZAN_TRUSTED_CLIENT_ADDRESS_HEADER", () => {
   it("names the one header the caller's address is read from, lower-cased, and only with a trusted proxy", () => {
     expect(parseEnv({ MEZAN_TRUST_PROXY: "1", MEZAN_TRUSTED_PROXY_HOPS: "1", MEZAN_TRUSTED_CLIENT_ADDRESS_HEADER: " CF-Connecting-IP " }).clientSource)
-      .toEqual({ trustedProxyHops: 1, trustViewerAddress: false, compareViewerAddress: false, trustedAddressHeader: "cf-connecting-ip" });
+      .toEqual({ trustedProxyHops: 1, trustedAddressHeader: "cf-connecting-ip" });
     expect(parseEnv({ MEZAN_TRUST_PROXY: "1", MEZAN_TRUSTED_PROXY_HOPS: "1" }).clientSource).not.toHaveProperty("trustedAddressHeader");
     expect(() => parseEnv({ MEZAN_TRUSTED_CLIENT_ADDRESS_HEADER: "cf-connecting-ip" })).toThrow(/MEZAN_TRUST_PROXY=1/);
   });

@@ -53,7 +53,7 @@ and `systemctl restart docker`. **Why:** ufw does not filter Docker-published po
 ## 2. DNS, mail, monitors
 
 - **DNS:** `A` (and `AAAA` once the Docker IPv6 step above is done) for the apex, for example `mezan.example.com`, pointing at the VPS. No wildcard in code mode. Do **not** turn on Cloudflare's proxy (orange cloud): the app trusts exactly one proxy hop (Caddy); another hop in front makes every caller look like a Cloudflare address unless `MEZAN_TRUSTED_PROXY_HOPS`, `MEZAN_TRUSTED_CLIENT_ADDRESS_HEADER` and the firewall all change.
-- **Mail:** a transactional SMTP provider (Postmark, Mailgun, Amazon SES, Brevo …) with SPF and DKIM on the sending domain. Mail sent straight from a fresh VPS address goes to spam, and the server's alerts depend on mail. Set `MEZAN_SMTP_*`, `MEZAN_PUBLIC_URL` and `MEZAN_ALERT_EMAIL=bassam.s.zakaria@gmail.com`.
+- **Mail:** a transactional SMTP provider (Postmark, Mailgun, Brevo …) with SPF and DKIM on the sending domain. Mail sent straight from a fresh VPS address goes to spam, and the server's alerts depend on mail. Set `MEZAN_SMTP_*`, `MEZAN_PUBLIC_URL` and `MEZAN_ALERT_EMAIL=bassam.s.zakaria@gmail.com`.
 - **Uptime:** UptimeRobot HTTP(s) monitor on `https://<domain>/readyz`, 5 minutes, keyword `"ready"` (docs/OPERATIONS.md).
 - **Backup heartbeat:** a healthchecks.io check (period 1 hour, grace 2 hours) or an UptimeRobot heartbeat monitor; its URL is `BACKUP_HEARTBEAT_URL`. A missed ping is the alert that backups stopped.
 
@@ -173,15 +173,3 @@ One subdomain per tenant (`<code>.mezan.example.com`) needs a wildcard certifica
 ## Owner-only platform console (optional)
 
 Copy `caddy.d/platform-allowlist.caddyfile.example` to `caddy.d/platform-allowlist.caddyfile`, put your addresses in it and reload Caddy. `/platform*` and `/api/platform*` then answer 404 to everyone else.
-
-## What differs from AWS (docs/DEPLOY-AWS.md)
-
-| | AWS | Contabo |
-| --- | --- | --- |
-| Edge | CloudFront → API Gateway (2 hops) | Caddy (1 hop), `MEZAN_TRUSTED_PROXY_HOPS=1` |
-| Web bundle | S3 + CloudFront | served by the app container |
-| Disk | EFS, encrypted | local NVMe, not encrypted unless LUKS |
-| Backups off-box | sidecar to S3 (SSE) | restic to Object Storage (client-side encrypted) |
-| Image | arm64, ECR | amd64, GHCR |
-| Deploy | Fargate rolling | `deploy.sh`, stop-copy-start, ~1 min down |
-| Logs | CloudWatch | `docker logs` on the box |

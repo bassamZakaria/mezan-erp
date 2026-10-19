@@ -3,7 +3,7 @@
 Pasted into App Store Connect → App Review Information, and Play Console →
 App content → App access. Google requires them in English; Apple accepts
 English. `{…}` values come from the deployed reviewer environment
-(`docs/DEPLOY-REVIEW.md`) and are filled in at submission time — the PIN is a
+and are filled in at submission time — the PIN is a
 secret and is never committed.
 
 ## Sign-in details

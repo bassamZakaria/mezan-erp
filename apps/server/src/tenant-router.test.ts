@@ -96,7 +96,6 @@ async function newRouter(
     tenantDomain?: string;
     trustForwardedHost?: boolean;
     trustedProxyHops?: number;
-    trustViewerAddress?: boolean;
     signInSources?: SourceThrottle;
     allowTenantHeader?: boolean;
     idleMs?: number;
@@ -112,7 +111,7 @@ async function newRouter(
     dataDir,
     tenantDomain: opts.tenantDomain,
     trustForwardedHost: opts.trustForwardedHost,
-    clientSource: { trustedProxyHops: opts.trustedProxyHops ?? 0, trustViewerAddress: opts.trustViewerAddress === true, compareViewerAddress: false },
+    clientSource: { trustedProxyHops: opts.trustedProxyHops ?? 0 },
     allowTenantHeader: opts.allowTenantHeader,
     signInSources: opts.signInSources,
     idleMs: opts.idleMs,
@@ -638,7 +637,6 @@ describe("createTenantRouter", () => {
   describe("tenant sign-in from one address", () => {
     interface From {
       readonly forwardedFor?: string;
-      readonly viewer?: string;
       readonly pin?: string;
       readonly token?: string;
     }
@@ -650,14 +648,13 @@ describe("createTenantRouter", () => {
             "content-type": "application/json",
             [TENANT_HEADER]: code,
             ...(from.forwardedFor === undefined ? {} : { "x-forwarded-for": from.forwardedFor }),
-            ...(from.viewer === undefined ? {} : { "cloudfront-viewer-address": from.viewer }),
             ...(from.token === undefined ? {} : { authorization: `Bearer ${from.token}` }),
           },
           body: body === undefined ? undefined : JSON.stringify(body),
         }),
       );
-    const signIn = (router: TenantRouter, code: string, username: string, forwardedFor: string, pin = "000000", viewer?: string) =>
-      send(router, code, "POST", "/auth/login", { forwardedFor, viewer }, { username, pin });
+    const signIn = (router: TenantRouter, code: string, username: string, forwardedFor: string, pin = "000000") =>
+      send(router, code, "POST", "/auth/login", { forwardedFor }, { username, pin });
     const EDGE = "130.176.0.7";
 
     it("holds an address after thirty failures in one tenant, and leaves it free in every other", async () => {
@@ -785,19 +782,6 @@ describe("createTenantRouter", () => {
       expect(fromTheOffice.status).toBe(200);
       expect(stolen.status).toBe(401);
       expect(afterwards.status).toBe(401);
-    }, 120_000);
-
-    it("reads the address CloudFront set when told to trust it, whatever the forwarded chain says", async () => {
-      const platform = await seedPlatform();
-      const { router } = await newRouter(platform, { trustForwardedHost: true, trustedProxyHops: 2, trustViewerAddress: true });
-      await bootstrapAdmin(router, "cyag");
-      for (let i = 0; i < 31; i += 1) await signIn(router, "cyag", `ghost${i}@example.com`, `10.9.0.${i}, ${EDGE}`, "000000", "41.33.10.10:50000");
-
-      const held = await signIn(router, "cyag", "owner-cyag@example.com", `8.8.8.8, ${EDGE}`, "123456", "41.33.10.10:50123");
-      const office = await signIn(router, "cyag", "owner-cyag@example.com", `8.8.8.8, ${EDGE}`, "123456", "196.221.5.5:50123");
-
-      expect(held.status).toBe(429);
-      expect(office.status).toBe(200);
     }, 120_000);
 
     it("signs the owner in within a second while a thousand sign-ins arrive from another address", async () => {

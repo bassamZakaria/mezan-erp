@@ -1148,7 +1148,7 @@ describe("the address a signup is counted against", () => {
     const router = reachableRouter({ platform, dataDir, sweepEveryMs: 0, now: () => new Date(T) });
     routers.push(router);
     const env = { ...parseEnv({ MEZAN_TRUST_PROXY: "1", MEZAN_TRUSTED_PROXY_HOPS: "2" }), platformDir: dataDir };
-    return createSignupRoutes({ platform, router, env, now: () => new Date(T), sourceReporter: { unresolved: () => undefined, viewerMismatch: () => undefined } });
+    return createSignupRoutes({ platform, router, env, now: () => new Date(T), sourceReporter: { unresolved: () => undefined } });
   }
 
   const startFrom = (app: Hono, chain: string | null) =>

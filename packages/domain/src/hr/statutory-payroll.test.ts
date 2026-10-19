@@ -3,6 +3,7 @@ import { Money } from "../money/index.js";
 import {
   EGYPT_END_OF_SERVICE_TABLES,
   EGYPT_INCOME_TAX_TABLES,
+  EGYPT_OVERTIME_TABLES,
   EGYPT_PAYROLL_LEVY_TABLES,
   EGYPT_SOCIAL_INSURANCE_TABLES,
   resolveEgyptStatutoryRules,
@@ -16,6 +17,7 @@ import {
   endOfServiceGratuity,
   insurableWage,
   monthlyIncomeTax,
+  overtimePay,
   payrollLevies,
   socialInsuranceFor,
 } from "./statutory-payroll.js";
@@ -247,5 +249,21 @@ describe("provenance", () => {
       expect(row.source.length).toBeGreaterThan(0);
       expect(typeof row.verified).toBe("boolean");
     }
+  });
+});
+
+describe("overtime pay labels", () => {
+  const table = EGYPT_OVERTIME_TABLES[1]!;
+  const input = { monthlyWage: Money.fromMajor("3000.00"), dayDivisor: 30, standardDailyHours: 8 };
+
+  it("counts whole rest days with the agreeing Arabic noun, never «3 يوم»", () => {
+    const [line] = overtimePay(input, { byTable: [{ table, day: 0, night: 0, restDays: 3, holidays: 0 }] });
+    expect(line!.labelAr).toContain("(3 أيام × ");
+    expect(line!.labelAr).not.toContain("3 يوم");
+  });
+
+  it("names two holidays with the dual", () => {
+    const [line] = overtimePay(input, { byTable: [{ table, day: 0, night: 0, restDays: 0, holidays: 2 }] });
+    expect(line!.labelAr).toContain("(يومان × ");
   });
 });

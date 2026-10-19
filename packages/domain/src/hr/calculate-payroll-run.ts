@@ -1,4 +1,4 @@
-import { ArabicCase, arabicDays } from "../text/counted-noun.js";
+import { ArabicCase, arabicDayQuantity, arabicDays } from "../text/counted-noun.js";
 import { PayBasis } from "./contract.js";
 import { ContractStatus } from "./contract.js";
 import { Money, allocate, roundMoney } from "../money/index.js";
@@ -330,7 +330,7 @@ function attendancePay(input: EmployeePayrollInput, worked: PeriodWorkedTime): A
     });
     if (paidHalfDays > 0) {
       lines.push({
-        nameAr: `إجازات وعطلات رسمية مدفوعة (${formatQuantity(paidDays)} يوم × ${formatQuantity(worked.standardDailyHours)} ساعة × ${label})`,
+        nameAr: `إجازات وعطلات رسمية مدفوعة (${arabicDayQuantity(paidDays, formatQuantity)} × ${formatQuantity(worked.standardDailyHours)} ساعة × ${label})`,
         amount: toPiastre(Money.fromScaled(divRoundHalfUp(rate * standardMinutes * BigInt(paidHalfDays), 120n))),
       });
     }
@@ -338,12 +338,12 @@ function attendancePay(input: EmployeePayrollInput, worked: PeriodWorkedTime): A
   }
   const days = worked.workedHalfDays / 2;
   lines.push({
-    nameAr: `الأجر اليومي (${formatQuantity(days)} يوم × ${label})`,
+    nameAr: `الأجر اليومي (${arabicDayQuantity(days, formatQuantity)} × ${label})`,
     amount: toPiastre(Money.fromScaled(divRoundHalfUp(rate * BigInt(worked.workedHalfDays), 2n))),
   });
   if (paidHalfDays > 0) {
     lines.push({
-      nameAr: `إجازات وعطلات رسمية مدفوعة (${formatQuantity(paidDays)} يوم × ${label})`,
+      nameAr: `إجازات وعطلات رسمية مدفوعة (${arabicDayQuantity(paidDays, formatQuantity)} × ${label})`,
       amount: toPiastre(Money.fromScaled(divRoundHalfUp(rate * BigInt(paidHalfDays), 2n))),
     });
   }
@@ -467,7 +467,7 @@ export async function calculatePayrollRun(runId: string, deps: PayrollCalculatio
         lines.push({ id: idGen(), kind: "earning", source: "contract_basic", nameAr: line.nameAr, amount: line.amount, glAccountId: null, referenceId: null, capped: false });
       }
       if (contract.payBasis === PayBasis.Hourly && worked.unclockedDays.length > 0) {
-        warnings.push(`${who}: ${worked.unclockedDays.length} يوم حضور بلا وقت حضور وانصراف (${worked.unclockedDays.join("، ")}) — لا ساعات تُدفع عنها.`);
+        warnings.push(`${who}: ${arabicDays(worked.unclockedDays.length)} حضور بلا وقت حضور وانصراف (${worked.unclockedDays.join("، ")}) — لا ساعات تُدفع عنها.`);
       }
       if (worked.unapprovedOffDays.length > 0) {
         warnings.push(`${who}: عمل في يوم راحة أو عطلة رسمية دون اعتماد (${worked.unapprovedOffDays.join("، ")}) — لم يُدفع عنه.`);
@@ -518,7 +518,7 @@ export async function calculatePayrollRun(runId: string, deps: PayrollCalculatio
         warnings.push(`${who}: غير مستحق للأجر الإضافي — لم تُصرف ${worked.ineligibleHours} ساعة إضافية معتمدة.`);
       }
       if (worked.holidaysTakenAsDayOff > 0) {
-        warnings.push(`${who}: ${worked.holidaysTakenAsDayOff} يوم عمل في عطلة رسمية عُوِّض بيوم بديل بطلب كتابي من العامل بدلاً من مثلي الأجر.`);
+        warnings.push(`${who}: ${arabicDays(worked.holidaysTakenAsDayOff)} عمل في عطلة رسمية عُوِّض بيوم بديل بطلب كتابي من العامل بدلاً من مثلي الأجر.`);
       }
       for (const date of worked.substituteDayRefusedOn) {
         warnings.push(`${who}: طلب يوم بديل عن العمل في عطلة ${date} لا يجيزه القانون الساري في ذلك اليوم — صُرف مثلا الأجر.`);
@@ -563,7 +563,7 @@ export async function calculatePayrollRun(runId: string, deps: PayrollCalculatio
           id: idGen(),
           kind: "deduction",
           source: "unpaid_leave",
-          nameAr: `إجازة بدون أجر (${unpaidDays} يوم)`,
+          nameAr: `إجازة بدون أجر (${arabicDays(unpaidDays)})`,
           amount: unpaidLeaveDeduction,
           glAccountId: null,
           referenceId: null,

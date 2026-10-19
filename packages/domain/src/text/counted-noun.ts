@@ -80,3 +80,8 @@ export function countPhrase(
 export function arabicDays(count: number, grammaticalCase: ArabicCase = ArabicCase.Nominative): string {
   return countPhrase(CountLocale.Ar, count, CountedNoun.Day, { grammaticalCase });
 }
+
+export function arabicDayQuantity(count: number, formatNumber: (n: number) => string = String): string {
+  if (Number.isInteger(count)) return countPhrase(CountLocale.Ar, count, CountedNoun.Day, { formatNumber });
+  return `${formatNumber(count)} ${ARABIC_FORMS[CountedNoun.Day].singular}`;
+}

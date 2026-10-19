@@ -59,9 +59,7 @@ if (env.reviewTenant && !env.supportEmail) {
  *
  * The demo tenant's personas all sign in with the published `123456`, so on
  * the public internet this basic auth is the only thing in front of a writable
- * ERP. `render.yaml` declares MEZAN_DEMO_PASSWORD as `sync: false`, so the
- * blueprint asks for a value before it deploys; this is the second half. Tied to
- * `MEZAN_SEED_DEMO`, not unconditional: a platform that seeds no demo serves
+ * ERP. Tied to `MEZAN_SEED_DEMO`, not unconditional: a platform that seeds no demo serves
  * real tenants with their own logins and must not sit behind a `demo:` prompt.
  *
  * `/healthz` is registered ABOVE this middleware inside `createCloudApp` on

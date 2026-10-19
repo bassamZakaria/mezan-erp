@@ -186,7 +186,6 @@ export const PRIVACY: Record<LegalLanguage, LegalDocument> = {
           "مزوّد البريد الإلكتروني للمعاملات [[TODO: اسم المزوّد ودولته]]: إرسال رسائل التسجيل وروابط فتح الحساب والتنبيهات. يتلقى عنوان المستلم ونص الرسالة.",
           "خدمة مراقبة التشغيل [[TODO: UptimeRobot أو غيرها — الاسم والدولة]]: تتحقق من أن الخادم يعمل، ونرسل إليها إشارة بعد كل نسخة احتياطية ناجحة. لا تتلقى بيانات شخصية.",
           "Cloudflare Web Analytics: [[TODO: احذف هذا البند إن لم يُضبط MEZAN_ANALYTICS_TOKEN على الخادم]] إن كان مفعّلاً، تُحمِّل صفحة تطبيق الويب أداة قياس زيارات من Cloudflare تعدّ الزيارات ونوع المتصفح دون ملفات تعريف ارتباط (cookies). لا تُحمَّل في نسخة سطح المكتب.",
-          "Render (فرانكفورت، ألمانيا): يستضيف نسخة العرض التجريبي العامة فقط، وهي ببيانات تجريبية تُمحى عند كل إعادة تشغيل، ولا تُحفظ فيها بيانات العملاء.",
         ],
       },
       {
@@ -353,7 +352,6 @@ export const PRIVACY: Record<LegalLanguage, LegalDocument> = {
           "Transactional email provider [[TODO: provider name and country]]: sends sign-up messages, account unlock links and alerts. It receives the recipient's address and the message.",
           "Uptime monitor [[TODO: UptimeRobot or another — name and country]]: checks that the server is up, and receives a signal after each successful backup. It receives no personal data.",
           "Cloudflare Web Analytics: [[TODO: delete this item if MEZAN_ANALYTICS_TOKEN is not set on the server]] when it is turned on, the web app's page loads a Cloudflare visit counter that counts visits and browser types without cookies. It is never loaded in the desktop edition.",
-          "Render (Frankfurt, Germany): hosts only the public demo, which runs on sample data wiped at every restart. No customer data is kept there.",
         ],
       },
       {

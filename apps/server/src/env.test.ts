@@ -1,25 +1,5 @@
-import { readFileSync } from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { parseEnv, PaymobMode } from "./env.js";
-
-function renderBlueprintVariables(): Record<string, string> {
-  const file = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "render.yaml");
-  const variables: Record<string, string> = {};
-  const pair = /- key: (\S+)\n\s+value: "?([^"\n]+)"?/g;
-  for (const [, key, value] of readFileSync(file, "utf8").matchAll(pair)) variables[key!] = value!;
-  return variables;
-}
-
-describe("the Render blueprint", () => {
-  it("sets a proxy configuration the server starts with, counting the entry the last proxy wrote", () => {
-    const variables = renderBlueprintVariables();
-
-    expect(variables).toMatchObject({ MEZAN_TRUST_PROXY: "1", MEZAN_TRUSTED_PROXY_HOPS: "1" });
-    expect(parseEnv(variables).clientSource).toEqual({ trustedProxyHops: 1 });
-  });
-});
 
 describe("parseEnv audit anchoring", () => {
   it("reads the S3-compatible sink and refuses a bucket without a region or an endpoint", () => {

@@ -1089,12 +1089,15 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
       const tenant = await requireTenant(c.req.param("id"));
       if (!tenantRetention) return purgeUnavailable(c);
       if (tenant.status !== TenantStatusCode.Archived) return notTerminated(c);
-      const refused = await auth.confirmPassword(c, parsed.data.password);
-      if (refused) return refused;
       const before = tenantRetention.view(tenant).retention;
       const deleteAfter = `${parsed.data.deleteAfter}T00:00:00.000Z`;
+      const later = before !== null && deleteAfter > before.deleteAfter;
+      if (later) {
+        const refused = await auth.confirmPassword(c, parsed.data.password);
+        if (refused) return refused;
+      }
       const at = nowIso();
-      const moved = before !== null && deleteAfter > before.deleteAfter && await recordedWith(c, async () => {
+      const moved = later && await recordedWith(c, async () => {
         const extended = tenantRetention.extend({ tenant, deleteAfter, reason: parsed.data.reason, actorId: c.get("platformUser")!.id, at });
         return {
           value: extended,

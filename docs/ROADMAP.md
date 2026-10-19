@@ -527,7 +527,7 @@ Its first run found D328–D343; the defects still open are D335–D343, with tw
 
 | # | Blocker | Why a reviewer rejects it | Owner |
 |---|---|---|---|
-| S1 | **A reviewer cannot reach a server.** The app's compiled default, `https://demo.mezan.app`, answers **530** — there is nothing behind it. The real demo, `https://mezan-demo.onrender.com`, sits behind HTTP basic auth (which the app does not send), keeps its data in `/tmp/platform` (wiped on every restart), and runs on a free tier that sleeps and cold-starts. A reviewer opens the app, signs in, and gets nothing | Apple 2.1 (App Completeness) and Google Play's App Access requirement: the reviewer must be able to use every feature with the credentials supplied | **needs a decision + deploy**: a persistent, always-on reviewer environment with its own tenant and credentials, no basic auth in front of the API, and the app's default host pointing at it |
+| S1 | **A reviewer cannot reach a server.** The app's compiled default, `https://demo.mezan.app`, answers **530** — there is nothing behind it. There is no hosted demo; the Contabo VPS is the only planned host. A reviewer opens the app, signs in, and gets nothing | Apple 2.1 (App Completeness) and Google Play's App Access requirement: the reviewer must be able to use every feature with the credentials supplied | **needs a decision + deploy**: a persistent, always-on reviewer environment with its own tenant and credentials, no basic auth in front of the API, and the app's default host pointing at it |
 | S2 | **No privacy policy exists anywhere** — not in the repo, not on a public URL | Both stores require a privacy-policy URL in the listing and reachable from the app; Google also requires the Data safety form to match it | build (a public page served without sign-in) + **owner/legal review of the text** |
 | S3 | **Placeholder UI** — the tab bar is five identical `⏷` glyphs (D335), and a denied camera leaves a dead button (D336) | Apple 2.1 / 4.0: incomplete or placeholder interface | in progress (lane M2) |
 | S4 | **No store accounts.** Nothing can be submitted without them | — | **owner**: Apple Developer Program (organisation enrolment needs a D-U-N-S number), Google Play Console. A *personal* Play account created since late 2023 must run a closed test with at least 12 testers for 14 days before production access; an **organisation** account is exempt — enrol as the company |
@@ -545,7 +545,7 @@ Its first run found D328–D343; the defects still open are D335–D343, with tw
 | No purchasing inside the app, and no link to buy — the subscription is sold outside it (Paymob, web). Apple 3.1.1/3.1.3: a B2B service paid elsewhere may be used in-app provided the app neither sells nor points to a purchase | Apple | **to verify** — grep the app for any pricing, upgrade or checkout link |
 | Sign in with Apple is required only when an app offers third-party social login; Mezan signs in with its own email + PIN | Apple | not required — say so in review notes if asked |
 | iPad: `supportsTablet: true` means the reviewer may test on an iPad and every screen must hold up there, with iPad screenshots in the listing | Apple | **decide**: test and screenshot on iPad, or set `supportsTablet: false` for v1 |
-| IPv6-only networks: Apple reviews on one | Apple | **to verify** — the server must be reachable over IPv6 (Render is; the Contabo VPS is once Docker IPv6 is set up; a raw IPv4 literal anywhere would fail) |
+| IPv6-only networks: Apple reviews on one | Apple | **to verify** — the server must be reachable over IPv6 (the Contabo VPS is once Docker IPv6 is set up; a raw IPv4 literal anywhere would fail) |
 | Android permissions: request only what is used — camera yes, `RECORD_AUDIO` no (already off), no storage or location unless a screen uses them; audit the merged manifest `expo prebuild` generates | Google | **to audit** |
 | Target API level at or above Google Play's current minimum | Google | **to verify** against Expo SDK 56's default before building |
 | Store listing in **Arabic and English**: name, subtitle/short description, full description, keywords, category (Business), support URL, marketing URL, age rating questionnaire | both | **to write** |
@@ -599,7 +599,7 @@ below was taken against the current published rule, quoted in the lane's report.
 | **S1** reviewer environment | **not prepared — no host chosen** | The AWS reviewer stack was dropped (production is Contabo only). In this repo, `MEZAN_REVIEW_TENANT_CODE`/`MEZAN_REVIEW_PIN` seed the demo once and move every account onto the private PIN (measured locally: the reviewer PIN 200, `123456` 401); a reviewer host still has to be chosen and deployed |
 | **S2** privacy policy | **built, draft — needs legal sign-off** | `/legal/privacy` and `/legal/account-deletion`, served by `apps/server` before any auth and outside `/api`, Arabic by default and English with `?lang=en`, headed «مسودة — تحتاج مراجعة قانونية». Written from what the code actually collects |
 | Account deletion | **built — needs a commitment** | The page lists only channels that reach someone (the company admin; a support mailbox if configured; a form only when SMTP is configured, recorded in the platform security audit). Apple 5.1.1(v) applies only to apps that support account creation, which this one does not; **Corrected 2026-09-23:** the policy text is scoped to an account created *from within* the app, and does **not** reach an app that merely directs users elsewhere — the earlier claim here was wrong. The readiness check still fails the build on any `/signup` link in the app, now as an Apple 3.1.3(f) precaution rather than a Google requirement. **There is no erasure tool — only deactivation (D348)** |
-| IPv6 | **needs the host** | `mezan-demo.onrender.com` publishes **no** AAAA record at all, so it cannot be the reviewer host; the Contabo VPS serves IPv6 once the Docker IPv6 step in `deploy/contabo/README.md` is done |
+| IPv6 | **needs the host** | the Contabo VPS serves IPv6 once the Docker IPv6 step in `deploy/contabo/README.md` is done |
 | Target API level | **met** | Google: new apps and updates from 31 August 2026 must target API 36; Expo SDK 56 defaults to 36. Enforced by the readiness check |
 | No purchase path | **met, enforced** | Apple 3.1.3(f) — a companion app needs no in-app purchase provided there is no purchasing, or call to action to purchase, inside it. The check scans string literals, not identifiers (it first flagged an `AppState` subscription as a sale — fixed) |
 | Metadata, Arabic + English | **written** | `docs/mobile/store/`: both stores' listings in both languages, the privacy answers (each quoting the policy sentence it rests on), the age rating and the review notes. Nothing claims e-invoicing, POS or pricing |
@@ -813,10 +813,9 @@ Cloud-3's remaining task (the demo tenant and price seed) lands.
 Slice C (deploy, seed and proof) is landing alongside it: `apps/server/src/cloud-app.ts`
 composes the platform database, the platform API, the tenant router, provisioning, dunning and
 in-app backups from `MEZAN_*` env vars — the contract is in
-`superpowers/plans/2026-09-14-saas-slice-c-deploy.md`. Local (`pnpm env:testing`/`:staging`),
-Render and the Contabo container image now all run this one entrypoint, each seeding its own
-platform owner and demo tenant (code `demo`) from `MEZAN_SEED_DEMO` — see `ENVIRONMENTS.md` and
-`DEPLOY-DEMO.md`. The eight scenarios `PLT-SAAS-01..08` are written down in `TESTING.md` §11;
+`superpowers/plans/2026-09-14-saas-slice-c-deploy.md`. Local (`pnpm env:testing`/`:staging`)
+and the Contabo container image now all run this one entrypoint, each seeding its own
+platform owner and demo tenant (code `demo`) from `MEZAN_SEED_DEMO` — see `ENVIRONMENTS.md`. The eight scenarios `PLT-SAAS-01..08` are written down in `TESTING.md` §11;
 they still need a live-browser pass before this slice is called proven.
 
 ---
@@ -848,7 +847,7 @@ Done so far: wave 0 (#90, #91, #93, #95), 1A seams + POS master data (#96), 1B h
 1C Paymob card checkout (#97).
 
 **Needs the owner** (the build proceeds against test doubles meanwhile): Paymob merchant keys; the Contabo VPS
-set-up (`deploy/contabo/README.md`); Render dashboard variables; SMTP credentials; an SMS/WhatsApp provider if wanted; a chartered
+set-up (`deploy/contabo/README.md`); SMTP credentials; an SMS/WhatsApp provider if wanted; a chartered
 accountant's sign-off (DEC-12).
 
 ---
@@ -2568,7 +2567,7 @@ seeded tenant is ~375 MB on a 512 MB free instance; recorded as the target for t
 
 **Ops step that only the dashboard can do** (Render keeps removed variables): delete
 `MEZAN_SEED_ADMIN_PIN`, set `MEZAN_DEMO_PASSWORD`, set the platform-owner credentials, deploy, and check
-`/` answers 401 without credentials and `/healthz` answers 200. `docs/DEPLOY-DEMO.md` has the steps.
+`/` answers 401 without credentials and `/healthz` answers 200. (The Render demo, `render.yaml` and `docs/DEPLOY-DEMO.md` were removed 2026-10-19; Contabo is the only host.)
 
 **Also fixed by this:** `pnpm env:testing` / `env:staging` could not start on `main` — `scripts/env.mjs`
 set the refused variable and not the now-required password. And the demo seeder's own second lock

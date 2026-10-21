@@ -196,7 +196,8 @@ export async function stepIfMounted(app: App, method: string, path: string, body
  */
 export function assertLocalOrTest(): void {
   const env = process.env.NODE_ENV;
-  const optedIn = process.env.MEZAN_SEED_DEMO === "1";
+  // A reviewer tenant (MEZAN_REVIEW_TENANT_CODE + MEZAN_REVIEW_PIN) is the same explicit opt-in; it re-PINs every seeded user.
+  const optedIn = process.env.MEZAN_SEED_DEMO === "1" || (!!process.env.MEZAN_REVIEW_TENANT_CODE && !!process.env.MEZAN_REVIEW_PIN);
   if (env === "production" && !optedIn) {
     throw new Error(
       "[demo-seed] refusing to seed: NODE_ENV=production with MEZAN_SEED_DEMO unset. This profile is for local development, tests and the hosted demo tenant only.",

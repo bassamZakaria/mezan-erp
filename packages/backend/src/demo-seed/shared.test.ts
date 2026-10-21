@@ -18,6 +18,22 @@ describe("assertLocalOrTest", () => {
     expect(() => assertLocalOrTest()).not.toThrow();
   });
 
+  it("lets a configured reviewer tenant seed in production", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("MEZAN_SEED_DEMO", undefined);
+    vi.stubEnv("MEZAN_REVIEW_TENANT_CODE", "cyag");
+    vi.stubEnv("MEZAN_REVIEW_PIN", "482913");
+    expect(() => assertLocalOrTest()).not.toThrow();
+  });
+
+  it("still refuses production when only half of the reviewer config is set", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("MEZAN_SEED_DEMO", undefined);
+    vi.stubEnv("MEZAN_REVIEW_TENANT_CODE", "cyag");
+    vi.stubEnv("MEZAN_REVIEW_PIN", undefined);
+    expect(() => assertLocalOrTest()).toThrow(/refusing to seed: NODE_ENV=production/);
+  });
+
   it("refuses a non-test, non-production process that did not opt in", () => {
     vi.stubEnv("NODE_ENV", "staging");
     vi.stubEnv("VITEST", "false");

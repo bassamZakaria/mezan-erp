@@ -76,10 +76,13 @@ async function moveEveryUserToPin(backend: BackendHandle, pin: string): Promise<
  * writes in place.
  */
 export async function provisionReviewTenant(deps: ProvisionDemoTenantDeps, config: ReviewTenantConfig): Promise<boolean> {
-  return provisionSeededTenant(deps, {
+  const created = await provisionSeededTenant(deps, {
     code: config.code,
     nameAr: REVIEW_NAME_AR,
     adminPin: config.pin,
     afterSeed: (backend) => moveEveryUserToPin(backend, config.pin),
   });
+  // SECURITY: a start that died between seeding and the re-PIN left the published PIN live, and the tenant now exists, so repeat it on every start.
+  if (!created) await moveEveryUserToPin(await deps.router.backendFor(config.code), config.pin);
+  return created;
 }

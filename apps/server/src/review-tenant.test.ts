@@ -9,6 +9,11 @@ import { provisionReviewTenant } from "./review-tenant.js";
 
 const REVIEW = { code: "review", pin: "482913" };
 
+function pick(user: Record<string, unknown>): Record<string, unknown> {
+  const keys = ["nameAr", "nameEn", "email", "phone", "roleId", "isCompanyAdmin", "employeeId", "branchScope", "warehouseScope", "status", "photoUrl"];
+  return Object.fromEntries(keys.map((k) => [k, user[k]]));
+}
+
 async function login(router: TenantRouter, username: string, pin: string): Promise<Response> {
   return router.app.fetch(
     new Request("http://ignored/auth/login", {
@@ -64,8 +69,22 @@ describe("provisionReviewTenant", () => {
     expect(summary.status).toBe(200);
   });
 
-  it("does nothing on a second start, so the reviewer's own writes survive a restart", async () => {
+  it("does not re-seed on a second start, and moves a user left on the published PIN back to the reviewer PIN", async () => {
+    const session = (await (await login(router, SEED_ADMIN_EMAIL, REVIEW.pin)).json()) as { token: string };
+    const headers = { "content-type": "application/json", authorization: `Bearer ${session.token}`, [TENANT_HEADER]: REVIEW.code, "x-branch-scope": "*", "x-warehouse-scope": "*" };
+    const users = (await (await router.app.fetch(new Request("http://ignored/users", { headers }))).json()) as Array<Record<string, unknown>>;
+    const karim = users.find((u) => u["email"] === "karim.fouad@cyag.example");
+    expect(karim).toBeDefined();
+    const { id, ...rest } = karim!;
+    const reset = await router.app.fetch(
+      new Request(`http://ignored/users/${encodeURIComponent(String(id))}`, { method: "PUT", headers, body: JSON.stringify({ ...pick(rest), pin: SEED_ADMIN_PIN }) }),
+    );
+    expect(reset.status).toBe(200);
+    expect((await login(router, "karim.fouad@cyag.example", SEED_ADMIN_PIN)).status).toBe(200);
+
     const created = await provisionReviewTenant({ platform, router, env: { platformDir: dataDir, sqliteExclusive: false } }, REVIEW);
     expect(created).toBe(false);
+    expect((await login(router, "karim.fouad@cyag.example", SEED_ADMIN_PIN)).status).toBe(401);
+    expect((await login(router, "karim.fouad@cyag.example", REVIEW.pin)).status).toBe(200);
   });
 });

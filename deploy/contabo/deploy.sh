@@ -21,7 +21,7 @@ log() { printf '[deploy %s] %s\n' "$(date -u +%H:%M:%S)" "$*"; }
 die() { log "REFUSED: $*"; exit 1; }
 compose() { docker compose --project-directory "$COMPOSE_DIR" -f "$COMPOSE_DIR/docker-compose.yml" "$@"; }
 
-tag_value() { sed -n "s/^$1=//p" "$TAG_FILE" 2>/dev/null | tail -n 1; }
+tag_value() { [ -f "$TAG_FILE" ] || return 0; sed -n "s/^$1=//p" "$TAG_FILE" | tail -n 1; }
 
 write_tags() {
   local current="$1" previous="$2"

@@ -54,4 +54,4 @@ jobs:
           cache-to: type=gha,mode=max,scope=release-amd64
 
       - name: Tag to deploy
-        run: echo "::notice::On the VPS run: sudo /opt/mezan/deploy.sh ${{ github.sha }}"
+        run: 'echo "::notice::On the VPS run: sudo /opt/mezan/deploy.sh ${{ github.sha }}"'

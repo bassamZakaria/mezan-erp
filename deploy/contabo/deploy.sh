@@ -44,6 +44,15 @@ preflight() {
   [ "$(stat -c '%u' "$DATA_DIR")" = "1000" ] || die "$DATA_DIR must be owned by uid 1000 (the image's node user)"
 }
 
+prune_images() {
+  # Keeps the running tag and the rollback tag; every deploy would otherwise leave one more image on disk.
+  local image="${MEZAN_IMAGE:-ghcr.io/bassamzakaria/mezan-erp}" keep1="${1%%@*}" keep2="${2%%@*}" tag
+  docker image ls "$image" --format '{{.Tag}}' | while read -r tag; do
+    [ "$tag" = "$keep1" ] || [ "$tag" = "$keep2" ] || [ "$tag" = "<none>" ] || docker image rm "$image:$tag" >/dev/null || true
+  done
+  docker image prune -f >/dev/null
+}
+
 wait_ready() {
   local deadline=$((SECONDS + READY_TIMEOUT_SECONDS)) status
   while [ "$SECONDS" -lt "$deadline" ]; do
@@ -115,8 +124,16 @@ deploy() {
   old_tag="$(tag_value MEZAN_IMAGE_TAG)"
   [ "$new_tag" != "$old_tag" ] || die "$new_tag is already the running tag"
 
-  log "pulling $new_tag before any downtime"
-  MEZAN_IMAGE_TAG="$new_tag" compose pull mezan
+  if docker image inspect "${MEZAN_IMAGE:-ghcr.io/bassamzakaria/mezan-erp}:$new_tag" >/dev/null 2>&1; then
+    log "$new_tag is already on this host"
+  else
+    log "pulling $new_tag before any downtime"
+    MEZAN_IMAGE_TAG="$new_tag" compose pull mezan
+  fi
+  # An image pulled by digest has no local tag, so prune_images would delete it once it is the rollback image.
+  if [[ "$new_tag" == *@* ]]; then
+    docker tag "${MEZAN_IMAGE:-ghcr.io/bassamzakaria/mezan-erp}@${new_tag#*@}" "${MEZAN_IMAGE:-ghcr.io/bassamzakaria/mezan-erp}:${new_tag%%@*}"
+  fi
 
   stop_cleanly
   local label="${old_tag:-initial}"
@@ -129,6 +146,7 @@ deploy() {
   compose up -d --remove-orphans
   if wait_ready; then
     log "$new_tag is ready"
+    prune_images "$new_tag" "$old_tag" || log "image cleanup failed (deploy is fine)"
     return 0
   fi
 
@@ -175,7 +193,7 @@ main() {
   case "$1" in
     --rollback) rollback ;;
     -*) echo "usage: $0 <image tag> | --rollback" >&2; exit 64 ;;
-    *) [[ "$1" =~ ^[A-Za-z0-9_.-]{1,128}$ ]] || die "not an image tag: $1"; deploy "$1" ;;
+    *) [[ "$1" =~ ^[A-Za-z0-9_.-]{1,128}(@sha256:[0-9a-f]{64})?$ ]] || die "not an image tag: $1"; deploy "$1" ;;
   esac
 }
 

@@ -100,11 +100,9 @@ cp /opt/mezan/.env.example /srv/mezan/env && cp /opt/mezan/shared.env.example /s
 cp /opt/mezan/backup/restic.env.example /srv/mezan/restic.env
 chmod 600 /srv/mezan/env /srv/mezan/shared.env /srv/mezan/restic.env       # then fill them in
 # before the first boot: MEZAN_AUDIT_CHAIN_KEY=$(openssl rand -hex 32) in /srv/mezan/env, never changed afterwards
-echo "<a GitHub token with read:packages>" | docker login ghcr.io -u <github user> --password-stdin
-/opt/mezan/deploy.sh <commit sha from the "Release image" workflow>
 ```
 
-The image is private on GHCR unless the package is made public; the token above only needs `read:packages`. On first boot without `MEZAN_PLATFORM_OWNER_PASSWORD` the owner password is written to `/srv/mezan/data/platform-owner-password.txt`: sign in at `/platform/login`, change it, delete the file.
+Then set up the automatic deploy (§5) and push to `staging`. To deploy by hand instead, log in once with a `read:packages` token (`docker login ghcr.io --password-stdin`; it stays in `/root/.docker/config.json`) and run `/opt/mezan/deploy.sh <tag>`. On first boot without `MEZAN_PLATFORM_OWNER_PASSWORD` the owner password is written to `/srv/mezan/data/platform-owner-password.txt`: sign in at `/platform/login`, change it, delete the file.
 
 Then enable the backups:
 
@@ -118,7 +116,20 @@ After the first deploy, in a browser: sign in to a tenant, print an invoice and 
 
 ## 5. Update and rollback
 
-Merge into `production` → the **Release image** workflow pushes `ghcr.io/bassamzakaria/mezan-erp:<sha>` (linux/amd64). On the VPS:
+Push to `staging` or `production` → the **Release image** workflow pushes `ghcr.io/bassamzakaria/mezan-erp:<sha>` (linux/amd64). For `staging` only, its `deploy` job then runs `deploy.sh <sha>@sha256:<digest>` on this VPS over SSH, so every push to `staging` goes live (about a minute of downtime). The deploy runs detached from the SSH session and logs to `/var/log/mezan-deploy.log`; re-sending the running tag succeeds without a restart.
+
+**Automatic deploy (once per VPS):** a `deploy` user whose only key is GitHub's, forced to `ci-deploy.sh`; the workflow's short-lived `GITHUB_TOKEN` is the registry login, so no GitHub token is stored on the box.
+
+```
+adduser --disabled-password --comment "" deploy
+install -o root -g root -m 0755 /opt/mezan/ci-deploy.sh /usr/local/bin/mezan-ci-deploy
+install -o deploy -g deploy -m 700 -d /home/deploy/.ssh
+# /home/deploy/.ssh/authorized_keys (deploy, 0600), one line:
+#   restrict,command="/usr/local/bin/mezan-ci-deploy" <public half of DEPLOY_SSH_KEY>
+echo 'deploy ALL=(root) NOPASSWD: /usr/local/bin/mezan-ci-deploy' > /etc/sudoers.d/91-deploy && chmod 440 /etc/sudoers.d/91-deploy
+```
+
+Secrets of the GitHub environment `contabo` (deployment branches: `staging` only, so no other branch or manual run can reach them): `DEPLOY_HOST` (the VPS address), `DEPLOY_SSH_KEY` (the private key), `DEPLOY_KNOWN_HOSTS` (`<address> ssh-ed25519 <host key>`, from `ssh-keyscan -t ed25519 <address>` checked against the key you saw on first login). To stop automatic deploys, delete `/home/deploy/.ssh/authorized_keys`; to deploy by hand, on the VPS:
 
 ```
 sudo /opt/mezan/deploy.sh <sha>

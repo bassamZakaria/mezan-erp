@@ -10,6 +10,7 @@ export interface NavItem {
   label: string;
   href?: string;
   onClick?: () => void;
+  onIntent?: () => void;
   tag?: NavTag;
   /** Rendered in the rail's glyph slot; without one the sidebar falls back to a monogram of the label. */
   icon?: ReactNode;
@@ -52,6 +53,7 @@ export interface NavGroup {
   defaultCollapsed?: boolean;
   /** Shown in place of the group label when the rail is collapsed; without one the header falls back to a monogram. */
   icon?: ReactNode;
+  onIntent?: () => void;
 }
 
 /** Every item in a group, direct or nested — the flat view callers need for active-key lookups. */

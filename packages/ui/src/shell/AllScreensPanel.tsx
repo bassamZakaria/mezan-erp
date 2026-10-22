@@ -309,6 +309,8 @@ export function AllScreensPanel({ open, onClose, groups, activeKey, workspaceKey
                                 tabIndex={index === 0 ? 0 : -1}
                                 aria-current={active ? "page" : undefined}
                                 onClick={() => choose(row)}
+                                onPointerEnter={row.item.onIntent}
+                                onFocus={row.item.onIntent}
                                 className={cn(
                                   "relative flex min-h-[var(--h-btn)] w-full items-center gap-[9px] px-[10px] text-start text-sm transition-colors hover:bg-surface-2",
                                   active ? "bg-accent-soft font-semibold text-accent" : "text-ink",

@@ -37,6 +37,8 @@ function BrandAction({ item, active, onActivate }: { item: NavItem; active: bool
         onActivate();
         item.onClick?.();
       }}
+      onPointerEnter={item.onIntent}
+      onFocus={item.onIntent}
       aria-label={label}
       title={label}
       aria-current={active ? "page" : undefined}

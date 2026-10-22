@@ -1,7 +1,7 @@
 import { Suspense, useCallback, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Navigate, Outlet, useLocation, useNavigate } from "react-router";
-import { AppShell, SkeletonTable, filterNavGroups, isNavItemVisible, navGroupItems, type NavGroup, type NavItem } from "@mezan/ui";
+import { Navigate, Outlet, useLocation, useNavigate, useNavigation as useRouterNavigation } from "react-router";
+import { AppShell, SkeletonTable, cn, filterNavGroups, isNavItemVisible, navGroupItems, type NavGroup, type NavItem } from "@mezan/ui";
 import { ALL_SCOPE, ShellRequest, moduleNotLicensedMessageAr, type UserStatusCode } from "@mezan/domain";
 import { BranchRestrictedAccess, type BranchDTO, type EraseUserDTO, type RoleDTO, type ScopeSelectionDTO } from "@mezan/contracts";
 import { TenantPreferences } from "./settings/TenantPreferences";
@@ -58,7 +58,7 @@ import { RoleEditorPage, type RoleEditorSaveCommand } from "./pages/RoleEditorPa
 import { BackendRefusedScreen, BackendStartingScreen } from "./login/BackendBootScreens";
 import { NavigationProvider, SubPageNamesProvider, toScreenIntent, type ScreenIntent, type ScreenIntentInput } from "./navigation";
 import { groupKeyForScreen, hubScreenForGroup, parsePath, pathForRoute } from "./routing";
-import { isRoutable, type RoutableKey, type ScreenKey } from "./router/screens";
+import { isRoutable, preloadScreen, type RoutableKey, type ScreenKey } from "./router/screens";
 import { Breadcrumbs, parentSegments } from "./Breadcrumbs";
 import { LicenseBanner } from "./LicenseBanner";
 import { TrialBanner } from "./billing/TrialBanner";
@@ -105,6 +105,27 @@ function scopeLabelFor(
   if (branchScope === ALL_SCOPE) return t("shell.scope.allBranches");
   if (branchScope.length === 1) return branches.find((b) => b.id === branchScope[0])?.name ?? branchScope[0]!;
   return t("shell.scope.branchCount", { count: branchScope.length });
+}
+
+function routableHub(groupKey: string): RoutableKey | null {
+  const hub = hubScreenForGroup(groupKey);
+  return hub && isRoutable(hub) ? hub : null;
+}
+
+function NavigationProgress() {
+  const { t } = useAppTranslation();
+  const loading = useRouterNavigation().state === "loading";
+  return (
+    <div
+      role="progressbar"
+      aria-label={t("common.loading")}
+      aria-hidden={!loading}
+      className={cn(
+        "pointer-events-none fixed inset-x-0 top-0 z-50 h-[3px] bg-accent-bright transition-opacity",
+        loading ? "opacity-100 delay-150" : "opacity-0",
+      )}
+    />
+  );
 }
 
 function ScreenLoading() {
@@ -264,8 +285,11 @@ export function AppLayout() {
             : key === "notifications" && unreadNotificationCount > 0
               ? { label: String(unreadNotificationCount), tone: "pattern" as const }
               : item.tag;
-        if (isRoutable(key) || key === "users" || key === "roles") {
-          return { ...item, tag, onClick: () => navigate(key as ScreenKey) };
+        if (isRoutable(key)) {
+          return { ...item, tag, onClick: () => navigate(key), onIntent: () => preloadScreen(key) };
+        }
+        if (key === "users" || key === "roles") {
+          return { ...item, tag, onClick: () => navigate(key) };
         }
         return { ...item, tag };
       });
@@ -329,7 +353,11 @@ export function AppLayout() {
   );
   const directNavItems = useMemo(() => {
     const pinned = groups.flatMap((group) => group.items).filter((item) => PINNED_NAV_ITEM_KEYS.includes(item.key));
-    const home: NavItem = { ...buildTopNavItem(t), onClick: () => navigate("dashboard") };
+    const home: NavItem = {
+      ...buildTopNavItem(t),
+      onClick: () => navigate("dashboard"),
+      onIntent: () => preloadScreen("dashboard"),
+    };
     return dashboardPermitted ? [home, ...pinned] : pinned;
   }, [dashboardPermitted, groups, navigate, t]);
 
@@ -345,7 +373,14 @@ export function AppLayout() {
   const workspaceGroups = useMemo(
     () =>
       licensedGroups
-        .map((group) => ({ ...group, items: group.items.filter((item) => !PINNED_NAV_ITEM_KEYS.includes(item.key)) }))
+        .map((group): NavGroup => {
+          const hub = routableHub(group.key);
+          return {
+            ...group,
+            items: group.items.filter((item) => !PINNED_NAV_ITEM_KEYS.includes(item.key)),
+            onIntent: hub ? () => preloadScreen(hub) : undefined,
+          };
+        })
         // A group may carry all of its screens in sections and none directly —
         // التقارير does — so an empty `items` is not an empty group.
         .filter((group) => navGroupItems(group).length > 0),
@@ -369,9 +404,9 @@ export function AppLayout() {
    */
   const onWorkspaceChange = useCallback(
     (key: string) => {
-      const hub = hubScreenForGroup(key);
-      if (!hub || !isRoutable(hub)) return false;
-      navigate(hub as ScreenKey);
+      const hub = routableHub(key);
+      if (!hub) return false;
+      navigate(hub);
       return true;
     },
     [navigate],
@@ -438,7 +473,9 @@ export function AppLayout() {
     if (!dashboardPermitted) return undefined;
     const topNavItem = buildTopNavItem(t);
     const key = topNavItem.key;
-    return isRoutable(key) ? { ...topNavItem, onClick: () => navigate(key) } : topNavItem;
+    return isRoutable(key)
+      ? { ...topNavItem, onClick: () => navigate(key), onIntent: () => preloadScreen(key) }
+      : topNavItem;
   }, [dashboardPermitted, navigate, t]);
 
   const createOnCurrentScreen = useCallback(() => {
@@ -664,6 +701,7 @@ export function AppLayout() {
       <TrialBanner />
       <UpdateBanner />
       <LicenceStatusNotice />
+      <NavigationProgress />
       <Breadcrumbs screen={activeScreen} />
       {/*
         The matched screen renders here.

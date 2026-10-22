@@ -28,7 +28,7 @@ import { RootEntry } from "./RootEntry";
  * Screens read it through `useNavigation().segments`, unchanged from before.
  */
 /**
- * Screens that prefetch their list before they render.
+ * Screens whose list query starts alongside their chunk download.
  *
  * The loader is attached HERE rather than inside the screen's lazy module, and
  * that placement is the point: React Router runs a static loader concurrently

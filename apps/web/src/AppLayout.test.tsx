@@ -32,6 +32,12 @@ import { stubTransport, testAdminSession } from "./data/test-support";
 import type { Transport } from "./data/transport";
 import { useNavigation } from "./navigation";
 import { pathForRoute } from "./routing";
+import { preloadScreen } from "./router/screens";
+
+vi.mock("./router/screens", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./router/screens")>()),
+  preloadScreen: vi.fn(),
+}));
 
 function IntentProbe() {
   const nav = useNavigation();
@@ -1169,5 +1175,69 @@ describe("AppLayout — a branch-restricted session (D111)", () => {
     expect(screen.getByTestId("answer")).toHaveTextContent("على مستوى الشركة");
     expect(screen.getByTestId("answer")).toHaveTextContent("| 403");
     expect(calls.filter((call) => call.includes("/projects") || call.includes("/price-lists"))).toEqual([]);
+  });
+});
+
+describe("AppLayout — page-change progress", () => {
+  afterEach(() => {
+    persistSession(null);
+  });
+
+  it("shows the progress bar only while the next page is still loading", async () => {
+    let finish: () => void = () => {};
+    const router = createMemoryRouter(
+      [
+        {
+          path: "/",
+          Component: AppLayout,
+          children: [
+            {
+              path: "slow/*",
+              loader: () => new Promise<null>((resolve) => (finish = () => resolve(null))),
+              element: <div data-testid="slow-page" />,
+            },
+            { path: "*", element: <IntentProbe /> },
+          ],
+        },
+      ],
+      { initialEntries: [pathForRoute("dashboard")] },
+    );
+    render(
+      <AppProviders transport={stubTransport(baseHandlers())} initialSession={testAdminSession}>
+        <RouterProvider router={router} />
+      </AppProviders>,
+    );
+    const bar = await screen.findByRole("progressbar", { hidden: true });
+    expect(bar).toHaveAttribute("aria-hidden", "true");
+
+    act(() => void router.navigate("/slow"));
+    await waitFor(() => expect(bar).toHaveAttribute("aria-hidden", "false"));
+
+    await act(async () => finish());
+    expect(await screen.findByTestId("slow-page")).toBeInTheDocument();
+    expect(bar).toHaveAttribute("aria-hidden", "true");
+  });
+});
+
+describe("AppLayout — preloading on intent", () => {
+  afterEach(() => {
+    persistSession(null);
+    vi.mocked(preloadScreen).mockClear();
+  });
+
+  it("starts loading a destination when the pointer reaches its tab, home icon or row", async () => {
+    renderLayout(stubTransport(baseHandlers()), [pathForRoute("dashboard")]);
+    const rail = await screen.findByRole("navigation", { name: "التنقل بين مساحات العمل" });
+
+    fireEvent.pointerEnter(within(rail).getByRole("button", { name: "البيع والتحصيل" }));
+    expect(preloadScreen).toHaveBeenLastCalledWith("sales-hub");
+
+    fireEvent.focus(screen.getByRole("button", { name: "لوحة التحكم" }));
+    expect(preloadScreen).toHaveBeenLastCalledWith("dashboard");
+
+    fireEvent.click(screen.getByRole("button", { name: "كل الشاشات" }));
+    const results = screen.getByRole("dialog", { name: "كل الشاشات" }).querySelector<HTMLElement>('nav[aria-label="تصفية حسب مساحة العمل"] + div')!;
+    fireEvent.pointerEnter(within(results).getByRole("button", { name: "العملاء" }));
+    expect(preloadScreen).toHaveBeenLastCalledWith("customers");
   });
 });

@@ -142,6 +142,8 @@ export function WorkspaceRail({
                     <button
                       type="button"
                       onClick={item.onClick}
+                      onPointerEnter={item.onIntent}
+                      onFocus={item.onIntent}
                       // The badge is a bare number, so the count is spelled out
                       // in the accessible name.
                       aria-label={item.tag ? `${item.label} (${item.tag.label})` : undefined}
@@ -196,6 +198,8 @@ export function WorkspaceRail({
                     active ? "bg-chrome-active font-semibold text-chrome-ink" : "text-chrome-ink-muted",
                   )}
                   onClick={() => { onChange?.(group.key); onNavigate?.(); }}
+                  onPointerEnter={group.onIntent}
+                  onFocus={group.onIntent}
                 >
                   {/* Never colour alone: the open workspace also carries this
                       inline-start bar, the recessed fill and a heavier weight. */}

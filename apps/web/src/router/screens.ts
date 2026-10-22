@@ -199,6 +199,11 @@ export function isRoutable(key: string): key is RoutableKey {
   return key in SCREEN_MODULES;
 }
 
+export function preloadScreen(key: RoutableKey): void {
+  // A failed preload is dropped on purpose: the browser may keep the failure, so the click lands on the route's error boundary, whose retry reloads the page.
+  SCREEN_MODULES[key]().catch(() => {});
+}
+
 /**
  * المستخدمون / الأدوار aren't stateless screen modules — the role editor needs
  * the in-flight `editingRole` (create vs. edit), and all three share the same

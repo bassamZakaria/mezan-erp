@@ -1,11 +1,12 @@
-import { useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
+import { useSearchParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { Button, Card, Money, TextInput } from "@mezan/ui";
 import type { BillingCycleDTO, PublicPlanDTO, StartSignupRequestDTO, StartSignupResultDTO } from "@mezan/contracts";
 import { ArabicCase, CountedNoun } from "@mezan/domain";
 import { useAppTranslation } from "../i18n";
 import { useCountPhrase } from "../lib/count-phrase";
-import { COMPANY_NAME_MAX_LENGTH } from "@mezan/contracts";
+import { COMPANY_NAME_MAX_LENGTH, billingCycleSchema } from "@mezan/contracts";
 import { Field, FormError, TextField } from "../settings/form-controls";
 import { SignupLayout } from "./SignupLayout";
 import { checkCodeAvailability, fetchPublicPlans, SignupApiError, startSignup } from "./signup-api";
@@ -56,8 +57,8 @@ interface Draft {
   website: string;
 }
 
-function emptyDraft(): Draft {
-  return { nameAr: "", nameEn: "", code: "", ownerNameAr: "", ownerEmail: "", planId: "", billingCycle: "monthly", website: "" };
+function emptyDraft(billingCycle: BillingCycleDTO = "monthly"): Draft {
+  return { nameAr: "", nameEn: "", code: "", ownerNameAr: "", ownerEmail: "", planId: "", billingCycle, website: "" };
 }
 
 function PlanCard({
@@ -116,7 +117,11 @@ function SuccessPanel({ result, email }: { result: StartSignupResultDTO; email: 
 export function SignupScreen() {
   const { t } = useAppTranslation();
   const countPhrase = useCountPhrase();
-  const [draft, setDraft] = useState<Draft>(emptyDraft());
+  const [params] = useSearchParams();
+  const [draft, setDraft] = useState<Draft>(() => {
+    const cycle = billingCycleSchema.safeParse(params.get("cycle"));
+    return emptyDraft(cycle.success ? cycle.data : undefined);
+  });
   const [codeStatus, setCodeStatus] = useState<CodeStatus>("idle");
   const codeId = useId();
   const [formError, setFormError] = useState<string | null>(null);
@@ -164,6 +169,11 @@ export function SignupScreen() {
   const [result, setResult] = useState<StartSignupResultDTO | null>(null);
 
   const plansQuery = useQuery<PublicPlanDTO[]>({ queryKey: ["signup", "plans"], queryFn: fetchPublicPlans });
+  const requestedPlanCode = params.get("plan");
+  const requestedPlanId = plansQuery.data?.find((plan) => plan.code === requestedPlanCode)?.id;
+  useEffect(() => {
+    if (requestedPlanId) setDraft((d) => (d.planId === "" ? { ...d, planId: requestedPlanId } : d));
+  }, [requestedPlanId]);
 
   async function handleCodeBlur() {
     const code = draft.code.trim().toLowerCase();

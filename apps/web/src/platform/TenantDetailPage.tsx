@@ -1,7 +1,7 @@
 import { useEffect, useId, useState } from "react";
 import { Link, useBlocker, useParams, useSearchParams } from "react-router";
 import { Button, Card, ConfirmDialog, Money, Select, StatusPill, TextInput, useFormat } from "@mezan/ui";
-import { CardCheckoutFailureReason, CardCheckoutStatus, MODULES, RENEWABLE_SUBSCRIPTION_STATES, moduleName } from "@mezan/domain";
+import { CardCheckoutFailureReason, CardCheckoutStatus, RENEWABLE_SUBSCRIPTION_STATES } from "@mezan/domain";
 import {
   REFUSED_TENANT_BOOKS,
   SubscriptionStatusCode,
@@ -16,7 +16,7 @@ import {
   type TenantSummaryDTO,
 } from "@mezan/contracts";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
-import { moduleLabel } from "../domain-labels";
+import { entitlementModuleLabel } from "../domain-labels";
 import { SelectField, TextAreaField, ToggleField } from "../settings/form-controls";
 import { LicenseStateChip, TenantStatusChip } from "./chips";
 import { TenantOwnerCard } from "./TenantOwnerCard";
@@ -134,14 +134,6 @@ function failureReasonKey(reason: string): AppTranslationKey {
   return (FAILURE_REASON_KEY as Readonly<Record<string, AppTranslationKey | undefined>>)[reason] ?? "platform.cardCheckout.reason.other";
 }
 
-/** `MODULE_CATALOG`/entitlement ids are the permission catalog's `MODULES` ids, except its one differing entry (`financial_papers` → `cheques`) — mirrors `PlanEditor.tsx`'s own mapping. */
-const CATALOG_MODULE_ID: Readonly<Record<string, string>> = { financial_papers: "cheques" };
-
-function entitlementModuleLabel(id: string, t: (key: AppTranslationKey) => string): string {
-  const catalogId = CATALOG_MODULE_ID[id] ?? id;
-  const entry = MODULES.find((m) => m.id === catalogId);
-  return entry ? moduleLabel(entry, t) : moduleName(id).ar;
-}
 
 /** «تفاصيل المنشأة» — a routed page (not an overlay: this is a document, not a short form), reached from `TenantsPage`'s row click. */
 export function TenantDetailPage() {

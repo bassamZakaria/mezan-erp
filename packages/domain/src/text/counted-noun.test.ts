@@ -20,6 +20,11 @@ describe("countPhrase", () => {
     expect(countPhrase(CountLocale.Ar, 12, CountedNoun.Customer)).toBe("12 عميلًا");
     expect(countPhrase(CountLocale.Ar, 1, CountedNoun.Item)).toBe("صنف واحد");
     expect(countPhrase(CountLocale.Ar, 2, CountedNoun.Invoice, { grammaticalCase: ArabicCase.Oblique })).toBe("فاتورتين");
+    expect(countPhrase(CountLocale.Ar, 2, CountedNoun.User)).toBe("مستخدمان");
+    expect(countPhrase(CountLocale.Ar, 3, CountedNoun.User)).toBe("3 مستخدمين");
+    expect(countPhrase(CountLocale.Ar, 25, CountedNoun.User)).toBe("25 مستخدمًا");
+    expect(countPhrase(CountLocale.Ar, 1, CountedNoun.Branch)).toBe("فرع واحد");
+    expect(countPhrase(CountLocale.Ar, 10, CountedNoun.Warehouse)).toBe("10 مستودعات");
   });
 
   it("counts a whole day quantity in agreement and a fractional one with the singular noun", () => {

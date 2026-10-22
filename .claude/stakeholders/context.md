@@ -16,7 +16,9 @@ Electron desktop app and (later) a multi-tenant cloud web app.
 - **v1 = Electron desktop only, SQLite.** LAN multi-till stays (one license,
   several tills on a shop's local network).
 - **Descoped for now:** the POS module including the net-new `/pos/sell` selling
-  screen, and the entire cloud/SaaS website edition. **HR is only partly
+  screen. (The cloud/SaaS edition is no longer descoped: it is live at
+  https://mezan.cyag.net since 2026-10-21 with self-serve `/signup` and the
+  DEC-31 reverse trial.) **HR is only partly
   descoped** — employees, contracts, attendance, leave, payroll runs, payslips
   and advances are built and routable; what is deliberately absent is *statutory
   payroll computation* (social insurance, income-tax brackets, end-of-service).
@@ -157,3 +159,11 @@ Two things worth knowing before you drive the app:
   overlays. A document that opens in a drawer is a finding.
 
 Add a reading here only after driving it in the running app, and date it.
+
+## Decisions already made
+
+- 2026-10-22 (landing-page panel, `meeting-2026-10-22-landing-page.md`): the public page leads with the
+  reverse trial + Free plan + "never locked"; prices are read live from `/api/signup/plans`; no ETA
+  e-invoicing claim (DEC-10), e-receipt may be claimed; "offline" only for the desktop edition; no
+  data-in-Egypt claim; no named-competitor comparison; copy in plain MSA reusing the app's strings.
+  Daftra's 489.5/977.58/1,960 are its annual-billed rates (monthly 733/1,225/2,448).

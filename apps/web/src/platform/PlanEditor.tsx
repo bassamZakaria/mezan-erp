@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button, Field, TextInput } from "@mezan/ui";
-import { MODULE_CATALOG, MODULES, moduleName } from "@mezan/domain";
+import { MODULE_CATALOG } from "@mezan/domain";
 import type {
   PlanCreateRequestDTO,
   PlanDTO,
@@ -21,7 +21,7 @@ import {
   TextField,
   ToggleField,
 } from "../settings/form-controls";
-import { moduleLabel } from "../domain-labels";
+import { entitlementModuleLabel } from "../domain-labels";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { PlatformApiError, readPlatformErrorMessage, usePlatformApi } from "./api";
 import { PLANS_QUERY_KEY, usePlansQuery, useRetirePlan } from "./PlansPage";
@@ -29,15 +29,8 @@ import { PLANS_QUERY_KEY, usePlansQuery, useRetirePlan } from "./PlansPage";
 /** Wire format for a plan price (`positiveDecimalString`, packages/contracts/src/platform.ts). */
 const PRICE_PATTERN = /^\d+(\.\d{1,6})?$/;
 
-/** `MODULE_CATALOG` ids are entitlement ids; the permission catalog's `MODULES` keys its one differing entry as `cheques`. */
-const CATALOG_MODULE_ID: Readonly<Record<string, string>> = { financial_papers: "cheques" };
-
 function moduleOptions(t: (key: AppTranslationKey) => string) {
-  return MODULE_CATALOG.map((id) => {
-    const catalogId = CATALOG_MODULE_ID[id] ?? id;
-    const entry = MODULES.find((m) => m.id === catalogId);
-    return { value: id, label: entry ? moduleLabel(entry, t) : moduleName(id).ar };
-  });
+  return MODULE_CATALOG.map((id) => ({ value: id, label: entitlementModuleLabel(id, t) }));
 }
 
 /** The quotas the console can edit. Mirrors `QuotaKind`; a key left out is unlimited. */

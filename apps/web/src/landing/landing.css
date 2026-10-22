@@ -1,0 +1,81 @@
+/* The hero's one orchestrated moment: the entry's rows arrive, then the scale settles level. The global
+   reduced-motion rule in @mezan/ui collapses every duration, and `both` fill keeps the final, level state. */
+@keyframes mz-landing-row-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+@keyframes mz-landing-beam-settle {
+  from {
+    transform: rotate(-11deg);
+  }
+  60% {
+    transform: rotate(2deg);
+  }
+  to {
+    transform: rotate(0deg);
+  }
+}
+
+@keyframes mz-landing-pan-left {
+  from {
+    transform: translateY(9px);
+  }
+  60% {
+    transform: translateY(-2px);
+  }
+}
+
+@keyframes mz-landing-pan-right {
+  from {
+    transform: translateY(-9px);
+  }
+  60% {
+    transform: translateY(2px);
+  }
+}
+
+.mz-landing-row {
+  animation: mz-landing-row-in 420ms ease-out both;
+  animation-delay: calc(var(--row, 0) * 260ms + 350ms);
+}
+
+.mz-landing-settle {
+  animation: mz-landing-row-in 420ms ease-out both;
+  animation-delay: var(--settle, 1.9s);
+}
+
+.mz-landing-beam {
+  transform-box: view-box;
+  transform-origin: 120px 34px;
+  animation: mz-landing-beam-settle 1100ms cubic-bezier(0.3, 1.2, 0.5, 1) both;
+  animation-delay: var(--settle, 1.9s);
+}
+
+.mz-landing-pan-a {
+  animation: mz-landing-pan-left 1100ms cubic-bezier(0.3, 1.2, 0.5, 1) both;
+  animation-delay: var(--settle, 1.9s);
+}
+
+.mz-landing-pan-b {
+  animation: mz-landing-pan-right 1100ms cubic-bezier(0.3, 1.2, 0.5, 1) both;
+  animation-delay: var(--settle, 1.9s);
+}
+
+.mz-landing a:focus-visible,
+.mz-landing button:focus-visible,
+.mz-landing summary:focus-visible,
+.mz-landing input:focus-visible {
+  outline: 2px solid var(--accent-bright);
+  outline-offset: 2px;
+}
+
+.mz-landing summary::-webkit-details-marker {
+  display: none;
+}
+
+.mz-landing details[open] .mz-landing-faq-sign {
+  transform: rotate(45deg);
+}

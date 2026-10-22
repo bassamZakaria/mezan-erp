@@ -57,7 +57,7 @@ function tempDir(prefix: string): string {
 
 function webDistFixture(): string {
   const dir = tempDir("mezan-cloud-web-");
-  writeFileSync(path.join(dir, "index.html"), "<!doctype html><body>مزان</body>");
+  writeFileSync(path.join(dir, "index.html"), "<!doctype html><head><title>Mezan</title></head><body>مزان</body>");
   return dir;
 }
 
@@ -347,6 +347,17 @@ describe("createCloudApp", () => {
       const res = await app.root.fetch(new Request("http://cloud.internal/"));
       expect(res.status).toBe(200);
       expect(await res.text()).toContain("مزان-تجريبي");
+    });
+
+    it("marks the page it serves at / as the cloud website, so the web app opens the landing page there", async () => {
+      const app = await boot(testEnv());
+      const home = await (await app.root.fetch(new Request("http://cloud.internal/"))).text();
+      const unlock = await (await app.root.fetch(new Request("http://cloud.internal/unlock"))).text();
+
+      expect(home).toContain('<meta name="mezan-site" content="cloud">');
+      expect(home).toContain('<meta property="og:title"');
+      expect(home).not.toContain("<title>Mezan</title>");
+      expect(unlock).not.toContain("mezan-site");
     });
 
     it("serves the unlock-link page uncached, with no referrer and without the script a deployment injects into every other page", async () => {

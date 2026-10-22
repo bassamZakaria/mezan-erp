@@ -4,7 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
 import { openSqliteConnection } from "@mezan/persistence";
-import { SubscriptionStatusCode } from "@mezan/contracts";
+import { SubscriptionStatusCode, type PublicPlanDTO } from "@mezan/contracts";
 import { createBackend, createPlatform, type PlatformHandle } from "@mezan/backend";
 import { createTenant, InvalidTenantTransitionError, startSubscription, TenantStatusCode, type Subscription } from "@mezan/domain";
 import { releaseProvisioningTenant } from "./release-tenant.js";
@@ -386,6 +386,14 @@ describe("a trailing slash on an /api route", () => {
       new Request("http://cloud.internal/api/customers/?pageSize=5", { headers: { ...bearerHeaders(session), "x-mezan-tenant": "slashes" } }),
     );
     expect(customers.status).toBe(200);
+  });
+
+  it("publishes each public plan's quotas so the pricing page can state the Free plan's invoice cap", async () => {
+    const app = await boot();
+    const plans = (await (await app.root.fetch(new Request("http://cloud.internal/api/signup/plans"))).json()) as PublicPlanDTO[];
+
+    expect(plans.find((plan) => plan.code === "free")?.quotas).toEqual({ sales_invoices_per_month: 100 });
+    expect(plans.find((plan) => plan.code === "core")?.quotas).toEqual({});
   });
 
   it("still refuses a tenant route that carries no session, slash or not", async () => {

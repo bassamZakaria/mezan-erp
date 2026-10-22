@@ -25,6 +25,7 @@ export const publicPlanSchema = planSchema.pick({
   seatsIncluded: true,
   branchesIncluded: true,
   warehousesIncluded: true,
+  quotas: true,
   priceMonthly: true,
   priceYearly: true,
   trialDays: true,

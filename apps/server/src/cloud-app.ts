@@ -28,6 +28,7 @@ import { createSignupRoutes, SIGNUP_BASE_PATH } from "./signup-routes.js";
 import { provisionDemoTenant } from "./demo-tenant.js";
 import { provisionReviewTenant } from "./review-tenant.js";
 import { createLegalRoutes, LEGAL_BASE_PATH } from "./legal-routes.js";
+import { withCloudSiteHead } from "./site-head.js";
 import { startDunningTimer } from "./dunning.js";
 import { startOwnerDigestTimer } from "./owner-digest.js";
 import { startCollectionsTimer } from "./collections-schedule.js";
@@ -535,7 +536,8 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
 
   const rawIndexHtml = await readIndexHtmlIfPresent(env.webDist);
   if (rawIndexHtml !== null) {
-    const indexHtml = options.transformIndexHtml ? options.transformIndexHtml(rawIndexHtml) : rawIndexHtml;
+    const siteHtml = withCloudSiteHead(rawIndexHtml);
+    const indexHtml = options.transformIndexHtml ? options.transformIndexHtml(siteHtml) : siteHtml;
     root.get("/", (c) => c.html(indexHtml));
     root.get("/index.html", (c) => c.html(indexHtml));
     // SECURITY: the page a mailed unlock link opens. The link's token is in the

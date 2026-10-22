@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Button, Card, ConfirmDialog, StatusPill } from "@mezan/ui";
-import { SubscriptionStatusCode, type PlanDTO, type TenantSummaryDTO } from "@mezan/contracts";
+import { MAX_EXTRA_CAPACITY, MAX_GRACE_DAYS, SubscriptionStatusCode, type PlanDTO, type TenantSummaryDTO } from "@mezan/contracts";
 import { useAppTranslation } from "../i18n";
 import { MultiChipField, NumberField } from "../settings/form-controls";
 import { PlatformApiError } from "./api";
@@ -27,7 +27,7 @@ function draftOf(s: Subscription): Draft {
   };
 }
 
-const isCount = (n: number): boolean => Number.isInteger(n) && n >= 0;
+const isCount = (n: number, max: number): boolean => Number.isInteger(n) && n >= 0 && n <= max;
 
 function sameDraft(a: Draft, b: Draft): boolean {
   return (
@@ -70,7 +70,11 @@ export function TenantExtrasCard({
   const editable = isOwner && EDITABLE_STATUSES.has(subscription.status);
   const included = new Set(plan.modules);
   const options = platformModuleOptions(t).filter((o) => !included.has(o.value) || draft.addOnModules.includes(o.value));
-  const valid = isCount(draft.extraSeats) && isCount(draft.extraBranches) && isCount(draft.extraWarehouses) && isCount(draft.graceDays);
+  const valid =
+    isCount(draft.extraSeats, MAX_EXTRA_CAPACITY) &&
+    isCount(draft.extraBranches, MAX_EXTRA_CAPACITY) &&
+    isCount(draft.extraWarehouses, MAX_EXTRA_CAPACITY) &&
+    isCount(draft.graceDays, MAX_GRACE_DAYS);
   const changed = !sameDraft(draft, stored);
   const saveError = save.error instanceof PlatformApiError ? save.error.message : save.error ? t("platform.error.network") : null;
 
@@ -110,6 +114,7 @@ export function TenantExtrasCard({
             hint={t("platform.tenantDetail.extras.planHas", { count: plan.seatsIncluded })}
             value={draft.extraSeats}
             min={0}
+            max={MAX_EXTRA_CAPACITY}
             disabled={!editable}
             onChange={(v) => setDraft((d) => ({ ...d, extraSeats: v }))}
           />
@@ -118,6 +123,7 @@ export function TenantExtrasCard({
             hint={t("platform.tenantDetail.extras.planHas", { count: plan.branchesIncluded })}
             value={draft.extraBranches}
             min={0}
+            max={MAX_EXTRA_CAPACITY}
             disabled={!editable}
             onChange={(v) => setDraft((d) => ({ ...d, extraBranches: v }))}
           />
@@ -126,6 +132,7 @@ export function TenantExtrasCard({
             hint={t("platform.tenantDetail.extras.planHas", { count: plan.warehousesIncluded })}
             value={draft.extraWarehouses}
             min={0}
+            max={MAX_EXTRA_CAPACITY}
             disabled={!editable}
             onChange={(v) => setDraft((d) => ({ ...d, extraWarehouses: v }))}
           />
@@ -133,6 +140,7 @@ export function TenantExtrasCard({
             label={t("platform.tenantDetail.graceDays")}
             value={draft.graceDays}
             min={0}
+            max={MAX_GRACE_DAYS}
             disabled={!editable}
             onChange={(v) => setDraft((d) => ({ ...d, graceDays: v }))}
           />
@@ -142,10 +150,13 @@ export function TenantExtrasCard({
             <Button variant="primary" size="sm" disabled={!changed || !valid || save.isPending} onClick={() => setConfirming(true)}>
               {save.isPending ? t("platform.tenantDetail.extras.saving") : t("platform.tenantDetail.extras.save")}
             </Button>
-            <Button size="sm" disabled={!changed || save.isPending} onClick={() => setEdits(null)}>
+            <Button size="sm" disabled={!changed || save.isPending} onClick={() => {
+                setEdits(null);
+                save.reset();
+              }}>
               {t("common.cancel")}
             </Button>
-            {!valid ? <span role="alert" className="text-[12px] font-semibold text-danger-ink">{t("platform.tenantDetail.extras.invalid")}</span> : null}
+            {!valid ? <span role="alert" className="text-[12px] font-semibold text-danger-ink">{t("platform.tenantDetail.extras.invalid", { maxCapacity: MAX_EXTRA_CAPACITY, maxGrace: MAX_GRACE_DAYS })}</span> : null}
             {valid && saveError ? <span role="alert" className="text-[12px] font-semibold text-danger-ink">{saveError}</span> : null}
           </div>
         ) : null}

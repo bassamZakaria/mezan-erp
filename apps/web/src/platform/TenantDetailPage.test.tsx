@@ -205,7 +205,10 @@ describe("TenantDetailPage", () => {
       fireEvent.click(card.getByRole("button", { name: "تحديد الكل" }));
       expect(card.getByRole("button", { name: "المخزون" })).toHaveAttribute("aria-pressed", "true");
       fireEvent.change(card.getByLabelText("فروع إضافية"), { target: { value: "" } });
-      expect(card.getByRole("alert")).toHaveTextContent("الأعداد يجب أن تكون أرقامًا صحيحة لا تقل عن 0");
+      expect(card.getByRole("alert")).toHaveTextContent("الأعداد أرقام صحيحة من 0 إلى 10000، وأيام السماح من 0 إلى 365");
+      expect(card.getByRole("button", { name: "حفظ الإضافات" })).toBeDisabled();
+      fireEvent.change(card.getByLabelText("فروع إضافية"), { target: { value: "0" } });
+      fireEvent.change(card.getByLabelText("أيام السماح"), { target: { value: "400" } });
       expect(card.getByRole("button", { name: "حفظ الإضافات" })).toBeDisabled();
     });
 
@@ -235,6 +238,10 @@ describe("TenantDetailPage", () => {
       expect(await screen.findByText("مرفوض من الخادم")).toBeInTheDocument();
       expect(posts).toHaveLength(1);
       expect(card.getByLabelText("مخازن إضافية")).toHaveValue(4);
+
+      fireEvent.click(card.getByRole("button", { name: "إلغاء" }));
+      expect(screen.queryByText("مرفوض من الخادم")).not.toBeInTheDocument();
+      expect(card.getByLabelText("مخازن إضافية")).toHaveValue(0);
     });
 
     it("select all sends only modules the plan lacks", async () => {

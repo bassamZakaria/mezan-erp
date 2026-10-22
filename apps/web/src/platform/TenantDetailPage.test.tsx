@@ -154,13 +154,73 @@ describe("TenantDetailPage", () => {
     renderDetail({ transport, session: testPlatformSession });
 
     expect(await screen.findByText("growth")).toBeInTheDocument();
-    expect(screen.getByText("المبيعات")).toBeInTheDocument();
-    expect(screen.getByText("المخزون")).toBeInTheDocument();
-    expect(screen.getByText("8")).toBeInTheDocument();
-    expect(screen.getByText("1")).toBeInTheDocument();
-    expect(screen.getByText("2")).toBeInTheDocument();
-    expect(screen.getByText("15/11/2026")).toBeInTheDocument();
+    const card = within(screen.getByRole("heading", { name: "الاستحقاقات" }).parentElement!);
+    expect(card.getByText("المبيعات")).toBeInTheDocument();
+    expect(card.getByText("المخزون")).toBeInTheDocument();
+    expect(card.getByText("8")).toBeInTheDocument();
+    expect(card.getByText("1")).toBeInTheDocument();
+    expect(card.getByText("2")).toBeInTheDocument();
+    expect(card.getByText("15/11/2026")).toBeInTheDocument();
     expect(screen.queryByText("لا توجد استحقاقات")).not.toBeInTheDocument();
+  });
+
+  describe("company extras", () => {
+    const extrasCard = () => within(screen.getByRole("heading", { name: "إضافات المنشأة" }).parentElement!);
+
+    it("lets an owner grant add-on modules and extra users, and sends exactly what was chosen after confirming", async () => {
+      const posts: unknown[] = [];
+      const transport = stubPlatformTransport({
+        "GET /tenants/tenant-1": () => ({ body: makeSummary() }),
+        "GET /plans": () => ({ body: [plan, plan2] }),
+        "POST /tenants/tenant-1/subscription/extras": (init) => {
+          posts.push(JSON.parse(String(init?.body)));
+          return { body: makeSummary({}, { addOnModules: ["inventory"], extraSeats: 2 }) };
+        },
+      });
+      renderDetail({ transport, session: testPlatformSession });
+
+      await screen.findByRole("heading", { name: "إضافات المنشأة" });
+      const card = extrasCard();
+      expect(card.queryByRole("button", { name: "المبيعات" })).not.toBeInTheDocument();
+      expect(card.getByRole("button", { name: "حفظ الإضافات" })).toBeDisabled();
+
+      fireEvent.click(card.getByRole("button", { name: "المخزون" }));
+      fireEvent.change(card.getByLabelText("مستخدمون إضافيون"), { target: { value: "2" } });
+      fireEvent.click(card.getByRole("button", { name: "حفظ الإضافات" }));
+      fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "حفظ الإضافات" }));
+
+      await waitFor(() => expect(posts).toHaveLength(1));
+      expect(posts[0]).toEqual({ addOnModules: ["inventory"], extraSeats: 2, extraBranches: 0, extraWarehouses: 0, graceDays: 5 });
+    });
+
+    it("select all adds every module the plan lacks, and an invalid count blocks saving", async () => {
+      const transport = stubPlatformTransport({
+        "GET /tenants/tenant-1": () => ({ body: makeSummary() }),
+        "GET /plans": () => ({ body: [plan, plan2] }),
+      });
+      renderDetail({ transport, session: testPlatformSession });
+
+      await screen.findByRole("heading", { name: "إضافات المنشأة" });
+      const card = extrasCard();
+      fireEvent.click(card.getByRole("button", { name: "تحديد الكل" }));
+      expect(card.getByRole("button", { name: "المخزون" })).toHaveAttribute("aria-pressed", "true");
+      fireEvent.change(card.getByLabelText("فروع إضافية"), { target: { value: "" } });
+      expect(card.getByRole("alert")).toHaveTextContent("الأعداد يجب أن تكون أرقامًا صحيحة لا تقل عن 0");
+      expect(card.getByRole("button", { name: "حفظ الإضافات" })).toBeDisabled();
+    });
+
+    it("is read-only for support", async () => {
+      const transport = stubPlatformTransport({
+        "GET /tenants/tenant-1": () => ({ body: makeSummary({}, { addOnModules: ["inventory"] }) }),
+        "GET /plans": () => ({ body: [plan, plan2] }),
+      });
+      renderDetail({ transport, session: supportSession });
+
+      await screen.findByRole("heading", { name: "إضافات المنشأة" });
+      const card = extrasCard();
+      expect(card.getByRole("button", { name: "المخزون" })).toBeDisabled();
+      expect(card.queryByRole("button", { name: "حفظ الإضافات" })).not.toBeInTheDocument();
+    });
   });
 
   it("shows suspend and archive for an active tenant, not resume, for an owner", async () => {

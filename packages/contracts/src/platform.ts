@@ -365,6 +365,14 @@ export const subscriptionSchema = z.object({
 
 export const setBillingAnchorDayRequestSchema = z.object({ day: billingAnchorDaySchema });
 
+export const setSubscriptionExtrasRequestSchema = z.object({
+  addOnModules: z.array(moduleIdSchema),
+  extraSeats: z.number().int().nonnegative(),
+  extraBranches: z.number().int().nonnegative(),
+  extraWarehouses: z.number().int().nonnegative(),
+  graceDays: z.number().int().nonnegative(),
+});
+
 /** Mirrors the domain's `PlanKind`; `@mezan/contracts` may not import `@mezan/domain`. */
 export const planKindSchema = z.enum(["paid", "free"]);
 /** Mirrors the domain's `QuotaKind`. An absent key is unlimited. */
@@ -650,6 +658,7 @@ export type SubscriptionResumeRequestDTO = z.infer<typeof subscriptionResumeRequ
 export type RecordPaymentRequestDTO = z.infer<typeof recordPaymentRequestSchema>;
 export type SubscriptionStatusDTO = z.infer<typeof subscriptionStatusSchema>;
 export type SetBillingAnchorDayRequestDTO = z.infer<typeof setBillingAnchorDayRequestSchema>;
+export type SetSubscriptionExtrasRequestDTO = z.infer<typeof setSubscriptionExtrasRequestSchema>;
 export type SubscriptionDTO = z.infer<typeof subscriptionSchema>;
 export type PlanStatusDTO = z.infer<typeof planStatusSchema>;
 export type PlanKindDTO = z.infer<typeof planKindSchema>;

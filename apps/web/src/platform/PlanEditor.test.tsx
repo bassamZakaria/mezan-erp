@@ -3,6 +3,7 @@ import "@testing-library/jest-dom/vitest";
 import { beforeEach, describe, expect, it } from "vitest";
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import type { PlanDTO } from "@mezan/contracts";
+import { MODULE_CATALOG } from "@mezan/domain";
 import { PlatformShell } from "./PlatformShell";
 import { renderWithPlatformProviders, stubPlatformTransport, testPlatformSession } from "./test-support";
 
@@ -80,6 +81,31 @@ describe("PlanEditor", () => {
       // plan at zero invoices a month.
       quotas: {},
     }));
+  });
+
+  it("a copy posts the source's settings under a new code, and select all includes every module", async () => {
+    let posted: { code?: string; modules?: string[]; seatsIncluded?: number } | null = null;
+    renderWithPlatformProviders(<PlatformShell />, {
+      route: "/platform/plans/new?from=PLAN-1",
+      initialSession: testPlatformSession,
+      transport: stubPlatformTransport({
+        "GET /plans": () => ({ body: [starterPlan] }),
+        "POST /plans": (init) => {
+          posted = JSON.parse(String(init?.body));
+          return { status: 201, body: { ...starterPlan, id: "PLAN-2", code: "starter-plus" } };
+        },
+      }),
+    });
+
+    await screen.findByRole("heading", { name: "باقة جديدة من نسخة" });
+    expect(screen.getByLabelText("الاسم بالعربية")).toHaveValue("الأساسية");
+    fireEvent.change(screen.getByLabelText("الكود"), { target: { value: "starter-plus" } });
+    fireEvent.click(screen.getByRole("button", { name: "تحديد الكل" }));
+    fireEvent.click(screen.getByRole("button", { name: "حفظ" }));
+
+    await waitFor(() => expect(posted).not.toBeNull());
+    expect(posted).toMatchObject({ code: "starter-plus", seatsIncluded: 5, nameAr: "الأساسية" });
+    expect(posted!.modules).toEqual([...MODULE_CATALOG]);
   });
 
   it("prefills the form from the existing plan and PUTs on save", async () => {

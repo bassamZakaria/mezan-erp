@@ -1,8 +1,8 @@
 import { useEffect, useId, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router";
+import { useNavigate, useParams, useSearchParams } from "react-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button, Field, TextInput } from "@mezan/ui";
-import { MODULE_CATALOG, MODULES, moduleName } from "@mezan/domain";
+import { MODULE_CATALOG } from "@mezan/domain";
 import type {
   PlanCreateRequestDTO,
   PlanDTO,
@@ -21,24 +21,13 @@ import {
   TextField,
   ToggleField,
 } from "../settings/form-controls";
-import { moduleLabel } from "../domain-labels";
+import { platformModuleOptions } from "./module-options";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { PlatformApiError, readPlatformErrorMessage, usePlatformApi } from "./api";
 import { PLANS_QUERY_KEY, usePlansQuery, useRetirePlan } from "./PlansPage";
 
 /** Wire format for a plan price (`positiveDecimalString`, packages/contracts/src/platform.ts). */
 const PRICE_PATTERN = /^\d+(\.\d{1,6})?$/;
-
-/** `MODULE_CATALOG` ids are entitlement ids; the permission catalog's `MODULES` keys its one differing entry as `cheques`. */
-const CATALOG_MODULE_ID: Readonly<Record<string, string>> = { financial_papers: "cheques" };
-
-function moduleOptions(t: (key: AppTranslationKey) => string) {
-  return MODULE_CATALOG.map((id) => {
-    const catalogId = CATALOG_MODULE_ID[id] ?? id;
-    const entry = MODULES.find((m) => m.id === catalogId);
-    return { value: id, label: entry ? moduleLabel(entry, t) : moduleName(id).ar };
-  });
-}
 
 /** The quotas the console can edit. Mirrors `QuotaKind`; a key left out is unlimited. */
 const QUOTA_FIELDS: ReadonlyArray<{ readonly kind: QuotaKindDTO; readonly label: AppTranslationKey }> = [
@@ -162,6 +151,8 @@ export function PlanEditor() {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
   const editingId = id && id !== "new" ? id : null;
+  const [searchParams] = useSearchParams();
+  const copyFromId = editingId === null ? searchParams.get("from") : null;
   const { session } = usePlatformApi();
   const isOwner = session?.user.role === "owner";
 
@@ -171,6 +162,7 @@ export function PlanEditor() {
   const retirePlan = useRetirePlan();
 
   const plan = editingId ? (plansQuery.data?.find((p) => p.id === editingId) ?? null) : null;
+  const copySource = copyFromId ? (plansQuery.data?.find((p) => p.id === copyFromId) ?? null) : null;
   const notFound = editingId !== null && !plansQuery.isLoading && !plan;
 
   const [draft, setDraft] = useState<Draft>(blankDraft());
@@ -183,15 +175,18 @@ export function PlanEditor() {
   useEffect(() => {
     seededRef.current = false;
     setDraft(blankDraft());
-  }, [editingId]);
+  }, [editingId, copyFromId]);
 
   useEffect(() => {
     if (seededRef.current) return;
     if (plan) {
       setDraft(draftOf(plan));
       seededRef.current = true;
+    } else if (copySource) {
+      setDraft({ ...draftOf(copySource), code: "" });
+      seededRef.current = true;
     }
-  }, [plan]);
+  }, [plan, copySource]);
 
   async function handleSubmit() {
     setFormError(null);
@@ -251,7 +246,7 @@ export function PlanEditor() {
   return (
     <FormPage
       eyebrow={t("platform.nav.plans")}
-      title={editingId ? t("platform.plans.editor.editTitle") : t("platform.plans.editor.newTitle")}
+      title={editingId ? t("platform.plans.editor.editTitle") : copySource ? t("platform.plans.editor.duplicateTitle") : t("platform.plans.editor.newTitle")}
       actions={
         <>
           <Button type="button" onClick={() => navigate("..")}>
@@ -393,11 +388,21 @@ export function PlanEditor() {
         <SectionCard title={t("platform.plans.editor.field.modules")} columns={1}>
           <MultiChipField
             label={t("platform.plans.editor.field.modules")}
-            options={moduleOptions(t)}
+            options={platformModuleOptions(t)}
             value={draft.modules}
             disabled={readOnly}
             onChange={(v) => setDraft((d) => ({ ...d, modules: v }))}
           />
+          {!readOnly ? (
+            <div className="flex flex-wrap gap-[8px]">
+              <Button type="button" size="sm" variant="ghost" onClick={() => setDraft((d) => ({ ...d, modules: [...MODULE_CATALOG] }))}>
+                {t("platform.modules.selectAll")}
+              </Button>
+              <Button type="button" size="sm" variant="ghost" onClick={() => setDraft((d) => ({ ...d, modules: [] }))}>
+                {t("platform.modules.clearAll")}
+              </Button>
+            </div>
+          ) : null}
         </SectionCard>
       </FormColumns>
     </FormPage>

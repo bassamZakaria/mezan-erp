@@ -5,6 +5,7 @@ import { Button, DocumentList, Money, StatusPill, type DocumentListColumn, type 
 import type { PlanDTO, PlanStatusDTO } from "@mezan/contracts";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { PlatformApiError, readPlatformErrorMessage, usePlatformApi } from "./api";
+import { useTenantsQuery } from "./hooks";
 
 const STATUS_KEY: Record<PlanStatusDTO, AppTranslationKey> = {
   active: "platform.plans.status.active",
@@ -54,6 +55,11 @@ export function PlansPage() {
   const isOwner = session?.user.role === "owner";
   const query = usePlansQuery();
   const retire = useRetirePlan();
+  const tenantsQuery = useTenantsQuery();
+  const tenantsByPlan = new Map<string, number>();
+  for (const summary of tenantsQuery.data ?? []) {
+    if (summary.subscription) tenantsByPlan.set(summary.subscription.planId, (tenantsByPlan.get(summary.subscription.planId) ?? 0) + 1);
+  }
   const [retiringId, setRetiringId] = useState<string | null>(null);
   const [rowError, setRowError] = useState<string | null>(null);
   const plans = query.data ?? [];
@@ -85,6 +91,12 @@ export function PlansPage() {
     },
     { key: "modules", header: t("platform.plans.col.modules"), align: "end", render: (row) => <span className="mz-num">{row.modules.length}</span> },
     { key: "seats", header: t("platform.plans.col.seats"), align: "end", render: (row) => <span className="mz-num">{row.seatsIncluded}</span> },
+    {
+      key: "tenants",
+      header: t("platform.plans.col.tenants"),
+      align: "end",
+      render: (row) => <span className="mz-num">{tenantsQuery.data ? (tenantsByPlan.get(row.id) ?? 0) : "—"}</span>,
+    },
     {
       key: "priceMonthly",
       header: t("platform.plans.col.priceMonthly"),
@@ -118,6 +130,16 @@ export function PlansPage() {
               }}
             >
               {t("common.edit")}
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={(e) => {
+                e.stopPropagation();
+                navigate(`new?from=${encodeURIComponent(row.id)}`);
+              }}
+            >
+              {t("platform.plans.duplicate")}
             </Button>
             {row.status === "active" ? (
               <Button

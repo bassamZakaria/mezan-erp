@@ -1838,6 +1838,8 @@ export {
   subscriptionSuspendRequestSchema,
   setBillingAnchorDayRequestSchema,
   type SetBillingAnchorDayRequestDTO,
+  setSubscriptionExtrasRequestSchema,
+  type SetSubscriptionExtrasRequestDTO,
   subscriptionResumeRequestSchema,
   recordPaymentRequestSchema,
   PlatformPaymentRefusal,

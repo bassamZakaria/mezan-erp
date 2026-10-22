@@ -15,6 +15,7 @@ import {
   archiveTenant,
   billingAnchorDayOf,
   setBillingAnchorDay,
+  setSubscriptionExtras,
   recordPayment,
   createPlatformUser,
   deactivatePlatformUser,
@@ -75,6 +76,7 @@ import {
   type TenantBackupListDTO,
   type TenantExportOfferDTO,
   setBillingAnchorDayRequestSchema,
+  setSubscriptionExtrasRequestSchema,
   startSubscriptionRequestSchema,
   changePlanRequestSchema,
   subscriptionSuspendRequestSchema,
@@ -169,6 +171,7 @@ export enum PlatformAuditAction {
   PlatformUserDeactivated = "PLATFORM_USER_DEACTIVATED",
   SubscriptionAnchorDaySet = "SUBSCRIPTION_ANCHOR_DAY_SET",
   SubscriptionCancelled = "SUBSCRIPTION_CANCELLED",
+  SubscriptionExtrasSet = "SUBSCRIPTION_EXTRAS_SET",
   SubscriptionPlanChanged = "SUBSCRIPTION_PLAN_CHANGED",
   SubscriptionResumed = "SUBSCRIPTION_RESUMED",
   SubscriptionStarted = "SUBSCRIPTION_STARTED",
@@ -1270,6 +1273,30 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
           severity: AuditSeverityCode.Warning,
         };
       });
+      return c.json(await summaryOf(tenant));
+    } catch (err) {
+      return domainErrorResponse(c, err);
+    }
+  });
+
+  app.post("/tenants/:id/subscription/extras", requireOwner, async (c) => {
+    const parsed = setSubscriptionExtrasRequestSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    try {
+      const tenant = await requireTenant(c.req.param("id"));
+      await recordedWith(c, async () => {
+        const subscription = await requireLiveSubscription(tenant);
+        await setSubscriptionExtras({ id: subscription.id, ...parsed.data, now: nowIso() }, platform.stores.subscriptions);
+        const before = {
+          addOnModules: [...subscription.addOnModules],
+          extraSeats: subscription.extraSeats,
+          extraBranches: subscription.extraBranches,
+          extraWarehouses: subscription.extraWarehouses,
+          graceDays: subscription.graceDays,
+        };
+        return { value: null, action: PlatformAuditAction.SubscriptionExtrasSet, entityId: tenant.id, details: { before, after: parsed.data } };
+      });
+      invalidateEntitlements(tenant.code);
       return c.json(await summaryOf(tenant));
     } catch (err) {
       return domainErrorResponse(c, err);

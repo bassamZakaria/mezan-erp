@@ -435,6 +435,32 @@ export async function setBillingAnchorDay(cmd: SetBillingAnchorDayCommand, repo:
   return next;
 }
 
+export interface SetSubscriptionExtrasCommand extends SubscriptionCommand {
+  readonly addOnModules: readonly string[];
+  readonly extraSeats: number;
+  readonly extraBranches: number;
+  readonly extraWarehouses: number;
+  readonly graceDays: number;
+}
+
+export async function setSubscriptionExtras(cmd: SetSubscriptionExtrasCommand, repo: SubscriptionRepository): Promise<Subscription> {
+  const s = await load(cmd.id, repo);
+  const now = requireNow(cmd);
+  const extras = {
+    addOnModules: dedupeModules(cmd.addOnModules),
+    extraSeats: cmd.extraSeats,
+    extraBranches: cmd.extraBranches,
+    extraWarehouses: cmd.extraWarehouses,
+    graceDays: cmd.graceDays,
+  };
+  const reasons = validateExtras(extras);
+  if (reasons.length > 0) throw new InvalidSubscriptionError(reasons);
+  assertFrom(s, [SubscriptionStatusKind.Trialing, SubscriptionStatusKind.Active, SubscriptionStatusKind.PastDue, SubscriptionStatusKind.Suspended], s.status);
+  const next: Subscription = { ...s, ...extras, updatedAt: now };
+  await repo.save(next);
+  return next;
+}
+
 export async function renewSubscription(cmd: SubscriptionCommand, repo: SubscriptionRepository): Promise<Subscription> {
   const s = await load(cmd.id, repo);
   const next = applyRenewal(s, cmd.now);

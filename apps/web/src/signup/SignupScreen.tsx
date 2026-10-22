@@ -107,7 +107,7 @@ function SuccessPanel({ result, email }: { result: StartSignupResultDTO; email: 
           </a>
         </div>
       ) : null}
-      <a href="/" className="text-[12.5px] font-semibold text-accent-strong hover:underline">
+      <a href={SIGN_IN_PATH} className="text-[12.5px] font-semibold text-accent-strong hover:underline">
         {t("signup.footer.backHome")}
       </a>
     </Card>

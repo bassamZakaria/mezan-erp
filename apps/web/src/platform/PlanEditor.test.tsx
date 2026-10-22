@@ -106,6 +106,7 @@ describe("PlanEditor", () => {
     await waitFor(() => expect(posted).not.toBeNull());
     expect(posted).toMatchObject({ code: "starter-plus", seatsIncluded: 5, nameAr: "الأساسية" });
     expect(posted!.modules).toEqual([...MODULE_CATALOG]);
+    expect(await screen.findByRole("heading", { name: "الباقات" })).toBeInTheDocument();
   });
 
   it("a copy of a plan that does not exist opens the ordinary blank form", async () => {

@@ -34,6 +34,8 @@ const QUOTA_FIELDS: ReadonlyArray<{ readonly kind: QuotaKindDTO; readonly label:
   { kind: "sales_invoices_per_month", label: "platform.plans.editor.field.quotaSalesInvoices" },
 ];
 
+const PLANS_PATH = "/platform/plans";
+
 const FREE: PlanKindDTO = "free";
 const PAID: PlanKindDTO = "paid";
 
@@ -216,7 +218,7 @@ export function PlanEditor() {
       } else {
         await createPlan.mutateAsync({ code: draft.code.trim(), ...shared });
       }
-      navigate("..");
+      navigate(PLANS_PATH);
     } catch (err) {
       setFormError(err instanceof PlatformApiError ? err.message : t("platform.plans.editor.saveFailed"));
     }
@@ -226,7 +228,7 @@ export function PlanEditor() {
     if (!editingId) return;
     try {
       await retirePlan.mutateAsync(editingId);
-      navigate("..");
+      navigate(PLANS_PATH);
     } catch (err) {
       setFormError(err instanceof PlatformApiError ? err.message : t("platform.plans.retireFailed"));
     }
@@ -234,7 +236,7 @@ export function PlanEditor() {
 
   if (notFound) {
     return (
-      <FormPage eyebrow={t("platform.nav.plans")} title={t("platform.plans.editor.editTitle")} actions={<Button onClick={() => navigate("..")}>{t("common.cancel")}</Button>}>
+      <FormPage eyebrow={t("platform.nav.plans")} title={t("platform.plans.editor.editTitle")} actions={<Button onClick={() => navigate(PLANS_PATH)}>{t("common.cancel")}</Button>}>
         <FormError message={t("platform.plans.editor.loadFailed")} />
       </FormPage>
     );
@@ -249,7 +251,7 @@ export function PlanEditor() {
       title={editingId ? t("platform.plans.editor.editTitle") : copySource ? t("platform.plans.editor.duplicateTitle") : t("platform.plans.editor.newTitle")}
       actions={
         <>
-          <Button type="button" onClick={() => navigate("..")}>
+          <Button type="button" onClick={() => navigate(PLANS_PATH)}>
             {t("common.cancel")}
           </Button>
           {!readOnly && editingId && plan?.status === "active" ? (

@@ -142,3 +142,5 @@ export function parsePath(pathname: string, fallback: ScreenKey): Route {
   }
   return { screen: fallback, segments: [] };
 }
+
+export const SIGN_IN_PATH = `/${routePathForScreen("dashboard")}`;

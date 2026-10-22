@@ -368,6 +368,15 @@ describe("createCloudApp", () => {
       expect(unlock).not.toContain("mezan-site");
     });
 
+    it("keeps a tenant's own subdomain on the app, and shows the landing page only on the platform host", async () => {
+      const app = await boot(testEnv({ publicLanding: true, tenantDomain: "mezan.test" }));
+      const page = async (host: string, path = "/") => (await app.root.fetch(new Request(`http://${host}${path}`, { headers: { host } }))).text();
+
+      expect(await page("mezan.test")).toContain("mezan-site");
+      expect(await page("acme.mezan.test")).not.toContain("mezan-site");
+      expect(await page("acme.mezan.test", "/sales-invoices")).not.toContain("mezan-site");
+    });
+
     it("serves the unlock-link page uncached, with no referrer and without the script a deployment injects into every other page", async () => {
       const BEACON = '<script src="https://analytics.example/beacon.js"></script>';
       const app = await boot(testEnv(), { transformIndexHtml: (html) => html.replace("</body>", `${BEACON}</body>`) });

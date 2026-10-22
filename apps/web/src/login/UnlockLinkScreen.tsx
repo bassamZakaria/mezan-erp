@@ -5,6 +5,7 @@ import { useUnlockAccountByLink } from "../data/hooks";
 import { SignInNotice, markSignInNotice, persistTenantCode } from "../data/session";
 import { useAppTranslation } from "../i18n";
 import { SignupLayout } from "../signup/SignupLayout";
+import { SIGN_IN_PATH } from "../routing";
 
 export function UnlockLinkScreen() {
   const { t } = useAppTranslation();
@@ -62,7 +63,7 @@ export function UnlockLinkScreen() {
             {t("login.unlockLink.missing")}
           </p>
         )}
-        <a href="/" className="text-[12.5px] font-semibold text-accent-strong hover:underline">
+        <a href={SIGN_IN_PATH} className="text-[12.5px] font-semibold text-accent-strong hover:underline">
           {t("login.unlockLink.backToSignIn")}
         </a>
       </Card>

@@ -5,7 +5,7 @@ import { ArabicCase, CountedNoun } from "@mezan/domain";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useCountPhrase } from "../lib/count-phrase";
 import { LanguageToggle } from "../i18n/LanguageToggle";
-import { routePathForScreen } from "../routing";
+import { SIGN_IN_PATH } from "../routing";
 import { usePublicPlans } from "../signup/signup-api";
 import { HeroLedger } from "./HeroLedger";
 import { PricingSection } from "./PricingSection";
@@ -25,7 +25,6 @@ enum SectionTone {
   Raised = "raised",
 }
 
-const SIGN_IN_PATH = `/${routePathForScreen("dashboard")}`;
 const SIGNUP_PATH = "/signup";
 
 const NAV: readonly { id: SectionId; label: AppTranslationKey }[] = [

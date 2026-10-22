@@ -62,7 +62,7 @@ describe("the page a mailed unlock link opens", () => {
     fireEvent.click(screen.getByRole("button", { name: "فكّ القفل" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("رابط فكّ القفل غير صالح، أو انتهت صلاحيته، أو استُخدم من قبل.");
-    expect(screen.getByRole("link", { name: "العودة إلى تسجيل الدخول" })).toHaveAttribute("href", "/");
+    expect(screen.getByRole("link", { name: "العودة إلى تسجيل الدخول" })).toHaveAttribute("href", "/dashboard");
     expect(pendingSignInNotice()).toBeNull();
   });
 

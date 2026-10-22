@@ -10,6 +10,7 @@ import { Field, FormError, TextField } from "../settings/form-controls";
 import { SignupLayout } from "./SignupLayout";
 import { checkCodeAvailability, SignupApiError, startSignup, usePublicPlans } from "./signup-api";
 import type { AppTranslationKey } from "../i18n";
+import { SIGN_IN_PATH } from "../routing";
 
 const TENANT_CODE_RE = /^[a-z0-9](?:[a-z0-9-]{1,30}[a-z0-9])$/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -374,7 +375,7 @@ export function SignupScreen() {
         </Button>
 
         <p className="text-center text-[12px] text-ink-muted">
-          {t("signup.footer.haveAccount")} <a href="/" className="font-semibold text-accent-strong hover:underline">{t("signup.footer.signIn")}</a>
+          {t("signup.footer.haveAccount")} <a href={SIGN_IN_PATH} className="font-semibold text-accent-strong hover:underline">{t("signup.footer.signIn")}</a>
         </p>
       </Card>
     </SignupLayout>

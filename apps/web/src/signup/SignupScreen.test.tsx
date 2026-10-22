@@ -51,6 +51,12 @@ describe("SignupScreen — arriving from the pricing page", () => {
     expect(screen.getByRole("button", { name: /الأساسية/, pressed: false })).toHaveTextContent("4,900");
   });
 
+  it("sends 'sign in' to the app's sign-in, not to / where the cloud site shows its landing page", async () => {
+    open("/signup");
+
+    expect(await screen.findByRole("link", { name: "سجّل الدخول" })).toHaveAttribute("href", "/dashboard");
+  });
+
   it("keeps the plan the visitor clicks over the one the pricing page asked for", async () => {
     open("/signup?plan=business&cycle=monthly");
     await screen.findByRole("button", { name: /الأعمال/, pressed: true });

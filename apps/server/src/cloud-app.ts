@@ -29,6 +29,7 @@ import { provisionDemoTenant } from "./demo-tenant.js";
 import { provisionReviewTenant } from "./review-tenant.js";
 import { createLegalRoutes, LEGAL_BASE_PATH } from "./legal-routes.js";
 import { withCloudSiteHead } from "./site-head.js";
+import { requestHost, tenantSlugOfHost } from "./tenant-resolver.js";
 import { startDunningTimer } from "./dunning.js";
 import { startOwnerDigestTimer } from "./owner-digest.js";
 import { startCollectionsTimer } from "./collections-schedule.js";
@@ -536,10 +537,13 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
 
   const rawIndexHtml = await readIndexHtmlIfPresent(env.webDist);
   if (rawIndexHtml !== null) {
-    const siteHtml = env.publicLanding ? withCloudSiteHead(rawIndexHtml) : rawIndexHtml;
-    const indexHtml = options.transformIndexHtml ? options.transformIndexHtml(siteHtml) : siteHtml;
-    root.get("/", (c) => c.html(indexHtml));
-    root.get("/index.html", (c) => c.html(indexHtml));
+    const transform = (html: string) => (options.transformIndexHtml ? options.transformIndexHtml(html) : html);
+    const appHtml = transform(rawIndexHtml);
+    const siteHtml = env.publicLanding ? transform(withCloudSiteHead(rawIndexHtml)) : appHtml;
+    // A tenant's own subdomain is that company's app, never the platform's marketing page.
+    const indexHtmlFor = (request: Request) => (tenantSlugOfHost(requestHost(request, env.trustProxy), env.tenantDomain) === null ? siteHtml : appHtml);
+    root.get("/", (c) => c.html(indexHtmlFor(c.req.raw)));
+    root.get("/index.html", (c) => c.html(indexHtmlFor(c.req.raw)));
     // SECURITY: the page a mailed unlock link opens. The link's token is in the
     // fragment and never reaches here; these headers keep the page out of every
     // cache and stop the browser naming it to any site it goes on to. It is
@@ -552,7 +556,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
       return c.html(rawIndexHtml);
     });
     root.use("/*", serveStatic({ root: env.webDist }));
-    root.notFound((c) => c.html(indexHtml));
+    root.notFound((c) => c.html(indexHtmlFor(c.req.raw)));
   } else {
     root.notFound((c) => c.json({ error: "NOT_FOUND", message: "لا توجد حزمة واجهة مبنية" }, 404));
   }

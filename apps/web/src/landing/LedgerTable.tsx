@@ -15,7 +15,6 @@ function Amount({ piastres }: { piastres: number }) {
   return piastres === 0 ? <span className="text-ink-faint">—</span> : <Money value={piastresToDecimal(piastres)} showUnit={false} />;
 }
 
-/** The journal entry a sale posts. `animated` staggers the rows in for the hero's opening sequence. */
 export function LedgerTable({ lines, animated = false }: { lines: readonly LedgerLine[]; animated?: boolean }) {
   const { t } = useAppTranslation();
   const rowClass = animated ? "mz-landing-row" : undefined;

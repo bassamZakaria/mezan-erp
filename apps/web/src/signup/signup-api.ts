@@ -6,6 +6,7 @@ import type {
   VerifySignupRequestDTO,
   VerifySignupResultDTO,
 } from "@mezan/contracts";
+import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { createHttpTransport } from "../data/transport";
 
 /**
@@ -45,6 +46,12 @@ export async function fetchPublicPlans(): Promise<PublicPlanDTO[]> {
   const res = await transport("/plans");
   if (!res.ok) throw await readError(res, "تعذّر تحميل الباقات");
   return res.json<PublicPlanDTO[]>();
+}
+
+export const PUBLIC_PLANS_QUERY_KEY = ["signup", "plans"] as const;
+
+export function usePublicPlans(): UseQueryResult<PublicPlanDTO[]> {
+  return useQuery<PublicPlanDTO[]>({ queryKey: PUBLIC_PLANS_QUERY_KEY, queryFn: fetchPublicPlans });
 }
 
 /** `null` means the check itself failed (offline, 429, …) — distinct from a definite "taken". */

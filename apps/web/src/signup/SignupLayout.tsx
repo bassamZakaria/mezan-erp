@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
-import { BrandMark, Button, Copyright } from "@mezan/ui";
-import { useAppTranslation } from "../i18n";
+import { BrandMark, Copyright } from "@mezan/ui";
+import { LanguageToggle } from "../i18n/LanguageToggle";
 
 /**
  * The public signup flow's own shell — no nav rail, no session, phone-width
@@ -22,14 +22,5 @@ export function SignupLayout({ children, maxWidthClassName = "max-w-[560px]" }: 
         <Copyright />
       </div>
     </div>
-  );
-}
-
-export function LanguageToggle() {
-  const { locale, setLocale } = useAppTranslation();
-  return (
-    <Button variant="ghost" size="sm" onClick={() => setLocale(locale === "ar" ? "en" : "ar")}>
-      {locale === "ar" ? "English" : "العربية"}
-    </Button>
   );
 }

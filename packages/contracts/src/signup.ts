@@ -72,3 +72,6 @@ export type StartSignupRequestDTO = z.infer<typeof startSignupRequestSchema>;
 export type StartSignupResultDTO = z.infer<typeof startSignupResultSchema>;
 export type VerifySignupRequestDTO = z.infer<typeof verifySignupRequestSchema>;
 export type VerifySignupResultDTO = z.infer<typeof verifySignupResultSchema>;
+
+// CONTRACT: the cloud server stamps this meta tag into index.html and the web app reads it to open the public landing page at `/`.
+export const CLOUD_SITE_META = { name: "mezan-site", content: "cloud" } as const;

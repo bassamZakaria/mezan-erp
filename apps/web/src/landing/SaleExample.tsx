@@ -18,8 +18,14 @@ interface StepperProps {
 function Stepper({ label, value, step, min, max, onChange }: StepperProps) {
   const { t } = useAppTranslation();
   const id = useId();
+  const [draft, setDraft] = useState<string | null>(null);
   const name = t(label);
-  const clamp = (next: number) => Math.min(max, Math.max(min, Number.isFinite(next) ? Math.round(next) : min));
+  const clamp = (next: number) => Math.min(max, Math.max(min, Math.round(next)));
+  function commit(raw: string) {
+    setDraft(null);
+    const parsed = Number(raw);
+    if (raw.trim() !== "" && Number.isFinite(parsed)) onChange(clamp(parsed));
+  }
   return (
     <div>
       <label htmlFor={id} className="mb-[6px] block text-xs font-semibold text-ink-muted">
@@ -43,8 +49,17 @@ function Stepper({ label, value, step, min, max, onChange }: StepperProps) {
           min={min}
           max={max}
           step={step}
-          value={value}
-          onChange={(event) => onChange(clamp(event.target.valueAsNumber))}
+          value={draft ?? String(value)}
+          onChange={(event) => {
+            const raw = event.target.value;
+            setDraft(raw);
+            const parsed = Number(raw);
+            if (raw.trim() !== "" && Number.isFinite(parsed) && parsed >= min && parsed <= max) onChange(Math.round(parsed));
+          }}
+          onBlur={(event) => commit(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") commit(event.currentTarget.value);
+          }}
           className="min-h-[44px] w-full min-w-0 rounded-none border-0 border-x border-border bg-transparent text-center text-[15px]"
         />
         <button
@@ -61,12 +76,14 @@ function Stepper({ label, value, step, min, max, onChange }: StepperProps) {
   );
 }
 
-function Figure({ label, children }: { label: AppTranslationKey; children: ReactNode }) {
+function Figure({ label, live = false, children }: { label: AppTranslationKey; live?: boolean; children: ReactNode }) {
   const { t } = useAppTranslation();
   return (
     <div className="rounded-md bg-surface-2 px-[14px] py-[12px]">
       <dt className="text-xs text-ink-muted">{t(label)}</dt>
-      <dd className="mt-[2px] font-display text-lg font-bold text-ink">{children}</dd>
+      <dd className="mt-[2px] font-display text-lg font-bold text-ink" aria-live={live ? "polite" : undefined}>
+        {children}
+      </dd>
     </div>
   );
 }
@@ -94,8 +111,8 @@ export function SaleExample() {
       </div>
 
       <div className="flex flex-col gap-[14px]">
-        <dl className="grid grid-cols-2 gap-[10px] sm:grid-cols-4" aria-live="polite">
-          <Figure label="landing.example.invoiceTotal">
+        <dl className="grid grid-cols-2 gap-[10px] sm:grid-cols-4">
+          <Figure label="landing.example.invoiceTotal" live>
             <Money value={piastresToDecimal(sale.totalPiastres)} />
           </Figure>
           <Figure label="landing.example.customerOwes">

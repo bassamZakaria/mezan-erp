@@ -94,7 +94,6 @@ export const routes: RouteObject[] = [
    */
   { path: "/signup/*", Component: SignupApp },
   { path: "/unlock", Component: UnlockLinkScreen },
-  /** The public landing page, reachable by address on any build; the cloud site also shows it at `/` (RootEntry). */
   {
     path: LANDING_PATH,
     lazy: async () => ({ Component: (await import("../landing/LandingPage")).LandingPage }),

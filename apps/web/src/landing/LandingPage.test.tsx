@@ -2,9 +2,11 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
 import type { PublicPlanDTO } from "@mezan/contracts";
+import { PlanKind, QuotaKind } from "@mezan/domain";
 import { AppI18nProvider } from "../i18n";
 import { LandingPage } from "./LandingPage";
 
@@ -13,7 +15,7 @@ const plan = (overrides: Partial<PublicPlanDTO>): PublicPlanDTO => ({
   code: "x",
   nameAr: "س",
   nameEn: "X",
-  kind: "paid",
+  kind: PlanKind.Paid,
   modules: ["accounting", "sales", "purchases", "inventory", "treasury"],
   seatsIncluded: 3,
   branchesIncluded: 1,
@@ -26,7 +28,7 @@ const plan = (overrides: Partial<PublicPlanDTO>): PublicPlanDTO => ({
 });
 
 const PLANS: PublicPlanDTO[] = [
-  plan({ id: "PLAN-FREE", code: "free", nameAr: "المجانية", nameEn: "Free", kind: "free", seatsIncluded: 2, quotas: { sales_invoices_per_month: 100 }, priceMonthly: "0.00", priceYearly: "0.00", trialDays: 0 }),
+  plan({ id: "PLAN-FREE", code: "free", nameAr: "المجانية", nameEn: "Free", kind: PlanKind.Free, seatsIncluded: 2, quotas: { [QuotaKind.SalesInvoicesPerMonth]: 100 }, priceMonthly: "0.00", priceYearly: "0.00", trialDays: 0 }),
   plan({ id: "PLAN-CORE", code: "core", nameAr: "الأساسية", nameEn: "Core", modules: ["accounting", "sales", "purchases", "inventory", "treasury", "audit"] }),
   plan({
     id: "PLAN-BUSINESS",
@@ -67,6 +69,25 @@ describe("LandingPage", () => {
 
     expect(await screen.findByText(/جرّب ميزان 14 يومًا بكل المزايا/)).toBeInTheDocument();
     for (const link of screen.getAllByRole("link", { name: "ابدأ التجربة المجانية" })) expect(link).toHaveAttribute("href", "/signup");
+    for (const link of screen.getAllByRole("link", { name: "تسجيل الدخول" })) expect(link).toHaveAttribute("href", "/dashboard");
+  });
+
+  it("lets a visitor clear a field and type a new quantity digit by digit without it jumping", async () => {
+    open(ok(PLANS));
+    const user = userEvent.setup();
+
+    const quantity = screen.getByRole("spinbutton", { name: "الكمية (كرتونة)" });
+    await user.clear(quantity);
+    await user.type(quantity, "50");
+
+    expect(quantity).toHaveValue(50);
+    const example = screen.getByRole("heading", { name: "جرّب مثالًا", level: 2 }).closest("section")!;
+    expect(within(example).getByText("350 من 400")).toBeInTheDocument();
+
+    await user.clear(quantity);
+    await user.type(quantity, "999");
+    await user.tab();
+    expect(quantity).toHaveValue(400);
   });
 
   it("prices each plan from the API, names the Free plan's limits, and links each card to signup with its plan and cycle", async () => {
@@ -78,7 +99,7 @@ describe("LandingPage", () => {
     expect(within(free).getByText("حتى 100 فاتورة بيع شهريًا")).toBeInTheDocument();
 
     const business = screen.getByTestId("landing-plan-business");
-    expect(within(business).getByText("الأكثر اختيارًا")).toBeInTheDocument();
+    expect(within(business).getByText("نرشّحها لأغلب الشركات")).toBeInTheDocument();
     expect(within(business).getByText("10 مستخدمين")).toBeInTheDocument();
     expect(within(business).getByText("كل ما في «الأساسية»، ومعه:")).toBeInTheDocument();
     expect(within(business).queryByText("المحاسبة")).not.toBeInTheDocument();
@@ -108,7 +129,7 @@ describe("LandingPage", () => {
   it("recomputes the example's entry as the quantity changes, and the entry always balances", async () => {
     open(ok(PLANS));
 
-    const quantity = screen.getByLabelText("الكمية (كرتونة)");
+    const quantity = screen.getByRole("spinbutton", { name: "الكمية (كرتونة)" });
     fireEvent.change(quantity, { target: { value: "10" } });
 
     const example = screen.getByRole("heading", { name: "جرّب مثالًا", level: 2 }).closest("section")!;

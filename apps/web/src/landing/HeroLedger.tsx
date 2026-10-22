@@ -2,16 +2,14 @@ import { useState, type CSSProperties } from "react";
 import { Money } from "@mezan/ui";
 import { useAppTranslation } from "../i18n";
 import { LedgerTable } from "./LedgerTable";
-import { LedgerSide, piastresToDecimal, postSale, sumSide } from "./ledger-math";
+import { piastresToDecimal, postSale } from "./ledger-math";
 
 const HERO_SALE = postSale({ quantity: 120, unitPricePiastres: 31_000, unitCostPiastres: 25_500, withVat: true });
 
-/** The scale the product is named for: tilted while the entry is written, level once debit equals credit. */
-function BalanceScale({ debit, credit }: { debit: string; credit: string }) {
-  const { t } = useAppTranslation();
+function BalanceScale() {
   return (
-    <figure className="flex flex-col items-center" aria-hidden="true">
-      <svg viewBox="0 0 240 150" className="h-auto w-full max-w-[260px] text-brand">
+    <div className="flex justify-center">
+      <svg viewBox="0 0 240 150" aria-hidden="true" className="h-auto w-full max-w-[260px] text-brand">
         <line x1="120" y1="34" x2="120" y2="132" stroke="currentColor" strokeWidth="4" strokeLinecap="round" />
         <path d="M86 140h68" stroke="currentColor" strokeWidth="5" strokeLinecap="round" />
         <g className="mz-landing-beam">
@@ -29,18 +27,13 @@ function BalanceScale({ debit, credit }: { debit: string; credit: string }) {
         </g>
         <circle cx="120" cy="34" r="6" fill="var(--accent-bright)" />
       </svg>
-      <figcaption className="sr-only">
-        {t("landing.ledger.debit")} {debit} · {t("landing.ledger.credit")} {credit}
-      </figcaption>
-    </figure>
+    </div>
   );
 }
 
 export function HeroLedger() {
   const { t } = useAppTranslation();
   const [run, setRun] = useState(0);
-  const debit = piastresToDecimal(sumSide(HERO_SALE.lines, LedgerSide.Debit));
-  const credit = piastresToDecimal(sumSide(HERO_SALE.lines, LedgerSide.Credit));
   const settle = { "--settle": `${HERO_SALE.lines.length * 260 + 650}ms` } as CSSProperties;
 
   return (
@@ -62,7 +55,7 @@ export function HeroLedger() {
           <LedgerTable lines={HERO_SALE.lines} animated />
         </div>
         <div className="hidden md:block">
-          <BalanceScale debit={debit} credit={credit} />
+          <BalanceScale />
         </div>
       </div>
 

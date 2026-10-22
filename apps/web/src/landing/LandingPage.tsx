@@ -1,15 +1,14 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router";
-import { useQuery } from "@tanstack/react-query";
 import { BrandMark, Copyright, cn } from "@mezan/ui";
-import type { PublicPlanDTO } from "@mezan/contracts";
 import { ArabicCase, CountedNoun } from "@mezan/domain";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useCountPhrase } from "../lib/count-phrase";
-import { fetchPublicPlans } from "../signup/signup-api";
-import { LanguageToggle } from "../signup/SignupLayout";
+import { LanguageToggle } from "../i18n/LanguageToggle";
+import { routePathForScreen } from "../routing";
+import { usePublicPlans } from "../signup/signup-api";
 import { HeroLedger } from "./HeroLedger";
-import { PricingSection, PUBLIC_PLANS_QUERY_KEY } from "./PricingSection";
+import { PricingSection } from "./PricingSection";
 import { SaleExample } from "./SaleExample";
 import { WHATSAPP_NUMBER, whatsappHref } from "./site";
 import "./landing.css";
@@ -26,7 +25,7 @@ enum SectionTone {
   Raised = "raised",
 }
 
-const SIGN_IN_PATH = "/dashboard";
+const SIGN_IN_PATH = `/${routePathForScreen("dashboard")}`;
 const SIGNUP_PATH = "/signup";
 
 const NAV: readonly { id: SectionId; label: AppTranslationKey }[] = [
@@ -89,8 +88,7 @@ function SectionHeading({ title, lead }: { title: string; lead?: string }) {
 }
 
 function useTrialDays(): number {
-  const plans = useQuery<PublicPlanDTO[]>({ queryKey: PUBLIC_PLANS_QUERY_KEY, queryFn: fetchPublicPlans });
-  return (plans.data ?? []).reduce((most, plan) => Math.max(most, plan.trialDays), 0);
+  return (usePublicPlans().data ?? []).reduce((most, plan) => Math.max(most, plan.trialDays), 0);
 }
 
 function WhatsAppLink({ className, children }: { className: string; children: ReactNode }) {
@@ -112,9 +110,9 @@ export function LandingPage() {
     <div className="mz-landing min-h-screen bg-bg text-ink">
       <header className="sticky top-0 z-20 border-b border-border bg-surface">
         <div className="mx-auto flex min-h-[64px] w-full max-w-[1120px] items-center gap-[12px] px-[16px] sm:px-[24px]">
-          <a href="#top" className="flex items-center gap-[8px]">
+          <a href="#top" className="flex min-h-[44px] items-center gap-[8px]">
             <BrandMark className="h-[28px] w-[28px] flex-none text-brand" />
-            <span className="font-display text-[17px] font-bold text-ink">ميزان</span>
+            <span className="font-display text-[17px] font-bold text-ink">{t("landing.brand")}</span>
           </a>
           <nav aria-label={t("landing.nav.label")} className="ms-[16px] hidden items-center gap-[4px] lg:flex">
             {NAV.map((item) => (
@@ -125,10 +123,10 @@ export function LandingPage() {
           </nav>
           <div className="ms-auto flex items-center gap-[4px]">
             <LanguageToggle />
-            <Link to={SIGN_IN_PATH} className="hidden min-h-[44px] items-center rounded-md px-[10px] text-[14px] font-semibold text-ink hover:bg-surface-2 sm:inline-flex">
+            <Link to={SIGN_IN_PATH} className="inline-flex min-h-[44px] items-center rounded-md px-[10px] text-[14px] font-semibold text-ink hover:bg-surface-2">
               {t("landing.nav.signIn")}
             </Link>
-            <Link to={SIGNUP_PATH} className="inline-flex min-h-[44px] items-center rounded-md bg-brand px-[14px] text-[14px] font-semibold text-brand-ink hover:bg-brand-strong">
+            <Link to={SIGNUP_PATH} className="hidden min-h-[44px] items-center rounded-md bg-brand px-[14px] text-[14px] font-semibold text-brand-ink hover:bg-brand-strong sm:inline-flex">
               {t("landing.cta.start")}
             </Link>
           </div>
@@ -271,7 +269,7 @@ export function LandingPage() {
               <h2 className="font-display text-[30px] font-bold leading-[1.3]">{t("landing.final.title")}</h2>
               <p className="mt-[6px] text-[16px] opacity-90">{t("landing.final.body")}</p>
             </div>
-            <Link to={SIGNUP_PATH} className="inline-flex min-h-[48px] items-center rounded-md bg-surface px-[22px] text-[15px] font-semibold text-ink hover:bg-surface-2">
+            <Link to={SIGNUP_PATH} className="mz-landing-on-brand inline-flex min-h-[48px] items-center rounded-md bg-surface px-[22px] text-[15px] font-semibold text-ink hover:bg-surface-2">
               {t("landing.cta.start")}
             </Link>
           </div>
@@ -281,14 +279,14 @@ export function LandingPage() {
       <footer className="border-t border-border bg-surface px-[16px] py-[28px] sm:px-[24px]">
         <div className="mx-auto flex w-full max-w-[1120px] flex-col gap-[14px] lg:flex-row lg:items-center lg:justify-between">
           <p className="text-[13px] text-ink-muted">{t("landing.footer.tagline")}</p>
-          <nav className="flex flex-wrap gap-x-[18px] gap-y-[6px] text-[13px]">
-            <a href="/legal/privacy" className="py-[8px] text-ink-muted hover:text-ink hover:underline">
+          <nav aria-label={t("landing.footer.label")} className="flex flex-wrap gap-x-[18px] gap-y-[6px] text-[13px]">
+            <a href="/legal/privacy" className="inline-flex min-h-[44px] items-center text-ink-muted hover:text-ink hover:underline">
               {t("landing.footer.privacy")}
             </a>
-            <a href="/legal/account-deletion" className="py-[8px] text-ink-muted hover:text-ink hover:underline">
+            <a href="/legal/account-deletion" className="inline-flex min-h-[44px] items-center text-ink-muted hover:text-ink hover:underline">
               {t("landing.footer.deletion")}
             </a>
-            <Link to={SIGN_IN_PATH} className="py-[8px] text-ink-muted hover:text-ink hover:underline">
+            <Link to={SIGN_IN_PATH} className="inline-flex min-h-[44px] items-center text-ink-muted hover:text-ink hover:underline">
               {t("landing.footer.signIn")}
             </Link>
           </nav>

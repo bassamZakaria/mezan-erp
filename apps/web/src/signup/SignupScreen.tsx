@@ -1,6 +1,5 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
-import { useQuery } from "@tanstack/react-query";
 import { Button, Card, Money, TextInput } from "@mezan/ui";
 import type { BillingCycleDTO, PublicPlanDTO, StartSignupRequestDTO, StartSignupResultDTO } from "@mezan/contracts";
 import { ArabicCase, CountedNoun } from "@mezan/domain";
@@ -9,7 +8,7 @@ import { useCountPhrase } from "../lib/count-phrase";
 import { COMPANY_NAME_MAX_LENGTH, billingCycleSchema } from "@mezan/contracts";
 import { Field, FormError, TextField } from "../settings/form-controls";
 import { SignupLayout } from "./SignupLayout";
-import { checkCodeAvailability, fetchPublicPlans, SignupApiError, startSignup } from "./signup-api";
+import { checkCodeAvailability, SignupApiError, startSignup, usePublicPlans } from "./signup-api";
 import type { AppTranslationKey } from "../i18n";
 
 const TENANT_CODE_RE = /^[a-z0-9](?:[a-z0-9-]{1,30}[a-z0-9])$/;
@@ -158,7 +157,7 @@ export function SignupScreen() {
       [SignupField.Code]: draft.code.trim() === "",
       [SignupField.OwnerNameAr]: draft.ownerNameAr.trim() === "",
       [SignupField.OwnerEmail]: draft.ownerEmail.trim() === "",
-      [SignupField.Plan]: draft.planId === "",
+      [SignupField.Plan]: planId === "",
     };
     for (const field of FIELD_ORDER) if (blank[field]) errors[field] = t(FIELD_REQUIRED[field]);
     if (!blank[SignupField.Code] && !TENANT_CODE_RE.test(draft.code)) errors[SignupField.Code] = t("signup.tenantCodeInvalid");
@@ -168,12 +167,9 @@ export function SignupScreen() {
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<StartSignupResultDTO | null>(null);
 
-  const plansQuery = useQuery<PublicPlanDTO[]>({ queryKey: ["signup", "plans"], queryFn: fetchPublicPlans });
+  const plansQuery = usePublicPlans();
   const requestedPlanCode = params.get("plan");
-  const requestedPlanId = plansQuery.data?.find((plan) => plan.code === requestedPlanCode)?.id;
-  useEffect(() => {
-    if (requestedPlanId) setDraft((d) => (d.planId === "" ? { ...d, planId: requestedPlanId } : d));
-  }, [requestedPlanId]);
+  const planId = draft.planId || (plansQuery.data?.find((plan) => plan.code === requestedPlanCode)?.id ?? "");
 
   async function handleCodeBlur() {
     const code = draft.code.trim().toLowerCase();
@@ -207,7 +203,7 @@ export function SignupScreen() {
       nameEn: draft.nameEn.trim() === "" ? null : draft.nameEn.trim(),
       ownerEmail: draft.ownerEmail.trim().toLowerCase(),
       ownerNameAr: draft.ownerNameAr.trim(),
-      planId: draft.planId,
+      planId,
       billingCycle: draft.billingCycle,
       website: draft.website,
     };
@@ -360,7 +356,7 @@ export function SignupScreen() {
           ) : (
             <div className="flex flex-col gap-[10px] sm:flex-row">
               {plans.map((plan) => (
-                <PlanCard key={plan.id} plan={plan} cycle={draft.billingCycle} selected={draft.planId === plan.id} onSelect={() => edit(SignupField.Plan, (d) => ({ ...d, planId: plan.id }))} />
+                <PlanCard key={plan.id} plan={plan} cycle={draft.billingCycle} selected={planId === plan.id} onSelect={() => edit(SignupField.Plan, (d) => ({ ...d, planId: plan.id }))} />
               ))}
             </div>
           )}

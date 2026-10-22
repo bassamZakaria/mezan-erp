@@ -2,6 +2,7 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
 import type { PublicPlanDTO } from "@mezan/contracts";
@@ -48,6 +49,16 @@ describe("SignupScreen — arriving from the pricing page", () => {
 
     expect(await screen.findByRole("button", { name: /الأعمال/, pressed: true })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /الأساسية/, pressed: false })).toHaveTextContent("4,900");
+  });
+
+  it("keeps the plan the visitor clicks over the one the pricing page asked for", async () => {
+    open("/signup?plan=business&cycle=monthly");
+    await screen.findByRole("button", { name: /الأعمال/, pressed: true });
+
+    await userEvent.setup().click(screen.getByRole("button", { name: /الأساسية/ }));
+
+    expect(screen.getByRole("button", { name: /الأساسية/, pressed: true })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /الأعمال/, pressed: false })).toBeInTheDocument();
   });
 
   it("selects nothing for an unknown plan code or cycle, leaving the visitor to choose", async () => {

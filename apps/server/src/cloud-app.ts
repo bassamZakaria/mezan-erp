@@ -536,7 +536,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
 
   const rawIndexHtml = await readIndexHtmlIfPresent(env.webDist);
   if (rawIndexHtml !== null) {
-    const siteHtml = withCloudSiteHead(rawIndexHtml);
+    const siteHtml = env.publicLanding ? withCloudSiteHead(rawIndexHtml) : rawIndexHtml;
     const indexHtml = options.transformIndexHtml ? options.transformIndexHtml(siteHtml) : siteHtml;
     root.get("/", (c) => c.html(indexHtml));
     root.get("/index.html", (c) => c.html(indexHtml));

@@ -1,20 +1,13 @@
 import { useState } from "react";
 import { Link } from "react-router";
-import { useQuery } from "@tanstack/react-query";
 import { Button, Money, Segmented, StatusPill, cn } from "@mezan/ui";
 import type { PublicPlanDTO } from "@mezan/contracts";
-import { CountedNoun } from "@mezan/domain";
+import { BillingCycleKind, CountedNoun, PlanKind, QuotaKind } from "@mezan/domain";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useCountPhrase } from "../lib/count-phrase";
 import { entitlementModuleLabel } from "../domain-labels";
-import { fetchPublicPlans } from "../signup/signup-api";
-
-export const PUBLIC_PLANS_QUERY_KEY = ["signup", "plans"] as const;
-
-enum BillingCycle {
-  Monthly = "monthly",
-  Yearly = "yearly",
-}
+import { usePublicPlans } from "../signup/signup-api";
+import { WHATSAPP_NUMBER, whatsappHref } from "./site";
 
 enum PlanCode {
   Free = "free",
@@ -33,30 +26,31 @@ const AUDIENCE: Record<PlanCode, AppTranslationKey> = {
   [PlanCode.Enterprise]: "landing.pricing.audience.enterprise",
 };
 
-const SALES_INVOICE_QUOTA = "sales_invoices_per_month";
-
 function audienceOf(code: string): AppTranslationKey | null {
   return (AUDIENCE as Readonly<Record<string, AppTranslationKey | undefined>>)[code] ?? null;
 }
 
 function isFree(plan: PublicPlanDTO): boolean {
-  return Number(plan.priceMonthly) === 0 && Number(plan.priceYearly) === 0;
+  return plan.kind === PlanKind.Free;
 }
 
-/** Only claim "two months free" when every paid plan really is priced that way; the console can change prices. */
+function piastres(decimal: string): number {
+  return Math.round(Number(decimal) * 100);
+}
+
 function yearlySavesTwoMonths(plans: readonly PublicPlanDTO[]): boolean {
   const paid = plans.filter((plan) => !isFree(plan));
-  return paid.length > 0 && paid.every((plan) => Number(plan.priceYearly) === Number(plan.priceMonthly) * MONTHS_PAID_FOR_A_YEAR);
+  return paid.length > 0 && paid.every((plan) => piastres(plan.priceYearly) === piastres(plan.priceMonthly) * MONTHS_PAID_FOR_A_YEAR);
 }
 
-function PlanCard({ plan, previous, cycle }: { plan: PublicPlanDTO; previous: PublicPlanDTO | null; cycle: BillingCycle }) {
+function PlanCard({ plan, previous, cycle }: { plan: PublicPlanDTO; previous: PublicPlanDTO | null; cycle: BillingCycleKind }) {
   const { t, locale } = useAppTranslation();
   const countPhrase = useCountPhrase();
   const popular = plan.code === POPULAR_PLAN;
   const name = locale === "ar" ? plan.nameAr : plan.nameEn;
-  const price = cycle === BillingCycle.Monthly ? plan.priceMonthly : plan.priceYearly;
+  const price = cycle === BillingCycleKind.Monthly ? plan.priceMonthly : plan.priceYearly;
   const audience = audienceOf(plan.code);
-  const invoiceCap = plan.quotas?.[SALES_INVOICE_QUOTA];
+  const invoiceCap = plan.quotas?.[QuotaKind.SalesInvoicesPerMonth];
   const builtOn = previous !== null && previous.modules.every((id) => plan.modules.includes(id)) ? previous : null;
   const inherited = new Set(builtOn?.modules ?? []);
   const added = plan.modules.filter((id) => !inherited.has(id));
@@ -88,7 +82,7 @@ function PlanCard({ plan, previous, cycle }: { plan: PublicPlanDTO; previous: Pu
         ) : (
           <>
             <Money value={price} className="text-[26px] font-bold text-ink" />
-            <span className="text-[13px] text-ink-muted">{t(cycle === BillingCycle.Monthly ? "landing.pricing.perMonth" : "landing.pricing.perYear")}</span>
+            <span className="text-[13px] text-ink-muted">{t(cycle === BillingCycleKind.Monthly ? "landing.pricing.perMonth" : "landing.pricing.perYear")}</span>
           </>
         )}
       </p>
@@ -127,8 +121,8 @@ function PlanCard({ plan, previous, cycle }: { plan: PublicPlanDTO; previous: Pu
 
 export function PricingSection() {
   const { t } = useAppTranslation();
-  const [cycle, setCycle] = useState<BillingCycle>(BillingCycle.Monthly);
-  const plansQuery = useQuery<PublicPlanDTO[]>({ queryKey: PUBLIC_PLANS_QUERY_KEY, queryFn: fetchPublicPlans });
+  const [cycle, setCycle] = useState<BillingCycleKind>(BillingCycleKind.Monthly);
+  const plansQuery = usePublicPlans();
   const plans = plansQuery.data ?? [];
   const savesTwoMonths = yearlySavesTwoMonths(plans);
 
@@ -138,10 +132,10 @@ export function PricingSection() {
         <Segmented
           aria-label={t("landing.pricing.cycle")}
           value={cycle}
-          onChange={(key) => setCycle(key === BillingCycle.Yearly ? BillingCycle.Yearly : BillingCycle.Monthly)}
+          onChange={(key) => setCycle(key === BillingCycleKind.Yearly ? BillingCycleKind.Yearly : BillingCycleKind.Monthly)}
           options={[
-            { key: BillingCycle.Monthly, label: t("landing.pricing.monthly") },
-            { key: BillingCycle.Yearly, label: t("landing.pricing.yearly") },
+            { key: BillingCycleKind.Monthly, label: t("landing.pricing.monthly") },
+            { key: BillingCycleKind.Yearly, label: t("landing.pricing.yearly") },
           ]}
         />
         {savesTwoMonths ? <StatusPill tone="success" label={t("landing.pricing.yearlySave")} /> : null}
@@ -165,7 +159,11 @@ export function PricingSection() {
       )}
 
       <p className="mt-[18px] text-[13px] text-ink-muted">{t("landing.pricing.vat")}</p>
-      <p className="mt-[4px] text-[13px] text-ink-muted">{t("landing.pricing.more")}</p>
+      {WHATSAPP_NUMBER === null ? null : (
+        <a href={whatsappHref(WHATSAPP_NUMBER)} target="_blank" rel="noopener noreferrer" className="mt-[4px] inline-flex min-h-[44px] items-center text-[13px] text-accent hover:underline">
+          {t("landing.pricing.more")}
+        </a>
+      )}
     </div>
   );
 }

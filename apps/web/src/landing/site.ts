@@ -1,10 +1,9 @@
-// Must match `SITE_META_NAME` / `CLOUD_SITE` in apps/server/src/site-head.ts, which only the cloud mount injects.
-const SITE_META_SELECTOR = 'meta[name="mezan-site"][content="cloud"]';
+import { CLOUD_SITE_META } from "@mezan/contracts";
 
 export const LANDING_PATH = "/welcome";
 
 export function isCloudSite(): boolean {
-  return typeof document !== "undefined" && document.querySelector(SITE_META_SELECTOR) !== null;
+  return typeof document !== "undefined" && document.querySelector(`meta[name="${CLOUD_SITE_META.name}"][content="${CLOUD_SITE_META.content}"]`) !== null;
 }
 
 // shortcut: the owner has not supplied a number yet, so every WhatsApp link stays hidden; set it in international form (e.g. "2010…") when it exists.

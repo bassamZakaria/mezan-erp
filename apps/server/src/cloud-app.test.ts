@@ -349,8 +349,16 @@ describe("createCloudApp", () => {
       expect(await res.text()).toContain("مزان-تجريبي");
     });
 
-    it("marks the page it serves at / as the cloud website, so the web app opens the landing page there", async () => {
+    it("leaves / as the plain app page until MEZAN_PUBLIC_LANDING switches the landing page on", async () => {
       const app = await boot(testEnv());
+      const home = await (await app.root.fetch(new Request("http://cloud.internal/"))).text();
+
+      expect(home).not.toContain("mezan-site");
+      expect(home).toContain("<title>Mezan</title>");
+    });
+
+    it("marks the page it serves at / as the cloud website, so the web app opens the landing page there", async () => {
+      const app = await boot(testEnv({ publicLanding: true }));
       const home = await (await app.root.fetch(new Request("http://cloud.internal/"))).text();
       const unlock = await (await app.root.fetch(new Request("http://cloud.internal/unlock"))).text();
 

@@ -34,7 +34,6 @@ export interface SalePosting {
   readonly lines: readonly LedgerLine[];
 }
 
-/** Integer piastres throughout: the same arithmetic a real invoice posts, never floats. */
 export function postSale({ quantity, unitPricePiastres, unitCostPiastres, withVat }: SaleInput): SalePosting {
   const netPiastres = quantity * unitPricePiastres;
   const vatPiastres = withVat ? Math.round((netPiastres * VAT_RATE_PERCENT) / 100) : 0;

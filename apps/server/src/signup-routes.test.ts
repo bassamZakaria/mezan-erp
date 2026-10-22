@@ -6,7 +6,7 @@ import type { Hono } from "hono";
 import { openSqliteConnection } from "@mezan/persistence";
 import { SubscriptionStatusCode, type PublicPlanDTO } from "@mezan/contracts";
 import { createBackend, createPlatform, type PlatformHandle } from "@mezan/backend";
-import { createTenant, InvalidTenantTransitionError, startSubscription, TenantStatusCode, type Subscription } from "@mezan/domain";
+import { createTenant, InvalidTenantTransitionError, QuotaKind, startSubscription, TenantStatusCode, type Subscription } from "@mezan/domain";
 import { releaseProvisioningTenant } from "./release-tenant.js";
 import { createCloudApp, type CloudApp } from "./cloud-app.js";
 import { createSignupRoutes } from "./signup-routes.js";
@@ -392,7 +392,7 @@ describe("a trailing slash on an /api route", () => {
     const app = await boot();
     const plans = (await (await app.root.fetch(new Request("http://cloud.internal/api/signup/plans"))).json()) as PublicPlanDTO[];
 
-    expect(plans.find((plan) => plan.code === "free")?.quotas).toEqual({ sales_invoices_per_month: 100 });
+    expect(plans.find((plan) => plan.code === "free")?.quotas).toEqual({ [QuotaKind.SalesInvoicesPerMonth]: 100 });
     expect(plans.find((plan) => plan.code === "core")?.quotas).toEqual({});
   });
 

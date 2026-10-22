@@ -539,28 +539,36 @@ describe("createPlatformRoutes", () => {
     const rig = await buildRig();
     const { body } = await provisionOne(rig);
     const id = body.tenant.id;
+    const code = body.tenant.code;
     const extras = { addOnModules: ["manufacturing", "manufacturing", "pos"], extraSeats: 3, extraBranches: 1, extraWarehouses: 2, graceDays: 14 };
+    const post = (token: string, payload: unknown) =>
+      rig.app.fetch(req(`/tenants/${id}/subscription/extras`, token, { method: "POST", body: JSON.stringify(payload) }));
+    rig.invalidated.length = 0;
 
-    const bySupport = await rig.app.fetch(req(`/tenants/${id}/subscription/extras`, rig.supportToken, { method: "POST", body: JSON.stringify(extras) }));
-    const unknownModule = await rig.app.fetch(req(`/tenants/${id}/subscription/extras`, rig.ownerToken, { method: "POST", body: JSON.stringify({ ...extras, addOnModules: ["nope"] }) }));
-    const negative = await rig.app.fetch(req(`/tenants/${id}/subscription/extras`, rig.ownerToken, { method: "POST", body: JSON.stringify({ ...extras, extraSeats: -1 }) }));
-    const set = await rig.app.fetch(req(`/tenants/${id}/subscription/extras`, rig.ownerToken, { method: "POST", body: JSON.stringify(extras) }));
+    expect((await post(rig.supportToken, extras)).status).toBe(403);
+    expect((await post(rig.ownerToken, { ...extras, addOnModules: ["nope"] })).status).toBe(422);
+    expect((await post(rig.ownerToken, { ...extras, extraSeats: -1 })).status).toBe(400);
+    expect((await post(rig.ownerToken, { ...extras, graceDays: 100_000_000 })).status).toBe(400);
+    expect(rig.invalidated).toEqual([]);
 
-    expect(bySupport.status).toBe(403);
-    expect(unknownModule.status).toBe(422);
-    expect(negative.status).toBe(400);
+    const set = await post(rig.ownerToken, extras);
     expect(set.status).toBe(200);
-    const summary = (await json(set)) as { subscription: Record<string, unknown>; entitlements: { activeModules: string[]; seats: number } };
+    expect(rig.invalidated).toEqual([code]);
+    type Summary = { subscription: Record<string, unknown>; plan: { seatsIncluded: number }; entitlements: { activeModules: string[]; seats: number } };
+    const summary = (await json(set)) as Summary;
     expect(summary.subscription).toMatchObject({ addOnModules: ["manufacturing", "pos"], extraSeats: 3, extraBranches: 1, extraWarehouses: 2, graceDays: 14 });
     expect(summary.entitlements.activeModules).toEqual(expect.arrayContaining(["manufacturing", "pos"]));
-    expect(summary.entitlements.seats).toBe((summary as unknown as { plan: { seatsIncluded: number } }).plan.seatsIncluded + 3);
+    expect(summary.entitlements.seats).toBe(summary.plan.seatsIncluded + 3);
     const rows = (await rig.platform.audit.query("security")).filter((row) => row.action === "SUBSCRIPTION_EXTRAS_SET");
-    expect(rows).toMatchObject([{ actor: "PU-OWNER", entityId: id, details: { before: { extraSeats: 0 }, after: { extraSeats: 3 } } }]);
+    expect(rows).toMatchObject([
+      { actor: "PU-OWNER", entityId: id, details: { before: { addOnModules: [], extraSeats: 0 }, after: { addOnModules: ["manufacturing", "pos"], extraSeats: 3 } } },
+    ]);
 
-    const cleared = await rig.app.fetch(
-      req(`/tenants/${id}/subscription/extras`, rig.ownerToken, { method: "POST", body: JSON.stringify({ ...extras, addOnModules: [], extraSeats: 0 }) }),
-    );
-    expect(((await json(cleared)) as { subscription: Record<string, unknown> }).subscription).toMatchObject({ addOnModules: [], extraSeats: 0 });
+    const cleared = (await json(await post(rig.ownerToken, { ...extras, addOnModules: [], extraSeats: 0 }))) as Summary;
+    expect(cleared.subscription).toMatchObject({ addOnModules: [], extraSeats: 0 });
+    expect(cleared.entitlements.activeModules).not.toContain("manufacturing");
+    expect(cleared.entitlements.activeModules).not.toContain("pos");
+    expect(cleared.entitlements.seats).toBe(cleared.plan.seatsIncluded);
   });
 
   it("changes plan, cancels, suspends and resumes a subscription", async () => {

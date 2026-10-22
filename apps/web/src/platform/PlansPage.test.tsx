@@ -77,15 +77,16 @@ describe("PlansPage", () => {
   });
 
   it("counts the companies subscribed to each plan", async () => {
-    const onPlan = (planId: string | null) => ({ subscription: planId ? { planId } : null });
+    const onPlan = (planId: string | null, status = "active") => ({ tenant: { status }, subscription: planId ? { planId } : null });
     renderShell([starterPlan, { ...starterPlan, id: "PLAN-2", code: "pro", nameAr: "المتقدمة", nameEn: "Pro" }], "/platform/plans", testPlatformSession, [
       onPlan("PLAN-1"),
       onPlan("PLAN-1"),
       onPlan("PLAN-1"),
+      onPlan("PLAN-1", "archived"),
       onPlan(null),
     ]);
     const row = (await screen.findByText("الأساسية")).closest("tr")!;
-    expect(within(row).getByText("3")).toBeInTheDocument();
+    expect(await within(row).findByText("3")).toBeInTheDocument();
     expect(within(screen.getByText("المتقدمة").closest("tr")!).getByText("0")).toBeInTheDocument();
   });
 

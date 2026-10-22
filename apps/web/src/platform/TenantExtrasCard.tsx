@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Button, Card, ConfirmDialog } from "@mezan/ui";
+import { useState } from "react";
+import { Button, Card, ConfirmDialog, StatusPill } from "@mezan/ui";
 import { SubscriptionStatusCode, type PlanDTO, type TenantSummaryDTO } from "@mezan/contracts";
 import { useAppTranslation } from "../i18n";
 import { MultiChipField, NumberField } from "../settings/form-controls";
@@ -41,37 +41,38 @@ function sameDraft(a: Draft, b: Draft): boolean {
 }
 
 /** Mirrors the states `setSubscriptionExtras` accepts in `packages/domain/src/platform/subscription.ts`. */
-function canEditExtras(status: Subscription["status"]): boolean {
-  return status !== SubscriptionStatusCode.Cancelled && status !== SubscriptionStatusCode.Unknown;
-}
+const EDITABLE_STATUSES: ReadonlySet<Subscription["status"]> = new Set([
+  SubscriptionStatusCode.Trialing,
+  SubscriptionStatusCode.Active,
+  SubscriptionStatusCode.PastDue,
+  SubscriptionStatusCode.Suspended,
+]);
 
 export function TenantExtrasCard({
   tenantId,
   subscription,
   plan,
   isOwner,
-  onError,
 }: {
   tenantId: string;
   subscription: Subscription;
   plan: PlanDTO;
   isOwner: boolean;
-  onError: (err: PlatformApiError) => void;
 }) {
   const { t } = useAppTranslation();
   const save = useSetSubscriptionExtrasMutation();
-  const [draft, setDraft] = useState<Draft>(() => draftOf(subscription));
+  const [edits, setEdits] = useState<Draft | null>(null);
   const [confirming, setConfirming] = useState(false);
+  const stored = draftOf(subscription);
+  const draft = edits ?? stored;
+  const setDraft = (change: (d: Draft) => Draft) => setEdits(change(draft));
 
-  useEffect(() => {
-    setDraft(draftOf(subscription));
-  }, [subscription]);
-
-  const editable = isOwner && canEditExtras(subscription.status);
+  const editable = isOwner && EDITABLE_STATUSES.has(subscription.status);
   const included = new Set(plan.modules);
   const options = platformModuleOptions(t).filter((o) => !included.has(o.value) || draft.addOnModules.includes(o.value));
   const valid = isCount(draft.extraSeats) && isCount(draft.extraBranches) && isCount(draft.extraWarehouses) && isCount(draft.graceDays);
-  const changed = !sameDraft(draft, draftOf(subscription));
+  const changed = !sameDraft(draft, stored);
+  const saveError = save.error instanceof PlatformApiError ? save.error.message : save.error ? t("platform.error.network") : null;
 
   return (
     <Card className="p-[16px]">
@@ -80,7 +81,11 @@ export function TenantExtrasCard({
       <div className="flex flex-col gap-[14px]">
         <div>
           <span className="mb-[6px] block text-xs font-semibold text-ink-muted">{t("platform.tenantDetail.extras.included")}</span>
-          <p className="text-[12.5px] text-ink">{plan.modules.map((id) => platformModuleLabel(id, t)).join("، ") || "—"}</p>
+          <div className="flex flex-wrap gap-[6px]">
+            {plan.modules.map((id) => (
+              <StatusPill key={id} label={platformModuleLabel(id, t)} tone="neutral" />
+            ))}
+          </div>
         </div>
         <MultiChipField
           label={t("platform.tenantDetail.extras.addOnModules")}
@@ -137,10 +142,11 @@ export function TenantExtrasCard({
             <Button variant="primary" size="sm" disabled={!changed || !valid || save.isPending} onClick={() => setConfirming(true)}>
               {save.isPending ? t("platform.tenantDetail.extras.saving") : t("platform.tenantDetail.extras.save")}
             </Button>
-            <Button size="sm" disabled={!changed || save.isPending} onClick={() => setDraft(draftOf(subscription))}>
+            <Button size="sm" disabled={!changed || save.isPending} onClick={() => setEdits(null)}>
               {t("common.cancel")}
             </Button>
             {!valid ? <span role="alert" className="text-[12px] font-semibold text-danger-ink">{t("platform.tenantDetail.extras.invalid")}</span> : null}
+            {valid && saveError ? <span role="alert" className="text-[12px] font-semibold text-danger-ink">{saveError}</span> : null}
           </div>
         ) : null}
       </div>
@@ -151,7 +157,7 @@ export function TenantExtrasCard({
         confirmLabel={t("platform.tenantDetail.extras.save")}
         onConfirm={() => {
           setConfirming(false);
-          save.mutate({ tenantId, body: draft }, { onError });
+          save.mutate({ tenantId, body: draft }, { onSuccess: () => setEdits(null) });
         }}
         onCancel={() => setConfirming(false)}
       />

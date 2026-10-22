@@ -8464,7 +8464,7 @@ const webAr = {
   "platform.tenantDetail.extras.confirm.title": "حفظ إضافات المنشأة؟",
   "platform.tenantDetail.extras.confirm.consequence": "يسري التغيير فورًا على ما تستطيع المنشأة استخدامه. إزالة وحدة تخفيها فقط، وتبقى بياناتها محفوظة. يُسجَّل التغيير في سجل التدقيق.",
   "platform.modules.selectAll": "تحديد الكل",
-  "platform.modules.clearAll": "إلغاء الكل",
+  "platform.modules.clearAll": "إلغاء تحديد الكل",
   "platform.plans.duplicate": "نسخ",
   "platform.plans.col.tenants": "المنشآت",
   "platform.plans.editor.duplicateTitle": "باقة جديدة من نسخة",

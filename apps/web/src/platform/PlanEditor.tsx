@@ -183,7 +183,7 @@ export function PlanEditor() {
       setDraft(draftOf(plan));
       seededRef.current = true;
     } else if (copySource) {
-      setDraft({ ...draftOf(copySource), code: "" });
+      setDraft({ ...draftOf(copySource), code: "", isPublic: false });
       seededRef.current = true;
     }
   }, [plan, copySource]);
@@ -241,7 +241,7 @@ export function PlanEditor() {
   }
 
   const saving = createPlan.isPending || updatePlan.isPending;
-  const readOnly = !isOwner;
+  const readOnly = !isOwner || (copyFromId !== null && plansQuery.isLoading);
 
   return (
     <FormPage

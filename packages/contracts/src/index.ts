@@ -1839,6 +1839,8 @@ export {
   setBillingAnchorDayRequestSchema,
   type SetBillingAnchorDayRequestDTO,
   setSubscriptionExtrasRequestSchema,
+  MAX_EXTRA_CAPACITY,
+  MAX_GRACE_DAYS,
   type SetSubscriptionExtrasRequestDTO,
   subscriptionResumeRequestSchema,
   recordPaymentRequestSchema,

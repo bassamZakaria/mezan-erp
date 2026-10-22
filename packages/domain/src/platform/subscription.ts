@@ -317,13 +317,19 @@ export interface StartSubscriptionCommand {
   readonly intendedPlanId?: string | null;
 }
 
+export const MAX_EXTRA_CAPACITY = 10_000;
+/** A grace period feeds `addDays` when the licence is derived; an unbounded one overflows `Date` and breaks every read of that tenant. */
+export const MAX_GRACE_DAYS = 365;
+
+const isBoundedCount = (n: number, max: number): boolean => isCount(n, 0) && n <= max;
+
 function validateExtras(s: Pick<Subscription, "addOnModules" | "extraSeats" | "extraBranches" | "extraWarehouses" | "graceDays">): string[] {
   const reasons: string[] = [];
   for (const m of s.addOnModules) if (!isKnownModule(m)) reasons.push(`وحدة إضافية غير معروفة "${m}"`);
-  if (!isCount(s.extraSeats, 0)) reasons.push("عدد المقاعد الإضافية يجب أن يكون رقمًا صحيحًا لا يقل عن 0");
-  if (!isCount(s.extraBranches, 0)) reasons.push("عدد الفروع الإضافية يجب أن يكون رقمًا صحيحًا لا يقل عن 0");
-  if (!isCount(s.extraWarehouses, 0)) reasons.push("عدد المخازن الإضافية يجب أن يكون رقمًا صحيحًا لا يقل عن 0");
-  if (!isCount(s.graceDays, 0)) reasons.push("أيام السماح يجب أن تكون رقمًا صحيحًا لا يقل عن 0");
+  if (!isBoundedCount(s.extraSeats, MAX_EXTRA_CAPACITY)) reasons.push(`عدد المقاعد الإضافية يجب أن يكون رقمًا صحيحًا من 0 إلى ${MAX_EXTRA_CAPACITY}`);
+  if (!isBoundedCount(s.extraBranches, MAX_EXTRA_CAPACITY)) reasons.push(`عدد الفروع الإضافية يجب أن يكون رقمًا صحيحًا من 0 إلى ${MAX_EXTRA_CAPACITY}`);
+  if (!isBoundedCount(s.extraWarehouses, MAX_EXTRA_CAPACITY)) reasons.push(`عدد المخازن الإضافية يجب أن يكون رقمًا صحيحًا من 0 إلى ${MAX_EXTRA_CAPACITY}`);
+  if (!isBoundedCount(s.graceDays, MAX_GRACE_DAYS)) reasons.push(`أيام السماح يجب أن تكون رقمًا صحيحًا من 0 إلى ${MAX_GRACE_DAYS}`);
   return reasons;
 }
 

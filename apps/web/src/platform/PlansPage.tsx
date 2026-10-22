@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router";
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import { Button, DocumentList, Money, StatusPill, type DocumentListColumn, type PillTone } from "@mezan/ui";
-import type { PlanDTO, PlanStatusDTO } from "@mezan/contracts";
+import { TenantWireStatus, type PlanDTO, type PlanStatusDTO } from "@mezan/contracts";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { PlatformApiError, readPlatformErrorMessage, usePlatformApi } from "./api";
 import { useTenantsQuery } from "./hooks";
@@ -58,7 +58,7 @@ export function PlansPage() {
   const tenantsQuery = useTenantsQuery();
   const tenantsByPlan = new Map<string, number>();
   for (const summary of tenantsQuery.data ?? []) {
-    if (summary.subscription) tenantsByPlan.set(summary.subscription.planId, (tenantsByPlan.get(summary.subscription.planId) ?? 0) + 1);
+    if (summary.subscription && summary.tenant.status !== TenantWireStatus.Archived) tenantsByPlan.set(summary.subscription.planId, (tenantsByPlan.get(summary.subscription.planId) ?? 0) + 1);
   }
   const [retiringId, setRetiringId] = useState<string | null>(null);
   const [rowError, setRowError] = useState<string | null>(null);

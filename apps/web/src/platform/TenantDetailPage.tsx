@@ -616,7 +616,7 @@ export function TenantDetailPage() {
       ) : null}
 
       {subscription && plan ? (
-        <TenantExtrasCard tenantId={tenant.id} subscription={subscription} plan={plan} isOwner={isOwner} onError={onMutationError} />
+        <TenantExtrasCard tenantId={tenant.id} subscription={subscription} plan={plan} isOwner={isOwner} />
       ) : null}
 
       <Card className="p-[16px]">

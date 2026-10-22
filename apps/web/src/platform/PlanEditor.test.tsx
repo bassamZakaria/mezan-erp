@@ -108,6 +108,17 @@ describe("PlanEditor", () => {
     expect(posted!.modules).toEqual([...MODULE_CATALOG]);
   });
 
+  it("a copy of a plan that does not exist opens the ordinary blank form", async () => {
+    renderWithPlatformProviders(<PlatformShell />, {
+      route: "/platform/plans/new?from=PLAN-404",
+      initialSession: testPlatformSession,
+      transport: stubPlatformTransport({ "GET /plans": () => ({ body: [starterPlan] }) }),
+    });
+
+    expect(await screen.findByRole("heading", { name: "باقة جديدة" })).toBeInTheDocument();
+    expect(screen.getByLabelText("الاسم بالعربية")).toHaveValue("");
+  });
+
   it("prefills the form from the existing plan and PUTs on save", async () => {
     let putBody: unknown = null;
     renderWithPlatformProviders(<PlatformShell />, {

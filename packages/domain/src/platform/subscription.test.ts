@@ -3,7 +3,7 @@ import { Money } from "../money/money.js";
 import { PlanKind, type Plan, type PlanRepository } from "./plan.js";
 import {
   addPeriod, applyRenewal, settledPeriodEnd, startSubscription, renewSubscription, changePlan, markPastDue,
-  suspendSubscription, resumeSubscription, cancelSubscription, billingAnchorDayOf, billingDayBehindUtcAnchor, inferBillingAnchorDay, setBillingAnchorDay, anchorIsUtcDayOfCreation,
+  suspendSubscription, resumeSubscription, cancelSubscription, billingAnchorDayOf, billingDayBehindUtcAnchor, inferBillingAnchorDay, setBillingAnchorDay, setSubscriptionExtras, anchorIsUtcDayOfCreation,
   BillingCycleKind, type Subscription, type SubscriptionRepository,
 } from "./subscription.js";
 import {
@@ -322,6 +322,50 @@ describe("the billing day is the business day in Cairo, not the UTC day", () => 
 
     expect(renewed.billingAnchorDay).toBe(10);
     expect(renewed.currentPeriodEnd).toBe("2026-04-09T23:30:00.000Z");
+  });
+});
+describe("setSubscriptionExtras", () => {
+  const extras = { addOnModules: ["hr", "hr", "manufacturing"], extraSeats: 3, extraBranches: 1, extraWarehouses: 2, graceDays: 10 };
+  const LATER = "2026-02-05T00:00:00.000Z";
+
+  it("replaces the extras in every live state, de-duplicating modules and leaving the period and plan alone", async () => {
+    for (const status of ["trialing", "active", "past_due", "suspended"] as const) {
+      const repo = subs();
+      const started = await startSubscription(base, repo, plans(plan()));
+      await repo.save({ ...started, status });
+
+      const saved = await setSubscriptionExtras({ id: "S1", ...extras, now: LATER }, repo);
+
+      expect(saved).toMatchObject({ status, addOnModules: ["hr", "manufacturing"], extraSeats: 3, extraBranches: 1, extraWarehouses: 2, graceDays: 10, updatedAt: LATER });
+      expect(saved).toMatchObject({ planId: started.planId, currentPeriodStart: started.currentPeriodStart, currentPeriodEnd: started.currentPeriodEnd });
+      expect(repo.rows.get("S1")).toEqual(saved);
+    }
+  });
+
+  it("refuses a cancelled subscription, an unknown module, an out-of-range count and a bad clock, saving nothing", async () => {
+    const repo = subs();
+    await startSubscription(base, repo, plans(plan()));
+    for (const bad of [{ addOnModules: ["nope"] }, { extraSeats: -1 }, { extraBranches: 1.5 }, { extraWarehouses: 10_001 }, { graceDays: 366 }]) {
+      await expect(setSubscriptionExtras({ id: "S1", ...extras, ...bad, now: LATER }, repo)).rejects.toThrow(InvalidSubscriptionError);
+    }
+    await expect(setSubscriptionExtras({ id: "S1", ...extras, now: "not-a-date" }, repo)).rejects.toThrow(InvalidSubscriptionError);
+    expect(repo.rows.get("S1")?.extraSeats).toBe(0);
+
+    await cancelSubscription({ id: "S1", now: NOW }, repo);
+    await expect(setSubscriptionExtras({ id: "S1", ...extras, now: LATER }, repo)).rejects.toThrow(InvalidSubscriptionTransitionError);
+    expect(repo.rows.get("S1")?.addOnModules).toEqual([]);
+  });
+
+  it("survives a later change of plan and a renewal", async () => {
+    const repo = subs();
+    const catalog = plans(plan(), plan({ id: "P2", code: "pro" }));
+    await startSubscription(base, repo, catalog);
+    await setSubscriptionExtras({ id: "S1", ...extras, now: LATER }, repo);
+
+    await changePlan({ id: "S1", planId: "P2", now: LATER }, repo, catalog);
+    const renewed = await renewSubscription({ id: "S1", now: "2026-02-20T00:00:00.000Z" }, repo);
+
+    expect(renewed).toMatchObject({ planId: "P2", addOnModules: ["hr", "manufacturing"], extraSeats: 3, extraBranches: 1, extraWarehouses: 2, graceDays: 10 });
   });
 });
 

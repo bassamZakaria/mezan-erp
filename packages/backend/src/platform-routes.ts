@@ -24,6 +24,7 @@ import {
   recordSecurityEvent,
   recordSecurityEventOrFallback,
   type AuditSeverity,
+  type Subscription,
   InvalidTenantError,
   TenantNotFoundError,
   TenantCodeTakenError,
@@ -437,6 +438,10 @@ function asCodeProvisioning(err: unknown): { readonly message: string; readonly 
   if (!(err instanceof Error) || (err as { code?: unknown }).code !== TENANT_CODE_PROVISIONING) return null;
   const messageEn = (err as { messageEn?: unknown }).messageEn;
   return { message: err.message, messageEn: typeof messageEn === "string" ? messageEn : "This tenant code is being provisioned by another request right now." };
+}
+
+function extrasOf(s: Pick<Subscription, "addOnModules" | "extraSeats" | "extraBranches" | "extraWarehouses" | "graceDays">) {
+  return { addOnModules: [...s.addOnModules], extraSeats: s.extraSeats, extraBranches: s.extraBranches, extraWarehouses: s.extraWarehouses, graceDays: s.graceDays };
 }
 
 function domainErrorResponse(c: Context, err: unknown): Response {
@@ -1286,15 +1291,14 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
       const tenant = await requireTenant(c.req.param("id"));
       await recordedWith(c, async () => {
         const subscription = await requireLiveSubscription(tenant);
-        await setSubscriptionExtras({ id: subscription.id, ...parsed.data, now: nowIso() }, platform.stores.subscriptions);
-        const before = {
-          addOnModules: [...subscription.addOnModules],
-          extraSeats: subscription.extraSeats,
-          extraBranches: subscription.extraBranches,
-          extraWarehouses: subscription.extraWarehouses,
-          graceDays: subscription.graceDays,
+        const saved = await setSubscriptionExtras({ id: subscription.id, ...parsed.data, now: nowIso() }, platform.stores.subscriptions);
+        return {
+          value: null,
+          action: PlatformAuditAction.SubscriptionExtrasSet,
+          entityId: tenant.id,
+          details: { before: extrasOf(subscription), after: extrasOf(saved) },
+          severity: AuditSeverityCode.Warning,
         };
-        return { value: null, action: PlatformAuditAction.SubscriptionExtrasSet, entityId: tenant.id, details: { before, after: parsed.data } };
       });
       invalidateEntitlements(tenant.code);
       return c.json(await summaryOf(tenant));

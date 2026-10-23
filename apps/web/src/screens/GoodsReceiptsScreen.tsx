@@ -18,17 +18,11 @@ import {
   type RowMenuItem,
   Qty as QtyDisplay,
 } from "@mezan/ui";
-import { GoodsReceiptInvoicingStatusDTO, type CostCategoryDTO, type GoodsReceiptDTO, type GoodsReceiptStatusDTO, type ItemDTO, type PurchaseOrderDTO } from "@mezan/contracts";
-import { useConfirmGoodsReceipt, useCreateGoodsReceipt, useSetGoodsReceiptLots, useGoodsReceiptCounts, useGoodsReceipts, useGoodsReceiptStats, useItemsByIds, useProjects, usePurchaseOrders, useTenantSettings, useSuppliers,
-  useUsers,
-  useBranches,
-  useWarehouses,
-  type GoodsReceiptListFilter,
-} from "../data/hooks";
+import { GoodsReceiptInvoicingStatusDTO, type CostCategoryDTO, type GoodsReceiptDTO, type GoodsReceiptStatusDTO, type PurchaseOrderDTO } from "@mezan/contracts";
+import { useConfirmGoodsReceipt, useCreateGoodsReceipt, useSetGoodsReceiptLots, useGoodsReceiptCounts, useGoodsReceipts, useGoodsReceiptStats, useProjects, usePurchaseOrders, useTenantSettings, useSuppliers, useUsers, useBranches, useWarehouses, type GoodsReceiptListFilter } from "../data/hooks";
 import { useWorkingLocation } from "../data/hub-hooks";
 import { SelectField, TextField, NumberField } from "../settings/form-controls";
-import { ITEM_TYPES, itemTypeIsPurchasable } from "@mezan/domain";
-import { ItemPicker, itemOption } from "./ItemPicker";
+import { ItemPicker, PURCHASABLE_ITEMS, useLineItems } from "./ItemPicker";
 import { GoodsReceiptPrintPage } from "../print/documents";
 import { useNavigation, useScreenIntent, useSubPage } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
@@ -61,7 +55,6 @@ const STATUS_TONE: Record<GoodsReceiptStatusDTO, PillTone> = {
   cancelled: "danger",
 };
 
-const PURCHASABLE_TYPES = ITEM_TYPES.filter(itemTypeIsPurchasable);
 
 const num = (v: string) => Number(v);
 
@@ -469,15 +462,7 @@ export function GoodsReceiptsScreen() {
     setFromOrderLines(buildFromOrderLines(order));
   }, [pickedOrder, orders, linesOrderId]);
 
-  const [pickedItems, setPickedItems] = useState<ReadonlyMap<string, ItemDTO>>(new Map());
-  const { byId: itemsById } = useItemsByIds([...(selected?.lines ?? []), ...fromOrderLines, ...adHocLines].map((l) => l.itemId));
-  const itemOf = (id: string) => pickedItems.get(id) ?? itemsById.get(id);
-  const itemName = (id: string) => itemOf(id)?.nameAr ?? id;
-  const itemValue = (id: string): EntityPickerOption | null => {
-    if (id === "") return null;
-    const item = itemOf(id);
-    return item ? itemOption(item) : { id, label: id };
-  };
+  const { itemOf, itemName, itemValue, remember } = useLineItems([...(selected?.lines ?? []), ...fromOrderLines, ...adHocLines].map((l) => l.itemId));
 
   const filtered = useMemo(() => [...receipts].sort((a, b) => b.number.localeCompare(a.number)), [receipts]);
 
@@ -750,9 +735,9 @@ export function GoodsReceiptsScreen() {
                 <ItemPicker
                   label={t("common.item")}
                   value={itemValue(line.itemId)}
-                  filter={{ types: PURCHASABLE_TYPES }}
+                  filter={PURCHASABLE_ITEMS}
                   onChange={(item) => {
-                    if (item) setPickedItems((prev) => new Map(prev).set(item.id, item));
+                    remember(item);
                     setAdHocLines((prev) =>
                       prev.map((l) =>
                         l.key === line.key

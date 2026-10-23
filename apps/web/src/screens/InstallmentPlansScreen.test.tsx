@@ -135,6 +135,9 @@ describe("InstallmentPlansScreen", () => {
     // while the list is empty — the header one is used here.
     fireEvent.click(screen.getAllByRole("button", { name: "خطة جديدة" })[0]!);
     const dialog = await screen.findByRole("dialog", { name: "خطة أقساط جديدة" });
+    expect(within(dialog).queryByText(/#1/)).toBeNull();
+    fireEvent.focus(within(dialog).getByRole("combobox", { name: "الفاتورة *" }));
+    fireEvent.mouseDown(await within(dialog).findByText(new RegExp(salesInvoice().docNo ?? salesInvoice().id)));
     await within(dialog).findByText(/#1/);
     fireEvent.click(within(dialog).getByRole("button", { name: "حفظ" }));
     expect(await screen.findByText("IP-000001")).toBeInTheDocument();

@@ -228,6 +228,9 @@ describe("StockTransfersScreen — create: valuation neutrality end to end", () 
     expect(postedItemIds).toEqual(["itm-1"]);
     expect(itemRequests.length).toBeGreaterThan(0);
     for (const path of itemRequests) expect(new URLSearchParams(path.split("?")[1]).get("page")).toBe("1");
+    const searches = itemRequests.map((path) => new URLSearchParams(path.split("?")[1])).filter((q) => !q.has("ids"));
+    expect(searches.length).toBeGreaterThan(0);
+    for (const q of searches) expect(q.get("types")?.split(",").sort()).toEqual(["consumable", "finished_good", "raw_material", "stock"]);
   });
 
   function draftOf(body: { id: string; date: string; memo?: string; lines: StockTransferDocumentDTO["lines"] }): StockTransferDocumentDTO {

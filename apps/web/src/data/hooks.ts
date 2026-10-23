@@ -1,5 +1,5 @@
 import { branchRefusalBefore, isBranchRestricted } from "../branch-restriction";
-import { useCallback, useSyncExternalStore } from "react";
+import { useCallback, useRef, useSyncExternalStore } from "react";
 import { loadTenantCode, subscribeTenantCode } from "./session";
 import { DocumentReadPermission, sessionMayRead } from "./document-read-permissions";
 import { keepPreviousData, useMutation, useQueries, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
@@ -319,7 +319,6 @@ import type {
 } from "@mezan/contracts";
 import { DashboardRequest, ScreenRequest, ShellModuleRequest, ShellRequest, mayAskDashboard, mayAskShellModuleRequest, type DisplaySettingKey } from "@mezan/domain";
 import { MAX_PAGE_SIZE, TenantResolveMode, type PlatformResolveDTO } from "@mezan/contracts";
-import { useDebounced } from "../lib/use-debounced";
 import { UserStatusCode } from "@mezan/domain";
 import { useApi } from "./ApiContext";
 import { sessionHolds, sessionMayAsk, sessionMayAskScreen } from "./session";
@@ -881,8 +880,6 @@ export async function loaderError(
   return new ApiError(res.status, withRequestReference(withSupportCode(fallback, res.status, t), res.status, body.requestId, t));
 }
 
-/** الأصناف (docs/archive/catalog/03) — list, create, edit. */
-
 export interface ItemListFilter {
   /** A chip key: `all`, `active`, `inactive`, `low_stock`, `out_of_stock`, or an item type. */
   readonly status?: string;
@@ -938,14 +935,12 @@ export function useItems(filter: ItemListFilter & { readonly page: number }): Us
   });
 }
 
-export const ITEM_SEARCH_PAGE_SIZE = 20;
+const ITEM_SEARCH_PAGE_SIZE = 20;
 
 export type ItemSearchFilter = Pick<ItemListFilter, "status" | "types" | "lotTracked">;
 
-/** The first matches for what the user typed, searched on the server over name, code and barcode. */
-export function useItemSearch(query: string, filter: ItemSearchFilter = {}): UseQueryResult<ItemDTO[], ApiError> {
-  const search = useDebounced(query.trim());
-  return useItems({ ...filter, search: search || undefined, page: 1, pageSize: ITEM_SEARCH_PAGE_SIZE });
+export function useItemSearch(term: string, filter: ItemSearchFilter = {}): UseQueryResult<ItemDTO[], ApiError> {
+  return useItems({ ...filter, search: term || undefined, page: 1, pageSize: ITEM_SEARCH_PAGE_SIZE });
 }
 
 export interface ItemsById {
@@ -960,7 +955,6 @@ function combineItemPages(results: readonly UseQueryResult<ItemDTO[]>[]): ItemsB
   return { byId, isLoading: results.some((r) => r.isLoading), isError: results.some((r) => r.isError) };
 }
 
-/** Only the items a screen is showing, fetched by id, so naming a few rows never downloads the catalogue. */
 export function useItemsByIds(ids: readonly (string | null | undefined)[]): ItemsById {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
@@ -971,7 +965,6 @@ export function useItemsByIds(ids: readonly (string | null | undefined)[]): Item
     combine: combineItemPages,
     queries: chunks.map((chunk) => ({
       queryKey: ["items", "byIds", chunk],
-      placeholderData: keepPreviousData,
       enabled: sessionMayRead(session, DocumentReadPermission.Items),
       queryFn: async () => {
         const qs = itemParams({ ids: chunk, page: 1, pageSize: chunk.length }).toString();
@@ -981,7 +974,15 @@ export function useItemsByIds(ids: readonly (string | null | undefined)[]): Item
       },
     })),
   });
-  return results;
+  const seen = useRef(new Map<string, ItemDTO>());
+  const byId = new Map<string, ItemDTO>();
+  for (const id of wanted) {
+    const item = results.byId.get(id) ?? seen.current.get(id);
+    if (item) byId.set(id, item);
+  }
+  const unchanged = byId.size === seen.current.size && [...byId].every(([id, item]) => seen.current.get(id) === item);
+  if (!unchanged) seen.current = byId;
+  return { byId: seen.current, isLoading: results.isLoading && byId.size < wanted.length, isError: results.isError };
 }
 
 /** One item by id or code, for a form addressed by URL whose item is not on the current page. */
@@ -3193,6 +3194,8 @@ function purchaseInvoiceParams(filter: Partial<PurchaseInvoiceListQueryDTO>): UR
   if (filter.branchId) params.set("branchId", filter.branchId);
   if (filter.warehouseId) params.set("warehouseId", filter.warehouseId);
   if (filter.search) params.set("search", filter.search);
+  if (filter.sort) params.set("sort", filter.sort);
+  if (filter.sortDir) params.set("sortDir", filter.sortDir);
   return params;
 }
 
@@ -3201,6 +3204,7 @@ export function usePurchaseInvoices(filter: Partial<PurchaseInvoiceListQueryDTO>
   const { request, session } = useApi();
   return useQuery<PurchaseInvoiceDTO[], ApiError>({
     queryKey: ["purchase-invoices", filter],
+    placeholderData: keepPreviousData,
     enabled: session !== null,
     queryFn: async () => {
       const fail = async (res: TransportResponse): Promise<never> => {
@@ -3214,7 +3218,6 @@ export function usePurchaseInvoices(filter: Partial<PurchaseInvoiceListQueryDTO>
   });
 }
 
-/** Chip counts; the status filter is withheld so every chip reports its own total. */
 export function usePurchaseInvoice(idOrNumber: string | null): UseQueryResult<PurchaseInvoiceDTO, ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
@@ -3229,6 +3232,7 @@ export function usePurchaseInvoice(idOrNumber: string | null): UseQueryResult<Pu
   });
 }
 
+/** Chip counts; the status filter is withheld so every chip reports its own total. */
 export function usePurchaseInvoiceCounts(filter: Partial<PurchaseInvoiceListQueryDTO> = {}): UseQueryResult<ListCountsDTO, ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
@@ -3300,6 +3304,7 @@ export function useSalesInvoices(filter: Partial<SalesInvoiceListQueryDTO> & { r
   const { request, session } = useApi();
   return useQuery<SalesInvoiceDTO[], ApiError>({
     queryKey: ["sales-invoices", filter],
+    placeholderData: keepPreviousData,
     enabled: session !== null && (gate.enabled ?? true),
     queryFn: async () => {
       const fail = async (res: TransportResponse): Promise<never> => {

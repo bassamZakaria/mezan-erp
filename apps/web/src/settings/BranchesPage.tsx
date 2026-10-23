@@ -1,3 +1,4 @@
+import { SalesInvoiceDerivedFilter } from "@mezan/contracts";
 import { useMemo, useState, type ReactNode } from "react";
 import { DocumentList, DocumentDetail, StatusPill, Button, Card, SidePanel, type DocumentListColumn, type PillTone } from "@mezan/ui";
 import { Money as MoneyValue } from "@mezan/ui";
@@ -114,7 +115,7 @@ function BranchKpis({ branch }: { branch: BranchDTO }) {
   const { t } = useAppTranslation();
   const warehousesQuery = useWarehouses();
   const treasuryQuery = useTreasuryAccounts();
-  const salesQuery = useSalesInvoiceStats({ branchId: branch.id });
+  const salesQuery = useSalesInvoiceStats({ branchId: branch.id, status: SalesInvoiceDerivedFilter.Active });
   const purchasesQuery = usePurchaseInvoiceStats({ branchId: branch.id });
   const vouchersQuery = useVoucherStats({ branchId: branch.id });
   const employeesQuery = useEmployees();

@@ -50,12 +50,12 @@ import { sumMajor } from "../lib/money";
 import { todayIso } from "../lib/dates";
 import { EMPTY } from "../lib/empty";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
-import { useDebounced } from "../lib/use-debounced";
+import { PurchaseInvoicePicker } from "./InvoicePickers";
 import { ResubmitErrorNotice, ResubmitFamily, ResubmitForApprovalAction, resubmitRowMenuItems, useResubmitForApproval } from "./ResubmitForApprovalAction";
 
 /** التكاليف الإضافية (Landed Costs) — docs/archive/catalog/02. Distributes freight/customs/etc across a confirmed purchase invoice's item costs, by value or by quantity. */
 
-const INVOICE_SEARCH_PAGE_SIZE = 20;
+const FUNDING_INVOICES = { status: PurchaseInvoiceStatusCode.Confirmed };
 
 const COST_TYPE_KEY: Record<LandedCostTypeDTO, AppTranslationKey> = {
   SHIPPING: "landedCosts.type.SHIPPING",
@@ -117,9 +117,7 @@ function blankTarget(itemId: string, qty: number, unitCost: number): TargetDraft
 export function LandedCostsScreen() {
   const { t } = useAppTranslation();
   const query = useLandedCosts();
-  const [invoiceQuery, setInvoiceQuery] = useState("");
-  const invoiceSearch = useDebounced(invoiceQuery.trim());
-  const invoicesQuery = usePurchaseInvoices({ status: PurchaseInvoiceStatusCode.Confirmed, search: invoiceSearch || undefined, page: 1, pageSize: INVOICE_SEARCH_PAGE_SIZE });
+  const invoicesQuery = usePurchaseInvoices({ ...FUNDING_INVOICES, page: 1, pageSize: 1 });
   const warehousesQuery = useWarehouses();
   const projectsQuery = useProjects();
   const createLandedCost = useCreateLandedCost();
@@ -303,7 +301,6 @@ export function LandedCostsScreen() {
 
   function openCreate(sourceInvoiceId?: string) {
     setError(null);
-    setInvoiceQuery("");
     const firstInvoice = sourceInvoiceId ? (invoices.find((i) => i.id === sourceInvoiceId) ?? null) : (invoices[0] ?? null);
     setPrefillInvoiceId(sourceInvoiceId && !firstInvoice ? sourceInvoiceId : null);
     changeInvoice(firstInvoice);
@@ -575,16 +572,12 @@ export function LandedCostsScreen() {
       <SidePanel open={panel === "create"} onClose={() => setPanel("none")} title={t("landedCosts.panel.title")}>
         <div className="flex flex-col gap-4 p-5">
           <SelectField label={t("landedCosts.field.warehouse")} value={warehouseId} onChange={setWarehouseId} options={warehouses.map((w) => ({ value: w.id, label: w.name }))} />
-          <EntityPicker
+          <PurchaseInvoicePicker
             label={t("landedCosts.field.invoice")}
-            value={selectedInvoice ? { id: selectedInvoice.id, label: selectedInvoice.number } : null}
-            options={invoices.map((i) => ({ id: i.id, label: i.number }))}
-            onQueryChange={setInvoiceQuery}
-            loading={invoicesQuery.isFetching}
-            onChange={(option) => {
-              const invoice = invoices.find((i) => i.id === option?.id);
-              if (invoice) changeInvoice(invoice);
-            }}
+            value={selectedInvoice}
+            optionOf={(i) => ({ id: i.id, label: i.number })}
+            filter={FUNDING_INVOICES}
+            onChange={changeInvoice}
           />
           <SelectField
             label={t("landedCosts.field.method")}

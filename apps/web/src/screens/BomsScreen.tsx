@@ -16,16 +16,15 @@ import {
   type RowMenuItem,
 } from "@mezan/ui";
 import { useBoms, useCreateBom, useDeactivateBom, useItemsByIds, type BomRecord } from "../data/hooks";
-import { ItemPicker, itemOption } from "./ItemPicker";
+import { ItemPicker, itemOption, BOM_COMPONENT_ITEMS } from "./ItemPicker";
 import { useUnitLabel } from "../lib/item-labels";
 import { FormColumns, FormError, FormPage, SectionCard, TextField, NumberField, SelectField } from "../settings/form-controls";
 import { useSubPage } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
-import { ITEM_TYPES, Money, Qty, grossUpForWaste, itemTypeIsBomComponent, roundMoney } from "@mezan/domain";
+import { Money, Qty, grossUpForWaste, roundMoney } from "@mezan/domain";
 import { EMPTY } from "../lib/empty";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 
-const BOM_COMPONENTS = { types: ITEM_TYPES.filter(itemTypeIsBomComponent) };
 
 type BomStatus = BomRecord["status"];
 
@@ -280,7 +279,7 @@ export function BomsScreen() {
               setProduct(item ? itemOption(item) : null);
               if (item) setUnit(item.baseUnitCode);
             }}
-            filter={BOM_COMPONENTS}
+            filter={BOM_COMPONENT_ITEMS}
             sublabel={componentUnit}
             placeholder={t("boms.chooseTheFinishedProduct")}
           />
@@ -297,7 +296,7 @@ export function BomsScreen() {
                 label={t("common.item")}
                 value={line.item}
                 onChange={(item) => setLines((prev) => prev.map((l, j) => (j === i ? { ...l, item: item ? itemOption(item) : null } : l)))}
-                filter={BOM_COMPONENTS}
+                filter={BOM_COMPONENT_ITEMS}
                 sublabel={componentUnit}
                 placeholder={t("boms.chooseAnItem")}
               />

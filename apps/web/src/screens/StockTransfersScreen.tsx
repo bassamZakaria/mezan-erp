@@ -22,7 +22,7 @@ import {
   StatusPill,
   TextInput,
 } from "@mezan/ui";
-import { itemTypeSchema, type DocumentStatusDTO, type ItemDTO, type StockTransferDocumentDTO } from "@mezan/contracts";
+import { type DocumentStatusDTO, type ItemDTO, type StockTransferDocumentDTO } from "@mezan/contracts";
 import { Qty, stockTransferDocumentType } from "@mezan/domain";
 import {
   useConfirmStockTransfer,
@@ -39,7 +39,7 @@ import { TextField, SelectField } from "../settings/form-controls";
 import { useSubPage } from "../navigation";
 import { useAppTranslation } from "../i18n";
 import { useEntityName } from "../lib/entity-names";
-import { ItemPicker, itemOption } from "./ItemPicker";
+import { ItemPicker, itemOption, STOCKED_ITEMS } from "./ItemPicker";
 import { useDocumentEffectText } from "../lib/document-effects";
 import { DOC_STATUS_TONE, documentStatusLabel } from "../doc-status";
 import { todayIso } from "../lib/dates";
@@ -59,7 +59,6 @@ const STEPPER_KEYS = [
 ] as const;
 
 const MIN_WAREHOUSES_FOR_A_TRANSFER = 2;
-const STOCKED_ITEM_TYPES = itemTypeSchema.options.filter((type) => type !== "service");
 
 function headerOf(doc: StockTransferDocumentDTO): { fromWarehouseId: string; toWarehouseId: string } {
   const first = doc.lines[0];
@@ -545,7 +544,7 @@ function CreateTransferView({
                           placeholder={t("stockXfer.chooseAnItem")}
                           value={pickerValue(line)}
                           onChange={(item) => updateLine(i, { itemId: item?.id ?? "", item: item ?? undefined })}
-                          filter={{ types: STOCKED_ITEM_TYPES }}
+                          filter={STOCKED_ITEMS}
                         />
                       </td>
                       <td className="px-[12px] py-[8px]">

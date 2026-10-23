@@ -2,22 +2,7 @@ import { AlreadySavedNotice, useAlreadySavedNotice, useDocumentId } from "../lib
 import { useEffect, useMemo, useRef, useState } from "react";
 import { HeldDocumentReapproval } from "../shell/ReapprovalNotice";
 import { errorMessage } from "../lib/error-message";
-import {
-  RowActionOutcome,
-  Button,
-  Card,
-  DocumentList,
-  EmptyState,
-  Money as MoneyDisplay,
-  RowMenu,
-  StatusPill,
-  SidePanel,
-  EntityPicker,
-  type DocumentListColumn,
-  type DocumentListStatusChip,
-  type PillTone,
-  type RowMenuItem,
-} from "@mezan/ui";
+import { RowActionOutcome, Button, Card, DocumentList, EmptyState, Money as MoneyDisplay, RowMenu, StatusPill, SidePanel, type DocumentListColumn, type DocumentListStatusChip, type PillTone, type RowMenuItem } from "@mezan/ui";
 import type { CreatePurchaseReturnDTO, DocumentStatusDTO, PurchaseInvoiceDTO, PurchaseReturnLineDTO, PurchaseReturnReasonDTO } from "@mezan/contracts";
 import { SelectField, NumberField, TextField } from "../settings/form-controls";
 import {
@@ -49,7 +34,7 @@ import { EMPTY } from "../lib/empty";
 import { ReturnJournalCard } from "./ReturnJournalCard";
 import { ReturnFamily, ReturnMirrorLinks, VoidReturnAction, VoidReturnDialog, VoidReturnReasonNotice, returnDocumentLabel, useMayVoidReturn, type VoidableReturn } from "./VoidReturnAction";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
-import { useDebounced } from "../lib/use-debounced";
+import { PurchaseInvoicePicker } from "./InvoicePickers";
 import { PurchaseInvoiceStatusCode } from "@mezan/domain";
 import { ResubmitErrorNotice, ResubmitFamily, ResubmitForApprovalAction, resubmitRowMenuItems, useResubmitForApproval } from "./ResubmitForApprovalAction";
 
@@ -76,7 +61,7 @@ function blankLine(sourceLineId: string): LineDraft {
   return { key: `l${lineSeq}`, sourceLineId, qty: 1 };
 }
 
-const INVOICE_SEARCH_PAGE_SIZE = 20;
+const RETURNABLE_INVOICES = { status: PurchaseInvoiceStatusCode.Confirmed };
 
 // EXTERNAL CONTRACT: a purchase invoice line has no id of its own; the server
 // names it by its position in the invoice, and a return must send the same.
@@ -88,9 +73,7 @@ function returnableLinesOf(invoice: PurchaseInvoiceDTO | null | undefined) {
 
 export function PurchaseReturnsScreen() {
   const { t } = useAppTranslation();
-  const [invoiceQuery, setInvoiceQuery] = useState("");
-  const invoiceSearch = useDebounced(invoiceQuery.trim());
-  const invoicesQuery = usePurchaseInvoices({ status: PurchaseInvoiceStatusCode.Confirmed, search: invoiceSearch || undefined, page: 1, pageSize: INVOICE_SEARCH_PAGE_SIZE });
+  const invoicesQuery = usePurchaseInvoices({ ...RETURNABLE_INVOICES, page: 1, pageSize: 1 });
   const warehousesQuery = useWarehouses();
   const suppliersQuery = useSuppliers();
   const createReturn = useCreatePurchaseReturn();
@@ -223,7 +206,6 @@ export function PurchaseReturnsScreen() {
 
   function openCreate(sourceInvoiceId?: string) {
     setError(null);
-    setInvoiceQuery("");
     const firstInvoice = sourceInvoiceId ? (invoices.find((i) => i.id === sourceInvoiceId) ?? null) : (invoices[0] ?? null);
     setPrefillInvoiceId(sourceInvoiceId && !firstInvoice ? sourceInvoiceId : null);
     setSelectedInvoice(firstInvoice);
@@ -337,15 +319,18 @@ export function PurchaseReturnsScreen() {
         </div>
       </div>
         <div className="flex flex-col gap-4 p-5">
-          <EntityPicker
+          <PurchaseInvoicePicker
             label={t("purchaseReturns.field.sourceInvoice")}
-            value={selectedInvoice ? invoiceOption(selectedInvoice) : null}
-            options={invoices.map(invoiceOption)}
-            onQueryChange={setInvoiceQuery}
-            loading={invoicesQuery.isFetching}
-            onChange={(option) => {
-              const invoice = invoices.find((i) => i.id === option?.id);
-              if (invoice) changeInvoice(invoice);
+            value={selectedInvoice}
+            optionOf={invoiceOption}
+            filter={RETURNABLE_INVOICES}
+            onChange={(invoice) => {
+              if (invoice) {
+                changeInvoice(invoice);
+              } else {
+                setSelectedInvoice(null);
+                setLines([]);
+              }
             }}
           />
           <SelectField label={t("purchaseReturns.field.warehouse")} value={warehouseId} onChange={setWarehouseId} options={warehouses.map((w) => ({ value: w.id, label: w.name }))} />

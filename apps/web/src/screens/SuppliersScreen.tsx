@@ -1,3 +1,4 @@
+import { PurchaseInvoiceSort } from "@mezan/contracts";
 import { useCountPhrase } from "../lib/count-phrase";
 import { useMemo, useState, type ReactNode } from "react";
 import { matchesSearch, CountedNoun } from "@mezan/domain";
@@ -148,13 +149,12 @@ function MiniStat({ label, value }: { label: string; value: ReactNode }) {
 
 const INVOICE_TAB_PAGE_SIZE = 25;
 
-/** فواتير مشتريات المورد — `GET /purchases/invoices`, narrowed to this supplier on the server. */
 function SupplierInvoicesTab({ supplierId }: { supplierId: string }) {
   const { t } = useAppTranslation();
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(INVOICE_TAB_PAGE_SIZE);
   const query = usePurchaseInvoices({ supplierId, page, pageSize });
-  const newestQuery = usePurchaseInvoices({ supplierId, page: 1, pageSize: 1 });
+  const newestQuery = usePurchaseInvoices({ supplierId, sort: PurchaseInvoiceSort.Date, sortDir: "desc", page: 1, pageSize: 1 });
   const countsQuery = usePurchaseInvoiceCounts({ supplierId });
   const statsQuery = usePurchaseInvoiceStats({ supplierId });
   const queries = [query, newestQuery, countsQuery, statsQuery];

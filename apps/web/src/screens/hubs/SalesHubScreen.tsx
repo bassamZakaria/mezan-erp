@@ -1,3 +1,4 @@
+import { SalesInvoiceDerivedFilter } from "@mezan/contracts";
 import { Money, WorkspaceHub } from "@mezan/ui";
 import { ScreenRequest } from "@mezan/domain";
 import { useCustomerCounts, useHoldsScreenRequest, useSalesInvoiceCounts, useSalesInvoices, useSalesInvoiceStats, useSalesQuoteCounts } from "../../data/hooks";
@@ -30,7 +31,7 @@ export function SalesHubScreen() {
   const { t } = useAppTranslation();
   const { session } = useApi();
   const countsQuery = useSalesInvoiceCounts();
-  const statsQuery = useSalesInvoiceStats();
+  const statsQuery = useSalesInvoiceStats({ status: SalesInvoiceDerivedFilter.Open });
   const recentQuery = useSalesInvoices(RECENT_INVOICES);
   const readsQuotes = useHoldsScreenRequest(ScreenRequest.SalesQuotes);
   const quotesQuery = useSalesQuoteCounts({}, { enabled: readsQuotes });

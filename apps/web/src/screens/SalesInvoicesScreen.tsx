@@ -32,48 +32,14 @@ import {
   useFormat,
   ConfirmDialog,
 } from "@mezan/ui";
-import { Money, Qty, computeInvoiceTotals, resolveUnitFactor, toBaseQty, SALES_INVOICE_STATUS_LABELS_AR, ETA_RECEIPT_PAYMENT_METHODS, type EtaReceiptPaymentMethod, type SalesInvoiceLine, type SalesInvoiceDiscount, type SalesInvoiceDiscountType, type SalesInvoiceLineDiscountType, ITEM_TYPES, itemTypeIsSellable, findCurrency, convertToBase, extend, SALES_INVOICE_ACTIVE_STATUSES, ArabicCase, CountedNoun, ScreenRequest } from "@mezan/domain";
+import { Money, Qty, computeInvoiceTotals, resolveUnitFactor, toBaseQty, SALES_INVOICE_STATUS_LABELS_AR, ETA_RECEIPT_PAYMENT_METHODS, type EtaReceiptPaymentMethod, type SalesInvoiceLine, type SalesInvoiceDiscount, type SalesInvoiceDiscountType, type SalesInvoiceLineDiscountType, findCurrency, convertToBase, extend, SALES_INVOICE_ACTIVE_STATUSES, ArabicCase, CountedNoun, ScreenRequest } from "@mezan/domain";
 import { IdempotencyRefusal, PricingGuardDiscountTypeDTO, PricingGuardDocTypeDTO, type PricingGuardEvaluateRequestDTO } from "@mezan/contracts";
 import { usePricingGuardPreview } from "./enh/pricing-guard/pricing-guard-hooks";
 import { PricingGuardLineStatus, PricingGuardSummary } from "./enh/pricing-guard/PricingGuardLineStatus";
 import type { ItemDTO, ProjectDTO, SalesInvoiceListQueryDTO, SalesInvoiceStatusDTO, TaxRateDTO } from "@mezan/contracts";
 import { SalesInvoicePrintPage } from "../print/SalesInvoicePrintPage";
-import {
-  useAccounts,
-  useBranches,
-  useConfirmSalesInvoice,
-  SalesTaxRecalculationPendingError,
-  useCreateSalesInvoice,
-  useCustomers,
-  useEmployees,
-  useItemsByIds,
-  useProjects,
-  useTenantSettings,
-  useTaxRates,
-  useItemAvailability,
-  useConvertSalesQuoteToInvoice,
-  useEtaSubmissions,
-  useJournalEntry,
-  usePriceLists,
-  useSalesQuotes,
-  useRecordSalesInvoicePayment,
-  useInstallmentPlans,
-  useSalesInvoice,
-  useSalesInvoices,
-  useSalesInvoiceCounts,
-  useSalesInvoiceStats,
-  useVoucherStats,
-  useMayAskScreen,
-  useSalesReturns,
-  useWarehouses,
-  type SalesInvoiceDTO,
-  useTreasuryAccounts,
-  useAllowedCurrencies,
-  ApiError,
-  ClassifiableDocument,
-  type ItemSearchFilter,
-} from "../data/hooks";
-import { ItemPicker, itemOption } from "./ItemPicker";
+import { useAccounts, useBranches, useConfirmSalesInvoice, SalesTaxRecalculationPendingError, useCreateSalesInvoice, useCustomers, useEmployees, useItemsByIds, useProjects, useTenantSettings, useTaxRates, useItemAvailability, useConvertSalesQuoteToInvoice, useEtaSubmissions, useJournalEntry, usePriceLists, useSalesQuotes, useRecordSalesInvoicePayment, useInstallmentPlans, useSalesInvoice, useSalesInvoices, useSalesInvoiceCounts, useSalesInvoiceStats, useVoucherStats, useMayAskScreen, useSalesReturns, useWarehouses, type SalesInvoiceDTO, useTreasuryAccounts, useAllowedCurrencies, ApiError, ClassifiableDocument } from "../data/hooks";
+import { ItemPicker, itemOption, SELLABLE_ITEMS } from "./ItemPicker";
 import { useWorkingLocation } from "../data/hub-hooks";
 import { useAuditLog } from "../data/platform-hooks";
 import { useEntityName } from "../lib/entity-names";
@@ -190,9 +156,6 @@ interface InvoiceLineDraft {
 
 const NO_TAX_RATES: readonly TaxRateDTO[] = [];
 const NO_PICKED_ITEMS: ReadonlyMap<string, ItemDTO> = new Map();
-// A raw material, a consumable or a recipe is not something you sell.
-const SELLABLE_ITEMS: ItemSearchFilter = { status: "active", types: ITEM_TYPES.filter(itemTypeIsSellable) };
-
 let lineSeq = 0;
 function blankLine(): InvoiceLineDraft {
   lineSeq += 1;
@@ -507,8 +470,10 @@ function CreateInvoicePage({
   }, [customerRecord, date, dueDateTouched]);
 
   const acceptedQuotes = (quotesQuery.data ?? []).filter((q) => q.status === "accepted");
-  const quoteItemsQuery = useItemsByIds(acceptedQuotes.find((q) => q.id === sourceQuoteId)?.lines.map((l) => l.itemId) ?? []);
+  const quoteLineItemIds = acceptedQuotes.find((q) => q.id === sourceQuoteId)?.lines.map((l) => l.itemId) ?? [];
+  const quoteItemsQuery = useItemsByIds(quoteLineItemIds);
   const quoteItems = quoteItemsQuery.byId;
+  const quoteItemsKnown = quoteLineItemIds.every((id) => quoteItems.has(id));
 
   async function convertSelectedQuote() {
     const quote = acceptedQuotes.find((q) => q.id === sourceQuoteId);
@@ -845,9 +810,10 @@ function CreateInvoicePage({
                   onChange={setWarehouseId}
                   options={warehouses.map((w) => ({ value: w.id, label: w.name }))}
                 />
-                <Button variant="primary" disabled={sourceQuoteId === "" || warehouseId === "" || busy || quoteItemsQuery.isLoading} onClick={convertSelectedQuote}>
+                <Button variant="primary" disabled={sourceQuoteId === "" || warehouseId === "" || busy || !quoteItemsKnown} onClick={convertSelectedQuote}>
                   {t("salesInvoices.method.convert")}
                 </Button>
+                {quoteItemsQuery.isError ? <p role="alert" className="text-[12px] text-danger-ink">{t("api.itemsCouldNotBeLoaded")}</p> : null}
               </>
             )}
           </div>

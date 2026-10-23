@@ -1,6 +1,6 @@
 import { DOC_STATUS_TONE, documentStatusLabel } from "../../../doc-status";
 import { ReversalDocumentType } from "@mezan/contracts";
-import { DocumentStatusCode, ITEM_TYPES } from "@mezan/domain";
+import { DocumentStatusCode } from "@mezan/domain";
 import { useReverseDocumentAction } from "../../../reversal/ReverseDocumentAction";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -37,9 +37,8 @@ import { todayIso } from "../../../lib/dates";
 import { EMPTY } from "../../../lib/empty";
 import { useUrlParam } from "../../../lib/url-state";
 import { LinesTable, trimDecimal } from "./site-common";
-import { ItemPicker } from "../../ItemPicker";
+import { ItemPicker, STOCKED_ITEMS } from "../../ItemPicker";
 
-const STOCKED_ITEMS = { types: ITEM_TYPES.filter((type) => type !== "service") };
 
 /**
  * استهلاك المواد — the ONLY document that turns stock into project cost

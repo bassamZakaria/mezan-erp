@@ -7,7 +7,7 @@ import { useNavigation } from "../../../navigation";
 import { ApiError, useItemCategories, useItemSearch, useWarehouses } from "../../../data/hooks";
 import { SelectField, TextField, ToggleField, MultiChipField } from "../../../settings/form-controls";
 import { todayIso } from "../../../lib/dates";
-import { useDebounced } from "../../../lib/use-debounced";
+import { useSearchTerm } from "../../../lib/use-debounced";
 import { useCountModeCounters, useStartCountMode } from "./hooks";
 
 interface ZoneDraft {
@@ -29,12 +29,12 @@ function ItemSearch({ selected, onChange }: { selected: readonly string[]; onCha
   const { t, locale } = useAppTranslation();
   const [query, setQuery] = useState("");
   const [byId, setById] = useState<ReadonlyMap<string, ItemDTO>>(new Map());
-  const search = useItemSearch(query);
-  const settled = useDebounced(query.trim());
+  const { term, pending } = useSearchTerm(query);
+  const search = useItemSearch(term);
   const matches = useMemo(() => {
-    if (query.trim() === "" || settled === "") return [];
+    if (term === "" || pending || search.isFetching) return [];
     return (search.data ?? []).filter((item) => !selected.includes(item.id)).slice(0, SEARCH_RESULT_LIMIT);
-  }, [search.data, query, settled, selected]);
+  }, [search.data, search.isFetching, term, pending, selected]);
   const nameOf = (id: string) => {
     const item = byId.get(id);
     if (!item) return id;

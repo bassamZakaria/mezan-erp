@@ -216,6 +216,37 @@ describe("EntityPicker — Arabic search (D114)", () => {
       expect(screen.queryByText("لا توجد نتائج")).toBeNull();
     });
 
+    it("never binds a row from the previous search: Enter waits for fresh results, then takes the first", () => {
+      const onChange = vi.fn();
+      const stale: EntityPickerOption[] = [{ id: "itm-soap", label: "صابون" }];
+      const fresh: EntityPickerOption[] = [{ id: "itm-tea", label: "شاي" }];
+      const picker = (options: EntityPickerOption[], loading: boolean) => (
+        <EntityPicker value={null} onChange={onChange} options={options} label="الصنف" onQueryChange={() => {}} loading={loading} />
+      );
+      const { rerender } = render(picker(stale, false));
+      const input = screen.getByRole("combobox");
+      fireEvent.focus(input);
+      fireEvent.change(input, { target: { value: "شاي" } });
+      rerender(picker(stale, true));
+      expect(screen.queryByText("صابون")).toBeNull();
+      fireEvent.keyDown(input, { key: "Enter" });
+      expect(onChange).not.toHaveBeenCalled();
+
+      rerender(picker(fresh, false));
+      expect(onChange).toHaveBeenCalledTimes(1);
+      expect(onChange).toHaveBeenCalledWith(fresh[0]);
+    });
+
+    it("announces a failed search instead of an empty one, and Enter does nothing", () => {
+      const onChange = vi.fn();
+      render(<EntityPicker value={null} onChange={onChange} options={options} label="الصنف" onQueryChange={() => {}} error />);
+      const input = screen.getByRole("combobox");
+      fireEvent.focus(input);
+      expect(screen.getByRole("status")).toHaveTextContent("تعذّر البحث، حاول مرة أخرى");
+      fireEvent.keyDown(input, { key: "Enter" });
+      expect(onChange).not.toHaveBeenCalled();
+    });
+
     it("clears the server query once an option is chosen", () => {
       const onQueryChange = vi.fn();
       render(<EntityPicker value={null} onChange={() => {}} options={options} label="الصنف" onQueryChange={onQueryChange} />);

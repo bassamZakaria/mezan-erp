@@ -673,6 +673,22 @@ describe("purchases-routes — the list surfaces the screens actually read", () 
  * detail read. A list that omits `version` leaves the row with nothing to send
  * back as `expectedVersion`, and the optimistic guard silently never fires.
  */
+describe("purchases-routes — the invoice list can be ordered by date", () => {
+  it("puts a back-dated invoice where its date says, not where its number does", async () => {
+    const { app } = await newApp();
+    const expense = [{ itemId: null, kind: "expense", description: "خدمة", qty: "1", unitCost: "100", taxRatePercent: 0 }];
+    for (const [id, date] of [["pi-a", "2026-08-25"], ["pi-b", "2026-08-10"]] as const) {
+      const res = await app.fetch(
+        req("/purchases/invoices", { method: "POST", permissions: ADMIN, body: JSON.stringify({ id, supplierId: "sup-1", date, branchId: "MAIN", warehouseId: "MAIN-WH", lines: expense }) }),
+      );
+      expect(res.status).toBe(201);
+    }
+    const ids = async (qs: string) => ((await (await app.fetch(req(`/purchases/invoices?${qs}`, { permissions: ADMIN }))).json()) as { id: string }[]).map((r) => r.id);
+    expect(await ids("sort=date&sortDir=desc")).toEqual(["pi-a", "pi-b"]);
+    expect(await ids("sort=date&sortDir=asc")).toEqual(["pi-b", "pi-a"]);
+  });
+});
+
 describe("purchases-routes — the list row carries the version the screen acts on", () => {
   it("serves a version on every order row, and refuses a stale one with 409", async () => {
     const { app } = await newApp({ withVersions: true });

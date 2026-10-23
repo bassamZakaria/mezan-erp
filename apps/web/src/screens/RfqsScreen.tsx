@@ -41,10 +41,8 @@ import { useWorkingLocation } from "../data/hub-hooks";
 import { useSubPage } from "../navigation";
 import { TextField, NumberField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
-import { ITEM_TYPES, itemTypeIsPurchasable } from "@mezan/domain";
-import { ItemPicker, itemOption } from "./ItemPicker";
+import { ItemPicker, itemOption, PURCHASABLE_ITEMS } from "./ItemPicker";
 
-const PURCHASABLE_TYPES = ITEM_TYPES.filter(itemTypeIsPurchasable);
 import { todayIso } from "../lib/dates";
 import { EMPTY } from "../lib/empty";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
@@ -560,7 +558,7 @@ export function RfqsScreen() {
               <ItemPicker
                 label={t("common.item")}
                 value={pickedOption(line.itemId)}
-                filter={{ types: PURCHASABLE_TYPES }}
+                filter={PURCHASABLE_ITEMS}
                 sublabel={(item) => item.baseUnitCode}
                 onChange={(item) => {
                   if (item) setPickedItems((prev) => new Map(prev).set(item.id, item));

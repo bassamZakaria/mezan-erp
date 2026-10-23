@@ -1,3 +1,4 @@
+import { SalesInvoiceDerivedFilter } from "@mezan/contracts";
 import { useCountPhrase } from "../lib/count-phrase";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useLocation } from "react-router";
@@ -231,11 +232,10 @@ function CustomerInvoicesTab({ customerId }: { customerId: string }) {
   const [pageSize, setPageSize] = useState(INVOICE_TAB_PAGE_SIZE);
   const query = useSalesInvoices({ customerId, sort: "docNo", sortDir: "desc", page, pageSize });
   const countsQuery = useSalesInvoiceCounts({ customerId });
-  const stats = useSalesInvoiceStats({ customerId });
-  const pendingStats = useSalesInvoiceStats({ customerId, status: SalesInvoiceStatusCode.Pending });
+  const stats = useSalesInvoiceStats({ customerId, status: SalesInvoiceDerivedFilter.Active });
   const invoices = query.data ?? EMPTY;
 
-  if (query.isError || countsQuery.isError || stats.isError || pendingStats.isError) {
+  if (query.isError || countsQuery.isError || stats.isError) {
     return (
       <TabError
         message={t("customers.invoices.loadFailed")}
@@ -243,12 +243,11 @@ function CustomerInvoicesTab({ customerId }: { customerId: string }) {
           void query.refetch();
           void countsQuery.refetch();
           void stats.refetch();
-          void pendingStats.refetch();
         }}
       />
     );
   }
-  if (query.isLoading || countsQuery.isLoading || stats.isLoading || pendingStats.isLoading) {
+  if (query.isLoading || countsQuery.isLoading || stats.isLoading) {
     return <p className="p-[18px] text-[12.5px] text-ink-muted">{t("customers.invoices.loading")}</p>;
   }
   const counts = countsQuery.data ?? {};
@@ -264,8 +263,8 @@ function CustomerInvoicesTab({ customerId }: { customerId: string }) {
 
   // The stats strip counts every non-draft, non-terminal invoice; «سارية» never included one still awaiting approval.
   const live = [...SALES_INVOICE_ACTIVE_STATUSES].reduce((sum, status) => sum + (counts[status] ?? 0), 0);
-  const invoiced = parseMoney(stats.data?.sales) - parseMoney(pendingStats.data?.sales);
-  const collected = parseMoney(stats.data?.collected) - parseMoney(pendingStats.data?.collected);
+  const invoiced = parseMoney(stats.data?.sales);
+  const collected = parseMoney(stats.data?.collected);
 
   const columns: DocumentListColumn<SalesInvoiceDTO>[] = [
     { key: "docNo", header: t("customers.invoices.col.number"), render: (inv) => <span className="mz-num font-semibold text-ink">{inv.docNo ?? "—"}</span> },
@@ -910,7 +909,7 @@ export function CustomersScreen() {
         }
         columns={columns}
         rows={pageRows}
-        loading={query.isLoading}
+        loading={query.isFetching}
         rowKey={(c) => c.id}
         onRowClick={(c) => setSelectedId(c.id)}
         rowAction={(c) => {

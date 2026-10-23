@@ -103,6 +103,7 @@ import {
   TaxClassificationFilingOutcomeCode,
   type PurchaseInvoiceListQueryDTO,
   goodsReceiptLotsSchema,
+  PurchaseInvoiceSort,
 } from "@mezan/contracts";
 import { refuseUnknownItems, type ItemCatalogCheck } from "./item-check.js";
 import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
@@ -973,6 +974,8 @@ export function createPurchasesRoutes(
       branchId: c.req.query("branchId"),
       warehouseId: c.req.query("warehouseId"),
       search: c.req.query("search"),
+      sort: c.req.query("sort"),
+      sortDir: c.req.query("sortDir"),
       page: c.req.query("page"),
       pageSize: c.req.query("pageSize"),
     });
@@ -1101,7 +1104,10 @@ export function createPurchasesRoutes(
     // THE ORDER IS THE SCREEN'S, APPLIED HERE. Newest document number first is
     // what the list has always shown; sorting a page instead of the set would
     // reorder rows within a page and leave the pages themselves arbitrary.
-    const ordered = [...rows].sort((a, b) => b.number.localeCompare(a.number));
+    const { sort, sortDir } = parsed.data;
+    const key = (inv: PurchaseInvoice) => (sort === PurchaseInvoiceSort.Date ? `${inv.date} ${inv.number}` : inv.number);
+    const direction = sort && sortDir === "asc" ? 1 : -1;
+    const ordered = [...rows].sort((a, b) => key(a).localeCompare(key(b)) * direction);
     const { page, pageSize } = parsed.data;
     const window = ordered.slice((page - 1) * pageSize, (page - 1) * pageSize + pageSize);
     // N-9: the screen acts straight off a list row, so the row has to carry the

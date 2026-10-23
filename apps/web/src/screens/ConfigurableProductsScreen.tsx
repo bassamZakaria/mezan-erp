@@ -25,12 +25,10 @@ import {
 import { FormColumns, FormError, FormPage, SectionCard, TextField, NumberField, SelectField } from "../settings/form-controls";
 import { useSubPage } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
-import { ITEM_TYPES, itemTypeIsBomComponent } from "@mezan/domain";
 import { EMPTY } from "../lib/empty";
-import { ItemPicker, itemOption } from "./ItemPicker";
+import { ItemPicker, itemOption, BOM_COMPONENT_ITEMS } from "./ItemPicker";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 
-const BOM_COMPONENTS = { types: ITEM_TYPES.filter(itemTypeIsBomComponent) };
 
 type Status = ConfigurableProductRecord["status"];
 
@@ -368,7 +366,7 @@ export function ConfigurableProductsScreen() {
               setOutputItem(item ? itemOption(item) : null);
               if (item) setUnit(item.baseUnitCode);
             }}
-            filter={BOM_COMPONENTS}
+            filter={BOM_COMPONENT_ITEMS}
             placeholder={t("configProducts.chooseTheResultingProduct")}
           />
           <TextField label={t("configProducts.finishedProductUnit")} value={unit} onChange={setUnit} />
@@ -424,7 +422,7 @@ export function ConfigurableProductsScreen() {
                 label={t("common.item")}
                 value={m.item}
                 onChange={(item) => setMaterials((prev) => prev.map((x, j) => (j === i ? { ...x, item: item ? itemOption(item) : null } : x)))}
-                filter={BOM_COMPONENTS}
+                filter={BOM_COMPONENT_ITEMS}
                 placeholder={t("configProducts.chooseAnItem")}
               />
               <div className="mt-[10px] grid grid-cols-2 gap-[10px]">

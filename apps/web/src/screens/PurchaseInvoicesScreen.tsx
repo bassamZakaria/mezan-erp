@@ -20,41 +20,8 @@ import {
   type RowMenuItem,
   Qty as QtyDisplay,
 } from "@mezan/ui";
-import type {
-  CostCategoryDTO,
-  GoodsReceiptDTO,
-  LandedCostDistributionMethodDTO,
-  ItemDTO,
-  LandedCostTypeDTO,
-  PurchaseInvoiceDTO,
-  PurchaseInvoiceLineDTO,
-  PurchaseInvoiceLineFulfilmentDTO,
-  PurchaseInvoiceListQueryDTO,
-  PurchaseInvoicePaymentDTO,
-  PurchaseInvoiceStatusDTO,
-  TaxRateDTO,
-} from "@mezan/contracts";
-import {
-  useConfirmPurchaseInvoice,
-  useCreatePurchaseInvoice,
-  useGoodsReceipts,
-  useItemsByIds,
-  useLandedCosts,
-  usePayPurchaseInvoice,
-  usePurchaseInvoices,
-  usePurchaseInvoiceCounts,
-  usePurchaseInvoiceFulfilment,
-  usePurchaseInvoiceStats,
-  useProjects,
-  useSuppliers,
-  useTaxRates,
-  useTreasuryAccounts,
-  useUsers,
-  useBranches,
-  useWarehouses,
-  useAllowedCurrencies,
-  ClassifiableDocument,
-} from "../data/hooks";
+import type { CostCategoryDTO, GoodsReceiptDTO, LandedCostDistributionMethodDTO, LandedCostTypeDTO, PurchaseInvoiceDTO, PurchaseInvoiceLineDTO, PurchaseInvoiceLineFulfilmentDTO, PurchaseInvoiceListQueryDTO, PurchaseInvoicePaymentDTO, PurchaseInvoiceStatusDTO, TaxRateDTO } from "@mezan/contracts";
+import { useConfirmPurchaseInvoice, useCreatePurchaseInvoice, useGoodsReceipts, useLandedCosts, usePayPurchaseInvoice, usePurchaseInvoices, usePurchaseInvoiceCounts, usePurchaseInvoiceFulfilment, usePurchaseInvoiceStats, useProjects, useSuppliers, useTaxRates, useTreasuryAccounts, useUsers, useBranches, useWarehouses, useAllowedCurrencies, ClassifiableDocument } from "../data/hooks";
 import { Money, Qty, purchaseInvoiceLineBase, purchaseInvoiceLineTax } from "@mezan/domain";
 import { useDebounced } from "../lib/use-debounced";
 import { useWorkingLocation } from "../data/hub-hooks";
@@ -70,13 +37,12 @@ import { UnnamedTaxNotice } from "./UnnamedTaxNotice";
 import { NameJournalLineTaxAction } from "./NameJournalLineTaxAction";
 import { purchaseInvoiceLineTotal } from "./exact-line-totals";
 import { PurchaseInvoiceStatusCode } from "@mezan/domain";
-import { ITEM_TYPES, itemTypeIsPurchasable, findCurrency } from "@mezan/domain";
-import { ItemPicker, itemOption } from "./ItemPicker";
+import { findCurrency } from "@mezan/domain";
+import { ItemPicker, PURCHASABLE_ITEMS, useLineItems } from "./ItemPicker";
 import { addDaysIso, todayIso } from "../lib/dates";
 import { EMPTY } from "../lib/empty";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 
-const PURCHASABLE_TYPES = ITEM_TYPES.filter(itemTypeIsPurchasable);
 
 /** Document states plus the payment states derived from the allocation sub-ledger. */
 type PurchaseInvoiceFilterKey = PurchaseInvoiceStatusDTO | "all" | "overdue" | "due_soon" | "partially_paid" | "paid";
@@ -659,15 +625,8 @@ export function PurchaseInvoicesScreen() {
     if (!receipt) return [];
     return receipt.lines.map((l) => ({ itemId: l.itemId, qty: l.remainingQty, unitCost: l.unitCost, taxRatePercent: 0 }));
   }, [pickedReceipt, confirmedReceipts]);
-  const [pickedItems, setPickedItems] = useState<ReadonlyMap<string, ItemDTO>>(new Map());
-  const { byId: itemsById } = useItemsByIds([...(selected?.lines ?? []), ...receiptLines, ...lines].map((l) => l.itemId));
-  const itemOf = (id: string) => pickedItems.get(id) ?? itemsById.get(id);
-  const itemName = (id: string | null) => (id ? (itemOf(id)?.nameAr ?? id) : "—");
-  const itemValue = (id: string): EntityPickerOption | null => {
-    if (id === "") return null;
-    const item = itemOf(id);
-    return item ? itemOption(item) : { id, label: id };
-  };
+  const { itemOf, itemName: nameOfItem, itemValue, remember } = useLineItems([...(selected?.lines ?? []), ...receiptLines, ...lines].map((l) => l.itemId));
+  const itemName = (id: string | null) => (id ? nameOfItem(id) : "—");
   const [billQty, setBillQty] = useState<Record<number, string>>({});
   const billedQty = (index: number, remaining: string): string => billQty[index] ?? remaining;
 
@@ -965,9 +924,9 @@ export function PurchaseInvoicesScreen() {
                   <ItemPicker
                     label={t("common.item")}
                     value={itemValue(line.itemId)}
-                    filter={{ types: PURCHASABLE_TYPES }}
+                    filter={PURCHASABLE_ITEMS}
                     onChange={(item) => {
-                      if (item) setPickedItems((prev) => new Map(prev).set(item.id, item));
+                      remember(item);
                       setLines((prev) =>
                         prev.map((l, j) =>
                           j === i

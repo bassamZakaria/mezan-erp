@@ -59,6 +59,7 @@ export function QuoteDetailView({ quote, onPrint, onBack }: { quote: SalesQuoteR
   const format = useFormat();
   const quoteItems = useItemsByIds(quote.lines.map((l) => l.itemId));
   const itemsById = quoteItems.byId;
+  const quoteItemsKnown = quote.lines.every((l) => itemsById.has(l.itemId));
   const branches = useBranches().data ?? [];
   const warehouses = useWarehouses().data ?? [];
   const taxRates = useTaxRates().data ?? EMPTY;
@@ -348,9 +349,10 @@ export function QuoteDetailView({ quote, onPrint, onBack }: { quote: SalesQuoteR
                         ...warehouses.filter((w) => w.active).map((w) => ({ value: w.id, label: `${w.name} · ${w.code}` })),
                       ]}
                     />
-                    <Button variant="primary" onClick={doConvert} disabled={convert.isPending || quoteItems.isLoading}>
+                    <Button variant="primary" onClick={doConvert} disabled={convert.isPending || !quoteItemsKnown}>
                       {t("quotes.createInvoice")}
                     </Button>
+                    {quoteItems.isError ? <p role="alert" className="text-[12px] text-danger-ink">{t("api.itemsCouldNotBeLoaded")}</p> : null}
                   </div>
                 ) : null}
                 {quote.status === "converted" ? (

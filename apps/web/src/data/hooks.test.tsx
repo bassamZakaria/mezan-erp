@@ -899,7 +899,7 @@ describe("stock adjustments", () => {
  * count — must not be silently cut to the first page: a truncated figure on a
  * screen is indistinguishable from a wrong one.
  */
-describe("whole-set list reads walk the pages (guards Q-8)", () => {
+describe("list reads fetch one page, never the whole table (guards Q-8, D358)", () => {
   function pagingTransport(total: number, path: string, calls: string[]): Transport {
     const rows = Array.from({ length: total }, (_, i) => ({ id: `row-${i}` }));
     return stubTransport({

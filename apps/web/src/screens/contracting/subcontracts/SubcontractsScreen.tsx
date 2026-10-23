@@ -45,7 +45,7 @@ import { useAppTranslation, type AppTranslationKey } from "../../../i18n";
 import { majorOf, sumMajor } from "../../../lib/money";
 import { todayIso } from "../../../lib/dates";
 import { EMPTY } from "../../../lib/empty";
-import { useDebounced } from "../../../lib/use-debounced";
+import { useSearchTerm } from "../../../lib/use-debounced";
 import { unitLabel } from "../../../lib/boq-unit-label";
 import { SUBCONTRACT_STATUS_KEY, SUBCONTRACT_STATUS_TONE, SUB_CERTIFICATE_STATUS_KEY, SUB_CERTIFICATE_STATUS_TONE, trimScale } from "./subcontract-common";
 
@@ -795,11 +795,11 @@ const VOUCHER_PICKER_PAGE_SIZE = 20;
 function AdvancePanel({ subcontract }: { subcontract: SubcontractDTO }) {
   const { t } = useAppTranslation();
   const [query, setQuery] = useState("");
-  const search = useDebounced(query.trim());
+  const { term, pending } = useSearchTerm(query);
   const vouchersQuery = useVouchers({
     status: "confirmed",
     supplierId: subcontract.supplierId,
-    search: search || undefined,
+    search: term || undefined,
     page: 1,
     pageSize: VOUCHER_PICKER_PAGE_SIZE,
   });
@@ -836,7 +836,8 @@ function AdvancePanel({ subcontract }: { subcontract: SubcontractDTO }) {
             onChange={setVoucher}
             options={eligible.map((v) => ({ id: v.id, label: v.docNo ?? v.id, sublabel: `${v.date} · ${v.amount}` }))}
             onQueryChange={setQuery}
-            loading={vouchersQuery.isFetching}
+            loading={pending || vouchersQuery.isFetching}
+            error={vouchersQuery.isError}
             placeholder={t("subcontracts.pickVoucher")}
             emptyMessage={t("subcontracts.noEligibleVouchers")}
           />

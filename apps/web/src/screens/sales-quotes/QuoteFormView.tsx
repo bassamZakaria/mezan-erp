@@ -15,17 +15,8 @@ import { usePricingGuardPreview } from "../enh/pricing-guard/pricing-guard-hooks
 import { PricingGuardLineStatus, PricingGuardSummary } from "../enh/pricing-guard/PricingGuardLineStatus";
 import { Money } from "@mezan/domain";
 import { NumberField, SectionCard, SelectField, TextAreaField, TextField } from "../../settings/form-controls";
-import {
-  useBranches,
-  useCreateSalesQuote,
-  useItemSearch,
-  useCustomers,
-  usePriceLists,
-  useStockBalance,
-  useTaxRates,
-  type ItemSearchFilter,
-} from "../../data/hooks";
-import { ItemPicker, itemOption } from "../ItemPicker";
+import { useBranches, useCreateSalesQuote, useItemSearch, useCustomers, usePriceLists, useStockBalance, useTaxRates } from "../../data/hooks";
+import { ItemPicker, itemOption, ACTIVE_ITEMS } from "../ItemPicker";
 import { DERIVED_TAX, TaxRateField, appliedTaxPercent, lineTaxPayload } from "../tax-rate-field";
 import { useCustomerAging } from "../../data/partner-detail-hooks";
 import { useWorkingLocation } from "../../data/hub-hooks";
@@ -45,7 +36,6 @@ import { useLinkedOpportunity } from "../enh/crm-pipeline/hooks";
 
 const NO_TAX_RATES: readonly TaxRateDTO[] = [];
 const NO_PICKED_ITEMS: ReadonlyMap<string, ItemDTO> = new Map();
-const ACTIVE_ITEMS: ItemSearchFilter = { status: "active" };
 
 /**
  * عرض سعر جديد — the create form, one card per section with a sticky summary

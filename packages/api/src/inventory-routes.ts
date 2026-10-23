@@ -238,7 +238,6 @@ export function createInventoryRoutes(
    */
   settings?: SettingsRepository,
   reversal?: InventoryAdjustmentReversalDeps,
-  /** Names and reorder points ride on each stock-balance row so the screen never downloads the catalogue to label them. */
   items?: Pick<ItemRepository, "list">,
 ) {
   const app = new Hono();

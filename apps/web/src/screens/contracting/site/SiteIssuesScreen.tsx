@@ -1,5 +1,4 @@
 import { useMemo, useState } from "react";
-import { ITEM_TYPES } from "@mezan/domain";
 import {
   RowActionOutcome,
   Button,
@@ -38,9 +37,8 @@ import { todayIso } from "../../../lib/dates";
 import { EMPTY } from "../../../lib/empty";
 import { useUrlParam } from "../../../lib/url-state";
 import { LinesTable, trimDecimal } from "./site-common";
-import { ItemPicker } from "../../ItemPicker";
+import { ItemPicker, STOCKED_ITEMS } from "../../ItemPicker";
 
-const STOCKED_ITEMS = { types: ITEM_TYPES.filter((type) => type !== "service") };
 
 /**
  * أذونات الصرف والاستلام بالموقع (D-11) — the two-step material issue.

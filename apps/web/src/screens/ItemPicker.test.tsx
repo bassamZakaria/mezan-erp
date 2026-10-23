@@ -43,12 +43,57 @@ describe("ItemPicker", () => {
   });
 });
 
+describe("ItemPicker — a scanner's code followed at once by Enter", () => {
+  it("binds the item the code names, never the first row of the earlier list", async () => {
+    const soap = { id: "itm-soap", code: "SOAP-1", nameAr: "صابون", type: "stock", status: "active" };
+    const transport = stubTransport({
+      "GET /items": (_init, path) => {
+        const search = new URLSearchParams(path.split("?")[1]).get("search");
+        return { body: search === "TEA-1" ? [tea] : [soap] };
+      },
+    });
+    const onChange = vi.fn();
+    render(
+      <AppProviders transport={transport} initialSession={testAdminSession}>
+        <ItemPicker value={null} onChange={onChange} label="الصنف" />
+      </AppProviders>,
+    );
+    const input = screen.getByRole("combobox", { name: "الصنف" });
+    fireEvent.focus(input);
+    await screen.findByText("صابون");
+    fireEvent.change(input, { target: { value: "TEA-1" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    await waitFor(() => expect(onChange).toHaveBeenCalledTimes(1));
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ id: "itm-tea" }));
+  });
+});
+
 function Names({ ids }: { ids: string[] }) {
   const { byId } = useItemsByIds(ids);
   return <div data-testid="names">{ids.map((id) => byId.get(id)?.nameAr ?? "?").join("|")}</div>;
 }
 
 describe("useItemsByIds", () => {
+  it("splits a long list of ids into requests of at most 200, and names every one", async () => {
+    const ids = Array.from({ length: 450 }, (_, i) => `itm-${String(i).padStart(3, "0")}`);
+    const sizes: number[] = [];
+    const transport = stubTransport({
+      "GET /items": (_init, path) => {
+        const asked = new URLSearchParams(path.split("?")[1]).get("ids")?.split(",") ?? [];
+        sizes.push(asked.length);
+        return { body: asked.map((id) => ({ ...tea, id, nameAr: id })) };
+      },
+    });
+    render(
+      <AppProviders transport={transport} initialSession={testAdminSession}>
+        <Names ids={ids} />
+      </AppProviders>,
+    );
+    await waitFor(() => expect(screen.getByTestId("names").textContent).not.toContain("?"));
+    expect(sizes.sort((a, b) => b - a)).toEqual([200, 200, 50]);
+  });
+
   it("fetches only the ids on screen, once each, and never walks the catalogue", async () => {
     const paths: string[] = [];
     const transport = stubTransport({

@@ -286,6 +286,9 @@ describe("StockAdjustmentsScreen — create: reason picker + INITIAL_STOCK flow"
     expect(postedItemIds).toEqual(["itm-3"]);
     expect(itemRequests.length).toBeGreaterThan(0);
     for (const path of itemRequests) expect(new URLSearchParams(path.split("?")[1]).get("page")).toBe("1");
+    const searches = itemRequests.map((path) => new URLSearchParams(path.split("?")[1])).filter((q) => !q.has("ids"));
+    expect(searches.length).toBeGreaterThan(0);
+    for (const q of searches) expect(q.get("types")?.split(",").sort()).toEqual(["consumable", "finished_good", "raw_material", "stock"]);
   });
 });
 

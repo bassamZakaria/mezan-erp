@@ -56,7 +56,8 @@ function tierKey(): string {
 }
 
 function typedDecimal(value: number): string | null {
-  const text = String(value);
+  if (!Number.isFinite(value)) return null;
+  const text = value.toFixed(6);
   if (!/^-?\d+(\.\d+)?$/.test(text)) return null;
   const [whole = "0", fraction = ""] = text.split(".");
   return fraction === "" ? whole : `${whole}.${fraction.slice(0, 6)}`;

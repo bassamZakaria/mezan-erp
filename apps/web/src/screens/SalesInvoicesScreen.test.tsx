@@ -473,6 +473,7 @@ describe("SalesInvoicesScreen — an item waiting to be priced", () => {
     fireEvent.change(input, { target: { value: "شاي" } });
     await waitFor(() => expect(screen.queryByRole("button", { name: /خدمة تركيب/ })).not.toBeInTheDocument());
     expect(screen.queryByRole("button", { name: /شاي أخضر بانتظار التسعير/ })).not.toBeInTheDocument();
+    await waitFor(() => expect(searches.some((p) => p.get("search") === "شاي")).toBe(true));
     const typed = searches.find((p) => p.get("search") === "شاي");
     expect(typed?.get("status")).toBe("active");
     expect(typed?.get("types")).toBe("stock,service,finished_good");

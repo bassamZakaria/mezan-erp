@@ -1,4 +1,4 @@
-import { useId, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { cn } from "../lib/cn";
 import { matchesSearch } from "../lib/search";
 import { useUiTranslation } from "../i18n";
@@ -21,9 +21,13 @@ export interface EntityPickerProps {
   className?: string;
   /** The accessible name when there is no visible `label` (a picker inside a table row). */
   ariaLabel?: string;
-  /** Server search: the caller fetches matches for each query and passes them as `options`, which are shown unfiltered. */
+  /**
+   * Server search: the caller fetches matches for each query and passes them as `options`, shown unfiltered.
+   * `loading` MUST stay true until `options` answer the current query, or Enter would bind a row of the previous search.
+   */
   onQueryChange?: (query: string) => void;
   loading?: boolean;
+  error?: boolean;
 }
 
 /**
@@ -43,21 +47,34 @@ export function EntityPicker({
   className,
   ariaLabel,
   onQueryChange,
-  loading,
+  loading = false,
+  error = false,
 }: EntityPickerProps) {
   const { t } = useUiTranslation();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [highlight, setHighlight] = useState(0);
+  const [enterQueued, setEnterQueued] = useState(false);
   const listboxId = useId();
   const generatedInputId = useId();
   const inputId = id ?? generatedInputId;
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const filtered = onQueryChange ? options : options.filter((option) => matchesSearch(query, option.label, option.sublabel));
+  const serverMode = onQueryChange !== undefined;
+  const stale = serverMode && (loading || error);
+  const filtered = serverMode ? (stale ? [] : options) : options.filter((option) => matchesSearch(query, option.label, option.sublabel));
+  const firstFresh = filtered[0];
+
+  useEffect(() => {
+    if (!enterQueued || stale) return;
+    setEnterQueued(false);
+    if (firstFresh) select(firstFresh);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enterQueued, stale, firstFresh]);
 
   function changeQuery(next: string) {
     setQuery(next);
+    setEnterQueued(false);
     onQueryChange?.(next);
   }
 
@@ -77,6 +94,10 @@ export function EntityPicker({
       setHighlight((i) => Math.max(i - 1, 0));
     } else if (event.key === "Enter") {
       event.preventDefault();
+      if (stale && !error) {
+        setEnterQueued(true);
+        return;
+      }
       const option = filtered[highlight];
       if (option) select(option);
     } else if (event.key === "Escape") {
@@ -98,6 +119,7 @@ export function EntityPicker({
         aria-expanded={open}
         aria-controls={listboxId}
         aria-autocomplete="list"
+        aria-busy={stale && !error}
         disabled={disabled}
         placeholder={placeholder ?? t("ui.search.placeholder")}
         // A chosen entity is the field's VALUE, not its placeholder: rendering
@@ -119,17 +141,14 @@ export function EntityPicker({
         )}
       />
       {open && !disabled ? (
-        <ul
-          id={listboxId}
-          role="listbox"
-          className="absolute start-0 end-0 z-10 mt-[6px] max-h-64 overflow-y-auto rounded-md border border-border bg-surface p-[6px] shadow-2"
-        >
-          {loading && filtered.length === 0 ? (
-            <li className="px-[10px] py-[10px] text-[12.5px] text-ink-faint">{t("ui.picker.loading")}</li>
-          ) : filtered.length === 0 ? (
-            <li className="px-[10px] py-[10px] text-[12.5px] text-ink-faint">{emptyMessage ?? t("ui.picker.empty")}</li>
-          ) : (
-            filtered.map((option, index) => (
+        <div className="absolute start-0 end-0 z-10 mt-[6px] max-h-64 overflow-y-auto rounded-md border border-border bg-surface p-[6px] shadow-2">
+          {filtered.length === 0 ? (
+            <p role="status" className="px-[10px] py-[10px] text-[12.5px] text-ink-faint">
+              {error ? t("ui.picker.error") : stale ? t("ui.picker.loading") : (emptyMessage ?? t("ui.picker.empty"))}
+            </p>
+          ) : null}
+          <ul id={listboxId} role="listbox" aria-busy={stale && !error}>
+            {filtered.map((option, index) => (
               <li key={option.id} role="option" aria-selected={value?.id === option.id}>
                 <button
                   type="button"
@@ -147,9 +166,9 @@ export function EntityPicker({
                   {option.sublabel ? <span className="text-[11px] text-ink-faint">{option.sublabel}</span> : null}
                 </button>
               </li>
-            ))
-          )}
-        </ul>
+            ))}
+          </ul>
+        </div>
       ) : null}
     </div>
   );

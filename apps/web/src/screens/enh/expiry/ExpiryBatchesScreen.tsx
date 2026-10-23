@@ -24,7 +24,7 @@ import { EMPTY } from "../../../lib/empty";
 import { ScreenTabs } from "../../ScreenTabs";
 import { ReportScreen } from "../../reports/ReportScreen";
 import { FefoPreviewPanel } from "./FefoPreviewPanel";
-import { ItemPicker, itemOption } from "../../ItemPicker";
+import { ItemPicker, LOT_TRACKED_ITEMS, itemOption } from "../../ItemPicker";
 import { ExpiryTab } from "./expiry-routes";
 
 
@@ -304,7 +304,7 @@ function FefoTab() {
           placeholder={t("expiry.fefo.chooseItem")}
           value={item}
           onChange={(picked) => setItem(picked ? itemOption(picked) : null)}
-          filter={{ lotTracked: true }}
+          filter={LOT_TRACKED_ITEMS}
         />
         <NumberField label={t("common.qty")} value={qty} min={0} onChange={setQty} />
       </Card>

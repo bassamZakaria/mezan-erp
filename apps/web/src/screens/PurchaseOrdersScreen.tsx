@@ -18,20 +18,8 @@ import {
   type RowMenuItem,
   Qty as QtyDisplay,
 } from "@mezan/ui";
-import type { ItemDTO, PurchaseOrderDTO, PurchaseOrderLineDTO, PurchaseOrderStatusDTO } from "@mezan/contracts";
-import {
-  useBranches,
-  useConfirmPurchaseOrder,
-  useCreatePurchaseOrder,
-  useItemsByIds,
-  usePurchaseOrderCounts,
-  usePurchaseOrders,
-  usePurchaseOrderStats,
-  useSuppliers,
-  useUsers,
-  useWarehouses,
-  type PurchaseOrderListFilter,
-} from "../data/hooks";
+import type { PurchaseOrderDTO, PurchaseOrderLineDTO, PurchaseOrderStatusDTO } from "@mezan/contracts";
+import { useBranches, useConfirmPurchaseOrder, useCreatePurchaseOrder, usePurchaseOrderCounts, usePurchaseOrders, usePurchaseOrderStats, useSuppliers, useUsers, useWarehouses, type PurchaseOrderListFilter } from "../data/hooks";
 import { useWorkingLocation } from "../data/hub-hooks";
 import { useUnitLabel } from "../lib/item-labels";
 import { SelectField, TextField, NumberField } from "../settings/form-controls";
@@ -39,8 +27,7 @@ import { PurchaseOrderPrintPage } from "../print/documents";
 import { useNavigation, useScreenIntent, useSubPage } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { majorOf } from "../lib/money";
-import { ITEM_TYPES, itemTypeIsPurchasable } from "@mezan/domain";
-import { ItemPicker, itemOption } from "./ItemPicker";
+import { ItemPicker, PURCHASABLE_ITEMS, useLineItems } from "./ItemPicker";
 import { todayIso } from "../lib/dates";
 import { AttachmentsTab } from "../attachments/AttachmentsTab";
 import { EMPTY } from "../lib/empty";
@@ -61,7 +48,6 @@ const STATUS_TONE: Record<PurchaseOrderStatusDTO, PillTone> = {
   cancelled: "danger",
 };
 
-const PURCHASABLE_TYPES = ITEM_TYPES.filter(itemTypeIsPurchasable);
 
 const num = (v: string) => Number(v);
 const lineTotal = (l: PurchaseOrderLineDTO) => Number(l.qty) * Number(l.unitPrice);
@@ -244,18 +230,10 @@ export function PurchaseOrdersScreen() {
   // change the line the item detail put here.
   const [lines, setLines] = useState<DraftLine[]>(() => [{ itemId: prefilledItemId ?? "", qty: 1, unitPrice: 0 }]);
   const [formError, setFormError] = useState<string | null>(null);
-  const [pickedItems, setPickedItems] = useState<ReadonlyMap<string, ItemDTO>>(new Map());
 
   const orders = query.data ?? EMPTY;
   const selected = selectedId === null ? null : (orders.find((o) => o.id === selectedId || o.number === selectedId) ?? null);
-  const { byId: itemsById } = useItemsByIds([...(selected?.lines ?? []), ...lines].map((l) => l.itemId));
-  const itemOf = (id: string) => pickedItems.get(id) ?? itemsById.get(id);
-  const itemName = (id: string) => itemOf(id)?.nameAr ?? id;
-  const itemValue = (id: string): EntityPickerOption | null => {
-    if (id === "") return null;
-    const item = itemOf(id);
-    return item ? itemOption(item) : { id, label: id };
-  };
+  const { itemOf, itemName, itemValue, remember } = useLineItems([...(selected?.lines ?? []), ...lines].map((l) => l.itemId));
 
   const filtered = useMemo(() => [...orders].sort((a, b) => b.number.localeCompare(a.number)), [orders]);
 
@@ -353,10 +331,10 @@ export function PurchaseOrdersScreen() {
             <ItemPicker
               label={t("common.item")}
               value={itemValue(line.itemId)}
-              filter={{ types: PURCHASABLE_TYPES }}
+              filter={PURCHASABLE_ITEMS}
               sublabel={(item) => unitLabel(item.baseUnitCode)}
               onChange={(item) => {
-                if (item) setPickedItems((prev) => new Map(prev).set(item.id, item));
+                remember(item);
                 setLines((prev) => prev.map((l, j) => (j === i ? { ...l, itemId: item?.id ?? "", unitPrice: item?.costPrice ? Number(item.costPrice) : l.unitPrice } : l)));
               }}
               placeholder={t("purchaseOrders.field.itemPlaceholder")}

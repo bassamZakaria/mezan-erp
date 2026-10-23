@@ -1,5 +1,5 @@
 import { AlreadySavedNotice, useAlreadySavedNotice, useDocumentId } from "../lib/document-id";
-import { ReversalDocumentType, itemTypeSchema } from "@mezan/contracts";
+import { ReversalDocumentType } from "@mezan/contracts";
 import { useReverseDocumentAction } from "../reversal/ReverseDocumentAction";
 import { useEffect, useMemo, useState } from "react";
 import { HeldDocumentReapproval } from "../shell/ReapprovalNotice";
@@ -58,7 +58,7 @@ import { useSubPage } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useDocumentEffectText } from "../lib/document-effects";
 import { useEntityName } from "../lib/entity-names";
-import { ItemPicker, itemOption } from "./ItemPicker";
+import { ItemPicker, itemOption, STOCKED_ITEMS } from "./ItemPicker";
 import { DOC_STATUS_TONE, documentStatusLabel } from "../doc-status";
 import { useDomainLabels } from "../lib/domain-labels";
 import { todayIso } from "../lib/dates";
@@ -136,7 +136,6 @@ const OPEN_PROJECT_STATUSES = new Set<ProjectDTO["status"]>(["planned", "active"
 
 const COST_CATEGORY_VALUES: readonly CostCategoryDTO[] = ["materials", "labour", "equipment", "subcontract", "indirect"];
 
-const STOCKED_ITEM_TYPES = itemTypeSchema.options.filter((type) => type !== "service");
 
 let lineSeq = 0;
 function blankLine(direction: StockMovementDirection): LineDraft {
@@ -845,7 +844,7 @@ function CreateAdjustmentView({
                           placeholder={t("stockAdj.chooseAnItem")}
                           value={pickerValue(line)}
                           onChange={(item) => updateLine(i, { itemId: item?.id ?? "", item: item ?? undefined })}
-                          filter={{ types: STOCKED_ITEM_TYPES }}
+                          filter={STOCKED_ITEMS}
                         />
                       </td>
                       {reason.direction === "EITHER" ? (

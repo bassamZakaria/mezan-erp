@@ -87,6 +87,7 @@ import {
   nameJournalLineTaxSchema,
   lineTaxClassificationSchema,
   SALES_INVOICE_DUE_SOON_DAYS,
+  SalesInvoiceDerivedFilter,
   type SalesInvoiceListQueryDTO,
   type SalesInvoiceDiscountDTO,
 } from "@mezan/contracts";
@@ -971,7 +972,7 @@ export function createSalesInvoicesRoutes(
     readonly allocations: ReadonlyMap<string, Money>;
   }
 
-  const DERIVED_FILTER_KEYS = new Set(["all", "open", "overdue", "active"]);
+  const DERIVED_FILTER_KEYS = new Set<string>(Object.values(SalesInvoiceDerivedFilter));
 
   /** The only two stored statuses an unpaid balance can sit under. */
   const UNSETTLED_STATUSES = ["confirmed", "partially_paid"] as const satisfies readonly SalesInvoice["status"][];
@@ -1002,7 +1003,7 @@ export function createSalesInvoicesRoutes(
       // overdue, so those two chips narrow in SQL to the open receivable
       // instead of hydrating every draft, paid and cancelled row to discard it.
       ...(status === "open" || status === "overdue" ? { statusIn: UNSETTLED_STATUSES } : {}),
-      ...(status === "active" ? { statusIn: [...SALES_INVOICE_ACTIVE_STATUSES] } : {}),
+      ...(status === SalesInvoiceDerivedFilter.Active ? { statusIn: [...SALES_INVOICE_ACTIVE_STATUSES] } : {}),
       branchScope: branchScopeOf(c),
       branchScopeWarehouses: await warehousesOfBranchScope(c),
       warehouseScope: warehouseScopeOf(c),

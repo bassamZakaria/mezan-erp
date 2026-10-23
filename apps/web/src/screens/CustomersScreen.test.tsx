@@ -29,7 +29,9 @@ function invoiceSummaryHandlers(invoices: () => readonly SalesInvoiceDTO[]) {
     const params = new URL(path, "http://test").searchParams;
     const customerId = params.get("customerId");
     const status = params.get("status");
-    return invoices().filter((inv) => (!customerId || inv.customerId === customerId) && (!status || inv.status === status));
+    const matchesStatus = (inv: SalesInvoiceDTO) =>
+      !status || (status === "active" ? ["confirmed", "partially_paid", "paid"].includes(inv.status) : inv.status === status);
+    return invoices().filter((inv) => (!customerId || inv.customerId === customerId) && matchesStatus(inv));
   };
   return {
     "GET /sales-invoices/counts": (_init: RequestInit | undefined, path: string) => {

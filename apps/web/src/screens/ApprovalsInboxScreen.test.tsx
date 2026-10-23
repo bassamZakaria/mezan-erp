@@ -2,6 +2,7 @@
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it, vi } from "vitest";
 import { screen, fireEvent, within } from "@testing-library/react";
+import { useLocation, useNavigate } from "react-router";
 import type { ApprovalRequestDTO } from "@mezan/contracts";
 import { ApprovalsInboxScreen } from "./ApprovalsInboxScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
@@ -275,6 +276,40 @@ describe("ApprovalsInboxScreen — the paged tabs between pages", () => {
     await vi.waitFor(() => expect(searched.some((path) => path.startsWith("/workflow/requests/counts"))).toBe(true));
     expect(screen.getByText("طلب صفحة 1")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "2" })).toBeInTheDocument();
+  });
+
+  it("keeps a page the address bar asks for while that search's count is still loading", async () => {
+    const stub = stubTransport({
+      "GET /workflow/requests/pending": () => ({ body: [] }),
+      "GET /workflow/requests/counts": () => ({ body: { mine: 5, acted: 0 } }),
+      "GET /workflow/requests/mine": () => ({ body: [{ ...pendingRequest, id: "mine-1", status: "approved", entityLabel: "طلب صفحة 1" }] }),
+    });
+    const searched: string[] = [];
+    const transport: Transport = (path, init) => {
+      if (!path.includes("search=")) return stub(path, init);
+      searched.push(path);
+      return new Promise(() => {});
+    };
+    let location = "";
+    function Address() {
+      const navigate = useNavigate();
+      location = useLocation().search;
+      return <button onClick={() => navigate("/?q=B&page=3")}>عودة</button>;
+    }
+    renderWithProviders(
+      <>
+        <ApprovalsInboxScreen />
+        <Address />
+      </>,
+      { transport, initialSession: testAdminSession },
+    );
+    fireEvent.click(await screen.findByRole("tab", { name: /طلباتي/ }));
+    await screen.findByText("طلب صفحة 1");
+
+    fireEvent.click(screen.getByRole("button", { name: "عودة" }));
+    await vi.waitFor(() => expect(searched.some((path) => path.startsWith("/workflow/requests/counts"))).toBe(true));
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(new URLSearchParams(location).get("page")).toBe("3");
   });
 
   it("never shows one tab's rows under another while the other loads", async () => {

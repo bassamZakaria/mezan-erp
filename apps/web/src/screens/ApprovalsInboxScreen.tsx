@@ -93,7 +93,7 @@ export function ApprovalsInboxScreen() {
   }, [inboxRows, search, actionTypeFilter, actionTypeLabel]);
 
   const filteredTotal = onInbox ? inboxFiltered.length : (filteredTotals.data?.[scope] ?? 0);
-  const totalKnown = onInbox ? inbox.data !== undefined : filteredTotals.data !== undefined;
+  const totalKnown = onInbox ? inbox.data !== undefined : filteredTotals.data !== undefined && !filteredTotals.isPlaceholderData;
   const pageCount = Math.max(1, Math.ceil(filteredTotal / pageSize));
   const pageRows = onInbox ? inboxFiltered.slice((page - 1) * pageSize, page * pageSize) : (scoped.data ?? []);
   const tabTotal = onInbox ? inboxRows.length : (totals.data?.[scope] ?? 0);

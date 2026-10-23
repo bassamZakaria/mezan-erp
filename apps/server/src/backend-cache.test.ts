@@ -272,4 +272,18 @@ describe("createBackendCache", () => {
     await Promise.all([swept, evicted]);
     expect(order).toEqual(["closed", "evict returned"]);
   });
+
+  it("reports a handle that fails to close instead of dropping the error", async () => {
+    const failures: string[] = [];
+    const cache = createBackendCache({
+      open: async () => ({ close: () => { throw new Error("checkpoint failed"); } }),
+      sweepEveryMs: 0,
+      onCloseError: (code, err) => void failures.push(`${code}: ${(err as Error).message}`),
+    });
+    await cache.get("a");
+    await cache.evict("a");
+    await cache.get("b");
+    await cache.close();
+    expect(failures).toEqual(["a: checkpoint failed", "b: checkpoint failed"]);
+  });
 });

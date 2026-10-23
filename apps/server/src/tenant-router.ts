@@ -282,6 +282,7 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
     idleMs: options.idleMs,
     sweepEveryMs: options.sweepEveryMs,
     now: options.now ? () => options.now!().getTime() : undefined,
+    onCloseError: (tenantId, err) => log.error({ err }, `the database of tenant ${tenantId} did not close cleanly`),
     onEvict: (tenantId) => {
       const code = openCodes.get(tenantId);
       openCodes.delete(tenantId);

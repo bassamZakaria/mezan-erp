@@ -7,6 +7,7 @@ export interface BackendCacheOptions<H extends CachedHandle> {
   readonly sweepEveryMs?: number;
   /** Called for each code a sweep evicts, before its handle finishes closing. */
   readonly onEvict?: (code: string) => void;
+  readonly onCloseError?: (code: string, err: unknown) => void;
 }
 
 export interface BackendCache<H> {
@@ -47,7 +48,10 @@ export function createBackendCache<H extends CachedHandle>(options: BackendCache
   let closed = false;
 
   function retire(code: string, handle: Promise<H>): Promise<void> {
-    const done: Promise<void> = handle.then(shut).finally(() => {
+    const done: Promise<void> = handle.then(shut).catch((err: unknown) => {
+      options.onCloseError?.(code, err);
+      throw err;
+    }).finally(() => {
       if (closing.get(code) === done) closing.delete(code);
     });
     closing.set(code, done);

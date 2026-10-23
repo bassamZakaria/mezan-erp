@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { openSqliteConnection } from "@mezan/persistence";
 import { EnvSettingKey, EnvSettingSource, type EnvSettingsDTO } from "@mezan/contracts";
 import { bootRefusals, parseEnv } from "./env.js";
-import { bootEnv, ENV_OVERRIDES_FILE, readEnvOverrides } from "./env-overrides.js";
+import { bootEnv, ENV_OVERRIDES_FILE } from "./env-overrides.js";
 import { createEnvSettings } from "./env-settings.js";
 import { createCloudApp, type CloudApp } from "./cloud-app.js";
 import { platformBearer, reachable, rememberPlatformDevice } from "./cloud-harness.js";
@@ -33,57 +33,65 @@ const productionCheck = (env: Record<string, string | undefined>) => {
   if (refusals.length > 0) throw new Error(refusals.join(" "));
 };
 
-describe("the server settings overrides file", () => {
-  it("is empty when missing, applies over the process environment, and an empty value unsets a variable", () => {
+describe("the site settings overrides file", () => {
+  it("is empty when missing, applies over the process environment once committed, and an empty value unsets a variable", () => {
     const dir = dataDir();
-    const empty = bootEnv({ MEZAN_PLATFORM_DIR: dir, MEZAN_SUPPORT_EMAIL: "help@env.example" }, ".unused");
-    expect(empty.applied).toEqual({});
-    expect(empty.merged["MEZAN_SUPPORT_EMAIL"]).toBe("help@env.example");
+    const env = { MEZAN_PLATFORM_DIR: dir, MEZAN_SUPPORT_EMAIL: "help@env.example", MEZAN_SUPPORT_PHONE: "0100" };
+    const boot = bootEnv(env, ".unused");
+    expect(boot.applied).toEqual({});
 
-    const settings = createEnvSettings(empty, productionCheck, () => undefined);
-    settings.update({ [EnvSettingKey.SupportEmail]: "help@console.example", [EnvSettingKey.SupportPhone]: "" });
+    const prepared = createEnvSettings(boot, productionCheck, () => undefined).update({ [EnvSettingKey.SupportEmail]: "help@console.example", [EnvSettingKey.SupportPhone]: "" });
+    expect(prepared.changed).toEqual([EnvSettingKey.SupportEmail, EnvSettingKey.SupportPhone]);
+    expect(parseEnv(bootEnv(env, ".unused").merged).supportEmail).toBe("help@env.example");
 
-    const next = bootEnv({ MEZAN_PLATFORM_DIR: dir, MEZAN_SUPPORT_EMAIL: "help@env.example", MEZAN_SUPPORT_PHONE: "0100" }, ".unused");
-    expect(parseEnv(next.merged)).toMatchObject({ supportEmail: "help@console.example", supportPhone: undefined });
+    prepared.commit();
+    expect(parseEnv(bootEnv(env, ".unused").merged)).toMatchObject({ supportEmail: "help@console.example", supportPhone: undefined });
   });
 
-  it("seals secrets on disk, never lists their value, and ignores keys the console may not set", () => {
+  it("never applies a key the console may not set, whatever the file holds", () => {
     const dir = dataDir();
-    const boot = bootEnv({ MEZAN_PLATFORM_DIR: dir }, ".unused");
-    const settings = createEnvSettings(boot, productionCheck, () => undefined);
-    settings.update({ [EnvSettingKey.SmtpPassword]: "s3cret-mail-pass" });
+    writeFileSync(path.join(dir, ENV_OVERRIDES_FILE), JSON.stringify({ MEZAN_SMTP_HOST: "evil.example", MEZAN_SECRETS_KEY: "planted", MEZAN_WHATSAPP_NUMBER: "201001234567" }));
 
-    expect(readFileSync(path.join(dir, ENV_OVERRIDES_FILE), "utf8")).not.toContain("s3cret-mail-pass");
-    expect(readEnvOverrides(dir, boot.box)[EnvSettingKey.SmtpPassword]).toBe("s3cret-mail-pass");
-    expect(settings.list().settings.find((s) => s.key === EnvSettingKey.SmtpPassword)).toEqual({
-      key: EnvSettingKey.SmtpPassword,
-      value: null,
-      hasValue: true,
-      source: EnvSettingSource.Override,
-    });
+    const merged = bootEnv({ MEZAN_PLATFORM_DIR: dir }, ".unused").merged;
 
-    const stored = JSON.parse(readFileSync(path.join(dir, ENV_OVERRIDES_FILE), "utf8")) as Record<string, unknown>;
-    writeFileSync(path.join(dir, ENV_OVERRIDES_FILE), JSON.stringify({ ...stored, MEZAN_SECRETS_KEY: { value: "planted" } }));
-    expect(bootEnv({ MEZAN_PLATFORM_DIR: dir }, ".unused").merged["MEZAN_SECRETS_KEY"]).toBeUndefined();
+    expect(merged["MEZAN_SMTP_HOST"]).toBeUndefined();
+    expect(merged["MEZAN_SECRETS_KEY"]).toBeUndefined();
+    expect(merged["MEZAN_WHATSAPP_NUMBER"]).toBe("201001234567");
   });
 
-  it("refuses, writing nothing, a value the server would not start with, and marks a saved change as pending a restart", () => {
+  it("starts on the env file alone when the file is unreadable, and says so", () => {
     const dir = dataDir();
-    const boot = bootEnv({ MEZAN_PLATFORM_DIR: dir }, ".unused");
-    const settings = createEnvSettings(boot, productionCheck, () => undefined);
+    writeFileSync(path.join(dir, ENV_OVERRIDES_FILE), "{ torn");
+    const spy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      const boot = bootEnv({ MEZAN_PLATFORM_DIR: dir, MEZAN_SUPPORT_PHONE: "0100" }, ".unused");
+      expect(boot.merged["MEZAN_SUPPORT_PHONE"]).toBe("0100");
+      expect(createEnvSettings(boot, productionCheck, () => undefined).list().loadError).toMatch(/JSON/);
+    } finally {
+      spy.mockRestore();
+    }
+  });
 
-    expect(() => settings.update({ [EnvSettingKey.SmtpHost]: "smtp.example.com" })).toThrow(/MEZAN_SMTP_FROM_EMAIL/);
-    expect(() => settings.update({ [EnvSettingKey.PaymobTestMode]: "1" })).toThrow(/MEZAN_SEED_DEMO/);
+  it("refuses a value the server would not start with, and marks a committed change as pending a restart", () => {
+    const dir = dataDir();
+    const settings = createEnvSettings(bootEnv({ MEZAN_PLATFORM_DIR: dir }, ".unused"), productionCheck, () => undefined);
+
     expect(() => settings.update({ [EnvSettingKey.WhatsappNumber]: "not a number" })).toThrow(/MEZAN_WHATSAPP_NUMBER/);
+    expect(() => settings.update({ [EnvSettingKey.SupportEmail]: "not-an-email" })).toThrow(/MEZAN_SUPPORT_EMAIL/);
     expect(settings.list().restartPending).toBe(false);
 
-    expect(settings.update({ [EnvSettingKey.WhatsappNumber]: "+20 100 123 4567" })).toEqual([EnvSettingKey.WhatsappNumber]);
+    settings.update({ [EnvSettingKey.WhatsappNumber]: "+20 100 123 4567" }).commit();
     expect(settings.list().restartPending).toBe(true);
+    expect(settings.list().settings.find((s) => s.key === EnvSettingKey.WhatsappNumber)).toEqual({
+      key: EnvSettingKey.WhatsappNumber,
+      value: "+20 100 123 4567",
+      source: EnvSettingSource.Override,
+    });
     expect(parseEnv(bootEnv({ MEZAN_PLATFORM_DIR: dir }, ".unused").merged).whatsappNumber).toBe("201001234567");
   });
 });
 
-describe("server settings from the platform console", () => {
+describe("site settings from the platform console", () => {
   async function boot(restart = vi.fn()) {
     const dir = dataDir();
     const settingsBoot = bootEnv({ MEZAN_PLATFORM_DIR: dir }, ".unused");
@@ -102,33 +110,31 @@ describe("server settings from the platform console", () => {
       Promise.resolve(
         app.root.fetch(new Request(`http://cloud.internal/api/platform${route}`, { ...init, headers: { ...platformBearer(signedIn.token), "content-type": "application/json" } })),
       );
-    return { app, call, dir, restart };
+    return { call, dir, restart };
   }
 
-  it("saves only with the owner's password, refuses a broken value, and audits a secret as set, never its value", async () => {
-    const { app, call, dir } = await boot();
+  it("saves only with the owner's password, refuses a broken value or a server setting, and audits the change", async () => {
+    const { call, dir } = await boot();
     const put = (body: unknown) => call("/settings/env", { method: "PUT", body: JSON.stringify(body) });
 
     expect((await put({ password: "wrong-password", changes: { [EnvSettingKey.SupportEmail]: "help@x.example" } })).status).toBe(403);
-    const broken = await put({ password: OWNER_PASSWORD, changes: { [EnvSettingKey.SmtpHost]: "smtp.example.com" } });
+    expect((await put({ password: OWNER_PASSWORD, changes: { MEZAN_SMTP_HOST: "evil.example" } })).status).toBe(400);
+    const broken = await put({ password: OWNER_PASSWORD, changes: { [EnvSettingKey.SupportEmail]: "nope" } });
     expect(broken.status).toBe(422);
     expect(((await broken.json()) as { error: string }).error).toBe("ENV_SETTINGS_INVALID");
 
-    const saved = await put({ password: OWNER_PASSWORD, changes: { [EnvSettingKey.SupportEmail]: "help@x.example", [EnvSettingKey.SmtpPassword]: "mail-pass-1" } });
+    const saved = await put({ password: OWNER_PASSWORD, changes: { [EnvSettingKey.SupportEmail]: "help@x.example", [EnvSettingKey.PublicLanding]: "1" } });
     expect(saved.status).toBe(200);
     const body = (await saved.json()) as EnvSettingsDTO;
     expect(body.restartPending).toBe(true);
     expect(body.settings.find((s) => s.key === EnvSettingKey.SupportEmail)).toMatchObject({ value: "help@x.example", source: EnvSettingSource.Override });
-    expect(JSON.stringify(body)).not.toContain("mail-pass-1");
-    expect(readFileSync(path.join(dir, ENV_OVERRIDES_FILE), "utf8")).not.toContain("mail-pass-1");
+    expect(JSON.parse(readFileSync(path.join(dir, ENV_OVERRIDES_FILE), "utf8"))).toEqual({ MEZAN_SUPPORT_EMAIL: "help@x.example", MEZAN_PUBLIC_LANDING: "1" });
 
     const rows = openSqliteConnection(path.join(dir, "platform.db"))
       .sqlite.prepare("SELECT details, severity FROM audit_event WHERE action = 'ENV_SETTINGS_CHANGED'")
       .all() as { details: string; severity: string }[];
     expect(rows).toHaveLength(1);
-    expect(JSON.parse(rows[0]!.details)).toMatchObject({ changed: { [EnvSettingKey.SupportEmail]: "help@x.example", [EnvSettingKey.SmtpPassword]: "set" } });
-    expect(rows[0]!.details).not.toContain("mail-pass-1");
-    void app;
+    expect(JSON.parse(rows[0]!.details)).toMatchObject({ changed: { [EnvSettingKey.SupportEmail]: "help@x.example", [EnvSettingKey.PublicLanding]: "1" } });
   });
 
   it("restarts only after the password is confirmed, answering before the process goes", async () => {

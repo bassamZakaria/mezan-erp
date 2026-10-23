@@ -1,46 +1,39 @@
-import {
-  ENV_SETTINGS,
-  EnvReadOnlyKey,
-  EnvSettingKey,
-  EnvSettingSource,
-  type EnvSettingsDTO,
-} from "@mezan/contracts";
-import { EnvSettingsInvalidError, type PlatformEnvSettingsPort } from "@mezan/backend";
+import { EnvSettingKey, EnvSettingSource, type EnvSettingsDTO } from "@mezan/contracts";
+import { EnvSettingsInvalidError, type PlatformEnvSettingsPort, type PreparedEnvChange } from "@mezan/backend";
 import { readEnvOverrides, writeEnvOverrides, type BootEnv, type EnvOverrides } from "./env-overrides.js";
 
 const hasText = (value: string | undefined): boolean => value !== undefined && value.trim() !== "";
 
-function sameOverrides(a: EnvOverrides, b: EnvOverrides): boolean {
-  const keys = new Set([...Object.keys(a), ...Object.keys(b)]) as Set<EnvSettingKey>;
-  return [...keys].every((key) => a[key] === b[key]);
-}
+const effective = (base: BootEnv["base"], overrides: EnvOverrides, key: EnvSettingKey) => (key in overrides ? overrides[key] : base[key]);
 
 /**
  * `check` must throw for any environment the server would refuse to start with: it is the same
  * parse (and, in production, the same start-up refusals) the entry point runs.
  */
 export function createEnvSettings(boot: BootEnv, check: (env: Record<string, string | undefined>) => void, restart: () => void): PlatformEnvSettingsPort {
-  const current = () => readEnvOverrides(boot.platformDir, boot.box);
+  const current = (): EnvOverrides => {
+    try {
+      return readEnvOverrides(boot.platformDir);
+    } catch {
+      return {};
+    }
+  };
 
   function list(): EnvSettingsDTO {
     const overrides = current();
+    const keys = Object.values(EnvSettingKey);
     return {
-      settings: Object.values(EnvSettingKey).map((key) => {
-        const overridden = key in overrides;
-        const value = overridden ? overrides[key] : boot.base[key];
-        return {
-          key,
-          value: ENV_SETTINGS[key].secret ? null : (value ?? null),
-          hasValue: hasText(value),
-          source: overridden ? EnvSettingSource.Override : hasText(boot.base[key]) ? EnvSettingSource.EnvFile : EnvSettingSource.Unset,
-        };
-      }),
-      readOnly: Object.values(EnvReadOnlyKey).map((key) => ({ key, hasValue: hasText(boot.base[key]) })),
-      restartPending: !sameOverrides(overrides, boot.applied),
+      settings: keys.map((key) => ({
+        key,
+        value: effective(boot.base, overrides, key) ?? null,
+        source: key in overrides ? EnvSettingSource.Override : hasText(boot.base[key]) ? EnvSettingSource.EnvFile : EnvSettingSource.Unset,
+      })),
+      restartPending: keys.some((key) => effective(boot.base, overrides, key) !== effective(boot.base, boot.applied, key)),
+      loadError: boot.loadError,
     };
   }
 
-  function update(changes: Partial<Record<EnvSettingKey, string | null>>): EnvSettingKey[] {
+  function update(changes: Partial<Record<EnvSettingKey, string | null>>): PreparedEnvChange {
     const before = current();
     const next: EnvOverrides = { ...before };
     for (const [key, value] of Object.entries(changes) as [EnvSettingKey, string | null][]) {
@@ -52,8 +45,10 @@ export function createEnvSettings(boot: BootEnv, check: (env: Record<string, str
     } catch (err) {
       throw new EnvSettingsInvalidError(err instanceof Error ? err.message : String(err));
     }
-    writeEnvOverrides(boot.platformDir, boot.box, next);
-    return (Object.keys(changes) as EnvSettingKey[]).filter((key) => before[key] !== next[key]);
+    return {
+      changed: (Object.keys(changes) as EnvSettingKey[]).filter((key) => effective(boot.base, before, key) !== effective(boot.base, next, key)),
+      commit: () => writeEnvOverrides(boot.platformDir, next),
+    };
   }
 
   return { list, update, restart };

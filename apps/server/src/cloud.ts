@@ -97,7 +97,7 @@ process.env["NODE_ENV"] = "production";
 const analyticsToken = env.analyticsToken;
 const transformIndexHtml = analyticsToken
   ? (html: string) => {
-      const analyticsTag = `<script defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='${JSON.stringify({ token: analyticsToken })}'></script>`;
+      const analyticsTag = `<script defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='${JSON.stringify({ token: analyticsToken }).replace(/[&'<>]/g, (ch) => `&#${ch.charCodeAt(0)};`)}'></script>`;
       return html.replace("</body>", `${analyticsTag}</body>`);
     }
   : undefined;

@@ -130,7 +130,6 @@ import {
   signupModeSchema,
   type SignupRequestDTO,
   type SignupModeResponseDTO,
-  ENV_SETTINGS,
   EnvSettingsRefusal,
   restartServerRequestSchema,
   updateEnvSettingsRequestSchema,
@@ -178,10 +177,16 @@ export interface PlatformCardCheckoutPort {
   }): Promise<CardCheckout>;
 }
 
+export interface PreparedEnvChange {
+  readonly changed: EnvSettingKey[];
+  /** Writes the settings file; called only once the change is recorded in the audit trail. */
+  commit(): void;
+}
+
 export interface PlatformEnvSettingsPort {
   list(): EnvSettingsDTO;
   /** Throws {@link EnvSettingsInvalidError}, writing nothing, when the server would refuse to start with the result. */
-  update(changes: Partial<Record<EnvSettingKey, string | null>>): EnvSettingKey[];
+  update(changes: Partial<Record<EnvSettingKey, string | null>>): PreparedEnvChange;
   restart(): void;
 }
 
@@ -193,6 +198,11 @@ export class EnvSettingsInvalidError extends Error {
 }
 
 const RESTART_DELAY_MS = 500;
+
+enum PlatformAuditEntity {
+  EnvSettings = "env-settings",
+  Server = "server",
+}
 
 export enum PlatformAuditAction {
   CardCheckoutRequested = "CARD_CHECKOUT_REQUESTED",
@@ -805,12 +815,13 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
     if (refused) return refused;
     const changes = parsed.data.changes as Partial<Record<EnvSettingKey, string | null>>;
     try {
-      await recordedWith(c, async () => {
-        const changed = envSettings.update(changes);
-        // SECURITY: a secret's value never reaches the audit trail, only whether it was set or cleared.
-        const details = Object.fromEntries(changed.map((key) => [key, ENV_SETTINGS[key].secret ? (changes[key] ? "set" : "cleared") : changes[key]]));
-        return { value: null, action: PlatformAuditAction.EnvSettingsChanged, entityId: "env", details: { changed: details }, severity: AuditSeverityCode.Warning };
+      const prepared = await recordedWith(c, async () => {
+        const prepared = envSettings.update(changes);
+        const changed = prepared.changed;
+        const details = Object.fromEntries(changed.map((key) => [key, changes[key]]));
+        return { value: prepared, action: PlatformAuditAction.EnvSettingsChanged, entityId: PlatformAuditEntity.EnvSettings, details: { changed: details }, severity: AuditSeverityCode.Warning };
       });
+      prepared.commit();
       return c.json(envSettings.list());
     } catch (err) {
       if (err instanceof EnvSettingsInvalidError) {
@@ -827,7 +838,7 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
     const refused = await auth.confirmPassword(c, parsed.data.password);
     if (refused) return refused;
     try {
-      await recordedWith(c, async () => ({ value: null, action: PlatformAuditAction.ServerRestartRequested, entityId: "server", details: {}, severity: AuditSeverityCode.Warning }));
+      await recordedWith(c, async () => ({ value: null, action: PlatformAuditAction.ServerRestartRequested, entityId: PlatformAuditEntity.Server, details: {}, severity: AuditSeverityCode.Warning }));
     } catch (err) {
       return domainErrorResponse(c, err);
     }

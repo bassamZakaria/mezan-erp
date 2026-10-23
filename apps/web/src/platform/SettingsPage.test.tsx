@@ -2,7 +2,7 @@
 import "@testing-library/jest-dom/vitest";
 import { beforeEach, describe, expect, it } from "vitest";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
-import { EnvReadOnlyKey, EnvSettingKey, EnvSettingSource, type EnvSettingsDTO } from "@mezan/contracts";
+import { EnvSettingKey, EnvSettingSource, type EnvSettingsDTO } from "@mezan/contracts";
 import { PlatformShell } from "./PlatformShell";
 import { renderWithPlatformProviders, stubPlatformTransport, testPlatformSession } from "./test-support";
 
@@ -10,15 +10,15 @@ const supportSession = { ...testPlatformSession, user: { ...testPlatformSession.
 
 function settings(overrides: Partial<EnvSettingsDTO> = {}): EnvSettingsDTO {
   return {
-    settings: Object.values(EnvSettingKey).map((key) => ({ key, value: null, hasValue: false, source: EnvSettingSource.Unset })).map((s) =>
-      s.key === EnvSettingKey.SupportEmail
-        ? { ...s, value: "help@env.example", hasValue: true, source: EnvSettingSource.EnvFile }
-        : s.key === EnvSettingKey.SmtpPassword
-          ? { ...s, hasValue: true, source: EnvSettingSource.Override }
-          : s,
+    settings: Object.values(EnvSettingKey).map((key) =>
+      key === EnvSettingKey.SupportEmail
+        ? { key, value: "help@env.example", source: EnvSettingSource.EnvFile }
+        : key === EnvSettingKey.PublicLanding
+          ? { key, value: "1", source: EnvSettingSource.Override }
+          : { key, value: null, source: EnvSettingSource.Unset },
     ),
-    readOnly: [{ key: EnvReadOnlyKey.SecretsKey, hasValue: true }],
     restartPending: false,
+    loadError: null,
     ...overrides,
   };
 }
@@ -27,12 +27,20 @@ function renderPage(handlers: Parameters<typeof stubPlatformTransport>[0], sessi
   renderWithPlatformProviders(<PlatformShell />, { route: "/platform/settings", initialSession: session, transport: stubPlatformTransport(handlers) });
 }
 
+async function confirmWithPassword(button: string) {
+  const dialog = await screen.findByRole("dialog");
+  const confirm = within(dialog).getByRole("button", { name: button });
+  expect(confirm).toBeDisabled();
+  fireEvent.change(within(dialog).getByLabelText("كلمة مرورك للتأكيد"), { target: { value: "owner-pass" } });
+  fireEvent.click(confirm);
+}
+
 describe("SettingsPage", () => {
   beforeEach(() => {
     localStorage.clear();
   });
 
-  it("saves edited settings only after the owner re-enters their password, and never shows a secret's value", async () => {
+  it("offers only contact details and the landing switch, and saves them after the owner re-enters their password", async () => {
     let put: unknown = null;
     renderPage({
       "GET /settings/env": () => ({ body: settings() }),
@@ -44,23 +52,28 @@ describe("SettingsPage", () => {
 
     const email = await screen.findByLabelText("بريد الدعم");
     expect(email).toHaveValue("help@env.example");
-    expect(screen.getByLabelText("كلمة مرور البريد")).toHaveValue("");
+    expect(screen.queryByLabelText(/كلمة مرور البريد|خادم البريد|المفتاح السري/)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "حفظ الإعدادات" })).toBeDisabled();
 
     fireEvent.change(email, { target: { value: "help@console.example" } });
     fireEvent.change(screen.getByLabelText("رقم واتساب (دولي، أرقام فقط)"), { target: { value: "201001234567" } });
     fireEvent.click(screen.getByRole("button", { name: "حفظ الإعدادات" }));
-
-    const dialog = await screen.findByRole("dialog");
-    const confirm = within(dialog).getByRole("button", { name: "حفظ الإعدادات" });
-    expect(confirm).toBeDisabled();
-    fireEvent.change(within(dialog).getByLabelText("كلمة مرورك للتأكيد"), { target: { value: "owner-pass" } });
-    fireEvent.click(confirm);
+    await confirmWithPassword("حفظ الإعدادات");
 
     await waitFor(() =>
       expect(put).toEqual({ password: "owner-pass", changes: { [EnvSettingKey.SupportEmail]: "help@console.example", [EnvSettingKey.WhatsappNumber]: "201001234567" } }),
     );
     expect(await screen.findByText("إعدادات محفوظة لم تُطبَّق بعد: أعد تشغيل الخادم لتطبيقها.")).toBeInTheDocument();
+  });
+
+  it("does not count a field changed back to its saved value", async () => {
+    renderPage({ "GET /settings/env": () => ({ body: settings() }) });
+
+    const email = await screen.findByLabelText("بريد الدعم");
+    fireEvent.change(email, { target: { value: "other@example.com" } });
+    expect(screen.getByRole("button", { name: "حفظ الإعدادات" })).toBeEnabled();
+    fireEvent.change(email, { target: { value: "help@env.example" } });
+    expect(screen.getByRole("button", { name: "حفظ الإعدادات" })).toBeDisabled();
   });
 
   it("restarts the server from the pending banner after the password is confirmed", async () => {
@@ -74,9 +87,7 @@ describe("SettingsPage", () => {
     });
 
     fireEvent.click(await screen.findByRole("button", { name: "إعادة تشغيل الخادم" }));
-    const dialog = await screen.findByRole("dialog");
-    fireEvent.change(within(dialog).getByLabelText("كلمة مرورك للتأكيد"), { target: { value: "owner-pass" } });
-    fireEvent.click(within(dialog).getByRole("button", { name: "إعادة تشغيل الخادم" }));
+    await confirmWithPassword("إعادة تشغيل الخادم");
 
     await waitFor(() => expect(restarted).toEqual({ password: "owner-pass" }));
     expect(await screen.findByText(/يُعاد تشغيل الخادم الآن/)).toBeInTheDocument();
@@ -88,14 +99,18 @@ describe("SettingsPage", () => {
       "PUT /settings/env": () => ({ status: 422, body: { error: "ENV_SETTINGS_INVALID", message: "لم تُحفظ الإعدادات: الخادم لن يعمل بها." } }),
     });
 
-    fireEvent.change(await screen.findByLabelText("خادم البريد"), { target: { value: "smtp.example.com" } });
+    fireEvent.change(await screen.findByLabelText("هاتف الدعم"), { target: { value: "0100" } });
     fireEvent.click(screen.getByRole("button", { name: "حفظ الإعدادات" }));
-    const dialog = await screen.findByRole("dialog");
-    fireEvent.change(within(dialog).getByLabelText("كلمة مرورك للتأكيد"), { target: { value: "owner-pass" } });
-    fireEvent.click(within(dialog).getByRole("button", { name: "حفظ الإعدادات" }));
+    await confirmWithPassword("حفظ الإعدادات");
 
     expect(await screen.findByText("لم تُحفظ الإعدادات: الخادم لن يعمل بها.")).toBeInTheDocument();
-    expect(screen.getByLabelText("خادم البريد")).toHaveValue("smtp.example.com");
+    expect(screen.getByLabelText("هاتف الدعم")).toHaveValue("0100");
+  });
+
+  it("warns when the saved settings could not be read at start-up", async () => {
+    renderPage({ "GET /settings/env": () => ({ body: settings({ loadError: "Unexpected token" }) }) });
+
+    expect(await screen.findByText(/تعذّرت قراءة الإعدادات المحفوظة/)).toBeInTheDocument();
   });
 
   it("is read-only for support", async () => {

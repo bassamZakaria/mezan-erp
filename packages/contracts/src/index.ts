@@ -2044,7 +2044,6 @@ export * from "./tenant-lifecycle.js";
 
 export {
   EnvSettingKey,
-  EnvReadOnlyKey,
   EnvSettingGroup,
   EnvSettingKind,
   EnvSettingSource,

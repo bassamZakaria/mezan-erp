@@ -144,9 +144,7 @@ The server's own shutdown budget is 75 s (`apps/server/src/process-lifecycle.ts`
 
 ## Settings changed from the console
 
-The platform console's **Server settings** page saves overrides to `env-overrides.json` in the data folder (`/srv/mezan/data` on the host). At start-up the server reads it after `/srv/mezan/env`, so a value set in the console wins; secrets in it are sealed with the platform secrets key. The data folder location, `MEZAN_SECRETS_KEY`, the audit signing key and the first-owner email/password stay in `/srv/mezan/env` only.
-
-If a saved setting locks you out of the console (a wrong public URL, proxy trust or origin secret), delete the file and restart:
+The platform console's **Site settings** page changes only the support e-mail, support phone, WhatsApp number and the landing-page switch. It saves them to `env-overrides.json` in the data folder (`/srv/mezan/data` on the host), which the server reads at start-up after `/srv/mezan/env`; any other key in that file is ignored. Every other setting (mail, Paymob, keys, URLs, proxy, backups) stays in `/srv/mezan/env`. To drop the console's values, delete the file and restart:
 
 ```bash
 sudo rm /srv/mezan/data/env-overrides.json && cd /opt/mezan && sudo docker compose restart mezan

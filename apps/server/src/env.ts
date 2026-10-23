@@ -202,6 +202,14 @@ function parseSupportEmail(value: string | undefined): string | undefined {
   return email;
 }
 
+/** SECURITY: the token is written into every served page; anything but the beacon's hex token could break out of the attribute. */
+function parseAnalyticsToken(value: string | undefined): string | undefined {
+  const token = trimmedOrUndefined(value);
+  if (token === undefined) return undefined;
+  if (!/^[a-f0-9]{32}$/i.test(token)) throw new Error("MEZAN_ANALYTICS_TOKEN must be the 32-character hex token of the Cloudflare Web Analytics beacon");
+  return token;
+}
+
 function parseWhatsappNumber(value: string | undefined): string | undefined {
   const digits = trimmedOrUndefined(value)?.replace(/[\s+-]/g, "");
   if (digits === undefined || digits === "") return undefined;
@@ -354,7 +362,7 @@ export function parseEnv(env: Record<string, string | undefined> = process.env, 
     tenantRetentionDays: parsePositiveInt(env["MEZAN_TENANT_RETENTION_DAYS"], "MEZAN_TENANT_RETENTION_DAYS", DEFAULT_TENANT_RETENTION_DAYS),
     webDist: env["MEZAN_WEB_DIST"] ?? "./apps/web/dist",
     demoPassword: trimmedOrUndefined(env["MEZAN_DEMO_PASSWORD"]),
-    analyticsToken: trimmedOrUndefined(env["MEZAN_ANALYTICS_TOKEN"]),
+    analyticsToken: parseAnalyticsToken(env["MEZAN_ANALYTICS_TOKEN"]),
     publicLanding: flag(env["MEZAN_PUBLIC_LANDING"]),
     port: parsePositiveInt(env["PORT"], "PORT", 8080),
     paymob: parsePaymob(env, options.paymobTestByDefault ?? false),

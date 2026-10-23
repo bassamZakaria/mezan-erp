@@ -89,12 +89,12 @@ export function EntityPicker({
   function handleKeyDown(event: KeyboardEvent<HTMLInputElement>) {
     if (event.key === "ArrowDown") {
       event.preventDefault();
-      setNavigated(true);
+      if (filtered.length > 0) setNavigated(true);
       setOpen(true);
       setHighlight((i) => Math.min(i + 1, Math.max(filtered.length - 1, 0)));
     } else if (event.key === "ArrowUp") {
       event.preventDefault();
-      setNavigated(true);
+      if (filtered.length > 0) setNavigated(true);
       setHighlight((i) => Math.max(i - 1, 0));
     } else if (event.key === "Enter") {
       event.preventDefault();
@@ -137,6 +137,7 @@ export function EntityPicker({
         onFocus={() => {
           setOpen(true);
           setHighlight(0);
+          setNavigated(false);
         }}
         onBlur={() => {
           setEnterQueued(false);

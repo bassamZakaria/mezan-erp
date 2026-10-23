@@ -243,12 +243,18 @@ export type SalesInvoicePaymentDTO = z.infer<typeof salesInvoicePaymentSchema>;
 export type SalesInvoiceListQueryDTO = z.infer<typeof salesInvoiceListQuerySchema>;
 export type AppliedSalesInvoicePromotionDTO = z.infer<typeof appliedSalesInvoicePromotionSchema>;
 /** `GET /sales-invoices/stats` — the KPI strip, summed in `Money` server-side. */
+export const SALES_INVOICE_DUE_SOON_DAYS = 30;
+
 export const salesInvoiceStatsSchema = z.object({
   count: z.number(),
   sales: z.string(),
   collected: z.string(),
   returned: z.string(),
   remaining: z.string(),
+  overdueCount: z.number(),
+  overdue: z.string(),
+  dueSoonCount: z.number(),
+  dueSoon: z.string(),
 });
 
 export type PromotionUsageRowDTO = z.infer<typeof promotionUsageRowSchema>;

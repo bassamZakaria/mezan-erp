@@ -152,6 +152,15 @@ describe("vouchers routes", () => {
     expect((await none.json() as any)).toHaveLength(0);
   });
 
+  it("narrows the list to one customer or one supplier", async () => {
+    const { vouchers } = await newApp();
+    await vouchers.fetch(req("/", { method: "POST", body: JSON.stringify(collection) }));
+    const ids = async (qs: string) => ((await (await vouchers.fetch(req(`/?${qs}`))).json()) as { id: string }[]).map((v) => v.id);
+    expect(await ids(`customerId=cust-1`)).toEqual(["v1"]);
+    expect(await ids("customerId=someone-else")).toEqual([]);
+    expect(await ids("supplierId=any-supplier")).toEqual([]);
+  });
+
   it("a search for a customer's or a supplier's name finds their vouchers, in the rows and in the chip counts", async () => {
     let directoryReads = 0;
     const directory = (rows: { id: string; nameAr: string; nameEn: string }[]) => ({

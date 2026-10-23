@@ -293,7 +293,17 @@ describe("promotionUsageRowSchema", () => {
 });
 
 describe("salesInvoiceStatsSchema", () => {
-  const stats = { count: 120, sales: "500000.000000", collected: "400000.000000", returned: "10000.000000", remaining: "90000.000000" };
+  const stats = {
+    count: 120,
+    sales: "500000.000000",
+    collected: "400000.000000",
+    returned: "10000.000000",
+    remaining: "90000.000000",
+    overdueCount: 3,
+    overdue: "1500.000000",
+    dueSoonCount: 2,
+    dueSoon: "800.000000",
+  };
 
   it("accepts a minimal valid stats payload and preserves every field verbatim", () => {
     const result = salesInvoiceStatsSchema.safeParse(stats);

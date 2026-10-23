@@ -724,6 +724,7 @@ export {
   type EditSalesInvoiceDraftLineDTO,
   salesInvoiceListQuerySchema,
   salesInvoiceStatsSchema,
+  SALES_INVOICE_DUE_SOON_DAYS,
   salesInvoiceFilterKeySchema,
   appliedSalesInvoicePromotionSchema,
   promotionUsageRowSchema,

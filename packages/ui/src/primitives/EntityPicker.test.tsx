@@ -197,4 +197,33 @@ describe("EntityPicker — Arabic search (D114)", () => {
     fireEvent.change(input, { target: { value: "  cust-003  " } });
     expect(screen.getAllByRole("option")).toHaveLength(1);
   });
+
+  describe("server search", () => {
+    it("reports each query and shows the caller's options unfiltered, since the server matched on fields the label lacks", () => {
+      const onQueryChange = vi.fn();
+      render(<EntityPicker value={null} onChange={() => {}} options={options} label="الصنف" onQueryChange={onQueryChange} />);
+      const input = screen.getByRole("combobox");
+      fireEvent.focus(input);
+      fireEvent.change(input, { target: { value: "6221" } });
+      expect(onQueryChange).toHaveBeenLastCalledWith("6221");
+      expect(screen.getAllByRole("option")).toHaveLength(3);
+    });
+
+    it("says it is searching, not that nothing matched, while the first results are on their way", () => {
+      render(<EntityPicker value={null} onChange={() => {}} options={[]} label="الصنف" onQueryChange={() => {}} loading />);
+      fireEvent.focus(screen.getByRole("combobox"));
+      expect(screen.getByText("جارٍ البحث…")).toBeInTheDocument();
+      expect(screen.queryByText("لا توجد نتائج")).toBeNull();
+    });
+
+    it("clears the server query once an option is chosen", () => {
+      const onQueryChange = vi.fn();
+      render(<EntityPicker value={null} onChange={() => {}} options={options} label="الصنف" onQueryChange={onQueryChange} />);
+      const input = screen.getByRole("combobox");
+      fireEvent.focus(input);
+      fireEvent.change(input, { target: { value: "شركة" } });
+      fireEvent.mouseDown(screen.getByText("شركة الأمل للتجارة"));
+      expect(onQueryChange).toHaveBeenLastCalledWith("");
+    });
+  });
 });

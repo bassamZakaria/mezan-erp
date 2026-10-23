@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { renderHook, waitFor } from "@testing-library/react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
@@ -279,53 +279,32 @@ describe("useTopProducts", () => {
 });
 
 describe("useAttentionData", () => {
-  const today = new Date("2026-03-15T00:00:00.000Z");
+
+  const invoiceList = vi.fn(() => ({ body: [] }));
 
   function transportFor(overrides: {
-    invoices?: unknown[];
+    stats?: unknown;
     vatRows?: unknown[];
     stockRows?: unknown[];
     supplierRows?: unknown[];
   }) {
     return stubTransport({
-      "GET /sales-invoices": () => ({ body: overrides.invoices ?? [] }),
+      "GET /sales-invoices": invoiceList,
+      "GET /sales-invoices/stats": () => ({ body: overrides.stats ?? { count: 0, sales: "0", collected: "0", returned: "0", remaining: "0", overdueCount: 0, overdue: "0", dueSoonCount: 0, dueSoon: "0" } }),
       "GET /financial-reports/vat-return": () => ({ status: 200, body: { rows: overrides.vatRows ?? [], groups: [], grandTotals: {}, reconciliation: null } }),
       "GET /reports/inventory/stock-levels": () => ({ body: { rows: overrides.stockRows ?? [], groups: [], grandTotals: {}, reconciliation: null } }),
       "GET /reports/aging/suppliers": () => ({ body: { rows: overrides.supplierRows ?? [], groups: [], grandTotals: {}, reconciliation: null } }),
     });
   }
 
-  it("counts an overdue open invoice as overdue, not due-soon", async () => {
+  it("reads overdue and due-soon from the server's money totals, never the invoice list", async () => {
     const transport = transportFor({
-      invoices: [
-        { status: "confirmed", remainingBalance: "500.00", dueDate: "2026-03-01" }, // 14 days overdue
-      ],
+      stats: { count: 4, sales: "0", collected: "0", returned: "0", remaining: "0", overdueCount: 1, overdue: "500.000000", dueSoonCount: 2, dueSoon: "300.000000" },
     });
-    const { result } = renderHook(() => useAttentionData(window, today), { wrapper: makeWrapper(transport).Wrapper });
+    const { result } = renderHook(() => useAttentionData(window), { wrapper: makeWrapper(transport).Wrapper });
     await waitFor(() => expect(result.current.overdueCount).toBe(1));
-    expect(result.current.overdueAmount).toBe(500);
-    expect(result.current.dueSoonCount).toBe(0);
-  });
-
-  it("counts a not-yet-due invoice within 30 days as due-soon, not overdue", async () => {
-    const transport = transportFor({
-      invoices: [{ status: "confirmed", remainingBalance: "300.00", dueDate: "2026-03-25" }], // +10 days
-    });
-    const { result } = renderHook(() => useAttentionData(window, today), { wrapper: makeWrapper(transport).Wrapper });
-    await waitFor(() => expect(result.current.dueSoonCount).toBe(1));
-    expect(result.current.overdueCount).toBe(0);
-    expect(result.current.dueSoonAmount).toBe(300);
-  });
-
-  it("excludes a settled (paid/draft/cancelled/reversed) invoice even if its due date is past", async () => {
-    const transport = transportFor({
-      invoices: [{ status: "paid", remainingBalance: "0.00", dueDate: "2026-01-01" }],
-    });
-    const { result } = renderHook(() => useAttentionData(window, today), { wrapper: makeWrapper(transport).Wrapper });
-    await waitFor(() => expect(result.current).toBeDefined());
-    await new Promise((r) => setTimeout(r, 10));
-    expect(result.current.overdueCount).toBe(0);
-    expect(result.current.dueSoonCount).toBe(0);
+    expect(result.current).toMatchObject({ overdueAmount: "500.000000", dueSoonCount: 2, dueSoonAmount: "300.000000" });
+    expect(invoiceList).not.toHaveBeenCalled();
   });
 
   it("sums low-stock rows and aged-payables buckets past 30 days", async () => {
@@ -333,7 +312,7 @@ describe("useAttentionData", () => {
       stockRows: [{ status: "low", itemNameAr: "صنف منخفض", itemNameEn: "Low item" }],
       supplierRows: [{ d31to60: "100.000000", d61to90: "50.000000", d91to120: "25.000000", over120: "10.000000" }],
     });
-    const { result } = renderHook(() => useAttentionData(window, today), { wrapper: makeWrapper(transport).Wrapper });
+    const { result } = renderHook(() => useAttentionData(window), { wrapper: makeWrapper(transport).Wrapper });
     await waitFor(() => expect(result.current.lowStockCount).toBe(1));
     expect(result.current.agedPayables).toBe("185.000000");
   });

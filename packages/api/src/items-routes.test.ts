@@ -396,6 +396,29 @@ describe("items router — the list is a page (guards Q-8)", () => {
     expect((await res.json()) as unknown[]).toHaveLength(25);
   });
 
+  it("narrows to exactly the ids asked for, so a screen can name its own rows without the catalogue", async () => {
+    const { app } = newApp();
+    await seed(app, 30);
+    const rows = (await (await app.fetch(req("/?ids=itm-3,itm-17,missing&pageSize=200", { permissions: "inventory.item.view" }))).json()) as { id: string }[];
+    expect(rows.map((r) => r.id).sort()).toEqual(["itm-17", "itm-3"]);
+  });
+
+  it("narrows by a set of types and to lot-tracked items, for pickers that only offer some kinds", async () => {
+    const { app } = newApp();
+    await seed(app, 2);
+    for (const extra of [
+      { id: "svc-1", code: "SVC-1", type: "service", trackInventory: false },
+      { id: "lot-1", code: "LOT-1", trackExpiry: true },
+    ]) {
+      const res = await app.fetch(req("/", { method: "POST", headers: { "content-type": "application/json" }, permissions: "inventory.item.create", body: JSON.stringify({ ...VALID_PAYLOAD, ...extra }) }));
+      expect(res.status).toBe(201);
+    }
+    const ids = async (qs: string) => ((await (await app.fetch(req(`/?${qs}`, { permissions: "inventory.item.view" }))).json()) as { id: string }[]).map((r) => r.id).sort();
+    expect(await ids("types=service")).toEqual(["svc-1"]);
+    expect(await ids("types=stock,service")).toEqual(["itm-0", "itm-1", "lot-1", "svc-1"]);
+    expect(await ids("lotTracked=1")).toEqual(["lot-1"]);
+  });
+
   it("counts still report the WHOLE filtered set, not the page", async () => {
     const { app } = newApp();
     await seed(app, 30);

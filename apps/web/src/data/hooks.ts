@@ -2,7 +2,7 @@ import { branchRefusalBefore, isBranchRestricted } from "../branch-restriction";
 import { useCallback, useSyncExternalStore } from "react";
 import { loadTenantCode, subscribeTenantCode } from "./session";
 import { DocumentReadPermission, sessionMayRead } from "./document-read-permissions";
-import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
+import { useMutation, useQueries, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import type {
   AuditEventDTO,
   WorkflowConfigDTO,
@@ -318,7 +318,8 @@ import type {
   SkipRecurringJournalOccurrenceDTO,
 } from "@mezan/contracts";
 import { DashboardRequest, ScreenRequest, ShellModuleRequest, ShellRequest, mayAskDashboard, mayAskShellModuleRequest, type DisplaySettingKey } from "@mezan/domain";
-import { TenantResolveMode, type PlatformResolveDTO } from "@mezan/contracts";
+import { MAX_PAGE_SIZE, TenantResolveMode, type PlatformResolveDTO } from "@mezan/contracts";
+import { useDebounced } from "../lib/use-debounced";
 import { UserStatusCode } from "@mezan/domain";
 import { useApi } from "./ApiContext";
 import { sessionHolds, sessionMayAsk, sessionMayAskScreen } from "./session";
@@ -933,6 +934,9 @@ export interface ItemListFilter {
   /** The total order the page is cut from — the server applies it, not the browser. */
   readonly sort?: "code" | "nameAr" | "salePrice" | "costPrice";
   readonly sortDir?: "asc" | "desc";
+  readonly ids?: readonly string[];
+  readonly types?: readonly ItemDTO["type"][];
+  readonly lotTracked?: boolean;
 }
 
 function itemParams(filter: ItemListFilter): URLSearchParams {
@@ -942,6 +946,9 @@ function itemParams(filter: ItemListFilter): URLSearchParams {
   if (filter.brandId) params.set("brandId", filter.brandId);
   if (filter.seasonId) params.set("seasonId", filter.seasonId);
   if (filter.unitCode && filter.unitCode !== "all") params.set("unitCode", filter.unitCode);
+  if (filter.ids?.length) params.set("ids", filter.ids.join(","));
+  if (filter.types?.length) params.set("types", filter.types.join(","));
+  if (filter.lotTracked) params.set("lotTracked", "1");
   if (filter.search) params.set("search", filter.search);
   if (filter.page) params.set("page", String(filter.page));
   if (filter.pageSize) params.set("pageSize", String(filter.pageSize));
@@ -970,6 +977,46 @@ export function useItems(filter: ItemListFilter = {}): UseQueryResult<ItemDTO[],
       return res.json<ItemDTO[]>();
     },
   });
+}
+
+export const ITEM_SEARCH_PAGE_SIZE = 20;
+
+export type ItemSearchFilter = Pick<ItemListFilter, "status" | "types" | "lotTracked">;
+
+/** The first matches for what the user typed, searched on the server over name, code and barcode. */
+export function useItemSearch(query: string, filter: ItemSearchFilter = {}): UseQueryResult<ItemDTO[], ApiError> {
+  const search = useDebounced(query.trim());
+  return useItems({ ...filter, search: search || undefined, page: 1, pageSize: ITEM_SEARCH_PAGE_SIZE });
+}
+
+export interface ItemsById {
+  readonly byId: ReadonlyMap<string, ItemDTO>;
+  readonly isLoading: boolean;
+  readonly isError: boolean;
+}
+
+/** Only the items a screen is showing, fetched by id, so naming a few rows never downloads the catalogue. */
+export function useItemsByIds(ids: readonly (string | null | undefined)[]): ItemsById {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  const wanted = [...new Set(ids.filter((id): id is string => !!id))].sort();
+  const chunks: string[][] = [];
+  for (let i = 0; i < wanted.length; i += MAX_PAGE_SIZE) chunks.push(wanted.slice(i, i + MAX_PAGE_SIZE));
+  const results = useQueries({
+    queries: chunks.map((chunk) => ({
+      queryKey: ["items", "byIds", chunk],
+      enabled: sessionMayRead(session, DocumentReadPermission.Items),
+      queryFn: async () => {
+        const qs = itemParams({ ids: chunk, page: 1, pageSize: chunk.length }).toString();
+        const res = await request(`/items?${qs}`);
+        if (!res.ok) throw await loaderError(res, t("api.itemsCouldNotBeLoaded"), t);
+        return res.json<ItemDTO[]>();
+      },
+    })),
+  });
+  const byId = new Map<string, ItemDTO>();
+  for (const result of results) for (const item of result.data ?? []) byId.set(item.id, item);
+  return { byId, isLoading: results.some((r) => r.isLoading), isError: results.some((r) => r.isError) };
 }
 
 /** One item by id or code, for a form addressed by URL whose item is not on the current page. */
@@ -2736,6 +2783,8 @@ function voucherParams(filter: Partial<VoucherListQueryDTO>): URLSearchParams {
   if (filter.type) params.set("type", filter.type);
   if (filter.status) params.set("status", filter.status);
   if (filter.branchId) params.set("branchId", filter.branchId);
+  if (filter.customerId) params.set("customerId", filter.customerId);
+  if (filter.supplierId) params.set("supplierId", filter.supplierId);
   if (filter.fromDate) params.set("fromDate", filter.fromDate);
   if (filter.toDate) params.set("toDate", filter.toDate);
   if (filter.search) params.set("search", filter.search);
@@ -3357,14 +3406,14 @@ export function useSalesInvoiceCounts(filter: Partial<SalesInvoiceListQueryDTO> 
 }
 
 /** The KPI strip, summed in `Money` on the server over the whole filtered set. */
-export function useSalesInvoiceStats(filter: Partial<SalesInvoiceListQueryDTO> = {}): UseQueryResult<SalesInvoiceStatsDTO, ApiError> {
+export function useSalesInvoiceStats(filter: Partial<SalesInvoiceListQueryDTO> = {}, gate: QueryGate = {}): UseQueryResult<SalesInvoiceStatsDTO, ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
   // The KPI strip totals the WHOLE filtered set, so the page must not travel.
   const { page: _page, pageSize: _pageSize, ...rest } = filter;
   return useQuery<SalesInvoiceStatsDTO, ApiError>({
     queryKey: ["sales-invoices", "stats", rest],
-    enabled: session !== null,
+    enabled: session !== null && (gate.enabled ?? true),
     queryFn: async () => {
       const qs = salesInvoiceParams(rest).toString();
       const res = await request(`/sales-invoices/stats${qs ? `?${qs}` : ""}`);

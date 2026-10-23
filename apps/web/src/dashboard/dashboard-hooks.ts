@@ -14,8 +14,8 @@ import type {
 import { DashboardRequest, Money, vatNetPayable } from "@mezan/domain";
 import { useFinancialReport, type FinancialReportResult } from "../data/financial-reports-hooks";
 import { useReport, type ReportResult } from "../data/reports-hooks";
-import { useDashboardGate, useSalesInvoices } from "../data/hooks";
-import type { ApiError, SalesInvoiceDTO } from "../data/hooks";
+import { useDashboardGate, useSalesInvoiceStats } from "../data/hooks";
+import type { ApiError } from "../data/hooks";
 import type { UseQueryResult } from "@tanstack/react-query";
 import { localIsoDay, monthEndIsoOf, monthStartIsoOf } from "../lib/dates";
 
@@ -157,9 +157,9 @@ export function periodTotals(report: FinancialReportResult<IncomeStatementRow> |
 
 export interface AttentionData {
   readonly overdueCount: number;
-  readonly overdueAmount: number;
+  readonly overdueAmount: string;
   readonly dueSoonCount: number;
-  readonly dueSoonAmount: number;
+  readonly dueSoonAmount: string;
   readonly taxDue: number;
   readonly lowStockCount: number;
   readonly lowStockFirstName: string | null;
@@ -167,42 +167,21 @@ export interface AttentionData {
   readonly agedPayables: string;
 }
 
-const DUE_SOON_DAYS = 30;
-
-function daysUntil(dueDate: string, today: Date): number {
-  const due = Date.parse(`${dueDate}T00:00:00.000Z`);
-  if (Number.isNaN(due)) return Number.POSITIVE_INFINITY;
-  const start = Date.parse(`${localIsoDay(today)}T00:00:00.000Z`);
-  return Math.round((due - start) / 86_400_000);
-}
-
-const SETTLED_STATUSES: readonly SalesInvoiceDTO["status"][] = ["draft", "cancelled", "reversed", "paid"];
-
-function outstanding(invoice: SalesInvoiceDTO): number {
-  return Number(invoice.remainingBalance);
-}
-
 /**
- * The "needs attention" queue's numbers. Overdue/due-soon come from the live
- * sales-invoice list (its own `remainingBalance` and `dueDate`), tax due from
+ * The "needs attention" queue's numbers. Overdue/due-soon come from the
+ * server's sales-invoice totals (summed in Money, never the rows), tax due from
  * the VAT return, below-reorder from stock levels' own `status` flag, and aged
  * payables from the supplier aging buckets past 30 days.
  */
-export function useAttentionData(window: ReportWindow, today = new Date()): AttentionData {
+export function useAttentionData(window: ReportWindow): AttentionData {
   const { locale } = useAppTranslation();
   const mayAsk = useDashboardGate();
-  const invoices = useSalesInvoices({}, { enabled: mayAsk(DashboardRequest.SalesInvoices) });
+  const invoices = useSalesInvoiceStats({}, { enabled: mayAsk(DashboardRequest.SalesInvoices) });
   const vat = useVatReturn(window);
   const stock = useStockLevels();
   const suppliers = useSupplierAging();
 
   return useMemo(() => {
-    const open = (invoices.data ?? []).filter((inv) => !SETTLED_STATUSES.includes(inv.status) && outstanding(inv) > 0);
-    const overdue = open.filter((inv) => daysUntil(inv.dueDate, today) < 0);
-    const dueSoon = open.filter((inv) => {
-      const days = daysUntil(inv.dueDate, today);
-      return days >= 0 && days <= DUE_SOON_DAYS;
-    });
     const low = (stock.data?.rows ?? []).filter((row) => row.status === "low");
     const agedPayables = (suppliers.data?.rows ?? [])
       .reduce(
@@ -212,10 +191,10 @@ export function useAttentionData(window: ReportWindow, today = new Date()): Atte
       .toString();
 
     return {
-      overdueCount: overdue.length,
-      overdueAmount: overdue.reduce((sum, inv) => sum + outstanding(inv), 0),
-      dueSoonCount: dueSoon.length,
-      dueSoonAmount: dueSoon.reduce((sum, inv) => sum + outstanding(inv), 0),
+      overdueCount: invoices.data?.overdueCount ?? 0,
+      overdueAmount: invoices.data?.overdue ?? "0",
+      dueSoonCount: invoices.data?.dueSoonCount ?? 0,
+      dueSoonAmount: invoices.data?.dueSoon ?? "0",
       // vatNetPayable is output − input,
       // the same figure the VAT return screen shows — without it the dashboard
       // reported tax DUE when the return said REFUNDABLE.
@@ -224,5 +203,5 @@ export function useAttentionData(window: ReportWindow, today = new Date()): Atte
       lowStockFirstName: low[0] ? entityName({ nameAr: low[0].itemNameAr, nameEn: low[0].itemNameEn }, locale) : null,
       agedPayables,
     };
-  }, [invoices.data, vat.data, stock.data, suppliers.data, today, locale]);
+  }, [invoices.data, vat.data, stock.data, suppliers.data, locale]);
 }

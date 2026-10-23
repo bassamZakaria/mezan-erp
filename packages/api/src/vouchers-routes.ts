@@ -371,6 +371,8 @@ export function createVouchersRoutes(
       type: c.req.query("type"),
       status: c.req.query("status"),
       branchId: c.req.query("branchId"),
+      customerId: c.req.query("customerId"),
+      supplierId: c.req.query("supplierId"),
       fromDate: c.req.query("fromDate"),
       toDate: c.req.query("toDate"),
       search: c.req.query("search"),
@@ -401,6 +403,8 @@ export function createVouchersRoutes(
     });
     if (filter.type) docs = docs.filter((d) => voucherLine(d).voucherType === filter.type);
     if (filter.branchId) docs = docs.filter((d) => voucherLine(d).branchId === filter.branchId);
+    if (filter.customerId) docs = docs.filter((d) => voucherLine(d).customerId === filter.customerId);
+    if (filter.supplierId) docs = docs.filter((d) => voucherLine(d).supplierId === filter.supplierId);
     if (filter.fromDate) docs = docs.filter((d) => d.date >= filter.fromDate!);
     if (filter.toDate) docs = docs.filter((d) => d.date <= filter.toDate!);
     const term = normalizedSearchTerm(filter.search);

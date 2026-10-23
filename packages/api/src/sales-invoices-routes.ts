@@ -2,6 +2,7 @@ import { postingRefusalResponse } from "./posting-refusal.js";
 import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
 import {
+  addDaysIso,
   type AllocatableInvoiceRepository,
   ApprovalRequestRejectedError,
   QuotaKind,
@@ -84,6 +85,7 @@ import {
   classifyLineTaxSchema,
   nameJournalLineTaxSchema,
   lineTaxClassificationSchema,
+  SALES_INVOICE_DUE_SOON_DAYS,
   type SalesInvoiceListQueryDTO,
   type SalesInvoiceDiscountDTO,
 } from "@mezan/contracts";
@@ -1133,12 +1135,18 @@ export function createSalesInvoicesRoutes(
     }
     const svc = service(c);
     const { rows: invoices, credits, allocations } = await listFiltered(svc, c, parsed.data);
+    const today = await tenantDay(c, deps.now?.() ?? new Date().toISOString());
+    const dueSoonUntil = addDaysIso(today, SALES_INVOICE_DUE_SOON_DAYS);
 
     let sales = Money.zero();
     let collected = Money.zero();
     let returned = Money.zero();
     let remaining = Money.zero();
+    let overdue = Money.zero();
+    let dueSoon = Money.zero();
     let count = 0;
+    let overdueCount = 0;
+    let dueSoonCount = 0;
     for (const invoice of invoices) {
       // A voided invoice is neither a sale nor a receivable any more — its GL
       // entry has been reversed, so counting it here would leave the KPI strip
@@ -1150,7 +1158,16 @@ export function createSalesInvoicesRoutes(
       sales = sales.add(salesInvoiceBaseGrandTotal(totals, invoice.fxRate));
       collected = collected.add(invoice.amountPaid);
       returned = returned.add(credit);
-      remaining = remaining.add(remainingOf(invoice, totals, credit));
+      const left = remainingOf(invoice, totals, credit);
+      remaining = remaining.add(left);
+      if (!isOpen(invoice, left) || invoice.dueDate === null) continue;
+      if (invoice.dueDate < today) {
+        overdueCount += 1;
+        overdue = overdue.add(left);
+      } else if (invoice.dueDate <= dueSoonUntil) {
+        dueSoonCount += 1;
+        dueSoon = dueSoon.add(left);
+      }
     }
     return c.json({
       count,
@@ -1158,6 +1175,10 @@ export function createSalesInvoicesRoutes(
       collected: collected.toString(),
       returned: returned.toString(),
       remaining: remaining.toString(),
+      overdueCount,
+      overdue: overdue.toString(),
+      dueSoonCount,
+      dueSoon: dueSoon.toString(),
     });
   });
 

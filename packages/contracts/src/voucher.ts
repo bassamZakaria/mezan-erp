@@ -244,6 +244,8 @@ export const voucherListQuerySchema = z.object({
   type: voucherTypeSchema.optional(),
   status: voucherStatusSchema.optional(),
   branchId: z.string().optional(),
+  customerId: z.string().optional(),
+  supplierId: z.string().optional(),
   fromDate: z.string().optional(),
   toDate: z.string().optional(),
   /** Free text over the voucher number and its external reference. */

@@ -21,6 +21,9 @@ export interface EntityPickerProps {
   className?: string;
   /** The accessible name when there is no visible `label` (a picker inside a table row). */
   ariaLabel?: string;
+  /** Server search: the caller fetches matches for each query and passes them as `options`, which are shown unfiltered. */
+  onQueryChange?: (query: string) => void;
+  loading?: boolean;
 }
 
 /**
@@ -39,6 +42,8 @@ export function EntityPicker({
   id,
   className,
   ariaLabel,
+  onQueryChange,
+  loading,
 }: EntityPickerProps) {
   const { t } = useUiTranslation();
   const [open, setOpen] = useState(false);
@@ -49,11 +54,16 @@ export function EntityPicker({
   const inputId = id ?? generatedInputId;
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const filtered = options.filter((option) => matchesSearch(query, option.label, option.sublabel));
+  const filtered = onQueryChange ? options : options.filter((option) => matchesSearch(query, option.label, option.sublabel));
+
+  function changeQuery(next: string) {
+    setQuery(next);
+    onQueryChange?.(next);
+  }
 
   function select(option: EntityPickerOption) {
     onChange(option);
-    setQuery("");
+    changeQuery("");
     setOpen(false);
   }
 
@@ -99,7 +109,7 @@ export function EntityPicker({
         }}
         onBlur={() => setOpen(false)}
         onChange={(event) => {
-          setQuery(event.target.value);
+          changeQuery(event.target.value);
           setHighlight(0);
         }}
         onKeyDown={handleKeyDown}
@@ -114,7 +124,9 @@ export function EntityPicker({
           role="listbox"
           className="absolute start-0 end-0 z-10 mt-[6px] max-h-64 overflow-y-auto rounded-md border border-border bg-surface p-[6px] shadow-2"
         >
-          {filtered.length === 0 ? (
+          {loading && filtered.length === 0 ? (
+            <li className="px-[10px] py-[10px] text-[12.5px] text-ink-faint">{t("ui.picker.loading")}</li>
+          ) : filtered.length === 0 ? (
             <li className="px-[10px] py-[10px] text-[12.5px] text-ink-faint">{emptyMessage ?? t("ui.picker.empty")}</li>
           ) : (
             filtered.map((option, index) => (

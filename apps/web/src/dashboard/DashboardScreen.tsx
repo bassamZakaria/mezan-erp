@@ -146,7 +146,7 @@ export function DashboardScreen() {
   const customerAging = useCustomerAging();
   const supplierAging = useSupplierAging();
   const topProducts = useTopProducts(window);
-  const attention = useAttentionData(window, today);
+  const attention = useAttentionData(window);
   /**
    * استثناءات المقاولات — the one contracting tile (design §06). Gated on the
    * certificate-view right so a tenant that does not run contracting never sees

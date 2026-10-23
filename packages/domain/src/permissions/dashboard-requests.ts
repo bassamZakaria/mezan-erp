@@ -35,7 +35,7 @@ export const DASHBOARD_REQUESTS: Record<DashboardRequest, DashboardRequestGate> 
   [DashboardRequest.SupplierAging]: { path: "/reports/aging/suppliers", allOf: ["purchases.invoice.view"] },
   [DashboardRequest.StockLevels]: { path: "/reports/inventory/stock-levels", allOf: ["inventory.stock.view"] },
   [DashboardRequest.TopProducts]: { path: "/reports/sales/top-products", allOf: ["sales.invoice.view"] },
-  [DashboardRequest.SalesInvoices]: { path: "/sales-invoices", allOf: [], anyOf: ["sales.invoice.view", "sales.invoice.view_all", "sales.invoice.view_own"] },
+  [DashboardRequest.SalesInvoices]: { path: "/sales-invoices/stats", allOf: [], anyOf: ["sales.invoice.view", "sales.invoice.view_all", "sales.invoice.view_own"] },
   [DashboardRequest.ContractingExceptions]: { path: "/contracting/reports/summary", allOf: ["contracting.certificate.view"] },
   [DashboardRequest.TreasuryBalances]: { path: "/treasury-accounts/stats", allOf: ["treasury.account.view"] },
   [DashboardRequest.VoucherCounts]: { path: "/vouchers/counts", allOf: ["treasury.cash_voucher.view"] },

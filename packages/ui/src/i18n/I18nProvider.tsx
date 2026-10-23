@@ -56,7 +56,7 @@ export function I18nProvider({ children, catalogs, initialLocale, onMissingKey, 
       };
       const ready = ensureCatalog?.(next);
       if (ready === undefined) commit();
-      else void ready.then(commit);
+      else void ready.then(commit, () => undefined);
     },
     [ensureCatalog],
   );

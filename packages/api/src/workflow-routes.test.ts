@@ -464,10 +464,13 @@ describe("طلباتي / إجراءاتي — paged on the server", () => {
     expect(await (await app.fetch(req(`/requests/counts?search=${encodeURIComponent("صرف/قبض")}`, as))).json()).toEqual({ mine: 30, acted: 0 });
   });
 
-  it("never honours a page size above the compiled-in ceiling", async () => {
+  it("refuses a page size above the compiled-in ceiling instead of quietly dropping the search", async () => {
     const { app, req, requests } = newApp();
     await seed(requests, 30);
-    const rows = await ids(await app.fetch(req(`/requests/mine?pageSize=${MAX_PAGE_SIZE + 1}`, { userId: "alice", permissions: "workflow.view" })));
-    expect(rows).toHaveLength(DEFAULT_PAGE_SIZE);
+    const as = { userId: "alice", permissions: "workflow.view" };
+    for (const path of [`/requests/mine?search=x&pageSize=${MAX_PAGE_SIZE + 1}`, "/requests/acted?page=0", "/requests/counts?pageSize=0"]) {
+      const res = await app.fetch(req(path, as));
+      expect(res.status, path).toBe(400);
+    }
   });
 });

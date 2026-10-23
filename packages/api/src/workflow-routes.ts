@@ -38,7 +38,6 @@ import {
   decideApprovalRequestSchema,
   approvalRequestListQuerySchema,
   ApprovalRequestScope,
-  DEFAULT_PAGE_SIZE,
   type ApprovalRequestListQueryDTO,
 } from "@mezan/contracts";
 import { type AuthContextResolver, callerRoleCodes, createAnyPermissionGate, createPermissionGate, getAuthContext, permissionDeniedBody, roleCodesOf } from "./permission-gate.js";
@@ -312,14 +311,13 @@ export function createWorkflowRoutes(
     return rows.filter((_, index) => granted[index]).sort((a, b) => (a.createdAt === b.createdAt ? (a.id < b.id ? 1 : -1) : a.createdAt < b.createdAt ? 1 : -1));
   }
 
-  function listQueryOf(c: Context): ApprovalRequestListQueryDTO {
-    const parsed = approvalRequestListQuerySchema.safeParse({
+  function listQueryOf(c: Context) {
+    return approvalRequestListQuerySchema.safeParse({
       page: c.req.query("page"),
       pageSize: c.req.query("pageSize"),
-      search: c.req.query("search"),
-      actionType: c.req.query("actionType"),
+      search: c.req.query("search") || undefined,
+      actionType: c.req.query("actionType") || undefined,
     });
-    return parsed.success ? parsed.data : { page: 1, pageSize: DEFAULT_PAGE_SIZE };
   }
 
   async function filteredRequests(c: Context, scope: ApprovalRequestScope, query: ApprovalRequestListQueryDTO) {
@@ -335,7 +333,9 @@ export function createWorkflowRoutes(
   }
 
   async function requestPage(c: Context, scope: ApprovalRequestScope) {
-    const query = listQueryOf(c);
+    const parsed = listQueryOf(c);
+    if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    const query = parsed.data;
     const filtered = await filteredRequests(c, scope, query);
     return c.json(await filtered.slice((query.page - 1) * query.pageSize, query.pageSize));
   }
@@ -344,7 +344,9 @@ export function createWorkflowRoutes(
   app.get("/requests/acted", gate("workflow.view"), (c) => requestPage(c, ApprovalRequestScope.Acted));
 
   app.get("/requests/counts", gate("workflow.view"), async (c) => {
-    const query = listQueryOf(c);
+    const parsed = listQueryOf(c);
+    if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    const query = parsed.data;
     const counts: Record<string, number> = {};
     for (const scope of Object.values(ApprovalRequestScope)) {
       counts[scope] = (await filteredRequests(c, scope, query)).total;

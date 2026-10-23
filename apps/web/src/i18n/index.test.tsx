@@ -50,4 +50,28 @@ describe("AppI18nProvider — English loads on demand", () => {
     expect(document.documentElement.getAttribute("lang")).toBe("en");
     expect(window.localStorage.getItem("mezan.locale")).toBe("en");
   });
+
+  it("stays Arabic and reloads once for the new build when the English strings cannot be fetched", async () => {
+    window.sessionStorage.clear();
+    vi.resetModules();
+    vi.doMock("./catalog-en", () => {
+      throw new Error("chunk 404 after a deploy");
+    });
+    const i18n = await import("./index");
+    const toggle = await import("./LanguageToggle");
+    function Probe() {
+      return <span data-testid="text">{i18n.useAppTranslation().t("update.download")}</span>;
+    }
+    render(
+      <i18n.AppI18nProvider initialLocale="ar">
+        <Probe />
+        <toggle.LanguageToggle />
+      </i18n.AppI18nProvider>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "English" }));
+    await vi.waitFor(() => expect(window.sessionStorage.getItem("mezan.reloadedForCatalog")).toBe("1"));
+    expect(screen.getByTestId("text")).toHaveTextContent("تنزيل التحديث");
+    expect(window.localStorage.getItem("mezan.locale")).not.toBe("en");
+    vi.doUnmock("./catalog-en");
+  });
 });

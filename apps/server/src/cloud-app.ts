@@ -565,6 +565,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
       if (c.res.status === 200) c.res.headers.set("Cache-Control", "public, max-age=31536000, immutable");
     });
     root.use("/*", serveStatic({ root: env.webDist }));
+    root.get("/assets/*", (c) => c.text("Not found", 404));
     root.notFound(shellPage);
   } else {
     root.notFound((c) => c.json({ error: "NOT_FOUND", message: "لا توجد حزمة واجهة مبنية" }, 404));

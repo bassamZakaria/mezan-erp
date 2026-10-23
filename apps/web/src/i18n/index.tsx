@@ -52,6 +52,18 @@ function reportMissingKey(key: string, locale: Locale): void {
  * to English keeps the Arabic screen until then — never English chrome around
  * Arabic text, never a raw key.
  */
+const RELOADED_FOR_CATALOG = "mezan.reloadedForCatalog";
+
+function reloadOnceForNewBuild(): void {
+  try {
+    if (sessionStorage.getItem(RELOADED_FOR_CATALOG)) return;
+    sessionStorage.setItem(RELOADED_FOR_CATALOG, "1");
+  } catch {
+    return;
+  }
+  window.location.reload();
+}
+
 export function AppI18nProvider({ children, initialLocale }: { children: ReactNode; initialLocale?: Locale }) {
   const [english, setEnglish] = useState(englishCatalog);
   const [bootLocale, setBootLocale] = useState<Locale>(() => initialLocale ?? loadPersistedLocale() ?? DEFAULT_LOCALE);
@@ -59,12 +71,21 @@ export function AppI18nProvider({ children, initialLocale }: { children: ReactNo
 
   useEffect(() => {
     if (!waitingForEnglish) return;
-    loadEnglishCatalog().then(setEnglish, () => setBootLocale(DEFAULT_LOCALE));
+    loadEnglishCatalog().then(setEnglish, () => {
+      setBootLocale(DEFAULT_LOCALE);
+      reloadOnceForNewBuild();
+    });
   }, [waitingForEnglish]);
 
   const catalogs = useMemo(() => mergeCatalogs(uiCatalogs, { ar: webAr, en: english ?? {} }), [english]);
   const ensureCatalog = useCallback(
-    (locale: Locale) => (locale === ENGLISH && english === null ? loadEnglishCatalog().then(setEnglish) : undefined),
+    (locale: Locale) =>
+      locale === ENGLISH && english === null
+        ? loadEnglishCatalog().then(setEnglish, (error: unknown) => {
+            reloadOnceForNewBuild();
+            throw error;
+          })
+        : undefined,
     [english],
   );
 

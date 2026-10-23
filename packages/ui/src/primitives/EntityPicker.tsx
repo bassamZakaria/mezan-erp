@@ -53,10 +53,10 @@ export function EntityPicker({
   const { t } = useUiTranslation();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [highlight, setHighlight] = useState(0);
+  const [chosenRowId, setChosenRowId] = useState<string | null>(null);
   const [enterQueued, setEnterQueued] = useState(false);
-  const [navigated, setNavigated] = useState(false);
   const listboxId = useId();
+  const labelId = useId();
   const generatedInputId = useId();
   const inputId = id ?? generatedInputId;
   const containerRef = useRef<HTMLDivElement>(null);
@@ -70,15 +70,8 @@ export function EntityPicker({
     if (enterQueued && error) setEnterQueued(false);
   }, [enterQueued, error]);
 
-  const highlightedId = useRef<string | null>(null);
-  const rowIds = filtered.map((option) => option.id).join("\u0000");
-  useEffect(() => {
-    if (stale || !navigated) return;
-    const again = filtered.findIndex((option) => option.id === highlightedId.current);
-    setHighlight(Math.max(again, 0));
-    if (again < 0) setNavigated(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rowIds, stale]);
+  const navigated = chosenRowId !== null;
+  const highlight = navigated ? filtered.findIndex((option) => option.id === chosenRowId) : 0;
 
   useEffect(() => {
     if (!enterQueued || stale) return;
@@ -90,14 +83,13 @@ export function EntityPicker({
   function changeQuery(next: string) {
     setQuery(next);
     setEnterQueued(false);
-    setNavigated(false);
+    setChosenRowId(null);
     onQueryChange?.(next);
   }
 
   function select(option: EntityPickerOption) {
     onChange(option);
     changeQuery("");
-    setHighlight(0);
     setOpen(false);
   }
 
@@ -109,10 +101,8 @@ export function EntityPicker({
         return;
       }
       if (filtered.length === 0) return;
-      const next = event.key === "ArrowDown" ? Math.min(highlight + 1, Math.max(filtered.length - 1, 0)) : Math.max(highlight - 1, 0);
-      if (next !== highlight) setNavigated(true);
-      highlightedId.current = filtered[next]?.id ?? null;
-      setHighlight(next);
+      const next = event.key === "ArrowDown" ? Math.min(highlight + 1, filtered.length - 1) : Math.max(highlight - 1, 0);
+      if (next !== highlight) setChosenRowId(filtered[next]?.id ?? null);
     } else if (event.key === "Enter") {
       event.preventDefault();
       if (!open || (serverMode && query.trim() === "" && !navigated)) {
@@ -134,7 +124,7 @@ export function EntityPicker({
   return (
     <div ref={containerRef} className={cn("relative", className)}>
       {label ? (
-        <label htmlFor={inputId} className="mb-[6px] block text-xs font-semibold text-ink-muted">
+        <label id={labelId} htmlFor={inputId} className="mb-[6px] block text-xs font-semibold text-ink-muted">
           {label}
         </label>
       ) : null}
@@ -155,14 +145,12 @@ export function EntityPicker({
         value={open ? query : (value?.label ?? "")}
         onFocus={() => {
           setOpen(true);
-          setHighlight(0);
-          setNavigated(false);
+          setChosenRowId(null);
         }}
         onMouseDown={() => {
           if (open) return;
           setOpen(true);
-          setHighlight(0);
-          setNavigated(false);
+          setChosenRowId(null);
         }}
         onBlur={() => {
           setEnterQueued(false);
@@ -173,7 +161,6 @@ export function EntityPicker({
           const shown = value?.label ?? "";
           setOpen(true);
           changeQuery(!open && shown !== "" && typed.startsWith(shown) ? typed.slice(shown.length) : typed);
-          setHighlight(0);
         }}
         onKeyDown={handleKeyDown}
         className={cn(
@@ -189,9 +176,9 @@ export function EntityPicker({
           <p role="status" className={filtered.length === 0 ? "px-[10px] py-[10px] text-[12.5px] text-ink-faint" : "sr-only"}>
             {filtered.length > 0 ? "" : error ? t("ui.picker.error") : stale ? t("ui.picker.loading") : (emptyMessage ?? t("ui.picker.empty"))}
           </p>
-          <ul id={listboxId} role="listbox" aria-busy={stale && !error}>
+          <ul id={listboxId} role="listbox" aria-busy={stale && !error} aria-labelledby={label ? labelId : undefined} aria-label={label ? undefined : ariaLabel}>
             {filtered.map((option, index) => (
-              <li key={option.id} id={`${listboxId}-${index}`} role="option" aria-selected={value?.id === option.id}>
+              <li key={option.id} id={`${listboxId}-${index}`} role="option" aria-selected={value?.id === option.id} onClick={() => select(option)}>
                 <button
                   type="button"
                   tabIndex={-1}

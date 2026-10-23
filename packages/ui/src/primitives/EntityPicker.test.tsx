@@ -483,4 +483,28 @@ describe("EntityPicker — Arabic search (D114)", () => {
     fireEvent.keyDown(input, { key: "Enter" });
     expect(onChange).toHaveBeenLastCalledWith(options[2]);
   });
+
+  it("assistive tech can pick a row with a plain click, and the list is named after its field", () => {
+    const onChange = vi.fn();
+    render(<EntityPicker value={null} onChange={onChange} options={options} label="العميل" />);
+    fireEvent.focus(screen.getByRole("combobox"));
+    expect(screen.getByRole("listbox", { name: "العميل" })).toBeInTheDocument();
+    fireEvent.click(screen.getAllByRole("option")[1]!);
+    expect(onChange).toHaveBeenCalledWith(options[1]);
+  });
+
+  it("when the highlighted row disappears, Enter binds nothing until the user moves again", () => {
+    const onChange = vi.fn();
+    const { rerender } = render(<EntityPicker value={null} onChange={onChange} options={options} label="العميل" />);
+    const input = screen.getByRole("combobox");
+    fireEvent.focus(input);
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    rerender(<EntityPicker value={null} onChange={onChange} options={options.slice(0, 2)} label="العميل" />);
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onChange).not.toHaveBeenCalled();
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onChange).toHaveBeenCalledWith(options[0]);
+  });
 });

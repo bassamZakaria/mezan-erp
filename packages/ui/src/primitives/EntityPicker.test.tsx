@@ -359,6 +359,21 @@ describe("EntityPicker — Arabic search (D114)", () => {
       expect(onChange).not.toHaveBeenCalled();
     });
 
+    it("after a refetch reorders the rows, Enter binds the row the user highlighted, not whatever now sits at its old position", () => {
+      const onChange = vi.fn();
+      const [a, b, c] = options as [EntityPickerOption, EntityPickerOption, EntityPickerOption];
+      const picker = (rows: EntityPickerOption[], loading: boolean) => <EntityPicker value={null} onChange={onChange} options={rows} label="الصنف" onQueryChange={() => {}} loading={loading} />;
+      const { rerender } = render(picker([a, b, c], false));
+      const input = screen.getByRole("combobox");
+      fireEvent.focus(input);
+      fireEvent.change(input, { target: { value: "شركة" } });
+      fireEvent.keyDown(input, { key: "ArrowDown" });
+      rerender(picker([a, b, c], true));
+      rerender(picker([c, a, b], false));
+      fireEvent.keyDown(input, { key: "Enter" });
+      expect(onChange).toHaveBeenCalledWith(b);
+    });
+
     it("Escape cancels an Enter that was waiting for results", () => {
       const onChange = vi.fn();
       const picker = (loading: boolean) => <EntityPicker value={null} onChange={onChange} options={options} label="الصنف" onQueryChange={() => {}} loading={loading} />;
@@ -413,5 +428,16 @@ describe("EntityPicker — Arabic search (D114)", () => {
     fireEvent.change(input, { target: { value: "لا شيء يطابق" } });
     expect(screen.getByRole("status")).toBe(status);
     expect(status).toHaveTextContent("لا توجد نتائج");
+  });
+
+  it("Tab leaves an open picker for the next field instead of losing focus", () => {
+    render(
+      <>
+        <EntityPicker value={null} onChange={() => {}} options={options} label="العميل" />
+        <input aria-label="التالي" />
+      </>,
+    );
+    fireEvent.focus(screen.getByRole("combobox"));
+    for (const button of screen.getByRole("listbox").querySelectorAll("button")) expect(button).toHaveAttribute("tabindex", "-1");
   });
 });

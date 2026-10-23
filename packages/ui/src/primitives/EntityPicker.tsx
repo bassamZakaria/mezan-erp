@@ -70,6 +70,18 @@ export function EntityPicker({
     if (enterQueued && error) setEnterQueued(false);
   }, [enterQueued, error]);
 
+  const highlightedId = useRef<string | null>(null);
+  const wasStale = useRef(stale);
+  useEffect(() => {
+    if (wasStale.current && !stale) {
+      const again = navigated ? filtered.findIndex((option) => option.id === highlightedId.current) : -1;
+      setHighlight(Math.max(again, 0));
+      if (again < 0) setNavigated(false);
+    }
+    wasStale.current = stale;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stale]);
+
   useEffect(() => {
     if (!enterQueued || stale) return;
     setEnterQueued(false);
@@ -99,6 +111,7 @@ export function EntityPicker({
       }
       const next = event.key === "ArrowDown" ? Math.min(highlight + 1, Math.max(filtered.length - 1, 0)) : Math.max(highlight - 1, 0);
       if (next !== highlight) setNavigated(true);
+      highlightedId.current = filtered[next]?.id ?? null;
       setHighlight(next);
     } else if (event.key === "Enter") {
       event.preventDefault();
@@ -168,7 +181,10 @@ export function EntityPicker({
         )}
       />
       {open && !disabled ? (
-        <div className="absolute start-0 end-0 z-10 mt-[6px] max-h-64 overflow-y-auto rounded-md border border-border bg-surface p-[6px] shadow-2">
+        <div
+          onMouseDown={(event) => event.preventDefault()}
+          className="absolute start-0 end-0 z-10 mt-[6px] max-h-64 overflow-y-auto rounded-md border border-border bg-surface p-[6px] shadow-2"
+        >
           <p role="status" className={filtered.length === 0 ? "px-[10px] py-[10px] text-[12.5px] text-ink-faint" : "sr-only"}>
             {filtered.length > 0 ? "" : error ? t("ui.picker.error") : stale ? t("ui.picker.loading") : (emptyMessage ?? t("ui.picker.empty"))}
           </p>
@@ -177,11 +193,8 @@ export function EntityPicker({
               <li key={option.id} id={`${listboxId}-${index}`} role="option" aria-selected={value?.id === option.id}>
                 <button
                   type="button"
-                  // onMouseDown fires before the input's onBlur, so selection isn't lost.
-                  onMouseDown={(event) => {
-                    event.preventDefault();
-                    select(option);
-                  }}
+                  tabIndex={-1}
+                  onMouseDown={() => select(option)}
                   className={cn(
                     "flex w-full flex-col items-start gap-[1px] rounded-sm px-[10px] py-[8px] text-start text-[13px]",
                     index === highlight ? "bg-brand-soft text-brand" : "text-ink hover:bg-surface-2",

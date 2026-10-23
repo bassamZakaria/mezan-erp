@@ -17,7 +17,8 @@ export const landingAr = {
 
   "landing.ledger.caption": "فاتورة بيع تُسجَّل الآن",
   "landing.ledger.invoice": "فاتورة بيع رقم 1048",
-  "landing.ledger.customer": "مؤسسة النور للتوزيع",
+  "landing.ledger.customer": "شركة CYAG",
+  "landing.ledger.people": "أعدّها أحمد الشهابي · اعتمدها بسام نجم",
   "landing.ledger.item": "زيت عباد الشمس 1 لتر × 120 كرتونة",
   "landing.ledger.entry": "القيد الذي سجّله ميزان تلقائيًا",
   "landing.ledger.account": "الحساب",
@@ -27,7 +28,7 @@ export const landingAr = {
   "landing.ledger.balanced": "القيد متوازن",
   "landing.ledger.replay": "أعد العرض",
 
-  "landing.acct.customers": "العملاء — مؤسسة النور",
+  "landing.acct.customers": "العملاء — CYAG",
   "landing.acct.sales": "المبيعات",
   "landing.acct.vat": "ضريبة القيمة المضافة المستحقة",
   "landing.acct.cogs": "تكلفة البضاعة المباعة",
@@ -161,7 +162,8 @@ export const landingEn: Record<keyof typeof landingAr, string> = {
 
   "landing.ledger.caption": "A sales invoice being recorded",
   "landing.ledger.invoice": "Sales invoice 1048",
-  "landing.ledger.customer": "Al-Nour Distribution",
+  "landing.ledger.customer": "CYAG",
+  "landing.ledger.people": "Prepared by Ahmed El Shehaby · Approved by Bassam Negm",
   "landing.ledger.item": "Sunflower oil 1L × 120 cartons",
   "landing.ledger.entry": "The entry Mezan posted for it",
   "landing.ledger.account": "Account",
@@ -171,7 +173,7 @@ export const landingEn: Record<keyof typeof landingAr, string> = {
   "landing.ledger.balanced": "Entry balances",
   "landing.ledger.replay": "Replay",
 
-  "landing.acct.customers": "Customers — Al-Nour",
+  "landing.acct.customers": "Customers — CYAG",
   "landing.acct.sales": "Sales",
   "landing.acct.vat": "VAT payable",
   "landing.acct.cogs": "Cost of goods sold",

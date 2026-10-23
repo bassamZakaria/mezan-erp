@@ -243,6 +243,90 @@ describe("ReportRunner — export", () => {
     fireEvent.click(button);
     await waitFor(() => expect(URL.createObjectURL).toHaveBeenCalledTimes(1));
   });
+
+  it("exports every row from loadAllRows when the table holds only a page", async () => {
+    const all: Row[] = [{ id: "1", label: "نقدية", amount: 1000 }, { id: "2", label: "مبيعات", amount: 500 }];
+    const loadAllRows = vi.fn(async () => all);
+    render(
+      <ReportRunner
+        title="تقرير"
+        paramFields={[]}
+        params={{}}
+        onParamsChange={() => {}}
+        result={makeResult([all[0]!])}
+        columns={columns}
+        rowKey={(r) => r.id}
+        pager={{ page: 1, pageSize: 1, totalRows: 2, onPageChange: () => {}, onPageSizeChange: () => {} }}
+        loadAllRows={loadAllRows}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "تصدير CSV" }));
+    await waitFor(() => expect(URL.createObjectURL).toHaveBeenCalledTimes(1));
+    expect(loadAllRows).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("ReportRunner — printing a paged report", () => {
+  it("shows every row while the print dialog is open, then returns to the page", async () => {
+    const order: string[] = [];
+    const showAllRowsForPrint = vi.fn(async () => {
+      order.push("show all");
+      return () => order.push("restore");
+    });
+    const print = vi.spyOn(window, "print").mockImplementation(() => void order.push("print"));
+    render(
+      <ReportRunner
+        title="تقرير"
+        paramFields={[]}
+        params={{}}
+        onParamsChange={() => {}}
+        result={makeResult([{ id: "1", label: "نقدية", amount: 1000 }])}
+        columns={columns}
+        rowKey={(r) => r.id}
+        pager={{ page: 1, pageSize: 1, totalRows: 2, onPageChange: () => {}, onPageSizeChange: () => {} }}
+        showAllRowsForPrint={showAllRowsForPrint}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "طباعة" }));
+    await waitFor(() => expect(order).toEqual(["show all", "print", "restore"]));
+    print.mockRestore();
+  });
+});
+
+describe("ReportRunner — pager", () => {
+  it("shows the window over the whole result and asks for the page clicked", () => {
+    const onPageChange = vi.fn();
+    render(
+      <ReportRunner
+        title="تقرير"
+        paramFields={[]}
+        params={{}}
+        onParamsChange={() => {}}
+        result={makeResult([{ id: "1", label: "نقدية", amount: 1000 }])}
+        columns={columns}
+        rowKey={(r) => r.id}
+        pager={{ page: 1, pageSize: 50, totalRows: 120, onPageChange, onPageSizeChange: () => {} }}
+      />,
+    );
+    expect(screen.getByText(/السطور .*1.*50.* من .*120/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "3" }));
+    expect(onPageChange).toHaveBeenCalledWith(3);
+  });
+
+  it("renders no pager without one", () => {
+    render(
+      <ReportRunner
+        title="تقرير"
+        paramFields={[]}
+        params={{}}
+        onParamsChange={() => {}}
+        result={makeResult([{ id: "1", label: "نقدية", amount: 1000 }])}
+        columns={columns}
+        rowKey={(r) => r.id}
+      />,
+    );
+    expect(screen.queryByRole("navigation", { name: "ترقيم الصفحات" })).toBeNull();
+  });
 });
 
 /** guards P-6 — no report or financial statement could be printed or saved as a PDF. */

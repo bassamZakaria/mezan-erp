@@ -232,6 +232,20 @@ export interface ReportChartSpec {
   readonly slice?: "first" | "last";
 }
 
+export interface ReportChartPoint {
+  readonly key: string;
+  readonly label: string;
+  readonly labelEn?: string;
+  readonly value: number;
+}
+
+/** The window a paged response carries; `totalRows` counts the whole result. */
+export interface ReportPage {
+  readonly page: number;
+  readonly pageSize: number;
+  readonly totalRows: number;
+}
+
 export interface ReportValidationError {
   readonly field: string;
   readonly message: string;
@@ -263,5 +277,7 @@ export type RunReportOutcome<TParams, Row> =
       readonly grandTotals: Readonly<Record<string, ReportFigure>>;
       readonly reconciliation: ReportReconciliationResult | null;
       readonly kpis: readonly ReportKpiResult[];
+      /** Over the FULL rows, so a paged response can still draw the whole chart. */
+      readonly chartPoints: readonly ReportChartPoint[] | null;
     }
   | { readonly ok: false; readonly errors: readonly ReportValidationError[] };

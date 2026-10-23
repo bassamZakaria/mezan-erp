@@ -320,6 +320,22 @@ describe("نشاط خارج أوقات العمل", () => {
     expect(body.rows).toHaveLength(1);
     expect(body.rows[0]?.actor).toBe("u-boss");
   });
+
+  it("pages the rows across actor groups while every count stays over the whole result", async () => {
+    const full = await run();
+    const paged = (await run("?from=2026-03-01&to=2026-03-31&pageSize=1&page=2")) as typeof full & {
+      groups: { key: string; rows: unknown[]; totals: { count: number } }[];
+      kpis: unknown;
+      page: unknown;
+    };
+    const fullGroups = (full as typeof paged).groups;
+    expect(paged.page).toEqual({ page: 2, pageSize: 1, totalRows: 3 });
+    expect(paged.rows).toEqual([fullGroups.flatMap((g) => g.rows)[1]]);
+    expect(paged.groups).toHaveLength(1);
+    expect(paged.groups[0]?.totals).toEqual(fullGroups.find((g) => g.key === paged.groups[0]?.key)?.totals);
+    expect(paged.grandTotals).toEqual(full.grandTotals);
+    expect(paged.kpis).toEqual((full as typeof paged).kpis);
+  });
 });
 
 describe("حسابات أُنشئت حديثاً", () => {

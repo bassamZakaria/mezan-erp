@@ -1,7 +1,7 @@
 import { DOMAIN_EVENT_CATALOG, renderTemplate } from "@mezan/domain";
 import type { NotificationDTO } from "@mezan/contracts";
-import type { AppTranslationKey } from "../i18n";
-import { WEB_TRANSLATION_KEYS, webCatalogs } from "../i18n/catalog";
+import { loadedEnglishCatalog, type AppTranslationKey } from "../i18n";
+import { WEB_TRANSLATION_KEYS, webAr } from "../i18n/catalog";
 import { eventLabelByCode } from "../domain-labels";
 
 type Translate = (key: AppTranslationKey, params?: Record<string, string>) => string;
@@ -40,9 +40,9 @@ function composedBody(notification: NotificationDTO, eventLabel: string, t: Tran
 }
 
 export function notificationText(notification: NotificationDTO, locale: string, t: Translate): NotificationText {
-  if (locale !== ENGLISH) return { title: notification.title, body: notification.body };
-  const arabic: Readonly<Record<string, string>> = webCatalogs.ar;
-  const english: Readonly<Record<string, string>> = webCatalogs.en;
+  const english = loadedEnglishCatalog();
+  if (locale !== ENGLISH || english === null) return { title: notification.title, body: notification.body };
+  const arabic: Readonly<Record<string, string>> = webAr;
   const { payload } = notification;
   const definition = definitionOf(notification.eventCode);
   const eventLabel = eventLabelByCode(notification.eventCode, t) ?? "";

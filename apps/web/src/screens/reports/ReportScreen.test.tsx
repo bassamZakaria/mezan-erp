@@ -43,6 +43,34 @@ describe("ReportScreen (real data-client wiring)", () => {
     expect(requestedPath).toContain("groupBy=day");
   });
 
+  it("asks for one page and offers the next one", async () => {
+    const paths: string[] = [];
+    const row = { bucket: "2026-08-10", count: 2, gross: 300, discount: 0, tax: 0, net: 300 };
+    const transport = stubTransport({
+      "GET /reports/sales/by-period": (_init, path) => {
+        paths.push(path);
+        return {
+          body: {
+            rows: [row],
+            groups: [{ key: "_all", label: "", rows: [row], totals: { net: 9000 } }],
+            grandTotals: { count: 60, gross: 9000, discount: 0, tax: 0, net: 9000 },
+            reconciliation: null,
+            page: { page: 1, pageSize: 50, totalRows: 120 },
+            chartPoints: [{ key: "x", label: "2026-08-31", value: 777 }],
+          },
+        };
+      },
+    });
+
+    renderWithProviders(<SalesByPeriodReportScreen />, { transport, initialSession: testAdminSession });
+
+    await waitFor(() => expect(screen.getByRole("navigation", { name: "ترقيم الصفحات" })).toBeInTheDocument());
+    expect(paths[0]).toContain("pageSize=50");
+    expect(paths[0]).toContain("page=1");
+    screen.getByRole("button", { name: "2" }).click();
+    await waitFor(() => expect(paths.some((p) => p.includes("page=2"))).toBe(true));
+  });
+
   it("shows the empty-state copy when the report returns no rows", async () => {
     const transport = stubTransport({
       "GET /reports/sales/by-period": () => ({

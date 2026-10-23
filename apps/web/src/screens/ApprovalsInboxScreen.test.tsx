@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { screen, fireEvent, within } from "@testing-library/react";
 import type { ApprovalRequestDTO } from "@mezan/contracts";
 import { ApprovalsInboxScreen } from "./ApprovalsInboxScreen";
@@ -169,5 +169,46 @@ describe("ApprovalsInboxScreen — a 502 body reaches the error card", () => {
 
     expect(await screen.findByText("تعذّر الوصول إلى الجهاز الرئيسي. الجهاز مغلق أو غير متصل بالشبكة.")).toBeInTheDocument();
     expect(screen.queryByText("تعذّر تحميل الموافقات المعلّقة.")).not.toBeInTheDocument();
+  });
+});
+
+describe("ApprovalsInboxScreen — طلباتي and إجراءاتي are paged on the server", () => {
+  function mineTransport(total: number) {
+    const asked: string[] = [];
+    const transport = stubTransport({
+      "GET /workflow/requests/pending": () => ({ body: [] }),
+      "GET /workflow/requests/counts": () => ({ body: { mine: total, acted: 3 } }),
+      "GET /workflow/requests/mine": (_init, path) => {
+        asked.push(path);
+        const page = Number(new URLSearchParams(path.split("?")[1]).get("page") ?? "1");
+        return { body: [{ ...pendingRequest, id: `mine-${page}`, status: "approved", entityLabel: `طلب صفحة ${page}` }] };
+      },
+    });
+    return { transport, asked };
+  }
+
+  it("reads the tab totals from /counts, asks for one page, and pages on the server", async () => {
+    const { transport, asked } = mineTransport(60);
+    renderWithProviders(<ApprovalsInboxScreen />, { transport, initialSession: testAdminSession });
+    expect(asked).toEqual([]);
+
+    fireEvent.click(await screen.findByRole("tab", { name: /طلباتي.*60/ }));
+    expect(await screen.findByText("طلب صفحة 1")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /إجراءاتي.*3/ })).toBeInTheDocument();
+    expect(asked.at(-1)).toBe("/workflow/requests/mine?page=1&pageSize=25");
+
+    fireEvent.click(screen.getByRole("button", { name: "3" }));
+    expect(await screen.findByText("طلب صفحة 3")).toBeInTheDocument();
+    expect(asked.at(-1)).toBe("/workflow/requests/mine?page=3&pageSize=25");
+    expect(screen.queryByRole("button", { name: "4" })).toBeNull();
+  });
+
+  it("sends the type filter and the search to the server instead of filtering a page", async () => {
+    const { transport, asked } = mineTransport(1);
+    renderWithProviders(<ApprovalsInboxScreen />, { transport, initialSession: testAdminSession });
+    fireEvent.click(await screen.findByRole("tab", { name: /طلباتي/ }));
+    await screen.findByText("طلب صفحة 1");
+    fireEvent.change(screen.getByPlaceholderText("بحث بنوع الإجراء أو التفاصيل…"), { target: { value: "INV-9" } });
+    await vi.waitFor(() => expect(asked.at(-1)).toBe(`/workflow/requests/mine?search=INV-9&page=1&pageSize=25`));
   });
 });

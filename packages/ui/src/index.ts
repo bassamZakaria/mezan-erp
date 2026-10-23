@@ -134,6 +134,7 @@ export {
   type DocumentListStatusChip,
   type DocumentListSort,
 } from "./primitives/DocumentList";
+export { ListPager, DEFAULT_PAGE_SIZES, type ListPagerProps } from "./primitives/ListPager";
 
 export {
   DocumentDetail,

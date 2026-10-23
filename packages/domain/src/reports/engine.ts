@@ -7,8 +7,11 @@ import type {
   RunReportOutcome,
   ReportKpiResult,
   ReportFigure,
+  ReportPage,
 } from "./types.js";
+import { z } from "zod";
 import { sumRows } from "./kpi.js";
+import { reportChartPoints } from "./chart-points.js";
 import { Money } from "../money/index.js";
 
 const DECIMAL_FIGURE = /^-?\d+(\.\d{1,6})?$/;
@@ -219,6 +222,52 @@ export function runReport<TParams, Row, Ctx>(
   const reconciliation = computeReconciliation(definition, rows, ctx, validated.params);
 
   const kpis = computeReportKpis(definition, validated.params, rows, grandTotals);
+  const chartPoints = reportChartPoints(definition.chart, definition.columns, definition.rowKey, { rows, groups });
 
-  return { ok: true, params: validated.params, rows, groups, grandTotals, reconciliation, kpis };
+  return { ok: true, params: validated.params, rows, groups, grandTotals, reconciliation, kpis, chartPoints };
+}
+
+export const MAX_REPORT_PAGE_SIZE = 500;
+
+const reportPageQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(MAX_REPORT_PAGE_SIZE).optional(),
+});
+
+/** `pageSize` absent means the caller wants every row, as before paging existed. */
+export function readReportPage(
+  query: Readonly<Record<string, string | undefined>>,
+): { ok: true; window: { page: number; pageSize: number } | null } | { ok: false; errors: ReportValidationError[] } {
+  const parsed = reportPageQuerySchema.safeParse({ page: query.page, pageSize: query.pageSize });
+  if (!parsed.success) {
+    return { ok: false, errors: parsed.error.issues.map((issue) => ({ field: issue.path.join(".") || "_root", message: issue.message })) };
+  }
+  const { page, pageSize } = parsed.data;
+  return { ok: true, window: pageSize === undefined ? null : { page, pageSize } };
+}
+
+/**
+ * Cuts one page out of the rows in TABLE order — group by group — and keeps
+ * every group's own totals, which were computed over the full set. A group
+ * with no row on this page is left out of it.
+ */
+export function pageReportGroups<G extends { readonly rows: readonly unknown[] }>(
+  groups: readonly G[],
+  window: { readonly page: number; readonly pageSize: number },
+): { groups: G[]; rows: G["rows"][number][]; page: ReportPage } {
+  const start = (window.page - 1) * window.pageSize;
+  const end = start + window.pageSize;
+  const pagedGroups: G[] = [];
+  const rows: G["rows"][number][] = [];
+  let cursor = 0;
+  for (const group of groups) {
+    const from = Math.max(start - cursor, 0);
+    const to = Math.min(end - cursor, group.rows.length);
+    cursor += group.rows.length;
+    if (from >= to) continue;
+    const slice = group.rows.slice(from, to);
+    pagedGroups.push({ ...group, rows: slice });
+    rows.push(...slice);
+  }
+  return { groups: pagedGroups, rows, page: { page: window.page, pageSize: window.pageSize, totalRows: cursor } };
 }

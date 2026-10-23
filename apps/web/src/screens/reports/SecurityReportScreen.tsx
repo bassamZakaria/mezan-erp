@@ -1,7 +1,8 @@
 import { useState, type ReactNode } from "react";
 import { ReportRunner, type ReportRunnerColumn, type ReportRunnerParamField } from "@mezan/ui";
 import type { ReportCoverageDTO, ReportGapDTO } from "@mezan/contracts";
-import { useReport } from "../../data/reports-hooks";
+import { REPORT_PAGE_SIZE, useReport, useReportAllRows } from "../../data/reports-hooks";
+import type { ReportPage } from "@mezan/domain";
 import { useAppTranslation, type AppTranslationKey } from "../../i18n";
 import { tryReportLabel } from "../../report-labels";
 import { WEB_TRANSLATION_KEYS } from "../../i18n/catalog";
@@ -55,6 +56,7 @@ export interface SecurityReportResult<Row> {
   readonly kpis?: readonly { readonly key: string; readonly labelAr: string; readonly value: number; readonly tone?: string }[];
   readonly coverage?: ReportCoverageDTO;
   readonly gaps?: readonly ReportGapDTO[];
+  readonly page?: ReportPage;
 }
 
 export interface SecurityReportScreenProps<Row> {
@@ -85,7 +87,20 @@ export function SecurityReportScreen<Row>({
 }: SecurityReportScreenProps<Row>) {
   const { t } = useAppTranslation();
   const [params, setParams] = useState<Record<string, string>>(defaultParams);
-  const query = useReport<Row>(reportId, apiPath, params, { apiRoot: "/security-reports" });
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(REPORT_PAGE_SIZE);
+  const [everyRow, setEveryRow] = useState(false);
+  const changeParams = (next: Record<string, string>) => {
+    setParams(next);
+    setPage(1);
+  };
+  const query = useReport<Row>(
+    reportId,
+    apiPath,
+    everyRow ? params : { ...params, page: String(page), pageSize: String(pageSize) },
+    { apiRoot: "/security-reports", keepPrevious: true },
+  );
+  const loadAllRows = useReportAllRows<Row>(reportId, apiPath, "/security-reports");
 
   const raw = (query.data ?? null) as SecurityReportResult<Row> | null;
   const result = raw
@@ -118,7 +133,7 @@ export function SecurityReportScreen<Row>({
       description={description}
       paramFields={paramFields}
       params={params}
-      onParamsChange={setParams}
+      onParamsChange={changeParams}
       fieldErrors={query.error?.fieldErrors}
       onRun={() => query.refetch()}
       loading={query.isFetching}
@@ -126,6 +141,30 @@ export function SecurityReportScreen<Row>({
       columns={columns}
       rowKey={rowKey}
       exportBaseFilename={reportId}
+      pager={
+        raw?.page
+          ? {
+              page: raw.page.page,
+              pageSize: raw.page.pageSize,
+              totalRows: raw.page.totalRows,
+              onPageChange: setPage,
+              onPageSizeChange: (size) => {
+                setPageSize(size);
+                setPage(1);
+              },
+            }
+          : undefined
+      }
+      loadAllRows={raw?.page ? () => loadAllRows(params) : undefined}
+      showAllRowsForPrint={
+        raw?.page
+          ? async () => {
+              await loadAllRows(params);
+              setEveryRow(true);
+              return () => setEveryRow(false);
+            }
+          : undefined
+      }
       chart={
         <div className="grid gap-[10px]">
           {coverage?.truncated ? (

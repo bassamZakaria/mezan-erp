@@ -318,7 +318,7 @@ import type {
   SkipRecurringJournalOccurrenceDTO,
 } from "@mezan/contracts";
 import { DashboardRequest, ScreenRequest, ShellModuleRequest, ShellRequest, mayAskDashboard, mayAskShellModuleRequest, type DisplaySettingKey } from "@mezan/domain";
-import { MAX_PAGE_SIZE, TenantResolveMode, type PlatformResolveDTO } from "@mezan/contracts";
+import { ApprovalRequestScope, MAX_PAGE_SIZE, TenantResolveMode, type PlatformResolveDTO } from "@mezan/contracts";
 import { UserStatusCode } from "@mezan/domain";
 import { useApi } from "./ApiContext";
 import { sessionHolds, sessionMayAsk, sessionMayAskScreen } from "./session";
@@ -8174,32 +8174,51 @@ export function usePendingApprovals(): UseQueryResult<ApprovalRequestDTO[], ApiE
   });
 }
 
-/** طلباتي — approval requests this user submitted, whatever their state. */
-export function useMyApprovalRequests(): UseQueryResult<ApprovalRequestDTO[], ApiError> {
+export interface ApprovalRequestListFilter {
+  readonly search?: string;
+  readonly actionType?: string;
+  readonly page?: number;
+  readonly pageSize?: number;
+}
+
+function approvalRequestParams(filter: ApprovalRequestListFilter): string {
+  const params = new URLSearchParams();
+  if (filter.search) params.set("search", filter.search);
+  if (filter.actionType) params.set("actionType", filter.actionType);
+  const qs = withPage(params, filter).toString();
+  return qs ? `?${qs}` : "";
+}
+
+export function useApprovalRequestPage(
+  scope: ApprovalRequestScope,
+  filter: ApprovalRequestListFilter & { readonly page: number; readonly pageSize: number },
+  gate: QueryGate = {},
+): UseQueryResult<ApprovalRequestDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<ApprovalRequestDTO[], ApiError>({
-    queryKey: ["workflow-requests", "mine"],
-    enabled: session !== null,
+    queryKey: ["workflow-requests", scope, filter],
+    enabled: session !== null && (gate.enabled ?? true),
+    placeholderData: gate.keepPrevious ? keepPreviousData : undefined,
     queryFn: async () => {
-      const res = await request("/workflow/requests/mine");
+      const res = await request(`/workflow/requests/${scope}${approvalRequestParams(filter)}`);
       if (!res.ok) throw await loaderError(res, t("api.pendingApprovalsCouldNotBe"), t);
       return res.json<ApprovalRequestDTO[]>();
     },
   });
 }
 
-/** إجراءاتي — requests this user has already approved, rejected or sent back. */
-export function useMyApprovalDecisions(): UseQueryResult<ApprovalRequestDTO[], ApiError> {
+export function useApprovalRequestCounts(filter: ApprovalRequestListFilter = {}): UseQueryResult<ListCountsDTO, ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
-  return useQuery<ApprovalRequestDTO[], ApiError>({
-    queryKey: ["workflow-requests", "acted"],
+  const { page: _page, pageSize: _pageSize, ...rest } = filter;
+  return useQuery<ListCountsDTO, ApiError>({
+    queryKey: ["workflow-requests", "counts", rest],
     enabled: session !== null,
     queryFn: async () => {
-      const res = await request("/workflow/requests/acted");
+      const res = await request(`/workflow/requests/counts${approvalRequestParams(rest)}`);
       if (!res.ok) throw await loaderError(res, t("api.pendingApprovalsCouldNotBe"), t);
-      return res.json<ApprovalRequestDTO[]>();
+      return res.json<ListCountsDTO>();
     },
   });
 }

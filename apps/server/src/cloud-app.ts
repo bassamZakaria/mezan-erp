@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 import { bodyLimit } from "hono/body-limit";
 import path from "node:path";
 import { serveStatic } from "@hono/node-server/serve-static";
-import { Hono, type MiddlewareHandler } from "hono";
+import { Hono, type Context, type MiddlewareHandler } from "hono";
 import {
   createPlatform,
   createPlatformAuth,
@@ -542,8 +542,12 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
     const siteHtml = env.publicLanding ? transform(withCloudSiteHead(rawIndexHtml)) : appHtml;
     // A tenant's own subdomain is that company's app, never the platform's marketing page.
     const indexHtmlFor = (request: Request) => (tenantSlugOfHost(requestHost(request, env.trustProxy), env.tenantDomain) === null ? siteHtml : appHtml);
-    root.get("/", (c) => c.html(indexHtmlFor(c.req.raw)));
-    root.get("/index.html", (c) => c.html(indexHtmlFor(c.req.raw)));
+    const shellPage = (c: Context) => {
+      c.header("Cache-Control", "no-cache");
+      return c.html(indexHtmlFor(c.req.raw));
+    };
+    root.get("/", shellPage);
+    root.get("/index.html", shellPage);
     // SECURITY: the page a mailed unlock link opens. The link's token is in the
     // fragment and never reaches here; these headers keep the page out of every
     // cache and stop the browser naming it to any site it goes on to. It is
@@ -555,8 +559,13 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
       c.header("Cache-Control", "no-store");
       return c.html(rawIndexHtml);
     });
+    root.use("/assets/*", async (c, next) => {
+      await next();
+      // Vite names every file under assets/ by its content hash, so a new build is a new URL.
+      if (c.res.status === 200) c.res.headers.set("Cache-Control", "public, max-age=31536000, immutable");
+    });
     root.use("/*", serveStatic({ root: env.webDist }));
-    root.notFound((c) => c.html(indexHtmlFor(c.req.raw)));
+    root.notFound(shellPage);
   } else {
     root.notFound((c) => c.json({ error: "NOT_FOUND", message: "لا توجد حزمة واجهة مبنية" }, 404));
   }

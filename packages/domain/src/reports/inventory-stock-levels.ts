@@ -53,7 +53,7 @@ export interface InventoryStockLevelsRow {
 
 const STATUS_LABEL: Record<StockLevelStatus, string> = { out: "نافد", low: "منخفض", normal: "طبيعي" };
 
-const paramsSchema = z.object({
+export const inventoryStockLevelsParamsSchema = z.object({
   warehouseId: z.string(),
   search: z.string(),
   branchId: branchIdParamSchema,
@@ -65,6 +65,91 @@ function computeStatus(onHand: number, reorderPoint: number | null): StockLevelS
   return "normal";
 }
 
+export interface StockLevelPosition {
+  readonly itemId: string;
+  readonly itemNameAr: string;
+  readonly itemNameEn: string | null;
+  readonly sku: string;
+  readonly warehouseCount: number;
+  readonly onHand: Qty;
+  readonly value: Money;
+  readonly status: StockLevelStatus;
+}
+
+export function computeStockLevelPositions(params: InventoryStockLevelsParams, ctx: InventoryStockLevelsContext): StockLevelPosition[] {
+  const search = params.search.trim().toLowerCase();
+  const branchOf = branchOfWarehouse(ctx.warehouses);
+  const snapshotsByItem = new Map<string, WacSnapshot[]>();
+  for (const s of ctx.snapshots) {
+    if (params.warehouseId !== "" && s.warehouseId !== params.warehouseId) continue;
+    if (!matchesBranch(branchOf(s.warehouseId), params.branchId)) continue;
+    const list = snapshotsByItem.get(s.itemId);
+    if (list) list.push(s);
+    else snapshotsByItem.set(s.itemId, [s]);
+  }
+  const positions: StockLevelPosition[] = [];
+  for (const item of ctx.items) {
+    if (!itemTypeTracksStock(item.type)) continue;
+    if (search && !item.nameAr.toLowerCase().includes(search) && !item.code.toLowerCase().includes(search)) continue;
+    const held = snapshotsByItem.get(item.id) ?? [];
+    const onHand = Qty.sum(held.map((p) => p.onHand));
+    positions.push({
+      itemId: item.id,
+      itemNameAr: item.nameAr,
+      itemNameEn: item.nameEn ?? null,
+      sku: item.code,
+      warehouseCount: held.length,
+      onHand,
+      value: Money.sum(held.map((p) => p.totalValue)),
+      status: computeStatus(Number(onHand.toString()), item.reorderPoint),
+    });
+  }
+  return positions.sort((a, b) => a.itemNameAr.localeCompare(b.itemNameAr));
+}
+
+export interface StockLevelsAttentionRow {
+  readonly itemId: string;
+  readonly itemNameAr: string;
+  readonly itemNameEn: string | null;
+  readonly sku: string;
+  readonly onHand: string;
+  readonly status: StockLevelStatus;
+}
+
+export interface InventoryStockLevelsSummary {
+  readonly totalValue: string;
+  readonly needsAttentionCount: number;
+  readonly lowCount: number;
+  readonly attention: readonly StockLevelsAttentionRow[];
+  readonly firstLow: StockLevelsAttentionRow | null;
+}
+
+export const STOCK_LEVELS_ATTENTION_LIMIT = 5;
+
+function attentionRow(position: StockLevelPosition): StockLevelsAttentionRow {
+  return {
+    itemId: position.itemId,
+    itemNameAr: position.itemNameAr,
+    itemNameEn: position.itemNameEn,
+    sku: position.sku,
+    onHand: position.onHand.toString(),
+    status: position.status,
+  };
+}
+
+export function summarizeStockLevels(params: InventoryStockLevelsParams, ctx: InventoryStockLevelsContext): InventoryStockLevelsSummary {
+  const positions = computeStockLevelPositions(params, ctx);
+  const needsAttention = positions.filter((p) => p.status !== "normal");
+  const low = positions.filter((p) => p.status === "low");
+  return {
+    totalValue: Money.sum(positions.map((p) => p.value)).toString(),
+    needsAttentionCount: needsAttention.length,
+    lowCount: low.length,
+    attention: needsAttention.slice(0, STOCK_LEVELS_ATTENTION_LIMIT).map(attentionRow),
+    firstLow: low[0] ? attentionRow(low[0]) : null,
+  };
+}
+
 export function createInventoryStockLevelsReport(): ReportDefinition<
   InventoryStockLevelsParams,
   InventoryStockLevelsRow,
@@ -74,7 +159,7 @@ export function createInventoryStockLevelsReport(): ReportDefinition<
     id: "inventory.stock-levels",
     titleAr: "مستويات المخزون",
     descriptionAr: "الأصناف التي تحتاج تدخلاً الآن — الأصناف الأقل من حد إعادة الطلب.",
-    paramsSchema,
+    paramsSchema: inventoryStockLevelsParamsSchema,
     defaultParams: { warehouseId: "", search: "", branchId: "" },
     paramFields: [
       { kind: ReportParamKind.Text, key: "warehouseId", label: "المستودع", placeholder: "معرف المستودع (اتركه فارغاً لكل المستودعات)" },
@@ -103,35 +188,21 @@ export function createInventoryStockLevelsReport(): ReportDefinition<
       maxPoints: 8,
       captionAr: "الأصناف الأعلى قيمة مخزونية — أين يقف رأس المال.",
     },
-    run: (params, ctx) => {
-      const search = params.search.trim().toLowerCase();
-      const branchOf = branchOfWarehouse(ctx.warehouses);
-      const rows: InventoryStockLevelsRow[] = [];
-      for (const item of ctx.items) {
-        if (!itemTypeTracksStock(item.type)) continue;
-        if (search && !item.nameAr.toLowerCase().includes(search) && !item.code.toLowerCase().includes(search)) continue;
-        const positions = ctx.snapshots.filter(
-          (s) =>
-            s.itemId === item.id &&
-            (params.warehouseId === "" || s.warehouseId === params.warehouseId) &&
-            matchesBranch(branchOf(s.warehouseId), params.branchId),
-        );
-        const onHand = Qty.sum(positions.map((p) => p.onHand));
-        const value = Money.sum(positions.map((p) => p.totalValue));
-        const onHandNumber = Number(onHand.toString());
-        rows.push({
-          itemId: item.id,
-          itemNameAr: item.nameAr,
-          itemNameEn: item.nameEn ?? null,
-          sku: item.code,
-          warehouseCount: positions.length,
-          onHand: onHandNumber,
-          averageCost: onHandNumber !== 0 ? Number(value.toString()) / onHandNumber : 0,
-          value: Number(value.toString()),
-          status: computeStatus(onHandNumber, item.reorderPoint),
-        });
-      }
-      return rows.sort((a, b) => a.itemNameAr.localeCompare(b.itemNameAr));
-    },
+    run: (params, ctx) =>
+      computeStockLevelPositions(params, ctx).map((position) => {
+        const onHand = Number(position.onHand.toString());
+        const value = Number(position.value.toString());
+        return {
+          itemId: position.itemId,
+          itemNameAr: position.itemNameAr,
+          itemNameEn: position.itemNameEn,
+          sku: position.sku,
+          warehouseCount: position.warehouseCount,
+          onHand,
+          averageCost: onHand !== 0 ? value / onHand : 0,
+          value,
+          status: position.status,
+        };
+      }),
   };
 }

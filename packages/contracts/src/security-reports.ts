@@ -332,6 +332,14 @@ export const afterHoursReportSchema = z.object({
   kpis: z.array(reportKpiSchema),
   coverage: reportCoverageSchema,
   gaps: z.array(reportGapSchema),
+  /**
+   * Present when the caller asked for one `pageSize` window. Only `rows` and
+   * each group's `rows` are cut; every count, total and KPI above is still
+   * over the whole result.
+   */
+  page: z
+    .object({ page: z.number().int().positive(), pageSize: z.number().int().positive(), totalRows: z.number().int().nonnegative() })
+    .optional(),
 });
 
 export const newAccountRowSchema = z.object({

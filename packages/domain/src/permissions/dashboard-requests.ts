@@ -33,7 +33,7 @@ export const DASHBOARD_REQUESTS: Record<DashboardRequest, DashboardRequestGate> 
   [DashboardRequest.VatReturn]: { path: "/financial-reports/vat-return", allOf: ["accounting.reports.view"] },
   [DashboardRequest.CustomerAging]: { path: "/reports/aging/customers", allOf: ["sales.invoice.view"] },
   [DashboardRequest.SupplierAging]: { path: "/reports/aging/suppliers", allOf: ["purchases.invoice.view"] },
-  [DashboardRequest.StockLevels]: { path: "/reports/inventory/stock-levels", allOf: ["inventory.stock.view"] },
+  [DashboardRequest.StockLevels]: { path: "/reports/inventory/stock-levels/summary", allOf: ["inventory.stock.view"] },
   [DashboardRequest.TopProducts]: { path: "/reports/sales/top-products", allOf: ["sales.invoice.view"] },
   [DashboardRequest.SalesInvoices]: { path: "/sales-invoices/stats", allOf: [], anyOf: ["sales.invoice.view", "sales.invoice.view_all", "sales.invoice.view_own"] },
   [DashboardRequest.ContractingExceptions]: { path: "/contracting/reports/summary", allOf: ["contracting.certificate.view"] },

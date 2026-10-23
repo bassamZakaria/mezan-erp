@@ -1033,6 +1033,21 @@ describe("D111 round 2 · the grant holds on every family, for a non-admin and f
     expect(pendingEverywhere).toBeGreaterThan(0);
     expect((await alexStar("GET", "/workflow/requests/pending-count")).body.count).toBe(rowsOf((await alexStar("GET", "/workflow/requests/pending")).body).length);
     expect((await alexStar("GET", "/workflow/requests/pending-count")).body.count).toBeLessThan(pendingEverywhere);
+    for (const [label, caller] of [["admin", admin], ...restricted()] as const) {
+      const counts = await caller("GET", "/workflow/requests/counts");
+      expect(counts.status, label).toBe(200);
+      for (const scope of ["mine", "acted"] as const) {
+        const everyRow: unknown[] = [];
+        for (let page = 1; ; page += 1) {
+          const rows = rowsOf((await caller("GET", `/workflow/requests/${scope}?page=${page}&pageSize=200`)).body);
+          everyRow.push(...rows);
+          if (rows.length < 200) break;
+        }
+        expect(counts.body[scope], `${label} ${scope}`).toBe(everyRow.length);
+        const firstPage = rowsOf((await caller("GET", `/workflow/requests/${scope}?page=1&pageSize=2`)).body);
+        expect(firstPage.length, `${label} ${scope} page`).toBe(Math.min(2, everyRow.length));
+      }
+    }
     for (const [label, caller] of restricted()) {
       const listed = rowsOf((await caller("GET", "/assets")).body).length;
       const stats = await caller("GET", "/assets/stats");

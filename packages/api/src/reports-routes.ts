@@ -6,6 +6,8 @@ import {
   payrollCreditsByRunId,
   type AllocatableInvoiceRepository,
   runReport,
+  pageReportGroups,
+  readReportPage,
   createSalesByPeriodReport,
   createSalesByItemReport,
   creditedRevenueAccountIds,
@@ -18,6 +20,8 @@ import {
   purchasesRemainingOverPeriod,
   createPurchasesByItemReport,
   createInventoryStockLevelsReport,
+  summarizeStockLevels,
+  validateReportParams,
   createGoodsInTransitReport,
   createInventoryMovementReport,
   createInventoryLedgerReport,
@@ -488,13 +492,28 @@ function respond(c: Context, outcome: RunReportOutcome<unknown, unknown>): Respo
   if (!outcome.ok) {
     return c.json({ error: "VALIDATION_ERROR", errors: outcome.errors }, 400);
   }
+  const paging = readReportPage(c.req.query());
+  if (!paging.ok) return c.json({ error: "VALIDATION_ERROR", errors: paging.errors }, 400);
+  if (!paging.window) {
+    return c.json({
+      params: outcome.params,
+      rows: outcome.rows,
+      groups: outcome.groups,
+      grandTotals: outcome.grandTotals,
+      reconciliation: outcome.reconciliation,
+      kpis: outcome.kpis,
+    });
+  }
+  const paged = pageReportGroups(outcome.groups, paging.window);
   return c.json({
     params: outcome.params,
-    rows: outcome.rows,
-    groups: outcome.groups,
+    rows: paged.rows,
+    groups: paged.groups,
     grandTotals: outcome.grandTotals,
     reconciliation: outcome.reconciliation,
     kpis: outcome.kpis,
+    page: paged.page,
+    chartPoints: outcome.chartPoints,
   });
 }
 
@@ -1403,6 +1422,15 @@ export function createReportsRoutes(
   });
 
   // --- المخزون -------------------------------------------------------
+
+  app.get("/inventory/stock-levels/summary", gate("inventory.stock.view"), async (c) => {
+    const definition = createInventoryStockLevelsReport();
+    const validated = validateReportParams(definition, { ...definition.defaultParams, ...queryParams(c) });
+    if (!validated.ok) return c.json({ error: "VALIDATION_ERROR", errors: validated.errors }, 400);
+    const [items, allSnapshots, warehouses] = await Promise.all([deps.items.list(), deps.wacSnapshots.list(), deps.warehouses.findAll()]);
+    const snapshots = withinScope(allSnapshots, await stockScopeOf(c), (s) => s.warehouseId);
+    return c.json(summarizeStockLevels(validated.params, { items, snapshots, warehouses }));
+  });
 
   app.get("/inventory/stock-levels", gate("inventory.stock.view"), async (c) => {
     const definition = createInventoryStockLevelsReport();

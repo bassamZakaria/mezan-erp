@@ -373,7 +373,7 @@ export const BRANCH_POLICY_TABLE: readonly BranchPolicyEntry[] = [
   scoped("/crm/activities", K.CrmActivity),
   scoped("/installments/plans", K.InstallmentPlan, { handlerNarrowed: COUNTS_AND_STATS }),
   scoped("/installments/follow-ups", K.CollectionFollowUp, { handlerNarrowed: COUNTS_AND_STATS, bodyKinds: { planId: K.InstallmentPlan } }),
-  scoped("/workflow/requests", K.ApprovalRequest, { handlerNarrowed: ["/pending-count"] }),
+  scoped("/workflow/requests", K.ApprovalRequest, { handlerNarrowed: ["/pending-count", "/counts"] }),
   scoped("/eta/submissions", K.EtaSubmission),
   scoped("/eta/receipts", K.EtaReceipt, { params: { internalId: K.EtaReceipt, kind: null, docId: K.SourceDocument }, rows: K.EtaReceipt }),
 

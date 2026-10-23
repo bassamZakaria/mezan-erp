@@ -1733,6 +1733,9 @@ export {
   approvalRequestSchema,
   submitApprovalRequestSchema,
   decideApprovalRequestSchema,
+  ApprovalRequestScope,
+  approvalRequestListQuerySchema,
+  type ApprovalRequestListQueryDTO,
   type GateStepDTO,
   type WorkflowConfigDTO,
   type CreateWorkflowConfigDTO,
@@ -1797,6 +1800,13 @@ export {
   type AgingCustomersReportDTO,
   type AgingSuppliersReportDTO,
 } from "./aging.js";
+export {
+  stockLevelsAttentionRowSchema,
+  stockLevelsSummarySchema,
+  StockLevelStatusDTO,
+  type StockLevelsAttentionRowDTO,
+  type StockLevelsSummaryDTO,
+} from "./stock-levels-summary.js";
 
 export {
   partyCurrencyBalanceSchema,

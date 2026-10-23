@@ -8,6 +8,7 @@ import { Select } from "./Select";
 import { TextInput } from "./form";
 import { useUiTranslation } from "../i18n";
 import { useElectronSavePdf } from "../print/useElectronSavePdf";
+import { ListPager } from "./ListPager";
 
 /**
  * `<ReportRunner>` — the generic report UI shell (docs/archive/plan.md §2.4): renders
@@ -117,6 +118,14 @@ export interface ReportRunnerResult<Row> {
   readonly balanceCheck?: { readonly label: string; readonly balanced: boolean } | null;
 }
 
+export interface ReportRunnerPager {
+  readonly page: number;
+  readonly pageSize: number;
+  readonly totalRows: number;
+  readonly onPageChange: (page: number) => void;
+  readonly onPageSizeChange: (size: number) => void;
+}
+
 export interface ReportRunnerProps<Row> {
   title: string;
   /** Set when the report sits under a screen that already carries the page's one h1. */
@@ -166,6 +175,15 @@ export interface ReportRunnerProps<Row> {
   onEntityClick?: (entity: ReportRunnerEntityRef) => void;
   /** Rendered after the table — the drill-down panel lives here. */
   footer?: ReactNode;
+  /**
+   * Set when `result` holds one page of rows. Totals, group subtotals and KPIs
+   * in `result` must still be over the whole result; only the rows are cut.
+   */
+  pager?: ReportRunnerPager;
+  /** Every row for export when `result.rows` is only a page. */
+  loadAllRows?: () => Promise<readonly Row[]>;
+  /** Shows every row (not just the current page) before printing; the returned function restores the page. */
+  showAllRowsForPrint?: () => Promise<() => void>;
   className?: string;
 }
 
@@ -356,6 +374,9 @@ export function ReportRunner<Row>({
   showGrandTotal = true,
   onEntityClick,
   footer,
+  pager,
+  loadAllRows,
+  showAllRowsForPrint,
   className,
 }: ReportRunnerProps<Row>) {
   const { t } = useUiTranslation();
@@ -386,14 +407,21 @@ export function ReportRunner<Row>({
    */
   const landscape = columns.length > 6;
 
+  async function withEveryRow<T>(output: () => T | Promise<T>): Promise<T> {
+    const restore = showAllRowsForPrint ? await showAllRowsForPrint() : null;
+    try {
+      if (restore) await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      return await output();
+    } finally {
+      restore?.();
+    }
+  }
+
   async function handleSavePdf() {
     setPdfNotice(null);
     setSavingPdf(true);
     try {
-      const outcome = await savePdf.savePdf({
-        landscape,
-        defaultFileName: exportBaseFilename ?? title,
-      });
+      const outcome = await withEveryRow(() => savePdf.savePdf({ landscape, defaultFileName: exportBaseFilename ?? title }));
       // A dismissed dialog is a decision, not a failure — say nothing.
       if (!outcome.ok && !outcome.cancelled) setPdfNotice(outcome.message);
       else if (outcome.ok) setPdfNotice(t("ui.report.pdfSaved", { path: outcome.path }));
@@ -406,7 +434,8 @@ export function ReportRunner<Row>({
     if (!result) return;
     setExporting(format);
     try {
-      const file = await buildReportExport(columns, result.rows, {
+      const rows = loadAllRows ? await loadAllRows() : result.rows;
+      const file = await buildReportExport(columns, rows, {
         format,
         baseFilename: exportBaseFilename ?? "report",
         sheetName: title.slice(0, 31),
@@ -426,7 +455,7 @@ export function ReportRunner<Row>({
           {description ? <p className="mt-[5px] max-w-[62ch] text-[12.5px] text-ink-muted">{description}</p> : null}
         </div>
         <div className="flex flex-wrap items-center gap-[9px] print:hidden">
-          <Button onClick={() => window.print()} disabled={!hasResult}>
+          <Button onClick={() => void withEveryRow(() => window.print())} disabled={!hasResult}>
             {t("ui.report.print")}
           </Button>
           {savePdf.isAvailable ? (
@@ -633,6 +662,21 @@ export function ReportRunner<Row>({
               </table>
               {result.rows.length === 0 ? <div className="p-[16px] text-center text-[12.5px] text-ink-muted">{t("ui.report.noRows")}</div> : null}
             </div>
+            {pager && pager.totalRows > 0 ? (
+              <ListPager
+                className="print:hidden"
+                page={pager.page}
+                pageCount={Math.max(1, Math.ceil(pager.totalRows / pager.pageSize))}
+                onPageChange={pager.onPageChange}
+                pageSize={pager.pageSize}
+                onPageSizeChange={pager.onPageSizeChange}
+                pageSummary={t("ui.report.pageRange", {
+                  from: fmt.qty(Math.min((pager.page - 1) * pager.pageSize + 1, pager.totalRows)),
+                  to: fmt.qty(Math.min(pager.page * pager.pageSize, pager.totalRows)),
+                  total: fmt.qty(pager.totalRows),
+                })}
+              />
+            ) : null}
           </Card>
 
           {methodology ? (

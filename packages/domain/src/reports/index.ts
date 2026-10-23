@@ -16,9 +16,12 @@ export type {
   ReportReconcilingItem,
   ReportValidationError,
   RunReportOutcome,
+  ReportChartPoint,
+  ReportPage,
 } from "./types.js";
 export { ReportParamKind } from "./types.js";
-export { computeReconciliation, computeReportGroups, runReport, validateReportParams } from "./engine.js";
+export { computeReconciliation, computeReportGroups, MAX_REPORT_PAGE_SIZE, pageReportGroups, readReportPage, runReport, validateReportParams } from "./engine.js";
+export { reportChartPoints, type ChartPointSource } from "./chart-points.js";
 export {
   createTrialBalanceReport,
   type TrialBalanceContext,
@@ -129,6 +132,13 @@ export {
 
 export {
   createInventoryStockLevelsReport,
+  computeStockLevelPositions,
+  summarizeStockLevels,
+  inventoryStockLevelsParamsSchema,
+  STOCK_LEVELS_ATTENTION_LIMIT,
+  type StockLevelPosition,
+  type StockLevelsAttentionRow,
+  type InventoryStockLevelsSummary,
   type InventoryStockLevelsContext,
   type InventoryStockLevelsParams,
   type InventoryStockLevelsRow,

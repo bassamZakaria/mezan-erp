@@ -1,7 +1,7 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { ReportChart, ReportRunner, type ReportRunnerEntityRef } from "@mezan/ui";
 import type { ReportChartSpec, ReportColumn, ReportParamField } from "@mezan/domain";
-import { useReport } from "../../data/reports-hooks";
+import { REPORT_PAGE_SIZE, useReport, useReportAllRows } from "../../data/reports-hooks";
 import { useBranchParam } from "./branch-param";
 import { BranchCaveatNote } from "./BranchCaveatNote";
 import { localizeGroupLabel, localizeReportDefinition, tryReportLabel } from "../../report-labels";
@@ -72,7 +72,19 @@ export function ReportScreen<TParams extends object, Row>({ definition: rawDefin
 
   const { paramFields, caveat } = useBranchParam(definition.paramFields);
 
-  const query = useReport<Row>(definition.id, apiPath, params, { enabled: hasRun, apiRoot });
+  // The other roots answer with their own contracts and send every row; the
+  // VAT summary adds up `rows` itself, so it must see all of them.
+  const paged = apiRoot === undefined && renderSummary === undefined;
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(REPORT_PAGE_SIZE);
+  const [everyRow, setEveryRow] = useState(false);
+  const changeParams = (next: Record<string, string>) => {
+    setParams(next);
+    setPage(1);
+  };
+  const requestParams = paged && !everyRow ? { ...params, page: String(page), pageSize: String(pageSize) } : params;
+  const query = useReport<Row>(definition.id, apiPath, requestParams, { enabled: hasRun, apiRoot, keepPrevious: paged });
+  const loadAllRows = useReportAllRows<Row>(definition.id, apiPath, apiRoot);
 
   const fieldErrors = query.error?.fieldErrors;
   const raw = query.data ?? null;
@@ -136,7 +148,17 @@ export function ReportScreen<TParams extends object, Row>({ definition: rawDefin
         })),
       };
 
-  const chartPoints = reportChartPoints(definition.chart, definition.columns, definition.rowKey, localized);
+  const chartPoints = raw?.chartPoints
+    ? raw.chartPoints.map((point) => ({
+        ...point,
+        label:
+          definition.chart?.source === "groups"
+            ? localizeGroupLabel(point.label, t)
+            : locale === "en" && point.labelEn
+              ? point.labelEn
+              : point.label,
+      }))
+    : reportChartPoints(definition.chart, definition.columns, definition.rowKey, localized);
 
   const result = localized === null
     ? null
@@ -180,7 +202,7 @@ export function ReportScreen<TParams extends object, Row>({ definition: rawDefin
       notice={query.data?.branchCaveat ? <BranchCaveatNote caveat={query.data.branchCaveat} /> : undefined}
       paramFields={paramFields}
       params={params}
-      onParamsChange={setParams}
+      onParamsChange={changeParams}
       fieldErrors={fieldErrors}
       onDemand={onDemand}
       onRun={() => setHasRun(true)}
@@ -210,6 +232,37 @@ export function ReportScreen<TParams extends object, Row>({ definition: rawDefin
       showGrandTotal={definition.showGrandTotal ?? true}
       exportBaseFilename={definition.id}
       onEntityClick={setDrillEntity}
+      pager={
+        raw?.page
+          ? {
+              page: raw.page.page,
+              pageSize: raw.page.pageSize,
+              totalRows: raw.page.totalRows,
+              onPageChange: setPage,
+              onPageSizeChange: (size) => {
+                setPageSize(size);
+                setPage(1);
+              },
+            }
+          : undefined
+      }
+      showAllRowsForPrint={
+        raw?.page
+          ? async () => {
+              await loadAllRows(params);
+              setEveryRow(true);
+              return () => setEveryRow(false);
+            }
+          : undefined
+      }
+      loadAllRows={
+        raw?.page
+          ? async () => {
+              const rows = await loadAllRows(params);
+              return locale === "en" ? withReadableNames(rows) : rows;
+            }
+          : undefined
+      }
       footer={<ReportDrillDownPanel entity={drillEntity} reportParams={raw?.params ?? null} onClose={() => setDrillEntity(null)} />}
     />
   );

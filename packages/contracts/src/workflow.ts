@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { clientSuppliedId } from "./client-supplied-id.js";
+import { pageQuerySchema } from "./paging.js";
 
 /** إعدادات الموافقات — one step in a gate config: an ordered approver role + optional description. */
 export const gateStepSchema = z.object({
@@ -86,6 +87,16 @@ export const submitApprovalRequestSchema = z.strictObject({
   entityLabel: z.string().min(1).optional(),
 });
 
+export enum ApprovalRequestScope {
+  Mine = "mine",
+  Acted = "acted",
+}
+
+export const approvalRequestListQuerySchema = pageQuerySchema.extend({
+  search: z.string().trim().optional(),
+  actionType: z.string().min(1).optional(),
+});
+
 /** `POST /workflow/requests/:id/decide` — the inbox's approve / reject / request-modification actions. */
 export const decideApprovalRequestSchema = z.object({
   decision: z.enum(["approve", "reject", "request_modification"]),
@@ -103,3 +114,4 @@ export type DecisionRecordDTO = z.infer<typeof decisionRecordSchema>;
 export type ApprovalRequestDTO = z.infer<typeof approvalRequestSchema>;
 export type SubmitApprovalRequestDTO = z.infer<typeof submitApprovalRequestSchema>;
 export type DecideApprovalRequestDTO = z.infer<typeof decideApprovalRequestSchema>;
+export type ApprovalRequestListQueryDTO = z.infer<typeof approvalRequestListQuerySchema>;

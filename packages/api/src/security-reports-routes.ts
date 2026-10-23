@@ -2,6 +2,8 @@ import { Hono, type Context, type MiddlewareHandler } from "hono";
 import {
   DEFAULT_SETTINGS,
   detectSodConflicts,
+  pageReportGroups,
+  readReportPage,
   getSodConflictRule,
   SodConflictId,
   WILDCARD_PERMISSION,
@@ -786,6 +788,8 @@ export function createSecurityReportsRoutes(
   app.get("/after-hours", gate("audit.logs.view"), companyWide, async (c) => {
     const parsed = afterHoursQuerySchema.safeParse(queryParams(c));
     if (!parsed.success) return respondValidation(c, flatten(parsed.error.issues));
+    const paging = readReportPage(queryParams(c));
+    if (!paging.ok) return respondValidation(c, paging.errors);
 
     const fallback = defaultRange();
     const from = parsed.data.from ?? fallback.from;
@@ -915,8 +919,7 @@ export function createSecurityReportsRoutes(
       },
       workingHours: hours,
       columns,
-      rows,
-      groups,
+      ...(paging.window ? pageReportGroups(groups, paging.window) : { rows, groups }),
       grandTotals,
       kpis,
       coverage: {

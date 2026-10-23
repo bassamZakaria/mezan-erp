@@ -2,7 +2,7 @@
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
 import { screen, waitFor} from "@testing-library/react";
-import type { InventoryStockLevelsRow } from "@mezan/domain";
+import { StockLevelStatusDTO, type StockLevelsAttentionRowDTO, type StockLevelsSummaryDTO } from "@mezan/contracts";
 import { InventoryHubScreen } from "./InventoryHubScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../../data/test-support";
 
@@ -10,45 +10,35 @@ import { renderWithProviders, stubTransport, testAdminSession } from "../../data
 // (3, 2, 1) are deliberately distinct so each stat tile is unambiguous.
 const itemCounts = { all: 3, active: 2, inactive: 1 };
 
-const lowRow: InventoryStockLevelsRow = {
+const lowRow: StockLevelsAttentionRowDTO = {
   itemId: "ITEM-3",
   itemNameAr: "سكر",
   itemNameEn: null,
   sku: "I-0003",
-  warehouseCount: 1,
-  onHand: 4,
-  averageCost: 5,
-  value: 15,
-  status: "low",
+  onHand: "1250.500000",
+  status: StockLevelStatusDTO.Low,
 };
 
-const outRow: InventoryStockLevelsRow = {
+const outRow: StockLevelsAttentionRowDTO = {
   itemId: "ITEM-1",
   itemNameAr: "زيت طهي",
   itemNameEn: null,
   sku: "I-0001",
-  warehouseCount: 1,
-  onHand: 0,
-  averageCost: 10,
-  value: 0,
-  status: "out",
+  onHand: "0.000000",
+  status: StockLevelStatusDTO.Out,
 };
 
-const sampleRows: InventoryStockLevelsRow[] = [lowRow];
-
-function stockLevelsBody(rows: InventoryStockLevelsRow[]) {
-  return {
-    rows,
-    groups: [],
-    grandTotals: { value: 12345.6 },
-    reconciliation: null,
-  };
+function summaryBody(attention: StockLevelsAttentionRowDTO[]): StockLevelsSummaryDTO {
+  const low = attention.filter((row) => row.status === StockLevelStatusDTO.Low);
+  return { totalValue: "12345.600000", needsAttentionCount: attention.length, lowCount: low.length, attention, firstLow: low[0] ?? null };
 }
+
+const SUMMARY = "GET /reports/inventory/stock-levels/summary";
 
 function baseTransport(overrides: Record<string, () => { status?: number; body: unknown }> = {}) {
   return stubTransport({
     "GET /items/counts": () => ({ body: itemCounts }),
-    "GET /reports/inventory/stock-levels": () => ({ body: stockLevelsBody(sampleRows) }),
+    [SUMMARY]: () => ({ body: summaryBody([lowRow]) }),
     ...overrides,
   });
 }
@@ -71,28 +61,29 @@ describe("InventoryHubScreen", () => {
 
   it("renders the needs-attention list from the report's rows, with out and low statuses", async () => {
     renderScreen({
-      "GET /reports/inventory/stock-levels": () => ({ body: stockLevelsBody([outRow, lowRow]) }),
+      [SUMMARY]: () => ({ body: summaryBody([outRow, lowRow]) }),
     });
     expect(await screen.findByText("زيت طهي")).toBeInTheDocument();
     expect(await screen.findByText("سكر")).toBeInTheDocument();
     expect(await screen.findByText("نافد")).toBeInTheDocument();
     expect(await screen.findByText("منخفض")).toBeInTheDocument();
+    expect(await screen.findByText("1,250.5")).toBeInTheDocument();
   });
 
-  it("never downloads the item catalogue", async () => {
+  it("never downloads the item catalogue or the full stock-levels report", async () => {
     const asked: string[] = [];
     const inner = baseTransport();
     renderWithProviders(<InventoryHubScreen />, { transport: (path, init) => (asked.push(path.split("?")[0]!), inner(path, init)), initialSession: testAdminSession });
     expect(await screen.findByText("12,345.60")).toBeInTheDocument();
     expect(asked).toContain("/items/counts");
     expect(asked).not.toContain("/items");
+    expect(asked).toContain("/reports/inventory/stock-levels/summary");
+    expect(asked).not.toContain("/reports/inventory/stock-levels");
   });
 
   it("shows the configured empty state when nothing needs attention", async () => {
     renderScreen({
-      "GET /reports/inventory/stock-levels": () => ({
-        body: stockLevelsBody([{ ...sampleRows[0]!, status: "normal" }]),
-      }),
+      [SUMMARY]: () => ({ body: summaryBody([]) }),
     });
     expect(await screen.findByText("لا توجد أصناف تحتاج انتباهاً حالياً.")).toBeInTheDocument();
   });

@@ -2,7 +2,7 @@ import ExcelJS from "exceljs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { STEPS, resolveStepSpec } from "../../../apps/web/src/settings/data-migration-steps.js";
-import { webCatalogs } from "../../../apps/web/src/i18n/catalog.js";
+import { webAr } from "../../../apps/web/src/i18n/catalog.js";
 
 /**
  * Generates the files under `test-fixtures/`.
@@ -85,7 +85,7 @@ async function main() {
   // source language. Header language is cosmetic either way — the parser matches
   // columns by position — but Arabic keeps these workbooks byte-comparable with
   // the ones already checked in.
-  const ar = (key: string) => webCatalogs.ar[key] ?? key;
+  const ar = (key: string) => (webAr as Record<string, string>)[key] ?? key;
   for (const step of STEPS) {
     if (seen.has(step.spec.id)) continue;
     seen.add(step.spec.id);

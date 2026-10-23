@@ -1,3 +1,4 @@
+import { ENGLISH_LOCALE } from "@mezan/ui";
 import { useCallback } from "react";
 import { useAppTranslation } from "../i18n";
 
@@ -28,7 +29,7 @@ type NamedRecord = {
 export function entityName(record: NamedRecord | null | undefined, locale: string, fallback = ""): string {
   if (!record) return fallback;
   const ar = record.nameAr ?? record.name ?? "";
-  if (locale !== "en") return ar || fallback;
+  if (locale !== ENGLISH_LOCALE) return ar || fallback;
   const en = record.nameEn?.trim();
   return en !== undefined && en !== "" ? en : ar || fallback;
 }

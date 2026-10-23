@@ -6,7 +6,7 @@ import { Money } from "../money/index.js";
 import type { Account } from "../accounts/account.js";
 import type { ReportDefinition } from "./types.js";
 import { sumRows } from "./kpi.js";
-import { ReportParamKind } from "./types.js";
+import { ReportChartSlice, ReportParamKind } from "./types.js";
 
 /**
  * دفتر حساب — Account Ledger / statement (docs/archive/catalog/08-reports.md). All
@@ -128,7 +128,7 @@ export function createAccountLedgerReport(
     chart: {
       labelColumn: "date",
       valueColumn: "balance",
-      slice: "last",
+      slice: ReportChartSlice.Last,
       maxPoints: 12,
       captionAr: "الرصيد الجاري بعد كل حركة من آخر اثنتي عشرة حركة في الفترة.",
     },

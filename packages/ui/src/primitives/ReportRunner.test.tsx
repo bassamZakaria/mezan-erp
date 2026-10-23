@@ -264,6 +264,25 @@ describe("ReportRunner — export", () => {
     await waitFor(() => expect(URL.createObjectURL).toHaveBeenCalledTimes(1));
     expect(loadAllRows).toHaveBeenCalledTimes(1);
   });
+
+  it("says so when the rows for the export cannot be fetched", async () => {
+    render(
+      <ReportRunner
+        title="تقرير"
+        paramFields={[]}
+        params={{}}
+        onParamsChange={() => {}}
+        result={makeResult([{ id: "1", label: "نقدية", amount: 1000 }])}
+        columns={columns}
+        rowKey={(r) => r.id}
+        loadAllRows={() => Promise.reject(new Error("offline"))}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "تصدير CSV" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("تعذّر تصدير التقرير");
+    expect(URL.createObjectURL).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "تصدير CSV" })).not.toBeDisabled();
+  });
 });
 
 describe("ReportRunner — printing a paged report", () => {
@@ -290,6 +309,70 @@ describe("ReportRunner — printing a paged report", () => {
     fireEvent.click(screen.getByRole("button", { name: "طباعة" }));
     await waitFor(() => expect(order).toEqual(["show all", "print", "restore"]));
     print.mockRestore();
+  });
+
+  function pagedRunner(showAllRowsForPrint: () => Promise<() => void>) {
+    return render(
+      <ReportRunner
+        title="تقرير"
+        paramFields={[]}
+        params={{}}
+        onParamsChange={() => {}}
+        result={makeResult([{ id: "1", label: "نقدية", amount: 1000 }])}
+        columns={columns}
+        rowKey={(r) => r.id}
+        pager={{ page: 1, pageSize: 1, totalRows: 2, onPageChange: () => {}, onPageSizeChange: () => {} }}
+        showAllRowsForPrint={showAllRowsForPrint}
+      />,
+    );
+  }
+
+  it("holds the print button while the rows load, so a second click queues no second print", async () => {
+    const showAllRowsForPrint = vi.fn(() => new Promise<() => void>(() => {}));
+    pagedRunner(showAllRowsForPrint);
+    fireEvent.click(screen.getByRole("button", { name: "طباعة" }));
+    fireEvent.click(screen.getByRole("button", { name: "جارٍ التحميل…" }));
+    expect(screen.getByRole("button", { name: "جارٍ التحميل…" })).toBeDisabled();
+    expect(showAllRowsForPrint).toHaveBeenCalledTimes(1);
+  });
+
+  it("says so when every row cannot be fetched, and prints nothing", async () => {
+    const print = vi.spyOn(window, "print").mockImplementation(() => {});
+    pagedRunner(() => Promise.reject(new Error("offline")));
+    fireEvent.click(screen.getByRole("button", { name: "طباعة" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("تعذّر تجهيز التقرير للطباعة");
+    expect(print).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "طباعة" })).not.toBeDisabled();
+    print.mockRestore();
+  });
+});
+
+describe("ReportRunner — stale figures", () => {
+  function staleRunner(stale: boolean) {
+    return render(
+      <ReportRunner
+        title="تقرير"
+        paramFields={[]}
+        params={{}}
+        onParamsChange={() => {}}
+        result={makeResult([{ id: "1", label: "نقدية", amount: 1000 }])}
+        columns={columns}
+        rowKey={(r) => r.id}
+        stale={stale}
+      />,
+    );
+  }
+
+  it("dims the previous figures and marks them busy while the new ones load", () => {
+    staleRunner(true);
+    const figures = screen.getByRole("table").closest("[aria-busy]");
+    expect(figures).toHaveAttribute("aria-busy", "true");
+    expect(figures).toHaveClass("opacity-60");
+  });
+
+  it("shows current figures at full strength", () => {
+    staleRunner(false);
+    expect(screen.getByRole("table").closest("[aria-busy]")).toBeNull();
   });
 });
 
@@ -417,6 +500,17 @@ describe("ReportRunner — print and PDF", () => {
       />,
     );
     fireEvent.click(screen.getByRole("button", { name: "حفظ PDF" }));
-    expect(await screen.findByRole("status")).toHaveTextContent("تعذّر حفظ ملف PDF.");
+    expect(await screen.findByRole("alert")).toHaveTextContent("تعذّر حفظ ملف PDF.");
+  });
+
+  it("says so when every row cannot be fetched for the PDF", async () => {
+    const savePDF = vi.fn();
+    (window as unknown as { mezan: unknown }).mezan = { savePDF };
+    runner({ showAllRowsForPrint: () => Promise.reject(new Error("offline")) });
+
+    fireEvent.click(screen.getByRole("button", { name: "حفظ PDF" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("تعذّر تجهيز التقرير للطباعة");
+    expect(savePDF).not.toHaveBeenCalled();
   });
 });

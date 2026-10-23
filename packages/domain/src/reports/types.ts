@@ -229,7 +229,12 @@ export interface ReportChartSpec {
    * Which end of the rows to take when there are more than `maxPoints`.
    * `last` is for a running-balance statement, where the answer is at the end.
    */
-  readonly slice?: "first" | "last";
+  readonly slice?: ReportChartSlice;
+}
+
+export enum ReportChartSlice {
+  First = "first",
+  Last = "last",
 }
 
 export enum ReportChartSource {
@@ -243,7 +248,6 @@ export interface ReportChartPoint {
   readonly labelEn?: string;
   readonly value: number;
 }
-
 
 export interface ReportValidationError {
   readonly field: string;
@@ -276,6 +280,7 @@ export type RunReportOutcome<TParams, Row> =
       readonly grandTotals: Readonly<Record<string, ReportFigure>>;
       readonly reconciliation: ReportReconciliationResult | null;
       readonly kpis: readonly ReportKpiResult[];
+      /** Computed over the whole result before any paging, so a paged response still charts every row. */
       readonly chartPoints: readonly ReportChartPoint[] | null;
     }
   | { readonly ok: false; readonly errors: readonly ReportValidationError[] };

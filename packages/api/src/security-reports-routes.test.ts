@@ -336,6 +336,14 @@ describe("نشاط خارج أوقات العمل", () => {
     expect(paged.grandTotals).toEqual(full.grandTotals);
     expect(paged.kpis).toEqual((full as typeof paged).kpis);
   });
+
+  it("hands every row in the order the pages show them, so an export reads like the screen", async () => {
+    const full = (await run()) as Awaited<ReturnType<typeof run>> & { groups: { rows: unknown[] }[] };
+    expect(full.rows).toEqual(full.groups.flatMap((g) => g.rows));
+    const pages: unknown[] = [];
+    for (const page of [1, 2, 3]) pages.push(...(await run(`?from=2026-03-01&to=2026-03-31&pageSize=1&page=${page}`)).rows);
+    expect(pages).toEqual(full.rows);
+  });
 });
 
 describe("حسابات أُنشئت حديثاً", () => {

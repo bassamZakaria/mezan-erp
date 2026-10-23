@@ -1780,6 +1780,31 @@ describe("D111 round 3 · shared master data carries no other branch's money or 
     }
   });
 
+  it("the stock-levels summary is the same figures as the stock-levels list the caller can see", async () => {
+    const warehouseOnly = callerFor(
+      handle.sessions.issue({ userId: "USER-D111-WH-ALEX", permissions: ["inventory.stock.view"], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: [ALEX_WAREHOUSE] }),
+    );
+    const figures = async (caller: Caller) => {
+      const summary = await caller("GET", "/reports/inventory/stock-levels/summary");
+      const list = await caller("GET", "/reports/inventory/stock-levels");
+      expect(summary.status).toBe(200);
+      expect(list.status).toBe(200);
+      return { summary: summary.body, rows: list.body.rows as any[], value: list.body.kpis.find((kpi: any) => kpi.key === "value").value };
+    };
+    const company = await figures(admin);
+    for (const [label, caller] of [...restricted(), ["one warehouse", warehouseOnly]] as const) {
+      const { summary, rows, value } = await figures(caller);
+      const attention = rows.filter((row) => row.status !== contracts.StockLevelStatusDTO.Normal);
+      const low = rows.filter((row) => row.status === contracts.StockLevelStatusDTO.Low);
+      expect(Number(summary.totalValue), label).toBeCloseTo(Number(value), 4);
+      expect(summary.needsAttentionCount, label).toBe(attention.length);
+      expect(summary.lowCount, label).toBe(low.length);
+      expect(summary.attention.map((row: any) => row.itemId), label).toEqual(attention.slice(0, summary.attention.length).map((row) => row.itemId));
+      expect(summary.firstLow?.itemId ?? null, label).toBe(low[0]?.itemId ?? null);
+      expect(Number(summary.totalValue), label).toBeLessThan(Number(company.summary.totalValue));
+    }
+  });
+
   it("a promotion's report counts only the discount the caller's branch granted", async () => {
     const company = (await admin("GET", "/promotions/report")).body as any[];
     expect(company.some((row) => row.usageCount > 0)).toBe(true);

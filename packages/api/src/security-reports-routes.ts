@@ -919,7 +919,7 @@ export function createSecurityReportsRoutes(
       },
       workingHours: hours,
       columns,
-      ...(paging.window ? pageReportGroups(groups, paging.window) : { rows, groups }),
+      ...(paging.window ? pageReportGroups(groups, paging.window) : { rows: groups.flatMap((group) => group.rows), groups }),
       grandTotals,
       kpis,
       coverage: {

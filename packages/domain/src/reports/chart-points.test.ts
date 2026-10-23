@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { sumRows } from "./kpi.js";
-import { ReportChartSource, type ReportChartSpec, type ReportColumn, type ReportGroupResult } from "./types.js";
+import { ReportChartSlice, ReportChartSource, type ReportChartSpec, type ReportColumn, type ReportGroupResult } from "./types.js";
 import { reportChartPoints, type ChartPointSource } from "./chart-points.js";
 
 interface Row {
@@ -68,7 +68,7 @@ describe("reportChartPoints", () => {
       const head = reportChartPoints({ source: ReportChartSource.Groups, labelColumn: "label", valueColumn: "value", maxPoints: 2 }, columns, rowKey, src);
       expect(head?.map((p) => p.key)).toEqual(["g0", "g1"]);
 
-      const tail = reportChartPoints({ source: ReportChartSource.Groups, labelColumn: "label", valueColumn: "value", maxPoints: 2, slice: "last" }, columns, rowKey, src);
+      const tail = reportChartPoints({ source: ReportChartSource.Groups, labelColumn: "label", valueColumn: "value", maxPoints: 2, slice: ReportChartSlice.Last }, columns, rowKey, src);
       expect(tail?.map((p) => p.key)).toEqual(["g3", "g4"]);
     });
 
@@ -96,7 +96,7 @@ describe("reportChartPoints", () => {
     });
 
     it("respects maxPoints and slice on the row order too", () => {
-      const chart: ReportChartSpec = { source: ReportChartSource.Rows, labelColumn: "label", valueColumn: "value", maxPoints: 2, slice: "last" };
+      const chart: ReportChartSpec = { source: ReportChartSource.Rows, labelColumn: "label", valueColumn: "value", maxPoints: 2, slice: ReportChartSlice.Last };
       const points = reportChartPoints(chart, columns, rowKey, source(rows(1, 2, 3, 4)));
       expect(points?.map((p) => p.value)).toEqual([3, 4]);
     });

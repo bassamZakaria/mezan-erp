@@ -4,7 +4,9 @@ import {
   I18nProvider,
   loadPersistedLocale,
   mergeCatalogs,
+  ToastProvider,
   uiCatalogs,
+  useOptionalToast,
   useTranslation,
   type I18nContextValue,
   type Locale,
@@ -12,7 +14,7 @@ import {
   type TranslationParams,
   type UiTranslationKey,
 } from "@mezan/ui";
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { webAr, type WebTranslationKey } from "./catalog";
 
 export type { Locale };
@@ -23,7 +25,10 @@ let englishLoad: Promise<TranslationCatalog> | null = null;
 
 export function loadEnglishCatalog(): Promise<TranslationCatalog> {
   englishLoad ??= import("./catalog-en").then(
-    ({ webEn }) => (englishCatalog = webEn),
+    ({ webEn }) => {
+      forgetReloadForCatalog();
+      return (englishCatalog = webEn);
+    },
     (error: unknown) => {
       englishLoad = null;
       throw error;
@@ -43,6 +48,15 @@ function reportMissingKey(key: string, locale: Locale): void {
 }
 
 const RELOADED_FOR_CATALOG = "mezan.reloadedForCatalog";
+const ENGLISH_UNAVAILABLE_TOAST = "i18n.englishUnavailable";
+
+function forgetReloadForCatalog(): void {
+  try {
+    sessionStorage.removeItem(RELOADED_FOR_CATALOG);
+  } catch {
+    return;
+  }
+}
 
 function reloadOnceForNewBuild(): void {
   try {
@@ -54,8 +68,21 @@ function reloadOnceForNewBuild(): void {
   window.location.reload();
 }
 
+function EnglishUnavailableNotice({ failures }: { failures: number }) {
+  const toast = useOptionalToast();
+  const { t } = useAppTranslation();
+  const shown = useRef(0);
+  useEffect(() => {
+    if (failures === shown.current) return;
+    shown.current = failures;
+    toast?.show({ id: ENGLISH_UNAVAILABLE_TOAST, tone: "error", message: t("i18n.englishUnavailable") });
+  }, [failures, toast, t]);
+  return null;
+}
+
 export function AppI18nProvider({ children, initialLocale }: { children: ReactNode; initialLocale?: Locale }) {
   const [english, setEnglish] = useState(englishCatalog);
+  const [englishFailures, setEnglishFailures] = useState(0);
   const [bootLocale, setBootLocale] = useState<Locale>(() => initialLocale ?? loadPersistedLocale() ?? DEFAULT_LOCALE);
   const waitingForEnglish = bootLocale === ENGLISH_LOCALE && english === null;
 
@@ -63,6 +90,7 @@ export function AppI18nProvider({ children, initialLocale }: { children: ReactNo
     if (!waitingForEnglish) return;
     loadEnglishCatalog().then(setEnglish, () => {
       setBootLocale(DEFAULT_LOCALE);
+      setEnglishFailures((count) => count + 1);
       reloadOnceForNewBuild();
     });
   }, [waitingForEnglish]);
@@ -72,7 +100,7 @@ export function AppI18nProvider({ children, initialLocale }: { children: ReactNo
     (locale: Locale) =>
       locale === ENGLISH_LOCALE && english === null
         ? loadEnglishCatalog().then(setEnglish, (error: unknown) => {
-            reloadOnceForNewBuild();
+            setEnglishFailures((count) => count + 1);
             throw error;
           })
         : undefined,
@@ -82,7 +110,10 @@ export function AppI18nProvider({ children, initialLocale }: { children: ReactNo
   if (waitingForEnglish) return null;
   return (
     <I18nProvider catalogs={catalogs} initialLocale={bootLocale} onMissingKey={reportMissingKey} ensureCatalog={ensureCatalog}>
-      {children}
+      <ToastProvider>
+        {children}
+        <EnglishUnavailableNotice failures={englishFailures} />
+      </ToastProvider>
     </I18nProvider>
   );
 }

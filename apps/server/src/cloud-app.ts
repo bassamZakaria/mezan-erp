@@ -562,7 +562,9 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
     root.use("/assets/*", async (c, next) => {
       await next();
       // Vite names every file under assets/ by its content hash, so a new build is a new URL.
-      if (c.res.status === 200) c.res.headers.set("Cache-Control", "public, max-age=31536000, immutable");
+      // SECURITY: behind the demo gate a shared cache must not hand the bundle to someone who never passed it.
+      const audience = options.authMiddleware ? "private" : "public";
+      if (c.res.status === 200) c.res.headers.set("Cache-Control", `${audience}, max-age=31536000, immutable`);
     });
     root.use("/*", serveStatic({ root: env.webDist }));
     root.get("/assets/*", (c) => c.text("Not found", 404));

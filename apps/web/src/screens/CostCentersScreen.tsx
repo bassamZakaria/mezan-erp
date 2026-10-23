@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
+  ENGLISH_LOCALE,
   Button,
   Card,
   Checkbox,
@@ -102,7 +103,7 @@ export function CostCentersScreen() {
   const { t, locale } = useAppTranslation();
   /** The record stores both names; rendering `nameAr` unconditionally is what puts Arabic in the English UI (D49). */
   const nameOf = (cc: Pick<CostCenterDTO, "nameAr" | "nameEn">) =>
-    locale === "en" && cc.nameEn ? cc.nameEn : cc.nameAr;
+    locale === ENGLISH_LOCALE && cc.nameEn ? cc.nameEn : cc.nameAr;
   const query = useCostCenters();
   const createCostCenter = useCreateCostCenter();
   const updateCostCenter = useUpdateCostCenter();
@@ -158,7 +159,7 @@ export function CostCentersScreen() {
   const allExpanded = allIds.length > 0 && allIds.every((id) => expandedIds.has(id));
 
   const parentOptions: EntityPickerOption[] = useMemo(
-    () => [{ id: ROOT_PARENT_ID, label: t("costCentres.rootParent") }, ...costCenters.filter((c) => c.id !== editingId).map((c) => ({ id: c.id, label: `${c.code} — ${locale === "en" && c.nameEn ? c.nameEn : c.nameAr}` }))],
+    () => [{ id: ROOT_PARENT_ID, label: t("costCentres.rootParent") }, ...costCenters.filter((c) => c.id !== editingId).map((c) => ({ id: c.id, label: `${c.code} — ${locale === ENGLISH_LOCALE && c.nameEn ? c.nameEn : c.nameAr}` }))],
     [costCenters, editingId, locale, t],
   );
 
@@ -556,7 +557,7 @@ export function CostCentersScreen() {
                           return next;
                         })
                       }
-                      label={`${department.code} — ${locale === "en" ? department.name : department.nameAr ?? department.name}`}
+                      label={`${department.code} — ${locale === ENGLISH_LOCALE ? department.name : department.nameAr ?? department.name}`}
                     />
                     <span className="mz-num text-[11.5px] text-ink-faint">
                       {department.codeInUse ? t("costCentres.import.codeInUse") : department.suggestedCode}

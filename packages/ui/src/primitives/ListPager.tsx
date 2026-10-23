@@ -5,14 +5,18 @@ import { Select } from "./Select";
 
 export const DEFAULT_PAGE_SIZES = [10, 25, 50, 100] as const;
 
-function getPageItems(current: number, total: number): (number | "ellipsis")[] {
+enum PagerGap {
+  Ellipsis = "ellipsis",
+}
+
+function getPageItems(current: number, total: number): (number | PagerGap)[] {
   if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
   const items = new Set<number>([1, 2, total - 1, total, current - 1, current, current + 1]);
   const sorted = [...items].filter((n) => n >= 1 && n <= total).sort((a, b) => a - b);
-  const out: (number | "ellipsis")[] = [];
+  const out: (number | PagerGap)[] = [];
   let prev = 0;
   for (const n of sorted) {
-    if (prev && n - prev > 1) out.push("ellipsis");
+    if (prev && n - prev > 1) out.push(PagerGap.Ellipsis);
     out.push(n);
     prev = n;
   }
@@ -62,7 +66,7 @@ export function ListPager({
       {pageCount > 1 ? (
         <nav aria-label={t("ui.list.pagination")} className="flex gap-[4px]">
           {getPageItems(page, pageCount).map((item, i) =>
-            item === "ellipsis" ? (
+            item === PagerGap.Ellipsis ? (
               <span key={`ellipsis-${i}`} className="flex h-[30px] min-w-[30px] items-center justify-center text-ink-faint">
                 …
               </span>

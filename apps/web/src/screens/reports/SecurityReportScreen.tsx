@@ -132,6 +132,7 @@ export function SecurityReportScreen<Row>({
       onRun={() => query.refetch()}
       loading={query.isFetching}
       result={result}
+      stale={query.isPlaceholderData}
       columns={columns}
       rowKey={rowKey}
       exportBaseFilename={reportId}

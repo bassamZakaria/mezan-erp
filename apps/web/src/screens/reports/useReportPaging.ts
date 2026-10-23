@@ -25,27 +25,29 @@ export function useReportPaging<Row>(initialParams: () => Record<string, string>
   };
   const requestParams = paged && !everyRow ? { ...params, page: String(page), pageSize: String(pageSize) } : params;
 
-  const runnerProps = (served: ReportPageDTO | undefined, readable: (rows: readonly Row[]) => readonly Row[] = (rows) => rows): ReportPagingRunnerProps<Row> =>
-    served
-      ? {
-          pager: {
-            page: served.page,
-            pageSize: served.pageSize,
-            totalRows: served.totalRows,
-            onPageChange: setPage,
-            onPageSizeChange: (size) => {
-              setPageSize(size);
-              setPage(1);
-            },
-          },
-          loadAllRows: async () => readable(await loadAllRows(params)),
-          showAllRowsForPrint: async () => {
-            await loadAllRows(params);
-            setEveryRow(true);
-            return () => setEveryRow(false);
-          },
-        }
-      : {};
+  const runnerProps = (served: ReportPageDTO | undefined, readable: (rows: readonly Row[]) => readonly Row[] = (rows) => rows): ReportPagingRunnerProps<Row> => {
+    if (!served) return {};
+    const lastPage = Math.max(1, Math.ceil(served.totalRows / served.pageSize));
+    if (page > lastPage) setPage(lastPage);
+    return {
+      pager: {
+        page: served.page,
+        pageSize: served.pageSize,
+        totalRows: served.totalRows,
+        onPageChange: setPage,
+        onPageSizeChange: (size) => {
+          setPageSize(size);
+          setPage(1);
+        },
+      },
+      loadAllRows: async () => readable(await loadAllRows(params)),
+      showAllRowsForPrint: async () => {
+        await loadAllRows(params);
+        setEveryRow(true);
+        return () => setEveryRow(false);
+      },
+    };
+  };
 
   return { params, setParams, requestParams, runnerProps };
 }

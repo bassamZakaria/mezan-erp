@@ -366,6 +366,17 @@ describe("createCloudApp", () => {
       expect(await header("/sales-invoices")).toBe("no-cache");
     });
 
+    it("keeps content-hashed assets out of shared caches while the demo gate stands in front of them", async () => {
+      const env = testEnv();
+      mkdirSync(path.join(env.webDist, "assets"));
+      writeFileSync(path.join(env.webDist, "assets", "index-AbC123.js"), "export {};");
+      const app = await boot(env, { authMiddleware: async (_c: Context, next: () => Promise<void>) => next() });
+      const res = await app.root.fetch(new Request("http://cloud.internal/assets/index-AbC123.js"));
+
+      expect(res.status).toBe(200);
+      expect(res.headers.get("cache-control")).toBe("private, max-age=31536000, immutable");
+    });
+
     it("leaves / as the plain app page until MEZAN_PUBLIC_LANDING switches the landing page on", async () => {
       const app = await boot(testEnv());
       const home = await (await app.root.fetch(new Request("http://cloud.internal/"))).text();

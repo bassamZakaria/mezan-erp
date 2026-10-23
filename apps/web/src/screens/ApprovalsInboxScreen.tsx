@@ -77,9 +77,9 @@ export function ApprovalsInboxScreen() {
   const onInbox = tab === ApprovalsTab.Inbox;
   const scope = tab === ApprovalsTab.Mine ? ApprovalRequestScope.Mine : ApprovalRequestScope.Acted;
   const filter = { search: search.trim() || undefined, actionType: actionTypeFilter === ANY_TYPE ? undefined : actionTypeFilter };
-  const scoped = useApprovalRequestPage(scope, { ...filter, page, pageSize }, { enabled: !onInbox });
+  const scoped = useApprovalRequestPage(scope, { ...filter, page, pageSize }, { enabled: !onInbox, keepPrevious: true });
   const totals = useApprovalRequestCounts();
-  const filteredTotals = useApprovalRequestCounts(filter);
+  const filteredTotals = useApprovalRequestCounts(filter, { enabled: !onInbox });
   const query = onInbox ? inbox : scoped;
 
   const inboxRows = useMemo(() => inbox.data ?? [], [inbox.data]);

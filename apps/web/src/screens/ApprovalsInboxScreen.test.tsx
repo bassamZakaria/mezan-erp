@@ -5,6 +5,7 @@ import { screen, fireEvent, within } from "@testing-library/react";
 import type { ApprovalRequestDTO } from "@mezan/contracts";
 import { ApprovalsInboxScreen } from "./ApprovalsInboxScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
+import type { Transport } from "../data/transport";
 
 const pendingRequest: ApprovalRequestDTO = {
   id: "req-1",
@@ -226,5 +227,62 @@ describe("ApprovalsInboxScreen — طلباتي and إجراءاتي are paged o
     await vi.waitFor(() => expect(screen.queryByRole("button", { name: "2" })).toBeNull());
     expect(screen.getByRole("tab", { name: /طلباتي.*60/ })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: /إجراءاتي.*3/ })).toBeInTheDocument();
+  });
+});
+
+describe("ApprovalsInboxScreen — the paged tabs between pages", () => {
+  it("keeps the current page on screen while the next one loads", async () => {
+    const page2: { release?: () => void } = {};
+    const stub = stubTransport({
+      "GET /workflow/requests/pending": () => ({ body: [] }),
+      "GET /workflow/requests/counts": () => ({ body: { mine: 60, acted: 0 } }),
+      "GET /workflow/requests/mine": (_init, path) => {
+        const page = Number(new URLSearchParams(path.split("?")[1]).get("page") ?? "1");
+        return { body: [{ ...pendingRequest, id: `mine-${page}`, status: "approved", entityLabel: `طلب صفحة ${page}` }] };
+      },
+    });
+    const transport: Transport = (path, init) =>
+      path.includes("/mine?page=2") ? new Promise((resolve) => (page2.release = () => resolve(stub(path, init)))) : stub(path, init);
+    renderWithProviders(<ApprovalsInboxScreen />, { transport, initialSession: testAdminSession });
+    fireEvent.click(await screen.findByRole("tab", { name: /طلباتي/ }));
+    await screen.findByText("طلب صفحة 1");
+
+    fireEvent.click(screen.getByRole("button", { name: "2" }));
+    await vi.waitFor(() => expect(page2.release).toBeDefined());
+    expect(screen.getByText("طلب صفحة 1")).toBeInTheDocument();
+
+    page2.release?.();
+    expect(await screen.findByText("طلب صفحة 2")).toBeInTheDocument();
+  });
+
+  it("never shows one tab's rows under another while the other loads", async () => {
+    const stub = stubTransport({
+      "GET /workflow/requests/pending": () => ({ body: [] }),
+      "GET /workflow/requests/counts": () => ({ body: { mine: 1, acted: 1 } }),
+      "GET /workflow/requests/mine": () => ({ body: [{ ...pendingRequest, id: "mine-1", status: "approved", entityLabel: "طلب من طلباتي" }] }),
+    });
+    const transport: Transport = (path, init) => (path.startsWith("/workflow/requests/acted") ? new Promise(() => {}) : stub(path, init));
+    renderWithProviders(<ApprovalsInboxScreen />, { transport, initialSession: testAdminSession });
+    fireEvent.click(await screen.findByRole("tab", { name: /طلباتي/ }));
+    await screen.findByText("طلب من طلباتي");
+
+    fireEvent.click(screen.getByRole("tab", { name: /إجراءاتي/ }));
+    await vi.waitFor(() => expect(screen.queryByText("طلب من طلباتي")).toBeNull());
+  });
+
+  it("asks for no filtered counts while the inbox tab, which never reads them, is open", async () => {
+    const asked: string[] = [];
+    const stub = stubTransport({
+      "GET /workflow/requests/pending": () => ({ body: [pendingRequest] }),
+      "GET /workflow/requests/counts": () => ({ body: { mine: 0, acted: 0 } }),
+    });
+    const transport: Transport = (path, init) => {
+      asked.push(path);
+      return stub(path, init);
+    };
+    renderWithProviders(<ApprovalsInboxScreen />, { transport, initialSession: testAdminSession });
+    fireEvent.change(await screen.findByPlaceholderText("بحث بنوع الإجراء أو التفاصيل…"), { target: { value: "INV-9" } });
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    expect(asked.filter((path) => path.startsWith("/workflow/requests/counts"))).toEqual(["/workflow/requests/counts"]);
   });
 });

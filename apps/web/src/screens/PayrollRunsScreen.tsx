@@ -4,6 +4,7 @@ import { ReversalDocumentType } from "@mezan/contracts";
 import { useReverseDocumentAction } from "../reversal/ReverseDocumentAction";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
+  ENGLISH_LOCALE,
   RowActionOutcome,
   Button,
   Card,
@@ -229,7 +230,7 @@ function PayrollRunDetail({ run, pending, error, onBack, onAction, onDisburse, o
             </div>
             {p.partMonthTaxNotice ? (
               <div role="note" className="mt-[6px] rounded-md border border-warning bg-warning-soft px-[10px] py-[7px] text-[11.5px] text-warning-ink">
-                {locale === "en" ? (p.partMonthTaxNoticeEn ?? p.partMonthTaxNotice) : p.partMonthTaxNotice}
+                {locale === ENGLISH_LOCALE ? (p.partMonthTaxNoticeEn ?? p.partMonthTaxNotice) : p.partMonthTaxNotice}
               </div>
             ) : null}
             {p.basis ? <PayslipBasisSummary basis={p.basis} runCurrency={p.currency} /> : null}

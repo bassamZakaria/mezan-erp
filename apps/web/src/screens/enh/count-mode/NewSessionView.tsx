@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Plus, Trash2, X } from "lucide-react";
-import { Button, Card } from "@mezan/ui";
+import { ENGLISH_LOCALE, Button, Card } from "@mezan/ui";
 import { CountZoneKindDTO, type CountZoneSpecDTO, type ItemDTO, type StartCountModeDTO } from "@mezan/contracts";
 import { useAppTranslation } from "../../../i18n";
 import { useNavigation } from "../../../navigation";
@@ -38,7 +38,7 @@ function ItemSearch({ selected, onChange }: { selected: readonly string[]; onCha
   const nameOf = (id: string) => {
     const item = byId.get(id);
     if (!item) return id;
-    return locale === "en" && item.nameEn ? item.nameEn : item.nameAr;
+    return locale === ENGLISH_LOCALE && item.nameEn ? item.nameEn : item.nameAr;
   };
   return (
     <div className="flex flex-col gap-[8px]">
@@ -56,7 +56,7 @@ function ItemSearch({ selected, onChange }: { selected: readonly string[]; onCha
                   setQuery("");
                 }}
               >
-                <span className="truncate">{locale === "en" && item.nameEn ? item.nameEn : item.nameAr}</span>
+                <span className="truncate">{locale === ENGLISH_LOCALE && item.nameEn ? item.nameEn : item.nameAr}</span>
                 <span className="mz-num text-[12px] text-ink-muted">{item.code}</span>
               </button>
             </li>
@@ -95,7 +95,7 @@ export function NewSessionView() {
   const [error, setError] = useState<string | null>(null);
 
   const effectiveWarehouse = warehouseId || warehouses[0]?.id || "";
-  const categoryOptions = [{ value: "", label: t("countMode.new.chooseCategory") }, ...(categoriesQuery.data ?? []).map((c) => ({ value: c.id, label: locale === "en" && c.nameEn ? c.nameEn : c.nameAr }))];
+  const categoryOptions = [{ value: "", label: t("countMode.new.chooseCategory") }, ...(categoriesQuery.data ?? []).map((c) => ({ value: c.id, label: locale === ENGLISH_LOCALE && c.nameEn ? c.nameEn : c.nameAr }))];
   const counterOptions = (countersQuery.data ?? []).map((c) => ({ value: c.userId, label: c.name }));
 
   function patchZone(key: string, next: Partial<ZoneDraft>) {

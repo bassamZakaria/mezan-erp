@@ -10,7 +10,6 @@ export {
   MAX_PAGE_SIZE,
   pageQuerySchema,
   pageWindow,
-  reportPageSchema,
   type PageQueryDTO,
   type ReportPageDTO,
 } from "./paging.js";

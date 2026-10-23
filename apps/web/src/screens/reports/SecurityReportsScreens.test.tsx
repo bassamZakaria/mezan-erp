@@ -1,12 +1,17 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { ExceptionsReportScreen } from "./ExceptionsReportScreen";
 import { PostPostingChangesReportScreen } from "./PostPostingChangesReportScreen";
 import { AfterHoursReportScreen } from "./AfterHoursReportScreen";
 import { NewAccountsReportScreen } from "./NewAccountsReportScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../../data/test-support";
+
+const { createObjectURL, revokeObjectURL } = URL;
+afterEach(() => {
+  Object.assign(URL, { createObjectURL, revokeObjectURL });
+});
 
 /**
  * guards P-4 — all four exception reports were built, mounted and reachable

@@ -205,6 +205,7 @@ export function ReportScreen<TParams extends object, Row>({ definition: rawDefin
       onRun={() => setHasRun(true)}
       loading={query.isFetching}
       result={result}
+      stale={query.isPlaceholderData}
       columns={definition.columns}
       rowKey={definition.rowKey}
       chart={

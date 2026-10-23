@@ -2,7 +2,7 @@ import { CountedNoun } from "@mezan/domain";
 import { useCountPhrase } from "../../../lib/count-phrase";
 import { useQuery } from "@tanstack/react-query";
 import { leaderboardCardSchema, type LeaderboardCardDTO } from "@mezan/contracts";
-import { Card, EmptyState, Money as MoneyDisplay } from "@mezan/ui";
+import { ENGLISH_LOCALE, Card, EmptyState, Money as MoneyDisplay } from "@mezan/ui";
 import { useApi } from "../../../data/ApiContext";
 import { ApiError, loaderError } from "../../../data/hooks";
 import { useAppTranslation } from "../../../i18n";
@@ -55,7 +55,7 @@ export function LeaderboardCard() {
               <span className="flex items-center gap-[10px]">
                 <span className="mz-num inline-flex h-[24px] w-[24px] items-center justify-center rounded-full bg-surface-2 text-[12px] font-bold text-ink">{entry.rank}</span>
                 <span className="flex flex-col">
-                  <span className="text-[13px] font-semibold text-ink">{locale === "en" ? entry.nameEn : entry.nameAr}</span>
+                  <span className="text-[13px] font-semibold text-ink">{locale === ENGLISH_LOCALE ? entry.nameEn : entry.nameAr}</span>
                   <span className="text-[11px] text-ink-muted">{t("salesFunnel.card.deals", { count: countPhrase(entry.invoiceCount, CountedNoun.Invoice) })}</span>
                 </span>
               </span>

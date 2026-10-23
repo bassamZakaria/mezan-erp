@@ -8197,7 +8197,7 @@ export function useApprovalRequestPage(
   return useQuery<ApprovalRequestDTO[], ApiError>({
     queryKey: ["workflow-requests", scope, filter],
     enabled: session !== null && (gate.enabled ?? true),
-    placeholderData: gate.keepPrevious ? keepPreviousData : undefined,
+    placeholderData: gate.keepPrevious ? (previous, previousQuery) => (previousQuery?.queryKey[1] === scope ? previous : undefined) : undefined,
     queryFn: async () => {
       const res = await request(`/workflow/requests/${scope}${approvalRequestParams(filter)}`);
       if (!res.ok) throw await loaderError(res, t("api.pendingApprovalsCouldNotBe"), t);
@@ -8206,12 +8206,12 @@ export function useApprovalRequestPage(
   });
 }
 
-export function useApprovalRequestCounts(filter: ApprovalRequestListFilter = {}): UseQueryResult<ApprovalRequestCountsDTO, ApiError> {
+export function useApprovalRequestCounts(filter: ApprovalRequestListFilter = {}, gate: QueryGate = {}): UseQueryResult<ApprovalRequestCountsDTO, ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<ApprovalRequestCountsDTO, ApiError>({
     queryKey: ["workflow-requests", "counts", filter],
-    enabled: session !== null,
+    enabled: session !== null && (gate.enabled ?? true),
     queryFn: async () => {
       const res = await request(`/workflow/requests/counts${approvalRequestParams(filter)}`);
       if (!res.ok) throw await loaderError(res, t("api.pendingApprovalsCouldNotBe"), t);

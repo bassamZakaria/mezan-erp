@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { ToastProvider, useTheme } from "@mezan/ui";
+import { useTheme } from "@mezan/ui";
 import { AppI18nProvider } from "../i18n";
 import { ApiProvider } from "./ApiContext";
 import { createQueryClient } from "./queryClient";
@@ -27,7 +27,7 @@ export function AppProviders({ children, transport, initialSession }: AppProvide
     <AppI18nProvider>
       <QueryClientProvider client={queryClient}>
         <ApiProvider transport={transport} initialSession={initialSession}>
-          <ToastProvider>{children}</ToastProvider>
+          {children}
         </ApiProvider>
       </QueryClientProvider>
     </AppI18nProvider>

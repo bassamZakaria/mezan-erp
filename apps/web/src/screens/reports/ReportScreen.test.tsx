@@ -1,12 +1,17 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { ArabicCase, CountedNoun, countPhrase, createInventoryBatchesReport, ExpiryStatus } from "@mezan/domain";
 import { SalesByPeriodReportScreen } from "./SalesReportsScreens";
 import { ReportScreen } from "./ReportScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../../data/test-support";
 import { monthStartIso } from "../../lib/dates";
+
+const { createObjectURL, revokeObjectURL } = URL;
+afterEach(() => {
+  Object.assign(URL, { createObjectURL, revokeObjectURL });
+});
 
 /**
  * Proves the operational-report screens go through the app's REAL data
@@ -71,6 +76,34 @@ describe("ReportScreen (real data-client wiring)", () => {
     expect(paths[0]).toContain("page=1");
     screen.getByRole("button", { name: "2" }).click();
     await waitFor(() => expect(paths.some((p) => p.includes("page=2"))).toBe(true));
+  });
+
+  it("steps back to the last page when the result shrinks under the page on screen", async () => {
+    const paths: string[] = [];
+    const transport = stubTransport({
+      "GET /reports/sales/by-period": (_init, path) => {
+        paths.push(path);
+        const page = Number(new URLSearchParams(path.split("?")[1]).get("page"));
+        const row = { bucket: `2026-08-0${page}`, count: 1, gross: 1, discount: 0, tax: 0, net: 1 };
+        return {
+          body: {
+            rows: page === 3 ? [] : [row],
+            groups: [{ key: "_all", label: "", rows: page === 3 ? [] : [row], totals: { net: 1 } }],
+            grandTotals: { count: 1, gross: 1, discount: 0, tax: 0, net: 1 },
+            reconciliation: null,
+            page: { page, pageSize: 50, totalRows: page === 1 ? 150 : 60 },
+            chartPoints: [],
+          },
+        };
+      },
+    });
+
+    renderWithProviders(<SalesByPeriodReportScreen />, { transport, initialSession: testAdminSession });
+    await screen.findByRole("cell", { name: "2026-08-01" });
+    fireEvent.click(screen.getByRole("button", { name: "3" }));
+
+    await screen.findByRole("cell", { name: "2026-08-02" });
+    expect(paths.at(-1)).toContain("page=2");
   });
 
   it("exports every row of a paged report, not just the page on screen", async () => {

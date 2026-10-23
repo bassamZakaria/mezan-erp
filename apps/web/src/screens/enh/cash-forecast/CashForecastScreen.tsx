@@ -2,6 +2,7 @@ import { useCountPhrase } from "../../../lib/count-phrase";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router";
 import {
+  ENGLISH_LOCALE,
   Button,
   Card,
   DocumentList,
@@ -430,7 +431,7 @@ function ItemLink({ item }: { item: CashForecastItemDTO }) {
 
 function PartyName({ item }: { item: CashForecastItemDTO }) {
   const { locale } = useAppTranslation();
-  const name = locale === "en" ? (item.partyNameEn ?? item.partyName) : item.partyName;
+  const name = locale === ENGLISH_LOCALE ? (item.partyNameEn ?? item.partyName) : item.partyName;
   return <span className="text-ink">{name ?? "—"}</span>;
 }
 
@@ -557,7 +558,7 @@ function OpeningAccountsCard({ forecast }: { forecast: CashForecastDTO }) {
         <ul className="mt-[10px] flex flex-col gap-[6px]">
           {forecast.openingAccounts.map((account) => (
             <li key={account.treasuryAccountId ?? account.glAccountId} className="flex min-w-0 flex-wrap items-center justify-between gap-[8px] text-[12.5px]">
-              <span className="min-w-0 truncate text-ink">{locale === "en" ? (account.nameEn ?? account.name) : account.name}</span>
+              <span className="min-w-0 truncate text-ink">{locale === ENGLISH_LOCALE ? (account.nameEn ?? account.name) : account.name}</span>
               {account.balance !== null ? (
                 <Money className="font-semibold text-ink" value={majorOf(account.balance)} />
               ) : (

@@ -18,6 +18,7 @@ import { landingAr } from "../landing/landing-strings";
  * app leaking `customers.openingBalance` into its own screens).
  */
 export const webAr = {
+  "i18n.englishUnavailable": "تعذّر تحميل الواجهة الإنجليزية، فبقيت بالعربية. أعد تحميل الصفحة ثم حاول مرة أخرى.",
   "license.loadFailed": "تعذّر تحميل حالة الترخيص.",
   "update.available": "تحديث متاح — الإصدار {version}",
   "update.download": "تنزيل التحديث",

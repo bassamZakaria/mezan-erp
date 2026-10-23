@@ -231,8 +231,13 @@ function addMissingColumns(sqlite: Database.Database): void {
   if (!onSubscription.has("intended_plan_id")) sqlite.exec(`ALTER TABLE subscription ADD COLUMN intended_plan_id TEXT`);
   const onSignup = new Set((sqlite.prepare(`PRAGMA table_info(signup_request)`).all() as { name: string }[]).map((c) => c.name));
   if (!onSignup.has("intended_plan_id")) sqlite.exec(`ALTER TABLE signup_request ADD COLUMN intended_plan_id TEXT`);
-  for (const column of ["decision", "decided_at", "decided_by"]) {
-    if (!onSignup.has(column)) sqlite.exec(`ALTER TABLE signup_request ADD COLUMN ${column} TEXT`);
+  if (!onSignup.has("decision")) {
+    for (const column of ["decision", "decided_at", "decided_by"]) sqlite.exec(`ALTER TABLE signup_request ADD COLUMN ${column} TEXT`);
+    // Sign-ups that already became companies under open sign-up were approved by being provisioned; without this they would all queue for approval.
+    sqlite.exec(
+      `UPDATE signup_request SET decision = 'approved', decided_at = COALESCE(verified_at, created_at), decided_by = 'migration'
+       WHERE status = 'verified' AND decision IS NULL AND code IN (SELECT code FROM tenant)`,
+    );
   }
   const onPayment = new Set(
     (sqlite.prepare(`PRAGMA table_info(payment)`).all() as { name: string }[]).map((c) => c.name),
@@ -478,7 +483,7 @@ function toPlan(r: PlanRow): Plan {
     kind: r.kind === PlanKind.Free ? PlanKind.Free : PlanKind.Paid,
     quotas: JSON.parse(r.quotas || "{}") as PlanQuotas,
     priceMonthly: Money.fromScaled(r.price_monthly), priceYearly: Money.fromScaled(r.price_yearly),
-    trialDays: r.trial_days, isPublic: r.is_public === 1, soldOut: r.sold_out === 1, sortOrder: r.sort_order,
+    trialDays: r.trial_days, isPublic: r.is_public === 1, ...(r.sold_out === 1 ? { soldOut: true } : {}), sortOrder: r.sort_order,
     status: r.status, createdAt: r.created_at,
   };
 }

@@ -5,7 +5,10 @@ import {
   OwnerConfirmation,
   PaymentReferenceAlreadyRecordedError,
   PlanKind,
+  SignupDecision,
+  SignupRequestStatus,
   TenantBooksReview,
+  type SignupRequest,
   recordPayment,
   type Plan,
   type Subscription,
@@ -112,6 +115,27 @@ describe("createSqlitePlatformStores", () => {
     const rows = await stores.subscriptions.listByPlan("P1");
     expect(rows.map((s) => s.id).sort()).toEqual(["S1", "S2"]);
     stores.close();
+  });
+
+  it("treats sign-ups an earlier build already turned into companies as approved, and keeps an unprovisioned one waiting", async () => {
+    const db = new Database(":memory:");
+    const earlier = createSqlitePlatformStores(db);
+    await earlier.tenants.save(tenant);
+    const verified = (id: string, code: string): SignupRequest => ({
+      id, code, nameAr: "منشأة", nameEn: null, ownerEmail: `${code}@example.eg`, ownerNameAr: "سارة", planId: "P1",
+      billingCycle: "monthly", tokenHash: `hash-${id}`, status: SignupRequestStatus.Verified, expiresAt: NOW, createdAt: NOW, verifiedAt: NOW,
+    });
+    await earlier.signupRequests.save(verified("R1", tenant.code));
+    await earlier.signupRequests.save(verified("R2", "waiting"));
+    for (const column of ["decision", "decided_at", "decided_by"]) db.exec(`ALTER TABLE signup_request DROP COLUMN ${column}`);
+
+    const stores = createSqlitePlatformStores(db);
+
+    expect((await stores.signupRequests.listAwaitingDecision()).map((r) => r.id)).toEqual(["R2"]);
+    expect(await stores.signupRequests.findById("R1")).toMatchObject({ decision: SignupDecision.Approved, decidedBy: "migration" });
+    expect(await stores.signupRequests.findActiveByCode(tenant.code, NOW)).toBeNull();
+    expect((await stores.signupRequests.findActiveByCode("waiting", NOW))?.id).toBe("R2");
+    db.close();
   });
 
   it("reuses a caller-owned connection and leaves it open after close()", async () => {

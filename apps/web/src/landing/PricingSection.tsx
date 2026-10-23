@@ -46,7 +46,7 @@ function yearlySavesTwoMonths(plans: readonly PublicPlanDTO[]): boolean {
 function PlanCard({ plan, previous, cycle }: { plan: PublicPlanDTO; previous: PublicPlanDTO | null; cycle: BillingCycleKind }) {
   const { t, locale } = useAppTranslation();
   const countPhrase = useCountPhrase();
-  const popular = plan.code === POPULAR_PLAN;
+  const popular = plan.code === POPULAR_PLAN && !plan.soldOut;
   const name = locale === "ar" ? plan.nameAr : plan.nameEn;
   const price = cycle === BillingCycleKind.Monthly ? plan.priceMonthly : plan.priceYearly;
   const audience = audienceOf(plan.code);

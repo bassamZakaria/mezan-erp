@@ -76,9 +76,20 @@ describe("SignupScreen — arriving from the pricing page", () => {
   });
 });
 
-describe("SignupScreen — while sign-up is closed", () => {
+describe("SignupScreen — following the sign-up mode", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it("asks for an account instead of promising a trial while sign-up needs approval", async () => {
+    open("/signup", SignupModeCode.Approval);
+    expect(await screen.findByRole("button", { name: "إرسال الطلب" })).toBeInTheDocument();
+    expect(screen.queryByText(/مجانًا بكل المزايا/)).not.toBeInTheDocument();
+  });
+
+  it("promises the trial when sign-up is open", async () => {
+    open("/signup", SignupModeCode.Open);
+    expect(await screen.findByRole("button", { name: "ابدأ التجربة المجانية" })).toBeInTheDocument();
   });
 
   it("shows that sign-up is closed and the way to sign in, with no form to fill", async () => {

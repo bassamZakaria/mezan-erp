@@ -95,12 +95,12 @@ function PlanCard({
   );
 }
 
-function SuccessPanel({ result, email }: { result: StartSignupResultDTO; email: string }) {
+function SuccessPanel({ result, email, open }: { result: StartSignupResultDTO; email: string; open: boolean }) {
   const { t } = useAppTranslation();
   return (
     <Card className="flex flex-col gap-[14px] p-[22px]">
       <h1 className="font-display text-lg font-bold text-ink">{t("signup.success.title")}</h1>
-      <p className="text-[13px] text-ink-muted">{t("signup.success.body", { email })}</p>
+      <p className="text-[13px] text-ink-muted">{t(open ? "signup.success.body" : "signup.success.bodyRequest", { email })}</p>
       {result.devVerifyUrl ? (
         <div className="flex flex-col gap-[10px] rounded-md border-2 border-dashed border-warning-ink bg-surface-2 p-[14px]">
           <p className="text-[12px] font-bold text-warning-ink">{t("signup.success.devLabel")}</p>
@@ -224,7 +224,7 @@ export function SignupScreen() {
   if (result) {
     return (
       <SignupLayout>
-        <SuccessPanel result={result} email={draft.ownerEmail} />
+        <SuccessPanel result={result} email={draft.ownerEmail} open={signupMode === SignupModeCode.Open} />
       </SignupLayout>
     );
   }
@@ -261,7 +261,7 @@ export function SignupScreen() {
       <Card className="flex flex-col gap-[16px] p-[22px]">
         <div>
           <h1 className="font-display text-lg font-bold text-ink">{t("signup.title")}</h1>
-          <p className="mt-[4px] text-[12.5px] text-ink-muted">{t("signup.subtitle")}</p>
+          <p className="mt-[4px] text-[12.5px] text-ink-muted">{t(signupMode === SignupModeCode.Open ? "signup.subtitle" : "signup.subtitleRequest")}</p>
         </div>
         <FormError message={formError} />
 
@@ -346,7 +346,7 @@ export function SignupScreen() {
           className={`rounded-md outline-none ${fieldErrors[SignupField.Plan] ? "border-2 border-danger p-[10px]" : ""}`}
         >
           <span className="mb-[4px] block text-xs font-semibold text-ink">{t("signup.plan")}</span>
-          {trialDays > 0 ? (
+          {trialDays > 0 && signupMode === SignupModeCode.Open ? (
             <p className="mb-[8px] text-[12px] font-semibold text-accent-strong">
               {t("signup.plan.trialDays", { days: countPhrase(trialDays, CountedNoun.Day, ArabicCase.Oblique) })}
             </p>
@@ -388,7 +388,7 @@ export function SignupScreen() {
         <p className="text-[11px] text-ink-faint">{t("signup.afterTrialNote")}</p>
 
         <Button variant="primary" className="w-full" disabled={submitting} onClick={handleSubmit}>
-          {submitting ? t("signup.submitting") : t("signup.submit")}
+          {submitting ? t("signup.submitting") : t(signupMode === SignupModeCode.Open ? "signup.submit" : "signup.submitRequest")}
         </Button>
 
         <p className="text-center text-[12px] text-ink-muted">

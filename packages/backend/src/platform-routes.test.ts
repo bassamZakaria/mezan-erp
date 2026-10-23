@@ -582,6 +582,19 @@ describe("createPlatformRoutes", () => {
       createdAt: FIXED_NOW().toISOString(), verifiedAt: FIXED_NOW().toISOString(),
     });
 
+    it("an approval audits both the plan asked for and the subscription the company actually has", async () => {
+      const rig = await buildRig();
+      await rig.platform.stores.signupRequests.save(verifiedRequest("audited"));
+
+      const res = await rig.app.fetch(
+        req("/signup-requests/REQ-audited/approve", rig.ownerToken, { method: "POST", body: JSON.stringify({ planId: "PLAN-CORE", billingCycle: "monthly", trial: false }) }),
+      );
+
+      expect(res.status).toBe(201);
+      const rows = (await rig.platform.audit.query("security")).filter((row) => row.action === "SIGNUP_APPROVED");
+      expect(rows).toMatchObject([{ details: { requested: { planId: "PLAN-CORE", trial: false }, applied: { planId: "PLAN-CORE", billingCycle: "monthly", trialEndsAt: null } } }]);
+    });
+
     it("rejecting releases a company an earlier approval left in provisioning, freeing the code", async () => {
       const rig = await buildRig();
       await rig.platform.stores.signupRequests.save(verifiedRequest("halfway"));

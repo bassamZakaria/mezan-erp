@@ -41,6 +41,7 @@ export {
   type PlatformAcceptRestoreResult,
   type PlatformTenantRetentionPort,
   EnvSettingsInvalidError,
+  ProvisioningRefusalCode,
   type PlatformEnvSettingsPort,
   type PreparedEnvChange,
 } from "./platform-routes.js";

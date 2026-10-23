@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { BillingCycleKind, PlanStatusCode } from "@mezan/domain";
 import { Button, ConfirmDialog, DocumentList, Select, SidePanel, useFormat, type DocumentListColumn } from "@mezan/ui";
 import { SignupModeCode, billingCycleSchema, type BillingCycleDTO, type ProvisionResultDTO, type SignupRequestDTO } from "@mezan/contracts";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
@@ -203,9 +204,9 @@ function ApprovePanel({ request, onClose }: { request: SignupRequestDTO | null; 
     onClose();
   }
 
-  const activePlans = (plans.data ?? []).filter((p) => p.status === "active");
+  const activePlans = (plans.data ?? []).filter((p) => p.status === PlanStatusCode.Active);
   const chosenPlan = planId ?? (activePlans.some((p) => p.id === request?.intendedPlanId) ? (request?.intendedPlanId ?? "") : "");
-  const chosenCycle = billingCycle ?? request?.billingCycle ?? "monthly";
+  const chosenCycle = billingCycle ?? request?.billingCycle ?? BillingCycleKind.Monthly;
   const plan = activePlans.find((p) => p.id === chosenPlan);
   const paidWithoutTrial = plan !== undefined && Number(plan.priceMonthly) > 0 && !trial;
 
@@ -248,8 +249,8 @@ function ApprovePanel({ request, onClose }: { request: SignupRequestDTO | null; 
               if (cycle.success) setBillingCycle(cycle.data);
             }}
             options={[
-              { value: "monthly", label: t("platform.billingCycle.monthly") },
-              { value: "yearly", label: t("platform.billingCycle.yearly") },
+              { value: BillingCycleKind.Monthly, label: t("platform.billingCycle.monthly") },
+              { value: BillingCycleKind.Yearly, label: t("platform.billingCycle.yearly") },
             ]}
           />
           <ToggleField label={t("platform.newTenant.trial")} checked={trial} onChange={setTrial} />

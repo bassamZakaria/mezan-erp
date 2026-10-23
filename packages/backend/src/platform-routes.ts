@@ -504,10 +504,12 @@ class SignupAlreadyDecidedError extends Error {
   }
 }
 
-const PROVISIONING_SUPERSEDED = "PROVISIONING_SUPERSEDED";
+export enum ProvisioningRefusalCode {
+  Superseded = "PROVISIONING_SUPERSEDED",
+}
 
 const decidedElsewhere = (err: unknown): boolean =>
-  err instanceof SignupAlreadyDecidedError || (err instanceof Error && (err as { code?: unknown }).code === PROVISIONING_SUPERSEDED);
+  err instanceof SignupAlreadyDecidedError || (err instanceof Error && (err as { code?: unknown }).code === ProvisioningRefusalCode.Superseded);
 
 /** Provisioning wraps what it does not know in its own error and keeps the original as `cause`. */
 function lostTheDecision(err: unknown): boolean {
@@ -766,7 +768,9 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
           recordedWith(c, async () => {
             const tenant = await activate();
             if (!(await signupRequests.tryDecide(request.id, SignupDecision.Approved, platformUser.id, nowIso()))) throw new SignupAlreadyDecidedError();
-            return { value: tenant, action: PlatformAuditAction.SignupApproved, entityId: tenant.id, details: { code: tenant.code, requestId: request.id, ...parsed.data } };
+            const live = await platform.stores.subscriptions.findLiveByTenant(tenant.id);
+            const applied = live ? { planId: live.planId, billingCycle: live.billingCycle, trialEndsAt: live.trialEndsAt } : null;
+            return { value: tenant, action: PlatformAuditAction.SignupApproved, entityId: tenant.id, details: { code: tenant.code, requestId: request.id, requested: parsed.data, applied } };
           }),
       );
       invalidateEntitlements(result.tenant.code);

@@ -1,6 +1,6 @@
 import { randomInt, randomUUID } from "node:crypto";
 import { activateTenant, createTenant, normalizeEmail, startSubscription, TenantCodeTakenError, TenantStatusCode, type BillingCycle, type Tenant } from "@mezan/domain";
-import { OwnerPinResetOutcome, PlatformAuditUnavailableError, TENANT_CODE_PROVISIONING, TenantOwnerAccountNotFoundError, type PlatformHandle, type RecordedActivation } from "@mezan/backend";
+import { OwnerPinResetOutcome, PlatformAuditUnavailableError, ProvisioningRefusalCode, TENANT_CODE_PROVISIONING, TenantOwnerAccountNotFoundError, type PlatformHandle, type RecordedActivation } from "@mezan/backend";
 import { tenantDTOOf, type ProvisionResultDTO } from "@mezan/contracts";
 import { withSqliteTransaction } from "@mezan/persistence";
 import type { TenantRouter } from "./tenant-router.js";
@@ -64,7 +64,7 @@ export class PlanRequiredError extends Error {
 }
 
 export class ProvisioningSupersededError extends Error {
-  readonly code = "PROVISIONING_SUPERSEDED";
+  readonly code = ProvisioningRefusalCode.Superseded;
 
   constructor() {
     super("تولّى طلب آخر تجهيز هذه المنشأة");

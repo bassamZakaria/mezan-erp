@@ -71,7 +71,12 @@ export function EntityPicker({
   }, [enterQueued, error]);
 
   const navigated = chosenRowId !== null;
-  const highlight = navigated ? filtered.findIndex((option) => option.id === chosenRowId) : 0;
+  const enterOnlyOpens = !navigated && query.trim() === "" && (serverMode || value !== null);
+  const highlight = navigated ? filtered.findIndex((option) => option.id === chosenRowId) : enterOnlyOpens ? -1 : 0;
+
+  useEffect(() => {
+    if (open && highlight >= 0) document.getElementById(`${listboxId}-${highlight}`)?.scrollIntoView({ block: "nearest" });
+  }, [open, highlight, listboxId]);
 
   useEffect(() => {
     if (!enterQueued || stale) return;
@@ -105,7 +110,7 @@ export function EntityPicker({
       if (next !== highlight) setChosenRowId(filtered[next]?.id ?? null);
     } else if (event.key === "Enter") {
       event.preventDefault();
-      if (!open || (serverMode && query.trim() === "" && !navigated)) {
+      if (!open || enterOnlyOpens) {
         setOpen(true);
         return;
       }

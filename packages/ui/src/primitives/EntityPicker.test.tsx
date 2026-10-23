@@ -292,7 +292,7 @@ describe("EntityPicker — Arabic search (D114)", () => {
       fireEvent.focus(input);
       fireEvent.keyDown(input, { key: "ArrowDown" });
       fireEvent.keyDown(input, { key: "Enter" });
-      expect(onChange).toHaveBeenCalledWith(options[1]);
+      expect(onChange).toHaveBeenCalledWith(options[0]);
     });
 
     it("an arrow key from an earlier visit, or one pressed before any rows arrived, does not let a bare Enter bind a row", () => {
@@ -346,17 +346,16 @@ describe("EntityPicker — Arabic search (D114)", () => {
       expect(onChange).not.toHaveBeenCalled();
     });
 
-    it("an arrow key that moves nothing does not count as a choice", () => {
+    it("an arrow key that only opens the list does not count as a choice", () => {
       const onChange = vi.fn();
       render(<EntityPicker value={null} onChange={onChange} options={options} label="الصنف" onQueryChange={() => {}} />);
       const input = screen.getByRole("combobox");
       fireEvent.focus(input);
-      fireEvent.keyDown(input, { key: "ArrowUp" });
-      fireEvent.keyDown(input, { key: "Enter" });
       fireEvent.keyDown(input, { key: "Escape" });
       fireEvent.keyDown(input, { key: "ArrowDown" });
       fireEvent.keyDown(input, { key: "Enter" });
       expect(onChange).not.toHaveBeenCalled();
+      expect(input).not.toHaveAttribute("aria-activedescendant");
     });
 
     it("after a refetch reorders the rows, Enter binds the row the user highlighted, not whatever now sits at its old position", () => {
@@ -506,5 +505,26 @@ describe("EntityPicker — Arabic search (D114)", () => {
     fireEvent.keyDown(input, { key: "ArrowDown" });
     fireEvent.keyDown(input, { key: "Enter" });
     expect(onChange).toHaveBeenCalledWith(options[0]);
+  });
+
+  it("Enter in a field that already holds a value keeps it, rather than swapping in the first row", () => {
+    const onChange = vi.fn();
+    render(<EntityPicker value={options[2]!} onChange={onChange} options={options} label="العميل" />);
+    const input = screen.getByRole("combobox");
+    fireEvent.focus(input);
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("scrolls the highlighted row into view as the arrow keys move", () => {
+    const many = Array.from({ length: 15 }, (_, i) => ({ id: `r${i}`, label: `صف ${i}` }));
+    render(<EntityPicker value={null} onChange={() => {}} options={many} label="العميل" />);
+    const input = screen.getByRole("combobox");
+    fireEvent.focus(input);
+    const scroll = vi.spyOn(Element.prototype, "scrollIntoView");
+    for (let i = 0; i < 12; i += 1) fireEvent.keyDown(input, { key: "ArrowDown" });
+    expect(scroll).toHaveBeenLastCalledWith({ block: "nearest" });
+    expect(scroll.mock.contexts.at(-1)).toBe(document.getElementById(input.getAttribute("aria-activedescendant")!));
+    scroll.mockRestore();
   });
 });

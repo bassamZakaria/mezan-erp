@@ -316,6 +316,49 @@ describe("EntityPicker — Arabic search (D114)", () => {
       expect(onChange).not.toHaveBeenCalled();
     });
 
+    it("an Enter pressed during a refetch after the user moved the highlight binds nothing, rather than the first row", () => {
+      const onChange = vi.fn();
+      const picker = (loading: boolean) => <EntityPicker value={null} onChange={onChange} options={options} label="الصنف" onQueryChange={() => {}} loading={loading} />;
+      const { rerender } = render(picker(false));
+      const input = screen.getByRole("combobox");
+      fireEvent.focus(input);
+      fireEvent.change(input, { target: { value: "شركة" } });
+      fireEvent.keyDown(input, { key: "ArrowDown" });
+      fireEvent.keyDown(input, { key: "ArrowDown" });
+      rerender(picker(true));
+      fireEvent.keyDown(input, { key: "Enter" });
+      rerender(picker(false));
+      expect(onChange).not.toHaveBeenCalled();
+    });
+
+    it("a failed search drops a waiting Enter, so a later recovery binds nothing on its own", () => {
+      const onChange = vi.fn();
+      const picker = (state: "loading" | "error" | "ready") => (
+        <EntityPicker value={null} onChange={onChange} options={options} label="الصنف" onQueryChange={() => {}} loading={state === "loading"} error={state === "error"} />
+      );
+      const { rerender } = render(picker("loading"));
+      const input = screen.getByRole("combobox");
+      fireEvent.focus(input);
+      fireEvent.change(input, { target: { value: "شركة" } });
+      fireEvent.keyDown(input, { key: "Enter" });
+      rerender(picker("error"));
+      rerender(picker("ready"));
+      expect(onChange).not.toHaveBeenCalled();
+    });
+
+    it("an arrow key that moves nothing does not count as a choice", () => {
+      const onChange = vi.fn();
+      render(<EntityPicker value={null} onChange={onChange} options={options} label="الصنف" onQueryChange={() => {}} />);
+      const input = screen.getByRole("combobox");
+      fireEvent.focus(input);
+      fireEvent.keyDown(input, { key: "ArrowUp" });
+      fireEvent.keyDown(input, { key: "Enter" });
+      fireEvent.keyDown(input, { key: "Escape" });
+      fireEvent.keyDown(input, { key: "ArrowDown" });
+      fireEvent.keyDown(input, { key: "Enter" });
+      expect(onChange).not.toHaveBeenCalled();
+    });
+
     it("Escape cancels an Enter that was waiting for results", () => {
       const onChange = vi.fn();
       const picker = (loading: boolean) => <EntityPicker value={null} onChange={onChange} options={options} label="الصنف" onQueryChange={() => {}} loading={loading} />;
@@ -348,5 +391,27 @@ describe("EntityPicker — Arabic search (D114)", () => {
       fireEvent.mouseDown(screen.getByText("شركة الأمل للتجارة"));
       expect(onQueryChange).toHaveBeenLastCalledWith("");
     });
+  });
+
+  it("clicking the focused field reopens the list after a choice", () => {
+    render(<EntityPicker value={null} onChange={() => {}} options={options} label="العميل" />);
+    const input = screen.getByRole("combobox");
+    fireEvent.focus(input);
+    fireEvent.mouseDown(screen.getByText("شركة الأمل للتجارة"));
+    expect(screen.queryByRole("listbox")).toBeNull();
+    fireEvent.mouseDown(input);
+    expect(screen.getByRole("listbox")).toBeInTheDocument();
+  });
+
+  it("points assistive tech at the highlighted row, and keeps one status region while the list is open", () => {
+    render(<EntityPicker value={null} onChange={() => {}} options={options} label="العميل" />);
+    const input = screen.getByRole("combobox");
+    fireEvent.focus(input);
+    const status = screen.getByRole("status");
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    expect(input.getAttribute("aria-activedescendant")).toBe(screen.getAllByRole("option")[1]!.id);
+    fireEvent.change(input, { target: { value: "لا شيء يطابق" } });
+    expect(screen.getByRole("status")).toBe(status);
+    expect(status).toHaveTextContent("لا توجد نتائج");
   });
 });

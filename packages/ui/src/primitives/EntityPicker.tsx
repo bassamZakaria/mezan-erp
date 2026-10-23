@@ -67,6 +67,10 @@ export function EntityPicker({
   const firstFresh = filtered[0];
 
   useEffect(() => {
+    if (enterQueued && error) setEnterQueued(false);
+  }, [enterQueued, error]);
+
+  useEffect(() => {
     if (!enterQueued || stale) return;
     setEnterQueued(false);
     if (firstFresh) select(firstFresh);
@@ -87,23 +91,23 @@ export function EntityPicker({
   }
 
   function handleKeyDown(event: KeyboardEvent<HTMLInputElement>) {
-    if (event.key === "ArrowDown") {
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
-      if (filtered.length > 0) setNavigated(true);
-      setOpen(true);
-      setHighlight((i) => Math.min(i + 1, Math.max(filtered.length - 1, 0)));
-    } else if (event.key === "ArrowUp") {
-      event.preventDefault();
-      if (filtered.length > 0) setNavigated(true);
-      setHighlight((i) => Math.max(i - 1, 0));
+      if (!open) {
+        setOpen(true);
+        return;
+      }
+      const next = event.key === "ArrowDown" ? Math.min(highlight + 1, Math.max(filtered.length - 1, 0)) : Math.max(highlight - 1, 0);
+      if (next !== highlight) setNavigated(true);
+      setHighlight(next);
     } else if (event.key === "Enter") {
       event.preventDefault();
       if (!open || (serverMode && query.trim() === "" && !navigated)) {
         setOpen(true);
         return;
       }
-      if (stale && !error) {
-        setEnterQueued(true);
+      if (stale) {
+        if (!error && !navigated) setEnterQueued(true);
         return;
       }
       const option = filtered[highlight];
@@ -129,12 +133,19 @@ export function EntityPicker({
         aria-controls={listboxId}
         aria-autocomplete="list"
         aria-busy={stale && !error}
+        aria-activedescendant={open && filtered[highlight] ? `${listboxId}-${highlight}` : undefined}
         disabled={disabled}
         placeholder={placeholder ?? t("ui.search.placeholder")}
         // A chosen entity is the field's VALUE, not its placeholder: rendering
         // it in placeholder ink made a bound picker read as empty.
         value={open ? query : (value?.label ?? "")}
         onFocus={() => {
+          setOpen(true);
+          setHighlight(0);
+          setNavigated(false);
+        }}
+        onMouseDown={() => {
+          if (open) return;
           setOpen(true);
           setHighlight(0);
           setNavigated(false);
@@ -158,14 +169,12 @@ export function EntityPicker({
       />
       {open && !disabled ? (
         <div className="absolute start-0 end-0 z-10 mt-[6px] max-h-64 overflow-y-auto rounded-md border border-border bg-surface p-[6px] shadow-2">
-          {filtered.length === 0 ? (
-            <p role="status" className="px-[10px] py-[10px] text-[12.5px] text-ink-faint">
-              {error ? t("ui.picker.error") : stale ? t("ui.picker.loading") : (emptyMessage ?? t("ui.picker.empty"))}
-            </p>
-          ) : null}
+          <p role="status" className={filtered.length === 0 ? "px-[10px] py-[10px] text-[12.5px] text-ink-faint" : "sr-only"}>
+            {filtered.length > 0 ? "" : error ? t("ui.picker.error") : stale ? t("ui.picker.loading") : (emptyMessage ?? t("ui.picker.empty"))}
+          </p>
           <ul id={listboxId} role="listbox" aria-busy={stale && !error}>
             {filtered.map((option, index) => (
-              <li key={option.id} role="option" aria-selected={value?.id === option.id}>
+              <li key={option.id} id={`${listboxId}-${index}`} role="option" aria-selected={value?.id === option.id}>
                 <button
                   type="button"
                   // onMouseDown fires before the input's onBlur, so selection isn't lost.

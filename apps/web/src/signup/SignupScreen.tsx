@@ -1,15 +1,16 @@
 import { useId, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useSearchParams } from "react-router";
 import { Button, Card, Money, TextInput } from "@mezan/ui";
 import type { BillingCycleDTO, PublicPlanDTO, StartSignupRequestDTO, StartSignupResultDTO } from "@mezan/contracts";
 import { ArabicCase, CountedNoun } from "@mezan/domain";
 import { useAppTranslation } from "../i18n";
 import { useCountPhrase } from "../lib/count-phrase";
-import { COMPANY_NAME_MAX_LENGTH } from "@mezan/contracts";
+import { COMPANY_NAME_MAX_LENGTH, billingCycleSchema } from "@mezan/contracts";
 import { Field, FormError, TextField } from "../settings/form-controls";
 import { SignupLayout } from "./SignupLayout";
-import { checkCodeAvailability, fetchPublicPlans, SignupApiError, startSignup } from "./signup-api";
+import { checkCodeAvailability, SignupApiError, startSignup, usePublicPlans } from "./signup-api";
 import type { AppTranslationKey } from "../i18n";
+import { SIGN_IN_PATH } from "../routing";
 
 const TENANT_CODE_RE = /^[a-z0-9](?:[a-z0-9-]{1,30}[a-z0-9])$/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -56,8 +57,8 @@ interface Draft {
   website: string;
 }
 
-function emptyDraft(): Draft {
-  return { nameAr: "", nameEn: "", code: "", ownerNameAr: "", ownerEmail: "", planId: "", billingCycle: "monthly", website: "" };
+function emptyDraft(billingCycle: BillingCycleDTO = "monthly"): Draft {
+  return { nameAr: "", nameEn: "", code: "", ownerNameAr: "", ownerEmail: "", planId: "", billingCycle, website: "" };
 }
 
 function PlanCard({
@@ -106,7 +107,7 @@ function SuccessPanel({ result, email }: { result: StartSignupResultDTO; email: 
           </a>
         </div>
       ) : null}
-      <a href="/" className="text-[12.5px] font-semibold text-accent-strong hover:underline">
+      <a href={SIGN_IN_PATH} className="text-[12.5px] font-semibold text-accent-strong hover:underline">
         {t("signup.footer.backHome")}
       </a>
     </Card>
@@ -116,7 +117,11 @@ function SuccessPanel({ result, email }: { result: StartSignupResultDTO; email: 
 export function SignupScreen() {
   const { t } = useAppTranslation();
   const countPhrase = useCountPhrase();
-  const [draft, setDraft] = useState<Draft>(emptyDraft());
+  const [params] = useSearchParams();
+  const [draft, setDraft] = useState<Draft>(() => {
+    const cycle = billingCycleSchema.safeParse(params.get("cycle"));
+    return emptyDraft(cycle.success ? cycle.data : undefined);
+  });
   const [codeStatus, setCodeStatus] = useState<CodeStatus>("idle");
   const codeId = useId();
   const [formError, setFormError] = useState<string | null>(null);
@@ -153,7 +158,7 @@ export function SignupScreen() {
       [SignupField.Code]: draft.code.trim() === "",
       [SignupField.OwnerNameAr]: draft.ownerNameAr.trim() === "",
       [SignupField.OwnerEmail]: draft.ownerEmail.trim() === "",
-      [SignupField.Plan]: draft.planId === "",
+      [SignupField.Plan]: planId === "",
     };
     for (const field of FIELD_ORDER) if (blank[field]) errors[field] = t(FIELD_REQUIRED[field]);
     if (!blank[SignupField.Code] && !TENANT_CODE_RE.test(draft.code)) errors[SignupField.Code] = t("signup.tenantCodeInvalid");
@@ -163,7 +168,9 @@ export function SignupScreen() {
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<StartSignupResultDTO | null>(null);
 
-  const plansQuery = useQuery<PublicPlanDTO[]>({ queryKey: ["signup", "plans"], queryFn: fetchPublicPlans });
+  const plansQuery = usePublicPlans();
+  const requestedPlanCode = params.get("plan");
+  const planId = draft.planId || (plansQuery.data?.find((plan) => plan.code === requestedPlanCode)?.id ?? "");
 
   async function handleCodeBlur() {
     const code = draft.code.trim().toLowerCase();
@@ -197,7 +204,7 @@ export function SignupScreen() {
       nameEn: draft.nameEn.trim() === "" ? null : draft.nameEn.trim(),
       ownerEmail: draft.ownerEmail.trim().toLowerCase(),
       ownerNameAr: draft.ownerNameAr.trim(),
-      planId: draft.planId,
+      planId,
       billingCycle: draft.billingCycle,
       website: draft.website,
     };
@@ -350,7 +357,7 @@ export function SignupScreen() {
           ) : (
             <div className="flex flex-col gap-[10px] sm:flex-row">
               {plans.map((plan) => (
-                <PlanCard key={plan.id} plan={plan} cycle={draft.billingCycle} selected={draft.planId === plan.id} onSelect={() => edit(SignupField.Plan, (d) => ({ ...d, planId: plan.id }))} />
+                <PlanCard key={plan.id} plan={plan} cycle={draft.billingCycle} selected={planId === plan.id} onSelect={() => edit(SignupField.Plan, (d) => ({ ...d, planId: plan.id }))} />
               ))}
             </div>
           )}
@@ -368,7 +375,7 @@ export function SignupScreen() {
         </Button>
 
         <p className="text-center text-[12px] text-ink-muted">
-          {t("signup.footer.haveAccount")} <a href="/" className="font-semibold text-accent-strong hover:underline">{t("signup.footer.signIn")}</a>
+          {t("signup.footer.haveAccount")} <a href={SIGN_IN_PATH} className="font-semibold text-accent-strong hover:underline">{t("signup.footer.signIn")}</a>
         </p>
       </Card>
     </SignupLayout>

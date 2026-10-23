@@ -5,6 +5,7 @@ import {
   SEQUENCE_DEFINITIONS,
   VOUCHER_TYPE_DEFINITIONS,
   WAREHOUSE_TYPE_DEFINITIONS,
+  moduleName,
 } from "@mezan/domain";
 import type { AppTranslationKey } from "./i18n";
 import { WEB_TRANSLATION_KEYS } from "./i18n/catalog";
@@ -23,6 +24,14 @@ const EVENT_CODES: ReadonlySet<string> = new Set(DOMAIN_EVENT_CATALOG.map((e) =>
 
 export function moduleLabel(module: { id: string; labelAr: string }, t: Translate): string {
   return MODULE_IDS.has(module.id) ? t(`module.${module.id}` as AppTranslationKey) : module.labelAr;
+}
+
+/** `MODULE_CATALOG`/entitlement ids are the permission catalog's `MODULES` ids, except `financial_papers`, which `MODULES` keys as `cheques`. */
+const ENTITLEMENT_TO_CATALOG_MODULE: Readonly<Record<string, string>> = { financial_papers: "cheques" };
+
+export function entitlementModuleLabel(id: string, t: Translate): string {
+  const entry = MODULES.find((m) => m.id === (ENTITLEMENT_TO_CATALOG_MODULE[id] ?? id));
+  return entry ? moduleLabel(entry, t) : moduleName(id).ar;
 }
 
 export function eventLabel(event: { code: string; labelAr: string }, t: Translate): string {

@@ -11,6 +11,8 @@ import { customerFilterFromUrl, customersQuery } from "../data/list-queries";
 import { PlatformApp } from "../platform/PlatformApp";
 import { SignupApp } from "../signup/SignupApp";
 import { UnlockLinkScreen } from "../login/UnlockLinkScreen";
+import { LANDING_PATH } from "../landing/site";
+import { RootEntry } from "./RootEntry";
 
 /**
  * The route table, derived from the nav tree rather than written out.
@@ -66,9 +68,13 @@ function screenRoute(key: string): RouteObject {
  */
 function GatedAppLayout() {
   return (
-    <LanHostGate>
-      <AppLayout />
-    </LanHostGate>
+    <RootEntry
+      app={
+        <LanHostGate>
+          <AppLayout />
+        </LanHostGate>
+      }
+    />
   );
 }
 
@@ -88,6 +94,11 @@ export const routes: RouteObject[] = [
    */
   { path: "/signup/*", Component: SignupApp },
   { path: "/unlock", Component: UnlockLinkScreen },
+  {
+    path: LANDING_PATH,
+    lazy: async () => ({ Component: (await import("../landing/LandingPage")).LandingPage }),
+    ErrorBoundary: RouteErrorBoundary,
+  },
   /**
    * PAIRING SITS OUTSIDE THE SHELL, and outside the gate, deliberately: it is
    * the screen you reach BECAUSE there is no session and no reachable host, so

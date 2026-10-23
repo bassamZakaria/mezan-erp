@@ -195,6 +195,7 @@ export const ADDRESSED_SCREENS: readonly AddressedScreen[] = [
   { key: "period-close-closed-month", door: ScreenDoor.Tenant, path: `/money/period-close?period=${ADDRESS_PLACEHOLDER}`, addressedBy: AddressSource.ClosedFiscalPeriod },
   { key: "period-close-open-month", door: ScreenDoor.Tenant, path: `/money/period-close?period=${ADDRESS_PLACEHOLDER}`, addressedBy: AddressSource.OpenFiscalPeriod },
   { key: "unlock-link", door: ScreenDoor.Public, path: "/unlock" },
+  { key: "landing", door: ScreenDoor.Public, path: "/welcome" },
   { key: "signup", door: ScreenDoor.Public, path: "/signup" },
   { key: "owner-hand-over", door: ScreenDoor.Public, path: "/signup/owner-handover" },
   { key: "platform-login", door: ScreenDoor.Public, path: "/platform/login" },

@@ -40,6 +40,7 @@ describe("parseEnv", () => {
       webDist: "./apps/web/dist",
       demoPassword: undefined,
       analyticsToken: undefined,
+      publicLanding: false,
       port: 8080,
       // No Paymob keys and no MEZAN_SMTP_HOST: card checkout is off and the
       // platform sends no mail, which is what the dev entrypoint expects.
@@ -106,6 +107,7 @@ describe("parseEnv", () => {
       MEZAN_WEB_DIST: "./dist",
       MEZAN_DEMO_PASSWORD: "demo-pass",
       MEZAN_ANALYTICS_TOKEN: "token-123",
+      MEZAN_PUBLIC_LANDING: "1",
       PORT: "9090",
       MEZAN_PAYMOB_SECRET_KEY: "sk-live",
       MEZAN_PAYMOB_PUBLIC_KEY: "pk-live",
@@ -137,6 +139,7 @@ describe("parseEnv", () => {
       webDist: "./dist",
       demoPassword: "demo-pass",
       analyticsToken: "token-123",
+      publicLanding: true,
       port: 9090,
       paymob: {
         mode: PaymobMode.Live,

@@ -10,6 +10,7 @@ import { hrPayrollReportAr, hrPayrollReportEn } from "../screens/reports/hr-payr
 import { backupProtectionAr, backupProtectionEn } from "../settings/backup-protection-strings";
 import { englishGapsAr, englishGapsEn } from "./english-gaps-strings";
 import { platformLifecycleAr, platformLifecycleEn } from "../platform/lifecycle-strings";
+import { landingAr, landingEn } from "../landing/landing-strings";
 
 /**
  * The web app's own strings. Arabic is the source language and `webEn` is typed
@@ -10107,6 +10108,7 @@ const webAr = {
   ...enhAr,
   ...hrSelfAr,
   ...reversalAr,
+  ...landingAr,
   ...hrPagesAr,
   ...auditCodeAr,
   ...hrPayrollReportAr,
@@ -20215,6 +20217,7 @@ const webEn: Record<WebTranslationKey, string> = {
   ...enhEn,
   ...hrSelfEn,
   ...reversalEn,
+  ...landingEn,
   ...hrPagesEn,
   ...auditCodeEn,
   ...hrPayrollReportEn,

@@ -54,6 +54,7 @@ const child = spawn("pnpm", ["exec", "tsx", "apps/server/src/cloud.ts"], {
     PORT: String(port),
     MEZAN_PLATFORM_DIR: platformDir,
     MEZAN_SEED_DEMO: "1",
+    MEZAN_PUBLIC_LANDING: "1",
     MEZAN_PLATFORM_OWNER_EMAIL: "owner@mezan.local",
     MEZAN_PLATFORM_OWNER_PASSWORD: "owner-password-123",
     MEZAN_DEMO_PASSWORD: "local-demo-password",

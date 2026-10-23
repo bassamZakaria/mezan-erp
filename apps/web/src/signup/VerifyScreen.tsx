@@ -7,6 +7,7 @@ import { handOffSignIn } from "../data/session";
 import { useAppTranslation } from "../i18n";
 import { SignupLayout } from "./SignupLayout";
 import { SignupApiError, SignupErrorCode, verifySignup } from "./signup-api";
+import { SIGN_IN_PATH } from "../routing";
 
 function ResultRow({ label, value }: { label: string; value: string }) {
   return (
@@ -54,7 +55,7 @@ function goSignInAs(result: VerifySignupResultDTO) {
 }
 
 function goSignIn() {
-  window.location.href = "/";
+  window.location.href = SIGN_IN_PATH;
 }
 
 function AlreadyActivatedPanel({ message }: { message: string }) {

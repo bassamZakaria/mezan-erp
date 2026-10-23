@@ -5,7 +5,8 @@ import { useAppTranslation } from "../i18n";
 import { MultiChipField, NumberField } from "../settings/form-controls";
 import { PlatformApiError } from "./api";
 import { useSetSubscriptionExtrasMutation } from "./hooks";
-import { platformModuleLabel, platformModuleOptions } from "./module-options";
+import { entitlementModuleLabel } from "../domain-labels";
+import { platformModuleOptions } from "./module-options";
 
 type Subscription = NonNullable<TenantSummaryDTO["subscription"]>;
 
@@ -87,7 +88,7 @@ export function TenantExtrasCard({
           <span className="mb-[6px] block text-xs font-semibold text-ink-muted">{t("platform.tenantDetail.extras.included")}</span>
           <div className="flex flex-wrap gap-[6px]">
             {plan.modules.map((id) => (
-              <StatusPill key={id} label={platformModuleLabel(id, t)} tone="neutral" />
+              <StatusPill key={id} label={entitlementModuleLabel(id, t)} tone="neutral" />
             ))}
           </div>
         </div>

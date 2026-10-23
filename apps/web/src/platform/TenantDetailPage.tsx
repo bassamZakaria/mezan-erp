@@ -16,6 +16,7 @@ import {
   type TenantSummaryDTO,
 } from "@mezan/contracts";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { entitlementModuleLabel } from "../domain-labels";
 import { SelectField, TextAreaField, ToggleField } from "../settings/form-controls";
 import { LicenseStateChip, TenantStatusChip } from "./chips";
 import { TenantOwnerCard } from "./TenantOwnerCard";
@@ -25,7 +26,6 @@ import { TenantAuditAnchorCard } from "./TenantAuditAnchorCard";
 import { TenantRetentionCard } from "./TenantRetentionCard";
 import { TenantLockedAccountsCard } from "./TenantLockedAccountsCard";
 import { TenantExtrasCard } from "./TenantExtrasCard";
-import { platformModuleLabel } from "./module-options";
 import { PlatformApiError, usePlatformApi } from "./api";
 import { RecordPaymentDialog } from "./RecordPaymentDialog";
 import { attentionCauseKey, resolvedKey } from "./card-checkout-labels";
@@ -640,7 +640,7 @@ export function TenantDetailPage() {
               <span className="mb-[6px] block text-xs font-semibold text-ink-muted">{t("platform.tenantDetail.entitlementsModules")}</span>
               <div className="flex flex-wrap gap-[6px]">
                 {entitlements.activeModules.map((id) => (
-                  <StatusPill key={id} label={platformModuleLabel(id, t)} tone="neutral" />
+                  <StatusPill key={id} label={entitlementModuleLabel(id, t)} tone="neutral" />
                 ))}
               </div>
             </div>

@@ -78,6 +78,7 @@ function toPublicPlan(plan: Plan): PublicPlanDTO {
     seatsIncluded: plan.seatsIncluded,
     branchesIncluded: plan.branchesIncluded,
     warehousesIncluded: plan.warehousesIncluded,
+    quotas: { ...plan.quotas },
     priceMonthly: plan.priceMonthly.toString(),
     priceYearly: plan.priceYearly.toString(),
     trialDays: plan.trialDays,

@@ -1969,6 +1969,7 @@ export {
   verifySignupRequestSchema,
   verifySignupResultSchema,
   type PublicPlanDTO,
+  CLOUD_SITE_META,
   type SignupCheckCodeResponseDTO,
   type StartSignupRequestDTO,
   type StartSignupResultDTO,

@@ -3,6 +3,9 @@ export enum CountedNoun {
   Invoice = "invoice",
   Customer = "customer",
   Item = "item",
+  User = "user",
+  Branch = "branch",
+  Warehouse = "warehouse",
 }
 
 export enum CountLocale {
@@ -29,6 +32,9 @@ const ARABIC_FORMS: Record<CountedNoun, ArabicNounForms> = {
   [CountedNoun.Invoice]: { singular: "فاتورة", one: "فاتورة واحدة", dual: "فاتورتان", dualOblique: "فاتورتين", plural: "فواتير", tamyeez: "فاتورة" },
   [CountedNoun.Customer]: { singular: "عميل", one: "عميل واحد", dual: "عميلان", dualOblique: "عميلين", plural: "عملاء", tamyeez: "عميلًا" },
   [CountedNoun.Item]: { singular: "صنف", one: "صنف واحد", dual: "صنفان", dualOblique: "صنفين", plural: "أصناف", tamyeez: "صنفًا" },
+  [CountedNoun.User]: { singular: "مستخدم", one: "مستخدم واحد", dual: "مستخدمان", dualOblique: "مستخدمين", plural: "مستخدمين", tamyeez: "مستخدمًا" },
+  [CountedNoun.Branch]: { singular: "فرع", one: "فرع واحد", dual: "فرعان", dualOblique: "فرعين", plural: "فروع", tamyeez: "فرعًا" },
+  [CountedNoun.Warehouse]: { singular: "مستودع", one: "مستودع واحد", dual: "مستودعان", dualOblique: "مستودعين", plural: "مستودعات", tamyeez: "مستودعًا" },
 };
 
 const ENGLISH_FORMS: Record<CountedNoun, { readonly one: string; readonly other: string }> = {
@@ -36,6 +42,9 @@ const ENGLISH_FORMS: Record<CountedNoun, { readonly one: string; readonly other:
   [CountedNoun.Invoice]: { one: "invoice", other: "invoices" },
   [CountedNoun.Customer]: { one: "customer", other: "customers" },
   [CountedNoun.Item]: { one: "item", other: "items" },
+  [CountedNoun.User]: { one: "user", other: "users" },
+  [CountedNoun.Branch]: { one: "branch", other: "branches" },
+  [CountedNoun.Warehouse]: { one: "warehouse", other: "warehouses" },
 };
 
 const AR_RULES = new Intl.PluralRules("ar");

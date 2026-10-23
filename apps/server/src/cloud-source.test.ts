@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { DEVICE_MISMATCH_LIMIT } from "@mezan/api";
-import { bootCloudHarness, HARNESS_PROXY_HOP, type CloudHarness } from "./cloud-harness.js";
+import { rmSync } from "node:fs";
+import { bootCloudHarness, HARNESS_OWNER_EMAIL, HARNESS_OWNER_PASSWORD, HARNESS_PROXY_HOP, type CloudHarness } from "./cloud-harness.js";
 
 const harnesses: CloudHarness[] = [];
 afterEach(async () => {
@@ -200,6 +201,34 @@ describe("a cloud caller behind the two-hop proxy", () => {
       expect((await write({ "x-mezan-csrf": jar.csrf, origin: "https://evil.example" })).status).toBe(403);
       expect((await write({ "x-mezan-csrf": jar.csrf, "sec-fetch-site": "same-site" })).status).toBe(403);
       expect((await write({ "x-mezan-csrf": jar.csrf, origin: "http://cloud.internal" })).status).toBe(201);
+    });
+
+    it("keeps an open console session writable across a server restart instead of refusing it as a forged request", async () => {
+      const first = await bootCloudHarness({ vars: { MEZAN_PAYMOB_TEST_MODE: "1" } });
+      const signIn = await first.send("/api/platform/auth/login", {
+        method: "POST",
+        headers: { "x-mezan-device-binding": "cookie", "sec-fetch-site": "same-origin" },
+        body: JSON.stringify({ email: HARNESS_OWNER_EMAIL, password: HARNESS_OWNER_PASSWORD }),
+      });
+      expect(signIn.status).toBe(200);
+      const jar = jarOf(signIn);
+      const write = (h: CloudHarness) =>
+        h.send("/api/platform/settings/signup-mode", {
+          method: "PUT",
+          headers: { cookie: jar.cookie, "x-mezan-csrf": jar.csrf, origin: "http://cloud.internal" },
+          body: JSON.stringify({ mode: "closed" }),
+        });
+      expect((await write(first)).status).toBe(200);
+      await first.app.close();
+
+      const restarted = await bootCloudHarness({ vars: { MEZAN_PAYMOB_TEST_MODE: "1" }, env: { platformDir: first.env.platformDir } });
+      harnesses.push(restarted);
+      try {
+        expect((await write(restarted)).status).toBe(200);
+      } finally {
+        rmSync(first.env.platformDir, { recursive: true, force: true });
+        rmSync(first.env.webDist, { recursive: true, force: true });
+      }
     });
 
     it("never presents one tenant's cookie to another tenant, and refuses that request without ending the session it belongs to", async () => {

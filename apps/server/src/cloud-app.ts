@@ -57,7 +57,9 @@ import { servedTenantLookup, tenantPublicOrigin, tenantUnlockLink, UNLOCK_PATH }
 import { createCookieSessions } from "./cookie-session.js";
 import { createPublicApiRoutes, refuseApiKeysOutsidePublicApi } from "./public-api-routes.js";
 import { AlertKind, createAlerter, type Alerter } from "./alerter.js";
-import { loadSecretBox } from "./secrets-key.js";
+import { derivedKey, loadSecretBox, platformKey } from "./secrets-key.js";
+
+const CSRF_KEY_USE = "mezan-cookie-csrf-v1";
 
 const log = createLogger("cloud");
 
@@ -183,6 +185,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
   mkdirSync(env.platformDir, { recursive: true });
   emptyBooksScratch(booksScratchDir(env.platformDir));
   const secrets = loadSecretBox(env.secretsKey, env.platformDir);
+  const csrfKey = derivedKey(platformKey(env.secretsKey, env.platformDir), CSRF_KEY_USE);
 
   const ownerPassword = env.platformOwnerEmail ? (env.platformOwnerPassword ?? generateOwnerPassword()) : undefined;
   const platform = await createPlatform({
@@ -515,6 +518,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
     tenantResolver: { tenantDomain: env.tenantDomain, trustForwardedHost: env.trustProxy, allowTenantHeader: true },
     platformMaxAgeMs: PLATFORM_SESSION_LIMITS.maxMs,
     audit: platform.audit,
+    csrfKey,
   });
   root.use("/api/platform/*", cookieSessions.platform);
   root.use("/api/*", cookieSessions.tenant);

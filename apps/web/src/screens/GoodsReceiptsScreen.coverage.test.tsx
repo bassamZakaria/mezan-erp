@@ -53,7 +53,7 @@ function TestNavigation({
 
 /** Selects an option from an `EntityPicker` combobox and asserts the real entity id lands in the outgoing request, not free text. */
 async function pickFromCombobox(container: HTMLElement, label: string, optionLabel: string) {
-  const input = within(container).getByLabelText(label);
+  const input = within(container).getByRole("combobox", { name: label });
   fireEvent.focus(input);
   fireEvent.change(input, { target: { value: optionLabel } });
   const option = await within(container).findByRole("button", { name: (accessibleName) => accessibleName.startsWith(optionLabel) }, { timeout: 2000 });
@@ -346,7 +346,7 @@ describe("GoodsReceiptsScreen — receiving against a purchase order", () => {
     fireEvent.click(screen.getAllByRole("button", { name: "إيصال استلام جديد" })[0]!);
     fireEvent.click(screen.getByRole("button", { name: "متابعة" }));
 
-    const orderInput = screen.getByLabelText("أمر الشراء *");
+    const orderInput = screen.getByRole("combobox", { name: "أمر الشراء *" });
     fireEvent.focus(orderInput);
     const options = screen.getAllByRole("option");
     expect(options).toHaveLength(2);

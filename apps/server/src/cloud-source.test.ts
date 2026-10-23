@@ -222,10 +222,10 @@ describe("a cloud caller behind the two-hop proxy", () => {
       await first.app.close();
 
       const restarted = await bootCloudHarness({ vars: { MEZAN_PAYMOB_TEST_MODE: "1" }, env: { platformDir: first.env.platformDir } });
-      harnesses.push(restarted);
       try {
         expect((await write(restarted)).status).toBe(200);
       } finally {
+        await restarted.close();
         rmSync(first.env.platformDir, { recursive: true, force: true });
         rmSync(first.env.webDist, { recursive: true, force: true });
       }

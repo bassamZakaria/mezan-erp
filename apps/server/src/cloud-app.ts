@@ -17,7 +17,7 @@ import {
 } from "@mezan/backend";
 import { BodyLimitRefusal, LogEvent, createJobRegistry, createLogger, createSessionRegistry, requestLogging, type JobRegistry } from "@mezan/api";
 import { HealthLevel, SubscriptionStatusKind, TenantNotFoundError, jobLevel, type Tenant } from "@mezan/domain";
-import { createSqliteSessionStore, emptyBooksScratch } from "@mezan/persistence";
+import { createAesGcmSecretBox, createSqliteSessionStore, emptyBooksScratch } from "@mezan/persistence";
 import { HealthLevelDTO, PUBLIC_API_BASE_PATH, type CreateTenantRequestDTO, type OwnerPinResetResultDTO, type PlatformOperationsDTO, type ProvisionResultDTO, type ProvisionRetryRequestDTO } from "@mezan/contracts";
 import { booksScratchDir, createTenantRouter, requireOriginSecret, type TenantBooksScan, type TenantRouter } from "./tenant-router.js";
 import { answerTenantDbFileRefusal } from "./tenant-db-file.js";
@@ -57,7 +57,7 @@ import { servedTenantLookup, tenantPublicOrigin, tenantUnlockLink, UNLOCK_PATH }
 import { createCookieSessions } from "./cookie-session.js";
 import { createPublicApiRoutes, refuseApiKeysOutsidePublicApi } from "./public-api-routes.js";
 import { AlertKind, createAlerter, type Alerter } from "./alerter.js";
-import { derivedKey, loadSecretBox, platformKey } from "./secrets-key.js";
+import { derivedKey, platformKey } from "./secrets-key.js";
 
 const CSRF_KEY_USE = "mezan-cookie-csrf-v1";
 
@@ -184,8 +184,9 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
   const now = options.now ?? (() => new Date());
   mkdirSync(env.platformDir, { recursive: true });
   emptyBooksScratch(booksScratchDir(env.platformDir));
-  const secrets = loadSecretBox(env.secretsKey, env.platformDir);
-  const csrfKey = derivedKey(platformKey(env.secretsKey, env.platformDir), CSRF_KEY_USE);
+  const masterKey = platformKey(env.secretsKey, env.platformDir);
+  const secrets = createAesGcmSecretBox(masterKey);
+  const csrfKey = derivedKey(masterKey, CSRF_KEY_USE);
 
   const ownerPassword = env.platformOwnerEmail ? (env.platformOwnerPassword ?? generateOwnerPassword()) : undefined;
   const platform = await createPlatform({

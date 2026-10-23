@@ -1,4 +1,4 @@
-import { createHmac, randomBytes } from "node:crypto";
+import { createHmac } from "node:crypto";
 import type { Context, MiddlewareHandler } from "hono";
 import { generateCookie, getCookie } from "hono/cookie";
 import { CSRF_HEADER, CsrfCookie, DEVICE_BINDING_HEADER, DEVICE_SECRET_HEADER, DeviceBinding, SessionRefusal } from "@mezan/contracts";
@@ -48,7 +48,7 @@ export interface CookieSessionOptions {
   readonly platformMaxAgeMs: number;
   readonly audit: AuditSink;
   /** Must survive restarts: a key minted per process makes every open session's next write fail its CSRF check instead of answering "signed out". */
-  readonly csrfKey?: Buffer;
+  readonly csrfKey: Buffer;
 }
 
 export interface CookieSessions {
@@ -114,7 +114,7 @@ export function createCookieSessions(options: CookieSessionOptions): CookieSessi
   // SECURITY: the CSRF token is an HMAC of the session cookie under a key that
   // never leaves the server, so a cookie planted from elsewhere cannot carry a
   // token that matches it.
-  const csrfKey = options.csrfKey ?? randomBytes(32);
+  const { csrfKey } = options;
   const csrfFor = (sessionValue: string) => createHmac("sha256", csrfKey).update(sessionValue).digest("base64url");
 
   const tenantJar: CookieJar = {

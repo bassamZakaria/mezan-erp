@@ -14,8 +14,12 @@
  * in-process default, N server instances each grant a caller the full limit.
  */
 
+import { createHash } from "node:crypto";
+import type { Context, MiddlewareHandler } from "hono";
+import { readSessionToken } from "@mezan/api";
 import type { PlatformHandle } from "@mezan/backend";
 import { createSqliteRateWindowStore } from "@mezan/persistence";
+import { callerSource } from "./client-source.js";
 
 const MAX_RECORDS = 10_000;
 
@@ -38,21 +42,25 @@ export interface RateLimiter {
 }
 
 export function createMemoryRateWindowStore(): RateWindowStore {
+  // REQUIRED: a key whose window restarts is re-inserted, so with one windowMs per store the Map's
+  // order is resetAt order and both sweeps stop at the first live entry instead of scanning all.
   const windows = new Map<string, { hits: number; resetAt: number }>();
   return {
     read: (key) => windows.get(key) ?? null,
     hit(key, at, windowMs) {
       const existing = windows.get(key);
-      if (!existing || at >= existing.resetAt) windows.set(key, { hits: 1, resetAt: at + windowMs });
-      else existing.hits += 1;
+      if (existing && at < existing.resetAt) {
+        existing.hits += 1;
+        return;
+      }
+      windows.delete(key);
+      windows.set(key, { hits: 1, resetAt: at + windowMs });
     },
     sweep(at, maxRecords) {
       for (const [key, w] of windows) {
-        if (at >= w.resetAt) windows.delete(key);
+        if (at < w.resetAt && windows.size <= maxRecords) return;
+        windows.delete(key);
       }
-      if (windows.size <= maxRecords) return;
-      const oldestFirst = [...windows.entries()].sort((a, b) => a[1].resetAt - b[1].resetAt);
-      for (const [key] of oldestFirst.slice(0, windows.size - maxRecords)) windows.delete(key);
     },
   };
 }
@@ -77,6 +85,43 @@ export function createRateLimiter(
       store.sweep(at, MAX_RECORDS);
     },
   };
+}
+
+export enum RequestCapRefusal {
+  TooManyRequests = "TOO_MANY_REQUESTS",
+}
+
+
+// No await between the check and the count, so concurrent requests on one key can never both slip under the limit.
+export function requestCap(limiter: RateLimiter, keyOf: (c: Context) => string | null): MiddlewareHandler {
+  return async (c, next) => {
+    const key = keyOf(c);
+    if (key === null) return next();
+    const wait = limiter.retryAfter(key);
+    if (wait > 0) {
+      c.header("Retry-After", String(wait));
+      return c.json(
+        { error: RequestCapRefusal.TooManyRequests, message: "طلبات كثيرة جدًا في وقت قصير، انتظر قليلًا ثم حاول مرة أخرى.", messageEn: "Too many requests in a short time. Wait a moment and try again." },
+        429,
+      );
+    }
+    limiter.consume(key);
+    return next();
+  };
+}
+
+// canonicalOrigin writes IPv6 as 16 byte groups; one subscriber holds a whole /64 and could rotate through it.
+export function addressKey(c: Context): string {
+  const groups = callerSource(c).split(":");
+  return groups.length === 16 ? groups.slice(0, 8).join(":") : groups.join(":");
+}
+
+// The token is hashed so the limiter's memory never holds a live credential.
+export function sessionKey(c: Context): string | null {
+  // REQUIRED: the backend's own reader, so the key is always the credential the backend authenticates.
+  const token = readSessionToken(c);
+  if (!token) return null;
+  return createHash("sha256").update(token).digest("base64url");
 }
 
 export function platformRateLimiter(platform: PlatformHandle, scope: string, limit: number, windowMs: number): RateLimiter {

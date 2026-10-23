@@ -157,14 +157,16 @@ export async function runAuditAnchorSweep(options: AuditAnchorJobOptions): Promi
   const log = options.log ?? defaultAnchorLog;
   const counts = { anchored: 0, unchanged: 0, refused: 0, failed: 0 };
 
-  const scopes: { scope: string; audit: () => Promise<AuditSink> }[] = [
+  const scopes: { scope: string; audit: () => Promise<AuditSink | null> }[] = [
     { scope: PLATFORM_ANCHOR_SCOPE, audit: async () => options.platform.audit },
-    ...options.router.openTenants().map((open) => ({ scope: open.id, audit: async () => (await options.router.backendOf(open.id)).audit })),
+    ...options.router.openTenants().map((open) => ({ scope: open.id, audit: async () => (await options.router.openBackendOf(open.id))?.audit ?? null })),
   ];
 
   for (const { scope, audit } of scopes) {
     try {
-      const result = await anchorOneScope(scope, await audit(), options);
+      const sink = await audit();
+      if (!sink) continue;
+      const result = await anchorOneScope(scope, sink, options);
       if (result.outcome === AnchorOutcome.Anchored) {
         counts.anchored += 1;
         log({ event: AnchorLogEvent.Anchored, scope, seq: result.anchor?.anchor.seq });

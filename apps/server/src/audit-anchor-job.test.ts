@@ -27,7 +27,7 @@ describe("runAuditAnchorSweep", () => {
     const records: AnchorLogRecord[] = [];
     const options = {
       platform: { audit: platformAudit } as unknown as PlatformHandle,
-      router: { openTenants: () => [{ id: "T-1", code: "t1" }], backendOf: async () => ({ audit: tenantAudit }) } as unknown as TenantRouter,
+      router: { openTenants: () => [{ id: "T-1", code: "t1" }], openBackendOf: async () => ({ audit: tenantAudit }) } as unknown as TenantRouter,
       signer: createAuditAnchorSigner("33".repeat(32)),
       sink,
       log: (r: AnchorLogRecord) => records.push(r),
@@ -49,7 +49,7 @@ describe("runAuditAnchorSweep", () => {
       platform: { audit: platformAudit } as unknown as PlatformHandle,
       router: {
         openTenants: () => [{ id: "T-1", code: "t1" }],
-        backendOf: async () => {
+        openBackendOf: async () => {
           throw new Error("books refused");
         },
       } as unknown as TenantRouter,
@@ -72,7 +72,7 @@ describe("runAuditAnchorSweep", () => {
     const records: AnchorLogRecord[] = [];
     const options = {
       platform: { audit: platformAudit } as unknown as PlatformHandle,
-      router: { openTenants: () => [{ id: "T-1", code: "t1" }], backendOf: async () => ({ audit: tenantAudit }) } as unknown as TenantRouter,
+      router: { openTenants: () => [{ id: "T-1", code: "t1" }], openBackendOf: async () => ({ audit: tenantAudit }) } as unknown as TenantRouter,
       signer,
       sink,
       log: (r: AnchorLogRecord) => records.push(r),

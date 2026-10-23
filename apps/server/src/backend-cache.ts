@@ -1,4 +1,4 @@
-export interface CachedHandle { close(): void | Promise<void> }
+export interface CachedHandle { close(): void | Promise<void>; drain?(): Promise<void> }
 
 export interface BackendCacheOptions<H extends CachedHandle> {
   readonly open: (code: string) => Promise<H>;
@@ -21,6 +21,18 @@ export interface BackendCache<H> {
 }
 
 export const DEFAULT_IDLE_MS = 30 * 60 * 1000;
+// Several tenants close in parallel on shutdown, so this must stay well under the process's shutdown budget.
+const DRAIN_BUDGET_MS = 10_000;
+
+async function shut(handle: CachedHandle): Promise<void> {
+  if (handle.drain) {
+    let timer: NodeJS.Timeout | undefined;
+    const budget = new Promise<void>((resolve) => { timer = setTimeout(resolve, DRAIN_BUDGET_MS); });
+    await Promise.race([handle.drain().catch(() => undefined), budget]);
+    clearTimeout(timer);
+  }
+  await handle.close();
+}
 
 export function createBackendCache<H extends CachedHandle>(options: BackendCacheOptions<H>): BackendCache<H> {
   const idleMs = options.idleMs ?? DEFAULT_IDLE_MS;
@@ -42,7 +54,7 @@ export function createBackendCache<H extends CachedHandle>(options: BackendCache
         due.push(entry.handle);
       }
     }
-    await Promise.allSettled(due.map((handle) => handle.then((h) => h.close())));
+    await Promise.allSettled(due.map((handle) => handle.then(shut)));
   }
 
   return {
@@ -68,13 +80,13 @@ export function createBackendCache<H extends CachedHandle>(options: BackendCache
       if (!entry) return;
       entries.delete(code);
       options.onEvict?.(code);
-      await entry.handle.then((handle) => handle.close()).catch(() => undefined);
+      await entry.handle.then(shut).catch(() => undefined);
     },
     async close() {
       closed = true;
       if (timer) clearInterval(timer);
       const open = [...entries.values()]; entries.clear();
-      await Promise.allSettled(open.map((entry) => entry.handle.then((h) => h.close())));
+      await Promise.allSettled(open.map((entry) => entry.handle.then(shut)));
     },
   };
 }

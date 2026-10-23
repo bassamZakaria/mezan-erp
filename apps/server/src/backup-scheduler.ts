@@ -256,7 +256,8 @@ export async function runBackups(options: RunBackupsOptions): Promise<BackupRun>
     const tenant = await options.platform.stores.tenants.findById(open.id);
     if (!tenant || tenant.status === TenantStatusCode.Archived) continue;
     try {
-      const backend = await options.router.backendOf(tenant.id);
+      const backend = await options.router.openBackendOf(tenant.id);
+      if (!backend) continue;
       const folder = tenantBackupFolder(options.dir, tenant.id);
       adoptLegacyBackups(options.dir, tenant);
       await verify(await writeOneBackup((destination) => backend.backupTo(destination), folder, stamp));
@@ -294,12 +295,17 @@ export interface StartBackupTimerOptions extends RunBackupsOptions {
  */
 export function startBackupTimer(options: StartBackupTimerOptions): () => Promise<void> {
   let current: Promise<void> = Promise.resolve();
+  let running = false;
   const run = () => {
+    if (running) return;
+    running = true;
     const backup = () => runBackups(options);
     current = (options.job ? options.job.run(backup) : backup()).then(
       () => undefined,
       (error: unknown) => options.onError?.(error),
-    );
+    ).finally(() => {
+      running = false;
+    });
   };
   run();
 
@@ -316,7 +322,7 @@ export interface BackupScheduler {
   start(): () => Promise<void>;
 }
 
-/** Wraps `startBackupTimer` in the `{ start(): () => void }` shape `createCloudApp`'s `options.backups` seam is typed as. */
+/** Wraps `startBackupTimer` in the shape `createCloudApp`'s `options.backups` seam expects; its stop is awaited on close. */
 export function createBackupScheduler(options: StartBackupTimerOptions): BackupScheduler {
   return {
     start: () => startBackupTimer(options),

@@ -24,6 +24,7 @@ import { platformActor, provisionResultDTOOf, provisionTenant, PlanRequiredError
 import { resetTenantOwnerPin } from "./owner-pin-reset.js";
 import { releaseProvisioningTenant } from "./release-tenant.js";
 import { callerSource, createSourceReporter, requireCloudSource } from "./client-source.js";
+import { addressKey, createRateLimiter, requestCap, sessionKey } from "./rate-limit.js";
 import { createSignupRoutes, SIGNUP_BASE_PATH } from "./signup-routes.js";
 import { provisionDemoTenant } from "./demo-tenant.js";
 import { provisionReviewTenant } from "./review-tenant.js";
@@ -96,7 +97,7 @@ export interface CreateCloudAppOptions {
   readonly now?: () => Date;
   readonly authMiddleware?: MiddlewareHandler;
   readonly transformIndexHtml?: (html: string) => string;
-  readonly backups?: { start(): () => void };
+  readonly backups?: { start(): () => void | Promise<void> };
   readonly mailer?: PlatformMailer;
   readonly alerter?: Alerter;
   readonly seedDemo?: (deps: {
@@ -393,7 +394,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
     job: env.backupIntervalMinutes > 0 ? jobs.track(PlatformJobKind.Backups, env.backupIntervalMinutes * 60_000) : undefined,
     onError: () => undefined,
   });
-  let stopBackups: (() => void) | undefined;
+  let stopBackups: (() => void | Promise<void>) | undefined;
   if (env.backupIntervalMinutes > 0) {
     stopBackups = backups.start();
   }
@@ -500,6 +501,11 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
   }));
   root.route(PUBLIC_API_BASE_PATH, createPublicApiRoutes({ platform, router, publicUrl: null, now }));
 
+  // After the public API, which has its own per-key limit; after the source gate, so the key is the
+  // caller's resolved address and never a header it wrote.
+  // shortcut: counts live in this process, so N instances grant N times the cap; move to platformRateLimiter when scaling out.
+  root.use("/api/*", requestCap(createRateLimiter(env.apiRequestsPerAddressPerMinute, 60_000), addressKey));
+
   // SECURITY: the cloud edition's browser sessions ride in HttpOnly cookies and
   // every state-changing request made with one must carry its CSRF token. The
   // backends behind this never see a cookie: the edge turns it back into the
@@ -512,6 +518,8 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
   });
   root.use("/api/platform/*", cookieSessions.platform);
   root.use("/api/*", cookieSessions.tenant);
+  // After the cookie sessions, which turn the browser's cookie into the bearer token keyed here.
+  root.use("/api/*", requestCap(createRateLimiter(env.apiRequestsPerSessionPerMinute, 60_000), sessionKey));
 
   // `/api/platform` before `/api`: the tenant router's own catch-all would
   // otherwise swallow the console's routes first.
@@ -580,14 +588,14 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
       closed = true;
       clearInterval(readinessWatch);
       alerter.close();
-      stopBackups?.();
+      await stopBackups?.();
       await anchorTimer?.stop();
       await tenantPurgeTimer.stop();
       tenantBackups.close();
-      dunningTimer.stop();
+      await dunningTimer.stop();
       await ownerDigestTimer.stop();
       await collectionsTimer.stop();
-      checkoutSweepTimer?.stop();
+      await checkoutSweepTimer?.stop();
       await router.close();
       await booksScanned;
       platform.close();

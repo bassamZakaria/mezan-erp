@@ -174,6 +174,8 @@ export interface TenantRouter {
   backendFor(code: string): Promise<BackendHandle>;
   callerDoor(code: string): Promise<TenantDoor>;
   backendOf(tenantId: string): Promise<BackendHandle>;
+  // REQUIRED: periodic jobs use this, never backendOf, so they do not keep an idle tenant open; null once it has closed.
+  openBackendOf(tenantId: string): Promise<BackendHandle | null>;
   reconcileOwner(code: string): Promise<void>;
   reconcileOwnerOf(tenantId: string): Promise<void>;
   reconcileOpenOwners(): Promise<void>;
@@ -199,6 +201,10 @@ export interface TenantRouter {
   unlockAccountOf(input: { readonly tenantId: string; readonly account: string; readonly actor: string }): Promise<boolean>;
   evict(tenantId: string): Promise<void>;
   invalidate(code: string): void;
+  /** The tenant's plan and entitlement resolvers, the same ones `invalidate` refreshes. */
+  resolversFor(code: string): TenantResolvers;
+  /** Drops what this router remembers of a tenant whose files are gone. */
+  forget(tenantId: string): void;
   // REQUIRED ORDERING: called only for a tenant whose registration has just
   // been discarded. It closes the open backend BEFORE it removes the database
   // and every file written beside it, so nothing is left writing to a file
@@ -484,8 +490,14 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
     return opened(tenant.id);
   }
 
+  function forget(tenantId: string): void {
+    standings.delete(tenantId);
+    booksRead.delete(tenantId);
+  }
+
   async function discardDatabase(tenant: Pick<Tenant, "id" | "dbFile">): Promise<void> {
     await cache.evict(tenant.id);
+    forget(tenant.id);
     const database = tenantDbPath(options.dataDir, tenant.dbFile);
     const directory = path.dirname(database);
     if (!existsSync(directory)) return;
@@ -500,6 +512,10 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
     callerDoor: async (code) => doorTo(await openFor(code)),
     async backendOf(tenantId) {
       return opened((await liveTenant(tenantId)).id);
+    },
+    async openBackendOf(tenantId) {
+      const open = cache.peek((await liveTenant(tenantId)).id);
+      return open ? await open : null;
     },
     reconcileOwner,
     reconcileOwnerOf,
@@ -653,6 +669,8 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
     },
     evict: (tenantId) => cache.evict(tenantId),
     invalidate(code) { resolvers.get(code)?.invalidate(); },
+    resolversFor,
+    forget,
     sweep: () => cache.sweep(),
     close: () => {
       closed = true;

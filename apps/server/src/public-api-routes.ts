@@ -13,7 +13,6 @@ import {
 import { PUBLIC_API_RATE_LIMIT_PER_MINUTE, hasModule, looksLikeApiKeyToken, parseApiKeyToken, tenantIsServed, type Tenant } from "@mezan/domain";
 import { callerSource, type CloudSource } from "./client-source.js";
 import { platformRateLimiter, type RateLimiter } from "./rate-limit.js";
-import { createTenantResolvers, type TenantResolvers } from "./tenant-entitlements.js";
 import type { TenantDoor, TenantRouter } from "./tenant-router.js";
 import { publicApiOpenApiDocument } from "./public-api-openapi.js";
 import { annotateRequest, createLogger } from "@mezan/api";
@@ -142,18 +141,8 @@ export function createPublicApiRoutes(deps: PublicApiDeps): Hono {
   const now = deps.now ?? (() => new Date());
   const keyLimiter = deps.keyLimiter ?? platformRateLimiter(deps.platform, "api-v1-key", PUBLIC_API_RATE_LIMIT_PER_MINUTE, MINUTE_MS);
   const refusedLimiter = deps.refusedLimiter ?? platformRateLimiter(deps.platform, "api-v1-refused", REFUSED_PER_MINUTE, MINUTE_MS);
-  const resolvers = new Map<string, TenantResolvers>();
   const inFlight = new Set<string>();
   const onPlatform = <T>(work: () => T): Promise<T> => deps.platform.inTheTurn("public api", async () => work());
-
-  function entitlementsOf(code: string): TenantResolvers {
-    let r = resolvers.get(code);
-    if (!r) {
-      r = createTenantResolvers(deps.platform, code, { now });
-      resolvers.set(code, r);
-    }
-    return r;
-  }
 
   app.get("/openapi.json", (c) => c.body(JSON.stringify(publicApiOpenApiDocument(deps.publicUrl)), 200, { "content-type": JSON_TYPE }));
 
@@ -179,7 +168,7 @@ export function createPublicApiRoutes(deps: PublicApiDeps): Hono {
     const door = await deps.router.callerDoor(tenant.code);
     const auth = door.integrations ? await door.integrations.authenticate(parsed, raw) : null;
     if (!auth) return unauthenticated();
-    if (!hasModule(await entitlementsOf(tenant.code).resolveEntitlements(), INTEGRATIONS_MODULE)) {
+    if (!hasModule(await deps.router.resolversFor(tenant.code).resolveEntitlements(), INTEGRATIONS_MODULE)) {
       return refuse(c, PublicApiRefusal.ModuleNotLicensed, 403);
     }
     const bucket = `${tenant.id}:${auth.keyId}`;

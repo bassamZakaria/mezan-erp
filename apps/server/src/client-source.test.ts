@@ -23,6 +23,11 @@ describe("where a cloud request came from", () => {
     expect(await sourceOf({ "x-forwarded-for": "196.221.5.5" }, NO_PROXY)).toBe("10.0.9.9");
   });
 
+  it("is an IPv6 socket peer, canonical and IPv4-mapped alike, when no proxy is trusted", async () => {
+    expect(await sourceOf({}, NO_PROXY, "2001:db8::1")).toBe(await sourceOf({ "x-forwarded-for": "2001:db8::1" }, ONE_PROXY));
+    expect(await sourceOf({}, NO_PROXY, "::ffff:41.33.10.10")).toBe("41.33.10.10");
+  });
+
   it("is unresolved, never the host's own console, when there is no socket and no proxy is trusted", async () => {
     const source = await sourceOf({ "x-forwarded-for": "196.221.5.5" }, NO_PROXY, null);
     expect(source).toBe(UNRESOLVED_SOURCE);

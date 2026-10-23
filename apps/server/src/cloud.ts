@@ -131,8 +131,26 @@ const transformIndexHtml = analyticsToken
 const cloud = await createCloudApp(env, { authMiddleware, transformIndexHtml });
 const { root } = cloud;
 
+// SECURITY: the socket is passed through, and is the caller's address only
+// when no proxy is trusted. With MEZAN_TRUST_PROXY=1 it is the proxy and is
+// never read: the address comes from the forwarded chain, and a request whose
+// chain yields none is refused (client-source.ts).
+const server = serve({ fetch: root.fetch, port: env.port, hostname: "0.0.0.0" }, (info) => {
+  log.info({ event: LogEvent.ProcessStarted, port: info.port, platformDir: env.platformDir }, "Mezan platform is serving");
+});
+
+// REQUIRED ORDERING: stop taking requests and let those in flight finish before the backends close under them.
+const stopServing = () => new Promise<void>((resolve) => server.close(() => resolve()));
+
 const marker = markRunning(env.platformDir);
-installProcessHandlers({ alerter: cloud.alerter, marker, close: () => cloud.close() });
+installProcessHandlers({
+  alerter: cloud.alerter,
+  marker,
+  close: async () => {
+    await stopServing();
+    await cloud.close();
+  },
+});
 if (marker.previous) {
   log.error({ event: LogEvent.ProcessUncleanRestart, previousStartedAt: marker.previous.startedAt ?? null }, "the server started after an unclean exit");
   cloud.alerter.raise({
@@ -142,10 +160,3 @@ if (marker.previous) {
   });
 }
 
-// SECURITY: the socket is passed through, and is the caller's address only
-// when no proxy is trusted. With MEZAN_TRUST_PROXY=1 it is the proxy and is
-// never read: the address comes from the forwarded chain, and a request whose
-// chain yields none is refused (client-source.ts).
-serve({ fetch: root.fetch, port: env.port, hostname: "0.0.0.0" }, (info) => {
-  log.info({ event: LogEvent.ProcessStarted, port: info.port, platformDir: env.platformDir }, "Mezan platform is serving");
-});

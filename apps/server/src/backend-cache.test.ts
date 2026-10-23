@@ -198,4 +198,34 @@ describe("createBackendCache", () => {
     await cache.evict("never-opened");
     expect(closed).toEqual(["a"]);
   });
+
+  it("lets a handle finish its queued work before closing it", async () => {
+    const order: string[] = [];
+    const open = vi.fn(async (code: string) => ({
+      code,
+      drain: async () => void order.push(`drain ${code}`),
+      close: () => void order.push(`close ${code}`),
+    }));
+    const cache = createBackendCache({ open, sweepEveryMs: 0 });
+    await cache.get("a");
+    await cache.get("b");
+    await cache.evict("a");
+    await cache.close();
+    expect(order).toEqual(["drain a", "close a", "drain b", "close b"]);
+  });
+
+  it("closes a handle whose drain never settles once the drain budget runs out", async () => {
+    vi.useFakeTimers();
+    try {
+      const close = vi.fn();
+      const cache = createBackendCache({ open: async () => ({ drain: () => new Promise<void>(() => undefined), close }), sweepEveryMs: 0 });
+      await cache.get("a");
+      const evicted = cache.evict("a");
+      await vi.advanceTimersByTimeAsync(10_000);
+      await evicted;
+      expect(close).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

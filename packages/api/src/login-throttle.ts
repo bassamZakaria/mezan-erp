@@ -170,14 +170,22 @@ function liveRecord(held: AttemptRecord | null, at: number): AttemptRecord | nul
   return record.failures.length === 0 && record.lockedUntil <= at ? null : record;
 }
 
+// A failed sign-in sweeps on every attempt, so the full scan for stale records runs at most this often.
+const STALE_SWEEP_EVERY_MS = 60_000;
+
 export function createMemoryAttemptStore(): AttemptStore {
+  // REQUIRED: every write re-inserts its key, so Map order is last-write order and over-cap eviction drops the oldest first.
   const records = new Map<string, AttemptRecord>();
+  let nextStaleSweepAt = 0;
   return {
     update(key, change) {
       const held = records.get(key);
       const outcome = change(held ? { failures: [...held.failures], lockedUntil: held.lockedUntil } : null);
       if (outcome.record === null) records.delete(key);
-      else if (outcome.record !== undefined) records.set(key, outcome.record);
+      else if (outcome.record !== undefined) {
+        records.delete(key);
+        records.set(key, outcome.record);
+      }
       return outcome.result;
     },
     peek(key) {
@@ -189,13 +197,16 @@ export function createMemoryAttemptStore(): AttemptStore {
       for (const held of [...records.keys()]) if (held.startsWith(prefix)) records.delete(held);
     },
     sweep(at, limits) {
-      for (const [key, record] of [...records]) {
-        const stale = record.lockedUntil <= at && at - lastFailureAt(record) > limits.decayMs;
-        if (stale) records.delete(key);
+      if (at >= nextStaleSweepAt) {
+        nextStaleSweepAt = at + STALE_SWEEP_EVERY_MS;
+        for (const [key, record] of records) {
+          if (record.lockedUntil <= at && at - lastFailureAt(record) > limits.decayMs) records.delete(key);
+        }
       }
-      if (records.size <= limits.maxRecords) return;
-      const oldestFirst = [...records.entries()].sort((a, b) => lastFailureAt(a[1]) - lastFailureAt(b[1]));
-      for (const [key] of oldestFirst.slice(0, records.size - limits.maxRecords)) records.delete(key);
+      for (const key of records.keys()) {
+        if (records.size <= limits.maxRecords) return;
+        records.delete(key);
+      }
     },
     size: () => records.size,
   };

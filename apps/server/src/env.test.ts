@@ -36,6 +36,8 @@ describe("parseEnv", () => {
       seedDemo: false,
       seedAdminPin: undefined,
       backupIntervalMinutes: 15,
+      apiRequestsPerAddressPerMinute: 3000,
+      apiRequestsPerSessionPerMinute: 600,
       tenantRetentionDays: 90,
       webDist: "./apps/web/dist",
       demoPassword: undefined,
@@ -103,6 +105,8 @@ describe("parseEnv", () => {
       MEZAN_SEED_DEMO: "1",
       MEZAN_SEED_ADMIN_PIN: "654321",
       MEZAN_BACKUP_INTERVAL_MINUTES: "30",
+      MEZAN_API_REQUESTS_PER_ADDRESS_PER_MINUTE: "5000",
+      MEZAN_API_REQUESTS_PER_SESSION_PER_MINUTE: "900",
       MEZAN_TENANT_RETENTION_DAYS: "120",
       MEZAN_WEB_DIST: "./dist",
       MEZAN_DEMO_PASSWORD: "demo-pass",
@@ -135,6 +139,8 @@ describe("parseEnv", () => {
       seedDemo: true,
       seedAdminPin: "654321",
       backupIntervalMinutes: 30,
+      apiRequestsPerAddressPerMinute: 5000,
+      apiRequestsPerSessionPerMinute: 900,
       tenantRetentionDays: 120,
       webDist: "./dist",
       demoPassword: "demo-pass",
@@ -179,6 +185,11 @@ describe("parseEnv", () => {
 
   it("throws on a negative MEZAN_BACKUP_INTERVAL_MINUTES", () => {
     expect(() => parseEnv({ MEZAN_BACKUP_INTERVAL_MINUTES: "-5" })).toThrow(/MEZAN_BACKUP_INTERVAL_MINUTES/);
+  });
+
+  it("refuses a request cap that is not a positive whole number, so a typo can never switch the cap off", () => {
+    expect(() => parseEnv({ MEZAN_API_REQUESTS_PER_ADDRESS_PER_MINUTE: "0" })).toThrow(/MEZAN_API_REQUESTS_PER_ADDRESS_PER_MINUTE/);
+    expect(() => parseEnv({ MEZAN_API_REQUESTS_PER_SESSION_PER_MINUTE: "lots" })).toThrow(/MEZAN_API_REQUESTS_PER_SESSION_PER_MINUTE/);
   });
 
   it("accepts MEZAN_BACKUP_INTERVAL_MINUTES=0 (disables the scheduler)", () => {

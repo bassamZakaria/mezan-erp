@@ -63,7 +63,7 @@ function databasesIn(dataDir: string): string[] {
     .sort();
 }
 
-const quietRouter = { evict: async () => undefined, invalidate: () => undefined };
+const quietRouter = { evict: async () => undefined, invalidate: () => undefined, forget: () => undefined };
 
 describe("releasing a tenant stuck in provisioning", () => {
   it("never moves or removes the tenant's database, and frees the code", async () => {
@@ -103,7 +103,7 @@ describe("releasing a tenant stuck in provisioning", () => {
     const before = readdirSync(path.join(dataDir, "tenants"));
     const parked = gate();
     const evicted: string[] = [];
-    const router = { evict: async (id: string) => void evicted.push(id), invalidate: () => undefined };
+    const router = { evict: async (id: string) => void evicted.push(id), invalidate: () => undefined, forget: () => undefined };
 
     const activating = withSqliteTransaction(
       platform.stores.sqlite,
@@ -208,7 +208,7 @@ describe("deleting a terminated tenant's data after the retention period", () =>
     const anchorDir = path.join(dataDir, "audit-anchors");
     const purge = createTenantPurge({
       platform,
-      router: { evict: async (id) => void evicted.push(id), invalidate: () => undefined },
+      router: { evict: async (id) => void evicted.push(id), invalidate: () => undefined, forget: () => undefined },
       dataDir,
       retentionDays: 90,
       localAnchorDir: anchorDir,

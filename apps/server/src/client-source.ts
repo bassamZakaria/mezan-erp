@@ -50,7 +50,7 @@ function forwardedEntry(entry: string | undefined): CloudSource | null {
 function countedSource(c: Context, trustedProxyHops: number, trustedAddressHeader?: string): CloudSource {
   if (trustedProxyHops === 0) {
     const peer = requestOrigin(c);
-    return (peer === null ? null : canonical(canonicalOrigin(peer) ?? "")) ?? UNRESOLVED_SOURCE;
+    return (peer === null ? null : forwardedEntry(peer)) ?? UNRESOLVED_SOURCE;
   }
   // SECURITY: the named header is believed because the DEPLOYMENT says its
   // edge overwrites it on every request. A request without a usable value did

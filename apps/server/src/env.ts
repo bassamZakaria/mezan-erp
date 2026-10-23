@@ -47,6 +47,8 @@ export interface CloudEnv {
   readonly seedDemo: boolean;
   readonly seedAdminPin?: string;
   readonly backupIntervalMinutes: number;
+  readonly apiRequestsPerAddressPerMinute: number;
+  readonly apiRequestsPerSessionPerMinute: number;
   // CONTRACT: the privacy policy promises deletion this many days after a tenant is archived.
   readonly tenantRetentionDays: number;
   readonly webDist: string;
@@ -139,6 +141,9 @@ function trimmedOrUndefined(value: string | undefined): string | undefined {
 }
 
 export const DEFAULT_TENANT_RETENTION_DAYS = 90;
+// Measured 2026-10-23: a full page load makes 18-49 API calls. The address cap is a flood ceiling for a whole office behind one NAT.
+const API_REQUESTS_PER_ADDRESS_PER_MINUTE = 3000;
+const API_REQUESTS_PER_SESSION_PER_MINUTE = 600;
 
 function parseNonNegativeInt(value: string | undefined, name: string, fallback: number): number {
   if (value === undefined) return fallback;
@@ -341,6 +346,8 @@ export function parseEnv(env: Record<string, string | undefined> = process.env, 
     seedDemo: flag(env["MEZAN_SEED_DEMO"]),
     seedAdminPin: trimmedOrUndefined(env["MEZAN_SEED_ADMIN_PIN"]),
     backupIntervalMinutes: parseNonNegativeInt(env["MEZAN_BACKUP_INTERVAL_MINUTES"], "MEZAN_BACKUP_INTERVAL_MINUTES", 15),
+    apiRequestsPerAddressPerMinute: parsePositiveInt(env["MEZAN_API_REQUESTS_PER_ADDRESS_PER_MINUTE"], "MEZAN_API_REQUESTS_PER_ADDRESS_PER_MINUTE", API_REQUESTS_PER_ADDRESS_PER_MINUTE),
+    apiRequestsPerSessionPerMinute: parsePositiveInt(env["MEZAN_API_REQUESTS_PER_SESSION_PER_MINUTE"], "MEZAN_API_REQUESTS_PER_SESSION_PER_MINUTE", API_REQUESTS_PER_SESSION_PER_MINUTE),
     tenantRetentionDays: parsePositiveInt(env["MEZAN_TENANT_RETENTION_DAYS"], "MEZAN_TENANT_RETENTION_DAYS", DEFAULT_TENANT_RETENTION_DAYS),
     webDist: env["MEZAN_WEB_DIST"] ?? "./apps/web/dist",
     demoPassword: trimmedOrUndefined(env["MEZAN_DEMO_PASSWORD"]),

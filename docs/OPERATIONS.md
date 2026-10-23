@@ -66,6 +66,15 @@ Each alert key is mailed at most once per 30 minutes; repeats are counted and th
 | `MEZAN_VERSION` | `2026.10.18` | written on every line as `version` |
 | `MEZAN_ENV` | `production` | written on every line as `env` |
 
+## Request caps
+
+Every `/api` request except the public API (`/api/v1`, 120 a minute per key) counts against two caps, kept in the server's memory for one minute:
+
+- **Per caller address:** 3000 a minute (`MEZAN_API_REQUESTS_PER_ADDRESS_PER_MINUTE`). The address is the one the trusted proxy chain resolves, never a header the caller writes. IPv6 counts per /64. It is set high because a whole office behind one router shares one address.
+- **Per signed-in session:** 600 a minute (`MEZAN_API_REQUESTS_PER_SESSION_PER_MINUTE`), keyed on a hash of the session token, so a browser's cookie session counts too.
+
+Past either cap the server answers `429 TOO_MANY_REQUESTS` with `Retry-After`. Measured on 2026-10-23, a full page load makes 18 to 49 requests. The counts are per process: run more than one instance and each grants the full cap. Shutdown stops taking requests first, lets those in flight finish, then waits for a running backup, dunning or card-checkout sweep before closing the databases.
+
 ## Health checks
 
 | Endpoint | Answers | Use it for |

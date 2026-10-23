@@ -1,12 +1,12 @@
 import { useState } from "react";
 import { Link } from "react-router";
 import { Button, Money, Segmented, StatusPill, cn } from "@mezan/ui";
-import type { PublicPlanDTO } from "@mezan/contracts";
+import { SignupModeCode, type PublicPlanDTO } from "@mezan/contracts";
 import { BillingCycleKind, CountedNoun, PlanKind, QuotaKind } from "@mezan/domain";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useCountPhrase } from "../lib/count-phrase";
 import { entitlementModuleLabel } from "../domain-labels";
-import { usePublicPlans } from "../signup/signup-api";
+import { usePublicPlans, useSignupMode } from "../signup/signup-api";
 import { WHATSAPP_NUMBER, whatsappHref } from "./site";
 
 enum PlanCode {
@@ -50,6 +50,7 @@ function PlanCard({ plan, previous, cycle }: { plan: PublicPlanDTO; previous: Pu
   const name = locale === "ar" ? plan.nameAr : plan.nameEn;
   const price = cycle === BillingCycleKind.Monthly ? plan.priceMonthly : plan.priceYearly;
   const audience = audienceOf(plan.code);
+  const signupOpen = useSignupMode() !== SignupModeCode.Closed;
   const invoiceCap = plan.quotas?.[QuotaKind.SalesInvoicesPerMonth];
   const builtOn = previous !== null && previous.modules.every((id) => plan.modules.includes(id)) ? previous : null;
   const inherited = new Set(builtOn?.modules ?? []);
@@ -86,15 +87,17 @@ function PlanCard({ plan, previous, cycle }: { plan: PublicPlanDTO; previous: Pu
           </>
         )}
       </p>
-      <Link
-        to={`/signup?plan=${encodeURIComponent(plan.code)}&cycle=${cycle}`}
-        className={cn(
-          "mt-[16px] inline-flex min-h-[44px] items-center justify-center rounded-md border px-[15px] text-[14px] font-semibold transition-colors",
-          popular ? "border-brand bg-brand text-brand-ink hover:bg-brand-strong" : "border-border-strong bg-surface text-ink hover:bg-surface-2",
-        )}
-      >
-        {t("landing.pricing.choose")}
-      </Link>
+      {signupOpen ? (
+        <Link
+          to={`/signup?plan=${encodeURIComponent(plan.code)}&cycle=${cycle}`}
+          className={cn(
+            "mt-[16px] inline-flex min-h-[44px] items-center justify-center rounded-md border px-[15px] text-[14px] font-semibold transition-colors",
+            popular ? "border-brand bg-brand text-brand-ink hover:bg-brand-strong" : "border-border-strong bg-surface text-ink hover:bg-surface-2",
+          )}
+        >
+          {t("landing.pricing.choose")}
+        </Link>
+      ) : null}
       <ul className="mt-[18px] flex flex-col gap-[6px] border-b border-border pb-[14px] text-[13px] text-ink">
         {limits.map((limit) => (
           <li key={limit} className="font-semibold">

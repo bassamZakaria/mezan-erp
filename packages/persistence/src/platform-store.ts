@@ -13,7 +13,8 @@ import {
   type ModuleTrial, type ModuleTrialRepository,
   type SubscriptionTransitionRepository,
   type PlatformUser, type PlatformUserRepository,
-  type SignupRequest, type SignupRequestRepository, SignupRequestStatus,
+  type SignupRequest, type SignupRequestRepository, SignupRequestStatus, type SignupDecision,
+  type PlatformSettingKey, type PlatformSettingRepository,
   type Subscription, SubscriptionStatusKind, anchorIsUtcDayOfCreation, billingDayBehindUtcAnchor, inferBillingAnchorDay,
   type OwnerRecordDue, type PendingOwner, type Tenant, type TenantRepository, TenantBooksReview, TenantStatusCode,
 } from "@mezan/domain";
@@ -169,6 +170,12 @@ CREATE TABLE IF NOT EXISTS signup_request (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_signup_request_token ON signup_request(token_hash);
 
+CREATE TABLE IF NOT EXISTS platform_setting (
+  key        TEXT PRIMARY KEY,
+  value      TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS signup_provision_claim (
   token_hash TEXT PRIMARY KEY,
   claim_id   TEXT NOT NULL,
@@ -223,6 +230,9 @@ function addMissingColumns(sqlite: Database.Database): void {
   if (!onSubscription.has("intended_plan_id")) sqlite.exec(`ALTER TABLE subscription ADD COLUMN intended_plan_id TEXT`);
   const onSignup = new Set((sqlite.prepare(`PRAGMA table_info(signup_request)`).all() as { name: string }[]).map((c) => c.name));
   if (!onSignup.has("intended_plan_id")) sqlite.exec(`ALTER TABLE signup_request ADD COLUMN intended_plan_id TEXT`);
+  for (const column of ["decision", "decided_at", "decided_by"]) {
+    if (!onSignup.has(column)) sqlite.exec(`ALTER TABLE signup_request ADD COLUMN ${column} TEXT`);
+  }
   const onPayment = new Set(
     (sqlite.prepare(`PRAGMA table_info(payment)`).all() as { name: string }[]).map((c) => c.name),
   );
@@ -1102,6 +1112,7 @@ interface SignupRequestRow {
   owner_email: string; owner_name_ar: string; plan_id: string; billing_cycle: SignupRequest["billingCycle"];
   token_hash: string; status: SignupRequest["status"]; expires_at: string; created_at: string; verified_at: string | null;
   intended_plan_id?: string | null;
+  decision?: SignupDecision | null; decided_at?: string | null; decided_by?: string | null;
 }
 
 function toSignupRequest(r: SignupRequestRow): SignupRequest {
@@ -1110,6 +1121,7 @@ function toSignupRequest(r: SignupRequestRow): SignupRequest {
     ownerEmail: r.owner_email, ownerNameAr: r.owner_name_ar, planId: r.plan_id, billingCycle: r.billing_cycle,
     tokenHash: r.token_hash, status: r.status, expiresAt: r.expires_at, createdAt: r.created_at, verifiedAt: r.verified_at,
     ...(r.intended_plan_id ? { intendedPlanId: r.intended_plan_id } : {}),
+    decision: r.decision ?? null, decidedAt: r.decided_at ?? null, decidedBy: r.decided_by ?? null,
   };
 }
 
@@ -1127,8 +1139,17 @@ class SqliteSignupRequestStore implements SignupRequestRepository {
   private readonly releaseCode: Database.Statement;
   private readonly dropClaimsOfCode: Database.Statement;
   private readonly takeFence: Database.Statement;
+  private readonly byId: Database.Statement;
+  private readonly awaiting: Database.Statement;
+  private readonly decide: Database.Statement;
 
   constructor(sqlite: Database.Database) {
+    this.byId = sqlite.prepare(`SELECT * FROM signup_request WHERE id = ?`);
+    this.awaiting = sqlite.prepare(`SELECT * FROM signup_request WHERE status = ? AND decision IS NULL ORDER BY verified_at, created_at`);
+    // Only an undecided verified row moves, so two clicks (approve and reject, or approve twice) cannot both win.
+    this.decide = sqlite.prepare(
+      `UPDATE signup_request SET decision = ?, decided_at = ?, decided_by = ? WHERE id = ? AND status = ? AND decision IS NULL`,
+    );
     this.dropClaimsOfCode = sqlite.prepare(
       `DELETE FROM signup_provision_claim WHERE token_hash IN (SELECT token_hash FROM signup_request WHERE code = ?)`,
     );
@@ -1165,7 +1186,9 @@ class SqliteSignupRequestStore implements SignupRequestRepository {
     );
     this.byTokenHash = sqlite.prepare(`SELECT * FROM signup_request WHERE token_hash = ?`);
     this.activeByCode = sqlite.prepare(
-      `SELECT * FROM signup_request WHERE code = ? AND status = ? AND expires_at > ? ORDER BY created_at DESC LIMIT 1`,
+      `SELECT * FROM signup_request
+       WHERE code = @code AND ((status = @pending AND expires_at > @now) OR (status = @verified AND decision IS NULL))
+       ORDER BY created_at DESC LIMIT 1`,
     );
     // The conditional WHERE is the whole point: only a row still `pending`
     // moves, so two concurrent callers can never both believe they were the
@@ -1181,8 +1204,23 @@ class SqliteSignupRequestStore implements SignupRequestRepository {
   }
 
   async findActiveByCode(code: string, nowIso: string): Promise<SignupRequest | null> {
-    const row = this.activeByCode.get(code, SignupRequestStatus.Pending, nowIso) as SignupRequestRow | undefined;
+    const row = this.activeByCode.get({ code, pending: SignupRequestStatus.Pending, verified: SignupRequestStatus.Verified, now: nowIso }) as
+      | SignupRequestRow
+      | undefined;
     return row ? toSignupRequest(row) : null;
+  }
+
+  async findById(id: string): Promise<SignupRequest | null> {
+    const row = this.byId.get(id) as SignupRequestRow | undefined;
+    return row ? toSignupRequest(row) : null;
+  }
+
+  async listAwaitingDecision(): Promise<SignupRequest[]> {
+    return (this.awaiting.all(SignupRequestStatus.Verified) as SignupRequestRow[]).map(toSignupRequest);
+  }
+
+  async tryDecide(id: string, decision: SignupDecision, decidedBy: string, nowIso: string): Promise<boolean> {
+    return this.decide.run(decision, nowIso, decidedBy, id, SignupRequestStatus.Verified).changes === 1;
   }
 
   async tryMarkVerified(tokenHash: string, nowIso: string): Promise<SignupRequest | null> {
@@ -1235,6 +1273,26 @@ class SqliteSignupRequestStore implements SignupRequestRepository {
   }
 }
 
+class SqlitePlatformSettingStore implements PlatformSettingRepository {
+  private readonly read: Database.Statement;
+  private readonly write: Database.Statement;
+
+  constructor(sqlite: Database.Database) {
+    this.read = sqlite.prepare(`SELECT value FROM platform_setting WHERE key = ?`);
+    this.write = sqlite.prepare(
+      `INSERT INTO platform_setting (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+    );
+  }
+
+  async get(key: PlatformSettingKey): Promise<string | null> {
+    return (this.read.get(key) as { value: string } | undefined)?.value ?? null;
+  }
+
+  async set(key: PlatformSettingKey, value: string, nowIso: string): Promise<void> {
+    this.write.run(key, value, nowIso);
+  }
+}
+
 export interface SqlitePlatformStoresHandle {
   readonly tenants: TenantRepository;
   readonly plans: PlanRepository;
@@ -1244,6 +1302,7 @@ export interface SqlitePlatformStoresHandle {
   readonly cardCheckouts: CardCheckoutRepository;
   readonly signupRequests: SignupRequestRepository;
   readonly moduleTrials: ModuleTrialRepository;
+  readonly settings: PlatformSettingRepository;
   readonly sqlite: Database.Database;
   close(): void;
 }
@@ -1292,6 +1351,7 @@ export function createSqlitePlatformStores(
     cardCheckouts: new SqliteCardCheckoutStore(sqlite),
     signupRequests: new SqliteSignupRequestStore(sqlite),
     moduleTrials: new SqliteModuleTrialStore(sqlite),
+    settings: new SqlitePlatformSettingStore(sqlite),
     sqlite,
     close: () => { if (owned) sqlite.close(); },
   };

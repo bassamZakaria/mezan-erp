@@ -5,10 +5,10 @@ import type { BillingCycleDTO, PublicPlanDTO, StartSignupRequestDTO, StartSignup
 import { ArabicCase, CountedNoun } from "@mezan/domain";
 import { useAppTranslation } from "../i18n";
 import { useCountPhrase } from "../lib/count-phrase";
-import { COMPANY_NAME_MAX_LENGTH, billingCycleSchema } from "@mezan/contracts";
+import { COMPANY_NAME_MAX_LENGTH, SignupModeCode, billingCycleSchema } from "@mezan/contracts";
 import { Field, FormError, TextField } from "../settings/form-controls";
 import { SignupLayout } from "./SignupLayout";
-import { checkCodeAvailability, SignupApiError, startSignup, usePublicPlans } from "./signup-api";
+import { checkCodeAvailability, SignupApiError, startSignup, usePublicPlans, useSignupMode } from "./signup-api";
 import type { AppTranslationKey } from "../i18n";
 import { SIGN_IN_PATH } from "../routing";
 
@@ -169,6 +169,7 @@ export function SignupScreen() {
   const [result, setResult] = useState<StartSignupResultDTO | null>(null);
 
   const plansQuery = usePublicPlans();
+  const signupMode = useSignupMode();
   const requestedPlanCode = params.get("plan");
   const planId = draft.planId || (plansQuery.data?.find((plan) => plan.code === requestedPlanCode)?.id ?? "");
 
@@ -222,6 +223,20 @@ export function SignupScreen() {
     return (
       <SignupLayout>
         <SuccessPanel result={result} email={draft.ownerEmail} />
+      </SignupLayout>
+    );
+  }
+
+  if (signupMode === SignupModeCode.Closed) {
+    return (
+      <SignupLayout>
+        <Card className="flex flex-col gap-[12px] p-[22px]">
+          <h1 className="font-display text-lg font-bold text-ink">{t("signup.closed.title")}</h1>
+          <p className="text-[13px] text-ink-muted">{t("signup.closed.body")}</p>
+          <a href={SIGN_IN_PATH} className="text-[12.5px] font-semibold text-accent-strong hover:underline">
+            {t("signup.closed.signIn")}
+          </a>
+        </Card>
       </SignupLayout>
     );
   }

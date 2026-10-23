@@ -109,6 +109,8 @@ describe("tenant billing routes — whose subscription a session may touch", () 
 
   it("trials a self-serve signup on the top plan and suggests the plan the customer picked (DEC-31)", async () => {
     const app = await boot();
+    const opened = await send(app, "/api/platform/settings/signup-mode", { method: "PUT", token: await platformToken(app), body: JSON.stringify({ mode: "open" }) });
+    expect(opened.status).toBe(200);
     const started = await send(app, "/api/signup", {
       method: "POST",
       body: JSON.stringify({ code: "nile", nameAr: "منشأة النيل", ownerEmail: "owner@nile.example", ownerNameAr: "سارة", planId: "PLAN-CORE", billingCycle: "monthly" }),

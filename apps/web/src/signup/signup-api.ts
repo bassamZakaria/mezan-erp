@@ -1,10 +1,12 @@
-import type {
-  PublicPlanDTO,
-  SignupCheckCodeResponseDTO,
-  StartSignupRequestDTO,
-  StartSignupResultDTO,
-  VerifySignupRequestDTO,
-  VerifySignupResultDTO,
+import {
+  SignupModeCode,
+  type PublicPlanDTO,
+  type SignupCheckCodeResponseDTO,
+  type SignupStatusDTO,
+  type StartSignupRequestDTO,
+  type StartSignupResultDTO,
+  type VerifySignupRequestDTO,
+  type VerifySignupResultDTO,
 } from "@mezan/contracts";
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { createHttpTransport } from "../data/transport";
@@ -49,6 +51,17 @@ export async function fetchPublicPlans(): Promise<PublicPlanDTO[]> {
 }
 
 export const PUBLIC_PLANS_QUERY_KEY = ["signup", "plans"] as const;
+
+async function fetchSignupStatus(): Promise<SignupStatusDTO> {
+  const res = await transport("/status");
+  if (!res.ok) throw await readError(res, "تعذّر معرفة حالة التسجيل");
+  return res.json<SignupStatusDTO>();
+}
+
+/** Until the server answers, sign-up is treated as needing approval: never promise an instant account the server may refuse. */
+export function useSignupMode(): SignupModeCode {
+  return useQuery<SignupStatusDTO>({ queryKey: ["signup", "status"], queryFn: fetchSignupStatus }).data?.mode ?? SignupModeCode.Approval;
+}
 
 export function usePublicPlans(): UseQueryResult<PublicPlanDTO[]> {
   return useQuery<PublicPlanDTO[]>({ queryKey: PUBLIC_PLANS_QUERY_KEY, queryFn: fetchPublicPlans });

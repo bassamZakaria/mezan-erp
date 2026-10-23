@@ -1975,6 +1975,17 @@ export {
   type StartSignupResultDTO,
   type VerifySignupRequestDTO,
   type VerifySignupResultDTO,
+  SignupModeCode,
+  signupModeSchema,
+  signupStatusSchema,
+  setSignupModeRequestSchema,
+  SignupRefusalCode,
+  signupRequestSchema,
+  approveSignupRequestSchema,
+  type SignupStatusDTO,
+  type SetSignupModeRequestDTO,
+  type SignupRequestDTO,
+  type ApproveSignupRequestDTO,
 } from "./signup.js";
 
 export { isoDateOrInstant, isoDay, ISO_DATE_PATTERNS } from "./iso-date.js";

@@ -40,14 +40,12 @@ export function NewTenantDialog({ open, onClose, plans }: NewTenantDialogProps) 
   const [draft, setDraft] = useState<TenantDraft>(emptyDraft());
   const [formError, setFormError] = useState<string | null>(null);
   const [result, setResult] = useState<ProvisionResultDTO | null>(null);
-  const [copied, setCopied] = useState(false);
   const createTenant = useCreateTenantMutation();
 
   function handleClose() {
     setDraft(emptyDraft());
     setFormError(null);
     setResult(null);
-    setCopied(false);
     onClose();
   }
 
@@ -80,53 +78,11 @@ export function NewTenantDialog({ open, onClose, plans }: NewTenantDialogProps) 
     { value: "monthly", label: t("platform.billingCycle.monthly") },
     { value: "yearly", label: t("platform.billingCycle.yearly") },
   ];
-  const clipboard = navigator.clipboard as Clipboard | undefined;
 
   return (
     <SidePanel open={open} onClose={handleClose} title={t("platform.newTenant.title")} description={t("platform.newTenant.description")}>
       {result ? (
-        <div className="flex flex-col gap-[14px]">
-          <p className="text-[12.5px] text-ink-muted">{t("platform.newTenant.result.hint")}</p>
-          <div className="flex flex-col gap-[10px] rounded-md border border-border bg-surface-2 p-[14px]">
-            <ResultRow label={t("platform.newTenant.result.code")} value={result.tenant.code} />
-            <ResultRow label={t("platform.newTenant.result.adminEmail")} value={result.adminEmail} />
-            <div>
-              <span className="mb-[6px] block text-xs font-semibold text-ink-muted">{t("platform.newTenant.result.adminPin")}</span>
-              <div className="flex flex-wrap items-center gap-[10px]">
-                <code
-                  dir="ltr"
-                  className="mz-num select-all break-all rounded-[6px] bg-surface px-[10px] py-[6px] text-[16px] font-bold text-ink"
-                >
-                  {result.adminPin ?? t("platform.newTenant.result.pinKept")}
-                </code>
-                {clipboard && result.adminPin ? (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => {
-                      void clipboard
-                        .writeText(result.adminPin ?? "")
-                        .then(() => setCopied(true))
-                        .catch(() => setCopied(false));
-                    }}
-                  >
-                    {t("platform.newTenant.result.copy")}
-                  </Button>
-                ) : null}
-                {copied ? <span className="text-[12px] text-ink-muted">{t("platform.newTenant.result.copied")}</span> : null}
-              </div>
-            </div>
-          </div>
-          <p role="alert" className="text-[11.5px] font-semibold text-warning-ink">
-            {t("platform.newTenant.result.oneTime")}
-          </p>
-          <div className="flex justify-end border-t border-border pt-[14px]">
-            <Button variant="primary" onClick={handleClose}>
-              {t("platform.newTenant.result.close")}
-            </Button>
-          </div>
-        </div>
-      ) : (
+        <ProvisionResultPanel result={result} onClose={handleClose} />      ) : (
         <div className="flex flex-col gap-[14px]">
           <FormError message={formError} />
           <TextField
@@ -173,6 +129,56 @@ export function NewTenantDialog({ open, onClose, plans }: NewTenantDialogProps) 
         </div>
       )}
     </SidePanel>
+  );
+}
+
+/** The one-time admin PIN of a just-provisioned company: the backend never returns it again, so the panel stays until the operator closes it. */
+export function ProvisionResultPanel({ result, onClose }: { result: ProvisionResultDTO; onClose: () => void }) {
+  const { t } = useAppTranslation();
+  const [copied, setCopied] = useState(false);
+  const clipboard = navigator.clipboard as Clipboard | undefined;
+  return (
+    <div className="flex flex-col gap-[14px]">
+      <p className="text-[12.5px] text-ink-muted">{t("platform.newTenant.result.hint")}</p>
+      <div className="flex flex-col gap-[10px] rounded-md border border-border bg-surface-2 p-[14px]">
+        <ResultRow label={t("platform.newTenant.result.code")} value={result.tenant.code} />
+        <ResultRow label={t("platform.newTenant.result.adminEmail")} value={result.adminEmail} />
+        <div>
+          <span className="mb-[6px] block text-xs font-semibold text-ink-muted">{t("platform.newTenant.result.adminPin")}</span>
+          <div className="flex flex-wrap items-center gap-[10px]">
+            <code
+              dir="ltr"
+              className="mz-num select-all break-all rounded-[6px] bg-surface px-[10px] py-[6px] text-[16px] font-bold text-ink"
+            >
+              {result.adminPin ?? t("platform.newTenant.result.pinKept")}
+            </code>
+            {clipboard && result.adminPin ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  void clipboard
+                    .writeText(result.adminPin ?? "")
+                    .then(() => setCopied(true))
+                    .catch(() => setCopied(false));
+                }}
+              >
+                {t("platform.newTenant.result.copy")}
+              </Button>
+            ) : null}
+            {copied ? <span className="text-[12px] text-ink-muted">{t("platform.newTenant.result.copied")}</span> : null}
+          </div>
+        </div>
+      </div>
+      <p role="alert" className="text-[11.5px] font-semibold text-warning-ink">
+        {t("platform.newTenant.result.oneTime")}
+      </p>
+      <div className="flex justify-end border-t border-border pt-[14px]">
+        <Button variant="primary" onClick={onClose}>
+          {t("platform.newTenant.result.close")}
+        </Button>
+      </div>
+    </div>
   );
 }
 

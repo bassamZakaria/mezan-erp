@@ -75,3 +75,46 @@ export type VerifySignupResultDTO = z.infer<typeof verifySignupResultSchema>;
 
 // CONTRACT: the cloud server stamps this meta tag into index.html and the web app reads it to open the public landing page at `/`.
 export const CLOUD_SITE_META = { name: "mezan-site", content: "cloud" } as const;
+
+/** Mirrors `SignupMode` in `packages/domain/src/platform/signup.ts`; `@mezan/contracts` may not import `@mezan/domain`. */
+export enum SignupModeCode {
+  Open = "open",
+  Approval = "approval",
+  Closed = "closed",
+}
+
+export const signupModeSchema = z.nativeEnum(SignupModeCode);
+
+export const signupStatusSchema = z.object({ mode: signupModeSchema });
+
+export const setSignupModeRequestSchema = z.object({ mode: signupModeSchema });
+
+export enum SignupRefusalCode {
+  Closed = "SIGNUP_CLOSED",
+  AwaitingApproval = "SIGNUP_AWAITING_APPROVAL",
+}
+
+/** A verified sign-up waiting for the platform owner, as the console lists it. */
+export const signupRequestSchema = z.object({
+  id: z.string().min(1),
+  code: z.string().min(1),
+  nameAr: z.string().min(1),
+  nameEn: z.string().nullable(),
+  ownerEmail: z.string().min(1),
+  ownerNameAr: z.string().min(1),
+  intendedPlanId: z.string().nullable(),
+  billingCycle: billingCycleSchema,
+  createdAt: z.string().min(1),
+  verifiedAt: z.string().nullable(),
+});
+
+export const approveSignupRequestSchema = z.object({
+  planId: z.string().min(1),
+  billingCycle: billingCycleSchema,
+  trial: z.boolean(),
+});
+
+export type SignupStatusDTO = z.infer<typeof signupStatusSchema>;
+export type SetSignupModeRequestDTO = z.infer<typeof setSignupModeRequestSchema>;
+export type SignupRequestDTO = z.infer<typeof signupRequestSchema>;
+export type ApproveSignupRequestDTO = z.infer<typeof approveSignupRequestSchema>;

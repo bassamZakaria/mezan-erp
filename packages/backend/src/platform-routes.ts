@@ -61,6 +61,11 @@ import {
   isReservedTenantCode,
   RESERVED_TENANT_CODE_MESSAGE,
   AuditSeverityCode,
+  PlatformSettingKey,
+  SignupDecision,
+  SignupRequestStatus,
+  signupModeOf,
+  type SignupRequest,
 } from "@mezan/domain";
 import {
   createTenantRequestSchema,
@@ -120,6 +125,11 @@ import {
   purgeTenantNowRequestSchema,
   type TenantPurgeResultDTO,
   type TenantRetentionDTO,
+  approveSignupRequestSchema,
+  setSignupModeRequestSchema,
+  signupModeSchema,
+  type SignupRequestDTO,
+  type SignupStatusDTO,
 } from "@mezan/contracts";
 import { connectionTurn, createLogger } from "@mezan/api";
 import { OwnerPinResetOutcome } from "./owner-pin-reset-outcome.js";
@@ -173,6 +183,9 @@ export enum PlatformAuditAction {
   SubscriptionAnchorDaySet = "SUBSCRIPTION_ANCHOR_DAY_SET",
   SubscriptionCancelled = "SUBSCRIPTION_CANCELLED",
   SubscriptionExtrasSet = "SUBSCRIPTION_EXTRAS_SET",
+  SignupApproved = "SIGNUP_APPROVED",
+  SignupRejected = "SIGNUP_REJECTED",
+  SignupModeSet = "SIGNUP_MODE_SET",
   SubscriptionPlanChanged = "SUBSCRIPTION_PLAN_CHANGED",
   SubscriptionResumed = "SUBSCRIPTION_RESUMED",
   SubscriptionStarted = "SUBSCRIPTION_STARTED",
@@ -440,6 +453,21 @@ function asCodeProvisioning(err: unknown): { readonly message: string; readonly 
   return { message: err.message, messageEn: typeof messageEn === "string" ? messageEn : "This tenant code is being provisioned by another request right now." };
 }
 
+function serializeSignupRequest(r: SignupRequest): SignupRequestDTO {
+  return {
+    id: r.id, code: r.code, nameAr: r.nameAr, nameEn: r.nameEn, ownerEmail: r.ownerEmail, ownerNameAr: r.ownerNameAr,
+    intendedPlanId: r.intendedPlanId ?? null, billingCycle: r.billingCycle, createdAt: r.createdAt, verifiedAt: r.verifiedAt,
+  };
+}
+
+const SIGNUP_ALREADY_DECIDED = { error: "SIGNUP_ALREADY_DECIDED", message: "سبق البتّ في هذا الطلب" } as const;
+
+class SignupAlreadyDecidedError extends Error {
+  constructor() {
+    super(SIGNUP_ALREADY_DECIDED.message);
+  }
+}
+
 function extrasOf(s: Pick<Subscription, "addOnModules" | "extraSeats" | "extraBranches" | "extraWarehouses" | "graceDays">) {
   return { addOnModules: [...s.addOnModules], extraSeats: s.extraSeats, extraBranches: s.extraBranches, extraWarehouses: s.extraWarehouses, graceDays: s.graceDays };
 }
@@ -658,6 +686,80 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
       const result = await provisionTenant({ ...parsed.data, actorId: platformUser.id }, activationRecordedAs(c, "TENANT_PROVISIONED"));
       invalidateEntitlements(result.tenant.code);
       return c.json(result, 201);
+    } catch (err) {
+      return domainErrorResponse(c, err);
+    }
+  });
+
+  const signupRequests = platform.stores.signupRequests;
+
+  async function awaitingRequest(id: string): Promise<SignupRequest | null> {
+    const request = await signupRequests.findById(id);
+    return request && request.status === SignupRequestStatus.Verified && !request.decision ? request : null;
+  }
+
+  app.get("/signup-requests", requireAny, async (c) => c.json((await signupRequests.listAwaitingDecision()).map(serializeSignupRequest)));
+
+  app.post("/signup-requests/:id/approve", requireOwner, async (c) => {
+    const parsed = approveSignupRequestSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    const request = await awaitingRequest(c.req.param("id"));
+    if (!request) return c.json(SIGNUP_ALREADY_DECIDED, 409);
+    const platformUser = c.get("platformUser")!;
+    try {
+      // The decision is written in the same audited transaction that activates the company, so an approval never exists without its company.
+      const result = await provisionTenant(
+        { code: request.code, nameAr: request.nameAr, nameEn: request.nameEn, ownerEmail: request.ownerEmail, ownerNameAr: request.ownerNameAr, ...parsed.data, actorId: platformUser.id },
+        (activate) =>
+          recordedWith(c, async () => {
+            const tenant = await activate();
+            if (!(await signupRequests.tryDecide(request.id, SignupDecision.Approved, platformUser.id, nowIso()))) throw new SignupAlreadyDecidedError();
+            return { value: tenant, action: PlatformAuditAction.SignupApproved, entityId: tenant.id, details: { code: tenant.code, requestId: request.id, ...parsed.data } };
+          }),
+      );
+      invalidateEntitlements(result.tenant.code);
+      return c.json(result, 201);
+    } catch (err) {
+      if (err instanceof SignupAlreadyDecidedError) return c.json(SIGNUP_ALREADY_DECIDED, 409);
+      return domainErrorResponse(c, err);
+    }
+  });
+
+  app.post("/signup-requests/:id/reject", requireOwner, async (c) => {
+    const request = await awaitingRequest(c.req.param("id"));
+    if (!request) return c.json(SIGNUP_ALREADY_DECIDED, 409);
+    const platformUser = c.get("platformUser")!;
+    try {
+      await recordedWith(c, async () => {
+        if (!(await signupRequests.tryDecide(request.id, SignupDecision.Rejected, platformUser.id, nowIso()))) throw new SignupAlreadyDecidedError();
+        await signupRequests.releaseByCode(request.code);
+        return { value: null, action: PlatformAuditAction.SignupRejected, entityId: request.id, details: { code: request.code, ownerEmail: request.ownerEmail } };
+      });
+      return c.json({ rejected: true });
+    } catch (err) {
+      if (err instanceof SignupAlreadyDecidedError) return c.json(SIGNUP_ALREADY_DECIDED, 409);
+      return domainErrorResponse(c, err);
+    }
+  });
+
+  const signupMode = async () => signupModeOf(await platform.stores.settings.get(PlatformSettingKey.SignupMode));
+
+  app.get("/settings/signup-mode", requireAny, async (c) => {
+    const body: SignupStatusDTO = { mode: signupModeSchema.parse(await signupMode()) };
+    return c.json(body);
+  });
+
+  app.put("/settings/signup-mode", requireOwner, async (c) => {
+    const parsed = setSignupModeRequestSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    try {
+      await recordedWith(c, async () => {
+        const before = await signupMode();
+        await platform.stores.settings.set(PlatformSettingKey.SignupMode, parsed.data.mode, nowIso());
+        return { value: null, action: PlatformAuditAction.SignupModeSet, entityId: PlatformSettingKey.SignupMode, details: { before, after: parsed.data.mode }, severity: AuditSeverityCode.Warning };
+      });
+      const body: SignupStatusDTO = { mode: parsed.data.mode };
+      return c.json(body);
     } catch (err) {
       return domainErrorResponse(c, err);
     }

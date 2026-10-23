@@ -6,7 +6,7 @@ import type { Hono } from "hono";
 import { openSqliteConnection } from "@mezan/persistence";
 import { SubscriptionStatusCode, type PublicPlanDTO } from "@mezan/contracts";
 import { createBackend, createPlatform, type PlatformHandle } from "@mezan/backend";
-import { createTenant, InvalidTenantTransitionError, QuotaKind, startSubscription, TenantStatusCode, type Subscription } from "@mezan/domain";
+import { createTenant, InvalidTenantTransitionError, PlatformSettingKey, QuotaKind, SignupMode, startSubscription, TenantStatusCode, type Subscription } from "@mezan/domain";
 import { releaseProvisioningTenant } from "./release-tenant.js";
 import { createCloudApp, type CloudApp } from "./cloud-app.js";
 import { createSignupRoutes } from "./signup-routes.js";
@@ -52,7 +52,7 @@ interface VerifyBody {
   readonly alreadyVerified: boolean;
 }
 
-async function boot(): Promise<CloudApp> {
+async function boot(mode: SignupMode = SignupMode.Open): Promise<CloudApp> {
   const platformDir = mkdtempSync(path.join(tmpdir(), "mezan-signup-platform-"));
   dirs.push(platformDir);
   const app = await createCloudApp(
@@ -68,6 +68,7 @@ async function boot(): Promise<CloudApp> {
   );
   reachable(app.root);
   apps.push(app);
+  if (mode !== SignupMode.Approval) await setSignupMode(app, mode);
   return app;
 }
 
@@ -93,6 +94,16 @@ async function platformBearer(app: CloudApp): Promise<string> {
   const body = (await login.json()) as { token: string };
   rememberPlatformDevice(body);
   return body.token;
+}
+
+function platformCall(app: CloudApp, token: string, route: string, init: RequestInit = {}): Promise<Response> {
+  const headers = { ...bearerHeaders(token), ...(init.body ? { "content-type": "application/json" } : {}) };
+  return Promise.resolve(app.root.fetch(new Request(`http://cloud.internal/api/platform${route}`, { ...init, headers })));
+}
+
+async function setSignupMode(app: CloudApp, mode: SignupMode): Promise<void> {
+  const res = await platformCall(app, await platformBearer(app), "/settings/signup-mode", { method: "PUT", body: JSON.stringify({ mode }) });
+  expect(res.status).toBe(200);
 }
 
 async function startAndReadToken(app: CloudApp, code: string, nameAr = "متجر الياسمين"): Promise<string> {
@@ -125,6 +136,72 @@ async function listedTenantCodes(app: CloudApp): Promise<string[]> {
   const listed = await app.root.fetch(new Request("http://cloud.internal/api/platform/tenants", { headers: { ...bearerHeaders(token) } }));
   return ((await listed.json()) as { tenant: { code: string } }[]).map((row) => row.tenant.code);
 }
+
+describe("sign-ups the platform owner approves", () => {
+  it("holds a verified sign-up for review, then the owner approves it onto the package they pick and receives the PIN", async () => {
+    const app = await boot(SignupMode.Approval);
+    const token = await startAndReadToken(app, "reviewme");
+
+    const verified = await post(app, "/api/signup/verify", { token });
+    expect(verified.status).toBe(409);
+    expect(((await verified.json()) as { error: string }).error).toBe("SIGNUP_AWAITING_APPROVAL");
+    expect(await listedTenantCodes(app)).not.toContain("reviewme");
+    expect((await post(app, "/api/signup", signupBody("reviewme", "متجر آخر"))).status).toBe(409);
+
+    const owner = await platformBearer(app);
+    const queue = (await (await platformCall(app, owner, "/signup-requests")).json()) as { id: string; code: string; ownerEmail: string }[];
+    expect(queue).toMatchObject([{ code: "reviewme", ownerEmail: "owner@reviewme.example" }]);
+
+    const approve = (trial: boolean) =>
+      platformCall(app, owner, `/signup-requests/${queue[0]!.id}/approve`, { method: "POST", body: JSON.stringify({ planId: "PLAN-CORE", billingCycle: "monthly", trial }) });
+    const approved = await approve(false);
+    expect(approved.status).toBe(201);
+    const result = (await approved.json()) as { tenant: { code: string; status: string }; adminPin: string };
+    expect(result.tenant).toMatchObject({ code: "reviewme", status: "active" });
+    expect(result.adminPin).toMatch(/^\d{6}$/);
+    expect((await approve(false)).status).toBe(409);
+    expect(await (await platformCall(app, owner, "/signup-requests")).json()).toEqual([]);
+
+    const again = await post(app, "/api/signup/verify", { token });
+    expect(again.status).toBe(200);
+    expect(await again.json()).toMatchObject({ alreadyVerified: true, adminPin: null });
+  });
+
+  it("a rejected sign-up never becomes a company, frees its code, and its link stops working", async () => {
+    const app = await boot(SignupMode.Approval);
+    const token = await startAndReadToken(app, "nothanks");
+    expect((await post(app, "/api/signup/verify", { token })).status).toBe(409);
+    const owner = await platformBearer(app);
+    const [request] = (await (await platformCall(app, owner, "/signup-requests")).json()) as { id: string }[];
+
+    expect((await platformCall(app, owner, `/signup-requests/${request!.id}/reject`, { method: "POST" })).status).toBe(200);
+    expect((await platformCall(app, owner, `/signup-requests/${request!.id}/reject`, { method: "POST" })).status).toBe(409);
+    expect(
+      (await platformCall(app, owner, `/signup-requests/${request!.id}/approve`, { method: "POST", body: JSON.stringify({ planId: "PLAN-CORE", billingCycle: "monthly", trial: true }) })).status,
+    ).toBe(409);
+    expect((await post(app, "/api/signup/verify", { token })).status).toBe(400);
+    expect(await listedTenantCodes(app)).not.toContain("nothanks");
+    expect((await post(app, "/api/signup", signupBody("nothanks", "متجر جديد"))).status).toBe(201);
+  });
+
+  it("closed refuses new sign-ups, approval is the default, and only the owner changes the mode", async () => {
+    const app = await boot(SignupMode.Approval);
+    const status = async () => ((await (await app.root.fetch(new Request("http://cloud.internal/api/signup/status"))).json()) as { mode: string }).mode;
+    expect(await status()).toBe("approval");
+
+    await setSignupMode(app, SignupMode.Closed);
+    expect(await status()).toBe("closed");
+    const refused = await post(app, "/api/signup", signupBody("closedshop", "متجر مغلق"));
+    expect(refused.status).toBe(403);
+    expect(((await refused.json()) as { error: string }).error).toBe("SIGNUP_CLOSED");
+
+    const noSession = await app.root.fetch(
+      new Request("http://cloud.internal/api/platform/settings/signup-mode", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ mode: "open" }) }),
+    );
+    expect(noSession.status).toBe(401);
+    expect(await status()).toBe("closed");
+  });
+});
 
 describe("self-serve signup routes", () => {
   it("answers a signup posted to /api/signup itself, not the tenant router's TENANT_REQUIRED", async () => {
@@ -622,6 +699,7 @@ function platformDir(): string {
 async function openPlatform(dataDir: string): Promise<PlatformHandle> {
   const platform = await createPlatform({ dbPath: path.join(dataDir, "platform.db"), now: () => new Date(T) });
   platforms.push(platform);
+  await platform.stores.settings.set(PlatformSettingKey.SignupMode, SignupMode.Open, T);
   return platform;
 }
 

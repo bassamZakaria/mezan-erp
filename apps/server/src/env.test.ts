@@ -192,6 +192,12 @@ describe("parseEnv", () => {
     expect(() => parseEnv({ MEZAN_API_REQUESTS_PER_SESSION_PER_MINUTE: "lots" })).toThrow(/MEZAN_API_REQUESTS_PER_SESSION_PER_MINUTE/);
   });
 
+  it("refuses a backup or anchor interval longer than the 30 minutes after which an idle tenant is closed", () => {
+    expect(parseEnv({ MEZAN_BACKUP_INTERVAL_MINUTES: "30" }).backupIntervalMinutes).toBe(30);
+    expect(() => parseEnv({ MEZAN_BACKUP_INTERVAL_MINUTES: "31" })).toThrow(/MEZAN_BACKUP_INTERVAL_MINUTES/);
+    expect(() => parseEnv({ MEZAN_AUDIT_ANCHOR_INTERVAL_MINUTES: "60" })).toThrow(/MEZAN_AUDIT_ANCHOR_INTERVAL_MINUTES/);
+  });
+
   it("accepts MEZAN_BACKUP_INTERVAL_MINUTES=0 (disables the scheduler)", () => {
     expect(parseEnv({ MEZAN_BACKUP_INTERVAL_MINUTES: "0" }).backupIntervalMinutes).toBe(0);
   });

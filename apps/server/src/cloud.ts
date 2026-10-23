@@ -1,4 +1,5 @@
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
+import { Server as HttpServer } from "node:http";
 import { serve } from "@hono/node-server";
 import type { Context, MiddlewareHandler } from "hono";
 import { getCookie, setCookie } from "hono/cookie";
@@ -140,7 +141,20 @@ const server = serve({ fetch: root.fetch, port: env.port, hostname: "0.0.0.0" },
 });
 
 // REQUIRED ORDERING: stop taking requests and let those in flight finish before the backends close under them.
-const stopServing = () => new Promise<void>((resolve) => server.close(() => resolve()));
+// close() alone waits forever on a keep-alive socket Caddy keeps busy, so idle sockets are cut each second
+// and any left are cut well inside the process's shutdown budget.
+const stopServing = () =>
+  new Promise<void>((resolve) => {
+    const http = server instanceof HttpServer ? server : null;
+    const idle = setInterval(() => http?.closeIdleConnections(), 1_000);
+    const hard = setTimeout(() => http?.closeAllConnections(), 20_000);
+    server.close(() => {
+      clearInterval(idle);
+      clearTimeout(hard);
+      resolve();
+    });
+    http?.closeIdleConnections();
+  });
 
 const marker = markRunning(env.platformDir);
 installProcessHandlers({

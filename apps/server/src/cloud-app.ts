@@ -24,7 +24,7 @@ import { platformActor, provisionResultDTOOf, provisionTenant, PlanRequiredError
 import { resetTenantOwnerPin } from "./owner-pin-reset.js";
 import { releaseProvisioningTenant } from "./release-tenant.js";
 import { callerSource, createSourceReporter, requireCloudSource } from "./client-source.js";
-import { addressKey, createRateLimiter, requestCap, sessionKey } from "./rate-limit.js";
+import { addressKey, createMemoryRateWindowStore, createRateLimiter, requestCap, SESSION_CAP_MAX_RECORDS, sessionKey } from "./rate-limit.js";
 import { createSignupRoutes, SIGNUP_BASE_PATH } from "./signup-routes.js";
 import { provisionDemoTenant } from "./demo-tenant.js";
 import { provisionReviewTenant } from "./review-tenant.js";
@@ -519,7 +519,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
   root.use("/api/platform/*", cookieSessions.platform);
   root.use("/api/*", cookieSessions.tenant);
   // After the cookie sessions, which turn the browser's cookie into the bearer token keyed here.
-  root.use("/api/*", requestCap(createRateLimiter(env.apiRequestsPerSessionPerMinute, 60_000), sessionKey));
+  root.use("/api/*", requestCap(createRateLimiter(env.apiRequestsPerSessionPerMinute, 60_000, Date.now, createMemoryRateWindowStore(), SESSION_CAP_MAX_RECORDS), sessionKey));
 
   // `/api/platform` before `/api`: the tenant router's own catch-all would
   // otherwise swallow the console's routes first.

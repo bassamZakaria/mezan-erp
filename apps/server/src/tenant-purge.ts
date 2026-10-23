@@ -119,7 +119,6 @@ export function createTenantPurge(deps: TenantPurgeDeps): TenantPurgeService {
   ].filter((file) => existsSync(file));
 
   type PurgeBy = { readonly actor: string; readonly reason: string; readonly trigger: TenantPurgeTrigger };
-  // The console's purge and the daily sweep can reach one tenant at once; the second joins the first.
   const purging = new Map<string, Promise<TenantPurgeResultDTO>>();
   function purge(tenant: Tenant, by: PurgeBy): Promise<TenantPurgeResultDTO> {
     const running = purging.get(tenant.id);

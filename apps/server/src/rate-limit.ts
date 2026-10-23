@@ -70,6 +70,7 @@ export function createRateLimiter(
   windowMs: number,
   now: () => number = Date.now,
   store: RateWindowStore = createMemoryRateWindowStore(),
+  maxRecords: number = MAX_RECORDS,
 ): RateLimiter {
   return {
     retryAfter(key) {
@@ -82,15 +83,18 @@ export function createRateLimiter(
     consume(key) {
       const at = now();
       store.hit(key, at, windowMs);
-      store.sweep(at, MAX_RECORDS);
+      store.sweep(at, maxRecords);
     },
   };
 }
 
+// SECURITY: any bearer string gets a session window, so this store must hold far more keys than the
+// address cap lets a handful of addresses mint in a minute, or junk tokens evict real sessions' counts.
+export const SESSION_CAP_MAX_RECORDS = 200_000;
+
 export enum RequestCapRefusal {
   TooManyRequests = "TOO_MANY_REQUESTS",
 }
-
 
 // No await between the check and the count, so concurrent requests on one key can never both slip under the limit.
 export function requestCap(limiter: RateLimiter, keyOf: (c: Context) => string | null): MiddlewareHandler {

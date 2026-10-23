@@ -144,6 +144,22 @@ describe("runBackups", () => {
 
     const backedUp = (dir: string): string[] => readdirSync(path.join(dir, "backups", "tenants")).sort();
 
+    it("does not fail the run for a tenant that closed while it was being backed up", async () => {
+      const { platform, router } = await threeOpen();
+      const dir = tempDir("mezan-backup-dir-");
+      const closingMidBackup: TenantRouter = {
+        ...router,
+        openBackendOf: async (id) => {
+          if (id !== "t-beta") return router.openBackendOf(id);
+          await router.evict(id);
+          throw new Error("The database connection is not open");
+        },
+      };
+
+      await expect(runBackups({ platform, router: closingMidBackup, dir, now: () => new Date(T) })).resolves.toEqual({ skipped: [] });
+      expect(backedUp(dir)).toEqual(["t-alpha", "t-gamma"]);
+    });
+
     it("skips a tenant whose books are refused, says which and why, and still backs up the tenants after it", async () => {
       const { platform, router } = await threeOpen();
       const dir = tempDir("mezan-backup-dir-");

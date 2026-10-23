@@ -178,6 +178,7 @@ export async function runAuditAnchorSweep(options: AuditAnchorJobOptions): Promi
         log({ event: AnchorLogEvent.Refused, scope, reason: result.reason });
       }
     } catch (err) {
+      if (scope !== PLATFORM_ANCHOR_SCOPE && !options.router.openTenants().some((still) => still.id === scope)) continue;
       counts.failed += 1;
       log({ event: AnchorLogEvent.Failed, scope, reason: err instanceof Error ? err.message : String(err) });
     }

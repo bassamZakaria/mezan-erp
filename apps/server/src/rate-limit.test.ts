@@ -83,6 +83,15 @@ describe("in-memory window store", () => {
   });
 });
 
+describe("limiter capacity", () => {
+  it("keeps live windows up to the capacity it was given, so junk keys cannot evict a counted caller below it", () => {
+    const limiter = createRateLimiter(1, 60_000, () => 0, createMemoryRateWindowStore(), 50_000);
+    limiter.consume("real-session");
+    for (let i = 0; i < 20_000; i += 1) limiter.consume(`junk-${i}`);
+    expect(limiter.retryAfter("real-session")).toBe(60);
+  });
+});
+
 describe("requestCap", () => {
   function capped(limit: number, clock: () => number, keyOf = (c: Context) => c.req.header("x-key") ?? null) {
     const app = new Hono();

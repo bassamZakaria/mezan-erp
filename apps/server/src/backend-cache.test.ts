@@ -105,8 +105,9 @@ describe("createBackendCache", () => {
 
     t += 1001;
     const sweepPromise = cache.sweep();
-    const second = await cache.get("a");
+    const pendingSecond = cache.get("a");
     rejectFirst(new Error("boom"));
+    const second = await pendingSecond;
     await sweepPromise;
     await first;
 
@@ -227,5 +228,28 @@ describe("createBackendCache", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("does not reopen a tenant until its previous handle has finished closing", async () => {
+    const order: string[] = [];
+    let finishDrain: () => void = () => undefined;
+    let opened = 0;
+    const cache = createBackendCache({
+      open: async () => {
+        opened += 1;
+        order.push(`open ${opened}`);
+        return { drain: () => new Promise<void>((resolve) => { finishDrain = resolve; }), close: () => void order.push(`close ${opened}`) };
+      },
+      sweepEveryMs: 0,
+    });
+    await cache.get("a");
+    const evicted = cache.evict("a");
+    const reopened = cache.get("a");
+    await Promise.resolve();
+    expect(order).toEqual(["open 1"]);
+    finishDrain();
+    await evicted;
+    await reopened;
+    expect(order).toEqual(["open 1", "close 1", "open 2"]);
   });
 });

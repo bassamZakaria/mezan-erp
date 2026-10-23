@@ -201,9 +201,7 @@ export interface TenantRouter {
   unlockAccountOf(input: { readonly tenantId: string; readonly account: string; readonly actor: string }): Promise<boolean>;
   evict(tenantId: string): Promise<void>;
   invalidate(code: string): void;
-  /** The tenant's plan and entitlement resolvers, the same ones `invalidate` refreshes. */
   resolversFor(code: string): TenantResolvers;
-  /** Drops what this router remembers of a tenant whose files are gone. */
   forget(tenantId: string): void;
   // REQUIRED ORDERING: called only for a tenant whose registration has just
   // been discarded. It closes the open backend BEFORE it removes the database

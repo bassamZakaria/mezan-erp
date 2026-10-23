@@ -267,6 +267,8 @@ export async function runBackups(options: RunBackupsOptions): Promise<BackupRun>
       if (refusal) {
         skipped.push({ tenantId: tenant.id, code: tenant.code, reason: refusal.error });
         backupLog.warn(`tenant "${tenant.code}" (${tenant.id}) was skipped: its books are refused (${refusal.error})`);
+      } else if (!options.router.openTenants().some((still) => still.id === tenant.id)) {
+        backupLog.info(`tenant "${tenant.code}" (${tenant.id}) closed during its backup; its file is at rest`);
       } else {
         backupLog.error({ err: err }, `tenant "${tenant.code}" (${tenant.id}) could not be backed up`);
         failures.push(`${tenant.code}: ${err instanceof Error ? err.message : String(err)}`);

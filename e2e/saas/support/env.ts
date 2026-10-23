@@ -182,5 +182,4 @@ export function uniqueCode(prefix: CodePrefix): string {
   return `${prefix}-${stamp}${salt}`;
 }
 
-// One browser walks every screen on one session far faster than a person, so the suites lift the request caps.
 export const E2E_REQUEST_CAPS = { MEZAN_API_REQUESTS_PER_ADDRESS_PER_MINUTE: "1000000", MEZAN_API_REQUESTS_PER_SESSION_PER_MINUTE: "1000000" } as const;

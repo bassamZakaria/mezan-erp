@@ -38,7 +38,36 @@ export function createBackendCache<H extends CachedHandle>(options: BackendCache
   const idleMs = options.idleMs ?? DEFAULT_IDLE_MS;
   const now = options.now ?? Date.now;
   const entries = new Map<string, { handle: Promise<H>; lastUsed: number }>();
+  // REQUIRED: a tenant is never reopened while its last handle is still draining, or two handles write one file.
+  const closing = new Map<string, Promise<void>>();
   let closed = false;
+
+  function retire(code: string, handle: Promise<H>): Promise<void> {
+    const done: Promise<void> = handle.then(shut).finally(() => {
+      if (closing.get(code) === done) closing.delete(code);
+    });
+    closing.set(code, done);
+    return done;
+  }
+
+  async function get(code: string): Promise<H> {
+    if (closed) throw new Error("CACHE_CLOSED");
+    const existing = entries.get(code);
+    if (existing) { existing.lastUsed = now(); return existing.handle; }
+    const retiring = closing.get(code);
+    if (retiring) {
+      await retiring.catch(() => undefined);
+      return get(code);
+    }
+    const entry = { handle: options.open(code), lastUsed: now() };
+    entries.set(code, entry);
+    try {
+      return await entry.handle;
+    } catch (err) {
+      if (entries.get(code) === entry) entries.delete(code);
+      throw err;
+    }
+  }
   const timer = options.sweepEveryMs === 0
     ? null
     : setInterval(() => { sweep().catch(() => undefined); }, options.sweepEveryMs ?? 60_000);
@@ -46,33 +75,21 @@ export function createBackendCache<H extends CachedHandle>(options: BackendCache
 
   async function sweep(): Promise<void> {
     const cutoff = now() - idleMs;
-    const due: Array<Promise<H>> = [];
+    const due: Array<Promise<void>> = [];
     for (const [code, entry] of entries) {
       if (entry.lastUsed <= cutoff) {
         entries.delete(code);
         options.onEvict?.(code);
-        due.push(entry.handle);
+        due.push(retire(code, entry.handle));
       }
     }
-    await Promise.allSettled(due.map((handle) => handle.then(shut)));
+    await Promise.allSettled(due);
   }
 
   return {
     get size() { return entries.size; },
     openCodes: () => [...entries.keys()],
-    async get(code) {
-      if (closed) throw new Error("CACHE_CLOSED");
-      const existing = entries.get(code);
-      if (existing) { existing.lastUsed = now(); return existing.handle; }
-      const entry = { handle: options.open(code), lastUsed: now() };
-      entries.set(code, entry);
-      try {
-        return await entry.handle;
-      } catch (err) {
-        if (entries.get(code) === entry) entries.delete(code);
-        throw err;
-      }
-    },
+    get,
     peek: (code) => entries.get(code)?.handle,
     sweep,
     async evict(code) {
@@ -80,13 +97,13 @@ export function createBackendCache<H extends CachedHandle>(options: BackendCache
       if (!entry) return;
       entries.delete(code);
       options.onEvict?.(code);
-      await entry.handle.then(shut).catch(() => undefined);
+      await retire(code, entry.handle).catch(() => undefined);
     },
     async close() {
       closed = true;
       if (timer) clearInterval(timer);
       const open = [...entries.values()]; entries.clear();
-      await Promise.allSettled(open.map((entry) => entry.handle.then(shut)));
+      await Promise.allSettled([...open.map((entry) => entry.handle.then(shut)), ...closing.values()]);
     },
   };
 }

@@ -80,6 +80,8 @@ describe("LandingPage", () => {
 
     expect((await screen.findAllByRole("link", { name: "اطلب حسابك" })).length).toBeGreaterThan(0);
     expect(screen.queryByRole("link", { name: "ابدأ التجربة المجانية" })).not.toBeInTheDocument();
+    expect(screen.getByText("اطلب حسابًا لمنشأتك، فنراجع طلبك ونفعّله لك. ودفاترك تبقى معك.")).toBeInTheDocument();
+    expect(screen.queryByText(/بلا بطاقة ائتمان · تفعيل برابط/)).not.toBeInTheDocument();
   });
 
   it("marks a sold-out package and offers no way to choose it", async () => {

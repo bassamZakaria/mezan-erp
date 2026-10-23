@@ -13,7 +13,7 @@ import {
   type ModuleTrial, type ModuleTrialRepository,
   type SubscriptionTransitionRepository,
   type PlatformUser, type PlatformUserRepository,
-  type SignupRequest, type SignupRequestRepository, SignupRequestStatus, type SignupDecision,
+  type SignupRequest, type SignupRequestRepository, SignupRequestStatus, type SignupDecision, VERIFIED_LINK_VALID_MS,
   type PlatformSettingKey, type PlatformSettingRepository,
   type Subscription, SubscriptionStatusKind, anchorIsUtcDayOfCreation, billingDayBehindUtcAnchor, inferBillingAnchorDay,
   type OwnerRecordDue, type PendingOwner, type Tenant, type TenantRepository, TenantBooksReview, TenantStatusCode,
@@ -231,14 +231,16 @@ function addMissingColumns(sqlite: Database.Database): void {
   if (!onSubscription.has("intended_plan_id")) sqlite.exec(`ALTER TABLE subscription ADD COLUMN intended_plan_id TEXT`);
   const onSignup = new Set((sqlite.prepare(`PRAGMA table_info(signup_request)`).all() as { name: string }[]).map((c) => c.name));
   if (!onSignup.has("intended_plan_id")) sqlite.exec(`ALTER TABLE signup_request ADD COLUMN intended_plan_id TEXT`);
-  if (!onSignup.has("decision")) {
-    for (const column of ["decision", "decided_at", "decided_by"]) sqlite.exec(`ALTER TABLE signup_request ADD COLUMN ${column} TEXT`);
-    // Sign-ups that already became companies under open sign-up were approved by being provisioned; without this they would all queue for approval.
-    sqlite.exec(
-      `UPDATE signup_request SET decision = 'approved', decided_at = COALESCE(verified_at, created_at), decided_by = 'migration'
-       WHERE status = 'verified' AND decision IS NULL AND code IN (SELECT code FROM tenant)`,
-    );
-  }
+  sqlite.transaction(() => {
+    for (const column of ["decision", "decided_at", "decided_by"]) {
+      if (!onSignup.has(column)) sqlite.exec(`ALTER TABLE signup_request ADD COLUMN ${column} TEXT`);
+    }
+  })();
+  // Idempotent, so it runs on every start: a sign-up whose code already became a company was decided by that, and must never queue for approval.
+  sqlite.exec(
+    `UPDATE signup_request SET decision = 'approved', decided_at = COALESCE(verified_at, created_at), decided_by = 'migration'
+     WHERE status = 'verified' AND decision IS NULL AND code IN (SELECT code FROM tenant)`,
+  );
   const onPayment = new Set(
     (sqlite.prepare(`PRAGMA table_info(payment)`).all() as { name: string }[]).map((c) => c.name),
   );
@@ -1151,7 +1153,9 @@ class SqliteSignupRequestStore implements SignupRequestRepository {
 
   constructor(sqlite: Database.Database) {
     this.byId = sqlite.prepare(`SELECT * FROM signup_request WHERE id = ?`);
-    this.awaiting = sqlite.prepare(`SELECT * FROM signup_request WHERE status = ? AND decision IS NULL ORDER BY verified_at, created_at`);
+    this.awaiting = sqlite.prepare(
+      `SELECT * FROM signup_request WHERE status = ? AND decision IS NULL AND code NOT IN (SELECT code FROM tenant) ORDER BY verified_at, created_at`,
+    );
     // Only an undecided verified row moves, so two clicks (approve and reject, or approve twice) cannot both win.
     this.decide = sqlite.prepare(
       `UPDATE signup_request SET decision = ?, decided_at = ?, decided_by = ? WHERE id = ? AND status = ? AND decision IS NULL`,
@@ -1193,7 +1197,7 @@ class SqliteSignupRequestStore implements SignupRequestRepository {
     this.byTokenHash = sqlite.prepare(`SELECT * FROM signup_request WHERE token_hash = ?`);
     this.activeByCode = sqlite.prepare(
       `SELECT * FROM signup_request
-       WHERE code = @code AND ((status = @pending AND expires_at > @now) OR (status = @verified AND decision IS NULL))
+       WHERE code = @code AND ((status = @pending AND expires_at > @now) OR (status = @verified AND decision IS NULL AND verified_at > @holdSince))
        ORDER BY created_at DESC LIMIT 1`,
     );
     // The conditional WHERE is the whole point: only a row still `pending`
@@ -1210,7 +1214,8 @@ class SqliteSignupRequestStore implements SignupRequestRepository {
   }
 
   async findActiveByCode(code: string, nowIso: string): Promise<SignupRequest | null> {
-    const row = this.activeByCode.get({ code, pending: SignupRequestStatus.Pending, verified: SignupRequestStatus.Verified, now: nowIso }) as
+    const holdSince = new Date(new Date(nowIso).getTime() - VERIFIED_LINK_VALID_MS).toISOString();
+    const row = this.activeByCode.get({ code, pending: SignupRequestStatus.Pending, verified: SignupRequestStatus.Verified, now: nowIso, holdSince }) as
       | SignupRequestRow
       | undefined;
     return row ? toSignupRequest(row) : null;

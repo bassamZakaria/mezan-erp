@@ -98,6 +98,7 @@ export const signupModeResponseSchema = z.object({ mode: signupModeSchema });
 export enum SignupRefusalCode {
   Closed = "SIGNUP_CLOSED",
   AwaitingApproval = "SIGNUP_AWAITING_APPROVAL",
+  AlreadyDecided = "SIGNUP_ALREADY_DECIDED",
 }
 
 /** A verified sign-up waiting for the platform owner, as the console lists it. */

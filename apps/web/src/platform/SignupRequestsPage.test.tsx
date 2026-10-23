@@ -85,6 +85,38 @@ describe("SignupRequestsPage", () => {
     await waitFor(() => expect(screen.getByText("لا توجد طلبات تنتظر المراجعة.")).toBeInTheDocument());
   });
 
+  it("cannot be closed while the approval is in flight, so the one-time PIN is never lost", async () => {
+    let answer: (value: { status: number; body: unknown }) => void = () => undefined;
+    const pending = new Promise<{ status: number; body: unknown }>((resolve) => {
+      answer = resolve;
+    });
+    renderWithPlatformProviders(<PlatformShell />, {
+      route: "/platform/signup-requests",
+      initialSession: testPlatformSession,
+      transport: async (path, init) => {
+        const method = (init?.method ?? "GET").toUpperCase();
+        const body =
+          method === "POST"
+            ? await pending
+            : path.startsWith("/signup-requests")
+              ? { status: 200, body: [request] }
+              : path.startsWith("/settings/signup-mode")
+                ? { status: 200, body: { mode: "approval" } }
+                : { status: 200, body: [corePlan] };
+        return { status: body.status, ok: body.status < 400, json: <T,>() => Promise.resolve(body.body as T), text: () => Promise.resolve(JSON.stringify(body.body)) };
+      },
+    });
+
+    fireEvent.click(within((await screen.findByText("منشأة النيل")).closest("tr")!).getByRole("button", { name: "موافقة" }));
+    const panel = await screen.findByRole("dialog");
+    fireEvent.click(within(panel).getByRole("button", { name: "الموافقة وإنشاء الحساب" }));
+    await waitFor(() => expect(within(panel).getByRole("button", { name: "إلغاء" })).toBeDisabled());
+    fireEvent.keyDown(panel, { key: "Escape" });
+
+    answer({ status: 201, body: { tenant: { code: "nile" }, adminEmail: "owner@nile.example", adminPin: "482913" } });
+    expect(await screen.findByText("482913")).toBeInTheDocument();
+  });
+
   it("rejects only after confirming, and changing the mode asks first", async () => {
     let rejected = 0;
     let mode: unknown = null;

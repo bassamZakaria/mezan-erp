@@ -184,6 +184,19 @@ describe("sign-ups the platform owner approves", () => {
     expect((await post(app, "/api/signup", signupBody("nothanks", "متجر جديد"))).status).toBe(201);
   });
 
+  it("a sign-up that became a company while sign-up was open never shows as awaiting approval, even after switching to approval", async () => {
+    const app = await boot(SignupMode.Open);
+    const token = await startAndReadToken(app, "openshop");
+    expect((await post(app, "/api/signup/verify", { token })).status).toBe(200);
+
+    await setSignupMode(app, SignupMode.Approval);
+    const owner = await platformBearer(app);
+    expect(await (await platformCall(app, owner, "/signup-requests")).json()).toEqual([]);
+    const again = await post(app, "/api/signup/verify", { token });
+    expect(again.status).toBe(200);
+    expect(await again.json()).toMatchObject({ alreadyVerified: true });
+  });
+
   it("closed refuses new sign-ups, approval is the default, and only the owner changes the mode", async () => {
     const app = await boot(SignupMode.Approval);
     const status = async () => ((await (await app.root.fetch(new Request("http://cloud.internal/api/signup/status"))).json()) as { mode: string }).mode;

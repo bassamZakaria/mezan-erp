@@ -115,7 +115,7 @@ export function PlansPage() {
       render: (row) => (
         <div className="flex flex-wrap gap-[6px]">
           <StatusPill label={t(STATUS_KEY[row.status])} tone={STATUS_TONE[row.status]} />
-          {row.soldOut ? <StatusPill label={t("landing.pricing.soldOut")} tone="warning" /> : null}
+          {row.soldOut ? <StatusPill label={t("platform.plans.soldOutBadge")} tone="warning" /> : null}
         </div>
       ),
     },

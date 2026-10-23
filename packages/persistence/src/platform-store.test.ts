@@ -138,6 +138,23 @@ describe("createSqlitePlatformStores", () => {
     db.close();
   });
 
+  it("holds a code for an undecided sign-up only while its link is valid, and never queues a code that is already a company", async () => {
+    const stores = createSqlitePlatformStores(":memory:");
+    const verified = (id: string, code: string, verifiedAt: string): SignupRequest => ({
+      id, code, nameAr: "منشأة", nameEn: null, ownerEmail: `${code}@example.eg`, ownerNameAr: "سارة", planId: "P1",
+      billingCycle: "monthly", tokenHash: `hash-${id}`, status: SignupRequestStatus.Verified, expiresAt: verifiedAt, createdAt: verifiedAt, verifiedAt,
+    });
+    await stores.signupRequests.save(verified("R-OLD", "lapsed", "2026-01-01T00:00:00.000Z"));
+    await stores.signupRequests.save(verified("R-NEW", "fresh", "2026-03-01T00:00:00.000Z"));
+    await stores.signupRequests.save(verified("R-CO", tenant.code, "2026-03-01T00:00:00.000Z"));
+    await stores.tenants.save(tenant);
+
+    expect(await stores.signupRequests.findActiveByCode("lapsed", "2026-03-05T00:00:00.000Z")).toBeNull();
+    expect((await stores.signupRequests.findActiveByCode("fresh", "2026-03-05T00:00:00.000Z"))?.id).toBe("R-NEW");
+    expect((await stores.signupRequests.listAwaitingDecision()).map((r) => r.id)).toEqual(["R-OLD", "R-NEW"]);
+    stores.close();
+  });
+
   it("reuses a caller-owned connection and leaves it open after close()", async () => {
     const db = new Database(":memory:");
     const stores = createSqlitePlatformStores(db);

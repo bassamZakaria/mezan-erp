@@ -57,7 +57,7 @@ export {
 } from "./card-checkout.js";
 export {
   startSignup, verifySignup, isDisposableEmailDomain, DISPOSABLE_EMAIL_DOMAINS, SignupRequestStatus,
-  SignupMode, SignupDecision, DEFAULT_SIGNUP_MODE, signupModeOf,
+  SignupMode, SignupDecision, DEFAULT_SIGNUP_MODE, signupModeOf, VERIFIED_LINK_VALID_MS,
   type SignupRequest, type SignupRequestRepository, type StartSignupCommand,
 } from "./signup.js";
 export { PlatformSettingKey, type PlatformSettingRepository } from "./settings.js";

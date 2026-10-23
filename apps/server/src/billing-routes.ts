@@ -252,7 +252,7 @@ export function createTenantBillingRoutes(options: TenantBillingRoutesOptions): 
       }
     }
     const usage = await planUsage(caller);
-    const plans = (await platform.stores.plans.list()).filter((p) => p.status === "active" && p.isPublic && !p.soldOut);
+    const plans = (await platform.stores.plans.list()).filter((p) => p.status === "active" && p.isPublic && (!p.soldOut || p.id === plan?.id));
     const intendedPlan =
       subscription?.intendedPlanId && subscription.intendedPlanId !== plan?.id ? (plans.find((p) => p.id === subscription.intendedPlanId) ?? null) : null;
     const checkouts: CardCheckout[] = service ? (await service.listByTenant(caller.tenant.id)).slice(0, 10) : [];

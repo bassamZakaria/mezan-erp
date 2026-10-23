@@ -82,7 +82,8 @@ export function NewTenantDialog({ open, onClose, plans }: NewTenantDialogProps) 
   return (
     <SidePanel open={open} onClose={handleClose} title={t("platform.newTenant.title")} description={t("platform.newTenant.description")}>
       {result ? (
-        <ProvisionResultPanel result={result} onClose={handleClose} />      ) : (
+        <ProvisionResultPanel result={result} onClose={handleClose} />
+      ) : (
         <div className="flex flex-col gap-[14px]">
           <FormError message={formError} />
           <TextField

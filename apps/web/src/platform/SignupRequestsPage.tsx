@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Button, ConfirmDialog, DocumentList, Select, SidePanel, useFormat, type DocumentListColumn } from "@mezan/ui";
-import { SignupModeCode, type BillingCycleDTO, type ProvisionResultDTO, type SignupRequestDTO } from "@mezan/contracts";
+import { SignupModeCode, billingCycleSchema, type BillingCycleDTO, type ProvisionResultDTO, type SignupRequestDTO } from "@mezan/contracts";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { FormError, SelectField, ToggleField } from "../settings/form-controls";
 import { PlatformApiError, usePlatformApi } from "./api";
@@ -51,7 +51,11 @@ export function SignupRequestsPage() {
   function confirmReject() {
     const target = rejecting;
     setRejecting(null);
-    if (!target || rejectingId) return;
+    if (!target) return;
+    if (rejectingId) {
+      setPageError(t("platform.signupRequests.rejectBusy"));
+      return;
+    }
     setRejectingId(target.id);
     setPageError(null);
     reject.mutate(target.id, {
@@ -125,7 +129,10 @@ export function SignupRequestsPage() {
             isOwner ? (
               <Select
                 value={currentMode}
-                onChange={(v) => v !== currentMode && setPendingMode(v as SignupModeCode)}
+                onChange={(v) => {
+                  const next = Object.values(SignupModeCode).find((m) => m === v);
+                  if (next && next !== currentMode) setPendingMode(next);
+                }}
                 options={Object.values(SignupModeCode).map((m) => ({ value: m, label: t(MODE_LABEL[m]) }))}
                 aria-label={t("platform.signupRequests.mode.label")}
                 size="sm"
@@ -186,6 +193,8 @@ function ApprovePanel({ request, onClose }: { request: SignupRequestDTO | null; 
   const [result, setResult] = useState<ProvisionResultDTO | null>(null);
 
   function close() {
+    // The one-time PIN arrives only in the answer to this request; closing now would drop it on the floor.
+    if (approve.isPending) return;
     setPlanId(null);
     setBillingCycle(null);
     setTrial(false);
@@ -235,7 +244,10 @@ function ApprovePanel({ request, onClose }: { request: SignupRequestDTO | null; 
           <SelectField
             label={t("platform.newTenant.billingCycle")}
             value={chosenCycle}
-            onChange={(v) => setBillingCycle(v as BillingCycleDTO)}
+            onChange={(v) => {
+              const cycle = billingCycleSchema.safeParse(v);
+              if (cycle.success) setBillingCycle(cycle.data);
+            }}
             options={[
               { value: "monthly", label: t("platform.billingCycle.monthly") },
               { value: "yearly", label: t("platform.billingCycle.yearly") },
@@ -244,7 +256,7 @@ function ApprovePanel({ request, onClose }: { request: SignupRequestDTO | null; 
           <ToggleField label={t("platform.newTenant.trial")} checked={trial} onChange={setTrial} />
           {paidWithoutTrial ? <p className="text-[12px] text-warning-ink">{t("platform.signupRequests.approvePanel.paidHint")}</p> : null}
           <div className="flex justify-end gap-[9px] border-t border-border pt-[14px]">
-            <Button variant="ghost" onClick={close}>
+            <Button variant="ghost" disabled={approve.isPending} onClick={close}>
               {t("common.cancel")}
             </Button>
             <Button variant="primary" disabled={approve.isPending} onClick={submit}>

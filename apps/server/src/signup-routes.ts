@@ -116,6 +116,8 @@ function verificationEmail(link: string, nameAr: string): { subject: string; bod
   };
 }
 
+const OPEN_SIGNUP_DECIDER = "open-signup";
+
 class SignupAwaitingApprovalError extends Error {
   readonly code = SignupRefusalCode.AwaitingApproval;
   constructor() {
@@ -409,7 +411,10 @@ export function createSignupRoutes(options: SignupRoutesOptions): Hono {
     try {
       const fence = await claims.provisioningFence(tokenHash, claimId);
       if (fence === null) throw new ProvisioningSupersededError();
-      return await settleVerification(request, stillOurs, fence);
+      const settled = await settleVerification(request, stillOurs, fence);
+      // Open sign-up decides by creating the company; recorded so the request never shows as awaiting the owner.
+      await claims.tryDecide(request.id, SignupDecision.Approved, OPEN_SIGNUP_DECIDER, now().toISOString());
+      return settled;
     } catch (err) {
       if (err instanceof ProvisioningSupersededError) return await answerOfTheWinner(request, tokenHash, giveUpAt);
       throw err;

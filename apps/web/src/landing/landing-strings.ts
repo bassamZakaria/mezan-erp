@@ -16,6 +16,7 @@ export const landingAr = {
   "landing.pricing.soldOut": "نفدت حاليًا",
   "landing.cta.pricing": "اطّلع على الأسعار",
   "landing.hero.noCard": "بلا بطاقة ائتمان · تفعيل برابط على بريدك",
+  "landing.hero.leadRequest": "اطلب حسابًا لمنشأتك، فنراجع طلبك ونفعّله لك. ودفاترك تبقى معك.",
 
   "landing.ledger.caption": "فاتورة بيع تُسجَّل الآن",
   "landing.ledger.invoice": "فاتورة بيع رقم 1048",
@@ -163,6 +164,7 @@ export const landingEn: Record<keyof typeof landingAr, string> = {
   "landing.pricing.soldOut": "Sold out",
   "landing.cta.pricing": "See pricing",
   "landing.hero.noCard": "No credit card · Activate from a link in your email",
+  "landing.hero.leadRequest": "Request an account for your business; we review it and activate it for you. Your books stay with you.",
 
   "landing.ledger.caption": "A sales invoice being recorded",
   "landing.ledger.invoice": "Sales invoice 1048",

@@ -145,7 +145,7 @@ export function LandingPage() {
             <div>
               <h1 className="font-display text-[34px] font-bold leading-[1.3] text-ink sm:text-[44px] lg:text-[46px]">{t("landing.hero.title")}</h1>
               <p className="mt-[18px] max-w-[560px] text-[17px] leading-[1.8] text-ink-muted">
-                {days ? t("landing.hero.lead", { days }) : t("landing.hero.leadPlain")}
+                {signupMode !== SignupModeCode.Open ? t("landing.hero.leadRequest") : days ? t("landing.hero.lead", { days }) : t("landing.hero.leadPlain")}
               </p>
               <div className="mt-[26px] flex flex-wrap gap-[10px]">
                 {signupOpen ? (
@@ -157,7 +157,7 @@ export function LandingPage() {
                   {t("landing.cta.pricing")}
                 </a>
               </div>
-              <p className="mt-[12px] text-[13px] text-ink-muted">{t("landing.hero.noCard")}</p>
+              {signupMode === SignupModeCode.Open ? <p className="mt-[12px] text-[13px] text-ink-muted">{t("landing.hero.noCard")}</p> : null}
             </div>
             <HeroLedger />
           </div>

@@ -98,7 +98,7 @@ export function isFreePlan(plan: Pick<Plan, "kind">): boolean {
 }
 
 function offered(plan: Plan): boolean {
-  return plan.status === "active" && plan.isPublic;
+  return plan.status === "active" && plan.isPublic && !plan.soldOut;
 }
 
 export function topPublicPaidPlan(plans: readonly Plan[]): Plan | null {

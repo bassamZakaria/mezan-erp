@@ -72,6 +72,10 @@ export function useWhatsappNumber(): string | null {
   return useSignupStatus()?.contact.whatsapp ?? null;
 }
 
+export function useSiteContact(): SignupStatusDTO["contact"] | null {
+  return useSignupStatus()?.contact ?? null;
+}
+
 export function usePublicPlans(): UseQueryResult<PublicPlanDTO[]> {
   return useQuery<PublicPlanDTO[]>({ queryKey: PUBLIC_PLANS_QUERY_KEY, queryFn: fetchPublicPlans });
 }

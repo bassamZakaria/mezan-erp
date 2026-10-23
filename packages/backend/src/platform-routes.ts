@@ -129,6 +129,7 @@ import {
   setSignupModeRequestSchema,
   signupModeSchema,
   type SignupRequestDTO,
+  SignupRefusalCode,
   type SignupModeResponseDTO,
   EnvSettingsRefusal,
   restartServerRequestSchema,
@@ -496,12 +497,17 @@ function serializeSignupRequest(r: SignupRequest): SignupRequestDTO {
   };
 }
 
-const SIGNUP_ALREADY_DECIDED = { error: "SIGNUP_ALREADY_DECIDED", message: "سبق البتّ في هذا الطلب" } as const;
+const SIGNUP_ALREADY_DECIDED = { error: SignupRefusalCode.AlreadyDecided, message: "سبق البتّ في هذا الطلب" } as const;
 
 class SignupAlreadyDecidedError extends Error {
   constructor() {
     super(SIGNUP_ALREADY_DECIDED.message);
   }
+}
+
+/** Provisioning wraps what it does not know in its own error and keeps the original as `cause`. */
+function lostTheDecision(err: unknown): boolean {
+  return err instanceof SignupAlreadyDecidedError || (err instanceof Error && (err as { cause?: unknown }).cause instanceof SignupAlreadyDecidedError);
 }
 
 function extrasOf(s: Pick<Subscription, "addOnModules" | "extraSeats" | "extraBranches" | "extraWarehouses" | "graceDays">) {
@@ -730,6 +736,12 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
 
   const signupRequests = platform.stores.signupRequests;
 
+  /** A company an approval started for a request that was then decided otherwise must not linger holding the code. */
+  async function releaseHalfProvisioned(request: SignupRequest, actorId: string): Promise<void> {
+    const tenant = await platform.stores.tenants.findByCode(request.code);
+    if (releaseTenant && tenant?.status === TenantStatusCode.Provisioning && tenant.ownerEmail === request.ownerEmail) await releaseTenant({ tenant, actorId });
+  }
+
   async function awaitingRequest(id: string): Promise<SignupRequest | null> {
     const request = await signupRequests.findById(id);
     return request && request.status === SignupRequestStatus.Verified && !request.decision ? request : null;
@@ -757,7 +769,10 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
       invalidateEntitlements(result.tenant.code);
       return c.json(result, 201);
     } catch (err) {
-      if (err instanceof SignupAlreadyDecidedError) return c.json(SIGNUP_ALREADY_DECIDED, 409);
+      if (lostTheDecision(err)) {
+        await releaseHalfProvisioned(request, platformUser.id);
+        return c.json(SIGNUP_ALREADY_DECIDED, 409);
+      }
       return domainErrorResponse(c, err);
     }
   });
@@ -772,6 +787,7 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
         await signupRequests.releaseByCode(request.code);
         return { value: null, action: PlatformAuditAction.SignupRejected, entityId: request.id, details: { code: request.code, ownerEmail: request.ownerEmail } };
       });
+      await releaseHalfProvisioned(request, platformUser.id);
       return c.json({ rejected: true });
     } catch (err) {
       if (err instanceof SignupAlreadyDecidedError) return c.json(SIGNUP_ALREADY_DECIDED, 409);

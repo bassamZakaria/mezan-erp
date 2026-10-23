@@ -9,6 +9,10 @@ import {
   createPlatformUser,
   createTenant,
   Money,
+  SignupDecision,
+  SignupRequestStatus,
+  TenantStatusCode,
+  type SignupRequest,
   releaseTenant,
   startSubscription,
   CardCheckoutResolution,
@@ -569,6 +573,42 @@ describe("createPlatformRoutes", () => {
     expect(cleared.entitlements.activeModules).not.toContain("manufacturing");
     expect(cleared.entitlements.activeModules).not.toContain("pos");
     expect(cleared.entitlements.seats).toBe(cleared.plan.seatsIncluded);
+  });
+
+  describe("sign-up requests decided while a company was half-created", () => {
+    const verifiedRequest = (code: string): SignupRequest => ({
+      id: `REQ-${code}`, code, nameAr: "منشأة", nameEn: null, ownerEmail: `owner@${code}.example`, ownerNameAr: "سارة", planId: "PLAN-CORE",
+      billingCycle: "monthly", tokenHash: `hash-${code}`, status: SignupRequestStatus.Verified, expiresAt: FIXED_NOW().toISOString(),
+      createdAt: FIXED_NOW().toISOString(), verifiedAt: FIXED_NOW().toISOString(),
+    });
+
+    it("rejecting releases a company an earlier approval left in provisioning, freeing the code", async () => {
+      const rig = await buildRig();
+      await rig.platform.stores.signupRequests.save(verifiedRequest("halfway"));
+      await createTenant({ id: "T-HALF", code: "halfway", nameAr: "منشأة", ownerEmail: "owner@halfway.example", now: FIXED_NOW().toISOString() }, rig.platform.stores.tenants);
+
+      const res = await rig.app.fetch(req("/signup-requests/REQ-halfway/reject", rig.ownerToken, { method: "POST" }));
+
+      expect(res.status).toBe(200);
+      expect((await rig.platform.stores.tenants.findById("T-HALF"))?.status).not.toBe(TenantStatusCode.Provisioning);
+      expect((await rig.platform.stores.signupRequests.findById("REQ-halfway"))?.decision).toBe(SignupDecision.Rejected);
+    });
+
+    it("an approval that loses the decision to another answers 409 and leaves no company holding the code", async () => {
+      const rig = await buildRig();
+      await rig.platform.stores.signupRequests.save(verifiedRequest("raced"));
+      rig.platform.stores.signupRequests.tryDecide = async () => false;
+
+      const res = await rig.app.fetch(
+        req("/signup-requests/REQ-raced/approve", rig.ownerToken, { method: "POST", body: JSON.stringify({ planId: "PLAN-CORE", billingCycle: "monthly", trial: false }) }),
+      );
+
+      expect(res.status).toBe(409);
+      expect(await json(res)).toMatchObject({ error: "SIGNUP_ALREADY_DECIDED" });
+      const tenant = await rig.platform.stores.tenants.findByCode("raced");
+      expect(tenant?.status).not.toBe(TenantStatusCode.Provisioning);
+      expect(tenant?.status).not.toBe(TenantStatusCode.Active);
+    });
   });
 
   it("changes plan, cancels, suspends and resumes a subscription", async () => {

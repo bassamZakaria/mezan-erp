@@ -25,10 +25,10 @@ const plan = (code: string, nameAr: string, priceMonthly: string): PublicPlanDTO
   trialDays: 14,
 });
 
-function open(path: string, mode: SignupModeCode = SignupModeCode.Approval) {
+function open(path: string, mode: SignupModeCode = SignupModeCode.Approval, contact = { email: null as string | null, phone: null as string | null, whatsapp: null as string | null }) {
   const plans = [plan("core", "الأساسية", "490"), plan("business", "الأعمال", "980")];
   const json = (body: unknown) => Promise.resolve(new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } }));
-  vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => (String(input instanceof Request ? input.url : input).endsWith("/status") ? json({ mode, contact: { email: null, phone: null, whatsapp: null } }) : json(plans))));
+  vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => (String(input instanceof Request ? input.url : input).endsWith("/status") ? json({ mode, contact }) : json(plans))));
   render(
     <AppI18nProvider>
       <QueryClientProvider client={new QueryClient()}>
@@ -98,5 +98,13 @@ describe("SignupScreen — following the sign-up mode", () => {
     expect(await screen.findByRole("heading", { name: "التسجيل مغلق حاليًا" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "لديك حساب؟ سجّل الدخول" })).toBeInTheDocument();
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+  });
+
+  it("lists the contact details the owner set when sign-up is closed", async () => {
+    open("/signup", SignupModeCode.Closed, { email: "help@mezan.example", phone: "0100 123 4567", whatsapp: "201001234567" });
+
+    expect(await screen.findByRole("link", { name: "راسلنا على واتساب" })).toHaveAttribute("href", "https://wa.me/201001234567");
+    expect(screen.getByRole("link", { name: "0100 123 4567" })).toHaveAttribute("href", "tel:0100 123 4567");
+    expect(screen.getByRole("link", { name: "help@mezan.example" })).toHaveAttribute("href", "mailto:help@mezan.example");
   });
 });

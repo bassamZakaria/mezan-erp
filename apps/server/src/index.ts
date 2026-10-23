@@ -21,7 +21,7 @@ const env = parseEnv(boot.merged, { paymobTestByDefault: true });
 const envSettings = createEnvSettings(
   boot,
   (candidate) => void parseEnv(candidate, { paymobTestByDefault: true }),
-  () => process.kill(process.pid, "SIGTERM"),
+  () => console.log("[server] restart requested: this dev server has no supervisor, so stop it and run it again to apply the saved settings"),
 );
 
 const { root } = await createCloudApp(env, { envSettings });

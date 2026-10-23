@@ -255,6 +255,8 @@ export async function verifySignup(
   if (request.status === SignupRequestStatus.Verified) {
     const usedAt = new Date(request.verifiedAt ?? request.expiresAt).getTime();
     if (new Date(nowIso).getTime() - usedAt > VERIFIED_LINK_VALID_MS) {
+      // Nobody decided within the hold: there is no account to point at, only a request that lapsed.
+      if (request.decision !== SignupDecision.Approved && !(await tenants.findByCode(request.code))) throw new SignupTokenExpiredError();
       const tenant = await tenants.findByCode(request.code);
       if (tenant?.status === TenantStatusCode.Provisioning) throw new SignupActivationIncompleteError();
       throw new SignupAlreadyActivatedError();

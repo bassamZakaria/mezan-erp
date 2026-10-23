@@ -278,18 +278,15 @@ describe("ApprovalsInboxScreen — the paged tabs between pages", () => {
     expect(screen.getByRole("button", { name: "2" })).toBeInTheDocument();
   });
 
-  it("keeps a page the address bar asks for while that search's count is still loading", async () => {
+  async function backToPageThree(searchedTotal: number) {
     const stub = stubTransport({
       "GET /workflow/requests/pending": () => ({ body: [] }),
-      "GET /workflow/requests/counts": () => ({ body: { mine: 5, acted: 0 } }),
-      "GET /workflow/requests/mine": () => ({ body: [{ ...pendingRequest, id: "mine-1", status: "approved", entityLabel: "طلب صفحة 1" }] }),
+      "GET /workflow/requests/counts": (_init, path) => ({ body: { mine: path.includes("search=") ? searchedTotal : 5, acted: 0 } }),
+      "GET /workflow/requests/mine": (_init, path) => {
+        const page = new URLSearchParams(path.split("?")[1]).get("page") ?? "1";
+        return { body: [{ ...pendingRequest, id: `mine-${page}`, status: "approved", entityLabel: `طلب صفحة ${page}` }] };
+      },
     });
-    const searched: string[] = [];
-    const transport: Transport = (path, init) => {
-      if (!path.includes("search=")) return stub(path, init);
-      searched.push(path);
-      return new Promise(() => {});
-    };
     let location = "";
     function Address() {
       const navigate = useNavigate();
@@ -301,15 +298,23 @@ describe("ApprovalsInboxScreen — the paged tabs between pages", () => {
         <ApprovalsInboxScreen />
         <Address />
       </>,
-      { transport, initialSession: testAdminSession },
+      { transport: stub, initialSession: testAdminSession },
     );
     fireEvent.click(await screen.findByRole("tab", { name: /طلباتي/ }));
     await screen.findByText("طلب صفحة 1");
-
     fireEvent.click(screen.getByRole("button", { name: "عودة" }));
-    await vi.waitFor(() => expect(searched.some((path) => path.startsWith("/workflow/requests/counts"))).toBe(true));
-    await new Promise((resolve) => setTimeout(resolve, 100));
-    expect(new URLSearchParams(location).get("page")).toBe("3");
+    return () => new URLSearchParams(location).get("page");
+  }
+
+  it("keeps a page the address bar asks for, not one judged by the previous search's count", async () => {
+    const page = await backToPageThree(60);
+    expect(await screen.findByText("طلب صفحة 3")).toBeInTheDocument();
+    expect(page()).toBe("3");
+  });
+
+  it("still steps back to the first page once the search's real count leaves no page three", async () => {
+    const page = await backToPageThree(5);
+    await vi.waitFor(() => expect(page()).toBeNull());
   });
 
   it("never shows one tab's rows under another while the other loads", async () => {

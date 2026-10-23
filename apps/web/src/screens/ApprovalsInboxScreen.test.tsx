@@ -255,6 +255,28 @@ describe("ApprovalsInboxScreen — the paged tabs between pages", () => {
     expect(await screen.findByText("طلب صفحة 2")).toBeInTheDocument();
   });
 
+  it("keeps the pager from the same snapshot as the rows while a search's count loads", async () => {
+    const stub = stubTransport({
+      "GET /workflow/requests/pending": () => ({ body: [] }),
+      "GET /workflow/requests/counts": () => ({ body: { mine: 60, acted: 0 } }),
+      "GET /workflow/requests/mine": () => ({ body: [{ ...pendingRequest, id: "mine-1", status: "approved", entityLabel: "طلب صفحة 1" }] }),
+    });
+    const searched: string[] = [];
+    const transport: Transport = (path, init) => {
+      if (!path.includes("search=")) return stub(path, init);
+      searched.push(path);
+      return new Promise(() => {});
+    };
+    renderWithProviders(<ApprovalsInboxScreen />, { transport, initialSession: testAdminSession });
+    fireEvent.click(await screen.findByRole("tab", { name: /طلباتي/ }));
+    await screen.findByRole("button", { name: "2" });
+
+    fireEvent.change(screen.getByPlaceholderText("بحث بنوع الإجراء أو التفاصيل…"), { target: { value: "INV-9" } });
+    await vi.waitFor(() => expect(searched.some((path) => path.startsWith("/workflow/requests/counts"))).toBe(true));
+    expect(screen.getByText("طلب صفحة 1")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "2" })).toBeInTheDocument();
+  });
+
   it("never shows one tab's rows under another while the other loads", async () => {
     const stub = stubTransport({
       "GET /workflow/requests/pending": () => ({ body: [] }),

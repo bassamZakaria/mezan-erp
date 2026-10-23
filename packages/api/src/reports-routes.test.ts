@@ -1595,6 +1595,21 @@ describe("reports routes — field/van-sales", () => {
     expect(row.cashVariance).toBe(0);
   });
 
+  it("lists every row in the same order whether paged or not, so an export reads like the screen", async () => {
+    const { app, vanTrips } = await newVanApp();
+    await vanTrips.create(makeVanTrip({ id: "trip-a", tripNo: "VT-000001", date: "2026-08-10" }));
+    await vanTrips.create(makeVanTrip({ id: "trip-b", tripNo: "VT-000002", date: "2026-08-11", status: VanTripStatus.Cancelled, settlement: null }));
+    await vanTrips.create(makeVanTrip({ id: "trip-c", tripNo: "VT-000003", date: "2026-08-12" }));
+    const path = "/field/van-sales?dateFrom=2026-08-01&dateTo=2026-08-31&status=all";
+    const ids = async (query: string) =>
+      ((await (await app.fetch(req(`${path}${query}`, "field.van_trip.view"))).json()) as { rows: { tripId: string }[] }).rows.map((r) => r.tripId);
+
+    const full = await ids("");
+    const pages = [...(await ids("&page=1&pageSize=1")), ...(await ids("&page=2&pageSize=1")), ...(await ids("&page=3&pageSize=1"))];
+    expect(full).toHaveLength(3);
+    expect(pages).toEqual(full);
+  });
+
   it("is not mounted at all when no vanTrips port is wired", async () => {
     const { app } = await newApp();
     const res = await app.fetch(req("/field/van-sales", "field.van_trip.view"));

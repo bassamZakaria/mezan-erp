@@ -79,7 +79,7 @@ export function ApprovalsInboxScreen() {
   const filter = { search: search.trim() || undefined, actionType: actionTypeFilter === ANY_TYPE ? undefined : actionTypeFilter };
   const scoped = useApprovalRequestPage(scope, { ...filter, page, pageSize }, { enabled: !onInbox, keepPrevious: true });
   const totals = useApprovalRequestCounts();
-  const filteredTotals = useApprovalRequestCounts(filter, { enabled: !onInbox });
+  const filteredTotals = useApprovalRequestCounts(filter, { enabled: !onInbox, keepPrevious: true });
   const query = onInbox ? inbox : scoped;
 
   const inboxRows = useMemo(() => inbox.data ?? [], [inbox.data]);

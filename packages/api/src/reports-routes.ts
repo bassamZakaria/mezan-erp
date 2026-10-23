@@ -497,7 +497,7 @@ function respond(c: Context, outcome: RunReportOutcome<unknown, unknown>): Respo
   if (!paging.window) {
     return c.json({
       params: outcome.params,
-      rows: outcome.rows,
+      rows: outcome.groups.flatMap((group) => group.rows),
       groups: outcome.groups,
       grandTotals: outcome.grandTotals,
       reconciliation: outcome.reconciliation,

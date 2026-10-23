@@ -8212,6 +8212,7 @@ export function useApprovalRequestCounts(filter: ApprovalRequestListFilter = {},
   return useQuery<ApprovalRequestCountsDTO, ApiError>({
     queryKey: ["workflow-requests", "counts", filter],
     enabled: session !== null && (gate.enabled ?? true),
+    placeholderData: gate.keepPrevious ? keepPreviousData : undefined,
     queryFn: async () => {
       const res = await request(`/workflow/requests/counts${approvalRequestParams(filter)}`);
       if (!res.ok) throw await loaderError(res, t("api.pendingApprovalsCouldNotBe"), t);

@@ -11,9 +11,9 @@ import {
 import { useUiTranslation } from "../i18n";
 import { Card, StatCard } from "./atoms";
 import { SearchInput } from "./form";
-import { Select } from "./Select";
 import { ListViews, AppliedFilters, type ListView, type AppliedFilter } from "./ListViews";
 import { SkeletonTable } from "./feedback";
+import { DEFAULT_PAGE_SIZES, ListPager } from "./ListPager";
 
 /**
  * DocumentList — the reusable list-page pattern (KPI strip + status chips +
@@ -169,8 +169,6 @@ export interface DocumentListProps<Row> {
   className?: string;
 }
 
-const DEFAULT_PAGE_SIZES = [10, 25, 50, 100] as const;
-
 /** Table-row height in px — the `h-[36px]` on every `<tr>` below. The two must move together. */
 const VIRTUAL_ROW_HEIGHT = 36;
 /** Rows rendered beyond the viewport on each side, so a fast scroll never shows a gap. */
@@ -214,20 +212,6 @@ function FilterToggleIcon({ open }: { open: boolean }) {
       <path d="M4 6.5 8 10.5 12 6.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
-}
-
-function getPageItems(current: number, total: number): (number | "ellipsis")[] {
-  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
-  const items = new Set<number>([1, 2, total - 1, total, current - 1, current, current + 1]);
-  const sorted = [...items].filter((n) => n >= 1 && n <= total).sort((a, b) => a - b);
-  const out: (number | "ellipsis")[] = [];
-  let prev = 0;
-  for (const n of sorted) {
-    if (prev && n - prev > 1) out.push("ellipsis");
-    out.push(n);
-    prev = n;
-  }
-  return out;
 }
 
 export function DocumentList<Row>({
@@ -662,50 +646,15 @@ export function DocumentList<Row>({
           {!loading && !loadFailed && rows.length === 0 && emptyState ? <div className="p-[16px]">{emptyState}</div> : null}
         </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-[10px] border-t border-border px-[16px] py-[13px] text-xs text-ink-muted">
-          <span className="flex flex-wrap items-center gap-[12px]">
-            {pageSummary}
-            {pageSize !== undefined && onPageSizeChange ? (
-              <span className="flex items-center gap-[6px]">
-                <Select
-                  size="sm"
-                  aria-label={t("ui.list.rowsPerPage")}
-                  value={String(pageSize)}
-                  onChange={(value) => onPageSizeChange(Number(value))}
-                  options={pageSizeOptions.map((size) => ({ value: String(size), label: String(size) }))}
-                  className="w-[78px]"
-                />
-                <span>{t("ui.list.rowsPerPage")}</span>
-              </span>
-            ) : null}
-          </span>
-          {pageCount > 1 ? (
-            <nav aria-label={t("ui.list.pagination")} className="flex gap-[4px]">
-              {getPageItems(page, pageCount).map((item, i) =>
-                item === "ellipsis" ? (
-                  <span key={`ellipsis-${i}`} className="flex h-[30px] min-w-[30px] items-center justify-center text-ink-faint">
-                    …
-                  </span>
-                ) : (
-                  <button
-                    key={item}
-                    type="button"
-                    aria-current={item === page ? "page" : undefined}
-                    onClick={() => onPageChange?.(item)}
-                    className={cn(
-                      "h-[30px] min-w-[30px] rounded-sm border px-[6px] text-xs",
-                      item === page
-                        ? "border-brand bg-brand font-semibold text-brand-ink"
-                        : "border-border bg-surface text-ink-muted hover:border-border-strong hover:text-ink",
-                    )}
-                  >
-                    {item}
-                  </button>
-                ),
-              )}
-            </nav>
-          ) : null}
-        </div>
+        <ListPager
+          page={page}
+          pageCount={pageCount}
+          onPageChange={onPageChange}
+          pageSummary={pageSummary}
+          pageSize={pageSize}
+          onPageSizeChange={onPageSizeChange}
+          pageSizeOptions={pageSizeOptions}
+        />
       </Card>
     </div>
   );

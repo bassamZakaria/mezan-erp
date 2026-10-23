@@ -6,11 +6,12 @@ import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useCountPhrase } from "../lib/count-phrase";
 import { LanguageToggle } from "../i18n/LanguageToggle";
 import { SIGN_IN_PATH } from "../routing";
-import { usePublicPlans } from "../signup/signup-api";
+import { SignupModeCode } from "@mezan/contracts";
+import { usePublicPlans, useSignupMode, useWhatsappNumber } from "../signup/signup-api";
 import { HeroLedger } from "./HeroLedger";
 import { PricingSection } from "./PricingSection";
 import { SaleExample } from "./SaleExample";
-import { WHATSAPP_NUMBER, whatsappHref } from "./site";
+import { whatsappHref } from "./site";
 import "./landing.css";
 
 enum SectionId {
@@ -91,9 +92,10 @@ function useTrialDays(): number {
 }
 
 function WhatsAppLink({ className, children }: { className: string; children: ReactNode }) {
-  if (WHATSAPP_NUMBER === null) return null;
+  const whatsapp = useWhatsappNumber();
+  if (whatsapp === null) return null;
   return (
-    <a href={whatsappHref(WHATSAPP_NUMBER)} target="_blank" rel="noopener noreferrer" className={className}>
+    <a href={whatsappHref(whatsapp)} target="_blank" rel="noopener noreferrer" className={className}>
       {children}
     </a>
   );
@@ -104,6 +106,9 @@ export function LandingPage() {
   const countPhrase = useCountPhrase();
   const trialDays = useTrialDays();
   const days = trialDays > 0 ? countPhrase(trialDays, CountedNoun.Day, ArabicCase.Oblique) : null;
+  const signupMode = useSignupMode();
+  const signupOpen = signupMode !== SignupModeCode.Closed;
+  const startLabel = t(signupMode === SignupModeCode.Open ? "landing.cta.start" : "landing.cta.request");
 
   return (
     <div className="mz-landing min-h-screen bg-bg text-ink">
@@ -125,9 +130,11 @@ export function LandingPage() {
             <Link to={SIGN_IN_PATH} className="inline-flex min-h-[44px] items-center rounded-md px-[10px] text-[14px] font-semibold text-ink hover:bg-surface-2">
               {t("landing.nav.signIn")}
             </Link>
-            <Link to={SIGNUP_PATH} className="hidden min-h-[44px] items-center rounded-md bg-brand px-[14px] text-[14px] font-semibold text-brand-ink hover:bg-brand-strong sm:inline-flex">
-              {t("landing.cta.start")}
-            </Link>
+            {signupOpen ? (
+              <Link to={SIGNUP_PATH} className="hidden min-h-[44px] items-center rounded-md bg-brand px-[14px] text-[14px] font-semibold text-brand-ink hover:bg-brand-strong sm:inline-flex">
+                {startLabel}
+              </Link>
+            ) : null}
           </div>
         </div>
       </header>
@@ -138,17 +145,19 @@ export function LandingPage() {
             <div>
               <h1 className="font-display text-[34px] font-bold leading-[1.3] text-ink sm:text-[44px] lg:text-[46px]">{t("landing.hero.title")}</h1>
               <p className="mt-[18px] max-w-[560px] text-[17px] leading-[1.8] text-ink-muted">
-                {days ? t("landing.hero.lead", { days }) : t("landing.hero.leadPlain")}
+                {signupMode !== SignupModeCode.Open ? t("landing.hero.leadRequest") : days ? t("landing.hero.lead", { days }) : t("landing.hero.leadPlain")}
               </p>
               <div className="mt-[26px] flex flex-wrap gap-[10px]">
-                <Link to={SIGNUP_PATH} className={PRIMARY_LINK}>
-                  {t("landing.cta.start")}
-                </Link>
+                {signupOpen ? (
+                  <Link to={SIGNUP_PATH} className={PRIMARY_LINK}>
+                    {startLabel}
+                  </Link>
+                ) : null}
                 <a href={`#${SectionId.Pricing}`} className={SECONDARY_LINK}>
                   {t("landing.cta.pricing")}
                 </a>
               </div>
-              <p className="mt-[12px] text-[13px] text-ink-muted">{t("landing.hero.noCard")}</p>
+              {signupMode === SignupModeCode.Open ? <p className="mt-[12px] text-[13px] text-ink-muted">{t("landing.hero.noCard")}</p> : null}
             </div>
             <HeroLedger />
           </div>
@@ -199,12 +208,14 @@ export function LandingPage() {
                 <WhatsAppLink className="inline-flex min-h-[48px] items-center rounded-md bg-surface px-[20px] text-[15px] font-semibold text-ink hover:bg-surface-2">
                   {t("landing.desktop.cta")}
                 </WhatsAppLink>
-                <Link
-                  to={SIGNUP_PATH}
-                  className="inline-flex min-h-[48px] items-center rounded-md border border-chrome-border px-[20px] text-[15px] font-semibold text-chrome-ink hover:bg-chrome-hover"
-                >
-                  {t("landing.desktop.ctaSignup")}
-                </Link>
+                {signupOpen ? (
+                  <Link
+                    to={SIGNUP_PATH}
+                    className="inline-flex min-h-[48px] items-center rounded-md border border-chrome-border px-[20px] text-[15px] font-semibold text-chrome-ink hover:bg-chrome-hover"
+                  >
+                    {t("landing.desktop.ctaSignup")}
+                  </Link>
+                ) : null}
               </div>
               <p className="mt-[12px] text-[13px] text-chrome-ink-muted">{t("landing.desktop.note")}</p>
             </div>
@@ -268,9 +279,11 @@ export function LandingPage() {
               <h2 className="font-display text-[30px] font-bold leading-[1.3]">{t("landing.final.title")}</h2>
               <p className="mt-[6px] text-[16px] opacity-90">{t("landing.final.body")}</p>
             </div>
-            <Link to={SIGNUP_PATH} className="mz-landing-on-brand inline-flex min-h-[48px] items-center rounded-md bg-surface px-[22px] text-[15px] font-semibold text-ink hover:bg-surface-2">
-              {t("landing.cta.start")}
-            </Link>
+            {signupOpen ? (
+              <Link to={SIGNUP_PATH} className="mz-landing-on-brand inline-flex min-h-[48px] items-center rounded-md bg-surface px-[22px] text-[15px] font-semibold text-ink hover:bg-surface-2">
+                {startLabel}
+              </Link>
+            ) : null}
           </div>
         </section>
       </main>

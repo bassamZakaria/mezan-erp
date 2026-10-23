@@ -6,6 +6,7 @@ import { HeldDocumentReapproval } from "../shell/ReapprovalNotice";
 import { errorMessage } from "../lib/error-message";
 import { EMPTY_LOT, LotCells, lotIsComplete, lotPayload, tracksLots, type LotValue } from "./enh/expiry/LotFields";
 import {
+  ENGLISH_LOCALE,
   RowActionOutcome,
   Button,
   Card,
@@ -83,7 +84,7 @@ const STEPPER_KEYS = [
  * so it is picked here rather than bending the field names.
  */
 function reasonDescription(def: AdjustmentReasonDefinition, locale: string): string {
-  return locale === "en" ? def.descriptionEn : def.descriptionAr;
+  return locale === ENGLISH_LOCALE ? def.descriptionEn : def.descriptionAr;
 }
 
 function headerOf(doc: StockAdjustmentDocumentDTO): { warehouseId: string; reason: AdjustmentReason } {

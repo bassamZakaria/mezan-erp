@@ -4,19 +4,20 @@ import { readFile } from "node:fs/promises";
 import { bodyLimit } from "hono/body-limit";
 import path from "node:path";
 import { serveStatic } from "@hono/node-server/serve-static";
-import { Hono, type MiddlewareHandler } from "hono";
+import { Hono, type Context, type MiddlewareHandler } from "hono";
 import {
   createPlatform,
   createPlatformAuth,
   createPlatformRoutes,
   PLATFORM_SESSION_LIMITS,
   type OwnerPinResetAccount,
+  type PlatformEnvSettingsPort,
   type PlatformHandle,
   type RecordedActivation,
 } from "@mezan/backend";
 import { BodyLimitRefusal, LogEvent, createJobRegistry, createLogger, createSessionRegistry, requestLogging, type JobRegistry } from "@mezan/api";
 import { HealthLevel, SubscriptionStatusKind, TenantNotFoundError, jobLevel, type Tenant } from "@mezan/domain";
-import { createSqliteSessionStore, emptyBooksScratch } from "@mezan/persistence";
+import { createAesGcmSecretBox, createSqliteSessionStore, emptyBooksScratch } from "@mezan/persistence";
 import { HealthLevelDTO, PUBLIC_API_BASE_PATH, type CreateTenantRequestDTO, type OwnerPinResetResultDTO, type PlatformOperationsDTO, type ProvisionResultDTO, type ProvisionRetryRequestDTO } from "@mezan/contracts";
 import { booksScratchDir, createTenantRouter, requireOriginSecret, type TenantBooksScan, type TenantRouter } from "./tenant-router.js";
 import { answerTenantDbFileRefusal } from "./tenant-db-file.js";
@@ -57,7 +58,9 @@ import { servedTenantLookup, tenantPublicOrigin, tenantUnlockLink, UNLOCK_PATH }
 import { createCookieSessions } from "./cookie-session.js";
 import { createPublicApiRoutes, refuseApiKeysOutsidePublicApi } from "./public-api-routes.js";
 import { AlertKind, createAlerter, type Alerter } from "./alerter.js";
-import { loadSecretBox } from "./secrets-key.js";
+import { derivedKey, platformKey } from "./secrets-key.js";
+
+const CSRF_KEY_USE = "mezan-cookie-csrf-v1";
 
 const log = createLogger("cloud");
 
@@ -100,6 +103,7 @@ export interface CreateCloudAppOptions {
   readonly backups?: { start(): () => void | Promise<void> };
   readonly mailer?: PlatformMailer;
   readonly alerter?: Alerter;
+  readonly envSettings?: PlatformEnvSettingsPort;
   readonly seedDemo?: (deps: {
     readonly platform: PlatformHandle;
     readonly router: TenantRouter;
@@ -183,7 +187,9 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
   const now = options.now ?? (() => new Date());
   mkdirSync(env.platformDir, { recursive: true });
   emptyBooksScratch(booksScratchDir(env.platformDir));
-  const secrets = loadSecretBox(env.secretsKey, env.platformDir);
+  const masterKey = platformKey(env.secretsKey, env.platformDir);
+  const secrets = createAesGcmSecretBox(masterKey);
+  const csrfKey = derivedKey(masterKey, CSRF_KEY_USE);
 
   const ownerPassword = env.platformOwnerEmail ? (env.platformOwnerPassword ?? generateOwnerPassword()) : undefined;
   const platform = await createPlatform({
@@ -246,7 +252,10 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
     if (created) log.info(`reviewer tenant "${env.reviewTenant.code}" seeded; every login uses MEZAN_REVIEW_PIN.`);
   }
 
-  const provisionTenantForRoutes = async (cmd: CreateTenantRequestDTO & { actorId: string }, activation: RecordedActivation): Promise<ProvisionResultDTO> =>
+  const provisionTenantForRoutes = async (
+    cmd: CreateTenantRequestDTO & { actorId: string; intendedPlanId?: string | null },
+    activation: RecordedActivation,
+  ): Promise<ProvisionResultDTO> =>
     provisionResultDTOOf(await provisionTenant(cmd, { platform, router, now, activation }));
 
   const provisionRetryForRoutes = async (input: { tenantId: string; actorId: string } & ProvisionRetryRequestDTO, activation: RecordedActivation): Promise<ProvisionResultDTO> => {
@@ -303,6 +312,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
   });
 
   const platformApp = createPlatformRoutes({
+    envSettings: options.envSettings,
     platform,
     auth,
     now,
@@ -517,6 +527,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
     tenantResolver: { tenantDomain: env.tenantDomain, trustForwardedHost: env.trustProxy, allowTenantHeader: true },
     platformMaxAgeMs: PLATFORM_SESSION_LIMITS.maxMs,
     audit: platform.audit,
+    csrfKey,
   });
   root.use("/api/platform/*", cookieSessions.platform);
   root.use("/api/*", cookieSessions.tenant);
@@ -552,8 +563,12 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
     const siteHtml = env.publicLanding ? transform(withCloudSiteHead(rawIndexHtml)) : appHtml;
     // A tenant's own subdomain is that company's app, never the platform's marketing page.
     const indexHtmlFor = (request: Request) => (tenantSlugOfHost(requestHost(request, env.trustProxy), env.tenantDomain) === null ? siteHtml : appHtml);
-    root.get("/", (c) => c.html(indexHtmlFor(c.req.raw)));
-    root.get("/index.html", (c) => c.html(indexHtmlFor(c.req.raw)));
+    const shellPage = (c: Context) => {
+      c.header("Cache-Control", "no-cache");
+      return c.html(indexHtmlFor(c.req.raw));
+    };
+    root.get("/", shellPage);
+    root.get("/index.html", shellPage);
     // SECURITY: the page a mailed unlock link opens. The link's token is in the
     // fragment and never reaches here; these headers keep the page out of every
     // cache and stop the browser naming it to any site it goes on to. It is
@@ -565,8 +580,16 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
       c.header("Cache-Control", "no-store");
       return c.html(rawIndexHtml);
     });
+    root.use("/assets/*", async (c, next) => {
+      await next();
+      // Vite names every file under assets/ by its content hash, so a new build is a new URL.
+      // SECURITY: behind the demo gate a shared cache must not hand the bundle to someone who never passed it.
+      const audience = options.authMiddleware ? "private" : "public";
+      if (c.res.status === 200) c.res.headers.set("Cache-Control", `${audience}, max-age=31536000, immutable`);
+    });
     root.use("/*", serveStatic({ root: env.webDist }));
-    root.notFound((c) => c.html(indexHtmlFor(c.req.raw)));
+    root.get("/assets/*", (c) => c.text("Not found", 404));
+    root.notFound(shellPage);
   } else {
     root.notFound((c) => c.json({ error: "NOT_FOUND", message: "لا توجد حزمة واجهة مبنية" }, 404));
   }

@@ -11,6 +11,7 @@ export {
   pageQuerySchema,
   pageWindow,
   type PageQueryDTO,
+  type ReportPageDTO,
 } from "./paging.js";
 
 export {
@@ -1733,6 +1734,10 @@ export {
   approvalRequestSchema,
   submitApprovalRequestSchema,
   decideApprovalRequestSchema,
+  ApprovalRequestScope,
+  approvalRequestListQuerySchema,
+  type ApprovalRequestListQueryDTO,
+  type ApprovalRequestCountsDTO,
   type GateStepDTO,
   type WorkflowConfigDTO,
   type CreateWorkflowConfigDTO,
@@ -1797,6 +1802,12 @@ export {
   type AgingCustomersReportDTO,
   type AgingSuppliersReportDTO,
 } from "./aging.js";
+export {
+  stockLevelsSummarySchema,
+  StockLevelStatusDTO,
+  type StockLevelsAttentionRowDTO,
+  type StockLevelsSummaryDTO,
+} from "./stock-levels-summary.js";
 
 export {
   partyCurrencyBalanceSchema,
@@ -1841,6 +1852,10 @@ export {
   subscriptionSuspendRequestSchema,
   setBillingAnchorDayRequestSchema,
   type SetBillingAnchorDayRequestDTO,
+  setSubscriptionExtrasRequestSchema,
+  MAX_EXTRA_CAPACITY,
+  MAX_GRACE_DAYS,
+  type SetSubscriptionExtrasRequestDTO,
   subscriptionResumeRequestSchema,
   recordPaymentRequestSchema,
   PlatformPaymentRefusal,
@@ -1974,6 +1989,19 @@ export {
   type StartSignupResultDTO,
   type VerifySignupRequestDTO,
   type VerifySignupResultDTO,
+  SignupModeCode,
+  signupModeSchema,
+  signupStatusSchema,
+  setSignupModeRequestSchema,
+  signupModeResponseSchema,
+  type SignupModeResponseDTO,
+  SignupRefusalCode,
+  signupRequestSchema,
+  approveSignupRequestSchema,
+  type SignupStatusDTO,
+  type SetSignupModeRequestDTO,
+  type SignupRequestDTO,
+  type ApproveSignupRequestDTO,
 } from "./signup.js";
 
 export { isoDateOrInstant, isoDay, ISO_DATE_PATTERNS } from "./iso-date.js";
@@ -2027,3 +2055,22 @@ export * from "./hr-bank.js";
 
 // --- tenant-lifecycle.ts — audit anchor restore acceptance and tenant data purge (console) ---
 export * from "./tenant-lifecycle.js";
+
+export {
+  EnvSettingKey,
+  EnvSettingGroup,
+  EnvSettingKind,
+  EnvSettingSource,
+  EnvSettingsRefusal,
+  ENV_SETTINGS,
+  isEnvSettingKey,
+  envSettingSchema,
+  envSettingsSchema,
+  updateEnvSettingsRequestSchema,
+  restartServerRequestSchema,
+  type EnvSettingSpec,
+  type EnvSettingDTO,
+  type EnvSettingsDTO,
+  type UpdateEnvSettingsRequestDTO,
+  type RestartServerRequestDTO,
+} from "./env-settings.js";

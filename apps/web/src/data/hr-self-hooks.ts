@@ -1,3 +1,4 @@
+import { ENGLISH_LOCALE } from "@mezan/ui";
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import type {
   ClockChallengeDTO,
@@ -34,7 +35,7 @@ async function selfError(res: { status: number; json<T>(): Promise<T> }, fallbac
     message?: string;
     messageEn?: string;
   };
-  const text = locale === "en" && body.messageEn ? body.messageEn : body.message;
+  const text = locale === ENGLISH_LOCALE && body.messageEn ? body.messageEn : body.message;
   return new ApiError(res.status, text && text !== "" ? text : withSupportCode(fallback, res.status, t), undefined, undefined, body.error);
 }
 

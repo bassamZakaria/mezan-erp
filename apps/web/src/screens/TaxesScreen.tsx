@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
+  ENGLISH_LOCALE,
   RowActionOutcome,
   DocumentList,
   EmptyState,
@@ -152,7 +153,7 @@ function TaxGroupsTab() {
           <Card key={group.id} className="overflow-hidden">
             <div className="flex flex-wrap items-center justify-between gap-[8px] border-b border-border bg-surface-2 px-[16px] py-[9px]">
               <span className="text-[12.5px] font-bold text-ink">
-                <span className="mz-num">{group.code}</span> · {locale === "en" ? (group.nameEn ?? group.nameAr) : group.nameAr}
+                <span className="mz-num">{group.code}</span> · {locale === ENGLISH_LOCALE ? (group.nameEn ?? group.nameAr) : group.nameAr}
               </span>
               <span className="text-[12px] text-ink-muted">
                 {t("taxGroups.effective")} <span className="mz-num font-semibold text-ink">{group.effectivePercent}%</span>

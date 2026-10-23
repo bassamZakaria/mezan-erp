@@ -1,10 +1,13 @@
-import { useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { ReportRunner, type ReportRunnerColumn, type ReportRunnerParamField } from "@mezan/ui";
-import type { ReportCoverageDTO, ReportGapDTO } from "@mezan/contracts";
+import type { ReportCoverageDTO, ReportGapDTO, ReportPageDTO } from "@mezan/contracts";
 import { useReport } from "../../data/reports-hooks";
+import { useReportPaging } from "./useReportPaging";
 import { useAppTranslation, type AppTranslationKey } from "../../i18n";
 import { tryReportLabel } from "../../report-labels";
 import { WEB_TRANSLATION_KEYS } from "../../i18n/catalog";
+
+const SECURITY_REPORTS_ROOT = "/security-reports";
 
 /** One of the four exception reports this shell renders, keyed the way `securityReports.<report>.*` i18n keys are. */
 export type SecurityReportKey = "exceptions" | "postPosting" | "afterHours" | "newAccounts" | "sod";
@@ -55,6 +58,7 @@ export interface SecurityReportResult<Row> {
   readonly kpis?: readonly { readonly key: string; readonly labelAr: string; readonly value: number; readonly tone?: string }[];
   readonly coverage?: ReportCoverageDTO;
   readonly gaps?: readonly ReportGapDTO[];
+  readonly page?: ReportPageDTO;
 }
 
 export interface SecurityReportScreenProps<Row> {
@@ -84,8 +88,13 @@ export function SecurityReportScreen<Row>({
   renderContext,
 }: SecurityReportScreenProps<Row>) {
   const { t } = useAppTranslation();
-  const [params, setParams] = useState<Record<string, string>>(defaultParams);
-  const query = useReport<Row>(reportId, apiPath, params, { apiRoot: "/security-reports" });
+  const { params, setParams, requestParams, runnerProps } = useReportPaging<Row>(() => defaultParams, {
+    reportId,
+    apiPath,
+    apiRoot: SECURITY_REPORTS_ROOT,
+    paged: true,
+  });
+  const query = useReport<Row>(reportId, apiPath, requestParams, { apiRoot: SECURITY_REPORTS_ROOT, keepPrevious: true });
 
   const raw = (query.data ?? null) as SecurityReportResult<Row> | null;
   const result = raw
@@ -123,9 +132,11 @@ export function SecurityReportScreen<Row>({
       onRun={() => query.refetch()}
       loading={query.isFetching}
       result={result}
+      stale={query.isPlaceholderData}
       columns={columns}
       rowKey={rowKey}
       exportBaseFilename={reportId}
+      {...runnerProps(raw?.page)}
       chart={
         <div className="grid gap-[10px]">
           {coverage?.truncated ? (

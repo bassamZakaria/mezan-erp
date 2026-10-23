@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
-import { AppI18nProvider } from "../i18n";
+import { AppI18nProvider, loadEnglishCatalog } from "../i18n";
 import { useDomainLabels } from "./domain-labels";
 
 const voucherType = {
@@ -30,6 +30,8 @@ function renderIn(locale: "ar" | "en") {
 }
 
 describe("useDomainLabels", () => {
+  beforeAll(() => loadEnglishCatalog());
+
   it("reads the Arabic label and subtitle in Arabic", () => {
     renderIn("ar");
     expect(screen.getByTestId("label").textContent).toBe("سند قبض");

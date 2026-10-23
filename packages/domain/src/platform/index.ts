@@ -17,7 +17,7 @@ export {
   type CreatePlanCommand, type UpdatePlanCommand, type HasLiveSubscribers,
 } from "./plan.js";
 export {
-  DEFAULT_GRACE_DAYS, BillingCycleKind, SubscriptionStatusKind, billingAnchorDayOf, billingDayBehindUtcAnchor, inferBillingAnchorDay, settledPeriodEnd, setBillingAnchorDay,
+  DEFAULT_GRACE_DAYS, BillingCycleKind, SubscriptionStatusKind, billingAnchorDayOf, billingDayBehindUtcAnchor, inferBillingAnchorDay, settledPeriodEnd, setBillingAnchorDay, setSubscriptionExtras, MAX_EXTRA_CAPACITY, MAX_GRACE_DAYS,
   startSubscription, renewSubscription, applyRenewal, anchorIsUtcDayOfCreation, changePlan, markPastDue,
   suspendSubscription, resumeSubscription, cancelSubscription, RENEWABLE_SUBSCRIPTION_STATES,
   type Subscription, type SubscriptionStatus, type BillingCycle, type SubscriptionRepository,
@@ -57,8 +57,10 @@ export {
 } from "./card-checkout.js";
 export {
   startSignup, verifySignup, isDisposableEmailDomain, DISPOSABLE_EMAIL_DOMAINS, SignupRequestStatus,
+  SignupMode, SignupDecision, DEFAULT_SIGNUP_MODE, signupModeOf, VERIFIED_LINK_VALID_MS,
   type SignupRequest, type SignupRequestRepository, type StartSignupCommand,
 } from "./signup.js";
+export { PlatformSettingKey, type PlatformSettingRepository } from "./settings.js";
 export {
   PlanKind, PlanStatusCode, QuotaKind, QUOTA_KINDS, normalizeQuotas, isFreePlan, topPublicPaidPlan, defaultFreePlan,
   type PlanQuotas,

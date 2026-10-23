@@ -1,7 +1,7 @@
-// @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
-import { sumRows, type ReportChartSpec, type ReportColumn, type ReportGroupResult } from "@mezan/domain";
-import { reportChartPoints, type ChartPointSource } from "./chart-points";
+import { sumRows } from "./kpi.js";
+import { ReportChartSlice, ReportChartSource, type ReportChartSpec, type ReportColumn, type ReportGroupResult } from "./types.js";
+import { reportChartPoints, type ChartPointSource } from "./chart-points.js";
 
 interface Row {
   readonly label: string;
@@ -27,23 +27,23 @@ describe("reportChartPoints", () => {
   });
 
   it("returns null when result is null", () => {
-    const chart: ReportChartSpec = { source: "rows", labelColumn: "label", valueColumn: "value" };
+    const chart: ReportChartSpec = { source: ReportChartSource.Rows, labelColumn: "label", valueColumn: "value" };
     expect(reportChartPoints(chart, columns, rowKey, null)).toBeNull();
   });
 
   it("returns null when valueColumn is missing from columns", () => {
-    const chart: ReportChartSpec = { source: "rows", labelColumn: "label", valueColumn: "nope" };
+    const chart: ReportChartSpec = { source: ReportChartSource.Rows, labelColumn: "label", valueColumn: "nope" };
     expect(reportChartPoints(chart, columns, rowKey, source(rows(1)))).toBeNull();
   });
 
   it("returns null when labelColumn is missing from columns (non-groups source)", () => {
-    const chart: ReportChartSpec = { source: "rows", labelColumn: "nope", valueColumn: "value" };
+    const chart: ReportChartSpec = { source: ReportChartSource.Rows, labelColumn: "nope", valueColumn: "value" };
     expect(reportChartPoints(chart, columns, rowKey, source(rows(1)))).toBeNull();
   });
 
   describe("source: 'groups'", () => {
     it("filters out groups with an empty label, maps to {key, label, value: totals[valueColumn] ?? 0}", () => {
-      const chart: ReportChartSpec = { source: "groups", labelColumn: "label", valueColumn: "value" };
+      const chart: ReportChartSpec = { source: ReportChartSource.Groups, labelColumn: "label", valueColumn: "value" };
       const groups: readonly ReportGroupResult<Row>[] = [
         { key: "blank", label: "", rows: [], totals: { value: 999 } },
         { key: "g1", label: "المجموعة الأولى", rows: [], totals: { value: 100 } },
@@ -65,10 +65,10 @@ describe("reportChartPoints", () => {
       }));
       const src = source([], groups);
 
-      const head = reportChartPoints({ source: "groups", labelColumn: "label", valueColumn: "value", maxPoints: 2 }, columns, rowKey, src);
+      const head = reportChartPoints({ source: ReportChartSource.Groups, labelColumn: "label", valueColumn: "value", maxPoints: 2 }, columns, rowKey, src);
       expect(head?.map((p) => p.key)).toEqual(["g0", "g1"]);
 
-      const tail = reportChartPoints({ source: "groups", labelColumn: "label", valueColumn: "value", maxPoints: 2, slice: "last" }, columns, rowKey, src);
+      const tail = reportChartPoints({ source: ReportChartSource.Groups, labelColumn: "label", valueColumn: "value", maxPoints: 2, slice: ReportChartSlice.Last }, columns, rowKey, src);
       expect(tail?.map((p) => p.key)).toEqual(["g3", "g4"]);
     });
 
@@ -79,14 +79,14 @@ describe("reportChartPoints", () => {
         rows: [],
         totals: { value: i },
       }));
-      const points = reportChartPoints({ source: "groups", labelColumn: "label", valueColumn: "value" }, columns, rowKey, source([], groups));
+      const points = reportChartPoints({ source: ReportChartSource.Groups, labelColumn: "label", valueColumn: "value" }, columns, rowKey, source([], groups));
       expect(points).toHaveLength(8);
     });
   });
 
   describe("source: 'rows', non-aggregate", () => {
     it("maps each row to a point keyed `${rowKey}-${index}`, in original order", () => {
-      const chart: ReportChartSpec = { source: "rows", labelColumn: "label", valueColumn: "value" };
+      const chart: ReportChartSpec = { source: ReportChartSource.Rows, labelColumn: "label", valueColumn: "value" };
       const points = reportChartPoints(chart, columns, rowKey, source(rows(10, 20, 30)));
       expect(points).toEqual([
         { key: "r0-0", label: "r0", value: 10 },
@@ -96,7 +96,7 @@ describe("reportChartPoints", () => {
     });
 
     it("respects maxPoints and slice on the row order too", () => {
-      const chart: ReportChartSpec = { source: "rows", labelColumn: "label", valueColumn: "value", maxPoints: 2, slice: "last" };
+      const chart: ReportChartSpec = { source: ReportChartSource.Rows, labelColumn: "label", valueColumn: "value", maxPoints: 2, slice: ReportChartSlice.Last };
       const points = reportChartPoints(chart, columns, rowKey, source(rows(1, 2, 3, 4)));
       expect(points?.map((p) => p.value)).toEqual([3, 4]);
     });
@@ -104,7 +104,7 @@ describe("reportChartPoints", () => {
 
   describe("source: 'rows', aggregate: true", () => {
     it("buckets rows by the label column's string value, sums the value column via the real sumRows, and sorts by |value| desc", () => {
-      const chart: ReportChartSpec = { source: "rows", labelColumn: "label", valueColumn: "value", aggregate: true };
+      const chart: ReportChartSpec = { source: ReportChartSource.Rows, labelColumn: "label", valueColumn: "value", aggregate: true };
       const bucketed: Row[] = [
         { label: "a", value: 10 },
         { label: "b", value: -50 },
@@ -123,7 +123,7 @@ describe("reportChartPoints", () => {
     });
 
     it("respects maxPoints/slice on the aggregated, sorted buckets", () => {
-      const chart: ReportChartSpec = { source: "rows", labelColumn: "label", valueColumn: "value", aggregate: true, maxPoints: 1 };
+      const chart: ReportChartSpec = { source: ReportChartSource.Rows, labelColumn: "label", valueColumn: "value", aggregate: true, maxPoints: 1 };
       const bucketed: Row[] = [
         { label: "small", value: 1 },
         { label: "big", value: 100 },

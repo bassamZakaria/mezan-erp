@@ -7,6 +7,7 @@ import type {
   CardCheckoutSweepResultDTO,
   PlatformCardCheckoutsDTO,
   ChangePlanRequestDTO,
+  SetSubscriptionExtrasRequestDTO,
   CreateTenantRequestDTO,
   PlanDTO,
   LockedTenantAccountsDTO,
@@ -341,6 +342,14 @@ export function useSetBillingAnchorDayMutation() {
     ({ tenantId }) => `/tenants/${tenantId}/subscription/anchor-day`,
     ({ day }) => ({ day }),
     "platform.tenantDetail.anchorDay.save",
+  );
+}
+
+export function useSetSubscriptionExtrasMutation() {
+  return useSummaryMutation<{ tenantId: string; body: SetSubscriptionExtrasRequestDTO }>(
+    ({ tenantId }) => `/tenants/${tenantId}/subscription/extras`,
+    ({ body }) => body,
+    "platform.tenantDetail.extras.save",
   );
 }
 

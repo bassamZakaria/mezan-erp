@@ -5,6 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { APPROVAL_STANDING_KEY, ReapprovalNotice } from "../shell/ReapprovalNotice";
 import { errorMessage } from "../lib/error-message";
 import {
+  ENGLISH_LOCALE,
   RowActionOutcome,
   Button,
   Card,
@@ -123,7 +124,7 @@ function currencyLabelFor(code: string | null | undefined, locale: string): stri
   if (!code) return undefined;
   const definition = findCurrency(code);
   if (!definition) return code;
-  return locale === "en" ? definition.code : definition.symbol;
+  return locale === ENGLISH_LOCALE ? definition.code : definition.symbol;
 }
 
 function toMajor(v: string): number {
@@ -399,7 +400,7 @@ function CreateInvoicePage({
     return codes.map((code) => {
       const definition = findCurrency(code);
       if (!definition) return { value: code, label: code };
-      return { value: code, label: `${code} — ${locale === "en" ? definition.nameEn : definition.nameAr}` };
+      return { value: code, label: `${code} — ${locale === ENGLISH_LOCALE ? definition.nameEn : definition.nameAr}` };
     });
   }, [allowedCurrencies, locale]);
   const [notes, setNotes] = useState("");

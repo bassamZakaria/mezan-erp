@@ -22,6 +22,8 @@ import {
   WorkflowError,
   PRICE_FLOOR_ACTION_TYPE,
   PRICE_FLOOR_APPROVE_PERMISSION,
+  GATEABLE_ACTION_TYPES,
+  matchesSearch,
   type ApproverRoleResolver,
   type AuditSink,
   type ApprovalRequestRecord,
@@ -29,7 +31,16 @@ import {
   type WorkflowConfigRecord,
   type WorkflowConfigRepository,
 } from "@mezan/domain";
-import { createWorkflowConfigSchema, updateWorkflowConfigSchema, submitApprovalRequestSchema, decideApprovalRequestSchema } from "@mezan/contracts";
+import {
+  createWorkflowConfigSchema,
+  updateWorkflowConfigSchema,
+  submitApprovalRequestSchema,
+  decideApprovalRequestSchema,
+  approvalRequestListQuerySchema,
+  ApprovalRequestScope,
+  type ApprovalRequestListQueryDTO,
+  type ApprovalRequestCountsDTO,
+} from "@mezan/contracts";
 import { type AuthContextResolver, callerRoleCodes, createAnyPermissionGate, createPermissionGate, getAuthContext, permissionDeniedBody, roleCodesOf } from "./permission-gate.js";
 import { recordAdminEvent } from "./admin-audit.js";
 import { BranchRecordKind, recordInBranchGrant } from "./branch-policy.js";
@@ -289,23 +300,60 @@ export function createWorkflowRoutes(
     return c.json({ count });
   });
 
-  app.get("/requests/mine", gate("workflow.view"), async (c) => {
+  /** Newest first with id as tiebreak: without it a page boundary repeats or skips same-instant rows. */
+  async function scopedRequests(c: Context, scope: ApprovalRequestScope): Promise<readonly ApprovalRequestRecord[]> {
     const ctx = getAuthContext(c);
-    const rows = ctx ? await deps.requests.listBySubmitter(ctx.userId) : [];
-    return c.json(await Promise.all(rows.map((row) => serializeRequest(deps, row))));
-  });
+    if (!ctx) return [];
+    const rows =
+      scope === ApprovalRequestScope.Mine
+        ? await deps.requests.listBySubmitter(ctx.userId)
+        : (await deps.requests.list()).filter((row) => row.decisions.some((decision) => decision.actorId === ctx.userId));
+    const granted = await Promise.all(rows.map((row) => recordInBranchGrant(c, BranchRecordKind.ApprovalRequest, row.id)));
+    return rows.filter((_, index) => granted[index]).sort((a, b) => (a.createdAt === b.createdAt ? (a.id < b.id ? 1 : -1) : a.createdAt < b.createdAt ? 1 : -1));
+  }
 
-  /**
-   * إجراءاتي — requests this user has already decided on. Derived from the
-   * decision log's `actorId` rather than the caller filtering `/requests`,
-   * so the tab stays correct however many requests exist.
-   */
-  app.get("/requests/acted", gate("workflow.view"), async (c) => {
-    const ctx = getAuthContext(c);
-    if (!ctx) return c.json([]);
-    const rows = await deps.requests.list();
-    const mine = rows.filter((row) => row.decisions.some((decision) => decision.actorId === ctx.userId));
-    return c.json(await Promise.all(mine.map((row) => serializeRequest(deps, row))));
+  function listQueryOf(c: Context) {
+    return approvalRequestListQuerySchema.safeParse({
+      page: c.req.query("page"),
+      pageSize: c.req.query("pageSize"),
+      search: c.req.query("search") || undefined,
+      actionType: c.req.query("actionType") || undefined,
+    });
+  }
+
+  async function filteredRequests(c: Context, scope: ApprovalRequestScope, query: ApprovalRequestListQueryDTO) {
+    const rows = (await scopedRequests(c, scope)).filter((row) => !query.actionType || row.actionType === query.actionType);
+    if (!query.search) {
+      return { total: rows.length, slice: (offset: number, limit: number) => Promise.all(rows.slice(offset, offset + limit).map((row) => serializeRequest(deps, row))) };
+    }
+    const matched = (await Promise.all(rows.map((row) => serializeRequest(deps, row)))).filter((row) => {
+      const type = GATEABLE_ACTION_TYPES.find((entry) => entry.code === row.actionType);
+      return matchesSearch(query.search, type?.labelAr, type?.labelEn, row.actionType, row.entityLabel ?? row.documentNo ?? row.documentId, row.submittedByName);
+    });
+    return { total: matched.length, slice: async (offset: number, limit: number) => matched.slice(offset, offset + limit) };
+  }
+
+  async function requestPage(c: Context, scope: ApprovalRequestScope) {
+    const parsed = listQueryOf(c);
+    if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    const query = parsed.data;
+    const filtered = await filteredRequests(c, scope, query);
+    return c.json(await filtered.slice((query.page - 1) * query.pageSize, query.pageSize));
+  }
+
+  app.get("/requests/mine", gate("workflow.view"), (c) => requestPage(c, ApprovalRequestScope.Mine));
+  app.get("/requests/acted", gate("workflow.view"), (c) => requestPage(c, ApprovalRequestScope.Acted));
+
+  app.get("/requests/counts", gate("workflow.view"), async (c) => {
+    const parsed = listQueryOf(c);
+    if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    const query = parsed.data;
+    const [mine, acted] = await Promise.all([
+      filteredRequests(c, ApprovalRequestScope.Mine, query),
+      filteredRequests(c, ApprovalRequestScope.Acted, query),
+    ]);
+    const counts: ApprovalRequestCountsDTO = { [ApprovalRequestScope.Mine]: mine.total, [ApprovalRequestScope.Acted]: acted.total };
+    return c.json(counts);
   });
 
   app.get("/requests", gate("workflow.view"), async (c) => {

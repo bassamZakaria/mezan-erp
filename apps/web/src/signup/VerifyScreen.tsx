@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { useSearchParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { Button, Card } from "@mezan/ui";
-import type { VerifySignupResultDTO } from "@mezan/contracts";
+import { SignupRefusalCode, type VerifySignupResultDTO } from "@mezan/contracts";
 import { handOffSignIn } from "../data/session";
 import { useAppTranslation } from "../i18n";
 import { SignupLayout } from "./SignupLayout";
@@ -100,6 +100,15 @@ export function VerifyScreen() {
     body = (
       <Card className="flex flex-col items-center gap-[10px] p-[28px] text-center">
         <p className="text-[13px] text-ink-muted">{t("signup.verify.working")}</p>
+      </Card>
+    );
+  } else if (query.isError && query.error instanceof SignupApiError && query.error.code === SignupRefusalCode.AwaitingApproval) {
+    body = (
+      <Card className="flex flex-col gap-[12px] p-[22px]">
+        <h1 className="font-display text-lg font-bold text-ink">{t("signup.verify.awaitingTitle")}</h1>
+        <p role="status" className="text-[13px] text-ink-muted">
+          {query.error.message}
+        </p>
       </Card>
     );
   } else if (query.isError && query.error instanceof SignupApiError && query.error.code === SignupErrorCode.AlreadyActivated) {

@@ -4,6 +4,7 @@ import { useReverseDocumentAction } from "../reversal/ReverseDocumentAction";
 import { useEffect, useMemo, useState } from "react";
 import { errorMessage } from "../lib/error-message";
 import {
+  ENGLISH_LOCALE,
   RowActionOutcome,
   Button,
   Card,
@@ -237,7 +238,7 @@ export function ChequesScreen() {
 
   const statusChips: DocumentListStatusChip[] = [
     { key: "all", label: t("common.all"), count: counts.all ?? 0 },
-    ...CHEQUE_STATUS_DEFINITIONS.map((d) => ({ key: d.code, label: locale === "en" ? d.labelEn : d.labelAr, count: counts[d.code] ?? 0 })),
+    ...CHEQUE_STATUS_DEFINITIONS.map((d) => ({ key: d.code, label: locale === ENGLISH_LOCALE ? d.labelEn : d.labelAr, count: counts[d.code] ?? 0 })),
   ];
 
   const columns: DocumentListColumn<ChequeDTO>[] = [

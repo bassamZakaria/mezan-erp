@@ -1,3 +1,4 @@
+import { ENGLISH_LOCALE } from "@mezan/ui";
 import {
   DOMAIN_EVENT_CATALOG,
   GATEABLE_ACTION_TYPES,
@@ -97,7 +98,7 @@ const VOUCHER_TYPE_LABELS_BY_ARABIC: ReadonlyMap<string, string> = new Map(
 );
 
 export function storedMemoLabel(memo: string, locale: string): string {
-  return locale === "en" ? (VOUCHER_TYPE_LABELS_BY_ARABIC.get(memo) ?? memo) : memo;
+  return locale === ENGLISH_LOCALE ? (VOUCHER_TYPE_LABELS_BY_ARABIC.get(memo) ?? memo) : memo;
 }
 
 const SYSTEM_NOTE_KEYS: Readonly<Record<string, string>> = {

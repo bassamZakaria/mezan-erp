@@ -2,6 +2,7 @@ import { useMemo, useState, type FormEvent } from "react";
 import { READ_ONLY_KEEP, ReadOnlyFields } from "../shell/ReadOnlyForm";
 import { matchesSearch } from "@mezan/domain";
 import {
+  ENGLISH_LOCALE,
   useFormat,
   AccountTree,
   Button,
@@ -245,7 +246,7 @@ function AccountRoutingTab() {
                 <div key={slot.key} className="flex flex-wrap items-end gap-[12px] border-b border-border px-[16px] py-[10px] last:border-b-0">
                   <div className="min-w-[200px] flex-1">
                     <SelectField
-                      label={locale === "en" ? slot.labelEn : slot.labelAr}
+                      label={locale === ENGLISH_LOCALE ? slot.labelEn : slot.labelAr}
                       value={slot.accountId}
                       onChange={(value) => save({ overrides: { [slot.key]: value } })}
                       options={accountOptions}

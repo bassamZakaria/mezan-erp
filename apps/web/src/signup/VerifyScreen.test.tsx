@@ -39,6 +39,15 @@ describe("VerifyScreen", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
+  it("tells someone whose sign-up awaits approval that it was received, with no PIN and no error", async () => {
+    open(409, { error: "SIGNUP_AWAITING_APPROVAL", message: "تم تأكيد بريدك الإلكتروني. طلبك قيد المراجعة، وسنتواصل معك عند تفعيل حسابك." });
+
+    expect(await screen.findByRole("heading", { name: "تم استلام طلبك", level: 1 })).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("طلبك قيد المراجعة");
+    expect(screen.queryByText("رقم التعريف الشخصي (PIN)")).not.toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   it("still reports a link that expired before it was ever used as an error, with the way back to signing up", async () => {
     open(410, { error: "SIGNUP_TOKEN_EXPIRED", message: "انتهت صلاحية رابط التفعيل، أنشئ حسابًا جديدًا" });
 

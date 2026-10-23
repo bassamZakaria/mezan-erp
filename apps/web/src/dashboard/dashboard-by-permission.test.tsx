@@ -27,7 +27,7 @@ const BODIES: Record<DashboardRequest, unknown> = {
   [DashboardRequest.VatReturn]: { rows: [], totals: {} },
   [DashboardRequest.CustomerAging]: { rows: [], grandTotals: { current: "10.000000", d31to60: "0", d61to90: "0", d91to120: "0", over120: "0" } },
   [DashboardRequest.SupplierAging]: { rows: [], grandTotals: { current: "20.000000", d31to60: "0", d61to90: "0", d91to120: "0", over120: "0" } },
-  [DashboardRequest.StockLevels]: { rows: [] },
+  [DashboardRequest.StockLevels]: { totalValue: "0", needsAttentionCount: 0, lowCount: 0, attention: [], firstLow: null },
   [DashboardRequest.TopProducts]: { rows: [] },
   [DashboardRequest.SalesInvoices]: [],
   [DashboardRequest.ContractingExceptions]: { total: 0 },

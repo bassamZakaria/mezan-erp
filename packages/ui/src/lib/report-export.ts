@@ -1,4 +1,4 @@
-import ExcelJS from "exceljs";
+import type ExcelJS from "exceljs";
 
 /**
  * Report export — generic over `Row`, so it works for every report without
@@ -6,6 +6,10 @@ import ExcelJS from "exceljs";
  * everywhere; it is nearly free once one export pipeline exists"). Used by
  * `<ReportRunner>`'s always-on Export button.
  */
+
+export async function loadExcelJS(): Promise<typeof ExcelJS> {
+  return (await import("exceljs")).default;
+}
 
 export interface ReportExportColumn<Row> {
   readonly key: string;
@@ -41,7 +45,7 @@ export async function buildReportExport<Row>(
   rows: readonly Row[],
   options: BuildReportExportOptions,
 ): Promise<ReportExportFile> {
-  const workbook = new ExcelJS.Workbook();
+  const workbook = new (await loadExcelJS()).Workbook();
   const sheet = workbook.addWorksheet(options.sheetName ?? "Report");
   sheet.columns = columns.map((column) => ({ header: column.header, key: column.key }));
   for (const row of rows) {

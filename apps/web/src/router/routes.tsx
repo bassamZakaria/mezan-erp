@@ -8,9 +8,6 @@ import { SCREEN_MODULES, type RoutableKey } from "./screens";
 import { routePathForScreen } from "../routing";
 import { listLoader } from "./loader";
 import { customerFilterFromUrl, customersQuery } from "../data/list-queries";
-import { PlatformApp } from "../platform/PlatformApp";
-import { SignupApp } from "../signup/SignupApp";
-import { UnlockLinkScreen } from "../login/UnlockLinkScreen";
 import { LANDING_PATH } from "../landing/site";
 import { RootEntry } from "./RootEntry";
 
@@ -86,14 +83,26 @@ export const routes: RouteObject[] = [
    * catch-all, and it owns its own session and layout entirely (see
    * `platform/PlatformApp.tsx`) rather than nesting under `AppLayout`.
    */
-  { path: "/platform/*", Component: PlatformApp },
+  {
+    path: "/platform/*",
+    lazy: async () => ({ Component: (await import("../platform/PlatformApp")).PlatformApp }),
+    ErrorBoundary: RouteErrorBoundary,
+  },
   /**
    * The public self-serve signup flow — also a sibling, also outside the
    * gate: it runs before any tenant exists, so a LAN-host check or a tenant
    * session would both be nonsensical here.
    */
-  { path: "/signup/*", Component: SignupApp },
-  { path: "/unlock", Component: UnlockLinkScreen },
+  {
+    path: "/signup/*",
+    lazy: async () => ({ Component: (await import("../signup/SignupApp")).SignupApp }),
+    ErrorBoundary: RouteErrorBoundary,
+  },
+  {
+    path: "/unlock",
+    lazy: async () => ({ Component: (await import("../login/UnlockLinkScreen")).UnlockLinkScreen }),
+    ErrorBoundary: RouteErrorBoundary,
+  },
   {
     path: LANDING_PATH,
     lazy: async () => ({ Component: (await import("../landing/LandingPage")).LandingPage }),

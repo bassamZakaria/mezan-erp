@@ -15,6 +15,7 @@ import {
   archiveTenant,
   billingAnchorDayOf,
   setBillingAnchorDay,
+  setSubscriptionExtras,
   recordPayment,
   createPlatformUser,
   deactivatePlatformUser,
@@ -23,6 +24,7 @@ import {
   recordSecurityEvent,
   recordSecurityEventOrFallback,
   type AuditSeverity,
+  type Subscription,
   InvalidTenantError,
   TenantNotFoundError,
   TenantCodeTakenError,
@@ -59,6 +61,11 @@ import {
   isReservedTenantCode,
   RESERVED_TENANT_CODE_MESSAGE,
   AuditSeverityCode,
+  PlatformSettingKey,
+  SignupDecision,
+  SignupRequestStatus,
+  signupModeOf,
+  type SignupRequest,
 } from "@mezan/domain";
 import {
   createTenantRequestSchema,
@@ -75,6 +82,7 @@ import {
   type TenantBackupListDTO,
   type TenantExportOfferDTO,
   setBillingAnchorDayRequestSchema,
+  setSubscriptionExtrasRequestSchema,
   startSubscriptionRequestSchema,
   changePlanRequestSchema,
   subscriptionSuspendRequestSchema,
@@ -117,6 +125,17 @@ import {
   purgeTenantNowRequestSchema,
   type TenantPurgeResultDTO,
   type TenantRetentionDTO,
+  approveSignupRequestSchema,
+  setSignupModeRequestSchema,
+  signupModeSchema,
+  type SignupRequestDTO,
+  SignupRefusalCode,
+  type SignupModeResponseDTO,
+  EnvSettingsRefusal,
+  restartServerRequestSchema,
+  updateEnvSettingsRequestSchema,
+  type EnvSettingKey,
+  type EnvSettingsDTO,
 } from "@mezan/contracts";
 import { connectionTurn, createLogger } from "@mezan/api";
 import { OwnerPinResetOutcome } from "./owner-pin-reset-outcome.js";
@@ -159,6 +178,33 @@ export interface PlatformCardCheckoutPort {
   }): Promise<CardCheckout>;
 }
 
+export interface PreparedEnvChange {
+  readonly changed: EnvSettingKey[];
+  /** Writes the settings file; called only once the change is recorded in the audit trail. */
+  commit(): void;
+}
+
+export interface PlatformEnvSettingsPort {
+  list(): EnvSettingsDTO;
+  /** Throws {@link EnvSettingsInvalidError}, writing nothing, when the server would refuse to start with the result. */
+  update(changes: Partial<Record<EnvSettingKey, string | null>>): PreparedEnvChange;
+  restart(): void;
+}
+
+export class EnvSettingsInvalidError extends Error {
+  constructor(readonly reason: string) {
+    super(reason);
+    this.name = "EnvSettingsInvalidError";
+  }
+}
+
+const RESTART_DELAY_MS = 500;
+
+enum PlatformAuditEntity {
+  EnvSettings = "env-settings",
+  Server = "server",
+}
+
 export enum PlatformAuditAction {
   CardCheckoutRequested = "CARD_CHECKOUT_REQUESTED",
   PaymentRecorded = "PAYMENT_RECORDED",
@@ -169,6 +215,12 @@ export enum PlatformAuditAction {
   PlatformUserDeactivated = "PLATFORM_USER_DEACTIVATED",
   SubscriptionAnchorDaySet = "SUBSCRIPTION_ANCHOR_DAY_SET",
   SubscriptionCancelled = "SUBSCRIPTION_CANCELLED",
+  SubscriptionExtrasSet = "SUBSCRIPTION_EXTRAS_SET",
+  SignupApproved = "SIGNUP_APPROVED",
+  SignupRejected = "SIGNUP_REJECTED",
+  SignupModeSet = "SIGNUP_MODE_SET",
+  EnvSettingsChanged = "ENV_SETTINGS_CHANGED",
+  ServerRestartRequested = "SERVER_RESTART_REQUESTED",
   SubscriptionPlanChanged = "SUBSCRIPTION_PLAN_CHANGED",
   SubscriptionResumed = "SUBSCRIPTION_RESUMED",
   SubscriptionStarted = "SUBSCRIPTION_STARTED",
@@ -273,7 +325,7 @@ export interface CreatePlatformRoutesOptions {
   readonly platform: PlatformHandle;
   readonly auth: PlatformAuth;
   readonly now: () => Date;
-  readonly provisionTenant: (cmd: CreateTenantRequestDTO & { actorId: string }, activation: RecordedActivation) => Promise<ProvisionResultDTO>;
+  readonly provisionTenant: (cmd: CreateTenantRequestDTO & { actorId: string; intendedPlanId?: string | null }, activation: RecordedActivation) => Promise<ProvisionResultDTO>;
   /** Re-runs a failed provisioning (seed, admin, subscription) idempotently for a tenant stuck in `provisioning`. Optional only so a rig that never exercises this route still typechecks without supplying it. */
   readonly provisionRetry?: (input: { tenantId: string; actorId: string } & ProvisionRetryRequestDTO, activation: RecordedActivation) => Promise<ProvisionResultDTO>;
   readonly resetOwnerPin?: (input: { tenant: Tenant; actorId: string; recordIntent: (account: OwnerPinResetAccount) => Promise<void> }) => Promise<OwnerPinResetResultDTO>;
@@ -296,6 +348,7 @@ export interface CreatePlatformRoutesOptions {
   readonly reconcileOpenOwners?: () => Promise<void>;
   readonly operations?: () => PlatformOperationsDTO;
   readonly invalidateEntitlements: (code: string) => void;
+  readonly envSettings?: PlatformEnvSettingsPort;
   readonly idOf?: () => string;
   /** Absent when card checkout is not configured on this deployment; the routes then answer 503. */
   readonly cardCheckout?: PlatformCardCheckoutPort;
@@ -318,7 +371,7 @@ function serializePlan(p: Plan): PlanDTO {
     features: { ...p.features }, seatsIncluded: p.seatsIncluded, branchesIncluded: p.branchesIncluded,
     warehousesIncluded: p.warehousesIncluded, kind: p.kind, quotas: { ...p.quotas },
     priceMonthly: p.priceMonthly.toString(), priceYearly: p.priceYearly.toString(),
-    trialDays: p.trialDays, isPublic: p.isPublic, sortOrder: p.sortOrder, status: p.status, createdAt: p.createdAt,
+    trialDays: p.trialDays, isPublic: p.isPublic, soldOut: p.soldOut ?? false, sortOrder: p.sortOrder, status: p.status, createdAt: p.createdAt,
   };
 }
 
@@ -436,6 +489,37 @@ function asCodeProvisioning(err: unknown): { readonly message: string; readonly 
   return { message: err.message, messageEn: typeof messageEn === "string" ? messageEn : "This tenant code is being provisioned by another request right now." };
 }
 
+function serializeSignupRequest(r: SignupRequest): SignupRequestDTO {
+  return {
+    id: r.id, code: r.code, nameAr: r.nameAr, nameEn: r.nameEn, ownerEmail: r.ownerEmail, ownerNameAr: r.ownerNameAr,
+    intendedPlanId: r.intendedPlanId ?? null, billingCycle: r.billingCycle, createdAt: r.createdAt, verifiedAt: r.verifiedAt,
+  };
+}
+
+const SIGNUP_ALREADY_DECIDED = { error: SignupRefusalCode.AlreadyDecided, message: "سبق البتّ في هذا الطلب" } as const;
+
+class SignupAlreadyDecidedError extends Error {
+  constructor() {
+    super(SIGNUP_ALREADY_DECIDED.message);
+  }
+}
+
+export enum ProvisioningRefusalCode {
+  Superseded = "PROVISIONING_SUPERSEDED",
+}
+
+const decidedElsewhere = (err: unknown): boolean =>
+  err instanceof SignupAlreadyDecidedError || (err instanceof Error && (err as { code?: unknown }).code === ProvisioningRefusalCode.Superseded);
+
+/** Provisioning wraps what it does not know in its own error and keeps the original as `cause`. */
+function lostTheDecision(err: unknown): boolean {
+  return decidedElsewhere(err) || (err instanceof Error && decidedElsewhere((err as { cause?: unknown }).cause));
+}
+
+function extrasOf(s: Pick<Subscription, "addOnModules" | "extraSeats" | "extraBranches" | "extraWarehouses" | "graceDays">) {
+  return { addOnModules: [...s.addOnModules], extraSeats: s.extraSeats, extraBranches: s.extraBranches, extraWarehouses: s.extraWarehouses, graceDays: s.graceDays };
+}
+
 function domainErrorResponse(c: Context, err: unknown): Response {
   if (err instanceof TenantBackupRefusalError) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, err.status);
@@ -527,6 +611,7 @@ function domainErrorResponse(c: Context, err: unknown): Response {
 export type RecordedActivation = (activate: () => Promise<Tenant>) => Promise<Tenant>;
 
 export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono {
+  const { envSettings } = options;
   const { platform, auth, now, provisionTenant, provisionRetry, resetOwnerPin, releaseTenant, lockedAccounts, unlockAccount, tenantBackups, ownerCandidates, assignOwner, confirmPendingOwner, declinePendingOwner, resendPendingOwner, tenantBooks, reconcileOwner, reconcileOpenOwners, invalidateEntitlements, idOf = randomUUID } = options;
   const nowIso = () => now().toISOString();
 
@@ -653,6 +738,146 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
     } catch (err) {
       return domainErrorResponse(c, err);
     }
+  });
+
+  const signupRequests = platform.stores.signupRequests;
+
+  /** A company an approval started for a request that was then decided otherwise must not linger holding the code. */
+  async function releaseHalfProvisioned(request: SignupRequest, actorId: string): Promise<void> {
+    const tenant = await platform.stores.tenants.findByCode(request.code);
+    if (releaseTenant && tenant?.status === TenantStatusCode.Provisioning && tenant.ownerEmail === request.ownerEmail) await releaseTenant({ tenant, actorId });
+  }
+
+  async function awaitingRequest(id: string): Promise<SignupRequest | null> {
+    return (await signupRequests.listAwaitingDecision(nowIso())).find((r) => r.id === id) ?? null;
+  }
+
+  app.get("/signup-requests", requireAny, async (c) => c.json((await signupRequests.listAwaitingDecision(nowIso())).map(serializeSignupRequest)));
+
+  app.post("/signup-requests/:id/approve", requireOwner, async (c) => {
+    const parsed = approveSignupRequestSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    const request = await awaitingRequest(c.req.param("id"));
+    if (!request) return c.json(SIGNUP_ALREADY_DECIDED, 409);
+    const platformUser = c.get("platformUser")!;
+    try {
+      // The decision is written in the same audited transaction that activates the company, so an approval never exists without its company.
+      const result = await provisionTenant(
+        {
+          code: request.code,
+          nameAr: request.nameAr,
+          nameEn: request.nameEn,
+          ownerEmail: request.ownerEmail,
+          ownerNameAr: request.ownerNameAr,
+          intendedPlanId: request.intendedPlanId ?? null,
+          ...parsed.data,
+          actorId: platformUser.id,
+        },
+        (activate) =>
+          recordedWith(c, async () => {
+            const tenant = await activate();
+            if (!(await signupRequests.tryDecide(request.id, SignupDecision.Approved, platformUser.id, nowIso()))) throw new SignupAlreadyDecidedError();
+            const live = await platform.stores.subscriptions.findLiveByTenant(tenant.id);
+            const applied = live ? { planId: live.planId, billingCycle: live.billingCycle, trialEndsAt: live.trialEndsAt } : null;
+            return { value: tenant, action: PlatformAuditAction.SignupApproved, entityId: tenant.id, details: { code: tenant.code, requestId: request.id, requested: parsed.data, applied } };
+          }),
+      );
+      invalidateEntitlements(result.tenant.code);
+      return c.json(result, 201);
+    } catch (err) {
+      if (lostTheDecision(err)) {
+        // Only a rejection makes the half-made company unwanted; a sign-up link that won the race is still finishing it.
+        if ((await signupRequests.findById(request.id))?.decision === SignupDecision.Rejected) await releaseHalfProvisioned(request, platformUser.id);
+        return c.json(SIGNUP_ALREADY_DECIDED, 409);
+      }
+      return domainErrorResponse(c, err);
+    }
+  });
+
+  app.post("/signup-requests/:id/reject", requireOwner, async (c) => {
+    const request = await awaitingRequest(c.req.param("id"));
+    if (!request) return c.json(SIGNUP_ALREADY_DECIDED, 409);
+    const platformUser = c.get("platformUser")!;
+    try {
+      await recordedWith(c, async () => {
+        if (!(await signupRequests.tryDecide(request.id, SignupDecision.Rejected, platformUser.id, nowIso()))) throw new SignupAlreadyDecidedError();
+        await signupRequests.releaseByCode(request.code);
+        return { value: null, action: PlatformAuditAction.SignupRejected, entityId: request.id, details: { code: request.code, ownerEmail: request.ownerEmail } };
+      });
+      await releaseHalfProvisioned(request, platformUser.id);
+      return c.json({ rejected: true });
+    } catch (err) {
+      if (err instanceof SignupAlreadyDecidedError) return c.json(SIGNUP_ALREADY_DECIDED, 409);
+      return domainErrorResponse(c, err);
+    }
+  });
+
+  const signupMode = async () => signupModeOf(await platform.stores.settings.get(PlatformSettingKey.SignupMode));
+
+  app.get("/settings/signup-mode", requireAny, async (c) => {
+    const body: SignupModeResponseDTO = { mode: signupModeSchema.parse(await signupMode()) };
+    return c.json(body);
+  });
+
+  app.put("/settings/signup-mode", requireOwner, async (c) => {
+    const parsed = setSignupModeRequestSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    try {
+      await recordedWith(c, async () => {
+        const before = await signupMode();
+        await platform.stores.settings.set(PlatformSettingKey.SignupMode, parsed.data.mode, nowIso());
+        return { value: null, action: PlatformAuditAction.SignupModeSet, entityId: PlatformSettingKey.SignupMode, details: { before, after: parsed.data.mode }, severity: AuditSeverityCode.Warning };
+      });
+      const body: SignupModeResponseDTO = { mode: parsed.data.mode };
+      return c.json(body);
+    } catch (err) {
+      return domainErrorResponse(c, err);
+    }
+  });
+
+  const settingsUnavailable = (c: Context) =>
+    c.json({ error: EnvSettingsRefusal.Unavailable, message: "إعدادات الخادم غير متاحة هنا", messageEn: "Server settings are not available on this server" }, 404);
+
+  app.get("/settings/env", requireAny, (c) => (envSettings ? c.json(envSettings.list()) : settingsUnavailable(c)));
+
+  app.put("/settings/env", requireOwner, async (c) => {
+    if (!envSettings) return settingsUnavailable(c);
+    const parsed = updateEnvSettingsRequestSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    const refused = await auth.confirmPassword(c, parsed.data.password);
+    if (refused) return refused;
+    const changes = parsed.data.changes as Partial<Record<EnvSettingKey, string | null>>;
+    try {
+      const prepared = await recordedWith(c, async () => {
+        const prepared = envSettings.update(changes);
+        const changed = prepared.changed;
+        const details = Object.fromEntries(changed.map((key) => [key, changes[key]]));
+        return { value: prepared, action: PlatformAuditAction.EnvSettingsChanged, entityId: PlatformAuditEntity.EnvSettings, details: { changed: details }, severity: AuditSeverityCode.Warning };
+      });
+      prepared.commit();
+      return c.json(envSettings.list());
+    } catch (err) {
+      if (err instanceof EnvSettingsInvalidError) {
+        return c.json({ error: EnvSettingsRefusal.Invalid, message: `لم تُحفظ الإعدادات: الخادم لن يعمل بها. ${err.reason}`, messageEn: err.reason }, 422);
+      }
+      return domainErrorResponse(c, err);
+    }
+  });
+
+  app.post("/settings/restart", requireOwner, async (c) => {
+    if (!envSettings) return settingsUnavailable(c);
+    const parsed = restartServerRequestSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    const refused = await auth.confirmPassword(c, parsed.data.password);
+    if (refused) return refused;
+    try {
+      await recordedWith(c, async () => ({ value: null, action: PlatformAuditAction.ServerRestartRequested, entityId: PlatformAuditEntity.Server, details: {}, severity: AuditSeverityCode.Warning }));
+    } catch (err) {
+      return domainErrorResponse(c, err);
+    }
+    // The answer must leave before the process does; the container's restart policy brings the server back.
+    setTimeout(() => envSettings.restart(), RESTART_DELAY_MS).unref();
+    return c.json({ restarting: true }, 202);
   });
 
   app.post("/tenants/:id/provision", requireOwner, async (c) => {
@@ -1276,6 +1501,29 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
     }
   });
 
+  app.post("/tenants/:id/subscription/extras", requireOwner, async (c) => {
+    const parsed = setSubscriptionExtrasRequestSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    try {
+      const tenant = await requireTenant(c.req.param("id"));
+      await recordedWith(c, async () => {
+        const subscription = await requireLiveSubscription(tenant);
+        const saved = await setSubscriptionExtras({ id: subscription.id, ...parsed.data, now: nowIso() }, platform.stores.subscriptions);
+        return {
+          value: null,
+          action: PlatformAuditAction.SubscriptionExtrasSet,
+          entityId: tenant.id,
+          details: { before: extrasOf(subscription), after: extrasOf(saved) },
+          severity: AuditSeverityCode.Warning,
+        };
+      });
+      invalidateEntitlements(tenant.code);
+      return c.json(await summaryOf(tenant));
+    } catch (err) {
+      return domainErrorResponse(c, err);
+    }
+  });
+
   app.post("/tenants/:id/subscription/suspend", requireOwner, async (c) => {
     const parsed = subscriptionSuspendRequestSchema.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
@@ -1491,6 +1739,7 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
           quotas: parsed.data.quotas,
           trialDays: parsed.data.trialDays,
           isPublic: parsed.data.isPublic,
+          soldOut: parsed.data.soldOut,
           sortOrder: parsed.data.sortOrder,
           now: nowIso(),
         },

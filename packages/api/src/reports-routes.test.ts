@@ -38,7 +38,7 @@ import {
   type FrameworkDocument,
   StockLedgerService,
 } from "@mezan/domain";
-import { agingCustomersReportSchema, agingSuppliersReportSchema, reportDrillDownSchema } from "@mezan/contracts";
+import { agingCustomersReportSchema, agingSuppliersReportSchema, reportDrillDownSchema, stockLevelsSummarySchema } from "@mezan/contracts";
 import { createReportsRoutes, type ReportsRoutesDeps } from "./reports-routes.js";
 import { createFinancialReportsRoutes } from "./financial-reports-routes.js";
 
@@ -1595,6 +1595,21 @@ describe("reports routes — field/van-sales", () => {
     expect(row.cashVariance).toBe(0);
   });
 
+  it("lists every row in the same order whether paged or not, so an export reads like the screen", async () => {
+    const { app, vanTrips } = await newVanApp();
+    await vanTrips.create(makeVanTrip({ id: "trip-a", tripNo: "VT-000001", date: "2026-08-10" }));
+    await vanTrips.create(makeVanTrip({ id: "trip-b", tripNo: "VT-000002", date: "2026-08-11", status: VanTripStatus.Cancelled, settlement: null }));
+    await vanTrips.create(makeVanTrip({ id: "trip-c", tripNo: "VT-000003", date: "2026-08-12" }));
+    const path = "/field/van-sales?dateFrom=2026-08-01&dateTo=2026-08-31&status=all";
+    const ids = async (query: string) =>
+      ((await (await app.fetch(req(`${path}${query}`, "field.van_trip.view"))).json()) as { rows: { tripId: string }[] }).rows.map((r) => r.tripId);
+
+    const full = await ids("");
+    const pages = [...(await ids("&page=1&pageSize=1")), ...(await ids("&page=2&pageSize=1")), ...(await ids("&page=3&pageSize=1"))];
+    expect(full).toHaveLength(3);
+    expect(pages).toEqual(full);
+  });
+
   it("is not mounted at all when no vanTrips port is wired", async () => {
     const { app } = await newApp();
     const res = await app.fetch(req("/field/van-sales", "field.van_trip.view"));
@@ -2489,5 +2504,109 @@ describe("reports routes — تقرير العروض", () => {
     const res = await app.fetch(req("/sales/offers?dateFrom=yesterday&dateTo=2026-08-31", "sales.promotion.view"));
     expect(res.status).toBe(400);
     expect(((await res.json()) as { error: string }).error).toBe("VALIDATION_ERROR");
+  });
+});
+
+describe("reports routes — /inventory/stock-levels/summary", () => {
+  async function seeded() {
+    const harness = await twoBranches();
+    await harness.deps.items.update(makeItem({ id: "item-1", code: "ITEM-1", nameAr: "صنف الفروع", nameEn: "Branch item", type: "finished_good", reorderPoint: 50 }));
+    await harness.deps.items.create(makeItem({ id: "item-out", code: "OUT-1", nameAr: "أصناف نافدة", type: "finished_good" }));
+    return harness;
+  }
+
+  async function both(request: () => Request, path = "") {
+    const { app } = await seeded();
+    const full = (await (await app.fetch(withPath(request(), "/inventory/stock-levels" + path))).json()) as {
+      rows: { itemId: string; itemNameAr: string; itemNameEn: string | null; sku: string; onHand: number; status: string }[];
+      grandTotals: { value: number };
+    };
+    const res = await app.fetch(withPath(request(), "/inventory/stock-levels/summary" + path));
+    expect(res.status).toBe(200);
+    return { full, summary: stockLevelsSummarySchema.parse(await res.json()) };
+  }
+
+  function withPath(template: Request, path: string): Request {
+    return new Request(`http://local${path}`, { headers: template.headers });
+  }
+
+  function expectAgreement(full: Awaited<ReturnType<typeof both>>["full"], summary: Awaited<ReturnType<typeof both>>["summary"]) {
+    const notNormal = full.rows.filter((r) => r.status !== "normal");
+    const low = full.rows.filter((r) => r.status === "low");
+    expect(summary.needsAttentionCount).toBe(notNormal.length);
+    expect(summary.lowCount).toBe(low.length);
+    expect(summary.attention.map((r) => [r.itemId, r.sku, Number(r.onHand), r.status])).toEqual(notNormal.slice(0, 5).map((r) => [r.itemId, r.sku, r.onHand, r.status]));
+    expect(summary.firstLow?.itemId ?? null).toBe(low[0]?.itemId ?? null);
+    expect(Number(summary.totalValue)).toBe(full.grandTotals.value);
+  }
+
+  it("agrees with the full report for an unscoped caller", async () => {
+    const { full, summary } = await both(() => req("/", "inventory.stock.view"));
+    expectAgreement(full, summary);
+    expect(summary).toMatchObject({ totalValue: "1500.000000", needsAttentionCount: 1, lowCount: 0, firstLow: null });
+    expect(summary.attention.map((r) => r.itemId)).toEqual(["item-out"]);
+  });
+
+  it("narrows to the caller's branch exactly as the report does", async () => {
+    const { full, summary } = await both(() => scopedReq("/", "inventory.stock.view", "br-1"));
+    expectAgreement(full, summary);
+    expect(summary).toMatchObject({ totalValue: "1000.000000", needsAttentionCount: 2, lowCount: 1 });
+    expect(summary.firstLow).toMatchObject({ itemId: "item-1", itemNameEn: "Branch item", onHand: "40.000000" });
+  });
+
+  it("honours the report's own parameters", async () => {
+    const { full, summary } = await both(() => req("/", "inventory.stock.view"), "?warehouseId=wh-2");
+    expectAgreement(full, summary);
+    expect(summary.totalValue).toBe("500.000000");
+  });
+
+  it("is refused without inventory.stock.view", async () => {
+    const { app } = await seeded();
+    expect((await app.fetch(req("/inventory/stock-levels/summary", ""))).status).toBe(403);
+    expect((await app.fetch(req("/inventory/stock-levels/summary", "sales.invoice.view"))).status).toBe(403);
+  });
+});
+
+describe("reports routes — paging (pageSize/page)", () => {
+  async function sevenItems() {
+    const harness = await newApp();
+    for (let i = 1; i <= 7; i += 1) {
+      await harness.deps.items.create(makeItem({ id: `pg-${i}`, code: `PG-${i}`, nameAr: `صنف ${i}`, type: "finished_good", reorderPoint: i }));
+    }
+    return harness;
+  }
+
+  type Body = {
+    rows: { itemId: string; itemNameAr: string }[];
+    groups: { rows: unknown[]; totals: unknown }[];
+    grandTotals: unknown;
+    kpis: unknown;
+    page?: unknown;
+    chartPoints?: { label: string }[] | null;
+  };
+
+  it("cuts only the rows; totals, KPIs and the chart stay over the whole result", async () => {
+    const { app } = await sevenItems();
+    const full = (await (await app.fetch(req("/inventory/stock-levels", "inventory.stock.view"))).json()) as Body;
+    const res = await app.fetch(req("/inventory/stock-levels?page=2&pageSize=3", "inventory.stock.view"));
+    expect(res.status).toBe(200);
+    const paged = (await res.json()) as Body;
+
+    expect(full.page).toBeUndefined();
+    expect(paged.page).toEqual({ page: 2, pageSize: 3, totalRows: full.rows.length });
+    expect(paged.rows.map((r) => r.itemId)).toEqual(full.rows.slice(3, 6).map((r) => r.itemId));
+    expect(paged.groups).toHaveLength(1);
+    expect(paged.groups[0]?.rows).toEqual(paged.rows);
+    expect(paged.groups[0]?.totals).toEqual(full.groups[0]?.totals);
+    expect(paged.grandTotals).toEqual(full.grandTotals);
+    expect(paged.kpis).toEqual(full.kpis);
+    expect(paged.rows).toHaveLength(3);
+    expect(paged.chartPoints?.map((point) => point.label)).toEqual(full.rows.map((row) => row.itemNameAr));
+  });
+
+  it("refuses a page size above the server's cap", async () => {
+    const { app } = await newApp();
+    const res = await app.fetch(req("/inventory/stock-levels?pageSize=100000", "inventory.stock.view"));
+    expect(res.status).toBe(400);
   });
 });

@@ -142,6 +142,14 @@ sudo /opt/mezan/deploy.sh --rollback        # back to the tag that ran before
 
 The server's own shutdown budget is 75 s (`apps/server/src/process-lifecycle.ts`); if a backup run takes longer the process exits 1 with the marker left behind and `deploy.sh` refuses. Wait a minute, `docker compose start mezan`, and deploy again.
 
+## Settings changed from the console
+
+The platform console's **Site settings** page changes only the support e-mail, support phone, WhatsApp number and the landing-page switch. It saves them to `env-overrides.json` in the data folder (`/srv/mezan/data` on the host), which the server reads at start-up after `/srv/mezan/env`; any other key in that file is ignored. Every other setting (mail, Paymob, keys, URLs, proxy, backups) stays in `/srv/mezan/env`. To drop the console's values, delete the file and restart:
+
+```bash
+sudo rm /srv/mezan/data/env-overrides.json && cd /opt/mezan && sudo docker compose restart mezan
+```
+
 ## 6. Restore
 
 Local snapshots: the app writes one per open tenant and one of the platform database every `MEZAN_BACKUP_INTERVAL_MINUTES` (keep it at 30 or less: a tenant idle for 30 minutes is closed and skipped) under `/srv/mezan/data/backups/`, keeping 12 per folder. Off-box: restic keeps 48 hourly, 30 daily, 12 weekly, 12 monthly.

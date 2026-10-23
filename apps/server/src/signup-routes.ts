@@ -5,6 +5,10 @@ import {
   isDisposableEmailDomain,
   isReservedTenantCode,
   PlanNotFoundError,
+  PlatformSettingKey,
+  SignupDecision,
+  SignupMode,
+  signupModeOf,
   SignupActivationIncompleteError,
   SignupAlreadyActivatedError,
   SignupTokenExpiredError,
@@ -21,10 +25,13 @@ import {
 import { connectionTurn } from "@mezan/api";
 import type { PlatformHandle } from "@mezan/backend";
 import {
+  SignupRefusalCode,
+  signupModeSchema,
   startSignupRequestSchema,
   tenantDTOOf,
   verifySignupRequestSchema,
   type PublicPlanDTO,
+  type SignupStatusDTO,
   type StartSignupResultDTO,
   type VerifySignupResultDTO,
 } from "@mezan/contracts";
@@ -82,6 +89,7 @@ function toPublicPlan(plan: Plan): PublicPlanDTO {
     priceMonthly: plan.priceMonthly.toString(),
     priceYearly: plan.priceYearly.toString(),
     trialDays: plan.trialDays,
+    soldOut: plan.soldOut ?? false,
   };
 }
 
@@ -108,7 +116,20 @@ function verificationEmail(link: string, nameAr: string): { subject: string; bod
   };
 }
 
+const OPEN_SIGNUP_DECIDER = "open-signup";
+
+class SignupAwaitingApprovalError extends Error {
+  readonly code = SignupRefusalCode.AwaitingApproval;
+  constructor() {
+    super("تم تأكيد بريدك الإلكتروني. طلبك قيد المراجعة، وسنتواصل معك عند تفعيل حسابك.");
+    this.name = "SignupAwaitingApprovalError";
+  }
+}
+
 function signupErrorResponse(c: Context, err: unknown): Response {
+  if (err instanceof SignupAwaitingApprovalError) {
+    return c.json({ error: err.code, message: err.message }, 409);
+  }
   if (err instanceof InvalidSignupError) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 400);
   }
@@ -172,6 +193,16 @@ export function createSignupRoutes(options: SignupRoutesOptions): Hono {
     return c.json({ error: "TOO_MANY_REQUESTS", message: "محاولات كثيرة جدًا، حاول لاحقًا" }, 429);
   }
 
+  const currentMode = async (): Promise<SignupMode> => signupModeOf(await platform.stores.settings.get(PlatformSettingKey.SignupMode));
+
+  app.get("/status", async (c) => {
+    const body: SignupStatusDTO = {
+      mode: signupModeSchema.parse(await currentMode()),
+      contact: { email: env.supportEmail ?? null, phone: env.supportPhone ?? null, whatsapp: env.whatsappNumber ?? null },
+    };
+    return c.json(body);
+  });
+
   app.get("/plans", async (c) => {
     const plans = await platform.stores.plans.list();
     const publicPlans = plans
@@ -209,6 +240,10 @@ export function createSignupRoutes(options: SignupRoutesOptions): Hono {
     // still cost the sender rate-limit budget, or the limiter only ever
     // throttles requests that were already well-formed.
     startIpLimit.consume(ip);
+
+    if ((await currentMode()) === SignupMode.Closed) {
+      return c.json({ error: SignupRefusalCode.Closed, message: "التسجيل مغلق حاليًا. تواصل معنا لفتح حساب." }, 403);
+    }
 
     const raw = await c.req.json().catch(() => null);
     const parsed = startSignupRequestSchema.safeParse(raw);
@@ -360,6 +395,11 @@ export function createSignupRoutes(options: SignupRoutesOptions): Hono {
 
   async function verifyInTurn(tokenHash: string): Promise<VerifySignupResultDTO> {
     const request = await verifySignup(tokenHash, claims, now().toISOString(), platform.stores.tenants);
+    // SECURITY: outside open mode only the platform owner's approval turns a verified e-mail into a company.
+    const awaiting = (await currentMode()) !== SignupMode.Open && request.decision !== SignupDecision.Approved;
+    const company = await platform.stores.tenants.findByCode(request.code);
+    // SECURITY: a company an approval left half-made must not be finished by the visitor's own link.
+    if (awaiting && (!company || company.status === TenantStatusCode.Provisioning)) throw new SignupAwaitingApprovalError();
     const claimId = randomUUID();
     const giveUpAt = Date.now() + provisionWaitMs;
     for (;;) {
@@ -374,7 +414,9 @@ export function createSignupRoutes(options: SignupRoutesOptions): Hono {
     try {
       const fence = await claims.provisioningFence(tokenHash, claimId);
       if (fence === null) throw new ProvisioningSupersededError();
-      return await settleVerification(request, stillOurs, fence);
+      const settled = await settleVerification(request, stillOurs, fence);
+      await claims.tryDecide(request.id, SignupDecision.Approved, OPEN_SIGNUP_DECIDER, now().toISOString());
+      return settled;
     } catch (err) {
       if (err instanceof ProvisioningSupersededError) return await answerOfTheWinner(request, tokenHash, giveUpAt);
       throw err;

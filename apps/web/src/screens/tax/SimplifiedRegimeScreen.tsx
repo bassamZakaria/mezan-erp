@@ -1,7 +1,7 @@
 import { ArabicCase, CountedNoun } from "@mezan/domain";
 import { useCountPhrase } from "../../lib/count-phrase";
 import { useEffect, useState } from "react";
-import { Button, Card, Field, Money, Select, StatusPill, TextArea, TextInput, type PillTone } from "@mezan/ui";
+import { ENGLISH_LOCALE, Button, Card, Field, Money, Select, StatusPill, TextArea, TextInput, type PillTone } from "@mezan/ui";
 import type { RecordSimplifiedRegimeDTO, SimplifiedRegimeStateDTO } from "@mezan/contracts";
 import { useAppTranslation, type AppTranslationKey } from "../../i18n";
 import { useNavigation } from "../../navigation";
@@ -479,7 +479,7 @@ export function SimplifiedRegimeScreen() {
             <ul className="flex flex-col gap-[6px]">
               {schedule.exemptions.value.map((exemption) => (
                 <li key={exemption.key} className="text-[12.5px] leading-[1.8] text-ink-muted">
-                  {locale === "en" ? exemption.labelEn : exemption.labelAr}
+                  {locale === ENGLISH_LOCALE ? exemption.labelEn : exemption.labelAr}
                 </li>
               ))}
             </ul>

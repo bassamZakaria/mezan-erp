@@ -18,7 +18,7 @@ import {
 import { Money } from "../money/index.js";
 import type { ReportDefinition } from "./types.js";
 import { diffOf, sumRows } from "./kpi.js";
-import { ReportParamKind } from "./types.js";
+import { ReportChartSource, ReportParamKind } from "./types.js";
 
 /**
  * الميزانية العمومية — Balance Sheet (docs/archive/catalog/08-reports.md), point in
@@ -114,7 +114,7 @@ export function createBalanceSheetReport(
       { key: "rowCount", labelAr: "عدد البنود", format: "qty", value: (rows) => rows.length },
     ],
     chart: {
-      source: "groups",
+      source: ReportChartSource.Groups,
       valueColumn: "amount",
       captionAr: "أقسام الميزانية بمجاميعها — نفس المجاميع الفرعية المطبوعة في الجدول.",
     },

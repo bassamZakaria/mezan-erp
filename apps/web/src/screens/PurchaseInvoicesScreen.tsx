@@ -1,6 +1,7 @@
 import { AlreadySavedNotice, useAlreadySavedNotice, useDocumentId } from "../lib/document-id";
 import { useMemo, useState } from "react";
 import {
+  ENGLISH_LOCALE,
   RowActionOutcome,
   Button,
   Card,
@@ -609,7 +610,7 @@ export function PurchaseInvoicesScreen() {
       : [baseCurrency];
     return codes.map((code) => {
       const definition = findCurrency(code);
-      return definition ? { value: code, label: `${code} — ${locale === "en" ? definition.nameEn : definition.nameAr}` } : { value: code, label: code };
+      return definition ? { value: code, label: `${code} — ${locale === ENGLISH_LOCALE ? definition.nameEn : definition.nameAr}` } : { value: code, label: code };
     });
   }, [allowedCurrencies, baseCurrency, locale]);
   const [lines, setLines] = useState<DraftLine[]>([blankLine()]);

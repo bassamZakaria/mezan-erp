@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { reportPageSchema } from "./paging.js";
 import { auditEventSchema, auditSeveritySchema, auditStreamSchema } from "./audit.js";
 
 /**
@@ -332,6 +333,12 @@ export const afterHoursReportSchema = z.object({
   kpis: z.array(reportKpiSchema),
   coverage: reportCoverageSchema,
   gaps: z.array(reportGapSchema),
+  /**
+   * Present when the caller asked for one `pageSize` window. Only `rows` and
+   * each group's `rows` are cut; every count, total and KPI above is still
+   * over the whole result.
+   */
+  page: reportPageSchema.optional(),
 });
 
 export const newAccountRowSchema = z.object({

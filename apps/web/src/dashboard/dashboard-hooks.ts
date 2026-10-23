@@ -7,13 +7,13 @@ import type {
   AgingCustomersRow,
   AgingSuppliersRow,
   IncomeStatementRow,
-  InventoryStockLevelsRow,
   TopProductsRow,
   VatReturnRow,
 } from "@mezan/domain";
 import { DashboardRequest, Money, vatNetPayable } from "@mezan/domain";
 import { useFinancialReport, type FinancialReportResult } from "../data/financial-reports-hooks";
-import { useReport, type ReportResult } from "../data/reports-hooks";
+import { useReport, useStockLevelsSummary, type ReportResult } from "../data/reports-hooks";
+import type { StockLevelsSummaryDTO } from "@mezan/contracts";
 import { useDashboardGate, useSalesInvoiceStats } from "../data/hooks";
 import type { ApiError } from "../data/hooks";
 import type { UseQueryResult } from "@tanstack/react-query";
@@ -94,9 +94,9 @@ export function useSupplierAging(): UseQueryResult<ReportResult<AgingSuppliersRo
   return useReport<AgingSuppliersRow>("dashboard-aging-suppliers", "/aging/suppliers", {}, { enabled: mayAsk(DashboardRequest.SupplierAging) });
 }
 
-export function useStockLevels(): UseQueryResult<ReportResult<InventoryStockLevelsRow>, ApiError> {
+export function useStockLevels(): UseQueryResult<StockLevelsSummaryDTO, ApiError> {
   const mayAsk = useDashboardGate();
-  return useReport<InventoryStockLevelsRow>("dashboard-stock-levels", "/inventory/stock-levels", {}, { enabled: mayAsk(DashboardRequest.StockLevels) });
+  return useStockLevelsSummary({ enabled: mayAsk(DashboardRequest.StockLevels) });
 }
 
 export function useTopProducts(window: ReportWindow): UseQueryResult<ReportResult<TopProductsRow>, ApiError> {
@@ -182,7 +182,7 @@ export function useAttentionData(window: ReportWindow): AttentionData {
   const suppliers = useSupplierAging();
 
   return useMemo(() => {
-    const low = (stock.data?.rows ?? []).filter((row) => row.status === "low");
+    const firstLow = stock.data?.firstLow ?? null;
     const agedPayables = (suppliers.data?.rows ?? [])
       .reduce(
         (sum, row) => sum.add(Money.fromMajor(row.d31to60)).add(Money.fromMajor(row.d61to90)).add(Money.fromMajor(row.d91to120)).add(Money.fromMajor(row.over120)),
@@ -199,8 +199,8 @@ export function useAttentionData(window: ReportWindow): AttentionData {
       // the same figure the VAT return screen shows — without it the dashboard
       // reported tax DUE when the return said REFUNDABLE.
       taxDue: vat.data ? vatNetPayable(vat.data.rows) : 0,
-      lowStockCount: low.length,
-      lowStockFirstName: low[0] ? entityName({ nameAr: low[0].itemNameAr, nameEn: low[0].itemNameEn }, locale) : null,
+      lowStockCount: stock.data?.lowCount ?? 0,
+      lowStockFirstName: firstLow ? entityName({ nameAr: firstLow.itemNameAr, nameEn: firstLow.itemNameEn }, locale) : null,
       agedPayables,
     };
   }, [invoices.data, vat.data, stock.data, suppliers.data, locale]);

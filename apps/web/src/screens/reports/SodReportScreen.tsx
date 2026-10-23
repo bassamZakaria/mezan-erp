@@ -1,3 +1,4 @@
+import { ENGLISH_LOCALE } from "@mezan/ui";
 import type { SodConflictRowDTO } from "@mezan/contracts";
 import type { ReportRunnerColumn, ReportRunnerParamField } from "@mezan/ui";
 import { SecurityReportScreen, securityCopy } from "./SecurityReportScreen";
@@ -27,7 +28,7 @@ export function SodReportScreen() {
       header: t("securityReports.sod.kindTitle"),
       value: (r) => t(KIND_LABEL_KEYS[r.kind]),
     },
-    { key: "conflictLabelAr", header: securityCopy(REPORT, "col", "conflictLabelAr", "التعارض", t), value: (r) => (locale === "en" ? r.conflictLabelEn : r.conflictLabelAr) },
+    { key: "conflictLabelAr", header: securityCopy(REPORT, "col", "conflictLabelAr", "التعارض", t), value: (r) => (locale === ENGLISH_LOCALE ? r.conflictLabelEn : r.conflictLabelAr) },
     { key: "subjectLabelAr", header: securityCopy(REPORT, "col", "subjectLabelAr", "الدور/المستخدم", t), value: (r) => r.subjectLabelAr },
     { key: "roleCode", header: securityCopy(REPORT, "col", "roleCode", "رمز الدور", t), format: "code", value: (r) => r.roleCode },
     { key: "sideAActor", header: securityCopy(REPORT, "col", "sideAActor", "الطرف الأول", t), value: (r) => r.sideAActor },

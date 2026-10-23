@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
-import type { PublicPlanDTO } from "@mezan/contracts";
+import { SignupModeCode, type PublicPlanDTO } from "@mezan/contracts";
 import { PlanKind, QuotaKind } from "@mezan/domain";
 import { AppI18nProvider } from "../i18n";
 import { LandingPage } from "./LandingPage";
@@ -44,8 +44,11 @@ const PLANS: PublicPlanDTO[] = [
   }),
 ];
 
-function open(response: () => Promise<Response>) {
-  vi.stubGlobal("fetch", vi.fn(response));
+function open(response: () => Promise<Response>, mode: SignupModeCode = SignupModeCode.Open, whatsapp: string | null = null) {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((input: RequestInfo | URL) => (String(input instanceof Request ? input.url : input).endsWith("/status") ? ok({ mode, contact: { email: null, phone: null, whatsapp } })() : response())),
+  );
   render(
     <AppI18nProvider>
       <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
@@ -70,6 +73,31 @@ describe("LandingPage", () => {
     expect(await screen.findByText(/جرّب ميزان 14 يومًا بكل المزايا/)).toBeInTheDocument();
     for (const link of screen.getAllByRole("link", { name: "ابدأ التجربة المجانية" })) expect(link).toHaveAttribute("href", "/signup");
     for (const link of screen.getAllByRole("link", { name: "تسجيل الدخول" })) expect(link).toHaveAttribute("href", "/dashboard");
+  });
+
+  it("asks for an account instead of promising a trial while sign-up needs approval", async () => {
+    open(ok(PLANS), SignupModeCode.Approval);
+
+    expect((await screen.findAllByRole("link", { name: "اطلب حسابك" })).length).toBeGreaterThan(0);
+    expect(screen.queryByRole("link", { name: "ابدأ التجربة المجانية" })).not.toBeInTheDocument();
+    expect(screen.getByText("اطلب حسابًا لمنشأتك، فنراجع طلبك ونفعّله لك. ودفاترك تبقى معك.")).toBeInTheDocument();
+    expect(screen.queryByText(/بلا بطاقة ائتمان · تفعيل برابط/)).not.toBeInTheDocument();
+  });
+
+  it("marks a sold-out package and offers no way to choose it", async () => {
+    open(ok(PLANS.map((p) => (p.code === "business" ? { ...p, soldOut: true } : p))));
+
+    const card = await screen.findByTestId("landing-plan-business");
+    expect(within(card).getAllByText("نفدت حاليًا").length).toBeGreaterThan(0);
+    expect(within(card).queryByRole("link")).not.toBeInTheDocument();
+  });
+
+  it("offers no way to sign up while sign-up is closed, only sign-in", async () => {
+    open(ok(PLANS), SignupModeCode.Closed);
+
+    expect(await screen.findByTestId("landing-plan-business")).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryAllByRole("link").filter((link) => link.getAttribute("href")?.startsWith("/signup"))).toEqual([]));
+    expect(screen.getAllByRole("link", { name: "تسجيل الدخول" }).length).toBeGreaterThan(0);
   });
 
   it("lets a visitor clear a field and type a new quantity digit by digit without it jumping", async () => {
@@ -145,5 +173,12 @@ describe("LandingPage", () => {
     await screen.findByTestId("landing-plan-free");
     expect(screen.queryByText("تحدّث معنا على واتساب")).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "تواصل معنا" })).not.toBeInTheDocument();
+  });
+
+  it("links to the WhatsApp number the owner set in the console", async () => {
+    open(ok(PLANS), SignupModeCode.Open, "201001234567");
+
+    const link = await screen.findByRole("link", { name: "تواصل معنا" });
+    expect(link).toHaveAttribute("href", "https://wa.me/201001234567");
   });
 });

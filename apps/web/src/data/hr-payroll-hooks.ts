@@ -1,3 +1,4 @@
+import { ENGLISH_LOCALE } from "@mezan/ui";
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import type {
   CreateEmployeeAdvanceDTO,
@@ -28,7 +29,7 @@ import { useAppTranslation } from "../i18n";
 
 async function readMessage(res: { json<T>(): Promise<T> }, fallback: string, locale?: string): Promise<string> {
   const body = (await res.json<{ message?: string; messageEn?: string }>().catch(() => ({}))) as { message?: string; messageEn?: string };
-  if (locale === "en" && body.messageEn) return body.messageEn;
+  if (locale === ENGLISH_LOCALE && body.messageEn) return body.messageEn;
   return body.message ?? fallback;
 }
 

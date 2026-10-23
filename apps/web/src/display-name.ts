@@ -1,3 +1,4 @@
+import { ENGLISH_LOCALE } from "@mezan/ui";
 import type { Locale } from "@mezan/ui";
 
 /**
@@ -9,6 +10,6 @@ import type { Locale } from "@mezan/ui";
  * where a person should be.
  */
 export function displayName(person: { nameAr: string; nameEn?: string | null }, locale: Locale): string {
-  if (locale === "en") return person.nameEn?.trim() || person.nameAr;
+  if (locale === ENGLISH_LOCALE) return person.nameEn?.trim() || person.nameAr;
   return person.nameAr;
 }

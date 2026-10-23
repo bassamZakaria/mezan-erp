@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Button, StatusPill } from "@mezan/ui";
+import { ENGLISH_LOCALE, Button, StatusPill } from "@mezan/ui";
 import { SalaryPaymentMethodDTO, type EmployeeDTO } from "@mezan/contracts";
 import { EGYPT_IBAN_LENGTH, ibanProblemAr, ibanProblemEn, normalizeIban, validateEgyptianIban } from "@mezan/domain";
 import { SelectField, TextField } from "../settings/form-controls";
@@ -28,7 +28,7 @@ export function EmployeeSalaryPaymentTab({ employee }: { employee: EmployeeDTO }
   const [saved, setSaved] = useState(false);
 
   const ibanProblem = iban.trim() === "" ? null : validateEgyptianIban(iban);
-  const ibanError = ibanProblem ? (locale === "en" ? ibanProblemEn(ibanProblem) : ibanProblemAr(ibanProblem)) : undefined;
+  const ibanError = ibanProblem ? (locale === ENGLISH_LOCALE ? ibanProblemEn(ibanProblem) : ibanProblemAr(ibanProblem)) : undefined;
   const needsIban = method === SalaryPaymentMethodDTO.BankTransfer && iban.trim() === "";
 
   async function submit() {

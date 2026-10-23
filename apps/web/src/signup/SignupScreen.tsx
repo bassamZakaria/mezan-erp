@@ -5,10 +5,11 @@ import type { BillingCycleDTO, PublicPlanDTO, StartSignupRequestDTO, StartSignup
 import { ArabicCase, CountedNoun } from "@mezan/domain";
 import { useAppTranslation } from "../i18n";
 import { useCountPhrase } from "../lib/count-phrase";
-import { COMPANY_NAME_MAX_LENGTH, billingCycleSchema } from "@mezan/contracts";
+import { COMPANY_NAME_MAX_LENGTH, SignupModeCode, billingCycleSchema } from "@mezan/contracts";
 import { Field, FormError, TextField } from "../settings/form-controls";
 import { SignupLayout } from "./SignupLayout";
-import { checkCodeAvailability, SignupApiError, startSignup, usePublicPlans } from "./signup-api";
+import { checkCodeAvailability, SignupApiError, startSignup, usePublicPlans, useSignupMode, useSiteContact } from "./signup-api";
+import { whatsappHref } from "../landing/site";
 import type { AppTranslationKey } from "../i18n";
 import { SIGN_IN_PATH } from "../routing";
 
@@ -79,10 +80,12 @@ function PlanCard({
       type="button"
       onClick={onSelect}
       aria-pressed={selected}
-      className={`flex min-w-0 flex-1 flex-col gap-[6px] rounded-md border p-[14px] text-start transition-colors ${
+      disabled={plan.soldOut}
+      className={`flex min-w-0 flex-1 flex-col gap-[6px] rounded-md border p-[14px] text-start transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
         selected ? "border-accent-strong bg-accent-soft" : "border-border bg-surface hover:bg-surface-2"
       }`}
     >
+      {plan.soldOut ? <span className="self-start rounded-pill bg-surface-3 px-[8px] py-[2px] text-[11px] font-bold text-ink-muted">{t("landing.pricing.soldOut")}</span> : null}
       <span className="font-display text-[14px] font-bold text-ink">{plan.nameAr}</span>
       <span className="text-[11px] text-ink-muted">{plan.nameEn}</span>
       <span className="mt-[4px] flex items-baseline gap-[4px]">
@@ -93,12 +96,12 @@ function PlanCard({
   );
 }
 
-function SuccessPanel({ result, email }: { result: StartSignupResultDTO; email: string }) {
+function SuccessPanel({ result, email, open }: { result: StartSignupResultDTO; email: string; open: boolean }) {
   const { t } = useAppTranslation();
   return (
     <Card className="flex flex-col gap-[14px] p-[22px]">
       <h1 className="font-display text-lg font-bold text-ink">{t("signup.success.title")}</h1>
-      <p className="text-[13px] text-ink-muted">{t("signup.success.body", { email })}</p>
+      <p className="text-[13px] text-ink-muted">{t(open ? "signup.success.body" : "signup.success.bodyRequest", { email })}</p>
       {result.devVerifyUrl ? (
         <div className="flex flex-col gap-[10px] rounded-md border-2 border-dashed border-warning-ink bg-surface-2 p-[14px]">
           <p className="text-[12px] font-bold text-warning-ink">{t("signup.success.devLabel")}</p>
@@ -169,8 +172,10 @@ export function SignupScreen() {
   const [result, setResult] = useState<StartSignupResultDTO | null>(null);
 
   const plansQuery = usePublicPlans();
+  const signupMode = useSignupMode();
+  const contact = useSiteContact();
   const requestedPlanCode = params.get("plan");
-  const planId = draft.planId || (plansQuery.data?.find((plan) => plan.code === requestedPlanCode)?.id ?? "");
+  const planId = draft.planId || (plansQuery.data?.find((plan) => plan.code === requestedPlanCode && !plan.soldOut)?.id ?? "");
 
   async function handleCodeBlur() {
     const code = draft.code.trim().toLowerCase();
@@ -221,7 +226,46 @@ export function SignupScreen() {
   if (result) {
     return (
       <SignupLayout>
-        <SuccessPanel result={result} email={draft.ownerEmail} />
+        <SuccessPanel result={result} email={draft.ownerEmail} open={signupMode === SignupModeCode.Open} />
+      </SignupLayout>
+    );
+  }
+
+  if (signupMode === SignupModeCode.Closed) {
+    return (
+      <SignupLayout>
+        <Card className="flex flex-col gap-[12px] p-[22px]">
+          <h1 className="font-display text-lg font-bold text-ink">{t("signup.closed.title")}</h1>
+          <p className="text-[13px] text-ink-muted">{t("signup.closed.body")}</p>
+          {contact && (contact.email || contact.phone || contact.whatsapp) ? (
+            <ul className="flex flex-col gap-[6px] text-[13px]">
+              {contact.whatsapp ? (
+                <li>
+                  <a href={whatsappHref(contact.whatsapp)} target="_blank" rel="noopener noreferrer" className="font-semibold text-accent-strong hover:underline">
+                    {t("signup.closed.whatsapp")}
+                  </a>
+                </li>
+              ) : null}
+              {contact.phone ? (
+                <li>
+                  <a href={`tel:${contact.phone}`} dir="ltr" className="mz-num font-semibold text-accent-strong hover:underline">
+                    {contact.phone}
+                  </a>
+                </li>
+              ) : null}
+              {contact.email ? (
+                <li>
+                  <a href={`mailto:${contact.email}`} className="mz-lat font-semibold text-accent-strong hover:underline">
+                    {contact.email}
+                  </a>
+                </li>
+              ) : null}
+            </ul>
+          ) : null}
+          <a href={SIGN_IN_PATH} className="text-[12.5px] font-semibold text-accent-strong hover:underline">
+            {t("signup.closed.signIn")}
+          </a>
+        </Card>
       </SignupLayout>
     );
   }
@@ -244,7 +288,7 @@ export function SignupScreen() {
       <Card className="flex flex-col gap-[16px] p-[22px]">
         <div>
           <h1 className="font-display text-lg font-bold text-ink">{t("signup.title")}</h1>
-          <p className="mt-[4px] text-[12.5px] text-ink-muted">{t("signup.subtitle")}</p>
+          <p className="mt-[4px] text-[12.5px] text-ink-muted">{t(signupMode === SignupModeCode.Open ? "signup.subtitle" : "signup.subtitleRequest")}</p>
         </div>
         <FormError message={formError} />
 
@@ -329,7 +373,7 @@ export function SignupScreen() {
           className={`rounded-md outline-none ${fieldErrors[SignupField.Plan] ? "border-2 border-danger p-[10px]" : ""}`}
         >
           <span className="mb-[4px] block text-xs font-semibold text-ink">{t("signup.plan")}</span>
-          {trialDays > 0 ? (
+          {trialDays > 0 && signupMode === SignupModeCode.Open ? (
             <p className="mb-[8px] text-[12px] font-semibold text-accent-strong">
               {t("signup.plan.trialDays", { days: countPhrase(trialDays, CountedNoun.Day, ArabicCase.Oblique) })}
             </p>
@@ -371,7 +415,7 @@ export function SignupScreen() {
         <p className="text-[11px] text-ink-faint">{t("signup.afterTrialNote")}</p>
 
         <Button variant="primary" className="w-full" disabled={submitting} onClick={handleSubmit}>
-          {submitting ? t("signup.submitting") : t("signup.submit")}
+          {submitting ? t("signup.submitting") : t(signupMode === SignupModeCode.Open ? "signup.submit" : "signup.submitRequest")}
         </Button>
 
         <p className="text-center text-[12px] text-ink-muted">

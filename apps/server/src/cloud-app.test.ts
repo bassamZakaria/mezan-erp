@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { Context } from "hono";
@@ -393,6 +393,34 @@ describe("createCloudApp", () => {
       const res = await app.root.fetch(new Request("http://cloud.internal/"));
       expect(res.status).toBe(200);
       expect(await res.text()).toContain("مزان-تجريبي");
+    });
+
+    it("lets browsers keep content-hashed assets for a year, but always re-checks the app page that names them", async () => {
+      const env = testEnv();
+      mkdirSync(path.join(env.webDist, "assets"));
+      writeFileSync(path.join(env.webDist, "assets", "index-AbC123.js"), "export {};");
+      writeFileSync(path.join(env.webDist, "favicon.svg"), "<svg/>");
+      const app = await boot(env);
+      const header = async (url: string) => (await app.root.fetch(new Request(`http://cloud.internal${url}`))).headers.get("cache-control");
+
+      expect(await header("/assets/index-AbC123.js")).toBe("public, max-age=31536000, immutable");
+      const gone = await app.root.fetch(new Request("http://cloud.internal/assets/index-OldHash.js"));
+      expect(gone.status).toBe(404);
+      expect(gone.headers.get("cache-control")).toBeNull();
+      expect(await header("/favicon.svg")).toBeNull();
+      expect(await header("/")).toBe("no-cache");
+      expect(await header("/sales-invoices")).toBe("no-cache");
+    });
+
+    it("keeps content-hashed assets out of shared caches while the demo gate stands in front of them", async () => {
+      const env = testEnv();
+      mkdirSync(path.join(env.webDist, "assets"));
+      writeFileSync(path.join(env.webDist, "assets", "index-AbC123.js"), "export {};");
+      const app = await boot(env, { authMiddleware: async (_c: Context, next: () => Promise<void>) => next() });
+      const res = await app.root.fetch(new Request("http://cloud.internal/assets/index-AbC123.js"));
+
+      expect(res.status).toBe(200);
+      expect(res.headers.get("cache-control")).toBe("private, max-age=31536000, immutable");
     });
 
     it("leaves / as the plain app page until MEZAN_PUBLIC_LANDING switches the landing page on", async () => {

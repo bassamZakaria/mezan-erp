@@ -110,7 +110,7 @@ describe("parseEnv", () => {
       MEZAN_TENANT_RETENTION_DAYS: "120",
       MEZAN_WEB_DIST: "./dist",
       MEZAN_DEMO_PASSWORD: "demo-pass",
-      MEZAN_ANALYTICS_TOKEN: "token-123",
+      MEZAN_ANALYTICS_TOKEN: "0123456789abcdef0123456789abcdef",
       MEZAN_PUBLIC_LANDING: "1",
       PORT: "9090",
       MEZAN_PAYMOB_SECRET_KEY: "sk-live",
@@ -144,7 +144,7 @@ describe("parseEnv", () => {
       tenantRetentionDays: 120,
       webDist: "./dist",
       demoPassword: "demo-pass",
-      analyticsToken: "token-123",
+      analyticsToken: "0123456789abcdef0123456789abcdef",
       publicLanding: true,
       port: 9090,
       paymob: {
@@ -312,5 +312,12 @@ describe("MEZAN_TENANT_DOMAIN", () => {
     ["localhost", "localhost"],
   ])("accepts %s and keeps it in lower case", (value, kept) => {
     expect(parseEnv({ MEZAN_TENANT_DOMAIN: value }).tenantDomain).toBe(kept);
+  });
+});
+
+describe("the analytics token", () => {
+  it("refuses anything but the beacon's hex token, since it is written into every page", () => {
+    expect(() => parseEnv({ MEZAN_ANALYTICS_TOKEN: "x'><img src=x onerror=alert(1)>" })).toThrow(/MEZAN_ANALYTICS_TOKEN/);
+    expect(parseEnv({ MEZAN_ANALYTICS_TOKEN: "0123456789ABCDEF0123456789abcdef" }).analyticsToken).toBe("0123456789ABCDEF0123456789abcdef");
   });
 });

@@ -7,10 +7,11 @@ import {
   SEQUENCE_DEFINITIONS,
   WAREHOUSE_TYPE_DEFINITIONS,
 } from "@mezan/domain";
-import { webCatalogs } from "./i18n/catalog";
+import { webAr } from "./i18n/catalog";
+import { webEn } from "./i18n/catalog-en";
 
-const ar = webCatalogs.ar as Record<string, string>;
-const en = webCatalogs.en as Record<string, string>;
+const ar: Record<string, string> = webAr;
+const en: Record<string, string> = webEn;
 
 function unlabelled(prefix: string, codes: readonly string[]): string[] {
   return codes.flatMap((code) => {

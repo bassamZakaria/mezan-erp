@@ -26,7 +26,7 @@ import {
   useSalesQuotes,
   useSuppliers,
   useTreasuryAccounts,
-  useVouchers,
+  useVoucherStats,
   useYearEndClosePreview,
 } from "./data/hooks";
 import { useWorksContracts } from "./data/contracting-contracts-hooks";
@@ -60,7 +60,7 @@ function recordingTransport(activeModules: readonly string[]): { transport: Tran
 function InvoicePageReads() {
   useAccounts();
   useTreasuryAccounts();
-  useVouchers({ type: "customer_collection", status: "confirmed" });
+  useVoucherStats({ type: "customer_collection", status: "confirmed" });
   useSupplierAging();
   useDashboardSupplierAging();
   useSuppliers();
@@ -138,7 +138,7 @@ describe("a document screen asks for its side lists only where the session may r
     await waitFor(() => expect(asked).toContain("/reports/aging/suppliers"));
 
     expect(asked).not.toContain("/treasury-accounts");
-    expect(asked).not.toContain("/vouchers");
+    expect(asked).not.toContain("/vouchers/stats");
   });
 
   it("a session that may read a list still asks for it on a plan without its module, so the screen can show the server's refusal", async () => {

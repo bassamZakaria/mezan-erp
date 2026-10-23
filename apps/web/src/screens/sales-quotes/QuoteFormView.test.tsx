@@ -128,6 +128,32 @@ describe("QuoteFormView", () => {
     expect(lines[0]).not.toHaveProperty("taxRatePercent");
   });
 
+  it("the line picker searches active items on the server one small page at a time", async () => {
+    const paths: string[] = [];
+    renderForm({
+      "GET /items": (_init, path) => {
+        paths.push(path);
+        return { body: items };
+      },
+    });
+    await screen.findByRole("heading", { name: "عرض سعر جديد" });
+    const input = screen.getByLabelText("الصنف — بند 1");
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: "صنف" } });
+    await waitFor(() => expect(paths.some((p) => p.includes(`search=${encodeURIComponent("صنف")}`))).toBe(true));
+    const searched = new URLSearchParams(paths.find((p) => p.includes("search="))!.split("?")[1]);
+    expect(searched.get("status")).toBe("active");
+    expect(searched.get("page")).toBe("1");
+    expect(searched.get("pageSize")).toBe("20");
+    expect(paths.every((p) => new URLSearchParams(p.split("?")[1] ?? "").get("page") === "1")).toBe(true);
+    expect(screen.queryByText("لا توجد أصناف في المخزون — أضف صنفاً أولاً من شاشة الأصناف.")).not.toBeInTheDocument();
+  });
+
+  it("says the catalogue is empty when the server has no active item at all", async () => {
+    renderForm({ "GET /items": () => ({ body: [] }) });
+    expect(await screen.findByText("لا توجد أصناف في المخزون — أضف صنفاً أولاً من شاشة الأصناف.")).toBeInTheDocument();
+  });
+
   it("refuses, in Arabic and without a request, a line whose unit price was cleared — it is never saved at zero", async () => {
     const { getCreateBody } = renderForm();
     await screen.findByRole("heading", { name: "عرض سعر جديد" });

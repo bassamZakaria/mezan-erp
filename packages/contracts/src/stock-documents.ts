@@ -195,6 +195,9 @@ export const stockBalanceWarehouseRowSchema = z.object({
 
 export const stockBalanceRowSchema = z.object({
   itemId: z.string().min(1),
+  itemNameAr: z.string().optional(),
+  itemCode: z.string().optional(),
+  reorderPoint: z.number().nullable().optional(),
   onHand: decimalString,
   totalValue: decimalString,
   averageCost: decimalString,

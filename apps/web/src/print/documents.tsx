@@ -9,7 +9,7 @@ import type {
   VoucherDTO,
 } from "@mezan/contracts";
 import { useAppTranslation } from "../i18n";
-import { useAccounts, useBranches, useCustomers, useItems, useDisplaySettings, useSuppliers, useTaxRates, useTreasuryAccounts, useWarehouses } from "../data/hooks";
+import { useAccounts, useBranches, useCustomers, useItemsByIds, useDisplaySettings, useSuppliers, useTaxRates, useTreasuryAccounts, useWarehouses } from "../data/hooks";
 import type { JournalEntryDTO, SalesQuoteRecord } from "../data/hooks";
 import { DocumentPrintPage } from "./DocumentPrintPage";
 import { documentPrintModel, type DocumentPrintLineInput } from "./document-print";
@@ -55,12 +55,11 @@ export function QuotePrintPage({ quote }: { quote: SalesQuoteRecord }) {
   const settings = useDisplaySettings().data ?? null;
   const customers = useCustomers().data ?? EMPTY;
   const branches = useBranches().data ?? EMPTY;
-  const items = useItems().data ?? EMPTY;
+  const itemById = useItemsByIds(quote.lines.map((line) => line.itemId)).byId;
   const taxRates = useTaxRates().data ?? EMPTY;
 
   const document = useMemo(() => {
     const customer = customers.find((c) => c.id === quote.customerId);
-    const itemById = new Map(items.map((i) => [i.id, i]));
     const party: PrintPartyInfo = {
       roleLabel: t("print.role.customer"),
       name: quote.customerNameAr,
@@ -99,7 +98,7 @@ export function QuotePrintPage({ quote }: { quote: SalesQuoteRecord }) {
       lines,
       documentDiscount: quote.discount.type === "amount" ? quote.discount.amount : undefined,
     });
-  }, [quote, settings, customers, branches, items, taxRates, format.currencyLabel, t]);
+  }, [quote, settings, customers, branches, itemById, taxRates, format.currencyLabel, t]);
 
   return <DocumentPrintPage document={document} />;
 }
@@ -111,11 +110,10 @@ export function PurchaseOrderPrintPage({ order }: { order: PurchaseOrderDTO }) {
   const suppliers = useSuppliers().data ?? EMPTY;
   const branches = useBranches().data ?? EMPTY;
   const warehouses = useWarehouses().data ?? EMPTY;
-  const items = useItems().data ?? EMPTY;
+  const itemById = useItemsByIds(order.lines.map((line) => line.itemId)).byId;
 
   const document = useMemo(() => {
     const supplier = suppliers.find((s) => s.id === order.supplierId);
-    const itemById = new Map(items.map((i) => [i.id, i]));
     return documentPrintModel({
       documentType: "PURCHASE_ORDER",
       documentTypeLabel: t("print.doc.purchaseOrder"),
@@ -137,7 +135,7 @@ export function PurchaseOrderPrintPage({ order }: { order: PurchaseOrderDTO }) {
         unitPrice: line.unitPrice,
       })),
     });
-  }, [order, settings, suppliers, branches, warehouses, items, format.currencyLabel, t]);
+  }, [order, settings, suppliers, branches, warehouses, itemById, format.currencyLabel, t]);
 
   return <DocumentPrintPage document={document} />;
 }
@@ -149,12 +147,11 @@ export function PurchaseInvoicePrintPage({ invoice }: { invoice: PurchaseInvoice
   const suppliers = useSuppliers().data ?? EMPTY;
   const branches = useBranches().data ?? EMPTY;
   const warehouses = useWarehouses().data ?? EMPTY;
-  const items = useItems().data ?? EMPTY;
+  const itemById = useItemsByIds(invoice.lines.map((line) => line.itemId)).byId;
   const taxRates = useTaxRates().data ?? EMPTY;
 
   const document = useMemo(() => {
     const supplier = suppliers.find((s) => s.id === invoice.supplierId);
-    const itemById = new Map(items.map((i) => [i.id, i]));
     return documentPrintModel({
       documentType: "PURCHASE_INVOICE",
       documentTypeLabel: t("print.doc.purchaseInvoice"),
@@ -180,7 +177,7 @@ export function PurchaseInvoicePrintPage({ invoice }: { invoice: PurchaseInvoice
         taxRateName: taxRateNameOf(taxRates, line.taxRateId),
       })),
     });
-  }, [invoice, settings, suppliers, branches, warehouses, items, taxRates, format.currencyLabel, t]);
+  }, [invoice, settings, suppliers, branches, warehouses, itemById, taxRates, format.currencyLabel, t]);
 
   return <DocumentPrintPage document={document} />;
 }
@@ -190,13 +187,12 @@ export function SalesReturnPrintPage({ document: doc }: { document: SalesReturnD
   const format = useFormat();
   const settings = useDisplaySettings().data ?? null;
   const customers = useCustomers().data ?? EMPTY;
-  const items = useItems().data ?? EMPTY;
+  const itemById = useItemsByIds(doc.lines.map((line) => line.itemId)).byId;
   const taxRates = useTaxRates().data ?? EMPTY;
 
   const model = useMemo(() => {
     const customerId = doc.lines[0]?.customerId;
     const customer = customers.find((c) => c.id === customerId);
-    const itemById = new Map(items.map((i) => [i.id, i]));
     return documentPrintModel({
       documentType: "SALES_RETURN",
       documentTypeLabel: t("print.doc.salesReturn"),
@@ -229,7 +225,7 @@ export function SalesReturnPrintPage({ document: doc }: { document: SalesReturnD
         taxRateName: taxRateNameOf(taxRates, line.taxRateId),
       })),
     });
-  }, [doc, settings, customers, items, taxRates, format.currencyLabel, t]);
+  }, [doc, settings, customers, itemById, taxRates, format.currencyLabel, t]);
 
   return <DocumentPrintPage document={model} />;
 }
@@ -239,12 +235,11 @@ export function PurchaseReturnPrintPage({ document: doc }: { document: PurchaseR
   const format = useFormat();
   const settings = useDisplaySettings().data ?? null;
   const suppliers = useSuppliers().data ?? EMPTY;
-  const items = useItems().data ?? EMPTY;
+  const itemById = useItemsByIds(doc.lines.map((line) => line.itemId)).byId;
   const taxRates = useTaxRates().data ?? EMPTY;
 
   const model = useMemo(() => {
     const supplier = suppliers.find((s) => s.id === doc.lines[0]?.supplierId);
-    const itemById = new Map(items.map((i) => [i.id, i]));
     return documentPrintModel({
       documentType: "PURCHASE_RETURN",
       documentTypeLabel: t("print.doc.purchaseReturn"),
@@ -266,7 +261,7 @@ export function PurchaseReturnPrintPage({ document: doc }: { document: PurchaseR
         taxRateName: taxRateNameOf(taxRates, line.taxRateId),
       })),
     });
-  }, [doc, settings, suppliers, items, taxRates, format.currencyLabel, t]);
+  }, [doc, settings, suppliers, itemById, taxRates, format.currencyLabel, t]);
 
   return <DocumentPrintPage document={model} />;
 }
@@ -277,11 +272,10 @@ export function GoodsReceiptPrintPage({ receipt }: { receipt: GoodsReceiptDTO })
   const settings = useDisplaySettings().data ?? null;
   const suppliers = useSuppliers().data ?? EMPTY;
   const warehouses = useWarehouses().data ?? EMPTY;
-  const items = useItems().data ?? EMPTY;
+  const itemById = useItemsByIds(receipt.lines.map((line) => line.itemId)).byId;
 
   const document = useMemo(() => {
     const supplier = suppliers.find((s) => s.id === receipt.supplierId);
-    const itemById = new Map(items.map((i) => [i.id, i]));
     return documentPrintModel({
       documentType: "GOODS_RECEIPT",
       documentTypeLabel: t("print.doc.goodsReceipt"),
@@ -310,7 +304,7 @@ export function GoodsReceiptPrintPage({ receipt }: { receipt: GoodsReceiptDTO })
         };
       }),
     });
-  }, [receipt, settings, suppliers, warehouses, items, format.currencyLabel, t]);
+  }, [receipt, settings, suppliers, warehouses, itemById, format.currencyLabel, t]);
 
   return <DocumentPrintPage document={document} />;
 }

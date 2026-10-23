@@ -33,7 +33,7 @@ const order: PurchaseOrderDTO = {
   createdAt: "2026-03-01T00:00:00.000Z",
 };
 
-function transportWith(settings: Record<string, unknown> = {}) {
+function transportWith(settings: Record<string, unknown> = {}, itemPaths: string[] = []) {
   return stubTransport({
     "GET /print-template-config": () => ({ body: DEFAULT_PRINT_TEMPLATE_CONFIG }),
     "GET /settings/display": () => ({
@@ -61,7 +61,10 @@ function transportWith(settings: Record<string, unknown> = {}) {
     }),
     "GET /branches": () => ({ body: [{ id: "B1", name: "الفرع الرئيسي" }] }),
     "GET /warehouses": () => ({ body: [{ id: "W1", name: "المخزن الرئيسي" }] }),
-    "GET /items": () => ({ body: [{ id: "I1", code: "ITM-1", nameAr: "بن برازيلي", baseUnitCode: "كجم" }] }),
+    "GET /items": (_init, path) => {
+      itemPaths.push(path);
+      return { body: [{ id: "I1", code: "ITM-1", nameAr: "بن برازيلي", baseUnitCode: "كجم" }] };
+    },
   });
 }
 
@@ -93,6 +96,16 @@ describe("PurchaseOrderPrintPage", () => {
     });
     expect(await screen.findByText("بن برازيلي")).toBeInTheDocument();
     expect(await screen.findByText("كجم")).toBeInTheDocument();
+  });
+
+  it("asks only for the document's own items, never the whole catalogue", async () => {
+    const itemPaths: string[] = [];
+    renderWithProviders(<PurchaseOrderPrintPage order={order} />, {
+      transport: transportWith({}, itemPaths),
+      initialSession: testAdminSession,
+    });
+    expect(await screen.findByText("بن برازيلي")).toBeInTheDocument();
+    expect(itemPaths).toEqual(["/items?ids=I1&page=1&pageSize=1"]);
   });
 
   it("offers the print toolbar, and warns in Arabic when the company record is missing legal fields", async () => {

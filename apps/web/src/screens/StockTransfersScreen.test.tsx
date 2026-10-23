@@ -39,6 +39,13 @@ function TestNavigation({ children }: { children: ReactNode }) {
 }
 
 /** The Select combobox commits on mousedown, not change (packages/ui's Select) — open it, then commit the matching option. */
+async function pickItem(inputLabel: string, itemName: string) {
+  const input = screen.getByRole("combobox", { name: inputLabel });
+  fireEvent.focus(input);
+  fireEvent.change(input, { target: { value: itemName } });
+  fireEvent.mouseDown(await screen.findByRole("button", { name: new RegExp(itemName) }, { timeout: 3000 }));
+}
+
 function chooseSelectOption(triggerLabel: string, optionLabel: string) {
   fireEvent.click(screen.getByRole("combobox", { name: triggerLabel }));
   fireEvent.mouseDown(screen.getByRole("option", { name: optionLabel }));
@@ -108,11 +115,16 @@ const trf2: StockTransferDocumentDTO = {
   confirmedAt: null,
 };
 
+const itemRequests: string[] = [];
+
 function baseHandlers(current: StockTransferDocumentDTO[]) {
   return {
     "GET /inventory/stock-transfers": () => ({ body: current }),
     "GET /warehouses": () => ({ body: warehouses }),
-    "GET /items": () => ({ body: items }),
+    "GET /items": (_init: RequestInit | undefined, path: string) => {
+      itemRequests.push(path);
+      return { body: items };
+    },
   };
 }
 
@@ -156,6 +168,7 @@ describe("StockTransfersScreen — list", () => {
 
 describe("StockTransfersScreen — create: valuation neutrality end to end", () => {
   it("posts a new transfer via the real API (draft + confirm) and shows it in the list", async () => {
+    const postedItemIds: string[] = [];
     const generatedId = "trf-0003-0000-0000-000000000000";
     vi.spyOn(crypto, "randomUUID").mockReturnValue(generatedId as ReturnType<typeof crypto.randomUUID>);
     let current = [trf1, trf2];
@@ -164,6 +177,7 @@ describe("StockTransfersScreen — create: valuation neutrality end to end", () 
       "GET /inventory/stock-transfers": () => ({ body: current }),
       "POST /inventory/stock-transfers/draft": (init) => {
         const body = JSON.parse((init?.body as string) ?? "{}");
+        postedItemIds.push(...body.lines.map((l: { itemId: string }) => l.itemId));
         const created: StockTransferDocumentDTO = {
           id: body.id,
           docType: "STOCK_TRANSFER",
@@ -197,10 +211,12 @@ describe("StockTransfersScreen — create: valuation neutrality end to end", () 
     );
 
     await screen.findByText("TRF-000001");
+    // The form seeds its warehouses once, on mount — open it only after they have loaded.
+    await screen.findAllByText(/مستودع الفان/);
     fireEvent.click(screen.getByRole("button", { name: /تحويل جديد/ }));
     expect(screen.getByRole("heading", { name: "تحويل مخزون جديد" })).toBeInTheDocument();
 
-    chooseSelectOption("الصنف للسطر 1", "منتج 1");
+    await pickItem("الصنف للسطر 1", "منتج 1");
     fireEvent.change(screen.getByLabelText("كمية التحويل للسطر 1"), { target: { value: "5" } });
 
     const save = screen.getByRole("button", { name: "حفظ" });
@@ -209,6 +225,9 @@ describe("StockTransfersScreen — create: valuation neutrality end to end", () 
 
     await waitFor(() => expect(screen.getByRole("heading", { name: "تحويلات المخزون" })).toBeInTheDocument());
     expect(await screen.findByText("TRF-000003")).toBeInTheDocument();
+    expect(postedItemIds).toEqual(["itm-1"]);
+    expect(itemRequests.length).toBeGreaterThan(0);
+    for (const path of itemRequests) expect(new URLSearchParams(path.split("?")[1]).get("page")).toBe("1");
   });
 
   function draftOf(body: { id: string; date: string; memo?: string; lines: StockTransferDocumentDTO["lines"] }): StockTransferDocumentDTO {
@@ -219,8 +238,9 @@ describe("StockTransfersScreen — create: valuation neutrality end to end", () 
   }
 
   async function fillNewTransfer() {
+    await screen.findAllByText(/مستودع الفان/);
     fireEvent.click((await screen.findAllByRole("button", { name: /تحويل جديد/ }))[0]!);
-    chooseSelectOption("الصنف للسطر 1", "منتج 1");
+    await pickItem("الصنف للسطر 1", "منتج 1");
     fireEvent.change(screen.getByLabelText("كمية التحويل للسطر 1"), { target: { value: "5" } });
   }
 

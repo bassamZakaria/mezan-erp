@@ -52,20 +52,20 @@ function TestNavigation({
 }
 
 /** Selects an option from an `EntityPicker` combobox and asserts the real entity id lands in the outgoing request, not free text. */
-function pickFromCombobox(container: HTMLElement, label: string, optionLabel: string) {
+async function pickFromCombobox(container: HTMLElement, label: string, optionLabel: string) {
   const input = within(container).getByLabelText(label);
   fireEvent.focus(input);
   fireEvent.change(input, { target: { value: optionLabel } });
-  const option = within(container).getByRole("button", { name: (accessibleName) => accessibleName.startsWith(optionLabel) });
+  const option = await within(container).findByRole("button", { name: (accessibleName) => accessibleName.startsWith(optionLabel) }, { timeout: 2000 });
   fireEvent.mouseDown(option);
 }
 
 /** Same as `pickFromCombobox`, but for the Nth combobox sharing a label — the ad-hoc line list repeats "الصنف" per row. */
-function pickFromComboboxAt(inputs: HTMLElement[], index: number, optionLabel: string) {
+async function pickFromComboboxAt(inputs: HTMLElement[], index: number, optionLabel: string) {
   const input = inputs[index]!;
   fireEvent.focus(input);
   fireEvent.change(input, { target: { value: optionLabel } });
-  const option = screen.getByRole("button", { name: (accessibleName) => accessibleName.startsWith(optionLabel) });
+  const option = await screen.findByRole("button", { name: (accessibleName) => accessibleName.startsWith(optionLabel) }, { timeout: 2000 });
   fireEvent.mouseDown(option);
 }
 
@@ -353,7 +353,7 @@ describe("GoodsReceiptsScreen — receiving against a purchase order", () => {
     expect(within(options[0]!).getByText(/PO-000001/)).toBeInTheDocument();
     expect(within(options[1]!).getByText(/PO-000002/)).toBeInTheDocument();
 
-    pickFromCombobox(document.body, "أمر الشراء *", "PO-000001");
+    await pickFromCombobox(document.body, "أمر الشراء *", "PO-000001");
 
     expect(await screen.findByText("أسمنت بورتلاندي")).toBeInTheDocument();
     // The outstanding quantity seeds an EDITABLE field (D73), not a read-only preview cell.
@@ -404,19 +404,19 @@ describe("GoodsReceiptsScreen — an ad-hoc receipt's lines", () => {
     fireEvent.click(adHocButton);
     fireEvent.click(screen.getByRole("button", { name: "متابعة" }));
 
-    pickFromCombobox(document.body, "المورد *", "شركة النيل للتوريدات");
+    await pickFromCombobox(document.body, "المورد *", "شركة النيل للتوريدات");
     const user = userEvent.setup();
     await user.click(screen.getByLabelText("المستودع *"));
     await user.click(await screen.findByRole("option", { name: "المخزن الرئيسي" }));
 
-    pickFromComboboxAt(screen.getAllByLabelText("الصنف"), 0, "أسمنت بورتلاندي");
+    await pickFromComboboxAt(screen.getAllByLabelText("الصنف"), 0, "أسمنت بورتلاندي");
     expect(screen.queryByLabelText("رقم التشغيلة")).not.toBeInTheDocument();
     expect(screen.getAllByLabelText("تكلفة الوحدة")[0]).toHaveValue(85);
 
     fireEvent.click(screen.getByRole("button", { name: "إضافة صنف" }));
     expect(screen.getAllByRole("button", { name: "حذف البند" })).toHaveLength(2);
 
-    pickFromComboboxAt(screen.getAllByLabelText("الصنف"), 1, "دواء أموكسيسيلين");
+    await pickFromComboboxAt(screen.getAllByLabelText("الصنف"), 1, "دواء أموكسيسيلين");
     expect(screen.getAllByLabelText("تكلفة الوحدة")[1]).toHaveValue(0);
 
     fireEvent.change(screen.getByLabelText("رقم التشغيلة"), { target: { value: "B-100" } });
@@ -454,8 +454,8 @@ describe("GoodsReceiptsScreen — an ad-hoc receipt with no warehouse to default
     fireEvent.click(adHocButton);
     fireEvent.click(screen.getByRole("button", { name: "متابعة" }));
 
-    pickFromCombobox(document.body, "المورد *", "شركة النيل للتوريدات");
-    pickFromComboboxAt(screen.getAllByLabelText("الصنف"), 0, "أسمنت بورتلاندي");
+    await pickFromCombobox(document.body, "المورد *", "شركة النيل للتوريدات");
+    await pickFromComboboxAt(screen.getAllByLabelText("الصنف"), 0, "أسمنت بورتلاندي");
 
     expect(screen.getByRole("button", { name: "حفظ مسودة" })).toBeDisabled();
   });

@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { DocumentList, EmptyState, Money as MoneyDisplay, Qty, Card, Button, StatusPill, type DocumentListColumn } from "@mezan/ui";
 import type { StockBalanceRowDTO } from "@mezan/contracts";
-import { useItems, useStockBalance, useWarehouses } from "../data/hooks";
+import { useStockBalance, useWarehouses } from "../data/hooks";
 import { SelectField, NumberField } from "../settings/form-controls";
 import { useAppTranslation } from "../i18n";
 import { useEntityName } from "../lib/entity-names";
@@ -17,6 +17,22 @@ import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
  */
 type StatusFilter = "all" | "in_stock" | "low" | "out";
 const PAGE_SIZES = [10, 25, 50, 100] as const;
+
+function itemLabel(row: StockBalanceRowDTO): string {
+  return row.itemNameAr ? `${row.itemNameAr} (${row.itemCode})` : row.itemId;
+}
+
+/**
+ * The reorder point is master data on the item, not on the position — the
+ * balance rollup has no opinion about what "low" means for an item that
+ * never set one, so an item without a reorder point is never low.
+ */
+function statusOf(row: StockBalanceRowDTO): StatusFilter {
+  const onHand = majorOf(row.onHand);
+  if (onHand <= 0) return "out";
+  const reorderPoint = row.reorderPoint ?? null;
+  return reorderPoint !== null && onHand <= reorderPoint ? "low" : "in_stock";
+}
 
 export function StockBalanceScreen() {
   const nameOf = useEntityName();
@@ -35,41 +51,13 @@ export function StockBalanceScreen() {
   const [pageSize, setPageSize] = useUrlNumber("size", 25);
 
   const balanceQuery = useStockBalance(warehouseFilter ? { warehouseId: warehouseFilter } : {});
-  const itemsQuery = useItems();
   const warehouses = useWarehouses().data ?? [];
 
   const rows = balanceQuery.data ?? EMPTY;
-  const items = itemsQuery.data ?? EMPTY;
 
-  const itemLabel = useCallback(
-    (id: string): string => {
-      const item = items.find((i) => i.id === id);
-      return item ? `${item.nameAr} (${item.code})` : id;
-    },
-    [items],
-  );
   function warehouseLabel(id: string): string {
     return nameOf(warehouses.find((w) => w.id === id), id);
   }
-  /**
-   * The reorder point is master data on the item, not on the position — the
-   * balance rollup has no opinion about what "low" means for an item that
-   * never set one, so an item without a reorder point is never low.
-   */
-  const reorderPointOf = useCallback(
-    (itemId: string): number | null => items.find((i) => i.id === itemId)?.reorderPoint ?? null,
-    [items],
-  );
-  const statusOf = useCallback(
-    (row: StockBalanceRowDTO): StatusFilter => {
-      const onHand = majorOf(row.onHand);
-      if (onHand <= 0) return "out";
-      const reorderPoint = reorderPointOf(row.itemId);
-      return reorderPoint !== null && onHand <= reorderPoint ? "low" : "in_stock";
-    },
-    [reorderPointOf],
-  );
-
   /**
    * Everything the user narrowed by except the status filter, which the stat
    * strip counts across. A stat that ignored the quantity range and the search
@@ -81,10 +69,10 @@ export function StockBalanceScreen() {
     if (!Number.isNaN(qtyTo)) list = list.filter((r) => majorOf(r.onHand) <= qtyTo);
     if (search.trim() !== "") {
       const q = search.trim().toLowerCase();
-      list = list.filter((r) => itemLabel(r.itemId).toLowerCase().includes(q));
+      list = list.filter((r) => itemLabel(r).toLowerCase().includes(q));
     }
     return list;
-  }, [rows, search, itemLabel, qtyFrom, qtyTo]);
+  }, [rows, search, qtyFrom, qtyTo]);
 
   const counts = useMemo(
     () => ({
@@ -92,12 +80,12 @@ export function StockBalanceScreen() {
       outOfStock: baseRows.filter((r) => statusOf(r) === "out").length,
       lowStock: baseRows.filter((r) => statusOf(r) === "low").length,
     }),
-    [baseRows, statusOf],
+    [baseRows],
   );
 
   const filtered = useMemo(
     () => (statusFilter === "all" ? baseRows : baseRows.filter((r) => statusOf(r) === statusFilter)),
-    [baseRows, statusOf, statusFilter],
+    [baseRows, statusFilter],
   );
 
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
@@ -120,7 +108,7 @@ export function StockBalanceScreen() {
         const status = statusOf(r);
         return (
           <div className="flex items-center gap-[8px]">
-            <span className="text-ink">{itemLabel(r.itemId)}</span>
+            <span className="text-ink">{itemLabel(r)}</span>
             {status === "out" ? <StatusPill label={t("items.stockState.out")} tone="danger" /> : null}
             {status === "low" ? <StatusPill label={t("items.stockState.low")} tone="warning" /> : null}
           </div>
@@ -151,7 +139,7 @@ export function StockBalanceScreen() {
       header: t("stockBalance.col.reorderPoint"),
       align: "end",
       render: (r) => {
-        const point = reorderPointOf(r.itemId);
+        const point = r.reorderPoint ?? null;
         return point === null ? <span className="text-ink-faint">—</span> : <span className="mz-num text-ink-muted">{point}</span>;
       },
     },
@@ -254,7 +242,7 @@ export function StockBalanceScreen() {
         }
         columns={columns}
         rows={[...pageRows]}
-        loading={itemsQuery.isLoading}
+        loading={balanceQuery.isLoading}
         rowKey={(r) => r.itemId}
         expandedKeys={expandedKeys}
         renderExpandedRow={(r) =>

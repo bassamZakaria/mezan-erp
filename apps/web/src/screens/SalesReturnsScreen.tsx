@@ -1,3 +1,4 @@
+import { SALES_INVOICE_ACTIVE_STATUSES } from "@mezan/domain";
 import { AlreadySavedNotice, useAlreadySavedNotice, useDocumentId } from "../lib/document-id";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { HeldDocumentReapproval } from "../shell/ReapprovalNotice";
@@ -26,8 +27,9 @@ import {
   useConfirmSalesReturn,
   useCreateSalesReturnFromInvoice,
   useCustomers,
-  useItems,
+  useItemsByIds,
   useRefundSalesReturn,
+  useSalesInvoice,
   useSalesInvoices,
   useReturnDocument,
   useSalesReturns,
@@ -37,8 +39,10 @@ import {
   useSalesReturnStats,
   useTreasuryAccounts,
   useWarehouses,
+  type SalesInvoiceDTO,
   type SalesReturnListFilter,
 } from "../data/hooks";
+import { useDebounced } from "../lib/use-debounced";
 import { DOC_STATUS_TONE, documentStatusLabel } from "../doc-status";
 import { SalesReturnPrintPage } from "../print/documents";
 import { useNameSubPage, useNavigation, useScreenIntent, useSubPage } from "../navigation";
@@ -81,14 +85,20 @@ function blankLine(sourceLineId: string, reason: SalesReturnReasonDTO): LineDraf
 }
 
 const PAGE_SIZES = [10, 25, 50, 100] as const;
+const INVOICE_PICKER_PAGE_SIZE = 20;
+
+function returnable(invoice: SalesInvoiceDTO): boolean {
+  return SALES_INVOICE_ACTIVE_STATUSES.has(invoice.status);
+}
 
 export function SalesReturnsScreen() {
   const nameOf = useEntityName();
   const { t } = useAppTranslation();
-  const invoicesQuery = useSalesInvoices();
+  const [invoiceQuery, setInvoiceQuery] = useState("");
+  const invoiceSearch = useDebounced(invoiceQuery.trim());
+  const invoicesQuery = useSalesInvoices({ status: "active", search: invoiceSearch || undefined, page: 1, pageSize: INVOICE_PICKER_PAGE_SIZE });
   const warehousesQuery = useWarehouses();
   const customersQuery = useCustomers();
-  const itemsQuery = useItems();
   const createReturn = useCreateSalesReturnFromInvoice();
   const savedNotice = useAlreadySavedNotice();
   const returnId = useDocumentId((savedId) => {
@@ -102,22 +112,14 @@ export function SalesReturnsScreen() {
   const mayVoid = useMayVoidReturn(ReturnFamily.Sales);
   const [voidTarget, setVoidTarget] = useState<VoidableReturn | null>(null);
 
-  const invoices = useMemo(
-    () => (invoicesQuery.data ?? []).filter((i) => i.status !== "draft" && i.status !== "cancelled"),
-    [invoicesQuery.data],
-  );
+  const invoices = useMemo(() => (invoicesQuery.data ?? []).filter(returnable), [invoicesQuery.data]);
   const warehouses = warehousesQuery.data ?? EMPTY;
   const customers = customersQuery.data ?? EMPTY;
-  const items = itemsQuery.data ?? EMPTY;
 
   const customerName = useMemo(() => {
     const map = new Map(customers.map((c) => [c.id, c.nameAr]));
     return (id: string) => map.get(id) ?? id;
   }, [customers]);
-  const itemName = useMemo(() => {
-    const map = new Map(items.map((i) => [i.id, i.nameAr]));
-    return (id: string) => map.get(id) ?? id;
-  }, [items]);
 
   // `#/…/<screen>` · `…/new` · `…/<docNo|id>` — a create form and a document are places, not overlays.
   const subPage = useSubPage();
@@ -127,19 +129,6 @@ export function SalesReturnsScreen() {
     const invoiceId = intent.prefill?.invoiceId;
     subPage.open(...(invoiceId ? ["new", invoiceId] : ["new"]));
   });
-  /**
-   * The source invoice's number, resolved from its id. The denormalised
-   * `sourceInvoiceNumber` on the line is null on some rows (a return raised
-   * before the invoice was numbered), which showed as "—" even though the
-   * return plainly has a source. The id is always there, so resolve from it
-   * and fall back to the stored copy.
-   */
-  const sourceInvoiceNo = useMemo(() => {
-    const byId = new Map(invoices.map((inv) => [inv.id, inv.docNo]));
-    return (line: { sourceInvoiceId: string; sourceInvoiceNumber: string | null } | undefined) =>
-      line ? (byId.get(line.sourceInvoiceId) ?? line.sourceInvoiceNumber ?? line.sourceInvoiceId) : null;
-  }, [invoices]);
-
   const customerOptions = useMemo<EntityPickerOption[]>(
     () => customers.map((c) => ({ id: c.id, label: c.nameAr, sublabel: c.code })),
     [customers],
@@ -155,6 +144,9 @@ export function SalesReturnsScreen() {
   // The source invoice rides in the URL (`…/new/<invoiceId>`) when the user
   // arrived from «إنشاء مرتجع مبيعات» on that invoice's row.
   const [invoiceId, setInvoiceId] = useState(() => subPage.segments[1] ?? "");
+  const invoiceQueryById = useSalesInvoice(invoiceId || null);
+  const chosenInvoice = invoiceQueryById.data ?? invoices.find((i) => i.id === invoiceId);
+  const selectedInvoice = chosenInvoice && returnable(chosenInvoice) ? chosenInvoice : null;
   const [warehouseId, setWarehouseId] = useState("");
   const [reason, setReason] = useState<SalesReturnReasonDTO>("DEFECTIVE");
   const [lines, setLines] = useState<LineDraft[]>([]);
@@ -197,11 +189,11 @@ export function SalesReturnsScreen() {
 
   useEffect(() => {
     if (firstSegment !== "new" || warehouseId !== "") return;
-    const next = invoices.find((i) => i.id === invoiceId)?.warehouseId ?? warehouses[0]?.id;
+    if (invoiceId !== "" && invoiceQueryById.isLoading) return;
+    const next = selectedInvoice?.warehouseId ?? warehouses[0]?.id;
     if (next) setWarehouseId(next);
-  }, [firstSegment, warehouses, warehouseId, invoices, invoiceId]);
+  }, [firstSegment, warehouses, warehouseId, selectedInvoice, invoiceId, invoiceQueryById.isLoading]);
 
-  const selectedInvoice = invoices.find((i) => i.id === invoiceId) ?? null;
   const sourceLinesQuery = useReturnSourceLines(ReturnKind.Sales, firstSegment === "new" ? invoiceId : "");
   const sourceLines = sourceLinesQuery.data?.lines ?? EMPTY;
   const sourceLinesReady = invoiceId === "" || sourceLinesQuery.isSuccess;
@@ -240,6 +232,19 @@ export function SalesReturnsScreen() {
   const selectedLabel = selected ? returnDocumentLabel(selected, reversedReturnNo, t("salesReturns.detailTitle"), t) : null;
   useNameSubPage(selected ? addressed : null, selectedLabel);
 
+  const selectedItems = useItemsByIds(selected?.lines.map((l) => l.itemId) ?? []).byId;
+  const itemName = (id: string) => selectedItems.get(id)?.nameAr ?? id;
+  const selectedSourceLine = selected?.lines[0];
+  const unnumberedSource = useSalesInvoice(selectedSourceLine && !selectedSourceLine.sourceInvoiceNumber ? selectedSourceLine.sourceInvoiceId : null).data;
+  /**
+   * The source invoice's number. The denormalised `sourceInvoiceNumber` on the
+   * line is null on some rows (a return raised before the invoice was
+   * numbered); the open document resolves those from the invoice itself, a
+   * list row falls back to the id.
+   */
+  const sourceInvoiceNo = (line: { sourceInvoiceId: string; sourceInvoiceNumber: string | null } | undefined) =>
+    line ? (line.sourceInvoiceNumber ?? (unnumberedSource?.id === line.sourceInvoiceId ? unnumberedSource.docNo : null) ?? line.sourceInvoiceId) : null;
+
   function openCreate() {
     setError(null);
     const firstInvoice = invoices[0] ?? null;
@@ -267,7 +272,7 @@ export function SalesReturnsScreen() {
 
   async function submit(confirmAfter: boolean) {
     setError(null);
-    const invoice = invoices.find((i) => i.id === invoiceId);
+    const invoice = selectedInvoice;
     if (!invoice || !warehouseId) {
       setError(t("salesReturns.error.needInvoice"));
       return;
@@ -394,6 +399,8 @@ export function SalesReturnsScreen() {
     },
   ];
 
+  const invoiceOption = (i: SalesInvoiceDTO): EntityPickerOption => ({ id: i.id, label: `${i.docNo ?? i.id} — ${customerName(i.customerId)}` });
+
   const createPage = (
     <div className="w-full">
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
@@ -404,11 +411,13 @@ export function SalesReturnsScreen() {
         </div>
       </div>
         <div className="flex flex-col gap-4 p-5">
-          <SelectField
+          <EntityPicker
             label={t("salesReturns.field.sourceInvoice")}
-            value={invoiceId}
-            onChange={changeInvoice}
-            options={invoices.map((i) => ({ value: i.id, label: `${i.docNo ?? i.id} — ${customerName(i.customerId)}` }))}
+            value={selectedInvoice ? invoiceOption(selectedInvoice) : null}
+            onChange={(option) => changeInvoice(option?.id ?? "")}
+            options={invoices.map(invoiceOption)}
+            onQueryChange={setInvoiceQuery}
+            loading={invoicesQuery.isFetching}
           />
           <SelectField label={t("salesReturns.field.warehouse")} value={warehouseId} onChange={setWarehouseId} options={warehouses.map((w) => ({ value: w.id, label: w.name }))} />
           <SelectField

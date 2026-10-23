@@ -22,6 +22,16 @@ afterEach(() => {
  * read its own sub-page.
  */
 /** The Select combobox commits on mousedown, not change (packages/ui's Select) — open it, then commit the matching option. */
+async function pickItem(inputLabel: string, itemName: string) {
+  const input = screen.getByRole("combobox", { name: inputLabel });
+  fireEvent.focus(input);
+  fireEvent.change(input, { target: { value: itemName } });
+  fireEvent.mouseDown(await screen.findByRole("button", { name: new RegExp(itemName) }, { timeout: 3000 }));
+}
+
+const itemRequests: string[] = [];
+const postedItemIds: string[] = [];
+
 function chooseSelectOption(triggerLabel: string, optionLabel: string) {
   fireEvent.click(screen.getByRole("combobox", { name: triggerLabel }));
   fireEvent.mouseDown(screen.getByRole("option", { name: optionLabel }));
@@ -149,7 +159,10 @@ function baseHandlers(getCurrent: () => StockAdjustmentDocumentDTO[]) {
       };
     },
     "GET /warehouses": () => ({ body: warehouses }),
-    "GET /items": () => ({ body: items }),
+    "GET /items": (_init: RequestInit | undefined, path: string) => {
+      itemRequests.push(path);
+      return { body: items };
+    },
     "GET /accounts": () => ({ body: accounts }),
     "GET /gl/journal-entries/adj-1": () => ({ body: journalEntry }),
     "GET /gl/journal-entries/adj-5": () => ({ status: 404, body: { error: "NOT_FOUND" } }),
@@ -222,6 +235,7 @@ describe("StockAdjustmentsScreen — create: reason picker + INITIAL_STOCK flow"
       ...baseHandlers(() => current),
       "POST /inventory/stock-adjustments/draft": (init) => {
         const body = JSON.parse((init?.body as string) ?? "{}");
+        postedItemIds.push(body.lines[0].itemId);
         const created: StockAdjustmentDocumentDTO = {
           id: body.id,
           docType: "STOCK_ADJUSTMENT",
@@ -261,7 +275,7 @@ describe("StockAdjustmentsScreen — create: reason picker + INITIAL_STOCK flow"
     fireEvent.click(screen.getByRole("button", { name: /رصيد افتتاحي/ }));
     expect(screen.getByRole("heading", { name: "الرصيد الافتتاحي" })).toBeInTheDocument();
 
-    chooseSelectOption("الصنف للسطر 1", "منتج 3");
+    await pickItem("الصنف للسطر 1", "منتج 3");
     fireEvent.change(screen.getByLabelText("الكمية للسطر 1"), { target: { value: "40" } });
     fireEvent.change(screen.getByLabelText("سعر التكلفة للسطر 1"), { target: { value: "60" } });
 
@@ -269,6 +283,9 @@ describe("StockAdjustmentsScreen — create: reason picker + INITIAL_STOCK flow"
 
     await waitFor(() => expect(screen.getByRole("heading", { name: "تسويات المخزون" })).toBeInTheDocument());
     expect(await screen.findByText("ADJ-000006")).toBeInTheDocument();
+    expect(postedItemIds).toEqual(["itm-3"]);
+    expect(itemRequests.length).toBeGreaterThan(0);
+    for (const path of itemRequests) expect(new URLSearchParams(path.split("?")[1]).get("page")).toBe("1");
   });
 });
 
@@ -276,7 +293,7 @@ describe("StockAdjustmentsScreen — a save pressed again", () => {
   async function fillOpeningBalance() {
     fireEvent.click((await screen.findAllByRole("button", { name: "تسوية جديدة" }))[0]!);
     fireEvent.click(screen.getByRole("button", { name: /رصيد افتتاحي/ }));
-    chooseSelectOption("الصنف للسطر 1", "منتج 3");
+    await pickItem("الصنف للسطر 1", "منتج 3");
     fireEvent.change(screen.getByLabelText("الكمية للسطر 1"), { target: { value: "40" } });
     fireEvent.change(screen.getByLabelText("سعر التكلفة للسطر 1"), { target: { value: "60" } });
   }

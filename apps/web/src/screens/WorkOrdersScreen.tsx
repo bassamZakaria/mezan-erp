@@ -27,7 +27,7 @@ import {
   useReturnWorkOrderMaterials,
   useLogWorkOrderWaste,
   useLogWorkOrderCost,
-  useItems,
+  useItemsByIds,
   useProjects,
   useReceiveWorkOrderProduct,
   useStartWorkOrder,
@@ -536,7 +536,6 @@ export function WorkOrdersScreen() {
   const { navigate } = useNavigation();
   const { t } = useAppTranslation();
   const bomsQuery = useBoms();
-  const itemsQuery = useItems();
   const warehousesQuery = useWarehouses();
   const projectsQuery = useProjects();
   const createOrder = useCreateWorkOrder();
@@ -548,14 +547,9 @@ export function WorkOrdersScreen() {
   const activeStations = (useWorkStations().data ?? []).filter((station) => station.status === "active");
   const screenEmployees = useEmployees().data ?? [];
   const boms = (bomsQuery.data ?? []).filter((b) => b.status === "active");
-  const items = itemsQuery.data ?? EMPTY;
   const warehouses = warehousesQuery.data ?? EMPTY;
   const projects = projectsQuery.data ?? EMPTY;
 
-  const itemName = useMemo(() => {
-    const map = new Map(items.map((i) => [i.id, i.nameAr]));
-    return (id: string) => map.get(id) ?? id;
-  }, [items]);
   const projectName = useMemo(() => {
     const map = new Map(projects.map((p) => [p.id, p.nameAr]));
     return (id: string | null) => (id ? (map.get(id) ?? id) : t("common.noProject"));
@@ -568,7 +562,6 @@ export function WorkOrdersScreen() {
         .map((p) => ({ id: p.id, label: p.nameAr, sublabel: p.code })),
     [projects],
   );
-  const bomOptions: EntityPickerOption[] = boms.map((b) => ({ id: b.id, label: `${b.number} — ${itemName(b.productItemId)}`, sublabel: `v${b.version}` }));
   const warehouseOptions: EntityPickerOption[] = warehouses.map((w) => ({ id: w.id, label: nameOf(w), sublabel: w.code }));
   /**
    * مستودع التشغيل defaults to the shop's PRODUCTION warehouse when it has one.
@@ -636,6 +629,12 @@ export function WorkOrdersScreen() {
   const stats = useWorkOrderStats(filter).data ?? {};
 
   const selected = orders.find((o) => o.id === selectedId) ?? null;
+  const { byId: itemById } = useItemsByIds([
+    ...boms.map((b) => b.productItemId),
+    ...orders.flatMap((o) => [o.productItemId, ...o.materials.map((m) => m.itemId), ...o.wasteLog.map((w) => w.itemId)]),
+  ]);
+  const itemName = useMemo(() => (id: string) => itemById.get(id)?.nameAr ?? id, [itemById]);
+  const bomOptions: EntityPickerOption[] = boms.map((b) => ({ id: b.id, label: `${b.number} — ${itemName(b.productItemId)}`, sublabel: `v${b.version}` }));
 
   const filtered = useMemo(() => [...orders].sort((a, b) => b.number.localeCompare(a.number)), [orders]);
 
@@ -847,7 +846,7 @@ export function WorkOrdersScreen() {
     })),
   ];
 
-  const productItem = selected ? items.find((i) => i.id === selected.productItemId) : undefined;
+  const productItem = selected ? itemById.get(selected.productItemId) : undefined;
   const buildShortage = selected
     ? selected.materials.some((m) => {
         const available = m.availableQty === null || m.availableQty === undefined ? null : num(m.availableQty);

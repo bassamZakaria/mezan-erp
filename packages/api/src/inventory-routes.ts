@@ -29,6 +29,7 @@ import {
   ReversalDateBeforeOriginalError,
   LotDetailsRequiredError,
   ExpiryWriteOffExceedsExpiredError,
+  type ItemRepository,
 } from "@mezan/domain";
 import {
   ReversalPermission,
@@ -237,6 +238,8 @@ export function createInventoryRoutes(
    */
   settings?: SettingsRepository,
   reversal?: InventoryAdjustmentReversalDeps,
+  /** Names and reorder points ride on each stock-balance row so the screen never downloads the catalogue to label them. */
+  items?: Pick<ItemRepository, "list">,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
@@ -307,12 +310,15 @@ export function createInventoryRoutes(
     const scoped = withinScope(positions, warehouseScopeOf(c), (p) => p.warehouseId);
     const rows = rollupStockBalance(scoped, { warehouseId });
     const reserved = await currentReservations();
+    const itemById = new Map((items ? await items.list() : []).map((item) => [item.id, item]));
     return c.json({
       rows: rows.map((row) => {
         const held = reserved.forItem(row.itemId);
         const serialized = serializeBalanceRow(row);
+        const item = itemById.get(row.itemId);
         return {
           ...serialized,
+          ...(item ? { itemNameAr: item.nameAr, itemCode: item.code, reorderPoint: item.reorderPoint } : {}),
           reserved: held.toString(),
           available: availableQty(row.onHand, held).toString(),
           warehouses: row.warehouses.map((w, index) => {

@@ -3,7 +3,6 @@ import "@testing-library/jest-dom/vitest";
 import { useState, type ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, screen, waitFor} from "@testing-library/react";
-import type { CustomerDTO } from "@mezan/contracts";
 import { SalesHubScreen } from "./SalesHubScreen";
 import { NavigationProvider } from "../../navigation";
 import { renderWithProviders, stubTransport, testAdminSession } from "../../data/test-support";
@@ -63,22 +62,18 @@ function quote(overrides: Partial<SalesQuoteRecord> = {}): SalesQuoteRecord {
   };
 }
 
-const customers: CustomerDTO[] = [
-  {
-    id: "cust-1", code: "C1", nameAr: "شركة الأمل للتجارة", nameEn: null, phone: null, email: null, contactPerson: null, taxNumber: null,
-    category: null, notes: null, paymentTermsDays: 30, currency: "EGP", openingBalance: "0", active: true, priceListId: null,
-    creditLimit: "15000.00", taxExempt: false, etaBuyerType: "business", commercialRegistrationNumber: null,
-  } as CustomerDTO,
-];
+const STATS = { count: 1, sales: "1310.900000", collected: "100.000000", returned: "0.000000", remaining: "1210.900000", overdueCount: 0, overdue: "0", dueSoonCount: 0, dueSoon: "0" };
 
 function renderScreen(
   navigate: (screen: string, intent?: unknown) => void = vi.fn(),
-  overrides: { invoices?: SalesInvoiceDTO[]; quotes?: SalesQuoteRecord[]; customers?: CustomerDTO[] } = {},
+  overrides: { invoices?: SalesInvoiceDTO[]; quotes?: SalesQuoteRecord[]; invoiceCount?: number; customerCount?: number; asked?: string[] } = {},
 ) {
   const transport = stubTransport({
-    "GET /sales-invoices": () => ({ body: overrides.invoices ?? [invoice()] }),
-    "GET /sales-quotes": () => ({ body: overrides.quotes ?? [quote()] }),
-    "GET /customers": () => ({ body: overrides.customers ?? customers }),
+    "GET /sales-invoices": (_init, path) => (overrides.asked?.push(path), { body: overrides.invoices ?? [invoice()] }),
+    "GET /sales-invoices/counts": () => ({ body: { all: overrides.invoiceCount ?? 1 } }),
+    "GET /sales-invoices/stats": () => ({ body: STATS }),
+    "GET /sales-quotes/counts": () => ({ body: { all: 1, sent: (overrides.quotes ?? [quote()]).filter((q) => q.status === "sent").length } }),
+    "GET /customers/counts": () => ({ body: { all: overrides.customerCount ?? 1 } }),
   });
   return renderWithProviders(
     <TestNavigation navigate={navigate}>
@@ -89,16 +84,42 @@ function renderScreen(
 }
 
 describe("SalesHubScreen", () => {
-  it("renders stat tiles from the real endpoints, including money formatting", async () => {
-    renderScreen(vi.fn(), {
-      invoices: [invoice(), invoice({ id: "inv-2", docNo: "INV-000002", date: "2026-08-10", status: "draft", remainingBalance: "0" })], // invoices.length = 2
-      quotes: [quote()], // pendingQuotes = 1
-      customers: [customers[0]!, { ...customers[0]!, id: "cust-2", code: "C2" }, { ...customers[0]!, id: "cust-3", code: "C3" }], // customers.length = 3
-    });
+  it("renders stat tiles from the server's counts and stats, never from a downloaded list", async () => {
+    renderScreen(vi.fn(), { quotes: [quote()], invoiceCount: 4321, customerCount: 987 });
     expect(screen.getByRole("heading", { name: "المبيعات" })).toBeInTheDocument();
-    expect(await screen.findByText("1")).toBeInTheDocument(); // pending quotes ("sent")
-    expect(await screen.findByText("1,210.90")).toBeInTheDocument(); // outstanding receivable, Money-formatted
+    expect(await screen.findByText("4321")).toBeInTheDocument();
+    expect(screen.getByText("987")).toBeInTheDocument();
+    expect(screen.getByText("1")).toBeInTheDocument(); // pending quotes ("sent")
+    expect(screen.getByText("1,210.90")).toBeInTheDocument(); // outstanding receivable = stats.remaining
     await waitFor(() => expect(screen.queryByText("1210.900000")).not.toBeInTheDocument());
+  });
+
+  it("asks for one page of the five newest invoices, never the whole table", async () => {
+    const asked: string[] = [];
+    renderScreen(vi.fn(), { asked });
+    await screen.findByText("شركة الأمل للتجارة");
+    expect(asked).toHaveLength(1);
+    const query = new URLSearchParams(asked[0]!.split("?")[1]);
+    expect(Object.fromEntries(query)).toEqual({ page: "1", pageSize: "5", sort: "docNo", sortDir: "desc" });
+  });
+
+  it("leaves the customers tile out for a seat that may not read customers", async () => {
+    const transport = stubTransport({
+      "GET /sales-invoices": () => ({ body: [invoice()] }),
+      "GET /sales-invoices/counts": () => ({ body: { all: 1 } }),
+      "GET /sales-invoices/stats": () => ({ body: STATS }),
+      "GET /sales-quotes/counts": () => ({ body: { all: 0, sent: 0 } }),
+      "GET /customers/counts": () => ({ status: 403, body: { error: "PERMISSION_DENIED" } }),
+    });
+    renderWithProviders(
+      <TestNavigation navigate={vi.fn()}>
+        <SalesHubScreen />
+      </TestNavigation>,
+      { transport, initialSession: { ...testAdminSession, isCompanyAdmin: false, permissions: ["sales.invoice.view"] } },
+    );
+    expect(await screen.findByText("شركة الأمل للتجارة")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByText("عدد العملاء")).toBeNull();
   });
 
   it("renders the recent-invoices list with customer name and formatted total", async () => {
@@ -114,9 +135,11 @@ describe("SalesHubScreen", () => {
 
   it("shows the Arabic error message when a query fails, never the raw enum", async () => {
     const transport = stubTransport({
-      "GET /sales-invoices": () => ({ status: 500, body: { error: "INTERNAL" } }),
-      "GET /sales-quotes": () => ({ body: [] }),
-      "GET /customers": () => ({ body: customers }),
+      "GET /sales-invoices": () => ({ body: [] }),
+      "GET /sales-invoices/counts": () => ({ body: { all: 0 } }),
+      "GET /sales-invoices/stats": () => ({ status: 500, body: { error: "INTERNAL" } }),
+      "GET /sales-quotes/counts": () => ({ body: { all: 0, sent: 0 } }),
+      "GET /customers/counts": () => ({ body: { all: 0 } }),
     });
     renderWithProviders(
       <TestNavigation navigate={vi.fn()}>

@@ -16,6 +16,7 @@ import {
   SalesInvoiceNotDraftError,
   SalesInvoiceLineNotFoundError,
   SALES_TAX_RECALCULATED_NOTICE_AR,
+  SALES_INVOICE_ACTIVE_STATUSES,
   DocumentChangedError,
   computeInvoiceTotals,
   InvalidSalesInvoiceError,
@@ -970,7 +971,7 @@ export function createSalesInvoicesRoutes(
     readonly allocations: ReadonlyMap<string, Money>;
   }
 
-  const DERIVED_FILTER_KEYS = new Set(["all", "open", "overdue"]);
+  const DERIVED_FILTER_KEYS = new Set(["all", "open", "overdue", "active"]);
 
   /** The only two stored statuses an unpaid balance can sit under. */
   const UNSETTLED_STATUSES = ["confirmed", "partially_paid"] as const satisfies readonly SalesInvoice["status"][];
@@ -1001,6 +1002,7 @@ export function createSalesInvoicesRoutes(
       // overdue, so those two chips narrow in SQL to the open receivable
       // instead of hydrating every draft, paid and cancelled row to discard it.
       ...(status === "open" || status === "overdue" ? { statusIn: UNSETTLED_STATUSES } : {}),
+      ...(status === "active" ? { statusIn: [...SALES_INVOICE_ACTIVE_STATUSES] } : {}),
       branchScope: branchScopeOf(c),
       branchScopeWarehouses: await warehousesOfBranchScope(c),
       warehouseScope: warehouseScopeOf(c),

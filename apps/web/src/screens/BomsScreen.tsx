@@ -6,7 +6,6 @@ import {
   DocumentList,
   DocumentDetail,
   EmptyState,
-  EntityPicker,
   Money as MoneyValue,
   RowMenu,
   StatusPill,
@@ -16,28 +15,29 @@ import {
   type PillTone,
   type RowMenuItem,
 } from "@mezan/ui";
-import { useBoms, useCreateBom, useDeactivateBom, useItems, type BomRecord } from "../data/hooks";
+import { useBoms, useCreateBom, useDeactivateBom, useItemsByIds, type BomRecord } from "../data/hooks";
+import { ItemPicker, itemOption } from "./ItemPicker";
 import { useUnitLabel } from "../lib/item-labels";
 import { FormColumns, FormError, FormPage, SectionCard, TextField, NumberField, SelectField } from "../settings/form-controls";
 import { useSubPage } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
-import { itemTypeIsBomComponent } from "@mezan/domain";
+import { ITEM_TYPES, Money, Qty, grossUpForWaste, itemTypeIsBomComponent, roundMoney } from "@mezan/domain";
 import { EMPTY } from "../lib/empty";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
+
+const BOM_COMPONENTS = { types: ITEM_TYPES.filter(itemTypeIsBomComponent) };
 
 type BomStatus = BomRecord["status"];
 
 const STATUS_KEY: Record<BomStatus, AppTranslationKey> = { active: "boms.status.active", inactive: "boms.status.inactive" };
 const STATUS_TONE: Record<BomStatus, PillTone> = { active: "success", inactive: "neutral" };
-const num = (v: string) => Number(v);
-
-/** grossUpForWaste (packages/domain/src/manufacturing/bom.ts): effective qty = qty × (1 + wastePercent/100). */
-function effectiveQty(qty: string, wastePercent: number): number {
-  return num(qty) * (1 + wastePercent / 100);
+function effectiveQty(qty: string, wastePercent: number): string {
+  const grossed = roundMoney(Money.fromScaled(grossUpForWaste(Qty.fromMajor(qty), wastePercent).scaled), 2).toString();
+  return grossed.slice(0, grossed.indexOf(".") + 3);
 }
 
 interface DraftLine {
-  itemId: string;
+  item: EntityPickerOption | null;
   qty: number;
   wastePercent: number;
 }
@@ -52,7 +52,7 @@ function BomDetail({
 }: {
   bom: BomRecord;
   itemName: (id: string) => string;
-  itemUnitCost: (id: string) => number;
+  itemUnitCost: (id: string) => string;
   onBack: () => void;
   onDeactivate: () => void;
   deactivating: boolean;
@@ -79,9 +79,9 @@ function BomDetail({
         { label: t("boms.version"), value: <span className="mz-num">{bom.version}</span> },
         { label: t("boms.standardQuantity"), value: <span className="mz-num">{bom.standardQty}</span> },
         { label: t("boms.lines"), value: <span className="mz-num">{bom.lines.length}</span> },
-        { label: t("boms.materialCost"), value: <MoneyValue value={bom.estimate ? num(bom.estimate.materialCost) : 0} /> },
-        { label: t("boms.totalCost"), value: <MoneyValue value={bom.estimate ? num(bom.estimate.totalCost) : 0} /> },
-        { label: t("boms.unitCost"), value: <MoneyValue value={bom.estimate ? num(bom.estimate.unitCost) : 0} /> },
+        { label: t("boms.materialCost"), value: <MoneyValue value={bom.estimate?.materialCost ?? 0} /> },
+        { label: t("boms.totalCost"), value: <MoneyValue value={bom.estimate?.totalCost ?? 0} /> },
+        { label: t("boms.unitCost"), value: <MoneyValue value={bom.estimate?.unitCost ?? 0} /> },
       ]}
       effects={[
         t("boms.aBillOfMaterialsIs"),
@@ -110,7 +110,7 @@ function BomDetail({
                       <td className="px-[12px] py-[10px]">{itemName(l.itemId)}</td>
                       <td className="mz-num px-[12px] py-[10px] text-end">{l.qty}</td>
                       <td className="mz-num px-[12px] py-[10px] text-end">{l.wastePercent}%</td>
-                      <td className="mz-num px-[12px] py-[10px] text-end">{effectiveQty(l.qty, l.wastePercent).toFixed(2)}</td>
+                      <td className="mz-num px-[12px] py-[10px] text-end">{effectiveQty(l.qty, l.wastePercent)}</td>
                       <td className="px-[12px] py-[10px] text-end">
                         <MoneyValue value={itemUnitCost(l.itemId)} showUnit={false} />
                       </td>
@@ -129,26 +129,17 @@ function BomDetail({
 export function BomsScreen() {
   const { t } = useAppTranslation();
   const query = useBoms();
-  const itemsQuery = useItems();
   const createBom = useCreateBom();
   const deactivateBom = useDeactivateBom();
 
   const boms = query.data ?? EMPTY;
-  const items = itemsQuery.data ?? EMPTY;
+  const shownItems = useItemsByIds(boms.flatMap((b) => [b.productItemId, ...b.lines.map((l) => l.itemId)]));
+  const itemById = shownItems.byId;
 
-  const itemName = useMemo(() => {
-    const map = new Map(items.map((i) => [i.id, i.nameAr]));
-    return (id: string) => map.get(id) ?? id;
-  }, [items]);
-  const itemUnitCost = useMemo(() => {
-    const map = new Map(items.map((i) => [i.id, i.costPrice ? Number(i.costPrice) : 0]));
-    return (id: string) => map.get(id) ?? 0;
-  }, [items]);
+  const itemName = useMemo(() => (id: string) => itemById.get(id)?.nameAr ?? id, [itemById]);
+  const itemUnitCost = useMemo(() => (id: string) => itemById.get(id)?.costPrice ?? "0", [itemById]);
   const unitLabel = useUnitLabel();
-  // BOM component lines: a service has no quantity to consume (R5.1).
-  const itemOptions: EntityPickerOption[] = items
-    .filter((i) => itemTypeIsBomComponent(i.type))
-    .map((i) => ({ id: i.id, label: i.nameAr, sublabel: unitLabel(i.baseUnitCode) }));
+  const componentUnit = (i: { baseUnitCode: string }) => unitLabel(i.baseUnitCode);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useUrlParam("status", "all") as [
@@ -166,7 +157,7 @@ export function BomsScreen() {
   const [laborCost, setLaborCost] = useState(0);
   const [overheadCost, setOverheadCost] = useState(0);
   const [versionNotes, setVersionNotes] = useState("");
-  const [lines, setLines] = useState<DraftLine[]>([{ itemId: "", qty: 1, wastePercent: 0 }]);
+  const [lines, setLines] = useState<DraftLine[]>([{ item: null, qty: 1, wastePercent: 0 }]);
   const [formError, setFormError] = useState<string | null>(null);
 
   const selected = boms.find((b) => b.id === selectedId) ?? null;
@@ -203,7 +194,7 @@ export function BomsScreen() {
       key: "cost",
       header: t("boms.estimatedCost"),
       align: "end",
-      render: (b) => <MoneyValue value={b.estimate ? num(b.estimate.totalCost) : 0} />,
+      render: (b) => <MoneyValue value={b.estimate?.totalCost ?? 0} />,
     },
     { key: "status", header: t("common.status"), render: (b) => <StatusPill label={t(STATUS_KEY[b.status])} tone={STATUS_TONE[b.status]} /> },
   ];
@@ -215,12 +206,12 @@ export function BomsScreen() {
     setLaborCost(0);
     setOverheadCost(0);
     setVersionNotes("");
-    setLines([{ itemId: "", qty: 1, wastePercent: 0 }]);
+    setLines([{ item: null, qty: 1, wastePercent: 0 }]);
     setFormError(null);
     subPage.open("new");
   }
 
-  const canSave = product !== null && lines.some((l) => l.itemId !== "" && l.qty > 0);
+  const canSave = product !== null && lines.some((l) => l.item !== null && l.qty > 0);
 
   async function save() {
     if (!product) return;
@@ -235,8 +226,7 @@ export function BomsScreen() {
         overheadCost: String(overheadCost || 0),
         versionNotes: versionNotes.trim() === "" ? null : versionNotes.trim(),
         lines: lines
-          .filter((l) => l.itemId !== "" && l.qty > 0)
-          .map((l) => ({ itemId: l.itemId, qty: String(l.qty), wastePercent: l.wastePercent })),
+          .flatMap((l) => (l.item !== null && l.qty > 0 ? [{ itemId: l.item.id, qty: String(l.qty), wastePercent: l.wastePercent }] : [])),
       });
       subPage.close();
     } catch (err) {
@@ -283,15 +273,15 @@ export function BomsScreen() {
           }
         >
         <SectionCard title={t("boms.section.product")}>
-          <EntityPicker
+          <ItemPicker
             label={t("boms.finishedProduct2")}
             value={product}
-            onChange={(opt) => {
-              setProduct(opt);
-              const item = items.find((i) => i.id === opt?.id);
+            onChange={(item) => {
+              setProduct(item ? itemOption(item) : null);
               if (item) setUnit(item.baseUnitCode);
             }}
-            options={itemOptions}
+            filter={BOM_COMPONENTS}
+            sublabel={componentUnit}
             placeholder={t("boms.chooseTheFinishedProduct")}
           />
           <NumberField label={t("boms.standardQuantity")} value={standardQty} min={0} onChange={setStandardQty} />
@@ -303,11 +293,12 @@ export function BomsScreen() {
           <div className="flex flex-col gap-[10px]">
           {lines.map((line, i) => (
             <div key={i} className="rounded-lg border border-border bg-surface p-[12px]">
-              <EntityPicker
+              <ItemPicker
                 label={t("common.item")}
-                value={itemOptions.find((o) => o.id === line.itemId) ?? null}
-                onChange={(opt) => setLines((prev) => prev.map((l, j) => (j === i ? { ...l, itemId: opt?.id ?? "" } : l)))}
-                options={itemOptions}
+                value={line.item}
+                onChange={(item) => setLines((prev) => prev.map((l, j) => (j === i ? { ...l, item: item ? itemOption(item) : null } : l)))}
+                filter={BOM_COMPONENTS}
+                sublabel={componentUnit}
                 placeholder={t("boms.chooseAnItem")}
               />
               <div className="mt-[10px] grid grid-cols-2 gap-[10px]">
@@ -326,7 +317,7 @@ export function BomsScreen() {
               ) : null}
             </div>
           ))}
-            <Button onClick={() => setLines((prev) => [...prev, { itemId: "", qty: 1, wastePercent: 0 }])}>{t("boms.addItem")}</Button>
+            <Button onClick={() => setLines((prev) => [...prev, { item: null, qty: 1, wastePercent: 0 }])}>{t("boms.addItem")}</Button>
           </div>
         </SectionCard>
         </FormColumns>
@@ -405,7 +396,7 @@ export function BomsScreen() {
         }
         columns={columns}
         rows={pageRows}
-        loading={itemsQuery.isLoading}
+        loading={query.isLoading || shownItems.isLoading}
         rowKey={(b) => b.id}
         onRowClick={(b) => setSelectedId(b.id)}
         rowAction={(b) => {

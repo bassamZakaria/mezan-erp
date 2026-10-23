@@ -6,15 +6,16 @@ import { useState, type ReactElement } from "react";
 import type { ItemDTO, PurchaseInvoiceDTO, PurchaseReturnDocumentDTO, SupplierDTO, WarehouseDTO } from "@mezan/contracts";
 import { PurchaseReturnsScreen } from "./PurchaseReturnsScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
-import { NavigationProvider } from "../navigation";
+import { NavigationProvider, type ScreenIntent } from "../navigation";
 
 /**
  * The create/detail views are sub-pages addressed via `useSubPage()`, which
  * reads from `NavigationContext` — there is no router wired up outside
  * `AppLayout`, so a test that opens one needs its own stateful provider.
  */
-function WithSubPageNav({ children }: { children: ReactElement }) {
+function WithSubPageNav({ children, intent = null }: { children: ReactElement; intent?: ScreenIntent | null }) {
   const [segments, setSegments] = useState<string[]>([]);
+  const [pending, setPending] = useState(intent);
   return (
     <NavigationProvider
       value={{
@@ -22,8 +23,8 @@ function WithSubPageNav({ children }: { children: ReactElement }) {
         segments,
         openSubPage: (next) => setSegments([...next]),
         openScreenAt: () => {},
-        intent: null,
-        clearIntent: () => {},
+        intent: pending,
+        clearIntent: () => setPending(null),
       }}
     >
       {children}
@@ -149,6 +150,10 @@ function baseHandlers(
       };
     },
     "GET /purchases/invoices": () => ({ body: invoices }),
+    "GET /purchases/invoices/*": (_init: unknown, path: string) => {
+      const invoice = invoices.find((i) => i.id === decodeURIComponent(path.split("/").pop()!.split("?")[0]!));
+      return invoice ? { body: invoice } : { status: 404, body: { error: "NOT_FOUND" } };
+    },
     "GET /warehouses": () => ({ body: warehouses }),
     "GET /suppliers": () => ({ body: suppliers2 }),
     "GET /items": () => ({ body: items }),
@@ -160,6 +165,13 @@ function selectOptionAt(label: string, index: number, optionLabel: string) {
   const combo = screen.getAllByRole("combobox", { name: label })[index]!;
   fireEvent.click(combo);
   fireEvent.mouseDown(screen.getByRole("option", { name: optionLabel }));
+}
+
+async function pickInvoice(optionLabel: string) {
+  const input = screen.getByLabelText("الفاتورة الأصلية *");
+  fireEvent.focus(input);
+  fireEvent.change(input, { target: { value: optionLabel } });
+  fireEvent.mouseDown(await screen.findByRole("button", { name: (name) => name.startsWith(optionLabel) }, { timeout: 2000 }));
 }
 
 function qtyInputAt(index: number): HTMLElement {
@@ -513,9 +525,10 @@ describe("PurchaseReturnsScreen", () => {
     fireEvent.click(screen.getAllByRole("button", { name: "مرتجع جديد" })[0]!);
     await screen.findByRole("heading", { name: "مرتجع مشتريات جديد" });
     const seeded = (await screen.findByRole("combobox", { name: "الصنف" })).textContent;
-    const chosen = screen.getAllByRole("combobox", { name: "الفاتورة الأصلية *" })[0]!.textContent!.trim();
+    const chosen = (screen.getByLabelText("الفاتورة الأصلية *") as HTMLInputElement).value;
+    expect(chosen).toBe("PI-000001 — شركة النيل للتوريدات");
 
-    selectOptionAt("الفاتورة الأصلية *", 0, chosen);
+    await pickInvoice(chosen);
 
     await waitFor(() => expect(screen.getByRole("combobox", { name: "الصنف" })).toHaveTextContent(seeded!));
     expect(screen.getAllByRole("combobox", { name: "الصنف" })).toHaveLength(1);
@@ -533,13 +546,60 @@ describe("PurchaseReturnsScreen", () => {
     fireEvent.click(screen.getAllByRole("button", { name: "مرتجع جديد" })[0]!);
     await screen.findByRole("heading", { name: "مرتجع مشتريات جديد" });
 
-    selectOptionAt("الفاتورة الأصلية *", 0, "PI-000200 — شركة النيل للتوريدات");
+    await pickInvoice("PI-000200 — شركة النيل للتوريدات");
 
     fireEvent.click(await screen.findByRole("combobox", { name: "الصنف" }));
     expect(screen.getByRole("option", { name: "بلاط" })).toBeInTheDocument();
     expect(screen.queryByRole("option", { name: "أسمنت بورتلاندي" })).not.toBeInTheDocument();
     expect(screen.queryByRole("option", { name: "طوب أحمر" })).not.toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "الصنف" })).toHaveTextContent("بلاط");
+  });
+
+  it("searches confirmed invoices on the server and names lines by id, never downloading every invoice or item", async () => {
+    const invoicePaths: string[] = [];
+    const itemPaths: string[] = [];
+    const handlers = baseHandlers([], [purchaseInvoice(), purchaseInvoiceTile]);
+    const transport = stubTransport({
+      ...handlers,
+      "GET /purchases/invoices": (init, path) => {
+        invoicePaths.push(path);
+        return handlers["GET /purchases/invoices"]();
+      },
+      "GET /items": (_init, path) => {
+        itemPaths.push(path);
+        return { body: items };
+      },
+    });
+    renderWithProviders(
+      <WithSubPageNav>
+        <PurchaseReturnsScreen />
+      </WithSubPageNav>,
+      { transport, initialSession: testAdminSession },
+    );
+    await screen.findByText("لا توجد مرتجعات — أنشئ مرتجعاً جديداً");
+    fireEvent.click(screen.getAllByRole("button", { name: "مرتجع جديد" })[0]!);
+    const picker = await screen.findByLabelText("الفاتورة الأصلية *");
+    fireEvent.focus(picker);
+    fireEvent.change(picker, { target: { value: "PI-000200" } });
+    await waitFor(() => expect(invoicePaths.some((path) => path.includes("search=PI-000200") && path.includes("status=confirmed"))).toBe(true));
+    expect(invoicePaths.filter((path) => path.includes("pageSize=200"))).toEqual([]);
+    expect(itemPaths.length).toBeGreaterThan(0);
+    expect(itemPaths.filter((path) => !path.includes("ids="))).toEqual([]);
+  });
+
+  it("arriving from an invoice's row menu selects THAT invoice even when it is not among the first matches", async () => {
+    const transport = stubTransport({
+      ...baseHandlers([], [purchaseInvoice(), purchaseInvoiceTile]),
+      "GET /purchases/invoices": () => ({ body: [purchaseInvoice()] }),
+    });
+    renderWithProviders(
+      <WithSubPageNav intent={{ kind: "create", prefill: { invoiceId: "pi-2" } }}>
+        <PurchaseReturnsScreen />
+      </WithSubPageNav>,
+      { transport, initialSession: testAdminSession },
+    );
+    await waitFor(() => expect(screen.getByLabelText("الفاتورة الأصلية *")).toHaveValue("PI-000200 — شركة النيل للتوريدات"));
+    expect(await screen.findByRole("combobox", { name: "الصنف" })).toHaveTextContent("بلاط");
   });
 
   it("a rejected confirm leaves the return reading as its prior status — no un-reverted optimistic flip", async () => {

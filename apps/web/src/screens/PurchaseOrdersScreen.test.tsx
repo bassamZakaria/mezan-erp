@@ -40,11 +40,11 @@ function fieldInput(container: HTMLElement, labelText: string): HTMLElement {
   return input;
 }
 
-function pickFromCombobox(container: HTMLElement, label: string, optionLabel: string) {
+async function pickFromCombobox(container: HTMLElement, label: string, optionLabel: string) {
   const input = within(container).getByLabelText(label);
   fireEvent.focus(input);
   fireEvent.change(input, { target: { value: optionLabel } });
-  const option = within(container).getByRole("button", { name: (n) => n.startsWith(optionLabel) });
+  const option = await within(container).findByRole("button", { name: (n) => n.startsWith(optionLabel) }, { timeout: 2000 });
   fireEvent.mouseDown(option);
 }
 
@@ -89,11 +89,15 @@ function renderScreen(orders: PurchaseOrderDTO[] = [purchaseOrder()], extra: Rec
   let current = [...orders];
   let lastListPath = "";
   let lastCreateBody: unknown = null;
+  const itemPaths: string[] = [];
   const transport = stubTransport({
     "GET /branches": () => ({ body: branches }),
     "GET /warehouses": () => ({ body: warehouses }),
     "GET /suppliers": () => ({ body: suppliers }),
-    "GET /items": () => ({ body: items }),
+    "GET /items": (_init, path) => {
+      itemPaths.push(path);
+      return { body: items };
+    },
     "GET /users": () => ({ body: users }),
     "GET /purchases/orders": (_init, path) => {
       lastListPath = path;
@@ -120,7 +124,7 @@ function renderScreen(orders: PurchaseOrderDTO[] = [purchaseOrder()], extra: Rec
     </TestNavigation>,
     { transport, initialSession: testAdminSession },
   );
-  return { ...result, getListPath: () => lastListPath, getCreateBody: () => lastCreateBody };
+  return { ...result, itemPaths, getListPath: () => lastListPath, getCreateBody: () => lastCreateBody };
 }
 
 describe("PurchaseOrdersScreen (filters, stats, entity ids, save-guard)", () => {
@@ -186,8 +190,8 @@ describe("PurchaseOrdersScreen (filters, stats, entity ids, save-guard)", () => 
     // Await, not a bare sync query: this gives the suppliers/items GETs time to
     // resolve so the EntityPickers below actually carry real options.
     fireEvent.click((await screen.findAllByRole("button", { name: "أمر شراء جديد" }))[0]!);
-    pickFromCombobox(document.body, "المورد *", "شركة النيل للتوريدات");
-    pickFromCombobox(document.body, "الصنف", "أسمنت بورتلاندي");
+    await pickFromCombobox(document.body, "المورد *", "شركة النيل للتوريدات");
+    await pickFromCombobox(document.body, "الصنف", "أسمنت بورتلاندي");
     fireEvent.click(screen.getByRole("button", { name: "حفظ مسودة" }));
     expect(await screen.findByText("لا يوجد فرع أو مستودع متاح ضمن صلاحياتك لإنشاء المستند.")).toBeInTheDocument();
   });
@@ -197,8 +201,8 @@ describe("PurchaseOrdersScreen (filters, stats, entity ids, save-guard)", () => 
     // Await, not a bare sync query: this gives the suppliers/items GETs time to
     // resolve so the EntityPickers below actually carry real options.
     fireEvent.click((await screen.findAllByRole("button", { name: "أمر شراء جديد" }))[0]!);
-    pickFromCombobox(document.body, "المورد *", "شركة النيل للتوريدات");
-    pickFromCombobox(document.body, "الصنف", "أسمنت بورتلاندي");
+    await pickFromCombobox(document.body, "المورد *", "شركة النيل للتوريدات");
+    await pickFromCombobox(document.body, "الصنف", "أسمنت بورتلاندي");
     fireEvent.click(screen.getByRole("button", { name: "حفظ مسودة" }));
     await waitFor(() => expect(getCreateBody()).not.toBeNull());
     const body = getCreateBody() as Record<string, unknown>;
@@ -209,6 +213,20 @@ describe("PurchaseOrdersScreen (filters, stats, entity ids, save-guard)", () => 
     expect(lines[0]!.itemId).toBe("item-cement");
   });
 
+  it("names the order's lines by fetching only those items, never the whole catalogue", async () => {
+    const { itemPaths } = renderScreen([purchaseOrder()]);
+    fireEvent.click(await screen.findByText("PO-000003"));
+    expect(await screen.findByText("أسمنت بورتلاندي")).toBeInTheDocument();
+    expect(itemPaths.filter((path) => !/[?&](ids=|pageSize=20(&|$))/.test(path))).toEqual([]);
+  });
+
+  it("the line's item picker searches the server for 20 purchasable matches instead of loading every item", async () => {
+    const { itemPaths } = renderScreen([]);
+    fireEvent.click((await screen.findAllByRole("button", { name: "أمر شراء جديد" }))[0]!);
+    await waitFor(() => expect(itemPaths.some((path) => path.includes("pageSize=20") && path.includes("types="))).toBe(true));
+    expect(itemPaths.filter((path) => !/[?&](ids=|pageSize=20(&|$))/.test(path))).toEqual([]);
+  });
+
   it("a server refusal on create renders the screen's Arabic formError, not raw JSON", async () => {
     renderScreen([], {
       "POST /purchases/orders": () => ({ status: 400, body: { message: "لا يمكن إنشاء أمر شراء بدون بنود" } }),
@@ -216,8 +234,8 @@ describe("PurchaseOrdersScreen (filters, stats, entity ids, save-guard)", () => 
     // Await, not a bare sync query: this gives the suppliers/items GETs time to
     // resolve so the EntityPickers below actually carry real options.
     fireEvent.click((await screen.findAllByRole("button", { name: "أمر شراء جديد" }))[0]!);
-    pickFromCombobox(document.body, "المورد *", "شركة النيل للتوريدات");
-    pickFromCombobox(document.body, "الصنف", "أسمنت بورتلاندي");
+    await pickFromCombobox(document.body, "المورد *", "شركة النيل للتوريدات");
+    await pickFromCombobox(document.body, "الصنف", "أسمنت بورتلاندي");
     fireEvent.click(screen.getByRole("button", { name: "حفظ مسودة" }));
     expect(await screen.findByText("لا يمكن إنشاء أمر شراء بدون بنود")).toBeInTheDocument();
   });
@@ -240,8 +258,8 @@ describe("PurchaseOrdersScreen (filters, stats, entity ids, save-guard)", () => 
       "GET /items": () => ({ body: [items[0]!, item2] }),
     });
     fireEvent.click((await screen.findAllByRole("button", { name: "أمر شراء جديد" }))[0]!);
-    pickFromCombobox(document.body, "المورد *", "شركة النيل للتوريدات");
-    pickFromCombobox(document.body, "الصنف", "أسمنت بورتلاندي");
+    await pickFromCombobox(document.body, "المورد *", "شركة النيل للتوريدات");
+    await pickFromCombobox(document.body, "الصنف", "أسمنت بورتلاندي");
     fireEvent.change(fieldInput(document.body, "الكمية"), { target: { value: "10" } });
 
     fireEvent.click(screen.getByRole("button", { name: "إضافة صنف" }));
@@ -249,7 +267,7 @@ describe("PurchaseOrdersScreen (filters, stats, entity ids, save-guard)", () => 
     const secondItemInput = itemLabels[1]!.parentElement!.querySelector("input")!;
     fireEvent.focus(secondItemInput);
     fireEvent.change(secondItemInput, { target: { value: "طوب أحمر" } });
-    fireEvent.mouseDown(screen.getByRole("button", { name: (n) => n.startsWith("طوب أحمر") }));
+    fireEvent.mouseDown(await screen.findByRole("button", { name: (n) => n.startsWith("طوب أحمر") }, { timeout: 2000 }));
 
     fireEvent.click(screen.getByRole("button", { name: "حفظ مسودة" }));
     await waitFor(() => expect(getCreateBody()).not.toBeNull());

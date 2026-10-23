@@ -20,7 +20,7 @@ import {
   type RowMenuItem,
   ConfirmDialog,
 } from "@mezan/ui";
-import { DocumentStatusCode, Money, Qty, distributeLandedCost, landedCostTotalsByType, type AllocatedLandedCostLine } from "@mezan/domain";
+import { DocumentStatusCode, Money, PurchaseInvoiceStatusCode, Qty, distributeLandedCost, landedCostTotalsByType, type AllocatedLandedCostLine } from "@mezan/domain";
 import type {
   CostCategoryDTO,
   DocumentStatusDTO,
@@ -28,6 +28,7 @@ import type {
   LandedCostItemEntryDTO,
   LandedCostTargetDTO,
   LandedCostTypeDTO,
+  PurchaseInvoiceDTO,
 } from "@mezan/contracts";
 import { SelectField, NumberField, TextField } from "../settings/form-controls";
 import {
@@ -35,11 +36,12 @@ import {
   useReverseLandedCost,
   useConfirmLandedCost,
   useCreateLandedCost,
-  useItems,
+  useItemsByIds,
   useLandedCosts,
   useProjects,
   usePurchaseInvoices,
   useWarehouses,
+  usePurchaseInvoice,
 } from "../data/hooks";
 import { DOC_STATUS_TONE, documentStatusLabel } from "../doc-status";
 import { useNameSubPage, useScreenIntent, useSubPage } from "../navigation";
@@ -48,9 +50,12 @@ import { sumMajor } from "../lib/money";
 import { todayIso } from "../lib/dates";
 import { EMPTY } from "../lib/empty";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
+import { useDebounced } from "../lib/use-debounced";
 import { ResubmitErrorNotice, ResubmitFamily, ResubmitForApprovalAction, resubmitRowMenuItems, useResubmitForApproval } from "./ResubmitForApprovalAction";
 
 /** التكاليف الإضافية (Landed Costs) — docs/archive/catalog/02. Distributes freight/customs/etc across a confirmed purchase invoice's item costs, by value or by quantity. */
+
+const INVOICE_SEARCH_PAGE_SIZE = 20;
 
 const COST_TYPE_KEY: Record<LandedCostTypeDTO, AppTranslationKey> = {
   SHIPPING: "landedCosts.type.SHIPPING",
@@ -112,9 +117,10 @@ function blankTarget(itemId: string, qty: number, unitCost: number): TargetDraft
 export function LandedCostsScreen() {
   const { t } = useAppTranslation();
   const query = useLandedCosts();
-  const invoicesQuery = usePurchaseInvoices();
+  const [invoiceQuery, setInvoiceQuery] = useState("");
+  const invoiceSearch = useDebounced(invoiceQuery.trim());
+  const invoicesQuery = usePurchaseInvoices({ status: PurchaseInvoiceStatusCode.Confirmed, search: invoiceSearch || undefined, page: 1, pageSize: INVOICE_SEARCH_PAGE_SIZE });
   const warehousesQuery = useWarehouses();
-  const itemsQuery = useItems();
   const projectsQuery = useProjects();
   const createLandedCost = useCreateLandedCost();
   const savedNotice = useAlreadySavedNotice();
@@ -129,15 +135,10 @@ export function LandedCostsScreen() {
   const reverseLandedCost = useReverseLandedCost();
 
   const documents = query.data ?? EMPTY;
-  const invoices = (invoicesQuery.data ?? []).filter((i) => i.status === "confirmed");
+  const invoices = invoicesQuery.data ?? EMPTY;
   const warehouses = warehousesQuery.data ?? EMPTY;
-  const items = itemsQuery.data ?? EMPTY;
   const projects = projectsQuery.data ?? EMPTY;
 
-  const itemName = useMemo(() => {
-    const map = new Map(items.map((i) => [i.id, i.nameAr]));
-    return (id: string) => map.get(id) ?? id;
-  }, [items]);
   const projectName = useMemo(() => {
     const map = new Map(projects.map((p) => [p.id, p.nameAr]));
     return (id: string | null) => (id ? (map.get(id) ?? id) : t("common.noProject"));
@@ -167,7 +168,10 @@ export function LandedCostsScreen() {
   const [fromDate, setFromDate] = useUrlParam("from");
   const [toDate, setToDate] = useUrlParam("to");
   const [warehouseId, setWarehouseId] = useState("");
-  const [invoiceId, setInvoiceId] = useState("");
+  const [selectedInvoice, setSelectedInvoice] = useState<PurchaseInvoiceDTO | null>(null);
+  const invoiceId = selectedInvoice?.id ?? "";
+  const [prefillInvoiceId, setPrefillInvoiceId] = useState<string | null>(null);
+  const prefilledInvoice = usePurchaseInvoice(prefillInvoiceId);
   const [method, setMethod] = useState<LandedCostDistributionMethodDTO>("BY_VALUE");
   const [costItems, setCostItems] = useState<CostItemDraft[]>([]);
   const [targets, setTargets] = useState<TargetDraft[]>([]);
@@ -183,13 +187,20 @@ export function LandedCostsScreen() {
   // Defaults the create form's invoice/warehouse pickers once their queries resolve —
   // `openCreate` alone can't do this if the panel is opened before `invoices`/`warehouses` load.
   useEffect(() => {
-    if (panel !== "create" || invoiceId !== "") return;
+    if (panel !== "create" || invoiceId !== "" || prefillInvoiceId !== null) return;
     const firstInvoice = invoices[0];
     if (!firstInvoice) return;
-    setInvoiceId(firstInvoice.id);
-    const firstLine = firstInvoice.lines.find((l) => l.kind === "inventory" && l.itemId !== null);
-    setTargets(firstLine?.itemId ? [blankTarget(firstLine.itemId, Number(firstLine.qty), Number(firstLine.unitCost))] : []);
-  }, [panel, invoices, invoiceId]);
+    changeInvoice(firstInvoice);
+  }, [panel, invoices, invoiceId, prefillInvoiceId]);
+
+  useEffect(() => {
+    if (prefillInvoiceId === null) return;
+    if (prefilledInvoice.isError) setPrefillInvoiceId(null);
+    const invoice = prefilledInvoice.data;
+    if (!invoice || invoice.id !== prefillInvoiceId) return;
+    setPrefillInvoiceId(null);
+    changeInvoice(invoice);
+  }, [prefillInvoiceId, prefilledInvoice.data, prefilledInvoice.isError]);
 
   useEffect(() => {
     if (panel !== "create" || warehouseId !== "") return;
@@ -197,7 +208,6 @@ export function LandedCostsScreen() {
     if (firstWarehouse) setWarehouseId(firstWarehouse.id);
   }, [panel, warehouses, warehouseId]);
 
-  const selectedInvoice = invoices.find((i) => i.id === invoiceId) ?? null;
   const invoiceStockLines = useMemo(
     () => (selectedInvoice?.lines ?? []).filter((l) => l.kind === "inventory" && l.itemId !== null),
     [selectedInvoice],
@@ -233,6 +243,8 @@ export function LandedCostsScreen() {
   const pageRows = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
   const selected = addressed ? (documents.find((d) => d.id === addressed || d.docNo === addressed) ?? null) : null;
   useNameSubPage(selected ? addressed : null, selected ? (selected.docNo ?? t("docStatus.draft")) : null);
+  const { byId: itemsById } = useItemsByIds([...invoiceStockLines, ...(selected?.lines ?? [])].map((l) => l.itemId));
+  const itemName = (id: string) => itemsById.get(id)?.nameAr ?? id;
   /**
    * `costItems` is denormalized onto EVERY line, so the document's cost breakdown
    * is read off one line — summing across lines would multiply it by the line count.
@@ -291,20 +303,19 @@ export function LandedCostsScreen() {
 
   function openCreate(sourceInvoiceId?: string) {
     setError(null);
-    const firstInvoice = invoices.find((i) => i.id === sourceInvoiceId) ?? invoices[0] ?? null;
-    setInvoiceId(firstInvoice?.id ?? "");
+    setInvoiceQuery("");
+    const firstInvoice = sourceInvoiceId ? (invoices.find((i) => i.id === sourceInvoiceId) ?? null) : (invoices[0] ?? null);
+    setPrefillInvoiceId(sourceInvoiceId && !firstInvoice ? sourceInvoiceId : null);
+    changeInvoice(firstInvoice);
     setWarehouseId(warehouses[0]?.id ?? "");
     setMethod("BY_VALUE");
     setCostItems([blankCostItem()]);
-    const firstLine = firstInvoice?.lines.find((l) => l.kind === "inventory" && l.itemId !== null);
-    setTargets(firstLine?.itemId ? [blankTarget(firstLine.itemId, Number(firstLine.qty), Number(firstLine.unitCost))] : []);
     setProject(null);
     setPanel("create");
   }
 
-  function changeInvoice(id: string) {
-    setInvoiceId(id);
-    const invoice = invoices.find((i) => i.id === id) ?? null;
+  function changeInvoice(invoice: PurchaseInvoiceDTO | null) {
+    setSelectedInvoice(invoice);
     const firstLine = invoice?.lines.find((l) => l.kind === "inventory" && l.itemId !== null);
     setTargets(firstLine?.itemId ? [blankTarget(firstLine.itemId, Number(firstLine.qty), Number(firstLine.unitCost))] : []);
   }
@@ -516,7 +527,7 @@ export function LandedCostsScreen() {
         filterBarCollapsible
         activeFilterCount={activeFilterCount}
         rows={pageRows}
-        loading={itemsQuery.isLoading}
+        loading={query.isLoading}
         rowKey={(d) => d.id}
         onRowClick={(d) => subPage.open(d.id)}
         rowAction={(d) => {
@@ -564,11 +575,16 @@ export function LandedCostsScreen() {
       <SidePanel open={panel === "create"} onClose={() => setPanel("none")} title={t("landedCosts.panel.title")}>
         <div className="flex flex-col gap-4 p-5">
           <SelectField label={t("landedCosts.field.warehouse")} value={warehouseId} onChange={setWarehouseId} options={warehouses.map((w) => ({ value: w.id, label: w.name }))} />
-          <SelectField
+          <EntityPicker
             label={t("landedCosts.field.invoice")}
-            value={invoiceId}
-            onChange={changeInvoice}
-            options={invoices.map((i) => ({ value: i.id, label: i.number }))}
+            value={selectedInvoice ? { id: selectedInvoice.id, label: selectedInvoice.number } : null}
+            options={invoices.map((i) => ({ id: i.id, label: i.number }))}
+            onQueryChange={setInvoiceQuery}
+            loading={invoicesQuery.isFetching}
+            onChange={(option) => {
+              const invoice = invoices.find((i) => i.id === option?.id);
+              if (invoice) changeInvoice(invoice);
+            }}
           />
           <SelectField
             label={t("landedCosts.field.method")}

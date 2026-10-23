@@ -35,11 +35,11 @@ function TestNavigation({ children }: { children: ReactNode }) {
 
 /** Type into an EntityPicker combobox and pick the matching option — selection
  * fires on `onMouseDown` (not `click`), so the input's blur never wins the race. */
-function pickFromCombobox(container: HTMLElement, label: string, optionLabel: string) {
+async function pickFromCombobox(container: HTMLElement, label: string, optionLabel: string) {
   const input = within(container).getByLabelText(label);
   fireEvent.focus(input);
   fireEvent.change(input, { target: { value: optionLabel } });
-  const option = within(container).getByRole("button", { name: (accessibleName) => accessibleName.startsWith(optionLabel) });
+  const option = await within(container).findByRole("button", { name: (accessibleName) => accessibleName.startsWith(optionLabel) });
   fireEvent.mouseDown(option);
 }
 
@@ -201,10 +201,10 @@ describe("ConfigurableProductsScreen", () => {
     const page = document.body;
     fireEvent.change(textFieldInput(page, "الكود *"), { target: { value: "DOOR" } });
     fireEvent.change(textFieldInput(page, "الاسم بالعربية *"), { target: { value: "باب قابل للتهيئة" } });
-    pickFromCombobox(page, "المنتج الناتج *", "نافذة مخصصة");
+    await pickFromCombobox(page, "المنتج الناتج *", "نافذة مخصصة");
     fireEvent.change(textFieldInput(page, "المعرف (للمعادلات)"), { target: { value: "width" } });
     fireEvent.change(textFieldInput(page, "التسمية"), { target: { value: "العرض" } });
-    pickFromCombobox(page, "الصنف", "زجاج (م²)");
+    await pickFromCombobox(page, "الصنف", "زجاج (م²)");
     fireEvent.change(textFieldInput(page, "معادلة الكمية"), { target: { value: "width/100" } });
 
     fireEvent.click(screen.getByRole("button", { name: "حفظ" }));
@@ -294,7 +294,7 @@ describe("ConfigurableProductsScreen", () => {
 
     fireEvent.change(textFieldInput(page, "الكود *"), { target: { value: "DOOR" } });
     fireEvent.change(textFieldInput(page, "الاسم بالعربية *"), { target: { value: "باب قابل للتهيئة" } });
-    pickFromCombobox(page, "المنتج الناتج *", "نافذة مخصصة");
+    await pickFromCombobox(page, "المنتج الناتج *", "نافذة مخصصة");
 
     // Two input rows; only the second gets filled in.
     fireEvent.click(screen.getByRole("button", { name: "إضافة مدخل" }));
@@ -309,7 +309,7 @@ describe("ConfigurableProductsScreen", () => {
     expect(screen.getAllByText("المعرف (للمعادلات)", { selector: "label" })).toHaveLength(1);
 
     // Materials: fill the first row, add a second, then remove the second.
-    pickFromCombobox(page, "الصنف", "زجاج (م²)");
+    await pickFromCombobox(page, "الصنف", "زجاج (م²)");
     fireEvent.change(textFieldInput(page, "معادلة الكمية"), { target: { value: "height/100" } });
     fireEvent.change(textFieldInput(page, "نسبة الهالك %"), { target: { value: "8" } });
     fireEvent.click(screen.getByRole("button", { name: "إضافة خامة" }));
@@ -348,10 +348,10 @@ describe("ConfigurableProductsScreen", () => {
     const page = document.body;
     fireEvent.change(textFieldInput(page, "الكود *"), { target: { value: "DOOR" } });
     fireEvent.change(textFieldInput(page, "الاسم بالعربية *"), { target: { value: "باب قابل للتهيئة" } });
-    pickFromCombobox(page, "المنتج الناتج *", "نافذة مخصصة");
+    await pickFromCombobox(page, "المنتج الناتج *", "نافذة مخصصة");
     fireEvent.change(textFieldInput(page, "المعرف (للمعادلات)"), { target: { value: "width" } });
     fireEvent.change(textFieldInput(page, "التسمية"), { target: { value: "العرض" } });
-    pickFromCombobox(page, "الصنف", "زجاج (م²)");
+    await pickFromCombobox(page, "الصنف", "زجاج (م²)");
     fireEvent.change(textFieldInput(page, "معادلة الكمية"), { target: { value: "width/100" } });
 
     const save = screen.getByRole("button", { name: "حفظ" });

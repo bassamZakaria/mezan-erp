@@ -535,13 +535,18 @@ export function createVouchersRoutes(
     let receipts = Money.zero();
     let payments = Money.zero();
     let unallocated = Money.zero();
+    let standing = 0;
     for (const row of rows) {
       if (row.status === "draft") draft += 1;
+      if ((row.status === "confirmed" || row.status === "posted") && !row.reversesDocId) {
+        standing += 1;
+        // Base currency: a book holding EGP and USD vouchers cannot add their own-currency amounts.
+        const amount = Money.fromMajor(row.baseAmount);
+        if (row.direction === "receipt") receipts = receipts.add(amount);
+        if (row.direction === "payment") payments = payments.add(amount);
+      }
       if (row.status !== "confirmed") continue;
       confirmed += 1;
-      const amount = row.reversesDocId ? Money.zero() : Money.fromMajor(row.amount);
-      if (row.direction === "receipt") receipts = receipts.add(amount);
-      if (row.direction === "payment") payments = payments.add(amount);
       if (row.allocatable && row.allocationSummary.needsAllocation) {
         needsAllocation += 1;
         unallocated = unallocated.add(Money.fromMajor(row.allocationSummary.unallocated));
@@ -550,6 +555,7 @@ export function createVouchersRoutes(
     return c.json({
       count: rows.length,
       confirmed,
+      standing,
       needsAllocation,
       draft,
       receipts: receipts.toString(),

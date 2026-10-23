@@ -146,6 +146,10 @@ function baseHandlers(returns: SalesReturnDocumentDTO[], invoices: SalesInvoiceD
       return { body: { sourceInvoiceId: invoice.id, lines: invoice.lines.map((l) => ({ sourceLineId: l.lineId, itemId: l.itemId, soldQty: l.baseQty, returnedQty: "0" })) } };
     },
     "GET /sales-invoices": () => ({ body: invoices }),
+    "GET /sales-invoices/*": (_init: unknown, path: string) => {
+      const invoice = invoices.find((i) => i.id === decodeURIComponent(path.split("/").pop()!.split("?")[0]!));
+      return invoice ? { body: invoice } : { status: 404, body: { error: "NOT_FOUND" } };
+    },
     "GET /warehouses": () => ({ body: warehouses }),
     "GET /customers": () => ({ body: customers }),
     "GET /items": () => ({ body: items }),
@@ -163,6 +167,13 @@ function selectOptionAt(label: string, index: number, optionLabel: string) {
   const combo = screen.getAllByRole("combobox", { name: label })[index]!;
   fireEvent.click(combo);
   fireEvent.mouseDown(screen.getByRole("option", { name: optionLabel }));
+}
+
+async function pickSourceInvoice(optionLabel: string) {
+  const input = screen.getByRole("combobox", { name: "فاتورة المصدر *" });
+  fireEvent.focus(input);
+  fireEvent.change(input, { target: { value: optionLabel.split(" — ")[0] } });
+  fireEvent.mouseDown(await screen.findByRole("button", { name: new RegExp(optionLabel) }));
 }
 
 function qtyInputAt(index: number): HTMLElement {
@@ -384,9 +395,9 @@ describe("SalesReturnsScreen — switching to an invoice with nothing returnable
 
     expect(screen.getByRole("combobox", { name: "الصنف" })).toHaveTextContent("أسمنت بورتلاندي");
     // The service invoice has no docNo — the picker falls back to its raw id in the option label.
-    selectOptionAt("فاتورة المصدر *", 0, "inv-service — شركة الأمل للتجارة");
+    await pickSourceInvoice("inv-service — شركة الأمل للتجارة");
 
-    expect(screen.getByText("لا توجد أصناف مخزنية قابلة للإرجاع في هذه الفاتورة")).toBeInTheDocument();
+    expect(await screen.findByText("لا توجد أصناف مخزنية قابلة للإرجاع في هذه الفاتورة")).toBeInTheDocument();
     expect(screen.queryByRole("combobox", { name: "الصنف" })).not.toBeInTheDocument();
   });
 });
@@ -402,7 +413,7 @@ describe("SalesReturnsScreen — arriving already pointed at a source invoice", 
     );
     await screen.findByRole("heading", { name: "مرتجع مبيعات جديد" });
     // The heading paints before the invoice list lands; the pickers can only fill in after it.
-    await waitFor(() => expect(screen.getByRole("combobox", { name: "فاتورة المصدر *" })).toHaveTextContent("INV-000123"));
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "فاتورة المصدر *" })).toHaveValue("INV-000123 — شركة الأمل للتجارة"));
     expect(screen.getByRole("combobox", { name: "الصنف" })).toHaveTextContent("أسمنت بورتلاندي");
     expect(screen.getByRole("combobox", { name: "المستودع *" })).toHaveTextContent("مستودع الفرع الرئيسي");
   });

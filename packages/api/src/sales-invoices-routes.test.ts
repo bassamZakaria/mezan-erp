@@ -936,6 +936,14 @@ describe("sales-invoices counts + return credit (guards Q-5)", () => {
     });
   });
 
+  it("lists only confirmed, partly paid or paid invoices under the active filter, in SQL before the page is cut", async () => {
+    const h = await harness();
+    await seed(h);
+    const rows = (await (await h.app.fetch(req("/?status=active&page=1&pageSize=20", { permissions: "sales.invoice.view" }))).json()) as { status: string }[];
+    expect(rows).toHaveLength(3);
+    expect(rows.every((r) => r.status === "confirmed")).toBe(true);
+  });
+
   it("totals overdue and due-soon receivables in money, net of return credit, with drafts and settled invoices left out", async () => {
     const h = await harness({ returns: { list: async () => [returnDoc("inv-1", "340", "47.60")] } });
     await seed(h);

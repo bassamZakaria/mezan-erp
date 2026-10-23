@@ -13,18 +13,20 @@ import {
   MoneyInput,
   QtyInput,
   type DocumentListColumn,
+  type EntityPickerOption,
   type PillTone,
   type RowMenuItem,
 } from "@mezan/ui";
 import { can, createAuthContext } from "@mezan/domain";
 import { VanTripCashMovementKindDTO, VanTripCrewRoleDTO, VanTripStatusDTO, type VanDTO, type VanTripDTO } from "@mezan/contracts";
 import { useApi } from "../data/ApiContext";
+import { ItemPicker, itemOption } from "./ItemPicker";
 import { VanTripCountForm, VanTripReconciliationCard } from "./enh/van-reconciliation/VanReconciliation";
 import {
   ApiError,
   useBranches,
   useEmployees,
-  useItems,
+  useItemsByIds,
   useOpenVanTrip,
   useRecordVanCashMovement,
   useSettleVanTrip,
@@ -145,7 +147,6 @@ export function VanTripsScreen() {
   const warehousesQuery = useWarehouses();
   const treasuryQuery = useTreasuryAccounts();
   const branchesQuery = useBranches();
-  const itemsQuery = useItems();
   const vansQuery = useVans();
   const employeesQuery = useEmployees();
 
@@ -161,7 +162,6 @@ export function VanTripsScreen() {
   const warehouses = warehousesQuery.data ?? EMPTY;
   const treasuryAccounts = treasuryQuery.data ?? EMPTY;
   const branches = branchesQuery.data ?? EMPTY;
-  const items = itemsQuery.data ?? EMPTY;
   const vans = (vansQuery.data ?? []).filter((v) => v.active);
   const employees = employeesQuery.data ?? EMPTY;
 
@@ -185,10 +185,6 @@ export function VanTripsScreen() {
     const map = new Map((vansQuery.data ?? []).map((v) => [v.id, v.nameAr]));
     return (id: string | null) => (id ? (map.get(id) ?? id) : null);
   }, [vansQuery.data]);
-  const itemName = useMemo(() => {
-    const map = new Map(items.map((i) => [i.id, i.nameAr]));
-    return (id: string) => map.get(id) ?? id;
-  }, [items]);
 
   const [searchText, setSearchText, search] = useUrlSearch();
   const [statusFilter, setStatusFilter] = useUrlParam("status", "all") as [
@@ -204,7 +200,8 @@ export function VanTripsScreen() {
   const [pageSize, setPageSize] = useUrlNumber("size", 25);
   const [crewEmployeeId, setCrewEmployeeId] = useState("");
   const [crewRole, setCrewRole] = useState<VanTripCrewRoleDTO>(VanTripCrewRoleDTO.Driver);
-  const [stockItemId, setStockItemId] = useState("");
+  const [stockItem, setStockItem] = useState<EntityPickerOption | null>(null);
+  const [pickedNames, setPickedNames] = useState<ReadonlyMap<string, string>>(new Map());
   const [stockQty, setStockQty] = useState(1);
 
   const [movementKind, setMovementKind] = useState<VanTripCashMovementKindDTO>(VanTripCashMovementKindDTO.Sale);
@@ -230,6 +227,11 @@ export function VanTripsScreen() {
   const settledCount = trips.filter((trip) => trip.status === VanTripStatusDTO.Settled).length;
 
   const selected = selectedId ? (trips.find((trip) => trip.id === selectedId) ?? null) : null;
+  const { byId: itemById } = useItemsByIds([
+    ...(selected?.loadedStock.map((line) => line.itemId) ?? []),
+    ...(selected?.settlement?.stockCounts.map((line) => line.itemId) ?? []),
+  ]);
+  const itemName = (id: string) => pickedNames.get(id) ?? itemById.get(id)?.nameAr ?? id;
   const selectedVan = draft.vanId === "" ? null : (vans.find((v) => v.id === draft.vanId) ?? null);
 
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
@@ -241,7 +243,7 @@ export function VanTripsScreen() {
     setFormError(null);
     setCrewEmployeeId("");
     setCrewRole(VanTripCrewRoleDTO.Driver);
-    setStockItemId("");
+    setStockItem(null);
     setStockQty(1);
     setFormOpen(true);
   }
@@ -258,9 +260,10 @@ export function VanTripsScreen() {
   }
 
   function addStockRow() {
-    if (stockItemId === "") return;
-    setDraft((d) => ({ ...d, loadedStock: [...d.loadedStock, { itemId: stockItemId, qty: stockQty }] }));
-    setStockItemId("");
+    if (!stockItem) return;
+    const itemId = stockItem.id;
+    setDraft((d) => ({ ...d, loadedStock: [...d.loadedStock, { itemId, qty: stockQty }] }));
+    setStockItem(null);
     setStockQty(1);
   }
 
@@ -762,18 +765,21 @@ export function VanTripsScreen() {
             </div>
             <div className="mt-[10px] flex flex-wrap items-end gap-[8px]">
               <div className="flex-1">
-                <SelectField
+                <ItemPicker
                   label={t("vanTrips.chooseAnItem")}
-                  value={stockItemId}
-                  onChange={setStockItemId}
-                  options={[{ value: "", label: t("vanTrips.chooseAnItem2") }, ...items.map((i) => ({ value: i.id, label: i.nameAr }))]}
+                  placeholder={t("vanTrips.chooseAnItem2")}
+                  value={stockItem}
+                  onChange={(item) => {
+                    if (item) setPickedNames((names) => new Map(names).set(item.id, item.nameAr));
+                    setStockItem(item ? itemOption(item) : null);
+                  }}
                 />
               </div>
               <div>
                 <div className="mb-[6px] text-[12.5px] font-semibold text-ink">{t("common.qty")}</div>
                 <QtyInput value={stockQty} onChange={setStockQty} min={1} aria-label={t("common.qty")} />
               </div>
-              <Button type="button" disabled={stockItemId === ""} onClick={addStockRow}>
+              <Button type="button" disabled={!stockItem} onClick={addStockRow}>
                 {t("common.add")}
               </Button>
             </div>

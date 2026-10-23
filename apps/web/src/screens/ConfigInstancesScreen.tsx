@@ -23,7 +23,7 @@ import {
   useConfigurableProducts,
   useCreateConfigInstance,
   useCustomers,
-  useItems,
+  useItemsByIds,
   usePreviewConfigInstance,
   useWarehouses,
   type ConfigInstanceRecord,
@@ -179,7 +179,6 @@ export function ConfigInstancesScreen() {
   const { t } = useAppTranslation();
   const query = useConfigInstances();
   const productsQuery = useConfigurableProducts();
-  const itemsQuery = useItems();
   const customersQuery = useCustomers();
   const warehousesQuery = useWarehouses();
   const createInstance = useCreateConfigInstance();
@@ -190,7 +189,6 @@ export function ConfigInstancesScreen() {
 
   const instances = query.data ?? EMPTY;
   const products = (productsQuery.data ?? []).filter((p) => p.status === "active");
-  const items = itemsQuery.data ?? EMPTY;
   const customers = customersQuery.data ?? EMPTY;
   const warehouses = warehousesQuery.data ?? EMPTY;
 
@@ -198,10 +196,6 @@ export function ConfigInstancesScreen() {
     const map = new Map(products.map((p) => [p.id, p.nameAr]));
     return (id: string) => map.get(id) ?? id;
   }, [products]);
-  const itemName = useMemo(() => {
-    const map = new Map(items.map((i) => [i.id, i.nameAr]));
-    return (id: string) => map.get(id) ?? id;
-  }, [items]);
   const customerName = useMemo(() => {
     const map = new Map(customers.map((c) => [c.id, c.nameAr]));
     return (id: string | null) => (id === null ? t("customOrders.noCustomer") : (map.get(id) ?? id));
@@ -255,6 +249,11 @@ export function ConfigInstancesScreen() {
   }, [selectedProduct, spec, panelOpen, previewMutate]);
 
   const selected = instances.find((i) => i.id === selectedId) ?? null;
+  const { byId: itemById } = useItemsByIds([
+    ...(selected?.materials ?? []).map((m) => m.itemId),
+    ...(preview.data?.materials ?? []).map((m) => m.itemId),
+  ]);
+  const itemName = useMemo(() => (id: string) => itemById.get(id)?.nameAr ?? id, [itemById]);
 
   const filtered = useMemo(() => {
     let rows = instances;

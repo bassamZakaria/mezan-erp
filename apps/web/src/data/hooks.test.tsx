@@ -130,13 +130,13 @@ describe("items", () => {
   });
 
   it("useItems returns an empty list cleanly and surfaces a failure", async () => {
-    const { result: empty } = renderHook(() => useItems(), {
+    const { result: empty } = renderHook(() => useItems({ page: 1 }), {
       wrapper: makeWrapper(stubTransport({ "GET /items": () => ({ body: [] }) })).Wrapper,
     });
     await waitFor(() => expect(empty.current.isSuccess).toBe(true));
     expect(empty.current.data).toEqual([]);
 
-    const { result: failing } = renderHook(() => useItems(), {
+    const { result: failing } = renderHook(() => useItems({ page: 1 }), {
       wrapper: makeWrapper(stubTransport({ "GET /items": () => ({ status: 500, body: {} }) })).Wrapper,
     });
     await waitFor(() => expect(failing.current.isError).toBe(true));
@@ -362,7 +362,7 @@ describe("sales quotes", () => {
 describe("journal entries", () => {
   it("useJournalEntries hits /gl/journal-entries", async () => {
     const transport = stubTransport({ "GET /gl/journal-entries": () => ({ body: [] }) });
-    const { result } = renderHook(() => useJournalEntries(), { wrapper: makeWrapper(transport).Wrapper });
+    const { result } = renderHook(() => useJournalEntries({ page: 1 }), { wrapper: makeWrapper(transport).Wrapper });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(result.current.data).toEqual([]);
   });
@@ -913,20 +913,6 @@ describe("whole-set list reads walk the pages (guards Q-8)", () => {
     });
   }
 
-  it("useItems with no page returns every item across several requests", async () => {
-    const calls: string[] = [];
-    const { result } = renderHook(() => useItems(), {
-      wrapper: makeWrapper(pagingTransport(450, "/items", calls)).Wrapper,
-    });
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(result.current.data).toHaveLength(450);
-    // 200 + 200 + 50: it stops on the first short page rather than looping on.
-    expect(calls).toHaveLength(3);
-    expect(calls.every((c) => c.includes("pageSize=200"))).toBe(true);
-    // No row is fetched twice.
-    expect(new Set((result.current.data ?? []).map((r) => (r as { id: string }).id)).size).toBe(450);
-  });
-
   it("a caller that DID name a page gets that page only, in one request", async () => {
     const calls: string[] = [];
     const { result } = renderHook(() => useItems({ page: 2, pageSize: 10 }), {
@@ -938,14 +924,14 @@ describe("whole-set list reads walk the pages (guards Q-8)", () => {
     expect(calls[0]).toContain("page=2");
   });
 
-  it("useSalesInvoices with no page walks the pages too", async () => {
+  it("useSalesInvoices sends its filter and page in one request, never walking the book", async () => {
     const calls: string[] = [];
-    const { result } = renderHook(() => useSalesInvoices({ customerId: "cust-1" }), {
+    const { result } = renderHook(() => useSalesInvoices({ customerId: "cust-1", page: 1, pageSize: 25 }), {
       wrapper: makeWrapper(pagingTransport(260, "/sales-invoices", calls)).Wrapper,
     });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(result.current.data).toHaveLength(260);
-    expect(calls).toHaveLength(2);
-    expect(calls.every((c) => c.includes("customerId=cust-1"))).toBe(true);
+    expect(result.current.data).toHaveLength(25);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toContain("customerId=cust-1");
   });
 });

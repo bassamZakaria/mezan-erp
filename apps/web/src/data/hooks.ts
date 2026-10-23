@@ -2,7 +2,7 @@ import { branchRefusalBefore, isBranchRestricted } from "../branch-restriction";
 import { useCallback, useSyncExternalStore } from "react";
 import { loadTenantCode, subscribeTenantCode } from "./session";
 import { DocumentReadPermission, sessionMayRead } from "./document-read-permissions";
-import { useMutation, useQueries, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQueries, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import type {
   AuditEventDTO,
   WorkflowConfigDTO,
@@ -882,43 +882,6 @@ export async function loaderError(
 }
 
 /** الأصناف (docs/archive/catalog/03) — list, create, edit. */
-/**
- * Rows per request when a caller needs the WHOLE set, and how many such
- * requests it may make. Both are compiled in — a limit the caller supplies is
- * not a limit.
- */
-const WHOLE_SET_PAGE_SIZE = 200;
-const WHOLE_SET_MAX_PAGES = 50;
-
-/**
- * Every page of a list route, for the callers that genuinely need the whole
- * set: a picker over the catalogue, a customer statement, a per-branch count.
- *
- * The list routes now answer with ONE page by default (Q-8), so a caller that
- * meant "everything" and sent no page would silently receive the first
- * twenty-five rows — and a truncated figure on a screen is indistinguishable
- * from a wrong one. This walks the pages instead, and stops at a compiled-in
- * ceiling rather than pulling an unbounded set into the renderer.
- */
-async function fetchEveryPage<T>(
-  request: (path: string, init?: RequestInit) => Promise<TransportResponse>,
-  path: string,
-  params: URLSearchParams,
-  fail: (res: TransportResponse) => Promise<never>,
-): Promise<T[]> {
-  const all: T[] = [];
-  for (let page = 1; page <= WHOLE_SET_MAX_PAGES; page += 1) {
-    const qs = new URLSearchParams(params);
-    qs.set("page", String(page));
-    qs.set("pageSize", String(WHOLE_SET_PAGE_SIZE));
-    const res = await request(`${path}?${qs.toString()}`);
-    if (!res.ok) await fail(res);
-    const rows = await res.json<T[]>();
-    all.push(...rows);
-    if (rows.length < WHOLE_SET_PAGE_SIZE) break;
-  }
-  return all;
-}
 
 export interface ItemListFilter {
   /** A chip key: `all`, `active`, `inactive`, `low_stock`, `out_of_stock`, or an item type. */
@@ -957,7 +920,7 @@ function itemParams(filter: ItemListFilter): URLSearchParams {
   return params;
 }
 
-export function useItems(filter: ItemListFilter = {}): UseQueryResult<ItemDTO[], ApiError> {
+export function useItems(filter: ItemListFilter & { readonly page: number }): UseQueryResult<ItemDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<ItemDTO[], ApiError>({
@@ -967,10 +930,6 @@ export function useItems(filter: ItemListFilter = {}): UseQueryResult<ItemDTO[],
       const fail = async (res: TransportResponse): Promise<never> => {
         throw await loaderError(res, t("api.itemsCouldNotBeLoaded"), t);
       };
-      // A caller that named no page means the whole catalogue — every picker
-      // and every name lookup on the app does — so the pages are walked
-      // rather than silently cut to the route's default (Q-8).
-      if (filter.page === undefined) return fetchEveryPage<ItemDTO>(request, "/items", itemParams(filter), fail);
       const qs = itemParams(filter).toString();
       const res = await request(`/items${qs ? `?${qs}` : ""}`);
       if (!res.ok) await fail(res);
@@ -995,6 +954,12 @@ export interface ItemsById {
   readonly isError: boolean;
 }
 
+function combineItemPages(results: readonly UseQueryResult<ItemDTO[]>[]): ItemsById {
+  const byId = new Map<string, ItemDTO>();
+  for (const result of results) for (const item of result.data ?? []) byId.set(item.id, item);
+  return { byId, isLoading: results.some((r) => r.isLoading), isError: results.some((r) => r.isError) };
+}
+
 /** Only the items a screen is showing, fetched by id, so naming a few rows never downloads the catalogue. */
 export function useItemsByIds(ids: readonly (string | null | undefined)[]): ItemsById {
   const { t } = useAppTranslation();
@@ -1003,8 +968,10 @@ export function useItemsByIds(ids: readonly (string | null | undefined)[]): Item
   const chunks: string[][] = [];
   for (let i = 0; i < wanted.length; i += MAX_PAGE_SIZE) chunks.push(wanted.slice(i, i + MAX_PAGE_SIZE));
   const results = useQueries({
+    combine: combineItemPages,
     queries: chunks.map((chunk) => ({
       queryKey: ["items", "byIds", chunk],
+      placeholderData: keepPreviousData,
       enabled: sessionMayRead(session, DocumentReadPermission.Items),
       queryFn: async () => {
         const qs = itemParams({ ids: chunk, page: 1, pageSize: chunk.length }).toString();
@@ -1014,9 +981,7 @@ export function useItemsByIds(ids: readonly (string | null | undefined)[]): Item
       },
     })),
   });
-  const byId = new Map<string, ItemDTO>();
-  for (const result of results) for (const item of result.data ?? []) byId.set(item.id, item);
-  return { byId, isLoading: results.some((r) => r.isLoading), isError: results.some((r) => r.isError) };
+  return results;
 }
 
 /** One item by id or code, for a form addressed by URL whose item is not on the current page. */
@@ -1039,7 +1004,7 @@ export function useItem(key: string | null): UseQueryResult<ItemDTO, ApiError> {
  * inactive, the stock states and the item types — so the route answers with a
  * `type:<code>` key for the type axis; the caller reads that prefix.
  */
-export function useItemCounts(filter: ItemListFilter = {}): UseQueryResult<ListCountsDTO, ApiError> {
+export function useItemCounts(filter: ItemListFilter = {}, gate: QueryGate = {}): UseQueryResult<ListCountsDTO, ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
   // Every chip counts the WHOLE filtered set, so neither the active status nor
@@ -1047,7 +1012,7 @@ export function useItemCounts(filter: ItemListFilter = {}): UseQueryResult<ListC
   const { status: _status, page: _page, pageSize: _pageSize, sort: _sort, sortDir: _sortDir, ...rest } = filter;
   return useQuery<ListCountsDTO, ApiError>({
     queryKey: ["items", "counts", rest],
-    enabled: session !== null,
+    enabled: session !== null && (gate.enabled ?? true),
     queryFn: async () => {
       const qs = itemParams(rest).toString();
       const res = await request(`/items/counts${qs ? `?${qs}` : ""}`);
@@ -1141,13 +1106,13 @@ export function useCustomers(filter: CustomerListFilter = {}): UseQueryResult<Cu
 }
 
 /** Chip counts (R1.1); the status axis is withheld so every chip reports its own total. */
-export function useCustomerCounts(filter: CustomerListFilter = {}): UseQueryResult<ListCountsDTO, ApiError> {
+export function useCustomerCounts(filter: CustomerListFilter = {}, gate: QueryGate = {}): UseQueryResult<ListCountsDTO, ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
   const { status: _status, ...rest } = filter;
   return useQuery<ListCountsDTO, ApiError>({
     queryKey: ["customers", "counts", rest],
-    enabled: session !== null,
+    enabled: session !== null && (gate.enabled ?? true),
     queryFn: async () => {
       const qs = customerParams(rest).toString();
       const res = await request(`/customers/counts${qs ? `?${qs}` : ""}`);
@@ -1520,13 +1485,13 @@ export function useSalesQuotes(filter: SalesQuoteListFilter = {}): UseQueryResul
  * The status-chip counts (R1.1). The status filter is intentionally NOT sent:
  * every chip has to state its own total, not the active one's.
  */
-export function useSalesQuoteCounts(filter: SalesQuoteListFilter = {}): UseQueryResult<ListCountsDTO, ApiError> {
+export function useSalesQuoteCounts(filter: SalesQuoteListFilter = {}, gate: QueryGate = {}): UseQueryResult<ListCountsDTO, ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
   const { status: _status, ...rest } = filter;
   return useQuery<ListCountsDTO, ApiError>({
     queryKey: ["sales-quotes", "counts", rest],
-    enabled: session !== null,
+    enabled: session !== null && (gate.enabled ?? true),
     queryFn: async () => {
       const qs = salesQuoteParams(rest).toString();
       const res = await request(`/sales-quotes/counts${qs ? `?${qs}` : ""}`);
@@ -1730,7 +1695,7 @@ function journalEntryParams(filter: JournalEntryListFilter): URLSearchParams {
 }
 
 /** القيود المحاسبية (docs/archive/catalog/04) — the GL posting engine mounted under /gl. */
-export function useJournalEntries(filter: JournalEntryListFilter = {}): UseQueryResult<JournalEntryDTO[], ApiError> {
+export function useJournalEntries(filter: JournalEntryListFilter & { readonly page: number }): UseQueryResult<JournalEntryDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<JournalEntryDTO[], ApiError>({
@@ -1740,10 +1705,6 @@ export function useJournalEntries(filter: JournalEntryListFilter = {}): UseQuery
       const fail = async (res: TransportResponse): Promise<never> => {
         throw await loaderError(res, t("api.journalEntriesCouldNotBe"), t);
       };
-      // A caller that named no page means the whole filtered set — a statement,
-      // a per-branch count, a picker — so the pages are walked rather than
-      // silently cut to the route's default (Q-8).
-      if (filter.page === undefined) return fetchEveryPage<JournalEntryDTO>(request, "/gl/journal-entries", journalEntryParams(filter), fail);
       const qs = journalEntryParams(filter).toString();
       const res = await request(`/gl/journal-entries${qs ? `?${qs}` : ""}`);
       if (!res.ok) await fail(res);
@@ -2792,6 +2753,12 @@ function voucherParams(filter: Partial<VoucherListQueryDTO>): URLSearchParams {
   return params;
 }
 
+function withPage(params: URLSearchParams, filter: { readonly page?: number; readonly pageSize?: number }): URLSearchParams {
+  if (filter.page) params.set("page", String(filter.page));
+  if (filter.pageSize) params.set("pageSize", String(filter.pageSize));
+  return params;
+}
+
 /**
  * Chip counts, computed server-side. The WHOLE filter goes to the route: the
  * list has two chip axes (status and type) and only the route knows which one
@@ -2814,12 +2781,13 @@ export function useVoucherCounts(filter: Partial<VoucherListQueryDTO> = {}, gate
 }
 
 /** The KPI strip, summed in `Money` on the server over the whole filtered set. */
-export function useVoucherStats(filter: Partial<VoucherListQueryDTO> = {}): UseQueryResult<ListStatsDTO, ApiError> {
+export function useVoucherStats(filter: Partial<VoucherListQueryDTO> = {}, gate: QueryGate = {}): UseQueryResult<ListStatsDTO, ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
+  const mayAsk = useMayAskScreen(ScreenRequest.Vouchers);
   return useQuery<ListStatsDTO, ApiError>({
     queryKey: ["vouchers", "stats", filter],
-    enabled: session !== null,
+    enabled: session !== null && mayAsk && (gate.enabled ?? true),
     queryFn: async () => {
       const qs = voucherParams(filter).toString();
       const res = await request(`/vouchers/stats${qs ? `?${qs}` : ""}`);
@@ -2829,7 +2797,7 @@ export function useVoucherStats(filter: Partial<VoucherListQueryDTO> = {}): UseQ
   });
 }
 
-export function useVouchers(filter: Partial<VoucherListQueryDTO> = {}): UseQueryResult<VoucherRowDTO[], ApiError> {
+export function useVouchers(filter: Partial<VoucherListQueryDTO> & { readonly page: number }): UseQueryResult<VoucherRowDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request } = useApi();
   const mayAsk = useMayAskScreen(ScreenRequest.Vouchers);
@@ -2840,11 +2808,7 @@ export function useVouchers(filter: Partial<VoucherListQueryDTO> = {}): UseQuery
       const fail = async (res: TransportResponse): Promise<never> => {
         throw await loaderError(res, t("api.vouchersCouldNotBeLoaded"), t);
       };
-      // A caller that named no page means the whole filtered set — a statement,
-      // a per-branch count, a picker — so the pages are walked rather than
-      // silently cut to the route's default (Q-8).
-      if (filter.page === undefined) return fetchEveryPage<VoucherRowDTO>(request, "/vouchers", voucherParams(filter), fail);
-      const qs = voucherParams(filter).toString();
+      const qs = withPage(voucherParams(filter), filter).toString();
       const res = await request(`/vouchers${qs ? `?${qs}` : ""}`);
       if (!res.ok) await fail(res);
       return res.json<VoucherRowDTO[]>();
@@ -3232,7 +3196,7 @@ function purchaseInvoiceParams(filter: Partial<PurchaseInvoiceListQueryDTO>): UR
   return params;
 }
 
-export function usePurchaseInvoices(filter: Partial<PurchaseInvoiceListQueryDTO> = {}): UseQueryResult<PurchaseInvoiceDTO[], ApiError> {
+export function usePurchaseInvoices(filter: Partial<PurchaseInvoiceListQueryDTO> & { readonly page: number }): UseQueryResult<PurchaseInvoiceDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<PurchaseInvoiceDTO[], ApiError>({
@@ -3242,11 +3206,7 @@ export function usePurchaseInvoices(filter: Partial<PurchaseInvoiceListQueryDTO>
       const fail = async (res: TransportResponse): Promise<never> => {
         throw await loaderError(res, t("api.purchaseInvoicesCouldNotBe"), t);
       };
-      // A caller that named no page means the whole filtered set — a statement,
-      // a per-branch count, a picker — so the pages are walked rather than
-      // silently cut to the route's default (Q-8).
-      if (filter.page === undefined) return fetchEveryPage<PurchaseInvoiceDTO>(request, "/purchases/invoices", purchaseInvoiceParams(filter), fail);
-      const qs = purchaseInvoiceParams(filter).toString();
+      const qs = withPage(purchaseInvoiceParams(filter), filter).toString();
       const res = await request(`/purchases/invoices${qs ? `?${qs}` : ""}`);
       if (!res.ok) await fail(res);
       return res.json<PurchaseInvoiceDTO[]>();
@@ -3255,6 +3215,20 @@ export function usePurchaseInvoices(filter: Partial<PurchaseInvoiceListQueryDTO>
 }
 
 /** Chip counts; the status filter is withheld so every chip reports its own total. */
+export function usePurchaseInvoice(idOrNumber: string | null): UseQueryResult<PurchaseInvoiceDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<PurchaseInvoiceDTO, ApiError>({
+    queryKey: ["purchase-invoices", "one", idOrNumber],
+    enabled: session !== null && idOrNumber !== null,
+    queryFn: async () => {
+      const res = await request(`/purchases/invoices/${encodeURIComponent(idOrNumber ?? "")}`);
+      if (!res.ok) throw await loaderError(res, t("api.purchaseInvoicesCouldNotBe"), t);
+      return res.json<PurchaseInvoiceDTO>();
+    },
+  });
+}
+
 export function usePurchaseInvoiceCounts(filter: Partial<PurchaseInvoiceListQueryDTO> = {}): UseQueryResult<ListCountsDTO, ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
@@ -3321,7 +3295,7 @@ export function useConfirmPurchaseInvoice() {
 export type { SalesInvoiceLineRowDTO, SalesInvoiceTotalsDTO, SalesInvoiceDTO };
 
 /** فواتير المبيعات (docs/archive/catalog/01) — list, create, confirm, record a payment. */
-export function useSalesInvoices(filter: Partial<SalesInvoiceListQueryDTO> = {}, gate: QueryGate = {}): UseQueryResult<SalesInvoiceDTO[], ApiError> {
+export function useSalesInvoices(filter: Partial<SalesInvoiceListQueryDTO> & { readonly page: number }, gate: QueryGate = {}): UseQueryResult<SalesInvoiceDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<SalesInvoiceDTO[], ApiError>({
@@ -3331,10 +3305,6 @@ export function useSalesInvoices(filter: Partial<SalesInvoiceListQueryDTO> = {},
       const fail = async (res: TransportResponse): Promise<never> => {
         throw await loaderError(res, t("api.salesInvoicesCouldNotBe"), t);
       };
-      // A caller that named no page means the whole filtered set — a statement,
-      // a per-branch count, a picker — so the pages are walked rather than
-      // silently cut to the route's default (Q-8).
-      if (filter.page === undefined) return fetchEveryPage<SalesInvoiceDTO>(request, "/sales-invoices", salesInvoiceParams(filter), fail);
       const qs = salesInvoiceParams(filter).toString();
       const res = await request(`/sales-invoices${qs ? `?${qs}` : ""}`);
       if (!res.ok) await fail(res);

@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { ITEM_TYPES } from "@mezan/domain";
 import {
   RowActionOutcome,
   Button,
@@ -6,7 +7,6 @@ import {
   DocumentDetail,
   DocumentList,
   EmptyState,
-  EntityPicker,
   IconButton,
   modKeyLabel,
   RowMenu,
@@ -28,7 +28,7 @@ import {
   useSiteReceipts,
   useSiteUnreceived,
 } from "../../../data/contracting-site-hooks";
-import { useItems, useProjects, useStockBalance, useWarehouses } from "../../../data/hooks";
+import { useItemsByIds, useProjects, useStockBalance, useWarehouses } from "../../../data/hooks";
 import { FormColumns, FormError, FormPage, SectionCard, SelectField, TextField } from "../../../settings/form-controls";
 import { useNameSubPage, useSubPage } from "../../../navigation";
 import { useAppTranslation } from "../../../i18n";
@@ -38,6 +38,9 @@ import { todayIso } from "../../../lib/dates";
 import { EMPTY } from "../../../lib/empty";
 import { useUrlParam } from "../../../lib/url-state";
 import { LinesTable, trimDecimal } from "./site-common";
+import { ItemPicker } from "../../ItemPicker";
+
+const STOCKED_ITEMS = { types: ITEM_TYPES.filter((type) => type !== "service") };
 
 /**
  * أذونات الصرف والاستلام بالموقع (D-11) — the two-step material issue.
@@ -58,13 +61,14 @@ const STATUS_TONES: Record<SiteIssueStatusDTO, PillTone> = {
 interface LineDraft {
   key: string;
   itemId: string;
+  itemLabel: string;
   qty: string;
 }
 
 let lineSeq = 0;
 function blankLine(): LineDraft {
   lineSeq += 1;
-  return { key: `l${lineSeq}`, itemId: "", qty: "" };
+  return { key: `l${lineSeq}`, itemId: "", itemLabel: "", qty: "" };
 }
 
 export function SiteIssuesScreen() {
@@ -80,10 +84,8 @@ export function SiteIssuesScreen() {
 
   const projectsQuery = useProjects();
   const warehousesQuery = useWarehouses();
-  const itemsQuery = useItems();
   const projects = projectsQuery.data ?? EMPTY;
   const warehouses = warehousesQuery.data ?? EMPTY;
-  const items = itemsQuery.data ?? EMPTY;
 
   const issuesQuery = useSiteIssues({
     status: statusFilter,
@@ -99,7 +101,7 @@ export function SiteIssuesScreen() {
     return nameOf(warehouses.find((w) => w.id === id), id);
   }
   function itemLabel(id: string): string {
-    const item = items.find((i) => i.id === id);
+    const item = itemById.get(id);
     return item ? `${item.nameAr} (${item.code})` : id;
   }
   function projectLabel(id: string): string {
@@ -109,6 +111,10 @@ export function SiteIssuesScreen() {
 
   const selectedId = firstSegment !== undefined && firstSegment !== "new" ? firstSegment : null;
   const detail = useSiteIssue(selectedId);
+  const { byId: itemById } = useItemsByIds([
+    ...unreceived.map((row) => row.itemId),
+    ...(detail.data?.lines ?? EMPTY).map((line) => line.itemId),
+  ]);
   useNameSubPage(selectedId, detail.data ? (detail.data.docNo ?? t("docStatus.draft")) : null);
 
   async function confirmRow(id: string): Promise<RowActionOutcome | void> {
@@ -440,7 +446,6 @@ function NewIssueView({ onDone }: { onDone: () => void }) {
   const createIssue = useCreateSiteIssue();
   const confirmIssue = useConfirmSiteIssue();
   const warehouses = useWarehouses().data ?? EMPTY;
-  const items = useItems().data ?? EMPTY;
 
   const sourceOptions = useMemo(
     () => warehouses.filter((w) => w.type !== "SITE" && w.type !== "TRANSIT" && w.active),
@@ -463,10 +468,6 @@ function NewIssueView({ onDone }: { onDone: () => void }) {
     return here ? trimDecimal(here.available) : trimDecimal(row.onHand);
   }
 
-  const itemOptions = useMemo(
-    () => items.filter((i) => i.type !== "service").map((i) => ({ id: i.id, label: i.nameAr, sublabel: i.code })),
-    [items],
-  );
 
   const selectedSite = siteOptions.find((w) => w.id === toWarehouseId) ?? null;
   const ready =
@@ -558,11 +559,11 @@ function NewIssueView({ onDone }: { onDone: () => void }) {
           {lines.map((line, i) => (
             <tr key={line.key} className="border-b border-border last:border-b-0">
               <td className="px-[12px] py-[8px]">
-                <EntityPicker
+                <ItemPicker
                   className="min-w-[190px]"
-                  value={line.itemId === "" ? null : (itemOptions.find((o) => o.id === line.itemId) ?? null)}
-                  onChange={(option) => updateLine(i, { itemId: option?.id ?? "" })}
-                  options={itemOptions}
+                  value={line.itemId === "" ? null : { id: line.itemId, label: line.itemLabel }}
+                  onChange={(item) => updateLine(i, { itemId: item?.id ?? "", itemLabel: item?.nameAr ?? "" })}
+                  filter={STOCKED_ITEMS}
                   placeholder={t("site.chooseItem")}
                   emptyMessage={t("site.noItems")}
                 />
@@ -607,7 +608,6 @@ function NewIssueView({ onDone }: { onDone: () => void }) {
 function NewReceiptView({ issueId, onDone }: { issueId: string; onDone: () => void }) {
   const { t } = useAppTranslation();
   const detail = useSiteIssue(issueId);
-  const items = useItems().data ?? EMPTY;
   const createReceipt = useCreateSiteReceipt();
   const confirmReceipt = useConfirmSiteReceipt();
   const [date, setDate] = useState(todayIso());
@@ -619,8 +619,10 @@ function NewReceiptView({ issueId, onDone }: { issueId: string; onDone: () => vo
   const initialised = Object.keys(received).length > 0;
   const values = initialised ? received : Object.fromEntries(outstanding.map((o) => [o.itemId, trimDecimal(o.qty)]));
 
+  const { byId: itemById } = useItemsByIds(outstanding.map((o) => o.itemId));
+
   function itemLabel(id: string): string {
-    const item = items.find((i) => i.id === id);
+    const item = itemById.get(id);
     return item ? `${item.nameAr} (${item.code})` : id;
   }
 

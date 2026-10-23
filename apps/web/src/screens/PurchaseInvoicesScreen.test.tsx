@@ -58,11 +58,11 @@ function typeDecimal(input: HTMLElement, value: string) {
   fireEvent.blur(input);
 }
 
-function pickFromCombobox(container: HTMLElement, label: string, optionLabel: string) {
+async function pickFromCombobox(container: HTMLElement, label: string, optionLabel: string) {
   const input = within(container).getByLabelText(label);
   fireEvent.focus(input);
   fireEvent.change(input, { target: { value: optionLabel } });
-  const option = within(container).getByRole("button", { name: (n) => n.startsWith(optionLabel) });
+  const option = await within(container).findByRole("button", { name: (n) => n.startsWith(optionLabel) }, { timeout: 2000 });
   fireEvent.mouseDown(option);
 }
 
@@ -140,11 +140,15 @@ function renderScreen(
   let lastListPath = "";
   let lastCreateBody: unknown = null;
   let lastPayBody: unknown = null;
+  const itemPaths: string[] = [];
   const transport = stubTransport({
     "GET /branches": () => ({ body: branches }),
     "GET /warehouses": () => ({ body: warehouses }),
     "GET /suppliers": () => ({ body: suppliers }),
-    "GET /items": () => ({ body: items }),
+    "GET /items": (_init, path) => {
+      itemPaths.push(path);
+      return { body: items };
+    },
     "GET /users": () => ({ body: users }),
     "GET /treasury-accounts": () => ({ body: treasuryAccounts }),
     "GET /purchases/receipts": () => ({ body: [] }),
@@ -194,7 +198,7 @@ function renderScreen(
     </TestNavigation>,
     { transport, initialSession: testAdminSession },
   );
-  return { ...result, getListPath: () => lastListPath, getCreateBody: () => lastCreateBody, getPayBody: () => lastPayBody };
+  return { ...result, itemPaths, getListPath: () => lastListPath, getCreateBody: () => lastCreateBody, getPayBody: () => lastPayBody };
 }
 
 describe("PurchaseInvoicesScreen (filters, stats, entity ids, payments)", () => {
@@ -243,8 +247,8 @@ describe("PurchaseInvoicesScreen (filters, stats, entity ids, payments)", () => 
     fireEvent.click((await screen.findAllByRole("button", { name: "فاتورة مشتريات جديدة" }))[0]!);
     fireEvent.click(screen.getByText("إنشاء فاتورة جديدة"));
     fireEvent.click(screen.getByRole("button", { name: "متابعة" }));
-    pickFromCombobox(document.body, "المورد *", "شركة النيل للتوريدات");
-    pickFromCombobox(document.body, "الصنف", "أسمنت بورتلاندي");
+    await pickFromCombobox(document.body, "المورد *", "شركة النيل للتوريدات");
+    await pickFromCombobox(document.body, "الصنف", "أسمنت بورتلاندي");
     fireEvent.click(screen.getByRole("button", { name: "حفظ مسودة" }));
     await waitFor(() => expect(getCreateBody()).not.toBeNull());
     const body = getCreateBody() as Record<string, unknown>;
@@ -265,8 +269,8 @@ describe("PurchaseInvoicesScreen (filters, stats, entity ids, payments)", () => 
     fireEvent.click((await screen.findAllByRole("button", { name: "فاتورة مشتريات جديدة" }))[0]!);
     fireEvent.click(screen.getByText("إنشاء فاتورة جديدة"));
     fireEvent.click(screen.getByRole("button", { name: "متابعة" }));
-    pickFromCombobox(document.body, "المورد *", "شركة النيل للتوريدات");
-    pickFromCombobox(document.body, "الصنف", "أسمنت بورتلاندي");
+    await pickFromCombobox(document.body, "المورد *", "شركة النيل للتوريدات");
+    await pickFromCombobox(document.body, "الصنف", "أسمنت بورتلاندي");
     fireEvent.click(screen.getByRole("button", { name: "حفظ مسودة" }));
 
     await waitFor(() => expect(screen.queryByRole("button", { name: "حفظ مسودة" })).not.toBeInTheDocument());
@@ -279,8 +283,8 @@ describe("PurchaseInvoicesScreen (filters, stats, entity ids, payments)", () => 
     fireEvent.click((await screen.findAllByRole("button", { name: "فاتورة مشتريات جديدة" }))[0]!);
     fireEvent.click(screen.getByText("إنشاء فاتورة جديدة"));
     fireEvent.click(screen.getByRole("button", { name: "متابعة" }));
-    pickFromCombobox(document.body, "المورد *", "شركة النيل للتوريدات");
-    pickFromCombobox(document.body, "الصنف", "أسمنت بورتلاندي");
+    await pickFromCombobox(document.body, "المورد *", "شركة النيل للتوريدات");
+    await pickFromCombobox(document.body, "الصنف", "أسمنت بورتلاندي");
     typeDecimal(fieldInput(document.body, "الكمية"), "0.333333");
     typeDecimal(fieldInput(document.body, "التكلفة"), "9007199254740993.10");
     expect(screen.getByText("3,002,396,749,180,579.45")).toBeInTheDocument();
@@ -296,7 +300,7 @@ describe("PurchaseInvoicesScreen (filters, stats, entity ids, payments)", () => 
     fireEvent.click((await screen.findAllByRole("button", { name: "فاتورة مشتريات جديدة" }))[0]!);
     fireEvent.click(screen.getByText("إنشاء فاتورة جديدة"));
     fireEvent.click(screen.getByRole("button", { name: "متابعة" }));
-    pickFromCombobox(document.body, "المورد *", "شركة النيل للتوريدات");
+    await pickFromCombobox(document.body, "المورد *", "شركة النيل للتوريدات");
     const figures = [["3", "1.255"], ["1", "0.1"], ["1", "0.2"]] as const;
     for (const [index, [qty, cost]] of figures.entries()) {
       if (index > 0) fireEvent.click(screen.getByRole("button", { name: "إضافة صنف" }));
@@ -319,8 +323,8 @@ describe("PurchaseInvoicesScreen (filters, stats, entity ids, payments)", () => 
     fireEvent.click((await screen.findAllByRole("button", { name: "فاتورة مشتريات جديدة" }))[0]!);
     fireEvent.click(screen.getByText("إنشاء فاتورة جديدة"));
     fireEvent.click(screen.getByRole("button", { name: "متابعة" }));
-    pickFromCombobox(document.body, "المورد *", "شركة النيل للتوريدات");
-    pickFromCombobox(document.body, "الصنف", "أسمنت بورتلاندي");
+    await pickFromCombobox(document.body, "المورد *", "شركة النيل للتوريدات");
+    await pickFromCombobox(document.body, "الصنف", "أسمنت بورتلاندي");
     fireEvent.click(screen.getByRole("button", { name: "حفظ مسودة" }));
     await waitFor(() => expect(getCreateBody()).not.toBeNull());
     expect((getCreateBody() as { lines: Array<Record<string, unknown>> }).lines[0]).toMatchObject({ qty: "1", unitCost: "85.100000" });
@@ -332,7 +336,7 @@ describe("PurchaseInvoicesScreen (filters, stats, entity ids, payments)", () => 
     fireEvent.click((await screen.findAllByRole("button", { name: "فاتورة مشتريات جديدة" }))[0]!);
     fireEvent.click(await screen.findByText("من إيصال استلام"));
     fireEvent.click(screen.getByRole("button", { name: "متابعة" }));
-    pickFromCombobox(document.body, "إيصال الاستلام *", "GR-000001");
+    await pickFromCombobox(document.body, "إيصال الاستلام *", "GR-000001");
     const billQty = await screen.findByLabelText("الكمية المفوترة");
 
     typeDecimal(billQty, "0.333334");
@@ -351,8 +355,8 @@ describe("PurchaseInvoicesScreen (filters, stats, entity ids, payments)", () => 
     fireEvent.click((await screen.findAllByRole("button", { name: "فاتورة مشتريات جديدة" }))[0]!);
     fireEvent.click(screen.getByText("إنشاء فاتورة جديدة"));
     fireEvent.click(screen.getByRole("button", { name: "متابعة" }));
-    pickFromCombobox(document.body, "المورد *", "شركة النيل للتوريدات");
-    pickFromCombobox(document.body, "الصنف", "أسمنت بورتلاندي");
+    await pickFromCombobox(document.body, "المورد *", "شركة النيل للتوريدات");
+    await pickFromCombobox(document.body, "الصنف", "أسمنت بورتلاندي");
     fireEvent.click(screen.getByText("مصروف"));
     expect(screen.queryByLabelText("الصنف")).not.toBeInTheDocument();
     expect(screen.getByText("وصف المصروف")).toBeInTheDocument();
@@ -365,13 +369,31 @@ describe("PurchaseInvoicesScreen (filters, stats, entity ids, payments)", () => 
     fireEvent.click((await screen.findAllByRole("button", { name: "فاتورة مشتريات جديدة" }))[0]!);
     fireEvent.click(await screen.findByText("من إيصال استلام"));
     fireEvent.click(screen.getByRole("button", { name: "متابعة" }));
-    pickFromCombobox(document.body, "إيصال الاستلام *", "GR-000001");
+    await pickFromCombobox(document.body, "إيصال الاستلام *", "GR-000001");
     expect(await screen.findByText("أسمنت بورتلاندي")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "حفظ مسودة" }));
     await waitFor(() => expect(getCreateBody()).not.toBeNull());
     const body = getCreateBody() as Record<string, unknown>;
     expect(body.receiptId).toBe("gr-1");
     expect(body.lines).toBeUndefined();
+  });
+
+  it("names the receipt preview's lines by fetching only those items, and the manual line's picker searches 20 purchasable items", async () => {
+    const unpaged = (paths: string[]) => paths.filter((path) => !/[?&](ids=|pageSize=20(&|$))/.test(path));
+    const { itemPaths } = renderScreen([], {
+      "GET /purchases/receipts": () => ({ body: [goodsReceipt()] }),
+    });
+    fireEvent.click((await screen.findAllByRole("button", { name: "فاتورة مشتريات جديدة" }))[0]!);
+    fireEvent.click(await screen.findByText("من إيصال استلام"));
+    fireEvent.click(screen.getByRole("button", { name: "متابعة" }));
+    await pickFromCombobox(document.body, "إيصال الاستلام *", "GR-000001");
+    expect(await screen.findByText("أسمنت بورتلاندي")).toBeInTheDocument();
+    expect(itemPaths.some((path) => path.includes("ids=item-cement"))).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "تغيير طريقة الإنشاء" }));
+    fireEvent.click(screen.getByText("إنشاء فاتورة جديدة"));
+    fireEvent.click(screen.getByRole("button", { name: "متابعة" }));
+    await waitFor(() => expect(itemPaths.some((path) => path.includes("pageSize=20") && path.includes("types="))).toBe(true));
+    expect(unpaged(itemPaths)).toEqual([]);
   });
 
   it("a server refusal on create renders the screen's Arabic formError, not raw JSON", async () => {
@@ -381,8 +403,8 @@ describe("PurchaseInvoicesScreen (filters, stats, entity ids, payments)", () => 
     fireEvent.click((await screen.findAllByRole("button", { name: "فاتورة مشتريات جديدة" }))[0]!);
     fireEvent.click(screen.getByText("إنشاء فاتورة جديدة"));
     fireEvent.click(screen.getByRole("button", { name: "متابعة" }));
-    pickFromCombobox(document.body, "المورد *", "شركة النيل للتوريدات");
-    pickFromCombobox(document.body, "الصنف", "أسمنت بورتلاندي");
+    await pickFromCombobox(document.body, "المورد *", "شركة النيل للتوريدات");
+    await pickFromCombobox(document.body, "الصنف", "أسمنت بورتلاندي");
     fireEvent.click(screen.getByRole("button", { name: "حفظ مسودة" }));
     expect(await screen.findByText("لا يمكن إنشاء فاتورة بدون بنود")).toBeInTheDocument();
   });
@@ -577,8 +599,8 @@ describe("PurchaseInvoicesScreen — the line's tax is a picked tax rate (D79)",
     fireEvent.click((await screen.findAllByRole("button", { name: "فاتورة مشتريات جديدة" }))[0]!);
     fireEvent.click(screen.getByText("إنشاء فاتورة جديدة"));
     fireEvent.click(screen.getByRole("button", { name: "متابعة" }));
-    pickFromCombobox(document.body, "المورد *", "شركة النيل للتوريدات");
-    pickFromCombobox(document.body, "الصنف", "أسمنت بورتلاندي");
+    await pickFromCombobox(document.body, "المورد *", "شركة النيل للتوريدات");
+    await pickFromCombobox(document.body, "الصنف", "أسمنت بورتلاندي");
     return async () => {
       fireEvent.click(screen.getByRole("button", { name: "حفظ مسودة" }));
       await waitFor(() => expect(rendered.getCreateBody()).not.toBeNull());

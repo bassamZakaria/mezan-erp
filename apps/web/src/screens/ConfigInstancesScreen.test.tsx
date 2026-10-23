@@ -9,7 +9,7 @@ import type { ConfigInstanceRecord, ConfigInstancePreviewResult, ConfigurablePro
 
 /** Type into an EntityPicker combobox and pick the matching option — selection
  * fires on `onMouseDown` (not `click`), so the input's blur never wins the race. */
-function pickFromCombobox(dialog: HTMLElement, label: string, optionLabel: string) {
+async function pickFromCombobox(dialog: HTMLElement, label: string, optionLabel: string) {
   const input = within(dialog).getByLabelText(label);
   fireEvent.focus(input);
   fireEvent.change(input, { target: { value: optionLabel } });
@@ -233,13 +233,13 @@ describe("ConfigInstancesScreen", () => {
     fireEvent.click(screen.getByRole("button", { name: "أمر تصنيع مخصص جديد" }));
 
     const dialog = screen.getByRole("dialog", { name: "أمر تصنيع مخصص جديد" });
-    pickFromCombobox(dialog, "المنتج *", "نافذة قابلة للتهيئة");
+    await pickFromCombobox(dialog, "المنتج *", "نافذة قابلة للتهيئة");
     fireEvent.change(inputNextToLabel(dialog, "العرض"), { target: { value: "150" } });
 
     expect(await within(dialog).findByText("زجاج (م²)")).toBeInTheDocument();
 
-    pickFromCombobox(dialog, "مستودع الخامات *", "مستودع الخامات");
-    pickFromCombobox(dialog, "مستودع المنتجات *", "مستودع المنتجات التامة");
+    await pickFromCombobox(dialog, "مستودع الخامات *", "مستودع الخامات");
+    await pickFromCombobox(dialog, "مستودع المنتجات *", "مستودع المنتجات التامة");
     fireEvent.click(within(dialog).getByRole("button", { name: "حفظ" }));
 
     expect(await screen.findByText("CM-000002")).toBeInTheDocument();
@@ -384,14 +384,14 @@ describe("ConfigInstancesScreen — cancel, list controls and preview states", (
     // warehouse) has settled before opening the panel.
     fireEvent.click(await screen.findByRole("button", { name: "أمر تصنيع مخصص جديد" }));
     const dialog = screen.getByRole("dialog", { name: "أمر تصنيع مخصص جديد" });
-    pickFromCombobox(dialog, "المنتج *", "نافذة قابلة للتهيئة");
+    await pickFromCombobox(dialog, "المنتج *", "نافذة قابلة للتهيئة");
     fireEvent.change(inputNextToLabel(dialog, "العرض"), { target: { value: "150" } });
     await within(dialog).findByText("زجاج (م²)");
-    pickFromCombobox(dialog, "مستودع الخامات *", "مستودع الخامات");
+    await pickFromCombobox(dialog, "مستودع الخامات *", "مستودع الخامات");
     // The WIP warehouse defaults from the PRODUCTION-type warehouse only once
     // that query has resolved — pick it explicitly so this test never races it.
-    pickFromCombobox(dialog, "مستودع التشغيل *", "مستودع التشغيل");
-    pickFromCombobox(dialog, "مستودع المنتجات *", "مستودع المنتجات التامة");
+    await pickFromCombobox(dialog, "مستودع التشغيل *", "مستودع التشغيل");
+    await pickFromCombobox(dialog, "مستودع المنتجات *", "مستودع المنتجات التامة");
     await waitFor(() => expect(within(dialog).getByRole("button", { name: "حفظ" })).toBeEnabled());
     fireEvent.click(within(dialog).getByRole("button", { name: "حفظ" }));
 
@@ -433,7 +433,7 @@ describe("ConfigInstancesScreen — cancel, list controls and preview states", (
     renderWithProviders(<ConfigInstancesScreen />, { transport, initialSession: testAdminSession });
     fireEvent.click(await screen.findByRole("button", { name: "أمر تصنيع مخصص جديد" }));
     const dialog = screen.getByRole("dialog", { name: "أمر تصنيع مخصص جديد" });
-    pickFromCombobox(dialog, "المنتج *", "نافذة قابلة للتهيئة");
+    await pickFromCombobox(dialog, "المنتج *", "نافذة قابلة للتهيئة");
     fireEvent.change(inputNextToLabel(dialog, "العرض"), { target: { value: "150" } });
 
     expect(await within(dialog).findByText("تعذّر حساب المعاينة")).toBeInTheDocument();

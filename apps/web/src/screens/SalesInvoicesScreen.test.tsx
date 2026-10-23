@@ -74,6 +74,11 @@ function selectOption(label: string, optionLabel: string) {
   fireEvent.mouseDown(screen.getByRole("option", { name: optionLabel }));
 }
 
+async function selectLoadedOption(label: string, optionLabel: string) {
+  fireEvent.click(screen.getByRole("combobox", { name: label }));
+  fireEvent.mouseDown(await screen.findByRole("option", { name: optionLabel }));
+}
+
 const customers: CustomerDTO[] = [
   {
     id: "cust-amal", code: "C1", nameAr: "شركة الأمل للتجارة", nameEn: null, phone: null, email: null, contactPerson: null, taxNumber: null,
@@ -227,6 +232,34 @@ describe("SalesInvoicesScreen — list", () => {
     expect(await screen.findByText("INV-000001")).toBeInTheDocument();
     expect(screen.getByText("INV-000002")).toBeInTheDocument();
     expect(screen.getByText("INV-000003")).toBeInTheDocument();
+  });
+
+  it("reads المقبوضات غير المخصصة from the vouchers stats route and never walks the vouchers or the item catalogue", async () => {
+    const paths: string[] = [];
+    const handlers = baseHandlers(seededInvoices);
+    const transport = stubTransport({
+      ...handlers,
+      "GET /vouchers/stats": (_init, path) => {
+        paths.push(path);
+        return { body: { count: 2, confirmed: 2, needsAllocation: 1, draft: 0, receipts: "900.000000", payments: "0", net: "900.000000", unallocated: "1234.500000" } };
+      },
+      "GET /vouchers": (_init, path) => {
+        paths.push(path);
+        return { body: [] };
+      },
+      "GET /items": (_init, path) => {
+        paths.push(path);
+        return { body: items };
+      },
+    });
+    renderWithProviders(<TestNavigation><SalesInvoicesScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
+    await screen.findByText("INV-000001");
+    await waitFor(() => expect(screen.getAllByText((_, el) => el?.tagName !== "BODY" && /1,234\.50/.test(el?.textContent ?? "")).length).toBeGreaterThan(0));
+    const stats = new URLSearchParams(paths.find((p) => p.startsWith("/vouchers/stats"))!.split("?")[1]);
+    expect(stats.get("type")).toBe("customer_collection");
+    expect(stats.get("status")).toBe("confirmed");
+    expect(paths.filter((p) => p.split("?")[0] === "/vouchers")).toEqual([]);
+    expect(paths.filter((p) => p.startsWith("/items") && !new URLSearchParams(p.split("?")[1] ?? "").get("page"))).toEqual([]);
   });
 
   it("shows an empty state when there are no invoices yet", async () => {
@@ -420,7 +453,16 @@ describe("SalesInvoicesScreen — an item waiting to be priced", () => {
   const pending: ItemDTO = { ...items[1]!, id: "item-pending", code: "ITM-9", nameAr: "شاي أخضر بانتظار التسعير", salePrice: null, status: "pending_pricing" };
 
   it("is not offered on an invoice line", async () => {
-    const transport = stubTransport({ ...baseHandlers(seededInvoices), "GET /items": () => ({ body: [...items, pending] }) });
+    const searches: URLSearchParams[] = [];
+    const transport = stubTransport({
+      ...baseHandlers(seededInvoices),
+      "GET /items": (_init, path) => {
+        const params = new URLSearchParams(path.split("?")[1] ?? "");
+        searches.push(params);
+        const status = params.get("status");
+        return { body: [...items, pending].filter((i) => !status || i.status === status) };
+      },
+    });
     renderWithProviders(<TestNavigation><SalesInvoicesScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
     await screen.findByText("INV-000001");
     openNewInvoicePage();
@@ -431,6 +473,10 @@ describe("SalesInvoicesScreen — an item waiting to be priced", () => {
     fireEvent.change(input, { target: { value: "شاي" } });
     await waitFor(() => expect(screen.queryByRole("button", { name: /خدمة تركيب/ })).not.toBeInTheDocument());
     expect(screen.queryByRole("button", { name: /شاي أخضر بانتظار التسعير/ })).not.toBeInTheDocument();
+    const typed = searches.find((p) => p.get("search") === "شاي");
+    expect(typed?.get("status")).toBe("active");
+    expect(typed?.get("types")).toBe("stock,service,finished_good");
+    expect(typed?.get("pageSize")).toBe("20");
   });
 
   it("shows the server's Arabic refusal when a line names one anyway", async () => {
@@ -499,7 +545,7 @@ describe("SalesInvoicesScreen — payments", () => {
     fireEvent.click(screen.getByRole("tab", { name: "المدفوعات" }));
 
     typeMoney(screen.getByLabelText("قيمة الدفعة"), "50");
-    selectOption("الخزينة المستلمة", "خزينة الفرع الرئيسي (TR-01)");
+    await selectLoadedOption("الخزينة المستلمة", "خزينة الفرع الرئيسي (TR-01)");
     fireEvent.click(screen.getByRole("button", { name: "تحصيل دفعة" }));
 
     await waitFor(() => expect(screen.getAllByText("مدفوع جزئياً").length).toBeGreaterThan(0));
@@ -530,7 +576,7 @@ describe("SalesInvoicesScreen — payments", () => {
     const remainingText = remainingCell?.textContent?.replace(/[^\d.]/g, "") ?? "0";
 
     typeMoney(screen.getByLabelText("قيمة الدفعة"), remainingText);
-    selectOption("الخزينة المستلمة", "خزينة الفرع الرئيسي (TR-01)");
+    await selectLoadedOption("الخزينة المستلمة", "خزينة الفرع الرئيسي (TR-01)");
     fireEvent.click(screen.getByRole("button", { name: "تحصيل دفعة" }));
 
     await waitFor(() => expect(screen.getAllByText("مدفوع").length).toBeGreaterThan(0));
@@ -618,7 +664,7 @@ describe("SalesInvoicesScreen — payments", () => {
 
     const amountInput = screen.getByLabelText("قيمة الدفعة");
     typeMoney(amountInput, "500");
-    selectOption("الخزينة المستلمة", "خزينة الفرع الرئيسي (TR-01)");
+    await selectLoadedOption("الخزينة المستلمة", "خزينة الفرع الرئيسي (TR-01)");
     fireEvent.click(screen.getByRole("button", { name: "تحصيل دفعة" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("المبلغ يتجاوز المتبقي على الفاتورة.");
@@ -888,6 +934,7 @@ describe("SalesInvoicesScreen — convert an accepted quote", () => {
     await screen.findByRole("combobox", { name: "اختر عرض السعر المقبول" });
     selectOption("اختر عرض السعر المقبول", "SQ-000001 — شركة الأمل للتجارة");
     selectOption("المستودع", "مستودع الفرع الرئيسي");
+    await waitFor(() => expect(screen.getByRole("button", { name: "تحويل إلى فاتورة" })).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: "تحويل إلى فاتورة" }));
 
     await waitFor(() => expect(convertBody).toBeDefined());

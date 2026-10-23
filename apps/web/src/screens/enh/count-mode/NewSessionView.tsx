@@ -1,12 +1,13 @@
 import { useMemo, useState } from "react";
 import { Plus, Trash2, X } from "lucide-react";
 import { Button, Card } from "@mezan/ui";
-import { CountZoneKindDTO, type CountZoneSpecDTO, type StartCountModeDTO } from "@mezan/contracts";
+import { CountZoneKindDTO, type CountZoneSpecDTO, type ItemDTO, type StartCountModeDTO } from "@mezan/contracts";
 import { useAppTranslation } from "../../../i18n";
 import { useNavigation } from "../../../navigation";
-import { ApiError, useItemCategories, useItems, useWarehouses } from "../../../data/hooks";
+import { ApiError, useItemCategories, useItemSearch, useWarehouses } from "../../../data/hooks";
 import { SelectField, TextField, ToggleField, MultiChipField } from "../../../settings/form-controls";
 import { todayIso } from "../../../lib/dates";
+import { useDebounced } from "../../../lib/use-debounced";
 import { useCountModeCounters, useStartCountMode } from "./hooks";
 
 interface ZoneDraft {
@@ -26,17 +27,14 @@ function blankZone(): ZoneDraft {
 
 function ItemSearch({ selected, onChange }: { selected: readonly string[]; onChange: (ids: readonly string[]) => void }) {
   const { t, locale } = useAppTranslation();
-  const itemsQuery = useItems();
   const [query, setQuery] = useState("");
-  const items = useMemo(() => itemsQuery.data ?? [], [itemsQuery.data]);
-  const byId = useMemo(() => new Map(items.map((item) => [item.id, item])), [items]);
+  const [byId, setById] = useState<ReadonlyMap<string, ItemDTO>>(new Map());
+  const search = useItemSearch(query);
+  const settled = useDebounced(query.trim());
   const matches = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    if (needle === "") return [];
-    return items
-      .filter((item) => !selected.includes(item.id) && [item.code, item.nameAr, item.nameEn ?? "", ...item.barcodes].some((field) => field.toLowerCase().includes(needle)))
-      .slice(0, SEARCH_RESULT_LIMIT);
-  }, [items, query, selected]);
+    if (query.trim() === "" || settled === "") return [];
+    return (search.data ?? []).filter((item) => !selected.includes(item.id)).slice(0, SEARCH_RESULT_LIMIT);
+  }, [search.data, query, settled, selected]);
   const nameOf = (id: string) => {
     const item = byId.get(id);
     if (!item) return id;
@@ -53,6 +51,7 @@ function ItemSearch({ selected, onChange }: { selected: readonly string[]; onCha
                 type="button"
                 className="flex min-h-[44px] w-full items-center justify-between gap-[8px] px-[12px] text-start text-[13px] hover:bg-surface-2"
                 onClick={() => {
+                  setById((known) => new Map(known).set(item.id, item));
                   onChange([...selected, item.id]);
                   setQuery("");
                 }}

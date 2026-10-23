@@ -1585,6 +1585,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
         options.accountRouting?.repo,
         options.settingsStore,
         { documents: options.stockAdjustments?.service, audit: options.stockAdjustments?.audit },
+        options.items?.repo,
       ),
     );
   }

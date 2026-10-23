@@ -3,54 +3,12 @@ import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
 import { screen, waitFor} from "@testing-library/react";
 import type { InventoryStockLevelsRow } from "@mezan/domain";
-import type { ItemDTO } from "@mezan/contracts";
 import { InventoryHubScreen } from "./InventoryHubScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../../data/test-support";
 
-function makeItem(overrides: Partial<ItemDTO>): ItemDTO {
-  return {
-    id: "ITEM-1",
-    code: "I-0001",
-    nameAr: "صنف",
-    nameEn: null,
-    type: "stock",
-    baseUnitCode: "PCE",
-    alternateUnits: [],
-    barcodes: [],
-    categoryId: null,
-    brandId: null,
-    seasonId: null,
-    description: null,
-    defaultSupplierId: null,
-    specifications: [],
-    costingMethod: "WAC",
-    salePrice: null,
-    costPrice: null,
-    taxRatePercent: 0,
-    trackInventory: true,
-    trackBatches: false,
-    trackExpiry: false,
-    reorderPoint: null,
-    imageAttachmentId: null,
-    reorderQty: null,
-    revenueAccountId: null,
-    cogsAccountId: null,
-    inventoryAccountId: null,
-    etaCodeType: null,
-    etaItemCode: null,
-    gpcCode: null,
-    status: "active",
-    ...overrides,
-  };
-}
-
-// Three items (two active, one inactive) and a single row needing attention —
-// counts (3, 2, 1) are deliberately distinct so each stat tile is unambiguous.
-const sampleItems: ItemDTO[] = [
-  makeItem({ id: "ITEM-1", code: "I-0001", status: "active" }),
-  makeItem({ id: "ITEM-2", code: "I-0002", status: "active" }),
-  makeItem({ id: "ITEM-3", code: "I-0003", status: "inactive" }),
-];
+// Three items (two active) and a single row needing attention — counts
+// (3, 2, 1) are deliberately distinct so each stat tile is unambiguous.
+const itemCounts = { all: 3, active: 2, inactive: 1 };
 
 const lowRow: InventoryStockLevelsRow = {
   itemId: "ITEM-3",
@@ -89,7 +47,7 @@ function stockLevelsBody(rows: InventoryStockLevelsRow[]) {
 
 function baseTransport(overrides: Record<string, () => { status?: number; body: unknown }> = {}) {
   return stubTransport({
-    "GET /items": () => ({ body: sampleItems }),
+    "GET /items/counts": () => ({ body: itemCounts }),
     "GET /reports/inventory/stock-levels": () => ({ body: stockLevelsBody(sampleRows) }),
     ...overrides,
   });
@@ -101,7 +59,7 @@ function renderScreen(overrides?: Record<string, () => { status?: number; body: 
 }
 
 describe("InventoryHubScreen", () => {
-  it("renders stat tiles from the real items list and stock-levels report", async () => {
+  it("renders stat tiles from the item counts and the stock-levels report", async () => {
     renderScreen();
     expect(screen.getByRole("heading", { name: "المخزون" })).toBeInTheDocument();
     expect(await screen.findByText("3")).toBeInTheDocument(); // total items
@@ -121,6 +79,15 @@ describe("InventoryHubScreen", () => {
     expect(await screen.findByText("منخفض")).toBeInTheDocument();
   });
 
+  it("never downloads the item catalogue", async () => {
+    const asked: string[] = [];
+    const inner = baseTransport();
+    renderWithProviders(<InventoryHubScreen />, { transport: (path, init) => (asked.push(path.split("?")[0]!), inner(path, init)), initialSession: testAdminSession });
+    expect(await screen.findByText("12,345.60")).toBeInTheDocument();
+    expect(asked).toContain("/items/counts");
+    expect(asked).not.toContain("/items");
+  });
+
   it("shows the configured empty state when nothing needs attention", async () => {
     renderScreen({
       "GET /reports/inventory/stock-levels": () => ({
@@ -131,7 +98,7 @@ describe("InventoryHubScreen", () => {
   });
 
   it("shows the Arabic error message when a query fails", async () => {
-    renderScreen({ "GET /items": () => ({ status: 500, body: { error: "INTERNAL" } }) });
+    renderScreen({ "GET /items/counts": () => ({ status: 500, body: { error: "INTERNAL" } }) });
     expect(await screen.findByRole("alert")).toHaveTextContent("تعذّر تحميل بيانات المخزون.");
     await waitFor(() => expect(screen.queryByText("INTERNAL")).not.toBeInTheDocument());
   });

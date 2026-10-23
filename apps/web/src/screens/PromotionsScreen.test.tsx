@@ -14,11 +14,11 @@ function chooseSelectOption(triggerLabel: string, optionLabel: string) {
 }
 
 /** EntityPicker selection fires on mousedown (not click) — the input's blur never wins the race. */
-function pickFromCombobox(container: HTMLElement, placeholder: string, optionLabel: string) {
+async function pickFromCombobox(container: HTMLElement, placeholder: string, optionLabel: string) {
   const input = within(container).getByPlaceholderText(placeholder);
   fireEvent.focus(input);
   fireEvent.change(input, { target: { value: optionLabel } });
-  const option = within(container).getByRole("button", { name: (name) => name.startsWith(optionLabel) });
+  const option = await within(container).findByRole("button", { name: (name) => name.startsWith(optionLabel) });
   fireEvent.mouseDown(option);
 }
 
@@ -159,7 +159,7 @@ describe("PromotionsScreen", () => {
     await user.type(fieldInput(dialog, "الاسم *"), "خصم الأرز");
 
     chooseSelectOption("النطاق", "أصناف محددة");
-    pickFromCombobox(dialog, "أضف صنفاً إلى النطاق", "أرز أبيض مصري 5 كجم");
+    await pickFromCombobox(dialog, "أضف صنفاً إلى النطاق", "أرز أبيض مصري 5 كجم");
 
     fireEvent.click(within(dialog).getByRole("button", { name: "إضافة" }));
 

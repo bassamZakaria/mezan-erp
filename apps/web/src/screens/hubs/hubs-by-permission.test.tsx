@@ -29,7 +29,7 @@ function open(hub: ReactNode, permissions: string[], served: Record<string, unkn
 
 describe("a hub opened by a seat that may read only part of what it shows", () => {
   it("purchases: without the right to read goods receipts, the hub shows the other tiles, no receipts tile, no error, and never asks for receipts", async () => {
-    const asked = open(<PurchasesHubScreen />, ["purchases.order.view", "purchases.invoice.view", "purchases.supplier.view"], { "/purchases/orders": [], "/purchases/invoices": [], "/suppliers": [] }, ["/purchases/receipts"]);
+    const asked = open(<PurchasesHubScreen />, ["purchases.order.view", "purchases.invoice.view", "purchases.supplier.view"], { "/purchases/orders": [], "/purchases/invoices": [], "/purchases/invoices/counts": { all: 0 }, "/suppliers": [] }, ["/purchases/receipts"]);
 
     await waitFor(() => expect(asked).toEqual(expect.arrayContaining(["/purchases/orders", "/purchases/invoices", "/suppliers"])));
     await waitFor(() => expect(screen.getByText("أوامر شراء مفتوحة")).toBeInTheDocument());
@@ -52,9 +52,8 @@ describe("a hub opened by a seat that may read only part of what it shows", () =
   });
 
   it("items: without the rights behind templates, configurable products and recipes, the hub asks for none of the three", async () => {
-    const asked = open(<ItemsHubScreen />, ["inventory.item.view"], { "/items": [], "/items/counts": {}, "/item-specifications": [] }, ["/inventory/product-templates", "/manufacturing/configurable-products", "/manufacturing/boms"]);
+    const asked = open(<ItemsHubScreen />, ["inventory.item.view"], { "/items/counts": {}, "/item-specifications": [] }, ["/inventory/product-templates", "/manufacturing/configurable-products", "/manufacturing/boms"]);
 
-    await waitFor(() => expect(asked).toContain("/items"));
     await waitFor(() => expect(asked).toContain("/items/counts"));
 
     expect(asked.filter((path) => path.startsWith("/inventory/product-templates") || path.startsWith("/manufacturing/"))).toEqual([]);

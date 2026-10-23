@@ -18,12 +18,14 @@ import { NumberField, SectionCard, SelectField, TextAreaField, TextField } from 
 import {
   useBranches,
   useCreateSalesQuote,
+  useItemSearch,
   useCustomers,
-  useItems,
   usePriceLists,
   useStockBalance,
   useTaxRates,
+  type ItemSearchFilter,
 } from "../../data/hooks";
+import { ItemPicker, itemOption } from "../ItemPicker";
 import { DERIVED_TAX, TaxRateField, appliedTaxPercent, lineTaxPayload } from "../tax-rate-field";
 import { useCustomerAging } from "../../data/partner-detail-hooks";
 import { useWorkingLocation } from "../../data/hub-hooks";
@@ -42,6 +44,8 @@ import { EMPTY } from "../../lib/empty";
 import { useLinkedOpportunity } from "../enh/crm-pipeline/hooks";
 
 const NO_TAX_RATES: readonly TaxRateDTO[] = [];
+const NO_PICKED_ITEMS: ReadonlyMap<string, ItemDTO> = new Map();
+const ACTIVE_ITEMS: ItemSearchFilter = { status: "active" };
 
 /**
  * عرض سعر جديد — the create form, one card per section with a sticky summary
@@ -66,8 +70,8 @@ export function QuoteFormView({
   const format = useFormat();
   const customersQuery = useCustomers();
   const customers = customersQuery.data ?? EMPTY;
-  const itemsQuery = useItems();
-  const items = itemsQuery.data ?? EMPTY;
+  const [pickedItems, setPickedItems] = useState<ReadonlyMap<string, ItemDTO>>(NO_PICKED_ITEMS);
+  const catalogue = useItemSearch("", ACTIVE_ITEMS);
   const branchesQuery = useBranches();
   const branches = branchesQuery.data ?? [];
   const priceListsQuery = usePriceLists();
@@ -125,16 +129,10 @@ export function QuoteFormView({
     () => customers.filter((c) => c.active).map((c) => ({ id: c.id, label: c.nameAr, sublabel: c.code })),
     [customers],
   );
-  const itemOptions = useMemo<EntityPickerOption[]>(
-    () =>
-      items
-        .filter((i) => i.status === "active")
-        .map((i) => ({ id: i.id, label: i.nameAr, sublabel: `${i.code} · ${format.money(priceFor(i))} ${format.currencyLabel}` })),
-    [items, priceFor, format],
-  );
+  const itemSublabel = (i: ItemDTO) => `${i.code} · ${format.money(priceFor(i))} ${format.currencyLabel}`;
 
   const taxRates = useTaxRates().data ?? NO_TAX_RATES;
-  const domainLines = useMemo(() => toDomainLines(lines, items, taxRates), [lines, items, taxRates]);
+  const domainLines = useMemo(() => toDomainLines(lines, [...pickedItems.values()], taxRates), [lines, pickedItems, taxRates]);
   const discount = useMemo(() => toDomainDiscount(discountKind, discountValue), [discountKind, discountValue]);
   // Local preview only — the server recomputes and is authoritative on create.
   const totals = useMemo(
@@ -296,30 +294,31 @@ export function QuoteFormView({
 
           <SectionCard title={t("quotes.linesHeading")}>
             <div className="sm:col-span-2 flex flex-col gap-2">
-              {items.length === 0 && !itemsQuery.isLoading ? (
+              {catalogue.data?.length === 0 ? (
                 <div className="rounded-[8px] border border-border px-3 py-2 text-[12.5px] text-ink-muted">{t("quotes.noItems")}</div>
               ) : null}
               {lines.map((line, index) => {
-                const item = items.find((i) => i.id === line.itemId) ?? null;
+                const item = pickedItems.get(line.itemId) ?? null;
                 const lineTotals = totalsByLineId.get(line.key);
                 const onHand = item ? onHandOf(item.id) : null;
                 return (
                   <div key={line.key} className="flex flex-col gap-2 rounded-[10px] border border-border p-3">
                     <div className="grid grid-cols-[minmax(200px,1fr)_84px_104px_112px_auto_auto] items-start gap-2">
                       <div className="min-w-0">
-                        <EntityPicker
+                        <ItemPicker
                           id={`quote-line-item-${line.key}`}
                           label={t("quotes.field.lineItem", { number: index + 1 })}
-                          value={item ? { id: item.id, label: item.nameAr, sublabel: item.code } : null}
-                          onChange={(opt) => {
-                            const picked = opt ? items.find((i) => i.id === opt.id) : null;
+                          value={item ? itemOption(item) : null}
+                          filter={ACTIVE_ITEMS}
+                          sublabel={itemSublabel}
+                          onChange={(picked) => {
+                            if (picked) setPickedItems((prev) => new Map(prev).set(picked.id, picked));
                             updateLine(line.key, {
                               itemId: picked?.id ?? "",
                               unitPrice: picked ? priceFor(picked) : null,
                               tax: DERIVED_TAX,
                             });
                           }}
-                          options={itemOptions}
                           placeholder={t("quotes.field.itemPlaceholder")}
                         />
                       </div>

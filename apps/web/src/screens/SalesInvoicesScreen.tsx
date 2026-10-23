@@ -32,11 +32,11 @@ import {
   useFormat,
   ConfirmDialog,
 } from "@mezan/ui";
-import { Money, Qty, computeInvoiceTotals, resolveUnitFactor, toBaseQty, SALES_INVOICE_STATUS_LABELS_AR, ETA_RECEIPT_PAYMENT_METHODS, type EtaReceiptPaymentMethod, type SalesInvoiceLine, type SalesInvoiceDiscount, type SalesInvoiceDiscountType, type SalesInvoiceLineDiscountType, itemTypeIsSellable, findCurrency, convertToBase, extend, SALES_INVOICE_ACTIVE_STATUSES, ArabicCase, CountedNoun } from "@mezan/domain";
+import { Money, Qty, computeInvoiceTotals, resolveUnitFactor, toBaseQty, SALES_INVOICE_STATUS_LABELS_AR, ETA_RECEIPT_PAYMENT_METHODS, type EtaReceiptPaymentMethod, type SalesInvoiceLine, type SalesInvoiceDiscount, type SalesInvoiceDiscountType, type SalesInvoiceLineDiscountType, ITEM_TYPES, itemTypeIsSellable, findCurrency, convertToBase, extend, SALES_INVOICE_ACTIVE_STATUSES, ArabicCase, CountedNoun, ScreenRequest } from "@mezan/domain";
 import { IdempotencyRefusal, PricingGuardDiscountTypeDTO, PricingGuardDocTypeDTO, type PricingGuardEvaluateRequestDTO } from "@mezan/contracts";
 import { usePricingGuardPreview } from "./enh/pricing-guard/pricing-guard-hooks";
 import { PricingGuardLineStatus, PricingGuardSummary } from "./enh/pricing-guard/PricingGuardLineStatus";
-import type { ProjectDTO, SalesInvoiceListQueryDTO, SalesInvoiceStatusDTO, TaxRateDTO } from "@mezan/contracts";
+import type { ItemDTO, ProjectDTO, SalesInvoiceListQueryDTO, SalesInvoiceStatusDTO, TaxRateDTO } from "@mezan/contracts";
 import { SalesInvoicePrintPage } from "../print/SalesInvoicePrintPage";
 import {
   useAccounts,
@@ -46,7 +46,7 @@ import {
   useCreateSalesInvoice,
   useCustomers,
   useEmployees,
-  useItems,
+  useItemsByIds,
   useProjects,
   useTenantSettings,
   useTaxRates,
@@ -62,7 +62,8 @@ import {
   useSalesInvoices,
   useSalesInvoiceCounts,
   useSalesInvoiceStats,
-  useVouchers,
+  useVoucherStats,
+  useMayAskScreen,
   useSalesReturns,
   useWarehouses,
   type SalesInvoiceDTO,
@@ -70,7 +71,9 @@ import {
   useAllowedCurrencies,
   ApiError,
   ClassifiableDocument,
+  type ItemSearchFilter,
 } from "../data/hooks";
+import { ItemPicker, itemOption } from "./ItemPicker";
 import { useWorkingLocation } from "../data/hub-hooks";
 import { useAuditLog } from "../data/platform-hooks";
 import { useEntityName } from "../lib/entity-names";
@@ -186,6 +189,9 @@ interface InvoiceLineDraft {
 }
 
 const NO_TAX_RATES: readonly TaxRateDTO[] = [];
+const NO_PICKED_ITEMS: ReadonlyMap<string, ItemDTO> = new Map();
+// A raw material, a consumable or a recipe is not something you sell.
+const SELLABLE_ITEMS: ItemSearchFilter = { status: "active", types: ITEM_TYPES.filter(itemTypeIsSellable) };
 
 let lineSeq = 0;
 function blankLine(): InvoiceLineDraft {
@@ -374,7 +380,6 @@ function CreateInvoicePage({
   const customersQuery = useCustomers();
   const employeesQuery = useEmployees();
   const projectsQuery = useProjects();
-  const itemsQuery = useItems();
   const warehousesQuery = useWarehouses();
   const branchesQuery = useBranches();
   const priceListsQuery = usePriceLists();
@@ -393,7 +398,7 @@ function CreateInvoicePage({
   const customers = customersQuery.data ?? EMPTY;
   const employees = employeesQuery.data ?? EMPTY;
   const projects = projectsQuery.data ?? EMPTY;
-  const items = itemsQuery.data ?? EMPTY;
+  const [pickedItems, setPickedItems] = useState<ReadonlyMap<string, ItemDTO>>(NO_PICKED_ITEMS);
   const warehouses = warehousesQuery.data ?? EMPTY;
   const branches = branchesQuery.data ?? EMPTY;
   const priceLists = priceListsQuery.data ?? EMPTY;
@@ -477,6 +482,7 @@ function CreateInvoicePage({
     setDiscountType("amount");
     setDiscountValue(0);
     setLines([blankLine()]);
+    setPickedItems(NO_PICKED_ITEMS);
     setMethodChosen(false);
     setReceiptPaymentMethod("");
     setError(null);
@@ -501,6 +507,8 @@ function CreateInvoicePage({
   }, [customerRecord, date, dueDateTouched]);
 
   const acceptedQuotes = (quotesQuery.data ?? []).filter((q) => q.status === "accepted");
+  const quoteItemsQuery = useItemsByIds(acceptedQuotes.find((q) => q.id === sourceQuoteId)?.lines.map((l) => l.itemId) ?? []);
+  const quoteItems = quoteItemsQuery.byId;
 
   async function convertSelectedQuote() {
     const quote = acceptedQuotes.find((q) => q.id === sourceQuoteId);
@@ -516,7 +524,7 @@ function CreateInvoicePage({
           arAccountId: AR_ACCOUNT_ID,
           taxAccountId: TAX_ACCOUNT_ID,
           lines: quote.lines.map((l) => {
-            const item = items.find((i) => i.id === l.itemId);
+            const item = quoteItems.get(l.itemId);
             const isStock = item?.type === "stock";
             return {
               lineId: l.lineId,
@@ -573,17 +581,10 @@ function CreateInvoicePage({
         .map((p) => ({ id: p.id, label: `${p.code} — ${nameOf(p)}` })),
     [projects, nameOf],
   );
-  const itemOptions = useMemo<EntityPickerOption[]>(
-    // The sublabel quotes the price THIS customer gets, not the base one: on a
-    // wholesale customer the picker advertised 180.00 and the line then opened
-    // at 168.00, so the two disagreed in front of the user.
-    () =>
-      items
-        // A raw material, a consumable or a recipe is not something you sell.
-        .filter((i) => i.status === "active" && itemTypeIsSellable(i.type))
-        .map((i) => ({ id: i.id, label: i.nameAr, sublabel: `${i.code} · ${format.money(priceFor(i))} ${format.currencyLabel}` })),
-    [items, priceFor, format],
-  );
+  // The sublabel quotes the price THIS customer gets, not the base one: on a
+  // wholesale customer the picker advertised 180.00 and the line then opened
+  // at 168.00, so the two disagreed in front of the user.
+  const itemSublabel = (i: ItemDTO) => `${i.code} · ${format.money(priceFor(i))} ${format.currencyLabel}`;
 
   const tenantSettings = useTenantSettings();
   const taxRates = useTaxRates().data ?? NO_TAX_RATES;
@@ -596,7 +597,7 @@ function CreateInvoicePage({
   const domainLines = useMemo<SalesInvoiceLine[]>(() => {
     const out: SalesInvoiceLine[] = [];
     for (const l of lines) {
-      const item = items.find((i) => i.id === l.itemId);
+      const item = pickedItems.get(l.itemId);
       if (!item) continue;
       const isStock = item.type === "stock";
       const unitCode = l.unitCode || item.baseUnitCode;
@@ -625,7 +626,7 @@ function CreateInvoicePage({
       });
     }
     return out;
-  }, [lines, items, taxRates]);
+  }, [lines, pickedItems, taxRates]);
 
   const discount: SalesInvoiceDiscount = useMemo(
     () =>
@@ -690,9 +691,9 @@ function CreateInvoicePage({
   );
   const stockBaseUnitLabel = useMemo(() => {
     const first = domainLines.find((l) => l.isStock);
-    const item = first ? items.find((i) => i.id === first.itemId) : null;
+    const item = first ? pickedItems.get(first.itemId) : null;
     return item ? unitLabel(item.baseUnitCode) : "";
-  }, [domainLines, items, unitLabel]);
+  }, [domainLines, pickedItems, unitLabel]);
 
   function updateLine(index: number, patch: Partial<InvoiceLineDraft>) {
     setLines((prev) => prev.map((l, i) => (i === index ? { ...l, ...patch } : l)));
@@ -844,7 +845,7 @@ function CreateInvoicePage({
                   onChange={setWarehouseId}
                   options={warehouses.map((w) => ({ value: w.id, label: w.name }))}
                 />
-                <Button variant="primary" disabled={sourceQuoteId === "" || warehouseId === "" || busy} onClick={convertSelectedQuote}>
+                <Button variant="primary" disabled={sourceQuoteId === "" || warehouseId === "" || busy || quoteItemsQuery.isLoading} onClick={convertSelectedQuote}>
                   {t("salesInvoices.method.convert")}
                 </Button>
               </>
@@ -945,8 +946,8 @@ function CreateInvoicePage({
             </Button>
           </div>
           {lines.map((line, i) => {
-            const item = items.find((it) => it.id === line.itemId);
-            const selectedOption = item ? { id: item.id, label: item.nameAr, sublabel: item.code } : null;
+            const item = pickedItems.get(line.itemId);
+            const selectedOption = item ? itemOption(item) : null;
             const lineTotals = totalsByLineId.get(line.key);
             const enteredUnit = item ? line.unitCode || item.baseUnitCode : "";
             const lineFactor = factorFor(item, enteredUnit);
@@ -955,23 +956,24 @@ function CreateInvoicePage({
               <div key={line.key} className="flex flex-col gap-[10px] rounded-lg border border-border p-[12px]">
                 <div className="flex items-start gap-[8px]">
                   <div className="flex-1">
-                    <EntityPicker
+                    <ItemPicker
                       id={`invoice-line-item-${line.key}`}
                       label={t("salesInvoices.field.lineItem", { number: i + 1 })}
                       value={selectedOption}
-                      onChange={(opt) => {
-                        const picked = opt ? items.find((it) => it.id === opt.id) : null;
+                      filter={SELLABLE_ITEMS}
+                      sublabel={itemSublabel}
+                      onChange={(picked) => {
+                        if (picked) setPickedItems((prev) => new Map(prev).set(picked.id, picked));
                         // The unit belongs to the item, so it resets with it —
                         // keeping "كرتونة" across a change of item would price
                         // the new one in a unit it does not define.
                         updateLine(i, {
-                          itemId: opt?.id ?? "",
+                          itemId: picked?.id ?? "",
                           unitCode: picked?.baseUnitCode ?? "",
                           unitPrice: picked ? priceFor(picked) : null,
                           tax: DERIVED_TAX,
                         });
                       }}
-                      options={itemOptions}
                       placeholder={t("salesInvoices.field.itemPlaceholder")}
                     />
                   </div>
@@ -1332,7 +1334,7 @@ function InvoiceDetailView({
   const settlementTotal = toMajor(invoice.baseGrandTotal ?? invoice.totals.grandTotal);
   const accountsQuery = useAccounts();
   const warehousesQuery = useWarehouses();
-  const itemsQuery = useItems();
+  const itemsById = useItemsByIds(invoice.lines.map((l) => l.itemId)).byId;
   const projectsQuery = useProjects();
   const nameOf = useEntityName();
   const unitLabel = useUnitLabel();
@@ -1347,7 +1349,6 @@ function InvoiceDetailView({
 
   const accounts = accountsQuery.data ?? [];
   const warehouses = warehousesQuery.data ?? EMPTY;
-  const items = itemsQuery.data ?? EMPTY;
   const branches = branchesQuery.data ?? EMPTY;
   const projects = projectsQuery.data ?? EMPTY;
   const project = invoice.projectId ? (projects.find((p) => p.id === invoice.projectId) ?? null) : null;
@@ -1502,7 +1503,7 @@ function InvoiceDetailView({
   const stockBaseQty = invoice.lines
     .filter((l) => l.isStock)
     .reduce((sum, l) => sum + Number(l.baseQty ?? l.qty), 0);
-  const stockBaseUnitLabel = unitLabel(items.find((i) => i.id === invoice.lines.find((l) => l.isStock)?.itemId)?.baseUnitCode ?? "");
+  const stockBaseUnitLabel = unitLabel(itemsById.get(invoice.lines.find((l) => l.isStock)?.itemId ?? "")?.baseUnitCode ?? "");
 
   return (
     <DocumentDetail
@@ -1670,7 +1671,7 @@ function InvoiceDetailView({
                             {(l.unitFactor ?? 1) !== 1 ? (
                               <span className="block text-[11px] text-ink-faint">
                                 = <QtyDisplay value={l.baseQty ?? l.qty} />{" "}
-                                {unitLabel(items.find((i) => i.id === l.itemId)?.baseUnitCode ?? "")}
+                                {unitLabel(itemsById.get(l.itemId)?.baseUnitCode ?? "")}
                               </span>
                             ) : null}
                           </td>
@@ -2115,11 +2116,8 @@ export function SalesInvoicesScreen() {
    * to any invoice (R3.2). Without it the strip shows what is owed but not the
    * cash already sitting against it, and the two never reconcile on screen.
    */
-  const receipts = useVouchers({ type: "customer_collection", status: "confirmed" }).data ?? EMPTY;
-  const unallocatedReceipts = useMemo(
-    () => sumMajor(receipts.map((row) => row.allocationSummary?.unallocated ?? "0")),
-    [receipts],
-  );
+  const readsVouchers = useMayAskScreen(ScreenRequest.Vouchers);
+  const unallocatedReceipts = String(useVoucherStats({ type: "customer_collection", status: "confirmed" }, { enabled: readsVouchers }).data?.unallocated ?? "0");
 
   const kpi = {
     sales: majorOf(stats?.sales),

@@ -1,5 +1,5 @@
 import { AlreadySavedNotice, useAlreadySavedNotice, useDocumentId } from "../lib/document-id";
-import { ReversalDocumentType } from "@mezan/contracts";
+import { ReversalDocumentType, itemTypeSchema } from "@mezan/contracts";
 import { useReverseDocumentAction } from "../reversal/ReverseDocumentAction";
 import { useEffect, useMemo, useState } from "react";
 import { HeldDocumentReapproval } from "../shell/ReapprovalNotice";
@@ -26,7 +26,7 @@ import {
   type PillTone,
   type RowMenuItem,
 } from "@mezan/ui";
-import type { AccountDTO, CostCategoryDTO, DocumentStatusDTO, ProjectDTO, StockAdjustmentDocumentDTO } from "@mezan/contracts";
+import type { AccountDTO, CostCategoryDTO, DocumentStatusDTO, ItemDTO, ProjectDTO, StockAdjustmentDocumentDTO } from "@mezan/contracts";
 import {
   Money,
   Qty,
@@ -43,7 +43,7 @@ import {
   useAccounts,
   useConfirmStockAdjustment,
   useCreateStockAdjustment,
-  useItems,
+  useItemsByIds,
   useJournalEntry,
   useProjects,
   useStockAdjustment,
@@ -58,6 +58,7 @@ import { useSubPage } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useDocumentEffectText } from "../lib/document-effects";
 import { useEntityName } from "../lib/entity-names";
+import { ItemPicker, itemOption } from "./ItemPicker";
 import { DOC_STATUS_TONE, documentStatusLabel } from "../doc-status";
 import { useDomainLabels } from "../lib/domain-labels";
 import { todayIso } from "../lib/dates";
@@ -123,6 +124,7 @@ function toDomainDoc(doc: StockAdjustmentDocumentDTO) {
 interface LineDraft {
   key: string;
   itemId: string;
+  item?: ItemDTO;
   direction: StockMovementDirection;
   qty: number;
   unitCost: number;
@@ -133,6 +135,8 @@ interface LineDraft {
 const OPEN_PROJECT_STATUSES = new Set<ProjectDTO["status"]>(["planned", "active", "on_hold"]);
 
 const COST_CATEGORY_VALUES: readonly CostCategoryDTO[] = ["materials", "labour", "equipment", "subcontract", "indirect"];
+
+const STOCKED_ITEM_TYPES = itemTypeSchema.options.filter((type) => type !== "service");
 
 let lineSeq = 0;
 function blankLine(direction: StockMovementDirection): LineDraft {
@@ -171,11 +175,9 @@ export function StockAdjustmentsScreen() {
   const counts = useStockAdjustmentCounts(filter).data ?? {};
   const stats = useStockAdjustmentStats(filter).data ?? {};
   const warehousesQuery = useWarehouses();
-  const itemsQuery = useItems();
   const projectsQuery = useProjects();
   const documents = query.data ?? [];
   const warehouses = warehousesQuery.data ?? [];
-  const items = itemsQuery.data ?? [];
   const projects = projectsQuery.data ?? [];
 
   function projectLabel(id: string | null | undefined): string | null {
@@ -186,10 +188,6 @@ export function StockAdjustmentsScreen() {
 
   function warehouseLabel(id: string): string {
     return nameOf(warehouses.find((w) => w.id === id), id);
-  }
-  function itemLabel(id: string): string {
-    const item = items.find((i) => i.id === id);
-    return item ? `${nameOf(item)} (${item.code})` : id;
   }
 
   // `#/inventory/stock-adjustments` · `…/new` (reason picker, then the form) · `…/<docNo>`
@@ -241,6 +239,11 @@ export function StockAdjustmentsScreen() {
   const inList = selectedId ? (documents.find((d) => d.id === selectedId || d.docNo === selectedId) ?? null) : null;
   const fetched = useStockAdjustment(selectedId !== null && inList === null && !query.isPending ? selectedId : null);
   const selected: StockAdjustmentDocumentDTO | null = inList ?? fetched.data ?? null;
+  const { byId: itemById } = useItemsByIds(selected?.lines.map((l) => l.itemId) ?? EMPTY);
+  function itemLabel(id: string): string {
+    const item = itemById.get(id);
+    return item ? `${nameOf(item)} (${item.code})` : id;
+  }
   const selectedMissing = selectedId !== null && selected === null && !query.isPending && !fetched.isPending;
 
   const columns: DocumentListColumn<StockAdjustmentDocumentDTO>[] = [
@@ -345,7 +348,6 @@ export function StockAdjustmentsScreen() {
         reason={selectedReason}
         initialItemId={routedItemId}
         warehouses={warehouses}
-        items={items}
         onDone={() => {
           setSelectedReason(null);
           subPage.close();
@@ -662,7 +664,6 @@ function CreateAdjustmentView({
   initialItemId,
   reason,
   warehouses,
-  items,
   onDone,
   onAlreadySaved,
   onBack,
@@ -672,7 +673,6 @@ function CreateAdjustmentView({
   initialItemId?: string | null;
   reason: AdjustmentReasonDefinition;
   warehouses: ReturnType<typeof useWarehouses>["data"];
-  items: ReturnType<typeof useItems>["data"];
   onDone: () => void;
   onBack: () => void;
 }) {
@@ -696,16 +696,11 @@ function CreateAdjustmentView({
   const [error, setError] = useState<string | null>(null);
 
   const warehouseList = warehouses ?? EMPTY;
-  const itemList = items ?? EMPTY;
 
   function warehouseLabel(id: string): string {
     return nameOf(warehouseList.find((w) => w.id === id), id);
   }
 
-  const itemOptions = useMemo(
-    () => [{ value: "", label: t("stockAdj.chooseAnItem") }, ...itemList.filter((i) => i.type !== "service").map((i) => ({ value: i.id, label: nameOf(i) }))],
-    [itemList, nameOf, t],
-  );
   const warehouseOptions = useMemo(() => warehouseList.map((w) => ({ value: w.id, label: w.name })), [warehouseList]);
   const projectOptions: EntityPickerOption[] = (projectsQuery.data ?? [])
     .filter((p) => OPEN_PROJECT_STATUSES.has(p.status))
@@ -725,15 +720,20 @@ function CreateAdjustmentView({
     setLines((prev) => (prev.length <= 1 ? prev : prev.filter((_, i) => i !== index)));
   }
 
-  const itemById = (id: string) => itemList.find((i) => i.id === id);
+  const { byId: routedItems } = useItemsByIds(lines.filter((l) => !l.item).map((l) => l.itemId));
+  const itemOf = (line: LineDraft) => line.item ?? routedItems.get(line.itemId);
+  const pickerValue = (line: LineDraft) => {
+    const item = itemOf(line);
+    return item ? itemOption(item) : null;
+  };
   const countsLotsFree = reason.code === "PHYSICAL_COUNT";
-  const showLotColumns = !countsLotsFree && lines.some((l) => l.direction === "IN" && tracksLots(itemById(l.itemId)));
+  const showLotColumns = !countsLotsFree && lines.some((l) => l.direction === "IN" && tracksLots(itemOf(l)));
   const allLinesValid = lines.every(
     (l) =>
-      l.itemId !== "" &&
+      itemOf(l) !== undefined &&
       l.qty > 0 &&
       (l.direction === "OUT" || l.unitCost > 0) &&
-      (l.direction === "OUT" || countsLotsFree || lotIsComplete(itemById(l.itemId), l.lot)),
+      (l.direction === "OUT" || countsLotsFree || lotIsComplete(itemOf(l), l.lot)),
   );
   const busy = createAdjustment.isPending || confirmAdjustment.isPending;
   const canPost = allLinesValid && warehouseId !== "" && !busy;
@@ -753,7 +753,7 @@ function CreateAdjustmentView({
           direction: l.direction,
           qty: String(l.qty),
           unitCost: l.direction === "IN" ? String(l.unitCost) : undefined,
-          ...(l.direction === "IN" && tracksLots(itemById(l.itemId)) ? lotPayload(l.lot) : {}),
+          ...(l.direction === "IN" && tracksLots(itemOf(l)) ? lotPayload(l.lot) : {}),
         })),
         projectId: projectId || null,
         costCategory: projectId && costCategory ? costCategory : null,
@@ -839,13 +839,13 @@ function CreateAdjustmentView({
                   {lines.map((line, i) => (
                     <tr key={line.key} className="border-b border-border last:border-b-0">
                       <td className="px-[12px] py-[8px]">
-                        <Select
-                          size="sm"
+                        <ItemPicker
                           className="min-w-[160px]"
-                          aria-label={t("stockAdj.lineItem", { number: i + 1 })}
-                          value={line.itemId}
-                          onChange={(value) => updateLine(i, { itemId: value })}
-                          options={itemOptions}
+                          ariaLabel={t("stockAdj.lineItem", { number: i + 1 })}
+                          placeholder={t("stockAdj.chooseAnItem")}
+                          value={pickerValue(line)}
+                          onChange={(item) => updateLine(i, { itemId: item?.id ?? "", item: item ?? undefined })}
+                          filter={{ types: STOCKED_ITEM_TYPES }}
                         />
                       </td>
                       {reason.direction === "EITHER" ? (
@@ -890,7 +890,7 @@ function CreateAdjustmentView({
                       </td>
                       {showLotColumns ? (
                         <LotCells
-                          item={itemById(line.itemId)}
+                          item={itemOf(line)}
                           value={line.lot}
                           disabled={line.direction === "OUT"}
                           lineNumber={i + 1}

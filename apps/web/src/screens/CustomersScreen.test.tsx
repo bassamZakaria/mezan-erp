@@ -21,6 +21,44 @@ import { BranchCaveatCodeDTO } from "@mezan/contracts";
 import type { VoucherRowDTO, SalesInvoiceDTO } from "../data/hooks";
 import { CustomersScreen } from "./CustomersScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
+import { Money } from "@mezan/domain";
+
+/** The server's `/sales-invoices/counts` and `/stats` over a fixture, filtered as the route filters. */
+function invoiceSummaryHandlers(invoices: () => readonly SalesInvoiceDTO[]) {
+  const scoped = (path: string) => {
+    const params = new URL(path, "http://test").searchParams;
+    const customerId = params.get("customerId");
+    const status = params.get("status");
+    return invoices().filter((inv) => (!customerId || inv.customerId === customerId) && (!status || inv.status === status));
+  };
+  return {
+    "GET /sales-invoices/counts": (_init: RequestInit | undefined, path: string) => {
+      const counts: Record<string, number> = { all: 0 };
+      for (const inv of scoped(path)) {
+        counts.all = (counts.all ?? 0) + 1;
+        counts[inv.status] = (counts[inv.status] ?? 0) + 1;
+      }
+      return { body: counts };
+    },
+    "GET /sales-invoices/stats": (_init: RequestInit | undefined, path: string) => {
+      const live = scoped(path).filter((inv) => !["draft", "cancelled", "reversed"].includes(inv.status));
+      const sum = (values: string[]) => values.reduce((total, v) => total.add(Money.fromMajor(v)), Money.zero()).toString();
+      return {
+        body: {
+          count: live.length,
+          sales: sum(live.map((inv) => inv.baseGrandTotal ?? inv.totals.grandTotal)),
+          collected: sum(live.map((inv) => inv.amountPaid)),
+          returned: "0",
+          remaining: sum(live.map((inv) => inv.remainingBalance)),
+          overdueCount: 0,
+          overdue: "0",
+          dueSoonCount: 0,
+          dueSoon: "0",
+        },
+      };
+    },
+  };
+}
 
 /**
  * `Select` (packages/ui/src/primitives/Select.tsx) is a styled listbox, not a
@@ -381,6 +419,7 @@ function renderScreen(
       const all = opts.invoices ?? [];
       return { body: customerId ? all.filter((inv) => inv.customerId === customerId) : all };
     },
+    ...invoiceSummaryHandlers(() => opts.invoices ?? []),
     "GET /sales-returns": () => (opts.failReturns ? { status: 500, body: { error: "INTERNAL" } } : { body: opts.returns ?? [] }),
     "GET /installments/plans": () =>
       opts.failInstallments ? { status: 500, body: { error: "INTERNAL" } } : { body: opts.installmentPlans ?? [] },
@@ -658,8 +697,15 @@ describe("CustomersScreen", () => {
       amountPaid: "0.000000",
       totals: { ...salesInvoice().totals, grandTotal: "150.50" },
     });
+    const awaitingApproval = salesInvoice({
+      id: "inv-3",
+      docNo: "INV-000012",
+      customerId: "cust-1",
+      status: "pending",
+      totals: { ...salesInvoice().totals, grandTotal: "1000.00" },
+    });
     const other = salesInvoice({ id: "inv-9", docNo: "INV-999999", customerId: "cust-2", status: "confirmed" });
-    renderScreen([customer(), inactiveCustomer], { invoices: [mine1, mine2, other] });
+    renderScreen([customer(), inactiveCustomer], { invoices: [mine1, mine2, awaitingApproval, other] });
     fireEvent.click(await screen.findByText("شركة الأمل للتجارة"));
     fireEvent.click(screen.getByRole("tab", { name: "الفواتير" }));
 
@@ -667,7 +713,9 @@ describe("CustomersScreen", () => {
     expect(screen.getByText("INV-000011")).toBeInTheDocument();
     expect(screen.queryByText("INV-999999")).not.toBeInTheDocument();
 
-    expect(screen.getByText("عدد الفواتير").nextElementSibling?.textContent).toBe("2");
+    expect(screen.getByText("INV-000012")).toBeInTheDocument();
+    expect(screen.getByText("عدد الفواتير").nextElementSibling?.textContent).toBe("3");
+    // An invoice still awaiting approval is listed but is not سارية, so neither its count nor its total joins them.
     expect(screen.getByText("فواتير سارية").nextElementSibling?.textContent).toBe("2");
     expect(screen.getByText("إجمالي الفواتير السارية").nextElementSibling?.textContent).toBe("450.50");
     // "المحصّل" also labels a table column header — the MiniStat is the first occurrence.
@@ -676,6 +724,7 @@ describe("CustomersScreen", () => {
 
   it("recovers the invoices tab via retry after its request fails once", async () => {
     let calls = 0;
+    const scopedPaths: string[] = [];
     const transport = stubTransport({
       "GET /customers": () => ({ body: [customer()] }),
       "GET /customers/counts": () => ({ body: { all: 1, active: 1, inactive: 0 } }),
@@ -684,10 +733,12 @@ describe("CustomersScreen", () => {
       "GET /sales-invoices": (_init, path) => {
         const customerId = new URL(path, "http://test").searchParams.get("customerId");
         if (!customerId) return { body: [] };
+        scopedPaths.push(path);
         calls += 1;
         if (calls === 1) return { status: 500, body: { error: "INTERNAL" } };
         return { body: [salesInvoice({ id: "inv-1", docNo: "INV-000010", customerId: "cust-1", status: "confirmed" })] };
       },
+      ...invoiceSummaryHandlers(() => [salesInvoice({ id: "inv-1", docNo: "INV-000010", customerId: "cust-1", status: "confirmed" })]),
       "GET /sales-returns": () => ({ body: [] }),
       "GET /vouchers": () => ({ body: [] }),
       "GET /cheques": () => ({ body: [] }),
@@ -705,6 +756,12 @@ describe("CustomersScreen", () => {
     // Retry must actually re-fire the request, not just clear the banner —
     // a retry button that only reset local state would leave this blank forever.
     expect(await screen.findByText("INV-000010")).toBeInTheDocument();
+    // One page of the customer's invoices, newest number first — never the whole set.
+    const params = new URL(scopedPaths.at(-1)!, "http://test").searchParams;
+    expect(params.get("page")).toBe("1");
+    expect(params.get("pageSize")).toBe("25");
+    expect(params.get("sort")).toBe("docNo");
+    expect(params.get("sortDir")).toBe("desc");
   });
 
   it("scopes the installments tab to this customer's own plan lines, summing only their amount", async () => {

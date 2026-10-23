@@ -6,7 +6,6 @@ import {
   Chip,
   DocumentList,
   EmptyState,
-  EntityPicker,
   Money as MoneyDisplay,
   MoneyInput,
   QtyInput,
@@ -20,7 +19,8 @@ import {
 } from "@mezan/ui";
 import type { ItemDTO, PromotionDTO, PromotionScopeDTO, PromotionTypeDTO } from "@mezan/contracts";
 import { NumberField, SelectField, TextField, ToggleField } from "../settings/form-controls";
-import { useCreatePromotion, useItems, usePromotionUsageReport, usePromotions, useUpdatePromotion } from "../data/hooks";
+import { ItemPicker, itemOption } from "./ItemPicker";
+import { useCreatePromotion, useItemsByIds, usePromotionUsageReport, usePromotions, useUpdatePromotion } from "../data/hooks";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { todayIso } from "../lib/dates";
 import { majorOf } from "../lib/money";
@@ -221,7 +221,6 @@ export function PromotionsScreen() {
   const { t } = useAppTranslation();
   const query = usePromotions();
   const promotions = query.data ?? EMPTY;
-  const items = useItems().data ?? EMPTY;
   const create = useCreatePromotion();
   const update = useUpdatePromotion();
 
@@ -240,14 +239,13 @@ export function PromotionsScreen() {
   const [page, setPage] = useUrlNumber("page", 1);
   const [pageSize, setPageSize] = useUrlNumber("size", 25);
 
-  const itemOptions = useMemo<EntityPickerOption[]>(
-    () => items.map((i: ItemDTO) => ({ id: i.id, label: i.nameAr, sublabel: i.code })),
-    [items],
-  );
-  const itemById = useMemo(() => new Map(items.map((i: ItemDTO) => [i.id, i])), [items]);
+  const [picked, setPicked] = useState<ReadonlyMap<string, ItemDTO>>(new Map());
+  const { byId: fetchedById } = useItemsByIds([...draft.bundle.map((row) => row.itemId), ...(draft.scopeType === "item" ? draft.scopeIds : [])]);
+  const itemFor = (id: string): ItemDTO | undefined => fetchedById.get(id) ?? picked.get(id);
+  const remember = (item: ItemDTO) => setPicked((prev) => new Map(prev).set(item.id, item));
   const optionFor = (id: string): EntityPickerOption | null => {
-    const item = itemById.get(id);
-    return item ? { id: item.id, label: item.nameAr, sublabel: item.code } : null;
+    const item = itemFor(id);
+    return item ? itemOption(item) : id ? { id, label: id } : null;
   };
 
   const counts = useMemo(() => {
@@ -607,17 +605,17 @@ export function PromotionsScreen() {
                 {draft.bundle.map((row) => (
                   <div key={row.key} className="flex items-end gap-[8px]">
                     <div className="flex-1">
-                      <EntityPicker
+                      <ItemPicker
                         value={optionFor(row.itemId)}
-                        onChange={(option) =>
+                        onChange={(item) => {
+                          if (item) remember(item);
                           setDraft((d) => ({
                             ...d,
-                            bundle: d.bundle.map((r) => (r.key === row.key ? { ...r, itemId: option?.id ?? "" } : r)),
-                          }))
-                        }
-                        options={itemOptions}
+                            bundle: d.bundle.map((r) => (r.key === row.key ? { ...r, itemId: item?.id ?? "" } : r)),
+                          }));
+                        }}
                         placeholder={t("promotions.bundle.chooseItem")}
-                        aria-label={t("common.item")}
+                        ariaLabel={t("common.item")}
                       />
                     </div>
                     <div className="w-[110px]">
@@ -654,7 +652,7 @@ export function PromotionsScreen() {
               <div className="mb-[8px] flex flex-col gap-[6px]">
                 {draft.scopeIds.map((id) => (
                   <div key={id} className="flex items-center justify-between rounded-md border border-border px-[10px] py-[7px] text-[12.5px]">
-                    <span className="text-ink">{itemById.get(id)?.nameAr ?? id}</span>
+                    <span className="text-ink">{itemFor(id)?.nameAr ?? id}</span>
                     <Button
                       variant="ghost"
                       size="sm"
@@ -665,15 +663,15 @@ export function PromotionsScreen() {
                   </div>
                 ))}
               </div>
-              <EntityPicker
+              <ItemPicker
                 value={null}
-                onChange={(option) => {
-                  if (!option) return;
-                  setDraft((d) => (d.scopeIds.includes(option.id) ? d : { ...d, scopeIds: [...d.scopeIds, option.id] }));
+                onChange={(item) => {
+                  if (!item) return;
+                  remember(item);
+                  setDraft((d) => (d.scopeIds.includes(item.id) ? d : { ...d, scopeIds: [...d.scopeIds, item.id] }));
                 }}
-                options={itemOptions}
                 placeholder={t("promotions.scope.addItem")}
-                aria-label={t("promotions.scope.addItem")}
+                ariaLabel={t("promotions.scope.addItem")}
               />
             </div>
           ) : null}

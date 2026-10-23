@@ -208,7 +208,7 @@ describe("PhysicalCountsScreen — count → variance → adjustment flow", () =
 
     // itm-1's system qty is 90 — count it short by 5. The variance is computed
     // client-side from the typed value, with no request involved.
-    const countedInput = screen.getByLabelText("الكمية المعدودة لصنف أرز أبيض مصري 5 كجم (ITM-000001)");
+    const countedInput = await screen.findByLabelText("الكمية المعدودة لصنف أرز أبيض مصري 5 كجم (ITM-000001)");
     fireEvent.change(countedInput, { target: { value: "85" } });
     expect(screen.getByText("-5.00")).toBeInTheDocument();
 

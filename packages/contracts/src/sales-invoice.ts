@@ -174,7 +174,7 @@ export const salesInvoicePaymentSchema = z.object({
  */
 export const salesInvoiceFilterKeySchema = z.union([
   salesInvoiceStatusSchema,
-  z.enum(["all", "open", "overdue"]),
+  z.enum(["all", "open", "overdue", "active"]),
 ]);
 
 /** Query filter for the invoice list. */

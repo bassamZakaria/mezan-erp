@@ -95,6 +95,18 @@ describe("QuoteDetailView", () => {
     expect(screen.getAllByText((_, el) => el?.textContent === "456.00").length).toBeGreaterThan(0);
   });
 
+  it("asks for only the quote's own items by id, never the whole catalogue", async () => {
+    const paths: string[] = [];
+    renderDetail(quote(), {
+      "GET /items": (_init, path) => {
+        paths.push(path);
+        return { body: items };
+      },
+    });
+    await waitFor(() => expect(paths.length).toBeGreaterThan(0));
+    expect(paths.map((p) => new URLSearchParams(p.split("?")[1] ?? "").get("ids"))).toEqual(["item-1"]);
+  });
+
   it("a sent quote offers accept/reject, and accept posts to the real transition endpoint", async () => {
     const { getSendCalled } = renderDetail(quote({ status: "sent" }));
     expect(screen.getByRole("button", { name: "قبول العميل" })).toBeInTheDocument();
@@ -111,6 +123,7 @@ describe("QuoteDetailView", () => {
 
   it("converting blocks with an Arabic message when no warehouse is available/picked", async () => {
     const { getConvertBody } = renderDetail(quote({ status: "accepted" }), { "GET /warehouses": () => ({ body: [] }) });
+    await waitFor(() => expect(screen.getByRole("button", { name: "إنشاء الفاتورة" })).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: "إنشاء الفاتورة" }));
     expect(await screen.findByText("اختر المستودع.")).toBeInTheDocument();
     expect(getConvertBody()).toBeNull();
@@ -125,6 +138,7 @@ describe("QuoteDetailView", () => {
       await waitFor(() =>
         expect(screen.getByRole("combobox", { name: "المستودع *" })).toHaveTextContent(/المخزن الرئيسي/),
       );
+      await waitFor(() => expect(screen.getByRole("button", { name: "إنشاء الفاتورة" })).toBeEnabled());
       fireEvent.click(screen.getByRole("button", { name: "إنشاء الفاتورة" }));
       await waitFor(() => expect(getConvertBody()).not.toBeNull());
       expect((getConvertBody() as Record<string, unknown>).warehouseId).toBe("MAIN-WH");
@@ -144,6 +158,7 @@ describe("QuoteDetailView", () => {
       const { getConvertBody } = renderDetail(quote({ status: "accepted" }));
       await user.click(screen.getByRole("combobox", { name: "المستودع *" }));
       await user.click(await screen.findByRole("option", { name: /المخزن الرئيسي/ }));
+      await waitFor(() => expect(screen.getByRole("button", { name: "إنشاء الفاتورة" })).toBeEnabled());
       fireEvent.click(screen.getByRole("button", { name: "إنشاء الفاتورة" }));
       await waitFor(() => expect(getConvertBody()).not.toBeNull());
       const body = getConvertBody() as Record<string, unknown>;
@@ -170,6 +185,7 @@ describe("QuoteDetailView", () => {
     });
     await user.click(screen.getByRole("combobox", { name: "المستودع *" }));
     await user.click(await screen.findByRole("option", { name: /المخزن الرئيسي/ }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "إنشاء الفاتورة" })).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: "إنشاء الفاتورة" }));
     expect(await screen.findByText("الفترة المالية مقفلة")).toBeInTheDocument();
   });

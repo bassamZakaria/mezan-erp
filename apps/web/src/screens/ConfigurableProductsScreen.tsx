@@ -7,7 +7,6 @@ import {
   DocumentList,
   DocumentDetail,
   EmptyState,
-  EntityPicker,
   RowMenu,
   StatusPill,
   type DocumentListColumn,
@@ -20,15 +19,18 @@ import {
   useConfigurableProducts,
   useCreateConfigurableProduct,
   useDeactivateConfigurableProduct,
-  useItems,
+  useItemsByIds,
   type ConfigurableProductRecord,
 } from "../data/hooks";
 import { FormColumns, FormError, FormPage, SectionCard, TextField, NumberField, SelectField } from "../settings/form-controls";
 import { useSubPage } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
-import { itemTypeIsBomComponent } from "@mezan/domain";
+import { ITEM_TYPES, itemTypeIsBomComponent } from "@mezan/domain";
 import { EMPTY } from "../lib/empty";
+import { ItemPicker, itemOption } from "./ItemPicker";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
+
+const BOM_COMPONENTS = { types: ITEM_TYPES.filter(itemTypeIsBomComponent) };
 
 type Status = ConfigurableProductRecord["status"];
 
@@ -51,7 +53,7 @@ interface DraftInput {
 }
 
 interface DraftMaterial {
-  itemId: string;
+  item: EntityPickerOption | null;
   qtyFormula: string;
   wastePercent: number;
 }
@@ -171,20 +173,10 @@ function ProductDetail({
 export function ConfigurableProductsScreen() {
   const { t } = useAppTranslation();
   const query = useConfigurableProducts();
-  const itemsQuery = useItems();
   const createProduct = useCreateConfigurableProduct();
   const deactivateProduct = useDeactivateConfigurableProduct();
 
   const products = query.data ?? EMPTY;
-  const items = itemsQuery.data ?? EMPTY;
-
-  const itemName = useMemo(() => {
-    const map = new Map(items.map((i) => [i.id, i.nameAr]));
-    return (id: string) => map.get(id) ?? id;
-  }, [items]);
-  const itemOptions: EntityPickerOption[] = items
-    .filter((i) => itemTypeIsBomComponent(i.type))
-    .map((i) => ({ id: i.id, label: i.nameAr, sublabel: i.code }));
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useUrlParam("status", "all") as [
@@ -202,7 +194,7 @@ export function ConfigurableProductsScreen() {
   const [unit, setUnit] = useState("PCS");
   const [description, setDescription] = useState("");
   const [inputs, setInputs] = useState<DraftInput[]>([{ id: "", labelAr: "", min: null, max: null }]);
-  const [materials, setMaterials] = useState<DraftMaterial[]>([{ itemId: "", qtyFormula: "", wastePercent: 0 }]);
+  const [materials, setMaterials] = useState<DraftMaterial[]>([{ item: null, qtyFormula: "", wastePercent: 0 }]);
   const [pricingMethod, setPricingMethod] = useState<"manual" | "formula">("manual");
   const [priceFormula, setPriceFormula] = useState("");
   const [laborFormula, setLaborFormula] = useState("");
@@ -213,6 +205,8 @@ export function ConfigurableProductsScreen() {
   const [pendingId, setPendingId] = useState<string | null>(null);
 
   const selected = products.find((p) => p.id === selectedId) ?? null;
+  const { byId: itemById } = useItemsByIds(selected ? [selected.outputItemId, ...selected.materials.map((m) => m.itemId)] : []);
+  const itemName = useMemo(() => (id: string) => itemById.get(id)?.nameAr ?? id, [itemById]);
 
   const filtered = useMemo(() => {
     let rows = products;
@@ -253,7 +247,7 @@ export function ConfigurableProductsScreen() {
     setUnit("PCS");
     setDescription("");
     setInputs([{ id: "", labelAr: "", min: null, max: null }]);
-    setMaterials([{ itemId: "", qtyFormula: "", wastePercent: 0 }]);
+    setMaterials([{ item: null, qtyFormula: "", wastePercent: 0 }]);
     setPricingMethod("manual");
     setPriceFormula("");
     setLaborFormula("");
@@ -264,7 +258,7 @@ export function ConfigurableProductsScreen() {
   }
 
   const validInputs = inputs.filter((i) => i.id.trim() !== "" && i.labelAr.trim() !== "");
-  const validMaterials = materials.filter((m) => m.itemId !== "" && m.qtyFormula.trim() !== "");
+  const validMaterials = materials.filter((m) => m.item !== null && m.qtyFormula.trim() !== "");
   const canSave =
     code.trim() !== "" &&
     nameAr.trim() !== "" &&
@@ -286,7 +280,7 @@ export function ConfigurableProductsScreen() {
         unit,
         description: description.trim() === "" ? null : description.trim(),
         inputs: validInputs.map((i) => ({ id: i.id.trim(), labelAr: i.labelAr.trim(), min: i.min, max: i.max })),
-        materials: validMaterials.map((m) => ({ itemId: m.itemId, qtyFormula: m.qtyFormula.trim(), wastePercent: m.wastePercent })),
+        materials: validMaterials.map((m) => ({ itemId: m.item!.id, qtyFormula: m.qtyFormula.trim(), wastePercent: m.wastePercent })),
         pricingMethod,
         priceFormula: pricingMethod === "formula" && priceFormula.trim() !== "" ? priceFormula.trim() : null,
         laborFormula: laborFormula.trim() === "" ? null : laborFormula.trim(),
@@ -367,15 +361,14 @@ export function ConfigurableProductsScreen() {
           <TextField label={t("configProducts.code")} value={code} onChange={setCode} />
           <TextField label={t("configProducts.arabicName")} value={nameAr} onChange={setNameAr} />
           <TextField label={t("configProducts.englishName")} value={nameEn} onChange={setNameEn} />
-          <EntityPicker
+          <ItemPicker
             label={t("configProducts.resultingProduct")}
             value={outputItem}
-            onChange={(opt) => {
-              setOutputItem(opt);
-              const item = items.find((i) => i.id === opt?.id);
+            onChange={(item) => {
+              setOutputItem(item ? itemOption(item) : null);
               if (item) setUnit(item.baseUnitCode);
             }}
-            options={itemOptions}
+            filter={BOM_COMPONENTS}
             placeholder={t("configProducts.chooseTheResultingProduct")}
           />
           <TextField label={t("configProducts.finishedProductUnit")} value={unit} onChange={setUnit} />
@@ -427,11 +420,11 @@ export function ConfigurableProductsScreen() {
           <div className="flex flex-col gap-[10px]">
           {materials.map((m, i) => (
             <div key={i} className="rounded-lg border border-border bg-surface p-[12px]">
-              <EntityPicker
+              <ItemPicker
                 label={t("common.item")}
-                value={itemOptions.find((o) => o.id === m.itemId) ?? null}
-                onChange={(opt) => setMaterials((prev) => prev.map((x, j) => (j === i ? { ...x, itemId: opt?.id ?? "" } : x)))}
-                options={itemOptions}
+                value={m.item}
+                onChange={(item) => setMaterials((prev) => prev.map((x, j) => (j === i ? { ...x, item: item ? itemOption(item) : null } : x)))}
+                filter={BOM_COMPONENTS}
                 placeholder={t("configProducts.chooseAnItem")}
               />
               <div className="mt-[10px] grid grid-cols-2 gap-[10px]">
@@ -455,7 +448,7 @@ export function ConfigurableProductsScreen() {
               ) : null}
             </div>
           ))}
-            <Button onClick={() => setMaterials((prev) => [...prev, { itemId: "", qtyFormula: "", wastePercent: 0 }])}>{t("configProducts.addMaterial")}</Button>
+            <Button onClick={() => setMaterials((prev) => [...prev, { item: null, qtyFormula: "", wastePercent: 0 }])}>{t("configProducts.addMaterial")}</Button>
           </div>
         </SectionCard>
 
@@ -532,7 +525,7 @@ export function ConfigurableProductsScreen() {
         searchPlaceholder={t("configProducts.searchByCodeOrName")}
         columns={columns}
         rows={pageRows}
-        loading={itemsQuery.isLoading}
+        loading={query.isLoading}
         rowKey={(p) => p.id}
         onRowClick={(p) => setSelectedId(p.id)}
         rowAction={(p) => {

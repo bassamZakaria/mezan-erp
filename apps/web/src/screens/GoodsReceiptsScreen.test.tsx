@@ -40,11 +40,11 @@ function TestNavigation({ children }: { children: ReactNode }) {
 }
 
 /** Selects an option from an `EntityPicker` combobox and asserts the real entity id lands in the outgoing request, not free text. */
-function pickFromCombobox(container: HTMLElement, label: string, optionLabel: string) {
+async function pickFromCombobox(container: HTMLElement, label: string, optionLabel: string) {
   const input = within(container).getByLabelText(label);
   fireEvent.focus(input);
   fireEvent.change(input, { target: { value: optionLabel } });
-  const option = within(container).getByRole("button", { name: (accessibleName) => accessibleName.startsWith(optionLabel) });
+  const option = await within(container).findByRole("button", { name: (accessibleName) => accessibleName.startsWith(optionLabel) }, { timeout: 2000 });
   fireEvent.mouseDown(option);
 }
 
@@ -196,6 +196,33 @@ describe("GoodsReceiptsScreen", () => {
     expect(await screen.findByText("حُفظت التشغيلات. يمكنك تأكيد الاستلام الآن.")).toBeInTheDocument();
   });
 
+  it("names a receipt's lines and searches the ad-hoc item picker without downloading the whole catalogue", async () => {
+    const itemPaths: string[] = [];
+    const handlers = {
+      ...baseHandlers,
+      "GET /items": (_init: RequestInit | undefined, path: string) => {
+        itemPaths.push(path);
+        return { body: items };
+      },
+      "GET /settings/lookup": () => ({ body: { requirePoForGrn: false } }),
+    };
+    const view = renderScreen(stubTransport({ ...handlers, "GET /purchases/receipts": () => ({ body: [goodsReceipt()] }) }));
+    fireEvent.click(await screen.findByText("GR-000010"));
+    expect(await screen.findByText("أسمنت بورتلاندي")).toBeInTheDocument();
+    expect(itemPaths.some((path) => path.includes("ids=item-cement"))).toBe(true);
+    view.unmount();
+
+    renderScreen(stubTransport({ ...handlers, "GET /purchases/receipts": () => ({ body: [] }) }));
+    await screen.findByText("لا توجد إيصالات استلام مطابقة");
+    fireEvent.click(screen.getAllByRole("button", { name: "إيصال استلام جديد" })[0]!);
+    const adHocButton = await screen.findByRole("button", { name: /استلام مباشر/ });
+    await waitFor(() => expect(adHocButton).not.toBeDisabled());
+    fireEvent.click(adHocButton);
+    fireEvent.click(screen.getByRole("button", { name: "متابعة" }));
+    await waitFor(() => expect(itemPaths.some((path) => path.includes("pageSize=20") && path.includes("types="))).toBe(true));
+    expect(itemPaths.filter((path) => !/[?&](ids=|pageSize=20(&|$))/.test(path))).toEqual([]);
+  });
+
   it("shows an honest empty state when the server returns no receipts", async () => {
     const transport = stubTransport({
       ...baseHandlers,
@@ -276,13 +303,13 @@ describe("GoodsReceiptsScreen", () => {
     fireEvent.click(adHocButton);
     fireEvent.click(screen.getByRole("button", { name: "متابعة" }));
 
-    pickFromCombobox(document.body, "المورد *", "شركة النيل للتوريدات");
+    await pickFromCombobox(document.body, "المورد *", "شركة النيل للتوريدات");
 
     const user = userEvent.setup();
     await user.click(screen.getByLabelText("المستودع *"));
     await user.click(await screen.findByRole("option", { name: "المخزن الرئيسي" }));
 
-    pickFromCombobox(document.body, "الصنف", "أسمنت بورتلاندي");
+    await pickFromCombobox(document.body, "الصنف", "أسمنت بورتلاندي");
 
     fireEvent.click(screen.getByRole("button", { name: "حفظ مسودة" }));
 
@@ -313,7 +340,8 @@ describe("GoodsReceiptsScreen", () => {
     fireEvent.click(screen.getAllByRole("button", { name: "إيصال استلام جديد" })[0]!);
     fireEvent.click(screen.getByRole("button", { name: "متابعة" }));
 
-    pickFromCombobox(document.body, "أمر الشراء *", order.number);
+    await pickFromCombobox(document.body, "أمر الشراء *", order.number);
+    await screen.findByText("أسمنت بورتلاندي");
     fireEvent.click(screen.getByRole("button", { name: "حفظ مسودة" }));
 
     const alert = await screen.findByRole("alert");
@@ -345,7 +373,7 @@ describe("GoodsReceiptsScreen — a partial receipt against a purchase order", (
     await screen.findByText("لا توجد إيصالات استلام مطابقة");
     fireEvent.click(screen.getAllByRole("button", { name: "إيصال استلام جديد" })[0]!);
     fireEvent.click(screen.getByRole("button", { name: "متابعة" }));
-    pickFromCombobox(document.body, "أمر الشراء *", order.number);
+    await pickFromCombobox(document.body, "أمر الشراء *", order.number);
 
     const qtyField = await screen.findByLabelText("الكمية المستلمة");
     expect(qtyField).toHaveValue(50);
@@ -383,7 +411,7 @@ describe("GoodsReceiptsScreen — a partial receipt against a purchase order", (
     await screen.findByText("لا توجد إيصالات استلام مطابقة");
     fireEvent.click(screen.getAllByRole("button", { name: "إيصال استلام جديد" })[0]!);
     fireEvent.click(screen.getByRole("button", { name: "متابعة" }));
-    pickFromCombobox(document.body, "أمر الشراء *", order.number);
+    await pickFromCombobox(document.body, "أمر الشراء *", order.number);
 
     const qtyFields = await screen.findAllByLabelText("الكمية المستلمة");
     expect(qtyFields).toHaveLength(2);

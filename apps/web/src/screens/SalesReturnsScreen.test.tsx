@@ -178,6 +178,10 @@ function baseHandlers(
       };
     },
     "GET /sales-invoices": () => ({ body: invoices }),
+    "GET /sales-invoices/*": (_init: unknown, path: string) => {
+      const invoice = invoices.find((i) => i.id === decodeURIComponent(path.split("/").pop()!.split("?")[0]!));
+      return invoice ? { body: invoice } : { status: 404, body: { error: "NOT_FOUND" } };
+    },
     "GET /warehouses": () => ({ body: warehouses }),
     "GET /customers": () => ({ body: customers }),
     "GET /items": () => ({ body: items }),
@@ -190,6 +194,13 @@ function selectOptionAt(label: string, index: number, optionLabel: string) {
   const combo = screen.getAllByRole("combobox", { name: label })[index]!;
   fireEvent.click(combo);
   fireEvent.mouseDown(screen.getByRole("option", { name: optionLabel }));
+}
+
+async function pickSourceInvoice(optionLabel: string) {
+  const input = screen.getByRole("combobox", { name: "فاتورة المصدر *" });
+  fireEvent.focus(input);
+  fireEvent.change(input, { target: { value: optionLabel.split(" — ")[0] } });
+  fireEvent.mouseDown(await screen.findByRole("button", { name: new RegExp(optionLabel) }));
 }
 
 function qtyInputAt(index: number): HTMLElement {
@@ -489,6 +500,50 @@ describe("SalesReturnsScreen", () => {
     expect(requested).toEqual([{ itemId: "item-brick", sourceLineId: "l2", qty: "6", reason: "DEFECTIVE" }]);
   });
 
+  it("names a return's lines from only the items it carries", async () => {
+    const paths: string[] = [];
+    const transport = stubTransport({
+      ...baseHandlers([salesReturn()]),
+      "GET /items": (_init, path) => {
+        paths.push(path);
+        return { body: items };
+      },
+    });
+    renderWithProviders(<TestNavigation><SalesReturnsScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
+    fireEvent.click(await screen.findByText("SR-000001"));
+    await screen.findByRole("heading", { name: "SR-000001" });
+    await waitFor(() => expect(paths.some((p) => p.startsWith("/items?"))).toBe(true));
+    const itemsAsked = paths.filter((p) => p.startsWith("/items"));
+    expect(itemsAsked.every((p) => new URLSearchParams(p.split("?")[1]).get("ids") === "item-cement")).toBe(true);
+
+  });
+
+  it("searches source invoices on the server one small page at a time and never offers a draft", async () => {
+    const draft = salesInvoice({ id: "inv-draft", docNo: "INV-000999", status: "draft" });
+    const paths: string[] = [];
+    const handlers = baseHandlers([], [salesInvoice(), draft]);
+    const transport = stubTransport({
+      ...handlers,
+      "GET /sales-invoices": (_init, path) => {
+        paths.push(path);
+        return handlers["GET /sales-invoices"]();
+      },
+    });
+    renderWithProviders(<TestNavigation><SalesReturnsScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
+    await screen.findByText("لا توجد مرتجعات — أنشئ مرتجعاً جديداً");
+    fireEvent.click(screen.getAllByRole("button", { name: "مرتجع جديد" })[0]!);
+    const input = await screen.findByRole("combobox", { name: "فاتورة المصدر *" });
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: "INV" } });
+    expect(await screen.findByRole("button", { name: /INV-000123/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /INV-000999/ })).not.toBeInTheDocument();
+    await waitFor(() => expect(paths.some((p) => p.includes("search=INV"))).toBe(true));
+    const searched = new URLSearchParams(paths.find((p) => p.includes("search=INV"))!.split("?")[1]);
+    expect(searched.get("page")).toBe("1");
+    expect(searched.get("pageSize")).toBe("20");
+    expect(paths.filter((p) => p.startsWith("/sales-invoices") && !new URLSearchParams(p.split("?")[1] ?? "").get("page"))).toEqual([]);
+  });
+
   it("switching the source invoice repopulates the returnable lines from the NEWLY picked invoice, not the stale one", async () => {
     const transport = stubTransport(baseHandlers([], [salesInvoice(), salesInvoiceTile]));
     renderWithProviders(<TestNavigation><SalesReturnsScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
@@ -501,7 +556,7 @@ describe("SalesReturnsScreen", () => {
     expect(screen.getByRole("option", { name: "أسمنت بورتلاندي" })).toBeInTheDocument();
     fireEvent.keyDown(document.body, { key: "Escape" });
 
-    selectOptionAt("فاتورة المصدر *", 0, "INV-000200 — شركة الأمل للتجارة");
+    await pickSourceInvoice("INV-000200 — شركة الأمل للتجارة");
 
     fireEvent.click(screen.getByRole("combobox", { name: "الصنف" }));
     expect(screen.getByRole("option", { name: "بلاط" })).toBeInTheDocument();

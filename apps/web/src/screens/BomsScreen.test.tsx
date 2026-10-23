@@ -11,11 +11,11 @@ import type { BomRecord } from "../data/hooks";
 
 /** Type into an EntityPicker combobox and pick the matching option — selection
  * fires on `onMouseDown` (not `click`), so the input's blur never wins the race. */
-function pickFromCombobox(container: HTMLElement, label: string, optionLabel: string) {
+async function pickFromCombobox(container: HTMLElement, label: string, optionLabel: string) {
   const input = within(container).getByLabelText(label);
   fireEvent.focus(input);
   fireEvent.change(input, { target: { value: optionLabel } });
-  const option = within(container).getByRole("button", { name: (accessibleName) => accessibleName.startsWith(optionLabel) });
+  const option = await within(container).findByRole("button", { name: (accessibleName) => accessibleName.startsWith(optionLabel) });
   fireEvent.mouseDown(option);
 }
 
@@ -177,11 +177,33 @@ describe("BomsScreen", () => {
     // addressed at its own URL segment (`useSubPage`), rendered as a full page.
     const heading = screen.getByRole("heading", { name: "قائمة مواد جديدة" });
     const page = heading.closest("div.w-full") as HTMLElement;
-    pickFromCombobox(page, "الصنف المجمَّع *", "طاولة خشبية");
-    pickFromCombobox(page, "الصنف", "لوح خشب");
+    await pickFromCombobox(page, "الصنف المجمَّع *", "طاولة خشبية");
+    await pickFromCombobox(page, "الصنف", "لوح خشب");
     fireEvent.click(within(page).getByRole("button", { name: "حفظ قائمة المواد" }));
 
     expect(await screen.findByText("BOM-0002")).toBeInTheDocument();
+  });
+});
+
+describe("BomsScreen — never downloads the item catalogue", () => {
+  it("names its rows from the ids on screen only, and every item request is one page", async () => {
+    const paths: string[] = [];
+    const transport = stubTransport({
+      "GET /manufacturing/boms": () => ({ body: [bom()] }),
+      "GET /items": (_init, path) => {
+        paths.push(path);
+        return { body: items };
+      },
+    });
+    renderWithProviders(
+      <WithSubPageNav>
+        <BomsScreen />
+      </WithSubPageNav>,
+      { transport, initialSession: testAdminSession },
+    );
+    expect(await screen.findByText("طاولة خشبية")).toBeInTheDocument();
+    expect(paths.length).toBeGreaterThan(0);
+    for (const path of paths) expect(new URLSearchParams(path.split("?")[1]).get("ids")).toBe("item-table,item-wood");
   });
 });
 
@@ -242,6 +264,24 @@ describe("BomsScreen — roll-up cost, scrap rate and line editing", () => {
     expect(screen.getByText("2.00")).toBeInTheDocument();
   });
 
+  it("rounds the quantity after scrap and the unit cost from the exact decimals, not from binary floats", async () => {
+    const transport = stubTransport({
+      "GET /manufacturing/boms": () => ({ body: [bom({ lines: [{ itemId: "item-wood", qty: "1.005", wastePercent: 0, optional: false, notes: null }] })] }),
+      "GET /items": () => ({ body: [item({ costPrice: "9007199254740993.000000" }), items[1]!] }),
+    });
+    renderWithProviders(
+      <WithSubPageNav>
+        <BomsScreen />
+      </WithSubPageNav>,
+      { transport, initialSession: testAdminSession },
+    );
+    fireEvent.click(await screen.findByText("BOM-0001"));
+    // 1.005 sits just below its half in binary, so Number("1.005").toFixed(2) prints 1.00;
+    // 2^53 + 1 has no float at all, so Number() of that cost prints …992.
+    expect(await screen.findByText("1.01")).toBeInTheDocument();
+    expect(await screen.findByText("9,007,199,254,740,993.00")).toBeInTheDocument();
+  });
+
   it("adds and removes lines in the create form, sending only the filled ones with their exact quantity and scrap rate", async () => {
     let createdBody: Record<string, unknown> | null = null;
     const transport = stubTransport({
@@ -262,8 +302,8 @@ describe("BomsScreen — roll-up cost, scrap rate and line editing", () => {
     const heading = screen.getByRole("heading", { name: "قائمة مواد جديدة" });
     const page = heading.closest("div.w-full") as HTMLElement;
 
-    pickFromCombobox(page, "الصنف المجمَّع *", "طاولة خشبية");
-    pickFromCombobox(page, "الصنف", "لوح خشب");
+    await pickFromCombobox(page, "الصنف المجمَّع *", "طاولة خشبية");
+    await pickFromCombobox(page, "الصنف", "لوح خشب");
     fireEvent.change(within(page).getByLabelText("الكمية"), { target: { value: "6" } });
     fireEvent.change(within(page).getByLabelText("نسبة الهالك %"), { target: { value: "12" } });
 

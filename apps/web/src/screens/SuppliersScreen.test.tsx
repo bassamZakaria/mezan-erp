@@ -351,10 +351,24 @@ describe("SuppliersScreen", () => {
     const mine1 = purchaseInvoice({ id: "pinv-1", number: "PINV-000010", supplierId: "sup-1", status: "confirmed", total: "300.000000" });
     const mine2 = purchaseInvoice({ id: "pinv-2", number: "PINV-000011", supplierId: "sup-1", status: "draft", total: "150.000000" });
     const other = purchaseInvoice({ id: "pinv-9", number: "PINV-999999", supplierId: "sup-2", status: "confirmed" });
+    const invoicePaths: string[] = [];
     const transport = stubTransport({
       "GET /suppliers": () => ({ body: [supplier()] }),
       "GET /suppliers/counts": () => ({ body: { all: 1, active: 1, inactive: 0 } }),
-      "GET /purchases/invoices": () => ({ body: [mine1, mine2, other] }),
+      "GET /purchases/invoices": (_init, path) => {
+        invoicePaths.push(path);
+        const supplierId = new URL(path, "http://x").searchParams.get("supplierId");
+        return { body: [mine2, mine1, other].filter((inv) => inv.supplierId === supplierId) };
+      },
+      "GET /purchases/invoices/counts": (_init, path) => ({
+        body: new URL(path, "http://x").searchParams.get("supplierId") === "sup-1" ? { all: 2, draft: 1, confirmed: 1, cancelled: 0 } : { all: 3 },
+      }),
+      "GET /purchases/invoices/stats": (_init, path) => ({
+        body:
+          new URL(path, "http://x").searchParams.get("supplierId") === "sup-1"
+            ? { count: 1, purchases: "300.000000", paid: "0.000000", unpaid: "300.000000" }
+            : { count: 2, purchases: "9999.000000", paid: "0", unpaid: "0" },
+      }),
       "GET /vouchers": () => ({ body: [] }),
       "GET /open-invoices": () => ({ body: [] }),
       "GET /reports/aging/suppliers": () => ({ body: { rows: [], groups: [], grandTotals: {}, reconciliation: null } }),
@@ -371,6 +385,8 @@ describe("SuppliersScreen", () => {
     expect(screen.getByText("عدد الفواتير").nextElementSibling?.textContent).toBe("2");
     expect(screen.getByText("فواتير مؤكدة").nextElementSibling?.textContent).toBe("1");
     expect(screen.getByText("إجمالي المؤكد").nextElementSibling?.textContent).toBe("300.00");
+    expect(invoicePaths.length).toBeGreaterThan(0);
+    expect(invoicePaths.filter((path) => !path.includes("supplierId=sup-1") || path.includes("pageSize=200"))).toEqual([]);
   });
 
   it("recovers the invoices tab via retry after its request fails once", async () => {
@@ -380,6 +396,8 @@ describe("SuppliersScreen", () => {
       "GET /suppliers/counts": () => ({ body: { all: 1, active: 1, inactive: 0 } }),
       "GET /purchases/invoices": () =>
         fail ? { status: 500, body: { error: "INTERNAL" } } : { body: [purchaseInvoice({ id: "pinv-1", number: "PINV-000010", supplierId: "sup-1" })] },
+      "GET /purchases/invoices/counts": () => ({ body: { all: 1, confirmed: 1 } }),
+      "GET /purchases/invoices/stats": () => ({ body: { count: 1, purchases: "0", paid: "0", unpaid: "0" } }),
       "GET /vouchers": () => ({ body: [] }),
       "GET /open-invoices": () => ({ body: [] }),
       "GET /reports/aging/suppliers": () => ({ body: { rows: [], groups: [], grandTotals: {}, reconciliation: null } }),

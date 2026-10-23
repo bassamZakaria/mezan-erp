@@ -3,7 +3,7 @@ import "@testing-library/jest-dom/vitest";
 import { useState, type ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, screen, waitFor} from "@testing-library/react";
-import type { ItemDTO, ItemSpecificationDTO, ListCountsDTO, ProductTemplateDTO } from "@mezan/contracts";
+import type { ItemSpecificationDTO, ListCountsDTO, ProductTemplateDTO } from "@mezan/contracts";
 import type { BomRecord, ConfigurableProductRecord } from "../../data/hooks";
 import { ItemsHubScreen } from "./ItemsHubScreen";
 import { NavigationProvider } from "../../navigation";
@@ -27,8 +27,6 @@ function TestNavigation({ navigate, children }: { navigate: (screen: string, int
     </NavigationProvider>
   );
 }
-
-const sampleItems: ItemDTO[] = [];
 
 const sampleCounts: ListCountsDTO = { all: 40, active: 35, "type:stock": 20, "type:service": 5 };
 
@@ -56,7 +54,6 @@ const sampleBoms = [{ id: "BOM-1" }] as unknown as BomRecord[];
 
 function baseTransport(overrides: Record<string, () => { status?: number; body: unknown }> = {}) {
   return stubTransport({
-    "GET /items": () => ({ body: sampleItems }),
     "GET /items/counts": () => ({ body: sampleCounts }),
     "GET /inventory/product-templates": () => ({ body: sampleTemplates }),
     "GET /manufacturing/configurable-products": () => ({ body: sampleConfigurable }),
@@ -120,6 +117,19 @@ describe("ItemsHubScreen", () => {
     renderScreen(navigate);
     fireEvent.click(await screen.findByText("قوائم المواد"));
     expect(navigate).toHaveBeenCalledWith("boms");
+  });
+
+  it("never downloads the item catalogue: every figure comes from the counts", async () => {
+    const asked: string[] = [];
+    const inner = baseTransport();
+    renderWithProviders(
+      <TestNavigation navigate={vi.fn()}>
+        <ItemsHubScreen />
+      </TestNavigation>,
+      { transport: (path, init) => (asked.push(path.split("?")[0]!), inner(path, init)), initialSession: testAdminSession },
+    );
+    expect(await screen.findByText("40")).toBeInTheDocument();
+    expect(asked).not.toContain("/items");
   });
 
   it("shows the Arabic error message when a query fails", async () => {

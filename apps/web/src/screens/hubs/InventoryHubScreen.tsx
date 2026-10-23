@@ -1,14 +1,16 @@
 import { useMemo } from "react";
 import { Money, WorkspaceHub } from "@mezan/ui";
 import type { InventoryStockLevelsRow } from "@mezan/domain";
-import { useItems } from "../../data/hooks";
+import { useItemCounts } from "../../data/hooks";
+import { useApi } from "../../data/ApiContext";
+import { DocumentReadPermission, sessionMayRead } from "../../data/document-read-permissions";
 import { useReport } from "../../data/reports-hooks";
 import type { ScreenKey } from "../../router/screens";
 import { useAppTranslation, type AppTranslationKey } from "../../i18n";
 import { EMPTY } from "../../lib/empty";
 
 /**
- * المخزون hub — item counts from `/items`, and stock value + at-risk items
+ * المخزون hub — item counts from `/items/counts`, and stock value + at-risk items
  * from the REAL `/reports/inventory/stock-levels` engine (the same one
  * `InventoryStockLevelsReportScreen` runs) rather than re-deriving valuation
  * client-side. No qty/timestamp field exists on `ItemDTO` itself, so the
@@ -28,22 +30,23 @@ const STOCK_LEVELS_PARAMS = { warehouseId: "", search: "" };
 
 export function InventoryHubScreen() {
   const { t } = useAppTranslation();
-  const itemsQuery = useItems();
+  const { session } = useApi();
+  const readsItems = sessionMayRead(session, DocumentReadPermission.Items);
+  const itemCountsQuery = useItemCounts({}, { enabled: readsItems });
   const stockLevelsQuery = useReport<InventoryStockLevelsRow>(
     "inventory.stock-levels",
     "/inventory/stock-levels",
     STOCK_LEVELS_PARAMS,
   );
 
-  const items = itemsQuery.data ?? EMPTY;
-  const activeItems = useMemo(() => items.filter((i) => i.status === "active").length, [items]);
+  const itemCounts = itemCountsQuery.data ?? {};
   const rows = stockLevelsQuery.data?.rows ?? EMPTY;
   const inventoryValue = stockLevelsQuery.data?.grandTotals.value ?? 0;
   const needsAttention = useMemo(() => rows.filter((r) => r.status !== "normal").slice(0, 5), [rows]);
   const needsAttentionCount = useMemo(() => rows.filter((r) => r.status !== "normal").length, [rows]);
 
-  const isLoading = itemsQuery.isLoading || stockLevelsQuery.isLoading;
-  const isError = itemsQuery.isError || stockLevelsQuery.isError;
+  const isLoading = (readsItems && itemCountsQuery.isLoading) || stockLevelsQuery.isLoading;
+  const isError = (readsItems && itemCountsQuery.isError) || stockLevelsQuery.isError;
 
   return (
     <WorkspaceHub
@@ -52,8 +55,12 @@ export function InventoryHubScreen() {
       loading={isLoading}
       error={isError ? t("inventoryHub.loadFailed") : null}
       stats={[
-        { key: "items", label: t("inventoryHub.stat.items"), value: items.length, sub: t("inventoryHub.stat.itemsSub") },
-        { key: "active", label: t("inventoryHub.stat.active"), value: activeItems, sub: t("inventoryHub.stat.activeSub") },
+        ...(readsItems
+          ? [
+              { key: "items", label: t("inventoryHub.stat.items"), value: itemCounts.all ?? 0, sub: t("inventoryHub.stat.itemsSub") },
+              { key: "active", label: t("inventoryHub.stat.active"), value: itemCounts.active ?? 0, sub: t("inventoryHub.stat.activeSub") },
+            ]
+          : []),
         { key: "value", label: t("inventoryHub.stat.value"), value: <Money value={inventoryValue} />, sub: t("inventoryHub.stat.valueSub") },
         {
           key: "attention",

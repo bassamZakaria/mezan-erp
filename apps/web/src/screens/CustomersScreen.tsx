@@ -19,7 +19,7 @@ import {
   type PillTone,
   type RowMenuItem,
 } from "@mezan/ui";
-import { ETA_BUYER_TYPES, can, createAuthContext, SALES_INVOICE_ACTIVE_STATUSES, SALES_INVOICE_STATUS_LABELS_AR, TaxRateStatusCode, matchesSearch, CountedNoun } from "@mezan/domain";
+import { ETA_BUYER_TYPES, can, createAuthContext, SALES_INVOICE_ACTIVE_STATUSES, SALES_INVOICE_STATUS_LABELS_AR, SalesInvoiceStatusCode, TaxRateStatusCode, matchesSearch, CountedNoun } from "@mezan/domain";
 import type { CustomerDTO, EtaBuyerTypeDTO, SalesInvoiceStatusDTO } from "@mezan/contracts";
 import {
   useCreateCustomer,
@@ -30,6 +30,9 @@ import {
   usePriceLists,
   useTaxRates,
   useSalesInvoices,
+  useSalesInvoiceCounts,
+  useSalesInvoiceStats,
+  type SalesInvoiceDTO,
   useSalesReturns,
   useInstallmentPlans,
   useUpdateCustomer,
@@ -74,6 +77,7 @@ import { EMPTY } from "../lib/empty";
  */
 
 const PAGE_SIZES = [10, 25, 50, 100] as const;
+const INVOICE_TAB_PAGE_SIZE = 25;
 
 const ETA_BUYER_TYPE_KEY: Record<EtaBuyerTypeDTO, AppTranslationKey> = {
   auto: "customers.etaBuyerType.auto",
@@ -223,15 +227,33 @@ function CustomerAuditTab({ customerId }: { customerId: string }) {
 
 function CustomerInvoicesTab({ customerId }: { customerId: string }) {
   const { t } = useAppTranslation();
-  const query = useSalesInvoices({ customerId });
-  const invoices = useMemo(
-    () => [...(query.data ?? [])].sort((a, b) => (a.date === b.date ? a.id.localeCompare(b.id) : b.date.localeCompare(a.date))),
-    [query.data],
-  );
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(INVOICE_TAB_PAGE_SIZE);
+  const query = useSalesInvoices({ customerId, sort: "docNo", sortDir: "desc", page, pageSize });
+  const countsQuery = useSalesInvoiceCounts({ customerId });
+  const stats = useSalesInvoiceStats({ customerId });
+  const pendingStats = useSalesInvoiceStats({ customerId, status: SalesInvoiceStatusCode.Pending });
+  const invoices = query.data ?? EMPTY;
 
-  if (query.isError) return <TabError message={t("customers.invoices.loadFailed")} onRetry={() => query.refetch()} />;
-  if (query.isLoading) return <p className="p-[18px] text-[12.5px] text-ink-muted">{t("customers.invoices.loading")}</p>;
-  if (invoices.length === 0) {
+  if (query.isError || countsQuery.isError || stats.isError || pendingStats.isError) {
+    return (
+      <TabError
+        message={t("customers.invoices.loadFailed")}
+        onRetry={() => {
+          void query.refetch();
+          void countsQuery.refetch();
+          void stats.refetch();
+          void pendingStats.refetch();
+        }}
+      />
+    );
+  }
+  if (query.isLoading || countsQuery.isLoading || stats.isLoading || pendingStats.isLoading) {
+    return <p className="p-[18px] text-[12.5px] text-ink-muted">{t("customers.invoices.loading")}</p>;
+  }
+  const counts = countsQuery.data ?? {};
+  const total = counts.all ?? 0;
+  if (total === 0) {
     return (
       <TabMessage
         title={t("customers.invoices.emptyTitle")}
@@ -240,54 +262,45 @@ function CustomerInvoicesTab({ customerId }: { customerId: string }) {
     );
   }
 
-  const live = invoices.filter((inv) => SALES_INVOICE_ACTIVE_STATUSES.has(inv.status));
-  const invoiced = sumMoney(live.map((inv) => inv.baseGrandTotal ?? inv.totals.grandTotal));
-  const collected = sumMoney(live.map((inv) => inv.amountPaid));
+  // The stats strip counts every non-draft, non-terminal invoice; «سارية» never included one still awaiting approval.
+  const live = [...SALES_INVOICE_ACTIVE_STATUSES].reduce((sum, status) => sum + (counts[status] ?? 0), 0);
+  const invoiced = parseMoney(stats.data?.sales) - parseMoney(pendingStats.data?.sales);
+  const collected = parseMoney(stats.data?.collected) - parseMoney(pendingStats.data?.collected);
+
+  const columns: DocumentListColumn<SalesInvoiceDTO>[] = [
+    { key: "docNo", header: t("customers.invoices.col.number"), render: (inv) => <span className="mz-num font-semibold text-ink">{inv.docNo ?? "—"}</span> },
+    { key: "date", header: t("common.date"), render: (inv) => <span className="mz-num text-ink-muted">{isoToDisplay(inv.date)}</span> },
+    { key: "due", header: t("customers.invoices.col.due"), render: (inv) => <span className="mz-num text-ink-muted">{isoToDisplay(inv.dueDate)}</span> },
+    { key: "status", header: t("common.status"), render: (inv) => <StatusPill label={SALES_INVOICE_STATUS_LABELS_AR[inv.status]} tone={INVOICE_STATUS_TONE[inv.status]} /> },
+    { key: "total", header: t("common.total"), align: "end", render: (inv) => <MoneyValue value={num(inv.baseGrandTotal ?? inv.totals.grandTotal)} showUnit={false} /> },
+    { key: "collected", header: t("customers.invoices.collected"), align: "end", render: (inv) => <MoneyValue value={num(inv.amountPaid)} showUnit={false} /> },
+    { key: "remaining", header: t("customers.invoices.col.remaining"), align: "end", render: (inv) => <span className="font-semibold text-ink"><MoneyValue value={num(inv.remainingBalance)} showUnit={false} /></span> },
+  ];
 
   return (
     <div className="flex flex-col gap-[16px]">
       <div className="grid grid-cols-2 gap-[12px] sm:grid-cols-4">
-        <MiniStat label={t("customers.invoices.count")} value={<span className="mz-num">{invoices.length}</span>} />
-        <MiniStat label={t("customers.invoices.live")} value={<span className="mz-num">{live.length}</span>} />
+        <MiniStat label={t("customers.invoices.count")} value={<span className="mz-num">{total}</span>} />
+        <MiniStat label={t("customers.invoices.live")} value={<span className="mz-num">{live}</span>} />
         <MiniStat label={t("customers.invoices.liveTotal")} value={<MoneyValue value={moneyToNumber(invoiced)} showUnit={false} />} />
         <MiniStat label={t("customers.invoices.collected")} value={<MoneyValue value={moneyToNumber(collected)} showUnit={false} />} />
       </div>
-      <div className="overflow-x-auto rounded-lg border border-border bg-surface">
-        <table className="w-full min-w-[720px] border-collapse text-[12.5px]">
-          <thead>
-            <tr className="border-b border-border text-ink-muted">
-              <th className="p-[10px] text-start font-semibold">{t("customers.invoices.col.number")}</th>
-              <th className="p-[10px] text-start font-semibold">{t("common.date")}</th>
-              <th className="p-[10px] text-start font-semibold">{t("customers.invoices.col.due")}</th>
-              <th className="p-[10px] text-start font-semibold">{t("common.status")}</th>
-              <th className="p-[10px] text-end font-semibold">{t("common.total")}</th>
-              <th className="p-[10px] text-end font-semibold">{t("customers.invoices.collected")}</th>
-              <th className="p-[10px] text-end font-semibold">{t("customers.invoices.col.remaining")}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {invoices.map((inv) => (
-              <tr key={inv.id} className="border-b border-border last:border-b-0">
-                <td className="mz-num p-[10px] font-semibold text-ink">{inv.docNo ?? "—"}</td>
-                <td className="mz-num p-[10px] text-ink-muted">{isoToDisplay(inv.date)}</td>
-                <td className="mz-num p-[10px] text-ink-muted">{isoToDisplay(inv.dueDate)}</td>
-                <td className="p-[10px]">
-                  <StatusPill label={SALES_INVOICE_STATUS_LABELS_AR[inv.status]} tone={INVOICE_STATUS_TONE[inv.status]} />
-                </td>
-                <td className="p-[10px] text-end text-ink">
-                  <MoneyValue value={num(inv.baseGrandTotal ?? inv.totals.grandTotal)} showUnit={false} />
-                </td>
-                <td className="p-[10px] text-end text-ink-muted">
-                  <MoneyValue value={num(inv.amountPaid)} showUnit={false} />
-                </td>
-                <td className="p-[10px] text-end font-semibold text-ink">
-                  <MoneyValue value={num(inv.remainingBalance)} showUnit={false} />
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <DocumentList<SalesInvoiceDTO>
+        title=""
+        nested
+        columns={columns}
+        rows={[...invoices]}
+        rowKey={(inv) => inv.id}
+        page={page}
+        pageCount={Math.max(1, Math.ceil(total / pageSize))}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
+        }}
+        loading={query.isFetching}
+      />
     </div>
   );
 }
@@ -499,7 +512,7 @@ function CustomerDetail({ customer, onBack, onEdit }: { customer: CustomerDTO; o
             </div>
           ),
         },
-        { key: "invoices", label: t("customers.tab.invoices"), content: <CustomerInvoicesTab customerId={customer.id} /> },
+        { key: "invoices", label: t("customers.tab.invoices"), content: <CustomerInvoicesTab key={customer.id} customerId={customer.id} /> },
         { key: "statement", label: t("customers.tab.statement"), content: <PartyStatementTab kind="customer" partyId={customer.id} /> },
         { key: "installments", label: t("customers.tab.installments"), content: <CustomerInstallmentsTab customerId={customer.id} /> },
         { key: "returns", label: t("customers.tab.returns"), content: <CustomerReturnsTab customerId={customer.id} /> },

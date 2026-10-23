@@ -5878,6 +5878,7 @@ const webAr = {
   // branches
   "branches.bank": "بنكي",
   "branches.employed": "على رأس العمل",
+  "branches.activityShowsLatest": "يعرض أحدث {count} مستند من كل نوع",
   "branches.branchSalesLiveInvoices": "مبيعات الفرع (فواتير سارية)",
   "branches.invoice": "فاتورة",
   "branches.branchPurchasesConfirmedInvoices": "مشتريات الفرع (فواتير مؤكدة)",
@@ -15967,6 +15968,7 @@ const webEn: Record<WebTranslationKey, string> = {
   // branches
   "branches.bank": "Bank",
   "branches.employed": "Employed",
+  "branches.activityShowsLatest": "Showing the latest {count} of each document kind",
   "branches.branchSalesLiveInvoices": "Branch sales (live invoices)",
   "branches.invoice": "invoice",
   "branches.branchPurchasesConfirmedInvoices": "Branch purchases (confirmed invoices)",

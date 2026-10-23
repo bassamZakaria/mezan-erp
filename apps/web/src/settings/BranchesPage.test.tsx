@@ -52,6 +52,9 @@ function renderScreen(
     assets?: AssetDTO[];
     assetCategories?: { id: string; nameAr: string }[];
     employeesStatus?: number;
+    asked?: string[];
+    salesInvoices?: unknown[];
+    vouchers?: unknown[];
   } = {},
 ) {
   let current = [...branches];
@@ -66,9 +69,12 @@ function renderScreen(
     "GET /hr/employees": () => ({ status: opts.employeesStatus ?? 200, body: opts.employees ?? [] }),
     "GET /assets": () => ({ body: opts.assets ?? [] }),
     "GET /assets/categories": () => ({ body: opts.assetCategories ?? [] }),
-    "GET /sales-invoices": () => ({ body: [] }),
-    "GET /purchases/invoices": () => ({ body: [] }),
-    "GET /vouchers": () => ({ body: [] }),
+    "GET /sales-invoices": (_init, path) => (opts.asked?.push(path), { body: opts.salesInvoices ?? [] }),
+    "GET /sales-invoices/stats": (_init, path) => (opts.asked?.push(path), { body: { count: 7, sales: "12345.670000", collected: "0", returned: "0", remaining: "0", overdueCount: 0, overdue: "0", dueSoonCount: 0, dueSoon: "0" } }),
+    "GET /purchases/invoices": (_init, path) => (opts.asked?.push(path), { body: [] }),
+    "GET /purchases/invoices/stats": (_init, path) => (opts.asked?.push(path), { body: { count: 3, purchases: "2222.500000", paid: "0", unpaid: "0" } }),
+    "GET /vouchers": (_init, path) => (opts.asked?.push(path), { body: opts.vouchers ?? [] }),
+    "GET /vouchers/stats": (_init, path) => (opts.asked?.push(path), { body: { count: 9, confirmed: 5, standing: 5, needsAllocation: 0, draft: 0, receipts: "900.000000", payments: "150.250000", net: "749.750000", unallocated: "0" } }),
     "GET /treasury-accounts": () => ({ body: [] }),
     "POST /branches": (init) => {
       const body = JSON.parse((init?.body as string) ?? "{}");
@@ -132,6 +138,50 @@ describe("BranchesPage", () => {
     fireEvent.click(screen.getByRole("tab", { name: "المخزون" }));
     // المخزون now reads the branch's linked warehouses for real, instead of a "قريباً" stub.
     expect(screen.getByText("لا توجد مستودعات مرتبطة بهذا الفرع")).toBeInTheDocument();
+  });
+
+  it("reads the branch KPIs from the server's branch-filtered totals, never from every document", async () => {
+    const asked: string[] = [];
+    renderScreen(sampleBranches, { asked });
+    fireEvent.click(await screen.findByText("MAIN"));
+
+    expect(await screen.findByText("12,345.67")).toBeInTheDocument();
+    expect(screen.getByText("2,222.50")).toBeInTheDocument();
+    expect(await screen.findByText("749.75")).toBeInTheDocument();
+    expect(screen.getByText(/^7\s/)).toBeInTheDocument();
+    expect(screen.getByText(/^3\s/)).toBeInTheDocument();
+    expect(screen.getByText(/^5\s/)).toBeInTheDocument();
+
+    const paths = asked.map((path) => path.split("?")[0]);
+    expect(paths.sort()).toEqual(["/purchases/invoices/stats", "/sales-invoices/stats", "/vouchers/stats"]);
+    for (const path of asked) expect(new URLSearchParams(path.split("?")[1]).get("branchId")).toBe("b1");
+  });
+
+  it("builds the activity tab from one bounded page of each document kind for this branch", async () => {
+    const asked: string[] = [];
+    renderScreen(sampleBranches, {
+      asked,
+      salesInvoices: [{ id: "si-1", docNo: "INV-000042", date: "2026-08-20", branchId: "b1", customerNameAr: "عميل", baseGrandTotal: "1310.900000", totals: { grandTotal: "1310.900000" } }],
+      vouchers: [{ id: "cv-1", docNo: "CV-000007", date: "2026-08-21", branchId: "b1", direction: "receipt", memo: "", baseAmount: "250.500000" }],
+    });
+    fireEvent.click(await screen.findByText("MAIN"));
+    fireEvent.click(screen.getByRole("tab", { name: "النشاط" }));
+
+    expect(await screen.findByText("INV-000042")).toBeInTheDocument();
+    expect(screen.getByText("1,310.90")).toBeInTheDocument();
+    expect(screen.getByText("250.50")).toBeInTheDocument();
+    const rows = within(screen.getByText("INV-000042").closest("tbody")!).getAllByRole("row");
+    expect(within(rows[0]!).getByText("CV-000007")).toBeInTheDocument();
+
+    const lists = asked.filter((path) => !path.split("?")[0]!.endsWith("/stats"));
+    expect(lists.map((path) => path.split("?")[0]).sort()).toEqual(["/purchases/invoices", "/sales-invoices", "/vouchers"]);
+    for (const path of lists) {
+      const query = new URLSearchParams(path.split("?")[1]);
+      expect(query.get("branchId")).toBe("b1");
+    }
+    expect(Object.fromEntries(new URLSearchParams(lists.find((path) => path.startsWith("/sales-invoices"))!.split("?")[1]))).toEqual({
+      branchId: "b1", page: "1", pageSize: "25", sort: "docNo", sortDir: "desc",
+    });
   });
 
   it("returns to the list from the detail view", async () => {

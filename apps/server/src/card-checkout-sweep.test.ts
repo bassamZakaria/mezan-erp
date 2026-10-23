@@ -41,7 +41,7 @@ describe("startCardCheckoutSweepTimer", () => {
     await vi.advanceTimersByTimeAsync(0);
     timer.stop();
 
-    expect(seen).toEqual([{ pendingAfterMs: 5, expireAfterMs: 50, budgetMs: 30_000 }]);
+    expect(seen).toEqual([{ pendingAfterMs: 5, expireAfterMs: 50, budgetMs: 20_000 }]);
     expect(results).toEqual([{ ...nothing, examined: 2, paid: 1 }]);
   });
 

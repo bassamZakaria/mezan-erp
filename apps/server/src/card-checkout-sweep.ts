@@ -3,7 +3,7 @@ import type { CardCheckoutService, CardCheckoutSweepOptions, CardCheckoutSweepRe
 
 const SWEEP_INTERVAL_MS = 15 * 60_000;
 // Shutdown awaits a running sweep, so it must end well inside the process's shutdown budget.
-const TIMER_SWEEP_BUDGET_MS = 30_000;
+const TIMER_SWEEP_BUDGET_MS = 20_000;
 
 export interface CardCheckoutSweepTimerOptions extends CardCheckoutSweepOptions {
   readonly intervalMs?: number;

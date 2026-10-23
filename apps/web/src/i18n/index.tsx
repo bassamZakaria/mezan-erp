@@ -1,5 +1,6 @@
 import {
   DEFAULT_LOCALE,
+  ENGLISH_LOCALE,
   I18nProvider,
   loadPersistedLocale,
   mergeCatalogs,
@@ -17,12 +18,9 @@ import { webAr, type WebTranslationKey } from "./catalog";
 export type { Locale };
 export type AppTranslationKey = WebTranslationKey | UiTranslationKey;
 
-const ENGLISH: Locale = "en";
-
 let englishCatalog: TranslationCatalog | null = null;
 let englishLoad: Promise<TranslationCatalog> | null = null;
 
-/** Fetches the English strings once; Arabic ships in the entry bundle, English only when someone asks for it. */
 export function loadEnglishCatalog(): Promise<TranslationCatalog> {
   englishLoad ??= import("./catalog-en").then(
     ({ webEn }) => (englishCatalog = webEn),
@@ -44,14 +42,6 @@ function reportMissingKey(key: string, locale: Locale): void {
   console.error(`[i18n] missing "${locale}" translation for key "${key}" — falling back to Arabic.`);
 }
 
-/**
- * Wraps the app in the locale context; `dir`/`lang` on <html> follow from it.
- *
- * The locale only ever flips once its strings are in hand: a saved English
- * preference renders nothing until the English catalogue arrives, and a switch
- * to English keeps the Arabic screen until then — never English chrome around
- * Arabic text, never a raw key.
- */
 const RELOADED_FOR_CATALOG = "mezan.reloadedForCatalog";
 
 function reloadOnceForNewBuild(): void {
@@ -67,7 +57,7 @@ function reloadOnceForNewBuild(): void {
 export function AppI18nProvider({ children, initialLocale }: { children: ReactNode; initialLocale?: Locale }) {
   const [english, setEnglish] = useState(englishCatalog);
   const [bootLocale, setBootLocale] = useState<Locale>(() => initialLocale ?? loadPersistedLocale() ?? DEFAULT_LOCALE);
-  const waitingForEnglish = bootLocale === ENGLISH && english === null;
+  const waitingForEnglish = bootLocale === ENGLISH_LOCALE && english === null;
 
   useEffect(() => {
     if (!waitingForEnglish) return;
@@ -80,7 +70,7 @@ export function AppI18nProvider({ children, initialLocale }: { children: ReactNo
   const catalogs = useMemo(() => mergeCatalogs(uiCatalogs, { ar: webAr, en: english ?? {} }), [english]);
   const ensureCatalog = useCallback(
     (locale: Locale) =>
-      locale === ENGLISH && english === null
+      locale === ENGLISH_LOCALE && english === null
         ? loadEnglishCatalog().then(setEnglish, (error: unknown) => {
             reloadOnceForNewBuild();
             throw error;

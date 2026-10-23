@@ -34,6 +34,7 @@ export { useTheme, type ThemePreference, type UseThemeResult } from "./hooks/use
 
 export {
   DEFAULT_LOCALE,
+  ENGLISH_LOCALE,
   I18nProvider,
   LOCALES,
   LOCALE_ENDONYM,
@@ -134,7 +135,7 @@ export {
   type DocumentListStatusChip,
   type DocumentListSort,
 } from "./primitives/DocumentList";
-export { ListPager, DEFAULT_PAGE_SIZES, type ListPagerProps } from "./primitives/ListPager";
+export { ListPager } from "./primitives/ListPager";
 
 export {
   DocumentDetail,

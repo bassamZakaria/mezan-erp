@@ -9,15 +9,6 @@ import { useAppTranslation, type AppTranslationKey } from "../../i18n";
 import { EMPTY } from "../../lib/empty";
 
 /**
- * المخزون hub — item counts from `/items/counts`, and stock value + at-risk items
- * from `/reports/inventory/stock-levels/summary`, which runs the SAME row
- * computation as `InventoryStockLevelsReportScreen`'s report rather than
- * re-deriving valuation client-side. No qty/timestamp field exists on `ItemDTO`
- * itself, so the "needs attention" list below is sourced from those rows, not a
- * fabricated "recent items" ordering.
- */
-
-/**
  * NO QUICK ACTIONS. Every destination this overview used to repeat is a chip
  * on the bar above it — أرصدة المخزون، تحويلات، تسويات، الجرد الفعلي — and a
  * button that opens the same screen as a chip two centimetres away is a second

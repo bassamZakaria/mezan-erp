@@ -1,6 +1,6 @@
 import { keepPreviousData, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
-import type { BranchCaveatDTO, StockLevelsSummaryDTO } from "@mezan/contracts";
-import type { ReportChartPoint, ReportFigure, ReportGroupResult, ReportKpiResult, ReportPage, ReportReconciliationResult } from "@mezan/domain";
+import type { BranchCaveatDTO, ReportPageDTO, StockLevelsSummaryDTO } from "@mezan/contracts";
+import type { ReportChartPoint, ReportFigure, ReportGroupResult, ReportKpiResult, ReportReconciliationResult } from "@mezan/domain";
 import { useApi } from "./ApiContext";
 import { ApiError, withSupportCode } from "./hooks";
 import { readReportFieldErrors } from "./report-errors";
@@ -25,9 +25,7 @@ export interface ReportResult<Row> {
   /** The summary strip's figures, computed server-side over the whole result (R21.2). */
   readonly kpis?: readonly ReportKpiResult[];
   readonly branchCaveat?: BranchCaveatDTO | null;
-  /** Present only when a `pageSize` was asked for and the route pages: `rows` is then one page. */
-  readonly page?: ReportPage;
-  /** Over every row, sent with a page so the chart is not drawn from the page alone. */
+  readonly page?: ReportPageDTO;
   readonly chartPoints?: readonly ReportChartPoint[] | null;
 }
 
@@ -43,35 +41,10 @@ function toQueryString(params: Record<string, string>): string {
   return qs ? `?${qs}` : "";
 }
 
-function useReportQuery<Body>(
-  queryKey: readonly unknown[],
-  path: string,
-  enabled: boolean,
-): UseQueryResult<Body, ApiError> {
-  const { t } = useAppTranslation();
-  const { request, session } = useApi();
-  return useQuery<Body, ApiError>({
-    queryKey,
-    enabled: session !== null && enabled,
-    queryFn: async () => {
-      const res = await request(path);
-      if (!res.ok) {
-        const fieldErrors = await readReportFieldErrors(res);
-        throw new ApiError(
-          res.status,
-          fieldErrors?._root ?? withSupportCode(t("reportsApi.theReportCouldNotBe"), res.status, t),
-          fieldErrors,
-        );
-      }
-      return res.json<Body>();
-    },
-  });
-}
-
-function useReportFetcher<Row>(apiRoot: string, apiPath: string) {
+function useReportFetcher<Body>(apiRoot: string, apiPath: string) {
   const { t } = useAppTranslation();
   const { request } = useApi();
-  return async (params: Record<string, string>): Promise<ReportResult<Row>> => {
+  return async (params: Record<string, string>): Promise<Body> => {
     const res = await request(`${apiRoot}${apiPath}${toQueryString(params)}`);
     if (!res.ok) {
       const fieldErrors = await readReportFieldErrors(res);
@@ -81,7 +54,7 @@ function useReportFetcher<Row>(apiRoot: string, apiPath: string) {
         fieldErrors,
       );
     }
-    return res.json<ReportResult<Row>>();
+    return res.json<Body>();
   };
 }
 
@@ -93,7 +66,7 @@ export function useReport<Row>(
 ): UseQueryResult<ReportResult<Row>, ApiError> {
   const { session } = useApi();
   const apiRoot = options.apiRoot ?? "/reports";
-  const fetchReport = useReportFetcher<Row>(apiRoot, apiPath);
+  const fetchReport = useReportFetcher<ReportResult<Row>>(apiRoot, apiPath);
   return useQuery<ReportResult<Row>, ApiError>({
     queryKey: ["reports", apiRoot, reportId, params],
     enabled: session !== null && (options.enabled ?? true),
@@ -102,13 +75,9 @@ export function useReport<Row>(
   });
 }
 
-/**
- * Every row of a report the screen shows one page of — for export. Same cache
- * entry as an unpaged `useReport` with these params.
- */
 export function useReportAllRows<Row>(reportId: string, apiPath: string, apiRoot = "/reports") {
   const queryClient = useQueryClient();
-  const fetchReport = useReportFetcher<Row>(apiRoot, apiPath);
+  const fetchReport = useReportFetcher<ReportResult<Row>>(apiRoot, apiPath);
   return async (params: Record<string, string>): Promise<readonly Row[]> => {
     const result = await queryClient.fetchQuery<ReportResult<Row>, ApiError>({
       queryKey: ["reports", apiRoot, reportId, params],
@@ -118,10 +87,14 @@ export function useReportAllRows<Row>(reportId: string, apiPath: string, apiRoot
   };
 }
 
+const NO_PARAMS: Record<string, string> = {};
+
 export function useStockLevelsSummary(options: { readonly enabled?: boolean } = {}): UseQueryResult<StockLevelsSummaryDTO, ApiError> {
-  return useReportQuery<StockLevelsSummaryDTO>(
-    ["reports", "/reports", "inventory.stock-levels.summary"],
-    "/reports/inventory/stock-levels/summary",
-    options.enabled ?? true,
-  );
+  const { session } = useApi();
+  const fetchSummary = useReportFetcher<StockLevelsSummaryDTO>("/reports", "/inventory/stock-levels/summary");
+  return useQuery<StockLevelsSummaryDTO, ApiError>({
+    queryKey: ["reports", "/reports", "inventory.stock-levels.summary"],
+    enabled: session !== null && (options.enabled ?? true),
+    queryFn: () => fetchSummary(NO_PARAMS),
+  });
 }

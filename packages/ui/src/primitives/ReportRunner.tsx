@@ -175,14 +175,8 @@ export interface ReportRunnerProps<Row> {
   onEntityClick?: (entity: ReportRunnerEntityRef) => void;
   /** Rendered after the table — the drill-down panel lives here. */
   footer?: ReactNode;
-  /**
-   * Set when `result` holds one page of rows. Totals, group subtotals and KPIs
-   * in `result` must still be over the whole result; only the rows are cut.
-   */
   pager?: ReportRunnerPager;
-  /** Every row for export when `result.rows` is only a page. */
   loadAllRows?: () => Promise<readonly Row[]>;
-  /** Shows every row (not just the current page) before printing; the returned function restores the page. */
   showAllRowsForPrint?: () => Promise<() => void>;
   className?: string;
 }

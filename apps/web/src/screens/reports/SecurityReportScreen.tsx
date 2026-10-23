@@ -1,11 +1,13 @@
-import { useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { ReportRunner, type ReportRunnerColumn, type ReportRunnerParamField } from "@mezan/ui";
-import type { ReportCoverageDTO, ReportGapDTO } from "@mezan/contracts";
-import { REPORT_PAGE_SIZE, useReport, useReportAllRows } from "../../data/reports-hooks";
-import type { ReportPage } from "@mezan/domain";
+import type { ReportCoverageDTO, ReportGapDTO, ReportPageDTO } from "@mezan/contracts";
+import { useReport } from "../../data/reports-hooks";
+import { useReportPaging } from "./useReportPaging";
 import { useAppTranslation, type AppTranslationKey } from "../../i18n";
 import { tryReportLabel } from "../../report-labels";
 import { WEB_TRANSLATION_KEYS } from "../../i18n/catalog";
+
+const SECURITY_REPORTS_ROOT = "/security-reports";
 
 /** One of the four exception reports this shell renders, keyed the way `securityReports.<report>.*` i18n keys are. */
 export type SecurityReportKey = "exceptions" | "postPosting" | "afterHours" | "newAccounts" | "sod";
@@ -56,7 +58,7 @@ export interface SecurityReportResult<Row> {
   readonly kpis?: readonly { readonly key: string; readonly labelAr: string; readonly value: number; readonly tone?: string }[];
   readonly coverage?: ReportCoverageDTO;
   readonly gaps?: readonly ReportGapDTO[];
-  readonly page?: ReportPage;
+  readonly page?: ReportPageDTO;
 }
 
 export interface SecurityReportScreenProps<Row> {
@@ -86,21 +88,13 @@ export function SecurityReportScreen<Row>({
   renderContext,
 }: SecurityReportScreenProps<Row>) {
   const { t } = useAppTranslation();
-  const [params, setParams] = useState<Record<string, string>>(defaultParams);
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(REPORT_PAGE_SIZE);
-  const [everyRow, setEveryRow] = useState(false);
-  const changeParams = (next: Record<string, string>) => {
-    setParams(next);
-    setPage(1);
-  };
-  const query = useReport<Row>(
+  const { params, setParams, requestParams, runnerProps } = useReportPaging<Row>(() => defaultParams, {
     reportId,
     apiPath,
-    everyRow ? params : { ...params, page: String(page), pageSize: String(pageSize) },
-    { apiRoot: "/security-reports", keepPrevious: true },
-  );
-  const loadAllRows = useReportAllRows<Row>(reportId, apiPath, "/security-reports");
+    apiRoot: SECURITY_REPORTS_ROOT,
+    paged: true,
+  });
+  const query = useReport<Row>(reportId, apiPath, requestParams, { apiRoot: SECURITY_REPORTS_ROOT, keepPrevious: true });
 
   const raw = (query.data ?? null) as SecurityReportResult<Row> | null;
   const result = raw
@@ -133,7 +127,7 @@ export function SecurityReportScreen<Row>({
       description={description}
       paramFields={paramFields}
       params={params}
-      onParamsChange={changeParams}
+      onParamsChange={setParams}
       fieldErrors={query.error?.fieldErrors}
       onRun={() => query.refetch()}
       loading={query.isFetching}
@@ -141,30 +135,7 @@ export function SecurityReportScreen<Row>({
       columns={columns}
       rowKey={rowKey}
       exportBaseFilename={reportId}
-      pager={
-        raw?.page
-          ? {
-              page: raw.page.page,
-              pageSize: raw.page.pageSize,
-              totalRows: raw.page.totalRows,
-              onPageChange: setPage,
-              onPageSizeChange: (size) => {
-                setPageSize(size);
-                setPage(1);
-              },
-            }
-          : undefined
-      }
-      loadAllRows={raw?.page ? () => loadAllRows(params) : undefined}
-      showAllRowsForPrint={
-        raw?.page
-          ? async () => {
-              await loadAllRows(params);
-              setEveryRow(true);
-              return () => setEveryRow(false);
-            }
-          : undefined
-      }
+      {...runnerProps(raw?.page)}
       chart={
         <div className="grid gap-[10px]">
           {coverage?.truncated ? (

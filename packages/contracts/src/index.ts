@@ -10,7 +10,9 @@ export {
   MAX_PAGE_SIZE,
   pageQuerySchema,
   pageWindow,
+  reportPageSchema,
   type PageQueryDTO,
+  type ReportPageDTO,
 } from "./paging.js";
 
 export {
@@ -1736,6 +1738,7 @@ export {
   ApprovalRequestScope,
   approvalRequestListQuerySchema,
   type ApprovalRequestListQueryDTO,
+  type ApprovalRequestCountsDTO,
   type GateStepDTO,
   type WorkflowConfigDTO,
   type CreateWorkflowConfigDTO,
@@ -1801,7 +1804,6 @@ export {
   type AgingSuppliersReportDTO,
 } from "./aging.js";
 export {
-  stockLevelsAttentionRowSchema,
   stockLevelsSummarySchema,
   StockLevelStatusDTO,
   type StockLevelsAttentionRowDTO,

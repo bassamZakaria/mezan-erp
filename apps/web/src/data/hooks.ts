@@ -318,7 +318,7 @@ import type {
   SkipRecurringJournalOccurrenceDTO,
 } from "@mezan/contracts";
 import { DashboardRequest, ScreenRequest, ShellModuleRequest, ShellRequest, mayAskDashboard, mayAskShellModuleRequest, type DisplaySettingKey } from "@mezan/domain";
-import { ApprovalRequestScope, MAX_PAGE_SIZE, TenantResolveMode, type PlatformResolveDTO } from "@mezan/contracts";
+import { ApprovalRequestScope, MAX_PAGE_SIZE, type ApprovalRequestCountsDTO, TenantResolveMode, type PlatformResolveDTO } from "@mezan/contracts";
 import { UserStatusCode } from "@mezan/domain";
 import { useApi } from "./ApiContext";
 import { sessionHolds, sessionMayAsk, sessionMayAskScreen } from "./session";
@@ -8177,11 +8177,9 @@ export function usePendingApprovals(): UseQueryResult<ApprovalRequestDTO[], ApiE
 export interface ApprovalRequestListFilter {
   readonly search?: string;
   readonly actionType?: string;
-  readonly page?: number;
-  readonly pageSize?: number;
 }
 
-function approvalRequestParams(filter: ApprovalRequestListFilter): string {
+function approvalRequestParams(filter: ApprovalRequestListFilter & { readonly page?: number; readonly pageSize?: number }): string {
   const params = new URLSearchParams();
   if (filter.search) params.set("search", filter.search);
   if (filter.actionType) params.set("actionType", filter.actionType);
@@ -8208,17 +8206,16 @@ export function useApprovalRequestPage(
   });
 }
 
-export function useApprovalRequestCounts(filter: ApprovalRequestListFilter = {}): UseQueryResult<ListCountsDTO, ApiError> {
+export function useApprovalRequestCounts(filter: ApprovalRequestListFilter = {}): UseQueryResult<ApprovalRequestCountsDTO, ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
-  const { page: _page, pageSize: _pageSize, ...rest } = filter;
-  return useQuery<ListCountsDTO, ApiError>({
-    queryKey: ["workflow-requests", "counts", rest],
+  return useQuery<ApprovalRequestCountsDTO, ApiError>({
+    queryKey: ["workflow-requests", "counts", filter],
     enabled: session !== null,
     queryFn: async () => {
-      const res = await request(`/workflow/requests/counts${approvalRequestParams(rest)}`);
+      const res = await request(`/workflow/requests/counts${approvalRequestParams(filter)}`);
       if (!res.ok) throw await loaderError(res, t("api.pendingApprovalsCouldNotBe"), t);
-      return res.json<ListCountsDTO>();
+      return res.json<ApprovalRequestCountsDTO>();
     },
   });
 }

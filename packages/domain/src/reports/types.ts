@@ -203,7 +203,7 @@ export interface ReportKpiResult {
  * it.
  */
 export interface ReportChartSpec {
-  /** Omitted with `source: "groups"` — the point's name is the section's own label. */
+  /** Omitted with `source: ReportChartSource.Groups` — the point's name is the section's own label. */
   readonly labelColumn?: string;
   readonly valueColumn: string;
   /** Charting fifty rows produces a hairbrush; the top slice is the readable part. */
@@ -218,7 +218,7 @@ export interface ReportChartSpec {
    * the balance sheet's answer is "assets versus liabilities and equity", not
    * "the eight largest ledger accounts".
    */
-  readonly source?: "rows" | "groups";
+  readonly source?: ReportChartSource;
   /**
    * Adds the rows up by their label before plotting. A movement report has one
    * row per movement, and forty bars each labelled with the same item name are
@@ -232,6 +232,11 @@ export interface ReportChartSpec {
   readonly slice?: "first" | "last";
 }
 
+export enum ReportChartSource {
+  Rows = "rows",
+  Groups = "groups",
+}
+
 export interface ReportChartPoint {
   readonly key: string;
   readonly label: string;
@@ -239,12 +244,6 @@ export interface ReportChartPoint {
   readonly value: number;
 }
 
-/** The window a paged response carries; `totalRows` counts the whole result. */
-export interface ReportPage {
-  readonly page: number;
-  readonly pageSize: number;
-  readonly totalRows: number;
-}
 
 export interface ReportValidationError {
   readonly field: string;
@@ -277,7 +276,6 @@ export type RunReportOutcome<TParams, Row> =
       readonly grandTotals: Readonly<Record<string, ReportFigure>>;
       readonly reconciliation: ReportReconciliationResult | null;
       readonly kpis: readonly ReportKpiResult[];
-      /** Over the FULL rows, so a paged response can still draw the whole chart. */
       readonly chartPoints: readonly ReportChartPoint[] | null;
     }
   | { readonly ok: false; readonly errors: readonly ReportValidationError[] };

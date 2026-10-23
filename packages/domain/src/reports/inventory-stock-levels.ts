@@ -4,6 +4,7 @@ import type { Item } from "../items/item.js";
 import type { WacSnapshot } from "../inventory/ports.js";
 import type { Warehouse } from "../settings/warehouse.js";
 import type { ReportDefinition } from "./types.js";
+import { StockLevelStatusDTO, type StockLevelsAttentionRowDTO, type StockLevelsSummaryDTO } from "@mezan/contracts";
 import { sumRows, countRows } from "./kpi.js";
 import { itemTypeTracksStock } from "../items/item-type.js";
 import { BRANCH_PARAM_FIELD, branchIdParamSchema, branchOfWarehouse, matchesBranch } from "./branch-filter.js";
@@ -16,8 +17,6 @@ import { ReportParamKind } from "./types.js";
  * cached WAC snapshots (`WacSnapshotRepository`) — the same fast-read cache
  * the costing engine itself serves from.
  */
-
-export type StockLevelStatus = "out" | "low" | "normal";
 
 export interface InventoryStockLevelsContext {
   readonly items: readonly Item[];
@@ -48,24 +47,28 @@ export interface InventoryStockLevelsRow {
   readonly onHand: number;
   readonly averageCost: number;
   readonly value: number;
-  readonly status: StockLevelStatus;
+  readonly status: StockLevelStatusDTO;
 }
 
-const STATUS_LABEL: Record<StockLevelStatus, string> = { out: "نافد", low: "منخفض", normal: "طبيعي" };
+const STATUS_LABEL: Record<StockLevelStatusDTO, string> = {
+  [StockLevelStatusDTO.Out]: "نافد",
+  [StockLevelStatusDTO.Low]: "منخفض",
+  [StockLevelStatusDTO.Normal]: "طبيعي",
+};
 
-export const inventoryStockLevelsParamsSchema = z.object({
+const paramsSchema = z.object({
   warehouseId: z.string(),
   search: z.string(),
   branchId: branchIdParamSchema,
 });
 
-function computeStatus(onHand: number, reorderPoint: number | null): StockLevelStatus {
-  if (onHand <= 0) return "out";
-  if (reorderPoint !== null && onHand <= reorderPoint) return "low";
-  return "normal";
+function computeStatus(onHand: number, reorderPoint: number | null): StockLevelStatusDTO {
+  if (onHand <= 0) return StockLevelStatusDTO.Out;
+  if (reorderPoint !== null && onHand <= reorderPoint) return StockLevelStatusDTO.Low;
+  return StockLevelStatusDTO.Normal;
 }
 
-export interface StockLevelPosition {
+interface StockLevelPosition {
   readonly itemId: string;
   readonly itemNameAr: string;
   readonly itemNameEn: string | null;
@@ -73,10 +76,10 @@ export interface StockLevelPosition {
   readonly warehouseCount: number;
   readonly onHand: Qty;
   readonly value: Money;
-  readonly status: StockLevelStatus;
+  readonly status: StockLevelStatusDTO;
 }
 
-export function computeStockLevelPositions(params: InventoryStockLevelsParams, ctx: InventoryStockLevelsContext): StockLevelPosition[] {
+function computeStockLevelPositions(params: InventoryStockLevelsParams, ctx: InventoryStockLevelsContext): StockLevelPosition[] {
   const search = params.search.trim().toLowerCase();
   const branchOf = branchOfWarehouse(ctx.warehouses);
   const snapshotsByItem = new Map<string, WacSnapshot[]>();
@@ -107,26 +110,9 @@ export function computeStockLevelPositions(params: InventoryStockLevelsParams, c
   return positions.sort((a, b) => a.itemNameAr.localeCompare(b.itemNameAr));
 }
 
-export interface StockLevelsAttentionRow {
-  readonly itemId: string;
-  readonly itemNameAr: string;
-  readonly itemNameEn: string | null;
-  readonly sku: string;
-  readonly onHand: string;
-  readonly status: StockLevelStatus;
-}
-
-export interface InventoryStockLevelsSummary {
-  readonly totalValue: string;
-  readonly needsAttentionCount: number;
-  readonly lowCount: number;
-  readonly attention: readonly StockLevelsAttentionRow[];
-  readonly firstLow: StockLevelsAttentionRow | null;
-}
-
 export const STOCK_LEVELS_ATTENTION_LIMIT = 5;
 
-function attentionRow(position: StockLevelPosition): StockLevelsAttentionRow {
+function attentionRow(position: StockLevelPosition): StockLevelsAttentionRowDTO {
   return {
     itemId: position.itemId,
     itemNameAr: position.itemNameAr,
@@ -137,10 +123,10 @@ function attentionRow(position: StockLevelPosition): StockLevelsAttentionRow {
   };
 }
 
-export function summarizeStockLevels(params: InventoryStockLevelsParams, ctx: InventoryStockLevelsContext): InventoryStockLevelsSummary {
+export function summarizeStockLevels(params: InventoryStockLevelsParams, ctx: InventoryStockLevelsContext): StockLevelsSummaryDTO {
   const positions = computeStockLevelPositions(params, ctx);
-  const needsAttention = positions.filter((p) => p.status !== "normal");
-  const low = positions.filter((p) => p.status === "low");
+  const needsAttention = positions.filter((p) => p.status !== StockLevelStatusDTO.Normal);
+  const low = positions.filter((p) => p.status === StockLevelStatusDTO.Low);
   return {
     totalValue: Money.sum(positions.map((p) => p.value)).toString(),
     needsAttentionCount: needsAttention.length,
@@ -159,7 +145,7 @@ export function createInventoryStockLevelsReport(): ReportDefinition<
     id: "inventory.stock-levels",
     titleAr: "مستويات المخزون",
     descriptionAr: "الأصناف التي تحتاج تدخلاً الآن — الأصناف الأقل من حد إعادة الطلب.",
-    paramsSchema: inventoryStockLevelsParamsSchema,
+    paramsSchema,
     defaultParams: { warehouseId: "", search: "", branchId: "" },
     paramFields: [
       { kind: ReportParamKind.Text, key: "warehouseId", label: "المستودع", placeholder: "معرف المستودع (اتركه فارغاً لكل المستودعات)" },
@@ -180,7 +166,7 @@ export function createInventoryStockLevelsReport(): ReportDefinition<
       { key: "value", labelAr: "إجمالي قيمة المخزون", format: "money", value: (rows) => sumRows(rows, (r) => r.value) },
       { key: "onHand", labelAr: "إجمالي الكميات", format: "qty", value: (rows) => sumRows(rows, (r) => r.onHand) },
       { key: "itemCount", labelAr: "عدد الأصناف", format: "qty", value: (rows) => rows.length },
-      { key: "needsAttention", labelAr: "أصناف تحت حد الطلب", format: "qty", value: (rows) => countRows(rows, (r) => r.status !== "normal"), tone: (value) => (value > 0 ? "danger" : "success") },
+      { key: "needsAttention", labelAr: "أصناف تحت حد الطلب", format: "qty", value: (rows) => countRows(rows, (r) => r.status !== StockLevelStatusDTO.Normal), tone: (value) => (value > 0 ? "danger" : "success") },
     ],
     chart: {
       labelColumn: "itemNameAr",

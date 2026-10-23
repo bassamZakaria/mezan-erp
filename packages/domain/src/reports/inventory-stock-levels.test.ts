@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { StockLevelStatusDTO } from "@mezan/contracts";
 import { Money, Qty } from "../money/index.js";
 import { runReport } from "./engine.js";
 import { createInventoryStockLevelsReport, summarizeStockLevels, STOCK_LEVELS_ATTENTION_LIMIT } from "./inventory-stock-levels.js";
@@ -48,7 +49,7 @@ describe("createInventoryStockLevelsReport", () => {
     const outcome = runReport(definition, { warehouseId: "", search: "" }, { items: [item({ reorderPoint: 20 })], snapshots: [snapshot({ onHand: Qty.fromMajor("10") })] });
     expect(outcome.ok).toBe(true);
     if (!outcome.ok) return;
-    expect(outcome.rows[0]?.status).toBe("low");
+    expect(outcome.rows[0]?.status).toBe(StockLevelStatusDTO.Low);
   });
 
   it("flags a zero-stock item as out regardless of reorder point", () => {
@@ -56,7 +57,7 @@ describe("createInventoryStockLevelsReport", () => {
     const outcome = runReport(definition, { warehouseId: "", search: "" }, { items: [item()], snapshots: [] });
     expect(outcome.ok).toBe(true);
     if (!outcome.ok) return;
-    expect(outcome.rows[0]?.status).toBe("out");
+    expect(outcome.rows[0]?.status).toBe(StockLevelStatusDTO.Out);
     expect(outcome.rows[0]?.onHand).toBe(0);
   });
 
@@ -78,7 +79,7 @@ describe("createInventoryStockLevelsReport", () => {
     expect(outcome.rows[0]?.warehouseCount).toBe(2);
     expect(outcome.rows[0]?.onHand).toBe(15);
     expect(outcome.rows[0]?.value).toBe(1500);
-    expect(outcome.rows[0]?.status).toBe("normal");
+    expect(outcome.rows[0]?.status).toBe(StockLevelStatusDTO.Normal);
   });
 
   it("filters to a single warehouse when warehouseId is set", () => {
@@ -126,8 +127,8 @@ describe("summarizeStockLevels", () => {
     if (!report.ok) throw new Error("report refused");
     const summary = summarizeStockLevels(params, ctx);
 
-    const notNormal = report.rows.filter((r) => r.status !== "normal");
-    const low = report.rows.filter((r) => r.status === "low");
+    const notNormal = report.rows.filter((r) => r.status !== StockLevelStatusDTO.Normal);
+    const low = report.rows.filter((r) => r.status === StockLevelStatusDTO.Low);
     expect(summary.needsAttentionCount).toBe(report.kpis.find((k) => k.key === "needsAttention")?.value);
     expect(summary.needsAttentionCount).toBe(notNormal.length);
     expect(summary.lowCount).toBe(low.length);
@@ -148,7 +149,7 @@ describe("summarizeStockLevels", () => {
     const report = runReport(createInventoryStockLevelsReport(), params, ctx);
     if (!report.ok) throw new Error("report refused");
     const summary = summarizeStockLevels(params, ctx);
-    expect(summary.needsAttentionCount).toBe(report.rows.filter((r) => r.status !== "normal").length);
+    expect(summary.needsAttentionCount).toBe(report.rows.filter((r) => r.status !== StockLevelStatusDTO.Normal).length);
     expect(Number(summary.totalValue)).toBeCloseTo(Number(report.grandTotals.value), 6);
   });
 

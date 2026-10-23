@@ -7,9 +7,8 @@ import type {
   RunReportOutcome,
   ReportKpiResult,
   ReportFigure,
-  ReportPage,
 } from "./types.js";
-import { z } from "zod";
+import { pageQuerySchema, type ReportPageDTO } from "@mezan/contracts";
 import { sumRows } from "./kpi.js";
 import { reportChartPoints } from "./chart-points.js";
 import { Money } from "../money/index.js";
@@ -227,11 +226,8 @@ export function runReport<TParams, Row, Ctx>(
   return { ok: true, params: validated.params, rows, groups, grandTotals, reconciliation, kpis, chartPoints };
 }
 
-export const MAX_REPORT_PAGE_SIZE = 500;
-
-const reportPageQuerySchema = z.object({
-  page: z.coerce.number().int().min(1).default(1),
-  pageSize: z.coerce.number().int().min(1).max(MAX_REPORT_PAGE_SIZE).optional(),
+const reportPageQuerySchema = pageQuerySchema.extend({
+  pageSize: pageQuerySchema.shape.pageSize.removeDefault().optional(),
 });
 
 /** `pageSize` absent means the caller wants every row, as before paging existed. */
@@ -246,15 +242,10 @@ export function readReportPage(
   return { ok: true, window: pageSize === undefined ? null : { page, pageSize } };
 }
 
-/**
- * Cuts one page out of the rows in TABLE order — group by group — and keeps
- * every group's own totals, which were computed over the full set. A group
- * with no row on this page is left out of it.
- */
 export function pageReportGroups<G extends { readonly rows: readonly unknown[] }>(
   groups: readonly G[],
   window: { readonly page: number; readonly pageSize: number },
-): { groups: G[]; rows: G["rows"][number][]; page: ReportPage } {
+): { groups: G[]; rows: G["rows"][number][]; page: ReportPageDTO } {
   const start = (window.page - 1) * window.pageSize;
   const end = start + window.pageSize;
   const pagedGroups: G[] = [];

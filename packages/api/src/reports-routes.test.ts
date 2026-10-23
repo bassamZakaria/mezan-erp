@@ -2561,7 +2561,14 @@ describe("reports routes — paging (pageSize/page)", () => {
     return harness;
   }
 
-  type Body = { rows: { itemId: string }[]; groups: { rows: unknown[]; totals: unknown }[]; grandTotals: unknown; kpis: unknown; page?: unknown; chartPoints?: unknown };
+  type Body = {
+    rows: { itemId: string; itemNameAr: string }[];
+    groups: { rows: unknown[]; totals: unknown }[];
+    grandTotals: unknown;
+    kpis: unknown;
+    page?: unknown;
+    chartPoints?: { label: string }[] | null;
+  };
 
   it("cuts only the rows; totals, KPIs and the chart stay over the whole result", async () => {
     const { app } = await sevenItems();
@@ -2578,7 +2585,8 @@ describe("reports routes — paging (pageSize/page)", () => {
     expect(paged.groups[0]?.totals).toEqual(full.groups[0]?.totals);
     expect(paged.grandTotals).toEqual(full.grandTotals);
     expect(paged.kpis).toEqual(full.kpis);
-    expect(Array.isArray(paged.chartPoints)).toBe(true);
+    expect(paged.rows).toHaveLength(3);
+    expect(paged.chartPoints?.map((point) => point.label)).toEqual(full.rows.map((row) => row.itemNameAr));
   });
 
   it("refuses a page size above the server's cap", async () => {

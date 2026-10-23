@@ -177,7 +177,11 @@ describe("ApprovalsInboxScreen — طلباتي and إجراءاتي are paged o
     const asked: string[] = [];
     const transport = stubTransport({
       "GET /workflow/requests/pending": () => ({ body: [] }),
-      "GET /workflow/requests/counts": () => ({ body: { mine: total, acted: 3 } }),
+      "GET /workflow/requests/counts": (_init, path) => {
+        const query = new URLSearchParams(path.split("?")[1]);
+        const filtered = query.has("search") || query.has("actionType");
+        return { body: filtered ? { mine: 1, acted: 0 } : { mine: total, acted: 3 } };
+      },
       "GET /workflow/requests/mine": (_init, path) => {
         asked.push(path);
         const page = Number(new URLSearchParams(path.split("?")[1]).get("page") ?? "1");
@@ -210,5 +214,17 @@ describe("ApprovalsInboxScreen — طلباتي and إجراءاتي are paged o
     await screen.findByText("طلب صفحة 1");
     fireEvent.change(screen.getByPlaceholderText("بحث بنوع الإجراء أو التفاصيل…"), { target: { value: "INV-9" } });
     await vi.waitFor(() => expect(asked.at(-1)).toBe(`/workflow/requests/mine?search=INV-9&page=1&pageSize=25`));
+  });
+
+  it("keeps the tab totals unfiltered while the pager follows the filtered count", async () => {
+    const { transport } = mineTransport(60);
+    renderWithProviders(<ApprovalsInboxScreen />, { transport, initialSession: testAdminSession });
+    fireEvent.click(await screen.findByRole("tab", { name: /طلباتي.*60/ }));
+    await screen.findByText("طلب صفحة 1");
+    expect(screen.getByRole("button", { name: "2" })).toBeInTheDocument();
+    fireEvent.change(screen.getByPlaceholderText("بحث بنوع الإجراء أو التفاصيل…"), { target: { value: "INV-9" } });
+    await vi.waitFor(() => expect(screen.queryByRole("button", { name: "2" })).toBeNull());
+    expect(screen.getByRole("tab", { name: /طلباتي.*60/ })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /إجراءاتي.*3/ })).toBeInTheDocument();
   });
 });

@@ -39,6 +39,7 @@ import {
   approvalRequestListQuerySchema,
   ApprovalRequestScope,
   type ApprovalRequestListQueryDTO,
+  type ApprovalRequestCountsDTO,
 } from "@mezan/contracts";
 import { type AuthContextResolver, callerRoleCodes, createAnyPermissionGate, createPermissionGate, getAuthContext, permissionDeniedBody, roleCodesOf } from "./permission-gate.js";
 import { recordAdminEvent } from "./admin-audit.js";
@@ -347,10 +348,11 @@ export function createWorkflowRoutes(
     const parsed = listQueryOf(c);
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     const query = parsed.data;
-    const counts: Record<string, number> = {};
-    for (const scope of Object.values(ApprovalRequestScope)) {
-      counts[scope] = (await filteredRequests(c, scope, query)).total;
-    }
+    const [mine, acted] = await Promise.all([
+      filteredRequests(c, ApprovalRequestScope.Mine, query),
+      filteredRequests(c, ApprovalRequestScope.Acted, query),
+    ]);
+    const counts: ApprovalRequestCountsDTO = { [ApprovalRequestScope.Mine]: mine.total, [ApprovalRequestScope.Acted]: acted.total };
     return c.json(counts);
   });
 

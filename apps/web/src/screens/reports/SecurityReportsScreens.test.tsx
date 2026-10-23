@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { describe, expect, it } from "vitest";
-import { screen, waitFor } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { ExceptionsReportScreen } from "./ExceptionsReportScreen";
 import { PostPostingChangesReportScreen } from "./PostPostingChangesReportScreen";
 import { AfterHoursReportScreen } from "./AfterHoursReportScreen";
@@ -236,5 +236,76 @@ describe("the four exception-report screens", () => {
     });
     renderWithProviders(<NewAccountsReportScreen />, { transport, initialSession: testAdminSession });
     await waitFor(() => expect(screen.getByText("لا توجد بيانات لعرضها.")).toBeInTheDocument());
+  });
+});
+
+describe("SecurityReportScreen — a paged report", () => {
+  const afterHoursRow = (n: number) => ({
+    rowKey: `ah-${n}`,
+    localDate: "2026-03-07",
+    localTime: "22:00",
+    weekday: 6,
+    outsideReason: "after_hours",
+    actor: `مستخدم-${n}`,
+    action: "LOGIN",
+    entityType: "user",
+    entityId: `u-${n}`,
+    branchId: "br-1",
+  });
+  const allRows = [1, 2, 3].map(afterHoursRow);
+
+  function pagedTransport() {
+    const paths: string[] = [];
+    const transport = stubTransport({
+      "GET /security-reports/after-hours": (_init, requested) => {
+        paths.push(requested);
+        const query = new URLSearchParams(requested.split("?")[1]);
+        if (!query.has("pageSize")) return { body: envelope(allRows) };
+        const page = Number(query.get("page"));
+        const rows = [allRows[page - 1] ?? afterHoursRow(page)];
+        return { body: envelope(rows, { grandTotals: { count: 120 }, page: { page, pageSize: Number(query.get("pageSize")), totalRows: 120 } }) };
+      },
+    });
+    return { transport, paths };
+  }
+
+  it("asks for one page and moves to the page clicked", async () => {
+    const { transport, paths } = pagedTransport();
+    renderWithProviders(<AfterHoursReportScreen />, { transport, initialSession: testAdminSession });
+    expect(await screen.findByRole("cell", { name: "مستخدم-1" })).toBeInTheDocument();
+    expect(paths[0]).toContain("page=1");
+    expect(paths[0]).toContain("pageSize=50");
+    fireEvent.click(screen.getByRole("button", { name: "2" }));
+    expect(await screen.findByRole("cell", { name: "مستخدم-2" })).toBeInTheDocument();
+    expect(screen.queryByRole("cell", { name: "مستخدم-1" })).toBeNull();
+  });
+
+  it("prints every row, then returns to the page", async () => {
+    const { transport } = pagedTransport();
+    let printed: string[] = [];
+    const print = vi.spyOn(window, "print").mockImplementation(() => {
+      printed = allRows.map((row) => row.actor).filter((actor) => screen.queryByRole("cell", { name: actor }) !== null);
+    });
+    renderWithProviders(<AfterHoursReportScreen />, { transport, initialSession: testAdminSession });
+    await screen.findByRole("cell", { name: "مستخدم-1" });
+    fireEvent.click(screen.getByRole("button", { name: "طباعة" }));
+    await waitFor(() => expect(print).toHaveBeenCalledTimes(1));
+    expect(printed).toEqual(["مستخدم-1", "مستخدم-2", "مستخدم-3"]);
+    await waitFor(() => expect(screen.queryByRole("cell", { name: "مستخدم-3" })).toBeNull());
+    print.mockRestore();
+  });
+
+  it("exports every row, not just the page on screen", async () => {
+    const { transport } = pagedTransport();
+    let exported: Blob | null = null;
+    Object.assign(URL, { createObjectURL: vi.fn((blob: Blob) => ((exported = blob), "blob:x")), revokeObjectURL: vi.fn() });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
+    renderWithProviders(<AfterHoursReportScreen />, { transport, initialSession: testAdminSession });
+    await screen.findByRole("cell", { name: "مستخدم-1" });
+    fireEvent.click(screen.getByRole("button", { name: "تصدير CSV" }));
+    await waitFor(() => expect(exported).not.toBeNull());
+    const text = await (exported as unknown as Blob).text();
+    for (const row of allRows) expect(text).toContain(row.actor);
+    click.mockRestore();
   });
 });

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
+import { MAX_PAGE_SIZE } from "@mezan/contracts";
 import { computeReportGroups, pageReportGroups, readReportPage, runReport } from "./engine.js";
 import type { ReportDefinition } from "./types.js";
 
@@ -73,7 +74,7 @@ describe("readReportPage", () => {
 
   it("defaults the page to 1 and refuses a size past the cap or a non-integer", () => {
     expect(readReportPage({ pageSize: "50" })).toEqual({ ok: true, window: { page: 1, pageSize: 50 } });
-    expect(readReportPage({ pageSize: "501" }).ok).toBe(false);
+    expect(readReportPage({ pageSize: String(MAX_PAGE_SIZE + 1) }).ok).toBe(false);
     expect(readReportPage({ pageSize: "10", page: "0" }).ok).toBe(false);
     expect(readReportPage({ pageSize: "abc" }).ok).toBe(false);
   });

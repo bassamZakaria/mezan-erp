@@ -1,4 +1,5 @@
 import { DOMAIN_EVENT_CATALOG, renderTemplate } from "@mezan/domain";
+import { ENGLISH_LOCALE } from "@mezan/ui";
 import type { NotificationDTO } from "@mezan/contracts";
 import { loadedEnglishCatalog, type AppTranslationKey } from "../i18n";
 import { WEB_TRANSLATION_KEYS, webAr } from "../i18n/catalog";
@@ -11,7 +12,6 @@ interface NotificationText {
   readonly body: string;
 }
 
-const ENGLISH = "en";
 const BODY_PARTS_SEPARATOR = " — ";
 const WELL_KNOWN_FIELDS: readonly { readonly field: string; readonly key: AppTranslationKey }[] = [
   { field: "documentNumber", key: "notifications.part.documentNumber" },
@@ -41,7 +41,7 @@ function composedBody(notification: NotificationDTO, eventLabel: string, t: Tran
 
 export function notificationText(notification: NotificationDTO, locale: string, t: Translate): NotificationText {
   const english = loadedEnglishCatalog();
-  if (locale !== ENGLISH || english === null) return { title: notification.title, body: notification.body };
+  if (locale !== ENGLISH_LOCALE || english === null) return { title: notification.title, body: notification.body };
   const arabic: Readonly<Record<string, string>> = webAr;
   const { payload } = notification;
   const definition = definitionOf(notification.eventCode);

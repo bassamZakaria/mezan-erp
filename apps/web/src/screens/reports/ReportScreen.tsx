@@ -1,13 +1,13 @@
 import { useMemo, useState, type ReactNode } from "react";
-import { ReportChart, ReportRunner, type ReportRunnerEntityRef } from "@mezan/ui";
-import type { ReportChartSpec, ReportColumn, ReportParamField } from "@mezan/domain";
-import { REPORT_PAGE_SIZE, useReport, useReportAllRows } from "../../data/reports-hooks";
+import { ENGLISH_LOCALE, ReportChart, ReportRunner, type ReportRunnerEntityRef } from "@mezan/ui";
+import { ReportChartSource, reportChartPoints, type ReportChartSpec, type ReportColumn, type ReportParamField } from "@mezan/domain";
+import { useReport } from "../../data/reports-hooks";
+import { useReportPaging } from "./useReportPaging";
 import { useBranchParam } from "./branch-param";
 import { BranchCaveatNote } from "./BranchCaveatNote";
 import { localizeGroupLabel, localizeReportDefinition, tryReportLabel } from "../../report-labels";
 import { useAppTranslation, type AppTranslationKey } from "../../i18n";
 import type { TranslationParams } from "@mezan/ui";
-import { reportChartPoints } from "./chart-points";
 import { ReportDrillDownPanel } from "./ReportDrillDownPanel";
 
 /**
@@ -65,7 +65,6 @@ export function ReportScreen<TParams extends object, Row>({ definition: rawDefin
   const { t, locale } = useAppTranslation();
   const definition = localizeReportDefinition(rawDefinition, t);
   const onDemand = onDemandOverride ?? definition.onDemand ?? false;
-  const [params, setParams] = useState<Record<string, string>>(() => toStringParams(definition.defaultParams));
   // On-demand reports (heavy ledger dumps) don't fetch until the user clicks عرض التقرير.
   const [hasRun, setHasRun] = useState<boolean>(!onDemand);
   const [drillEntity, setDrillEntity] = useState<ReportRunnerEntityRef | null>(null);
@@ -75,16 +74,13 @@ export function ReportScreen<TParams extends object, Row>({ definition: rawDefin
   // The other roots answer with their own contracts and send every row; the
   // VAT summary adds up `rows` itself, so it must see all of them.
   const paged = apiRoot === undefined && renderSummary === undefined;
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(REPORT_PAGE_SIZE);
-  const [everyRow, setEveryRow] = useState(false);
-  const changeParams = (next: Record<string, string>) => {
-    setParams(next);
-    setPage(1);
-  };
-  const requestParams = paged && !everyRow ? { ...params, page: String(page), pageSize: String(pageSize) } : params;
+  const { params, setParams, requestParams, runnerProps } = useReportPaging<Row>(() => toStringParams(definition.defaultParams), {
+    reportId: definition.id,
+    apiPath,
+    apiRoot,
+    paged,
+  });
   const query = useReport<Row>(definition.id, apiPath, requestParams, { enabled: hasRun, apiRoot, keepPrevious: paged });
-  const loadAllRows = useReportAllRows<Row>(definition.id, apiPath, apiRoot);
 
   const fieldErrors = query.error?.fieldErrors;
   const raw = query.data ?? null;
@@ -118,6 +114,7 @@ export function ReportScreen<TParams extends object, Row>({ definition: rawDefin
    * A record with no English name keeps the Arabic one: a blank cell is worse
    * than the wrong language, because the row stops being findable.
    */
+  const english = locale === ENGLISH_LOCALE;
   const withReadableNames = <T,>(rows: readonly T[]): T[] =>
     rows.map((row) => {
       const r = row as Record<string, unknown>;
@@ -138,13 +135,13 @@ export function ReportScreen<TParams extends object, Row>({ definition: rawDefin
     ? null
     : {
         ...raw,
-        rows: locale === "en" ? withReadableNames(raw.rows) : raw.rows,
+        rows: english ? withReadableNames(raw.rows) : raw.rows,
         // The TABLE renders `groups[].rows`, not `rows` — swapping only the top
         // level left the chart in English and the table beneath it in Arabic.
         groups: raw.groups.map((group) => ({
           ...group,
           label: localizeGroupLabel(group.label, t),
-          rows: locale === "en" ? withReadableNames(group.rows) : group.rows,
+          rows: english ? withReadableNames(group.rows) : group.rows,
         })),
       };
 
@@ -152,9 +149,9 @@ export function ReportScreen<TParams extends object, Row>({ definition: rawDefin
     ? raw.chartPoints.map((point) => ({
         ...point,
         label:
-          definition.chart?.source === "groups"
+          definition.chart?.source === ReportChartSource.Groups
             ? localizeGroupLabel(point.label, t)
-            : locale === "en" && point.labelEn
+            : english && point.labelEn
               ? point.labelEn
               : point.label,
       }))
@@ -202,7 +199,7 @@ export function ReportScreen<TParams extends object, Row>({ definition: rawDefin
       notice={query.data?.branchCaveat ? <BranchCaveatNote caveat={query.data.branchCaveat} /> : undefined}
       paramFields={paramFields}
       params={params}
-      onParamsChange={changeParams}
+      onParamsChange={setParams}
       fieldErrors={fieldErrors}
       onDemand={onDemand}
       onRun={() => setHasRun(true)}
@@ -232,37 +229,7 @@ export function ReportScreen<TParams extends object, Row>({ definition: rawDefin
       showGrandTotal={definition.showGrandTotal ?? true}
       exportBaseFilename={definition.id}
       onEntityClick={setDrillEntity}
-      pager={
-        raw?.page
-          ? {
-              page: raw.page.page,
-              pageSize: raw.page.pageSize,
-              totalRows: raw.page.totalRows,
-              onPageChange: setPage,
-              onPageSizeChange: (size) => {
-                setPageSize(size);
-                setPage(1);
-              },
-            }
-          : undefined
-      }
-      showAllRowsForPrint={
-        raw?.page
-          ? async () => {
-              await loadAllRows(params);
-              setEveryRow(true);
-              return () => setEveryRow(false);
-            }
-          : undefined
-      }
-      loadAllRows={
-        raw?.page
-          ? async () => {
-              const rows = await loadAllRows(params);
-              return locale === "en" ? withReadableNames(rows) : rows;
-            }
-          : undefined
-      }
+      {...runnerProps(raw?.page, english ? withReadableNames : undefined)}
       footer={<ReportDrillDownPanel entity={drillEntity} reportParams={raw?.params ?? null} onClose={() => setDrillEntity(null)} />}
     />
   );

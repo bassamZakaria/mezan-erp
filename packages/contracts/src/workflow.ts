@@ -115,3 +115,4 @@ export type ApprovalRequestDTO = z.infer<typeof approvalRequestSchema>;
 export type SubmitApprovalRequestDTO = z.infer<typeof submitApprovalRequestSchema>;
 export type DecideApprovalRequestDTO = z.infer<typeof decideApprovalRequestSchema>;
 export type ApprovalRequestListQueryDTO = z.infer<typeof approvalRequestListQuerySchema>;
+export type ApprovalRequestCountsDTO = Record<ApprovalRequestScope, number>;

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { reportPageSchema } from "./paging.js";
 import { auditEventSchema, auditSeveritySchema, auditStreamSchema } from "./audit.js";
 
 /**
@@ -337,9 +338,7 @@ export const afterHoursReportSchema = z.object({
    * each group's `rows` are cut; every count, total and KPI above is still
    * over the whole result.
    */
-  page: z
-    .object({ page: z.number().int().positive(), pageSize: z.number().int().positive(), totalRows: z.number().int().nonnegative() })
-    .optional(),
+  page: reportPageSchema.optional(),
 });
 
 export const newAccountRowSchema = z.object({

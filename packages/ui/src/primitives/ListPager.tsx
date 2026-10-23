@@ -30,7 +30,6 @@ export interface ListPagerProps {
   className?: string;
 }
 
-/** The pager footer DocumentList and ReportRunner share: summary, rows-per-page, page buttons. */
 export function ListPager({
   page,
   pageCount,

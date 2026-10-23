@@ -1,5 +1,5 @@
 import { sumRows } from "./kpi.js";
-import type { ReportChartPoint, ReportChartSpec, ReportColumn, ReportGroupResult } from "./types.js";
+import { ReportChartSource, type ReportChartPoint, type ReportChartSpec, type ReportColumn, type ReportGroupResult } from "./types.js";
 
 /**
  * Turns a report's `chart` declaration into the points `<ReportChart>` draws.
@@ -36,7 +36,7 @@ export function reportChartPoints<Row>(
   const take = (points: ReportChartPoint[]): ReportChartPoint[] =>
     chart.slice === "last" ? points.slice(Math.max(0, points.length - maxPoints)) : points.slice(0, maxPoints);
 
-  if (chart.source === "groups") {
+  if (chart.source === ReportChartSource.Groups) {
     // A section's own name, not a cell's: the grouping key is rarely a column
     // (the trial balance groups by account type and never prints it), so
     // requiring one here silently produced no chart at all.

@@ -667,6 +667,7 @@ export function useEntitlements(): UseQueryResult<EntitlementsDTO, ApiError> {
 
 export interface QueryGate {
   readonly enabled?: boolean;
+  readonly keepPrevious?: boolean;
 }
 
 export function useDashboardGate(): (request: DashboardRequest) => boolean {
@@ -3199,12 +3200,12 @@ function purchaseInvoiceParams(filter: Partial<PurchaseInvoiceListQueryDTO>): UR
   return params;
 }
 
-export function usePurchaseInvoices(filter: Partial<PurchaseInvoiceListQueryDTO> & { readonly page: number }): UseQueryResult<PurchaseInvoiceDTO[], ApiError> {
+export function usePurchaseInvoices(filter: Partial<PurchaseInvoiceListQueryDTO> & { readonly page: number }, gate: QueryGate = {}): UseQueryResult<PurchaseInvoiceDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<PurchaseInvoiceDTO[], ApiError>({
     queryKey: ["purchase-invoices", filter],
-    placeholderData: keepPreviousData,
+    placeholderData: gate.keepPrevious ? keepPreviousData : undefined,
     enabled: session !== null,
     queryFn: async () => {
       const fail = async (res: TransportResponse): Promise<never> => {
@@ -3304,7 +3305,7 @@ export function useSalesInvoices(filter: Partial<SalesInvoiceListQueryDTO> & { r
   const { request, session } = useApi();
   return useQuery<SalesInvoiceDTO[], ApiError>({
     queryKey: ["sales-invoices", filter],
-    placeholderData: keepPreviousData,
+    placeholderData: gate.keepPrevious ? keepPreviousData : undefined,
     enabled: session !== null && (gate.enabled ?? true),
     queryFn: async () => {
       const fail = async (res: TransportResponse): Promise<never> => {

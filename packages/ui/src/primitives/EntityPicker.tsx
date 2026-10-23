@@ -94,6 +94,10 @@ export function EntityPicker({
       setHighlight((i) => Math.max(i - 1, 0));
     } else if (event.key === "Enter") {
       event.preventDefault();
+      if (!open || (serverMode && query.trim() === "")) {
+        setOpen(true);
+        return;
+      }
       if (stale && !error) {
         setEnterQueued(true);
         return;
@@ -101,6 +105,7 @@ export function EntityPicker({
       const option = filtered[highlight];
       if (option) select(option);
     } else if (event.key === "Escape") {
+      setEnterQueued(false);
       setOpen(false);
     }
   }
@@ -129,9 +134,15 @@ export function EntityPicker({
           setOpen(true);
           setHighlight(0);
         }}
-        onBlur={() => setOpen(false)}
+        onBlur={() => {
+          setEnterQueued(false);
+          setOpen(false);
+        }}
         onChange={(event) => {
-          changeQuery(event.target.value);
+          const typed = event.target.value;
+          const shown = value?.label ?? "";
+          setOpen(true);
+          changeQuery(!open && shown !== "" && typed.startsWith(shown) ? typed.slice(shown.length) : typed);
           setHighlight(0);
         }}
         onKeyDown={handleKeyDown}

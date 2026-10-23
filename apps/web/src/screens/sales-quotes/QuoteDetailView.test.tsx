@@ -121,6 +121,13 @@ describe("QuoteDetailView", () => {
     await waitFor(() => expect(getSendCalled()).toBe(1));
   });
 
+  it("says why it cannot convert when a line's item cannot be read, instead of posting it as a non-stock line", async () => {
+    const { getConvertBody } = renderDetail(quote({ status: "accepted" }), { "GET /items": () => ({ body: [] }) });
+    expect(await screen.findByText("تعذّر تحميل الأصناف.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "إنشاء الفاتورة" })).toBeDisabled();
+    expect(getConvertBody()).toBeNull();
+  });
+
   it("converting blocks with an Arabic message when no warehouse is available/picked", async () => {
     const { getConvertBody } = renderDetail(quote({ status: "accepted" }), { "GET /warehouses": () => ({ body: [] }) });
     await waitFor(() => expect(screen.getByRole("button", { name: "إنشاء الفاتورة" })).toBeEnabled());

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
+import { useState } from "react";
 import { EntityPicker, type EntityPickerOption } from "./EntityPicker";
 
 const options: EntityPickerOption[] = [
@@ -235,6 +236,66 @@ describe("EntityPicker — Arabic search (D114)", () => {
       rerender(picker(fresh, false));
       expect(onChange).toHaveBeenCalledTimes(1);
       expect(onChange).toHaveBeenCalledWith(fresh[0]);
+    });
+
+    function ServerPicker({ onChange, results, loading }: { onChange: (o: EntityPickerOption | null) => void; results: (q: string) => EntityPickerOption[]; loading: (q: string) => boolean }) {
+      const [query, setQuery] = useState("");
+      const [value, setValue] = useState<EntityPickerOption | null>(null);
+      return (
+        <EntityPicker
+          value={value}
+          onChange={(o) => {
+            setValue(o);
+            onChange(o);
+          }}
+          options={results(query)}
+          label="الصنف"
+          onQueryChange={setQuery}
+          loading={loading(query)}
+        />
+      );
+    }
+
+    it("a second scan on the same focus searches only what was scanned, not the previous item's name", () => {
+      const onChange = vi.fn();
+      const catalogue: EntityPickerOption[] = [
+        { id: "a", label: "Alpha 111" },
+        { id: "g", label: "Gamma 333" },
+        { id: "z", label: "Zeta 3" },
+      ];
+      render(<ServerPicker onChange={onChange} results={(q) => catalogue.filter((o) => q !== "" && o.label.includes(q))} loading={() => false} />);
+      const input = screen.getByRole("combobox");
+      fireEvent.focus(input);
+      fireEvent.change(input, { target: { value: "111" } });
+      fireEvent.keyDown(input, { key: "Enter" });
+      expect(input).toHaveValue("Alpha 111");
+      fireEvent.change(input, { target: { value: "Alpha 111333" } });
+      fireEvent.keyDown(input, { key: "Enter" });
+      expect(onChange.mock.calls.map(([o]) => o?.id)).toEqual(["a", "g"]);
+    });
+
+    it("Enter in a closed or empty picker opens it and binds nothing", () => {
+      const onChange = vi.fn();
+      render(<ServerPicker onChange={onChange} results={() => options} loading={() => false} />);
+      const input = screen.getByRole("combobox");
+      fireEvent.focus(input);
+      fireEvent.keyDown(input, { key: "Escape" });
+      fireEvent.keyDown(input, { key: "Enter" });
+      fireEvent.keyDown(input, { key: "Enter" });
+      expect(onChange).not.toHaveBeenCalled();
+    });
+
+    it("Escape cancels an Enter that was waiting for results", () => {
+      const onChange = vi.fn();
+      const picker = (loading: boolean) => <EntityPicker value={null} onChange={onChange} options={options} label="الصنف" onQueryChange={() => {}} loading={loading} />;
+      const { rerender } = render(picker(true));
+      const input = screen.getByRole("combobox");
+      fireEvent.focus(input);
+      fireEvent.change(input, { target: { value: "شركة" } });
+      fireEvent.keyDown(input, { key: "Enter" });
+      fireEvent.keyDown(input, { key: "Escape" });
+      rerender(picker(false));
+      expect(onChange).not.toHaveBeenCalled();
     });
 
     it("announces a failed search instead of an empty one, and Enter does nothing", () => {

@@ -19,7 +19,6 @@ export interface SearchTerm {
   readonly pending: boolean;
 }
 
-/** What to search for, and whether the box has moved on since — while `pending`, any results answer an older query. */
 export function useSearchTerm(query: string): SearchTerm {
   const typed = query.trim();
   const term = useDebounced(typed);

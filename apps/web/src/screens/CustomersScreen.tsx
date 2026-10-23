@@ -230,7 +230,7 @@ function CustomerInvoicesTab({ customerId }: { customerId: string }) {
   const { t } = useAppTranslation();
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(INVOICE_TAB_PAGE_SIZE);
-  const query = useSalesInvoices({ customerId, sort: "docNo", sortDir: "desc", page, pageSize });
+  const query = useSalesInvoices({ customerId, sort: "docNo", sortDir: "desc", page, pageSize }, KEEP_PREVIOUS_PAGE);
   const countsQuery = useSalesInvoiceCounts({ customerId });
   const stats = useSalesInvoiceStats({ customerId, status: SalesInvoiceDerivedFilter.Active });
   const invoices = query.data ?? EMPTY;
@@ -261,7 +261,6 @@ function CustomerInvoicesTab({ customerId }: { customerId: string }) {
     );
   }
 
-  // The stats strip counts every non-draft, non-terminal invoice; «سارية» never included one still awaiting approval.
   const live = [...SALES_INVOICE_ACTIVE_STATUSES].reduce((sum, status) => sum + (counts[status] ?? 0), 0);
   const invoiced = parseMoney(stats.data?.sales);
   const collected = parseMoney(stats.data?.collected);
@@ -522,6 +521,8 @@ function CustomerDetail({ customer, onBack, onEdit }: { customer: CustomerDTO; o
     />
   );
 }
+
+const KEEP_PREVIOUS_PAGE = { keepPrevious: true } as const;
 
 export function CustomersScreen() {
   const { t } = useAppTranslation();

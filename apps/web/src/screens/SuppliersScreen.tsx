@@ -153,7 +153,7 @@ function SupplierInvoicesTab({ supplierId }: { supplierId: string }) {
   const { t } = useAppTranslation();
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(INVOICE_TAB_PAGE_SIZE);
-  const query = usePurchaseInvoices({ supplierId, page, pageSize });
+  const query = usePurchaseInvoices({ supplierId, page, pageSize }, KEEP_PREVIOUS_PAGE);
   const newestQuery = usePurchaseInvoices({ supplierId, sort: PurchaseInvoiceSort.Date, sortDir: "desc", page: 1, pageSize: 1 });
   const countsQuery = usePurchaseInvoiceCounts({ supplierId });
   const statsQuery = usePurchaseInvoiceStats({ supplierId });
@@ -358,6 +358,8 @@ function SupplierDetail({ supplier, onBack, onEdit }: { supplier: SupplierDTO; o
     />
   );
 }
+
+const KEEP_PREVIOUS_PAGE = { keepPrevious: true } as const;
 
 export function SuppliersScreen() {
   const { t } = useAppTranslation();

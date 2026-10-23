@@ -813,7 +813,7 @@ function CreateInvoicePage({
                 <Button variant="primary" disabled={sourceQuoteId === "" || warehouseId === "" || busy || !quoteItemsKnown} onClick={convertSelectedQuote}>
                   {t("salesInvoices.method.convert")}
                 </Button>
-                {quoteItemsQuery.isError ? <p role="alert" className="text-[12px] text-danger-ink">{t("api.itemsCouldNotBeLoaded")}</p> : null}
+                {sourceQuoteId !== "" && !quoteItemsKnown && !quoteItemsQuery.isLoading ? <p role="alert" className="text-[12px] text-danger-ink">{t("api.itemsCouldNotBeLoaded")}</p> : null}
               </>
             )}
           </div>

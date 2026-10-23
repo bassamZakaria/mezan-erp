@@ -352,7 +352,7 @@ export function QuoteDetailView({ quote, onPrint, onBack }: { quote: SalesQuoteR
                     <Button variant="primary" onClick={doConvert} disabled={convert.isPending || !quoteItemsKnown}>
                       {t("quotes.createInvoice")}
                     </Button>
-                    {quoteItems.isError ? <p role="alert" className="text-[12px] text-danger-ink">{t("api.itemsCouldNotBeLoaded")}</p> : null}
+                    {!quoteItemsKnown && !quoteItems.isLoading ? <p role="alert" className="text-[12px] text-danger-ink">{t("api.itemsCouldNotBeLoaded")}</p> : null}
                   </div>
                 ) : null}
                 {quote.status === "converted" ? (

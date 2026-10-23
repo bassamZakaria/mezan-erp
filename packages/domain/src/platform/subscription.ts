@@ -317,13 +317,19 @@ export interface StartSubscriptionCommand {
   readonly intendedPlanId?: string | null;
 }
 
+export const MAX_EXTRA_CAPACITY = 10_000;
+/** A grace period feeds `addDays` when the licence is derived; an unbounded one overflows `Date` and breaks every read of that tenant. */
+export const MAX_GRACE_DAYS = 365;
+
+const isBoundedCount = (n: number, max: number): boolean => isCount(n, 0) && n <= max;
+
 function validateExtras(s: Pick<Subscription, "addOnModules" | "extraSeats" | "extraBranches" | "extraWarehouses" | "graceDays">): string[] {
   const reasons: string[] = [];
   for (const m of s.addOnModules) if (!isKnownModule(m)) reasons.push(`وحدة إضافية غير معروفة "${m}"`);
-  if (!isCount(s.extraSeats, 0)) reasons.push("عدد المقاعد الإضافية يجب أن يكون رقمًا صحيحًا لا يقل عن 0");
-  if (!isCount(s.extraBranches, 0)) reasons.push("عدد الفروع الإضافية يجب أن يكون رقمًا صحيحًا لا يقل عن 0");
-  if (!isCount(s.extraWarehouses, 0)) reasons.push("عدد المخازن الإضافية يجب أن يكون رقمًا صحيحًا لا يقل عن 0");
-  if (!isCount(s.graceDays, 0)) reasons.push("أيام السماح يجب أن تكون رقمًا صحيحًا لا يقل عن 0");
+  if (!isBoundedCount(s.extraSeats, MAX_EXTRA_CAPACITY)) reasons.push(`عدد المقاعد الإضافية يجب أن يكون رقمًا صحيحًا من 0 إلى ${MAX_EXTRA_CAPACITY}`);
+  if (!isBoundedCount(s.extraBranches, MAX_EXTRA_CAPACITY)) reasons.push(`عدد الفروع الإضافية يجب أن يكون رقمًا صحيحًا من 0 إلى ${MAX_EXTRA_CAPACITY}`);
+  if (!isBoundedCount(s.extraWarehouses, MAX_EXTRA_CAPACITY)) reasons.push(`عدد المخازن الإضافية يجب أن يكون رقمًا صحيحًا من 0 إلى ${MAX_EXTRA_CAPACITY}`);
+  if (!isBoundedCount(s.graceDays, MAX_GRACE_DAYS)) reasons.push(`أيام السماح يجب أن تكون رقمًا صحيحًا من 0 إلى ${MAX_GRACE_DAYS}`);
   return reasons;
 }
 
@@ -431,6 +437,32 @@ export async function setBillingAnchorDay(cmd: SetBillingAnchorDayCommand, repo:
   }
   assertFrom(s, [SubscriptionStatusKind.Trialing, SubscriptionStatusKind.Active, SubscriptionStatusKind.PastDue, SubscriptionStatusKind.Suspended], s.status);
   const next: Subscription = { ...s, billingAnchorDay: cmd.day, billingAnchorNeedsReview: false, updatedAt: now };
+  await repo.save(next);
+  return next;
+}
+
+export interface SetSubscriptionExtrasCommand extends SubscriptionCommand {
+  readonly addOnModules: readonly string[];
+  readonly extraSeats: number;
+  readonly extraBranches: number;
+  readonly extraWarehouses: number;
+  readonly graceDays: number;
+}
+
+export async function setSubscriptionExtras(cmd: SetSubscriptionExtrasCommand, repo: SubscriptionRepository): Promise<Subscription> {
+  const s = await load(cmd.id, repo);
+  const now = requireNow(cmd);
+  const extras = {
+    addOnModules: dedupeModules(cmd.addOnModules),
+    extraSeats: cmd.extraSeats,
+    extraBranches: cmd.extraBranches,
+    extraWarehouses: cmd.extraWarehouses,
+    graceDays: cmd.graceDays,
+  };
+  const reasons = validateExtras(extras);
+  if (reasons.length > 0) throw new InvalidSubscriptionError(reasons);
+  assertFrom(s, [SubscriptionStatusKind.Trialing, SubscriptionStatusKind.Active, SubscriptionStatusKind.PastDue, SubscriptionStatusKind.Suspended], s.status);
+  const next: Subscription = { ...s, ...extras, updatedAt: now };
   await repo.save(next);
   return next;
 }

@@ -45,6 +45,7 @@ export function HeroLedger() {
           <p className="text-[13px] text-ink-muted">
             {t("landing.ledger.customer")} · {t("landing.ledger.item")}
           </p>
+          <p className="text-[13px] text-ink-muted">{t("landing.ledger.people")}</p>
         </div>
         <Money value={piastresToDecimal(HERO_SALE.totalPiastres)} className="font-display text-xl font-bold text-ink" />
       </div>

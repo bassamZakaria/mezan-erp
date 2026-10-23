@@ -9,12 +9,16 @@ import { PlansPage } from "./PlansPage";
 import { OperatorsPage } from "./OperatorsPage";
 import { SecurityEventsPage } from "./SecurityEventsPage";
 import { OperationsPage } from "./OperationsPage";
+import { SignupRequestsPage } from "./SignupRequestsPage";
+import { SettingsPage } from "./SettingsPage";
 import { useUnrecordedSecurityEventsQuery } from "./hooks";
 
 const RAIL_ITEMS = [
   { to: "/platform/tenants", labelKey: "platform.nav.tenants" as const },
+  { to: "/platform/signup-requests", labelKey: "platform.nav.signupRequests" as const },
   { to: "/platform/plans", labelKey: "platform.nav.plans" as const },
   { to: "/platform/users", labelKey: "platform.nav.operators" as const },
+  { to: "/platform/settings", labelKey: "platform.nav.settings" as const },
 ];
 
 export function PlatformShell() {
@@ -111,9 +115,11 @@ export function PlatformShell() {
           <Route index element={<Navigate to="/platform/tenants" replace />} />
           <Route path="tenants" element={<TenantsPage />} />
           <Route path="tenants/:id" element={<TenantDetailPage />} />
+          <Route path="signup-requests" element={<SignupRequestsPage />} />
           <Route path="plans" element={<PlansPage />} />
           <Route path="plans/:id" element={<PlanEditor />} />
           <Route path="users" element={<OperatorsPage />} />
+          <Route path="settings" element={<SettingsPage />} />
           <Route path="security" element={<SecurityEventsPage />} />
           <Route path="operations" element={<OperationsPage />} />
         </Routes>

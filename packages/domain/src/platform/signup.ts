@@ -71,6 +71,23 @@ export enum SignupRequestStatus {
   Released = "released",
 }
 
+export enum SignupMode {
+  Open = "open",
+  Approval = "approval",
+  Closed = "closed",
+}
+
+export const DEFAULT_SIGNUP_MODE = SignupMode.Approval;
+
+export function signupModeOf(stored: string | null): SignupMode {
+  return Object.values(SignupMode).find((m) => m === stored) ?? DEFAULT_SIGNUP_MODE;
+}
+
+export enum SignupDecision {
+  Approved = "approved",
+  Rejected = "rejected",
+}
+
 export interface SignupRequest {
   readonly id: string;
   readonly code: string;
@@ -88,11 +105,19 @@ export interface SignupRequest {
   readonly expiresAt: string;
   readonly createdAt: string;
   readonly verifiedAt: string | null;
+  readonly decision?: SignupDecision | null;
+  readonly decidedAt?: string | null;
+  readonly decidedBy?: string | null;
 }
 
 export interface SignupRequestRepository {
   findByTokenHash(tokenHash: string): Promise<SignupRequest | null>;
-  /** A still-pending, unexpired request already holding this code — so two people can't queue for the same code at once. */
+  findById(id: string): Promise<SignupRequest | null>;
+  /** Verified requests nobody has decided, still within their hold, whose code is not another company (a half-made one of their own still counts as waiting), oldest first. */
+  listAwaitingDecision(nowIso: string): Promise<SignupRequest[]>;
+  /** Compare-and-set: records the decision only on a verified, undecided row; false when another decision won. */
+  tryDecide(id: string, decision: SignupDecision, decidedBy: string, nowIso: string): Promise<boolean>;
+  /** A still-pending unexpired request, or a verified one awaiting a decision, already holding this code — so two people can't queue for the same code at once. */
   findActiveByCode(code: string, nowIso: string): Promise<SignupRequest | null>;
   save(request: SignupRequest): Promise<void>;
   /**
@@ -172,6 +197,7 @@ export async function startSignup(
   const plan = await plans.findById(cmd.planId);
   if (!plan || !plan.isPublic || plan.status !== "active") throw new PlanNotFoundError(cmd.planId);
   const intended = cmd.intendedPlanId ? await plans.findById(cmd.intendedPlanId) : null;
+  if (intended?.soldOut) throw new InvalidSignupError(["الباقة المختارة نفدت حاليًا، اختر باقة أخرى"]);
   const intendedPlanId = intended && intended.isPublic && intended.status === "active" ? intended.id : null;
 
   const request: SignupRequest = {
@@ -228,6 +254,7 @@ export async function verifySignup(
   if (request.status === SignupRequestStatus.Verified) {
     const usedAt = new Date(request.verifiedAt ?? request.expiresAt).getTime();
     if (new Date(nowIso).getTime() - usedAt > VERIFIED_LINK_VALID_MS) {
+      if (request.decision !== SignupDecision.Approved && !(await tenants.findByCode(request.code))) throw new SignupTokenExpiredError();
       const tenant = await tenants.findByCode(request.code);
       if (tenant?.status === TenantStatusCode.Provisioning) throw new SignupActivationIncompleteError();
       throw new SignupAlreadyActivatedError();

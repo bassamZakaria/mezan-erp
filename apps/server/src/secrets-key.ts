@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { createHmac, randomBytes } from "node:crypto";
 import { chmodSync, linkSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { createAesGcmSecretBox, type SecretBox } from "@mezan/persistence";
@@ -35,6 +35,15 @@ function keyFromFile(platformDir: string): Buffer {
   return parseKey(readFileSync(file, "utf8"), file);
 }
 
+export function platformKey(envKey: string | undefined, platformDir: string): Buffer {
+  return envKey ? parseKey(envKey, "MEZAN_SECRETS_KEY") : keyFromFile(platformDir);
+}
+
 export function loadSecretBox(envKey: string | undefined, platformDir: string): SecretBox {
-  return createAesGcmSecretBox(envKey ? parseKey(envKey, "MEZAN_SECRETS_KEY") : keyFromFile(platformDir));
+  return createAesGcmSecretBox(platformKey(envKey, platformDir));
+}
+
+/** SECURITY: a separate key per use, derived so that knowing one never reveals the platform key or another use's key. */
+export function derivedKey(key: Buffer, use: string): Buffer {
+  return createHmac("sha256", key).update(use).digest();
 }

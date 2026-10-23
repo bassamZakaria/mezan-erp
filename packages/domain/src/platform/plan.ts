@@ -39,6 +39,7 @@ export interface Plan {
   readonly priceYearly: Money;
   readonly trialDays: number;
   readonly isPublic: boolean;
+  readonly soldOut?: boolean;
   readonly sortOrder: number;
   readonly status: PlanStatus;
   readonly createdAt: string;
@@ -67,12 +68,13 @@ export interface CreatePlanCommand {
   readonly priceYearly: Money;
   readonly trialDays: number;
   readonly isPublic: boolean;
+  readonly soldOut?: boolean;
   readonly sortOrder: number;
   readonly now: string;
 }
 
 export type UpdatePlanCommand = { readonly id: string } & Partial<
-  Pick<Plan, "nameAr" | "nameEn" | "kind" | "modules" | "features" | "seatsIncluded" | "branchesIncluded" | "warehousesIncluded" | "quotas" | "priceMonthly" | "priceYearly" | "trialDays" | "isPublic" | "sortOrder">
+  Pick<Plan, "nameAr" | "nameEn" | "kind" | "modules" | "features" | "seatsIncluded" | "branchesIncluded" | "warehousesIncluded" | "quotas" | "priceMonthly" | "priceYearly" | "trialDays" | "isPublic" | "soldOut" | "sortOrder">
 >;
 
 export type HasLiveSubscribers = (planId: string) => Promise<boolean>;
@@ -95,7 +97,7 @@ export function isFreePlan(plan: Pick<Plan, "kind">): boolean {
 }
 
 function offered(plan: Plan): boolean {
-  return plan.status === "active" && plan.isPublic;
+  return plan.status === PlanStatusCode.Active && plan.isPublic && !plan.soldOut;
 }
 
 export function topPublicPaidPlan(plans: readonly Plan[]): Plan | null {
@@ -154,6 +156,7 @@ export async function createPlan(cmd: CreatePlanCommand, repo: PlanRepository): 
     priceYearly: cmd.priceYearly,
     trialDays: cmd.trialDays,
     isPublic: cmd.isPublic,
+    soldOut: cmd.soldOut ?? false,
     sortOrder: cmd.sortOrder,
   };
   const reasons = validate(draft);
@@ -191,6 +194,7 @@ export async function updatePlan(
     priceYearly: cmd.priceYearly ?? current.priceYearly,
     trialDays: cmd.trialDays ?? current.trialDays,
     isPublic: cmd.isPublic ?? current.isPublic,
+    soldOut: cmd.soldOut ?? current.soldOut ?? false,
     sortOrder: cmd.sortOrder ?? current.sortOrder,
   };
   const reasons = validate(next);

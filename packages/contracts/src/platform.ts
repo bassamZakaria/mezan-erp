@@ -280,15 +280,19 @@ export const provisionResultSchema = z.object({
   adminPin: z.string().regex(/^\d{6}$/, "must be exactly 6 digits").nullable(),
 });
 
+/** Mirrors `MAX_EXTRA_CAPACITY` / `MAX_GRACE_DAYS` in `packages/domain/src/platform/subscription.ts`; `@mezan/contracts` may not import `@mezan/domain`. */
+export const MAX_EXTRA_CAPACITY = 10_000;
+export const MAX_GRACE_DAYS = 365;
+
 export const startSubscriptionRequestSchema = z.object({
   planId: z.string().min(1),
   billingCycle: billingCycleSchema,
   trial: z.boolean().optional(),
-  addOnModules: z.array(moduleIdSchema).optional(),
-  extraSeats: z.number().int().nonnegative().optional(),
-  extraBranches: z.number().int().nonnegative().optional(),
-  extraWarehouses: z.number().int().nonnegative().optional(),
-  graceDays: z.number().int().nonnegative().optional(),
+  addOnModules: z.array(moduleIdSchema).max(100).optional(),
+  extraSeats: z.number().int().nonnegative().max(MAX_EXTRA_CAPACITY).optional(),
+  extraBranches: z.number().int().nonnegative().max(MAX_EXTRA_CAPACITY).optional(),
+  extraWarehouses: z.number().int().nonnegative().max(MAX_EXTRA_CAPACITY).optional(),
+  graceDays: z.number().int().nonnegative().max(MAX_GRACE_DAYS).optional(),
 });
 
 export const changePlanRequestSchema = z.object({
@@ -365,6 +369,14 @@ export const subscriptionSchema = z.object({
 
 export const setBillingAnchorDayRequestSchema = z.object({ day: billingAnchorDaySchema });
 
+export const setSubscriptionExtrasRequestSchema = z.object({
+  addOnModules: z.array(moduleIdSchema).max(100),
+  extraSeats: z.number().int().nonnegative().max(MAX_EXTRA_CAPACITY),
+  extraBranches: z.number().int().nonnegative().max(MAX_EXTRA_CAPACITY),
+  extraWarehouses: z.number().int().nonnegative().max(MAX_EXTRA_CAPACITY),
+  graceDays: z.number().int().nonnegative().max(MAX_GRACE_DAYS),
+});
+
 /** Mirrors the domain's `PlanKind`; `@mezan/contracts` may not import `@mezan/domain`. */
 export const planKindSchema = z.enum(["paid", "free"]);
 /** Mirrors the domain's `QuotaKind`. An absent key is unlimited. */
@@ -389,6 +401,7 @@ export const planSchema = z.object({
   priceYearly: positiveDecimalString,
   trialDays: z.number().int().nonnegative(),
   isPublic: z.boolean(),
+  soldOut: z.boolean().optional(),
   sortOrder: z.number().int(),
   status: planStatusSchema,
   createdAt: isoLikeSchema,
@@ -409,6 +422,7 @@ export const planCreateRequestSchema = z.object({
   priceYearly: positiveDecimalString,
   trialDays: z.number().int().nonnegative(),
   isPublic: z.boolean(),
+  soldOut: z.boolean().optional(),
   sortOrder: z.number().int(),
 });
 
@@ -650,6 +664,7 @@ export type SubscriptionResumeRequestDTO = z.infer<typeof subscriptionResumeRequ
 export type RecordPaymentRequestDTO = z.infer<typeof recordPaymentRequestSchema>;
 export type SubscriptionStatusDTO = z.infer<typeof subscriptionStatusSchema>;
 export type SetBillingAnchorDayRequestDTO = z.infer<typeof setBillingAnchorDayRequestSchema>;
+export type SetSubscriptionExtrasRequestDTO = z.infer<typeof setSubscriptionExtrasRequestSchema>;
 export type SubscriptionDTO = z.infer<typeof subscriptionSchema>;
 export type PlanStatusDTO = z.infer<typeof planStatusSchema>;
 export type PlanKindDTO = z.infer<typeof planKindSchema>;

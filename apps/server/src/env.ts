@@ -64,6 +64,8 @@ export interface CloudEnv {
    */
   readonly platformSmtp?: SmtpConfig;
   readonly supportEmail?: string;
+  readonly supportPhone?: string;
+  readonly whatsappNumber?: string;
   readonly reviewTenant?: ReviewTenantConfig;
   readonly alertEmail?: string;
   // SECURITY: 64 hex characters; seals stored webhook and SMTP secrets. Unset, a key file is generated in the platform dir.
@@ -197,6 +199,21 @@ function parseSupportEmail(value: string | undefined): string | undefined {
   if (email === undefined) return undefined;
   if (!EMAIL_PATTERN.test(email)) throw new Error(`MEZAN_SUPPORT_EMAIL must be an e-mail address, got "${email}"`);
   return email;
+}
+
+/** SECURITY: the token is written into every served page; anything but the beacon's hex token could break out of the attribute. */
+function parseAnalyticsToken(value: string | undefined): string | undefined {
+  const token = trimmedOrUndefined(value);
+  if (token === undefined) return undefined;
+  if (!/^[a-f0-9]{32}$/i.test(token)) throw new Error("MEZAN_ANALYTICS_TOKEN must be the 32-character hex token of the Cloudflare Web Analytics beacon");
+  return token;
+}
+
+function parseWhatsappNumber(value: string | undefined): string | undefined {
+  const digits = trimmedOrUndefined(value)?.replace(/[\s+-]/g, "");
+  if (digits === undefined || digits === "") return undefined;
+  if (!/^\d{8,15}$/.test(digits)) throw new Error(`MEZAN_WHATSAPP_NUMBER must be an international number in digits (e.g. 201001234567), got "${value}"`);
+  return digits;
 }
 
 function parseAlertEmail(value: string | undefined): string | undefined {
@@ -344,14 +361,34 @@ export function parseEnv(env: Record<string, string | undefined> = process.env, 
     tenantRetentionDays: parsePositiveInt(env["MEZAN_TENANT_RETENTION_DAYS"], "MEZAN_TENANT_RETENTION_DAYS", DEFAULT_TENANT_RETENTION_DAYS),
     webDist: env["MEZAN_WEB_DIST"] ?? "./apps/web/dist",
     demoPassword: trimmedOrUndefined(env["MEZAN_DEMO_PASSWORD"]),
-    analyticsToken: trimmedOrUndefined(env["MEZAN_ANALYTICS_TOKEN"]),
+    analyticsToken: parseAnalyticsToken(env["MEZAN_ANALYTICS_TOKEN"]),
     publicLanding: flag(env["MEZAN_PUBLIC_LANDING"]),
     port: parsePositiveInt(env["PORT"], "PORT", 8080),
     paymob: parsePaymob(env, options.paymobTestByDefault ?? false),
     platformSmtp: parsePlatformSmtp(env),
     supportEmail: parseSupportEmail(env["MEZAN_SUPPORT_EMAIL"]),
+    supportPhone: trimmedOrUndefined(env["MEZAN_SUPPORT_PHONE"]),
+    whatsappNumber: parseWhatsappNumber(env["MEZAN_WHATSAPP_NUMBER"]),
     reviewTenant: parseReviewTenant(env),
     alertEmail: parseAlertEmail(env["MEZAN_ALERT_EMAIL"]),
     secretsKey: trimmedOrUndefined(env["MEZAN_SECRETS_KEY"]),
   });
+}
+
+export const MIN_DEMO_PASSWORD_LENGTH = 12;
+
+/** Settings the public server refuses to start with, beyond what parseEnv rejects. The console checks the same list before saving. */
+export function bootRefusals(env: CloudEnv): string[] {
+  const refusals: string[] = [];
+  if (env.seedAdminPin) {
+    refusals.push("MEZAN_SEED_ADMIN_PIN pins the fallback admin to a literal PIN. On a public deploy the PIN must be generated per deploy.");
+  }
+  if (env.paymob.mode === PaymobMode.Test && !env.seedDemo) {
+    refusals.push("MEZAN_PAYMOB_TEST_MODE=1 is only allowed with MEZAN_SEED_DEMO=1. Set the four MEZAN_PAYMOB_* keys for real card checkout, or leave it off.");
+  }
+  if (env.reviewTenant && !env.supportEmail) refusals.push("a reviewer tenant needs MEZAN_SUPPORT_EMAIL for the account-deletion page.");
+  if (env.seedDemo && (env.demoPassword ?? "").length < MIN_DEMO_PASSWORD_LENGTH) {
+    refusals.push(`MEZAN_SEED_DEMO=1 needs MEZAN_DEMO_PASSWORD, at least ${MIN_DEMO_PASSWORD_LENGTH} characters: the demo serves a writable ERP on the public internet.`);
+  }
+  return refusals;
 }

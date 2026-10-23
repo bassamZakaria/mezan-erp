@@ -27,6 +27,9 @@ function signups(): SignupRequestRepository & { rows: SignupRequest[] } {
   return {
     rows,
     async findByTokenHash(hash) { return rows.find((r) => r.tokenHash === hash) ?? null; },
+    async findById(id) { return rows.find((r) => r.id === id) ?? null; },
+    async listAwaitingDecision() { return []; },
+    async tryDecide() { return false; },
     async findActiveByCode() { return null; },
     async save(r) { rows.push(r); },
     async tryMarkVerified() { return null; },

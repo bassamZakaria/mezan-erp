@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { installClockOverride, FAKE_TODAY_ENV } from "../../packages/backend/src/clock-override.js";
 import { createCloudApp } from "../../apps/server/src/cloud-app.ts";
 import { PaymobMode, type CloudEnv } from "../../apps/server/src/env.ts";
+import { DEVICE_SECRET_HEADER, SignupModeCode } from "../../packages/contracts/src/index.js";
 import type { Ctx } from "./harness.js";
 
 /**
@@ -90,6 +91,15 @@ export async function run(ctx: Ctx): Promise<void> {
     check("the Free plan is offered publicly", free !== undefined, JSON.stringify(plans.body).slice(0, 160));
     check("and costs nothing", Number(free?.priceMonthly) === 0 && Number(free?.priceYearly) === 0, `${free?.priceMonthly}/${free?.priceYearly}`);
     check("with 2 seats, 1 branch and 1 warehouse", free?.seatsIncluded === 2 && free?.branchesIncluded === 1 && free?.warehousesIncluded === 1, JSON.stringify(free));
+
+    const owner = await call("POST", "/api/platform/auth/login", { email: env.platformOwnerEmail, password: env.platformOwnerPassword });
+    const opened = await call(
+      "PUT",
+      "/api/platform/settings/signup-mode",
+      { mode: SignupModeCode.Open },
+      { authorization: `Bearer ${owner.body?.token}`, [DEVICE_SECRET_HEADER]: String(owner.body?.deviceSecret ?? "") },
+    );
+    check("the platform owner opens self-serve sign-up", opened.status === 200, `status ${opened.status} ${JSON.stringify(opened.body).slice(0, 160)}`);
 
     // ------------------------------------------------------------------
     // 2 · Sign-up starts 14 days on the TOP public plan, whatever was asked for.

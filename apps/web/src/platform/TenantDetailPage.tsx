@@ -25,6 +25,7 @@ import { TenantBackupCard } from "./TenantBackupCard";
 import { TenantAuditAnchorCard } from "./TenantAuditAnchorCard";
 import { TenantRetentionCard } from "./TenantRetentionCard";
 import { TenantLockedAccountsCard } from "./TenantLockedAccountsCard";
+import { TenantExtrasCard } from "./TenantExtrasCard";
 import { PlatformApiError, usePlatformApi } from "./api";
 import { RecordPaymentDialog } from "./RecordPaymentDialog";
 import { attentionCauseKey, resolvedKey } from "./card-checkout-labels";
@@ -133,7 +134,6 @@ function awaitsADecision(checkout: Pick<CardCheckoutDTO, "status" | "failureReas
 function failureReasonKey(reason: string): AppTranslationKey {
   return (FAILURE_REASON_KEY as Readonly<Record<string, AppTranslationKey | undefined>>)[reason] ?? "platform.cardCheckout.reason.other";
 }
-
 
 /** «تفاصيل المنشأة» — a routed page (not an overlay: this is a document, not a short form), reached from `TenantsPage`'s row click. */
 export function TenantDetailPage() {
@@ -613,6 +613,10 @@ export function TenantDetailPage() {
             </div>
           ) : null}
         </Card>
+      ) : null}
+
+      {subscription && plan ? (
+        <TenantExtrasCard tenantId={tenant.id} subscription={subscription} plan={plan} isOwner={isOwner} />
       ) : null}
 
       <Card className="p-[16px]">

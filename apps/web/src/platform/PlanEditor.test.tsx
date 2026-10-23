@@ -3,6 +3,7 @@ import "@testing-library/jest-dom/vitest";
 import { beforeEach, describe, expect, it } from "vitest";
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import type { PlanDTO } from "@mezan/contracts";
+import { MODULE_CATALOG } from "@mezan/domain";
 import { PlatformShell } from "./PlatformShell";
 import { renderWithPlatformProviders, stubPlatformTransport, testPlatformSession } from "./test-support";
 
@@ -71,6 +72,7 @@ describe("PlanEditor", () => {
       priceYearly: "9000",
       trialDays: 0,
       isPublic: true,
+      soldOut: false,
       sortOrder: 0,
       // DEC-31: the console decides whether a plan is the free one and what it
       // caps, so both travel on every save — never inferred from the price.
@@ -80,6 +82,44 @@ describe("PlanEditor", () => {
       // plan at zero invoices a month.
       quotas: {},
     }));
+  });
+
+  it("a copy posts the source's settings under a new code, and select all includes every module", async () => {
+    let posted: { code?: string; modules?: string[]; seatsIncluded?: number } | null = null;
+    renderWithPlatformProviders(<PlatformShell />, {
+      route: "/platform/plans/new?from=PLAN-1",
+      initialSession: testPlatformSession,
+      transport: stubPlatformTransport({
+        "GET /plans": () => ({ body: [starterPlan] }),
+        "POST /plans": (init) => {
+          posted = JSON.parse(String(init?.body));
+          return { status: 201, body: { ...starterPlan, id: "PLAN-2", code: "starter-plus" } };
+        },
+      }),
+    });
+
+    await screen.findByRole("heading", { name: "باقة جديدة من نسخة" });
+    expect(screen.getByLabelText("الاسم بالعربية")).toHaveValue("الأساسية");
+    fireEvent.change(screen.getByLabelText("الكود"), { target: { value: "starter-plus" } });
+    fireEvent.click(screen.getByRole("button", { name: "تحديد الكل" }));
+    fireEvent.click(screen.getByRole("button", { name: "حفظ" }));
+
+    await waitFor(() => expect(posted).not.toBeNull());
+    expect(posted).toMatchObject({ code: "starter-plus", seatsIncluded: 5, nameAr: "الأساسية" });
+    expect(posted!.modules).toEqual([...MODULE_CATALOG]);
+    expect(posted).toMatchObject({ soldOut: false, isPublic: false });
+    expect(await screen.findByRole("heading", { name: "الباقات" })).toBeInTheDocument();
+  });
+
+  it("a copy of a plan that does not exist opens the ordinary blank form", async () => {
+    renderWithPlatformProviders(<PlatformShell />, {
+      route: "/platform/plans/new?from=PLAN-404",
+      initialSession: testPlatformSession,
+      transport: stubPlatformTransport({ "GET /plans": () => ({ body: [starterPlan] }) }),
+    });
+
+    expect(await screen.findByRole("heading", { name: "باقة جديدة" })).toBeInTheDocument();
+    expect(screen.getByLabelText("الاسم بالعربية")).toHaveValue("");
   });
 
   it("prefills the form from the existing plan and PUTs on save", async () => {
@@ -98,9 +138,10 @@ describe("PlanEditor", () => {
 
     await screen.findByDisplayValue("الأساسية");
     fireEvent.change(screen.getByLabelText("الاسم بالإنجليزية"), { target: { value: "Starter Plus" } });
+    fireEvent.click(screen.getByRole("switch", { name: "نفدت" }));
     fireEvent.click(screen.getByRole("button", { name: "حفظ" }));
 
-    await waitFor(() => expect(putBody).toMatchObject({ nameEn: "Starter Plus", nameAr: "الأساسية" }));
+    await waitFor(() => expect(putBody).toMatchObject({ nameEn: "Starter Plus", nameAr: "الأساسية", soldOut: true }));
   });
 
   it("a not-found plan id shows an error instead of a blank form", async () => {

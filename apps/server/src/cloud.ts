@@ -2,7 +2,9 @@ import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { serve } from "@hono/node-server";
 import type { Context, MiddlewareHandler } from "hono";
 import { getCookie, setCookie } from "hono/cookie";
-import { parseEnv, PaymobMode } from "./env.js";
+import { bootRefusals, parseEnv, PaymobMode } from "./env.js";
+import { bootEnv } from "./env-overrides.js";
+import { createEnvSettings } from "./env-settings.js";
 import { createCloudApp } from "./cloud-app.js";
 import { LogEvent, createLogger } from "@mezan/api";
 import { AlertKind } from "./alerter.js";
@@ -16,43 +18,22 @@ const log = createLogger("cloud");
  * apps/web/src/data/transport.ts calls `/api` with no host of its own, so
  * keep that prefix in step with this file.
  */
-const env = parseEnv(process.env);
+const boot = bootEnv(process.env, ".data/platform");
+const env = parseEnv(boot.merged);
+// A SIGTERM to itself takes the graceful stop path; the container's restart policy starts the server again.
+const envSettings = createEnvSettings(
+  boot,
+  (candidate) => {
+    const refusals = bootRefusals(parseEnv(candidate));
+    if (refusals.length > 0) throw new Error(refusals.join(" "));
+  },
+  () => process.kill(process.pid, "SIGTERM"),
+);
 
-/**
- * REFUSES TO START on a literal fallback-admin PIN, whatever else is set.
- *
- * `MEZAN_SEED_ADMIN_PIN` is PROCESS-WIDE: `resolveSeedAdminSecrets` reads it for
- * every tenant this process seeds, including every real tenant the platform
- * console provisions, each of which would open with a known company-admin PIN.
- * The demo tenant's published PIN is set in `demo-tenant.ts`, for that tenant
- * alone, and needs no variable.
- */
-if (env.seedAdminPin) {
-  console.error("[cloud] REFUSING TO START: MEZAN_SEED_ADMIN_PIN pins the fallback admin to a");
-  console.error("[cloud] literal PIN. On a public deploy the PIN must be generated per deploy.");
-  process.exit(1);
+for (const refusal of bootRefusals(env)) {
+  console.error(`[cloud] REFUSING TO START: ${refusal}`);
 }
-
-/**
- * REFUSES TO START card checkout in test mode on a real platform. The test
- * double's fake checkout renews a subscription for free by design; it is only
- * acceptable where every tenant is seeded demo data.
- */
-if (env.paymob.mode === PaymobMode.Test && !env.seedDemo) {
-  console.error("[cloud] REFUSING TO START: MEZAN_PAYMOB_TEST_MODE=1 is only allowed with MEZAN_SEED_DEMO=1.");
-  console.error("[cloud] Set the four MEZAN_PAYMOB_* keys for real card checkout, or leave it off.");
-  process.exit(1);
-}
-
-/**
- * REFUSES TO START a reviewer tenant without a support mailbox: it is the
- * account-deletion channel the store listing points at. (`parseEnv` already
- * refuses a reviewer tenant next to the basic-auth demo.)
- */
-if (env.reviewTenant && !env.supportEmail) {
-  console.error("[cloud] REFUSING TO START: a reviewer tenant needs MEZAN_SUPPORT_EMAIL for the account-deletion page.");
-  process.exit(1);
-}
+if (bootRefusals(env).length > 0) process.exit(1);
 
 /**
  * REFUSES TO START a seeded demo without a shared credential.
@@ -66,18 +47,11 @@ if (env.reviewTenant && !env.supportEmail) {
  * purpose — the platform's health probe carries no Authorization header, and a
  * 401 there marks the service unhealthy and restarts it in a loop.
  */
-const MIN_DEMO_PASSWORD_LENGTH = 12;
 const DEMO_GATE_COOKIE = "mezan_demo_gate";
 const DEMO_GATE_MAX_AGE_SECONDS = 12 * 60 * 60;
 let authMiddleware: MiddlewareHandler | undefined;
 if (env.seedDemo) {
   const demoPassword = env.demoPassword ?? "";
-  if (demoPassword.length < MIN_DEMO_PASSWORD_LENGTH) {
-    console.error("[cloud] REFUSING TO START: MEZAN_SEED_DEMO=1 needs MEZAN_DEMO_PASSWORD, at least");
-    console.error(`[cloud] ${MIN_DEMO_PASSWORD_LENGTH} characters. The demo serves a writable ERP on the public`);
-    console.error("[cloud] internet; the shared credential is the only thing in front of it.");
-    process.exit(1);
-  }
   const digestOf = (value: string): Buffer => createHash("sha256").update(value, "utf8").digest();
   const expectedAuthorization = digestOf(`Basic ${Buffer.from(`demo:${demoPassword}`).toString("base64")}`);
   // SECURITY: compared as fixed-length digests in constant time, so the response time says nothing about how much of the credential matched.
@@ -123,12 +97,12 @@ process.env["NODE_ENV"] = "production";
 const analyticsToken = env.analyticsToken;
 const transformIndexHtml = analyticsToken
   ? (html: string) => {
-      const analyticsTag = `<script defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='${JSON.stringify({ token: analyticsToken })}'></script>`;
+      const analyticsTag = `<script defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='${JSON.stringify({ token: analyticsToken }).replace(/[&'<>]/g, (ch) => `&#${ch.charCodeAt(0)};`)}'></script>`;
       return html.replace("</body>", `${analyticsTag}</body>`);
     }
   : undefined;
 
-const cloud = await createCloudApp(env, { authMiddleware, transformIndexHtml });
+const cloud = await createCloudApp(env, { authMiddleware, transformIndexHtml, envSettings });
 const { root } = cloud;
 
 const marker = markRunning(env.platformDir);

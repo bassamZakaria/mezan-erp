@@ -71,16 +71,14 @@ export function EntityPicker({
   }, [enterQueued, error]);
 
   const highlightedId = useRef<string | null>(null);
-  const wasStale = useRef(stale);
+  const rowIds = filtered.map((option) => option.id).join("\u0000");
   useEffect(() => {
-    if (wasStale.current && !stale) {
-      const again = navigated ? filtered.findIndex((option) => option.id === highlightedId.current) : -1;
-      setHighlight(Math.max(again, 0));
-      if (again < 0) setNavigated(false);
-    }
-    wasStale.current = stale;
+    if (stale || !navigated) return;
+    const again = filtered.findIndex((option) => option.id === highlightedId.current);
+    setHighlight(Math.max(again, 0));
+    if (again < 0) setNavigated(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stale]);
+  }, [rowIds, stale]);
 
   useEffect(() => {
     if (!enterQueued || stale) return;
@@ -99,6 +97,7 @@ export function EntityPicker({
   function select(option: EntityPickerOption) {
     onChange(option);
     changeQuery("");
+    setHighlight(0);
     setOpen(false);
   }
 
@@ -109,6 +108,7 @@ export function EntityPicker({
         setOpen(true);
         return;
       }
+      if (filtered.length === 0) return;
       const next = event.key === "ArrowDown" ? Math.min(highlight + 1, Math.max(filtered.length - 1, 0)) : Math.max(highlight - 1, 0);
       if (next !== highlight) setNavigated(true);
       highlightedId.current = filtered[next]?.id ?? null;
@@ -145,6 +145,7 @@ export function EntityPicker({
         aria-expanded={open}
         aria-controls={listboxId}
         aria-autocomplete="list"
+        autoComplete="off"
         aria-busy={stale && !error}
         aria-activedescendant={open && filtered[highlight] ? `${listboxId}-${highlight}` : undefined}
         disabled={disabled}
@@ -194,7 +195,9 @@ export function EntityPicker({
                 <button
                   type="button"
                   tabIndex={-1}
-                  onMouseDown={() => select(option)}
+                  onMouseDown={(event) => {
+                    if (event.button === 0) select(option);
+                  }}
                   className={cn(
                     "flex w-full flex-col items-start gap-[1px] rounded-sm px-[10px] py-[8px] text-start text-[13px]",
                     index === highlight ? "bg-brand-soft text-brand" : "text-ink hover:bg-surface-2",

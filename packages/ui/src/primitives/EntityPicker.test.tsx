@@ -440,4 +440,47 @@ describe("EntityPicker — Arabic search (D114)", () => {
     fireEvent.focus(screen.getByRole("combobox"));
     for (const button of screen.getByRole("listbox").querySelectorAll("button")) expect(button).toHaveAttribute("tabindex", "-1");
   });
+
+  it("an arrow key pressed while a refetch hides the rows keeps the row the user highlighted", () => {
+    const onChange = vi.fn();
+    const picker = (loading: boolean) => <EntityPicker value={null} onChange={onChange} options={options} label="الصنف" onQueryChange={() => {}} loading={loading} />;
+    const { rerender } = render(picker(false));
+    const input = screen.getByRole("combobox");
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: "شركة" } });
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    rerender(picker(true));
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    rerender(picker(false));
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onChange).toHaveBeenCalledWith(options[2]);
+  });
+
+  it("only a primary-button press picks a row", () => {
+    const onChange = vi.fn();
+    render(<EntityPicker value={null} onChange={onChange} options={options} label="العميل" />);
+    fireEvent.focus(screen.getByRole("combobox"));
+    fireEvent.mouseDown(screen.getByText("شركة الأمل للتجارة"), { button: 2 });
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("reopening after a pick starts from the first row, and a list change keeps the highlighted row", () => {
+    const onChange = vi.fn();
+    const { rerender } = render(<EntityPicker value={null} onChange={onChange} options={options} label="العميل" />);
+    const input = screen.getByRole("combobox");
+    fireEvent.focus(input);
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    fireEvent.keyDown(input, { key: "Enter" });
+    fireEvent.keyDown(input, { key: "Enter" });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onChange.mock.calls.map(([o]) => o.id)).toEqual(["2", "1"]);
+
+    fireEvent.keyDown(input, { key: "Enter" });
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    rerender(<EntityPicker value={null} onChange={onChange} options={[{ id: "0", label: "زيتا" }, ...options]} label="العميل" />);
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onChange).toHaveBeenLastCalledWith(options[2]);
+  });
 });

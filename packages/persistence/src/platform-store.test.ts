@@ -8,6 +8,7 @@ import {
   SignupDecision,
   SignupRequestStatus,
   TenantBooksReview,
+  TenantStatusCode,
   type SignupRequest,
   recordPayment,
   type Plan,
@@ -117,28 +118,31 @@ describe("createSqlitePlatformStores", () => {
     stores.close();
   });
 
-  it("treats sign-ups an earlier build already turned into companies as approved, and keeps an unprovisioned one waiting", async () => {
+  it("treats a sign-up that already became its owner's company as approved, retires one whose code went to someone else, and keeps the rest waiting", async () => {
     const db = new Database(":memory:");
     const earlier = createSqlitePlatformStores(db);
-    await earlier.tenants.save(tenant);
-    const verified = (id: string, code: string): SignupRequest => ({
-      id, code, nameAr: "منشأة", nameEn: null, ownerEmail: `${code}@example.eg`, ownerNameAr: "سارة", planId: "P1",
+    await earlier.tenants.save({ ...tenant, status: TenantStatusCode.Active });
+    await earlier.tenants.save({ ...tenant, id: "T2", code: "taken", ownerEmail: "someone-else@example.eg", dbFile: "tenants/taken.db" });
+    const verified = (id: string, code: string, ownerEmail = `${code}@example.eg`): SignupRequest => ({
+      id, code, nameAr: "منشأة", nameEn: null, ownerEmail, ownerNameAr: "سارة", planId: "P1",
       billingCycle: "monthly", tokenHash: `hash-${id}`, status: SignupRequestStatus.Verified, expiresAt: NOW, createdAt: NOW, verifiedAt: NOW,
     });
-    await earlier.signupRequests.save(verified("R1", tenant.code));
+    await earlier.signupRequests.save(verified("R1", tenant.code, tenant.ownerEmail));
     await earlier.signupRequests.save(verified("R2", "waiting"));
+    await earlier.signupRequests.save(verified("R3", "taken"));
     for (const column of ["decision", "decided_at", "decided_by"]) db.exec(`ALTER TABLE signup_request DROP COLUMN ${column}`);
 
     const stores = createSqlitePlatformStores(db);
 
-    expect((await stores.signupRequests.listAwaitingDecision()).map((r) => r.id)).toEqual(["R2"]);
+    expect((await stores.signupRequests.listAwaitingDecision(NOW)).map((r) => r.id)).toEqual(["R2"]);
     expect(await stores.signupRequests.findById("R1")).toMatchObject({ decision: SignupDecision.Approved, decidedBy: "migration" });
+    expect(await stores.signupRequests.findById("R3")).toMatchObject({ status: SignupRequestStatus.Released, decision: null });
     expect(await stores.signupRequests.findActiveByCode(tenant.code, NOW)).toBeNull();
     expect((await stores.signupRequests.findActiveByCode("waiting", NOW))?.id).toBe("R2");
     db.close();
   });
 
-  it("holds a code for an undecided sign-up only while its link is valid, and never queues a code that is already a company", async () => {
+  it("holds and queues an undecided sign-up only while its link is valid, and never queues a code that is already a company", async () => {
     const stores = createSqlitePlatformStores(":memory:");
     const verified = (id: string, code: string, verifiedAt: string): SignupRequest => ({
       id, code, nameAr: "منشأة", nameEn: null, ownerEmail: `${code}@example.eg`, ownerNameAr: "سارة", planId: "P1",
@@ -151,7 +155,7 @@ describe("createSqlitePlatformStores", () => {
 
     expect(await stores.signupRequests.findActiveByCode("lapsed", "2026-03-05T00:00:00.000Z")).toBeNull();
     expect((await stores.signupRequests.findActiveByCode("fresh", "2026-03-05T00:00:00.000Z"))?.id).toBe("R-NEW");
-    expect((await stores.signupRequests.listAwaitingDecision()).map((r) => r.id)).toEqual(["R-OLD", "R-NEW"]);
+    expect((await stores.signupRequests.listAwaitingDecision("2026-03-05T00:00:00.000Z")).map((r) => r.id)).toEqual(["R-NEW"]);
     stores.close();
   });
 

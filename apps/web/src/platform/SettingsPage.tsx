@@ -43,7 +43,6 @@ type Edits = Partial<Record<EnvSettingKey, string | null>>;
 
 const errorText = (err: unknown, fallback: string): string => (err instanceof PlatformApiError ? err.message : fallback);
 
-/** «إعدادات الموقع» — the contact details and switches visitors see, changed from the console and applied when the server restarts. */
 export function SettingsPage() {
   const { t } = useAppTranslation();
   const { session } = usePlatformApi();
@@ -109,7 +108,7 @@ export function SettingsPage() {
           onSuccess: () =>
             setEdits((current) => {
               const next = { ...current };
-              for (const key of Object.keys(sent) as EnvSettingKey[]) if (next[key] === sent[key]) delete next[key];
+              for (const key of Object.values(EnvSettingKey)) if (key in sent && next[key] === sent[key]) delete next[key];
               return next;
             }),
           onError: (err) => setError(errorText(err, t("platform.envSettings.saveFailed"))),
@@ -123,7 +122,7 @@ export function SettingsPage() {
     }
   }
 
-  if (query.isError) {
+  if (query.isError && !query.data) {
     return (
       <FormPage eyebrow={t("platform.nav.settings")} title={t("platform.envSettings.title")}>
         <FormError message={query.error.message} />
@@ -153,6 +152,8 @@ export function SettingsPage() {
     >
       <div className="flex flex-col gap-[16px]">
         <FormError message={error} />
+        {query.isError ? <FormError message={query.error.message} /> : null}
+        {isOwner && changedCount > 0 && query.data?.restartPending ? <p className="text-[12px] text-ink-muted">{t("platform.envSettings.saveBeforeRestart")}</p> : null}
         {query.data?.loadError ? <FormError message={t("platform.envSettings.loadError", { reason: query.data.loadError })} /> : null}
         {restartState === RestartState.Waiting ? (
           <p role="status" className="rounded-md border border-border bg-surface-2 p-[12px] text-[13px] font-semibold text-ink">
@@ -169,7 +170,7 @@ export function SettingsPage() {
           <div role="status" className="flex flex-wrap items-center justify-between gap-[10px] rounded-md border border-warning bg-warning-soft p-[12px]">
             <p className="text-[13px] font-semibold text-warning-ink">{t("platform.envSettings.restartPending")}</p>
             {isOwner ? (
-              <Button variant="primary" size="sm" disabled={restart.isPending} onClick={() => setConfirming(ConfirmAction.Restart)}>
+              <Button variant="primary" size="sm" disabled={restart.isPending || changedCount > 0} onClick={() => setConfirming(ConfirmAction.Restart)}>
                 {t("platform.envSettings.restart")}
               </Button>
             ) : null}

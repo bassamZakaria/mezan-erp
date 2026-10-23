@@ -67,7 +67,6 @@ export function useSignupMode(): SignupModeCode {
   return useSignupStatus()?.mode ?? SignupModeCode.Approval;
 }
 
-/** The WhatsApp number the platform owner set in the console, or null while there is none (every WhatsApp link stays hidden). */
 export function useWhatsappNumber(): string | null {
   return useSignupStatus()?.contact.whatsapp ?? null;
 }

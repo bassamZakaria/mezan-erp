@@ -39,7 +39,6 @@ export interface Plan {
   readonly priceYearly: Money;
   readonly trialDays: number;
   readonly isPublic: boolean;
-  /** Still shown to visitors, but no new company may choose it; companies already on it keep it. */
   readonly soldOut?: boolean;
   readonly sortOrder: number;
   readonly status: PlanStatus;

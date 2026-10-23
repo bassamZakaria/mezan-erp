@@ -71,7 +71,6 @@ export enum SignupRequestStatus {
   Released = "released",
 }
 
-/** Who may turn a verified sign-up into a company: anyone (open), only the platform owner (approval), or nobody new (closed). */
 export enum SignupMode {
   Open = "open",
   Approval = "approval",
@@ -114,8 +113,8 @@ export interface SignupRequest {
 export interface SignupRequestRepository {
   findByTokenHash(tokenHash: string): Promise<SignupRequest | null>;
   findById(id: string): Promise<SignupRequest | null>;
-  /** Verified requests nobody has approved or rejected yet, oldest first. */
-  listAwaitingDecision(): Promise<SignupRequest[]>;
+  /** Verified requests nobody has decided, still within their hold, whose code is not another company (a half-made one of their own still counts as waiting), oldest first. */
+  listAwaitingDecision(nowIso: string): Promise<SignupRequest[]>;
   /** Compare-and-set: records the decision only on a verified, undecided row; false when another decision won. */
   tryDecide(id: string, decision: SignupDecision, decidedBy: string, nowIso: string): Promise<boolean>;
   /** A still-pending unexpired request, or a verified one awaiting a decision, already holding this code — so two people can't queue for the same code at once. */
@@ -255,7 +254,6 @@ export async function verifySignup(
   if (request.status === SignupRequestStatus.Verified) {
     const usedAt = new Date(request.verifiedAt ?? request.expiresAt).getTime();
     if (new Date(nowIso).getTime() - usedAt > VERIFIED_LINK_VALID_MS) {
-      // Nobody decided within the hold: there is no account to point at, only a request that lapsed.
       if (request.decision !== SignupDecision.Approved && !(await tenants.findByCode(request.code))) throw new SignupTokenExpiredError();
       const tenant = await tenants.findByCode(request.code);
       if (tenant?.status === TenantStatusCode.Provisioning) throw new SignupActivationIncompleteError();

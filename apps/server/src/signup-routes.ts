@@ -396,7 +396,10 @@ export function createSignupRoutes(options: SignupRoutesOptions): Hono {
   async function verifyInTurn(tokenHash: string): Promise<VerifySignupResultDTO> {
     const request = await verifySignup(tokenHash, claims, now().toISOString(), platform.stores.tenants);
     // SECURITY: outside open mode only the platform owner's approval turns a verified e-mail into a company.
-    if ((await currentMode()) !== SignupMode.Open && request.decision !== SignupDecision.Approved) throw new SignupAwaitingApprovalError();
+    const awaiting = (await currentMode()) !== SignupMode.Open && request.decision !== SignupDecision.Approved;
+    const company = await platform.stores.tenants.findByCode(request.code);
+    // SECURITY: a company an approval left half-made must not be finished by the visitor's own link.
+    if (awaiting && (!company || company.status === TenantStatusCode.Provisioning)) throw new SignupAwaitingApprovalError();
     const claimId = randomUUID();
     const giveUpAt = Date.now() + provisionWaitMs;
     for (;;) {
@@ -412,7 +415,6 @@ export function createSignupRoutes(options: SignupRoutesOptions): Hono {
       const fence = await claims.provisioningFence(tokenHash, claimId);
       if (fence === null) throw new ProvisioningSupersededError();
       const settled = await settleVerification(request, stillOurs, fence);
-      // Open sign-up decides by creating the company; recorded so the request never shows as awaiting the owner.
       await claims.tryDecide(request.id, SignupDecision.Approved, OPEN_SIGNUP_DECIDER, now().toISOString());
       return settled;
     } catch (err) {

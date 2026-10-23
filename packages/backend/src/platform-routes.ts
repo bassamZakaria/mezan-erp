@@ -348,7 +348,6 @@ export interface CreatePlatformRoutesOptions {
   readonly reconcileOpenOwners?: () => Promise<void>;
   readonly operations?: () => PlatformOperationsDTO;
   readonly invalidateEntitlements: (code: string) => void;
-  /** Absent where the server has no settings file to manage (tests, the desktop). */
   readonly envSettings?: PlatformEnvSettingsPort;
   readonly idOf?: () => string;
   /** Absent when card checkout is not configured on this deployment; the routes then answer 503. */
@@ -505,9 +504,14 @@ class SignupAlreadyDecidedError extends Error {
   }
 }
 
+const PROVISIONING_SUPERSEDED = "PROVISIONING_SUPERSEDED";
+
+const decidedElsewhere = (err: unknown): boolean =>
+  err instanceof SignupAlreadyDecidedError || (err instanceof Error && (err as { code?: unknown }).code === PROVISIONING_SUPERSEDED);
+
 /** Provisioning wraps what it does not know in its own error and keeps the original as `cause`. */
 function lostTheDecision(err: unknown): boolean {
-  return err instanceof SignupAlreadyDecidedError || (err instanceof Error && (err as { cause?: unknown }).cause instanceof SignupAlreadyDecidedError);
+  return decidedElsewhere(err) || (err instanceof Error && decidedElsewhere((err as { cause?: unknown }).cause));
 }
 
 function extrasOf(s: Pick<Subscription, "addOnModules" | "extraSeats" | "extraBranches" | "extraWarehouses" | "graceDays">) {
@@ -743,11 +747,10 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
   }
 
   async function awaitingRequest(id: string): Promise<SignupRequest | null> {
-    const request = await signupRequests.findById(id);
-    return request && request.status === SignupRequestStatus.Verified && !request.decision ? request : null;
+    return (await signupRequests.listAwaitingDecision(nowIso())).find((r) => r.id === id) ?? null;
   }
 
-  app.get("/signup-requests", requireAny, async (c) => c.json((await signupRequests.listAwaitingDecision()).map(serializeSignupRequest)));
+  app.get("/signup-requests", requireAny, async (c) => c.json((await signupRequests.listAwaitingDecision(nowIso())).map(serializeSignupRequest)));
 
   app.post("/signup-requests/:id/approve", requireOwner, async (c) => {
     const parsed = approveSignupRequestSchema.safeParse(await c.req.json().catch(() => null));

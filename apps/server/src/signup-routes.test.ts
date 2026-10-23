@@ -826,6 +826,25 @@ function failOnce(): (save: SaveSubscription) => SaveSubscription {
   };
 }
 
+describe("a sign-up awaiting approval whose company an approval left half-made", () => {
+  it("is not finished by the visitor's own link: it keeps waiting for the owner", async () => {
+    const dataDir = platformDir();
+    const platform = await openPlatform(dataDir);
+    await platform.stores.settings.set(PlatformSettingKey.SignupMode, SignupMode.Approval, T);
+    const { signup } = signupProcess(platform, dataDir);
+    const token = await startOn(signup, "halfmade");
+    expect((await send(signup, "/verify", { token })).status).toBe(409);
+
+    await createTenant({ id: "T-HALF", code: "halfmade", nameAr: "منشأة", ownerEmail: "owner@halfmade.example", now: T }, platform.stores.tenants);
+    const again = await send(signup, "/verify", { token });
+
+    expect(again.status).toBe(409);
+    expect(((await again.json()) as { error: string }).error).toBe("SIGNUP_AWAITING_APPROVAL");
+    expect((await platform.stores.tenants.findById("T-HALF"))?.status).toBe(TenantStatusCode.Provisioning);
+    expect((await platform.stores.signupRequests.listAwaitingDecision(T)).map((r) => r.code)).toEqual(["halfmade"]);
+  });
+});
+
 describe("signup verification when provisioning fails or is shared between processes", () => {
   it("hands the owner a fresh PIN when the link is opened again after a provision that failed once the admin existed", async () => {
     const dataDir = platformDir();

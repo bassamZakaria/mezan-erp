@@ -93,6 +93,16 @@ describe("SettingsPage", () => {
     expect(await screen.findByText(/يُعاد تشغيل الخادم الآن/)).toBeInTheDocument();
   });
 
+  it("blocks restarting while there are unsaved edits, so nothing typed is silently dropped", async () => {
+    renderPage({ "GET /settings/env": () => ({ body: settings({ restartPending: true }) }) });
+
+    const restart = await screen.findByRole("button", { name: "إعادة تشغيل الخادم" });
+    expect(restart).toBeEnabled();
+    fireEvent.change(screen.getByLabelText("هاتف الدعم"), { target: { value: "0100" } });
+    expect(restart).toBeDisabled();
+    expect(screen.getByText("احفظ تغييراتك أو ألغِها قبل إعادة التشغيل.")).toBeInTheDocument();
+  });
+
   it("shows the server's refusal and keeps the edit", async () => {
     renderPage({
       "GET /settings/env": () => ({ body: settings() }),

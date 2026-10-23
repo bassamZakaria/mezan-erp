@@ -28,7 +28,6 @@ const MODE_HINT: Readonly<Record<SignupModeCode, AppTranslationKey>> = {
 
 const errorText = (err: unknown, fallback: string): string => (err instanceof PlatformApiError ? err.message : fallback);
 
-/** «طلبات التسجيل» — verified sign-ups waiting for the platform owner, and the switch that decides whether sign-up needs approval at all. */
 export function SignupRequestsPage() {
   const { t } = useAppTranslation();
   const format = useFormat();

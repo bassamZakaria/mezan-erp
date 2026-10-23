@@ -13,13 +13,14 @@ import {
   type ModuleTrial, type ModuleTrialRepository,
   type SubscriptionTransitionRepository,
   type PlatformUser, type PlatformUserRepository,
-  type SignupRequest, type SignupRequestRepository, SignupRequestStatus, type SignupDecision, VERIFIED_LINK_VALID_MS,
+  type SignupRequest, type SignupRequestRepository, SignupRequestStatus, SignupDecision, VERIFIED_LINK_VALID_MS,
   type PlatformSettingKey, type PlatformSettingRepository,
   type Subscription, SubscriptionStatusKind, anchorIsUtcDayOfCreation, billingDayBehindUtcAnchor, inferBillingAnchorDay,
   type OwnerRecordDue, type PendingOwner, type Tenant, type TenantRepository, TenantBooksReview, TenantStatusCode,
 } from "@mezan/domain";
 
 const TENANT_STATUSES: readonly string[] = Object.values(TenantStatusCode);
+const SIGNUP_BACKFILL_DECIDER = "migration";
 const SUBSCRIPTION_STATUSES: readonly string[] = Object.values(SubscriptionStatusKind);
 
 function assertKnownStatus(kind: string, status: string, known: readonly string[]): void {
@@ -236,11 +237,20 @@ function addMissingColumns(sqlite: Database.Database): void {
       if (!onSignup.has(column)) sqlite.exec(`ALTER TABLE signup_request ADD COLUMN ${column} TEXT`);
     }
   })();
-  // Idempotent, so it runs on every start: a sign-up whose code already became a company was decided by that, and must never queue for approval.
-  sqlite.exec(
-    `UPDATE signup_request SET decision = 'approved', decided_at = COALESCE(verified_at, created_at), decided_by = 'migration'
-     WHERE status = 'verified' AND decision IS NULL AND code IN (SELECT code FROM tenant)`,
-  );
+  sqlite
+    .prepare(
+      `UPDATE signup_request SET decision = @approved, decided_at = COALESCE(verified_at, created_at), decided_by = @actor
+       WHERE status = @verified AND decision IS NULL
+         AND code IN (SELECT code FROM tenant WHERE tenant.owner_email = signup_request.owner_email AND tenant.status <> @provisioning)`,
+    )
+    .run({ approved: SignupDecision.Approved, actor: SIGNUP_BACKFILL_DECIDER, verified: SignupRequestStatus.Verified, provisioning: TenantStatusCode.Provisioning });
+  // A code the owner gave to someone else answers the request: it can no longer become that visitor's company.
+  sqlite
+    .prepare(
+      `UPDATE signup_request SET status = @released
+       WHERE status = @verified AND decision IS NULL AND code IN (SELECT code FROM tenant WHERE tenant.owner_email <> signup_request.owner_email)`,
+    )
+    .run({ released: SignupRequestStatus.Released, verified: SignupRequestStatus.Verified });
   const onPayment = new Set(
     (sqlite.prepare(`PRAGMA table_info(payment)`).all() as { name: string }[]).map((c) => c.name),
   );
@@ -1154,7 +1164,12 @@ class SqliteSignupRequestStore implements SignupRequestRepository {
   constructor(sqlite: Database.Database) {
     this.byId = sqlite.prepare(`SELECT * FROM signup_request WHERE id = ?`);
     this.awaiting = sqlite.prepare(
-      `SELECT * FROM signup_request WHERE status = ? AND decision IS NULL AND code NOT IN (SELECT code FROM tenant) ORDER BY verified_at, created_at`,
+      `SELECT * FROM signup_request
+       WHERE status = @verified AND decision IS NULL AND verified_at > @holdSince
+         AND code NOT IN (
+           SELECT code FROM tenant WHERE NOT (tenant.status = @provisioning AND tenant.owner_email = signup_request.owner_email)
+         )
+       ORDER BY verified_at, created_at`,
     );
     // Only an undecided verified row moves, so two clicks (approve and reject, or approve twice) cannot both win.
     this.decide = sqlite.prepare(
@@ -1226,8 +1241,11 @@ class SqliteSignupRequestStore implements SignupRequestRepository {
     return row ? toSignupRequest(row) : null;
   }
 
-  async listAwaitingDecision(): Promise<SignupRequest[]> {
-    return (this.awaiting.all(SignupRequestStatus.Verified) as SignupRequestRow[]).map(toSignupRequest);
+  async listAwaitingDecision(nowIso: string): Promise<SignupRequest[]> {
+    const holdSince = new Date(new Date(nowIso).getTime() - VERIFIED_LINK_VALID_MS).toISOString();
+    return (this.awaiting.all({ verified: SignupRequestStatus.Verified, holdSince, provisioning: TenantStatusCode.Provisioning }) as SignupRequestRow[]).map(
+      toSignupRequest,
+    );
   }
 
   async tryDecide(id: string, decision: SignupDecision, decidedBy: string, nowIso: string): Promise<boolean> {

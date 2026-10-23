@@ -65,7 +65,6 @@ export interface CloudEnv {
   readonly platformSmtp?: SmtpConfig;
   readonly supportEmail?: string;
   readonly supportPhone?: string;
-  /** International digits only (e.g. 2010…), the form wa.me links take. */
   readonly whatsappNumber?: string;
   readonly reviewTenant?: ReviewTenantConfig;
   readonly alertEmail?: string;

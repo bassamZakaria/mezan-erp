@@ -79,10 +79,12 @@ function PlanCard({
       type="button"
       onClick={onSelect}
       aria-pressed={selected}
-      className={`flex min-w-0 flex-1 flex-col gap-[6px] rounded-md border p-[14px] text-start transition-colors ${
+      disabled={plan.soldOut}
+      className={`flex min-w-0 flex-1 flex-col gap-[6px] rounded-md border p-[14px] text-start transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
         selected ? "border-accent-strong bg-accent-soft" : "border-border bg-surface hover:bg-surface-2"
       }`}
     >
+      {plan.soldOut ? <span className="self-start rounded-pill bg-surface-3 px-[8px] py-[2px] text-[11px] font-bold text-ink-muted">{t("landing.pricing.soldOut")}</span> : null}
       <span className="font-display text-[14px] font-bold text-ink">{plan.nameAr}</span>
       <span className="text-[11px] text-ink-muted">{plan.nameEn}</span>
       <span className="mt-[4px] flex items-baseline gap-[4px]">
@@ -171,7 +173,7 @@ export function SignupScreen() {
   const plansQuery = usePublicPlans();
   const signupMode = useSignupMode();
   const requestedPlanCode = params.get("plan");
-  const planId = draft.planId || (plansQuery.data?.find((plan) => plan.code === requestedPlanCode)?.id ?? "");
+  const planId = draft.planId || (plansQuery.data?.find((plan) => plan.code === requestedPlanCode && !plan.soldOut)?.id ?? "");
 
   async function handleCodeBlur() {
     const code = draft.code.trim().toLowerCase();

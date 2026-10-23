@@ -72,6 +72,7 @@ describe("PlanEditor", () => {
       priceYearly: "9000",
       trialDays: 0,
       isPublic: true,
+      soldOut: false,
       sortOrder: 0,
       // DEC-31: the console decides whether a plan is the free one and what it
       // caps, so both travel on every save — never inferred from the price.
@@ -106,6 +107,7 @@ describe("PlanEditor", () => {
     await waitFor(() => expect(posted).not.toBeNull());
     expect(posted).toMatchObject({ code: "starter-plus", seatsIncluded: 5, nameAr: "الأساسية" });
     expect(posted!.modules).toEqual([...MODULE_CATALOG]);
+    expect(posted).toMatchObject({ soldOut: false, isPublic: false });
     expect(await screen.findByRole("heading", { name: "الباقات" })).toBeInTheDocument();
   });
 
@@ -136,9 +138,10 @@ describe("PlanEditor", () => {
 
     await screen.findByDisplayValue("الأساسية");
     fireEvent.change(screen.getByLabelText("الاسم بالإنجليزية"), { target: { value: "Starter Plus" } });
+    fireEvent.click(screen.getByRole("switch", { name: "نفدت" }));
     fireEvent.click(screen.getByRole("button", { name: "حفظ" }));
 
-    await waitFor(() => expect(putBody).toMatchObject({ nameEn: "Starter Plus", nameAr: "الأساسية" }));
+    await waitFor(() => expect(putBody).toMatchObject({ nameEn: "Starter Plus", nameAr: "الأساسية", soldOut: true }));
   });
 
   it("a not-found plan id shows an error instead of a blank form", async () => {

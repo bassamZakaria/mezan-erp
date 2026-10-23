@@ -51,6 +51,7 @@ interface Draft {
   priceYearly: string;
   trialDays: number;
   isPublic: boolean;
+  soldOut: boolean;
   sortOrder: number;
   kind: PlanKindDTO;
   quotas: PlanQuotasDTO;
@@ -69,6 +70,7 @@ function blankDraft(): Draft {
     priceYearly: "",
     trialDays: 0,
     isPublic: true,
+    soldOut: false,
     sortOrder: 0,
     kind: PAID,
     quotas: {},
@@ -88,6 +90,7 @@ function draftOf(plan: PlanDTO): Draft {
     priceYearly: plan.priceYearly,
     trialDays: plan.trialDays,
     isPublic: plan.isPublic,
+    soldOut: plan.soldOut ?? false,
     sortOrder: plan.sortOrder,
     kind: plan.kind,
     quotas: { ...plan.quotas },
@@ -208,6 +211,7 @@ export function PlanEditor() {
       priceYearly: draft.priceYearly,
       trialDays: draft.trialDays,
       isPublic: draft.isPublic,
+      soldOut: draft.soldOut,
       sortOrder: draft.sortOrder,
       kind: draft.kind,
       quotas: draft.quotas,
@@ -312,6 +316,13 @@ export function PlanEditor() {
               checked={draft.isPublic}
               disabled={readOnly}
               onChange={(v) => setDraft((d) => ({ ...d, isPublic: v }))}
+            />
+            <ToggleField
+              label={t("platform.plans.editor.field.soldOut")}
+              hint={t("platform.plans.editor.field.soldOutHint")}
+              checked={draft.soldOut}
+              disabled={readOnly}
+              onChange={(v) => setDraft((d) => ({ ...d, soldOut: v }))}
             />
             <ToggleField
               label={t("platform.plans.editor.field.free")}

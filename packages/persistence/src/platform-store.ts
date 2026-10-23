@@ -206,6 +206,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_module_trial_once ON module_trial(tenant_i
 const ADDED_PLAN_COLUMNS: ReadonlyArray<readonly [string, string]> = [
   ["kind", "TEXT NOT NULL DEFAULT 'paid'"],
   ["quotas", "TEXT NOT NULL DEFAULT '{}'"],
+  ["sold_out", "INTEGER NOT NULL DEFAULT 0"],
 ];
 
 function addMissingColumns(sqlite: Database.Database): void {
@@ -464,7 +465,7 @@ interface PlanRow {
   id: string; code: string; name_ar: string; name_en: string; modules: string; features: string;
   seats_included: number; branches_included: number; warehouses_included: number;
   kind: string; quotas: string;
-  price_monthly: number; price_yearly: number; trial_days: number; is_public: number;
+  price_monthly: number; price_yearly: number; trial_days: number; is_public: number; sold_out?: number;
   sort_order: number; status: Plan["status"]; created_at: string;
 }
 
@@ -477,7 +478,7 @@ function toPlan(r: PlanRow): Plan {
     kind: r.kind === PlanKind.Free ? PlanKind.Free : PlanKind.Paid,
     quotas: JSON.parse(r.quotas || "{}") as PlanQuotas,
     priceMonthly: Money.fromScaled(r.price_monthly), priceYearly: Money.fromScaled(r.price_yearly),
-    trialDays: r.trial_days, isPublic: r.is_public === 1, sortOrder: r.sort_order,
+    trialDays: r.trial_days, isPublic: r.is_public === 1, soldOut: r.sold_out === 1, sortOrder: r.sort_order,
     status: r.status, createdAt: r.created_at,
   };
 }
@@ -491,14 +492,14 @@ class SqlitePlanStore implements PlanRepository {
   constructor(sqlite: Database.Database) {
     this.upsert = sqlite.prepare(
       `INSERT INTO plan (id, code, name_ar, name_en, modules, features, seats_included, branches_included,
-         warehouses_included, kind, quotas, price_monthly, price_yearly, trial_days, is_public, sort_order, status, created_at)
+         warehouses_included, kind, quotas, price_monthly, price_yearly, trial_days, is_public, sold_out, sort_order, status, created_at)
        VALUES (@id, @code, @nameAr, @nameEn, @modules, @features, @seatsIncluded, @branchesIncluded,
-         @warehousesIncluded, @kind, @quotas, @priceMonthly, @priceYearly, @trialDays, @isPublic, @sortOrder, @status, @createdAt)
+         @warehousesIncluded, @kind, @quotas, @priceMonthly, @priceYearly, @trialDays, @isPublic, @soldOut, @sortOrder, @status, @createdAt)
        ON CONFLICT(id) DO UPDATE SET
          code = @code, name_ar = @nameAr, name_en = @nameEn, modules = @modules, features = @features,
          seats_included = @seatsIncluded, branches_included = @branchesIncluded, warehouses_included = @warehousesIncluded,
          kind = @kind, quotas = @quotas,
-         price_monthly = @priceMonthly, price_yearly = @priceYearly, trial_days = @trialDays, is_public = @isPublic,
+         price_monthly = @priceMonthly, price_yearly = @priceYearly, trial_days = @trialDays, is_public = @isPublic, sold_out = @soldOut,
          sort_order = @sortOrder, status = @status, created_at = @createdAt`,
     );
     this.byId = sqlite.prepare(`SELECT * FROM plan WHERE id = ?`);
@@ -527,7 +528,7 @@ class SqlitePlanStore implements PlanRepository {
       seatsIncluded: p.seatsIncluded, branchesIncluded: p.branchesIncluded, warehousesIncluded: p.warehousesIncluded,
       kind: p.kind, quotas: JSON.stringify(p.quotas),
       priceMonthly: p.priceMonthly.toScaledNumber(), priceYearly: p.priceYearly.toScaledNumber(),
-      trialDays: p.trialDays, isPublic: p.isPublic ? 1 : 0, sortOrder: p.sortOrder,
+      trialDays: p.trialDays, isPublic: p.isPublic ? 1 : 0, soldOut: p.soldOut ? 1 : 0, sortOrder: p.sortOrder,
       status: p.status, createdAt: p.createdAt,
     });
   }

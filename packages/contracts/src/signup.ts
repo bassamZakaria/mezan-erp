@@ -29,6 +29,7 @@ export const publicPlanSchema = planSchema.pick({
   priceMonthly: true,
   priceYearly: true,
   trialDays: true,
+  soldOut: true,
 });
 
 export const signupCheckCodeResponseSchema = z.object({

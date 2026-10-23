@@ -82,6 +82,14 @@ describe("LandingPage", () => {
     expect(screen.queryByRole("link", { name: "ابدأ التجربة المجانية" })).not.toBeInTheDocument();
   });
 
+  it("marks a sold-out package and offers no way to choose it", async () => {
+    open(ok(PLANS.map((p) => (p.code === "business" ? { ...p, soldOut: true } : p))));
+
+    const card = await screen.findByTestId("landing-plan-business");
+    expect(within(card).getAllByText("نفدت حاليًا").length).toBeGreaterThan(0);
+    expect(within(card).queryByRole("link")).not.toBeInTheDocument();
+  });
+
   it("offers no way to sign up while sign-up is closed, only sign-in", async () => {
     open(ok(PLANS), SignupModeCode.Closed);
 

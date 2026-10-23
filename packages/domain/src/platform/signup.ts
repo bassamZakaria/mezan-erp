@@ -198,6 +198,7 @@ export async function startSignup(
   const plan = await plans.findById(cmd.planId);
   if (!plan || !plan.isPublic || plan.status !== "active") throw new PlanNotFoundError(cmd.planId);
   const intended = cmd.intendedPlanId ? await plans.findById(cmd.intendedPlanId) : null;
+  if (intended?.soldOut) throw new InvalidSignupError(["الباقة المختارة نفدت حاليًا، اختر باقة أخرى"]);
   const intendedPlanId = intended && intended.isPublic && intended.status === "active" ? intended.id : null;
 
   const request: SignupRequest = {

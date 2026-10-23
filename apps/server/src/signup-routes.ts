@@ -89,6 +89,7 @@ function toPublicPlan(plan: Plan): PublicPlanDTO {
     priceMonthly: plan.priceMonthly.toString(),
     priceYearly: plan.priceYearly.toString(),
     trialDays: plan.trialDays,
+    soldOut: plan.soldOut ?? false,
   };
 }
 

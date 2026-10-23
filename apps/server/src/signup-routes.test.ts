@@ -203,6 +203,24 @@ describe("sign-ups the platform owner approves", () => {
   });
 });
 
+describe("a sold-out package", () => {
+  it("stays on the public list marked sold out, and a new sign-up cannot choose it", async () => {
+    const app = await boot();
+    const owner = await platformBearer(app);
+    const plans = (await (await platformCall(app, owner, "/plans")).json()) as (Record<string, unknown> & { id: string; code: string; status: string })[];
+    const core = plans.find((p) => p.id === "PLAN-CORE")!;
+    const { id: _id, code: _code, status: _status, createdAt: _createdAt, features: _features, ...editable } = core;
+    const marked = await platformCall(app, owner, "/plans/PLAN-CORE", { method: "PUT", body: JSON.stringify({ ...editable, soldOut: true }) });
+    expect(marked.status).toBe(200);
+
+    const listed = (await (await app.root.fetch(new Request("http://cloud.internal/api/signup/plans"))).json()) as { id: string; soldOut: boolean }[];
+    expect(listed.find((p) => p.id === "PLAN-CORE")?.soldOut).toBe(true);
+    const refused = await post(app, "/api/signup", signupBody("latecomer", "متجر متأخر"));
+    expect(refused.status).toBe(400);
+    expect(((await refused.json()) as { message: string }).message).toContain("نفدت");
+  });
+});
+
 describe("self-serve signup routes", () => {
   it("answers a signup posted to /api/signup itself, not the tenant router's TENANT_REQUIRED", async () => {
     const app = await boot();

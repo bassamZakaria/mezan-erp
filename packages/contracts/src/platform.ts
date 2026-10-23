@@ -401,6 +401,7 @@ export const planSchema = z.object({
   priceYearly: positiveDecimalString,
   trialDays: z.number().int().nonnegative(),
   isPublic: z.boolean(),
+  soldOut: z.boolean().optional(),
   sortOrder: z.number().int(),
   status: planStatusSchema,
   createdAt: isoLikeSchema,
@@ -421,6 +422,7 @@ export const planCreateRequestSchema = z.object({
   priceYearly: positiveDecimalString,
   trialDays: z.number().int().nonnegative(),
   isPublic: z.boolean(),
+  soldOut: z.boolean().optional(),
   sortOrder: z.number().int(),
 });
 

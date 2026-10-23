@@ -87,7 +87,11 @@ function PlanCard({ plan, previous, cycle }: { plan: PublicPlanDTO; previous: Pu
           </>
         )}
       </p>
-      {signupOpen ? (
+      {plan.soldOut ? (
+        <span className="mt-[16px] inline-flex min-h-[44px] items-center justify-center rounded-md border border-border bg-surface-2 px-[15px] text-[14px] font-semibold text-ink-muted">
+          {t("landing.pricing.soldOut")}
+        </span>
+      ) : signupOpen ? (
         <Link
           to={`/signup?plan=${encodeURIComponent(plan.code)}&cycle=${cycle}`}
           className={cn(

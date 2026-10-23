@@ -13,6 +13,7 @@ export const landingAr = {
   "landing.hero.leadPlain": "جرّب ميزان بكل المزايا، بلا بطاقة ائتمان. وبعدها تتابع على الباقة المجانية، ودفاترك تبقى معك.",
   "landing.cta.start": "ابدأ التجربة المجانية",
   "landing.cta.request": "اطلب حسابك",
+  "landing.pricing.soldOut": "نفدت حاليًا",
   "landing.cta.pricing": "اطّلع على الأسعار",
   "landing.hero.noCard": "بلا بطاقة ائتمان · تفعيل برابط على بريدك",
 
@@ -159,6 +160,7 @@ export const landingEn: Record<keyof typeof landingAr, string> = {
   "landing.hero.leadPlain": "Try Mezan with every feature, no credit card. Then continue on the free plan, and your books stay with you.",
   "landing.cta.start": "Start your free trial",
   "landing.cta.request": "Request your account",
+  "landing.pricing.soldOut": "Sold out",
   "landing.cta.pricing": "See pricing",
   "landing.hero.noCard": "No credit card · Activate from a link in your email",
 

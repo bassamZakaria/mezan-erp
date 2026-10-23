@@ -335,7 +335,7 @@ function serializePlan(p: Plan): PlanDTO {
     features: { ...p.features }, seatsIncluded: p.seatsIncluded, branchesIncluded: p.branchesIncluded,
     warehousesIncluded: p.warehousesIncluded, kind: p.kind, quotas: { ...p.quotas },
     priceMonthly: p.priceMonthly.toString(), priceYearly: p.priceYearly.toString(),
-    trialDays: p.trialDays, isPublic: p.isPublic, sortOrder: p.sortOrder, status: p.status, createdAt: p.createdAt,
+    trialDays: p.trialDays, isPublic: p.isPublic, soldOut: p.soldOut ?? false, sortOrder: p.sortOrder, status: p.status, createdAt: p.createdAt,
   };
 }
 
@@ -1624,6 +1624,7 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
           quotas: parsed.data.quotas,
           trialDays: parsed.data.trialDays,
           isPublic: parsed.data.isPublic,
+          soldOut: parsed.data.soldOut,
           sortOrder: parsed.data.sortOrder,
           now: nowIso(),
         },

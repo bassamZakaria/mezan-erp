@@ -55,6 +55,7 @@ export function EntityPicker({
   const [query, setQuery] = useState("");
   const [highlight, setHighlight] = useState(0);
   const [enterQueued, setEnterQueued] = useState(false);
+  const [navigated, setNavigated] = useState(false);
   const listboxId = useId();
   const generatedInputId = useId();
   const inputId = id ?? generatedInputId;
@@ -75,6 +76,7 @@ export function EntityPicker({
   function changeQuery(next: string) {
     setQuery(next);
     setEnterQueued(false);
+    setNavigated(false);
     onQueryChange?.(next);
   }
 
@@ -87,14 +89,16 @@ export function EntityPicker({
   function handleKeyDown(event: KeyboardEvent<HTMLInputElement>) {
     if (event.key === "ArrowDown") {
       event.preventDefault();
+      setNavigated(true);
       setOpen(true);
       setHighlight((i) => Math.min(i + 1, Math.max(filtered.length - 1, 0)));
     } else if (event.key === "ArrowUp") {
       event.preventDefault();
+      setNavigated(true);
       setHighlight((i) => Math.max(i - 1, 0));
     } else if (event.key === "Enter") {
       event.preventDefault();
-      if (!open || (serverMode && query.trim() === "")) {
+      if (!open || (serverMode && query.trim() === "" && !navigated)) {
         setOpen(true);
         return;
       }

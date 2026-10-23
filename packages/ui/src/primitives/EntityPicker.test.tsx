@@ -285,6 +285,16 @@ describe("EntityPicker — Arabic search (D114)", () => {
       expect(onChange).not.toHaveBeenCalled();
     });
 
+    it("with nothing typed, Enter takes the row the arrow keys moved to", () => {
+      const onChange = vi.fn();
+      render(<EntityPicker value={null} onChange={onChange} options={options} label="الصنف" onQueryChange={() => {}} />);
+      const input = screen.getByRole("combobox");
+      fireEvent.focus(input);
+      fireEvent.keyDown(input, { key: "ArrowDown" });
+      fireEvent.keyDown(input, { key: "Enter" });
+      expect(onChange).toHaveBeenCalledWith(options[1]);
+    });
+
     it("Escape cancels an Enter that was waiting for results", () => {
       const onChange = vi.fn();
       const picker = (loading: boolean) => <EntityPicker value={null} onChange={onChange} options={options} label="الصنف" onQueryChange={() => {}} loading={loading} />;

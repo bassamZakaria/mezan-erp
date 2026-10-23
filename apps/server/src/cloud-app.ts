@@ -11,6 +11,7 @@ import {
   createPlatformRoutes,
   PLATFORM_SESSION_LIMITS,
   type OwnerPinResetAccount,
+  type PlatformEnvSettingsPort,
   type PlatformHandle,
   type RecordedActivation,
 } from "@mezan/backend";
@@ -99,6 +100,7 @@ export interface CreateCloudAppOptions {
   readonly backups?: { start(): () => void };
   readonly mailer?: PlatformMailer;
   readonly alerter?: Alerter;
+  readonly envSettings?: PlatformEnvSettingsPort;
   readonly seedDemo?: (deps: {
     readonly platform: PlatformHandle;
     readonly router: TenantRouter;
@@ -300,6 +302,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
   });
 
   const platformApp = createPlatformRoutes({
+    envSettings: options.envSettings,
     platform,
     auth,
     now,

@@ -4,6 +4,8 @@ import { serve } from "@hono/node-server";
 import { takeSeededAdminSecrets } from "@mezan/backend";
 import { parseEnv } from "./env.js";
 import { createCloudApp } from "./cloud-app.js";
+import { bootEnv } from "./env-overrides.js";
+import { createEnvSettings } from "./env-settings.js";
 import { LogEvent, createLogger } from "@mezan/api";
 
 const devLog = createLogger("server");
@@ -14,13 +16,15 @@ const devLog = createLogger("server");
  * developer's platform and tenant databases never collide with a deployed
  * one on the same machine.
  */
-const env = parseEnv({
-  ...process.env,
-  MEZAN_PLATFORM_DIR: process.env["MEZAN_PLATFORM_DIR"] ?? "./.data/dev-platform",
-  PORT: process.env["PORT"] ?? "3000",
-}, { paymobTestByDefault: true });
+const boot = bootEnv({ ...process.env, PORT: process.env["PORT"] ?? "3000" }, "./.data/dev-platform");
+const env = parseEnv(boot.merged, { paymobTestByDefault: true });
+const envSettings = createEnvSettings(
+  boot,
+  (candidate) => void parseEnv(candidate, { paymobTestByDefault: true }),
+  () => process.kill(process.pid, "SIGTERM"),
+);
 
-const { root } = await createCloudApp(env);
+const { root } = await createCloudApp(env, { envSettings });
 
 /**
  * A generated seed PIN is PRINTED, once, on the run that generated it.

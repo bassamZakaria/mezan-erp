@@ -86,9 +86,14 @@ export enum SignupModeCode {
 
 export const signupModeSchema = z.nativeEnum(SignupModeCode);
 
-export const signupStatusSchema = z.object({ mode: signupModeSchema });
+export const signupStatusSchema = z.object({
+  mode: signupModeSchema,
+  contact: z.object({ email: z.string().nullable(), phone: z.string().nullable(), whatsapp: z.string().nullable() }),
+});
 
 export const setSignupModeRequestSchema = z.object({ mode: signupModeSchema });
+
+export const signupModeResponseSchema = z.object({ mode: signupModeSchema });
 
 export enum SignupRefusalCode {
   Closed = "SIGNUP_CLOSED",
@@ -117,5 +122,6 @@ export const approveSignupRequestSchema = z.object({
 
 export type SignupStatusDTO = z.infer<typeof signupStatusSchema>;
 export type SetSignupModeRequestDTO = z.infer<typeof setSignupModeRequestSchema>;
+export type SignupModeResponseDTO = z.infer<typeof signupModeResponseSchema>;
 export type SignupRequestDTO = z.infer<typeof signupRequestSchema>;
 export type ApproveSignupRequestDTO = z.infer<typeof approveSignupRequestSchema>;

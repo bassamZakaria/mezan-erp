@@ -6,8 +6,8 @@ import { BillingCycleKind, CountedNoun, PlanKind, QuotaKind } from "@mezan/domai
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useCountPhrase } from "../lib/count-phrase";
 import { entitlementModuleLabel } from "../domain-labels";
-import { usePublicPlans, useSignupMode } from "../signup/signup-api";
-import { WHATSAPP_NUMBER, whatsappHref } from "./site";
+import { usePublicPlans, useSignupMode, useWhatsappNumber } from "../signup/signup-api";
+import { whatsappHref } from "./site";
 
 enum PlanCode {
   Free = "free",
@@ -130,6 +130,7 @@ export function PricingSection() {
   const { t } = useAppTranslation();
   const [cycle, setCycle] = useState<BillingCycleKind>(BillingCycleKind.Monthly);
   const plansQuery = usePublicPlans();
+  const whatsapp = useWhatsappNumber();
   const plans = plansQuery.data ?? [];
   const savesTwoMonths = yearlySavesTwoMonths(plans);
 
@@ -166,8 +167,8 @@ export function PricingSection() {
       )}
 
       <p className="mt-[18px] text-[13px] text-ink-muted">{t("landing.pricing.vat")}</p>
-      {WHATSAPP_NUMBER === null ? null : (
-        <a href={whatsappHref(WHATSAPP_NUMBER)} target="_blank" rel="noopener noreferrer" className="mt-[4px] inline-flex min-h-[44px] items-center text-[13px] text-accent hover:underline">
+      {whatsapp === null ? null : (
+        <a href={whatsappHref(whatsapp)} target="_blank" rel="noopener noreferrer" className="mt-[4px] inline-flex min-h-[44px] items-center text-[13px] text-accent hover:underline">
           {t("landing.pricing.more")}
         </a>
       )}

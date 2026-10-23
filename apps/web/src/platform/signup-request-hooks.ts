@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
-import type { ApproveSignupRequestDTO, ProvisionResultDTO, SignupModeCode, SignupRequestDTO, SignupStatusDTO } from "@mezan/contracts";
+import type { ApproveSignupRequestDTO, ProvisionResultDTO, SignupModeCode, SignupRequestDTO, SignupModeResponseDTO } from "@mezan/contracts";
 import { useAppTranslation } from "../i18n";
 import { PlatformApiError, readPlatformErrorMessage, usePlatformApi } from "./api";
 
@@ -50,16 +50,16 @@ export function useRejectSignupMutation() {
   });
 }
 
-export function useSignupModeQuery(): UseQueryResult<SignupStatusDTO, PlatformApiError> {
+export function useSignupModeQuery(): UseQueryResult<SignupModeResponseDTO, PlatformApiError> {
   const { t } = useAppTranslation();
   const { request, session } = usePlatformApi();
-  return useQuery<SignupStatusDTO, PlatformApiError>({
+  return useQuery<SignupModeResponseDTO, PlatformApiError>({
     queryKey: SIGNUP_MODE_KEY,
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/settings/signup-mode");
       if (!res.ok) throw new PlatformApiError(res.status, await readPlatformErrorMessage(res, t, "platform.signupRequests.loadFailed"));
-      return res.json<SignupStatusDTO>();
+      return res.json<SignupModeResponseDTO>();
     },
   });
 }
@@ -68,11 +68,11 @@ export function useSetSignupModeMutation() {
   const { t } = useAppTranslation();
   const { request } = usePlatformApi();
   const queryClient = useQueryClient();
-  return useMutation<SignupStatusDTO, PlatformApiError, SignupModeCode>({
+  return useMutation<SignupModeResponseDTO, PlatformApiError, SignupModeCode>({
     mutationFn: async (mode) => {
       const res = await request("/settings/signup-mode", { method: "PUT", body: JSON.stringify({ mode }) });
       if (!res.ok) throw new PlatformApiError(res.status, await readPlatformErrorMessage(res, t, "platform.signupRequests.modeFailed"));
-      return res.json<SignupStatusDTO>();
+      return res.json<SignupModeResponseDTO>();
     },
     onSuccess: (status) => queryClient.setQueryData(SIGNUP_MODE_KEY, status),
   });

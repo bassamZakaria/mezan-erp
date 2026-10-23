@@ -7,11 +7,11 @@ import { useCountPhrase } from "../lib/count-phrase";
 import { LanguageToggle } from "../i18n/LanguageToggle";
 import { SIGN_IN_PATH } from "../routing";
 import { SignupModeCode } from "@mezan/contracts";
-import { usePublicPlans, useSignupMode } from "../signup/signup-api";
+import { usePublicPlans, useSignupMode, useWhatsappNumber } from "../signup/signup-api";
 import { HeroLedger } from "./HeroLedger";
 import { PricingSection } from "./PricingSection";
 import { SaleExample } from "./SaleExample";
-import { WHATSAPP_NUMBER, whatsappHref } from "./site";
+import { whatsappHref } from "./site";
 import "./landing.css";
 
 enum SectionId {
@@ -92,9 +92,10 @@ function useTrialDays(): number {
 }
 
 function WhatsAppLink({ className, children }: { className: string; children: ReactNode }) {
-  if (WHATSAPP_NUMBER === null) return null;
+  const whatsapp = useWhatsappNumber();
+  if (whatsapp === null) return null;
   return (
-    <a href={whatsappHref(WHATSAPP_NUMBER)} target="_blank" rel="noopener noreferrer" className={className}>
+    <a href={whatsappHref(whatsapp)} target="_blank" rel="noopener noreferrer" className={className}>
       {children}
     </a>
   );

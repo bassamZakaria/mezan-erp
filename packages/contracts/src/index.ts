@@ -1979,6 +1979,8 @@ export {
   signupModeSchema,
   signupStatusSchema,
   setSignupModeRequestSchema,
+  signupModeResponseSchema,
+  type SignupModeResponseDTO,
   SignupRefusalCode,
   signupRequestSchema,
   approveSignupRequestSchema,
@@ -2039,3 +2041,23 @@ export * from "./hr-bank.js";
 
 // --- tenant-lifecycle.ts — audit anchor restore acceptance and tenant data purge (console) ---
 export * from "./tenant-lifecycle.js";
+
+export {
+  EnvSettingKey,
+  EnvReadOnlyKey,
+  EnvSettingGroup,
+  EnvSettingKind,
+  EnvSettingSource,
+  EnvSettingsRefusal,
+  ENV_SETTINGS,
+  isEnvSettingKey,
+  envSettingSchema,
+  envSettingsSchema,
+  updateEnvSettingsRequestSchema,
+  restartServerRequestSchema,
+  type EnvSettingSpec,
+  type EnvSettingDTO,
+  type EnvSettingsDTO,
+  type UpdateEnvSettingsRequestDTO,
+  type RestartServerRequestDTO,
+} from "./env-settings.js";

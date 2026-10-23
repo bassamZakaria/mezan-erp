@@ -28,7 +28,7 @@ const plan = (code: string, nameAr: string, priceMonthly: string): PublicPlanDTO
 function open(path: string, mode: SignupModeCode = SignupModeCode.Approval) {
   const plans = [plan("core", "الأساسية", "490"), plan("business", "الأعمال", "980")];
   const json = (body: unknown) => Promise.resolve(new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } }));
-  vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => (String(input instanceof Request ? input.url : input).endsWith("/status") ? json({ mode }) : json(plans))));
+  vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => (String(input instanceof Request ? input.url : input).endsWith("/status") ? json({ mode, contact: { email: null, phone: null, whatsapp: null } }) : json(plans))));
   render(
     <AppI18nProvider>
       <QueryClientProvider client={new QueryClient()}>

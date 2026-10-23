@@ -194,7 +194,10 @@ export function createSignupRoutes(options: SignupRoutesOptions): Hono {
   const currentMode = async (): Promise<SignupMode> => signupModeOf(await platform.stores.settings.get(PlatformSettingKey.SignupMode));
 
   app.get("/status", async (c) => {
-    const body: SignupStatusDTO = { mode: signupModeSchema.parse(await currentMode()) };
+    const body: SignupStatusDTO = {
+      mode: signupModeSchema.parse(await currentMode()),
+      contact: { email: env.supportEmail ?? null, phone: env.supportPhone ?? null, whatsapp: env.whatsappNumber ?? null },
+    };
     return c.json(body);
   });
 

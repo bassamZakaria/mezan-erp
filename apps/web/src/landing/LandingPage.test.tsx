@@ -44,10 +44,10 @@ const PLANS: PublicPlanDTO[] = [
   }),
 ];
 
-function open(response: () => Promise<Response>, mode: SignupModeCode = SignupModeCode.Open) {
+function open(response: () => Promise<Response>, mode: SignupModeCode = SignupModeCode.Open, whatsapp: string | null = null) {
   vi.stubGlobal(
     "fetch",
-    vi.fn((input: RequestInfo | URL) => (String(input instanceof Request ? input.url : input).endsWith("/status") ? ok({ mode })() : response())),
+    vi.fn((input: RequestInfo | URL) => (String(input instanceof Request ? input.url : input).endsWith("/status") ? ok({ mode, contact: { email: null, phone: null, whatsapp } })() : response())),
   );
   render(
     <AppI18nProvider>
@@ -171,5 +171,12 @@ describe("LandingPage", () => {
     await screen.findByTestId("landing-plan-free");
     expect(screen.queryByText("تحدّث معنا على واتساب")).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "تواصل معنا" })).not.toBeInTheDocument();
+  });
+
+  it("links to the WhatsApp number the owner set in the console", async () => {
+    open(ok(PLANS), SignupModeCode.Open, "201001234567");
+
+    const link = await screen.findByRole("link", { name: "تواصل معنا" });
+    expect(link).toHaveAttribute("href", "https://wa.me/201001234567");
   });
 });

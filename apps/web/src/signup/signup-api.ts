@@ -58,9 +58,18 @@ async function fetchSignupStatus(): Promise<SignupStatusDTO> {
   return res.json<SignupStatusDTO>();
 }
 
+function useSignupStatus(): SignupStatusDTO | undefined {
+  return useQuery<SignupStatusDTO>({ queryKey: ["signup", "status"], queryFn: fetchSignupStatus }).data;
+}
+
 /** Until the server answers, sign-up is treated as needing approval: never promise an instant account the server may refuse. */
 export function useSignupMode(): SignupModeCode {
-  return useQuery<SignupStatusDTO>({ queryKey: ["signup", "status"], queryFn: fetchSignupStatus }).data?.mode ?? SignupModeCode.Approval;
+  return useSignupStatus()?.mode ?? SignupModeCode.Approval;
+}
+
+/** The WhatsApp number the platform owner set in the console, or null while there is none (every WhatsApp link stays hidden). */
+export function useWhatsappNumber(): string | null {
+  return useSignupStatus()?.contact.whatsapp ?? null;
 }
 
 export function usePublicPlans(): UseQueryResult<PublicPlanDTO[]> {

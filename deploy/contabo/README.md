@@ -142,6 +142,16 @@ sudo /opt/mezan/deploy.sh --rollback        # back to the tag that ran before
 
 The server's own shutdown budget is 75 s (`apps/server/src/process-lifecycle.ts`); if a backup run takes longer the process exits 1 with the marker left behind and `deploy.sh` refuses. Wait a minute, `docker compose start mezan`, and deploy again.
 
+## Settings changed from the console
+
+The platform console's **Server settings** page saves overrides to `env-overrides.json` in the data folder (`/srv/mezan/data` on the host). At start-up the server reads it after `/srv/mezan/env`, so a value set in the console wins; secrets in it are sealed with the platform secrets key. The data folder location, `MEZAN_SECRETS_KEY`, the audit signing key and the first-owner email/password stay in `/srv/mezan/env` only.
+
+If a saved setting locks you out of the console (a wrong public URL, proxy trust or origin secret), delete the file and restart:
+
+```bash
+sudo rm /srv/mezan/data/env-overrides.json && cd /opt/mezan && sudo docker compose restart mezan
+```
+
 ## 6. Restore
 
 Local snapshots: the app writes one per open tenant and one of the platform database every `MEZAN_BACKUP_INTERVAL_MINUTES` (keep it at 30 or less: a tenant idle for 30 minutes is closed and skipped) under `/srv/mezan/data/backups/`, keeping 12 per folder. Off-box: restic keeps 48 hourly, 30 daily, 12 weekly, 12 monthly.

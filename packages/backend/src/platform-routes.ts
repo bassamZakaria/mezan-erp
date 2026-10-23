@@ -129,7 +129,13 @@ import {
   setSignupModeRequestSchema,
   signupModeSchema,
   type SignupRequestDTO,
-  type SignupStatusDTO,
+  type SignupModeResponseDTO,
+  ENV_SETTINGS,
+  EnvSettingsRefusal,
+  restartServerRequestSchema,
+  updateEnvSettingsRequestSchema,
+  type EnvSettingKey,
+  type EnvSettingsDTO,
 } from "@mezan/contracts";
 import { connectionTurn, createLogger } from "@mezan/api";
 import { OwnerPinResetOutcome } from "./owner-pin-reset-outcome.js";
@@ -172,6 +178,22 @@ export interface PlatformCardCheckoutPort {
   }): Promise<CardCheckout>;
 }
 
+export interface PlatformEnvSettingsPort {
+  list(): EnvSettingsDTO;
+  /** Throws {@link EnvSettingsInvalidError}, writing nothing, when the server would refuse to start with the result. */
+  update(changes: Partial<Record<EnvSettingKey, string | null>>): EnvSettingKey[];
+  restart(): void;
+}
+
+export class EnvSettingsInvalidError extends Error {
+  constructor(readonly reason: string) {
+    super(reason);
+    this.name = "EnvSettingsInvalidError";
+  }
+}
+
+const RESTART_DELAY_MS = 500;
+
 export enum PlatformAuditAction {
   CardCheckoutRequested = "CARD_CHECKOUT_REQUESTED",
   PaymentRecorded = "PAYMENT_RECORDED",
@@ -186,6 +208,8 @@ export enum PlatformAuditAction {
   SignupApproved = "SIGNUP_APPROVED",
   SignupRejected = "SIGNUP_REJECTED",
   SignupModeSet = "SIGNUP_MODE_SET",
+  EnvSettingsChanged = "ENV_SETTINGS_CHANGED",
+  ServerRestartRequested = "SERVER_RESTART_REQUESTED",
   SubscriptionPlanChanged = "SUBSCRIPTION_PLAN_CHANGED",
   SubscriptionResumed = "SUBSCRIPTION_RESUMED",
   SubscriptionStarted = "SUBSCRIPTION_STARTED",
@@ -313,6 +337,8 @@ export interface CreatePlatformRoutesOptions {
   readonly reconcileOpenOwners?: () => Promise<void>;
   readonly operations?: () => PlatformOperationsDTO;
   readonly invalidateEntitlements: (code: string) => void;
+  /** Absent where the server has no settings file to manage (tests, the desktop). */
+  readonly envSettings?: PlatformEnvSettingsPort;
   readonly idOf?: () => string;
   /** Absent when card checkout is not configured on this deployment; the routes then answer 503. */
   readonly cardCheckout?: PlatformCardCheckoutPort;
@@ -563,6 +589,7 @@ function domainErrorResponse(c: Context, err: unknown): Response {
 export type RecordedActivation = (activate: () => Promise<Tenant>) => Promise<Tenant>;
 
 export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono {
+  const { envSettings } = options;
   const { platform, auth, now, provisionTenant, provisionRetry, resetOwnerPin, releaseTenant, lockedAccounts, unlockAccount, tenantBackups, ownerCandidates, assignOwner, confirmPendingOwner, declinePendingOwner, resendPendingOwner, tenantBooks, reconcileOwner, reconcileOpenOwners, invalidateEntitlements, idOf = randomUUID } = options;
   const nowIso = () => now().toISOString();
 
@@ -745,7 +772,7 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
   const signupMode = async () => signupModeOf(await platform.stores.settings.get(PlatformSettingKey.SignupMode));
 
   app.get("/settings/signup-mode", requireAny, async (c) => {
-    const body: SignupStatusDTO = { mode: signupModeSchema.parse(await signupMode()) };
+    const body: SignupModeResponseDTO = { mode: signupModeSchema.parse(await signupMode()) };
     return c.json(body);
   });
 
@@ -758,11 +785,55 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
         await platform.stores.settings.set(PlatformSettingKey.SignupMode, parsed.data.mode, nowIso());
         return { value: null, action: PlatformAuditAction.SignupModeSet, entityId: PlatformSettingKey.SignupMode, details: { before, after: parsed.data.mode }, severity: AuditSeverityCode.Warning };
       });
-      const body: SignupStatusDTO = { mode: parsed.data.mode };
+      const body: SignupModeResponseDTO = { mode: parsed.data.mode };
       return c.json(body);
     } catch (err) {
       return domainErrorResponse(c, err);
     }
+  });
+
+  const settingsUnavailable = (c: Context) =>
+    c.json({ error: EnvSettingsRefusal.Unavailable, message: "إعدادات الخادم غير متاحة هنا", messageEn: "Server settings are not available on this server" }, 404);
+
+  app.get("/settings/env", requireAny, (c) => (envSettings ? c.json(envSettings.list()) : settingsUnavailable(c)));
+
+  app.put("/settings/env", requireOwner, async (c) => {
+    if (!envSettings) return settingsUnavailable(c);
+    const parsed = updateEnvSettingsRequestSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    const refused = await auth.confirmPassword(c, parsed.data.password);
+    if (refused) return refused;
+    const changes = parsed.data.changes as Partial<Record<EnvSettingKey, string | null>>;
+    try {
+      await recordedWith(c, async () => {
+        const changed = envSettings.update(changes);
+        // SECURITY: a secret's value never reaches the audit trail, only whether it was set or cleared.
+        const details = Object.fromEntries(changed.map((key) => [key, ENV_SETTINGS[key].secret ? (changes[key] ? "set" : "cleared") : changes[key]]));
+        return { value: null, action: PlatformAuditAction.EnvSettingsChanged, entityId: "env", details: { changed: details }, severity: AuditSeverityCode.Warning };
+      });
+      return c.json(envSettings.list());
+    } catch (err) {
+      if (err instanceof EnvSettingsInvalidError) {
+        return c.json({ error: EnvSettingsRefusal.Invalid, message: `لم تُحفظ الإعدادات: الخادم لن يعمل بها. ${err.reason}`, messageEn: err.reason }, 422);
+      }
+      return domainErrorResponse(c, err);
+    }
+  });
+
+  app.post("/settings/restart", requireOwner, async (c) => {
+    if (!envSettings) return settingsUnavailable(c);
+    const parsed = restartServerRequestSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    const refused = await auth.confirmPassword(c, parsed.data.password);
+    if (refused) return refused;
+    try {
+      await recordedWith(c, async () => ({ value: null, action: PlatformAuditAction.ServerRestartRequested, entityId: "server", details: {}, severity: AuditSeverityCode.Warning }));
+    } catch (err) {
+      return domainErrorResponse(c, err);
+    }
+    // The answer must leave before the process does; the container's restart policy brings the server back.
+    setTimeout(() => envSettings.restart(), RESTART_DELAY_MS).unref();
+    return c.json({ restarting: true }, 202);
   });
 
   app.post("/tenants/:id/provision", requireOwner, async (c) => {

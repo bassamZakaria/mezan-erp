@@ -10,6 +10,7 @@ import { OperatorsPage } from "./OperatorsPage";
 import { SecurityEventsPage } from "./SecurityEventsPage";
 import { OperationsPage } from "./OperationsPage";
 import { SignupRequestsPage } from "./SignupRequestsPage";
+import { SettingsPage } from "./SettingsPage";
 import { useUnrecordedSecurityEventsQuery } from "./hooks";
 
 const RAIL_ITEMS = [
@@ -17,6 +18,7 @@ const RAIL_ITEMS = [
   { to: "/platform/signup-requests", labelKey: "platform.nav.signupRequests" as const },
   { to: "/platform/plans", labelKey: "platform.nav.plans" as const },
   { to: "/platform/users", labelKey: "platform.nav.operators" as const },
+  { to: "/platform/settings", labelKey: "platform.nav.settings" as const },
 ];
 
 export function PlatformShell() {
@@ -117,6 +119,7 @@ export function PlatformShell() {
           <Route path="plans" element={<PlansPage />} />
           <Route path="plans/:id" element={<PlanEditor />} />
           <Route path="users" element={<OperatorsPage />} />
+          <Route path="settings" element={<SettingsPage />} />
           <Route path="security" element={<SecurityEventsPage />} />
           <Route path="operations" element={<OperationsPage />} />
         </Routes>

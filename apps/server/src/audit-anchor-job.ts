@@ -180,7 +180,7 @@ export async function runAuditAnchorSweep(options: AuditAnchorJobOptions): Promi
         log({ event: AnchorLogEvent.Refused, scope, reason: result.reason });
       }
     } catch (err) {
-      if (scope !== PLATFORM_ANCHOR_SCOPE && isClosedConnectionError(err) && !options.router.openTenants().some((still) => still.id === scope)) {
+      if (scope !== PLATFORM_ANCHOR_SCOPE && isClosedConnectionError(err)) {
         log({ event: AnchorLogEvent.SkippedClosed, scope });
         continue;
       }

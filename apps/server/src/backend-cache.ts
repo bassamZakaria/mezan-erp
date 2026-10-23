@@ -109,8 +109,9 @@ export function createBackendCache<H extends CachedHandle>(options: BackendCache
     async close() {
       closed = true;
       if (timer) clearInterval(timer);
-      const open = [...entries.values()]; entries.clear();
-      await Promise.allSettled([...open.map((entry) => entry.handle.then(shut)), ...closing.values()]);
+      const open = [...entries]; entries.clear();
+      for (const [code, entry] of open) retire(code, entry.handle).catch(() => undefined);
+      await Promise.allSettled([...closing.values()]);
     },
   };
 }

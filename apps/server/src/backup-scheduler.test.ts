@@ -150,14 +150,15 @@ describe("runBackups", () => {
       const closingMidBackup: TenantRouter = {
         ...router,
         openBackendOf: async (id) => {
-          if (id !== "t-beta") return router.openBackendOf(id);
-          await router.evict(id);
-          throw new Error("The database connection is not open");
+          const backend = await router.openBackendOf(id);
+          if (id === "t-beta") await router.evict(id);
+          return backend;
         },
       };
 
       await expect(runBackups({ platform, router: closingMidBackup, dir, now: () => new Date(T) })).resolves.toEqual({ skipped: [] });
-      expect(backedUp(dir)).toEqual(["t-alpha", "t-gamma"]);
+      const files = (id: string) => readdirSync(path.join(dir, "backups", "tenants", id)).filter((f) => f.endsWith(".sqlite"));
+      expect([files("t-alpha").length, files("t-beta").length, files("t-gamma").length]).toEqual([1, 0, 1]);
     });
 
     it("still fails the run for a real error, even if the tenant went idle and closed meanwhile", async () => {

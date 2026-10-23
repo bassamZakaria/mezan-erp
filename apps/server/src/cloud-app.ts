@@ -245,7 +245,10 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
     if (created) log.info(`reviewer tenant "${env.reviewTenant.code}" seeded; every login uses MEZAN_REVIEW_PIN.`);
   }
 
-  const provisionTenantForRoutes = async (cmd: CreateTenantRequestDTO & { actorId: string }, activation: RecordedActivation): Promise<ProvisionResultDTO> =>
+  const provisionTenantForRoutes = async (
+    cmd: CreateTenantRequestDTO & { actorId: string; intendedPlanId?: string | null },
+    activation: RecordedActivation,
+  ): Promise<ProvisionResultDTO> =>
     provisionResultDTOOf(await provisionTenant(cmd, { platform, router, now, activation }));
 
   const provisionRetryForRoutes = async (input: { tenantId: string; actorId: string } & ProvisionRetryRequestDTO, activation: RecordedActivation): Promise<ProvisionResultDTO> => {

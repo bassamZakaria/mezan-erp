@@ -607,10 +607,16 @@ describe("createPlatformRoutes", () => {
       expect((await rig.platform.stores.signupRequests.findById("REQ-halfway"))?.decision).toBe(SignupDecision.Rejected);
     });
 
-    it("an approval that loses the decision to another answers 409 and leaves no company holding the code", async () => {
+    it("an approval that loses to a rejection answers 409 and leaves no company holding the code", async () => {
       const rig = await buildRig();
       await rig.platform.stores.signupRequests.save(verifiedRequest("raced"));
-      rig.platform.stores.signupRequests.tryDecide = async () => false;
+      const store = rig.platform.stores.signupRequests;
+      const find = store.findById.bind(store);
+      store.tryDecide = async () => false;
+      store.findById = async (id) => {
+        const found = await find(id);
+        return found ? { ...found, decision: SignupDecision.Rejected } : null;
+      };
 
       const res = await rig.app.fetch(
         req("/signup-requests/REQ-raced/approve", rig.ownerToken, { method: "POST", body: JSON.stringify({ planId: "PLAN-CORE", billingCycle: "monthly", trial: false }) }),
@@ -621,6 +627,30 @@ describe("createPlatformRoutes", () => {
       const tenant = await rig.platform.stores.tenants.findByCode("raced");
       expect(tenant?.status).not.toBe(TenantStatusCode.Provisioning);
       expect(tenant?.status).not.toBe(TenantStatusCode.Active);
+    });
+
+    it("an approval that loses without a rejection leaves the half-made company for whoever is finishing it", async () => {
+      const rig = await buildRig();
+      await rig.platform.stores.signupRequests.save(verifiedRequest("contested"));
+      rig.platform.stores.signupRequests.tryDecide = async () => false;
+
+      const res = await rig.app.fetch(
+        req("/signup-requests/REQ-contested/approve", rig.ownerToken, { method: "POST", body: JSON.stringify({ planId: "PLAN-CORE", billingCycle: "monthly", trial: false }) }),
+      );
+
+      expect(res.status).toBe(409);
+      expect((await rig.platform.stores.tenants.findByCode("contested"))?.status).toBe(TenantStatusCode.Provisioning);
+    });
+
+    it("an approval keeps the package the visitor picked as their suggested upgrade", async () => {
+      const rig = await buildRig();
+      await rig.platform.stores.signupRequests.save({ ...verifiedRequest("suggested"), intendedPlanId: "PLAN-BUSINESS" });
+
+      await rig.app.fetch(
+        req("/signup-requests/REQ-suggested/approve", rig.ownerToken, { method: "POST", body: JSON.stringify({ planId: "PLAN-CORE", billingCycle: "monthly", trial: false }) }),
+      );
+
+      expect(rig.provisioned.at(-1)).toMatchObject({ code: "suggested", planId: "PLAN-CORE", intendedPlanId: "PLAN-BUSINESS" });
     });
   });
 

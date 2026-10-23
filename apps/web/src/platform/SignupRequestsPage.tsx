@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { BillingCycleKind, PlanStatusCode } from "@mezan/domain";
+import { BillingCycleKind, PlanKind, PlanStatusCode } from "@mezan/domain";
 import { Button, ConfirmDialog, DocumentList, Select, SidePanel, useFormat, type DocumentListColumn } from "@mezan/ui";
 import { SignupModeCode, billingCycleSchema, type BillingCycleDTO, type ProvisionResultDTO, type SignupRequestDTO } from "@mezan/contracts";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
@@ -208,7 +208,7 @@ function ApprovePanel({ request, onClose }: { request: SignupRequestDTO | null; 
   const chosenPlan = planId ?? (activePlans.some((p) => p.id === request?.intendedPlanId) ? (request?.intendedPlanId ?? "") : "");
   const chosenCycle = billingCycle ?? request?.billingCycle ?? BillingCycleKind.Monthly;
   const plan = activePlans.find((p) => p.id === chosenPlan);
-  const paidWithoutTrial = plan !== undefined && Number(plan.priceMonthly) > 0 && !trial;
+  const paidWithoutTrial = plan !== undefined && plan.kind === PlanKind.Paid && !trial;
 
   function submit() {
     if (!request || approve.isPending) return;

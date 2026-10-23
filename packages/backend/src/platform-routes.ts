@@ -325,7 +325,7 @@ export interface CreatePlatformRoutesOptions {
   readonly platform: PlatformHandle;
   readonly auth: PlatformAuth;
   readonly now: () => Date;
-  readonly provisionTenant: (cmd: CreateTenantRequestDTO & { actorId: string }, activation: RecordedActivation) => Promise<ProvisionResultDTO>;
+  readonly provisionTenant: (cmd: CreateTenantRequestDTO & { actorId: string; intendedPlanId?: string | null }, activation: RecordedActivation) => Promise<ProvisionResultDTO>;
   /** Re-runs a failed provisioning (seed, admin, subscription) idempotently for a tenant stuck in `provisioning`. Optional only so a rig that never exercises this route still typechecks without supplying it. */
   readonly provisionRetry?: (input: { tenantId: string; actorId: string } & ProvisionRetryRequestDTO, activation: RecordedActivation) => Promise<ProvisionResultDTO>;
   readonly resetOwnerPin?: (input: { tenant: Tenant; actorId: string; recordIntent: (account: OwnerPinResetAccount) => Promise<void> }) => Promise<OwnerPinResetResultDTO>;
@@ -763,7 +763,16 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
     try {
       // The decision is written in the same audited transaction that activates the company, so an approval never exists without its company.
       const result = await provisionTenant(
-        { code: request.code, nameAr: request.nameAr, nameEn: request.nameEn, ownerEmail: request.ownerEmail, ownerNameAr: request.ownerNameAr, ...parsed.data, actorId: platformUser.id },
+        {
+          code: request.code,
+          nameAr: request.nameAr,
+          nameEn: request.nameEn,
+          ownerEmail: request.ownerEmail,
+          ownerNameAr: request.ownerNameAr,
+          intendedPlanId: request.intendedPlanId ?? null,
+          ...parsed.data,
+          actorId: platformUser.id,
+        },
         (activate) =>
           recordedWith(c, async () => {
             const tenant = await activate();
@@ -777,7 +786,8 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
       return c.json(result, 201);
     } catch (err) {
       if (lostTheDecision(err)) {
-        await releaseHalfProvisioned(request, platformUser.id);
+        // Only a rejection makes the half-made company unwanted; a sign-up link that won the race is still finishing it.
+        if ((await signupRequests.findById(request.id))?.decision === SignupDecision.Rejected) await releaseHalfProvisioned(request, platformUser.id);
         return c.json(SIGNUP_ALREADY_DECIDED, 409);
       }
       return domainErrorResponse(c, err);

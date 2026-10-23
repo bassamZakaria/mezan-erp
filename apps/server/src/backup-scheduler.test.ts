@@ -160,6 +160,21 @@ describe("runBackups", () => {
       expect(backedUp(dir)).toEqual(["t-alpha", "t-gamma"]);
     });
 
+    it("still fails the run for a real error, even if the tenant went idle and closed meanwhile", async () => {
+      const { platform, router } = await threeOpen();
+      const failing: TenantRouter = {
+        ...router,
+        openBackendOf: async (id) => {
+          if (id !== "t-beta") return router.openBackendOf(id);
+          await router.evict(id);
+          throw new Error("ENOSPC: no space left on device");
+        },
+      };
+      const errored = vi.spyOn(console, "error").mockImplementation(() => undefined);
+      await expect(runBackups({ platform, router: failing, dir: tempDir("mezan-backup-dir-"), now: () => new Date(T) })).rejects.toThrow(/ENOSPC/);
+      errored.mockRestore();
+    });
+
     it("skips a tenant whose books are refused, says which and why, and still backs up the tenants after it", async () => {
       const { platform, router } = await threeOpen();
       const dir = tempDir("mezan-backup-dir-");

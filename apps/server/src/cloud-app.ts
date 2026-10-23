@@ -114,6 +114,8 @@ export interface CloudApp {
   readonly jobs: JobRegistry;
   readonly alerter: Alerter;
   readiness(): Readiness;
+  // REQUIRED ORDERING: call before the HTTP server stops, so no job starts while requests drain; close() calls it too.
+  stopJobs(): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -577,25 +579,34 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
     .then(reportTenantBooks)
     .catch((err: unknown) => log.error({ err }, "the start-up read of tenant books failed"));
 
+  let jobsStopped: Promise<void> | null = null;
+  const stopJobs = (): Promise<void> => {
+    jobsStopped ??= Promise.all([
+      stopBackups?.(),
+      anchorTimer?.stop(),
+      tenantPurgeTimer.stop(),
+      dunningTimer.stop(),
+      ownerDigestTimer.stop(),
+      collectionsTimer.stop(),
+      checkoutSweepTimer?.stop(),
+    ]).then(() => undefined);
+    return jobsStopped;
+  };
+
   return {
     root,
     booksScanned,
     jobs,
     alerter,
     readiness,
+    stopJobs,
     async close() {
       if (closed) return;
       closed = true;
       clearInterval(readinessWatch);
       alerter.close();
-      await stopBackups?.();
-      await anchorTimer?.stop();
-      await tenantPurgeTimer.stop();
+      await stopJobs();
       tenantBackups.close();
-      await dunningTimer.stop();
-      await ownerDigestTimer.stop();
-      await collectionsTimer.stop();
-      await checkoutSweepTimer?.stop();
       await router.close();
       await booksScanned;
       platform.close();

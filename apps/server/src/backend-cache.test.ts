@@ -86,7 +86,7 @@ describe("createBackendCache", () => {
     expect(a.close).not.toHaveBeenCalled();
   });
 
-  it("retries open on the next get after a failure, without deleting a newer entry that replaced it", async () => {
+  it("retries open on the next get after a failed open, waiting for that open to settle first", async () => {
     let t = 0;
     let rejectFirst: (err: Error) => void = () => undefined;
     let openCalls = 0;
@@ -251,5 +251,25 @@ describe("createBackendCache", () => {
     await evicted;
     await reopened;
     expect(order).toEqual(["open 1", "close 1", "open 2"]);
+  });
+
+  it("makes an evict of a tenant the idle sweep already took wait until its handle has closed", async () => {
+    let t = 0;
+    const order: string[] = [];
+    let finishDrain: () => void = () => undefined;
+    const cache = createBackendCache({
+      open: async () => ({ drain: () => new Promise<void>((resolve) => { finishDrain = resolve; }), close: () => void order.push("closed") }),
+      idleMs: 1000,
+      now: () => t,
+      sweepEveryMs: 0,
+    });
+    await cache.get("a");
+    t += 1001;
+    const swept = cache.sweep();
+    const evicted = cache.evict("a").then(() => void order.push("evict returned"));
+    await Promise.resolve();
+    finishDrain();
+    await Promise.all([swept, evicted]);
+    expect(order).toEqual(["closed", "evict returned"]);
   });
 });

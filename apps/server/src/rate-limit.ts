@@ -88,8 +88,8 @@ export function createRateLimiter(
   };
 }
 
-// SECURITY: any bearer string gets a session window, so this store must hold far more keys than the
-// address cap lets a handful of addresses mint in a minute, or junk tokens evict real sessions' counts.
+// SECURITY: any bearer string gets a session window. At the default address cap a caller needs about
+// 67 distinct addresses (or /64s) a minute to fill this store and evict real sessions' counts.
 export const SESSION_CAP_MAX_RECORDS = 200_000;
 
 export enum RequestCapRefusal {

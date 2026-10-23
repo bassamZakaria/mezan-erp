@@ -1,3 +1,4 @@
+import { isClosedConnectionError } from "./backend-cache.js";
 import { createLogger, type JobTracker } from "@mezan/api";
 import { fork, type ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, renameSync, rmSync } from "node:fs";
@@ -267,7 +268,7 @@ export async function runBackups(options: RunBackupsOptions): Promise<BackupRun>
       if (refusal) {
         skipped.push({ tenantId: tenant.id, code: tenant.code, reason: refusal.error });
         backupLog.warn(`tenant "${tenant.code}" (${tenant.id}) was skipped: its books are refused (${refusal.error})`);
-      } else if (!options.router.openTenants().some((still) => still.id === tenant.id)) {
+      } else if (isClosedConnectionError(err) && !options.router.openTenants().some((still) => still.id === tenant.id)) {
         backupLog.info(`tenant "${tenant.code}" (${tenant.id}) closed during its backup; its file is at rest`);
       } else {
         backupLog.error({ err: err }, `tenant "${tenant.code}" (${tenant.id}) could not be backed up`);

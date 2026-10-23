@@ -21,6 +21,10 @@ export interface BackendCache<H> {
 }
 
 export const DEFAULT_IDLE_MS = 30 * 60 * 1000;
+
+export function isClosedConnectionError(err: unknown): boolean {
+  return err instanceof Error && /database connection is not open/i.test(err.message);
+}
 // Several tenants close in parallel on shutdown, so this must stay well under the process's shutdown budget.
 const DRAIN_BUDGET_MS = 10_000;
 
@@ -94,7 +98,10 @@ export function createBackendCache<H extends CachedHandle>(options: BackendCache
     sweep,
     async evict(code) {
       const entry = entries.get(code);
-      if (!entry) return;
+      if (!entry) {
+        await closing.get(code)?.catch(() => undefined);
+        return;
+      }
       entries.delete(code);
       options.onEvict?.(code);
       await retire(code, entry.handle).catch(() => undefined);

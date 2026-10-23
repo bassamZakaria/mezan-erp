@@ -1,4 +1,5 @@
 import type { SmtpConfig } from "@mezan/api";
+import { DEFAULT_IDLE_MS } from "./backend-cache.js";
 import type { ClientSourceOptions } from "./client-source.js";
 import type { SmtpSecurity } from "@mezan/domain";
 import type { ReviewTenantConfig } from "./review-tenant.js";
@@ -155,7 +156,7 @@ function parseNonNegativeInt(value: string | undefined, name: string, fallback: 
 
 // REQUIRED: a tenant idle this long is closed, and the backup and anchor jobs only reach open tenants,
 // so a longer interval would leave an idle tenant's last writes unbacked and unanchored.
-const MAX_JOB_INTERVAL_MINUTES = 30;
+const MAX_JOB_INTERVAL_MINUTES = DEFAULT_IDLE_MS / 60_000;
 
 function parseJobIntervalMinutes(value: string | undefined, name: string, fallback: number): number {
   const minutes = parseNonNegativeInt(value, name, fallback);

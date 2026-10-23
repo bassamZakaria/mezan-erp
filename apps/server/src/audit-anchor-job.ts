@@ -1,3 +1,4 @@
+import { isClosedConnectionError } from "./backend-cache.js";
 import { createLogger, type JobTracker } from "@mezan/api";
 import type { PlatformHandle } from "@mezan/backend";
 import { isAuditChainAnchorSource, type AuditChainAnchorSource, type AuditChainVerification } from "@mezan/persistence";
@@ -23,6 +24,7 @@ export enum AnchorLogEvent {
   Refused = "audit_anchor.refused_possible_tampering",
   Failed = "audit_anchor.failed",
   SweepFailed = "audit_anchor.sweep_failed",
+  SkippedClosed = "audit_anchor.skipped_closed",
 }
 
 export interface AnchorLogRecord {
@@ -178,7 +180,10 @@ export async function runAuditAnchorSweep(options: AuditAnchorJobOptions): Promi
         log({ event: AnchorLogEvent.Refused, scope, reason: result.reason });
       }
     } catch (err) {
-      if (scope !== PLATFORM_ANCHOR_SCOPE && !options.router.openTenants().some((still) => still.id === scope)) continue;
+      if (scope !== PLATFORM_ANCHOR_SCOPE && isClosedConnectionError(err) && !options.router.openTenants().some((still) => still.id === scope)) {
+        log({ event: AnchorLogEvent.SkippedClosed, scope });
+        continue;
+      }
       counts.failed += 1;
       log({ event: AnchorLogEvent.Failed, scope, reason: err instanceof Error ? err.message : String(err) });
     }

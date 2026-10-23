@@ -146,6 +146,7 @@ const server = serve({ fetch: root.fetch, port: env.port, hostname: "0.0.0.0" },
 const stopServing = () =>
   new Promise<void>((resolve) => {
     const http = server instanceof HttpServer ? server : null;
+    http?.on("request", (_request, response) => response.setHeader("connection", "close"));
     const idle = setInterval(() => http?.closeIdleConnections(), 1_000);
     const hard = setTimeout(() => http?.closeAllConnections(), 20_000);
     server.close(() => {
@@ -161,7 +162,9 @@ installProcessHandlers({
   alerter: cloud.alerter,
   marker,
   close: async () => {
+    const jobs = cloud.stopJobs();
     await stopServing();
+    await jobs;
     await cloud.close();
   },
 });

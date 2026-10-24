@@ -14,7 +14,7 @@ export {
 export {
   createPlan, updatePlan, retirePlan, dedupeModules,
   type Plan, type PlanStatus, type PlanRepository,
-  type CreatePlanCommand, type UpdatePlanCommand, type HasLiveSubscribers,
+  type CreatePlanCommand, type UpdatePlanCommand,
 } from "./plan.js";
 export {
   DEFAULT_GRACE_DAYS, BillingCycleKind, SubscriptionStatusKind, billingAnchorDayOf, billingDayBehindUtcAnchor, inferBillingAnchorDay, settledPeriodEnd, setBillingAnchorDay, setSubscriptionExtras, MAX_EXTRA_CAPACITY, MAX_GRACE_DAYS,

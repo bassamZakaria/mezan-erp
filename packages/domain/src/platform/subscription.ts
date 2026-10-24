@@ -79,7 +79,6 @@ export interface SubscriptionRepository {
   findById(id: string): Promise<Subscription | null>;
   findLiveByTenant(tenantId: string): Promise<Subscription | null>;
   listByTenant(tenantId: string): Promise<Subscription[]>;
-  hasLiveByPlan(planId: string): Promise<boolean>;
   /** Every live (non-cancelled) subscription on this plan, across all tenants. */
   listByPlan(planId: string): Promise<Subscription[]>;
   save(subscription: Subscription): Promise<void>;

@@ -34,7 +34,6 @@ import {
   PlanKind,
   PlanCodeTakenError,
   PlanRetiredError,
-  PlanInUseError,
   FreePlanRequiredError,
   InvalidSubscriptionError,
   SubscriptionNotFoundError,
@@ -594,8 +593,7 @@ function domainErrorResponse(c: Context, err: unknown): Response {
     err instanceof PlanCodeTakenError ||
     err instanceof PlatformUserEmailTakenError ||
     err instanceof TenantAlreadySubscribedError ||
-    err instanceof PlanRetiredError ||
-    err instanceof PlanInUseError
+    err instanceof PlanRetiredError
   ) {
     return c.json({ error: err.code, message: err.message }, 409);
   }
@@ -1769,7 +1767,6 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
           priceYearly: Money.fromMajor(priceYearly),
         },
         platform.stores.plans,
-        (planId) => platform.stores.subscriptions.hasLiveByPlan(planId),
         );
         return { value: updated, action: "PLAN_UPDATED", entityId: updated.id, details: { code: updated.code } };
       });

@@ -108,14 +108,6 @@ export class PlanRetiredError extends Error {
   }
 }
 
-export class PlanInUseError extends Error {
-  readonly code = "PLAN_IN_USE";
-  constructor(readonly id: string, readonly modules: string[]) {
-    super(`لا يمكن إزالة وحدات من الباقة "${id}" وبها اشتراكات سارية: ${modules.join("، ")}`);
-    this.name = "PlanInUseError";
-  }
-}
-
 export class InvalidSubscriptionError extends Error {
   readonly code = "INVALID_SUBSCRIPTION";
   readonly messageEn: string;

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { Money } from "../money/money.js";
 import { createPlan, updatePlan, retirePlan, type Plan, type PlanRepository, type UpdatePlanCommand } from "./plan.js";
-import { FreePlanRequiredError, InvalidPlanError, PlanCodeTakenError, PlanInUseError, PlanNotFoundError } from "./errors.js";
+import { FreePlanRequiredError, InvalidPlanError, PlanCodeTakenError, PlanNotFoundError } from "./errors.js";
 import { PlanKind } from "./plan.js";
 
 function memoryRepo(): PlanRepository & { rows: Map<string, Plan> } {
@@ -23,7 +23,6 @@ const cmd = {
   priceMonthly: Money.fromMajor("490"), priceYearly: Money.fromMajor("4900"),
   trialDays: 14, isPublic: true, sortOrder: 1, now: NOW,
 };
-const noSubscribers = async () => false;
 
 describe("createPlan", () => {
   it("creates an active plan with deduplicated modules", async () => {
@@ -67,7 +66,7 @@ describe("updatePlan", () => {
     await createPlan(cmd, repo);
     const next = await updatePlan(
       { id: "P1", code: "hacked", createdAt: "x", nameEn: "Core+", priceMonthly: Money.fromMajor("590"), seatsIncluded: 5, modules: ["accounting", "sales", "inventory"] } as UpdatePlanCommand,
-      repo, noSubscribers,
+      repo,
     );
     expect(next.code).toBe("core");
     expect(next.createdAt).toBe(NOW);
@@ -81,32 +80,23 @@ describe("updatePlan", () => {
   it("leaves a field unchanged when the patch sends it as undefined", async () => {
     const repo = memoryRepo();
     await createPlan(cmd, repo);
-    const next = await updatePlan({ id: "P1", isPublic: undefined, priceMonthly: undefined }, repo, noSubscribers);
+    const next = await updatePlan({ id: "P1", isPublic: undefined, priceMonthly: undefined }, repo);
     expect(next.isPublic).toBe(true);
     expect(next.priceMonthly.equals(Money.fromMajor("490"))).toBe(true);
   });
 
-  it("removes a module only while nobody live subscribes", async () => {
+  it("removes and adds modules at any time", async () => {
     const repo = memoryRepo();
     await createPlan(cmd, repo);
-    await expect(updatePlan({ id: "P1", modules: ["accounting"] }, repo, async () => true))
-      .rejects.toThrow(PlanInUseError);
-    const next = await updatePlan({ id: "P1", modules: ["accounting"] }, repo, noSubscribers);
-    expect(next.modules).toEqual(["accounting"]);
-  });
-
-  it("adds a module even while somebody live subscribes", async () => {
-    const repo = memoryRepo();
-    await createPlan(cmd, repo);
-    const next = await updatePlan({ id: "P1", modules: ["accounting", "sales", "inventory"] }, repo, async () => true);
-    expect(next.modules).toEqual(["accounting", "sales", "inventory"]);
+    expect((await updatePlan({ id: "P1", modules: ["accounting"] }, repo)).modules).toEqual(["accounting"]);
+    expect((await updatePlan({ id: "P1", modules: ["accounting", "inventory"] }, repo)).modules).toEqual(["accounting", "inventory"]);
   });
 
   it("still validates on update and reports a missing plan", async () => {
     const repo = memoryRepo();
     await createPlan(cmd, repo);
-    await expect(updatePlan({ id: "P1", seatsIncluded: 0 }, repo, noSubscribers)).rejects.toThrow(InvalidPlanError);
-    await expect(updatePlan({ id: "nope" }, repo, noSubscribers)).rejects.toThrow(PlanNotFoundError);
+    await expect(updatePlan({ id: "P1", seatsIncluded: 0 }, repo)).rejects.toThrow(InvalidPlanError);
+    await expect(updatePlan({ id: "nope" }, repo)).rejects.toThrow(PlanNotFoundError);
   });
 });
 
@@ -138,13 +128,13 @@ describe("the free plan every trial ends on", () => {
     await createPlan(free, repo);
     const makePaid = { id: "F1", kind: PlanKind.Paid, priceMonthly: Money.fromMajor("100"), priceYearly: Money.fromMajor("1000") };
 
-    const refused = await updatePlan(makePaid, repo, noSubscribers).catch((err: unknown) => err);
+    const refused = await updatePlan(makePaid, repo).catch((err: unknown) => err);
     expect(refused).toBeInstanceOf(FreePlanRequiredError);
     expect((refused as FreePlanRequiredError).message).toMatch(/لا يمكن تحويل الباقة المجانية الوحيدة/);
     expect(repo.rows.get("F1")?.kind).toBe(PlanKind.Free);
 
-    expect((await updatePlan({ id: "F1", nameAr: "المجانية" }, repo, noSubscribers)).nameAr).toBe("المجانية");
+    expect((await updatePlan({ id: "F1", nameAr: "المجانية" }, repo)).nameAr).toBe("المجانية");
     await createPlan({ ...free, id: "F2", code: "free-2" }, repo);
-    expect((await updatePlan(makePaid, repo, noSubscribers)).kind).toBe(PlanKind.Paid);
+    expect((await updatePlan(makePaid, repo)).kind).toBe(PlanKind.Paid);
   });
 });

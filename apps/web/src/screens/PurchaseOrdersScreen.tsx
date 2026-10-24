@@ -74,6 +74,7 @@ function OrderDetail({
   order,
   supplierName,
   itemName,
+  userName,
   onBack,
   onConfirm,
   onPrint,
@@ -81,6 +82,7 @@ function OrderDetail({
   order: PurchaseOrderDTO;
   supplierName: (id: string) => string;
   itemName: (id: string) => string;
+  userName: (id: string) => string;
   onBack: () => void;
   onConfirm: () => void;
   onPrint: () => void;
@@ -109,7 +111,7 @@ function OrderDetail({
         { label: t("purchaseOrders.detail.expectedDelivery"), value: order.expectedDeliveryDate?.split("-").reverse().join("/") ?? "—" },
         { label: t("common.warehouse"), value: warehouses.find((warehouse) => warehouse.id === order.warehouseId)?.name ?? order.warehouseId },
         { label: t("common.total"), value: <MoneyValue value={num(order.subtotal)} /> },
-        { label: t("purchaseOrders.detail.createdBy"), value: order.createdBy },
+        { label: t("purchaseOrders.detail.createdBy"), value: userName(order.createdBy) },
       ]}
       effects={[
         t("purchaseOrders.effect.noStock"),
@@ -409,6 +411,7 @@ export function PurchaseOrdersScreen() {
           order={selected}
           supplierName={supplierName}
           itemName={itemName}
+          userName={userName}
           onBack={() => subPage.close()}
           onConfirm={() => confirmSelected(selected.id, selected.version)}
           onPrint={() => subPage.open(selected.number ?? selected.id, "print")}

@@ -94,6 +94,7 @@ function RfqDetail({
   comparisonQuery,
   items,
   suppliers,
+  userName,
   onBack,
   sendRfq,
   closeRfq,
@@ -106,6 +107,7 @@ function RfqDetail({
   comparisonQuery: ReturnType<typeof useRfqComparison>;
   items: ItemDTO[];
   suppliers: SupplierDTO[];
+  userName: (id: string) => string;
   onBack: () => void;
   sendRfq: ReturnType<typeof useSendRfq>;
   closeRfq: ReturnType<typeof useCloseRfq>;
@@ -207,7 +209,7 @@ function RfqDetail({
           label: t("rfqs.detail.linkedOrder"),
           value: rfq.purchaseOrderId ?? "—",
         },
-        { label: t("rfqs.detail.createdBy"), value: rfq.createdBy },
+        { label: t("rfqs.detail.createdBy"), value: userName(rfq.createdBy) },
       ]}
       effects={[
         t("rfqs.effect.noImpact"),
@@ -599,6 +601,7 @@ export function RfqsScreen() {
           comparisonQuery={comparisonQuery}
           items={items}
           suppliers={suppliers}
+          userName={userName}
           onBack={() => subPage.close()}
           sendRfq={sendRfq}
           closeRfq={closeRfq}

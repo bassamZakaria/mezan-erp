@@ -1,7 +1,7 @@
 import { useCallback } from "react";
 import type { DocumentEffect } from "@mezan/domain";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
-import { useFormat } from "@mezan/ui";
+import { ENGLISH_LOCALE, useFormat } from "@mezan/ui";
 import { useWarehouses } from "../data/hooks";
 import { useEntityName } from "./entity-names";
 import { majorOf } from "./money";
@@ -39,7 +39,7 @@ export function useDocumentEffectText(): (effect: DocumentEffect) => { text: str
           const currency = typeof params.currency === "string" && params.currency !== "" ? params.currency : format.currencyLabel;
           out[key] = `${format.money(String(value))} ${currency}`;
         } else if (key === "reasonAr" || key === "reasonEn") {
-          if (key === (locale === "en" ? "reasonEn" : "reasonAr")) out.reason = String(value);
+          if (key === (locale === ENGLISH_LOCALE ? "reasonEn" : "reasonAr")) out.reason = String(value);
         } else {
           out[key] = value;
         }

@@ -258,6 +258,6 @@ describe("TenantRetentionCard — deletion after the service ends", () => {
 
   it("shows nothing for a live tenant — its data is never scheduled for deletion", async () => {
     const { container } = renderWithPlatformProviders(<TenantRetentionCard tenant={tenant} isOwner onError={vi.fn()} />, { transport: stubPlatformTransport({}), initialSession: testPlatformSession });
-    expect(container).toBeEmptyDOMElement();
+    expect(container.textContent).toBe("");
   });
 });

@@ -62,16 +62,21 @@ export interface DunningTimerOptions {
 }
 
 export interface DunningTimer {
-  stop(): void;
+  /** Resolves once the run in flight, if any, has settled. */
+  stop(): Promise<void>;
 }
 
 export function startDunningTimer(platform: PlatformHandle, options: DunningTimerOptions = {}): DunningTimer {
   const now = options.now ?? (() => new Date());
   const intervalMs = options.intervalMs ?? DAY_MS;
 
+  let current: Promise<void> = Promise.resolve();
   const run = () => {
     const sweep = () => runDunningSweep(platform, now);
-    (options.job ? options.job.run(sweep, (result) => result.marked) : sweep()).catch((err) => options.onError?.(err));
+    current = (options.job ? options.job.run(sweep, (result) => result.marked) : sweep()).then(
+      () => undefined,
+      (err: unknown) => options.onError?.(err),
+    );
   };
   run();
 
@@ -81,6 +86,7 @@ export function startDunningTimer(platform: PlatformHandle, options: DunningTime
   return {
     stop() {
       clearInterval(timer);
+      return current;
     },
   };
 }

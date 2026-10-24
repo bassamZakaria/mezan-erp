@@ -1,5 +1,5 @@
-import ExcelJS from "exceljs";
-import type { ReportExportFile } from "./report-export";
+import type ExcelJS from "exceljs";
+import { loadExcelJS, type ReportExportFile } from "./report-export";
 import { DEFAULT_LOCALE, translate, uiCatalogs, type TranslationParams, type UiTranslationKey } from "../i18n";
 
 /**
@@ -85,7 +85,7 @@ const DOC_TYPE_BY_LABEL: Record<string, HistoricalImportFileDocType> = {
 
 /** Builds the downloadable "تحميل النموذج" Excel template — a header row + one filled example row. */
 export async function buildHistoricalImportTemplate(t: ImportTranslate = defaultT): Promise<ReportExportFile> {
-  const workbook = new ExcelJS.Workbook();
+  const workbook = new (await loadExcelJS()).Workbook();
   const sheet = workbook.addWorksheet(t("import.historical.sheetName"));
   sheet.addRow(TEMPLATE_HEADER_KEYS.map((key) => t(key)));
   sheet.addRow([
@@ -132,7 +132,7 @@ function cellText(value: ExcelJS.CellValue): string {
  * validation of everything else is left to the domain's dry-run preview).
  */
 export async function parseHistoricalImportFile(buffer: ArrayBuffer, t: ImportTranslate = defaultT): Promise<HistoricalImportParseResult> {
-  const workbook = new ExcelJS.Workbook();
+  const workbook = new (await loadExcelJS()).Workbook();
   await workbook.xlsx.load(buffer);
   const sheet = workbook.worksheets[0];
   const rows: ParsedHistoricalImportRow[] = [];

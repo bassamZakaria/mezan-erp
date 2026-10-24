@@ -172,6 +172,7 @@ describe("PriceListsScreen", () => {
 
   it("adds a tier bound to a real item id and sends that id — not its Arabic name — in the PATCH body", async () => {
     let patchBody: Record<string, unknown> | undefined;
+    const itemPaths: string[] = [];
     renderWithProviders(
       <TestNavigation>
         <PriceListsScreen />
@@ -180,7 +181,10 @@ describe("PriceListsScreen", () => {
         initialSession: testAdminSession,
         transport: stubTransport({
           "GET /price-lists": () => ({ body: [priceList()] }),
-          "GET /items": () => ({ body: [itemFixture()] }),
+          "GET /items": (_init, path) => {
+            itemPaths.push(path);
+            return { body: [itemFixture()] };
+          },
           "PATCH /price-lists/pl-1": (init) => {
             patchBody = JSON.parse(String(init?.body));
             return { body: priceList({ lines: patchBody!.lines as PriceListDTO["lines"] }) };
@@ -195,7 +199,7 @@ describe("PriceListsScreen", () => {
     const itemPicker = screen.getByPlaceholderText("اختر صنفاً");
     fireEvent.focus(itemPicker);
     fireEvent.change(itemPicker, { target: { value: "أرز" } });
-    fireEvent.mouseDown(screen.getByRole("button", { name: (name) => name.startsWith("أرز") }));
+    fireEvent.mouseDown(await screen.findByRole("button", { name: (name) => name.startsWith("أرز") }));
 
     const priceInput = screen.getByLabelText("السعر المخصص");
     fireEvent.focus(priceInput);
@@ -205,7 +209,56 @@ describe("PriceListsScreen", () => {
     fireEvent.click(screen.getByRole("button", { name: "حفظ الأسعار" }));
 
     await waitFor(() => expect(patchBody).toBeDefined());
-    expect(patchBody?.lines).toEqual([{ itemId: "itm-1", unitCode: "PCS", minQty: "1.000000", price: "200.00" }]);
+    expect(patchBody?.lines).toEqual([{ itemId: "itm-1", unitCode: "PCS", minQty: "1.000000", price: "200.000000" }]);
+    expect(itemPaths.length).toBeGreaterThan(0);
+    for (const path of itemPaths) expect(new URLSearchParams(path.split("?")[1]).get("page")).toBe("1");
+  });
+
+  it("keeps a stored six-decimal price exact and rounds a typed price half-up from its decimal digits, not its binary float", async () => {
+    let patchBody: Record<string, unknown> | undefined;
+    renderWithProviders(
+      <TestNavigation>
+        <PriceListsScreen />
+      </TestNavigation>,
+      {
+        initialSession: testAdminSession,
+        transport: stubTransport({
+          "GET /price-lists": () => ({ body: [priceList({ lines: [{ itemId: "itm-1", unitCode: "PCS", minQty: "1.000000", price: "12.345678" }] })] }),
+          "GET /items": () => ({ body: [itemFixture()] }),
+          "PATCH /price-lists/pl-1": (init) => {
+            patchBody = JSON.parse(String(init?.body));
+            return { body: priceList({ lines: patchBody!.lines as PriceListDTO["lines"] }) };
+          },
+        }),
+      },
+    );
+
+    fireEvent.click(await screen.findByText("قائمة الأسعار الأساسية"));
+    fireEvent.click(screen.getAllByRole("button", { name: "إضافة شريحة" })[0]!);
+    const pickers = screen.getAllByPlaceholderText("اختر صنفاً");
+    const itemPicker = pickers[pickers.length - 1]!;
+    fireEvent.focus(itemPicker);
+    fireEvent.change(itemPicker, { target: { value: "أرز" } });
+    fireEvent.mouseDown(await screen.findByRole("button", { name: (name) => name.startsWith("أرز") }));
+    const minQtys = screen.getAllByLabelText("الحد الأدنى للكمية");
+    const minQty = minQtys[minQtys.length - 1]!;
+    fireEvent.focus(minQty);
+    fireEvent.change(minQty, { target: { value: "5" } });
+    fireEvent.blur(minQty, { target: { value: "5" } });
+    const prices = screen.getAllByLabelText("السعر المخصص");
+    const priceInput = prices[prices.length - 1]!;
+    fireEvent.focus(priceInput);
+    fireEvent.change(priceInput, { target: { value: "1.005" } });
+    fireEvent.blur(priceInput);
+
+    fireEvent.click(screen.getByRole("button", { name: "حفظ الأسعار" }));
+
+    await waitFor(() => expect(patchBody).toBeDefined());
+    // (1.005).toFixed(2) is "1.00", and the old save re-rounded the stored tier to "12.35".
+    expect(patchBody?.lines).toEqual([
+      { itemId: "itm-1", unitCode: "PCS", minQty: "1.000000", price: "12.345678" },
+      { itemId: "itm-1", unitCode: "PCS", minQty: "5.000000", price: "1.010000" },
+    ]);
   });
 
   it("refuses to save two tiers for the same item at the same minimum quantity, and sends no request", async () => {

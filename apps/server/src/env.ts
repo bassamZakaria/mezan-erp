@@ -1,4 +1,5 @@
 import type { SmtpConfig } from "@mezan/api";
+import { DEFAULT_IDLE_MS } from "./backend-cache.js";
 import type { ClientSourceOptions } from "./client-source.js";
 import type { SmtpSecurity } from "@mezan/domain";
 import type { ReviewTenantConfig } from "./review-tenant.js";
@@ -47,6 +48,8 @@ export interface CloudEnv {
   readonly seedDemo: boolean;
   readonly seedAdminPin?: string;
   readonly backupIntervalMinutes: number;
+  readonly apiRequestsPerAddressPerMinute: number;
+  readonly apiRequestsPerSessionPerMinute: number;
   // CONTRACT: the privacy policy promises deletion this many days after a tenant is archived.
   readonly tenantRetentionDays: number;
   readonly webDist: string;
@@ -141,6 +144,8 @@ function trimmedOrUndefined(value: string | undefined): string | undefined {
 }
 
 export const DEFAULT_TENANT_RETENTION_DAYS = 90;
+const API_REQUESTS_PER_ADDRESS_PER_MINUTE = 3000;
+const API_REQUESTS_PER_SESSION_PER_MINUTE = 600;
 
 function parseNonNegativeInt(value: string | undefined, name: string, fallback: number): number {
   if (value === undefined) return fallback;
@@ -149,6 +154,16 @@ function parseNonNegativeInt(value: string | undefined, name: string, fallback: 
     throw new Error(`${name} must be a non-negative integer, got "${value}"`);
   }
   return parsed;
+}
+
+// REQUIRED: a tenant idle this long is closed, and the backup and anchor jobs only reach open tenants,
+// so a longer interval would leave an idle tenant's last writes unbacked and unanchored.
+const MAX_JOB_INTERVAL_MINUTES = DEFAULT_IDLE_MS / 60_000;
+
+function parseJobIntervalMinutes(value: string | undefined, name: string, fallback: number): number {
+  const minutes = parseNonNegativeInt(value, name, fallback);
+  if (minutes > MAX_JOB_INTERVAL_MINUTES) throw new Error(`${name} must be at most ${MAX_JOB_INTERVAL_MINUTES}, got "${value}"`);
+  return minutes;
 }
 
 function parsePositiveInt(value: string | undefined, name: string, fallback: number): number {
@@ -334,7 +349,7 @@ export function parseAuditAnchor(env: Record<string, string | undefined>): Audit
   const prefix = trimmedOrUndefined(env["MEZAN_AUDIT_ANCHOR_S3_PREFIX"]);
   const trustedPublicKeys = parseTrustedPublicKeys(env["MEZAN_AUDIT_ANCHOR_TRUSTED_PUBLIC_KEYS"]);
   return {
-    intervalMinutes: parseNonNegativeInt(env["MEZAN_AUDIT_ANCHOR_INTERVAL_MINUTES"], "MEZAN_AUDIT_ANCHOR_INTERVAL_MINUTES", 15),
+    intervalMinutes: parseJobIntervalMinutes(env["MEZAN_AUDIT_ANCHOR_INTERVAL_MINUTES"], "MEZAN_AUDIT_ANCHOR_INTERVAL_MINUTES", 15),
     ...(signingKey ? { signingKey } : {}),
     ...(publicKey ? { publicKey } : {}),
     ...(trustedPublicKeys.length > 0 ? { trustedPublicKeys } : {}),
@@ -357,7 +372,9 @@ export function parseEnv(env: Record<string, string | undefined> = process.env, 
     platformOwnerPassword: trimmedOrUndefined(env["MEZAN_PLATFORM_OWNER_PASSWORD"]),
     seedDemo: flag(env["MEZAN_SEED_DEMO"]),
     seedAdminPin: trimmedOrUndefined(env["MEZAN_SEED_ADMIN_PIN"]),
-    backupIntervalMinutes: parseNonNegativeInt(env["MEZAN_BACKUP_INTERVAL_MINUTES"], "MEZAN_BACKUP_INTERVAL_MINUTES", 15),
+    backupIntervalMinutes: parseJobIntervalMinutes(env["MEZAN_BACKUP_INTERVAL_MINUTES"], "MEZAN_BACKUP_INTERVAL_MINUTES", 15),
+    apiRequestsPerAddressPerMinute: parsePositiveInt(env["MEZAN_API_REQUESTS_PER_ADDRESS_PER_MINUTE"], "MEZAN_API_REQUESTS_PER_ADDRESS_PER_MINUTE", API_REQUESTS_PER_ADDRESS_PER_MINUTE),
+    apiRequestsPerSessionPerMinute: parsePositiveInt(env["MEZAN_API_REQUESTS_PER_SESSION_PER_MINUTE"], "MEZAN_API_REQUESTS_PER_SESSION_PER_MINUTE", API_REQUESTS_PER_SESSION_PER_MINUTE),
     tenantRetentionDays: parsePositiveInt(env["MEZAN_TENANT_RETENTION_DAYS"], "MEZAN_TENANT_RETENTION_DAYS", DEFAULT_TENANT_RETENTION_DAYS),
     webDist: env["MEZAN_WEB_DIST"] ?? "./apps/web/dist",
     demoPassword: trimmedOrUndefined(env["MEZAN_DEMO_PASSWORD"]),

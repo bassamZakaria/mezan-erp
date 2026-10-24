@@ -7,6 +7,7 @@ import { activateTenant, createTenant, TenantStatusCode } from "@mezan/domain";
 import { bindTenantDatabase, openSqliteConnection } from "@mezan/persistence";
 import { createTenantRouter, type TenantRouter } from "./tenant-router.js";
 import { createBackupScheduler, runBackups, startBackupTimer } from "./backup-scheduler.js";
+import { BackupVerifyOutcome, type BackupVerifyRecord } from "./backup-verify-core.js";
 import { TenantDbFileDisownedError } from "./tenant-db-file.js";
 import { verifyBackupFile } from "./backup-verify-core.js";
 
@@ -35,13 +36,13 @@ async function newPlatform(): Promise<PlatformHandle> {
 
 const dataDirs = new WeakMap<TenantRouter, string>();
 
-function newRouter(platform: PlatformHandle): TenantRouter {
+function newRouter(platform: PlatformHandle, now: () => Date = () => new Date(T)): TenantRouter {
   const dataDir = tempDir("mezan-backup-router-");
   const router = createTenantRouter({
     platform,
     dataDir,
     sweepEveryMs: 0,
-    now: () => new Date(T),
+    now,
     openBackend: () => createBackend({ dbPath: ":memory:" }),
   });
   routers.push(router);
@@ -135,13 +136,45 @@ describe("runBackups", () => {
 
     const failingFor = (router: TenantRouter, tenantId: string, failure: Error): TenantRouter => ({
       ...router,
-      backendOf: async (id) => {
+      openBackendOf: async (id) => {
         if (id === tenantId) throw failure;
-        return router.backendOf(id);
+        return router.openBackendOf(id);
       },
     });
 
     const backedUp = (dir: string): string[] => readdirSync(path.join(dir, "backups", "tenants")).sort();
+
+    it("does not fail the run for a tenant that closed while it was being backed up", async () => {
+      const { platform, router } = await threeOpen();
+      const dir = tempDir("mezan-backup-dir-");
+      const closingMidBackup: TenantRouter = {
+        ...router,
+        openBackendOf: async (id) => {
+          const backend = await router.openBackendOf(id);
+          if (id === "t-beta") await router.evict(id);
+          return backend;
+        },
+      };
+
+      await expect(runBackups({ platform, router: closingMidBackup, dir, now: () => new Date(T) })).resolves.toEqual({ skipped: [] });
+      const files = (id: string) => readdirSync(path.join(dir, "backups", "tenants", id)).filter((f) => f.endsWith(".sqlite"));
+      expect([files("t-alpha").length, files("t-beta").length, files("t-gamma").length]).toEqual([1, 0, 1]);
+    });
+
+    it("still fails the run for a real error, even if the tenant went idle and closed meanwhile", async () => {
+      const { platform, router } = await threeOpen();
+      const failing: TenantRouter = {
+        ...router,
+        openBackendOf: async (id) => {
+          if (id !== "t-beta") return router.openBackendOf(id);
+          await router.evict(id);
+          throw new Error("ENOSPC: no space left on device");
+        },
+      };
+      const errored = vi.spyOn(console, "error").mockImplementation(() => undefined);
+      await expect(runBackups({ platform, router: failing, dir: tempDir("mezan-backup-dir-"), now: () => new Date(T) })).rejects.toThrow(/ENOSPC/);
+      errored.mockRestore();
+    });
 
     it("skips a tenant whose books are refused, says which and why, and still backs up the tenants after it", async () => {
       const { platform, router } = await threeOpen();
@@ -186,6 +219,19 @@ describe("runBackups", () => {
     copy.close();
     expect(readdirSync(path.join(dir, "backups", "platform")).filter((f) => f.endsWith(".sqlite"))).toHaveLength(1);
     expect(existsSync(path.join(dir, "backups", "tenants", "t-odd", "2026-01-15T00-00-00.000Z.sqlite"))).toBe(true);
+  });
+
+  it("does not keep an idle tenant open: a backup leaves its idle clock alone", async () => {
+    const platform = await newPlatform();
+    await seedTenant(platform, "idle");
+    let now = Date.parse(T);
+    const router = newRouter(platform, () => new Date(now));
+    await openServed(router, platform, "idle");
+    now += 20 * 60_000;
+    await runBackups({ platform, router, dir: tempDir("mezan-backup-dir-"), now: () => new Date(now) });
+    now += 11 * 60_000;
+    await router.sweep();
+    expect(router.openTenants()).toEqual([]);
   });
 
   it("gives a company that re-registered a released code a backup folder of its own", async () => {
@@ -338,6 +384,25 @@ describe("startBackupTimer", () => {
     clock += 60_000;
     await new Promise((resolve) => setTimeout(resolve, 150));
     expect(countFiles(platformDir)).toBe(countAfterStop);
+  });
+
+  it("skips a tick while the previous run is still going, so two runs never overlap", async () => {
+    const platform = await newPlatform();
+    const router = newRouter(platform);
+    let started = 0;
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    const verify = async (file: string): Promise<BackupVerifyRecord> => {
+      started += 1;
+      await held;
+      return { at: T, file, outcome: BackupVerifyOutcome.Ok, ms: 0, report: "" };
+    };
+    const stop = startBackupTimer({ platform, router, dir: tempDir("mezan-backup-dir-"), now: () => new Date(T), intervalMs: 10, verify });
+    await pollUntil(() => started >= 1);
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    expect(started).toBe(1);
+    release();
+    await stop();
   });
 
   it("unrefs its timer so it never keeps the process alive on its own", async () => {

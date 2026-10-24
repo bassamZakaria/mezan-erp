@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 import { bodyLimit } from "hono/body-limit";
 import path from "node:path";
 import { serveStatic } from "@hono/node-server/serve-static";
-import { Hono, type MiddlewareHandler } from "hono";
+import { Hono, type Context, type MiddlewareHandler } from "hono";
 import {
   createPlatform,
   createPlatformAuth,
@@ -25,6 +25,7 @@ import { platformActor, provisionResultDTOOf, provisionTenant, PlanRequiredError
 import { resetTenantOwnerPin } from "./owner-pin-reset.js";
 import { releaseProvisioningTenant } from "./release-tenant.js";
 import { callerSource, createSourceReporter, requireCloudSource } from "./client-source.js";
+import { addressKey, createMemoryRateWindowStore, createRateLimiter, requestCap, SESSION_CAP_MAX_RECORDS, sessionKey } from "./rate-limit.js";
 import { createSignupRoutes, SIGNUP_BASE_PATH } from "./signup-routes.js";
 import { provisionDemoTenant } from "./demo-tenant.js";
 import { provisionReviewTenant } from "./review-tenant.js";
@@ -99,7 +100,7 @@ export interface CreateCloudAppOptions {
   readonly now?: () => Date;
   readonly authMiddleware?: MiddlewareHandler;
   readonly transformIndexHtml?: (html: string) => string;
-  readonly backups?: { start(): () => void };
+  readonly backups?: { start(): () => void | Promise<void> };
   readonly mailer?: PlatformMailer;
   readonly alerter?: Alerter;
   readonly envSettings?: PlatformEnvSettingsPort;
@@ -117,6 +118,8 @@ export interface CloudApp {
   readonly jobs: JobRegistry;
   readonly alerter: Alerter;
   readiness(): Readiness;
+  // REQUIRED ORDERING: call before the HTTP server stops, so no job starts while requests drain; close() calls it too.
+  stopJobs(): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -403,7 +406,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
     job: env.backupIntervalMinutes > 0 ? jobs.track(PlatformJobKind.Backups, env.backupIntervalMinutes * 60_000) : undefined,
     onError: () => undefined,
   });
-  let stopBackups: (() => void) | undefined;
+  let stopBackups: (() => void | Promise<void>) | undefined;
   if (env.backupIntervalMinutes > 0) {
     stopBackups = backups.start();
   }
@@ -510,6 +513,11 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
   }));
   root.route(PUBLIC_API_BASE_PATH, createPublicApiRoutes({ platform, router, publicUrl: null, now }));
 
+  // After the public API, which has its own per-key limit; after the source gate, so the key is the
+  // caller's resolved address and never a header it wrote.
+  // shortcut: counts live in this process, so N instances grant N times the cap; move to platformRateLimiter when scaling out.
+  root.use("/api/*", requestCap(createRateLimiter(env.apiRequestsPerAddressPerMinute, 60_000), addressKey));
+
   // SECURITY: the cloud edition's browser sessions ride in HttpOnly cookies and
   // every state-changing request made with one must carry its CSRF token. The
   // backends behind this never see a cookie: the edge turns it back into the
@@ -523,6 +531,8 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
   });
   root.use("/api/platform/*", cookieSessions.platform);
   root.use("/api/*", cookieSessions.tenant);
+  // After the cookie sessions, which turn the browser's cookie into the bearer token keyed here.
+  root.use("/api/*", requestCap(createRateLimiter(env.apiRequestsPerSessionPerMinute, 60_000, Date.now, createMemoryRateWindowStore(), SESSION_CAP_MAX_RECORDS), sessionKey));
 
   // `/api/platform` before `/api`: the tenant router's own catch-all would
   // otherwise swallow the console's routes first.
@@ -553,8 +563,12 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
     const siteHtml = env.publicLanding ? transform(withCloudSiteHead(rawIndexHtml)) : appHtml;
     // A tenant's own subdomain is that company's app, never the platform's marketing page.
     const indexHtmlFor = (request: Request) => (tenantSlugOfHost(requestHost(request, env.trustProxy), env.tenantDomain) === null ? siteHtml : appHtml);
-    root.get("/", (c) => c.html(indexHtmlFor(c.req.raw)));
-    root.get("/index.html", (c) => c.html(indexHtmlFor(c.req.raw)));
+    const shellPage = (c: Context) => {
+      c.header("Cache-Control", "no-cache");
+      return c.html(indexHtmlFor(c.req.raw));
+    };
+    root.get("/", shellPage);
+    root.get("/index.html", shellPage);
     // SECURITY: the page a mailed unlock link opens. The link's token is in the
     // fragment and never reaches here; these headers keep the page out of every
     // cache and stop the browser naming it to any site it goes on to. It is
@@ -566,8 +580,16 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
       c.header("Cache-Control", "no-store");
       return c.html(rawIndexHtml);
     });
+    root.use("/assets/*", async (c, next) => {
+      await next();
+      // Vite names every file under assets/ by its content hash, so a new build is a new URL.
+      // SECURITY: behind the demo gate a shared cache must not hand the bundle to someone who never passed it.
+      const audience = options.authMiddleware ? "private" : "public";
+      if (c.res.status === 200) c.res.headers.set("Cache-Control", `${audience}, max-age=31536000, immutable`);
+    });
     root.use("/*", serveStatic({ root: env.webDist }));
-    root.notFound((c) => c.html(indexHtmlFor(c.req.raw)));
+    root.get("/assets/*", (c) => c.text("Not found", 404));
+    root.notFound(shellPage);
   } else {
     root.notFound((c) => c.json({ error: "NOT_FOUND", message: "لا توجد حزمة واجهة مبنية" }, 404));
   }
@@ -580,25 +602,34 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
     .then(reportTenantBooks)
     .catch((err: unknown) => log.error({ err }, "the start-up read of tenant books failed"));
 
+  let jobsStopped: Promise<void> | null = null;
+  const stopJobs = (): Promise<void> => {
+    jobsStopped ??= Promise.all([
+      stopBackups?.(),
+      anchorTimer?.stop(),
+      tenantPurgeTimer.stop(),
+      dunningTimer.stop(),
+      ownerDigestTimer.stop(),
+      collectionsTimer.stop(),
+      checkoutSweepTimer?.stop(),
+    ]).then(() => undefined);
+    return jobsStopped;
+  };
+
   return {
     root,
     booksScanned,
     jobs,
     alerter,
     readiness,
+    stopJobs,
     async close() {
       if (closed) return;
       closed = true;
       clearInterval(readinessWatch);
       alerter.close();
-      stopBackups?.();
-      await anchorTimer?.stop();
-      await tenantPurgeTimer.stop();
+      await stopJobs();
       tenantBackups.close();
-      dunningTimer.stop();
-      await ownerDigestTimer.stop();
-      await collectionsTimer.stop();
-      checkoutSweepTimer?.stop();
       await router.close();
       await booksScanned;
       platform.close();

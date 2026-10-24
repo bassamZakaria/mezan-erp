@@ -1,3 +1,4 @@
+import { ENGLISH_LOCALE } from "@mezan/ui";
 import { useMemo } from "react";
 import type { LostReasonOptionDTO } from "@mezan/contracts";
 import { SelectField } from "../../../settings/form-controls";
@@ -7,7 +8,7 @@ import { useCrmAccess, useCrmLostReasons, useCrmOwners } from "./hooks";
 export const UNASSIGNED_OWNER = "";
 
 export function lostReasonLabel(option: LostReasonOptionDTO, locale: Locale): string {
-  return locale === "en" ? option.labelEn : option.labelAr;
+  return locale === ENGLISH_LOCALE ? option.labelEn : option.labelAr;
 }
 
 export function useLostReasonName(): (code: string | null) => string | null {

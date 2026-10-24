@@ -24,6 +24,14 @@ export const pageQuerySchema = z.object({
 
 export type PageQueryDTO = z.infer<typeof pageQuerySchema>;
 
+export const reportPageSchema = z.object({
+  page: z.number().int().positive(),
+  pageSize: z.number().int().positive(),
+  totalRows: z.number().int().nonnegative(),
+});
+
+export type ReportPageDTO = z.infer<typeof reportPageSchema>;
+
 /** `{ limit, offset }` for a repository, from a 1-based page. */
 export function pageWindow(page: PageQueryDTO): { limit: number; offset: number } {
   return { limit: page.pageSize, offset: (page.page - 1) * page.pageSize };

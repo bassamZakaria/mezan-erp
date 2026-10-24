@@ -39,9 +39,14 @@ function item(overrides: Partial<ItemDTO> = {}): ItemDTO {
   };
 }
 
+const itemRequests: string[] = [];
+
 function renderScreen(items: ItemDTO[]) {
   const transport = stubTransport({
-    "GET /items": () => ({ body: items }),
+    "GET /items": (_init, path) => {
+      itemRequests.push(path);
+      return { body: items };
+    },
   });
   return renderWithProviders(<LabelPrintingScreen />, { transport, initialSession: testAdminSession });
 }
@@ -64,6 +69,8 @@ describe("LabelPrintingScreen", () => {
     expect(await screen.findByText("120.000000")).toBeInTheDocument();
     expect(screen.getByText(/الإجمالي:/).parentElement).toHaveTextContent("1");
     expect(screen.getByRole("button", { name: "معاينة وطباعة" })).not.toBeDisabled();
+    expect(itemRequests.length).toBeGreaterThan(0);
+    for (const path of itemRequests) expect(new URLSearchParams(path.split("?")[1]).get("page")).toBe("1");
   });
 
   it("flags a barcode that doesn't fit the selected template with the exact Arabic message, and blocks print", async () => {

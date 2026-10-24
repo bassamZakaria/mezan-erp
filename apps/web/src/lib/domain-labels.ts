@@ -1,3 +1,4 @@
+import { ENGLISH_LOCALE } from "@mezan/ui";
 import { useCallback } from "react";
 import { useAppTranslation } from "../i18n";
 
@@ -14,12 +15,12 @@ export function useDomainLabels() {
   const { locale } = useAppTranslation();
   const label = useCallback(
     <T extends { readonly labelAr: string; readonly labelEn: string }>(entry: T): string =>
-      locale === "en" ? entry.labelEn : entry.labelAr,
+      locale === ENGLISH_LOCALE ? entry.labelEn : entry.labelAr,
     [locale],
   );
   const subtitle = useCallback(
     <T extends { readonly subtitleAr: string; readonly subtitleEn: string }>(entry: T): string =>
-      locale === "en" ? entry.subtitleEn : entry.subtitleAr,
+      locale === ENGLISH_LOCALE ? entry.subtitleEn : entry.subtitleAr,
     [locale],
   );
   return { label, subtitle };

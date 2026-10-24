@@ -269,4 +269,17 @@ describe("createSourceThrottle — failures from one address, whichever accounts
 
     expect(sources.size()).toBe(10_000);
   });
+
+  it("drops the address that failed longest ago when full, never one that just failed again", () => {
+    const { sources } = sourcesAt();
+    const address = (i: number) => `10.${i >> 16}.${(i >> 8) & 255}.${i & 255}`;
+    for (let i = 0; i < 10_000; i += 1) sources.fail(address(i));
+    for (let again = 0; again < 30; again += 1) sources.fail(address(0));
+    sources.fail("192.0.2.1");
+
+    expect(sources.size()).toBe(10_000);
+    expect(sources.retryAfter(address(0))).toBeGreaterThan(0);
+    sources.fail(address(1));
+    expect(sources.size()).toBe(10_000);
+  });
 });

@@ -41,7 +41,7 @@ export class TenantNotTerminatedError extends Error {
 
 export interface TenantPurgeDeps {
   readonly platform: PlatformHandle;
-  readonly router: Pick<TenantRouter, "evict" | "invalidate">;
+  readonly router: Pick<TenantRouter, "evict" | "invalidate" | "forget">;
   readonly dataDir: string;
   readonly retentionDays: number;
   /** The local anchor file's folder, only when anchors are kept on this host; off-server anchors are never touched. */
@@ -118,7 +118,17 @@ export function createTenantPurge(deps: TenantPurgeDeps): TenantPurgeService {
     ...(deps.localAnchorDir ? [path.join(deps.localAnchorDir, `${tenant.id}.jsonl`)] : []),
   ].filter((file) => existsSync(file));
 
-  async function purge(tenant: Tenant, by: { readonly actor: string; readonly reason: string; readonly trigger: TenantPurgeTrigger }): Promise<TenantPurgeResultDTO> {
+  type PurgeBy = { readonly actor: string; readonly reason: string; readonly trigger: TenantPurgeTrigger };
+  const purging = new Map<string, Promise<TenantPurgeResultDTO>>();
+  function purge(tenant: Tenant, by: PurgeBy): Promise<TenantPurgeResultDTO> {
+    const running = purging.get(tenant.id);
+    if (running) return running;
+    const run = purgeOnce(tenant, by).finally(() => purging.delete(tenant.id));
+    purging.set(tenant.id, run);
+    return run;
+  }
+
+  async function purgeOnce(tenant: Tenant, by: PurgeBy): Promise<TenantPurgeResultDTO> {
     const buried = store.tombstoneOf(tenant.id);
     if (buried) return { tenantId: buried.id, code: buried.code, deletedAt: buried.deletedAt, removed: [] };
     // SECURITY: never an active, suspended or provisioning tenant — whatever schedule row says otherwise.
@@ -154,6 +164,7 @@ export function createTenantPurge(deps: TenantPurgeDeps): TenantPurgeService {
       "BEGIN IMMEDIATE",
     );
     deps.router.invalidate(tenant.code);
+    deps.router.forget(tenant.id);
     purgeLog.warn({ event: TenantPurgeLogEvent.Purged, tenantId: tenant.id, code: tenant.code, trigger: by.trigger, removed: removed.length }, `tenant "${tenant.code}" was deleted`);
     return { tenantId: tenant.id, code: tenant.code, deletedAt, removed: removed.map((file) => path.relative(dataDir, file)) };
   }

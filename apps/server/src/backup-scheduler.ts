@@ -1,3 +1,4 @@
+import { isClosedConnectionError } from "./backend-cache.js";
 import { createLogger, type JobTracker } from "@mezan/api";
 import { fork, type ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, renameSync, rmSync } from "node:fs";
@@ -256,7 +257,8 @@ export async function runBackups(options: RunBackupsOptions): Promise<BackupRun>
     const tenant = await options.platform.stores.tenants.findById(open.id);
     if (!tenant || tenant.status === TenantStatusCode.Archived) continue;
     try {
-      const backend = await options.router.backendOf(tenant.id);
+      const backend = await options.router.openBackendOf(tenant.id);
+      if (!backend) continue;
       const folder = tenantBackupFolder(options.dir, tenant.id);
       adoptLegacyBackups(options.dir, tenant);
       await verify(await writeOneBackup((destination) => backend.backupTo(destination), folder, stamp));
@@ -266,6 +268,8 @@ export async function runBackups(options: RunBackupsOptions): Promise<BackupRun>
       if (refusal) {
         skipped.push({ tenantId: tenant.id, code: tenant.code, reason: refusal.error });
         backupLog.warn(`tenant "${tenant.code}" (${tenant.id}) was skipped: its books are refused (${refusal.error})`);
+      } else if (isClosedConnectionError(err)) {
+        backupLog.info(`tenant "${tenant.code}" (${tenant.id}) closed during its backup; its file is at rest`);
       } else {
         backupLog.error({ err: err }, `tenant "${tenant.code}" (${tenant.id}) could not be backed up`);
         failures.push(`${tenant.code}: ${err instanceof Error ? err.message : String(err)}`);
@@ -294,12 +298,17 @@ export interface StartBackupTimerOptions extends RunBackupsOptions {
  */
 export function startBackupTimer(options: StartBackupTimerOptions): () => Promise<void> {
   let current: Promise<void> = Promise.resolve();
+  let running = false;
   const run = () => {
+    if (running) return;
+    running = true;
     const backup = () => runBackups(options);
     current = (options.job ? options.job.run(backup) : backup()).then(
       () => undefined,
       (error: unknown) => options.onError?.(error),
-    );
+    ).finally(() => {
+      running = false;
+    });
   };
   run();
 
@@ -316,7 +325,7 @@ export interface BackupScheduler {
   start(): () => Promise<void>;
 }
 
-/** Wraps `startBackupTimer` in the `{ start(): () => void }` shape `createCloudApp`'s `options.backups` seam is typed as. */
+/** Wraps `startBackupTimer` in the shape `createCloudApp`'s `options.backups` seam expects; its stop is awaited on close. */
 export function createBackupScheduler(options: StartBackupTimerOptions): BackupScheduler {
   return {
     start: () => startBackupTimer(options),

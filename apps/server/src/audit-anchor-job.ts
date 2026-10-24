@@ -1,3 +1,4 @@
+import { isClosedConnectionError } from "./backend-cache.js";
 import { createLogger, type JobTracker } from "@mezan/api";
 import type { PlatformHandle } from "@mezan/backend";
 import { isAuditChainAnchorSource, type AuditChainAnchorSource, type AuditChainVerification } from "@mezan/persistence";
@@ -23,6 +24,7 @@ export enum AnchorLogEvent {
   Refused = "audit_anchor.refused_possible_tampering",
   Failed = "audit_anchor.failed",
   SweepFailed = "audit_anchor.sweep_failed",
+  SkippedClosed = "audit_anchor.skipped_closed",
 }
 
 export interface AnchorLogRecord {
@@ -157,14 +159,16 @@ export async function runAuditAnchorSweep(options: AuditAnchorJobOptions): Promi
   const log = options.log ?? defaultAnchorLog;
   const counts = { anchored: 0, unchanged: 0, refused: 0, failed: 0 };
 
-  const scopes: { scope: string; audit: () => Promise<AuditSink> }[] = [
+  const scopes: { scope: string; audit: () => Promise<AuditSink | null> }[] = [
     { scope: PLATFORM_ANCHOR_SCOPE, audit: async () => options.platform.audit },
-    ...options.router.openTenants().map((open) => ({ scope: open.id, audit: async () => (await options.router.backendOf(open.id)).audit })),
+    ...options.router.openTenants().map((open) => ({ scope: open.id, audit: async () => (await options.router.openBackendOf(open.id))?.audit ?? null })),
   ];
 
   for (const { scope, audit } of scopes) {
     try {
-      const result = await anchorOneScope(scope, await audit(), options);
+      const sink = await audit();
+      if (!sink) continue;
+      const result = await anchorOneScope(scope, sink, options);
       if (result.outcome === AnchorOutcome.Anchored) {
         counts.anchored += 1;
         log({ event: AnchorLogEvent.Anchored, scope, seq: result.anchor?.anchor.seq });
@@ -176,6 +180,10 @@ export async function runAuditAnchorSweep(options: AuditAnchorJobOptions): Promi
         log({ event: AnchorLogEvent.Refused, scope, reason: result.reason });
       }
     } catch (err) {
+      if (scope !== PLATFORM_ANCHOR_SCOPE && isClosedConnectionError(err)) {
+        log({ event: AnchorLogEvent.SkippedClosed, scope });
+        continue;
+      }
       counts.failed += 1;
       log({ event: AnchorLogEvent.Failed, scope, reason: err instanceof Error ? err.message : String(err) });
     }

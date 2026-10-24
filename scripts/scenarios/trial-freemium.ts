@@ -45,6 +45,8 @@ export async function run(ctx: Ctx): Promise<void> {
     platformOwnerPassword: "platform-owner-password",
     seedDemo: false,
     backupIntervalMinutes: 0,
+    apiRequestsPerAddressPerMinute: 1_000_000,
+    apiRequestsPerSessionPerMinute: 1_000_000,
     webDist: join(dir, "web"),
     port: 0,
     paymob: { mode: PaymobMode.Off },

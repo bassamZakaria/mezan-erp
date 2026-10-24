@@ -380,6 +380,11 @@ export const purchaseInvoiceFilterKeySchema = z.union([
   z.enum(["all", "overdue", "due_soon", "partially_paid", "paid"]),
 ]);
 
+export enum PurchaseInvoiceSort {
+  Number = "number",
+  Date = "date",
+}
+
 export const purchaseInvoiceListQuerySchema = z.object({
   status: purchaseInvoiceFilterKeySchema.optional(),
   supplierId: z.string().optional(),
@@ -389,6 +394,8 @@ export const purchaseInvoiceListQuerySchema = z.object({
   warehouseId: z.string().optional(),
   /** Free-text over the document number and the supplier's own invoice number. */
   search: z.string().optional(),
+  sort: z.nativeEnum(PurchaseInvoiceSort).optional(),
+  sortDir: z.enum(["asc", "desc"]).optional(),
   /** One page of rows, 1-based. Both carry a default, so an omitted page never means the whole table (Q-8). */
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(MAX_PAGE_SIZE).default(DEFAULT_PAGE_SIZE),

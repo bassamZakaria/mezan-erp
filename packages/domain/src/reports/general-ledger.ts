@@ -4,7 +4,7 @@ import { type GlReportContext, isLedgerEffective, lineInBranchView, moneyToNumbe
 import { BRANCH_STATEMENT_PARAM_FIELD, branchIdParamSchema } from "./branch-filter.js";
 import type { ReportDefinition } from "./types.js";
 import { sumRows, countDistinct } from "./kpi.js";
-import { ReportParamKind } from "./types.js";
+import { ReportChartSource, ReportParamKind } from "./types.js";
 
 /**
  * دفتر الأستاذ العام — General Ledger (docs/archive/catalog/08-reports.md). Every
@@ -74,7 +74,7 @@ export function createGeneralLedgerReport(
       { key: "accountCount", labelAr: "عدد الحسابات", format: "qty", value: (rows) => countDistinct(rows, (r) => r.accountKey) },
     ],
     chart: {
-      source: "groups",
+      source: ReportChartSource.Groups,
       valueColumn: "debit",
       maxPoints: 8,
       captionAr: "الحسابات مرتبة حسب ما تحرك عليها مديناً في الفترة.",

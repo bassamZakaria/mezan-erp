@@ -8,6 +8,17 @@ import { Select } from "./Select";
 import { TextInput } from "./form";
 import { useUiTranslation } from "../i18n";
 import { useElectronSavePdf } from "../print/useElectronSavePdf";
+import { ListPager } from "./ListPager";
+
+enum OutputNoticeKind {
+  Saved = "saved",
+  Failed = "failed",
+}
+
+interface OutputNotice {
+  readonly kind: OutputNoticeKind;
+  readonly text: string;
+}
 
 /**
  * `<ReportRunner>` — the generic report UI shell (docs/archive/plan.md §2.4): renders
@@ -117,6 +128,14 @@ export interface ReportRunnerResult<Row> {
   readonly balanceCheck?: { readonly label: string; readonly balanced: boolean } | null;
 }
 
+export interface ReportRunnerPager {
+  readonly page: number;
+  readonly pageSize: number;
+  readonly totalRows: number;
+  readonly onPageChange: (page: number) => void;
+  readonly onPageSizeChange: (size: number) => void;
+}
+
 export interface ReportRunnerProps<Row> {
   title: string;
   /** Set when the report sits under a screen that already carries the page's one h1. */
@@ -166,6 +185,12 @@ export interface ReportRunnerProps<Row> {
   onEntityClick?: (entity: ReportRunnerEntityRef) => void;
   /** Rendered after the table — the drill-down panel lives here. */
   footer?: ReactNode;
+  /** Pages the rows only: totals, subtotals, KPIs and chart points arrive computed over the whole result. */
+  pager?: ReportRunnerPager;
+  loadAllRows?: () => Promise<readonly Row[]>;
+  showAllRowsForPrint?: () => Promise<() => void>;
+  /** The figures on screen belong to the previous filter or page while the new ones load. */
+  stale?: boolean;
   className?: string;
 }
 
@@ -356,6 +381,10 @@ export function ReportRunner<Row>({
   showGrandTotal = true,
   onEntityClick,
   footer,
+  pager,
+  loadAllRows,
+  showAllRowsForPrint,
+  stale = false,
   className,
 }: ReportRunnerProps<Row>) {
   const { t } = useUiTranslation();
@@ -363,7 +392,8 @@ export function ReportRunner<Row>({
   const [exporting, setExporting] = useState<ReportExportFormat | null>(null);
   const savePdf = useElectronSavePdf();
   const [savingPdf, setSavingPdf] = useState(false);
-  const [pdfNotice, setPdfNotice] = useState<string | null>(null);
+  const [printing, setPrinting] = useState(false);
+  const [outputNotice, setOutputNotice] = useState<OutputNotice | null>(null);
   // Expanded by default: the KPIs are the answer, and hiding them behind a
   // click would make the strip a decoration rather than the summary.
   const [summaryOpen, setSummaryOpen] = useState(true);
@@ -386,17 +416,41 @@ export function ReportRunner<Row>({
    */
   const landscape = columns.length > 6;
 
+  async function withEveryRow<T>(output: () => T | Promise<T>): Promise<T> {
+    const restore = showAllRowsForPrint ? await showAllRowsForPrint() : null;
+    try {
+      if (restore) await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      return await output();
+    } finally {
+      restore?.();
+    }
+  }
+
+  const failed = (text: string) => setOutputNotice({ kind: OutputNoticeKind.Failed, text });
+
+  async function handlePrint() {
+    if (printing) return;
+    setOutputNotice(null);
+    setPrinting(true);
+    try {
+      await withEveryRow(() => window.print());
+    } catch {
+      failed(t("ui.report.printFailed"));
+    } finally {
+      setPrinting(false);
+    }
+  }
+
   async function handleSavePdf() {
-    setPdfNotice(null);
+    setOutputNotice(null);
     setSavingPdf(true);
     try {
-      const outcome = await savePdf.savePdf({
-        landscape,
-        defaultFileName: exportBaseFilename ?? title,
-      });
+      const outcome = await withEveryRow(() => savePdf.savePdf({ landscape, defaultFileName: exportBaseFilename ?? title }));
       // A dismissed dialog is a decision, not a failure — say nothing.
-      if (!outcome.ok && !outcome.cancelled) setPdfNotice(outcome.message);
-      else if (outcome.ok) setPdfNotice(t("ui.report.pdfSaved", { path: outcome.path }));
+      if (!outcome.ok && !outcome.cancelled) failed(outcome.message);
+      else if (outcome.ok) setOutputNotice({ kind: OutputNoticeKind.Saved, text: t("ui.report.pdfSaved", { path: outcome.path }) });
+    } catch {
+      failed(t("ui.report.printFailed"));
     } finally {
       setSavingPdf(false);
     }
@@ -404,14 +458,18 @@ export function ReportRunner<Row>({
 
   async function handleExport(format: ReportExportFormat) {
     if (!result) return;
+    setOutputNotice(null);
     setExporting(format);
     try {
-      const file = await buildReportExport(columns, result.rows, {
+      const rows = loadAllRows ? await loadAllRows() : result.rows;
+      const file = await buildReportExport(columns, rows, {
         format,
         baseFilename: exportBaseFilename ?? "report",
         sheetName: title.slice(0, 31),
       });
       downloadReportExport(file);
+    } catch {
+      failed(t("ui.report.exportFailed"));
     } finally {
       setExporting(null);
     }
@@ -426,8 +484,8 @@ export function ReportRunner<Row>({
           {description ? <p className="mt-[5px] max-w-[62ch] text-[12.5px] text-ink-muted">{description}</p> : null}
         </div>
         <div className="flex flex-wrap items-center gap-[9px] print:hidden">
-          <Button onClick={() => window.print()} disabled={!hasResult}>
-            {t("ui.report.print")}
+          <Button onClick={() => void handlePrint()} disabled={!hasResult || printing}>
+            {printing ? t("ui.report.loading") : t("ui.report.print")}
           </Button>
           {savePdf.isAvailable ? (
             <Button onClick={() => void handleSavePdf()} disabled={!hasResult || savingPdf}>
@@ -445,9 +503,12 @@ export function ReportRunner<Row>({
 
       {notice ? <div className="mb-[12px]">{notice}</div> : null}
 
-      {pdfNotice ? (
-        <p role="status" className="mb-[12px] text-[12px] text-ink-muted print:hidden">
-          {pdfNotice}
+      {outputNotice ? (
+        <p
+          role={outputNotice.kind === OutputNoticeKind.Failed ? "alert" : "status"}
+          className={cn("mb-[12px] text-[12px] print:hidden", outputNotice.kind === OutputNoticeKind.Failed ? "text-danger-ink" : "text-ink-muted")}
+        >
+          {outputNotice.text}
         </p>
       ) : null}
 
@@ -511,7 +572,7 @@ export function ReportRunner<Row>({
       ) : !hasResult ? (
         <Card className="p-[28px] text-center text-[13px] text-ink-muted">{loading ? t("ui.report.loading") : t("ui.report.empty")}</Card>
       ) : (
-        <>
+        <div aria-busy={stale || undefined} className={cn("transition-opacity", stale && "opacity-60")}>
           {result.reconciliation ? (
             <Card
               className={cn(
@@ -633,6 +694,21 @@ export function ReportRunner<Row>({
               </table>
               {result.rows.length === 0 ? <div className="p-[16px] text-center text-[12.5px] text-ink-muted">{t("ui.report.noRows")}</div> : null}
             </div>
+            {pager && pager.totalRows > 0 ? (
+              <ListPager
+                className="print:hidden"
+                page={pager.page}
+                pageCount={Math.max(1, Math.ceil(pager.totalRows / pager.pageSize))}
+                onPageChange={pager.onPageChange}
+                pageSize={pager.pageSize}
+                onPageSizeChange={pager.onPageSizeChange}
+                pageSummary={t("ui.report.pageRange", {
+                  from: fmt.qty(Math.min((pager.page - 1) * pager.pageSize + 1, pager.totalRows)),
+                  to: fmt.qty(Math.min(pager.page * pager.pageSize, pager.totalRows)),
+                  total: fmt.qty(pager.totalRows),
+                })}
+              />
+            ) : null}
           </Card>
 
           {methodology ? (
@@ -640,7 +716,7 @@ export function ReportRunner<Row>({
               <span className="font-semibold">{t("ui.report.methodology")}:</span> {methodology}
             </p>
           ) : null}
-        </>
+        </div>
       )}
       {footer}
     </div>

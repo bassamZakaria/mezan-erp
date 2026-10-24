@@ -1,12 +1,17 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { describe, expect, it } from "vitest";
-import { screen, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { ArabicCase, CountedNoun, countPhrase, createInventoryBatchesReport, ExpiryStatus } from "@mezan/domain";
 import { SalesByPeriodReportScreen } from "./SalesReportsScreens";
 import { ReportScreen } from "./ReportScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../../data/test-support";
 import { monthStartIso } from "../../lib/dates";
+
+const { createObjectURL, revokeObjectURL } = URL;
+afterEach(() => {
+  Object.assign(URL, { createObjectURL, revokeObjectURL });
+});
 
 /**
  * Proves the operational-report screens go through the app's REAL data
@@ -41,6 +46,95 @@ describe("ReportScreen (real data-client wiring)", () => {
     // literal here rots on the first of every month.
     expect(requestedPath).toContain(`dateFrom=${monthStartIso()}`);
     expect(requestedPath).toContain("groupBy=day");
+  });
+
+  it("asks for one page and offers the next one", async () => {
+    const paths: string[] = [];
+    const row = { bucket: "2026-08-10", count: 2, gross: 300, discount: 0, tax: 0, net: 300 };
+    const transport = stubTransport({
+      "GET /reports/sales/by-period": (_init, path) => {
+        paths.push(path);
+        return {
+          body: {
+            rows: [row],
+            groups: [{ key: "_all", label: "", rows: [row], totals: { net: 9000 } }],
+            grandTotals: { count: 60, gross: 9000, discount: 0, tax: 0, net: 9000 },
+            reconciliation: null,
+            page: { page: 1, pageSize: 50, totalRows: 120 },
+            chartPoints: [{ key: "x", label: "2026-08-31", value: 777 }],
+          },
+        };
+      },
+    });
+
+    renderWithProviders(<SalesByPeriodReportScreen />, { transport, initialSession: testAdminSession });
+
+    await waitFor(() => expect(screen.getByRole("navigation", { name: "ترقيم الصفحات" })).toBeInTheDocument());
+    expect(screen.getByTitle("2026-08-31")).toBeInTheDocument();
+    expect(screen.queryByTitle("2026-08-10")).toBeNull();
+    expect(paths[0]).toContain("pageSize=50");
+    expect(paths[0]).toContain("page=1");
+    screen.getByRole("button", { name: "2" }).click();
+    await waitFor(() => expect(paths.some((p) => p.includes("page=2"))).toBe(true));
+  });
+
+  it("steps back to the last page when the result shrinks under the page on screen", async () => {
+    const paths: string[] = [];
+    const transport = stubTransport({
+      "GET /reports/sales/by-period": (_init, path) => {
+        paths.push(path);
+        const page = Number(new URLSearchParams(path.split("?")[1]).get("page"));
+        const row = { bucket: `2026-08-0${page}`, count: 1, gross: 1, discount: 0, tax: 0, net: 1 };
+        return {
+          body: {
+            rows: page === 3 ? [] : [row],
+            groups: [{ key: "_all", label: "", rows: page === 3 ? [] : [row], totals: { net: 1 } }],
+            grandTotals: { count: 1, gross: 1, discount: 0, tax: 0, net: 1 },
+            reconciliation: null,
+            page: { page, pageSize: 50, totalRows: page === 1 ? 150 : 60 },
+            chartPoints: [],
+          },
+        };
+      },
+    });
+
+    renderWithProviders(<SalesByPeriodReportScreen />, { transport, initialSession: testAdminSession });
+    await screen.findByRole("cell", { name: "2026-08-01" });
+    fireEvent.click(screen.getByRole("button", { name: "3" }));
+
+    await screen.findByRole("cell", { name: "2026-08-02" });
+    expect(paths.at(-1)).toContain("page=2");
+  });
+
+  it("exports every row of a paged report, not just the page on screen", async () => {
+    const day = (bucket: string) => ({ bucket, count: 1, gross: 100, discount: 0, tax: 0, net: 100 });
+    const all = [day("2026-08-01"), day("2026-08-02"), day("2026-08-03")];
+    const transport = stubTransport({
+      "GET /reports/sales/by-period": (_init, path) => {
+        const rows = path.includes("pageSize=") ? all.slice(0, 1) : all;
+        return {
+          body: {
+            rows,
+            groups: [{ key: "_all", label: "", rows, totals: { net: 300 } }],
+            grandTotals: { count: 3, gross: 300, discount: 0, tax: 0, net: 300 },
+            reconciliation: null,
+            ...(path.includes("pageSize=") ? { page: { page: 1, pageSize: 50, totalRows: 3 }, chartPoints: [] } : {}),
+          },
+        };
+      },
+    });
+    let exported: Blob | null = null;
+    Object.assign(URL, { createObjectURL: vi.fn((blob: Blob) => ((exported = blob), "blob:x")), revokeObjectURL: vi.fn() });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
+
+    renderWithProviders(<SalesByPeriodReportScreen />, { transport, initialSession: testAdminSession });
+    await screen.findByRole("cell", { name: "2026-08-01" });
+    expect(screen.queryByRole("cell", { name: "2026-08-03" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "تصدير CSV" }));
+    await waitFor(() => expect(exported).not.toBeNull());
+    const text = await (exported as unknown as Blob).text();
+    for (const row of all) expect(text).toContain(row.bucket);
+    click.mockRestore();
   });
 
   it("shows the empty-state copy when the report returns no rows", async () => {

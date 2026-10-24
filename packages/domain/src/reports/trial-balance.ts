@@ -13,7 +13,7 @@ import {
 } from "./branch-filter.js";
 import type { ReportDefinition } from "./types.js";
 import { sumRows } from "./kpi.js";
-import { ReportParamKind } from "./types.js";
+import { ReportChartSource, ReportParamKind } from "./types.js";
 
 /**
  * ميزان المراجعة — Trial Balance (docs/archive/catalog/08-reports.md), the report
@@ -131,7 +131,7 @@ export function createTrialBalanceReport(
       { key: "accountCount", labelAr: "عدد الحسابات", format: "qty", value: (rows) => rows.length },
     ],
     chart: {
-      source: "groups",
+      source: ReportChartSource.Groups,
       valueColumn: "debit",
       captionAr: "إجمالي الأرصدة المدينة في كل نوع حساب — نفس المجاميع الفرعية المطبوعة في الجدول.",
     },

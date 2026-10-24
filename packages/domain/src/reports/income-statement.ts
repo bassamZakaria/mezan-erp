@@ -18,7 +18,7 @@ import { COMPARISON_LABEL_AR, type ComparisonMode, comparativeRange } from "./co
 import { Money } from "../money/index.js";
 import type { ReportDefinition } from "./types.js";
 import { sumRows } from "./kpi.js";
-import { ReportParamKind } from "./types.js";
+import { ReportChartSource, ReportParamKind } from "./types.js";
 
 /**
  * قائمة الدخل — Income Statement (docs/archive/catalog/08-reports.md), a period P&L.
@@ -133,7 +133,7 @@ export function createIncomeStatementReport(
       { key: "variance", labelAr: "التغيّر عن فترة المقارنة", format: "money", value: (rows) => sumRows(rows, (r) => r.variance), tone: (value) => (value >= 0 ? "success" : "danger") },
     ],
     chart: {
-      source: "groups",
+      source: ReportChartSource.Groups,
       valueColumn: "amount",
       captionAr: "الإيرادات والمصروفات في الفترة حسب القسم — المصروفات سالبة لأنها تُطرح من صافي الدخل.",
     },

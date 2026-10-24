@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
+  ENGLISH_LOCALE,
   RowActionOutcome,
   DocumentList,
   EmptyState,
@@ -152,34 +153,36 @@ function TaxGroupsTab() {
           <Card key={group.id} className="overflow-hidden">
             <div className="flex flex-wrap items-center justify-between gap-[8px] border-b border-border bg-surface-2 px-[16px] py-[9px]">
               <span className="text-[12.5px] font-bold text-ink">
-                <span className="mz-num">{group.code}</span> · {locale === "en" ? (group.nameEn ?? group.nameAr) : group.nameAr}
+                <span className="mz-num">{group.code}</span> · {locale === ENGLISH_LOCALE ? (group.nameEn ?? group.nameAr) : group.nameAr}
               </span>
               <span className="text-[12px] text-ink-muted">
                 {t("taxGroups.effective")} <span className="mz-num font-semibold text-ink">{group.effectivePercent}%</span>
               </span>
             </div>
-            <table className="w-full border-collapse text-[12.5px]">
-              <thead className="text-[11px] font-semibold text-ink-faint">
-                <tr>
-                  <th className="px-[15px] py-[8px] text-start">{t("taxGroups.members")}</th>
-                  <th className="px-[15px] py-[8px] text-end">{t("taxes.taxRate")}</th>
-                  <th className="px-[15px] py-[8px] text-start">{t("taxGroups.compounding")}</th>
-                  <th className="px-[15px] py-[8px] text-end">{t("taxGroups.effective")}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {group.components.map((component) => (
-                  <tr key={component.taxRateId} className="border-t border-border">
-                    <td className="px-[15px] py-[9px] text-ink">{rateName(component.taxRateId)}</td>
-                    <td className="mz-num px-[15px] py-[9px] text-end">{component.ratePercent}%</td>
-                    <td className="px-[15px] py-[9px] text-ink-muted">
-                      {component.compounding ? t("taxGroups.compounding") : t("taxGroups.onBase")}
-                    </td>
-                    <td className="mz-num px-[15px] py-[9px] text-end font-semibold">{component.effectivePercent}%</td>
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse text-[12.5px]">
+                <thead className="text-[11px] font-semibold text-ink-faint">
+                  <tr>
+                    <th className="px-[15px] py-[8px] text-start">{t("taxGroups.members")}</th>
+                    <th className="px-[15px] py-[8px] text-end">{t("taxes.taxRate")}</th>
+                    <th className="px-[15px] py-[8px] text-start">{t("taxGroups.compounding")}</th>
+                    <th className="px-[15px] py-[8px] text-end">{t("taxGroups.effective")}</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {group.components.map((component) => (
+                    <tr key={component.taxRateId} className="border-t border-border">
+                      <td className="px-[15px] py-[9px] text-ink">{rateName(component.taxRateId)}</td>
+                      <td className="mz-num px-[15px] py-[9px] text-end">{component.ratePercent}%</td>
+                      <td className="px-[15px] py-[9px] text-ink-muted">
+                        {component.compounding ? t("taxGroups.compounding") : t("taxGroups.onBase")}
+                      </td>
+                      <td className="mz-num px-[15px] py-[9px] text-end font-semibold">{component.effectivePercent}%</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </Card>
         ))
       )}

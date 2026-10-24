@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { act, render, screen, fireEvent } from "@testing-library/react";
 import { I18nProvider, useTranslation, useUiTranslation } from "./I18nProvider";
 import { uiCatalogs } from "./catalog";
 import type { LocaleCatalogs } from "./translate";
@@ -133,5 +133,26 @@ describe("I18nProvider / useTranslation", () => {
       </I18nProvider>,
     );
     expect(screen.getByTestId("ui")).toHaveTextContent(uiCatalogs.ar["shell.signOut"]!);
+  });
+  it("waits for ensureCatalog before switching, and the latest choice wins over a slower one", async () => {
+    let finishEnglish: () => void = () => {};
+    const ensureCatalog = (locale: string) =>
+      locale === "en" ? new Promise<void>((resolve) => (finishEnglish = resolve)) : undefined;
+    render(
+      <I18nProvider catalogs={catalogs} ensureCatalog={ensureCatalog}>
+        <Probe />
+      </I18nProvider>,
+    );
+    fireEvent.click(screen.getByText("to-en"));
+    expect(screen.getByTestId("locale")).toHaveTextContent("ar");
+    await act(async () => finishEnglish());
+    expect(screen.getByTestId("locale")).toHaveTextContent("en");
+    expect(window.localStorage.getItem("mezan.locale")).toBe("en");
+
+    fireEvent.click(screen.getByText("to-ar"));
+    fireEvent.click(screen.getByText("to-en"));
+    fireEvent.click(screen.getByText("to-ar"));
+    await act(async () => finishEnglish());
+    expect(screen.getByTestId("locale")).toHaveTextContent("ar");
   });
 });

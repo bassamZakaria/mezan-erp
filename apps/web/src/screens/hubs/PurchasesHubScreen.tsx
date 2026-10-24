@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { Money, WorkspaceHub } from "@mezan/ui";
 import { ScreenRequest } from "@mezan/domain";
-import { useGoodsReceipts, useHoldsScreenRequest, usePurchaseInvoices, usePurchaseOrders, useSuppliers } from "../../data/hooks";
+import { useGoodsReceipts, useHoldsScreenRequest, usePurchaseInvoiceCounts, usePurchaseInvoices, usePurchaseOrders, useSuppliers } from "../../data/hooks";
 import { useAppTranslation } from "../../i18n";
 import { DateAndDoc, HubActions, type HubAction } from "./hub-parts";
 import { EMPTY } from "../../lib/empty";
@@ -25,15 +25,14 @@ const quickActions: HubAction[] = [
   { label: "purchasesHub.action.newInvoice", screen: "purchase-invoices" },
 ];
 
-function num(value: string | undefined | null): number {
-  return value ? Number(value) : 0;
-}
+const RECENT_INVOICES = { page: 1, pageSize: 5 } as const;
 
 export function PurchasesHubScreen() {
   const { t } = useAppTranslation();
   const ordersQuery = usePurchaseOrders();
   const receiptsQuery = useGoodsReceipts();
-  const invoicesQuery = usePurchaseInvoices();
+  const invoiceCountsQuery = usePurchaseInvoiceCounts();
+  const invoicesQuery = usePurchaseInvoices(RECENT_INVOICES);
   const suppliersQuery = useSuppliers();
   const readsOrders = useHoldsScreenRequest(ScreenRequest.PurchaseOrders);
   const readsReceipts = useHoldsScreenRequest(ScreenRequest.GoodsReceipts);
@@ -54,10 +53,10 @@ export function PurchasesHubScreen() {
     () => receipts.filter((r) => r.status === "confirmed" && !r.invoiced).length,
     [receipts],
   );
-  const recentInvoices = useMemo(() => [...invoices].sort((a, b) => (a.date < b.date ? 1 : -1)).slice(0, 5), [invoices]);
+  const recentInvoices = invoices.slice(0, RECENT_INVOICES.pageSize);
 
-  const isLoading = ordersQuery.isLoading || receiptsQuery.isLoading || invoicesQuery.isLoading || suppliersQuery.isLoading;
-  const isError = ordersQuery.isError || receiptsQuery.isError || invoicesQuery.isError || suppliersQuery.isError;
+  const isLoading = ordersQuery.isLoading || receiptsQuery.isLoading || invoicesQuery.isLoading || invoiceCountsQuery.isLoading || suppliersQuery.isLoading;
+  const isError = ordersQuery.isError || receiptsQuery.isError || invoicesQuery.isError || invoiceCountsQuery.isError || suppliersQuery.isError;
 
   return (
     <WorkspaceHub
@@ -69,7 +68,7 @@ export function PurchasesHubScreen() {
       stats={[
         ...(readsOrders ? [{ key: "orders", label: t("purchasesHub.stat.openOrders"), value: openOrders, sub: t("purchasesHub.stat.openOrdersSub") }] : []),
         ...(readsReceipts ? [{ key: "uninvoiced", label: t("purchasesHub.stat.uninvoiced"), value: uninvoicedReceipts, sub: t("purchasesHub.stat.uninvoicedSub") }] : []),
-        { key: "invoices", label: t("purchasesHub.stat.invoices"), value: invoices.length, sub: t("purchasesHub.stat.invoicesSub") },
+        { key: "invoices", label: t("purchasesHub.stat.invoices"), value: invoiceCountsQuery.data?.all ?? 0, sub: t("purchasesHub.stat.invoicesSub") },
         ...(readsSuppliers ? [{ key: "suppliers", label: t("purchasesHub.stat.suppliers"), value: suppliers.length, sub: t("purchasesHub.stat.suppliersSub") }] : []),
       ]}
       list={{
@@ -80,7 +79,7 @@ export function PurchasesHubScreen() {
           key: inv.id,
           primary: supplierName(inv.supplierId),
           secondary: <DateAndDoc date={inv.date} docNo={inv.number} />,
-          trailing: <Money value={num(inv.baseTotal ?? inv.total)} />,
+          trailing: <Money value={inv.baseTotal ?? inv.total} />,
         })),
       }}
     />

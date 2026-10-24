@@ -199,6 +199,9 @@ export function createItemsRouter(
     readonly seasonId?: string;
     readonly unitCode?: string;
     readonly search?: string;
+    readonly ids?: readonly string[];
+    readonly types?: readonly string[];
+    readonly lotTracked?: boolean;
     /** One page of rows, 1-based, defaulted so an omitted page never means the whole catalogue (Q-8). */
     readonly page: number;
     readonly pageSize: number;
@@ -229,10 +232,18 @@ export function createItemsRouter(
       // `q` is the parameter the list has always taken; `search` is the name
       // every other list resource uses. Both reach the same filter.
       search: c.req.query("search") || c.req.query("q") || undefined,
+      ids: listParam(c.req.query("ids")),
+      types: listParam(c.req.query("types")),
+      lotTracked: c.req.query("lotTracked") === "1" || undefined,
       sort: SORT_KEYS.find((k) => k === c.req.query("sort")) ?? "code",
       sortDir: c.req.query("sortDir") === "desc" ? "desc" : "asc",
       ...pageOf(c),
     };
+  }
+
+  function listParam(value: string | undefined): readonly string[] | undefined {
+    const parts = value?.split(",").filter(Boolean);
+    return parts?.length ? parts : undefined;
   }
 
   /** The catalogue's total order — see `ItemListFilter.sort`. */
@@ -272,6 +283,12 @@ export function createItemsRouter(
     if (filter.brandId) matched = matched.filter((i) => i.brandId === filter.brandId);
     if (filter.seasonId) matched = matched.filter((i) => i.seasonId === filter.seasonId);
     if (filter.unitCode) matched = matched.filter((i) => i.baseUnitCode === filter.unitCode);
+    if (filter.ids) {
+      const wanted = new Set(filter.ids);
+      matched = matched.filter((i) => wanted.has(i.id));
+    }
+    if (filter.types) matched = matched.filter((i) => filter.types!.includes(i.type));
+    if (filter.lotTracked) matched = matched.filter((i) => i.trackBatches || i.trackExpiry);
 
     const onHandByItem = new Map<string, Qty>();
     if (snapshots) {

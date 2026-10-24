@@ -2,6 +2,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { defineConfig, devices } from "@playwright/test";
+import { E2E_REQUEST_CAPS } from "./e2e/saas/support/env";
 
 /**
  * The responsive audit, on its own config and its own ports.
@@ -44,7 +45,7 @@ export default defineConfig({
       timeout: 120_000,
       stdout: "pipe",
       stderr: "pipe",
-      env: { PORT: String(API_PORT), MEZAN_DB: ":memory:", MEZAN_SEED_DEMO: "1", MEZAN_PLATFORM_DIR: platformDir },
+      env: { PORT: String(API_PORT), MEZAN_DB: ":memory:", MEZAN_SEED_DEMO: "1", MEZAN_PLATFORM_DIR: platformDir, ...E2E_REQUEST_CAPS },
     },
     {
       command: `cd apps/web && pnpm exec vite --port ${PORT} --strictPort --host 127.0.0.1`,

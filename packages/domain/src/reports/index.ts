@@ -16,9 +16,11 @@ export type {
   ReportReconcilingItem,
   ReportValidationError,
   RunReportOutcome,
+  ReportChartPoint,
 } from "./types.js";
-export { ReportParamKind } from "./types.js";
-export { computeReconciliation, computeReportGroups, runReport, validateReportParams } from "./engine.js";
+export { ReportChartSlice, ReportChartSource, ReportParamKind } from "./types.js";
+export { computeReconciliation, computeReportGroups, pageReportGroups, readReportPage, runReport, validateReportParams } from "./engine.js";
+export { reportChartPoints } from "./chart-points.js";
 export {
   createTrialBalanceReport,
   type TrialBalanceContext,
@@ -129,10 +131,10 @@ export {
 
 export {
   createInventoryStockLevelsReport,
+  summarizeStockLevels,
   type InventoryStockLevelsContext,
   type InventoryStockLevelsParams,
   type InventoryStockLevelsRow,
-  type StockLevelStatus,
 } from "./inventory-stock-levels.js";
 export {
   createGoodsInTransitReport,

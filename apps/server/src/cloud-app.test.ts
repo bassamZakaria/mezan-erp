@@ -1,10 +1,12 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { Context } from "hono";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { OWNER_PASSWORD_FILE, createCloudApp, type CloudApp } from "./cloud-app.js";
 import { parseEnv, type CloudEnv } from "./env.js";
+import { RequestCapRefusal } from "./rate-limit.js";
+import { DEVICE_BINDING_HEADER, DeviceBinding, PUBLIC_API_BASE_PATH } from "@mezan/contracts";
 import { platformBearer, reachable, rememberPlatformDevice } from "./cloud-harness.js";
 
 const PROXY_HOPS = 2;
@@ -114,6 +116,50 @@ async function provisionCyag(app: CloudApp, token: string): Promise<{ tenant: { 
 }
 
 describe("createCloudApp", () => {
+  describe("the general /api request cap", () => {
+    const capped = () => boot(testEnv({ apiRequestsPerAddressPerMinute: 6, apiRequestsPerSessionPerMinute: 3 }));
+    const get = (app: CloudApp, path: string, headers: Record<string, string> = {}) => app.root.fetch(new Request(`http://cloud.internal${path}`, { headers }));
+    const capRefused = async (res: Response) => res.status === 429 && ((await res.json()) as { error?: string }).error === RequestCapRefusal.TooManyRequests;
+
+    it("refuses a session token past its cap, with Retry-After, and serves another token from the same address", async () => {
+      const app = await capped();
+      for (let i = 0; i < 3; i += 1) expect(await capRefused(await get(app, "/api/platform/resolve", { authorization: "Bearer flood" }))).toBe(false);
+      const refused = await get(app, "/api/platform/resolve", { authorization: "Bearer flood" });
+      expect(refused.headers.get("retry-after")).not.toBeNull();
+      expect(await capRefused(refused)).toBe(true);
+      expect(await capRefused(await get(app, "/api/platform/resolve", { authorization: "Bearer other" }))).toBe(false);
+    });
+
+    it("caps a browser that holds only a session cookie", async () => {
+      const app = await capped();
+      const login = await app.root.fetch(
+        new Request("http://cloud.internal/api/platform/auth/login", {
+          method: "POST",
+          headers: { "content-type": "application/json", [DEVICE_BINDING_HEADER]: DeviceBinding.Cookie },
+          body: JSON.stringify({ email: "owner@mezan.local", password: "owner-password-123" }),
+        }),
+      );
+      expect(login.status).toBe(200);
+      const cookie = login.headers.getSetCookie().map((c) => c.split(";")[0]).join("; ");
+      for (let i = 0; i < 3; i += 1) expect(await capRefused(await get(app, "/api/platform/resolve", { cookie }))).toBe(false);
+      expect(await capRefused(await get(app, "/api/platform/resolve", { cookie }))).toBe(true);
+    });
+
+    it("refuses an address past its cap whatever token it sends, and serves another address", async () => {
+      const app = await capped();
+      for (let i = 0; i < 6; i += 1) await get(app, "/api/platform/resolve");
+      expect(await capRefused(await get(app, "/api/platform/resolve", { authorization: "Bearer fresh" }))).toBe(true);
+      expect(await capRefused(await get(app, "/api/platform/resolve", { "x-forwarded-for": "41.33.99.99, 10.0.0.1" }))).toBe(false);
+    });
+
+    it("leaves the public API to its own per-key limit", async () => {
+      const app = await capped();
+      for (let i = 0; i < 6; i += 1) await get(app, "/api/platform/resolve");
+      const publicApi = await get(app, `${PUBLIC_API_BASE_PATH}/customers`, { authorization: "Bearer mzn_not-a-key" });
+      expect(publicApi.status).toBe(401);
+    });
+  });
+
   it("answers GET /healthz with 200", async () => {
     const app = await boot(testEnv());
     const res = await app.root.fetch(new Request("http://cloud.internal/healthz"));
@@ -347,6 +393,34 @@ describe("createCloudApp", () => {
       const res = await app.root.fetch(new Request("http://cloud.internal/"));
       expect(res.status).toBe(200);
       expect(await res.text()).toContain("مزان-تجريبي");
+    });
+
+    it("lets browsers keep content-hashed assets for a year, but always re-checks the app page that names them", async () => {
+      const env = testEnv();
+      mkdirSync(path.join(env.webDist, "assets"));
+      writeFileSync(path.join(env.webDist, "assets", "index-AbC123.js"), "export {};");
+      writeFileSync(path.join(env.webDist, "favicon.svg"), "<svg/>");
+      const app = await boot(env);
+      const header = async (url: string) => (await app.root.fetch(new Request(`http://cloud.internal${url}`))).headers.get("cache-control");
+
+      expect(await header("/assets/index-AbC123.js")).toBe("public, max-age=31536000, immutable");
+      const gone = await app.root.fetch(new Request("http://cloud.internal/assets/index-OldHash.js"));
+      expect(gone.status).toBe(404);
+      expect(gone.headers.get("cache-control")).toBeNull();
+      expect(await header("/favicon.svg")).toBeNull();
+      expect(await header("/")).toBe("no-cache");
+      expect(await header("/sales-invoices")).toBe("no-cache");
+    });
+
+    it("keeps content-hashed assets out of shared caches while the demo gate stands in front of them", async () => {
+      const env = testEnv();
+      mkdirSync(path.join(env.webDist, "assets"));
+      writeFileSync(path.join(env.webDist, "assets", "index-AbC123.js"), "export {};");
+      const app = await boot(env, { authMiddleware: async (_c: Context, next: () => Promise<void>) => next() });
+      const res = await app.root.fetch(new Request("http://cloud.internal/assets/index-AbC123.js"));
+
+      expect(res.status).toBe(200);
+      expect(res.headers.get("cache-control")).toBe("private, max-age=31536000, immutable");
     });
 
     it("leaves / as the plain app page until MEZAN_PUBLIC_LANDING switches the landing page on", async () => {

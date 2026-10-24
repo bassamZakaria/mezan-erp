@@ -1,5 +1,5 @@
-import { sumRows, type ReportChartSpec, type ReportColumn, type ReportGroupResult } from "@mezan/domain";
-import type { ReportChartPoint } from "@mezan/ui";
+import { sumRows } from "./kpi.js";
+import { ReportChartSlice, ReportChartSource, type ReportChartPoint, type ReportChartSpec, type ReportColumn, type ReportGroupResult } from "./types.js";
 
 /**
  * Turns a report's `chart` declaration into the points `<ReportChart>` draws.
@@ -34,9 +34,9 @@ export function reportChartPoints<Row>(
 
   const maxPoints = chart.maxPoints ?? 8;
   const take = (points: ReportChartPoint[]): ReportChartPoint[] =>
-    chart.slice === "last" ? points.slice(Math.max(0, points.length - maxPoints)) : points.slice(0, maxPoints);
+    chart.slice === ReportChartSlice.Last ? points.slice(Math.max(0, points.length - maxPoints)) : points.slice(0, maxPoints);
 
-  if (chart.source === "groups") {
+  if (chart.source === ReportChartSource.Groups) {
     // A section's own name, not a cell's: the grouping key is rarely a column
     // (the trial balance groups by account type and never prints it), so
     // requiring one here silently produced no chart at all.
@@ -50,6 +50,12 @@ export function reportChartPoints<Row>(
   const labelColumn = columns.find((c) => c.key === chart.labelColumn);
   if (!labelColumn) return null;
 
+  const enKey = labelColumn.key.endsWith("Ar") ? `${labelColumn.key.slice(0, -2)}En` : null;
+  const labelEnOf = (row: Row): { labelEn?: string } => {
+    const en = enKey ? (row as Record<string, unknown>)[enKey] : undefined;
+    return typeof en === "string" && en.trim() !== "" ? { labelEn: en } : {};
+  };
+
   if (chart.aggregate) {
     const buckets = new Map<string, Row[]>();
     for (const row of result.rows) {
@@ -58,9 +64,10 @@ export function reportChartPoints<Row>(
       if (bucket) bucket.push(row);
       else buckets.set(label, [row]);
     }
-    const points = [...buckets.entries()].map(([label, rows]) => ({
+    const points: ReportChartPoint[] = [...buckets.entries()].map(([label, rows]) => ({
       key: label,
       label,
+      ...(rows[0] ? labelEnOf(rows[0]) : {}),
       value: sumRows(rows, (row) => {
         const raw = valueColumn.value(row);
         return raw === null ? null : chartValue(raw);
@@ -76,6 +83,7 @@ export function reportChartPoints<Row>(
     result.rows.map((row, index) => ({
       key: `${rowKey(row)}-${index}`,
       label: String(labelColumn.value(row) ?? ""),
+      ...labelEnOf(row),
       value: chartValue(valueColumn.value(row) ?? 0),
     })),
   );

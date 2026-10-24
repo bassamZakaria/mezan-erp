@@ -19,16 +19,15 @@ import {
   type PillTone,
   RowMenu,
   type RowMenuItem,
-  Select,
   StatusPill,
   TextInput,
 } from "@mezan/ui";
-import type { DocumentStatusDTO, StockTransferDocumentDTO } from "@mezan/contracts";
+import { type DocumentStatusDTO, type ItemDTO, type StockTransferDocumentDTO } from "@mezan/contracts";
 import { Qty, stockTransferDocumentType } from "@mezan/domain";
 import {
   useConfirmStockTransfer,
   useCreateStockTransfer,
-  useItems,
+  useItemsByIds,
   useStockTransfer,
   useStockTransfers,
   useStockTransferCounts,
@@ -40,6 +39,7 @@ import { TextField, SelectField } from "../settings/form-controls";
 import { useSubPage } from "../navigation";
 import { useAppTranslation } from "../i18n";
 import { useEntityName } from "../lib/entity-names";
+import { ItemPicker, itemOption, STOCKED_ITEMS } from "./ItemPicker";
 import { useDocumentEffectText } from "../lib/document-effects";
 import { DOC_STATUS_TONE, documentStatusLabel } from "../doc-status";
 import { todayIso } from "../lib/dates";
@@ -92,6 +92,7 @@ function toDomainDoc(doc: StockTransferDocumentDTO) {
 interface LineDraft {
   key: string;
   itemId: string;
+  item?: ItemDTO;
   qty: number;
 }
 let lineSeq = 0;
@@ -105,16 +106,10 @@ export function StockTransfersScreen() {
   const effectText = useDocumentEffectText();
   const { t } = useAppTranslation();
   const warehousesQuery = useWarehouses();
-  const itemsQuery = useItems();
   const warehouses = warehousesQuery.data ?? [];
-  const items = itemsQuery.data ?? [];
 
   function warehouseLabel(id: string): string {
     return nameOf(warehouses.find((w) => w.id === id), id);
-  }
-  function itemLabel(id: string): string {
-    const item = items.find((i) => i.id === id);
-    return item ? `${item.nameAr} (${item.code})` : id;
   }
 
   // `#/inventory/stock-transfers` · `…/new` · `…/new/<itemId>` · `…/<docNo>`
@@ -169,6 +164,11 @@ export function StockTransfersScreen() {
   const inList = selectedId ? (documents.find((d) => d.id === selectedId || d.docNo === selectedId) ?? null) : null;
   const fetched = useStockTransfer(selectedId !== null && inList === null && !query.isPending ? selectedId : null);
   const selected: StockTransferDocumentDTO | null = inList ?? fetched.data ?? null;
+  const { byId: itemById } = useItemsByIds(selected?.lines.map((l) => l.itemId) ?? EMPTY);
+  function itemLabel(id: string): string {
+    const item = itemById.get(id);
+    return item ? `${item.nameAr} (${item.code})` : id;
+  }
   const selectedMissing = selectedId !== null && selected === null && !query.isPending && !fetched.isPending;
 
   const columns: DocumentListColumn<StockTransferDocumentDTO>[] = [
@@ -218,7 +218,6 @@ export function StockTransfersScreen() {
     return (
       <CreateTransferView
         warehouses={warehouses}
-        items={items}
         onDone={subPage.close}
         onAlreadySaved={(savedId) => {
           savedNotice.show(savedId);
@@ -407,14 +406,12 @@ export function StockTransfersScreen() {
 
 function CreateTransferView({
   warehouses,
-  items,
   onDone,
   onAlreadySaved,
   initialItemId,
 }: {
   onAlreadySaved: (savedId: string) => void;
   warehouses: ReturnType<typeof useWarehouses>["data"];
-  items: ReturnType<typeof useItems>["data"];
   onDone: () => void;
   initialItemId?: string | null;
 }) {
@@ -424,7 +421,6 @@ function CreateTransferView({
   const confirmTransfer = useConfirmStockTransfer();
   const transferId = useDocumentId(onAlreadySaved);
   const warehouseList = warehouses ?? EMPTY;
-  const itemList = items ?? EMPTY;
 
   const [date, setDate] = useState(todayIso());
   const [memo, setMemo] = useState("");
@@ -439,10 +435,12 @@ function CreateTransferView({
     return nameOf(warehouseList.find((w) => w.id === id), id);
   }
 
-  const itemOptions = useMemo(
-    () => [{ value: "", label: t("stockXfer.chooseAnItem") }, ...itemList.filter((i) => i.type !== "service").map((i) => ({ value: i.id, label: i.nameAr }))],
-    [itemList, t],
-  );
+  const { byId: routedItems } = useItemsByIds(lines.filter((l) => !l.item).map((l) => l.itemId));
+  const itemOf = (line: LineDraft) => line.item ?? routedItems.get(line.itemId);
+  const pickerValue = (line: LineDraft) => {
+    const item = itemOf(line);
+    return item ? itemOption(item) : null;
+  };
   const warehouseOptions = useMemo(() => warehouseList.map((w) => ({ value: w.id, label: w.name })), [warehouseList]);
 
   function updateLine(index: number, patch: Partial<LineDraft>) {
@@ -512,7 +510,7 @@ function CreateTransferView({
         </div>
       ) : null}
 
-      <div className="grid gap-5 lg:grid-cols-[2fr_1fr]">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
         <div className="flex min-w-0 flex-col gap-[16px]">
           <Card className="grid grid-cols-1 gap-[14px] p-[18px] sm:grid-cols-2">
             <TextField label={t("stockXfer.date")} value={date} onChange={setDate} placeholder="YYYY-MM-DD" />
@@ -540,13 +538,13 @@ function CreateTransferView({
                   {lines.map((line, i) => (
                     <tr key={line.key} className="border-b border-border last:border-b-0">
                       <td className="px-[12px] py-[8px]">
-                        <Select
-                          size="sm"
+                        <ItemPicker
                           className="min-w-[130px]"
-                          aria-label={t("stockXfer.lineItem", { number: i + 1 })}
-                          value={line.itemId}
-                          onChange={(value) => updateLine(i, { itemId: value })}
-                          options={itemOptions}
+                          ariaLabel={t("stockXfer.lineItem", { number: i + 1 })}
+                          placeholder={t("stockXfer.chooseAnItem")}
+                          value={pickerValue(line)}
+                          onChange={(item) => updateLine(i, { itemId: item?.id ?? "", item: item ?? undefined })}
+                          filter={STOCKED_ITEMS}
                         />
                       </td>
                       <td className="px-[12px] py-[8px]">
@@ -577,13 +575,13 @@ function CreateTransferView({
               </Button>
             </div>
           </Card>
-          {fromWarehouseId !== "" && lines.some((l) => tracksLots(itemList.find((i) => i.id === l.itemId))) ? (
+          {fromWarehouseId !== "" && lines.some((l) => tracksLots(itemOf(l))) ? (
             <Card className="flex flex-col gap-[10px] p-[14px]">
               <h3 className="font-display text-[13px] font-bold text-ink">{t("expiry.fefo.transferTitle")}</h3>
               {lines
-                .filter((l) => tracksLots(itemList.find((i) => i.id === l.itemId)))
+                .filter((l) => tracksLots(itemOf(l)))
                 .map((l) => (
-                  <FefoPreviewPanel key={l.key} warehouseId={fromWarehouseId} itemId={l.itemId} qty={l.qty} title={nameOf(itemList.find((i) => i.id === l.itemId), l.itemId)} />
+                  <FefoPreviewPanel key={l.key} warehouseId={fromWarehouseId} itemId={l.itemId} qty={l.qty} title={nameOf(itemOf(l), l.itemId)} />
                 ))}
             </Card>
           ) : null}

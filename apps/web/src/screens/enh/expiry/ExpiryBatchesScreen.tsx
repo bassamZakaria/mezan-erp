@@ -1,10 +1,10 @@
 import { useMemo, useState } from "react";
-import { Button, Card, EmptyState, Money as MoneyValue, StatusPill, formatQty } from "@mezan/ui";
+import { Button, Card, EmptyState, Money as MoneyValue, StatusPill, formatQty, type EntityPickerOption } from "@mezan/ui";
 import { ArabicCase, CountedNoun, ExpiryStatus, can, createAuthContext, createInventoryBatchesReport, DEFAULT_NEAR_EXPIRY_DAYS, type InventoryBatchesRow } from "@mezan/domain";
 import type { BatchTrailEntryDTO, ExpiryWriteOffResultDTO } from "@mezan/contracts";
 import { useApi } from "../../../data/ApiContext";
 import { useCountPhrase } from "../../../lib/count-phrase";
-import { useConfirmStockAdjustment, useItems, useWarehouses } from "../../../data/hooks";
+import { useConfirmStockAdjustment, useItemsByIds, useWarehouses } from "../../../data/hooks";
 import {
   useBatchRecall,
   useCreateExpiryWriteOff,
@@ -24,6 +24,7 @@ import { EMPTY } from "../../../lib/empty";
 import { ScreenTabs } from "../../ScreenTabs";
 import { ReportScreen } from "../../reports/ReportScreen";
 import { FefoPreviewPanel } from "./FefoPreviewPanel";
+import { ItemPicker, LOT_TRACKED_ITEMS, itemOption } from "../../ItemPicker";
 import { ExpiryTab } from "./expiry-routes";
 
 
@@ -61,14 +62,13 @@ function usePermission(code: string): boolean {
   );
 }
 
-function useLabels() {
+function useLabels(itemIds: readonly string[] = EMPTY) {
   const nameOf = useEntityName();
-  const items = useItems().data ?? EMPTY;
+  const { byId } = useItemsByIds(itemIds);
   const warehouses = useWarehouses().data ?? EMPTY;
   return {
-    items,
     warehouses,
-    itemLabel: (id: string) => nameOf(items.find((i) => i.id === id), id),
+    itemLabel: (id: string) => nameOf(byId.get(id), id),
     warehouseLabel: (id: string) => nameOf(warehouses.find((w) => w.id === id), id),
   };
 }
@@ -100,7 +100,6 @@ function BatchesTab() {
 
 function WriteOffTab() {
   const { t } = useAppTranslation();
-  const { itemLabel, warehouses } = useLabels();
   const { openScreenAt } = useNavigation();
   const mayWriteOff = usePermission("inventory.adjustment.create");
   const mayConfirm = usePermission("inventory.adjustment.confirm");
@@ -113,8 +112,9 @@ function WriteOffTab() {
   const create = useCreateExpiryWriteOff();
   const confirm = useConfirmStockAdjustment();
 
-  const warehouseOptions = [{ value: "", label: t("expiry.writeOff.chooseWarehouse") }, ...warehouses.map((w) => ({ value: w.id, label: w.name }))];
   const lines = proposal.data?.lines ?? EMPTY;
+  const { itemLabel, warehouses } = useLabels(lines.map((line) => line.itemId));
+  const warehouseOptions = [{ value: "", label: t("expiry.writeOff.chooseWarehouse") }, ...warehouses.map((w) => ({ value: w.id, label: w.name }))];
 
   async function createDraft() {
     if (create.isPending || warehouseId === "" || lines.length === 0) return;
@@ -235,8 +235,8 @@ function WriteOffTab() {
 function AlertsTab() {
   const { t } = useAppTranslation();
   const countPhrase = useCountPhrase();
-  const { itemLabel, warehouseLabel } = useLabels();
   const alerts = useExpiryAlerts();
+  const { itemLabel, warehouseLabel } = useLabels(alerts.data?.due.map((row) => row.itemId) ?? EMPTY);
   if (alerts.isError) return <ErrorNote message={alerts.error.message} />;
   if (alerts.isLoading || !alerts.data) return null;
   const { due, nearExpiryDays } = alerts.data;
@@ -285,12 +285,10 @@ function AlertsTab() {
 
 function FefoTab() {
   const { t } = useAppTranslation();
-  const { items, warehouses } = useLabels();
-  const nameOf = useEntityName();
+  const { warehouses } = useLabels();
   const [warehouseId, setWarehouseId] = useState("");
-  const [itemId, setItemId] = useState("");
+  const [item, setItem] = useState<EntityPickerOption | null>(null);
   const [qty, setQty] = useState(0);
-  const tracked = items.filter((i) => i.trackBatches || i.trackExpiry);
   return (
     <div className="flex flex-col gap-[14px]">
       <p className="max-w-[72ch] text-[12.5px] text-ink-muted">{t("expiry.fefo.intro")}</p>
@@ -301,22 +299,23 @@ function FefoTab() {
           onChange={setWarehouseId}
           options={[{ value: "", label: t("expiry.writeOff.chooseWarehouse") }, ...warehouses.map((w) => ({ value: w.id, label: w.name }))]}
         />
-        <SelectField
+        <ItemPicker
           label={t("common.item")}
-          value={itemId}
-          onChange={setItemId}
-          options={[{ value: "", label: t("expiry.fefo.chooseItem") }, ...tracked.map((i) => ({ value: i.id, label: nameOf(i) }))]}
+          placeholder={t("expiry.fefo.chooseItem")}
+          value={item}
+          onChange={(picked) => setItem(picked ? itemOption(picked) : null)}
+          filter={LOT_TRACKED_ITEMS}
         />
         <NumberField label={t("common.qty")} value={qty} min={0} onChange={setQty} />
       </Card>
-      {warehouseId !== "" && itemId !== "" ? <FefoPreviewPanel warehouseId={warehouseId} itemId={itemId} qty={qty} /> : null}
+      {warehouseId !== "" && item ? <FefoPreviewPanel warehouseId={warehouseId} itemId={item.id} qty={qty} /> : null}
     </div>
   );
 }
 
 function TrailTable({ rows }: { rows: readonly BatchTrailEntryDTO[] }) {
   const { t } = useAppTranslation();
-  const { itemLabel, warehouseLabel } = useLabels();
+  const { itemLabel, warehouseLabel } = useLabels(rows.map((row) => row.itemId));
   return (
     <Card className="overflow-hidden">
       <div className="overflow-x-auto">

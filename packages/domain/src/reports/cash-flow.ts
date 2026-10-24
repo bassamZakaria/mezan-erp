@@ -21,7 +21,7 @@ import { Money } from "../money/index.js";
 import type { Account } from "../accounts/account.js";
 import type { ReportDefinition } from "./types.js";
 import { diffOf, sumRows } from "./kpi.js";
-import { ReportParamKind } from "./types.js";
+import { ReportChartSource, ReportParamKind } from "./types.js";
 
 /**
  * التدفقات النقدية — Cash Flow Statement, indirect method
@@ -247,7 +247,7 @@ export function createCashFlowReport(
       { key: "operating", labelAr: "التدفق التشغيلي", format: "money", value: (rows) => sumRows(rows, (r) => (r.activity === "operating" ? r.amount : 0)), tone: (value) => (value >= 0 ? "success" : "danger") },
     ],
     chart: {
-      source: "groups",
+      source: ReportChartSource.Groups,
       valueColumn: "amount",
       captionAr: "صافي التدفق النقدي في كل نشاط — تشغيلي واستثماري وتمويلي.",
     },

@@ -69,11 +69,12 @@ const summary: DashboardSummaryDTO = {
 
 function renderScreen(
   navigate: (screen: string, intent?: unknown) => void = vi.fn(),
-  overrides: { accounts?: TreasuryAccountDTO[]; vouchers?: VoucherRowDTO[]; cheques?: ChequeDTO[]; summary?: DashboardSummaryDTO } = {},
+  overrides: { accounts?: TreasuryAccountDTO[]; vouchers?: VoucherRowDTO[]; voucherCount?: number; cheques?: ChequeDTO[]; summary?: DashboardSummaryDTO } = {},
 ) {
   const transport = stubTransport({
     "GET /treasury-accounts": () => ({ body: overrides.accounts ?? accounts }),
     "GET /vouchers": () => ({ body: overrides.vouchers ?? [voucher()] }),
+    "GET /vouchers/counts": () => ({ body: { all: overrides.voucherCount ?? 1 } }),
     "GET /cheques": () => ({ body: overrides.cheques ?? [cheque()] }),
     "GET /dashboard/summary": () => ({ body: overrides.summary ?? summary }),
   });
@@ -89,12 +90,14 @@ describe("TreasuryHubScreen", () => {
   it("renders stat tiles from the real endpoints, including money formatting", async () => {
     renderScreen(vi.fn(), {
       accounts: [...accounts, { ...accounts[0]!, id: "ta-3", code: "CASH-003" }], // activeAccounts = 2 (ta-1, ta-3)
-      vouchers: [voucher(), voucher({ id: "cv-2", docNo: "CV-000002", date: "2026-08-06" }), voucher({ id: "cv-3", docNo: "CV-000003", date: "2026-08-05" })], // vouchers.length = 3
+      vouchers: [voucher(), voucher({ id: "cv-2", docNo: "CV-000002", date: "2026-08-06" }), voucher({ id: "cv-3", docNo: "CV-000003", date: "2026-08-05" })],
+      voucherCount: 4321,
       cheques: [cheque()], // pendingCheques = 1
     });
     expect(screen.getByRole("heading", { name: "الخزينة" })).toBeInTheDocument();
     expect(await screen.findByText("1")).toBeInTheDocument(); // pending cheques
     expect(await screen.findByText("48,250.75")).toBeInTheDocument(); // cash on hand, Money-formatted
+    expect(screen.getByText("4321")).toBeInTheDocument(); // vouchers recorded, from /vouchers/counts
     await waitFor(() => expect(screen.queryByText("48250.750000")).not.toBeInTheDocument());
   });
 
@@ -115,6 +118,7 @@ describe("TreasuryHubScreen", () => {
     const transport = stubTransport({
       "GET /treasury-accounts": () => ({ status: 500, body: { error: "INTERNAL" } }),
       "GET /vouchers": () => ({ body: [] }),
+      "GET /vouchers/counts": () => ({ body: { all: 0 } }),
       "GET /cheques": () => ({ body: [] }),
       "GET /dashboard/summary": () => ({ body: summary }),
     });

@@ -6,7 +6,7 @@ import { journalSourceModule, JournalSourceModuleCode, type JournalEntry } from 
 import { RECOGNITION_DOC_TYPE } from "../contracting/recognition/recognition.js";
 import type { ReportDefinition } from "./types.js";
 import { diffOf, sumRows } from "./kpi.js";
-import { ReportParamKind } from "./types.js";
+import { ReportChartSource, ReportParamKind } from "./types.js";
 import type { TaxRate } from "../tax-rates/tax-rate.js";
 
 export type VatReturnTaxRate = Pick<TaxRate, "id" | "name">;
@@ -241,7 +241,7 @@ export function createVatReturnReport(
       { key: "taxableBase", labelAr: "الوعاء الخاضع", format: "money", value: (rows) => sumRows(rows, (r) => (r.side === "output" ? r.base : 0)) },
     ],
     chart: {
-      source: "groups",
+      source: ReportChartSource.Groups,
       valueColumn: "tax",
       captionAr: "ضريبة المخرجات مقابل ضريبة المدخلات — الفرق بينهما هو صافي الإقرار.",
     },

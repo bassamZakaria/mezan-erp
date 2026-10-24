@@ -1,3 +1,4 @@
+import { PurchaseInvoiceSort } from "@mezan/contracts";
 import { useCountPhrase } from "../lib/count-phrase";
 import { useMemo, useState, type ReactNode } from "react";
 import { matchesSearch, CountedNoun } from "@mezan/domain";
@@ -16,10 +17,12 @@ import {
   type PillTone,
   type RowMenuItem,
 } from "@mezan/ui";
-import type { PurchaseInvoiceStatusDTO, SupplierDTO } from "@mezan/contracts";
+import type { PurchaseInvoiceDTO, PurchaseInvoiceStatusDTO, SupplierDTO } from "@mezan/contracts";
 import {
   useCreateSupplier,
+  usePurchaseInvoiceCounts,
   usePurchaseInvoices,
+  usePurchaseInvoiceStats,
   useSuppliers,
   useSupplierCounts,
   useSupplierStats,
@@ -29,7 +32,7 @@ import {
 import {
   agingBucketsFor,
   moneyToNumber,
-  sumMoney,
+  parseMoney,
   useSupplierAging,
 } from "../data/partner-detail-hooks";
 import { TextField, NumberField, ToggleField } from "../settings/form-controls";
@@ -144,21 +147,24 @@ function MiniStat({ label, value }: { label: string; value: ReactNode }) {
   );
 }
 
-/** فواتير مشتريات المورد — `GET /purchases/invoices`, narrowed to this supplier. */
+const INVOICE_TAB_PAGE_SIZE = 25;
+
 function SupplierInvoicesTab({ supplierId }: { supplierId: string }) {
   const { t } = useAppTranslation();
-  const query = usePurchaseInvoices();
-  const invoices = useMemo(
-    () =>
-      (query.data ?? [])
-        .filter((inv) => inv.supplierId === supplierId)
-        .sort((a, b) => (a.date === b.date ? a.number.localeCompare(b.number) : b.date.localeCompare(a.date))),
-    [query.data, supplierId],
-  );
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(INVOICE_TAB_PAGE_SIZE);
+  const query = usePurchaseInvoices({ supplierId, page, pageSize }, KEEP_PREVIOUS_PAGE);
+  const newestQuery = usePurchaseInvoices({ supplierId, sort: PurchaseInvoiceSort.Date, sortDir: "desc", page: 1, pageSize: 1 });
+  const countsQuery = usePurchaseInvoiceCounts({ supplierId });
+  const statsQuery = usePurchaseInvoiceStats({ supplierId });
+  const queries = [query, newestQuery, countsQuery, statsQuery];
 
-  if (query.isError) return <TabError message={t("suppliers.invoices.loadFailed")} onRetry={() => query.refetch()} />;
-  if (query.isLoading) return <p className="p-[18px] text-[12.5px] text-ink-muted">{t("suppliers.invoices.loading")}</p>;
-  if (invoices.length === 0) {
+  if (queries.some((q) => q.isError)) {
+    return <TabError message={t("suppliers.invoices.loadFailed")} onRetry={() => queries.forEach((q) => void q.refetch())} />;
+  }
+  if (queries.some((q) => q.isLoading)) return <p className="p-[18px] text-[12.5px] text-ink-muted">{t("suppliers.invoices.loading")}</p>;
+  const total = countsQuery.data?.all ?? 0;
+  if (total === 0) {
     return (
       <div className="rounded-lg border border-border bg-surface p-[22px_24px]">
         <p className="text-[13.5px] font-semibold text-ink">{t("suppliers.invoices.emptyTitle")}</p>
@@ -168,59 +174,43 @@ function SupplierInvoicesTab({ supplierId }: { supplierId: string }) {
       </div>
     );
   }
-
-  const confirmed = invoices.filter((inv) => inv.status === "confirmed");
-  const confirmedTotal = sumMoney(confirmed.map((inv) => inv.baseTotal ?? inv.total));
+  const newest = newestQuery.data?.[0];
+  const currency = (inv: PurchaseInvoiceDTO) => ({ showUnit: Boolean(inv.fxRate), currencyLabel: inv.fxRate ? inv.currency : undefined });
+  const columns: DocumentListColumn<PurchaseInvoiceDTO>[] = [
+    { key: "number", header: t("suppliers.invoices.col.number"), render: (inv) => <span className="mz-num font-semibold text-ink">{inv.number}</span> },
+    { key: "supplierNumber", header: t("suppliers.invoices.col.supplierNumber"), render: (inv) => <span className="mz-num text-ink-muted">{inv.supplierInvoiceNumber ?? "—"}</span> },
+    { key: "date", header: t("common.date"), render: (inv) => <span className="mz-num text-ink-muted">{isoToDisplay(inv.date)}</span> },
+    { key: "due", header: t("suppliers.invoices.col.due"), render: (inv) => <span className="mz-num text-ink-muted">{inv.dueDate ? isoToDisplay(inv.dueDate) : "—"}</span> },
+    { key: "status", header: t("common.status"), render: (inv) => <StatusPill label={t(PURCHASE_STATUS_KEY[inv.status])} tone={PURCHASE_STATUS_TONE[inv.status]} /> },
+    { key: "beforeTax", header: t("suppliers.invoices.col.beforeTax"), align: "end", render: (inv) => <MoneyValue value={num(inv.subtotal)} {...currency(inv)} /> },
+    { key: "tax", header: t("suppliers.invoices.col.tax"), align: "end", render: (inv) => <MoneyValue value={num(inv.tax)} {...currency(inv)} /> },
+    { key: "total", header: t("common.total"), align: "end", render: (inv) => <span className="font-semibold text-ink"><MoneyValue value={num(inv.total)} {...currency(inv)} /></span> },
+  ];
 
   return (
     <div className="flex flex-col gap-[16px]">
       <div className="grid grid-cols-2 gap-[12px] sm:grid-cols-4">
-        <MiniStat label={t("suppliers.invoices.count")} value={<span className="mz-num">{invoices.length}</span>} />
-        <MiniStat label={t("suppliers.invoices.confirmed")} value={<span className="mz-num">{confirmed.length}</span>} />
-        <MiniStat label={t("suppliers.invoices.confirmedTotal")} value={<MoneyValue value={moneyToNumber(confirmedTotal)} showUnit={false} />} />
-        <MiniStat
-          label={t("suppliers.invoices.last")}
-          value={<span className="mz-num">{invoices[0] ? isoToDisplay(invoices[0].date) : "—"}</span>}
-        />
+        <MiniStat label={t("suppliers.invoices.count")} value={<span className="mz-num">{total}</span>} />
+        <MiniStat label={t("suppliers.invoices.confirmed")} value={<span className="mz-num">{statsQuery.data?.count ?? 0}</span>} />
+        <MiniStat label={t("suppliers.invoices.confirmedTotal")} value={<MoneyValue value={moneyToNumber(parseMoney(statsQuery.data?.purchases))} showUnit={false} />} />
+        <MiniStat label={t("suppliers.invoices.last")} value={<span className="mz-num">{newest ? isoToDisplay(newest.date) : "—"}</span>} />
       </div>
-      <div className="overflow-x-auto rounded-lg border border-border bg-surface">
-        <table className="w-full min-w-[720px] border-collapse text-[12.5px]">
-          <thead>
-            <tr className="border-b border-border text-ink-muted">
-              <th className="p-[10px] text-start font-semibold">{t("suppliers.invoices.col.number")}</th>
-              <th className="p-[10px] text-start font-semibold">{t("suppliers.invoices.col.supplierNumber")}</th>
-              <th className="p-[10px] text-start font-semibold">{t("common.date")}</th>
-              <th className="p-[10px] text-start font-semibold">{t("suppliers.invoices.col.due")}</th>
-              <th className="p-[10px] text-start font-semibold">{t("common.status")}</th>
-              <th className="p-[10px] text-end font-semibold">{t("suppliers.invoices.col.beforeTax")}</th>
-              <th className="p-[10px] text-end font-semibold">{t("suppliers.invoices.col.tax")}</th>
-              <th className="p-[10px] text-end font-semibold">{t("common.total")}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {invoices.map((inv) => (
-              <tr key={inv.id} className="border-b border-border last:border-b-0">
-                <td className="mz-num p-[10px] font-semibold text-ink">{inv.number}</td>
-                <td className="mz-num p-[10px] text-ink-muted">{inv.supplierInvoiceNumber ?? "—"}</td>
-                <td className="mz-num p-[10px] text-ink-muted">{isoToDisplay(inv.date)}</td>
-                <td className="mz-num p-[10px] text-ink-muted">{inv.dueDate ? isoToDisplay(inv.dueDate) : "—"}</td>
-                <td className="p-[10px]">
-                  <StatusPill label={t(PURCHASE_STATUS_KEY[inv.status])} tone={PURCHASE_STATUS_TONE[inv.status]} />
-                </td>
-                <td className="p-[10px] text-end text-ink-muted">
-                  <MoneyValue value={num(inv.subtotal)} showUnit={Boolean(inv.fxRate)} currencyLabel={inv.fxRate ? inv.currency : undefined} />
-                </td>
-                <td className="p-[10px] text-end text-ink-muted">
-                  <MoneyValue value={num(inv.tax)} showUnit={Boolean(inv.fxRate)} currencyLabel={inv.fxRate ? inv.currency : undefined} />
-                </td>
-                <td className="p-[10px] text-end font-semibold text-ink">
-                  <MoneyValue value={num(inv.total)} showUnit={Boolean(inv.fxRate)} currencyLabel={inv.fxRate ? inv.currency : undefined} />
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <DocumentList<PurchaseInvoiceDTO>
+        title=""
+        nested
+        columns={columns}
+        rows={[...(query.data ?? EMPTY)]}
+        rowKey={(inv) => inv.id}
+        page={page}
+        pageCount={Math.max(1, Math.ceil(total / pageSize))}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
+        }}
+        loading={query.isFetching}
+      />
     </div>
   );
 }
@@ -368,6 +358,8 @@ function SupplierDetail({ supplier, onBack, onEdit }: { supplier: SupplierDTO; o
     />
   );
 }
+
+const KEEP_PREVIOUS_PAGE = { keepPrevious: true } as const;
 
 export function SuppliersScreen() {
   const { t } = useAppTranslation();

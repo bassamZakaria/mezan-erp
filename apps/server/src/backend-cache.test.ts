@@ -86,7 +86,7 @@ describe("createBackendCache", () => {
     expect(a.close).not.toHaveBeenCalled();
   });
 
-  it("retries open on the next get after a failure, without deleting a newer entry that replaced it", async () => {
+  it("retries open on the next get after a failed open, waiting for that open to settle first", async () => {
     let t = 0;
     let rejectFirst: (err: Error) => void = () => undefined;
     let openCalls = 0;
@@ -105,8 +105,9 @@ describe("createBackendCache", () => {
 
     t += 1001;
     const sweepPromise = cache.sweep();
-    const second = await cache.get("a");
+    const pendingSecond = cache.get("a");
     rejectFirst(new Error("boom"));
+    const second = await pendingSecond;
     await sweepPromise;
     await first;
 
@@ -197,5 +198,92 @@ describe("createBackendCache", () => {
     expect(await cache.get("a")).not.toBe(first);
     await cache.evict("never-opened");
     expect(closed).toEqual(["a"]);
+  });
+
+  it("lets a handle finish its queued work before closing it", async () => {
+    const order: string[] = [];
+    const open = vi.fn(async (code: string) => ({
+      code,
+      drain: async () => void order.push(`drain ${code}`),
+      close: () => void order.push(`close ${code}`),
+    }));
+    const cache = createBackendCache({ open, sweepEveryMs: 0 });
+    await cache.get("a");
+    await cache.get("b");
+    await cache.evict("a");
+    await cache.close();
+    expect(order).toEqual(["drain a", "close a", "drain b", "close b"]);
+  });
+
+  it("closes a handle whose drain never settles once the drain budget runs out", async () => {
+    vi.useFakeTimers();
+    try {
+      const close = vi.fn();
+      const cache = createBackendCache({ open: async () => ({ drain: () => new Promise<void>(() => undefined), close }), sweepEveryMs: 0 });
+      await cache.get("a");
+      const evicted = cache.evict("a");
+      await vi.advanceTimersByTimeAsync(10_000);
+      await evicted;
+      expect(close).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not reopen a tenant until its previous handle has finished closing", async () => {
+    const order: string[] = [];
+    let finishDrain: () => void = () => undefined;
+    let opened = 0;
+    const cache = createBackendCache({
+      open: async () => {
+        opened += 1;
+        order.push(`open ${opened}`);
+        return { drain: () => new Promise<void>((resolve) => { finishDrain = resolve; }), close: () => void order.push(`close ${opened}`) };
+      },
+      sweepEveryMs: 0,
+    });
+    await cache.get("a");
+    const evicted = cache.evict("a");
+    const reopened = cache.get("a");
+    await Promise.resolve();
+    expect(order).toEqual(["open 1"]);
+    finishDrain();
+    await evicted;
+    await reopened;
+    expect(order).toEqual(["open 1", "close 1", "open 2"]);
+  });
+
+  it("makes an evict of a tenant the idle sweep already took wait until its handle has closed", async () => {
+    let t = 0;
+    const order: string[] = [];
+    let finishDrain: () => void = () => undefined;
+    const cache = createBackendCache({
+      open: async () => ({ drain: () => new Promise<void>((resolve) => { finishDrain = resolve; }), close: () => void order.push("closed") }),
+      idleMs: 1000,
+      now: () => t,
+      sweepEveryMs: 0,
+    });
+    await cache.get("a");
+    t += 1001;
+    const swept = cache.sweep();
+    const evicted = cache.evict("a").then(() => void order.push("evict returned"));
+    await Promise.resolve();
+    finishDrain();
+    await Promise.all([swept, evicted]);
+    expect(order).toEqual(["closed", "evict returned"]);
+  });
+
+  it("reports a handle that fails to close instead of dropping the error", async () => {
+    const failures: string[] = [];
+    const cache = createBackendCache({
+      open: async () => ({ close: () => { throw new Error("checkpoint failed"); } }),
+      sweepEveryMs: 0,
+      onCloseError: (code, err) => void failures.push(`${code}: ${(err as Error).message}`),
+    });
+    await cache.get("a");
+    await cache.evict("a");
+    await cache.get("b");
+    await cache.close();
+    expect(failures).toEqual(["a: checkpoint failed", "b: checkpoint failed"]);
   });
 });

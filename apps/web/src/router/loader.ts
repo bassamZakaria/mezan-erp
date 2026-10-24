@@ -3,7 +3,7 @@ import { isSignedIn, loaderApi } from "../data/api-bridge";
 import type { ListQuery } from "../data/list-queries";
 
 /**
- * Builds a route loader that warms the cache before the screen renders.
+ * Builds a route loader that starts the screen's queries without waiting for them.
  *
  * Declared STATICALLY on the route, never inside the route's `lazy` module.
  * That placement is the whole point: React Router runs a static loader
@@ -14,6 +14,11 @@ import type { ListQuery } from "../data/list-queries";
  *
  * The queries come from `data/list-queries.ts`, which the screen's own hooks
  * read too. Building a key here instead would warm an entry nobody reads.
+ *
+ * NOT AWAITED: the router holds the old page on screen until every loader
+ * settles, so awaiting the data froze navigation for a whole API round trip.
+ * The screen's own `useQuery` joins the in-flight request and shows its
+ * loading state instead.
  *
  * A failed prefetch is deliberately NOT re-thrown. The route's error boundary
  * would replace the whole screen with a failure panel when the screen's own
@@ -30,13 +35,13 @@ export function listLoader(build: (url: URL) => readonly ListQuery<unknown>[]) {
     if (!isSignedIn()) return null;
     const { queryClient, request: apiRequest } = loaderApi();
     const queries = build(new URL(request.url));
-    await Promise.all(
-      queries.map((q) =>
+    for (const q of queries) {
+      void (
         queryClient
           .ensureQueryData({ queryKey: [...q.queryKey], queryFn: () => q.queryFn(apiRequest) })
-          .catch(() => null),
-      ),
-    );
+          .catch(() => null)
+      );
+    }
     return null;
   };
 }

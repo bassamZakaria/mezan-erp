@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { renderHook, waitFor } from "@testing-library/react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
@@ -248,17 +248,16 @@ describe("useCustomerAging / useSupplierAging / useStockLevels", () => {
     expect(result.current.data?.rows).toEqual([]);
   });
 
-  it("useStockLevels requests /reports/inventory/stock-levels", async () => {
-    let seenPath = "";
-    const transport = stubTransport({
-      "GET /reports/inventory/stock-levels": (_init, path) => {
-        seenPath = path;
-        return { body: { rows: [], groups: [], grandTotals: {}, reconciliation: null } };
-      },
+  it("useStockLevels requests the stock-levels summary, never the full report", async () => {
+    const seen: string[] = [];
+    const inner = stubTransport({
+      "GET /reports/inventory/stock-levels/summary": () => ({ body: { totalValue: "0", needsAttentionCount: 0, lowCount: 0, attention: [], firstLow: null } }),
     });
+    const transport: typeof inner = (path, init) => (seen.push(path), inner(path, init));
     const { result } = renderHook(() => useStockLevels(), { wrapper: makeWrapper(transport).Wrapper });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(seenPath).toBe("/reports/inventory/stock-levels");
+    expect(seen).toContain("/reports/inventory/stock-levels/summary");
+    expect(seen.some((path) => path.split("?")[0] === "/reports/inventory/stock-levels")).toBe(false);
   });
 });
 
@@ -279,62 +278,48 @@ describe("useTopProducts", () => {
 });
 
 describe("useAttentionData", () => {
-  const today = new Date("2026-03-15T00:00:00.000Z");
+
+  const invoiceList = vi.fn(() => ({ body: [] }));
 
   function transportFor(overrides: {
-    invoices?: unknown[];
+    stats?: unknown;
     vatRows?: unknown[];
-    stockRows?: unknown[];
+    stockSummary?: unknown;
     supplierRows?: unknown[];
   }) {
     return stubTransport({
-      "GET /sales-invoices": () => ({ body: overrides.invoices ?? [] }),
+      "GET /sales-invoices": invoiceList,
+      "GET /sales-invoices/stats": () => ({ body: overrides.stats ?? { count: 0, sales: "0", collected: "0", returned: "0", remaining: "0", overdueCount: 0, overdue: "0", dueSoonCount: 0, dueSoon: "0" } }),
       "GET /financial-reports/vat-return": () => ({ status: 200, body: { rows: overrides.vatRows ?? [], groups: [], grandTotals: {}, reconciliation: null } }),
-      "GET /reports/inventory/stock-levels": () => ({ body: { rows: overrides.stockRows ?? [], groups: [], grandTotals: {}, reconciliation: null } }),
+      "GET /reports/inventory/stock-levels/summary": () => ({ body: overrides.stockSummary ?? { totalValue: "0", needsAttentionCount: 0, lowCount: 0, attention: [], firstLow: null } }),
       "GET /reports/aging/suppliers": () => ({ body: { rows: overrides.supplierRows ?? [], groups: [], grandTotals: {}, reconciliation: null } }),
     });
   }
 
-  it("counts an overdue open invoice as overdue, not due-soon", async () => {
+  it("reads overdue and due-soon from the server's money totals, never the invoice list", async () => {
     const transport = transportFor({
-      invoices: [
-        { status: "confirmed", remainingBalance: "500.00", dueDate: "2026-03-01" }, // 14 days overdue
-      ],
+      stats: { count: 4, sales: "0", collected: "0", returned: "0", remaining: "0", overdueCount: 1, overdue: "500.000000", dueSoonCount: 2, dueSoon: "300.000000" },
     });
-    const { result } = renderHook(() => useAttentionData(window, today), { wrapper: makeWrapper(transport).Wrapper });
+    const { result } = renderHook(() => useAttentionData(window), { wrapper: makeWrapper(transport).Wrapper });
     await waitFor(() => expect(result.current.overdueCount).toBe(1));
-    expect(result.current.overdueAmount).toBe(500);
-    expect(result.current.dueSoonCount).toBe(0);
-  });
-
-  it("counts a not-yet-due invoice within 30 days as due-soon, not overdue", async () => {
-    const transport = transportFor({
-      invoices: [{ status: "confirmed", remainingBalance: "300.00", dueDate: "2026-03-25" }], // +10 days
-    });
-    const { result } = renderHook(() => useAttentionData(window, today), { wrapper: makeWrapper(transport).Wrapper });
-    await waitFor(() => expect(result.current.dueSoonCount).toBe(1));
-    expect(result.current.overdueCount).toBe(0);
-    expect(result.current.dueSoonAmount).toBe(300);
-  });
-
-  it("excludes a settled (paid/draft/cancelled/reversed) invoice even if its due date is past", async () => {
-    const transport = transportFor({
-      invoices: [{ status: "paid", remainingBalance: "0.00", dueDate: "2026-01-01" }],
-    });
-    const { result } = renderHook(() => useAttentionData(window, today), { wrapper: makeWrapper(transport).Wrapper });
-    await waitFor(() => expect(result.current).toBeDefined());
-    await new Promise((r) => setTimeout(r, 10));
-    expect(result.current.overdueCount).toBe(0);
-    expect(result.current.dueSoonCount).toBe(0);
+    expect(result.current).toMatchObject({ overdueAmount: "500.000000", dueSoonCount: 2, dueSoonAmount: "300.000000" });
+    expect(invoiceList).not.toHaveBeenCalled();
   });
 
   it("sums low-stock rows and aged-payables buckets past 30 days", async () => {
     const transport = transportFor({
-      stockRows: [{ status: "low", itemNameAr: "صنف منخفض", itemNameEn: "Low item" }],
+      stockSummary: {
+        totalValue: "0",
+        needsAttentionCount: 3,
+        lowCount: 2,
+        attention: [],
+        firstLow: { itemId: "I-LOW", itemNameAr: "صنف منخفض", itemNameEn: "Low item", sku: "L-1", onHand: "2.000000", status: "low" },
+      },
       supplierRows: [{ d31to60: "100.000000", d61to90: "50.000000", d91to120: "25.000000", over120: "10.000000" }],
     });
-    const { result } = renderHook(() => useAttentionData(window, today), { wrapper: makeWrapper(transport).Wrapper });
-    await waitFor(() => expect(result.current.lowStockCount).toBe(1));
+    const { result } = renderHook(() => useAttentionData(window), { wrapper: makeWrapper(transport).Wrapper });
+    await waitFor(() => expect(result.current.lowStockCount).toBe(2));
+    expect(result.current.lowStockFirstName).toBe("صنف منخفض");
     expect(result.current.agedPayables).toBe("185.000000");
   });
 });

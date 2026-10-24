@@ -4,6 +4,7 @@ export type Direction = "rtl" | "ltr";
 export const LOCALES: readonly Locale[] = ["ar", "en"];
 
 export const DEFAULT_LOCALE: Locale = "ar";
+export const ENGLISH_LOCALE: Locale = "en";
 
 const DIRECTION_BY_LOCALE: Record<Locale, Direction> = { ar: "rtl", en: "ltr" };
 

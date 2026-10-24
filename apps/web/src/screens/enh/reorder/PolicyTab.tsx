@@ -1,10 +1,11 @@
-import { useMemo, useState } from "react";
-import { Button, Card, DecimalStringInput, EmptyState, EntityPicker, Select, TextInput, useFormat, type EntityPickerOption } from "@mezan/ui";
+import { useState } from "react";
+import { Button, Card, DecimalStringInput, EmptyState, Select, TextInput, useFormat, type EntityPickerOption } from "@mezan/ui";
 import type { ReorderPolicyDTO } from "@mezan/contracts";
 import { Field } from "../../../settings/form-controls";
 import { useAppTranslation } from "../../../i18n";
 import { errorMessage } from "../../../lib/error-message";
-import { useItems, useSuppliers, useWarehouses } from "../../../data/hooks";
+import { useSuppliers, useWarehouses } from "../../../data/hooks";
+import { ItemPicker, itemOption } from "../../ItemPicker";
 import { useDeleteReorderPolicy, useReorderPolicies, useSaveReorderPolicy } from "./hooks";
 
 const NO_SUPPLIER = "";
@@ -41,16 +42,11 @@ function draftOf(policy: ReorderPolicyDTO): Draft {
 function PolicyForm({ initial, locked, onDone }: { initial: Draft; locked: boolean; onDone: () => void }) {
   const { t } = useAppTranslation();
   const save = useSaveReorderPolicy();
-  const items = useItems();
   const warehouses = useWarehouses();
   const suppliers = useSuppliers();
   const [draft, setDraft] = useState<Draft>(initial);
   const [error, setError] = useState<string | null>(null);
 
-  const itemOptions = useMemo<EntityPickerOption[]>(
-    () => (items.data ?? []).map((item) => ({ id: item.id, label: item.nameAr, sublabel: item.code })),
-    [items.data],
-  );
   const warehouseOptions = (warehouses.data ?? []).map((w) => ({ value: w.id, label: w.name }));
   const supplierOptions = [{ value: NO_SUPPLIER, label: t("reorder.policies.supplierDefault") }, ...(suppliers.data ?? []).map((s) => ({ value: s.id, label: s.nameAr }))];
 
@@ -83,7 +79,7 @@ function PolicyForm({ initial, locked, onDone }: { initial: Draft; locked: boole
     <Card className="flex flex-col gap-3 p-[16px_18px]">
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
         <Field label={t("reorder.policies.item")}>
-          <EntityPicker value={draft.item} onChange={(item) => patch({ item })} options={itemOptions} placeholder={t("reorder.policies.itemPlaceholder")} disabled={locked} ariaLabel={t("reorder.policies.item")} />
+          <ItemPicker value={draft.item} onChange={(item) => patch({ item: item ? itemOption(item) : null })} placeholder={t("reorder.policies.itemPlaceholder")} disabled={locked} ariaLabel={t("reorder.policies.item")} />
         </Field>
         <Field label={t("reorder.policies.warehouse")}>
           <Select value={draft.warehouseId} onChange={(warehouseId) => patch({ warehouseId })} options={warehouseOptions} disabled={locked} aria-label={t("reorder.policies.warehouse")} />

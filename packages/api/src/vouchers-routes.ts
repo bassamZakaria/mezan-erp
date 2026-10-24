@@ -371,6 +371,8 @@ export function createVouchersRoutes(
       type: c.req.query("type"),
       status: c.req.query("status"),
       branchId: c.req.query("branchId"),
+      customerId: c.req.query("customerId"),
+      supplierId: c.req.query("supplierId"),
       fromDate: c.req.query("fromDate"),
       toDate: c.req.query("toDate"),
       search: c.req.query("search"),
@@ -401,6 +403,8 @@ export function createVouchersRoutes(
     });
     if (filter.type) docs = docs.filter((d) => voucherLine(d).voucherType === filter.type);
     if (filter.branchId) docs = docs.filter((d) => voucherLine(d).branchId === filter.branchId);
+    if (filter.customerId) docs = docs.filter((d) => voucherLine(d).customerId === filter.customerId);
+    if (filter.supplierId) docs = docs.filter((d) => voucherLine(d).supplierId === filter.supplierId);
     if (filter.fromDate) docs = docs.filter((d) => d.date >= filter.fromDate!);
     if (filter.toDate) docs = docs.filter((d) => d.date <= filter.toDate!);
     const term = normalizedSearchTerm(filter.search);
@@ -531,13 +535,18 @@ export function createVouchersRoutes(
     let receipts = Money.zero();
     let payments = Money.zero();
     let unallocated = Money.zero();
+    let standing = 0;
     for (const row of rows) {
       if (row.status === "draft") draft += 1;
+      if ((row.status === "confirmed" || row.status === "posted") && !row.reversesDocId) {
+        standing += 1;
+        // Base currency: a book holding EGP and USD vouchers cannot add their own-currency amounts.
+        const amount = Money.fromMajor(row.baseAmount);
+        if (row.direction === "receipt") receipts = receipts.add(amount);
+        if (row.direction === "payment") payments = payments.add(amount);
+      }
       if (row.status !== "confirmed") continue;
       confirmed += 1;
-      const amount = row.reversesDocId ? Money.zero() : Money.fromMajor(row.amount);
-      if (row.direction === "receipt") receipts = receipts.add(amount);
-      if (row.direction === "payment") payments = payments.add(amount);
       if (row.allocatable && row.allocationSummary.needsAllocation) {
         needsAllocation += 1;
         unallocated = unallocated.add(Money.fromMajor(row.allocationSummary.unallocated));
@@ -546,6 +555,7 @@ export function createVouchersRoutes(
     return c.json({
       count: rows.length,
       confirmed,
+      standing,
       needsAllocation,
       draft,
       receipts: receipts.toString(),

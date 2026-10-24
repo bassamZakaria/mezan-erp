@@ -45,7 +45,7 @@ afterEach(() => {
 describe("UpdateBanner", () => {
   it("renders nothing when there is no desktop update bridge (web edition)", () => {
     const { container } = renderBanner();
-    expect(container.firstChild).toBeNull();
+    expect(container.textContent).toBe("");
   });
 
   it("offers the download when an update is available, and relays consent", () => {

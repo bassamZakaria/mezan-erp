@@ -177,6 +177,48 @@ describe("RfqsScreen", () => {
     expect(screen.getByRole("tab", { name: /البنود/ })).toBeInTheDocument();
   });
 
+  it("names the RFQ's lines and searches the item picker without downloading the whole catalogue", async () => {
+    const user = userEvent.setup();
+    const itemPaths: string[] = [];
+    renderWithProviders(<TestNavigation><RfqsScreen /></TestNavigation>, {
+      initialSession: testAdminSession,
+      transport: stubTransport({
+        "GET /rfqs": () => ({ body: [rfq({ number: "RFQ-000003", status: "sent" })] }),
+        "GET /suppliers": () => ({ body: [supplier()] }),
+        "GET /items": (_init, path) => {
+          itemPaths.push(path);
+          return { body: [item()] };
+        },
+        "GET /rfqs/rfq-1/quotes": () => ({ body: [] }),
+        "GET /rfqs/rfq-1/comparison": () => ({ body: { rfq: rfq(), supplierIds: [], rows: [], totalsBySupplier: {} } }),
+      }),
+    });
+    await user.click(await screen.findByText("RFQ-000003"));
+    expect(await screen.findByText(item().nameAr)).toBeInTheDocument();
+    expect(itemPaths.some((path) => path.includes("ids=item-cement"))).toBe(true);
+    expect(itemPaths.filter((path) => !/[?&](ids=|pageSize=20(&|$))/.test(path))).toEqual([]);
+  });
+
+  it("the new RFQ's item picker searches the server for purchasable items, 20 at a time", async () => {
+    const user = userEvent.setup();
+    const itemPaths: string[] = [];
+    renderWithProviders(<TestNavigation><RfqsScreen /></TestNavigation>, {
+      initialSession: testAdminSession,
+      transport: stubTransport({
+        "GET /rfqs": () => ({ body: [] }),
+        "GET /suppliers": () => ({ body: [] }),
+        "GET /items": (_init, path) => {
+          itemPaths.push(path);
+          return { body: [item()] };
+        },
+      }),
+    });
+    const [newButton] = await screen.findAllByRole("button", { name: "طلب عرض سعر جديد" });
+    await user.click(newButton as HTMLElement);
+    await waitFor(() => expect(itemPaths.some((path) => path.includes("pageSize=20") && path.includes("types="))).toBe(true));
+    expect(itemPaths.filter((path) => !/[?&](ids=|pageSize=20(&|$))/.test(path))).toEqual([]);
+  });
+
   it("sends a draft RFQ (draft → مرسل) through POST /rfqs/:id/send", async () => {
     const user = userEvent.setup();
     let current = rfq({ status: "draft" });

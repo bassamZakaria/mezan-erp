@@ -1,5 +1,5 @@
-import ExcelJS from "exceljs";
-import type { ReportExportFile } from "./report-export";
+import type ExcelJS from "exceljs";
+import { loadExcelJS, type ReportExportFile } from "./report-export";
 import { DEFAULT_LOCALE, translate, uiCatalogs, type TranslationParams, type UiTranslationKey } from "../i18n";
 
 /**
@@ -50,7 +50,7 @@ export interface DataMigrationParseResult {
 
 /** Builds the downloadable Excel template for one step — a header row + one filled example row. */
 export async function buildDataMigrationTemplate(spec: DataMigrationStepSpec): Promise<ReportExportFile> {
-  const workbook = new ExcelJS.Workbook();
+  const workbook = new (await loadExcelJS()).Workbook();
   const sheet = workbook.addWorksheet(spec.sheetName);
   sheet.addRow(spec.columns.map((c) => c.header));
   sheet.addRow(spec.columns.map((c) => c.example ?? ""));
@@ -90,7 +90,7 @@ export async function parseDataMigrationFile(
   spec: DataMigrationStepSpec,
   t: ImportTranslate = defaultT,
 ): Promise<DataMigrationParseResult> {
-  const workbook = new ExcelJS.Workbook();
+  const workbook = new (await loadExcelJS()).Workbook();
   await workbook.xlsx.load(buffer);
   const sheet = workbook.worksheets[0];
   const rows: Record<string, string>[] = [];
@@ -127,7 +127,7 @@ function csvCell(value: string): string {
  * become YYYY-MM-DD; every other cell keeps its displayed text.
  */
 export async function readSpreadsheetAsCsv(buffer: ArrayBuffer): Promise<string> {
-  const workbook = new ExcelJS.Workbook();
+  const workbook = new (await loadExcelJS()).Workbook();
   await workbook.xlsx.load(buffer);
   const sheet = workbook.worksheets[0];
   if (!sheet) return "";

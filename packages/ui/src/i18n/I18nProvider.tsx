@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useLayoutEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { DEFAULT_LOCALE, directionOf, type Direction, type Locale } from "./locale";
 import { loadPersistedLocale, persistLocale } from "./storage";
 import { translate, type LocaleCatalogs, type MissingKeyReporter, type Translate, type TranslationParams } from "./translate";
@@ -26,6 +26,8 @@ export interface I18nProviderProps {
   readonly initialLocale?: Locale;
   /** Called for a key the active locale lacks — apps wire this to a dev-only console.error. */
   readonly onMissingKey?: MissingKeyReporter;
+  /** Loads a locale's strings before switching to it; return nothing when they are already in `catalogs`. */
+  readonly ensureCatalog?: (locale: Locale) => Promise<unknown> | undefined;
 }
 
 /**
@@ -33,7 +35,7 @@ export interface I18nProviderProps {
  * `dir` are stamped on <html> from the locale alone, so switching language
  * flips RTL/LTR live with no reload and no separately stored direction value.
  */
-export function I18nProvider({ children, catalogs, initialLocale, onMissingKey }: I18nProviderProps) {
+export function I18nProvider({ children, catalogs, initialLocale, onMissingKey, ensureCatalog }: I18nProviderProps) {
   const [locale, setLocaleState] = useState<Locale>(() => initialLocale ?? loadPersistedLocale() ?? DEFAULT_LOCALE);
   const direction = directionOf(locale);
 
@@ -43,10 +45,21 @@ export function I18nProvider({ children, catalogs, initialLocale, onMissingKey }
     root.setAttribute("dir", direction);
   }, [locale, direction]);
 
-  const setLocale = useCallback((next: Locale) => {
-    setLocaleState(next);
-    persistLocale(next);
-  }, []);
+  const latestRequest = useRef(0);
+  const setLocale = useCallback(
+    (next: Locale) => {
+      const request = ++latestRequest.current;
+      const commit = () => {
+        if (request !== latestRequest.current) return;
+        setLocaleState(next);
+        persistLocale(next);
+      };
+      const ready = ensureCatalog?.(next);
+      if (ready === undefined) commit();
+      else void ready.then(commit, () => undefined);
+    },
+    [ensureCatalog],
+  );
 
   const value = useMemo<I18nContextValue>(
     () => ({

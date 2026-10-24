@@ -19,15 +19,10 @@ import {
   Qty as QtyDisplay,
 } from "@mezan/ui";
 import { GoodsReceiptInvoicingStatusDTO, type CostCategoryDTO, type GoodsReceiptDTO, type GoodsReceiptStatusDTO, type PurchaseOrderDTO } from "@mezan/contracts";
-import { useConfirmGoodsReceipt, useCreateGoodsReceipt, useSetGoodsReceiptLots, useGoodsReceiptCounts, useGoodsReceipts, useGoodsReceiptStats, useItems, useProjects, usePurchaseOrders, useTenantSettings, useSuppliers,
-  useUsers,
-  useBranches,
-  useWarehouses,
-  type GoodsReceiptListFilter,
-} from "../data/hooks";
+import { useConfirmGoodsReceipt, useCreateGoodsReceipt, useSetGoodsReceiptLots, useGoodsReceiptCounts, useGoodsReceipts, useGoodsReceiptStats, useProjects, usePurchaseOrders, useTenantSettings, useSuppliers, useUsers, useBranches, useWarehouses, type GoodsReceiptListFilter } from "../data/hooks";
 import { useWorkingLocation } from "../data/hub-hooks";
 import { SelectField, TextField, NumberField } from "../settings/form-controls";
-import { itemTypeIsPurchasable } from "@mezan/domain";
+import { ItemPicker, PURCHASABLE_ITEMS, useLineItems } from "./ItemPicker";
 import { GoodsReceiptPrintPage } from "../print/documents";
 import { useNavigation, useScreenIntent, useSubPage } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
@@ -59,6 +54,7 @@ const STATUS_TONE: Record<GoodsReceiptStatusDTO, PillTone> = {
   confirmed: "success",
   cancelled: "danger",
 };
+
 
 const num = (v: string) => Number(v);
 
@@ -334,24 +330,18 @@ export function GoodsReceiptsScreen() {
   const { t } = useAppTranslation();
   const ordersQuery = usePurchaseOrders();
   const suppliersQuery = useSuppliers();
-  const itemsQuery = useItems();
   const projectsQuery = useProjects();
   const createReceipt = useCreateGoodsReceipt();
   const confirmReceipt = useConfirmGoodsReceipt();
 
   const orders = ordersQuery.data ?? EMPTY;
   const suppliers = suppliersQuery.data ?? EMPTY;
-  const items = itemsQuery.data ?? EMPTY;
   const projects = projectsQuery.data ?? EMPTY;
 
   const supplierName = useMemo(() => {
     const map = new Map(suppliers.map((s) => [s.id, s.nameAr]));
     return (id: string) => map.get(id) ?? id;
   }, [suppliers]);
-  const itemName = useMemo(() => {
-    const map = new Map(items.map((i) => [i.id, i.nameAr]));
-    return (id: string) => map.get(id) ?? id;
-  }, [items]);
   const projectName = useMemo(() => {
     const map = new Map(projects.map((p) => [p.id, p.nameAr]));
     return (id: string | null) => (id ? (map.get(id) ?? id) : t("common.noProject"));
@@ -445,7 +435,6 @@ export function GoodsReceiptsScreen() {
   const workingLocation = useWorkingLocation();
 
   const supplierOptions: EntityPickerOption[] = suppliers.map((sup) => ({ id: sup.id, label: sup.nameAr, sublabel: sup.code }));
-  const itemOptions: EntityPickerOption[] = items.filter((i) => itemTypeIsPurchasable(i.type)).map((i) => ({ id: i.id, label: i.nameAr }));
 
   const receipts = query.data ?? EMPTY;
   const selected = selectedId === null ? null : (receipts.find((r) => r.id === selectedId || r.number === selectedId) ?? null);
@@ -472,6 +461,8 @@ export function GoodsReceiptsScreen() {
     setLinesOrderId(orderId);
     setFromOrderLines(buildFromOrderLines(order));
   }, [pickedOrder, orders, linesOrderId]);
+
+  const { itemOf, itemName, itemValue, remember } = useLineItems([...(selected?.lines ?? []), ...fromOrderLines, ...adHocLines].map((l) => l.itemId));
 
   const filtered = useMemo(() => [...receipts].sort((a, b) => b.number.localeCompare(a.number)), [receipts]);
 
@@ -538,14 +529,16 @@ export function GoodsReceiptsScreen() {
   const usableFromOrderLines = fromOrderLines.filter((l) => l.qty > 0);
   const overReceiptLine = fromOrderLines.some((l) => l.qty > l.outstandingQty);
   const lotRuleOf = (itemId: string) => {
-    const item = items.find((it) => it.id === itemId);
+    const item = itemOf(itemId);
     return item ? { trackExpiry: item.trackExpiry } : undefined;
   };
   const lotsComplete =
     method === "from-order"
       ? usableFromOrderLines.every((l) => lotIsComplete(lotRuleOf(l.itemId), l.lot))
       : usableAdHocLines.every((l) => lotIsComplete(lotRuleOf(l.itemId), { batchNo: l.batchNo, expiryDate: l.expiryDate }));
+  const lotRulesKnown = (method === "from-order" ? usableFromOrderLines : usableAdHocLines).every((l) => itemOf(l.itemId) !== undefined);
   const canSave =
+    lotRulesKnown &&
     lotsComplete &&
     (method === "from-order"
       ? pickedOrder !== null && usableFromOrderLines.length > 0 && !overReceiptLine
@@ -565,7 +558,7 @@ export function GoodsReceiptsScreen() {
             itemId: l.itemId,
             qty: String(l.qty),
             unitCost: String(l.unitCost),
-            ...(tracksLots(items.find((it) => it.id === l.itemId)) ? lotPayload(l.lot) : {}),
+            ...(tracksLots(itemOf(l.itemId)) ? lotPayload(l.lot) : {}),
             costCategory: l.costCategory,
           })),
         });
@@ -699,7 +692,7 @@ export function GoodsReceiptsScreen() {
                       />
                     </div>
                     <LotFields
-                      item={items.find((it) => it.id === line.itemId)}
+                      item={itemOf(line.itemId)}
                       value={line.lot}
                       onChange={(lot) => setFromOrderLines((prev) => prev.map((l) => (l.key === line.key ? { ...l, lot } : l)))}
                     />
@@ -739,20 +732,20 @@ export function GoodsReceiptsScreen() {
             />
             {adHocLines.map((line) => (
               <div key={line.key} className="rounded-lg border border-border bg-surface p-[12px]">
-                <EntityPicker
+                <ItemPicker
                   label={t("common.item")}
-                  value={itemOptions.find((o) => o.id === line.itemId) ?? null}
-                  onChange={(opt) => {
-                    const item = items.find((it) => it.id === opt?.id);
+                  value={itemValue(line.itemId)}
+                  filter={PURCHASABLE_ITEMS}
+                  onChange={(item) => {
+                    remember(item);
                     setAdHocLines((prev) =>
                       prev.map((l) =>
                         l.key === line.key
-                          ? { ...l, itemId: opt?.id ?? "", unitCost: item?.costPrice ? Number(item.costPrice) : l.unitCost }
+                          ? { ...l, itemId: item?.id ?? "", unitCost: item?.costPrice ? Number(item.costPrice) : l.unitCost }
                           : l,
                       ),
                     );
                   }}
-                  options={itemOptions}
                   placeholder={t("goodsReceipts.field.itemPlaceholder")}
                 />
                 <div className="mt-[10px] grid grid-cols-2 gap-[8px]">
@@ -763,7 +756,7 @@ export function GoodsReceiptsScreen() {
                     captured. Without these the FEFO engine, the cost layers and
                     the expiring-soon report have nothing to order by. */}
                 <LotFields
-                  item={items.find((it) => it.id === line.itemId)}
+                  item={itemOf(line.itemId)}
                   value={{ batchNo: line.batchNo, expiryDate: line.expiryDate }}
                   onChange={(lot) => setAdHocLines((prev) => prev.map((l) => (l.key === line.key ? { ...l, ...lot } : l)))}
                 />
@@ -829,7 +822,7 @@ export function GoodsReceiptsScreen() {
           warehouseName={(id) => filterWarehouses.find((warehouse) => warehouse.id === id)?.name ?? id}
           itemName={itemName}
           projectName={projectName}
-          lotRuleOf={(itemId) => items.find((it) => it.id === itemId)}
+          lotRuleOf={itemOf}
           confirmError={confirmReceipt.variables === selected.id ? (confirmReceipt.error?.message ?? null) : null}
           onBack={() => subPage.close()}
           onConfirm={() => confirmSelected(selected.id)}

@@ -162,6 +162,48 @@ describe("AppShell — workspace column plus a two-row bar", () => {
     expect(screen.getByRole("menuitem", { name: "أعمار الموردين" })).toHaveAttribute("aria-current", "page");
   });
 
+  it("reports intent on hover and focus from every place a destination is drawn", () => {
+    const intent = { tab: vi.fn(), brand: vi.fn(), chip: vi.fn(), link: vi.fn(), menu: vi.fn(), panel: vi.fn() };
+    const groups: NavGroup[] = [
+      {
+        key: "sales",
+        label: "البيع والتحصيل",
+        onIntent: intent.tab,
+        items: [
+          { key: "sales-hub", label: "لوحة المبيعات", onIntent: intent.chip },
+          { key: "sales-link", label: "رابط المبيعات", href: "/sales/link", onIntent: intent.link },
+        ],
+        sections: [{ key: "reports", label: "التقارير", items: [{ key: "report-sales", label: "تقرير المبيعات", onIntent: intent.menu }] }],
+      },
+    ];
+    renderShell({
+      workspaceGroups: groups,
+      activeWorkspaceKey: "sales",
+      directNavItems: [{ key: "approvals", label: "الموافقات", onIntent: intent.brand }],
+      allScreensGroups: [{ key: "stock", label: "المخزون", items: [{ key: "items", label: "الأصناف", onIntent: intent.panel }] }],
+    });
+
+    fireEvent.pointerEnter(within(screen.getByRole("navigation", { name: "التنقل بين مساحات العمل" })).getByRole("button", { name: "البيع والتحصيل" }));
+    expect(intent.tab).toHaveBeenCalledOnce();
+
+    fireEvent.pointerEnter(screen.getByRole("button", { name: "الموافقات" }));
+    fireEvent.focus(screen.getByRole("button", { name: "الموافقات" }));
+    expect(intent.brand).toHaveBeenCalledTimes(2);
+
+    const rowTwo = screen.getByRole("navigation", { name: /شاشات مساحة العمل/ });
+    fireEvent.pointerEnter(within(rowTwo).getByRole("button", { name: "لوحة المبيعات" }));
+    expect(intent.chip).toHaveBeenCalledOnce();
+    fireEvent.focus(within(rowTwo).getByRole("link", { name: "رابط المبيعات" }));
+    expect(intent.link).toHaveBeenCalledOnce();
+    fireEvent.click(within(rowTwo).getByRole("button", { name: "التقارير" }));
+    fireEvent.pointerEnter(screen.getByRole("menuitem", { name: "تقرير المبيعات" }));
+    expect(intent.menu).toHaveBeenCalledOnce();
+
+    fireEvent.click(screen.getByRole("button", { name: "كل الشاشات" }));
+    fireEvent.pointerEnter(within(screen.getByRole("dialog", { name: "كل الشاشات" })).getByRole("button", { name: /الأصناف/ }));
+    expect(intent.panel).toHaveBeenCalledOnce();
+  });
+
   it("re-renders row two when the workspace changes", () => {
     const { rerender } = renderShell();
     expect(screen.getByRole("button", { name: "لوحة المشتريات" })).toBeInTheDocument();

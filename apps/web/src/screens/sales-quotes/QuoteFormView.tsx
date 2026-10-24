@@ -15,15 +15,8 @@ import { usePricingGuardPreview } from "../enh/pricing-guard/pricing-guard-hooks
 import { PricingGuardLineStatus, PricingGuardSummary } from "../enh/pricing-guard/PricingGuardLineStatus";
 import { Money } from "@mezan/domain";
 import { NumberField, SectionCard, SelectField, TextAreaField, TextField } from "../../settings/form-controls";
-import {
-  useBranches,
-  useCreateSalesQuote,
-  useCustomers,
-  useItems,
-  usePriceLists,
-  useStockBalance,
-  useTaxRates,
-} from "../../data/hooks";
+import { useBranches, useCreateSalesQuote, useItemSearch, useCustomers, usePriceLists, useStockBalance, useTaxRates } from "../../data/hooks";
+import { ItemPicker, itemOption, ACTIVE_ITEMS } from "../ItemPicker";
 import { DERIVED_TAX, TaxRateField, appliedTaxPercent, lineTaxPayload } from "../tax-rate-field";
 import { useCustomerAging } from "../../data/partner-detail-hooks";
 import { useWorkingLocation } from "../../data/hub-hooks";
@@ -42,6 +35,7 @@ import { EMPTY } from "../../lib/empty";
 import { useLinkedOpportunity } from "../enh/crm-pipeline/hooks";
 
 const NO_TAX_RATES: readonly TaxRateDTO[] = [];
+const NO_PICKED_ITEMS: ReadonlyMap<string, ItemDTO> = new Map();
 
 /**
  * عرض سعر جديد — the create form, one card per section with a sticky summary
@@ -66,8 +60,8 @@ export function QuoteFormView({
   const format = useFormat();
   const customersQuery = useCustomers();
   const customers = customersQuery.data ?? EMPTY;
-  const itemsQuery = useItems();
-  const items = itemsQuery.data ?? EMPTY;
+  const [pickedItems, setPickedItems] = useState<ReadonlyMap<string, ItemDTO>>(NO_PICKED_ITEMS);
+  const catalogue = useItemSearch("", ACTIVE_ITEMS);
   const branchesQuery = useBranches();
   const branches = branchesQuery.data ?? [];
   const priceListsQuery = usePriceLists();
@@ -125,16 +119,10 @@ export function QuoteFormView({
     () => customers.filter((c) => c.active).map((c) => ({ id: c.id, label: c.nameAr, sublabel: c.code })),
     [customers],
   );
-  const itemOptions = useMemo<EntityPickerOption[]>(
-    () =>
-      items
-        .filter((i) => i.status === "active")
-        .map((i) => ({ id: i.id, label: i.nameAr, sublabel: `${i.code} · ${format.money(priceFor(i))} ${format.currencyLabel}` })),
-    [items, priceFor, format],
-  );
+  const itemSublabel = (i: ItemDTO) => `${i.code} · ${format.money(priceFor(i))} ${format.currencyLabel}`;
 
   const taxRates = useTaxRates().data ?? NO_TAX_RATES;
-  const domainLines = useMemo(() => toDomainLines(lines, items, taxRates), [lines, items, taxRates]);
+  const domainLines = useMemo(() => toDomainLines(lines, [...pickedItems.values()], taxRates), [lines, pickedItems, taxRates]);
   const discount = useMemo(() => toDomainDiscount(discountKind, discountValue), [discountKind, discountValue]);
   // Local preview only — the server recomputes and is authoritative on create.
   const totals = useMemo(
@@ -248,7 +236,7 @@ export function QuoteFormView({
         </div>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
         <div className="flex flex-col gap-4">
           <SectionCard title={t("quotes.section.details")}>
             <div className="sm:col-span-2 flex flex-col gap-3">
@@ -296,30 +284,31 @@ export function QuoteFormView({
 
           <SectionCard title={t("quotes.linesHeading")}>
             <div className="sm:col-span-2 flex flex-col gap-2">
-              {items.length === 0 && !itemsQuery.isLoading ? (
+              {catalogue.data?.length === 0 ? (
                 <div className="rounded-[8px] border border-border px-3 py-2 text-[12.5px] text-ink-muted">{t("quotes.noItems")}</div>
               ) : null}
               {lines.map((line, index) => {
-                const item = items.find((i) => i.id === line.itemId) ?? null;
+                const item = pickedItems.get(line.itemId) ?? null;
                 const lineTotals = totalsByLineId.get(line.key);
                 const onHand = item ? onHandOf(item.id) : null;
                 return (
                   <div key={line.key} className="flex flex-col gap-2 rounded-[10px] border border-border p-3">
-                    <div className="grid grid-cols-[minmax(200px,1fr)_84px_104px_112px_auto_auto] items-start gap-2">
-                      <div className="min-w-0">
-                        <EntityPicker
+                    <div className="grid grid-cols-2 items-start gap-2 sm:grid-cols-[84px_104px_minmax(0,1fr)_auto_auto] lg:grid-cols-2 xl:grid-cols-[84px_104px_minmax(0,1fr)_auto_auto]">
+                      <div className="col-span-2 min-w-0 sm:col-span-5 lg:col-span-2 xl:col-span-5">
+                        <ItemPicker
                           id={`quote-line-item-${line.key}`}
                           label={t("quotes.field.lineItem", { number: index + 1 })}
-                          value={item ? { id: item.id, label: item.nameAr, sublabel: item.code } : null}
-                          onChange={(opt) => {
-                            const picked = opt ? items.find((i) => i.id === opt.id) : null;
+                          value={item ? itemOption(item) : null}
+                          filter={ACTIVE_ITEMS}
+                          sublabel={itemSublabel}
+                          onChange={(picked) => {
+                            if (picked) setPickedItems((prev) => new Map(prev).set(picked.id, picked));
                             updateLine(line.key, {
                               itemId: picked?.id ?? "",
                               unitPrice: picked ? priceFor(picked) : null,
                               tax: DERIVED_TAX,
                             });
                           }}
-                          options={itemOptions}
                           placeholder={t("quotes.field.itemPlaceholder")}
                         />
                       </div>
@@ -335,31 +324,33 @@ export function QuoteFormView({
                           disabled={item === null}
                         />
                       </div>
-                      <div className="mt-[22px] text-end">
-                        <div className="text-[13px] font-semibold text-ink">
-                          <MoneyDisplay value={lineTotals ? Number(lineTotals.total.toString()) : 0} />
-                        </div>
-                        {item ? (
-                          <div className="text-[11px] text-ink-muted">
-                            {t("quotes.field.taxPercent")} {format.number(appliedTaxPercent(line.tax, taxRates, item.taxRatePercent))}%
+                      <div className="col-span-2 flex items-center gap-2 sm:contents lg:flex xl:contents">
+                        <div className="min-w-0 flex-1 text-end sm:mt-[22px] lg:mt-0 xl:mt-[22px]">
+                          <div className="text-[13px] font-semibold text-ink">
+                            <MoneyDisplay value={lineTotals ? Number(lineTotals.total.toString()) : 0} />
                           </div>
-                        ) : null}
+                          {item ? (
+                            <div className="text-[11px] text-ink-muted">
+                              {t("quotes.field.taxPercent")} {format.number(appliedTaxPercent(line.tax, taxRates, item.taxRatePercent))}%
+                            </div>
+                          ) : null}
+                        </div>
+                        <IconButton
+                          aria-label={t("quotes.line.toggleDetails", { number: index + 1 })}
+                          className="sm:mt-[22px] lg:mt-0 xl:mt-[22px]"
+                          onClick={() => updateLine(line.key, { expanded: !line.expanded })}
+                        >
+                          {line.expanded ? "▲" : "▼"}
+                        </IconButton>
+                        <IconButton
+                          aria-label={t("quotes.line.remove", { number: index + 1 })}
+                          className="sm:mt-[22px] lg:mt-0 xl:mt-[22px]"
+                          disabled={lines.length === 1}
+                          onClick={() => setLines((prev) => (prev.length === 1 ? prev : prev.filter((l) => l.key !== line.key)))}
+                        >
+                          ✕
+                        </IconButton>
                       </div>
-                      <IconButton
-                        aria-label={t("quotes.line.toggleDetails", { number: index + 1 })}
-                        className="mt-[22px]"
-                        onClick={() => updateLine(line.key, { expanded: !line.expanded })}
-                      >
-                        {line.expanded ? "▲" : "▼"}
-                      </IconButton>
-                      <IconButton
-                        aria-label={t("quotes.line.remove", { number: index + 1 })}
-                        className="mt-[22px]"
-                        disabled={lines.length === 1}
-                        onClick={() => setLines((prev) => (prev.length === 1 ? prev : prev.filter((l) => l.key !== line.key)))}
-                      >
-                        ✕
-                      </IconButton>
                     </div>
 
                     {item && onHand !== null ? (

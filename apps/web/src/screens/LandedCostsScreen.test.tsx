@@ -4,7 +4,21 @@ import { describe, expect, it } from "vitest";
 import { screen, fireEvent, waitFor, within } from "@testing-library/react";
 import type { ItemDTO, LandedCostDocumentDTO, PurchaseInvoiceDTO, WarehouseDTO } from "@mezan/contracts";
 import { LandedCostsScreen } from "./LandedCostsScreen";
+import { useState, type ReactNode } from "react";
 import { TestNavigation, renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
+import { NavigationProvider, type ScreenIntent } from "../navigation";
+
+function NavigationWithIntent({ children, intent }: { children: ReactNode; intent: ScreenIntent }) {
+  const [pending, setPending] = useState<ScreenIntent | null>(intent);
+  const [segments, setSegments] = useState<readonly string[]>([]);
+  return (
+    <NavigationProvider
+      value={{ navigate: () => {}, segments, openSubPage: setSegments, openScreenAt: () => {}, intent: pending, clearIntent: () => setPending(null) }}
+    >
+      {children}
+    </NavigationProvider>
+  );
+}
 
 const warehouses: WarehouseDTO[] = [{ id: "MAIN-WH", code: "MAIN-WH", name: "مستودع الفرع الرئيسي", nameEn: null, branchId: "MAIN", type: "MAIN", isDefault: true, active: true, projectId: null, custodianUserId: null }];
 
@@ -119,6 +133,50 @@ describe("LandedCostsScreen", () => {
     expect(await within(dialog).findByText("معاينة التوزيع")).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole("button", { name: "حفظ" }));
     await waitFor(() => expect(screen.queryByText("أنشئ مستند تكلفة لتوزيع التكاليف الإضافية على المشتريات")).not.toBeInTheDocument());
+  });
+
+  it("searches confirmed invoices on the server and names stock lines by id, never downloading every invoice or item", async () => {
+    const invoicePaths: string[] = [];
+    const itemPaths: string[] = [];
+    const transport = stubTransport({
+      ...baseHandlers([landedCost()]),
+      "GET /purchases/invoices": (_init, path) => {
+        invoicePaths.push(path);
+        return { body: [purchaseInvoice()] };
+      },
+      "GET /items": (_init, path) => {
+        itemPaths.push(path);
+        return { body: items };
+      },
+    });
+    renderWithProviders(<TestNavigation><LandedCostsScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
+    await screen.findByText("LC-000001");
+    fireEvent.click(screen.getAllByRole("button", { name: "مستند تكلفة جديد" })[0]!);
+    const dialog = screen.getByRole("dialog", { name: "مستند تكلفة إضافية جديد" });
+    await waitFor(() => expect(within(dialog).getByLabelText("الفاتورة المرتبطة *")).toHaveValue("PI-000001"));
+    const picker = within(dialog).getByLabelText("الفاتورة المرتبطة *");
+    fireEvent.focus(picker);
+    fireEvent.change(picker, { target: { value: "PI-0000" } });
+    await waitFor(() => expect(invoicePaths.some((path) => path.includes("search=PI-0000") && path.includes("status=confirmed"))).toBe(true));
+    expect(invoicePaths.filter((path) => path.includes("pageSize=200"))).toEqual([]);
+    expect(itemPaths.length).toBeGreaterThan(0);
+    expect(itemPaths.filter((path) => !path.includes("ids="))).toEqual([]);
+  });
+
+  it("arriving from an invoice's row menu selects THAT invoice and its first stock line even when it is not among the first matches", async () => {
+    const other = purchaseInvoice({ id: "pi-9", number: "PI-000900" });
+    const transport = stubTransport({
+      ...baseHandlers([]),
+      "GET /purchases/invoices/*": () => ({ body: other }),
+    });
+    renderWithProviders(
+      <NavigationWithIntent intent={{ kind: "create", prefill: { invoiceId: "pi-9" } }}>
+        <LandedCostsScreen />
+      </NavigationWithIntent>,
+      { transport, initialSession: testAdminSession },
+    );
+    const dialog = await screen.findByRole("dialog", { name: "مستند تكلفة إضافية جديد" });
+    await waitFor(() => expect(within(dialog).getByLabelText("الفاتورة المرتبطة *")).toHaveValue("PI-000900"));
   });
 
   it("opens the document already saved, with a notice, when its id was used with other contents", async () => {

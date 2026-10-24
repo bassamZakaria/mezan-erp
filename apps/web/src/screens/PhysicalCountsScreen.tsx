@@ -27,7 +27,7 @@ import {
   useStockBalance,
 } from "../data/inventory-ops-hooks";
 import {
-  useItems,
+  useItemsByIds,
   useWarehouses,
   usePhysicalCounts,
   usePhysicalCountCounts,
@@ -99,7 +99,6 @@ function fromScaled(value: bigint): string {
 export function PhysicalCountsScreen() {
   const nameOf = useEntityName();
   const { t } = useAppTranslation();
-  const itemsQuery = useItems();
   const warehousesQuery = useWarehouses();
 
   // `#/inventory/physical-counts` · `…/new` · `…/<id>` · `…/<id>/count` (the counting sheet)
@@ -131,16 +130,11 @@ export function PhysicalCountsScreen() {
   const countsByStatus = usePhysicalCountCounts(filter).data ?? {};
   const stats = usePhysicalCountStats(filter).data ?? {};
   const warehouses = warehousesQuery.data ?? EMPTY;
-  const items = itemsQuery.data ?? EMPTY;
 
   const warehouseLabel = useMemo(() => {
     const map = new Map(warehouses.map((w) => [w.id, nameOf(w)]));
     return (id: string) => map.get(id) ?? id;
   }, [warehouses, nameOf]);
-  const itemLabel = useMemo(() => {
-    const map = new Map(items.map((i) => [i.id, `${i.nameAr} (${i.code})`]));
-    return (id: string) => map.get(id) ?? id;
-  }, [items]);
 
   const filtered = counts;
 
@@ -154,6 +148,11 @@ export function PhysicalCountsScreen() {
   const selected = selectedId ? (counts.find((c) => c.id === selectedId) ?? null) : null;
   useNameSubPage(selectedId, selected ? (selected.countNo ?? t("counts.physicalCount")) : null);
   const active = secondSegment === "count" ? selected : null;
+  const { byId: itemById } = useItemsByIds(selected?.lines.map((l) => l.itemId) ?? EMPTY);
+  const itemLabel = (id: string) => {
+    const item = itemById.get(id);
+    return item ? `${item.nameAr} (${item.code})` : id;
+  };
 
   const columns: DocumentListColumn<PhysicalCountDTO>[] = [
     { key: "countNo", header: t("counts.count"), sortable: true, render: (c) => <span className="mz-num font-semibold text-ink">{c.countNo ?? "—"}</span> },

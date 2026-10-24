@@ -1,4 +1,5 @@
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
+import { Server as HttpServer } from "node:http";
 import { serve } from "@hono/node-server";
 import type { Context, MiddlewareHandler } from "hono";
 import { getCookie, setCookie } from "hono/cookie";
@@ -105,8 +106,42 @@ const transformIndexHtml = analyticsToken
 const cloud = await createCloudApp(env, { authMiddleware, transformIndexHtml, envSettings });
 const { root } = cloud;
 
+// SECURITY: the socket is passed through, and is the caller's address only
+// when no proxy is trusted. With MEZAN_TRUST_PROXY=1 it is the proxy and is
+// never read: the address comes from the forwarded chain, and a request whose
+// chain yields none is refused (client-source.ts).
+const server = serve({ fetch: root.fetch, port: env.port, hostname: "0.0.0.0" }, (info) => {
+  log.info({ event: LogEvent.ProcessStarted, port: info.port, platformDir: env.platformDir }, "Mezan platform is serving");
+});
+
+// REQUIRED ORDERING: stop taking requests and let those in flight finish before the backends close under them.
+// close() alone waits forever on a keep-alive socket Caddy keeps busy, so idle sockets are cut each second
+// and any left are cut well inside the process's shutdown budget.
+const stopServing = () =>
+  new Promise<void>((resolve) => {
+    const http = server instanceof HttpServer ? server : null;
+    http?.prependListener("request", (_request, response) => response.setHeader("connection", "close"));
+    const idle = setInterval(() => http?.closeIdleConnections(), 1_000);
+    const hard = setTimeout(() => http?.closeAllConnections(), 20_000);
+    server.close(() => {
+      clearInterval(idle);
+      clearTimeout(hard);
+      resolve();
+    });
+    http?.closeIdleConnections();
+  });
+
 const marker = markRunning(env.platformDir);
-installProcessHandlers({ alerter: cloud.alerter, marker, close: () => cloud.close() });
+installProcessHandlers({
+  alerter: cloud.alerter,
+  marker,
+  close: async () => {
+    const jobs = cloud.stopJobs();
+    await stopServing();
+    await jobs;
+    await cloud.close();
+  },
+});
 if (marker.previous) {
   log.error({ event: LogEvent.ProcessUncleanRestart, previousStartedAt: marker.previous.startedAt ?? null }, "the server started after an unclean exit");
   cloud.alerter.raise({
@@ -116,10 +151,3 @@ if (marker.previous) {
   });
 }
 
-// SECURITY: the socket is passed through, and is the caller's address only
-// when no proxy is trusted. With MEZAN_TRUST_PROXY=1 it is the proxy and is
-// never read: the address comes from the forwarded chain, and a request whose
-// chain yields none is refused (client-source.ts).
-serve({ fetch: root.fetch, port: env.port, hostname: "0.0.0.0" }, (info) => {
-  log.info({ event: LogEvent.ProcessStarted, port: info.port, platformDir: env.platformDir }, "Mezan platform is serving");
-});

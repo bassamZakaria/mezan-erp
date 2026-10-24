@@ -19,7 +19,8 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { BranchRefusalCode } from "@mezan/contracts";
 import { AppI18nProvider } from "../i18n";
-import { webCatalogs } from "../i18n/catalog";
+import { webAr } from "../i18n/catalog";
+import { webEn } from "../i18n/catalog-en";
 import { loaderError } from "./hooks";
 import { ApiProvider } from "./ApiContext";
 import { createQueryClient } from "./queryClient";
@@ -1052,8 +1053,8 @@ describe("loaderError — a branch-boundary refusal reads in the reader's langua
 
   it("has an Arabic and an English sentence for each code", () => {
     for (const code of Object.values(BranchRefusalCode)) {
-      expect((webCatalogs.ar as Record<string, string>)[`branchRefusal.${code}`], code).toMatch(/[؀-ۿ]/);
-      expect((webCatalogs.en as Record<string, string>)[`branchRefusal.${code}`], code).toMatch(/[a-z]/);
+      expect((webAr as Record<string, string>)[`branchRefusal.${code}`], code).toMatch(/[؀-ۿ]/);
+      expect((webEn as Record<string, string>)[`branchRefusal.${code}`], code).toMatch(/[a-z]/);
     }
   });
 });

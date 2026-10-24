@@ -2,28 +2,14 @@ import { AlreadySavedNotice, useAlreadySavedNotice, useDocumentId } from "../lib
 import { useEffect, useMemo, useRef, useState } from "react";
 import { HeldDocumentReapproval } from "../shell/ReapprovalNotice";
 import { errorMessage } from "../lib/error-message";
-import {
-  RowActionOutcome,
-  Button,
-  Card,
-  DocumentList,
-  EmptyState,
-  Money as MoneyDisplay,
-  RowMenu,
-  StatusPill,
-  SidePanel,
-  type DocumentListColumn,
-  type DocumentListStatusChip,
-  type PillTone,
-  type RowMenuItem,
-} from "@mezan/ui";
+import { RowActionOutcome, Button, Card, DocumentList, EmptyState, Money as MoneyDisplay, RowMenu, StatusPill, SidePanel, type DocumentListColumn, type DocumentListStatusChip, type PillTone, type RowMenuItem } from "@mezan/ui";
 import type { CreatePurchaseReturnDTO, DocumentStatusDTO, PurchaseInvoiceDTO, PurchaseReturnLineDTO, PurchaseReturnReasonDTO } from "@mezan/contracts";
 import { SelectField, NumberField, TextField } from "../settings/form-controls";
 import {
   useCancelPurchaseReturn,
   useConfirmPurchaseReturn,
   useCreatePurchaseReturn,
-  useItems,
+  useItemsByIds,
   usePurchaseInvoices,
   usePurchaseReturns,
   useReturnDocument,
@@ -34,6 +20,7 @@ import {
   useSuppliers,
   useWarehouses,
   type PurchaseReturnListFilter,
+  usePurchaseInvoice,
 } from "../data/hooks";
 import { DOC_STATUS_TONE, documentStatusLabel } from "../doc-status";
 import { PurchaseReturnPrintPage } from "../print/documents";
@@ -47,6 +34,8 @@ import { EMPTY } from "../lib/empty";
 import { ReturnJournalCard } from "./ReturnJournalCard";
 import { ReturnFamily, ReturnMirrorLinks, VoidReturnAction, VoidReturnDialog, VoidReturnReasonNotice, returnDocumentLabel, useMayVoidReturn, type VoidableReturn } from "./VoidReturnAction";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
+import { PurchaseInvoicePicker } from "./InvoicePickers";
+import { PurchaseInvoiceStatusCode } from "@mezan/domain";
 import { ResubmitErrorNotice, ResubmitFamily, ResubmitForApprovalAction, resubmitRowMenuItems, useResubmitForApproval } from "./ResubmitForApprovalAction";
 
 /** مرتجعات المشتريات (Purchase Returns) — docs/archive/catalog/02. Document-framework-backed (draft → confirmed, de-stocks, reduces AP). */
@@ -72,6 +61,8 @@ function blankLine(sourceLineId: string): LineDraft {
   return { key: `l${lineSeq}`, sourceLineId, qty: 1 };
 }
 
+const RETURNABLE_INVOICES = { status: PurchaseInvoiceStatusCode.Confirmed };
+
 // EXTERNAL CONTRACT: a purchase invoice line has no id of its own; the server
 // names it by its position in the invoice, and a return must send the same.
 function returnableLinesOf(invoice: PurchaseInvoiceDTO | null | undefined) {
@@ -82,10 +73,9 @@ function returnableLinesOf(invoice: PurchaseInvoiceDTO | null | undefined) {
 
 export function PurchaseReturnsScreen() {
   const { t } = useAppTranslation();
-  const invoicesQuery = usePurchaseInvoices();
+  const invoicesQuery = usePurchaseInvoices({ ...RETURNABLE_INVOICES, page: 1, pageSize: 1 });
   const warehousesQuery = useWarehouses();
   const suppliersQuery = useSuppliers();
-  const itemsQuery = useItems();
   const createReturn = useCreatePurchaseReturn();
   const savedNotice = useAlreadySavedNotice();
   const returnId = useDocumentId((savedId) => {
@@ -98,19 +88,15 @@ export function PurchaseReturnsScreen() {
   const resubmit = useResubmitForApproval(ResubmitFamily.PurchaseReturns);
   const [voidTarget, setVoidTarget] = useState<VoidableReturn | null>(null);
 
-  const invoices = (invoicesQuery.data ?? []).filter((i) => i.status === "confirmed");
+  const invoices = invoicesQuery.data ?? EMPTY;
   const warehouses = warehousesQuery.data ?? EMPTY;
   const suppliers = suppliersQuery.data ?? EMPTY;
-  const items = itemsQuery.data ?? EMPTY;
 
   const supplierName = useMemo(() => {
     const map = new Map(suppliers.map((s) => [s.id, s.nameAr]));
     return (id: string) => map.get(id) ?? id;
   }, [suppliers]);
-  const itemName = useMemo(() => {
-    const map = new Map(items.map((i) => [i.id, i.nameAr]));
-    return (id: string) => map.get(id) ?? id;
-  }, [items]);
+  const invoiceOption = (invoice: PurchaseInvoiceDTO) => ({ id: invoice.id, label: `${invoice.number} — ${supplierName(invoice.supplierId)}` });
 
   // `#/…/<screen>` · `…/new` · `…/<docNo|id>` — a create form and a document are places, not overlays.
   const subPage = useSubPage();
@@ -119,7 +105,10 @@ export function PurchaseReturnsScreen() {
     "all" | DocumentStatusDTO,
     (next: string) => void,
   ];
-  const [invoiceId, setInvoiceId] = useState("");
+  const [selectedInvoice, setSelectedInvoice] = useState<PurchaseInvoiceDTO | null>(null);
+  const invoiceId = selectedInvoice?.id ?? "";
+  const [prefillInvoiceId, setPrefillInvoiceId] = useState<string | null>(null);
+  const prefilledInvoice = usePurchaseInvoice(prefillInvoiceId);
   const [warehouseId, setWarehouseId] = useState("");
   const [reason, setReason] = useState<PurchaseReturnReasonDTO>("DEFECTIVE");
   const [lines, setLines] = useState<LineDraft[]>([]);
@@ -128,12 +117,22 @@ export function PurchaseReturnsScreen() {
   // Defaults the create form's invoice/warehouse pickers once their queries resolve —
   // `openCreate` alone can't do this if the page is opened before `invoices`/`warehouses` load.
   useEffect(() => {
-    if (firstSegment !== "new" || invoiceId !== "") return;
+    if (firstSegment !== "new" || invoiceId !== "" || prefillInvoiceId !== null) return;
     const firstInvoice = invoices[0];
     if (!firstInvoice) return;
-    setInvoiceId(firstInvoice.id);
+    setSelectedInvoice(firstInvoice);
     setWarehouseId(firstInvoice.warehouseId);
-  }, [firstSegment, invoices, invoiceId]);
+  }, [firstSegment, invoices, invoiceId, prefillInvoiceId]);
+
+  useEffect(() => {
+    if (prefillInvoiceId === null) return;
+    if (prefilledInvoice.isError) setPrefillInvoiceId(null);
+    const invoice = prefilledInvoice.data;
+    if (!invoice || invoice.id !== prefillInvoiceId) return;
+    setPrefillInvoiceId(null);
+    setSelectedInvoice(invoice);
+    setWarehouseId(invoice.warehouseId);
+  }, [prefillInvoiceId, prefilledInvoice.data, prefilledInvoice.isError]);
 
   useEffect(() => {
     if (firstSegment !== "new" || warehouseId !== "" || invoiceId !== "") return;
@@ -141,7 +140,6 @@ export function PurchaseReturnsScreen() {
     if (firstWarehouse) setWarehouseId(firstWarehouse.id);
   }, [firstSegment, warehouses, warehouseId, invoiceId]);
 
-  const selectedInvoice = invoices.find((i) => i.id === invoiceId) ?? null;
   const returnableLines = useMemo(() => returnableLinesOf(selectedInvoice), [selectedInvoice]);
   const sourceLinesQuery = useReturnSourceLines(ReturnKind.Purchase, firstSegment === "new" ? invoiceId : "");
   const sourceLines = sourceLinesQuery.data?.lines ?? EMPTY;
@@ -199,6 +197,8 @@ export function PurchaseReturnsScreen() {
   const reversedReturnNo = selected?.reversesDocId ? (documents.find((d) => d.id === selected.reversesDocId)?.docNo ?? null) : null;
   const selectedLabel = selected ? returnDocumentLabel(selected, reversedReturnNo, t("purchaseReturns.detailTitle"), t) : null;
   useNameSubPage(selected ? addressed : null, selectedLabel);
+  const { byId: itemsById } = useItemsByIds([...returnableLines, ...(selected?.lines ?? [])].map((l) => l.itemId));
+  const itemName = (id: string) => itemsById.get(id)?.nameAr ?? id;
 
   useScreenIntent((intent) => {
     openCreate(intent.prefill?.invoiceId);
@@ -206,8 +206,9 @@ export function PurchaseReturnsScreen() {
 
   function openCreate(sourceInvoiceId?: string) {
     setError(null);
-    const firstInvoice = invoices.find((i) => i.id === sourceInvoiceId) ?? invoices[0] ?? null;
-    setInvoiceId(firstInvoice?.id ?? "");
+    const firstInvoice = sourceInvoiceId ? (invoices.find((i) => i.id === sourceInvoiceId) ?? null) : (invoices[0] ?? null);
+    setPrefillInvoiceId(sourceInvoiceId && !firstInvoice ? sourceInvoiceId : null);
+    setSelectedInvoice(firstInvoice);
     setWarehouseId(firstInvoice?.warehouseId ?? warehouses[0]?.id ?? "");
     setReason("DEFECTIVE");
     const firstLine = returnableLinesOf(firstInvoice)[0];
@@ -215,11 +216,10 @@ export function PurchaseReturnsScreen() {
     subPage.open("new");
   }
 
-  function changeInvoice(id: string) {
-    if (id === invoiceId) return;
-    setInvoiceId(id);
-    const invoice = invoices.find((i) => i.id === id) ?? null;
-    if (invoice) setWarehouseId(invoice.warehouseId);
+  function changeInvoice(invoice: PurchaseInvoiceDTO) {
+    if (invoice.id === invoiceId) return;
+    setSelectedInvoice(invoice);
+    setWarehouseId(invoice.warehouseId);
     setLines([]);
   }
 
@@ -231,7 +231,7 @@ export function PurchaseReturnsScreen() {
 
   async function submit(confirmAfter: boolean) {
     setError(null);
-    const invoice = invoices.find((i) => i.id === invoiceId);
+    const invoice = selectedInvoice;
     if (!invoice || !warehouseId) {
       setError(t("purchaseReturns.error.needInvoice"));
       return;
@@ -319,11 +319,19 @@ export function PurchaseReturnsScreen() {
         </div>
       </div>
         <div className="flex flex-col gap-4 p-5">
-          <SelectField
+          <PurchaseInvoicePicker
             label={t("purchaseReturns.field.sourceInvoice")}
-            value={invoiceId}
-            onChange={changeInvoice}
-            options={invoices.map((i) => ({ value: i.id, label: `${i.number} — ${supplierName(i.supplierId)}` }))}
+            value={selectedInvoice}
+            optionOf={invoiceOption}
+            filter={RETURNABLE_INVOICES}
+            onChange={(invoice) => {
+              if (invoice) {
+                changeInvoice(invoice);
+              } else {
+                setSelectedInvoice(null);
+                setLines([]);
+              }
+            }}
           />
           <SelectField label={t("purchaseReturns.field.warehouse")} value={warehouseId} onChange={setWarehouseId} options={warehouses.map((w) => ({ value: w.id, label: w.name }))} />
           <SelectField

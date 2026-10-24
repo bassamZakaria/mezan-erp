@@ -107,7 +107,7 @@ export interface ScreenRequestGate {
 export const SCREEN_REQUESTS: Record<ScreenRequest, ScreenRequestGate> = {
   [ScreenRequest.Accounts]: { path: "/accounts", permission: "accounting.coa.view" },
   [ScreenRequest.TreasuryAccounts]: { path: "/treasury-accounts", permission: "treasury.account.view" },
-  [ScreenRequest.Vouchers]: { path: "/vouchers", permission: "treasury.cash_voucher.view" },
+  [ScreenRequest.Vouchers]: { path: "/vouchers/stats", permission: "treasury.cash_voucher.view" },
   [ScreenRequest.SupplierAging]: { path: "/reports/aging/suppliers", permission: "purchases.invoice.view" },
   [ScreenRequest.Suppliers]: { path: "/suppliers", permission: "purchases.supplier.view" },
   [ScreenRequest.PurchaseOrders]: { path: "/purchases/orders", permission: "purchases.order.view" },

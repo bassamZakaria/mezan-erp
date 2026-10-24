@@ -8,7 +8,7 @@ import {
   useBranches,
   useCancelSalesQuote,
   useConvertSalesQuoteToInvoice,
-  useItems,
+  useItemsByIds,
   useRejectSalesQuote,
   useSendSalesQuote,
   useTaxRates,
@@ -57,7 +57,9 @@ export function QuoteDetailView({ quote, onPrint, onBack }: { quote: SalesQuoteR
   const countPhrase = useCountPhrase();
   const linkedDeal = useLinkedOpportunity(quote.opportunityId ?? "").data ?? null;
   const format = useFormat();
-  const items = useItems().data ?? [];
+  const quoteItems = useItemsByIds(quote.lines.map((l) => l.itemId));
+  const itemsById = quoteItems.byId;
+  const quoteItemsKnown = quote.lines.every((l) => itemsById.has(l.itemId));
   const branches = useBranches().data ?? [];
   const warehouses = useWarehouses().data ?? [];
   const taxRates = useTaxRates().data ?? EMPTY;
@@ -134,7 +136,7 @@ export function QuoteDetailView({ quote, onPrint, onBack }: { quote: SalesQuoteR
           arAccountId: AR_ACCOUNT_ID,
           taxAccountId: TAX_ACCOUNT_ID,
           lines: quote.lines.map((l) => {
-            const item = items.find((i) => i.id === l.itemId);
+            const item = itemsById.get(l.itemId);
             const isStock = item?.type === "stock";
             return {
               lineId: l.lineId,
@@ -193,7 +195,7 @@ export function QuoteDetailView({ quote, onPrint, onBack }: { quote: SalesQuoteR
           </thead>
           <tbody>
             {quote.lines.map((line) => {
-              const item = items.find((i) => i.id === line.itemId) ?? null;
+              const item = itemsById.get(line.itemId) ?? null;
               const qty = Number(line.qty);
               const unitPrice = Number(line.unitPrice);
               const discountPercent = line.discountPercent ?? 0;
@@ -347,9 +349,10 @@ export function QuoteDetailView({ quote, onPrint, onBack }: { quote: SalesQuoteR
                         ...warehouses.filter((w) => w.active).map((w) => ({ value: w.id, label: `${w.name} · ${w.code}` })),
                       ]}
                     />
-                    <Button variant="primary" onClick={doConvert} disabled={convert.isPending}>
+                    <Button variant="primary" onClick={doConvert} disabled={convert.isPending || !quoteItemsKnown}>
                       {t("quotes.createInvoice")}
                     </Button>
+                    {!quoteItemsKnown && !quoteItems.isLoading ? <p role="alert" className="text-[12px] text-danger-ink">{t("api.itemsCouldNotBeLoaded")}</p> : null}
                   </div>
                 ) : null}
                 {quote.status === "converted" ? (

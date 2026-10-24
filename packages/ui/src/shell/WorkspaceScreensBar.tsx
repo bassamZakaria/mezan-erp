@@ -148,6 +148,8 @@ function MenuRows({ items, activeKey, close }: MenuRowsProps) {
               item.onClick?.();
               close();
             }}
+            onPointerEnter={item.onIntent}
+            onFocus={item.onIntent}
             className={cn(
               "flex min-h-[var(--h-btn)] w-full items-center gap-[8px] px-[12px] text-start text-xs transition-colors hover:bg-surface-2",
               active ? "bg-surface-2 font-semibold text-accent" : "text-ink",
@@ -382,6 +384,8 @@ export function WorkspaceScreensBar({
             aria-current={active ? "page" : undefined}
             className={classes}
             onClick={item.onClick}
+            onPointerEnter={item.onIntent}
+            onFocus={item.onIntent}
           >
             {chipContent(item, active)}
           </a>
@@ -393,6 +397,8 @@ export function WorkspaceScreensBar({
             aria-current={active ? "page" : undefined}
             className={classes}
             onClick={item.onClick}
+            onPointerEnter={item.onIntent}
+            onFocus={item.onIntent}
           >
             {chipContent(item, active)}
           </button>

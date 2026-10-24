@@ -1,6 +1,6 @@
 import { Card, WorkspaceHub } from "@mezan/ui";
 import { ScreenRequest } from "@mezan/domain";
-import { useBoms, useConfigurableProducts, useItemCounts, useItems, useHoldsScreenRequest, useProductTemplates } from "../../data/hooks";
+import { useBoms, useConfigurableProducts, useItemCounts, useHoldsScreenRequest, useProductTemplates } from "../../data/hooks";
 import { useItemSpecifications } from "../../data/item-catalog-hooks";
 import { useNavigation } from "../../navigation";
 import type { ScreenKey } from "../../router/screens";
@@ -30,7 +30,6 @@ export function ItemsHubScreen() {
   const { t } = useAppTranslation();
   const { navigate } = useNavigation();
 
-  const itemsQuery = useItems();
   const countsQuery = useItemCounts();
   const templatesQuery = useProductTemplates();
   const configurableQuery = useConfigurableProducts();
@@ -38,9 +37,8 @@ export function ItemsHubScreen() {
   const bomsQuery = useBoms();
 
   const counts = countsQuery.data ?? {};
-  const items = itemsQuery.data ?? [];
-  const isLoading = itemsQuery.isLoading || countsQuery.isLoading;
-  const isError = itemsQuery.isError || countsQuery.isError;
+  const isLoading = countsQuery.isLoading;
+  const isError = countsQuery.isError;
 
   /** `undefined` while a count is still loading, so a tile shows «—» not a 0. */
   const lengthOf = (rows: readonly unknown[] | undefined): number | null => (rows ? rows.length : null);
@@ -85,7 +83,7 @@ export function ItemsHubScreen() {
       loading={isLoading}
       error={isError ? t("itemsHub.loadFailed") : null}
       stats={[
-        { key: "items", label: t("itemsHub.stat.items"), value: counts.all ?? items.length, sub: t("itemsHub.stat.itemsSub") },
+        { key: "items", label: t("itemsHub.stat.items"), value: counts.all ?? 0, sub: t("itemsHub.stat.itemsSub") },
         { key: "active", label: t("itemsHub.stat.active"), value: counts.active ?? 0, sub: t("itemsHub.stat.activeSub") },
         { key: "stock", label: t("itemsHub.stat.stock"), value: counts["type:stock"] ?? 0, sub: t("itemsHub.stat.stockSub") },
         { key: "service", label: t("itemsHub.stat.service"), value: counts["type:service"] ?? 0, sub: t("itemsHub.stat.serviceSub") },

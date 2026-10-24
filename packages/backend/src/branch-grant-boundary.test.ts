@@ -1033,6 +1033,21 @@ describe("D111 round 2 · the grant holds on every family, for a non-admin and f
     expect(pendingEverywhere).toBeGreaterThan(0);
     expect((await alexStar("GET", "/workflow/requests/pending-count")).body.count).toBe(rowsOf((await alexStar("GET", "/workflow/requests/pending")).body).length);
     expect((await alexStar("GET", "/workflow/requests/pending-count")).body.count).toBeLessThan(pendingEverywhere);
+    for (const [label, caller] of [["admin", admin], ...restricted()] as const) {
+      const counts = await caller("GET", "/workflow/requests/counts");
+      expect(counts.status, label).toBe(200);
+      for (const scope of ["mine", "acted"] as const) {
+        const everyRow: unknown[] = [];
+        for (let page = 1; ; page += 1) {
+          const rows = rowsOf((await caller("GET", `/workflow/requests/${scope}?page=${page}&pageSize=200`)).body);
+          everyRow.push(...rows);
+          if (rows.length < 200) break;
+        }
+        expect(counts.body[scope], `${label} ${scope}`).toBe(everyRow.length);
+        const firstPage = rowsOf((await caller("GET", `/workflow/requests/${scope}?page=1&pageSize=2`)).body);
+        expect(firstPage.length, `${label} ${scope} page`).toBe(Math.min(2, everyRow.length));
+      }
+    }
     for (const [label, caller] of restricted()) {
       const listed = rowsOf((await caller("GET", "/assets")).body).length;
       const stats = await caller("GET", "/assets/stats");
@@ -1762,6 +1777,31 @@ describe("D111 round 3 · shared master data carries no other branch's money or 
       expect(counts.out_of_stock, label).toBe(mine.filter((row: any) => row.stockState === "out").length);
       expect(counts.low_stock, label).toBe(mine.filter((row: any) => row.stockState === "low").length);
       expect(counts.out_of_stock, label).toBeGreaterThan((await admin("GET", "/items/counts")).body.out_of_stock);
+    }
+  });
+
+  it("the stock-levels summary is the same figures as the stock-levels list the caller can see", async () => {
+    const warehouseOnly = callerFor(
+      handle.sessions.issue({ userId: "USER-D111-WH-ALEX", permissions: ["inventory.stock.view"], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: [ALEX_WAREHOUSE] }),
+    );
+    const figures = async (caller: Caller) => {
+      const summary = await caller("GET", "/reports/inventory/stock-levels/summary");
+      const list = await caller("GET", "/reports/inventory/stock-levels");
+      expect(summary.status).toBe(200);
+      expect(list.status).toBe(200);
+      return { summary: summary.body, rows: list.body.rows as any[], value: list.body.kpis.find((kpi: any) => kpi.key === "value").value };
+    };
+    const company = await figures(admin);
+    for (const [label, caller] of [...restricted(), ["one warehouse", warehouseOnly]] as const) {
+      const { summary, rows, value } = await figures(caller);
+      const attention = rows.filter((row) => row.status !== contracts.StockLevelStatusDTO.Normal);
+      const low = rows.filter((row) => row.status === contracts.StockLevelStatusDTO.Low);
+      expect(Number(summary.totalValue), label).toBeCloseTo(Number(value), 4);
+      expect(summary.needsAttentionCount, label).toBe(attention.length);
+      expect(summary.lowCount, label).toBe(low.length);
+      expect(summary.attention.map((row: any) => row.itemId), label).toEqual(attention.slice(0, summary.attention.length).map((row) => row.itemId));
+      expect(summary.firstLow?.itemId ?? null, label).toBe(low[0]?.itemId ?? null);
+      expect(Number(summary.totalValue), label).toBeLessThan(Number(company.summary.totalValue));
     }
   });
 

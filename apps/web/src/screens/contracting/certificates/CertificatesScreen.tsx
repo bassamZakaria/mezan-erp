@@ -995,32 +995,34 @@ function CertificateDetailPage({
               ) : certificate.materialLines.length > 0 ? (
                 <Card className="p-[14px_16px]">
                   <h3 className="mb-[8px] text-[12.5px] font-bold text-ink">{t("certificates.section.materials")}</h3>
-                  <table className="w-full border-collapse text-[12px]">
-                    <thead>
-                      <tr className="border-b border-border text-ink-muted">
-                        <th className="p-[7px_8px] text-start">{t("certificates.col.item")}</th>
-                        <th className="p-[7px_8px] text-start">{t("certificates.col.unit")}</th>
-                        <th className="p-[7px_8px] text-end">{t("certificates.col.thisPeriod")}</th>
-                        <th className="p-[7px_8px] text-end">{t("certificates.col.cumulative")}</th>
-                        <th className="p-[7px_8px] text-end">{t("certificates.col.unitRate")}</th>
-                        <th className="p-[7px_8px] text-end">{t("certificates.col.value")}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {certificate.materialLines.map((row) => (
-                        <tr key={row.id} className="border-b border-border">
-                          <td className="p-[7px_8px]">{row.descriptionAr}</td>
-                          <td className="p-[7px_8px]">{unitLabel(row.unit, t)}</td>
-                          <td className="mz-num p-[7px_8px] text-end">{trimScale(row.qty)}</td>
-                          <td className="mz-num p-[7px_8px] text-end">{trimScale(row.cumulativeQty)}</td>
-                          <td className="mz-num p-[7px_8px] text-end">{trimScale(row.unitRate)}</td>
-                          <td className="mz-num p-[7px_8px] text-end">
-                            <MoneyValue value={majorOf(row.value)} showUnit={false} />
-                          </td>
+                  <div className="overflow-x-auto">
+                    <table className="w-full border-collapse text-[12px]">
+                      <thead>
+                        <tr className="border-b border-border text-ink-muted">
+                          <th className="p-[7px_8px] text-start">{t("certificates.col.item")}</th>
+                          <th className="p-[7px_8px] text-start">{t("certificates.col.unit")}</th>
+                          <th className="p-[7px_8px] text-end">{t("certificates.col.thisPeriod")}</th>
+                          <th className="p-[7px_8px] text-end">{t("certificates.col.cumulative")}</th>
+                          <th className="p-[7px_8px] text-end">{t("certificates.col.unitRate")}</th>
+                          <th className="p-[7px_8px] text-end">{t("certificates.col.value")}</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody>
+                        {certificate.materialLines.map((row) => (
+                          <tr key={row.id} className="border-b border-border">
+                            <td className="p-[7px_8px]">{row.descriptionAr}</td>
+                            <td className="p-[7px_8px]">{unitLabel(row.unit, t)}</td>
+                            <td className="mz-num p-[7px_8px] text-end">{trimScale(row.qty)}</td>
+                            <td className="mz-num p-[7px_8px] text-end">{trimScale(row.cumulativeQty)}</td>
+                            <td className="mz-num p-[7px_8px] text-end">{trimScale(row.unitRate)}</td>
+                            <td className="mz-num p-[7px_8px] text-end">
+                              <MoneyValue value={majorOf(row.value)} showUnit={false} />
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </Card>
               ) : null}
 

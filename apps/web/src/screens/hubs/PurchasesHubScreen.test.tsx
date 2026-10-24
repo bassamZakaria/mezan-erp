@@ -66,12 +66,13 @@ function purchaseInvoice(overrides: Partial<PurchaseInvoiceDTO> = {}): PurchaseI
 
 function renderScreen(
   navigate: (screen: string, intent?: unknown) => void = vi.fn(),
-  overrides: { orders?: PurchaseOrderDTO[]; receipts?: GoodsReceiptDTO[]; invoices?: PurchaseInvoiceDTO[]; suppliers?: SupplierDTO[] } = {},
+  overrides: { orders?: PurchaseOrderDTO[]; receipts?: GoodsReceiptDTO[]; invoices?: PurchaseInvoiceDTO[]; invoiceCount?: number; suppliers?: SupplierDTO[]; asked?: string[] } = {},
 ) {
   const transport = stubTransport({
     "GET /purchases/orders": () => ({ body: overrides.orders ?? [purchaseOrder()] }),
     "GET /purchases/receipts": () => ({ body: overrides.receipts ?? [goodsReceipt()] }),
-    "GET /purchases/invoices": () => ({ body: overrides.invoices ?? [purchaseInvoice()] }),
+    "GET /purchases/invoices": (_init, path) => (overrides.asked?.push(path), { body: overrides.invoices ?? [purchaseInvoice()] }),
+    "GET /purchases/invoices/counts": () => ({ body: { all: overrides.invoiceCount ?? 1 } }),
     "GET /suppliers": () => ({ body: overrides.suppliers ?? suppliers }),
   });
   return renderWithProviders(
@@ -87,12 +88,14 @@ describe("PurchasesHubScreen", () => {
     renderScreen(vi.fn(), {
       orders: [purchaseOrder({ status: "sent" }), purchaseOrder({ id: "po-2", number: "PO-000002", status: "draft" })], // openOrders = 1
       receipts: [goodsReceipt({ invoiced: true })], // uninvoicedReceipts = 0
-      invoices: [purchaseInvoice(), purchaseInvoice({ id: "pi-2", number: "PI-000002", date: "2026-08-10", total: "300.000000" }), purchaseInvoice({ id: "pi-3", number: "PI-000003", date: "2026-08-05", total: "50.000000" })], // invoices.length = 3
+      invoices: [purchaseInvoice(), purchaseInvoice({ id: "pi-2", number: "PI-000002", date: "2026-08-10", total: "300.000000" }), purchaseInvoice({ id: "pi-3", number: "PI-000003", date: "2026-08-05", total: "50.000000" })],
+      invoiceCount: 4321,
       suppliers: [suppliers[0]!, { ...suppliers[0]!, id: "sup-2", code: "S2" }], // suppliers.length = 2
     });
     expect(screen.getByRole("heading", { name: "المشتريات" })).toBeInTheDocument();
     expect(await screen.findByText("1")).toBeInTheDocument(); // open orders (status "sent")
     expect(await screen.findByText("1,250.75")).toBeInTheDocument(); // invoice total, Money-formatted
+    expect(screen.getByText("4321")).toBeInTheDocument(); // invoice count from /purchases/invoices/counts
     await waitFor(() => expect(screen.queryByText("1250.750000")).not.toBeInTheDocument());
   });
 
@@ -100,6 +103,15 @@ describe("PurchasesHubScreen", () => {
     renderScreen();
     expect(await screen.findByText("شركة النيل للتوريدات")).toBeInTheDocument();
     expect(screen.getByText(/PI-000001/)).toBeInTheDocument();
+  });
+
+  it("asks for the first page of invoices and shows at most five of them", async () => {
+    const asked: string[] = [];
+    const six = Array.from({ length: 6 }, (_, i) => purchaseInvoice({ id: `pi-${i}`, number: `PI-00000${i}` }));
+    renderScreen(vi.fn(), { invoices: six, asked });
+    expect(await screen.findByText(/PI-000000/)).toBeInTheDocument();
+    expect(screen.queryByText(/PI-000005/)).toBeNull();
+    expect(asked).toHaveLength(1);
   });
 
   it("shows the configured empty state when there are no invoices", async () => {
@@ -112,6 +124,7 @@ describe("PurchasesHubScreen", () => {
       "GET /purchases/orders": () => ({ status: 500, body: { error: "INTERNAL" } }),
       "GET /purchases/receipts": () => ({ body: [] }),
       "GET /purchases/invoices": () => ({ body: [] }),
+      "GET /purchases/invoices/counts": () => ({ body: { all: 0 } }),
       "GET /suppliers": () => ({ body: suppliers }),
     });
     renderWithProviders(

@@ -1,7 +1,7 @@
+import { SalesInvoiceDerivedFilter } from "@mezan/contracts";
 import { useMemo, useState, type ReactNode } from "react";
 import { DocumentList, DocumentDetail, StatusPill, Button, Card, SidePanel, type DocumentListColumn, type PillTone } from "@mezan/ui";
 import { Money as MoneyValue } from "@mezan/ui";
-import { SALES_INVOICE_ACTIVE_STATUSES } from "@mezan/domain";
 import type { AssetStatusDTO, BranchDTO, EmployeeDTO, TreasuryAccountDTO } from "@mezan/contracts";
 import {
   useAssetCategories,
@@ -9,11 +9,14 @@ import {
   useBranches,
   useCreateBranch,
   useEmployees,
-  useItems,
+  useItemsByIds,
+  usePurchaseInvoiceStats,
   usePurchaseInvoices,
+  useSalesInvoiceStats,
   useSalesInvoices,
   useTreasuryAccounts,
   useUpdateBranch,
+  useVoucherStats,
   useVouchers,
   useWarehouses,
 } from "../data/hooks";
@@ -112,9 +115,9 @@ function BranchKpis({ branch }: { branch: BranchDTO }) {
   const { t } = useAppTranslation();
   const warehousesQuery = useWarehouses();
   const treasuryQuery = useTreasuryAccounts();
-  const salesQuery = useSalesInvoices();
-  const purchasesQuery = usePurchaseInvoices();
-  const vouchersQuery = useVouchers();
+  const salesQuery = useSalesInvoiceStats({ branchId: branch.id, status: SalesInvoiceDerivedFilter.Active });
+  const purchasesQuery = usePurchaseInvoiceStats({ branchId: branch.id });
+  const vouchersQuery = useVoucherStats({ branchId: branch.id });
   const employeesQuery = useEmployees();
   const assetsQuery = useAssets();
 
@@ -125,39 +128,28 @@ function BranchKpis({ branch }: { branch: BranchDTO }) {
   const stockQuery = useBranchStockBalance(warehouseIds);
 
   const treasuryAccounts = (treasuryQuery.data ?? []).filter((a) => a.branchId === branch.id);
-  const salesInvoices = (salesQuery.data ?? []).filter((i) => i.branchId === branch.id && SALES_INVOICE_ACTIVE_STATUSES.has(i.status));
-  const purchaseInvoices = (purchasesQuery.data ?? []).filter((i) => i.branchId === branch.id && i.status === "confirmed");
-  const vouchers = (vouchersQuery.data ?? []).filter(
-    (v) => v.branchId === branch.id && (v.status === "confirmed" || v.status === "posted") && !v.reversesDocId,
-  );
   const employees = (employeesQuery.data ?? []).filter((e) => e.branchId === branch.id);
   const assets = (assetsQuery.data ?? []).filter((a) => a.branchId === branch.id);
 
-  const salesTotal = sumMoney(salesInvoices.map((i) => i.baseGrandTotal ?? i.totals.grandTotal));
-  const purchasesTotal = sumMoney(purchaseInvoices.map((i) => i.baseTotal ?? i.total));
   const stockValue = sumMoney((stockQuery.data ?? []).map((row) => row.totalValue));
   const assetsCost = sumMoney(assets.map((a) => a.acquisitionCost));
-  const voucherNet = vouchers.reduce<bigint>(
-    (total, v) => (v.direction === "receipt" ? total + parseMoney(v.baseAmount) : v.direction === "payment" ? total - parseMoney(v.baseAmount) : total),
-    0n,
-  );
 
   return (
     <div className="grid grid-cols-2 gap-[12px] lg:grid-cols-4">
       <Kpi
         label={t("branches.branchSalesLiveInvoices")}
-        value={<MoneyValue value={moneyToNumber(salesTotal)} showUnit={false} />}
-        sub={<span className="mz-num">{salesInvoices.length} {t("branches.invoice")}</span>}
+        value={<MoneyValue value={salesQuery.data?.sales ?? "0"} showUnit={false} />}
+        sub={<span className="mz-num">{salesQuery.data?.count ?? 0} {t("branches.invoice")}</span>}
       />
       <Kpi
         label={t("branches.branchPurchasesConfirmedInvoices")}
-        value={<MoneyValue value={moneyToNumber(purchasesTotal)} showUnit={false} />}
-        sub={<span className="mz-num">{purchaseInvoices.length} {t("branches.invoice")}</span>}
+        value={<MoneyValue value={purchasesQuery.data?.purchases ?? "0"} showUnit={false} />}
+        sub={<span className="mz-num">{purchasesQuery.data?.count ?? 0} {t("branches.invoice")}</span>}
       />
       <Kpi
         label={t("branches.netVoucherMovement")}
-        value={<MoneyValue value={moneyToNumber(voucherNet)} showUnit={false} />}
-        sub={<span className="mz-num">{vouchers.length} {t("branches.voucher")}</span>}
+        value={<MoneyValue value={vouchersQuery.data?.net ?? "0"} showUnit={false} />}
+        sub={<span className="mz-num">{vouchersQuery.data?.standing ?? 0} {t("branches.voucher")}</span>}
       />
       <Kpi
         label={t("branches.stockValue")}
@@ -194,18 +186,12 @@ function BranchKpis({ branch }: { branch: BranchDTO }) {
 function BranchInventoryTab({ branch }: { branch: BranchDTO }) {
   const { t } = useAppTranslation();
   const warehousesQuery = useWarehouses();
-  const itemsQuery = useItems();
   const warehouses = (warehousesQuery.data ?? []).filter((w) => w.branchId === branch.id);
   const stockQuery = useBranchStockBalance(warehouses.map((w) => w.id));
+  const { byId: itemsById } = useItemsByIds((stockQuery.data ?? EMPTY).map((row) => row.itemId));
 
-  const itemName = useMemo(() => {
-    const byId = new Map((itemsQuery.data ?? []).map((item) => [item.id, item]));
-    return (itemId: string) => byId.get(itemId)?.nameAr ?? itemId;
-  }, [itemsQuery.data]);
-  const itemCode = useMemo(() => {
-    const byId = new Map((itemsQuery.data ?? []).map((item) => [item.id, item]));
-    return (itemId: string) => byId.get(itemId)?.code ?? "—";
-  }, [itemsQuery.data]);
+  const itemName = (itemId: string) => itemsById.get(itemId)?.nameAr ?? itemId;
+  const itemCode = (itemId: string) => itemsById.get(itemId)?.code ?? "—";
 
   if (warehousesQuery.isError) return <TabError message={warehousesQuery.error?.message ?? t("branches.couldNotLoadTheBranch")} onRetry={() => warehousesQuery.refetch()} />;
   if (warehouses.length === 0) {
@@ -418,56 +404,55 @@ interface BranchActivityRow {
   readonly kind: string;
   readonly reference: string;
   readonly detail: string;
-  readonly amount: number;
+  readonly amount: string;
 }
 
 /**
  * نشاط الفرع — the branch's own documents, newest first. `GET /audit` carries
  * no branch dimension, so the audit trail cannot be scoped to a branch here.
  */
+const ACTIVITY_PAGE = { page: 1, pageSize: 25 } as const;
+
 function BranchActivityTab({ branch }: { branch: BranchDTO }) {
   const { t } = useAppTranslation();
-  const salesQuery = useSalesInvoices();
-  const purchasesQuery = usePurchaseInvoices();
-  const vouchersQuery = useVouchers();
+  const salesQuery = useSalesInvoices({ branchId: branch.id, ...ACTIVITY_PAGE, sort: "docNo", sortDir: "desc" });
+  const purchasesQuery = usePurchaseInvoices({ branchId: branch.id, ...ACTIVITY_PAGE });
+  const vouchersQuery = useVouchers({ branchId: branch.id, ...ACTIVITY_PAGE });
 
   const rows = useMemo<BranchActivityRow[]>(() => {
     const built: BranchActivityRow[] = [];
     for (const inv of salesQuery.data ?? []) {
-      if (inv.branchId !== branch.id) continue;
       built.push({
         key: `si-${inv.id}`,
         date: inv.date,
         kind: t("branches.salesInvoice"),
         reference: inv.docNo ?? inv.id,
         detail: inv.customerNameAr,
-        amount: Number(inv.baseGrandTotal ?? inv.totals.grandTotal),
+        amount: inv.baseGrandTotal ?? inv.totals.grandTotal,
       });
     }
     for (const inv of purchasesQuery.data ?? []) {
-      if (inv.branchId !== branch.id) continue;
       built.push({
         key: `pi-${inv.id}`,
         date: inv.date,
         kind: t("branches.purchaseInvoice"),
         reference: inv.number,
         detail: inv.supplierInvoiceNumber ?? "—",
-        amount: Number(inv.baseTotal ?? inv.total),
+        amount: inv.baseTotal ?? inv.total,
       });
     }
     for (const voucher of vouchersQuery.data ?? []) {
-      if (voucher.branchId !== branch.id) continue;
       built.push({
         key: `vc-${voucher.id}`,
         date: voucher.date,
         kind: voucher.direction === "receipt" ? t("branches.receiptVoucher") : voucher.direction === "payment" ? t("branches.paymentVoucher") : t("branches.treasuryTransfer"),
         reference: voucher.docNo ?? voucher.id,
         detail: voucher.memo === "" ? "—" : voucher.memo,
-        amount: Number(voucher.baseAmount),
+        amount: voucher.baseAmount,
       });
     }
     return built.sort((a, b) => (a.date === b.date ? b.key.localeCompare(a.key) : b.date.localeCompare(a.date)));
-  }, [salesQuery.data, purchasesQuery.data, vouchersQuery.data, branch.id, t]);
+  }, [salesQuery.data, purchasesQuery.data, vouchersQuery.data, t]);
 
   if (salesQuery.isError || purchasesQuery.isError || vouchersQuery.isError) {
     return (
@@ -493,8 +478,11 @@ function BranchActivityTab({ branch }: { branch: BranchDTO }) {
     );
   }
 
+  const truncated = [salesQuery.data, purchasesQuery.data, vouchersQuery.data].some((page) => (page?.length ?? 0) >= ACTIVITY_PAGE.pageSize);
+
   return (
     <div className="flex flex-col gap-[12px]">
+      {truncated ? <p className="text-[12px] text-ink-muted">{t("branches.activityShowsLatest", { count: ACTIVITY_PAGE.pageSize })}</p> : null}
       <div className="overflow-x-auto rounded-lg border border-border bg-surface">
         <table className="w-full min-w-[640px] border-collapse text-[12.5px]">
           <thead>

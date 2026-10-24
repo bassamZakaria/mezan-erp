@@ -20,6 +20,7 @@ function withLock(fn) {
 }
 
 const CATALOG = "apps/web/src/i18n/catalog.ts";
+const CATALOG_EN = "apps/web/src/i18n/catalog-en.ts";
 const entries = JSON.parse(readFileSync(process.argv[2], "utf8"));
 const banner = process.argv[3] ?? "";
 
@@ -36,12 +37,12 @@ withLock(() => {
   const arEnd = src.indexOf("} as const;");
   if (arEnd < 0) throw new Error("webAr terminator not found");
   src = src.slice(0, arEnd) + block(0) + src.slice(arEnd);
-
-  const enMarker = "\nexport const webCatalogs";
-  const enEnd = src.lastIndexOf("};", src.indexOf(enMarker));
-  if (enEnd < 0) throw new Error("webEn terminator not found");
-  src = src.slice(0, enEnd) + block(1) + src.slice(enEnd);
-
   writeFileSync(CATALOG, src);
+
+  let en = readFileSync(CATALOG_EN, "utf8");
+  const enEnd = en.indexOf("\n};", en.indexOf("export const webEn"));
+  if (enEnd < 0) throw new Error("webEn terminator not found");
+  en = en.slice(0, enEnd) + block(1) + en.slice(enEnd);
+  writeFileSync(CATALOG_EN, en);
 });
 console.log(`added ${Object.keys(entries).length} keys`);

@@ -28,11 +28,11 @@ function grandTotalText(): string | null {
   return screen.getByText("الإجمالي الكلي").closest("div")?.querySelector(".mz-num")?.textContent ?? null;
 }
 
-function pickFromCombobox(container: HTMLElement, label: string, optionLabel: string) {
+async function pickFromCombobox(container: HTMLElement, label: string, optionLabel: string) {
   const input = within(container).getByLabelText(label);
   fireEvent.focus(input);
   fireEvent.change(input, { target: { value: optionLabel } });
-  const option = within(container).getByRole("button", { name: (n) => n.startsWith(optionLabel) });
+  const option = await within(container).findByRole("button", { name: (n) => n.startsWith(optionLabel) });
   fireEvent.mouseDown(option);
 }
 
@@ -106,7 +106,7 @@ describe("QuoteFormView", () => {
     renderForm();
     await screen.findByRole("heading", { name: "عرض سعر جديد" });
     await flushData();
-    pickFromCombobox(document.body, "العميل *", "متجر الأمل");
+    await pickFromCombobox(document.body, "العميل *", "متجر الأمل");
     fireEvent.click(screen.getByRole("button", { name: "حفظ كمسودة" }));
     expect(await screen.findByText("اختر صنفاً من المخزون لكل بند.")).toBeInTheDocument();
   });
@@ -115,8 +115,8 @@ describe("QuoteFormView", () => {
     const { getCreateBody } = renderForm();
     await screen.findByRole("heading", { name: "عرض سعر جديد" });
     await flushData();
-    pickFromCombobox(document.body, "العميل *", "متجر الأمل");
-    pickFromCombobox(document.body, "الصنف — بند 1", "صنف تجريبي");
+    await pickFromCombobox(document.body, "العميل *", "متجر الأمل");
+    await pickFromCombobox(document.body, "الصنف — بند 1", "صنف تجريبي");
     fireEvent.click(screen.getByRole("button", { name: "حفظ كمسودة" }));
     await waitFor(() => expect(getCreateBody()).not.toBeNull());
     const body = getCreateBody() as Record<string, unknown>;
@@ -128,12 +128,38 @@ describe("QuoteFormView", () => {
     expect(lines[0]).not.toHaveProperty("taxRatePercent");
   });
 
+  it("the line picker searches active items on the server one small page at a time", async () => {
+    const paths: string[] = [];
+    renderForm({
+      "GET /items": (_init, path) => {
+        paths.push(path);
+        return { body: items };
+      },
+    });
+    await screen.findByRole("heading", { name: "عرض سعر جديد" });
+    const input = screen.getByLabelText("الصنف — بند 1");
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: "صنف" } });
+    await waitFor(() => expect(paths.some((p) => p.includes(`search=${encodeURIComponent("صنف")}`))).toBe(true));
+    const searched = new URLSearchParams(paths.find((p) => p.includes("search="))!.split("?")[1]);
+    expect(searched.get("status")).toBe("active");
+    expect(searched.get("page")).toBe("1");
+    expect(searched.get("pageSize")).toBe("20");
+    expect(paths.every((p) => new URLSearchParams(p.split("?")[1] ?? "").get("page") === "1")).toBe(true);
+    expect(screen.queryByText("لا توجد أصناف في المخزون — أضف صنفاً أولاً من شاشة الأصناف.")).not.toBeInTheDocument();
+  });
+
+  it("says the catalogue is empty when the server has no active item at all", async () => {
+    renderForm({ "GET /items": () => ({ body: [] }) });
+    expect(await screen.findByText("لا توجد أصناف في المخزون — أضف صنفاً أولاً من شاشة الأصناف.")).toBeInTheDocument();
+  });
+
   it("refuses, in Arabic and without a request, a line whose unit price was cleared — it is never saved at zero", async () => {
     const { getCreateBody } = renderForm();
     await screen.findByRole("heading", { name: "عرض سعر جديد" });
     await flushData();
-    pickFromCombobox(document.body, "العميل *", "متجر الأمل");
-    pickFromCombobox(document.body, "الصنف — بند 1", "صنف تجريبي");
+    await pickFromCombobox(document.body, "العميل *", "متجر الأمل");
+    await pickFromCombobox(document.body, "الصنف — بند 1", "صنف تجريبي");
     fireEvent.change(screen.getByLabelText("سعر الوحدة"), { target: { value: "" } });
     fireEvent.click(screen.getByRole("button", { name: "حفظ كمسودة" }));
     expect(await screen.findByText("أدخل سعر الوحدة لكل بند.")).toBeInTheDocument();
@@ -149,7 +175,7 @@ describe("QuoteFormView", () => {
     renderForm();
     await screen.findByRole("heading", { name: "عرض سعر جديد" });
     await flushData();
-    pickFromCombobox(document.body, "الصنف — بند 1", "صنف تجريبي");
+    await pickFromCombobox(document.body, "الصنف — بند 1", "صنف تجريبي");
     expect(await screen.findByText((_, el) => el?.textContent === "200.00")).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByText("200.000000")).not.toBeInTheDocument());
   });
@@ -160,8 +186,8 @@ describe("QuoteFormView", () => {
     });
     await screen.findByRole("heading", { name: "عرض سعر جديد" });
     await flushData();
-    pickFromCombobox(document.body, "العميل *", "متجر الأمل");
-    pickFromCombobox(document.body, "الصنف — بند 1", "صنف تجريبي");
+    await pickFromCombobox(document.body, "العميل *", "متجر الأمل");
+    await pickFromCombobox(document.body, "الصنف — بند 1", "صنف تجريبي");
     fireEvent.click(screen.getByRole("button", { name: "حفظ كمسودة" }));
     expect(await screen.findByText("الصنف غير متاح للبيع")).toBeInTheDocument();
     void getCreateBody;
@@ -171,8 +197,8 @@ describe("QuoteFormView", () => {
     const { getCreateBody } = renderForm();
     await screen.findByRole("heading", { name: "عرض سعر جديد" });
     await flushData();
-    pickFromCombobox(document.body, "العميل *", "متجر الأمل");
-    pickFromCombobox(document.body, "الصنف — بند 1", "صنف تجريبي");
+    await pickFromCombobox(document.body, "العميل *", "متجر الأمل");
+    await pickFromCombobox(document.body, "الصنف — بند 1", "صنف تجريبي");
 
     const qty1 = screen.getAllByText("الكمية")[0]!.parentElement!.querySelector("input")!;
     fireEvent.change(qty1, { target: { value: "3" } });
@@ -181,7 +207,7 @@ describe("QuoteFormView", () => {
     await waitFor(() => expect(grandTotalText()).toBe("684.00"));
 
     fireEvent.click(screen.getByRole("button", { name: "إضافة بند" }));
-    pickFromCombobox(document.body, "الصنف — بند 2", "صنف تجريبي");
+    await pickFromCombobox(document.body, "الصنف — بند 2", "صنف تجريبي");
 
     // line2 defaults to qty 1: 1 * 200 = 200, tax 28, total 228. Combined: subtotal 800, tax 112, grand 912.
     await waitFor(() => expect(grandTotalText()).toBe("912.00"));
@@ -201,13 +227,13 @@ describe("QuoteFormView", () => {
     const { getCreateBody } = renderForm();
     await screen.findByRole("heading", { name: "عرض سعر جديد" });
     await flushData();
-    pickFromCombobox(document.body, "العميل *", "متجر الأمل");
-    pickFromCombobox(document.body, "الصنف — بند 1", "صنف تجريبي");
+    await pickFromCombobox(document.body, "العميل *", "متجر الأمل");
+    await pickFromCombobox(document.body, "الصنف — بند 1", "صنف تجريبي");
     const qty1 = screen.getAllByText("الكمية")[0]!.parentElement!.querySelector("input")!;
     fireEvent.change(qty1, { target: { value: "3" } });
 
     fireEvent.click(screen.getByRole("button", { name: "إضافة بند" }));
-    pickFromCombobox(document.body, "الصنف — بند 2", "صنف تجريبي");
+    await pickFromCombobox(document.body, "الصنف — بند 2", "صنف تجريبي");
     await waitFor(() => expect(grandTotalText()).toBe("912.00"));
 
     fireEvent.click(screen.getByRole("button", { name: "حذف البند 2" }));
@@ -233,8 +259,8 @@ describe("QuoteFormView", () => {
     const { getCreateBody } = renderForm();
     await screen.findByRole("heading", { name: "عرض سعر جديد" });
     await flushData();
-    pickFromCombobox(document.body, "العميل *", "متجر الأمل");
-    pickFromCombobox(document.body, "الصنف — بند 1", "صنف تجريبي");
+    await pickFromCombobox(document.body, "العميل *", "متجر الأمل");
+    await pickFromCombobox(document.body, "الصنف — بند 1", "صنف تجريبي");
     const qty1 = screen.getAllByText("الكمية")[0]!.parentElement!.querySelector("input")!;
     fireEvent.change(qty1, { target: { value: "2" } });
 
@@ -261,8 +287,8 @@ describe("QuoteFormView", () => {
     const { getCreateBody } = renderForm();
     await screen.findByRole("heading", { name: "عرض سعر جديد" });
     await flushData();
-    pickFromCombobox(document.body, "العميل *", "متجر الأمل");
-    pickFromCombobox(document.body, "الصنف — بند 1", "صنف تجريبي");
+    await pickFromCombobox(document.body, "العميل *", "متجر الأمل");
+    await pickFromCombobox(document.body, "الصنف — بند 1", "صنف تجريبي");
     fireEvent.click(screen.getByRole("button", { name: "تفاصيل البند 1" }));
     chooseTaxRate("تصدير · 0٪");
     await waitFor(() => expect(grandTotalText()).toBe("200.00"));
@@ -277,8 +303,8 @@ describe("QuoteFormView", () => {
     const { getCreateBody } = renderForm();
     await screen.findByRole("heading", { name: "عرض سعر جديد" });
     await flushData();
-    pickFromCombobox(document.body, "العميل *", "متجر الأمل");
-    pickFromCombobox(document.body, "الصنف — بند 1", "صنف تجريبي");
+    await pickFromCombobox(document.body, "العميل *", "متجر الأمل");
+    await pickFromCombobox(document.body, "الصنف — بند 1", "صنف تجريبي");
     fireEvent.click(screen.getByRole("button", { name: "تفاصيل البند 1" }));
     chooseTaxRate("معفى · 0٪");
     fireEvent.click(screen.getByRole("combobox", { name: "الضريبة" }));
@@ -296,8 +322,8 @@ describe("QuoteFormView", () => {
     const { getCreateBody } = renderForm();
     await screen.findByRole("heading", { name: "عرض سعر جديد" });
     await flushData();
-    pickFromCombobox(document.body, "العميل *", "متجر الأمل");
-    pickFromCombobox(document.body, "الصنف — بند 1", "صنف تجريبي");
+    await pickFromCombobox(document.body, "العميل *", "متجر الأمل");
+    await pickFromCombobox(document.body, "الصنف — بند 1", "صنف تجريبي");
 
     const discountValueInput = screen.getByText("قيمة الخصم").parentElement!.querySelector("input")!;
     fireEvent.change(discountValueInput, { target: { value: "10" } });
@@ -316,8 +342,8 @@ describe("QuoteFormView", () => {
     const { getCreateBody } = renderForm();
     await screen.findByRole("heading", { name: "عرض سعر جديد" });
     await flushData();
-    pickFromCombobox(document.body, "العميل *", "متجر الأمل");
-    pickFromCombobox(document.body, "الصنف — بند 1", "صنف تجريبي");
+    await pickFromCombobox(document.body, "العميل *", "متجر الأمل");
+    await pickFromCombobox(document.body, "الصنف — بند 1", "صنف تجريبي");
     await user.click(screen.getByRole("combobox", { name: "الفرع *" }));
     await user.click(await screen.findByRole("option", { name: /الفرع الرئيسي/ }));
     fireEvent.click(screen.getByRole("button", { name: "حفظ كمسودة" }));

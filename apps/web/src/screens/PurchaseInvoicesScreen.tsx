@@ -1,6 +1,7 @@
 import { AlreadySavedNotice, useAlreadySavedNotice, useDocumentId } from "../lib/document-id";
 import { useMemo, useState } from "react";
 import {
+  ENGLISH_LOCALE,
   RowActionOutcome,
   Button,
   Card,
@@ -20,40 +21,8 @@ import {
   type RowMenuItem,
   Qty as QtyDisplay,
 } from "@mezan/ui";
-import type {
-  CostCategoryDTO,
-  GoodsReceiptDTO,
-  LandedCostDistributionMethodDTO,
-  LandedCostTypeDTO,
-  PurchaseInvoiceDTO,
-  PurchaseInvoiceLineDTO,
-  PurchaseInvoiceLineFulfilmentDTO,
-  PurchaseInvoiceListQueryDTO,
-  PurchaseInvoicePaymentDTO,
-  PurchaseInvoiceStatusDTO,
-  TaxRateDTO,
-} from "@mezan/contracts";
-import {
-  useConfirmPurchaseInvoice,
-  useCreatePurchaseInvoice,
-  useGoodsReceipts,
-  useItems,
-  useLandedCosts,
-  usePayPurchaseInvoice,
-  usePurchaseInvoices,
-  usePurchaseInvoiceCounts,
-  usePurchaseInvoiceFulfilment,
-  usePurchaseInvoiceStats,
-  useProjects,
-  useSuppliers,
-  useTaxRates,
-  useTreasuryAccounts,
-  useUsers,
-  useBranches,
-  useWarehouses,
-  useAllowedCurrencies,
-  ClassifiableDocument,
-} from "../data/hooks";
+import type { CostCategoryDTO, GoodsReceiptDTO, LandedCostDistributionMethodDTO, LandedCostTypeDTO, PurchaseInvoiceDTO, PurchaseInvoiceLineDTO, PurchaseInvoiceLineFulfilmentDTO, PurchaseInvoiceListQueryDTO, PurchaseInvoicePaymentDTO, PurchaseInvoiceStatusDTO, TaxRateDTO } from "@mezan/contracts";
+import { useConfirmPurchaseInvoice, useCreatePurchaseInvoice, useGoodsReceipts, useLandedCosts, usePayPurchaseInvoice, usePurchaseInvoices, usePurchaseInvoiceCounts, usePurchaseInvoiceFulfilment, usePurchaseInvoiceStats, useProjects, useSuppliers, useTaxRates, useTreasuryAccounts, useUsers, useBranches, useWarehouses, useAllowedCurrencies, ClassifiableDocument } from "../data/hooks";
 import { Money, Qty, purchaseInvoiceLineBase, purchaseInvoiceLineTax } from "@mezan/domain";
 import { useDebounced } from "../lib/use-debounced";
 import { useWorkingLocation } from "../data/hub-hooks";
@@ -69,12 +38,13 @@ import { UnnamedTaxNotice } from "./UnnamedTaxNotice";
 import { NameJournalLineTaxAction } from "./NameJournalLineTaxAction";
 import { purchaseInvoiceLineTotal } from "./exact-line-totals";
 import { PurchaseInvoiceStatusCode } from "@mezan/domain";
-import { itemTypeIsPurchasable ,
-  findCurrency} from "@mezan/domain";
+import { findCurrency } from "@mezan/domain";
+import { ItemPicker, PURCHASABLE_ITEMS, useLineItems } from "./ItemPicker";
 import { EMPTY_LOT, LotFields, lotIsComplete, lotPayload, tracksLots, type LotValue } from "./enh/expiry/LotFields";
 import { addDaysIso, todayIso } from "../lib/dates";
 import { EMPTY } from "../lib/empty";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
+
 
 /** Document states plus the payment states derived from the allocation sub-ledger. */
 type PurchaseInvoiceFilterKey = PurchaseInvoiceStatusDTO | "all" | "overdue" | "due_soon" | "partially_paid" | "paid";
@@ -527,7 +497,6 @@ export function PurchaseInvoicesScreen() {
   const workingLocation = useWorkingLocation();
   const receiptsQuery = useGoodsReceipts();
   const suppliersQuery = useSuppliers();
-  const itemsQuery = useItems();
   const projectsQuery = useProjects();
   const createInvoice = useCreatePurchaseInvoice();
   const savedNotice = useAlreadySavedNotice();
@@ -539,18 +508,12 @@ export function PurchaseInvoicesScreen() {
 
   const receipts = receiptsQuery.data ?? [];
   const suppliers = suppliersQuery.data ?? EMPTY;
-  const items = itemsQuery.data ?? EMPTY;
-  const itemOf = (id: string) => items.find((it) => it.id === id);
   const projects = projectsQuery.data ?? EMPTY;
 
   const supplierName = useMemo(() => {
     const map = new Map(suppliers.map((s) => [s.id, s.nameAr]));
     return (id: string) => map.get(id) ?? id;
   }, [suppliers]);
-  const itemName = useMemo(() => {
-    const map = new Map(items.map((i) => [i.id, i.nameAr]));
-    return (id: string | null) => (id ? (map.get(id) ?? id) : "—");
-  }, [items]);
   const projectName = useMemo(() => {
     const map = new Map(projects.map((p) => [p.id, p.nameAr]));
     return (id: string | null) => (id ? (map.get(id) ?? id) : t("common.noProject"));
@@ -565,8 +528,6 @@ export function PurchaseInvoicesScreen() {
   );
 
   const supplierOptions: EntityPickerOption[] = suppliers.map((s) => ({ id: s.id, label: s.nameAr, sublabel: s.code }));
-  // A finished good is produced, not bought; a recipe is neither.
-  const itemOptions: EntityPickerOption[] = items.filter((i) => itemTypeIsPurchasable(i.type)).map((i) => ({ id: i.id, label: i.nameAr }));
   const confirmedReceipts: GoodsReceiptDTO[] = receipts.filter((r) => r.status === "confirmed" && !r.invoiced);
   const receiptOptions: EntityPickerOption[] = confirmedReceipts.map((r) => ({
     id: r.id,
@@ -660,7 +621,7 @@ export function PurchaseInvoicesScreen() {
       : [baseCurrency];
     return codes.map((code) => {
       const definition = findCurrency(code);
-      return definition ? { value: code, label: `${code} — ${locale === "en" ? definition.nameEn : definition.nameAr}` } : { value: code, label: code };
+      return definition ? { value: code, label: `${code} — ${locale === ENGLISH_LOCALE ? definition.nameEn : definition.nameAr}` } : { value: code, label: code };
     });
   }, [allowedCurrencies, baseCurrency, locale]);
   const [lines, setLines] = useState<DraftLine[]>([blankLine()]);
@@ -678,6 +639,8 @@ export function PurchaseInvoicesScreen() {
     if (!receipt) return [];
     return receipt.lines.map((l) => ({ itemId: l.itemId, qty: l.remainingQty, unitCost: l.unitCost, taxRatePercent: 0 }));
   }, [pickedReceipt, confirmedReceipts]);
+  const { itemOf, itemName: nameOfItem, itemValue, remember } = useLineItems([...(selected?.lines ?? []), ...receiptLines, ...lines].map((l) => l.itemId));
+  const itemName = (id: string | null) => (id ? nameOfItem(id) : "—");
   const [billQty, setBillQty] = useState<Record<number, string>>({});
   const billedQty = (index: number, remaining: string): string => billQty[index] ?? remaining;
 
@@ -976,17 +939,18 @@ export function PurchaseInvoicesScreen() {
                 </div>
                 {line.kind === "inventory" ? (
                   <>
-                    <EntityPicker
+                    <ItemPicker
                       label={t("common.item")}
-                      value={itemOptions.find((o) => o.id === line.itemId) ?? null}
-                      onChange={(opt) => {
-                        const item = items.find((it) => it.id === opt?.id);
+                      value={itemValue(line.itemId)}
+                      filter={PURCHASABLE_ITEMS}
+                      onChange={(item) => {
+                        remember(item);
                         setLines((prev) =>
                           prev.map((l, j) =>
                             j === i
                               ? {
                                   ...l,
-                                  itemId: opt?.id ?? "",
+                                  itemId: item?.id ?? "",
                                   unitCost: item?.costPrice ?? l.unitCost,
                                   taxRatePercent: item?.taxRatePercent ?? l.taxRatePercent,
                                   tax: DERIVED_TAX,
@@ -996,7 +960,6 @@ export function PurchaseInvoicesScreen() {
                           ),
                         );
                       }}
-                      options={itemOptions}
                       placeholder={t("purchaseInvoices.field.itemPlaceholder")}
                     />
                     <LotFields

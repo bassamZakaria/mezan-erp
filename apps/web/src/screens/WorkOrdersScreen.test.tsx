@@ -11,11 +11,11 @@ import type { BomRecord, WorkOrderActivity, WorkOrderRecord } from "../data/hook
 
 /** Type into an EntityPicker combobox and pick the matching option — selection
  * fires on `onMouseDown` (not `click`), so the input's blur never wins the race. */
-function pickFromCombobox(container: HTMLElement, label: string, optionLabel: string) {
+async function pickFromCombobox(container: HTMLElement, label: string, optionLabel: string) {
   const input = within(container).getByLabelText(label);
   fireEvent.focus(input);
   fireEvent.change(input, { target: { value: optionLabel } });
-  const option = within(container).getByRole("button", { name: (accessibleName) => accessibleName.startsWith(optionLabel) });
+  const option = await within(container).findByRole("button", { name: (accessibleName) => accessibleName.startsWith(optionLabel) });
   fireEvent.mouseDown(option);
 }
 
@@ -603,13 +603,13 @@ describe("WorkOrdersScreen — create a new work order", () => {
     const save = within(dialog).getByRole("button", { name: "حفظ أمر التصنيع" });
     expect(save).toBeDisabled();
 
-    pickFromCombobox(dialog, "قائمة المواد *", "BOM-0001 — طاولة خشبية");
+    await pickFromCombobox(dialog, "قائمة المواد *", "BOM-0001 — طاولة خشبية");
     expect(save).toBeDisabled();
-    pickFromCombobox(dialog, "مستودع المكونات (مدخلات) *", "مستودع الخامات");
+    await pickFromCombobox(dialog, "مستودع المكونات (مدخلات) *", "مستودع الخامات");
     expect(save).toBeDisabled();
-    pickFromCombobox(dialog, "مستودع التشغيل *", "مستودع المنتجات التامة");
+    await pickFromCombobox(dialog, "مستودع التشغيل *", "مستودع المنتجات التامة");
     expect(save).toBeDisabled();
-    pickFromCombobox(dialog, "مستودع المنتج التام (مخرجات) *", "مستودع المنتجات التامة");
+    await pickFromCombobox(dialog, "مستودع المنتج التام (مخرجات) *", "مستودع المنتجات التامة");
     expect(save).toBeEnabled();
 
     fireEvent.click(save);
@@ -727,10 +727,10 @@ describe("WorkOrdersScreen — list controls", () => {
     // Reopen, fill the form and choose a non-default priority.
     fireEvent.click(screen.getByRole("button", { name: "أمر تصنيع جديد" }));
     dialog = screen.getByRole("dialog", { name: "أمر تصنيع جديد" });
-    pickFromCombobox(dialog, "قائمة المواد *", "BOM-0001 — طاولة خشبية");
-    pickFromCombobox(dialog, "مستودع المكونات (مدخلات) *", "مستودع الخامات");
-    pickFromCombobox(dialog, "مستودع التشغيل *", "مستودع المنتجات التامة");
-    pickFromCombobox(dialog, "مستودع المنتج التام (مخرجات) *", "مستودع المنتجات التامة");
+    await pickFromCombobox(dialog, "قائمة المواد *", "BOM-0001 — طاولة خشبية");
+    await pickFromCombobox(dialog, "مستودع المكونات (مدخلات) *", "مستودع الخامات");
+    await pickFromCombobox(dialog, "مستودع التشغيل *", "مستودع المنتجات التامة");
+    await pickFromCombobox(dialog, "مستودع المنتج التام (مخرجات) *", "مستودع المنتجات التامة");
     fireEvent.click(within(dialog).getByRole("combobox", { name: "الأولوية" }));
     fireEvent.mouseDown(screen.getByRole("option", { name: "منخفضة" }));
     fireEvent.click(within(dialog).getByRole("button", { name: "حفظ أمر التصنيع" }));
@@ -872,10 +872,10 @@ describe("WorkOrdersScreen — create-form failure", () => {
     });
     fireEvent.click(await screen.findByRole("button", { name: "أمر تصنيع جديد" }));
     const dialog = screen.getByRole("dialog", { name: "أمر تصنيع جديد" });
-    pickFromCombobox(dialog, "قائمة المواد *", "BOM-0001 — طاولة خشبية");
-    pickFromCombobox(dialog, "مستودع المكونات (مدخلات) *", "مستودع الخامات");
-    pickFromCombobox(dialog, "مستودع التشغيل *", "مستودع المنتجات التامة");
-    pickFromCombobox(dialog, "مستودع المنتج التام (مخرجات) *", "مستودع المنتجات التامة");
+    await pickFromCombobox(dialog, "قائمة المواد *", "BOM-0001 — طاولة خشبية");
+    await pickFromCombobox(dialog, "مستودع المكونات (مدخلات) *", "مستودع الخامات");
+    await pickFromCombobox(dialog, "مستودع التشغيل *", "مستودع المنتجات التامة");
+    await pickFromCombobox(dialog, "مستودع المنتج التام (مخرجات) *", "مستودع المنتجات التامة");
     fireEvent.click(within(dialog).getByRole("button", { name: "حفظ أمر التصنيع" }));
 
     expect(await within(dialog).findByRole("alert")).toHaveTextContent("الكمية المخططة يجب أن تكون أكبر من صفر");

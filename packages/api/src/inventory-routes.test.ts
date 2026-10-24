@@ -27,6 +27,7 @@ function newApp(
   policy = { allowNegativeStock: false },
   reservations?: StockReservationSource,
   settings?: SettingsRepository,
+  items?: Parameters<typeof createInventoryRoutes>[6],
 ) {
   const store = createSqliteStockLedgerStore();
   handles.push(store);
@@ -37,7 +38,7 @@ function newApp(
     policy,
     transaction: (fn) => store.transaction(fn),
   });
-  return { app: createInventoryRoutes(service, insecureHeaderAuthContextResolver, reservations, undefined, settings), service };
+  return { app: createInventoryRoutes(service, insecureHeaderAuthContextResolver, reservations, undefined, settings, undefined, items), service };
 }
 
 function req(path: string, init: RequestInit & { permissions?: string } = {}) {
@@ -318,6 +319,24 @@ describe("inventory routes — movements, item stock and stock-balance", () => {
     // A warehouse filter that holds none of the item empties the list rather than falling back to "all".
     const nothing = await app.fetch(req("/stock-balance?warehouseId=W-NONE", { permissions: "inventory.stock.view" }));
     expect(((await nothing.json()) as { rows: unknown[] }).rows).toEqual([]);
+  });
+
+  it("labels each stock-balance row with the item's name, code and reorder point, and leaves them off without an item repository", async () => {
+    const adjust = {
+      method: "POST",
+      permissions: "inventory.adjustment.create",
+      body: JSON.stringify({ adjustmentId: "ADJ1", warehouseId: "W1", reason: "INITIAL_STOCK", lines: [{ itemId: "I1", direction: "IN", qty: "3", unitCost: "2" }] }),
+    };
+    const items = { list: async () => [{ id: "I1", nameAr: "شاي", code: "TEA-1", reorderPoint: 5 }] } as unknown as Parameters<typeof createInventoryRoutes>[6];
+    const labelled = newApp(undefined, undefined, undefined, items).app;
+    await labelled.fetch(req("/adjustments", adjust));
+    const body = (await (await labelled.fetch(req("/stock-balance", { permissions: "inventory.stock.view" }))).json()) as { rows: Record<string, unknown>[] };
+    expect(body.rows[0]).toMatchObject({ itemId: "I1", itemNameAr: "شاي", itemCode: "TEA-1", reorderPoint: 5 });
+
+    const bare = newApp().app;
+    await bare.fetch(req("/adjustments", adjust));
+    const bareBody = (await (await bare.fetch(req("/stock-balance", { permissions: "inventory.stock.view" }))).json()) as { rows: Record<string, unknown>[] };
+    expect(bareBody.rows[0]).not.toHaveProperty("itemNameAr");
   });
 });
 

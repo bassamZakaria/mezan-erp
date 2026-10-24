@@ -24,7 +24,7 @@ import {
   useConvertRfq,
   useCreateRfq,
   useCreateRfqQuote,
-  useItems,
+  useItemsByIds,
   useRfqComparison,
   useRfqCounts,
   useRfqQuotes,
@@ -41,7 +41,8 @@ import { useWorkingLocation } from "../data/hub-hooks";
 import { useSubPage } from "../navigation";
 import { TextField, NumberField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
-import { itemTypeIsPurchasable } from "@mezan/domain";
+import { ItemPicker, itemOption, PURCHASABLE_ITEMS } from "./ItemPicker";
+
 import { todayIso } from "../lib/dates";
 import { EMPTY } from "../lib/empty";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
@@ -92,7 +93,6 @@ function RfqDetail({
   rfq,
   quotes,
   comparisonQuery,
-  items,
   suppliers,
   userName,
   onBack,
@@ -105,7 +105,6 @@ function RfqDetail({
   rfq: PurchaseRfqDTO;
   quotes: RfqQuoteDTO[];
   comparisonQuery: ReturnType<typeof useRfqComparison>;
-  items: ItemDTO[];
   suppliers: SupplierDTO[];
   userName: (id: string) => string;
   onBack: () => void;
@@ -126,8 +125,9 @@ function RfqDetail({
   const alreadyQuotedSupplierIds = new Set(quotes.map((q) => q.supplierId));
   const availableQuoteSuppliers = supplierOptions.filter((s) => !alreadyQuotedSupplierIds.has(s.id));
 
+  const { byId: itemsById } = useItemsByIds(rfq.lines.map((l) => l.itemId));
   function itemLabel(itemId: string): string {
-    return items.find((i) => i.id === itemId)?.nameAr ?? itemId;
+    return itemsById.get(itemId)?.nameAr ?? itemId;
   }
   function supplierLabel(supplierId: string): string {
     return suppliers.find((s) => s.id === supplierId)?.nameAr ?? supplierId;
@@ -393,8 +393,6 @@ export function RfqsScreen() {
   const workingLocation = useWorkingLocation();
   const suppliersQuery = useSuppliers();
   const suppliers = suppliersQuery.data ?? [];
-  const itemsQuery = useItems();
-  const items = itemsQuery.data ?? EMPTY;
 
   const createRfq = useCreateRfq();
   const sendRfq = useSendRfq();
@@ -439,10 +437,11 @@ export function RfqsScreen() {
   const [lines, setLines] = useState<DraftLine[]>([{ itemId: "", qty: 1, notes: "" }]);
   const [createError, setCreateError] = useState<string | null>(null);
 
-  const itemOptions: EntityPickerOption[] = useMemo(
-    () => items.filter((i) => itemTypeIsPurchasable(i.type)).map((i) => ({ id: i.id, label: i.nameAr, sublabel: i.baseUnitCode })),
-    [items],
-  );
+  const [pickedItems, setPickedItems] = useState<ReadonlyMap<string, ItemDTO>>(new Map());
+  const pickedOption = (id: string) => {
+    const item = pickedItems.get(id);
+    return item ? itemOption(item) : null;
+  };
 
   /**
    * R1.1: one filter feeds the rows, the chips and the KPI strip — the strip
@@ -558,11 +557,15 @@ export function RfqsScreen() {
           <span className="text-[12.5px] font-semibold text-ink">{t("rfqs.itemsHeading")}</span>
           {lines.map((line, i) => (
             <div key={i} className="rounded-lg border border-border bg-surface p-[12px]">
-              <EntityPicker
+              <ItemPicker
                 label={t("common.item")}
-                value={itemOptions.find((o) => o.id === line.itemId) ?? null}
-                onChange={(opt) => setLines((prev) => prev.map((l, j) => (j === i ? { ...l, itemId: opt?.id ?? "" } : l)))}
-                options={itemOptions}
+                value={pickedOption(line.itemId)}
+                filter={PURCHASABLE_ITEMS}
+                sublabel={(item) => item.baseUnitCode}
+                onChange={(item) => {
+                  if (item) setPickedItems((prev) => new Map(prev).set(item.id, item));
+                  setLines((prev) => prev.map((l, j) => (j === i ? { ...l, itemId: item?.id ?? "" } : l)));
+                }}
                 placeholder={t("rfqs.field.itemPlaceholder")}
               />
               <div className="mt-[10px] grid grid-cols-2 gap-[10px]">
@@ -599,7 +602,6 @@ export function RfqsScreen() {
           rfq={selected}
           quotes={selectedQuotes}
           comparisonQuery={comparisonQuery}
-          items={items}
           suppliers={suppliers}
           userName={userName}
           onBack={() => subPage.close()}

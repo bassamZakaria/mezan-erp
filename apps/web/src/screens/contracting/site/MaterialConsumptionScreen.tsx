@@ -27,7 +27,7 @@ import {
   useMaterialConsumptions,
 } from "../../../data/contracting-site-hooks";
 import { useContractBoq, useWorksContracts } from "../../../data/contracting-contracts-hooks";
-import { useItems, useProjects, useStockBalance, useWarehouses } from "../../../data/hooks";
+import { useItemsByIds, useProjects, useStockBalance, useWarehouses } from "../../../data/hooks";
 import { FormColumns, FormError, FormPage, SectionCard, SelectField, TextField } from "../../../settings/form-controls";
 import { useSubPage } from "../../../navigation";
 import { useAppTranslation } from "../../../i18n";
@@ -37,6 +37,8 @@ import { todayIso } from "../../../lib/dates";
 import { EMPTY } from "../../../lib/empty";
 import { useUrlParam } from "../../../lib/url-state";
 import { LinesTable, trimDecimal } from "./site-common";
+import { ItemPicker, STOCKED_ITEMS } from "../../ItemPicker";
+
 
 /**
  * استهلاك المواد — the ONLY document that turns stock into project cost
@@ -47,13 +49,14 @@ import { LinesTable, trimDecimal } from "./site-common";
 interface LineDraft {
   key: string;
   itemId: string;
+  itemLabel: string;
   qty: string;
 }
 
 let lineSeq = 0;
 function blankLine(): LineDraft {
   lineSeq += 1;
-  return { key: `c${lineSeq}`, itemId: "", qty: "" };
+  return { key: `c${lineSeq}`, itemId: "", itemLabel: "", qty: "" };
 }
 
 export function MaterialConsumptionScreen() {
@@ -67,9 +70,9 @@ export function MaterialConsumptionScreen() {
 
   const projects = useProjects().data ?? EMPTY;
   const warehouses = useWarehouses().data ?? EMPTY;
-  const items = useItems().data ?? EMPTY;
   const query = useMaterialConsumptions(projectFilter !== "all" ? { projectId: projectFilter } : {});
   const rows = query.data ?? EMPTY;
+  const { byId: itemById } = useItemsByIds(rows.flatMap((d) => d.lines.map((line) => line.itemId)));
   const confirmConsumption = useConfirmMaterialConsumption();
   const [rowPendingId, setRowPendingId] = useState<string | null>(null);
   const [rowError, setRowError] = useState<string | null>(null);
@@ -78,7 +81,7 @@ export function MaterialConsumptionScreen() {
     return nameOf(warehouses.find((w) => w.id === id), id);
   }
   function itemLabel(id: string): string {
-    const item = items.find((i) => i.id === id);
+    const item = itemById.get(id);
     return item ? `${item.nameAr} (${item.code})` : id;
   }
 
@@ -211,7 +214,6 @@ function NewConsumptionView({ onDone }: { onDone: () => void }) {
   const createConsumption = useCreateMaterialConsumption();
   const confirmConsumption = useConfirmMaterialConsumption();
   const warehouses = useWarehouses().data ?? EMPTY;
-  const items = useItems().data ?? EMPTY;
   const contracts = useWorksContracts().data ?? EMPTY;
 
   const siteStores = useMemo(() => warehouses.filter((w) => w.type === "SITE" && w.active), [warehouses]);
@@ -244,10 +246,6 @@ function NewConsumptionView({ onDone }: { onDone: () => void }) {
     return here ? trimDecimal(here.available) : "0";
   }
 
-  const itemOptions = useMemo(
-    () => items.filter((i) => i.type !== "service").map((i) => ({ id: i.id, label: i.nameAr, sublabel: i.code })),
-    [items],
-  );
   const boqOptions = useMemo(
     () => boqLines.map((l) => ({ id: l.id, label: `${l.code} — ${l.descriptionAr}`, sublabel: l.unitLabelAr })),
     [boqLines],
@@ -339,11 +337,11 @@ function NewConsumptionView({ onDone }: { onDone: () => void }) {
           {lines.map((line, i) => (
             <tr key={line.key} className="border-b border-border last:border-b-0">
               <td className="px-[12px] py-[8px]">
-                <EntityPicker
+                <ItemPicker
                   className="min-w-[190px]"
-                  value={line.itemId === "" ? null : (itemOptions.find((o) => o.id === line.itemId) ?? null)}
-                  onChange={(option) => updateLine(i, { itemId: option?.id ?? "" })}
-                  options={itemOptions}
+                  value={line.itemId === "" ? null : { id: line.itemId, label: line.itemLabel }}
+                  onChange={(item) => updateLine(i, { itemId: item?.id ?? "", itemLabel: item?.nameAr ?? "" })}
+                  filter={STOCKED_ITEMS}
                   placeholder={t("site.chooseItem")}
                   emptyMessage={t("site.noItems")}
                 />

@@ -5,7 +5,6 @@ import {
   Chip,
   DocumentList,
   EmptyState,
-  EntityPicker,
   Money as MoneyDisplay,
   MoneyInput,
   QtyInput,
@@ -15,15 +14,16 @@ import {
   TextArea,
   type DocumentListColumn,
   type DocumentListStatusChip,
-  type EntityPickerOption,
   type RowMenuItem,
 } from "@mezan/ui";
 import type { ItemDTO, PriceListDTO, PriceListLineDTO } from "@mezan/contracts";
 import { Field, TextField, ToggleField } from "../settings/form-controls";
-import { useCreatePriceList, useItems, usePriceLists, useUpdatePriceList } from "../data/hooks";
+import { useCreatePriceList, useItemsByIds, usePriceLists, useUpdatePriceList } from "../data/hooks";
+import { ItemPicker, itemOption } from "./ItemPicker";
 import { useNameSubPage, useSubPage } from "../navigation";
 import { useAppTranslation } from "../i18n";
 import { majorOf } from "../lib/money";
+import { Money, Qty, roundMoney } from "@mezan/domain";
 import { EMPTY } from "../lib/empty";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 
@@ -44,8 +44,9 @@ interface TierDraft {
   key: string;
   itemId: string;
   unitCode: string;
-  minQty: number;
-  price: number | null;
+  minQty: string;
+  price: string | null;
+  item?: ItemDTO;
 }
 
 let tierSeq = 0;
@@ -54,13 +55,30 @@ function tierKey(): string {
   return `t${tierSeq}`;
 }
 
+function typedDecimal(value: number): string | null {
+  if (!Number.isFinite(value)) return null;
+  const text = value.toFixed(6);
+  if (!/^-?\d+(\.\d+)?$/.test(text)) return null;
+  const [whole = "0", fraction = ""] = text.split(".");
+  return fraction === "" ? whole : `${whole}.${fraction.slice(0, 6)}`;
+}
+
+function typedPrice(value: number | null): string | null {
+  const text = value === null ? null : typedDecimal(value);
+  return text === null ? null : roundMoney(Money.fromMajor(text), 2).toString();
+}
+
+function typedQty(value: number): string {
+  return Qty.fromMajor(typedDecimal(value) ?? "0").toString();
+}
+
 function draftFrom(list: PriceListDTO): TierDraft[] {
   return list.lines.map((line) => ({
     key: tierKey(),
     itemId: line.itemId,
     unitCode: line.unitCode ?? "",
-    minQty: majorOf(line.minQty),
-    price: majorOf(line.price),
+    minQty: Qty.fromMajor(line.minQty).toString(),
+    price: Money.fromMajor(line.price).toString(),
   }));
 }
 
@@ -68,7 +86,7 @@ function draftFrom(list: PriceListDTO): TierDraft[] {
  * The tier grid for one list — item, unit, minimum quantity, the item's own
  * base price, and the custom price this list charges from that quantity up.
  */
-function PriceListTiers({ list, items }: { list: PriceListDTO; items: ItemDTO[] }) {
+function PriceListTiers({ list }: { list: PriceListDTO }) {
   const { t } = useAppTranslation();
   const update = useUpdatePriceList();
   const [tiers, setTiers] = useState<TierDraft[]>(() => draftFrom(list));
@@ -81,18 +99,14 @@ function PriceListTiers({ list, items }: { list: PriceListDTO; items: ItemDTO[] 
     setSaved(false);
   }, [list]);
 
-  const itemOptions = useMemo<EntityPickerOption[]>(
-    () => items.map((i) => ({ id: i.id, label: i.nameAr, sublabel: i.code })),
-    [items],
-  );
-  const itemById = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
+  const { byId: itemById } = useItemsByIds(tiers.map((row) => row.itemId));
 
   function setTier(key: string, patch: Partial<TierDraft>) {
     setTiers((rows) => rows.map((row) => (row.key === key ? { ...row, ...patch } : row)));
   }
 
   function addTier() {
-    setTiers((rows) => [...rows, { key: tierKey(), itemId: "", unitCode: "", minQty: 1, price: null }]);
+    setTiers((rows) => [...rows, { key: tierKey(), itemId: "", unitCode: "", minQty: Qty.fromMajor("1").toString(), price: null }]);
     setSaved(false);
   }
 
@@ -112,8 +126,8 @@ function PriceListTiers({ list, items }: { list: PriceListDTO; items: ItemDTO[] 
     const lines: PriceListLineDTO[] = rows.map((row) => ({
       itemId: row.itemId,
       unitCode: row.unitCode.trim() === "" ? null : row.unitCode.trim(),
-      minQty: row.minQty.toFixed(6),
-      price: (row.price ?? 0).toFixed(2),
+      minQty: row.minQty,
+      price: row.price ?? Money.zero().toString(),
     }));
     try {
       await update.mutateAsync({ id: list.id, patch: { lines } });
@@ -154,30 +168,30 @@ function PriceListTiers({ list, items }: { list: PriceListDTO; items: ItemDTO[] 
             </thead>
             <tbody>
               {tiers.map((row) => {
-                const item = itemById.get(row.itemId) ?? null;
-                const basePrice = item?.salePrice ? majorOf(item.salePrice) : 0;
+                const item = row.item ?? itemById.get(row.itemId) ?? null;
+                const basePrice = item?.salePrice ?? 0;
                 return (
                   <tr key={row.key} className="border-b border-border align-top">
                     <td className="p-[8px_10px]">
-                      <EntityPicker
-                        value={item ? { id: item.id, label: item.nameAr, sublabel: item.code } : null}
-                        onChange={(option) =>
+                      <ItemPicker
+                        value={item ? itemOption(item) : row.itemId ? { id: row.itemId, label: row.itemId } : null}
+                        onChange={(picked) =>
                           setTier(row.key, {
-                            itemId: option?.id ?? "",
-                            unitCode: option ? (itemById.get(option.id)?.baseUnitCode ?? row.unitCode) : row.unitCode,
+                            itemId: picked?.id ?? "",
+                            item: picked ?? undefined,
+                            unitCode: picked ? picked.baseUnitCode : row.unitCode,
                           })
                         }
-                        options={itemOptions}
                         placeholder={t("priceLists.tier.chooseItem")}
-                        aria-label={t("common.item")}
+                        ariaLabel={t("common.item")}
                       />
                     </td>
                     <td className="p-[8px_10px] text-ink-muted">{row.unitCode || item?.baseUnitCode || "—"}</td>
                     <td className="p-[8px_10px]">
                       <QtyInput
-                        value={row.minQty}
+                        value={majorOf(row.minQty)}
                         min={0}
-                        onChange={(v) => setTier(row.key, { minQty: v })}
+                        onChange={(v) => setTier(row.key, { minQty: typedQty(v) })}
                         aria-label={t("priceLists.tier.minQty")}
                       />
                     </td>
@@ -186,8 +200,8 @@ function PriceListTiers({ list, items }: { list: PriceListDTO; items: ItemDTO[] 
                     </td>
                     <td className="p-[8px_10px] text-end">
                       <MoneyInput
-                        value={row.price}
-                        onChange={(v) => setTier(row.key, { price: v })}
+                        value={row.price === null ? null : majorOf(row.price)}
+                        onChange={(v) => setTier(row.key, { price: typedPrice(v) })}
                         aria-label={t("priceLists.tier.customPrice")}
                       />
                     </td>
@@ -228,7 +242,6 @@ export function PriceListsScreen() {
   const { t } = useAppTranslation();
   const query = usePriceLists();
   const priceLists = query.data ?? EMPTY;
-  const items = useItems().data ?? [];
   const create = useCreatePriceList();
   const update = useUpdatePriceList();
 
@@ -373,7 +386,7 @@ export function PriceListsScreen() {
           ))}
         </div>
 
-        <PriceListTiers list={selected} items={items} />
+        <PriceListTiers list={selected} />
       </div>
     );
   }

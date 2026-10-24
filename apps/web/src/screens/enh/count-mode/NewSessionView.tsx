@@ -1,12 +1,13 @@
 import { useMemo, useState } from "react";
 import { Plus, Trash2, X } from "lucide-react";
-import { Button, Card } from "@mezan/ui";
-import { CountZoneKindDTO, type CountZoneSpecDTO, type StartCountModeDTO } from "@mezan/contracts";
+import { ENGLISH_LOCALE, Button, Card } from "@mezan/ui";
+import { CountZoneKindDTO, type CountZoneSpecDTO, type ItemDTO, type StartCountModeDTO } from "@mezan/contracts";
 import { useAppTranslation } from "../../../i18n";
 import { useNavigation } from "../../../navigation";
-import { ApiError, useItemCategories, useItems, useWarehouses } from "../../../data/hooks";
+import { ApiError, useItemCategories, useItemSearch, useWarehouses } from "../../../data/hooks";
 import { SelectField, TextField, ToggleField, MultiChipField } from "../../../settings/form-controls";
 import { todayIso } from "../../../lib/dates";
+import { useSearchTerm } from "../../../lib/use-debounced";
 import { useCountModeCounters, useStartCountMode } from "./hooks";
 
 interface ZoneDraft {
@@ -26,21 +27,18 @@ function blankZone(): ZoneDraft {
 
 function ItemSearch({ selected, onChange }: { selected: readonly string[]; onChange: (ids: readonly string[]) => void }) {
   const { t, locale } = useAppTranslation();
-  const itemsQuery = useItems();
   const [query, setQuery] = useState("");
-  const items = useMemo(() => itemsQuery.data ?? [], [itemsQuery.data]);
-  const byId = useMemo(() => new Map(items.map((item) => [item.id, item])), [items]);
+  const [byId, setById] = useState<ReadonlyMap<string, ItemDTO>>(new Map());
+  const { term, pending } = useSearchTerm(query);
+  const search = useItemSearch(term);
   const matches = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    if (needle === "") return [];
-    return items
-      .filter((item) => !selected.includes(item.id) && [item.code, item.nameAr, item.nameEn ?? "", ...item.barcodes].some((field) => field.toLowerCase().includes(needle)))
-      .slice(0, SEARCH_RESULT_LIMIT);
-  }, [items, query, selected]);
+    if (term === "" || pending || search.isFetching) return [];
+    return (search.data ?? []).filter((item) => !selected.includes(item.id)).slice(0, SEARCH_RESULT_LIMIT);
+  }, [search.data, search.isFetching, term, pending, selected]);
   const nameOf = (id: string) => {
     const item = byId.get(id);
     if (!item) return id;
-    return locale === "en" && item.nameEn ? item.nameEn : item.nameAr;
+    return locale === ENGLISH_LOCALE && item.nameEn ? item.nameEn : item.nameAr;
   };
   return (
     <div className="flex flex-col gap-[8px]">
@@ -53,11 +51,12 @@ function ItemSearch({ selected, onChange }: { selected: readonly string[]; onCha
                 type="button"
                 className="flex min-h-[44px] w-full items-center justify-between gap-[8px] px-[12px] text-start text-[13px] hover:bg-surface-2"
                 onClick={() => {
+                  setById((known) => new Map(known).set(item.id, item));
                   onChange([...selected, item.id]);
                   setQuery("");
                 }}
               >
-                <span className="truncate">{locale === "en" && item.nameEn ? item.nameEn : item.nameAr}</span>
+                <span className="truncate">{locale === ENGLISH_LOCALE && item.nameEn ? item.nameEn : item.nameAr}</span>
                 <span className="mz-num text-[12px] text-ink-muted">{item.code}</span>
               </button>
             </li>
@@ -96,7 +95,7 @@ export function NewSessionView() {
   const [error, setError] = useState<string | null>(null);
 
   const effectiveWarehouse = warehouseId || warehouses[0]?.id || "";
-  const categoryOptions = [{ value: "", label: t("countMode.new.chooseCategory") }, ...(categoriesQuery.data ?? []).map((c) => ({ value: c.id, label: locale === "en" && c.nameEn ? c.nameEn : c.nameAr }))];
+  const categoryOptions = [{ value: "", label: t("countMode.new.chooseCategory") }, ...(categoriesQuery.data ?? []).map((c) => ({ value: c.id, label: locale === ENGLISH_LOCALE && c.nameEn ? c.nameEn : c.nameAr }))];
   const counterOptions = (countersQuery.data ?? []).map((c) => ({ value: c.userId, label: c.name }));
 
   function patchZone(key: string, next: Partial<ZoneDraft>) {

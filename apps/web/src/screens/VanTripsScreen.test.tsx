@@ -119,6 +119,9 @@ const ongoingTrip: VanTripDTO = {
   notes: null,
 };
 
+const itemRequests: string[] = [];
+const openedBodies: { loadedStock?: { itemId: string; qty: unknown }[] }[] = [];
+
 function renderScreen(trips: VanTripDTO[] = [ongoingTrip]) {
   let current = [...trips];
   const transport = stubTransport({
@@ -126,11 +129,15 @@ function renderScreen(trips: VanTripDTO[] = [ongoingTrip]) {
     "GET /warehouses": () => ({ body: warehouses }),
     "GET /treasury-accounts": () => ({ body: treasuryAccounts }),
     "GET /branches": () => ({ body: branches }),
-    "GET /items": () => ({ body: items }),
+    "GET /items": (_init, path) => {
+      itemRequests.push(path);
+      return { body: items };
+    },
     "GET /field/vans": () => ({ body: vans }),
     "GET /hr/employees": () => ({ body: employees }),
     "POST /field/van-trips": (init) => {
       const body = JSON.parse((init?.body as string) ?? "{}");
+      openedBodies.push(body);
       // Only `vanId` leaves the browser now — the van's warehouse, till and
       // branch are resolved server-side from the van registry, the same way
       // the real backend does (VanTripsScreen.tsx's handleSubmit comment).
@@ -251,9 +258,19 @@ describe("VanTripsScreen", () => {
     choose("اختر موظفاً", /^أحمد نبيل/);
     fireEvent.click(within(crewSection).getByRole("button", { name: "إضافة" }));
 
+    const itemInput = within(dialog).getByRole("combobox", { name: "اختر صنفاً" });
+    fireEvent.focus(itemInput);
+    fireEvent.change(itemInput, { target: { value: "ITEM" } });
+    fireEvent.mouseDown(await screen.findByRole("button", { name: new RegExp(items[0]!.nameAr) }));
+    const stockSection = within(dialog).getByText("تحميل مخزون (اختياري)").closest("div")!;
+    fireEvent.click(within(stockSection).getByRole("button", { name: "إضافة" }));
+    expect(within(dialog).getByText(new RegExp(items[0]!.nameAr))).toBeInTheDocument();
+
     fireEvent.click(within(dialog).getByRole("button", { name: "فتح رحلة" }));
 
     expect(await screen.findByText("VT-000002")).toBeInTheDocument();
+    expect(openedBodies.at(-1)?.loadedStock?.[0]?.itemId).toBe(items[0]!.id);
+    for (const path of itemRequests) expect(new URLSearchParams(path.split("?")[1]).get("page")).toBe("1");
   });
 
   it("records a cash movement on an ongoing trip", async () => {

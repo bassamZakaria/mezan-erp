@@ -3,15 +3,13 @@ import bwipjs from "bwip-js/browser";
 import {
   Button,
   Card,
-  EntityPicker,
   QtyInput,
   Select,
-  type EntityPickerOption,
 } from "@mezan/ui";
+import type { ItemDTO } from "@mezan/contracts";
 import { buildLabelBatch, LABEL_TEMPLATES, Money, type LabelBatchLineInput, type LabelTemplateCode } from "@mezan/domain";
-import { useItems } from "../data/hooks";
+import { ItemPicker } from "./ItemPicker";
 import { useAppTranslation } from "../i18n";
-import { EMPTY } from "../lib/empty";
 import { codedLabel } from "../domain-labels";
 
 /**
@@ -69,22 +67,13 @@ function LabelTile({ line, template }: { line: SelectedLine; template: (typeof L
 
 export function LabelPrintingScreen() {
   const { t } = useAppTranslation();
-  const itemsQuery = useItems();
-  const items = itemsQuery.data ?? EMPTY;
-
-  const [pickerValue, setPickerValue] = useState<EntityPickerOption | null>(null);
   const [lines, setLines] = useState<SelectedLine[]>([]);
   const [templateCode, setTemplateCode] = useState<LabelTemplateCode>("THERMAL_40x30");
 
-  const options: EntityPickerOption[] = useMemo(() => {
-    const already = new Set(lines.map((l) => l.itemId));
-    return items.filter((it) => !already.has(it.id)).map((it) => ({ id: it.id, label: it.nameAr, sublabel: it.code }));
-  }, [items, lines]);
+  const chosenIds = useMemo(() => new Set(lines.map((l) => l.itemId)), [lines]);
 
-  function addItem(option: EntityPickerOption | null) {
-    if (!option) return;
-    const item = items.find((it) => it.id === option.id);
-    if (!item) return;
+  function addItem(item: ItemDTO | null) {
+    if (!item || chosenIds.has(item.id)) return;
     setLines((prev) => [
       ...prev,
       {
@@ -96,7 +85,6 @@ export function LabelPrintingScreen() {
         copies: 1,
       },
     ]);
-    setPickerValue(null);
   }
 
   function removeLine(itemId: string) {
@@ -155,11 +143,11 @@ export function LabelPrintingScreen() {
 
           <div className="mb-[14px] flex flex-wrap items-end gap-[12px]">
             <div className="min-w-[260px] flex-1">
-              <EntityPicker
+              <ItemPicker
                 label={t("labelPrinting.addAnItem")}
-                value={pickerValue}
+                value={null}
                 onChange={addItem}
-                options={options}
+                accept={(item) => !chosenIds.has(item.id)}
                 placeholder={t("labelPrinting.searchForAnItemBy")}
                 emptyMessage={t("labelPrinting.noResults")}
               />
@@ -179,7 +167,7 @@ export function LabelPrintingScreen() {
             </div>
           </div>
 
-          <div className="overflow-hidden rounded-lg border border-border">
+          <div className="overflow-x-auto rounded-lg border border-border">
             <table className="w-full text-[12.5px]">
               <thead className="bg-surface-2 text-ink-faint">
                 <tr>

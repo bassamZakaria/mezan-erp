@@ -1,7 +1,9 @@
-import { useMemo } from "react";
+import { SalesInvoiceDerivedFilter } from "@mezan/contracts";
 import { Money, WorkspaceHub } from "@mezan/ui";
 import { ScreenRequest } from "@mezan/domain";
-import { useCustomers, useHoldsScreenRequest, useSalesInvoices, useSalesQuotes } from "../../data/hooks";
+import { useCustomerCounts, useHoldsScreenRequest, useSalesInvoiceCounts, useSalesInvoices, useSalesInvoiceStats, useSalesQuoteCounts } from "../../data/hooks";
+import { useApi } from "../../data/ApiContext";
+import { DocumentReadPermission, sessionMayRead } from "../../data/document-read-permissions";
 import { useAppTranslation } from "../../i18n";
 import { DateAndDoc, HubActions, type HubAction } from "./hub-parts";
 import { EMPTY } from "../../lib/empty";
@@ -9,11 +11,9 @@ import { EMPTY } from "../../lib/empty";
 /**
  * المبيعات hub — KPI tiles + quick actions + recent activity, all computed
  * from real endpoints already wired in `data/hooks.ts` (`/sales-invoices`,
- * `/sales-quotes`, `/customers`). No figure here is invented: every tile is a
- * count or a sum over the actual list responses.
+ * `/sales-quotes`, `/customers`). No figure here is invented: counts and the
+ * receivable come from the server's own counts/stats over the whole set.
  */
-
-const OUTSTANDING_INVOICE_STATUSES = new Set(["confirmed", "partially_paid"]);
 
 /**
  * Verbs only. A row of buttons that navigate to the same screens the bar one
@@ -25,33 +25,24 @@ const quickActions: HubAction[] = [
   { label: "salesHub.action.newQuote", screen: "quotes" },
 ];
 
-function num(value: string | undefined | null): number {
-  return value ? Number(value) : 0;
-}
+const RECENT_INVOICES = { page: 1, pageSize: 5, sort: "docNo", sortDir: "desc" } as const;
 
 export function SalesHubScreen() {
   const { t } = useAppTranslation();
-  const invoicesQuery = useSalesInvoices();
-  const quotesQuery = useSalesQuotes();
+  const { session } = useApi();
+  const countsQuery = useSalesInvoiceCounts();
+  const statsQuery = useSalesInvoiceStats({ status: SalesInvoiceDerivedFilter.Open });
+  const recentQuery = useSalesInvoices(RECENT_INVOICES);
   const readsQuotes = useHoldsScreenRequest(ScreenRequest.SalesQuotes);
-  const customersQuery = useCustomers();
+  const quotesQuery = useSalesQuoteCounts({}, { enabled: readsQuotes });
+  const readsCustomers = sessionMayRead(session, DocumentReadPermission.Customers);
+  const customerCountsQuery = useCustomerCounts({}, { enabled: readsCustomers });
 
-  const invoices = invoicesQuery.data ?? EMPTY;
-  const quotes = quotesQuery.data ?? EMPTY;
-  const customers = customersQuery.data ?? [];
+  const recentInvoices = recentQuery.data ?? EMPTY;
+  const pendingQuotes = quotesQuery.data?.sent ?? 0;
 
-  const outstandingReceivable = useMemo(
-    () =>
-      invoices
-        .filter((inv) => OUTSTANDING_INVOICE_STATUSES.has(inv.status))
-        .reduce((sum, inv) => sum + num(inv.remainingBalance), 0),
-    [invoices],
-  );
-  const pendingQuotes = useMemo(() => quotes.filter((q) => q.status === "sent").length, [quotes]);
-  const recentInvoices = useMemo(() => [...invoices].sort((a, b) => (a.date < b.date ? 1 : -1)).slice(0, 5), [invoices]);
-
-  const isLoading = invoicesQuery.isLoading || quotesQuery.isLoading || customersQuery.isLoading;
-  const isError = invoicesQuery.isError || quotesQuery.isError || customersQuery.isError;
+  const isLoading = countsQuery.isLoading || statsQuery.isLoading || recentQuery.isLoading || (readsQuotes && quotesQuery.isLoading) || (readsCustomers && customerCountsQuery.isLoading);
+  const isError = countsQuery.isError || statsQuery.isError || recentQuery.isError || (readsQuotes && quotesQuery.isError) || (readsCustomers && customerCountsQuery.isError);
 
   return (
     <WorkspaceHub
@@ -61,10 +52,10 @@ export function SalesHubScreen() {
       error={isError ? t("salesHub.loadFailed") : null}
       actions={<HubActions actions={quickActions} />}
       stats={[
-        { key: "invoices", label: t("salesHub.stat.invoices"), value: invoices.length, sub: t("salesHub.stat.invoicesSub") },
-        { key: "receivable", label: t("salesHub.stat.receivable"), value: <Money value={outstandingReceivable} />, sub: t("salesHub.stat.receivableSub") },
+        { key: "invoices", label: t("salesHub.stat.invoices"), value: countsQuery.data?.all ?? 0, sub: t("salesHub.stat.invoicesSub") },
+        { key: "receivable", label: t("salesHub.stat.receivable"), value: <Money value={statsQuery.data?.remaining ?? "0"} />, sub: t("salesHub.stat.receivableSub") },
         ...(readsQuotes ? [{ key: "quotes", label: t("salesHub.stat.pendingQuotes"), value: pendingQuotes, sub: t("salesHub.stat.pendingQuotesSub") }] : []),
-        { key: "customers", label: t("salesHub.stat.customers"), value: customers.length, sub: t("salesHub.stat.customersSub") },
+        ...(readsCustomers ? [{ key: "customers", label: t("salesHub.stat.customers"), value: customerCountsQuery.data?.all ?? 0, sub: t("salesHub.stat.customersSub") }] : []),
       ]}
       list={{
         title: t("salesHub.recent"),
@@ -74,7 +65,7 @@ export function SalesHubScreen() {
           key: inv.id,
           primary: inv.customerNameAr,
           secondary: <DateAndDoc date={inv.date} docNo={inv.docNo} />,
-          trailing: <Money value={num(inv.baseGrandTotal ?? inv.totals.grandTotal)} />,
+          trailing: <Money value={inv.baseGrandTotal ?? inv.totals.grandTotal} />,
         })),
       }}
     />

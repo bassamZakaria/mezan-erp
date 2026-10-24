@@ -19,19 +19,7 @@ import {
   Qty as QtyDisplay,
 } from "@mezan/ui";
 import type { PurchaseOrderDTO, PurchaseOrderLineDTO, PurchaseOrderStatusDTO } from "@mezan/contracts";
-import {
-  useBranches,
-  useConfirmPurchaseOrder,
-  useCreatePurchaseOrder,
-  useItems,
-  usePurchaseOrderCounts,
-  usePurchaseOrders,
-  usePurchaseOrderStats,
-  useSuppliers,
-  useUsers,
-  useWarehouses,
-  type PurchaseOrderListFilter,
-} from "../data/hooks";
+import { useBranches, useConfirmPurchaseOrder, useCreatePurchaseOrder, usePurchaseOrderCounts, usePurchaseOrders, usePurchaseOrderStats, useSuppliers, useUsers, useWarehouses, type PurchaseOrderListFilter } from "../data/hooks";
 import { useWorkingLocation } from "../data/hub-hooks";
 import { useUnitLabel } from "../lib/item-labels";
 import { SelectField, TextField, NumberField } from "../settings/form-controls";
@@ -39,7 +27,7 @@ import { PurchaseOrderPrintPage } from "../print/documents";
 import { useNavigation, useScreenIntent, useSubPage } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { majorOf } from "../lib/money";
-import { itemTypeIsPurchasable } from "@mezan/domain";
+import { ItemPicker, PURCHASABLE_ITEMS, useLineItems } from "./ItemPicker";
 import { todayIso } from "../lib/dates";
 import { AttachmentsTab } from "../attachments/AttachmentsTab";
 import { EMPTY } from "../lib/empty";
@@ -59,6 +47,7 @@ const STATUS_TONE: Record<PurchaseOrderStatusDTO, PillTone> = {
   fully_received: "success",
   cancelled: "danger",
 };
+
 
 const num = (v: string) => Number(v);
 const lineTotal = (l: PurchaseOrderLineDTO) => Number(l.qty) * Number(l.unitPrice);
@@ -164,27 +153,18 @@ function OrderDetail({
 export function PurchaseOrdersScreen() {
   const { t } = useAppTranslation();
   const suppliersQuery = useSuppliers();
-  const itemsQuery = useItems();
   const createOrder = useCreatePurchaseOrder();
   const confirmOrder = useConfirmPurchaseOrder();
 
   const suppliers = suppliersQuery.data ?? EMPTY;
-  const items = itemsQuery.data ?? EMPTY;
 
   const supplierName = useMemo(() => {
     const map = new Map(suppliers.map((s) => [s.id, s.nameAr]));
     return (id: string) => map.get(id) ?? id;
   }, [suppliers]);
-  const itemName = useMemo(() => {
-    const map = new Map(items.map((i) => [i.id, i.nameAr]));
-    return (id: string) => map.get(id) ?? id;
-  }, [items]);
 
   const supplierOptions: EntityPickerOption[] = suppliers.map((s) => ({ id: s.id, label: s.nameAr, sublabel: s.code }));
   const unitLabel = useUnitLabel();
-  const itemOptions: EntityPickerOption[] = items
-    .filter((i) => itemTypeIsPurchasable(i.type))
-    .map((i) => ({ id: i.id, label: i.nameAr, sublabel: unitLabel(i.baseUnitCode) }));
 
   const users = useUsers().data ?? [];
   const filterBranches = useBranches().data ?? [];
@@ -255,6 +235,7 @@ export function PurchaseOrdersScreen() {
 
   const orders = query.data ?? EMPTY;
   const selected = selectedId === null ? null : (orders.find((o) => o.id === selectedId || o.number === selectedId) ?? null);
+  const { itemOf, itemName, itemValue, remember } = useLineItems([...(selected?.lines ?? []), ...lines].map((l) => l.itemId));
 
   const filtered = useMemo(() => [...orders].sort((a, b) => b.number.localeCompare(a.number)), [orders]);
 
@@ -349,14 +330,15 @@ export function PurchaseOrdersScreen() {
         <span className="text-[12.5px] font-semibold text-ink">{t("purchaseOrders.linesHeading")}</span>
         {lines.map((line, i) => (
           <div key={i} className="rounded-lg border border-border bg-surface p-[12px]">
-            <EntityPicker
+            <ItemPicker
               label={t("common.item")}
-              value={itemOptions.find((o) => o.id === line.itemId) ?? null}
-              onChange={(opt) => {
-                const item = items.find((it) => it.id === opt?.id);
-                setLines((prev) => prev.map((l, j) => (j === i ? { ...l, itemId: opt?.id ?? "", unitPrice: item?.costPrice ? Number(item.costPrice) : l.unitPrice } : l)));
+              value={itemValue(line.itemId)}
+              filter={PURCHASABLE_ITEMS}
+              sublabel={(item) => unitLabel(item.baseUnitCode)}
+              onChange={(item) => {
+                remember(item);
+                setLines((prev) => prev.map((l, j) => (j === i ? { ...l, itemId: item?.id ?? "", unitPrice: item?.costPrice ? Number(item.costPrice) : l.unitPrice } : l)));
               }}
-              options={itemOptions}
               placeholder={t("purchaseOrders.field.itemPlaceholder")}
             />
             <div className="mt-[10px] grid grid-cols-2 gap-[10px]">

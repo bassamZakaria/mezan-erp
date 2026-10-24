@@ -45,6 +45,7 @@ import { useAppTranslation, type AppTranslationKey } from "../../../i18n";
 import { majorOf, sumMajor } from "../../../lib/money";
 import { todayIso } from "../../../lib/dates";
 import { EMPTY } from "../../../lib/empty";
+import { useSearchTerm } from "../../../lib/use-debounced";
 import { unitLabel } from "../../../lib/boq-unit-label";
 import { SUBCONTRACT_STATUS_KEY, SUBCONTRACT_STATUS_TONE, SUB_CERTIFICATE_STATUS_KEY, SUB_CERTIFICATE_STATUS_TONE, trimScale } from "./subcontract-common";
 
@@ -789,14 +790,23 @@ function SubcontractHeaderPanel({ subcontract }: { subcontract: SubcontractDTO }
   );
 }
 
+const VOUCHER_PICKER_PAGE_SIZE = 20;
+
 function AdvancePanel({ subcontract }: { subcontract: SubcontractDTO }) {
   const { t } = useAppTranslation();
-  const vouchers = useVouchers({ status: "confirmed" }).data ?? EMPTY;
+  const [query, setQuery] = useState("");
+  const { term, pending } = useSearchTerm(query);
+  const vouchersQuery = useVouchers({
+    status: "confirmed",
+    supplierId: subcontract.supplierId,
+    search: term || undefined,
+    page: 1,
+    pageSize: VOUCHER_PICKER_PAGE_SIZE,
+  });
+  const eligible = vouchersQuery.data ?? EMPTY;
   const link = useLinkSubcontractAdvance();
   const [voucher, setVoucher] = useState<EntityPickerOption | null>(null);
   const [error, setError] = useState<string | null>(null);
-
-  const eligible = vouchers.filter((v) => v.supplierId === subcontract.supplierId);
 
   async function submit() {
     setError(null);
@@ -825,6 +835,9 @@ function AdvancePanel({ subcontract }: { subcontract: SubcontractDTO }) {
             value={voucher}
             onChange={setVoucher}
             options={eligible.map((v) => ({ id: v.id, label: v.docNo ?? v.id, sublabel: `${v.date} · ${v.amount}` }))}
+            onQueryChange={setQuery}
+            loading={pending || vouchersQuery.isFetching}
+            error={vouchersQuery.isError}
             placeholder={t("subcontracts.pickVoucher")}
             emptyMessage={t("subcontracts.noEligibleVouchers")}
           />

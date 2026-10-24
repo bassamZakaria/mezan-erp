@@ -172,10 +172,17 @@ export const salesInvoicePaymentSchema = z.object({
  * when it is open past its due date. They live here because the rows, the
  * chip counts and the KPI strip must all read them the same way.
  */
-export const salesInvoiceFilterKeySchema = z.union([
-  salesInvoiceStatusSchema,
-  z.enum(["all", "open", "overdue"]),
-]);
+export enum SalesInvoiceDerivedFilter {
+  All = "all",
+  Open = "open",
+  Overdue = "overdue",
+  /** Confirmed, partially paid or paid: live in the ledger, so returnable and counted as sales. */
+  Active = "active",
+}
+
+const SALES_INVOICE_DERIVED_FILTERS = Object.values(SalesInvoiceDerivedFilter) as [`${SalesInvoiceDerivedFilter}`, ...`${SalesInvoiceDerivedFilter}`[]];
+
+export const salesInvoiceFilterKeySchema = z.union([salesInvoiceStatusSchema, z.enum(SALES_INVOICE_DERIVED_FILTERS)]);
 
 /** Query filter for the invoice list. */
 export const salesInvoiceListQuerySchema = z.object({
@@ -242,6 +249,8 @@ export type ConfirmSalesInvoiceDTO = z.infer<typeof confirmSalesInvoiceSchema>;
 export type SalesInvoicePaymentDTO = z.infer<typeof salesInvoicePaymentSchema>;
 export type SalesInvoiceListQueryDTO = z.infer<typeof salesInvoiceListQuerySchema>;
 export type AppliedSalesInvoicePromotionDTO = z.infer<typeof appliedSalesInvoicePromotionSchema>;
+export const SALES_INVOICE_DUE_SOON_DAYS = 30;
+
 /** `GET /sales-invoices/stats` — the KPI strip, summed in `Money` server-side. */
 export const salesInvoiceStatsSchema = z.object({
   count: z.number(),
@@ -249,6 +258,10 @@ export const salesInvoiceStatsSchema = z.object({
   collected: z.string(),
   returned: z.string(),
   remaining: z.string(),
+  overdueCount: z.number(),
+  overdue: z.string(),
+  dueSoonCount: z.number(),
+  dueSoon: z.string(),
 });
 
 export type PromotionUsageRowDTO = z.infer<typeof promotionUsageRowSchema>;

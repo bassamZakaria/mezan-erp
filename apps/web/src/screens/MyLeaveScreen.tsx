@@ -115,38 +115,40 @@ export function MyLeaveScreen() {
       {linked ? (
         requests.length > 0 ? (
           <Card className="overflow-hidden">
-            <table className="w-full border-collapse text-[12.5px]">
-              <thead>
-                <tr className="border-b border-border text-ink-faint">
-                  <th className="px-[14px] py-[10px] text-start font-semibold">{t("myLeave.leaveType")}</th>
-                  <th className="px-[14px] py-[10px] text-start font-semibold">{t("common.period")}</th>
-                  <th className="px-[14px] py-[10px] text-end font-semibold">{t("myLeave.days")}</th>
-                  <th className="px-[14px] py-[10px] text-start font-semibold">{t("common.status")}</th>
-                  <th className="px-[14px] py-[10px]" />
-                </tr>
-              </thead>
-              <tbody>
-                {requests.map((r) => (
-                  <tr key={r.id} className="border-b border-border last:border-0">
-                    <td className="px-[14px] py-[10px] font-semibold text-ink">{t(LEAVE_TYPE_KEY[r.leaveType])}</td>
-                    <td className="mz-num px-[14px] py-[10px] text-ink">
-                      {r.startDate} — {r.endDate}
-                    </td>
-                    <td className="mz-num px-[14px] py-[10px] text-end text-ink">{r.days}</td>
-                    <td className="px-[14px] py-[10px]">
-                      <StatusPill label={t(LEAVE_STATUS_KEY[r.status])} tone={LEAVE_STATUS_TONE[r.status]} />
-                    </td>
-                    <td className="px-[14px] py-[10px] text-end">
-                      {r.status === "pending" || r.status === "approved" ? (
-                        <Button size="sm" aria-label={t("myLeave.cancelRequestLabel", { number: r.number })} disabled={cancellingId !== null} onClick={() => handleCancel(r)}>
-                          {t("common.cancel")}
-                        </Button>
-                      ) : null}
-                    </td>
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse text-[12.5px]">
+                <thead>
+                  <tr className="border-b border-border text-ink-faint">
+                    <th className="px-[14px] py-[10px] text-start font-semibold">{t("myLeave.leaveType")}</th>
+                    <th className="px-[14px] py-[10px] text-start font-semibold">{t("common.period")}</th>
+                    <th className="px-[14px] py-[10px] text-end font-semibold">{t("myLeave.days")}</th>
+                    <th className="px-[14px] py-[10px] text-start font-semibold">{t("common.status")}</th>
+                    <th className="px-[14px] py-[10px]" />
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {requests.map((r) => (
+                    <tr key={r.id} className="border-b border-border last:border-0">
+                      <td className="px-[14px] py-[10px] font-semibold text-ink">{t(LEAVE_TYPE_KEY[r.leaveType])}</td>
+                      <td className="mz-num px-[14px] py-[10px] text-ink">
+                        {r.startDate} — {r.endDate}
+                      </td>
+                      <td className="mz-num px-[14px] py-[10px] text-end text-ink">{r.days}</td>
+                      <td className="px-[14px] py-[10px]">
+                        <StatusPill label={t(LEAVE_STATUS_KEY[r.status])} tone={LEAVE_STATUS_TONE[r.status]} />
+                      </td>
+                      <td className="px-[14px] py-[10px] text-end">
+                        {r.status === "pending" || r.status === "approved" ? (
+                          <Button size="sm" aria-label={t("myLeave.cancelRequestLabel", { number: r.number })} disabled={cancellingId !== null} onClick={() => handleCancel(r)}>
+                            {t("common.cancel")}
+                          </Button>
+                        ) : null}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </Card>
         ) : (
           <Card className="p-[18px_20px] text-center text-[12.5px] text-ink-muted">{t("myLeave.noLeaveRequestsYouHave")}</Card>

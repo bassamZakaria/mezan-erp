@@ -5,7 +5,8 @@ import {
   type SqliteWorkflowConfigStoreHandle,
   type SqliteApprovalRequestStoreHandle,
 } from "@mezan/persistence";
-import { ALL_SCOPE } from "@mezan/domain";
+import { ALL_SCOPE, ApprovalStatusCode, type ApprovalRequestRecord } from "@mezan/domain";
+import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from "@mezan/contracts";
 import { createWorkflowRoutes } from "./workflow-routes.js";
 import { createSessionRegistry, createSessionAuthContextResolver } from "./session-auth.js";
 
@@ -382,5 +383,94 @@ describe("approval request routes", () => {
     }
     expect(await requests.findById(id)).toEqual(before);
     expect(await requests.list()).toHaveLength(1);
+  });
+});
+
+describe("طلباتي / إجراءاتي — paged on the server", () => {
+  function seed(requests: SqliteApprovalRequestStoreHandle, count: number, overrides: (i: number) => Partial<ApprovalRequestRecord> = () => ({})) {
+    return Promise.all(
+      Array.from({ length: count }, (_, i) =>
+        requests.insert({
+          id: `REQ-${String(i).padStart(3, "0")}`,
+          actionType: i % 2 === 0 ? "SALES_INVOICE_CONFIRM" : "TREASURY_VOUCHER_CONFIRM",
+          submittedBy: "alice",
+          steps: [{ role: "SUPERVISOR" }],
+          currentStep: 1,
+          status: ApprovalStatusCode.Approved,
+          decisions: [{ stepIndex: 0, kind: "approve", actorId: "bob" }],
+          entityLabel: `فاتورة INV-${String(i).padStart(3, "0")}`,
+          createdAt: new Date(Date.UTC(2026, 0, 1, 0, 0, i)).toISOString(),
+          updatedAt: new Date(Date.UTC(2026, 0, 1, 0, 0, i)).toISOString(),
+          ...overrides(i),
+        }),
+      ),
+    );
+  }
+
+  async function ids(res: Response): Promise<string[]> {
+    return ((await res.json()) as { id: string }[]).map((row) => row.id);
+  }
+
+  it("serves one page newest first, and the next page continues without repeating a row", async () => {
+    const { app, req, requests } = newApp();
+    await seed(requests, 30);
+    const first = await ids(await app.fetch(req("/requests/mine", { userId: "alice", permissions: "workflow.view" })));
+    expect(first).toHaveLength(DEFAULT_PAGE_SIZE);
+    expect(first[0]).toBe("REQ-029");
+    const second = await ids(await app.fetch(req("/requests/mine?page=2", { userId: "alice", permissions: "workflow.view" })));
+    expect(second).toEqual(["REQ-004", "REQ-003", "REQ-002", "REQ-001", "REQ-000"]);
+    expect(new Set([...first, ...second]).size).toBe(30);
+  });
+
+  it("breaks a same-instant tie by id so a page boundary is stable", async () => {
+    const { app, req, requests } = newApp();
+    await seed(requests, 4, () => ({ createdAt: "2026-01-01T00:00:00.000Z" }));
+    const pages = await Promise.all(
+      [1, 2].map(async (page) => ids(await app.fetch(req(`/requests/acted?page=${page}&pageSize=2`, { userId: "bob", permissions: "workflow.view" })))),
+    );
+    expect(pages).toEqual([["REQ-003", "REQ-002"], ["REQ-001", "REQ-000"]]);
+  });
+
+  it("keeps who sees what: mine is the submitter's, acted is the decider's, and nobody else's", async () => {
+    const { app, req, requests } = newApp();
+    await seed(requests, 3);
+    await seed(requests, 1, () => ({ id: "REQ-CAROL", submittedBy: "carol", decisions: [{ stepIndex: 0, kind: "approve", actorId: "dave" }] }));
+    expect(await ids(await app.fetch(req("/requests/mine", { userId: "alice", permissions: "workflow.view" })))).toEqual(["REQ-002", "REQ-001", "REQ-000"]);
+    expect(await ids(await app.fetch(req("/requests/acted", { userId: "bob", permissions: "workflow.view" })))).toEqual(["REQ-002", "REQ-001", "REQ-000"]);
+    expect(await ids(await app.fetch(req("/requests/acted", { userId: "alice", permissions: "workflow.view" })))).toEqual([]);
+    expect(await ids(await app.fetch(req("/requests/mine", { userId: "bob", permissions: "workflow.view" })))).toEqual([]);
+    for (const path of ["/requests/mine", "/requests/acted", "/requests/counts"]) {
+      expect((await app.fetch(req(path))).status).toBe(401);
+      expect((await app.fetch(req(path, { userId: "alice", permissions: "sales.invoice.view" }))).status).toBe(403);
+    }
+    expect(await (await app.fetch(req("/requests/counts", { userId: "carol", permissions: "workflow.view" }))).json()).toEqual({ mine: 1, acted: 0 });
+  });
+
+  it("counts the whole filtered set while the list returns one page, and both narrow by type and search alike", async () => {
+    const { app, req, requests } = newApp();
+    await seed(requests, 60);
+    const as = { userId: "alice", permissions: "workflow.view" };
+    const page = await ids(await app.fetch(req("/requests/mine?pageSize=10", as)));
+    expect(page).toHaveLength(10);
+    expect(await (await app.fetch(req("/requests/counts", as))).json()).toEqual({ mine: 60, acted: 0 });
+
+    const vouchers = await ids(await app.fetch(req("/requests/mine?actionType=TREASURY_VOUCHER_CONFIRM&pageSize=200", as)));
+    expect(vouchers).toHaveLength(30);
+    expect(await (await app.fetch(req("/requests/counts?actionType=TREASURY_VOUCHER_CONFIRM", as))).json()).toEqual({ mine: 30, acted: 0 });
+
+    expect(await ids(await app.fetch(req(`/requests/mine?search=${encodeURIComponent("INV-007")}`, as)))).toEqual(["REQ-007"]);
+    const byLabel = await ids(await app.fetch(req(`/requests/mine?search=${encodeURIComponent("صرف/قبض")}&pageSize=200`, as)));
+    expect(byLabel).toHaveLength(30);
+    expect(await (await app.fetch(req(`/requests/counts?search=${encodeURIComponent("صرف/قبض")}`, as))).json()).toEqual({ mine: 30, acted: 0 });
+  });
+
+  it("refuses a page size above the compiled-in ceiling instead of quietly dropping the search", async () => {
+    const { app, req, requests } = newApp();
+    await seed(requests, 30);
+    const as = { userId: "alice", permissions: "workflow.view" };
+    for (const path of [`/requests/mine?search=x&pageSize=${MAX_PAGE_SIZE + 1}`, "/requests/acted?page=0", "/requests/counts?pageSize=0"]) {
+      const res = await app.fetch(req(path, as));
+      expect(res.status, path).toBe(400);
+    }
   });
 });

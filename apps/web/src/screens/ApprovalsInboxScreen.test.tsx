@@ -1,10 +1,12 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { screen, fireEvent, within } from "@testing-library/react";
+import { useLocation, useNavigate } from "react-router";
 import type { ApprovalRequestDTO } from "@mezan/contracts";
 import { ApprovalsInboxScreen } from "./ApprovalsInboxScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
+import type { Transport } from "../data/transport";
 
 const pendingRequest: ApprovalRequestDTO = {
   id: "req-1",
@@ -169,5 +171,180 @@ describe("ApprovalsInboxScreen — a 502 body reaches the error card", () => {
 
     expect(await screen.findByText("تعذّر الوصول إلى الجهاز الرئيسي. الجهاز مغلق أو غير متصل بالشبكة.")).toBeInTheDocument();
     expect(screen.queryByText("تعذّر تحميل الموافقات المعلّقة.")).not.toBeInTheDocument();
+  });
+});
+
+describe("ApprovalsInboxScreen — طلباتي and إجراءاتي are paged on the server", () => {
+  function mineTransport(total: number) {
+    const asked: string[] = [];
+    const transport = stubTransport({
+      "GET /workflow/requests/pending": () => ({ body: [] }),
+      "GET /workflow/requests/counts": (_init, path) => {
+        const query = new URLSearchParams(path.split("?")[1]);
+        const filtered = query.has("search") || query.has("actionType");
+        return { body: filtered ? { mine: 1, acted: 0 } : { mine: total, acted: 3 } };
+      },
+      "GET /workflow/requests/mine": (_init, path) => {
+        asked.push(path);
+        const page = Number(new URLSearchParams(path.split("?")[1]).get("page") ?? "1");
+        return { body: [{ ...pendingRequest, id: `mine-${page}`, status: "approved", entityLabel: `طلب صفحة ${page}` }] };
+      },
+    });
+    return { transport, asked };
+  }
+
+  it("reads the tab totals from /counts, asks for one page, and pages on the server", async () => {
+    const { transport, asked } = mineTransport(60);
+    renderWithProviders(<ApprovalsInboxScreen />, { transport, initialSession: testAdminSession });
+    expect(asked).toEqual([]);
+
+    fireEvent.click(await screen.findByRole("tab", { name: /طلباتي.*60/ }));
+    expect(await screen.findByText("طلب صفحة 1")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /إجراءاتي.*3/ })).toBeInTheDocument();
+    expect(asked.at(-1)).toBe("/workflow/requests/mine?page=1&pageSize=25");
+
+    fireEvent.click(screen.getByRole("button", { name: "3" }));
+    expect(await screen.findByText("طلب صفحة 3")).toBeInTheDocument();
+    expect(asked.at(-1)).toBe("/workflow/requests/mine?page=3&pageSize=25");
+    expect(screen.queryByRole("button", { name: "4" })).toBeNull();
+  });
+
+  it("sends the type filter and the search to the server instead of filtering a page", async () => {
+    const { transport, asked } = mineTransport(1);
+    renderWithProviders(<ApprovalsInboxScreen />, { transport, initialSession: testAdminSession });
+    fireEvent.click(await screen.findByRole("tab", { name: /طلباتي/ }));
+    await screen.findByText("طلب صفحة 1");
+    fireEvent.change(screen.getByPlaceholderText("بحث بنوع الإجراء أو التفاصيل…"), { target: { value: "INV-9" } });
+    await vi.waitFor(() => expect(asked.at(-1)).toBe(`/workflow/requests/mine?search=INV-9&page=1&pageSize=25`));
+  });
+
+  it("keeps the tab totals unfiltered while the pager follows the filtered count", async () => {
+    const { transport } = mineTransport(60);
+    renderWithProviders(<ApprovalsInboxScreen />, { transport, initialSession: testAdminSession });
+    fireEvent.click(await screen.findByRole("tab", { name: /طلباتي.*60/ }));
+    await screen.findByText("طلب صفحة 1");
+    expect(screen.getByRole("button", { name: "2" })).toBeInTheDocument();
+    fireEvent.change(screen.getByPlaceholderText("بحث بنوع الإجراء أو التفاصيل…"), { target: { value: "INV-9" } });
+    await vi.waitFor(() => expect(screen.queryByRole("button", { name: "2" })).toBeNull());
+    expect(screen.getByRole("tab", { name: /طلباتي.*60/ })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /إجراءاتي.*3/ })).toBeInTheDocument();
+  });
+});
+
+describe("ApprovalsInboxScreen — the paged tabs between pages", () => {
+  it("keeps the current page on screen while the next one loads", async () => {
+    const page2: { release?: () => void } = {};
+    const stub = stubTransport({
+      "GET /workflow/requests/pending": () => ({ body: [] }),
+      "GET /workflow/requests/counts": () => ({ body: { mine: 60, acted: 0 } }),
+      "GET /workflow/requests/mine": (_init, path) => {
+        const page = Number(new URLSearchParams(path.split("?")[1]).get("page") ?? "1");
+        return { body: [{ ...pendingRequest, id: `mine-${page}`, status: "approved", entityLabel: `طلب صفحة ${page}` }] };
+      },
+    });
+    const transport: Transport = (path, init) =>
+      path.includes("/mine?page=2") ? new Promise((resolve) => (page2.release = () => resolve(stub(path, init)))) : stub(path, init);
+    renderWithProviders(<ApprovalsInboxScreen />, { transport, initialSession: testAdminSession });
+    fireEvent.click(await screen.findByRole("tab", { name: /طلباتي/ }));
+    await screen.findByText("طلب صفحة 1");
+
+    fireEvent.click(screen.getByRole("button", { name: "2" }));
+    await vi.waitFor(() => expect(page2.release).toBeDefined());
+    expect(screen.getByText("طلب صفحة 1")).toBeInTheDocument();
+
+    page2.release?.();
+    expect(await screen.findByText("طلب صفحة 2")).toBeInTheDocument();
+  });
+
+  it("keeps the pager from the same snapshot as the rows while a search's count loads", async () => {
+    const stub = stubTransport({
+      "GET /workflow/requests/pending": () => ({ body: [] }),
+      "GET /workflow/requests/counts": () => ({ body: { mine: 60, acted: 0 } }),
+      "GET /workflow/requests/mine": () => ({ body: [{ ...pendingRequest, id: "mine-1", status: "approved", entityLabel: "طلب صفحة 1" }] }),
+    });
+    const searched: string[] = [];
+    const transport: Transport = (path, init) => {
+      if (!path.includes("search=")) return stub(path, init);
+      searched.push(path);
+      return new Promise(() => {});
+    };
+    renderWithProviders(<ApprovalsInboxScreen />, { transport, initialSession: testAdminSession });
+    fireEvent.click(await screen.findByRole("tab", { name: /طلباتي/ }));
+    await screen.findByRole("button", { name: "2" });
+
+    fireEvent.change(screen.getByPlaceholderText("بحث بنوع الإجراء أو التفاصيل…"), { target: { value: "INV-9" } });
+    await vi.waitFor(() => expect(searched.some((path) => path.startsWith("/workflow/requests/counts"))).toBe(true));
+    expect(screen.getByText("طلب صفحة 1")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "2" })).toBeInTheDocument();
+  });
+
+  async function backToPageThree(searchedTotal: number) {
+    const stub = stubTransport({
+      "GET /workflow/requests/pending": () => ({ body: [] }),
+      "GET /workflow/requests/counts": (_init, path) => ({ body: { mine: path.includes("search=") ? searchedTotal : 5, acted: 0 } }),
+      "GET /workflow/requests/mine": (_init, path) => {
+        const page = new URLSearchParams(path.split("?")[1]).get("page") ?? "1";
+        return { body: [{ ...pendingRequest, id: `mine-${page}`, status: "approved", entityLabel: `طلب صفحة ${page}` }] };
+      },
+    });
+    let location = "";
+    function Address() {
+      const navigate = useNavigate();
+      location = useLocation().search;
+      return <button onClick={() => navigate("/?q=B&page=3")}>عودة</button>;
+    }
+    renderWithProviders(
+      <>
+        <ApprovalsInboxScreen />
+        <Address />
+      </>,
+      { transport: stub, initialSession: testAdminSession },
+    );
+    fireEvent.click(await screen.findByRole("tab", { name: /طلباتي/ }));
+    await screen.findByText("طلب صفحة 1");
+    fireEvent.click(screen.getByRole("button", { name: "عودة" }));
+    return () => new URLSearchParams(location).get("page");
+  }
+
+  it("keeps a page the address bar asks for, not one judged by the previous search's count", async () => {
+    const page = await backToPageThree(60);
+    expect(await screen.findByText("طلب صفحة 3")).toBeInTheDocument();
+    expect(page()).toBe("3");
+  });
+
+  it("still steps back to the first page once the search's real count leaves no page three", async () => {
+    const page = await backToPageThree(5);
+    await vi.waitFor(() => expect(page()).toBeNull());
+  });
+
+  it("never shows one tab's rows under another while the other loads", async () => {
+    const stub = stubTransport({
+      "GET /workflow/requests/pending": () => ({ body: [] }),
+      "GET /workflow/requests/counts": () => ({ body: { mine: 1, acted: 1 } }),
+      "GET /workflow/requests/mine": () => ({ body: [{ ...pendingRequest, id: "mine-1", status: "approved", entityLabel: "طلب من طلباتي" }] }),
+    });
+    const transport: Transport = (path, init) => (path.startsWith("/workflow/requests/acted") ? new Promise(() => {}) : stub(path, init));
+    renderWithProviders(<ApprovalsInboxScreen />, { transport, initialSession: testAdminSession });
+    fireEvent.click(await screen.findByRole("tab", { name: /طلباتي/ }));
+    await screen.findByText("طلب من طلباتي");
+
+    fireEvent.click(screen.getByRole("tab", { name: /إجراءاتي/ }));
+    await vi.waitFor(() => expect(screen.queryByText("طلب من طلباتي")).toBeNull());
+  });
+
+  it("asks for no filtered counts while the inbox tab, which never reads them, is open", async () => {
+    const asked: string[] = [];
+    const stub = stubTransport({
+      "GET /workflow/requests/pending": () => ({ body: [pendingRequest] }),
+      "GET /workflow/requests/counts": () => ({ body: { mine: 0, acted: 0 } }),
+    });
+    const transport: Transport = (path, init) => {
+      asked.push(path);
+      return stub(path, init);
+    };
+    renderWithProviders(<ApprovalsInboxScreen />, { transport, initialSession: testAdminSession });
+    fireEvent.change(await screen.findByPlaceholderText("بحث بنوع الإجراء أو التفاصيل…"), { target: { value: "INV-9" } });
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    expect(asked.filter((path) => path.startsWith("/workflow/requests/counts"))).toEqual(["/workflow/requests/counts"]);
   });
 });

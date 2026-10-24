@@ -27,7 +27,7 @@ describe("runAuditAnchorSweep", () => {
     const records: AnchorLogRecord[] = [];
     const options = {
       platform: { audit: platformAudit } as unknown as PlatformHandle,
-      router: { openTenants: () => [{ id: "T-1", code: "t1" }], backendOf: async () => ({ audit: tenantAudit }) } as unknown as TenantRouter,
+      router: { openTenants: () => [{ id: "T-1", code: "t1" }], openBackendOf: async () => ({ audit: tenantAudit }) } as unknown as TenantRouter,
       signer: createAuditAnchorSigner("33".repeat(32)),
       sink,
       log: (r: AnchorLogRecord) => records.push(r),
@@ -49,7 +49,7 @@ describe("runAuditAnchorSweep", () => {
       platform: { audit: platformAudit } as unknown as PlatformHandle,
       router: {
         openTenants: () => [{ id: "T-1", code: "t1" }],
-        backendOf: async () => {
+        openBackendOf: async () => {
           throw new Error("books refused");
         },
       } as unknown as TenantRouter,
@@ -59,6 +59,26 @@ describe("runAuditAnchorSweep", () => {
     });
     expect(result).toMatchObject({ anchored: 1, failed: 1 });
     expect(records.find((r) => r.event === AnchorLogEvent.Failed)).toMatchObject({ scope: "T-1", reason: "books refused" });
+  });
+
+  it("skips, without counting a failure, a tenant whose handle closed while the sweep reached it", async () => {
+    const platformAudit = createSqliteAuditSink();
+    await platformAudit.append(event());
+    const records: AnchorLogRecord[] = [];
+    const result = await runAuditAnchorSweep({
+      platform: { audit: platformAudit } as unknown as PlatformHandle,
+      router: {
+        openTenants: () => [{ id: "T-1", code: "t1" }],
+        openBackendOf: async () => {
+          throw new TypeError("The database connection is not open");
+        },
+      } as unknown as TenantRouter,
+      signer: createAuditAnchorSigner("33".repeat(32)),
+      sink: createFileAuditAnchorSink(path.join(dir, "anchors")),
+      log: (r) => records.push(r),
+    });
+    expect(result).toMatchObject({ anchored: 1, failed: 0 });
+    expect(records.find((r) => r.event === AnchorLogEvent.SkippedClosed)).toMatchObject({ scope: "T-1" });
   });
 
   it("a tenant restored from an older snapshot is refused every sweep until the restore is accepted, then anchoring resumes", async () => {
@@ -72,7 +92,7 @@ describe("runAuditAnchorSweep", () => {
     const records: AnchorLogRecord[] = [];
     const options = {
       platform: { audit: platformAudit } as unknown as PlatformHandle,
-      router: { openTenants: () => [{ id: "T-1", code: "t1" }], backendOf: async () => ({ audit: tenantAudit }) } as unknown as TenantRouter,
+      router: { openTenants: () => [{ id: "T-1", code: "t1" }], openBackendOf: async () => ({ audit: tenantAudit }) } as unknown as TenantRouter,
       signer,
       sink,
       log: (r: AnchorLogRecord) => records.push(r),

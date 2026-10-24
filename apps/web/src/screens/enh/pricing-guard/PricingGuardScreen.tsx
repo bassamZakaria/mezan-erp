@@ -18,10 +18,12 @@ import {
   PricingGuardModeDTO,
   PricingGuardOverrideKindDTO,
   PricingGuardRuleStatusDTO,
+  type ItemDTO,
   type PricingGuardOverrideDTO,
   type PricingGuardRuleDTO,
 } from "@mezan/contracts";
-import { useCustomers, useItemCategories, useItems } from "../../../data/hooks";
+import { useCustomers, useItemCategories, useItemsByIds } from "../../../data/hooks";
+import { ItemPicker, itemOption } from "../../ItemPicker";
 import { sessionHolds } from "../../../data/session";
 import { useApi } from "../../../data/ApiContext";
 
@@ -94,7 +96,6 @@ function useCustomerCategories(): string[] {
 
 function RuleForm({ editing, onClose }: { editing: PricingGuardRuleDTO | null; onClose: () => void }) {
   const { t } = useAppTranslation();
-  const items = useItems().data ?? EMPTY;
   const categories = useItemCategories(sessionHolds(useApi().session, ITEM_CATALOG_VIEW)).data ?? EMPTY;
   const customerCategories = useCustomerCategories();
   const save = useSavePricingGuardRule();
@@ -102,7 +103,9 @@ function RuleForm({ editing, onClose }: { editing: PricingGuardRuleDTO | null; o
   const [error, setError] = useState<string | null>(null);
   const patch = (next: Partial<RuleDraft>) => setDraft((prev) => ({ ...prev, ...next }));
 
-  const itemOptions = useMemo<EntityPickerOption[]>(() => items.map((i) => ({ id: i.id, label: i.nameAr, sublabel: i.code })), [items]);
+  const [picked, setPicked] = useState<ItemDTO | null>(null);
+  const { byId: itemById } = useItemsByIds([draft.itemId]);
+  const chosenItem = picked?.id === draft.itemId ? picked : itemById.get(draft.itemId);
   const categoryOptions = useMemo<EntityPickerOption[]>(() => categories.map((c) => ({ id: c.id, label: c.nameAr })), [categories]);
 
   async function submit() {
@@ -154,12 +157,14 @@ function RuleForm({ editing, onClose }: { editing: PricingGuardRuleDTO | null; o
         ]}
       />
       {draft.target === RuleTarget.Item ? (
-        <EntityPicker
+        <ItemPicker
           id="pricing-guard-item"
           label={t("pricingGuard.field.item")}
-          value={itemOptions.find((o) => o.id === draft.itemId) ?? null}
-          onChange={(o) => patch({ itemId: o?.id ?? "" })}
-          options={itemOptions}
+          value={draft.itemId === "" ? null : chosenItem ? itemOption(chosenItem) : { id: draft.itemId, label: draft.itemId }}
+          onChange={(item) => {
+            setPicked(item);
+            patch({ itemId: item?.id ?? "" });
+          }}
           placeholder={t("pricingGuard.field.chooseItem")}
         />
       ) : null}
@@ -213,7 +218,6 @@ function RulesTab() {
   const { t } = useAppTranslation();
   const format = useFormat();
   const query = usePricingGuardRules();
-  const items = useItems().data ?? EMPTY;
   const categories = useItemCategories(sessionHolds(useApi().session, ITEM_CATALOG_VIEW)).data ?? EMPTY;
   const setStatus = useSetPricingGuardRuleStatus();
   const [pendingId, setPendingId] = useState<string | null>(null);
@@ -222,10 +226,10 @@ function RulesTab() {
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const rules = query.data ?? EMPTY;
-  const itemName = useMemo(() => new Map(items.map((i) => [i.id, i.nameAr])), [items]);
   const categoryName = useMemo(() => new Map(categories.map((c) => [c.id, c.nameAr])), [categories]);
   const pageCount = Math.max(1, Math.ceil(rules.length / PAGE_SIZE));
   const pageRows = rules.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const { byId: itemById } = useItemsByIds(pageRows.map((rule) => rule.itemId));
 
   async function toggle(rule: PricingGuardRuleDTO) {
     if (pendingId !== null) return;
@@ -242,7 +246,7 @@ function RulesTab() {
   }
 
   const scopeOf = (rule: PricingGuardRuleDTO) =>
-    rule.itemId ? itemName.get(rule.itemId) ?? rule.itemId : rule.categoryId ? `${t("pricingGuard.target.category")}: ${categoryName.get(rule.categoryId) ?? rule.categoryId}` : t("pricingGuard.target.all");
+    rule.itemId ? itemById.get(rule.itemId)?.nameAr ?? rule.itemId : rule.categoryId ? `${t("pricingGuard.target.category")}: ${categoryName.get(rule.categoryId) ?? rule.categoryId}` : t("pricingGuard.target.all");
 
   const columns: DocumentListColumn<PricingGuardRuleDTO>[] = [
     { key: "nameAr", header: t("pricingGuard.field.name"), render: (rule) => <span className="font-semibold text-ink">{rule.nameAr}</span> },
@@ -323,12 +327,11 @@ function OverridesTab() {
   const [toDate, setToDate] = useState("");
   const [page, setPage] = useState(1);
   const query = usePricingGuardOverrides({ fromDate: fromDate || undefined, toDate: toDate || undefined });
-  const items = useItems().data ?? EMPTY;
-  const itemName = useMemo(() => new Map(items.map((i) => [i.id, i.nameAr])), [items]);
   const rows = query.data?.rows ?? EMPTY;
   const costVisible = query.data?.costVisible ?? false;
   const pageCount = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
   const pageRows = rows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const { byId: itemById } = useItemsByIds(pageRows.map((row) => row.itemId));
 
   const columns: DocumentListColumn<PricingGuardOverrideDTO>[] = [
     { key: "docDate", header: t("pricingGuard.report.date"), render: (row) => <span className="mz-num">{row.docDate}</span> },
@@ -346,7 +349,7 @@ function OverridesTab() {
       ),
     },
     { key: "customerNameAr", header: t("pricingGuard.report.customer"), render: (row) => row.customerNameAr },
-    { key: "itemId", header: t("pricingGuard.report.item"), render: (row) => itemName.get(row.itemId) ?? row.itemId },
+    { key: "itemId", header: t("pricingGuard.report.item"), render: (row) => itemById.get(row.itemId)?.nameAr ?? row.itemId },
     { key: "netUnitPrice", header: t("pricingGuard.report.netUnitPrice"), align: "end", render: (row) => <span className="mz-num">{format.money(row.netUnitPrice)}</span> },
     ...(costVisible
       ? [

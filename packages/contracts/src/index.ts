@@ -11,6 +11,7 @@ export {
   pageQuerySchema,
   pageWindow,
   type PageQueryDTO,
+  type ReportPageDTO,
 } from "./paging.js";
 
 export {
@@ -565,6 +566,7 @@ export {
   purchaseInvoiceSchema,
   purchaseInvoiceFilterKeySchema,
   purchaseInvoiceListQuerySchema,
+  PurchaseInvoiceSort,
   purchaseInvoiceStatsSchema,
   createPurchaseInvoiceLineSchema,
   createPurchaseInvoiceSchema,
@@ -724,7 +726,9 @@ export {
   type EditSalesInvoiceDraftLineDTO,
   salesInvoiceListQuerySchema,
   salesInvoiceStatsSchema,
+  SALES_INVOICE_DUE_SOON_DAYS,
   salesInvoiceFilterKeySchema,
+  SalesInvoiceDerivedFilter,
   appliedSalesInvoicePromotionSchema,
   promotionUsageRowSchema,
   type AppliedSalesInvoicePromotionDTO,
@@ -1730,6 +1734,10 @@ export {
   approvalRequestSchema,
   submitApprovalRequestSchema,
   decideApprovalRequestSchema,
+  ApprovalRequestScope,
+  approvalRequestListQuerySchema,
+  type ApprovalRequestListQueryDTO,
+  type ApprovalRequestCountsDTO,
   type GateStepDTO,
   type WorkflowConfigDTO,
   type CreateWorkflowConfigDTO,
@@ -1794,6 +1802,12 @@ export {
   type AgingCustomersReportDTO,
   type AgingSuppliersReportDTO,
 } from "./aging.js";
+export {
+  stockLevelsSummarySchema,
+  StockLevelStatusDTO,
+  type StockLevelsAttentionRowDTO,
+  type StockLevelsSummaryDTO,
+} from "./stock-levels-summary.js";
 
 export {
   partyCurrencyBalanceSchema,

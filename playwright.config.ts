@@ -2,6 +2,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { defineConfig, devices } from "@playwright/test";
+import { E2E_REQUEST_CAPS } from "./e2e/saas/support/env";
 
 /**
  * Playwright E2E config — targets the web build (apps/web), the Electron
@@ -54,6 +55,7 @@ export default defineConfig({
         MEZAN_SEED_DEMO: "1",
         MEZAN_PLATFORM_OWNER_EMAIL: "owner@mezan.local",
         MEZAN_PLATFORM_OWNER_PASSWORD: "owner-password-123",
+        ...E2E_REQUEST_CAPS,
       },
     },
     {

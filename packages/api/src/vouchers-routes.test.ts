@@ -152,6 +152,24 @@ describe("vouchers routes", () => {
     expect((await none.json() as any)).toHaveLength(0);
   });
 
+  it("totals receipts in the base currency, never adding a foreign voucher's own-currency amount", async () => {
+    const { vouchers } = await newApp({ exchangeRates: { findRate: async () => ({ rate: "50" }) } });
+    const created = await vouchers.fetch(req("/", { method: "POST", body: JSON.stringify({ ...collection, currency: "USD" }) }));
+    expect(created.status).toBe(201);
+    expect((await vouchers.fetch(req("/v1/confirm", { method: "POST" }))).status).toBe(200);
+    const stats = (await (await vouchers.fetch(req("/stats"))).json()) as Record<string, unknown>;
+    expect(stats).toMatchObject({ standing: 1, receipts: "12500.000000", net: "12500.000000" });
+  });
+
+  it("narrows the list to one customer or one supplier", async () => {
+    const { vouchers } = await newApp();
+    await vouchers.fetch(req("/", { method: "POST", body: JSON.stringify(collection) }));
+    const ids = async (qs: string) => ((await (await vouchers.fetch(req(`/?${qs}`))).json()) as { id: string }[]).map((v) => v.id);
+    expect(await ids(`customerId=cust-1`)).toEqual(["v1"]);
+    expect(await ids("customerId=someone-else")).toEqual([]);
+    expect(await ids("supplierId=any-supplier")).toEqual([]);
+  });
+
   it("a search for a customer's or a supplier's name finds their vouchers, in the rows and in the chip counts", async () => {
     let directoryReads = 0;
     const directory = (rows: { id: string; nameAr: string; nameEn: string }[]) => ({

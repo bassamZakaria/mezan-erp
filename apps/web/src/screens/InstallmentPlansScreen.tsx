@@ -1,41 +1,18 @@
+import { SalesInvoiceDerivedFilter } from "@mezan/contracts";
 import { useEffect, useMemo, useState } from "react";
 import { HeldDocumentReapproval } from "../shell/ReapprovalNotice";
 import { errorMessage } from "../lib/error-message";
-import {
-  RowActionOutcome,
-  Button,
-  Card,
-  DocumentList,
-  EmptyState,
-  Money as MoneyDisplay,
-  RowMenu,
-  SidePanel,
-  StatusPill,
-  TextInput,
-  type DocumentListColumn,
-  type DocumentListStatusChip,
-  type PillTone,
-  type RowMenuItem,
-} from "@mezan/ui";
+import { RowActionOutcome, Button, Card, DocumentList, EmptyState, Money as MoneyDisplay, RowMenu, SidePanel, StatusPill, TextInput, type DocumentListColumn, type DocumentListStatusChip, type EntityPickerOption, type PillTone, type RowMenuItem } from "@mezan/ui";
 import { Money, generateInstallmentSchedule } from "@mezan/domain";
 import type { DocumentStatusDTO, InstallmentFrequencyDTO, InstallmentPlanDocumentDTO } from "@mezan/contracts";
 import { SelectField, NumberField } from "../settings/form-controls";
-import {
-  useCancelInstallmentPlan,
-  useConfirmInstallmentPlan,
-  useCreateInstallmentPlan,
-  useInstallmentPlans,
-  useInstallmentPlanCounts,
-  useInstallmentPlanStats,
-  useProcessOverdueInstallments,
-  useSalesInvoices,
-  type InstallmentPlanListFilter,
-} from "../data/hooks";
+import { useCancelInstallmentPlan, useConfirmInstallmentPlan, useCreateInstallmentPlan, useInstallmentPlans, useInstallmentPlanCounts, useInstallmentPlanStats, useProcessOverdueInstallments, useSalesInvoice, type InstallmentPlanListFilter, type SalesInvoiceDTO } from "../data/hooks";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useNavigation, useScreenIntent } from "../navigation";
 import { sumMajor } from "../lib/money";
 import { todayIso } from "../lib/dates";
 import { useUrlNumber, useUrlParam } from "../lib/url-state";
+import { SalesInvoicePicker } from "./InvoicePickers";
 
 /** خطط الأقساط (Installment Plans) — docs/archive/catalog/05. Splits an invoice's balance into a scheduled series of payments; posts no GL, moves no stock. */
 
@@ -68,19 +45,24 @@ function today(): string {
 }
 
 const PAGE_SIZES = [10, 25, 50, 100] as const;
+const SCHEDULABLE_INVOICES = { status: SalesInvoiceDerivedFilter.Open };
+
+function schedulable(invoice: SalesInvoiceDTO): boolean {
+  return invoice.status !== "draft" && invoice.status !== "cancelled" && Money.fromMajor(invoice.remainingBalance).scaled > 0n;
+}
+
+function invoiceOption(invoice: SalesInvoiceDTO): EntityPickerOption {
+  return { id: invoice.id, label: `${invoice.docNo ?? invoice.id} — ${invoice.customerNameAr} / ${invoice.remainingBalance}` };
+}
 
 export function InstallmentPlansScreen() {
   const { t } = useAppTranslation();
-  const invoicesQuery = useSalesInvoices();
   const createPlan = useCreateInstallmentPlan();
   const confirmPlan = useConfirmInstallmentPlan();
   const cancelPlan = useCancelInstallmentPlan();
   const processOverdue = useProcessOverdueInstallments();
 
-  const invoices = useMemo(
-    () => (invoicesQuery.data ?? []).filter((i) => i.status !== "draft" && i.status !== "cancelled" && Number(i.remainingBalance) > 0),
-    [invoicesQuery.data],
-  );
+  const [pickedInvoice, setPickedInvoice] = useState<SalesInvoiceDTO | null>(null);
 
   const [panel, setPanel] = useState<"none" | "create" | "overdue" | { id: string }>("none");
   const [rowPendingId, setRowPendingId] = useState<string | null>(null);
@@ -118,7 +100,8 @@ export function InstallmentPlansScreen() {
   // silently pointed the plan at whichever invoice sorted first. A plan
   // schedules a specific invoice's balance — the choice has to be deliberate.
 
-  const selectedInvoice = invoices.find((i) => i.id === invoiceId) ?? null;
+  const chosenInvoice = useSalesInvoice(invoiceId || null).data ?? (pickedInvoice?.id === invoiceId ? pickedInvoice : undefined);
+  const selectedInvoice = chosenInvoice && schedulable(chosenInvoice) ? chosenInvoice : null;
   const preview = useMemo(() => {
     if (!selectedInvoice) return null;
     try {
@@ -141,7 +124,7 @@ export function InstallmentPlansScreen() {
 
   function openCreate() {
     setError(null);
-    setInvoiceId(invoices[0]?.id ?? "");
+    setInvoiceId("");
     setInstallmentCount(6);
     setFrequency("MONTHLY");
     setStartDate(today());
@@ -349,11 +332,16 @@ export function InstallmentPlansScreen() {
 
       <SidePanel open={panel === "create"} onClose={() => setPanel("none")} title={t("instalments.newInstalmentPlan")}>
         <div className="flex flex-col gap-4 p-5">
-          <SelectField
+          <SalesInvoicePicker
             label={t("instalments.invoice2")}
-            value={invoiceId}
-            onChange={setInvoiceId}
-            options={invoices.map((i) => ({ value: i.id, label: `${i.docNo ?? i.id} — ${i.customerNameAr} / ${i.remainingBalance}` }))}
+            value={selectedInvoice}
+            onChange={(invoice) => {
+              setPickedInvoice(invoice);
+              setInvoiceId(invoice?.id ?? "");
+            }}
+            optionOf={invoiceOption}
+            accept={schedulable}
+            filter={SCHEDULABLE_INVOICES}
           />
           <NumberField label={t("instalments.numberOfInstalments")} value={installmentCount} onChange={setInstallmentCount} min={1} />
           <SelectField

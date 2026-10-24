@@ -66,6 +66,14 @@ describe("listLoader", () => {
     expect(ensureQueryData).toHaveBeenCalledTimes(2);
   });
 
+  it("resolves without waiting for the data, so navigation is never held on a slow request", async () => {
+    const ensureQueryData = vi.fn(() => new Promise(() => {}));
+    publishLoaderApi({ request: async () => ({}) as never, queryClient: { ensureQueryData } as never, isAuthenticated: true });
+    const build = () => [{ queryKey: ["x"], queryFn: async () => "x" }];
+    await expect(listLoader(build)(args())).resolves.toBeNull();
+    expect(ensureQueryData).toHaveBeenCalledTimes(1);
+  });
+
   it("a failed prefetch never rejects the loader — it must not replace the screen with an error boundary", async () => {
     const ensureQueryData = vi.fn(async () => {
       throw new Error("network down");

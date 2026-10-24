@@ -1,3 +1,5 @@
+import { SalesInvoiceDerivedFilter } from "@mezan/contracts";
+import { SALES_INVOICE_ACTIVE_STATUSES } from "@mezan/domain";
 import { AlreadySavedNotice, useAlreadySavedNotice, useDocumentId } from "../lib/document-id";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { HeldDocumentReapproval } from "../shell/ReapprovalNotice";
@@ -26,8 +28,9 @@ import {
   useConfirmSalesReturn,
   useCreateSalesReturnFromInvoice,
   useCustomers,
-  useItems,
+  useItemsByIds,
   useRefundSalesReturn,
+  useSalesInvoice,
   useSalesInvoices,
   useReturnDocument,
   useSalesReturns,
@@ -37,8 +40,10 @@ import {
   useSalesReturnStats,
   useTreasuryAccounts,
   useWarehouses,
+  type SalesInvoiceDTO,
   type SalesReturnListFilter,
 } from "../data/hooks";
+import { SalesInvoicePicker } from "./InvoicePickers";
 import { DOC_STATUS_TONE, documentStatusLabel } from "../doc-status";
 import { SalesReturnPrintPage } from "../print/documents";
 import { useNameSubPage, useNavigation, useScreenIntent, useSubPage } from "../navigation";
@@ -81,14 +86,18 @@ function blankLine(sourceLineId: string, reason: SalesReturnReasonDTO): LineDraf
 }
 
 const PAGE_SIZES = [10, 25, 50, 100] as const;
+const RETURNABLE_INVOICES = { status: SalesInvoiceDerivedFilter.Active };
+
+function returnable(invoice: SalesInvoiceDTO): boolean {
+  return SALES_INVOICE_ACTIVE_STATUSES.has(invoice.status);
+}
 
 export function SalesReturnsScreen() {
   const nameOf = useEntityName();
   const { t } = useAppTranslation();
-  const invoicesQuery = useSalesInvoices();
+  const newestInvoiceQuery = useSalesInvoices({ status: SalesInvoiceDerivedFilter.Active, page: 1, pageSize: 1 });
   const warehousesQuery = useWarehouses();
   const customersQuery = useCustomers();
-  const itemsQuery = useItems();
   const createReturn = useCreateSalesReturnFromInvoice();
   const savedNotice = useAlreadySavedNotice();
   const returnId = useDocumentId((savedId) => {
@@ -102,22 +111,14 @@ export function SalesReturnsScreen() {
   const mayVoid = useMayVoidReturn(ReturnFamily.Sales);
   const [voidTarget, setVoidTarget] = useState<VoidableReturn | null>(null);
 
-  const invoices = useMemo(
-    () => (invoicesQuery.data ?? []).filter((i) => i.status !== "draft" && i.status !== "cancelled"),
-    [invoicesQuery.data],
-  );
+  const newestInvoice = newestInvoiceQuery.data?.[0] ?? null;
   const warehouses = warehousesQuery.data ?? EMPTY;
   const customers = customersQuery.data ?? EMPTY;
-  const items = itemsQuery.data ?? EMPTY;
 
   const customerName = useMemo(() => {
     const map = new Map(customers.map((c) => [c.id, c.nameAr]));
     return (id: string) => map.get(id) ?? id;
   }, [customers]);
-  const itemName = useMemo(() => {
-    const map = new Map(items.map((i) => [i.id, i.nameAr]));
-    return (id: string) => map.get(id) ?? id;
-  }, [items]);
 
   // `#/…/<screen>` · `…/new` · `…/<docNo|id>` — a create form and a document are places, not overlays.
   const subPage = useSubPage();
@@ -127,19 +128,6 @@ export function SalesReturnsScreen() {
     const invoiceId = intent.prefill?.invoiceId;
     subPage.open(...(invoiceId ? ["new", invoiceId] : ["new"]));
   });
-  /**
-   * The source invoice's number, resolved from its id. The denormalised
-   * `sourceInvoiceNumber` on the line is null on some rows (a return raised
-   * before the invoice was numbered), which showed as "—" even though the
-   * return plainly has a source. The id is always there, so resolve from it
-   * and fall back to the stored copy.
-   */
-  const sourceInvoiceNo = useMemo(() => {
-    const byId = new Map(invoices.map((inv) => [inv.id, inv.docNo]));
-    return (line: { sourceInvoiceId: string; sourceInvoiceNumber: string | null } | undefined) =>
-      line ? (byId.get(line.sourceInvoiceId) ?? line.sourceInvoiceNumber ?? line.sourceInvoiceId) : null;
-  }, [invoices]);
-
   const customerOptions = useMemo<EntityPickerOption[]>(
     () => customers.map((c) => ({ id: c.id, label: c.nameAr, sublabel: c.code })),
     [customers],
@@ -155,6 +143,10 @@ export function SalesReturnsScreen() {
   // The source invoice rides in the URL (`…/new/<invoiceId>`) when the user
   // arrived from «إنشاء مرتجع مبيعات» on that invoice's row.
   const [invoiceId, setInvoiceId] = useState(() => subPage.segments[1] ?? "");
+  const invoiceQueryById = useSalesInvoice(invoiceId || null);
+  const [pickedInvoice, setPickedInvoice] = useState<SalesInvoiceDTO | null>(null);
+  const chosenInvoice = invoiceQueryById.data ?? (pickedInvoice?.id === invoiceId ? pickedInvoice : newestInvoice?.id === invoiceId ? newestInvoice : undefined);
+  const selectedInvoice = chosenInvoice && returnable(chosenInvoice) ? chosenInvoice : null;
   const [warehouseId, setWarehouseId] = useState("");
   const [reason, setReason] = useState<SalesReturnReasonDTO>("DEFECTIVE");
   const [lines, setLines] = useState<LineDraft[]>([]);
@@ -197,11 +189,11 @@ export function SalesReturnsScreen() {
 
   useEffect(() => {
     if (firstSegment !== "new" || warehouseId !== "") return;
-    const next = invoices.find((i) => i.id === invoiceId)?.warehouseId ?? warehouses[0]?.id;
+    if (invoiceId !== "" && invoiceQueryById.isLoading) return;
+    const next = selectedInvoice?.warehouseId ?? warehouses[0]?.id;
     if (next) setWarehouseId(next);
-  }, [firstSegment, warehouses, warehouseId, invoices, invoiceId]);
+  }, [firstSegment, warehouses, warehouseId, selectedInvoice, invoiceId, invoiceQueryById.isLoading]);
 
-  const selectedInvoice = invoices.find((i) => i.id === invoiceId) ?? null;
   const sourceLinesQuery = useReturnSourceLines(ReturnKind.Sales, firstSegment === "new" ? invoiceId : "");
   const sourceLines = sourceLinesQuery.data?.lines ?? EMPTY;
   const sourceLinesReady = invoiceId === "" || sourceLinesQuery.isSuccess;
@@ -240,9 +232,22 @@ export function SalesReturnsScreen() {
   const selectedLabel = selected ? returnDocumentLabel(selected, reversedReturnNo, t("salesReturns.detailTitle"), t) : null;
   useNameSubPage(selected ? addressed : null, selectedLabel);
 
+  const selectedItems = useItemsByIds(selected?.lines.map((l) => l.itemId) ?? []).byId;
+  const itemName = (id: string) => selectedItems.get(id)?.nameAr ?? id;
+  const selectedSourceLine = selected?.lines[0];
+  const unnumberedSource = useSalesInvoice(selectedSourceLine && !selectedSourceLine.sourceInvoiceNumber ? selectedSourceLine.sourceInvoiceId : null).data;
+  /**
+   * The source invoice's number. The denormalised `sourceInvoiceNumber` on the
+   * line is null on some rows (a return raised before the invoice was
+   * numbered); the open document resolves those from the invoice itself, a
+   * list row falls back to the id.
+   */
+  const sourceInvoiceNo = (line: { sourceInvoiceId: string; sourceInvoiceNumber: string | null } | undefined) =>
+    line ? (line.sourceInvoiceNumber ?? (unnumberedSource?.id === line.sourceInvoiceId ? unnumberedSource.docNo : null) ?? line.sourceInvoiceId) : null;
+
   function openCreate() {
     setError(null);
-    const firstInvoice = invoices[0] ?? null;
+    const firstInvoice = newestInvoice && returnable(newestInvoice) ? newestInvoice : null;
     setInvoiceId(firstInvoice?.id ?? "");
     setWarehouseId(firstInvoice?.warehouseId ?? warehouses[0]?.id ?? "");
     setReason("DEFECTIVE");
@@ -251,9 +256,9 @@ export function SalesReturnsScreen() {
     subPage.open("new");
   }
 
-  function changeInvoice(id: string) {
-    setInvoiceId(id);
-    const invoice = invoices.find((i) => i.id === id) ?? null;
+  function changeInvoice(invoice: SalesInvoiceDTO | null) {
+    setPickedInvoice(invoice);
+    setInvoiceId(invoice?.id ?? "");
     if (invoice) setWarehouseId(invoice.warehouseId);
     const firstLine = invoice?.lines.find((l) => l.isStock && l.unitCost !== null);
     setLines(firstLine ? [blankLine(firstLine.lineId, reason)] : []);
@@ -267,7 +272,7 @@ export function SalesReturnsScreen() {
 
   async function submit(confirmAfter: boolean) {
     setError(null);
-    const invoice = invoices.find((i) => i.id === invoiceId);
+    const invoice = selectedInvoice;
     if (!invoice || !warehouseId) {
       setError(t("salesReturns.error.needInvoice"));
       return;
@@ -394,6 +399,8 @@ export function SalesReturnsScreen() {
     },
   ];
 
+  const invoiceOption = (i: SalesInvoiceDTO): EntityPickerOption => ({ id: i.id, label: `${i.docNo ?? i.id} — ${i.customerNameAr}` });
+
   const createPage = (
     <div className="w-full">
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
@@ -404,11 +411,13 @@ export function SalesReturnsScreen() {
         </div>
       </div>
         <div className="flex flex-col gap-4 p-5">
-          <SelectField
+          <SalesInvoicePicker
             label={t("salesReturns.field.sourceInvoice")}
-            value={invoiceId}
+            value={selectedInvoice}
             onChange={changeInvoice}
-            options={invoices.map((i) => ({ value: i.id, label: `${i.docNo ?? i.id} — ${customerName(i.customerId)}` }))}
+            optionOf={invoiceOption}
+            accept={returnable}
+            filter={RETURNABLE_INVOICES}
           />
           <SelectField label={t("salesReturns.field.warehouse")} value={warehouseId} onChange={setWarehouseId} options={warehouses.map((w) => ({ value: w.id, label: w.name }))} />
           <SelectField
@@ -588,26 +597,28 @@ export function SalesReturnsScreen() {
             {selected.refunds.length > 0 ? (
               <Card className="p-[16px_18px]">
                 <h3 className="mb-[8px] font-display text-[13.5px] font-bold text-ink">{t("salesReturns.refund.postedHeading")}</h3>
-                <table className="w-full text-[12.5px]">
-                  <thead>
-                    <tr className="text-ink-faint">
-                      <th className="p-[6px] text-start font-semibold">{t("salesReturns.refund.voucher")}</th>
-                      <th className="p-[6px] text-start font-semibold">{t("common.date")}</th>
-                      <th className="p-[6px] text-end font-semibold">{t("common.amount")}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {selected.refunds.map((r) => (
-                      <tr key={r.voucherId} className="border-t border-border">
-                        <td className="mz-num p-[6px] text-ink">{r.voucherNo ?? r.voucherId}</td>
-                        <td className="mz-num p-[6px] text-ink-muted">{r.date}</td>
-                        <td className="p-[6px] text-end">
-                          <MoneyDisplay value={majorOf(r.amount)} />
-                        </td>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-[12.5px]">
+                    <thead>
+                      <tr className="text-ink-faint">
+                        <th className="p-[6px] text-start font-semibold">{t("salesReturns.refund.voucher")}</th>
+                        <th className="p-[6px] text-start font-semibold">{t("common.date")}</th>
+                        <th className="p-[6px] text-end font-semibold">{t("common.amount")}</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {selected.refunds.map((r) => (
+                        <tr key={r.voucherId} className="border-t border-border">
+                          <td className="mz-num p-[6px] text-ink">{r.voucherNo ?? r.voucherId}</td>
+                          <td className="mz-num p-[6px] text-ink-muted">{r.date}</td>
+                          <td className="p-[6px] text-end">
+                            <MoneyDisplay value={majorOf(r.amount)} />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </Card>
             ) : null}
 

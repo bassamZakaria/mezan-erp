@@ -2,6 +2,8 @@ import { createLogger, type JobTracker } from "@mezan/api";
 import type { CardCheckoutService, CardCheckoutSweepOptions, CardCheckoutSweepResult } from "./card-checkout.js";
 
 const SWEEP_INTERVAL_MS = 15 * 60_000;
+// Shutdown awaits a running sweep, so it must end well inside the process's shutdown budget.
+const TIMER_SWEEP_BUDGET_MS = 20_000;
 
 export interface CardCheckoutSweepTimerOptions extends CardCheckoutSweepOptions {
   readonly intervalMs?: number;
@@ -11,7 +13,8 @@ export interface CardCheckoutSweepTimerOptions extends CardCheckoutSweepOptions 
 }
 
 export interface CardCheckoutSweepTimer {
-  stop(): void;
+  /** Resolves once the sweep in flight, if any, has settled. */
+  stop(): Promise<void>;
 }
 
 function settledAnything(result: CardCheckoutSweepResult): boolean {
@@ -29,11 +32,12 @@ export function startCardCheckoutSweepTimer(
   options: CardCheckoutSweepTimerOptions = {},
 ): CardCheckoutSweepTimer {
   const onResult = options.onResult ?? logResult;
+  let current: Promise<void> = Promise.resolve();
   const run = () => {
-    const sweep = () => service.sweepPending({ pendingAfterMs: options.pendingAfterMs, expireAfterMs: options.expireAfterMs });
-    (options.job ? options.job.run(sweep, (result) => result.paid + result.declined + result.expired) : sweep())
+    const sweep = () => service.sweepPending({ pendingAfterMs: options.pendingAfterMs, expireAfterMs: options.expireAfterMs, budgetMs: options.budgetMs ?? TIMER_SWEEP_BUDGET_MS });
+    current = (options.job ? options.job.run(sweep, (result) => result.paid + result.declined + result.expired) : sweep())
       .then(onResult)
-      .catch((err) => options.onError?.(err));
+      .catch((err: unknown) => options.onError?.(err));
   };
   run();
 
@@ -43,6 +47,7 @@ export function startCardCheckoutSweepTimer(
   return {
     stop() {
       clearInterval(timer);
+      return current;
     },
   };
 }

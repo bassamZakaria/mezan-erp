@@ -3,7 +3,7 @@ import { useCountPhrase } from "../../../lib/count-phrase";
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, ArrowLeft, Check, CircleSlash, Keyboard, Loader2, Undo2, Volume2, VolumeX, WifiOff } from "lucide-react";
-import { Button, Card, EmptyState, IconButton, StatusPill, TextInput, type PillTone } from "@mezan/ui";
+import { ENGLISH_LOCALE, Button, Card, EmptyState, IconButton, StatusPill, TextInput, type PillTone } from "@mezan/ui";
 import { CountScanModeDTO, CountScanOutcomeDTO, CountZoneStatusDTO, type CountModeItemDTO, type CountModeScanInputDTO } from "@mezan/contracts";
 import { useAppTranslation } from "../../../i18n";
 import { useNavigation } from "../../../navigation";
@@ -322,7 +322,7 @@ export function ScanView({ countId, zoneId }: { countId: string; zoneId: string 
             </div>
             {lastItem ? (
               <>
-                <p className="text-[20px] font-bold leading-tight">{locale === "en" && lastItem.nameEn ? lastItem.nameEn : lastItem.nameAr}</p>
+                <p className="text-[20px] font-bold leading-tight">{locale === ENGLISH_LOCALE && lastItem.nameEn ? lastItem.nameEn : lastItem.nameAr}</p>
                 <p className="mz-num text-[12px]">{lastItem.code}</p>
                 <p className="mz-num text-[28px] font-bold leading-none">
                   {trimQty(lastItem.countedQty)} <span className="text-[14px] font-medium">{lastItem.unitCode}</span>
@@ -417,7 +417,7 @@ export function ScanView({ countId, zoneId }: { countId: string; zoneId: string 
                 className={`flex min-h-[52px] w-full items-center justify-between gap-[8px] px-[12px] py-[8px] text-start ${item.itemId === currentItemId ? "bg-surface-2" : ""}`}
               >
                 <span className="min-w-0">
-                  <span className="block truncate text-[14px] font-semibold text-ink">{locale === "en" && item.nameEn ? item.nameEn : item.nameAr}</span>
+                  <span className="block truncate text-[14px] font-semibold text-ink">{locale === ENGLISH_LOCALE && item.nameEn ? item.nameEn : item.nameAr}</span>
                   <span className="mz-num block text-[11.5px] text-ink-muted">
                     {item.code}
                     {item.recount ? ` · ${t("countMode.recountBadge")}` : ""}

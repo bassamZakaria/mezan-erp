@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Button, Card, Money as MoneyDisplay, StatusPill } from "@mezan/ui";
+import { ENGLISH_LOCALE, Button, Card, Money as MoneyDisplay, StatusPill } from "@mezan/ui";
 import { BankFileExceptionReasonDTO, BankFileFormatDTO, type PayrollRunDTO } from "@mezan/contracts";
 import { Money } from "@mezan/domain";
 import { SelectField, TextField } from "../settings/form-controls";
@@ -69,7 +69,7 @@ export function PayrollBankFilePanel({ run }: { run: PayrollRunDTO }) {
           label={t("hrPages.bankFile.format")}
           value={format}
           onChange={(value) => setFormat(value as BankFileFormatDTO)}
-          options={layouts.map((l) => ({ value: l.format, label: `${locale === "en" ? l.labelEn : l.labelAr}${l.verified ? "" : ` — ${t("statutory.unverified")}`}` }))}
+          options={layouts.map((l) => ({ value: l.format, label: `${locale === ENGLISH_LOCALE ? l.labelEn : l.labelAr}${l.verified ? "" : ` — ${t("statutory.unverified")}`}` }))}
         />
         <TextField label={t("hrPages.bankFile.valueDate")} type="date" value={valueDate} onChange={setValueDate} />
         <SelectField
@@ -163,7 +163,7 @@ export function PayrollBankFilePanel({ run }: { run: PayrollRunDTO }) {
                       <tr key={l.employeeId} className="border-b border-border last:border-0">
                         <td className="mz-num px-[8px] py-[7px] text-ink-faint">{l.sequence}</td>
                         <td className="px-[8px] py-[7px]">
-                          <div className="font-semibold text-ink">{locale === "en" ? l.nameLatin : l.nameAr}</div>
+                          <div className="font-semibold text-ink">{locale === ENGLISH_LOCALE ? l.nameLatin : l.nameAr}</div>
                           <div className="mz-num text-[11px] text-ink-faint">{l.employeeCode}</div>
                         </td>
                         <td className="mz-num px-[8px] py-[7px] text-ink" dir="ltr">

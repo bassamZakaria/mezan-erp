@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { ArrowLeft, Check, History, Loader2, RotateCcw } from "lucide-react";
-import { Button, Card, Checkbox, EmptyState, StatusPill, trimMoneyString, type PillTone } from "@mezan/ui";
+import { ENGLISH_LOCALE, Button, Card, Checkbox, EmptyState, StatusPill, trimMoneyString, type PillTone } from "@mezan/ui";
 import { CountScanOutcomeDTO, CountZoneStatusDTO, type CountModeItemDTO, type CountModeSessionDTO, type CountModeZoneSummaryDTO } from "@mezan/contracts";
 import { useAppTranslation } from "../../../i18n";
 import { useNavigation } from "../../../navigation";
@@ -172,14 +172,14 @@ function ZoneCard({ session, zone, permissions, counterName }: { session: CountM
                   {canRecount ? (
                     <td className="px-[8px] py-[4px]">
                       <Checkbox
-                        aria-label={t("countMode.review.pickRecount", { name: locale === "en" && item.nameEn ? item.nameEn : item.nameAr })}
+                        aria-label={t("countMode.review.pickRecount", { name: locale === ENGLISH_LOCALE && item.nameEn ? item.nameEn : item.nameAr })}
                         checked={picked.includes(item.itemId)}
                         onChange={(event) => setPicked((list) => (event.target.checked ? [...list, item.itemId] : list.filter((id) => id !== item.itemId)))}
                       />
                     </td>
                   ) : null}
                   <td className="px-[10px] py-[6px]">
-                    <span className="block font-semibold text-ink">{locale === "en" && item.nameEn ? item.nameEn : item.nameAr}</span>
+                    <span className="block font-semibold text-ink">{locale === ENGLISH_LOCALE && item.nameEn ? item.nameEn : item.nameAr}</span>
                     <span className="mz-num text-[11.5px] text-ink-muted">
                       {item.code}
                       {item.recount ? ` · ${t("countMode.recountBadge")}` : ""}

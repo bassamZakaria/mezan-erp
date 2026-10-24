@@ -45,11 +45,16 @@ const items: ItemDTO[] = [
   item({ id: "itm-8", code: "ITM-000008", nameAr: "سكر أبيض 1 كجم" }),
 ];
 
+const named = (r: StockBalanceRowDTO): StockBalanceRowDTO => {
+  const it = items.find((i) => i.id === r.itemId)!;
+  return { ...r, itemNameAr: it.nameAr, itemCode: it.code, reorderPoint: it.reorderPoint };
+};
+
 const rows: StockBalanceRowDTO[] = [
   { itemId: "itm-1", onHand: "100.000000", totalValue: "1000.000000", averageCost: "10.000000", warehouseCount: 2, reserved: "15.000000", available: "85.000000", warehouses: [] },
   { itemId: "itm-2", onHand: "195.000000", totalValue: "1950.000000", averageCost: "10.000000", warehouseCount: 1, reserved: "0.000000", available: "195.000000", warehouses: [] },
   { itemId: "itm-8", onHand: "147.000000", totalValue: "735.000000", averageCost: "5.000000", warehouseCount: 1, reserved: "0.000000", available: "147.000000", warehouses: [] },
-];
+].map(named);
 
 function rowFor(itemLabel: string): HTMLElement {
   const cell = screen.getByText(itemLabel).closest("tr");
@@ -57,10 +62,15 @@ function rowFor(itemLabel: string): HTMLElement {
   return cell as HTMLElement;
 }
 
-function renderScreen() {
+const itemRequests: string[] = [];
+
+function renderScreen(balance: StockBalanceRowDTO[] = rows) {
   const transport = stubTransport({
-    "GET /inventory/stock-balance": () => ({ body: { rows } }),
-    "GET /items": () => ({ body: items }),
+    "GET /inventory/stock-balance": () => ({ body: { rows: balance } }),
+    "GET /items": (_init, path) => {
+      itemRequests.push(path);
+      return { body: items };
+    },
   });
   return renderWithProviders(<StockBalanceScreen />, { transport, initialSession: testAdminSession });
 }
@@ -97,10 +107,18 @@ describe("StockBalanceScreen — cross-warehouse rollup", () => {
     expect(screen.getByText("سكر أبيض 1 كجم (ITM-000008)")).toBeInTheDocument();
   });
 
+  it("names rows and flags low stock from the balance rows alone, never fetching the item catalogue", async () => {
+    itemRequests.length = 0;
+    renderScreen([{ ...rows[0]!, reorderPoint: 120 }, rows[1]!]);
+    await waitFor(() => expect(screen.getByText("أرز أبيض مصري 5 كجم (ITM-000001)")).toBeInTheDocument());
+    expect(within(rowFor("أرز أبيض مصري 5 كجم (ITM-000001)")).getByText("منخفض")).toBeInTheDocument();
+    expect(within(rowFor("زيت عباد الشمس 1 لتر (ITM-000002)")).queryByText("منخفض")).toBeNull();
+    expect(itemRequests).toEqual([]);
+  });
+
   it("shows a retry control when the balance rollup fails to load", async () => {
     const transport = stubTransport({
       "GET /inventory/stock-balance": () => ({ status: 500, body: { error: "INTERNAL" } }),
-      "GET /items": () => ({ body: items }),
     });
     renderWithProviders(<StockBalanceScreen />, { transport, initialSession: testAdminSession });
     expect(await screen.findByText("تعذّر تحميل أرصدة المخزون.")).toBeInTheDocument();
@@ -110,7 +128,6 @@ describe("StockBalanceScreen — cross-warehouse rollup", () => {
   it("shows the empty state when no balance rows are returned", async () => {
     const transport = stubTransport({
       "GET /inventory/stock-balance": () => ({ body: { rows: [] } }),
-      "GET /items": () => ({ body: items }),
     });
     renderWithProviders(<StockBalanceScreen />, { transport, initialSession: testAdminSession });
     expect(await screen.findByText("لا توجد أصناف مطابقة")).toBeInTheDocument();

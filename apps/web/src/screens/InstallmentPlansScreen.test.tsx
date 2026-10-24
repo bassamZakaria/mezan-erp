@@ -83,9 +83,14 @@ function installmentPlan(overrides: Partial<InstallmentPlanDocumentDTO> = {}): I
   };
 }
 
-function baseHandlers(plans: InstallmentPlanDocumentDTO[]) {
+function baseHandlers(plans: InstallmentPlanDocumentDTO[], invoicePaths: string[] = []) {
   return {
-    "GET /sales-invoices": () => ({ body: [salesInvoice()] }),
+    "GET /sales-invoices": (_init: RequestInit | undefined, path: string) => {
+      invoicePaths.push(path);
+      return { body: [salesInvoice()] };
+    },
+    "GET /sales-invoices/*": (_init: RequestInit | undefined, path: string) =>
+      path.split("?")[0]!.endsWith(`/${salesInvoice().id}`) ? { body: salesInvoice() } : { status: 404, body: { error: "NOT_FOUND" } },
     "GET /installments/plans": () => ({ body: plans }),
   };
 }
@@ -109,8 +114,9 @@ describe("InstallmentPlansScreen", () => {
     const generatedId = "plan-0001-0000-0000-000000000000";
     const uuidSpy = vi.spyOn(crypto, "randomUUID").mockReturnValue(generatedId as ReturnType<typeof crypto.randomUUID>);
     let current: InstallmentPlanDocumentDTO[] = [];
+    const invoicePaths: string[] = [];
     const transport = stubTransport({
-      ...baseHandlers(current),
+      ...baseHandlers(current, invoicePaths),
       "GET /installments/plans": () => ({ body: current }),
       "POST /installments/plans": (init) => {
         const body = JSON.parse((init?.body as string) ?? "{}");
@@ -129,9 +135,20 @@ describe("InstallmentPlansScreen", () => {
     // while the list is empty — the header one is used here.
     fireEvent.click(screen.getAllByRole("button", { name: "خطة جديدة" })[0]!);
     const dialog = await screen.findByRole("dialog", { name: "خطة أقساط جديدة" });
+    expect(within(dialog).queryByText(/#1/)).toBeNull();
+    fireEvent.focus(within(dialog).getByRole("combobox", { name: "الفاتورة *" }));
+    fireEvent.mouseDown(await within(dialog).findByText(new RegExp(salesInvoice().docNo ?? salesInvoice().id)));
     await within(dialog).findByText(/#1/);
     fireEvent.click(within(dialog).getByRole("button", { name: "حفظ" }));
     expect(await screen.findByText("IP-000001")).toBeInTheDocument();
+    // The picker asks for one small page of OPEN invoices — never the whole table.
+    expect(invoicePaths.length).toBeGreaterThan(0);
+    for (const path of invoicePaths) {
+      const params = new URLSearchParams(path.split("?")[1] ?? "");
+      expect(params.get("status")).toBe("open");
+      expect(params.get("page")).toBe("1");
+      expect(params.get("pageSize")).toBe("20");
+    }
     uuidSpy.mockRestore();
   });
 

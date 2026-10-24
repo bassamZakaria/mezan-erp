@@ -611,7 +611,7 @@ function TreasuryAccountLedger({ account }: { account: TreasuryAccountDTO }) {
       ) : lines.length === 0 ? (
         <div className="rounded-md border border-border p-[18px] text-center text-[12.5px] text-ink-muted">{t("treasuryAcc.movements.empty")}</div>
       ) : (
-        <div className="overflow-hidden rounded-md border border-border">
+        <div className="overflow-x-auto rounded-md border border-border">
           <table className="w-full border-collapse text-[12.5px]">
             <thead className="bg-surface-2 text-[11px] font-semibold text-ink-faint">
               <tr>

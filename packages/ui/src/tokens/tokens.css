@@ -483,6 +483,17 @@ th.mz-num {
   display: table-cell;
 }
 
+/* `.mz-fit-figure` needs a `.mz-fit` ancestor: without one, cqi falls back to
+   the viewport and the figure stays large on a phone. */
+.mz-fit {
+  container-type: inline-size;
+}
+
+.mz-fit-figure {
+  font-size: clamp(var(--fs-md), var(--mz-fit-cqi, 12cqi), var(--mz-fit-max, var(--fs-2xl)));
+  line-height: 1.25;
+}
+
 .mz-disp {
   font-family: var(--font-display);
   font-weight: var(--fw-disp);

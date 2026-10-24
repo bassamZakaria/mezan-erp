@@ -182,7 +182,7 @@ function PulseMoneyTile({ title, href, today, lastWeek, compareDay, days, pick, 
   const sparkLabel = t("cockpit.pulse.sparkLabel", { metric: title, values: series.map((v) => format.money(v)).join("، ") });
   return (
     <TileShell title={title} href={href}>
-      <div className="min-w-0 font-display text-lg font-bold tracking-tight text-ink min-[420px]:text-2xl">
+      <div className="min-w-0 font-display mz-fit-figure font-bold tracking-tight text-ink">
         <Money value={toMajorNumber(current)} />
       </div>
       <div className={cn("mt-[6px] flex items-center gap-[6px] text-2xs", deltaToneClass[deltaTone])}>
@@ -237,7 +237,7 @@ function PulseMarginTile({ data, rtl, href }: { readonly data: CockpitDTO; reado
   });
   return (
     <TileShell title={title} href={href}>
-      <div className="mz-num min-w-0 font-display text-lg font-bold tracking-tight text-ink min-[420px]:text-2xl">
+      <div className="mz-num min-w-0 font-display mz-fit-figure font-bold tracking-tight text-ink">
         {margin.today === null ? "—" : `${format.number(Number(margin.today))}%`}
       </div>
       <div className={cn("mt-[6px] flex items-center gap-[6px] text-2xs", deltaToneClass[deltaTone])}>
@@ -313,7 +313,7 @@ export function CockpitRunway({ companyWide }: { readonly companyWide: boolean }
           <div
             className={cn(
               "mz-num font-display font-bold tracking-tight",
-              data.runwayDays === null ? "text-md" : "text-lg min-[420px]:text-2xl",
+              data.runwayDays === null ? "text-md" : "mz-fit-figure",
               data.runwayDays === null ? "text-success-ink" : data.runwayDays <= 30 ? "text-danger-ink" : "text-warning-ink",
             )}
           >
@@ -349,7 +349,7 @@ export function CockpitOverdueTile({ data, branchParam }: CockpitWidgetProps) {
         <p className="text-sm font-semibold text-success-ink">{t("cockpit.overdue.clear")}</p>
       ) : (
         <>
-          <div className="min-w-0 font-display text-lg font-bold tracking-tight text-danger-ink min-[420px]:text-2xl">
+          <div className="min-w-0 font-display mz-fit-figure font-bold tracking-tight text-danger-ink">
             <Money value={majorOf(overdue.amount)} />
           </div>
           <div className="mt-[6px] text-2xs text-ink-muted">
@@ -388,7 +388,7 @@ export function CockpitLowStockTile({ data }: CockpitWidgetProps) {
         <p className="text-sm font-semibold text-success-ink">{t("cockpit.lowStock.clear")}</p>
       ) : (
         <>
-          <div className="mz-num font-display text-lg font-bold tracking-tight text-warning-ink min-[420px]:text-2xl">{format.number(stock.low)}</div>
+          <div className="mz-num font-display mz-fit-figure font-bold tracking-tight text-warning-ink">{format.number(stock.low)}</div>
           {first ? <div className="mt-[6px] truncate text-2xs text-ink-muted">{t("cockpit.lowStock.detail", { name: first })}</div> : null}
         </>
       )}
@@ -402,7 +402,7 @@ export function CockpitCashTile({ data }: CockpitWidgetProps) {
   if (!cash) return null;
   return (
     <TileShell title={t("cockpit.cash.title")} href={drillHref("treasury-accounts")}>
-      <div className="min-w-0 font-display text-lg font-bold tracking-tight text-ink min-[420px]:text-2xl">
+      <div className="min-w-0 font-display mz-fit-figure font-bold tracking-tight text-ink">
         <Money value={majorOf(cash.total)} />
       </div>
       {cash.accounts.length === 0 ? (
@@ -493,7 +493,7 @@ export function CockpitMarginTile({ data, rtl }: CockpitWidgetProps) {
       <div className="flex flex-wrap items-baseline gap-x-[16px] gap-y-[4px]">
         <div>
           <div className="text-2xs text-ink-faint">{t("cockpit.margin.current")}</div>
-          <div className="mz-num font-display text-lg font-bold text-ink min-[420px]:text-2xl">{pct(current?.grossMarginPercent)}</div>
+          <div className="mz-num font-display mz-fit-figure font-bold text-ink">{pct(current?.grossMarginPercent)}</div>
         </div>
         <div>
           <div className="text-2xs text-ink-faint">{t("cockpit.margin.previous")}</div>

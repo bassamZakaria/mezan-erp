@@ -799,33 +799,35 @@ export function EmployeesScreen() {
             (contractsQuery.data ?? []).length === 0 ? (
               <p className="text-[12.5px] text-ink-muted">{t("employees.noContractsLinkedToThis")}</p>
             ) : (
-              <table className="w-full border-collapse text-[12.5px]">
-                <thead>
-                  <tr className="border-b border-border text-ink-faint">
-                    <th className="px-[8px] py-[7px] text-start font-semibold">{t("contracts.contractNumber")}</th>
-                    <th className="px-[8px] py-[7px] text-start font-semibold">{t("contracts.contractType")}</th>
-                    <th className="px-[8px] py-[7px] text-start font-semibold">{t("common.period")}</th>
-                    <th className="px-[8px] py-[7px] text-end font-semibold">{t("contracts.basicSalary")}</th>
-                    <th className="px-[8px] py-[7px] text-start font-semibold">{t("common.status")}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(contractsQuery.data ?? []).map((c) => (
-                    <tr key={c.id} className="border-b border-border last:border-0">
-                      <td className="px-[8px] py-[7px]"><span className="mz-num font-semibold text-ink">{c.number}</span></td>
-                      <td className="px-[8px] py-[7px] text-ink">{t(CONTRACT_TYPE_KEY[c.type])}</td>
-                      <td className="px-[8px] py-[7px]"><span className="mz-num text-ink">{c.startDate} — {c.endDate ?? "—"}</span></td>
-                      <td className="px-[8px] py-[7px] text-end"><MoneyDisplay value={Number(c.monthlySalary)} /></td>
-                      <td className="px-[8px] py-[7px]">
-                        <StatusPill
-                          label={c.status === "active" ? t("contracts.active") : t("contracts.terminated")}
-                          tone={c.status === "active" ? "success" : "neutral"}
-                        />
-                      </td>
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse text-[12.5px]">
+                  <thead>
+                    <tr className="border-b border-border text-ink-faint">
+                      <th className="px-[8px] py-[7px] text-start font-semibold">{t("contracts.contractNumber")}</th>
+                      <th className="px-[8px] py-[7px] text-start font-semibold">{t("contracts.contractType")}</th>
+                      <th className="px-[8px] py-[7px] text-start font-semibold">{t("common.period")}</th>
+                      <th className="px-[8px] py-[7px] text-end font-semibold">{t("contracts.basicSalary")}</th>
+                      <th className="px-[8px] py-[7px] text-start font-semibold">{t("common.status")}</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {(contractsQuery.data ?? []).map((c) => (
+                      <tr key={c.id} className="border-b border-border last:border-0">
+                        <td className="px-[8px] py-[7px]"><span className="mz-num font-semibold text-ink">{c.number}</span></td>
+                        <td className="px-[8px] py-[7px] text-ink">{t(CONTRACT_TYPE_KEY[c.type])}</td>
+                        <td className="px-[8px] py-[7px]"><span className="mz-num text-ink">{c.startDate} — {c.endDate ?? "—"}</span></td>
+                        <td className="px-[8px] py-[7px] text-end"><MoneyDisplay value={Number(c.monthlySalary)} /></td>
+                        <td className="px-[8px] py-[7px]">
+                          <StatusPill
+                            label={c.status === "active" ? t("contracts.active") : t("contracts.terminated")}
+                            tone={c.status === "active" ? "success" : "neutral"}
+                          />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             ),
         },
         {
@@ -838,28 +840,30 @@ export function EmployeesScreen() {
                 {(leaveBalancesQuery.data ?? []).length === 0 ? (
                   <p className="text-[12.5px] text-ink-muted">{t("employees.noLeaveBalanceForThis")}</p>
                 ) : (
-                  <table className="w-full border-collapse text-[12.5px]">
-                    <thead>
-                      <tr className="border-b border-border text-ink-faint">
-                        <th className="px-[8px] py-[7px] text-start font-semibold">{t("hrDashboard.leaveType")}</th>
-                        <th className="px-[8px] py-[7px] text-end font-semibold">{t("hrDashboard.entitled")}</th>
-                        <th className="px-[8px] py-[7px] text-end font-semibold">{t("hrDashboard.taken")}</th>
-                        <th className="px-[8px] py-[7px] text-end font-semibold">{t("employees.remaining")}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(leaveBalancesQuery.data ?? []).map((b) => (
-                        <tr key={b.id} className="border-b border-border last:border-0">
-                          <td className="px-[8px] py-[7px] font-semibold text-ink">{t(LEAVE_TYPE_KEY[b.leaveType])}</td>
-                          <td className="px-[8px] py-[7px] text-end"><span className="mz-num text-ink">{Number(b.entitled) + Number(b.carriedOver)}</span></td>
-                          <td className="px-[8px] py-[7px] text-end"><span className="mz-num text-ink">{Number(b.used)}</span></td>
-                          <td className="px-[8px] py-[7px] text-end">
-                            <span className="mz-num font-semibold text-ink">{Number(b.entitled) + Number(b.carriedOver) - Number(b.used)}</span>
-                          </td>
+                  <div className="overflow-x-auto">
+                    <table className="w-full border-collapse text-[12.5px]">
+                      <thead>
+                        <tr className="border-b border-border text-ink-faint">
+                          <th className="px-[8px] py-[7px] text-start font-semibold">{t("hrDashboard.leaveType")}</th>
+                          <th className="px-[8px] py-[7px] text-end font-semibold">{t("hrDashboard.entitled")}</th>
+                          <th className="px-[8px] py-[7px] text-end font-semibold">{t("hrDashboard.taken")}</th>
+                          <th className="px-[8px] py-[7px] text-end font-semibold">{t("employees.remaining")}</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody>
+                        {(leaveBalancesQuery.data ?? []).map((b) => (
+                          <tr key={b.id} className="border-b border-border last:border-0">
+                            <td className="px-[8px] py-[7px] font-semibold text-ink">{t(LEAVE_TYPE_KEY[b.leaveType])}</td>
+                            <td className="px-[8px] py-[7px] text-end"><span className="mz-num text-ink">{Number(b.entitled) + Number(b.carriedOver)}</span></td>
+                            <td className="px-[8px] py-[7px] text-end"><span className="mz-num text-ink">{Number(b.used)}</span></td>
+                            <td className="px-[8px] py-[7px] text-end">
+                              <span className="mz-num font-semibold text-ink">{Number(b.entitled) + Number(b.carriedOver) - Number(b.used)}</span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 )}
               </div>
               <div>
@@ -867,28 +871,30 @@ export function EmployeesScreen() {
                 {(leaveRequestsQuery.data ?? []).length === 0 ? (
                   <p className="text-[12.5px] text-ink-muted">{t("employees.noLeaveRequestsForThis")}</p>
                 ) : (
-                  <table className="w-full border-collapse text-[12.5px]">
-                    <thead>
-                      <tr className="border-b border-border text-ink-faint">
-                        <th className="px-[8px] py-[7px] text-start font-semibold">{t("leaveRequests.requestNumber")}</th>
-                        <th className="px-[8px] py-[7px] text-start font-semibold">{t("leaveRequests.leaveType")}</th>
-                        <th className="px-[8px] py-[7px] text-start font-semibold">{t("common.period")}</th>
-                        <th className="px-[8px] py-[7px] text-end font-semibold">{t("leaveRequests.days")}</th>
-                        <th className="px-[8px] py-[7px] text-start font-semibold">{t("common.status")}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(leaveRequestsQuery.data ?? []).map((r) => (
-                        <tr key={r.id} className="border-b border-border last:border-0">
-                          <td className="px-[8px] py-[7px]"><span className="mz-num font-semibold text-ink">{r.number}</span></td>
-                          <td className="px-[8px] py-[7px] text-ink">{t(LEAVE_TYPE_KEY[r.leaveType])}</td>
-                          <td className="px-[8px] py-[7px]"><span className="mz-num text-ink">{r.startDate} — {r.endDate}</span></td>
-                          <td className="px-[8px] py-[7px] text-end"><span className="mz-num text-ink">{r.days}</span></td>
-                          <td className="px-[8px] py-[7px]"><StatusPill label={t(LEAVE_STATUS_KEY[r.status])} tone={LEAVE_STATUS_TONE[r.status]} /></td>
+                  <div className="overflow-x-auto">
+                    <table className="w-full border-collapse text-[12.5px]">
+                      <thead>
+                        <tr className="border-b border-border text-ink-faint">
+                          <th className="px-[8px] py-[7px] text-start font-semibold">{t("leaveRequests.requestNumber")}</th>
+                          <th className="px-[8px] py-[7px] text-start font-semibold">{t("leaveRequests.leaveType")}</th>
+                          <th className="px-[8px] py-[7px] text-start font-semibold">{t("common.period")}</th>
+                          <th className="px-[8px] py-[7px] text-end font-semibold">{t("leaveRequests.days")}</th>
+                          <th className="px-[8px] py-[7px] text-start font-semibold">{t("common.status")}</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody>
+                        {(leaveRequestsQuery.data ?? []).map((r) => (
+                          <tr key={r.id} className="border-b border-border last:border-0">
+                            <td className="px-[8px] py-[7px]"><span className="mz-num font-semibold text-ink">{r.number}</span></td>
+                            <td className="px-[8px] py-[7px] text-ink">{t(LEAVE_TYPE_KEY[r.leaveType])}</td>
+                            <td className="px-[8px] py-[7px]"><span className="mz-num text-ink">{r.startDate} — {r.endDate}</span></td>
+                            <td className="px-[8px] py-[7px] text-end"><span className="mz-num text-ink">{r.days}</span></td>
+                            <td className="px-[8px] py-[7px]"><StatusPill label={t(LEAVE_STATUS_KEY[r.status])} tone={LEAVE_STATUS_TONE[r.status]} /></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 )}
               </div>
             </div>
@@ -901,28 +907,30 @@ export function EmployeesScreen() {
             (payslipsQuery.data ?? []).length === 0 ? (
               <p className="text-[12.5px] text-ink-muted">{t("employees.noPayslipsForThisEmployee")}</p>
             ) : (
-              <table className="w-full border-collapse text-[12.5px]">
-                <thead>
-                  <tr className="border-b border-border text-ink-faint">
-                    <th className="px-[8px] py-[7px] text-start font-semibold">{t("employees.payslipNumber")}</th>
-                    <th className="px-[8px] py-[7px] text-start font-semibold">{t("common.period")}</th>
-                    <th className="px-[8px] py-[7px] text-end font-semibold">{t("employees.gross")}</th>
-                    <th className="px-[8px] py-[7px] text-end font-semibold">{t("employees.deductions")}</th>
-                    <th className="px-[8px] py-[7px] text-end font-semibold">{t("employees.net")}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(payslipsQuery.data ?? []).map((slip) => (
-                    <tr key={slip.id} className="border-b border-border last:border-0">
-                      <td className="px-[8px] py-[7px]"><span className="mz-num font-semibold text-ink">{slip.number}</span></td>
-                      <td className="px-[8px] py-[7px]"><span className="mz-num text-ink">{slip.periodStart} — {slip.periodEnd}</span></td>
-                      <td className="px-[8px] py-[7px] text-end"><MoneyDisplay value={Number(slip.grossEarnings)} /></td>
-                      <td className="px-[8px] py-[7px] text-end"><MoneyDisplay value={Number(slip.totalDeductions)} /></td>
-                      <td className="px-[8px] py-[7px] text-end font-semibold"><MoneyDisplay value={Number(slip.netPay)} /></td>
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse text-[12.5px]">
+                  <thead>
+                    <tr className="border-b border-border text-ink-faint">
+                      <th className="px-[8px] py-[7px] text-start font-semibold">{t("employees.payslipNumber")}</th>
+                      <th className="px-[8px] py-[7px] text-start font-semibold">{t("common.period")}</th>
+                      <th className="px-[8px] py-[7px] text-end font-semibold">{t("employees.gross")}</th>
+                      <th className="px-[8px] py-[7px] text-end font-semibold">{t("employees.deductions")}</th>
+                      <th className="px-[8px] py-[7px] text-end font-semibold">{t("employees.net")}</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {(payslipsQuery.data ?? []).map((slip) => (
+                      <tr key={slip.id} className="border-b border-border last:border-0">
+                        <td className="px-[8px] py-[7px]"><span className="mz-num font-semibold text-ink">{slip.number}</span></td>
+                        <td className="px-[8px] py-[7px]"><span className="mz-num text-ink">{slip.periodStart} — {slip.periodEnd}</span></td>
+                        <td className="px-[8px] py-[7px] text-end"><MoneyDisplay value={Number(slip.grossEarnings)} /></td>
+                        <td className="px-[8px] py-[7px] text-end"><MoneyDisplay value={Number(slip.totalDeductions)} /></td>
+                        <td className="px-[8px] py-[7px] text-end font-semibold"><MoneyDisplay value={Number(slip.netPay)} /></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             ),
         },
         {
@@ -932,26 +940,28 @@ export function EmployeesScreen() {
             employeeAdvances.length === 0 ? (
               <p className="text-[12.5px] text-ink-muted">{t("employees.noAdvancesForThisEmployee")}</p>
             ) : (
-              <table className="w-full border-collapse text-[12.5px]">
-                <thead>
-                  <tr className="border-b border-border text-ink-faint">
-                    <th className="px-[8px] py-[7px] text-start font-semibold">{t("employees.advanceNumber")}</th>
-                    <th className="px-[8px] py-[7px] text-end font-semibold">{t("employees.advanceAmount")}</th>
-                    <th className="px-[8px] py-[7px] text-end font-semibold">{t("employees.outstanding")}</th>
-                    <th className="px-[8px] py-[7px] text-start font-semibold">{t("common.status")}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {employeeAdvances.map((advance) => (
-                    <tr key={advance.id} className="border-b border-border last:border-0">
-                      <td className="px-[8px] py-[7px]"><span className="mz-num font-semibold text-ink">{advance.number}</span></td>
-                      <td className="px-[8px] py-[7px] text-end"><MoneyDisplay value={Number(advance.amount)} /></td>
-                      <td className="px-[8px] py-[7px] text-end"><MoneyDisplay value={Number(advance.outstanding)} /></td>
-                      <td className="px-[8px] py-[7px] text-ink">{advance.status}</td>
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse text-[12.5px]">
+                  <thead>
+                    <tr className="border-b border-border text-ink-faint">
+                      <th className="px-[8px] py-[7px] text-start font-semibold">{t("employees.advanceNumber")}</th>
+                      <th className="px-[8px] py-[7px] text-end font-semibold">{t("employees.advanceAmount")}</th>
+                      <th className="px-[8px] py-[7px] text-end font-semibold">{t("employees.outstanding")}</th>
+                      <th className="px-[8px] py-[7px] text-start font-semibold">{t("common.status")}</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {employeeAdvances.map((advance) => (
+                      <tr key={advance.id} className="border-b border-border last:border-0">
+                        <td className="px-[8px] py-[7px]"><span className="mz-num font-semibold text-ink">{advance.number}</span></td>
+                        <td className="px-[8px] py-[7px] text-end"><MoneyDisplay value={Number(advance.amount)} /></td>
+                        <td className="px-[8px] py-[7px] text-end"><MoneyDisplay value={Number(advance.outstanding)} /></td>
+                        <td className="px-[8px] py-[7px] text-ink">{advance.status}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             ),
         },
         {
@@ -961,29 +971,31 @@ export function EmployeesScreen() {
             (attendanceQuery.data ?? []).length === 0 ? (
               <p className="text-[12.5px] text-ink-muted">{t("employees.noAttendanceForThisEmployee")}</p>
             ) : (
-              <table className="w-full border-collapse text-[12.5px]">
-                <thead>
-                  <tr className="border-b border-border text-ink-faint">
-                    <th className="px-[8px] py-[7px] text-start font-semibold">{t("employees.attendanceDate")}</th>
-                    <th className="px-[8px] py-[7px] text-start font-semibold">{t("employees.checkIn")}</th>
-                    <th className="px-[8px] py-[7px] text-start font-semibold">{t("employees.checkOut")}</th>
-                    <th className="px-[8px] py-[7px] text-start font-semibold">{t("common.status")}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {[...(attendanceQuery.data ?? [])]
-                    .sort((a, b) => (a.date < b.date ? 1 : -1))
-                    .slice(0, 60)
-                    .map((entry) => (
-                      <tr key={entry.id} className="border-b border-border last:border-0">
-                        <td className="px-[8px] py-[7px]"><span className="mz-num text-ink">{entry.date}</span></td>
-                        <td className="px-[8px] py-[7px]"><span className="mz-num text-ink">{entry.checkIn ?? "—"}</span></td>
-                        <td className="px-[8px] py-[7px]"><span className="mz-num text-ink">{entry.checkOut ?? "—"}</span></td>
-                        <td className="px-[8px] py-[7px] text-ink">{t(ATTENDANCE_STATUS_KEY[entry.status])}</td>
-                      </tr>
-                    ))}
-                </tbody>
-              </table>
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse text-[12.5px]">
+                  <thead>
+                    <tr className="border-b border-border text-ink-faint">
+                      <th className="px-[8px] py-[7px] text-start font-semibold">{t("employees.attendanceDate")}</th>
+                      <th className="px-[8px] py-[7px] text-start font-semibold">{t("employees.checkIn")}</th>
+                      <th className="px-[8px] py-[7px] text-start font-semibold">{t("employees.checkOut")}</th>
+                      <th className="px-[8px] py-[7px] text-start font-semibold">{t("common.status")}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[...(attendanceQuery.data ?? [])]
+                      .sort((a, b) => (a.date < b.date ? 1 : -1))
+                      .slice(0, 60)
+                      .map((entry) => (
+                        <tr key={entry.id} className="border-b border-border last:border-0">
+                          <td className="px-[8px] py-[7px]"><span className="mz-num text-ink">{entry.date}</span></td>
+                          <td className="px-[8px] py-[7px]"><span className="mz-num text-ink">{entry.checkIn ?? "—"}</span></td>
+                          <td className="px-[8px] py-[7px]"><span className="mz-num text-ink">{entry.checkOut ?? "—"}</span></td>
+                          <td className="px-[8px] py-[7px] text-ink">{t(ATTENDANCE_STATUS_KEY[entry.status])}</td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
             ),
         },
         {

@@ -102,63 +102,67 @@ export function CrmForecastScreen() {
         <>
           <Card className="mb-[18px] overflow-hidden">
             <h2 className="px-[15px] pt-[12px] font-display text-[13.5px] font-bold text-ink">{t("crmPipeline.forecast.byMonth")}</h2>
-            <table className="w-full border-collapse text-[12.5px]">
-              <thead className="bg-surface-2 text-[11px] font-semibold text-ink-faint">{headers(t("crmPipeline.forecast.col.month"))}</thead>
-              <tbody>
-                {(forecast?.months ?? []).map((row) => {
-                  const key = monthKey(row);
-                  const open = expanded.has(key);
-                  return (
-                    <Fragment key={key}>
-                      <tr className="border-t border-border">
-                        <td className="px-[15px] py-[9px]">
-                          <button
-                            type="button"
-                            aria-expanded={open}
-                            onClick={() => toggle(key)}
-                            className="font-semibold text-ink hover:text-brand"
-                          >
-                            {monthLabel(row)}
-                          </button>
-                        </td>
-                        {figures(row)}
-                      </tr>
-                      {open
-                        ? row.owners.map((owner: ForecastOwnerRowDTO) => (
-                            <tr key={`${key}:${owner.ownerUserId ?? "none"}`} className="border-t border-border bg-surface-2/50 text-ink-muted">
-                              <td className="ps-[30px] pe-[15px] py-[7px]">{ownerName(owner.ownerUserId)}</td>
-                              {figures(owner)}
-                            </tr>
-                          ))
-                        : null}
-                    </Fragment>
-                  );
-                })}
-              </tbody>
-              {forecast ? (
-                <tfoot>
-                  <tr className="border-t-2 border-border font-bold">
-                    <td className="px-[15px] py-[9px]">{t("crmPipeline.forecast.total")}</td>
-                    {figures(forecast.total)}
-                  </tr>
-                </tfoot>
-              ) : null}
-            </table>
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse text-[12.5px]">
+                <thead className="bg-surface-2 text-[11px] font-semibold text-ink-faint">{headers(t("crmPipeline.forecast.col.month"))}</thead>
+                <tbody>
+                  {(forecast?.months ?? []).map((row) => {
+                    const key = monthKey(row);
+                    const open = expanded.has(key);
+                    return (
+                      <Fragment key={key}>
+                        <tr className="border-t border-border">
+                          <td className="px-[15px] py-[9px]">
+                            <button
+                              type="button"
+                              aria-expanded={open}
+                              onClick={() => toggle(key)}
+                              className="font-semibold text-ink hover:text-brand"
+                            >
+                              {monthLabel(row)}
+                            </button>
+                          </td>
+                          {figures(row)}
+                        </tr>
+                        {open
+                          ? row.owners.map((owner: ForecastOwnerRowDTO) => (
+                              <tr key={`${key}:${owner.ownerUserId ?? "none"}`} className="border-t border-border bg-surface-2/50 text-ink-muted">
+                                <td className="ps-[30px] pe-[15px] py-[7px]">{ownerName(owner.ownerUserId)}</td>
+                                {figures(owner)}
+                              </tr>
+                            ))
+                          : null}
+                      </Fragment>
+                    );
+                  })}
+                </tbody>
+                {forecast ? (
+                  <tfoot>
+                    <tr className="border-t-2 border-border font-bold">
+                      <td className="px-[15px] py-[9px]">{t("crmPipeline.forecast.total")}</td>
+                      {figures(forecast.total)}
+                    </tr>
+                  </tfoot>
+                ) : null}
+              </table>
+            </div>
           </Card>
 
           <Card className="overflow-hidden">
             <h2 className="px-[15px] pt-[12px] font-display text-[13.5px] font-bold text-ink">{t("crmPipeline.forecast.byRep")}</h2>
-            <table className="w-full border-collapse text-[12.5px]">
-              <thead className="bg-surface-2 text-[11px] font-semibold text-ink-faint">{headers(t("crmPipeline.forecast.col.rep"))}</thead>
-              <tbody>
-                {(forecast?.owners ?? []).map((row) => (
-                  <tr key={row.ownerUserId ?? "none"} className="border-t border-border">
-                    <td className="px-[15px] py-[9px] text-ink">{ownerName(row.ownerUserId)}</td>
-                    {figures(row)}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse text-[12.5px]">
+                <thead className="bg-surface-2 text-[11px] font-semibold text-ink-faint">{headers(t("crmPipeline.forecast.col.rep"))}</thead>
+                <tbody>
+                  {(forecast?.owners ?? []).map((row) => (
+                    <tr key={row.ownerUserId ?? "none"} className="border-t border-border">
+                      <td className="px-[15px] py-[9px] text-ink">{ownerName(row.ownerUserId)}</td>
+                      {figures(row)}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </Card>
         </>
       )}

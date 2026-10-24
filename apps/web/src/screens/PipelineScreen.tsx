@@ -167,44 +167,46 @@ export function PipelineScreen() {
 
       {view === "list" ? (
         <Card className="overflow-hidden">
-          <table className="w-full border-collapse text-[12.5px]">
-            <thead className="bg-surface-2 text-[11px] font-semibold text-ink-faint">
-              <tr>
-                <th className="px-[15px] py-[9px] text-start">{t("pipeline.col.stage")}</th>
-                <th className="px-[15px] py-[9px] text-start">{t("pipeline.col.title")}</th>
-                <th className="px-[15px] py-[9px] text-start">{t("common.customer")}</th>
-                <th className="px-[15px] py-[9px] text-start">{t("crmPipeline.col.owner")}</th>
-                <th className="px-[15px] py-[9px] text-end">{t("pipeline.expectedValue")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {opportunities.length === 0 ? (
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse text-[12.5px]">
+              <thead className="bg-surface-2 text-[11px] font-semibold text-ink-faint">
                 <tr>
-                  <td colSpan={5} className="p-[18px] text-center text-ink-muted">{t("pipeline.noMatching")}</td>
+                  <th className="px-[15px] py-[9px] text-start">{t("pipeline.col.stage")}</th>
+                  <th className="px-[15px] py-[9px] text-start">{t("pipeline.col.title")}</th>
+                  <th className="px-[15px] py-[9px] text-start">{t("common.customer")}</th>
+                  <th className="px-[15px] py-[9px] text-start">{t("crmPipeline.col.owner")}</th>
+                  <th className="px-[15px] py-[9px] text-end">{t("pipeline.expectedValue")}</th>
                 </tr>
-              ) : (
-                opportunities.map((opportunity) => {
-                  const stage = stages.find((s) => s.id === opportunity.stageId);
-                  return (
-                    <tr key={opportunity.id} className="border-t border-border">
-                      <td className="px-[15px] py-[9px]">
-                        <span className="inline-flex items-center gap-[7px] text-ink">
-                          <span aria-hidden className="h-[8px] w-[8px] rounded-full" style={{ background: stage?.color ?? "var(--ink-faint)" }} />
-                          {stage?.name ?? opportunity.stageId}
-                        </span>
-                      </td>
-                      <td className="px-[15px] py-[9px] text-ink">{opportunity.title}</td>
-                      <td className="px-[15px] py-[9px] text-ink-muted">{customerName(opportunity.customerId)}</td>
-                      <td className="px-[15px] py-[9px] text-ink-muted">{ownerName(opportunity.ownerUserId)}</td>
-                      <td className="px-[15px] py-[9px] text-end">
-                        <MoneyDisplay value={majorOf(opportunity.expectedValue)} />
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {opportunities.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="p-[18px] text-center text-ink-muted">{t("pipeline.noMatching")}</td>
+                  </tr>
+                ) : (
+                  opportunities.map((opportunity) => {
+                    const stage = stages.find((s) => s.id === opportunity.stageId);
+                    return (
+                      <tr key={opportunity.id} className="border-t border-border">
+                        <td className="px-[15px] py-[9px]">
+                          <span className="inline-flex items-center gap-[7px] text-ink">
+                            <span aria-hidden className="h-[8px] w-[8px] rounded-full" style={{ background: stage?.color ?? "var(--ink-faint)" }} />
+                            {stage?.name ?? opportunity.stageId}
+                          </span>
+                        </td>
+                        <td className="px-[15px] py-[9px] text-ink">{opportunity.title}</td>
+                        <td className="px-[15px] py-[9px] text-ink-muted">{customerName(opportunity.customerId)}</td>
+                        <td className="px-[15px] py-[9px] text-ink-muted">{ownerName(opportunity.ownerUserId)}</td>
+                        <td className="px-[15px] py-[9px] text-end">
+                          <MoneyDisplay value={majorOf(opportunity.expectedValue)} />
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
         </Card>
       ) : (
       <div className="flex gap-[14px] overflow-x-auto pb-[8px]">

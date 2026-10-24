@@ -167,7 +167,7 @@ export function LabelPrintingScreen() {
             </div>
           </div>
 
-          <div className="overflow-hidden rounded-lg border border-border">
+          <div className="overflow-x-auto rounded-lg border border-border">
             <table className="w-full text-[12.5px]">
               <thead className="bg-surface-2 text-ink-faint">
                 <tr>

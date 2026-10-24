@@ -566,7 +566,7 @@ describe("PurchaseInvoicesScreen (filters, stats, entity ids, payments)", () => 
     expect(within(rowForeign!).getByText("100.00").nextElementSibling?.textContent).toBe("SAR");
   });
 
-  it("KNOWN DEFECT: a rejected confirm from the row menu leaves the invoice a draft but shows the user no error at all — confirmSelected swallows the failure silently", async () => {
+  it("a rejected confirm from the row menu leaves the invoice a draft and shows the server's refusal", async () => {
     const draft = purchaseInvoice({ id: "pi-draft", number: "PI-000002", status: "draft" });
     renderScreen([draft], {
       "POST /purchases/invoices/pi-draft/confirm": () => ({ status: 409, body: { message: "الفترة المحاسبية مقفلة." } }),
@@ -575,11 +575,8 @@ describe("PurchaseInvoicesScreen (filters, stats, entity ids, payments)", () => 
     fireEvent.click(within(screen.getAllByRole("row")[1]!).getByRole("button", { name: /^إجراءات/ }));
     fireEvent.click(await screen.findByRole("menuitem", { name: "تأكيد الفاتورة" }));
 
-    // Give the rejected mutation a tick to settle, then confirm: still a draft…
-    await waitFor(() => expect(screen.getAllByText("مسودة").length).toBeGreaterThan(0));
-    // …and — this is the defect — the server's refusal message never reaches the screen anywhere.
-    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-    expect(screen.queryByText("الفترة المحاسبية مقفلة.")).not.toBeInTheDocument();
+    expect(await screen.findByRole("alert")).toHaveTextContent("PI-000002: الفترة المحاسبية مقفلة.");
+    expect(screen.getAllByText("مسودة").length).toBeGreaterThan(0);
   });
 });
 

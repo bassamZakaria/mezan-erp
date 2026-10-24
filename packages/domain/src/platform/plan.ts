@@ -2,7 +2,7 @@ import { Money } from "../money/money.js";
 import { isKnownModule } from "./module-catalog.js";
 import { isValidSlug } from "./slug.js";
 import { isCount, isoTimestamp } from "./validation.js";
-import { FreePlanRemoval, FreePlanRequiredError, InvalidPlanError, PlanCodeTakenError, PlanInUseError, PlanNotFoundError } from "./errors.js";
+import { FreePlanRemoval, FreePlanRequiredError, InvalidPlanError, PlanCodeTakenError, PlanNotFoundError } from "./errors.js";
 
 export enum PlanStatusCode {
   Active = "active",
@@ -76,8 +76,6 @@ export interface CreatePlanCommand {
 export type UpdatePlanCommand = { readonly id: string } & Partial<
   Pick<Plan, "nameAr" | "nameEn" | "kind" | "modules" | "features" | "seatsIncluded" | "branchesIncluded" | "warehousesIncluded" | "quotas" | "priceMonthly" | "priceYearly" | "trialDays" | "isPublic" | "soldOut" | "sortOrder">
 >;
-
-export type HasLiveSubscribers = (planId: string) => Promise<boolean>;
 
 export function dedupeModules(modules: readonly string[]): string[] {
   return [...new Set(modules)];
@@ -175,7 +173,6 @@ async function anotherFreePlanIsActive(id: string, repo: PlanRepository): Promis
 export async function updatePlan(
   cmd: UpdatePlanCommand,
   repo: PlanRepository,
-  hasLiveSubscribers: HasLiveSubscribers,
 ): Promise<Plan> {
   const current = await repo.findById(cmd.id);
   if (!current) throw new PlanNotFoundError(cmd.id);
@@ -201,10 +198,6 @@ export async function updatePlan(
   if (reasons.length > 0) throw new InvalidPlanError(reasons);
   if (current.kind === PlanKind.Free && next.kind !== PlanKind.Free && current.status === PlanStatusCode.Active && !(await anotherFreePlanIsActive(current.id, repo))) {
     throw new FreePlanRequiredError(current.id, FreePlanRemoval.MadePaid);
-  }
-  const removed = current.modules.filter((m) => !next.modules.includes(m));
-  if (removed.length > 0 && (await hasLiveSubscribers(current.id))) {
-    throw new PlanInUseError(current.id, removed);
   }
   await repo.save(next);
   return next;

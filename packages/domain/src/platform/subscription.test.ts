@@ -41,9 +41,6 @@ function subs(): SubscriptionRepository & { rows: Map<string, Subscription> } {
       return [...rows.values()].find((s) => s.tenantId === tenantId && s.status !== "cancelled") ?? null;
     },
     async listByTenant(tenantId) { return [...rows.values()].filter((s) => s.tenantId === tenantId); },
-    async hasLiveByPlan(planId) {
-      return [...rows.values()].some((s) => s.planId === planId && s.status !== "cancelled");
-    },
     async listByPlan(planId) {
       return [...rows.values()].filter((s) => s.planId === planId && s.status !== "cancelled");
     },

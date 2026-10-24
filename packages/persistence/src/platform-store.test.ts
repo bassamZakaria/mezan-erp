@@ -64,8 +64,6 @@ describe("createSqlitePlatformStores", () => {
     expect(await stores.subscriptions.findById("S1")).toEqual(sub);
     expect(await stores.subscriptions.findLiveByTenant("T1")).toEqual(sub);
     expect(await stores.subscriptions.listByTenant("T1")).toEqual([sub]);
-    expect(await stores.subscriptions.hasLiveByPlan("P1")).toBe(true);
-    expect(await stores.subscriptions.hasLiveByPlan("P9")).toBe(false);
     expect(await stores.subscriptions.listByPlan("P1")).toEqual([sub]);
     expect(await stores.subscriptions.listByPlan("P9")).toEqual([]);
 
@@ -101,7 +99,6 @@ describe("createSqlitePlatformStores", () => {
     await stores.subscriptions.save(sub);
     await stores.subscriptions.save({ ...sub, status: "cancelled", cancelledAt: NOW });
     expect(await stores.subscriptions.findLiveByTenant("T1")).toBeNull();
-    expect(await stores.subscriptions.hasLiveByPlan("P1")).toBe(false);
     expect(await stores.subscriptions.listByTenant("T1")).toHaveLength(1);
     expect(await stores.subscriptions.listByPlan("P1")).toEqual([]);
     stores.close();

@@ -674,7 +674,6 @@ class SqliteSubscriptionStore implements SubscriptionTransitionRepository {
   private readonly byId: Database.Statement;
   private readonly liveByTenant: Database.Statement;
   private readonly byTenant: Database.Statement;
-  private readonly liveByPlan: Database.Statement;
   private readonly listLiveByPlan: Database.Statement;
   private readonly endedTrials: Database.Statement;
   private readonly conditionalUpdate: Database.Statement;
@@ -700,7 +699,6 @@ class SqliteSubscriptionStore implements SubscriptionTransitionRepository {
     this.byId = sqlite.prepare(`SELECT * FROM subscription WHERE id = ?`);
     this.liveByTenant = sqlite.prepare(`SELECT * FROM subscription WHERE tenant_id = ? AND status <> 'cancelled'`);
     this.byTenant = sqlite.prepare(`SELECT * FROM subscription WHERE tenant_id = ? ORDER BY created_at, id`);
-    this.liveByPlan = sqlite.prepare(`SELECT 1 FROM subscription WHERE plan_id = ? AND status <> 'cancelled' LIMIT 1`);
     this.listLiveByPlan = sqlite.prepare(`SELECT * FROM subscription WHERE plan_id = ? AND status <> 'cancelled' ORDER BY created_at, id`);
     this.endedTrials = sqlite.prepare(
       `SELECT * FROM subscription WHERE status = 'trialing' AND trial_ends_at IS NOT NULL AND trial_ends_at <= ? ORDER BY trial_ends_at, id`,
@@ -730,10 +728,6 @@ class SqliteSubscriptionStore implements SubscriptionTransitionRepository {
 
   async listByTenant(tenantId: string): Promise<Subscription[]> {
     return (this.byTenant.all(tenantId) as SubscriptionRow[]).map(toSubscription);
-  }
-
-  async hasLiveByPlan(planId: string): Promise<boolean> {
-    return this.liveByPlan.get(planId) !== undefined;
   }
 
   async listByPlan(planId: string): Promise<Subscription[]> {

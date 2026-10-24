@@ -40,6 +40,7 @@ import { purchaseInvoiceLineTotal } from "./exact-line-totals";
 import { PurchaseInvoiceStatusCode } from "@mezan/domain";
 import { findCurrency } from "@mezan/domain";
 import { ItemPicker, PURCHASABLE_ITEMS, useLineItems } from "./ItemPicker";
+import { EMPTY_LOT, LotFields, lotIsComplete, lotPayload, tracksLots, type LotValue } from "./enh/expiry/LotFields";
 import { addDaysIso, todayIso } from "../lib/dates";
 import { EMPTY } from "../lib/empty";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
@@ -107,11 +108,12 @@ interface DraftLine {
   tax: TaxChoice;
   description: string;
   costCategory: CostCategoryDTO | null;
+  lot: LotValue;
 }
 
 const NO_TAX_RATES: readonly TaxRateDTO[] = [];
 
-const blankLine = (): DraftLine => ({ itemId: "", kind: "inventory", qty: "1", unitCost: "0", taxRatePercent: 14, tax: DERIVED_TAX, description: "", costCategory: null });
+const blankLine = (): DraftLine => ({ itemId: "", kind: "inventory", qty: "1", unitCost: "0", taxRatePercent: 14, tax: DERIVED_TAX, description: "", costCategory: null, lot: EMPTY_LOT });
 
 interface PreviewLine {
   itemId: string | null;
@@ -125,6 +127,7 @@ function InvoiceDetail({
   supplierName,
   itemName,
   projectName,
+  confirmError,
   onBack,
   onConfirm,
   onPrint,
@@ -133,6 +136,7 @@ function InvoiceDetail({
   supplierName: (id: string) => string;
   itemName: (id: string | null) => string;
   projectName: (id: string | null) => string;
+  confirmError: string | null;
   onBack: () => void;
   onConfirm: () => void;
   onPrint: () => void;
@@ -224,6 +228,12 @@ function InvoiceDetail({
         : t("purchaseInvoices.kind.expense");
 
   return (
+    <>
+    {confirmError && invoice.status === PurchaseInvoiceStatusCode.Draft ? (
+      <div role="alert" className="mb-[12px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
+        {confirmError}
+      </div>
+    ) : null}
     <DocumentDetail
       title={t("purchaseInvoices.detailTitle", { number: invoice.number })}
       statusLabel={t(STATUS_KEY[invoice.status])}
@@ -478,6 +488,7 @@ function InvoiceDetail({
         },
       ]}
     />
+    </>
   );
 }
 
@@ -616,6 +627,8 @@ export function PurchaseInvoicesScreen() {
   const [lines, setLines] = useState<DraftLine[]>([blankLine()]);
   const [project, setProject] = useState<EntityPickerOption | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+  const [confirmError, setConfirmError] = useState<{ id: string; message: string } | null>(null);
+  const refusedInvoice = confirmError ? invoices.find((inv) => inv.id === confirmError.id && inv.status === PurchaseInvoiceStatusCode.Draft) : undefined;
   const taxRates = useTaxRates().data ?? NO_TAX_RATES;
 
   const selected = selectedId === null ? null : (invoices.find((inv) => inv.id === selectedId || inv.number === selectedId) ?? null);
@@ -727,13 +740,13 @@ export function PurchaseInvoicesScreen() {
   }
 
   async function confirmSelected(id: string, expectedVersion?: number) {
-    setFormError(null);
+    setConfirmError(null);
     try {
       await confirmInvoice.mutateAsync({ id, expectedVersion });
     } catch (err) {
       // N-9: a refusal because another till already moved this invoice names that
       // till's operator. Swallowing it left the button doing nothing at all.
-      setFormError(err instanceof Error ? err.message : t("purchaseInvoices.error.saveFailed"));
+      setConfirmError({ id, message: err instanceof Error ? err.message : t("purchaseInvoices.error.saveFailed") });
       return RowActionOutcome.Refused;
     }
   }
@@ -742,7 +755,9 @@ export function PurchaseInvoicesScreen() {
   const canSave =
     method === "from-receipt"
       ? pickedReceipt !== null && receiptLines.length > 0
-      : supplier !== null && lines.some((l) => isPositive(l.qty) && (l.kind !== "inventory" || l.itemId !== ""));
+      : supplier !== null &&
+        lines.some((l) => isPositive(l.qty) && (l.kind !== "inventory" || l.itemId !== "")) &&
+        lines.every((l) => l.kind !== "inventory" || !isPositive(l.qty) || lotIsComplete(itemOf(l.itemId), l.lot));
 
   async function save() {
     setFormError(null);
@@ -796,6 +811,7 @@ export function PurchaseInvoicesScreen() {
             unitCost: l.unitCost === "" ? "0" : l.unitCost,
             ...lineTaxPayload(l.tax, taxRates, l.taxRatePercent),
             costCategory: l.kind === "inventory" ? null : l.costCategory,
+            ...(l.kind === "inventory" && tracksLots(itemOf(l.itemId)) ? lotPayload(l.lot) : {}),
           })),
         });
       }
@@ -922,28 +938,36 @@ export function PurchaseInvoicesScreen() {
                   ))}
                 </div>
                 {line.kind === "inventory" ? (
-                  <ItemPicker
-                    label={t("common.item")}
-                    value={itemValue(line.itemId)}
-                    filter={PURCHASABLE_ITEMS}
-                    onChange={(item) => {
-                      remember(item);
-                      setLines((prev) =>
-                        prev.map((l, j) =>
-                          j === i
-                            ? {
-                                ...l,
-                                itemId: item?.id ?? "",
-                                unitCost: item?.costPrice ?? l.unitCost,
-                                taxRatePercent: item?.taxRatePercent ?? l.taxRatePercent,
-                                tax: DERIVED_TAX,
-                              }
-                            : l,
-                        ),
-                      );
-                    }}
-                    placeholder={t("purchaseInvoices.field.itemPlaceholder")}
-                  />
+                  <>
+                    <ItemPicker
+                      label={t("common.item")}
+                      value={itemValue(line.itemId)}
+                      filter={PURCHASABLE_ITEMS}
+                      onChange={(item) => {
+                        remember(item);
+                        setLines((prev) =>
+                          prev.map((l, j) =>
+                            j === i
+                              ? {
+                                  ...l,
+                                  itemId: item?.id ?? "",
+                                  unitCost: item?.costPrice ?? l.unitCost,
+                                  taxRatePercent: item?.taxRatePercent ?? l.taxRatePercent,
+                                  tax: DERIVED_TAX,
+                                  lot: EMPTY_LOT,
+                                }
+                              : l,
+                          ),
+                        );
+                      }}
+                      placeholder={t("purchaseInvoices.field.itemPlaceholder")}
+                    />
+                    <LotFields
+                      item={itemOf(line.itemId)}
+                      value={line.lot}
+                      onChange={(lot) => setLines((prev) => prev.map((l, j) => (j === i ? { ...l, lot } : l)))}
+                    />
+                  </>
                 ) : (
                   <TextField
                     label={line.kind === "freight" ? t("purchaseInvoices.field.freightDescription") : t("purchaseInvoices.field.expenseDescription")}
@@ -1033,6 +1057,7 @@ export function PurchaseInvoicesScreen() {
           supplierName={supplierName}
           itemName={itemName}
           projectName={projectName}
+          confirmError={confirmError?.id === selected.id ? confirmError.message : null}
           onBack={() => subPage.close()}
           onConfirm={() => confirmSelected(selected.id, selected.version)}
           onPrint={() => subPage.open(selected.number ?? selected.id, "print")}
@@ -1043,6 +1068,11 @@ export function PurchaseInvoicesScreen() {
 
   return (
     <>
+      {confirmError && refusedInvoice ? (
+        <div role="alert" className="mb-[14px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
+          {refusedInvoice.number}: {confirmError.message}
+        </div>
+      ) : null}
       {query.isError ? (
         <Card className="mb-[18px] p-[18px_20px]">
           <p className="text-[13px] font-semibold text-danger-ink">{t("purchaseInvoices.loadFailed")}</p>

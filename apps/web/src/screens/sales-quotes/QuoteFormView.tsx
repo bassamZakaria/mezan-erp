@@ -236,7 +236,7 @@ export function QuoteFormView({
         </div>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
         <div className="flex flex-col gap-4">
           <SectionCard title={t("quotes.section.details")}>
             <div className="sm:col-span-2 flex flex-col gap-3">
@@ -293,8 +293,8 @@ export function QuoteFormView({
                 const onHand = item ? onHandOf(item.id) : null;
                 return (
                   <div key={line.key} className="flex flex-col gap-2 rounded-[10px] border border-border p-3">
-                    <div className="grid grid-cols-[minmax(200px,1fr)_84px_104px_112px_auto_auto] items-start gap-2">
-                      <div className="min-w-0">
+                    <div className="grid grid-cols-2 items-start gap-2 sm:grid-cols-[84px_104px_minmax(0,1fr)_auto_auto] lg:grid-cols-2 xl:grid-cols-[84px_104px_minmax(0,1fr)_auto_auto]">
+                      <div className="col-span-2 min-w-0 sm:col-span-5 lg:col-span-2 xl:col-span-5">
                         <ItemPicker
                           id={`quote-line-item-${line.key}`}
                           label={t("quotes.field.lineItem", { number: index + 1 })}
@@ -324,31 +324,33 @@ export function QuoteFormView({
                           disabled={item === null}
                         />
                       </div>
-                      <div className="mt-[22px] text-end">
-                        <div className="text-[13px] font-semibold text-ink">
-                          <MoneyDisplay value={lineTotals ? Number(lineTotals.total.toString()) : 0} />
-                        </div>
-                        {item ? (
-                          <div className="text-[11px] text-ink-muted">
-                            {t("quotes.field.taxPercent")} {format.number(appliedTaxPercent(line.tax, taxRates, item.taxRatePercent))}%
+                      <div className="col-span-2 flex items-center gap-2 sm:contents lg:flex xl:contents">
+                        <div className="min-w-0 flex-1 text-end sm:mt-[22px] lg:mt-0 xl:mt-[22px]">
+                          <div className="text-[13px] font-semibold text-ink">
+                            <MoneyDisplay value={lineTotals ? Number(lineTotals.total.toString()) : 0} />
                           </div>
-                        ) : null}
+                          {item ? (
+                            <div className="text-[11px] text-ink-muted">
+                              {t("quotes.field.taxPercent")} {format.number(appliedTaxPercent(line.tax, taxRates, item.taxRatePercent))}%
+                            </div>
+                          ) : null}
+                        </div>
+                        <IconButton
+                          aria-label={t("quotes.line.toggleDetails", { number: index + 1 })}
+                          className="sm:mt-[22px] lg:mt-0 xl:mt-[22px]"
+                          onClick={() => updateLine(line.key, { expanded: !line.expanded })}
+                        >
+                          {line.expanded ? "▲" : "▼"}
+                        </IconButton>
+                        <IconButton
+                          aria-label={t("quotes.line.remove", { number: index + 1 })}
+                          className="sm:mt-[22px] lg:mt-0 xl:mt-[22px]"
+                          disabled={lines.length === 1}
+                          onClick={() => setLines((prev) => (prev.length === 1 ? prev : prev.filter((l) => l.key !== line.key)))}
+                        >
+                          ✕
+                        </IconButton>
                       </div>
-                      <IconButton
-                        aria-label={t("quotes.line.toggleDetails", { number: index + 1 })}
-                        className="mt-[22px]"
-                        onClick={() => updateLine(line.key, { expanded: !line.expanded })}
-                      >
-                        {line.expanded ? "▲" : "▼"}
-                      </IconButton>
-                      <IconButton
-                        aria-label={t("quotes.line.remove", { number: index + 1 })}
-                        className="mt-[22px]"
-                        disabled={lines.length === 1}
-                        onClick={() => setLines((prev) => (prev.length === 1 ? prev : prev.filter((l) => l.key !== line.key)))}
-                      >
-                        ✕
-                      </IconButton>
                     </div>
 
                     {item && onHand !== null ? (

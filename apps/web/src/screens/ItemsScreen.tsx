@@ -335,40 +335,42 @@ function ItemStockTab({ itemId }: { itemId: string }) {
 
   return (
     <Card className="overflow-hidden">
-      <table className="w-full border-collapse text-[12.5px]">
-        <thead className="bg-surface-2 text-[11px] font-semibold text-ink-faint">
-          <tr>
-            <th className="px-[15px] py-[9px] text-start">{t("items.stock.warehouse")}</th>
-            <th className="px-[15px] py-[9px] text-end">{t("items.stock.onHand")}</th>
-            <th className="px-[15px] py-[9px] text-end">{t("items.stock.reserved")}</th>
-            <th className="px-[15px] py-[9px] text-end">{t("items.stock.available")}</th>
-            <th className="px-[15px] py-[9px] text-end">{t("items.stock.averageCost")}</th>
-            <th className="px-[15px] py-[9px] text-end">{t("items.stock.value")}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {positions.map((position) => (
-            <tr key={position.warehouseId} className="border-t border-border">
-              <td className="px-[15px] py-[10px] text-ink">{warehouseName(position.warehouseId)}</td>
-              <td className="mz-num px-[15px] py-[10px] text-end">{Number(position.onHand)}</td>
-              <td className="mz-num px-[15px] py-[10px] text-end text-ink-muted">{Number(position.reserved)}</td>
-              <td className="mz-num px-[15px] py-[10px] text-end font-semibold">{Number(position.available)}</td>
-              <td className="px-[15px] py-[10px] text-end"><Money value={Number(position.averageCost)} /></td>
-              <td className="px-[15px] py-[10px] text-end"><Money value={Number(position.totalValue)} /></td>
+      <div className="overflow-x-auto">
+        <table className="w-full border-collapse text-[12.5px]">
+          <thead className="bg-surface-2 text-[11px] font-semibold text-ink-faint">
+            <tr>
+              <th className="px-[15px] py-[9px] text-start">{t("items.stock.warehouse")}</th>
+              <th className="px-[15px] py-[9px] text-end">{t("items.stock.onHand")}</th>
+              <th className="px-[15px] py-[9px] text-end">{t("items.stock.reserved")}</th>
+              <th className="px-[15px] py-[9px] text-end">{t("items.stock.available")}</th>
+              <th className="px-[15px] py-[9px] text-end">{t("items.stock.averageCost")}</th>
+              <th className="px-[15px] py-[9px] text-end">{t("items.stock.value")}</th>
             </tr>
-          ))}
-        </tbody>
-        <tfoot>
-          <tr className="border-t border-border bg-surface-2 font-bold">
-            <td className="px-[15px] py-[10px]">{t("common.total")}</td>
-            <td className="mz-num px-[15px] py-[10px] text-end">{totalOnHand}</td>
-            <td className="mz-num px-[15px] py-[10px] text-end">{totalReserved}</td>
-            <td className="mz-num px-[15px] py-[10px] text-end">{totalAvailable}</td>
-            <td />
-            <td className="px-[15px] py-[10px] text-end"><Money value={totalValue} /></td>
-          </tr>
-        </tfoot>
-      </table>
+          </thead>
+          <tbody>
+            {positions.map((position) => (
+              <tr key={position.warehouseId} className="border-t border-border">
+                <td className="px-[15px] py-[10px] text-ink">{warehouseName(position.warehouseId)}</td>
+                <td className="mz-num px-[15px] py-[10px] text-end">{Number(position.onHand)}</td>
+                <td className="mz-num px-[15px] py-[10px] text-end text-ink-muted">{Number(position.reserved)}</td>
+                <td className="mz-num px-[15px] py-[10px] text-end font-semibold">{Number(position.available)}</td>
+                <td className="px-[15px] py-[10px] text-end"><Money value={Number(position.averageCost)} /></td>
+                <td className="px-[15px] py-[10px] text-end"><Money value={Number(position.totalValue)} /></td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr className="border-t border-border bg-surface-2 font-bold">
+              <td className="px-[15px] py-[10px]">{t("common.total")}</td>
+              <td className="mz-num px-[15px] py-[10px] text-end">{totalOnHand}</td>
+              <td className="mz-num px-[15px] py-[10px] text-end">{totalReserved}</td>
+              <td className="mz-num px-[15px] py-[10px] text-end">{totalAvailable}</td>
+              <td />
+              <td className="px-[15px] py-[10px] text-end"><Money value={totalValue} /></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
     </Card>
   );
 }
@@ -438,54 +440,56 @@ function ItemPriceListsTab({ item }: { item: ItemDTO }) {
   return (
     <Card className="overflow-hidden">
       {error ? <p className="border-b border-border px-[15px] py-[8px] text-[12px] font-semibold text-danger-ink">{error}</p> : null}
-      <table className="w-full border-collapse text-[12.5px]">
-        <thead className="bg-surface-2 text-[11px] font-semibold text-ink-faint">
-          <tr>
-            <th className="px-[15px] py-[9px] text-start">{t("items.priceLists.list")}</th>
-            <th className="px-[15px] py-[9px] text-end">{t("items.priceLists.tier")}</th>
-            <th className="px-[15px] py-[9px] text-end">{t("items.priceLists.basePrice")}</th>
-            <th className="px-[15px] py-[9px] text-end">{t("items.priceLists.customPrice")}</th>
-            <th className="px-[15px] py-[9px] text-end">{t("items.priceLists.delta")}</th>
-            <th className="px-[15px] py-[9px] text-end" />
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map(({ list, line, key }) => {
-            const stored = Number(line.price);
-            const shown = editing[key] ?? stored;
-            const delta = shown - base;
-            const dirty = editing[key] !== undefined && editing[key] !== stored;
-            return (
-              <tr key={key} className="border-t border-border">
-                <td className="px-[15px] py-[10px] text-ink">
-                  {list.nameAr}
-                  {list.isBase ? <span className="ms-[6px] text-[11px] text-ink-faint">({t("items.priceLists.baseList")})</span> : null}
-                </td>
-                <td className="mz-num px-[15px] py-[10px] text-end text-ink-muted">{line.minQty ?? "0"}</td>
-                <td className="px-[15px] py-[10px] text-end"><Money value={base} /></td>
-                <td className="px-[15px] py-[10px] text-end">
-                  <MoneyInput
-                    value={shown}
-                    onChange={(v) => setEditing((prev) => ({ ...prev, [key]: v ?? 0 }))}
-                    aria-label={`${list.nameAr} — ${t("items.priceLists.customPrice")}`}
-                    disabled={savingKey === key}
-                  />
-                </td>
-                <td className={`px-[15px] py-[10px] text-end ${delta > 0 ? "text-success-ink" : delta < 0 ? "text-danger-ink" : "text-ink-faint"}`}>
-                  {delta === 0 ? "—" : <Money value={delta} />}
-                </td>
-                <td className="px-[15px] py-[10px] text-end">
-                  {dirty ? (
-                    <Button size="sm" variant="primary" disabled={savingKey === key} onClick={() => save(list, line.minQty, key)}>
-                      {t("items.priceLists.save")}
-                    </Button>
-                  ) : null}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+      <div className="overflow-x-auto">
+        <table className="w-full border-collapse text-[12.5px]">
+          <thead className="bg-surface-2 text-[11px] font-semibold text-ink-faint">
+            <tr>
+              <th className="px-[15px] py-[9px] text-start">{t("items.priceLists.list")}</th>
+              <th className="px-[15px] py-[9px] text-end">{t("items.priceLists.tier")}</th>
+              <th className="px-[15px] py-[9px] text-end">{t("items.priceLists.basePrice")}</th>
+              <th className="px-[15px] py-[9px] text-end">{t("items.priceLists.customPrice")}</th>
+              <th className="px-[15px] py-[9px] text-end">{t("items.priceLists.delta")}</th>
+              <th className="px-[15px] py-[9px] text-end" />
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(({ list, line, key }) => {
+              const stored = Number(line.price);
+              const shown = editing[key] ?? stored;
+              const delta = shown - base;
+              const dirty = editing[key] !== undefined && editing[key] !== stored;
+              return (
+                <tr key={key} className="border-t border-border">
+                  <td className="px-[15px] py-[10px] text-ink">
+                    {list.nameAr}
+                    {list.isBase ? <span className="ms-[6px] text-[11px] text-ink-faint">({t("items.priceLists.baseList")})</span> : null}
+                  </td>
+                  <td className="mz-num px-[15px] py-[10px] text-end text-ink-muted">{line.minQty ?? "0"}</td>
+                  <td className="px-[15px] py-[10px] text-end"><Money value={base} /></td>
+                  <td className="px-[15px] py-[10px] text-end">
+                    <MoneyInput
+                      value={shown}
+                      onChange={(v) => setEditing((prev) => ({ ...prev, [key]: v ?? 0 }))}
+                      aria-label={`${list.nameAr} — ${t("items.priceLists.customPrice")}`}
+                      disabled={savingKey === key}
+                    />
+                  </td>
+                  <td className={`px-[15px] py-[10px] text-end ${delta > 0 ? "text-success-ink" : delta < 0 ? "text-danger-ink" : "text-ink-faint"}`}>
+                    {delta === 0 ? "—" : <Money value={delta} />}
+                  </td>
+                  <td className="px-[15px] py-[10px] text-end">
+                    {dirty ? (
+                      <Button size="sm" variant="primary" disabled={savingKey === key} onClick={() => save(list, line.minQty, key)}>
+                        {t("items.priceLists.save")}
+                      </Button>
+                    ) : null}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </Card>
   );
 }
@@ -638,30 +642,32 @@ function ItemCostLayersTab({ itemId }: { itemId: string }) {
 
   return (
     <Card className="overflow-hidden">
-      <table className="w-full border-collapse text-[12.5px]">
-        <thead className="bg-surface-2 text-[11px] font-semibold text-ink-faint">
-          <tr>
-            <th className="px-[15px] py-[9px] text-start">{t("items.stock.warehouse")}</th>
-            <th className="px-[15px] py-[9px] text-end">{t("items.costLayers.remaining")}</th>
-            <th className="px-[15px] py-[9px] text-end">{t("items.costLayers.unitCost")}</th>
-            <th className="px-[15px] py-[9px] text-start">{t("items.costLayers.source")}</th>
-            <th className="px-[15px] py-[9px] text-start">{t("common.date")}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {layers.map((layer) => (
-            <tr key={layer.id} className="border-t border-border">
-              <td className="px-[15px] py-[10px] text-ink">{warehouseName(layer.warehouseId)}</td>
-              <td className="mz-num px-[15px] py-[10px] text-end">
-                {Number(layer.remainingQty)} / {Number(layer.originalQty)}
-              </td>
-              <td className="px-[15px] py-[10px] text-end"><Money value={Number(layer.unitCost)} /></td>
-              <td className="mz-num px-[15px] py-[10px]">{layer.sourceDocNumber ?? layer.sourceDocType}</td>
-              <td className="mz-num px-[15px] py-[10px]">{layer.createdAt.slice(0, 10)}</td>
+      <div className="overflow-x-auto">
+        <table className="w-full border-collapse text-[12.5px]">
+          <thead className="bg-surface-2 text-[11px] font-semibold text-ink-faint">
+            <tr>
+              <th className="px-[15px] py-[9px] text-start">{t("items.stock.warehouse")}</th>
+              <th className="px-[15px] py-[9px] text-end">{t("items.costLayers.remaining")}</th>
+              <th className="px-[15px] py-[9px] text-end">{t("items.costLayers.unitCost")}</th>
+              <th className="px-[15px] py-[9px] text-start">{t("items.costLayers.source")}</th>
+              <th className="px-[15px] py-[9px] text-start">{t("common.date")}</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {layers.map((layer) => (
+              <tr key={layer.id} className="border-t border-border">
+                <td className="px-[15px] py-[10px] text-ink">{warehouseName(layer.warehouseId)}</td>
+                <td className="mz-num px-[15px] py-[10px] text-end">
+                  {Number(layer.remainingQty)} / {Number(layer.originalQty)}
+                </td>
+                <td className="px-[15px] py-[10px] text-end"><Money value={Number(layer.unitCost)} /></td>
+                <td className="mz-num px-[15px] py-[10px]">{layer.sourceDocNumber ?? layer.sourceDocType}</td>
+                <td className="mz-num px-[15px] py-[10px]">{layer.createdAt.slice(0, 10)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </Card>
   );
 }

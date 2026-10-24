@@ -1409,7 +1409,7 @@ function CreateVoucherView({
         </div>
       ) : null}
 
-      <div className="grid gap-5 lg:grid-cols-[2fr_1fr]">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
         <Card className="flex flex-col gap-[14px] p-[18px]">
           <div>
             <div className="mb-[6px] text-[12.5px] font-semibold text-ink">{t("vouchers.amount")}</div>

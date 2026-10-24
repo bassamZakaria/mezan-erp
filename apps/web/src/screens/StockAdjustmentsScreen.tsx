@@ -787,7 +787,7 @@ function CreateAdjustmentView({
         </div>
       ) : null}
 
-      <div className="grid gap-5 lg:grid-cols-[2fr_1fr]">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
         <div className="flex flex-col gap-[16px]">
           <Card className="grid grid-cols-1 gap-[14px] p-[18px] sm:grid-cols-3">
             <TextField label={t("stockAdj.adjustmentDate")} value={date} onChange={setDate} placeholder="YYYY-MM-DD" />

@@ -539,7 +539,7 @@ export function DashboardScreen() {
         </div>
       ) : null}
 
-      <div className={seesSummary && attentionItems.length > 0 ? "grid grid-cols-1 gap-[16px] xl:grid-cols-[1.5fr_1fr]" : "grid grid-cols-1 gap-[16px]"}>
+      <div className={seesSummary && attentionItems.length > 0 ? "grid grid-cols-1 gap-[16px] xl:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]" : "grid grid-cols-1 gap-[16px]"}>
         {seesSummary ? (
           <Card className="p-[20px_22px]" style={riseStyle(3, reduced)}>
             <h2 className="mt-[4px] font-display text-lg font-bold text-ink">{t("dashboard.hero.title")}</h2>

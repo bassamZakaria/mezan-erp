@@ -696,17 +696,19 @@ export function LandedCostsScreen() {
           {preview ? (
             <div className="rounded-lg border border-border bg-surface p-[12px]">
               <div className="mb-[8px] text-[12.5px] font-semibold text-ink">{t("landedCosts.previewHeading")}</div>
-              <table className="w-full border-collapse text-[12.5px]">
-                <tbody>
-                  {preview.map((p, i) => (
-                    <tr key={i} className="border-b border-border last:border-b-0">
-                      <td className="py-[7px]">{itemName(p.itemId)}</td>
-                      <td className="mz-num py-[7px] text-end">+<MoneyDisplay value={Number(p.allocatedAmount.toString())} showUnit={false} /></td>
-                      <td className="mz-num py-[7px] text-end"><MoneyDisplay value={Number(p.newUnitCost.toString())} showUnit={false} /></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse text-[12.5px]">
+                  <tbody>
+                    {preview.map((p, i) => (
+                      <tr key={i} className="border-b border-border last:border-b-0">
+                        <td className="py-[7px]">{itemName(p.itemId)}</td>
+                        <td className="mz-num py-[7px] text-end">+<MoneyDisplay value={Number(p.allocatedAmount.toString())} showUnit={false} /></td>
+                        <td className="mz-num py-[7px] text-end"><MoneyDisplay value={Number(p.newUnitCost.toString())} showUnit={false} /></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           ) : null}
 

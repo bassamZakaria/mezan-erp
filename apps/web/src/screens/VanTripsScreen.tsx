@@ -536,22 +536,24 @@ export function VanTripsScreen() {
               {selected.loadedStock.length === 0 ? (
                 <div className="text-[12.5px] text-ink-muted">{t("vanTrips.noStockHasBeenLoaded")}</div>
               ) : (
-                <table className="w-full text-[12.5px]">
-                  <thead>
-                    <tr className="text-start text-ink-faint">
-                      <th className="p-[6px] text-start">{t("common.item")}</th>
-                      <th className="p-[6px] text-start">{t("common.qty")}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {selected.loadedStock.map((line, i) => (
-                      <tr key={i} className="border-t border-border">
-                        <td className="p-[6px] text-ink">{itemName(line.itemId)}</td>
-                        <td className="mz-num p-[6px] text-ink">{toMajor(line.qty)}</td>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-[12.5px]">
+                    <thead>
+                      <tr className="text-start text-ink-faint">
+                        <th className="p-[6px] text-start">{t("common.item")}</th>
+                        <th className="p-[6px] text-start">{t("common.qty")}</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {selected.loadedStock.map((line, i) => (
+                        <tr key={i} className="border-t border-border">
+                          <td className="p-[6px] text-ink">{itemName(line.itemId)}</td>
+                          <td className="mz-num p-[6px] text-ink">{toMajor(line.qty)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               )}
             </Card>
 
@@ -560,28 +562,30 @@ export function VanTripsScreen() {
               {selected.cashMovements.length === 0 ? (
                 <div className="text-[12.5px] text-ink-muted">{t("vanTrips.noCashMovementsYet")}</div>
               ) : (
-                <table className="w-full text-[12.5px]">
-                  <thead>
-                    <tr className="text-start text-ink-faint">
-                      <th className="p-[6px] text-start">{t("common.type")}</th>
-                      <th className="p-[6px] text-start">{t("common.amount")}</th>
-                      <th className="p-[6px] text-start">{t("common.date")}</th>
-                      <th className="p-[6px] text-start">{t("common.notes")}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {selected.cashMovements.map((m) => (
-                      <tr key={m.id} className="border-t border-border">
-                        <td className="p-[6px] text-ink">{t(KIND_KEY[m.kind])}</td>
-                        <td className="p-[6px]">
-                          <MoneyDisplay value={toMajor(m.amount)} />
-                        </td>
-                        <td className="mz-num p-[6px] text-ink-muted">{m.occurredAt.slice(0, 10)}</td>
-                        <td className="p-[6px] text-ink-muted">{m.notes ?? "—"}</td>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-[12.5px]">
+                    <thead>
+                      <tr className="text-start text-ink-faint">
+                        <th className="p-[6px] text-start">{t("common.type")}</th>
+                        <th className="p-[6px] text-start">{t("common.amount")}</th>
+                        <th className="p-[6px] text-start">{t("common.date")}</th>
+                        <th className="p-[6px] text-start">{t("common.notes")}</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {selected.cashMovements.map((m) => (
+                        <tr key={m.id} className="border-t border-border">
+                          <td className="p-[6px] text-ink">{t(KIND_KEY[m.kind])}</td>
+                          <td className="p-[6px]">
+                            <MoneyDisplay value={toMajor(m.amount)} />
+                          </td>
+                          <td className="mz-num p-[6px] text-ink-muted">{m.occurredAt.slice(0, 10)}</td>
+                          <td className="p-[6px] text-ink-muted">{m.notes ?? "—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               )}
             </Card>
 

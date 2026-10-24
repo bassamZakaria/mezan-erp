@@ -335,7 +335,7 @@ export function DepreciationRunsScreen() {
             </Card>
             <div>
               <h3 className="mb-[8px] font-display text-[13px] font-bold text-ink">{t("depreciation.depreciationDetail")}</h3>
-              <div className="overflow-hidden rounded-lg border border-border">
+              <div className="overflow-x-auto rounded-lg border border-border">
                 <table className="w-full text-[12.5px]">
                   <thead className="bg-surface-2 text-ink-faint">
                     <tr>
@@ -359,7 +359,7 @@ export function DepreciationRunsScreen() {
             {selected.skippedLines && selected.skippedLines.length > 0 ? (
               <div>
                 <h3 className="mb-[8px] font-display text-[13px] font-bold text-ink">{t("depreciation.skippedTitle")}</h3>
-                <div className="overflow-hidden rounded-lg border border-border">
+                <div className="overflow-x-auto rounded-lg border border-border">
                   <table className="w-full text-[12.5px]">
                     <tbody>
                       {selected.skippedLines.map((line) => (

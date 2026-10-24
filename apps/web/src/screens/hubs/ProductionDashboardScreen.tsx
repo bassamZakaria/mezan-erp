@@ -138,7 +138,7 @@ function WorkStationsCard() {
           ))}
         </ul>
       )}
-      <div className="grid gap-[10px] border-t border-border p-[14px_18px] sm:grid-cols-[160px_1fr_auto] sm:items-end">
+      <div className="grid grid-cols-1 gap-[10px] border-t border-border p-[14px_18px] sm:grid-cols-[160px_minmax(0,1fr)_auto] sm:items-end">
         <TextField label={t("production.station.code")} value={code} onChange={setCode} />
         <TextField label={t("production.station.name")} value={nameAr} onChange={setNameAr} />
         <Button variant="primary" disabled={createStation.isPending} onClick={() => void add()}>
@@ -181,22 +181,22 @@ export function ProductionDashboardScreen() {
         </Card>
       ) : null}
 
-      <div className="grid grid-cols-2 gap-[14px] lg:grid-cols-4">
-        <div className="rounded-lg border border-border bg-surface p-[16px_18px] shadow-1">
+      <div className="grid grid-cols-2 gap-[14px] [--mz-fit-max:25px] lg:grid-cols-4">
+        <div className="mz-fit min-w-0 rounded-lg border border-border bg-surface p-[16px_18px] shadow-1">
           <div className="text-[11.5px] font-semibold text-ink-muted">{t("production.activeOrders")}</div>
-          <div className="mt-2 font-display text-[25px] font-bold text-ink mz-num">{query.isLoading ? "—" : dashboard?.kpis.activeWorkOrders}</div>
+          <div className="mt-2 mz-fit-figure font-display font-bold text-ink mz-num">{query.isLoading ? "—" : dashboard?.kpis.activeWorkOrders}</div>
         </div>
-        <div className="rounded-lg border border-border bg-surface p-[16px_18px] shadow-1">
+        <div className="mz-fit min-w-0 rounded-lg border border-border bg-surface p-[16px_18px] shadow-1">
           <div className="text-[11.5px] font-semibold text-ink-muted">{t("production.workInProgressValue")}</div>
-          <div className="mt-2 font-display text-[25px] font-bold text-ink"><Money value={num(dashboard?.kpis.wipValue)} /></div>
+          <div className="mt-2 mz-fit-figure font-display font-bold text-ink"><Money value={num(dashboard?.kpis.wipValue)} /></div>
         </div>
-        <div className="rounded-lg border border-border bg-surface p-[16px_18px] shadow-1">
+        <div className="mz-fit min-w-0 rounded-lg border border-border bg-surface p-[16px_18px] shadow-1">
           <div className="text-[11.5px] font-semibold text-ink-muted">{t("production.unitsProducedThisMonth")}</div>
-          <div className="mt-2 font-display text-[25px] font-bold text-ink mz-num">{query.isLoading ? "—" : num(dashboard?.kpis.unitsProducedThisMonth)}</div>
+          <div className="mt-2 mz-fit-figure font-display font-bold text-ink mz-num">{query.isLoading ? "—" : num(dashboard?.kpis.unitsProducedThisMonth)}</div>
         </div>
-        <div className="rounded-lg border border-border bg-surface p-[16px_18px] shadow-1">
+        <div className="mz-fit min-w-0 rounded-lg border border-border bg-surface p-[16px_18px] shadow-1">
           <div className="text-[11.5px] font-semibold text-ink-muted">{t("production.lateOrders")}</div>
-          <div className={`mt-2 font-display text-[25px] font-bold mz-num ${dashboard && dashboard.overdueCount > 0 ? "text-danger-ink" : "text-ink"}`}>
+          <div className={`mt-2 mz-fit-figure font-display font-bold mz-num ${dashboard && dashboard.overdueCount > 0 ? "text-danger-ink" : "text-ink"}`}>
             {query.isLoading ? "—" : dashboard?.overdueCount}
           </div>
         </div>

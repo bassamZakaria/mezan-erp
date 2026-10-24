@@ -145,7 +145,7 @@ export function CockpitSection({
         </div>
       ) : null}
 
-      <div className="grid grid-cols-2 gap-[12px] lg:grid-cols-4">
+      <div className="mz-fit grid grid-cols-2 gap-[12px] [--mz-fit-cqi:4.8cqi] lg:grid-cols-4 lg:[--mz-fit-cqi:2.4cqi]">
         {widgets.map((widget) => {
           const node = render(widget.kind);
           if (!node) return null;

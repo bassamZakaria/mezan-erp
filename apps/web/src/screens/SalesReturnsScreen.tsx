@@ -597,26 +597,28 @@ export function SalesReturnsScreen() {
             {selected.refunds.length > 0 ? (
               <Card className="p-[16px_18px]">
                 <h3 className="mb-[8px] font-display text-[13.5px] font-bold text-ink">{t("salesReturns.refund.postedHeading")}</h3>
-                <table className="w-full text-[12.5px]">
-                  <thead>
-                    <tr className="text-ink-faint">
-                      <th className="p-[6px] text-start font-semibold">{t("salesReturns.refund.voucher")}</th>
-                      <th className="p-[6px] text-start font-semibold">{t("common.date")}</th>
-                      <th className="p-[6px] text-end font-semibold">{t("common.amount")}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {selected.refunds.map((r) => (
-                      <tr key={r.voucherId} className="border-t border-border">
-                        <td className="mz-num p-[6px] text-ink">{r.voucherNo ?? r.voucherId}</td>
-                        <td className="mz-num p-[6px] text-ink-muted">{r.date}</td>
-                        <td className="p-[6px] text-end">
-                          <MoneyDisplay value={majorOf(r.amount)} />
-                        </td>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-[12.5px]">
+                    <thead>
+                      <tr className="text-ink-faint">
+                        <th className="p-[6px] text-start font-semibold">{t("salesReturns.refund.voucher")}</th>
+                        <th className="p-[6px] text-start font-semibold">{t("common.date")}</th>
+                        <th className="p-[6px] text-end font-semibold">{t("common.amount")}</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {selected.refunds.map((r) => (
+                        <tr key={r.voucherId} className="border-t border-border">
+                          <td className="mz-num p-[6px] text-ink">{r.voucherNo ?? r.voucherId}</td>
+                          <td className="mz-num p-[6px] text-ink-muted">{r.date}</td>
+                          <td className="p-[6px] text-end">
+                            <MoneyDisplay value={majorOf(r.amount)} />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </Card>
             ) : null}
 

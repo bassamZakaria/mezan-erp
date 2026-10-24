@@ -306,11 +306,11 @@ export function StatCard({ label, value, sub, subTone = "neutral", valueTone = "
     // width, which for a long money figure is wider than the column — without
     // this the card refuses to shrink and the figure's tail (the currency
     // unit) is clipped by overflow-hidden instead of wrapping.
-    <Card className="relative min-w-0 overflow-hidden rounded-md p-[15px_16px] transition-colors duration-150 hover:border-border-strong">
+    <Card className="mz-fit relative min-w-0 overflow-hidden rounded-md p-[15px_16px] transition-colors duration-150 hover:border-border-strong">
       <div className="text-xs font-semibold text-ink-muted">{label}</div>
       <div
         className={cn(
-          "mt-[6px] flex min-w-0 flex-wrap items-baseline gap-x-[5px] gap-y-[2px] font-mono text-[19px] font-semibold tabular-nums tracking-[-0.02em] min-[420px]:text-[24px]",
+          "mt-[6px] flex min-w-0 flex-wrap items-baseline gap-x-[5px] gap-y-[2px] mz-fit-figure font-mono font-semibold tabular-nums tracking-[-0.02em] [--mz-fit-max:24px]",
           valueTone === "danger" ? "text-danger-ink" : "text-ink",
         )}
       >

@@ -374,7 +374,7 @@ export function FormPage({
  */
 export function FormColumns({ children, aside }: { children: ReactNode; aside?: ReactNode }) {
   return (
-    <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
       <div className="flex min-w-0 flex-col gap-4">{children}</div>
       {aside ? <aside className="flex min-w-0 flex-col gap-4">{aside}</aside> : null}
     </div>

@@ -360,7 +360,7 @@ export function ProductTemplatesScreen() {
                   {t("templates.generateVariants")} <span className="mz-num">{combos.length}</span> {t("templates.possibleCombinations")}{" "}
                   <span className="mz-num">{existingKeys.size}</span> {t("templates.alreadyExist")}
                 </h3>
-                <div className="overflow-hidden rounded-lg border border-border">
+                <div className="overflow-x-auto rounded-lg border border-border">
                   <table className="w-full text-[12.5px]">
                     <thead className="bg-surface-2 text-ink-faint">
                       <tr>

@@ -11,15 +11,18 @@ services:
     # dodges every per-address throttle. Only Caddy, on this network, reaches it.
     expose:
       - "8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
     env_file:
       - ${MEZAN_ENV_FILE:-/srv/mezan/env}
       - ${MEZAN_SHARED_ENV_FILE:-/srv/mezan/shared.env}
+      - ${MEZAN_PG_ENV_FILE:-/srv/mezan/pg.env}
     environment:
       MEZAN_PLATFORM_DIR: /data
       PORT: "8080"
       MEZAN_TRUST_PROXY: "1"
       MEZAN_TRUSTED_PROXY_HOPS: "1"
-      MEZAN_SQLITE_EXCLUSIVE: "1"
     volumes:
       - ${MEZAN_DATA_DIR:-/srv/mezan/data}:/data
     user: node
@@ -45,6 +48,57 @@ services:
         max-file: "5"
     networks:
       - edge
+      - db
+
+  postgres:
+    image: postgres:17.6
+    container_name: mezan-postgres
+    restart: unless-stopped
+    # SECURITY: never publish this port. Only the app, on the internal db
+    # network, reaches it.
+    expose:
+      - "5432"
+    env_file:
+      - ${MEZAN_PG_ENV_FILE:-/srv/mezan/pg.env}
+    environment:
+      POSTGRES_DB: mezan
+      # REQUIRED: C collation and ctype. Every store sorts and case-folds text the
+      # way SQLite does only under C; the app refuses to provision otherwise.
+      POSTGRES_INITDB_ARGS: "--locale=C --encoding=UTF8 --data-checksums"
+    command:
+      - postgres
+      - -c
+      - max_connections=200
+      - -c
+      - shared_buffers=512MB
+      - -c
+      - wal_level=replica
+      - -c
+      - archive_mode=on
+      - -c
+      - archive_command=test ! -f /wal-archive/%f && cp %p /wal-archive/%f
+      - -c
+      - archive_timeout=60
+      - -c
+      - password_encryption=scram-sha-256
+    volumes:
+      - ${MEZAN_PG_DATA_DIR:-/srv/mezan/pg/data}:/var/lib/postgresql/data
+      - ${MEZAN_PG_WAL_ARCHIVE_DIR:-/srv/mezan/data/backups/pg-wal}:/wal-archive
+    shm_size: 256m
+    stop_grace_period: 60s
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d mezan"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+    networks:
+      - db
 
   caddy:
     image: caddy:2
@@ -81,6 +135,8 @@ networks:
       config:
         - subnet: 172.30.0.0/24
         - subnet: fd4d:657a:616e::/64
+  db:
+    internal: true
 
 volumes:
   caddy-data:

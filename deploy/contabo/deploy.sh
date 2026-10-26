@@ -3,8 +3,8 @@
 #   deploy.sh <image tag>       deploy that tag (the commit SHA CI pushed)
 #   deploy.sh --rollback        go back to the tag that ran before the last deploy
 #
-# One writer (MEZAN_SQLITE_EXCLUSIVE=1), so every deploy stops the app first:
-# expect about a minute of downtime.
+# Every deploy stops the app first (Postgres keeps running) and takes a
+# consistent copy of the books: expect about a minute of downtime.
 set -euo pipefail
 
 COMPOSE_DIR="${MEZAN_COMPOSE_DIR:-/opt/mezan}"
@@ -12,6 +12,10 @@ DATA_DIR="${MEZAN_DATA_DIR:-/srv/mezan/data}"
 PREDEPLOY_ROOT="${MEZAN_PREDEPLOY_DIR:-/srv/mezan-predeploy}"
 SHARED_ENV="${MEZAN_SHARED_ENV_FILE:-/srv/mezan/shared.env}"
 APP_ENV="${MEZAN_ENV_FILE:-/srv/mezan/env}"
+PG_ENV="${MEZAN_PG_ENV_FILE:-/srv/mezan/pg.env}"
+PG_DATA_DIR="${MEZAN_PG_DATA_DIR:-/srv/mezan/pg/data}"
+PG_WAL_ARCHIVE_DIR="${MEZAN_PG_WAL_ARCHIVE_DIR:-$DATA_DIR/backups/pg-wal}"
+PG_UID=999
 READY_TIMEOUT_SECONDS=120
 KEEP_PREDEPLOY_COPIES=3
 RUNNING_MARKER="$DATA_DIR/mezan-running.json"
@@ -20,6 +24,8 @@ TAG_FILE="$COMPOSE_DIR/.env"
 log() { printf '[deploy %s] %s\n' "$(date -u +%H:%M:%S)" "$*"; }
 die() { log "REFUSED: $*"; exit 1; }
 compose() { docker compose --project-directory "$COMPOSE_DIR" -f "$COMPOSE_DIR/docker-compose.yml" "$@"; }
+pg_user() { sed -n 's/^POSTGRES_USER=//p' "$PG_ENV" | tail -n 1; }
+psql_in() { docker exec -i mezan-postgres psql -U "$(pg_user)" -d mezan -v ON_ERROR_STOP=1 -Atc "$1"; }
 
 tag_value() { [ -f "$TAG_FILE" ] || return 0; sed -n "s/^$1=//p" "$TAG_FILE" | tail -n 1; }
 
@@ -32,7 +38,7 @@ write_tags() {
 preflight() {
   local tool
   for tool in docker rsync od flock; do command -v "$tool" >/dev/null || die "$tool is not installed"; done
-  for file in "$APP_ENV" "$SHARED_ENV"; do
+  for file in "$APP_ENV" "$SHARED_ENV" "$PG_ENV"; do
     [ -f "$file" ] || die "$file is missing"
     [ "$(stat -c '%a' "$file")" = "600" ] || die "$file must be mode 0600"
   done
@@ -42,6 +48,14 @@ preflight() {
   fi
   if grep -q '^MEZAN_ORIGIN_SECRET=' "$APP_ENV"; then die "MEZAN_ORIGIN_SECRET belongs in $SHARED_ENV only; remove it from $APP_ENV"; fi
   [ "$(stat -c '%u' "$DATA_DIR")" = "1000" ] || die "$DATA_DIR must be owned by uid 1000 (the image's node user)"
+  local key
+  for key in POSTGRES_USER POSTGRES_PASSWORD MEZAN_DATABASE_URL MEZAN_TENANT_DB_SECRET; do
+    grep -Eq "^$key=.+" "$PG_ENV" || die "$key is missing from $PG_ENV (see pg.env.example)"
+  done
+  grep -Eq '^MEZAN_TENANT_DB_SECRET=[0-9a-f]{64}$' "$PG_ENV" || die "MEZAN_TENANT_DB_SECRET in $PG_ENV must be 64 lower-case hex characters"
+  mkdir -p "$PG_DATA_DIR" "$PG_WAL_ARCHIVE_DIR"
+  chown "$PG_UID:$PG_UID" "$PG_DATA_DIR" "$PG_WAL_ARCHIVE_DIR"
+  chmod 700 "$PG_DATA_DIR" "$PG_WAL_ARCHIVE_DIR"
 }
 
 prune_images() {
@@ -89,11 +103,23 @@ snapshot_data() {
   # The only moment a raw copy of a WAL database is consistent: the app is
   # stopped. -wal and -shm files travel with their database.
   rsync -a --exclude=/backups/ --exclude=/exports/ "$DATA_DIR/" "$target/"
+  if docker inspect mezan-postgres >/dev/null 2>&1; then
+    log "dumping the Postgres books to $target/postgres.dump"
+    docker exec mezan-postgres pg_dump -U "$(pg_user)" -d mezan -Fc > "$target/postgres.dump"
+  fi
   chmod 700 "$target"
   ls -1dt "$PREDEPLOY_ROOT"/*/ 2>/dev/null | tail -n +$((KEEP_PREDEPLOY_COPIES + 1)) | xargs -r rm -rf
 }
 
+pg_schema_versions() {
+  docker inspect mezan-postgres >/dev/null 2>&1 || return 0
+  # CONTRACT: the app stamps platform.schema_meta('schema_version') as the last
+  # write of the boot that migrates every tenant schema.
+  printf 'postgres %s\n' "$(psql_in "SELECT CASE WHEN to_regclass('platform.schema_meta') IS NULL THEN '0' ELSE (SELECT value FROM platform.schema_meta WHERE key = 'schema_version') END" || echo '?')"
+}
+
 schema_versions() {
+  pg_schema_versions
   local dir="$1"
   find "$dir" -path "$dir/backups" -prune -o -path "$dir/exports" -prune -o -type f \( -name '*.db' -o -name '*.sqlite' \) -print 2>/dev/null \
     | sort | while read -r file; do
@@ -114,8 +140,13 @@ restore_snapshot() {
   mkdir -p "$aside"
   rsync -a --exclude=/backups/ --exclude=/exports/ "$DATA_DIR/" "$aside/"
   chmod 700 "$aside"
+  if [ -f "$source/postgres.dump" ]; then
+    docker exec mezan-postgres pg_dump -U "$(pg_user)" -d mezan -Fc > "$aside/postgres.dump"
+    log "restoring the Postgres books from $source/postgres.dump"
+    docker exec -i mezan-postgres pg_restore -U "$(pg_user)" -d mezan --clean --if-exists --single-transaction < "$source/postgres.dump"
+  fi
   find "$DATA_DIR" -mindepth 1 -maxdepth 1 ! -name backups ! -name exports -exec rm -rf {} +
-  rsync -a "$source/" "$DATA_DIR/"
+  rsync -a --exclude=/postgres.dump "$source/" "$DATA_DIR/"
   chown -R 1000:1000 "$DATA_DIR"
 }
 

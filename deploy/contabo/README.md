@@ -98,7 +98,9 @@ mkdir -p /opt/mezan /srv/mezan/data && chown 1000:1000 /srv/mezan/data && chmod 
 # copy this folder to /opt/mezan, then:
 cp /opt/mezan/.env.example /srv/mezan/env && cp /opt/mezan/shared.env.example /srv/mezan/shared.env
 cp /opt/mezan/backup/restic.env.example /srv/mezan/restic.env
-chmod 600 /srv/mezan/env /srv/mezan/shared.env /srv/mezan/restic.env       # then fill them in
+cp /opt/mezan/pg.env.example /srv/mezan/pg.env
+chmod 600 /srv/mezan/env /srv/mezan/shared.env /srv/mezan/restic.env /srv/mezan/pg.env   # then fill them in
+# pg.env: POSTGRES_PASSWORD and MEZAN_TENANT_DB_SECRET from `openssl rand -hex 32`, never changed afterwards
 # before the first boot: MEZAN_AUDIT_CHAIN_KEY=$(openssl rand -hex 32) in /srv/mezan/env, never changed afterwards
 ```
 
@@ -108,7 +110,8 @@ Then enable the backups:
 
 ```
 cp /opt/mezan/backup/*.service /opt/mezan/backup/*.timer /etc/systemd/system/
-systemctl daemon-reload && systemctl enable --now mezan-backup.timer mezan-backup-check.timer
+systemctl daemon-reload && systemctl enable --now mezan-backup.timer mezan-backup-check.timer mezan-pg-dump.timer mezan-pg-base.timer mezan-pg-drill.timer
+systemctl start mezan-pg-dump.service mezan-pg-base.service && journalctl -u mezan-pg-dump.service -n 30
 systemctl start mezan-backup.service && journalctl -u mezan-backup.service -n 30
 ```
 
@@ -152,6 +155,23 @@ sudo rm /srv/mezan/data/env-overrides.json && cd /opt/mezan && sudo docker compo
 
 ## 6. Restore
 
+### Postgres (the books)
+
+Every tenant is a schema `t_<code>` with its own role, beside one `platform` schema, in the `mezan` database of the `mezan-postgres` container. `mezan-pg-backup.sh` writes under `/srv/mezan/data/backups/` (shipped off the box by the hourly restic job): `pg-dump/<stamp>/<schema>.dump` every hour (48 kept locally), a `pg-base/` base backup every day (2 kept) and the archived WAL in `pg-wal/` (every 60 s), so the whole cluster can be recovered to any minute. Every Sunday the drill restores the newest dumps into a scratch database and refuses if a tenant's posted journal does not balance (`PG_BACKUP_HEARTBEAT_URL` in `restic.env` reports it).
+
+One tenant, to the last hourly dump:
+
+```
+cd /opt/mezan && docker compose stop mezan
+docker exec -i mezan-postgres psql -U mezan_owner -d mezan -c 'DROP SCHEMA t_<code> CASCADE'
+docker exec -i mezan-postgres pg_restore -U mezan_owner -d mezan --single-transaction < /srv/mezan/data/backups/pg-dump/<stamp>/t_<code>.dump
+docker compose start mezan
+```
+
+The whole cluster to a point in time: stop both containers, move `/srv/mezan/pg/data` aside, unpack the newest `pg-base/*.tar.gz` into it (owner 999, mode 700), add `restore_command = 'cp /wal-archive/%f %p'` and `recovery_target_time = '<UTC time>'` to its `postgresql.auto.conf`, `touch recovery.signal`, start `postgres` alone, check, then `SELECT pg_wal_replay_resume();` and start `mezan`.
+
+### Files (keys, anchors, older SQLite snapshots)
+
 Local snapshots: the app writes one per open tenant and one of the platform database every `MEZAN_BACKUP_INTERVAL_MINUTES` (keep it at 30 or less: a tenant idle for 30 minutes is closed and skipped) under `/srv/mezan/data/backups/`, keeping 12 per folder. Off-box: restic keeps 48 hourly, 30 daily, 12 weekly, 12 monthly.
 
 ```
@@ -173,7 +193,7 @@ Restoring an older snapshot is, to the anchors, a rollback: the anchor sweep the
 
 A lost VPS: new VPS, steps 1 to 4 with the same `/srv/mezan/env` (from the password manager), restore `platform.db` and every tenant from restic, start. The audit chains verify only with the key they were written with: `MEZAN_AUDIT_CHAIN_KEY` if it was set, otherwise the `audit-chain.key` files the backup job also copies (restore each beside its database, owner 1000, mode 0600) before the first start.
 
-**Keep in the password manager:** `/srv/mezan/env` (in particular `MEZAN_AUDIT_CHAIN_KEY`, `MEZAN_AUDIT_ANCHOR_SIGNING_KEY`, SMTP and Paymob keys), `/srv/mezan/shared.env`, and `RESTIC_PASSWORD`.
+**Keep in the password manager:** `/srv/mezan/env` (in particular `MEZAN_AUDIT_CHAIN_KEY`, `MEZAN_AUDIT_ANCHOR_SIGNING_KEY`, SMTP and Paymob keys), `/srv/mezan/shared.env`, `/srv/mezan/pg.env` (`MEZAN_TENANT_DB_SECRET` derives every tenant role's password), and `RESTIC_PASSWORD`.
 
 ## 7. Logs
 

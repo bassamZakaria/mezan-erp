@@ -1,0 +1,9 @@
+[Unit]
+Description=Mezan Postgres per-tenant dumps, hourly before the off-box copy
+
+[Timer]
+OnCalendar=*-*-* *:50:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

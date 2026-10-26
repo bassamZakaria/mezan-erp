@@ -1,0 +1,9 @@
+[Unit]
+Description=Mezan Postgres base
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/mezan/backup/mezan-pg-backup.sh base
+Nice=10
+IOSchedulingClass=idle

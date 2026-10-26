@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import { escapeLike, isPrimaryKeyViolation, numberedPlaceholders, placeholders, UnsupportedSqlSyntaxError } from "./sql-db.js";
-import { assertSchemaName, InvalidSchemaNameError } from "./postgres-db.js";
 
 describe("numberedPlaceholders", () => {
   it("numbers every bare ? in order", () => {
@@ -43,15 +42,5 @@ describe("isPrimaryKeyViolation", () => {
     expect(isPrimaryKeyViolation({ code: "23505", constraint: "journal_entry_entry_no_key" })).toBe(false);
     expect(isPrimaryKeyViolation({ code: "SQLITE_CONSTRAINT_UNIQUE" })).toBe(false);
     expect(isPrimaryKeyViolation(undefined)).toBe(false);
-  });
-});
-
-describe("assertSchemaName", () => {
-  it("accepts a t_-prefixed lowercase identifier", () => {
-    expect(assertSchemaName("t_acme_01")).toBe("t_acme_01");
-  });
-
-  it.each(["public", "pg_catalog", "information_schema", "tenant_acme", "t_", "T_acme", "t_a-1", "t_a;drop schema x", "t_a\n", "", `t_${"x".repeat(62)}`])("refuses %j", (name) => {
-    expect(() => assertSchemaName(name)).toThrow(InvalidSchemaNameError);
   });
 });

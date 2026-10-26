@@ -1,5 +1,5 @@
 import type Database from "better-sqlite3";
-import { withSqliteTransaction } from "../sqlite-connection.js";
+import { withSqliteRead, withSqliteTransaction } from "../sqlite-connection.js";
 import { SqlDialect, TransactionMode, type RunResult, type SqlDb, type SqlValue } from "./sql-db.js";
 
 const STATEMENT_CACHE_LIMIT = 500;
@@ -39,6 +39,14 @@ class SqliteDb implements SqlDb {
 
   async exec(sql: string): Promise<void> {
     this.sqlite.exec(sql);
+  }
+
+  async applySchema(ddl: string): Promise<void> {
+    this.sqlite.exec(ddl);
+  }
+
+  read<T>(fn: () => Promise<T>): Promise<T> {
+    return withSqliteRead(this.sqlite, fn);
   }
 
   transaction<T>(fn: () => Promise<T>, mode: TransactionMode = TransactionMode.Deferred): Promise<T> {

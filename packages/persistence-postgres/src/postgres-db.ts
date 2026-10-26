@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import pg from "pg";
-import { numberedPlaceholders, SqlDialect, type RunResult, type SqlDb, type SqlValue } from "./sql-db.js";
+import { declaredAddableColumns, numberedPlaceholders, SqlDialect, type RunResult, type SqlDb, type SqlValue } from "@mezan/persistence";
+import { translateDdl } from "./translate-ddl.js";
 
 const TENANT_SCHEMA_RE = /^t_[a-z0-9_]{1,61}$/;
 const TENANT_LOCK_CLASS = 7301;
@@ -155,6 +156,20 @@ class PostgresDb implements SqlDb {
 
   async exec(sql: string): Promise<void> {
     await this.target().query(sql);
+  }
+
+  async applySchema(ddl: string): Promise<void> {
+    const translated = translateDdl(ddl);
+    await this.transaction(async () => {
+      for (const { table, name, type } of declaredAddableColumns(translated)) {
+        await this.exec(`ALTER TABLE IF EXISTS ${table} ADD COLUMN IF NOT EXISTS ${name} ${type}`);
+      }
+      await this.exec(translated);
+    });
+  }
+
+  read<T>(fn: () => Promise<T>): Promise<T> {
+    return fn();
   }
 
   async transaction<T>(fn: () => Promise<T>): Promise<T> {

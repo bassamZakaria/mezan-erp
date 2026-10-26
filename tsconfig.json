@@ -17,6 +17,7 @@
       "@mezan/domain": ["packages/domain/src/index.ts"],
       "@mezan/contracts": ["packages/contracts/src/index.ts"],
       "@mezan/persistence": ["packages/persistence/src/index.ts"],
+      "@mezan/persistence-postgres": ["packages/persistence-postgres/src/index.ts"],
       "@mezan/api": ["packages/api/src/index.ts"],
       "@mezan/backend": ["packages/backend/src/index.ts"]
     }

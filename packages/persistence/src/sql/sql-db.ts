@@ -24,6 +24,11 @@ export interface SqlDb {
   get<Row>(sql: string, params?: readonly SqlValue[]): Promise<Row | undefined>;
   run(sql: string, params?: readonly SqlValue[]): Promise<RunResult>;
   exec(sql: string): Promise<void>;
+  // `ddl` is written in SQLite's dialect; Postgres translates it. Existing
+  // tables gain any column the DDL declares and they lack, before the script runs.
+  applySchema(ddl: string): Promise<void>;
+  // A read that must not observe another transaction's uncommitted rows.
+  read<T>(fn: () => Promise<T>): Promise<T>;
   transaction<T>(fn: () => Promise<T>, mode?: TransactionMode): Promise<T>;
 }
 

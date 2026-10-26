@@ -1,6 +1,6 @@
 import type Database from "better-sqlite3";
 import { DuplicateRecordIdError } from "@mezan/domain";
-import { isPrimaryKeyViolation } from "./sql/sql-db.js";
+import { isPrimaryKeyViolation, type SqlDb } from "./sql/sql-db.js";
 
 const UPSERT_TAIL = /\s+ON\s+CONFLICT\s*\(\s*id\s*\)\s*DO\s+UPDATE\s+SET[\s\S]*$/i;
 
@@ -13,6 +13,17 @@ const UPSERT_TAIL = /\s+ON\s+CONFLICT\s*\(\s*id\s*\)\s*DO\s+UPDATE\s+SET[\s\S]*$
 export function prepareInsertOnly(sqlite: Database.Database, upsertSql: string): Database.Statement {
   if (!UPSERT_TAIL.test(upsertSql)) throw new Error("prepareInsertOnly expects an INSERT ... ON CONFLICT(id) DO UPDATE statement");
   return sqlite.prepare(upsertSql.replace(UPSERT_TAIL, ""));
+}
+
+// SECURITY INVARIANT, as for prepareInsertOnly: a create path runs this, never
+// the upsert. It never raises on a taken id — pair it with refuseUnlessInserted.
+export function insertOnlySql(upsertSql: string): string {
+  if (!UPSERT_TAIL.test(upsertSql)) throw new Error("insertOnlySql expects an INSERT ... ON CONFLICT(id) DO UPDATE statement");
+  return `${upsertSql.replace(UPSERT_TAIL, "")} ON CONFLICT (id) DO NOTHING`;
+}
+
+export async function insertNew(db: SqlDb, recordId: string, upsertSql: string, params: Parameters<SqlDb["run"]>[1]): Promise<void> {
+  refuseUnlessInserted(recordId, (await db.run(insertOnlySql(upsertSql), params)).changes);
 }
 
 export function insertingNew<T>(recordId: string, write: () => T): T {
@@ -37,4 +48,8 @@ export function refuseUnlessInserted(recordId: string, changes: number): void {
  */
 export function refusingTakenId(sqlite: Database.Database, table: string, recordId: string): void {
   if (sqlite.prepare(`SELECT 1 FROM "${table}" WHERE id = ?`).get(recordId) !== undefined) throw new DuplicateRecordIdError(recordId);
+}
+
+export async function refuseTakenIdAsync(db: SqlDb, table: string, recordId: string): Promise<void> {
+  if ((await db.get(`SELECT 1 AS taken FROM "${table}" WHERE id = ?`, [recordId])) !== undefined) throw new DuplicateRecordIdError(recordId);
 }

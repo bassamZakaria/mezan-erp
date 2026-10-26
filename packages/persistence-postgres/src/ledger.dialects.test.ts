@@ -14,11 +14,17 @@ import {
   type JournalLine,
   type JournalPostingDeps,
 } from "@mezan/domain";
-import { createLedgerStore, createSqliteLedgerStore, ensureLedgerSchema, type LedgerStoreHandle } from "./ledger-store.js";
-import { createSqliteAccountRepository } from "./account-repository.js";
-import { createSqliteFiscalPeriodRepository } from "./fiscal-period-repository.js";
-import { SqlDialect, type SqlDb } from "./sql/sql-db.js";
-import { sqliteDb } from "./sql/sqlite-db.js";
+import {
+  createLedgerStore,
+  createSqliteAccountRepository,
+  createSqliteFiscalPeriodRepository,
+  createSqliteLedgerStore,
+  ensureLedgerSchema,
+  sqliteDb,
+  SqlDialect,
+  type LedgerStoreHandle,
+  type SqlDb,
+} from "@mezan/persistence";
 import {
   assertCollation,
   ConnectionOptionsInUrlError,
@@ -27,7 +33,7 @@ import {
   provisionTenantSchema,
   TenantSchemaMismatchError,
   TransactionAbortedError,
-} from "./sql/postgres-db.js";
+} from "./postgres-db.js";
 
 const PG_URL = process.env.MEZAN_TEST_PG_URL;
 if (process.env.CI && !PG_URL) throw new Error("MEZAN_TEST_PG_URL must be set in CI: the Postgres half of the ledger suite may not skip there.");

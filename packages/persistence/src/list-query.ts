@@ -1,5 +1,5 @@
 import type Database from "better-sqlite3";
-import { placeholders, type SqlDb } from "./sql/sql-db.js";
+import { placeholders, type SqlDb, type SqlValue } from "./sql/sql-db.js";
 
 /**
  * The three things every store's `list()` was hand-rolling, in one place.
@@ -157,4 +157,20 @@ export async function childRowsByParentAsync<Row>(db: SqlDb, opts: Omit<ChildRow
     groupByParent(grouped, rows, opts.parentColumn);
   }
   return grouped;
+}
+
+export async function selectPageAsync<Row>(db: SqlDb, opts: Omit<SelectPageOptions, "safeIntegers">): Promise<Row[]> {
+  const params = [...opts.where.values] as SqlValue[];
+  let sql = `SELECT ${opts.columns ?? "*"} FROM ${opts.table} ${opts.where.sql} ORDER BY ${opts.orderBy}`;
+  const limit = opts.page?.limit;
+  if (limit !== undefined) {
+    sql += " LIMIT ? OFFSET ?";
+    params.push(limit, opts.page?.offset ?? 0);
+  }
+  return db.all<Row>(sql, params);
+}
+
+export async function countMatchingAsync(db: SqlDb, table: string, where: FilterClauses): Promise<number> {
+  const row = await db.get<{ n: bigint }>(`SELECT COUNT(*) AS n FROM ${table} ${where.sql}`, where.values as SqlValue[]);
+  return Number(row?.n ?? 0);
 }

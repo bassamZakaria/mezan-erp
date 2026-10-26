@@ -394,6 +394,15 @@ importers:
       drizzle-orm:
         specifier: ^0.45.2
         version: 0.45.2(@types/better-sqlite3@7.6.13)(@types/pg@8.23.1)(better-sqlite3@13.0.3)(pg@8.23.1)
+
+  packages/persistence-postgres:
+    dependencies:
+      '@mezan/domain':
+        specifier: workspace:*
+        version: link:../domain
+      '@mezan/persistence':
+        specifier: workspace:*
+        version: link:../persistence
       pg:
         specifier: ^8.23.1
         version: 8.23.1
@@ -401,6 +410,9 @@ importers:
       '@types/pg':
         specifier: ^8.23.1
         version: 8.23.1
+      better-sqlite3:
+        specifier: ^13.0.3
+        version: 13.0.3
 
   packages/ui:
     dependencies:

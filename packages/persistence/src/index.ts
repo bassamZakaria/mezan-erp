@@ -4,6 +4,8 @@ export {
 } from "./unit-of-work.js";
 export {
   CURRENT_SCHEMA_VERSION,
+  declaredAddableColumns,
+  type AddableColumn,
   SchemaTooNewError,
   SchemaUpgradeFailedError,
   assertSchemaReadable,
@@ -139,9 +141,25 @@ export {
   type SqliteStockLedgerHandle,
 } from "./stock-ledger-store.js";
 export {
+  createLedgerStore,
   createSqliteLedgerStore,
+  ensureLedgerSchema,
+  type LedgerStoreHandle,
   type SqliteLedgerStoreHandle,
 } from "./ledger-store.js";
+export {
+  SqlDialect,
+  TransactionMode,
+  UnsupportedSqlSyntaxError,
+  escapeLike,
+  isPrimaryKeyViolation,
+  numberedPlaceholders,
+  placeholders,
+  type RunResult,
+  type SqlDb,
+  type SqlValue,
+} from "./sql/sql-db.js";
+export { sqliteDb } from "./sql/sqlite-db.js";
 export {
   createSqliteVoucherStore,
   type SqliteVoucherStoreHandle,

@@ -1,4 +1,5 @@
 import type Database from "better-sqlite3";
+import { placeholders, type SqlDb } from "./sql/sql-db.js";
 
 /**
  * The three things every store's `list()` was hand-rolling, in one place.
@@ -21,7 +22,7 @@ export interface ListPage {
  * SQLite's compiled-in ceiling on bound parameters is 999. `IN (...)` lists are
  * chunked under it rather than trusting a caller's page size.
  */
-const MAX_BOUND_PARAMS = 900;
+export const MAX_BOUND_PARAMS = 900;
 
 /** Accumulates `WHERE` fragments and the values they bind, skipping absent filters. */
 export class FilterClauses {
@@ -118,6 +119,15 @@ export interface ChildRowsOptions {
  * A parent with no children is absent from the map, so callers must default to
  * an empty array rather than assume a hit.
  */
+function groupByParent<Row>(grouped: Map<string, Row[]>, rows: readonly Row[], parentColumn: string): void {
+  for (const row of rows) {
+    const parentId = String((row as Record<string, unknown>)[parentColumn]);
+    const bucket = grouped.get(parentId);
+    if (bucket) bucket.push(row);
+    else grouped.set(parentId, [row]);
+  }
+}
+
 export function childRowsByParent<Row>(
   sqlite: Database.Database,
   opts: ChildRowsOptions,
@@ -131,12 +141,20 @@ export function childRowsByParent<Row>(
       `SELECT ${opts.columns ?? "*"} FROM ${opts.table} WHERE ${opts.parentColumn} IN (${placeholders}) ORDER BY ${opts.orderBy}`,
     );
     if (opts.safeIntegers) statement.safeIntegers();
-    for (const row of statement.all(...chunk) as Row[]) {
-      const parentId = String((row as Record<string, unknown>)[opts.parentColumn]);
-      const bucket = grouped.get(parentId);
-      if (bucket) bucket.push(row);
-      else grouped.set(parentId, [row]);
-    }
+    groupByParent(grouped, statement.all(...chunk) as Row[], opts.parentColumn);
+  }
+  return grouped;
+}
+
+export async function childRowsByParentAsync<Row>(db: SqlDb, opts: Omit<ChildRowsOptions, "safeIntegers">): Promise<Map<string, Row[]>> {
+  const grouped = new Map<string, Row[]>();
+  for (let start = 0; start < opts.parentIds.length; start += MAX_BOUND_PARAMS) {
+    const chunk = opts.parentIds.slice(start, start + MAX_BOUND_PARAMS);
+    const rows = await db.all<Row>(
+      `SELECT ${opts.columns ?? "*"} FROM ${opts.table} WHERE ${opts.parentColumn} IN (${placeholders(chunk.length)}) ORDER BY ${opts.orderBy}`,
+      chunk,
+    );
+    groupByParent(grouped, rows, opts.parentColumn);
   }
   return grouped;
 }

@@ -1,8 +1,8 @@
 import type Database from "better-sqlite3";
 import { DuplicateRecordIdError } from "@mezan/domain";
+import { isPrimaryKeyViolation } from "./sql/sql-db.js";
 
 const UPSERT_TAIL = /\s+ON\s+CONFLICT\s*\(\s*id\s*\)\s*DO\s+UPDATE\s+SET[\s\S]*$/i;
-const PRIMARY_KEY_VIOLATION = "SQLITE_CONSTRAINT_PRIMARYKEY";
 
 /*
  * SECURITY INVARIANT: a create path must run the statement this returns, never
@@ -19,9 +19,15 @@ export function insertingNew<T>(recordId: string, write: () => T): T {
   try {
     return write();
   } catch (error) {
-    if ((error as { code?: string }).code === PRIMARY_KEY_VIOLATION) throw new DuplicateRecordIdError(recordId);
+    if (isPrimaryKeyViolation(error)) throw new DuplicateRecordIdError(recordId);
     throw error;
   }
+}
+
+// For an `INSERT … ON CONFLICT (id) DO NOTHING`. A conflict must not raise on
+// Postgres: one failed statement aborts the whole transaction there.
+export function refuseUnlessInserted(recordId: string, changes: number): void {
+  if (changes === 0) throw new DuplicateRecordIdError(recordId);
 }
 
 /*

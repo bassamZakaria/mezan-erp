@@ -1,6 +1,7 @@
-import Database from "better-sqlite3";
 import { OwnerDigestTrigger, type OwnerDigestCadence, type OwnerDigestSettingsInputDTO } from "@mezan/domain";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
+import type { SqlDb, SqlValue } from "./sql/sql-db.js";
+import { sqliteDb } from "./sql/sqlite-db.js";
 
 const CREATE_TABLES = `
 CREATE TABLE IF NOT EXISTS owner_digest_settings (
@@ -81,110 +82,107 @@ function toRun(row: RunRow): OwnerDigestRunRecord {
 }
 
 export interface OwnerDigestStore {
-  getSettings(): StoredOwnerDigestSettings | null;
-  saveSettings(settings: OwnerDigestSettingsInputDTO, at: string, by: string): void;
+  getSettings(): Promise<StoredOwnerDigestSettings | null>;
+  saveSettings(settings: OwnerDigestSettingsInputDTO, at: string, by: string): Promise<void>;
   /**
    * INVARIANT: a scheduled digest is claimed per (period, recipient) BEFORE it is composed, so two ticks racing
    * for one period cannot both queue it. A claim never completed (empty html) is recoverable after `staleBefore`.
    */
-  claim(claim: OwnerDigestClaim): boolean;
-  complete(id: string, html: string): void;
-  release(id: string): void;
-  recent(limit: number): readonly OwnerDigestRunRecord[];
-  mailHtml(notificationId: string): string | null;
+  claim(claim: OwnerDigestClaim): Promise<boolean>;
+  complete(id: string, html: string): Promise<void>;
+  release(id: string): Promise<void>;
+  recent(limit: number): Promise<readonly OwnerDigestRunRecord[]>;
+  mailHtml(notificationId: string): Promise<string | null>;
   close(): void;
 }
 
-class SqliteOwnerDigestStore implements OwnerDigestStore {
-  private readonly selectSettings: Database.Statement;
-  private readonly upsertSettings: Database.Statement;
-  private readonly claimScheduled: Database.Statement;
-  private readonly insertManual: Database.Statement;
-  private readonly completeRun: Database.Statement;
-  private readonly releaseRun: Database.Statement;
-  private readonly selectRecent: Database.Statement;
-  private readonly selectHtml: Database.Statement;
+const RUN_INSERT = `INSERT INTO owner_digest_run (id, cadence, period_key, period_from, period_to, recipient_user_id, trigger, notification_id, html, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, '', ?)`;
 
+class SqlOwnerDigestStore implements OwnerDigestStore {
   constructor(
-    private readonly sqlite: Database.Database,
-    private readonly owned: boolean,
-  ) {
-    this.selectSettings = sqlite.prepare(`SELECT settings_json, updated_at, updated_by FROM owner_digest_settings WHERE id = 1`);
-    this.upsertSettings = sqlite.prepare(`
-      INSERT INTO owner_digest_settings (id, settings_json, updated_at, updated_by) VALUES (1, @settings_json, @updated_at, @updated_by)
-      ON CONFLICT(id) DO UPDATE SET settings_json = excluded.settings_json, updated_at = excluded.updated_at, updated_by = excluded.updated_by
-    `);
-    this.claimScheduled = sqlite.prepare(`
-      INSERT INTO owner_digest_run (id, cadence, period_key, period_from, period_to, recipient_user_id, trigger, notification_id, html, created_at)
-      VALUES (@id, @cadence, @period_key, @period_from, @period_to, @recipient_user_id, @trigger, @notification_id, '', @created_at)
-      ON CONFLICT(period_key, recipient_user_id) WHERE trigger = 'scheduled' DO UPDATE SET
-        id = excluded.id, notification_id = excluded.notification_id, created_at = excluded.created_at
-      WHERE owner_digest_run.html = '' AND owner_digest_run.created_at < @stale_before
-    `);
-    this.insertManual = sqlite.prepare(`
-      INSERT INTO owner_digest_run (id, cadence, period_key, period_from, period_to, recipient_user_id, trigger, notification_id, html, created_at)
-      VALUES (@id, @cadence, @period_key, @period_from, @period_to, @recipient_user_id, @trigger, @notification_id, '', @created_at)
-    `);
-    this.completeRun = sqlite.prepare(`UPDATE owner_digest_run SET html = @html WHERE id = @id`);
-    this.releaseRun = sqlite.prepare(`DELETE FROM owner_digest_run WHERE id = ? AND html = ''`);
-    this.selectRecent = sqlite.prepare(
-      `SELECT id, cadence, period_key, period_from, period_to, recipient_user_id, trigger, notification_id, created_at FROM owner_digest_run WHERE html <> '' ORDER BY created_at DESC, id DESC LIMIT ?`,
-    );
-    this.selectHtml = sqlite.prepare(`SELECT html FROM owner_digest_run WHERE notification_id = ? AND html <> ''`);
-  }
+    private readonly db: SqlDb,
+    private readonly onClose: () => void = () => undefined,
+  ) {}
 
-  getSettings(): StoredOwnerDigestSettings | null {
-    const row = this.selectSettings.get() as SettingsRow | undefined;
+  async getSettings(): Promise<StoredOwnerDigestSettings | null> {
+    const row = await this.db.get<SettingsRow>(`SELECT settings_json, updated_at, updated_by FROM owner_digest_settings WHERE id = 1`);
     return row ? { settings: JSON.parse(row.settings_json) as OwnerDigestSettingsInputDTO, updatedAt: row.updated_at, updatedBy: row.updated_by } : null;
   }
 
-  saveSettings(settings: OwnerDigestSettingsInputDTO, at: string, by: string): void {
-    this.upsertSettings.run({ settings_json: JSON.stringify(settings), updated_at: at, updated_by: by });
+  async saveSettings(settings: OwnerDigestSettingsInputDTO, at: string, by: string): Promise<void> {
+    await this.db.run(
+      `INSERT INTO owner_digest_settings (id, settings_json, updated_at, updated_by) VALUES (1, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET settings_json = excluded.settings_json, updated_at = excluded.updated_at, updated_by = excluded.updated_by`,
+      [JSON.stringify(settings), at, by],
+    );
   }
 
-  claim(claim: OwnerDigestClaim): boolean {
-    const params = {
-      id: claim.id,
-      cadence: claim.cadence,
-      period_key: claim.periodKey,
-      period_from: claim.periodFrom,
-      period_to: claim.periodTo,
-      recipient_user_id: claim.recipientUserId,
-      trigger: claim.trigger,
-      notification_id: claim.notificationId,
-      created_at: claim.createdAt,
-    };
+  async claim(claim: OwnerDigestClaim): Promise<boolean> {
+    const params: SqlValue[] = [
+      claim.id,
+      claim.cadence,
+      claim.periodKey,
+      claim.periodFrom,
+      claim.periodTo,
+      claim.recipientUserId,
+      claim.trigger,
+      claim.notificationId,
+      claim.createdAt,
+    ];
     if (claim.trigger === OwnerDigestTrigger.Manual) {
-      this.insertManual.run(params);
+      await this.db.run(RUN_INSERT, params);
       return true;
     }
-    return this.claimScheduled.run({ ...params, stale_before: claim.staleBefore }).changes > 0;
+    const claimed = await this.db.run(
+      `${RUN_INSERT}
+      ON CONFLICT(period_key, recipient_user_id) WHERE trigger = 'scheduled' DO UPDATE SET
+        id = excluded.id, notification_id = excluded.notification_id, created_at = excluded.created_at
+      WHERE owner_digest_run.html = '' AND owner_digest_run.created_at < ?`,
+      [...params, claim.staleBefore],
+    );
+    return claimed.changes > 0;
   }
 
-  complete(id: string, html: string): void {
-    this.completeRun.run({ id, html });
+  async complete(id: string, html: string): Promise<void> {
+    await this.db.run(`UPDATE owner_digest_run SET html = ? WHERE id = ?`, [html, id]);
   }
 
-  release(id: string): void {
-    this.releaseRun.run(id);
+  async release(id: string): Promise<void> {
+    await this.db.run(`DELETE FROM owner_digest_run WHERE id = ? AND html = ''`, [id]);
   }
 
-  recent(limit: number): readonly OwnerDigestRunRecord[] {
-    return (this.selectRecent.all(limit) as RunRow[]).map(toRun);
+  async recent(limit: number): Promise<readonly OwnerDigestRunRecord[]> {
+    return (
+      await this.db.all<RunRow>(
+        `SELECT id, cadence, period_key, period_from, period_to, recipient_user_id, trigger, notification_id, created_at FROM owner_digest_run WHERE html <> '' ORDER BY created_at DESC, id DESC LIMIT ?`,
+        [limit],
+      )
+    ).map(toRun);
   }
 
-  mailHtml(notificationId: string): string | null {
-    const row = this.selectHtml.get(notificationId) as { html: string } | undefined;
+  async mailHtml(notificationId: string): Promise<string | null> {
+    const row = await this.db.get<{ html: string }>(`SELECT html FROM owner_digest_run WHERE notification_id = ? AND html <> ''`, [notificationId]);
     return row?.html ?? null;
   }
 
   close(): void {
-    if (this.owned) this.sqlite.close();
+    this.onClose();
   }
+}
+
+export async function ensureOwnerDigestSchema(db: SqlDb): Promise<void> {
+  await db.applySchema(CREATE_TABLES);
+}
+
+export function createOwnerDigestStore(db: SqlDb): OwnerDigestStore {
+  return new SqlOwnerDigestStore(db);
 }
 
 export function createSqliteOwnerDigestStore(path: SqliteConnectionInput = ":memory:"): OwnerDigestStore {
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.exec(CREATE_TABLES);
-  return new SqliteOwnerDigestStore(sqlite, owned);
+  return new SqlOwnerDigestStore(sqliteDb(sqlite), () => {
+    if (owned) sqlite.close();
+  });
 }

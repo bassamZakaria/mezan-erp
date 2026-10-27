@@ -143,7 +143,7 @@ describe("getting back into a locked account", () => {
     await twentyWrongPins(h);
     expect((await signIn(h, OWNER.pin, "196.221.5.5")).status).toBe(423);
 
-    h.credentialsResetByAdministrator(OWNER.email);
+    await h.credentialsResetByAdministrator(OWNER.email);
 
     expect((await signIn(h, OWNER.pin, "196.221.5.5")).status).toBe(200);
     h.close();

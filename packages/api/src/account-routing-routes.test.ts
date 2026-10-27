@@ -11,8 +11,8 @@ function newApp() {
   return { app, repo, sessions, sqlite };
 }
 
-function grant(sessions: ReturnType<typeof createSessionRegistry>, permissions: string[]) {
-  const token = sessions.issue({
+async function grant(sessions: ReturnType<typeof createSessionRegistry>, permissions: string[]) {
+  const token = await sessions.issue({
     userId: "u1",
     permissions,
     roleCode: null,
@@ -44,14 +44,14 @@ describe("account-routing router — permission gate", () => {
 
   it("403s a caller without accounting.coa.view on GET", async () => {
     const { app, sessions } = newApp();
-    const res = await app.fetch(req("/", grant(sessions, ["admin.settings.view"])));
+    const res = await app.fetch(req("/", (await grant(sessions, ["admin.settings.view"]))));
     expect(res.status).toBe(403);
     expect(((await res.json()) as { permission: string }).permission).toBe("accounting.coa.view");
   });
 
   it("403s a caller with only view permission on PUT", async () => {
     const { app, sessions } = newApp();
-    const auth = grant(sessions, ["accounting.coa.view"]);
+    const auth = (await grant(sessions, ["accounting.coa.view"]));
     const res = await app.fetch(
       req("/", { method: "PUT", headers: { ...auth.headers, "content-type": "application/json" }, body: JSON.stringify({}) }),
     );
@@ -62,7 +62,7 @@ describe("account-routing router — permission gate", () => {
 describe("account-routing router — GET /", () => {
   it("returns every slot resolved to its shipped default when nothing is overridden", async () => {
     const { app, sessions } = newApp();
-    const res = await app.fetch(req("/", grant(sessions, ["accounting.coa.view"])));
+    const res = await app.fetch(req("/", (await grant(sessions, ["accounting.coa.view"]))));
     expect(res.status).toBe(200);
     const body = (await res.json()) as { slots: Array<{ key: string; accountId: string; overridden: boolean }>; options: { latePenaltyTreatment: string } };
     const outputVat = body.slots.find((s) => s.key === "tax.output_vat")!;
@@ -79,8 +79,8 @@ describe("account-routing router — PUT /", () => {
     const res = await app.fetch(
       req("/", {
         method: "PUT",
-        ...grant(sessions, ["accounting.coa.manage"]),
-        headers: { ...grant(sessions, ["accounting.coa.manage"]).headers, "content-type": "application/json" },
+        ...(await grant(sessions, ["accounting.coa.manage"])),
+        headers: { ...(await grant(sessions, ["accounting.coa.manage"])).headers, "content-type": "application/json" },
         body: JSON.stringify({ overrides: { "tax.output_vat": 42 } }),
       }),
     );
@@ -91,7 +91,7 @@ describe("account-routing router — PUT /", () => {
 
   it("422s an unknown routing key", async () => {
     const { app, sessions } = newApp();
-    const auth = grant(sessions, ["accounting.coa.manage"]);
+    const auth = (await grant(sessions, ["accounting.coa.manage"]));
     const res = await app.fetch(
       req("/", {
         method: "PUT",
@@ -105,7 +105,7 @@ describe("account-routing router — PUT /", () => {
 
   it("sets an override, and a read-back through GET reflects it", async () => {
     const { app, sessions } = newApp();
-    const auth = grant(sessions, ["accounting.coa.manage"]);
+    const auth = (await grant(sessions, ["accounting.coa.manage"]));
     const putRes = await app.fetch(
       req("/", {
         method: "PUT",
@@ -120,14 +120,14 @@ describe("account-routing router — PUT /", () => {
     expect(overridden.overridden).toBe(true);
     expect(putBody.options.latePenaltyTreatment).toBe("expense");
 
-    const getRes = await app.fetch(req("/", grant(sessions, ["accounting.coa.view"])));
+    const getRes = await app.fetch(req("/", (await grant(sessions, ["accounting.coa.view"]))));
     const getBody = (await getRes.json()) as { slots: Array<{ key: string; accountId: string }> };
     expect(getBody.slots.find((s) => s.key === "tax.output_vat")!.accountId).toBe("2299");
   });
 
   it("a null override clears a previously set override back to the default", async () => {
     const { app, sessions } = newApp();
-    const auth = grant(sessions, ["accounting.coa.manage"]);
+    const auth = (await grant(sessions, ["accounting.coa.manage"]));
     await app.fetch(
       req("/", {
         method: "PUT",

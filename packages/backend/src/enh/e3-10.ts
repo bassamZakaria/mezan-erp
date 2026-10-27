@@ -25,10 +25,9 @@ export const area: BackendArea = {
           mailConfigured: ctx.customerMail.configured,
           resolveLicenseState: ctx.resolveLicenseState,
           cloudTenant: ctx.cloudTenant,
-          clientErrors: (sinceIso, limit) => ({
-            lastDay: clientErrors.countSince(sinceIso),
-            recent: clientErrors
-              .recent(limit)
+          clientErrors: async (sinceIso, limit) => ({
+            lastDay: await clientErrors.countSince(sinceIso),
+            recent: (await clientErrors.recent(limit))
               .filter((row) => PLATFORMS.has(row.platform) && KINDS.has(row.kind))
               .map((row) => ({ ...row, platform: row.platform as ClientErrorPlatformDTO, kind: row.kind as ClientErrorKindDTO })),
           }),

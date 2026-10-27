@@ -26,7 +26,7 @@ interface Answer {
 async function open(options: Partial<CreateBackendOptions> = {}) {
   const handle = await createBackend({ dbPath: ":memory:", ...options });
   handles.push(handle);
-  const token = handle.sessions.issue({ userId: "admin", permissions: ["*"], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
+  const token = await handle.sessions.issue({ userId: "admin", permissions: ["*"], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
   const signedIn = { authorization: `Bearer ${token}`, "content-type": "application/json" };
   const call = async (method: string, path: string, body?: unknown, headers: Record<string, string> = signedIn): Promise<Answer> => {
     const res = await handle.app.fetch(
@@ -455,7 +455,7 @@ describe("a create sent again because its answer never arrived", () => {
     const t = await shop();
     const id = "55555555-aaaa-4bbb-8ccc-000000000005";
     const first = await t.call("POST", "/sales-invoices", invoice(id));
-    const colleague = t.handle.sessions.issue({ userId: "user-b", permissions: ["*"], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
+    const colleague = await t.handle.sessions.issue({ userId: "user-b", permissions: ["*"], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
     const asColleague = { authorization: `Bearer ${colleague}`, "content-type": "application/json" };
 
     const sameBody = await t.call("POST", "/sales-invoices", invoice(id), asColleague);
@@ -614,7 +614,7 @@ describe("a create sent again because its answer never arrived", () => {
     await t.made("/warehouses", { id: "WH-2", code: "WH-2", name: "Second", nameAr: "مخزن ثانٍ", branchId: "BR-MAIN" });
     const id = "dddddddd-aaaa-4bbb-8ccc-00000000000d";
     await t.made(`${mount}/draft`, build(id));
-    const colleague = t.handle.sessions.issue({ userId: "user-b", permissions: ["*"], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
+    const colleague = await t.handle.sessions.issue({ userId: "user-b", permissions: ["*"], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
 
     const changed = await t.call("POST", `${mount}/draft`, build(id, "7"));
     const asColleague = await t.call("POST", `${mount}/draft`, build(id), { authorization: `Bearer ${colleague}`, "content-type": "application/json" });
@@ -672,7 +672,7 @@ describe("a create sent again because its answer never arrived", () => {
     const t = await owedAndPaid();
     const id = "ffffffff-aaaa-4bbb-8ccc-000000000003";
     await t.made(t.path, t.allocation(id));
-    const colleague = t.handle.sessions.issue({ userId: "user-b", permissions: ["*"], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
+    const colleague = await t.handle.sessions.issue({ userId: "user-b", permissions: ["*"], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
 
     const changed = await t.call("POST", t.path, t.allocation(id, "300.00"));
     const asColleague = await t.call("POST", t.path, t.allocation(id), { authorization: `Bearer ${colleague}`, "content-type": "application/json" });
@@ -713,7 +713,7 @@ describe("a tenant's connection while an HR request waits for a resource lease",
     try {
       const t = await open({ dbPath });
       const holder = createSqliteLeaseStore(dbPath);
-      holder.tryAcquire("hr-advance:ADV-HELD", "other-instance", Date.now() + 60_000, Date.now());
+      await holder.tryAcquire("hr-advance:ADV-HELD", "other-instance", Date.now() + 60_000, Date.now());
 
       const waiting = t.call("POST", "/hr/advances/ADV-HELD/repay", {
         treasuryAccountId: "1101",
@@ -732,7 +732,7 @@ describe("a tenant's connection while an HR request waits for a resource lease",
       expect(write.status).toBe(201);
       expect(settled, JSON.stringify(await Promise.race([waiting, null]))).toBe(false);
 
-      holder.release("hr-advance:ADV-HELD", "other-instance");
+      await holder.release("hr-advance:ADV-HELD", "other-instance");
       const answer = await waiting;
       expect(answer.status, JSON.stringify(answer.body)).toBe(404);
     } finally {

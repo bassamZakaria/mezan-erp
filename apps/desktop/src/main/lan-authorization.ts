@@ -38,7 +38,7 @@ export interface LanAuthorizationOptions {
    * than handing this module the whole `SessionRegistry`: it needs the identity
    * and nothing else, and it must never be able to mint or revoke one.
    */
-  readonly resolveSessionUser: (token: string, origin: string) => string | null;
+  readonly resolveSessionUser: (token: string, origin: string) => Promise<string | null>;
   readonly registry: SeatSessionRegistry;
 }
 
@@ -61,14 +61,14 @@ export function readBearerToken(request: Request): string | null {
  * to be taken on the far side. Keeping one definition here — rather than a
  * second copy inside main/backend-worker.ts — is what stops the two drifting.
  */
-export function authorizeSeatedSession(
+export async function authorizeSeatedSession(
   options: LanAuthorizationOptions,
   token: string,
   remote: string,
-): boolean {
+): Promise<boolean> {
   if (!token) return false;
 
-  const userId = options.resolveSessionUser(token, remote);
+  const userId = await options.resolveSessionUser(token, remote);
   if (userId === null) return false;
 
   // `list()` reaps stale sessions as it reads, which is why the check is made
@@ -78,8 +78,8 @@ export function authorizeSeatedSession(
 
 export function createLanClientAuthorizer(
   options: LanAuthorizationOptions,
-): (request: Request, remote: string) => boolean {
-  return (request, remote) => {
+): (request: Request, remote: string) => Promise<boolean> {
+  return async (request, remote) => {
     const token = readBearerToken(request);
     if (!token) return false;
     return authorizeSeatedSession(options, token, remote);

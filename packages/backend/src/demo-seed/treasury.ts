@@ -473,7 +473,7 @@ async function seedFieldSales(app: App): Promise<void> {
   const approval = await app.fetch(
     new Request(`http://demo-seed/field/van-trips/${tripA.id}/approve`, {
       method: "POST",
-      headers: seedActorHeaders(seededUserId(SeedPerson.Supervisor), ["field.van_trip.approve", "field.van_trip.view"]),
+      headers: await seedActorHeaders(seededUserId(SeedPerson.Supervisor), ["field.van_trip.approve", "field.van_trip.view"]),
       body: JSON.stringify({}),
     }),
   );

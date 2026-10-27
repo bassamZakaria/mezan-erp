@@ -91,11 +91,11 @@ describe("createLeasedKeyedLock across two server instances over one database", 
   it("an instance that died inside the work does not hold the key past its lease", async () => {
     const file = sharedFile();
     const store = createSqliteLeaseStore(file);
-    expect(store.tryAcquire("k", "dead-instance", 2_000, 1_000)).toBe(true);
-    expect(store.tryAcquire("k", "other", 3_000, 1_500)).toBe(false);
-    expect(store.tryAcquire("k", "other", 4_000, 2_000)).toBe(true);
-    store.release("k", "dead-instance");
-    expect(store.tryAcquire("k", "third", 5_000, 3_000)).toBe(false);
+    expect(await store.tryAcquire("k", "dead-instance", 2_000, 1_000)).toBe(true);
+    expect(await store.tryAcquire("k", "other", 3_000, 1_500)).toBe(false);
+    expect(await store.tryAcquire("k", "other", 4_000, 2_000)).toBe(true);
+    await store.release("k", "dead-instance");
+    expect(await store.tryAcquire("k", "third", 5_000, 3_000)).toBe(false);
   });
 });
 

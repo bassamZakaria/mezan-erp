@@ -1,5 +1,8 @@
 import type { ScopeSelection } from "@mezan/domain";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
+import { ensureInsertionOrder, insertionOrder } from "./sql/insertion-order.js";
+import { TransactionMode, type SqlDb } from "./sql/sql-db.js";
+import { sqliteDb } from "./sql/sqlite-db.js";
 
 const CREATE_TABLES = `
 CREATE TABLE IF NOT EXISTS auth_session (
@@ -64,16 +67,16 @@ export interface PersistedDisplacedSession {
 
 export interface SqliteSessionStore {
   readonly lastSeenWriteIntervalMs: number;
-  atomically<T>(work: () => T): T;
-  get(key: string): PersistedSession | null;
-  put(key: string, session: PersistedSession): void;
-  remove(key: string): void;
-  removeUser(userId: string): void;
-  onDevice(deviceHash: string): ReadonlyArray<readonly [string, PersistedSession]>;
-  displaced(key: string): PersistedDisplacedSession | null;
-  rememberDisplaced(key: string, ended: PersistedDisplacedSession): void;
-  forgetDisplaced(key: string): void;
-  sweep(at: number, displacedForMs: number): void;
+  atomically<T>(work: () => Promise<T>): Promise<T>;
+  get(key: string): Promise<PersistedSession | null>;
+  put(key: string, session: PersistedSession): Promise<void>;
+  remove(key: string): Promise<void>;
+  removeUser(userId: string): Promise<void>;
+  onDevice(deviceHash: string): Promise<ReadonlyArray<readonly [string, PersistedSession]>>;
+  displaced(key: string): Promise<PersistedDisplacedSession | null>;
+  rememberDisplaced(key: string, ended: PersistedDisplacedSession): Promise<void>;
+  forgetDisplaced(key: string): Promise<void>;
+  sweep(at: number, displacedForMs: number): Promise<void>;
 }
 
 interface SessionRow {
@@ -83,22 +86,22 @@ interface SessionRow {
   role_code: string | null;
   branch_scope: string;
   warehouse_scope: string;
-  issued_at: number;
+  issued_at: bigint;
   issued_from: string | null;
   device_hash: string | null;
   last_origin: string | null;
-  moved_since_pin: number;
-  last_seen_at: number;
+  moved_since_pin: bigint;
+  last_seen_at: bigint;
   device_mismatches: string;
-  idle_ms: number;
-  max_ms: number;
-  access_expires_at: number | null;
+  idle_ms: bigint;
+  max_ms: bigint;
+  access_expires_at: bigint | null;
 }
 
 interface DisplacedRow {
   user_id: string;
   issued_from: string | null;
-  displaced_at: number;
+  displaced_at: bigint;
 }
 
 function parseJson(raw: string): unknown {
@@ -133,17 +136,25 @@ function toSession(row: SessionRow): PersistedSession {
     roleCode: row.role_code,
     branchScope: scope(row.branch_scope),
     warehouseScope: scope(row.warehouse_scope),
-    issuedAt: row.issued_at,
+    issuedAt: Number(row.issued_at),
     issuedFrom: row.issued_from,
     deviceHash: row.device_hash,
     lastOrigin: row.last_origin,
-    movedSincePin: row.moved_since_pin === 1,
-    lastSeenAt: row.last_seen_at,
+    movedSincePin: Number(row.moved_since_pin) === 1,
+    lastSeenAt: Number(row.last_seen_at),
     deviceMismatches: numbers(row.device_mismatches),
-    idleMs: row.idle_ms,
-    maxMs: row.max_ms,
-    accessExpiresAt: row.access_expires_at ?? null,
+    idleMs: Number(row.idle_ms),
+    maxMs: Number(row.max_ms),
+    accessExpiresAt: row.access_expires_at === null ? null : Number(row.access_expires_at),
   };
+}
+
+const SESSION_COLUMNS = `token_hash, user_id, permissions, role_code, branch_scope, warehouse_scope, issued_at, issued_from, device_hash,
+       last_origin, moved_since_pin, last_seen_at, device_mismatches, idle_ms, max_ms, access_expires_at`;
+
+export async function ensureSessionSchema(db: SqlDb): Promise<void> {
+  await db.applySchema(CREATE_TABLES);
+  await ensureInsertionOrder(db, "auth_session_displaced");
 }
 
 /**
@@ -153,85 +164,85 @@ function toSession(row: SessionRow): PersistedSession {
  * displacement — is a revoke on all. Only the SHA-256 of a token is ever
  * stored; a dump of this table hands over no live session.
  */
-export function createSqliteSessionStore(input: SqliteConnectionInput): SqliteSessionStore {
-  const { sqlite } = openSqliteConnection(input);
-  sqlite.exec(CREATE_TABLES);
-
-  const get = sqlite.prepare(`SELECT * FROM auth_session WHERE token_hash = ?`);
-  const put = sqlite.prepare(
-    `INSERT INTO auth_session (token_hash, user_id, permissions, role_code, branch_scope, warehouse_scope, issued_at, issued_from, device_hash,
-       last_origin, moved_since_pin, last_seen_at, device_mismatches, idle_ms, max_ms, access_expires_at)
-     VALUES (@token_hash, @user_id, @permissions, @role_code, @branch_scope, @warehouse_scope, @issued_at, @issued_from, @device_hash,
-       @last_origin, @moved_since_pin, @last_seen_at, @device_mismatches, @idle_ms, @max_ms, @access_expires_at)
-     ON CONFLICT (token_hash) DO UPDATE SET
-       last_origin = excluded.last_origin, moved_since_pin = excluded.moved_since_pin,
-       last_seen_at = excluded.last_seen_at, device_mismatches = excluded.device_mismatches`,
-  );
-  const remove = sqlite.prepare(`DELETE FROM auth_session WHERE token_hash = ?`);
-  const removeUser = sqlite.prepare(`DELETE FROM auth_session WHERE user_id = ?`);
-  const onDevice = sqlite.prepare(`SELECT * FROM auth_session WHERE device_hash = ?`);
-  const expire = sqlite.prepare(`DELETE FROM auth_session WHERE ? - last_seen_at > idle_ms OR ? - issued_at > max_ms OR (access_expires_at IS NOT NULL AND ? >= access_expires_at)`);
-  const getDisplaced = sqlite.prepare(`SELECT user_id, issued_from, displaced_at FROM auth_session_displaced WHERE token_hash = ?`);
-  const putDisplaced = sqlite.prepare(
-    `INSERT INTO auth_session_displaced (token_hash, user_id, issued_from, displaced_at) VALUES (?, ?, ?, ?)
-     ON CONFLICT (token_hash) DO UPDATE SET user_id = excluded.user_id, issued_from = excluded.issued_from, displaced_at = excluded.displaced_at`,
-  );
-  const forgetDisplaced = sqlite.prepare(`DELETE FROM auth_session_displaced WHERE token_hash = ?`);
-  const expireDisplaced = sqlite.prepare(`DELETE FROM auth_session_displaced WHERE ? - displaced_at > ?`);
-  const boundDisplaced = sqlite.prepare(
-    `DELETE FROM auth_session_displaced WHERE rowid NOT IN (
-       SELECT rowid FROM auth_session_displaced ORDER BY displaced_at DESC, rowid DESC LIMIT ?
-     )`,
-  );
-
-  const atomic = <T>(work: () => T): T => sqlite.transaction(work).immediate() as T;
-
+export function createSessionStore(db: SqlDb): SqliteSessionStore {
+  const order = insertionOrder(db);
+  const atomic = <T>(work: () => Promise<T>): Promise<T> => db.transaction(work, TransactionMode.Immediate);
   return {
     lastSeenWriteIntervalMs: LAST_SEEN_WRITE_INTERVAL_MS,
     atomically: atomic,
-    get(key) {
-      const row = get.get(key) as SessionRow | undefined;
+    async get(key) {
+      const row = await db.get<SessionRow>(`SELECT ${SESSION_COLUMNS} FROM auth_session WHERE token_hash = ?`, [key]);
       return row ? toSession(row) : null;
     },
-    put(key, session) {
-      put.run({
-        token_hash: key,
-        user_id: session.userId,
-        permissions: JSON.stringify(session.permissions),
-        role_code: session.roleCode,
-        branch_scope: JSON.stringify(session.branchScope),
-        warehouse_scope: JSON.stringify(session.warehouseScope),
-        issued_at: session.issuedAt,
-        issued_from: session.issuedFrom,
-        device_hash: session.deviceHash,
-        last_origin: session.lastOrigin,
-        moved_since_pin: session.movedSincePin ? 1 : 0,
-        last_seen_at: session.lastSeenAt,
-        device_mismatches: JSON.stringify(session.deviceMismatches),
-        idle_ms: session.idleMs,
-        max_ms: session.maxMs,
-        access_expires_at: session.accessExpiresAt ?? null,
-      });
+    async put(key, session) {
+      await db.run(
+        `INSERT INTO auth_session (${SESSION_COLUMNS})
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT (token_hash) DO UPDATE SET
+           last_origin = excluded.last_origin, moved_since_pin = excluded.moved_since_pin,
+           last_seen_at = excluded.last_seen_at, device_mismatches = excluded.device_mismatches`,
+        [
+          key,
+          session.userId,
+          JSON.stringify(session.permissions),
+          session.roleCode,
+          JSON.stringify(session.branchScope),
+          JSON.stringify(session.warehouseScope),
+          session.issuedAt,
+          session.issuedFrom,
+          session.deviceHash,
+          session.lastOrigin,
+          session.movedSincePin ? 1 : 0,
+          session.lastSeenAt,
+          JSON.stringify(session.deviceMismatches),
+          session.idleMs,
+          session.maxMs,
+          session.accessExpiresAt ?? null,
+        ],
+      );
     },
-    remove: (key) => void remove.run(key),
-    removeUser: (userId) => void removeUser.run(userId),
-    onDevice: (deviceHash) => (onDevice.all(deviceHash) as SessionRow[]).map((row) => [row.token_hash, toSession(row)] as const),
-    displaced(key) {
-      const row = getDisplaced.get(key) as DisplacedRow | undefined;
-      return row ? { userId: row.user_id, issuedFrom: row.issued_from, at: row.displaced_at } : null;
+    remove: async (key) => {
+      await db.run(`DELETE FROM auth_session WHERE token_hash = ?`, [key]);
     },
-    rememberDisplaced(key, ended) {
-      atomic(() => {
-        putDisplaced.run(key, ended.userId, ended.issuedFrom, ended.at);
-        boundDisplaced.run(DISPLACED_REMEMBERED);
-      });
+    removeUser: async (userId) => {
+      await db.run(`DELETE FROM auth_session WHERE user_id = ?`, [userId]);
     },
-    forgetDisplaced: (key) => void forgetDisplaced.run(key),
-    sweep(at, displacedForMs) {
-      atomic(() => {
-        expire.run(at, at, at);
-        expireDisplaced.run(at, displacedForMs);
-      });
+    onDevice: async (deviceHash) =>
+      (await db.all<SessionRow>(`SELECT ${SESSION_COLUMNS} FROM auth_session WHERE device_hash = ?`, [deviceHash])).map((row) => [row.token_hash, toSession(row)] as const),
+    async displaced(key) {
+      const row = await db.get<DisplacedRow>(`SELECT user_id, issued_from, displaced_at FROM auth_session_displaced WHERE token_hash = ?`, [key]);
+      return row ? { userId: row.user_id, issuedFrom: row.issued_from, at: Number(row.displaced_at) } : null;
     },
+    rememberDisplaced: (key, ended) =>
+      atomic(async () => {
+        await db.run(
+          `INSERT INTO auth_session_displaced (token_hash, user_id, issued_from, displaced_at) VALUES (?, ?, ?, ?)
+           ON CONFLICT (token_hash) DO UPDATE SET user_id = excluded.user_id, issued_from = excluded.issued_from, displaced_at = excluded.displaced_at`,
+          [key, ended.userId, ended.issuedFrom, ended.at],
+        );
+        await db.run(
+          `DELETE FROM auth_session_displaced WHERE token_hash NOT IN (
+             SELECT token_hash FROM auth_session_displaced ORDER BY displaced_at DESC, ${order} DESC LIMIT ?
+           )`,
+          [DISPLACED_REMEMBERED],
+        );
+      }),
+    forgetDisplaced: async (key) => {
+      await db.run(`DELETE FROM auth_session_displaced WHERE token_hash = ?`, [key]);
+    },
+    sweep: (at, displacedForMs) =>
+      atomic(async () => {
+        await db.run(
+          `DELETE FROM auth_session WHERE ? - last_seen_at > idle_ms OR ? - issued_at > max_ms OR (access_expires_at IS NOT NULL AND ? >= access_expires_at)`,
+          [at, at, at],
+        );
+        await db.run(`DELETE FROM auth_session_displaced WHERE ? - displaced_at > ?`, [at, displacedForMs]);
+      }),
   };
+}
+
+export function createSqliteSessionStore(input: SqliteConnectionInput): SqliteSessionStore {
+  const { sqlite } = openSqliteConnection(input);
+  sqlite.exec(CREATE_TABLES);
+  return createSessionStore(sqliteDb(sqlite));
 }

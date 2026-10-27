@@ -31,7 +31,7 @@ export interface ClientErrorSink {
     readonly userAgent: string | null;
     readonly requestId: string | null;
     readonly userId: string | null;
-  }): void;
+  }): Promise<void>;
 }
 
 export interface ClientErrorRoutesDeps {
@@ -89,7 +89,7 @@ export function createClientErrorRoutes(deps: ClientErrorRoutesDeps) {
       }
       const report = parsed.data;
       const id = randomUUID();
-      deps.sink.record({
+      await deps.sink.record({
         id,
         receivedAt: now().toISOString(),
         platform: report.platform,

@@ -17,9 +17,9 @@ export interface IdempotentAnswer {
 }
 
 export interface IdempotentRequests {
-  find(scope: string, key: string): IdempotentAnswer | null;
-  record(scope: string, key: string, answer: IdempotentAnswer, recordedAt: string): void;
-  forget(before: string): number;
+  find(scope: string, key: string): Promise<IdempotentAnswer | null>;
+  record(scope: string, key: string, answer: IdempotentAnswer, recordedAt: string): Promise<void>;
+  forget(before: string): Promise<number>;
 }
 
 export enum IdempotencyKeyField {
@@ -127,11 +127,11 @@ export function idempotentCreate(options: IdempotentCreateOptions): IdempotentCr
   const pending = new WeakMap<Context, Pending>();
   let forgotAt: number | null = null;
 
-  const forgetOld = (): void => {
+  const forgetOld = async (): Promise<void> => {
     const at = now().getTime();
     if (forgotAt !== null && at - forgotAt < FORGET_EVERY_MS) return;
     forgotAt = at;
-    requests.forget(new Date(at - KEPT_FOR_MS).toISOString());
+    await requests.forget(new Date(at - KEPT_FOR_MS).toISOString());
   };
 
   async function asItStandsNow(c: Context, create: IdempotentCreate, key: string, first: IdempotentAnswer): Promise<Response> {
@@ -167,23 +167,11 @@ export function idempotentCreate(options: IdempotentCreateOptions): IdempotentCr
     const slot = `${scope}\u0000${key}`;
     const requestHash = createHash("sha256").update(JSON.stringify(canonical(body)), "utf8").digest("hex");
     // ORDER MATTERS: nothing is awaited between the last look at `inFlight` and
-    // the claim below, or two sends of one create both find the slot free.
+    // the claim below, or two sends of one create both find the slot free. The
+    // stored answer is read only once the slot is held.
     for (let ahead = inFlight.get(slot); ahead; ahead = inFlight.get(slot)) await ahead;
     await audit?.settled?.();
     for (let ahead = inFlight.get(slot); ahead; ahead = inFlight.get(slot)) await ahead;
-
-    const earlier = requests.find(scope, key);
-    if (earlier) {
-      if (earlier.requestHash === requestHash) return asItStandsNow(c, create, key, earlier);
-      return c.json(
-        {
-          error: IdempotencyRefusal.KeyReused,
-          message: "سبق تسجيل مستند بهذا المعرّف ببيانات مختلفة، فلم يُسجَّل هذا الطلب. افتح المستند المسجَّل أو أنشئ مستندًا جديدًا.",
-          messageEn: "A document was already recorded under this id with different contents, so this request was not recorded. Open the recorded document or start a new one.",
-        },
-        409,
-      );
-    }
 
     let finished!: () => void;
     inFlight.set(
@@ -192,8 +180,20 @@ export function idempotentCreate(options: IdempotentCreateOptions): IdempotentCr
         finished = resolve;
       }),
     );
-    pending.set(c, { scope, key, requestHash });
     try {
+      const earlier = await requests.find(scope, key);
+      if (earlier) {
+        if (earlier.requestHash === requestHash) return await asItStandsNow(c, create, key, earlier);
+        return c.json(
+          {
+            error: IdempotencyRefusal.KeyReused,
+            message: "سبق تسجيل مستند بهذا المعرّف ببيانات مختلفة، فلم يُسجَّل هذا الطلب. افتح المستند المسجَّل أو أنشئ مستندًا جديدًا.",
+            messageEn: "A document was already recorded under this id with different contents, so this request was not recorded. Open the recorded document or start a new one.",
+          },
+          409,
+        );
+      }
+      pending.set(c, { scope, key, requestHash });
       await next();
     } finally {
       inFlight.delete(slot);
@@ -210,8 +210,8 @@ export function idempotentCreate(options: IdempotentCreateOptions): IdempotentCr
       if (status < SUCCESS_FROM || status >= SUCCESS_BELOW) return;
       const answer = await c.res.clone().text();
       try {
-        requests.record(create.scope, create.key, { requestHash: create.requestHash, status, body: answer }, now().toISOString());
-        forgetOld();
+        await requests.record(create.scope, create.key, { requestHash: create.requestHash, status, body: answer }, now().toISOString());
+        await forgetOld();
       } catch (err) {
         log.error({ method: c.req.method, route: c.req.path, err }, `could not keep the answer to ${c.req.method} ${c.req.path}; the create was rolled back`);
         throw new AnswerNotRecorded();

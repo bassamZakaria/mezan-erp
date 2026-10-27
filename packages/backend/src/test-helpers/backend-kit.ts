@@ -50,11 +50,11 @@ export async function bootBackendKit(options: BackendKitOptions = {}): Promise<B
     seedDemoData: true,
     resolveEntitlements: () => createEntitlements({ plan: "DEMO", activeModules: MODULE_CATALOG, features: {}, seats: 50, expiresAt: null }),
   });
-  const admin = backend.sessions.issue({ userId: "USER-ADMIN", permissions: ["*"], roleCode: "*", branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
+  const admin = await backend.sessions.issue({ userId: "USER-ADMIN", permissions: ["*"], roleCode: "*", branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
 
   async function call(method: string, path: string, body?: unknown, permissions?: readonly string[]): Promise<Reply> {
     const bearer = permissions
-      ? backend.sessions.issue({ userId: "LIMITED", permissions, roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE })
+      ? await backend.sessions.issue({ userId: "LIMITED", permissions, roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE })
       : admin;
     const res = await backend.app.fetch(
       new Request(`http://local${path}`, {

@@ -16,7 +16,7 @@ async function tenantOn(activeModules: readonly string[]) {
   });
   const backend = await createBackend({ dbPath: ":memory:", resolveEntitlements: () => entitlements });
   handles.push(backend);
-  const token = backend.sessions.issue({ userId: "admin", permissions: ["*"], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
+  const token = await backend.sessions.issue({ userId: "admin", permissions: ["*"], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
   const statusOf = async (path: string) => {
     const res = await backend.app.fetch(new Request(`http://local${path}`, { headers: { authorization: `Bearer ${token}` } }));
     return { status: res.status, error: res.status === 403 ? ((await res.json()) as { error?: string }).error : undefined };

@@ -77,9 +77,9 @@ beforeAll(async () => {
     createEntitlements({ plan: "DEMO", activeModules: MODULE_CATALOG, features: { [LAN_MULTI_TILL_FEATURE]: true }, seats: 50, expiresAt: null });
   handle = await createBackend({ dbPath, seedDemoData: true, lan: { resolveEntitlements }, resolveEntitlements });
   sqlite = openSqliteConnection(dbPath).sqlite;
-  admin = callerFor(handle.sessions.issue({ userId: "USER-ADMIN", permissions: ["*"], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE }));
-  bothBranches = callerFor(handle.sessions.issue({ userId: "USER-TR-BOTH", permissions: [...ALL_PERMISSION_CODES], roleCode: null, branchScope: ["BR-MAIN", "BR-ALEX"], warehouseScope: ALL_SCOPE }));
-  alex = callerFor(handle.sessions.issue({ userId: "USER-TR-ALEX", permissions: [...ALL_PERMISSION_CODES], roleCode: null, branchScope: ["BR-ALEX"], warehouseScope: ALL_SCOPE }));
+  admin = callerFor(await handle.sessions.issue({ userId: "USER-ADMIN", permissions: ["*"], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE }));
+  bothBranches = callerFor(await handle.sessions.issue({ userId: "USER-TR-BOTH", permissions: [...ALL_PERMISSION_CODES], roleCode: null, branchScope: ["BR-MAIN", "BR-ALEX"], warehouseScope: ALL_SCOPE }));
+  alex = callerFor(await handle.sessions.issue({ userId: "USER-TR-ALEX", permissions: [...ALL_PERMISSION_CODES], roleCode: null, branchScope: ["BR-ALEX"], warehouseScope: ALL_SCOPE }));
 }, BOOT_TIMEOUT_MS);
 
 afterAll(() => {

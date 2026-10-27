@@ -74,7 +74,7 @@ async function computeInvariants(dbPath: string, cipherKey: string | null): Prom
       createEntitlements({ plan: "DRILL", activeModules: MODULE_CATALOG, features: {}, seats: 1000, expiresAt: null }),
   });
   try {
-    const token = backend.sessions.issue({
+    const token = await backend.sessions.issue({
       userId: "SYSTEM-RESTORE-DRILL",
       permissions: ["*"],
       roleCode: "*",

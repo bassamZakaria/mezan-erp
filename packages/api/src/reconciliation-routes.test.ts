@@ -13,8 +13,8 @@ function account(id: string, overrides: Partial<Account> = {}): Account {
   return { id, code: id, nameAr: id, nameEn: null, type: "asset", naturalBalance: "debit", parentId: null, isHeader: false, status: "active", ...overrides };
 }
 
-function grant(sessions: ReturnType<typeof createSessionRegistry>, permissions: string[]) {
-  const token = sessions.issue({ userId: "u1", permissions, roleCode: null, branchScope: "*", warehouseScope: "*" });
+async function grant(sessions: ReturnType<typeof createSessionRegistry>, permissions: string[]) {
+  const token = await sessions.issue({ userId: "u1", permissions, roleCode: null, branchScope: "*", warehouseScope: "*" });
   return { headers: { authorization: `Bearer ${token}` } };
 }
 
@@ -65,7 +65,7 @@ describe("reconciliation router — permission gate", () => {
   it("403s a caller without accounting.reports.view", async () => {
     const deps = await seed();
     const { app, sessions } = newApp(deps, async () => []);
-    const res = await app.fetch(req("/", grant(sessions, ["accounting.coa.view"])));
+    const res = await app.fetch(req("/", (await grant(sessions, ["accounting.coa.view"]))));
     expect(res.status).toBe(403);
     expect(((await res.json()) as { permission: string }).permission).toBe("accounting.reports.view");
   });
@@ -79,7 +79,7 @@ describe("reconciliation router — GET /", () => {
       { key: "ar", label: "ذمم مدينة", controlAccountId: "1100", naturalBalance: "debit", subLedgerBalance: Money.fromMajor("4900") },
     ];
     const { app, sessions } = newApp(deps, async () => controls);
-    const res = await app.fetch(req("/", grant(sessions, ["accounting.reports.view"])));
+    const res = await app.fetch(req("/", (await grant(sessions, ["accounting.reports.view"]))));
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       rows: Array<{ key: string; controlAccountId: string; subLedgerBalance: string; glBalance: string; difference: string; matched: boolean }>;
@@ -109,7 +109,7 @@ describe("reconciliation router — GET /", () => {
       { key: "ar", label: "ذمم مدينة", controlAccountId: "1100", naturalBalance: "debit", subLedgerBalance: Money.fromMajor("5000") },
     ];
     const { app, sessions } = newApp(deps, async () => controls);
-    const res = await app.fetch(req("/", grant(sessions, ["accounting.reports.view"])));
+    const res = await app.fetch(req("/", (await grant(sessions, ["accounting.reports.view"]))));
     const body = (await res.json()) as { allMatched: boolean; unlinked: unknown[] };
     // The 1200 manual line still exists in the ledger but 1200 is not a control here, so it never surfaces as unlinked.
     expect(body.allMatched).toBe(true);
@@ -119,7 +119,7 @@ describe("reconciliation router — GET /", () => {
   it("returns an empty rows array and allMatched true with no controls configured", async () => {
     const deps = await seed();
     const { app, sessions } = newApp(deps, async () => []);
-    const res = await app.fetch(req("/", grant(sessions, ["accounting.reports.view"])));
+    const res = await app.fetch(req("/", (await grant(sessions, ["accounting.reports.view"]))));
     const body = (await res.json()) as { rows: unknown[]; allMatched: boolean };
     expect(body.rows).toEqual([]);
     expect(body.allMatched).toBe(true);

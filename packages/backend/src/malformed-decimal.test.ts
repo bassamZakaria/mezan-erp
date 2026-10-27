@@ -10,7 +10,7 @@ let admin: (method: string, path: string, body?: unknown) => Promise<{ status: n
 
 beforeAll(async () => {
   handle = await createBackend({ dbPath: ":memory:" });
-  const token = handle.sessions.issue({ userId: "USER-DEC", permissions: ["*"], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
+  const token = await handle.sessions.issue({ userId: "USER-DEC", permissions: ["*"], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
   admin = async (method, path, body) => {
     const res = await handle.app.fetch(
       new Request(`http://local${path}`, { method, headers: { "content-type": "application/json", authorization: `Bearer ${token}` }, body: body === undefined ? undefined : JSON.stringify(body) }),
@@ -81,7 +81,7 @@ describe("a literal that reaches the engine outside a contract schema", () => {
       Money.fromMajor("1e3");
       return new Response(null, { status: 204 });
     });
-    const token = fresh.sessions.issue({ userId: "USER-DEC", permissions: ["*"], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
+    const token = await fresh.sessions.issue({ userId: "USER-DEC", permissions: ["*"], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
     const response = await fresh.app.fetch(new Request("http://local/__probe/decimal", { method: "POST", headers: { authorization: `Bearer ${token}` }, body: "{}" }));
     const res = { status: response.status, body: (await response.json()) as { error: string; message: string } };
     fresh.close();

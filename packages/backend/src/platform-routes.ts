@@ -295,11 +295,11 @@ export interface PlatformAuditAnchorPort {
 }
 
 export interface PlatformTenantRetentionPort {
-  view(tenant: Tenant): TenantRetentionDTO;
+  view(tenant: Tenant): Promise<TenantRetentionDTO>;
   // REQUIRED ORDERING: called inside the archive's own write, so an archived tenant always has its deletion date.
-  scheduleOnArchive(tenant: Tenant, at: string): void;
+  scheduleOnArchive(tenant: Tenant, at: string): Promise<void>;
   // CONTRACT: false when `deleteAfter` is not later than the date already set.
-  extend(input: { readonly tenant: Tenant; readonly deleteAfter: string; readonly reason: string; readonly actorId: string; readonly at: string }): boolean;
+  extend(input: { readonly tenant: Tenant; readonly deleteAfter: string; readonly reason: string; readonly actorId: string; readonly at: string }): Promise<boolean>;
   // CONTRACT: refuses anything but an archived tenant; writes its own CRITICAL audit row with the deletion.
   purgeNow(input: { readonly tenant: Tenant; readonly reason: string; readonly actorId: string }): Promise<TenantPurgeResultDTO>;
 }
@@ -1299,7 +1299,7 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
     try {
       const tenant = await requireTenant(c.req.param("id"));
       if (!tenantRetention) return c.json({ retentionDays: 0, retention: null } satisfies TenantRetentionDTO);
-      return c.json(tenantRetention.view(tenant));
+      return c.json(await tenantRetention.view(tenant));
     } catch (err) {
       return domainErrorResponse(c, err);
     }
@@ -1312,7 +1312,7 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
       const tenant = await requireTenant(c.req.param("id"));
       if (!tenantRetention) return purgeUnavailable(c);
       if (tenant.status !== TenantStatusCode.Archived) return notTerminated(c);
-      const before = tenantRetention.view(tenant).retention;
+      const before = (await tenantRetention.view(tenant)).retention;
       const deleteAfter = `${parsed.data.deleteAfter}T00:00:00.000Z`;
       const later = before !== null && deleteAfter > before.deleteAfter;
       if (later) {
@@ -1321,7 +1321,7 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
       }
       const at = nowIso();
       const moved = later && await recordedWith(c, async () => {
-        const extended = tenantRetention.extend({ tenant, deleteAfter, reason: parsed.data.reason, actorId: c.get("platformUser")!.id, at });
+        const extended = await tenantRetention.extend({ tenant, deleteAfter, reason: parsed.data.reason, actorId: c.get("platformUser")!.id, at });
         return {
           value: extended,
           action: PlatformAuditAction.TenantRetentionExtended,
@@ -1340,7 +1340,7 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
           409,
         );
       }
-      return c.json(tenantRetention.view(tenant));
+      return c.json(await tenantRetention.view(tenant));
     } catch (err) {
       return domainErrorResponse(c, err);
     }
@@ -1408,8 +1408,8 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
       const tenant = await recordedWith(c, async () => {
         const at = nowIso();
         const moved = await archiveTenant({ id: c.req.param("id"), now: at }, platform.stores.tenants);
-        options.tenantRetention?.scheduleOnArchive(moved, at);
-        const deleteAfter = options.tenantRetention?.view(moved).retention?.deleteAfter ?? null;
+        await options.tenantRetention?.scheduleOnArchive(moved, at);
+        const deleteAfter = (await options.tenantRetention?.view(moved))?.retention?.deleteAfter ?? null;
         return { value: moved, action: "TENANT_ARCHIVED", entityId: moved.id, details: deleteAfter ? { deleteAfter } : {} };
       });
       invalidateEntitlements(tenant.code);

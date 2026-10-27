@@ -61,7 +61,7 @@ function mounted() {
     hasher,
     settings: { get: async () => createDefaultSettings(), save: async () => undefined },
     seedStores: undefined as never,
-    sessions: { ...sessions, issue: (grant, origin) => ((issued += 1), sessions.issue(grant, origin)) },
+    sessions: { ...sessions, issue: async (grant, origin) => ((issued += 1), await sessions.issue(grant, origin)) },
   };
   const app = createAuthRoutes(deps);
   let pending = firstVerify;

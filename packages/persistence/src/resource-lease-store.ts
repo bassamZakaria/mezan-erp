@@ -1,4 +1,6 @@
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
+import type { SqlDb } from "./sql/sql-db.js";
+import { sqliteDb } from "./sql/sqlite-db.js";
 
 const CREATE_TABLE = `
 CREATE TABLE IF NOT EXISTS resource_lease (
@@ -9,8 +11,12 @@ CREATE TABLE IF NOT EXISTS resource_lease (
 `;
 
 export interface SqliteLeaseStore {
-  tryAcquire(key: string, owner: string, expiresAt: number, now: number): boolean;
-  release(key: string, owner: string): void;
+  tryAcquire(key: string, owner: string, expiresAt: number, now: number): Promise<boolean>;
+  release(key: string, owner: string): Promise<void>;
+}
+
+export async function ensureLeaseSchema(db: SqlDb): Promise<void> {
+  await db.applySchema(CREATE_TABLE);
 }
 
 /**
@@ -18,17 +24,25 @@ export interface SqliteLeaseStore {
  * shares. Acquisition is ONE statement: the upsert only takes over a row whose
  * lease has expired, so two instances cannot both succeed.
  */
+export function createLeaseStore(db: SqlDb): SqliteLeaseStore {
+  return {
+    tryAcquire: async (key, owner, expiresAt, now) =>
+      (
+        await db.run(
+          `INSERT INTO resource_lease (lease_key, owner, expires_at) VALUES (?, ?, ?)
+           ON CONFLICT (lease_key) DO UPDATE SET owner = excluded.owner, expires_at = excluded.expires_at
+           WHERE resource_lease.expires_at <= ?`,
+          [key, owner, expiresAt, now],
+        )
+      ).changes === 1,
+    release: async (key, owner) => {
+      await db.run(`DELETE FROM resource_lease WHERE lease_key = ? AND owner = ?`, [key, owner]);
+    },
+  };
+}
+
 export function createSqliteLeaseStore(input: SqliteConnectionInput): SqliteLeaseStore {
   const { sqlite } = openSqliteConnection(input);
   sqlite.exec(CREATE_TABLE);
-  const acquire = sqlite.prepare(
-    `INSERT INTO resource_lease (lease_key, owner, expires_at) VALUES (?, ?, ?)
-     ON CONFLICT (lease_key) DO UPDATE SET owner = excluded.owner, expires_at = excluded.expires_at
-     WHERE resource_lease.expires_at <= ?`,
-  );
-  const release = sqlite.prepare(`DELETE FROM resource_lease WHERE lease_key = ? AND owner = ?`);
-  return {
-    tryAcquire: (key, owner, expiresAt, now) => acquire.run(key, owner, expiresAt, now).changes === 1,
-    release: (key, owner) => void release.run(key, owner),
-  };
+  return createLeaseStore(sqliteDb(sqlite));
 }

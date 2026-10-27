@@ -89,15 +89,15 @@ beforeAll(async () => {
   handle = await createBackend({ dbPath, seedDemoData: true, lan: { resolveEntitlements }, resolveEntitlements });
   sqlite = openSqliteConnection(dbPath).sqlite;
   const everythingButUnattributed = ALL_PERMISSION_CODES.filter((code) => code !== VIEW_UNATTRIBUTED);
-  const session = (userId: string, permissions: readonly string[], branchScope: typeof ALL_SCOPE | string[]) =>
-    callerFor(handle.sessions.issue({ userId, permissions, roleCode: null, branchScope, warehouseScope: ALL_SCOPE }));
-  admin = session("USER-ADMIN", ["*"], ALL_SCOPE);
-  alex = session("USER-D111-ALEX", everythingButUnattributed, [ALEX]);
-  alexWithUnattributed = session("USER-D111-ALEX-U", [...everythingButUnattributed, VIEW_UNATTRIBUTED], [ALEX]);
-  mainOnly = session("USER-D111-MAIN", everythingButUnattributed, [MAIN]);
-  alexStar = session("USER-D111-ALEX-STAR", ["*"], [ALEX]);
-  bothBranches = session("USER-D111-BOTH", everythingButUnattributed, [MAIN, ALEX]);
-  bothBranchesWithUnattributed = session("USER-D111-BOTH-U", [...everythingButUnattributed, VIEW_UNATTRIBUTED], [MAIN, ALEX]);
+  const session = async (userId: string, permissions: readonly string[], branchScope: typeof ALL_SCOPE | string[]) =>
+    callerFor(await handle.sessions.issue({ userId, permissions, roleCode: null, branchScope, warehouseScope: ALL_SCOPE }));
+  admin = (await session("USER-ADMIN", ["*"], ALL_SCOPE));
+  alex = (await session("USER-D111-ALEX", everythingButUnattributed, [ALEX]));
+  alexWithUnattributed = (await session("USER-D111-ALEX-U", [...everythingButUnattributed, VIEW_UNATTRIBUTED], [ALEX]));
+  mainOnly = (await session("USER-D111-MAIN", everythingButUnattributed, [MAIN]));
+  alexStar = (await session("USER-D111-ALEX-STAR", ["*"], [ALEX]));
+  bothBranches = (await session("USER-D111-BOTH", everythingButUnattributed, [MAIN, ALEX]));
+  bothBranchesWithUnattributed = (await session("USER-D111-BOTH-U", [...everythingButUnattributed, VIEW_UNATTRIBUTED], [MAIN, ALEX]));
 }, BOOT_TIMEOUT_MS);
 
 afterAll(() => {
@@ -1235,7 +1235,7 @@ describe("D111 round 2 · the grant holds on every family, for a non-admin and f
     expect(role.status, JSON.stringify(role.body).slice(0, 200)).toBe(201);
     const holder = one<{ id: string }>("SELECT id FROM user WHERE status = 'active' AND is_company_admin = 0 LIMIT 1")!.id;
     sqlite.prepare("UPDATE user SET role_id = ? WHERE id = ?").run(role.body.id, holder);
-    const live = callerFor(handle.sessions.issue({ userId: holder, permissions: ["sales.invoice.view"], roleCode: "D111_R2_ROLE", branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE }));
+    const live = callerFor(await handle.sessions.issue({ userId: holder, permissions: ["sales.invoice.view"], roleCode: "D111_R2_ROLE", branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE }));
     expect((await live("GET", "/sales-invoices")).status).toBe(200);
 
     const sameAuthority = await admin("PUT", `/roles/${role.body.id}`, { code: "D111_R2_ROLE", name: "دور اختبار معدّل", permissions: ["sales.invoice.view"] });
@@ -1352,7 +1352,7 @@ describe("D111 round 3 · a branch-restricted administrator cannot administer it
     insert.run(BRANCH_ADMIN, "مدير فرع الإسكندرية", "r3-branch-admin@cyag.example", null, 1, JSON.stringify([ALEX]), "active", TODAY);
     insert.run(HQ_ACCOUNTANT, "محاسب المركز", "r3-hq-accountant@cyag.example", roleId, 0, '"*"', "active", TODAY);
     insert.run(ALEX_CLERK, "موظف الإسكندرية", "r3-alex-clerk@cyag.example", roleId, 0, JSON.stringify([ALEX]), "inactive", TODAY);
-    branchAdmin = callerFor(handle.sessions.issue({ userId: BRANCH_ADMIN, permissions: ["*"], roleCode: null, branchScope: [ALEX], warehouseScope: ALL_SCOPE }));
+    branchAdmin = callerFor(await handle.sessions.issue({ userId: BRANCH_ADMIN, permissions: ["*"], roleCode: null, branchScope: [ALEX], warehouseScope: ALL_SCOPE }));
   });
 
   function expectEscalationRefused(res: Res) {
@@ -1990,9 +1990,9 @@ describe("D111 round 3 · the routes the review did not drive", () => {
   it("a session granted one warehouse cannot raise a document on another, whatever branches it holds", async () => {
     const granted = "WH-DEMO-2";
     const sessions: readonly (readonly [label: string, caller: Caller])[] = [
-      ["every branch", callerFor(handle.sessions.issue({ userId: "USER-R3-WH-ALL", permissions: everythingButUnattributed(), roleCode: null, branchScope: ALL_SCOPE, warehouseScope: [granted] }))],
-      ["one branch", callerFor(handle.sessions.issue({ userId: "USER-R3-WH-MAIN", permissions: everythingButUnattributed(), roleCode: null, branchScope: [MAIN], warehouseScope: [granted] }))],
-      ["* admin", callerFor(handle.sessions.issue({ userId: "USER-R3-WH-STAR", permissions: ["*"], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: [granted] }))],
+      ["every branch", callerFor(await handle.sessions.issue({ userId: "USER-R3-WH-ALL", permissions: everythingButUnattributed(), roleCode: null, branchScope: ALL_SCOPE, warehouseScope: [granted] }))],
+      ["one branch", callerFor(await handle.sessions.issue({ userId: "USER-R3-WH-MAIN", permissions: everythingButUnattributed(), roleCode: null, branchScope: [MAIN], warehouseScope: [granted] }))],
+      ["* admin", callerFor(await handle.sessions.issue({ userId: "USER-R3-WH-STAR", permissions: ["*"], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: [granted] }))],
     ];
     for (const [label, caller] of sessions) {
       const id = `R3-WH-${label.length}`;
@@ -2259,7 +2259,7 @@ describe("D111 round 4 · a notification reaches only the people whose branch gr
       });
       expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(201);
       const id = res.body.id as string;
-      recipients[key] = { id, read: callerFor(handle.sessions.issue({ userId: id, permissions, roleCode: null, branchScope, warehouseScope: ALL_SCOPE })) };
+      recipients[key] = { id, read: callerFor(await handle.sessions.issue({ userId: id, permissions, roleCode: null, branchScope, warehouseScope: ALL_SCOPE })) };
     };
     await user("alex", plain, false, [ALEX], ["sales.invoice.view", CASH_FORECAST]);
     await user("alexUnattributed", withUnattributed, false, [ALEX], ["sales.invoice.view", CASH_FORECAST, VIEW_UNATTRIBUTED]);
@@ -2451,8 +2451,8 @@ describe("D111 round 4 · a session granted some warehouses cannot open or move 
   const OTHER_ALEX_WAREHOUSE = "D111-R4-WH-ALEX-2";
   const INVOICE = "D111-R4-INV-OTHER-WH";
   const everything = () => ALL_PERMISSION_CODES.filter((code) => code !== VIEW_UNATTRIBUTED);
-  const narrow = (userId: string, permissions: readonly string[], branchScope: typeof ALL_SCOPE | string[], warehouses: string[]) =>
-    callerFor(handle.sessions.issue({ userId, permissions, roleCode: null, branchScope, warehouseScope: warehouses }));
+  const narrow = async (userId: string, permissions: readonly string[], branchScope: typeof ALL_SCOPE | string[], warehouses: string[]) =>
+    callerFor(await handle.sessions.issue({ userId, permissions, roleCode: null, branchScope, warehouseScope: warehouses }));
   const statusOf = () => one<{ status: string }>("SELECT status FROM sales_invoice WHERE id = ?", INVOICE)!.status;
 
   beforeAll(async () => {
@@ -2464,9 +2464,9 @@ describe("D111 round 4 · a session granted some warehouses cannot open or move 
 
   it("answers as if the document were not there — to read it, to confirm it, to cancel it — whatever the branch grant", async () => {
     const callers = [
-      ["branch user, one warehouse", narrow("USER-R4-WH-ALEX", everything(), [ALEX], [ALEX_WAREHOUSE])],
-      ["* admin of the branch, one warehouse", narrow("USER-R4-WH-STAR", ["*"], [ALEX], [ALEX_WAREHOUSE])],
-      ["every branch, one warehouse", narrow("USER-R4-WH-ALL", everything(), ALL_SCOPE, [ALEX_WAREHOUSE])],
+      ["branch user, one warehouse", await narrow("USER-R4-WH-ALEX", everything(), [ALEX], [ALEX_WAREHOUSE])],
+      ["* admin of the branch, one warehouse", await narrow("USER-R4-WH-STAR", ["*"], [ALEX], [ALEX_WAREHOUSE])],
+      ["every branch, one warehouse", await narrow("USER-R4-WH-ALL", everything(), ALL_SCOPE, [ALEX_WAREHOUSE])],
     ] as const;
     for (const [label, caller] of callers) {
       for (const [method, path] of [["GET", `/sales-invoices/${INVOICE}`], ["POST", `/sales-invoices/${INVOICE}/confirm`], ["POST", `/sales-invoices/${INVOICE}/cancel`]] as const) {
@@ -2481,7 +2481,7 @@ describe("D111 round 4 · a session granted some warehouses cannot open or move 
   });
 
   it("the same answer is given for an id nobody holds", async () => {
-    const caller = narrow("USER-R4-WH-ALEX", everything(), [ALEX], [ALEX_WAREHOUSE]);
+    const caller = (await narrow("USER-R4-WH-ALEX", everything(), [ALEX], [ALEX_WAREHOUSE]));
     const foreign = await caller("GET", `/sales-invoices/${INVOICE}`);
     const unknown = await caller("GET", "/sales-invoices/D111-R4-NO-SUCH-INVOICE");
     expect(foreign.status).toBe(unknown.status);
@@ -2489,7 +2489,7 @@ describe("D111 round 4 · a session granted some warehouses cannot open or move 
   });
 
   it("a session granted that warehouse opens it", async () => {
-    const caller = narrow("USER-R4-WH-BOTH", everything(), [ALEX], [ALEX_WAREHOUSE, OTHER_ALEX_WAREHOUSE]);
+    const caller = (await narrow("USER-R4-WH-BOTH", everything(), [ALEX], [ALEX_WAREHOUSE, OTHER_ALEX_WAREHOUSE]));
     expect((await caller("GET", `/sales-invoices/${INVOICE}`)).status).toBe(200);
     expect((await alex("GET", `/sales-invoices/${INVOICE}`)).status).toBe(200);
   });
@@ -2595,11 +2595,11 @@ describe("D111 round 4 · a branch user edits a shared record's contact details 
 });
 
 describe("D111 round 4 · the lists a picker needs are open to every signed-in user and cut to the session's grant", () => {
-  const picker = (userId: string, branchScope: typeof ALL_SCOPE | string[], warehouseScope: typeof ALL_SCOPE | string[]) =>
-    callerFor(handle.sessions.issue({ userId, permissions: ["sales.invoice.create"], roleCode: null, branchScope, warehouseScope }));
+  const picker = async (userId: string, branchScope: typeof ALL_SCOPE | string[], warehouseScope: typeof ALL_SCOPE | string[]) =>
+    callerFor(await handle.sessions.issue({ userId, permissions: ["sales.invoice.create"], roleCode: null, branchScope, warehouseScope }));
 
   it("a user with no admin permission reads the branches and warehouses of its grant, and no other's", async () => {
-    const caller = picker("USER-R4-PICK-ALEX", [ALEX], ALL_SCOPE);
+    const caller = (await picker("USER-R4-PICK-ALEX", [ALEX], ALL_SCOPE));
     const branches = await caller("GET", "/branches/lookup");
     expect(branches.status).toBe(200);
     expect(branches.body.branches.map((branch: any) => branch.id)).toEqual([ALEX]);
@@ -2613,13 +2613,13 @@ describe("D111 round 4 · the lists a picker needs are open to every signed-in u
   });
 
   it("a narrow warehouse grant cuts the warehouse list further", async () => {
-    const caller = picker("USER-R4-PICK-ONE", ALL_SCOPE, [ALEX_WAREHOUSE]);
+    const caller = (await picker("USER-R4-PICK-ONE", ALL_SCOPE, [ALEX_WAREHOUSE]));
     const warehouses = await caller("GET", "/warehouses/lookup");
     expect(warehouses.body.map((warehouse: any) => warehouse.id)).toEqual([ALEX_WAREHOUSE]);
   });
 
   it("the settings every screen needs are readable without the settings permission, and carry no mail credentials", async () => {
-    const caller = picker("USER-R4-PICK-ALEX", [ALEX], ALL_SCOPE);
+    const caller = (await picker("USER-R4-PICK-ALEX", [ALEX], ALL_SCOPE));
     expect((await caller("GET", "/settings")).status).toBe(403);
     const lookup = await caller("GET", "/settings/lookup");
     expect(lookup.status, JSON.stringify(lookup.body).slice(0, 200)).toBe(200);
@@ -2630,7 +2630,7 @@ describe("D111 round 4 · the lists a picker needs are open to every signed-in u
 
   it("the settings lookup answers its allowlist and nothing else — no secret, credential or mail template, whoever asks", async () => {
     sqlite.prepare("UPDATE tenant_settings SET data = json_set(data, '$.futureApiSecret', 'sk-live-not-for-screens', '$.webhookToken', 't0ken')").run();
-    for (const caller of [admin, alex, picker("USER-R5-PICK", [ALEX], ALL_SCOPE)]) {
+    for (const caller of [admin, alex, await picker("USER-R5-PICK", [ALEX], ALL_SCOPE)]) {
       const lookup = await caller("GET", "/settings/lookup");
       expect(lookup.status).toBe(200);
       expect(Object.keys(lookup.body).sort()).toEqual([...contracts.TENANT_SETTINGS_LOOKUP_KEYS].sort());
@@ -2650,7 +2650,7 @@ describe("D111 round 4 · the lists a picker needs are open to every signed-in u
     const permissions = JSON.parse(one<{ permissions: string }>("SELECT permissions FROM role WHERE code = 'BRANCH_MANAGER'")!.permissions) as string[];
     for (const code of ["dashboard.view", "accounting.journal.view", "sales.invoice.create", "treasury.cash_voucher.confirm"]) expect(permissions, code).toContain(code);
     expect(permissions).not.toContain("treasury.cash_voucher.create");
-    const manager = callerFor(handle.sessions.issue({ userId: "USER-R4-MANAGER", permissions, roleCode: "BRANCH_MANAGER", branchScope: [ALEX], warehouseScope: ALL_SCOPE }));
+    const manager = callerFor(await handle.sessions.issue({ userId: "USER-R4-MANAGER", permissions, roleCode: "BRANCH_MANAGER", branchScope: [ALEX], warehouseScope: ALL_SCOPE }));
     expect((await manager("GET", "/dashboard/summary")).status).toBe(200);
   });
 });
@@ -3018,7 +3018,7 @@ describe("D111 round 5 · a user outside a branch admin's branches is not there,
   let hiddenIds: string[];
 
   beforeAll(async () => {
-    branchAdmin = callerFor(handle.sessions.issue({ userId: "USER-R5-BRANCH-ADMIN", permissions: ["*"], roleCode: null, branchScope: [ALEX], warehouseScope: ALL_SCOPE }));
+    branchAdmin = callerFor(await handle.sessions.issue({ userId: "USER-R5-BRANCH-ADMIN", permissions: ["*"], roleCode: null, branchScope: [ALEX], warehouseScope: ALL_SCOPE }));
     const everyBranch = one<{ id: string }>(`SELECT id FROM "user" WHERE branch_scope = '"*"' AND is_company_admin = 0 AND erased_at IS NULL LIMIT 1`)?.id;
     const template = one<Record<string, unknown>>(`SELECT * FROM "user" WHERE id = ?`, everyBranch)!;
     const columns = Object.keys(template);
@@ -3331,7 +3331,7 @@ describe("D111 · a reversal, a void, a resubmit and a tax tag need the branch g
 
   it("a user granted the document's branch reverses it, and the reversal's lines stay in that branch", async () => {
     await confirmedAdjustment("D111-REV-ADJ-OK");
-    const mainStar = callerFor(handle.sessions.issue({ userId: "USER-D111-MAIN-STAR", permissions: ["*"], roleCode: null, branchScope: [MAIN], warehouseScope: ALL_SCOPE }));
+    const mainStar = callerFor(await handle.sessions.issue({ userId: "USER-D111-MAIN-STAR", permissions: ["*"], roleCode: null, branchScope: [MAIN], warehouseScope: ALL_SCOPE }));
     const reversed = await mainStar("POST", "/inventory/stock-adjustments/D111-REV-ADJ-OK/reverse", REASON);
     expect([200, 201], JSON.stringify(reversed.body).slice(0, 300)).toContain(reversed.status);
     expect(one<{ status: string }>("SELECT status FROM stock_adjustment_document WHERE id = 'D111-REV-ADJ-OK'")?.status).toBe("reversed");

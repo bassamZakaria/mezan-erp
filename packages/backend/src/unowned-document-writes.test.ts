@@ -113,8 +113,8 @@ describe("a document no branch owns, on every scoped family the application moun
 });
 
 describe("the founding-capital entry, whose lines no branch owns", () => {
-  const session = (permissions: readonly string[], branchScope: typeof ALL_SCOPE | string[]) => {
-    const token = world.backend.sessions.issue({ userId: "USER-UNOWNED", permissions: [...permissions], roleCode: null, branchScope, warehouseScope: ALL_SCOPE });
+  const session = async (permissions: readonly string[], branchScope: typeof ALL_SCOPE | string[]) => {
+    const token = await world.backend.sessions.issue({ userId: "USER-UNOWNED", permissions: [...permissions], roleCode: null, branchScope, warehouseScope: ALL_SCOPE });
     return async (method: string, path: string, body?: unknown) => {
       const res = await world.backend.app.fetch(new Request(`http://local${path}`, { method, headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) }));
       return { status: res.status, body: (await res.json()) as Record<string, unknown> };
@@ -123,7 +123,7 @@ describe("the founding-capital entry, whose lines no branch owns", () => {
   const statusOf = () => (world.sqlite.prepare("SELECT status FROM journal_entry WHERE id = ?").get(COMPANY_ENTRY) as { status: string }).status;
 
   it("is read by a branch session that holds «غير مخصص», and its reversal is answered as an entry that is not there", async () => {
-    const branch = session(ALL_PERMISSION_CODES, [GRANTED_BRANCH]);
+    const branch = (await session(ALL_PERMISSION_CODES, [GRANTED_BRANCH]));
     const entries = world.count("journal_entry");
 
     expect((await branch("GET", `/gl/journal-entries/${COMPANY_ENTRY}`)).status).toBe(200);
@@ -137,7 +137,7 @@ describe("the founding-capital entry, whose lines no branch owns", () => {
   });
 
   it("is reversed by head office, and the reversal is filed under the manual journal like the entry it mirrors", async () => {
-    const headOffice = session(["*"], ALL_SCOPE);
+    const headOffice = (await session(["*"], ALL_SCOPE));
     const original = (await headOffice("GET", `/gl/journal-entries/${COMPANY_ENTRY}`)).body;
     const reversed = await headOffice("POST", `/gl/journal-entries/${COMPANY_ENTRY}/reverse`, { reversalId: "UNOWNED-REVERSAL" });
 
@@ -151,7 +151,7 @@ describe("the founding-capital entry, whose lines no branch owns", () => {
 
 describe("a seeded approval request that names no document, and so no branch", () => {
   const decideAs = async (branchScope: typeof ALL_SCOPE | string[], requestId: string) => {
-    const token = world.backend.sessions.issue({ userId: "USER-APPROVER", permissions: [...ALL_PERMISSION_CODES], roleCode: "SUPERVISOR", branchScope, warehouseScope: ALL_SCOPE });
+    const token = await world.backend.sessions.issue({ userId: "USER-APPROVER", permissions: [...ALL_PERMISSION_CODES], roleCode: "SUPERVISOR", branchScope, warehouseScope: ALL_SCOPE });
     const res = await world.backend.app.fetch(new Request(`http://local/workflow/requests/${requestId}/decide`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify({ decision: "approve", comment: "اعتماد" }) }));
     return res.status;
   };

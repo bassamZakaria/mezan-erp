@@ -1,9 +1,10 @@
-import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 import type { PrintTemplateConfigRepository, PrintTemplateConfig } from "@mezan/domain";
+import type { SqlDb } from "./sql/sql-db.js";
+import { sqliteDb } from "./sql/sqlite-db.js";
 
 /**
- * SQLite-backed PrintTemplateConfigRepository.
+ * SQL-backed PrintTemplateConfigRepository.
  *
  * There is exactly one Print Template Config per tenant, and it changes as a
  * whole via `save` — so storage is a single JSON-text column keyed by a fixed
@@ -21,35 +22,36 @@ CREATE TABLE IF NOT EXISTS print_template_config (
 );
 `;
 
-class SqlitePrintTemplateConfigStore implements PrintTemplateConfigRepository {
-  private readonly upsert: Database.Statement;
-  private readonly select: Database.Statement;
-
-  constructor(private readonly sqlite: Database.Database) {
-    this.upsert = sqlite.prepare(
-      `INSERT INTO print_template_config (id, data, updated_at) VALUES (@id, @data, @updatedAt)
-       ON CONFLICT(id) DO UPDATE SET data = @data, updated_at = @updatedAt`,
-    );
-    this.select = sqlite.prepare(`SELECT data FROM print_template_config WHERE id = ?`);
-  }
+class SqlPrintTemplateConfigStore implements PrintTemplateConfigRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async get(): Promise<PrintTemplateConfig | null> {
-    const row = this.select.get(ROW_ID) as { data: string } | undefined;
+    const row = await this.db.get<{ data: string }>(`SELECT data FROM print_template_config WHERE id = ?`, [ROW_ID]);
     if (!row) return null;
     return JSON.parse(row.data) as PrintTemplateConfig;
   }
 
   async save(config: PrintTemplateConfig): Promise<void> {
-    this.upsert.run({
-      id: ROW_ID,
-      data: JSON.stringify(config),
-      updatedAt: new Date().toISOString(),
-    });
+    const updatedAt = new Date().toISOString();
+    const data = JSON.stringify(config);
+    await this.db.run(
+      `INSERT INTO print_template_config (id, data, updated_at) VALUES (?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at`,
+      [ROW_ID, data, updatedAt],
+    );
   }
 }
 
 export interface SqlitePrintTemplateConfigStoreHandle extends PrintTemplateConfigRepository {
   close(): void;
+}
+
+export async function ensurePrintTemplateConfigSchema(db: SqlDb): Promise<void> {
+  await db.applySchema(CREATE_TABLE);
+}
+
+export function createPrintTemplateConfigStore(db: SqlDb): PrintTemplateConfigRepository {
+  return new SqlPrintTemplateConfigStore(db);
 }
 
 /** Open a SQLite-backed PrintTemplateConfigRepository. ":memory:" for tests, a path for real. */
@@ -58,8 +60,7 @@ export function createSqlitePrintTemplateConfigStore(
 ): SqlitePrintTemplateConfigStoreHandle {
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.exec(CREATE_TABLE);
-  const store = new SqlitePrintTemplateConfigStore(sqlite);
-  return Object.assign(store, {
+  return Object.assign(createPrintTemplateConfigStore(sqliteDb(sqlite)), {
     close: () => { if (owned) sqlite.close(); },
   }) as SqlitePrintTemplateConfigStoreHandle;
 }

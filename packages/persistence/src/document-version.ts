@@ -1,4 +1,5 @@
 import type Database from "better-sqlite3";
+import { placeholders, type SqlDb } from "./sql/sql-db.js";
 
 /**
  * الإصدار (row version) — optimistic concurrency for the documents two tills can
@@ -89,6 +90,38 @@ export function createDocumentVersionStore(sqlite: Database.Database, table: str
     },
     async stampModifier(id, actor) {
       stamp.run(actor, id);
+    },
+  };
+}
+
+export interface SqlDocumentVersionStore extends Omit<DocumentVersionStore, "bump"> {
+  /** Called by every write path, so ANY change to the row moves the version. */
+  bump(id: string): Promise<void>;
+}
+
+// The shared-SQL twin of {@link createDocumentVersionStore}. On Postgres the
+// `version` and `last_modified_by` columns belong in the table's own DDL; the
+// SQLite-only {@link addVersionColumns} upgrades files written before them.
+export function createSqlDocumentVersionStore(db: SqlDb, table: string): SqlDocumentVersionStore {
+  return {
+    async read(id) {
+      const row = await db.get<{ version: bigint; last_modified_by: string | null }>(`SELECT version, last_modified_by FROM ${table} WHERE id = ?`, [id]);
+      return row ? { version: Number(row.version), lastModifiedBy: row.last_modified_by } : null;
+    },
+    async readMany(ids) {
+      const found = new Map<string, number>();
+      for (let i = 0; i < ids.length; i += ID_CHUNK) {
+        const chunk = ids.slice(i, i + ID_CHUNK);
+        const rows = await db.all<{ id: string; version: bigint }>(`SELECT id, version FROM ${table} WHERE id IN (${placeholders(chunk.length)})`, chunk);
+        for (const row of rows) found.set(row.id, Number(row.version));
+      }
+      return found;
+    },
+    async bump(id) {
+      await db.run(`UPDATE ${table} SET version = version + 1 WHERE id = ?`, [id]);
+    },
+    async stampModifier(id, actor) {
+      await db.run(`UPDATE ${table} SET last_modified_by = ? WHERE id = ?`, [actor, id]);
     },
   };
 }

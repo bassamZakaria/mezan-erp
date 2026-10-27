@@ -40,24 +40,24 @@ export interface SystemHealthJobReading {
 }
 
 export interface SystemHealthRoutesDeps {
-  readonly outbox: () => { queued: number; failed: number; oldestQueuedAt: string | null };
-  readonly eta: (recentErrorLimit: number) => {
+  readonly outbox: () => Promise<{ queued: number; failed: number; oldestQueuedAt: string | null }>;
+  readonly eta: (recentErrorLimit: number) => Promise<{
     ready: number;
     pendingSignature: number;
     error: number;
     submitted: number;
     oldestUnsentAt: string | null;
     recentErrors: readonly { internalId: string; documentType: string; updatedAt: string; message: string | null }[];
-  };
+  }>;
   readonly etaCredentials?: () => Promise<{ readonly clientSecretNeedsReentry: boolean }>;
-  readonly database: () => { dbBytes: number; walBytes: number | null; freeListBytes: number };
-  readonly auditChain?: { verifyHead(): { reason: AuditChainHeadReason; headRowId: number | null } };
+  readonly database: () => Promise<{ dbBytes: number; walBytes: number | null; freeListBytes: number }>;
+  readonly auditChain?: { verifyHead(): Promise<{ reason: AuditChainHeadReason; headRowId: number | null }> };
   readonly jobs: () => readonly SystemHealthJobReading[];
   readonly users: Pick<UserRepository, "list">;
   readonly mailConfigured: () => Promise<boolean>;
   readonly resolveLicenseState?: LicenseStateResolver;
   readonly cloudTenant: boolean;
-  readonly clientErrors?: (sinceIso: string, recentLimit: number) => { readonly lastDay: number; readonly recent: readonly HealthClientErrorDTO[] };
+  readonly clientErrors?: (sinceIso: string, recentLimit: number) => Promise<{ readonly lastDay: number; readonly recent: readonly HealthClientErrorDTO[] }>;
   readonly now?: () => Date;
 }
 
@@ -85,7 +85,7 @@ export function createSystemHealthRoutes(deps: SystemHealthRoutesDeps, resolveAu
 
     let outbox: SystemHealthDTO["outbox"] = null;
     if (ctx && can(ctx, OUTBOX_PERMISSION)) {
-      const reading = deps.outbox();
+      const reading = await deps.outbox();
       const mailConfigured = await deps.mailConfigured();
       const oldestAgeMinutes = reading.oldestQueuedAt ? minutesBetween(reading.oldestQueuedAt, now) : null;
       const level = outboxLevel({ queued: reading.queued, oldestAgeMinutes, mailConfigured });
@@ -95,7 +95,7 @@ export function createSystemHealthRoutes(deps: SystemHealthRoutesDeps, resolveAu
 
     let eta: SystemHealthDTO["eta"] = null;
     if (ctx && can(ctx, ETA_PERMISSION)) {
-      const reading = deps.eta(ETA_RECENT_ERRORS);
+      const reading = await deps.eta(ETA_RECENT_ERRORS);
       const unsent = reading.ready + reading.pendingSignature + reading.error;
       const oldestUnsentAgeHours = reading.oldestUnsentAt ? Math.floor((now.getTime() - new Date(reading.oldestUnsentAt).getTime()) / MS_PER_HOUR) : null;
       const clientSecretNeedsReentry = (await deps.etaCredentials?.())?.clientSecretNeedsReentry === true;
@@ -106,7 +106,7 @@ export function createSystemHealthRoutes(deps: SystemHealthRoutesDeps, resolveAu
 
     let auditChain: SystemHealthDTO["auditChain"] = null;
     if (ctx && can(ctx, AUDIT_PERMISSION) && deps.auditChain) {
-      const verdict = deps.auditChain.verifyHead();
+      const verdict = await deps.auditChain.verifyHead();
       const level = auditChainLevel(verdict.reason);
       levels.push(level);
       auditChain = { level: LEVEL_DTO[level], reason: verdict.reason, headRowId: verdict.headRowId };
@@ -146,7 +146,7 @@ export function createSystemHealthRoutes(deps: SystemHealthRoutesDeps, resolveAu
 
     let clientErrors: SystemHealthDTO["clientErrors"] = null;
     if (deps.clientErrors) {
-      const reading = deps.clientErrors(new Date(now.getTime() - MS_PER_DAY).toISOString(), CLIENT_ERRORS_SHOWN);
+      const reading = await deps.clientErrors(new Date(now.getTime() - MS_PER_DAY).toISOString(), CLIENT_ERRORS_SHOWN);
       const level = reading.lastDay === 0 ? HealthLevel.Ok : HealthLevel.Warn;
       levels.push(level);
       clientErrors = { level: LEVEL_DTO[level], ...reading };
@@ -171,7 +171,7 @@ export function createSystemHealthRoutes(deps: SystemHealthRoutesDeps, resolveAu
       },
       seats: { level: LEVEL_DTO[seats], licensed: licensedSeats, activeUsers },
       jobs,
-      database: deps.database(),
+      database: await deps.database(),
       clientErrors,
     };
     return c.json(body);

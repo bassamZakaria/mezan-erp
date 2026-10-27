@@ -1,22 +1,28 @@
-import type Database from "better-sqlite3";
+import { SqlDialect, type SqlDb } from "./sql/sql-db.js";
 
 const MARKER_TABLE = `CREATE TABLE IF NOT EXISTS permission_grant_marker (name TEXT PRIMARY KEY, granted_at TEXT NOT NULL)`;
 
+async function hasRoleTable(db: SqlDb): Promise<boolean> {
+  const sql =
+    db.dialect === SqlDialect.Postgres
+      ? `SELECT 1 AS present FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = 'role'`
+      : `SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = 'role'`;
+  return (await db.get(sql)) !== undefined;
+}
+
 /**
- * INVARIANT: runs once per books file and marker. A permission split off an
+ * INVARIANT: runs once per books and marker. A permission split off an
  * older one is given to every role that held the older one, so nobody loses an
  * ability on upgrade; after that the marker stands, and a grant an
  * administrator later removes is never put back.
  */
-export function grantSuccessorPermissionsOnce(sqlite: Database.Database, marker: string, successors: ReadonlyMap<string, readonly string[]>): number {
-  sqlite.exec(MARKER_TABLE);
-  if (sqlite.prepare(`SELECT 1 FROM permission_grant_marker WHERE name = ?`).get(marker)) return 0;
-  const grant = sqlite.transaction((): number => {
+export async function grantSuccessorPermissionsOnce(db: SqlDb, marker: string, successors: ReadonlyMap<string, readonly string[]>): Promise<number> {
+  await db.applySchema(MARKER_TABLE);
+  if (await db.get(`SELECT 1 AS granted FROM permission_grant_marker WHERE name = ?`, [marker])) return 0;
+  return db.transaction(async (): Promise<number> => {
     let changed = 0;
-    const hasRoles = sqlite.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'role'`).get() !== undefined;
-    if (hasRoles) {
-      const update = sqlite.prepare(`UPDATE role SET permissions = ? WHERE id = ?`);
-      for (const row of sqlite.prepare(`SELECT id, permissions FROM role`).all() as { id: string; permissions: string }[]) {
+    if (await hasRoleTable(db)) {
+      for (const row of await db.all<{ id: string; permissions: string }>(`SELECT id, permissions FROM role`)) {
         let permissions: unknown;
         try {
           permissions = JSON.parse(row.permissions);
@@ -28,12 +34,11 @@ export function grantSuccessorPermissionsOnce(sqlite: Database.Database, marker:
         const added = [...successors].flatMap(([older, newer]) => (held.has(older) ? newer.filter((code) => !held.has(code)) : []));
         const fresh = [...new Set(added)];
         if (fresh.length === 0) continue;
-        update.run(JSON.stringify([...(permissions as string[]), ...fresh]), row.id);
+        await db.run(`UPDATE role SET permissions = ? WHERE id = ?`, [JSON.stringify([...(permissions as string[]), ...fresh]), row.id]);
         changed += 1;
       }
     }
-    sqlite.prepare(`INSERT INTO permission_grant_marker (name, granted_at) VALUES (?, ?)`).run(marker, new Date().toISOString());
+    await db.run(`INSERT INTO permission_grant_marker (name, granted_at) VALUES (?, ?)`, [marker, new Date().toISOString()]);
     return changed;
   });
-  return grant();
 }

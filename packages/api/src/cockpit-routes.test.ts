@@ -84,14 +84,14 @@ function app() {
   return { routes, sessions };
 }
 
-function token(sessions: ReturnType<typeof createSessionRegistry>, permissions: string[], branchScope: string[] | "*" = "*") {
-  return sessions.issue({ userId: "u1", permissions, roleCode: null, branchScope, warehouseScope: "*" });
+async function token(sessions: ReturnType<typeof createSessionRegistry>, permissions: string[], branchScope: string[] | "*" = "*") {
+  return await sessions.issue({ userId: "u1", permissions, roleCode: null, branchScope, warehouseScope: "*" });
 }
 
 async function cockpit(path: string, permissions: string[], branchScope: string[] | "*" = "*") {
   const { routes, sessions } = app();
   const res = await routes.fetch(
-    new Request(`http://local${path}`, { headers: { authorization: `Bearer ${token(sessions, permissions, branchScope)}` } }),
+    new Request(`http://local${path}`, { headers: { authorization: `Bearer ${await token(sessions, permissions, branchScope)}` } }),
   );
   return { status: res.status, body: (await res.json()) as any };
 }

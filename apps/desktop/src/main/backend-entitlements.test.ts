@@ -39,7 +39,7 @@ describe("desktop's top-level backend runs on the verified licence's entitlement
     });
     handles.push(handle);
 
-    const token = handle.sessions.issue({
+    const token = await handle.sessions.issue({
       userId: "admin",
       permissions: ["*"],
       roleCode: null,

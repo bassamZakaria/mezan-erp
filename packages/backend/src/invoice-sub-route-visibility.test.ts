@@ -191,7 +191,7 @@ const SCOPED_FAMILIES: readonly ScopedFamily[] = [
 ];
 
 async function scopedCall(permissions: readonly string[], warehouseScope: readonly string[], method: string, path: string, body?: unknown): Promise<Reply> {
-  const bearer = kit.backend.sessions.issue({ userId: "VIS-SCOPED", permissions: [...permissions], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: [...warehouseScope] });
+  const bearer = await kit.backend.sessions.issue({ userId: "VIS-SCOPED", permissions: [...permissions], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: [...warehouseScope] });
   const response = await kit.backend.app.fetch(
     new Request(`http://local${path}`, { method, headers: { "content-type": "application/json", authorization: `Bearer ${bearer}` }, body: body === undefined ? undefined : JSON.stringify(body) }),
   );

@@ -15,7 +15,7 @@ describe("POST /hr/attendance/import/commit", () => {
 
   async function open() {
     backend = await createBackend({ dbPath: ":memory:" });
-    const token = backend.sessions.issue({ userId: "admin", permissions: ["*"], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
+    const token = await backend.sessions.issue({ userId: "admin", permissions: ["*"], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
     const app = backend.app;
     const call = async (method: string, path: string, body?: unknown) => {
       const res = await app.fetch(

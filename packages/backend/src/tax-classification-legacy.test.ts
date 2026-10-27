@@ -70,7 +70,7 @@ beforeAll(async () => {
     seedDemoData: true,
     resolveEntitlements: () => createEntitlements({ plan: "DEMO", activeModules: MODULE_CATALOG, features: {}, seats: 50, expiresAt: null }),
   });
-  token = backend.sessions.issue({ userId: "USER-ADMIN", permissions: ["*"], roleCode: "*", branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
+  token = await backend.sessions.issue({ userId: "USER-ADMIN", permissions: ["*"], roleCode: "*", branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
 }, 120_000);
 
 afterAll(async () => {
@@ -148,12 +148,12 @@ describe("classifying a line whose journal entry predates tax tags (D79 round 5)
   });
 
   it("names the work-in-progress line of a real subcontract certificate's invoice, on the account the certificate posted it to", async () => {
-    const as = (userId: string) => backend.sessions.issue({ userId, permissions: ["*"], roleCode: "*", branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
+    const as = async (userId: string) => await backend.sessions.issue({ userId, permissions: ["*"], roleCode: "*", branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
     const step = async (userId: string, action: string, body: Record<string, string>) => {
       const res = await backend.app.fetch(
         new Request(`http://local/contracting/subcontract-certificates/SMST-DEMO-3/${action}`, {
           method: "POST",
-          headers: { "content-type": "application/json", authorization: `Bearer ${as(userId)}`, "x-branch-scope": "*", "x-warehouse-scope": "*" },
+          headers: { "content-type": "application/json", authorization: `Bearer ${await as(userId)}`, "x-branch-scope": "*", "x-warehouse-scope": "*" },
           body: JSON.stringify(body),
         }),
       );
@@ -252,7 +252,7 @@ describe("«تسمية ضريبة سطر القيد» — the accountant names t
     await sale("T-JT-GATE", [{ ...serviceLine("B", 14), taxRateId: "VAT14" }]);
     const [revenue] = await indexesOf("T-JT-GATE", "4100");
     const [vat] = await indexesOf("T-JT-GATE", "2200");
-    const limited = backend.sessions.issue({ userId: "LIMITED", permissions: ["sales.invoice.classify_tax", "sales.invoice.view"], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
+    const limited = await backend.sessions.issue({ userId: "LIMITED", permissions: ["sales.invoice.classify_tax", "sales.invoice.view"], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
     const refused = await backend.app.fetch(
       new Request("http://local/sales-invoices/T-JT-GATE/lines/B/journal-tax", {
         method: "POST",

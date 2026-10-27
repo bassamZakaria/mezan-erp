@@ -56,9 +56,9 @@ const quote = (id: string, itemId: string) => ({
 
 beforeAll(async () => {
   handle = await createBackend({ dbPath: ":memory:" });
-  const session = (userId: string, branchScope: typeof ALL_SCOPE | string[]) =>
+  const session = async (userId: string, branchScope: typeof ALL_SCOPE | string[]) =>
     callerFor(
-      handle.sessions.issue({
+      await handle.sessions.issue({
         userId,
         permissions: ["inventory.item.view", "inventory.item.create", "inventory.item.edit", "sales.invoice.create", "sales.invoice.confirm", "sales.invoice.view", "sales.quote.create", "sales.quote.view", "sales.customer.create", "sales.customer.view"],
         roleCode: null,
@@ -66,8 +66,8 @@ beforeAll(async () => {
         warehouseScope: ALL_SCOPE,
       }),
     );
-  headOffice = session("USER-PP-HO", ALL_SCOPE);
-  branchUser = session("USER-PP-BRANCH", [BRANCH]);
+  headOffice = (await session("USER-PP-HO", ALL_SCOPE));
+  branchUser = (await session("USER-PP-BRANCH", [BRANCH]));
   expect((await headOffice("POST", "/customers", { id: "CUST-PP", code: "CUST-PP", nameAr: "عميل التسعير", type: "company" })).status).toBe(201);
 });
 
@@ -147,7 +147,7 @@ describe("an item a branch creates waits for head office to price it", () => {
   });
 
   it("head office buys and receives it while it still waits for a price, and it stays refused on a sale", async () => {
-    const buyer = callerFor(handle.sessions.issue({ userId: "USER-PP-BUYER", permissions: ["*"], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE }));
+    const buyer = callerFor(await handle.sessions.issue({ userId: "USER-PP-BUYER", permissions: ["*"], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE }));
     expect((await buyer("POST", "/suppliers", { id: "SUPP-PP", code: "SUPP-PP", nameAr: "مورد التسعير" })).status).toBe(201);
     const bought = await buyer("POST", "/purchases/invoices", {
       id: "PP-PI-1",

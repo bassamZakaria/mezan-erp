@@ -37,7 +37,7 @@ function seedActor(person: SeedPerson, permissions: readonly string[]) {
 
 async function stepAs(
   app: App,
-  headers: Record<string, string>,
+  headers: Record<string, string> | Promise<Record<string, string>>,
   method: string,
   path: string,
   body?: unknown,
@@ -45,7 +45,7 @@ async function stepAs(
   const res = await app.fetch(
     new Request(`http://demo-seed${path}`, {
       method,
-      headers,
+      headers: await headers,
       body: body === undefined ? undefined : JSON.stringify(body),
     }),
   );

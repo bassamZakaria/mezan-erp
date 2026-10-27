@@ -30,67 +30,67 @@ function instances(count: number) {
 }
 
 describe("the sign-in ladder shared by every server instance of one tenant", () => {
-  it("counts failures spread across instances on ONE ladder, so the sixth failure locks wherever it lands", () => {
+  it("counts failures spread across instances on ONE ladder, so the sixth failure locks wherever it lands", async () => {
     const { servers } = instances(3);
     const key = throttleKey("owner@shop.test", "10.0.0.5");
-    for (let i = 0; i < 5; i++) expect(servers[i % 3]!.fail(key)).toBe(0);
-    expect(servers[0]!.fail(key)).toBe(60);
-    expect(servers[1]!.retryAfter(key)).toBe(60);
-    expect(servers[2]!.retryAfter(key)).toBe(60);
+    for (let i = 0; i < 5; i++) expect(await servers[i % 3]!.fail(key)).toBe(0);
+    expect(await servers[0]!.fail(key)).toBe(60);
+    expect(await servers[1]!.retryAfter(key)).toBe(60);
+    expect(await servers[2]!.retryAfter(key)).toBe(60);
   });
 
-  it("an unlock on one instance clears the account on every other, source buckets included", () => {
+  it("an unlock on one instance clears the account on every other, source buckets included", async () => {
     const { servers } = instances(2);
     const key = throttleKey("owner@shop.test", "10.0.0.5");
-    for (let i = 0; i < 6; i++) servers[0]!.fail(key);
-    expect(servers[1]!.retryAfter(key)).toBeGreaterThan(0);
-    servers[1]!.unlock("Owner@Shop.test");
-    expect(servers[0]!.retryAfter(key)).toBe(0);
+    for (let i = 0; i < 6; i++) await servers[0]!.fail(key);
+    expect(await servers[1]!.retryAfter(key)).toBeGreaterThan(0);
+    await servers[1]!.unlock("Owner@Shop.test");
+    expect(await servers[0]!.retryAfter(key)).toBe(0);
   });
 
-  it("a success on one instance clears only the key it verified on", () => {
+  it("a success on one instance clears only the key it verified on", async () => {
     const { servers } = instances(2);
     const mine = throttleKey("owner@shop.test", "10.0.0.5");
     const theirs = throttleKey("owner@shop.test", "10.0.0.9");
-    for (let i = 0; i < 6; i++) servers[0]!.fail(theirs);
-    servers[1]!.fail(mine);
-    servers[1]!.succeed(mine);
-    expect(servers[0]!.retryAfter(theirs)).toBeGreaterThan(0);
-    expect(servers[1]!.size()).toBe(1);
+    for (let i = 0; i < 6; i++) await servers[0]!.fail(theirs);
+    await servers[1]!.fail(mine);
+    await servers[1]!.succeed(mine);
+    expect(await servers[0]!.retryAfter(theirs)).toBeGreaterThan(0);
+    expect(await servers[1]!.size()).toBe(1);
   });
 
-  it("the lock is still there after every server restarts", () => {
+  it("the lock is still there after every server restarts", async () => {
     const { servers, file } = instances(1);
     const key = throttleKey("owner@shop.test", "10.0.0.5");
-    for (let i = 0; i < 6; i++) servers[0]!.fail(key);
+    for (let i = 0; i < 6; i++) await servers[0]!.fail(key);
     const restarted = createLoginThrottle(() => 5_000_000, createSqliteAttemptStore(file, SignInAttemptScope.Ladder));
-    expect(restarted.retryAfter(key)).toBe(60);
+    expect(await restarted.retryAfter(key)).toBe(60);
   });
 
-  it("expires with the clock: a served lock steps the ladder down one rung on whichever instance asks", () => {
+  it("expires with the clock: a served lock steps the ladder down one rung on whichever instance asks", async () => {
     const { servers, advance } = instances(2);
     const key = throttleKey("owner@shop.test", "10.0.0.5");
-    for (let i = 0; i < 6; i++) servers[0]!.fail(key);
+    for (let i = 0; i < 6; i++) await servers[0]!.fail(key);
     advance(61_000);
-    expect(servers[1]!.retryAfter(key)).toBe(0);
-    expect(servers[0]!.fail(key)).toBe(60);
+    expect(await servers[1]!.retryAfter(key)).toBe(0);
+    expect(await servers[0]!.fail(key)).toBe(60);
   });
 
-  it("keeps the table bounded however many distinct names an unauthenticated caller sends", () => {
+  it("keeps the table bounded however many distinct names an unauthenticated caller sends", async () => {
     const { servers } = instances(1);
-    for (let i = 0; i < 10_050; i++) servers[0]!.fail(`ghost-${i}@nowhere.test`);
-    expect(servers[0]!.size()).toBeLessThanOrEqual(10_000);
+    for (let i = 0; i < 10_050; i++) await servers[0]!.fail(`ghost-${i}@nowhere.test`);
+    expect(await servers[0]!.size()).toBeLessThanOrEqual(10_000);
   });
 
-  it("the source ladder is shared the same way, and does not collide with the account ladder in one file", () => {
+  it("the source ladder is shared the same way, and does not collide with the account ladder in one file", async () => {
     const file = tenantFile();
     const a = createSourceThrottle(() => 1, 2, createSqliteAttemptStore(file, SignInAttemptScope.Source));
     const b = createSourceThrottle(() => 1, 2, createSqliteAttemptStore(file, SignInAttemptScope.Source));
     const ladder = createLoginThrottle(() => 1, createSqliteAttemptStore(file, SignInAttemptScope.Ladder));
-    a.fail("10.0.0.5");
-    b.fail("10.0.0.5");
-    expect(b.fail("10.0.0.5")).toBe(60);
-    expect(a.retryAfter("10.0.0.5")).toBe(60);
-    expect(ladder.size()).toBe(0);
+    await a.fail("10.0.0.5");
+    await b.fail("10.0.0.5");
+    expect(await b.fail("10.0.0.5")).toBe(60);
+    expect(await a.retryAfter("10.0.0.5")).toBe(60);
+    expect(await ladder.size()).toBe(0);
   });
 });

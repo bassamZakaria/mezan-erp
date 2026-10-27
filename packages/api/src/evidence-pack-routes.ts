@@ -129,7 +129,7 @@ export async function computeSequenceGapReport(deps: EvidencePackRoutesDeps, win
   }
 
   const documentsByCode = new Map<string, NumberedDocumentRecord[]>();
-  for (const doc of deps.store.numberedDocuments()) {
+  for (const doc of await deps.store.numberedDocuments()) {
     for (const [code, { def, prefixes }] of effective) {
       if (!parseSequenceNumber(doc.number, { prefixes, suffix: def.suffix ?? "", padLength: def.padLength })) continue;
       documentsByCode.set(code, [...(documentsByCode.get(code) ?? []), doc]);
@@ -155,9 +155,9 @@ export async function computeSequenceGapReport(deps: EvidencePackRoutesDeps, win
     });
   }
 
-  const adjustments: CounterAdjustment[] = deps.store.counterAdjustments().map((a) => ({ ...a }));
+  const adjustments: CounterAdjustment[] = (await deps.store.counterAdjustments()).map((a) => ({ ...a }));
   const deletions: DeletedNumber[] = [];
-  for (const removal of deps.store.deletedNumbers()) {
+  for (const removal of await deps.store.deletedNumbers()) {
     for (const candidate of removal.candidates) {
       for (const [code, { def, prefixes }] of effective) {
         if (parseSequenceNumber(candidate, { prefixes, suffix: def.suffix ?? "", padLength: def.padLength })) {
@@ -312,8 +312,8 @@ export function createEvidencePackRoutes(deps: EvidencePackRoutesDeps, resolveAu
     return c.json(body);
   });
 
-  app.get("/evidence-packs", gate(EvidencePermission.View), (c) => {
-    const records: EvidencePackRecordDTO[] = [...deps.store.list(EVIDENCE_PACK_HISTORY_LIMIT)];
+  app.get("/evidence-packs", gate(EvidencePermission.View), async (c) => {
+    const records: EvidencePackRecordDTO[] = [...(await deps.store.list(EVIDENCE_PACK_HISTORY_LIMIT))];
     return c.json(records);
   });
 
@@ -386,10 +386,10 @@ export function createEvidencePackRoutes(deps: EvidencePackRoutesDeps, resolveAu
       const accountName = new Map(accounts.map((a) => [a.id, a]));
       const gl = pack.open(EvidenceFileName.GeneralLedger, true);
       gl.push(["date", "entry_no", "entry_id", "status", "source", "source_doc_type", "source_doc_number", "line_no", "account_code", "account_name", "debit", "credit", "memo", "line_memo", "branch_id", "cost_center_id", "project_id", "party_id", "currency", "fx_rate", "tax_rate_percent"]);
-      for (const line of deps.store.glLines(period.from, period.to)) {
+      await deps.store.glLines(period.from, period.to, (line) => {
         const account = accountName.get(line.accountId);
         gl.push([line.date, line.entryNo, line.entryId, line.status, line.source, line.sourceDocType, line.sourceDocNumber, line.lineNo, account?.code ?? line.accountId, account?.nameAr ?? "", line.debit, line.credit, line.memo, line.lineMemo, line.branchId, line.costCenterId, line.projectId, line.partyId, line.currency, line.fxRate, line.taxRatePercent]);
-      }
+      });
       gl.close();
 
       const recon = pack.open(EvidenceFileName.SubLedgerReconciliation, true);
@@ -414,10 +414,10 @@ export function createEvidencePackRoutes(deps: EvidencePackRoutesDeps, resolveAu
 
       const auditFile = pack.open(EvidenceFileName.AuditExtract, true);
       auditFile.push(["id", "timestamp", "stream", "module", "entity_type", "entity_id", "action", "actor", "branch_id", "severity", "details", "row_hash"]);
-      for (const row of deps.store.auditEvents(period.from, period.to)) {
+      await deps.store.auditEvents(period.from, period.to, (row) => {
         const details = seeCost ? row.details : redactCost(row as unknown as AuditEvent).details;
         auditFile.push([row.id, row.timestamp, row.stream, row.module, row.entityType, row.entityId, row.action, row.actor, row.branchId, row.severity, details ? JSON.stringify(details) : "", row.rowHash]);
-      }
+      });
       auditFile.close();
 
       const chainFile = pack.open(EvidenceFileName.AuditChainVerdict, true);
@@ -473,7 +473,7 @@ export function createEvidencePackRoutes(deps: EvidencePackRoutesDeps, resolveAu
       const manifestSha256 = createHash("sha256").update(manifestBytes).digest("hex");
       const totalBytes = statSync(file).size;
       await atomically(async () => {
-        deps.store.record({
+        await deps.store.record({
           id: packId,
           periodFrom: period.from,
           periodTo: period.to,

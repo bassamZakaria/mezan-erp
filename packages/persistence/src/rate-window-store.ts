@@ -53,14 +53,10 @@ export function createRateWindowStore(db: SqlDb, scope: string): SqliteRateWindo
       );
     },
     async sweep(at, maxRecords) {
-      await db.run(`DELETE FROM rate_window WHERE scope = ? AND reset_at <= ?`, [scope, at]);
-      const over = Number((await db.get<{ n: bigint }>(`SELECT COUNT(*) AS n FROM rate_window WHERE scope = ?`, [scope]))!.n) - maxRecords;
-      if (over > 0) {
-        await db.run(
-          `DELETE FROM rate_window WHERE scope = ? AND hit_key IN (SELECT hit_key FROM rate_window WHERE scope = ? ORDER BY reset_at, ${order} LIMIT ?)`,
-          [scope, scope, over],
-        );
-      }
+      await db.run(
+        `DELETE FROM rate_window WHERE scope = ? AND (reset_at <= ? OR hit_key NOT IN (SELECT hit_key FROM rate_window WHERE scope = ? AND reset_at > ? ORDER BY reset_at DESC, ${order} DESC LIMIT ?))`,
+        [scope, at, scope, at, maxRecords],
+      );
     },
   };
 }

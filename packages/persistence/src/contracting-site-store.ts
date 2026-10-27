@@ -1,4 +1,3 @@
-import Database from "better-sqlite3";
 import {
   Money,
   Qty,
@@ -19,8 +18,10 @@ import {
   type SiteReceiptFilter,
   type SiteReceiptRepository,
 } from "@mezan/domain";
-import { refusingTakenId } from "./insert-new.js";
-import { openSqliteConnection, withSqliteTransaction, type SqliteConnectionInput } from "./sqlite-connection.js";
+import { insertNew } from "./insert-new.js";
+import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
+import type { SqlDb, SqlValue } from "./sql/sql-db.js";
+import { sqliteDb } from "./sql/sqlite-db.js";
 
 /**
  * SQLite store for المقاولات slice 4A — site issues, site receipts, material
@@ -160,7 +161,7 @@ interface ConsumptionRow {
   notes: string | null;
   status: string;
   lines_json: string;
-  total_cost: number;
+  total_cost: bigint;
   journal_entry_id: string | null;
   created_at: string;
   confirmed_at: string | null;
@@ -172,8 +173,8 @@ interface CustodyRow {
   warehouse_id: string;
   custodian_user_id: string;
   description_ar: string;
-  qty_out: number;
-  qty_returned: number;
+  qty_out: bigint;
+  qty_returned: bigint;
   issued_date: string;
   expected_return_date: string | null;
   notes: string | null;
@@ -185,9 +186,9 @@ interface EquipmentRow {
   project_id: string;
   asset_id: string;
   date: string;
-  hours: number;
-  hourly_rate: number;
-  amount: number;
+  hours: bigint;
+  hourly_rate: bigint;
+  amount: bigint;
   boq_line_id: string | null;
   notes: string | null;
   status: string;
@@ -286,13 +287,170 @@ function toEquipmentLog(row: EquipmentRow): EquipmentLog {
   };
 }
 
-export interface SqliteContractingSiteStoreHandle {
+function issueParams(issue: SiteIssue): SqlValue[] {
+  return [
+    issue.id,
+    issue.docNo,
+    issue.date,
+    issue.fromWarehouseId,
+    issue.toWarehouseId,
+    issue.projectId,
+    issue.issuedByUserId,
+    issue.transitWarehouseId,
+    issue.notes,
+    issue.status,
+    JSON.stringify(issue.lines.map((l) => ({ itemId: l.itemId, qty: l.qty.toString() }))),
+    issue.createdAt,
+    issue.issuedAt,
+  ];
+}
+
+const UPSERT_ISSUE = `
+    INSERT INTO site_issue (id, doc_no, date, from_warehouse_id, to_warehouse_id, project_id,
+      issued_by_user_id, transit_warehouse_id, notes, status, lines_json, created_at, issued_at)
+    VALUES (?, ?, ?, ?, ?, ?,
+      ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      doc_no = excluded.doc_no, date = excluded.date, from_warehouse_id = excluded.from_warehouse_id,
+      to_warehouse_id = excluded.to_warehouse_id, project_id = excluded.project_id,
+      issued_by_user_id = excluded.issued_by_user_id, transit_warehouse_id = excluded.transit_warehouse_id,
+      notes = excluded.notes, status = excluded.status, lines_json = excluded.lines_json,
+      created_at = excluded.created_at, issued_at = excluded.issued_at
+  `;
+
+function receiptParams(receipt: SiteReceipt): SqlValue[] {
+  return [
+    receipt.id,
+    receipt.docNo,
+    receipt.issueId,
+    receipt.date,
+    receipt.receivedByUserId,
+    receipt.projectId,
+    receipt.notes,
+    receipt.status,
+    JSON.stringify(
+          receipt.lines.map((l) => ({ itemId: l.itemId, qtyReceived: l.qtyReceived.toString() })),
+        ),
+    receipt.createdAt,
+    receipt.confirmedAt,
+  ];
+}
+
+const UPSERT_RECEIPT = `
+    INSERT INTO site_receipt (id, doc_no, issue_id, date, received_by_user_id, project_id, notes,
+      status, lines_json, created_at, confirmed_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?,
+      ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      doc_no = excluded.doc_no, issue_id = excluded.issue_id, date = excluded.date,
+      received_by_user_id = excluded.received_by_user_id, project_id = excluded.project_id,
+      notes = excluded.notes, status = excluded.status, lines_json = excluded.lines_json,
+      created_at = excluded.created_at, confirmed_at = excluded.confirmed_at
+  `;
+
+function consumptionParams(consumption: MaterialConsumption): SqlValue[] {
+  return [
+    consumption.id,
+    consumption.docNo,
+    consumption.date,
+    consumption.warehouseId,
+    consumption.projectId,
+    consumption.boqLineId,
+    consumption.subcontractId,
+    consumption.notes,
+    consumption.status,
+    JSON.stringify(consumption.lines.map((l) => ({ itemId: l.itemId, qty: l.qty.toString() }))),
+    consumption.totalCost.scaled,
+    consumption.journalEntryId,
+    consumption.createdAt,
+    consumption.confirmedAt,
+  ];
+}
+
+const UPSERT_CONSUMPTION = `
+    INSERT INTO material_consumption (id, doc_no, date, warehouse_id, project_id, boq_line_id, subcontract_id, notes,
+      status, lines_json, total_cost, journal_entry_id, created_at, confirmed_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?,
+      ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      doc_no = excluded.doc_no, date = excluded.date, warehouse_id = excluded.warehouse_id,
+      project_id = excluded.project_id, boq_line_id = excluded.boq_line_id,
+      subcontract_id = excluded.subcontract_id, notes = excluded.notes,
+      status = excluded.status, lines_json = excluded.lines_json, total_cost = excluded.total_cost,
+      journal_entry_id = excluded.journal_entry_id, created_at = excluded.created_at,
+      confirmed_at = excluded.confirmed_at
+  `;
+
+function custodyParams(item: CustodyItem): SqlValue[] {
+  return [
+    item.id,
+    item.projectId,
+    item.warehouseId,
+    item.custodianUserId,
+    item.descriptionAr,
+    item.qtyOut.scaled,
+    item.qtyReturned.scaled,
+    item.issuedDate,
+    item.expectedReturnDate,
+    item.notes,
+  ];
+}
+
+const UPSERT_CUSTODY = `
+    INSERT INTO site_custody (id, project_id, warehouse_id, custodian_user_id, description_ar,
+      qty_out, qty_returned, issued_date, expected_return_date, notes)
+    VALUES (?, ?, ?, ?, ?,
+      ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      project_id = excluded.project_id, warehouse_id = excluded.warehouse_id,
+      custodian_user_id = excluded.custodian_user_id, description_ar = excluded.description_ar,
+      qty_out = excluded.qty_out, qty_returned = excluded.qty_returned,
+      issued_date = excluded.issued_date, expected_return_date = excluded.expected_return_date,
+      notes = excluded.notes
+  `;
+
+function equipmentParams(log: EquipmentLog): SqlValue[] {
+  return [
+    log.id,
+    log.docNo,
+    log.projectId,
+    log.assetId,
+    log.date,
+    log.hours.scaled,
+    log.hourlyRate.scaled,
+    log.amount.scaled,
+    log.boqLineId,
+    log.notes,
+    log.status,
+    log.journalEntryId,
+    log.createdAt,
+    log.confirmedAt,
+  ];
+}
+
+const UPSERT_EQUIPMENT = `
+    INSERT INTO equipment_log (id, doc_no, project_id, asset_id, date, hours, hourly_rate, amount,
+      boq_line_id, notes, status, journal_entry_id, created_at, confirmed_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?,
+      ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      doc_no = excluded.doc_no, project_id = excluded.project_id, asset_id = excluded.asset_id,
+      date = excluded.date, hours = excluded.hours, hourly_rate = excluded.hourly_rate,
+      amount = excluded.amount, boq_line_id = excluded.boq_line_id, notes = excluded.notes,
+      status = excluded.status, journal_entry_id = excluded.journal_entry_id,
+      created_at = excluded.created_at, confirmed_at = excluded.confirmed_at
+  `;
+
+export interface ContractingSiteStoreHandle {
   readonly issues: SiteIssueRepository;
   readonly receipts: SiteReceiptRepository;
   readonly consumptions: MaterialConsumptionRepository;
   readonly custody: CustodyRepository;
   readonly equipmentLogs: EquipmentLogRepository;
   transaction<T>(fn: () => Promise<T>): Promise<T>;
+}
+
+export interface SqliteContractingSiteStoreHandle extends ContractingSiteStoreHandle {
   close(): void;
 }
 
@@ -309,273 +467,142 @@ export function createSqliteContractingSiteStore(
   ) {
     sqlite.exec(`ALTER TABLE material_consumption ADD COLUMN subcontract_id TEXT`);
   }
+  return { ...createContractingSiteStore(sqliteDb(sqlite)), close: () => { if (owned) sqlite.close(); } };
+}
 
-  const upsertIssue = sqlite.prepare(`
-    INSERT INTO site_issue (id, doc_no, date, from_warehouse_id, to_warehouse_id, project_id,
-      issued_by_user_id, transit_warehouse_id, notes, status, lines_json, created_at, issued_at)
-    VALUES (@id, @doc_no, @date, @from_warehouse_id, @to_warehouse_id, @project_id,
-      @issued_by_user_id, @transit_warehouse_id, @notes, @status, @lines_json, @created_at, @issued_at)
-    ON CONFLICT(id) DO UPDATE SET
-      doc_no = excluded.doc_no, date = excluded.date, from_warehouse_id = excluded.from_warehouse_id,
-      to_warehouse_id = excluded.to_warehouse_id, project_id = excluded.project_id,
-      issued_by_user_id = excluded.issued_by_user_id, transit_warehouse_id = excluded.transit_warehouse_id,
-      notes = excluded.notes, status = excluded.status, lines_json = excluded.lines_json,
-      created_at = excluded.created_at, issued_at = excluded.issued_at
-  `);
-  const upsertReceipt = sqlite.prepare(`
-    INSERT INTO site_receipt (id, doc_no, issue_id, date, received_by_user_id, project_id, notes,
-      status, lines_json, created_at, confirmed_at)
-    VALUES (@id, @doc_no, @issue_id, @date, @received_by_user_id, @project_id, @notes,
-      @status, @lines_json, @created_at, @confirmed_at)
-    ON CONFLICT(id) DO UPDATE SET
-      doc_no = excluded.doc_no, issue_id = excluded.issue_id, date = excluded.date,
-      received_by_user_id = excluded.received_by_user_id, project_id = excluded.project_id,
-      notes = excluded.notes, status = excluded.status, lines_json = excluded.lines_json,
-      created_at = excluded.created_at, confirmed_at = excluded.confirmed_at
-  `);
-  const upsertConsumption = sqlite.prepare(`
-    INSERT INTO material_consumption (id, doc_no, date, warehouse_id, project_id, boq_line_id, subcontract_id, notes,
-      status, lines_json, total_cost, journal_entry_id, created_at, confirmed_at)
-    VALUES (@id, @doc_no, @date, @warehouse_id, @project_id, @boq_line_id, @subcontract_id, @notes,
-      @status, @lines_json, @total_cost, @journal_entry_id, @created_at, @confirmed_at)
-    ON CONFLICT(id) DO UPDATE SET
-      doc_no = excluded.doc_no, date = excluded.date, warehouse_id = excluded.warehouse_id,
-      project_id = excluded.project_id, boq_line_id = excluded.boq_line_id,
-      subcontract_id = excluded.subcontract_id, notes = excluded.notes,
-      status = excluded.status, lines_json = excluded.lines_json, total_cost = excluded.total_cost,
-      journal_entry_id = excluded.journal_entry_id, created_at = excluded.created_at,
-      confirmed_at = excluded.confirmed_at
-  `);
-  const upsertCustody = sqlite.prepare(`
-    INSERT INTO site_custody (id, project_id, warehouse_id, custodian_user_id, description_ar,
-      qty_out, qty_returned, issued_date, expected_return_date, notes)
-    VALUES (@id, @project_id, @warehouse_id, @custodian_user_id, @description_ar,
-      @qty_out, @qty_returned, @issued_date, @expected_return_date, @notes)
-    ON CONFLICT(id) DO UPDATE SET
-      project_id = excluded.project_id, warehouse_id = excluded.warehouse_id,
-      custodian_user_id = excluded.custodian_user_id, description_ar = excluded.description_ar,
-      qty_out = excluded.qty_out, qty_returned = excluded.qty_returned,
-      issued_date = excluded.issued_date, expected_return_date = excluded.expected_return_date,
-      notes = excluded.notes
-  `);
-  const upsertEquipment = sqlite.prepare(`
-    INSERT INTO equipment_log (id, doc_no, project_id, asset_id, date, hours, hourly_rate, amount,
-      boq_line_id, notes, status, journal_entry_id, created_at, confirmed_at)
-    VALUES (@id, @doc_no, @project_id, @asset_id, @date, @hours, @hourly_rate, @amount,
-      @boq_line_id, @notes, @status, @journal_entry_id, @created_at, @confirmed_at)
-    ON CONFLICT(id) DO UPDATE SET
-      doc_no = excluded.doc_no, project_id = excluded.project_id, asset_id = excluded.asset_id,
-      date = excluded.date, hours = excluded.hours, hourly_rate = excluded.hourly_rate,
-      amount = excluded.amount, boq_line_id = excluded.boq_line_id, notes = excluded.notes,
-      status = excluded.status, journal_entry_id = excluded.journal_entry_id,
-      created_at = excluded.created_at, confirmed_at = excluded.confirmed_at
-  `);
+export async function ensureContractingSiteSchema(db: SqlDb): Promise<void> {
+  await db.applySchema(CREATE_TABLES);
+}
 
-  function selectAll<Row>(table: string, where: string[], params: unknown[]): Row[] {
+export function createContractingSiteStore(db: SqlDb): ContractingSiteStoreHandle {
+  function selectAll<Row>(table: string, where: string[], params: SqlValue[]): Promise<Row[]> {
     const clause = where.length > 0 ? ` WHERE ${where.join(" AND ")}` : "";
-    const statement: Database.Statement = sqlite.prepare(`SELECT * FROM ${table}${clause} ORDER BY date DESC, id DESC`);
-    return statement.all(...(params as [])) as Row[];
+    return db.all<Row>(`SELECT * FROM ${table}${clause} ORDER BY date DESC, id DESC`, params);
   }
 
   const issues: SiteIssueRepository = {
     async findById(id) {
-      const row = sqlite.prepare(`SELECT * FROM site_issue WHERE id = ?`).get(id) as IssueRow | undefined;
+      const row = await db.get<IssueRow>(`SELECT * FROM site_issue WHERE id = ?`, [id]);
       return row ? toIssue(row) : null;
     },
     async findByDocNo(docNo) {
-      const row = sqlite.prepare(`SELECT * FROM site_issue WHERE doc_no = ?`).get(docNo) as IssueRow | undefined;
+      const row = await db.get<IssueRow>(`SELECT * FROM site_issue WHERE doc_no = ?`, [docNo]);
       return row ? toIssue(row) : null;
     },
     async list(filter: SiteIssueFilter = {}) {
       const where: string[] = [];
-      const params: unknown[] = [];
+      const params: SqlValue[] = [];
       if (filter.projectId) { where.push("project_id = ?"); params.push(filter.projectId); }
       if (filter.status) { where.push("status = ?"); params.push(filter.status); }
       if (filter.warehouseId) {
         where.push("(from_warehouse_id = ? OR to_warehouse_id = ?)");
         params.push(filter.warehouseId, filter.warehouseId);
       }
-      return selectAll<IssueRow>("site_issue", where, params).map(toIssue);
+      return (await selectAll<IssueRow>("site_issue", where, params)).map(toIssue);
     },
     async insert(issue) {
-      refusingTakenId(sqlite, "site_issue", issue.id);
-      return this.save(issue);
+      await insertNew(db, issue.id, UPSERT_ISSUE, issueParams(issue));
     },
     async save(issue) {
-      upsertIssue.run({
-        id: issue.id,
-        doc_no: issue.docNo,
-        date: issue.date,
-        from_warehouse_id: issue.fromWarehouseId,
-        to_warehouse_id: issue.toWarehouseId,
-        project_id: issue.projectId,
-        issued_by_user_id: issue.issuedByUserId,
-        transit_warehouse_id: issue.transitWarehouseId,
-        notes: issue.notes,
-        status: issue.status,
-        lines_json: JSON.stringify(issue.lines.map((l) => ({ itemId: l.itemId, qty: l.qty.toString() }))),
-        created_at: issue.createdAt,
-        issued_at: issue.issuedAt,
-      });
+      await db.run(UPSERT_ISSUE, issueParams(issue));
     },
   };
 
   const receipts: SiteReceiptRepository = {
     async findById(id) {
-      const row = sqlite.prepare(`SELECT * FROM site_receipt WHERE id = ?`).get(id) as ReceiptRow | undefined;
+      const row = await db.get<ReceiptRow>(`SELECT * FROM site_receipt WHERE id = ?`, [id]);
       return row ? toReceipt(row) : null;
     },
     async findByDocNo(docNo) {
-      const row = sqlite.prepare(`SELECT * FROM site_receipt WHERE doc_no = ?`).get(docNo) as ReceiptRow | undefined;
+      const row = await db.get<ReceiptRow>(`SELECT * FROM site_receipt WHERE doc_no = ?`, [docNo]);
       return row ? toReceipt(row) : null;
     },
     async list(filter: SiteReceiptFilter = {}) {
       const where: string[] = [];
-      const params: unknown[] = [];
+      const params: SqlValue[] = [];
       if (filter.projectId) { where.push("project_id = ?"); params.push(filter.projectId); }
       if (filter.issueId) { where.push("issue_id = ?"); params.push(filter.issueId); }
-      return selectAll<ReceiptRow>("site_receipt", where, params).map(toReceipt);
+      return (await selectAll<ReceiptRow>("site_receipt", where, params)).map(toReceipt);
     },
     async insert(receipt) {
-      refusingTakenId(sqlite, "site_receipt", receipt.id);
-      return this.save(receipt);
+      await insertNew(db, receipt.id, UPSERT_RECEIPT, receiptParams(receipt));
     },
     async save(receipt) {
-      upsertReceipt.run({
-        id: receipt.id,
-        doc_no: receipt.docNo,
-        issue_id: receipt.issueId,
-        date: receipt.date,
-        received_by_user_id: receipt.receivedByUserId,
-        project_id: receipt.projectId,
-        notes: receipt.notes,
-        status: receipt.status,
-        lines_json: JSON.stringify(
-          receipt.lines.map((l) => ({ itemId: l.itemId, qtyReceived: l.qtyReceived.toString() })),
-        ),
-        created_at: receipt.createdAt,
-        confirmed_at: receipt.confirmedAt,
-      });
+      await db.run(UPSERT_RECEIPT, receiptParams(receipt));
     },
   };
 
   const consumptions: MaterialConsumptionRepository = {
     async findById(id) {
-      const row = sqlite.prepare(`SELECT * FROM material_consumption WHERE id = ?`).get(id) as ConsumptionRow | undefined;
+      const row = await db.get<ConsumptionRow>(`SELECT * FROM material_consumption WHERE id = ?`, [id]);
       return row ? toConsumption(row) : null;
     },
     async findByDocNo(docNo) {
-      const row = sqlite.prepare(`SELECT * FROM material_consumption WHERE doc_no = ?`).get(docNo) as ConsumptionRow | undefined;
+      const row = await db.get<ConsumptionRow>(`SELECT * FROM material_consumption WHERE doc_no = ?`, [docNo]);
       return row ? toConsumption(row) : null;
     },
     async list(filter: MaterialConsumptionFilter = {}) {
       const where: string[] = [];
-      const params: unknown[] = [];
+      const params: SqlValue[] = [];
       if (filter.projectId) { where.push("project_id = ?"); params.push(filter.projectId); }
       if (filter.warehouseId) { where.push("warehouse_id = ?"); params.push(filter.warehouseId); }
       if (filter.subcontractId) { where.push("subcontract_id = ?"); params.push(filter.subcontractId); }
       if (filter.status) { where.push("status = ?"); params.push(filter.status); }
-      return selectAll<ConsumptionRow>("material_consumption", where, params).map(toConsumption);
+      return (await selectAll<ConsumptionRow>("material_consumption", where, params)).map(toConsumption);
     },
     async insert(consumption) {
-      refusingTakenId(sqlite, "material_consumption", consumption.id);
-      return this.save(consumption);
+      await insertNew(db, consumption.id, UPSERT_CONSUMPTION, consumptionParams(consumption));
     },
     async save(consumption) {
-      upsertConsumption.run({
-        id: consumption.id,
-        doc_no: consumption.docNo,
-        date: consumption.date,
-        warehouse_id: consumption.warehouseId,
-        project_id: consumption.projectId,
-        boq_line_id: consumption.boqLineId,
-        subcontract_id: consumption.subcontractId,
-        notes: consumption.notes,
-        status: consumption.status,
-        lines_json: JSON.stringify(consumption.lines.map((l) => ({ itemId: l.itemId, qty: l.qty.toString() }))),
-        total_cost: consumption.totalCost.toScaledNumber(),
-        journal_entry_id: consumption.journalEntryId,
-        created_at: consumption.createdAt,
-        confirmed_at: consumption.confirmedAt,
-      });
+      await db.run(UPSERT_CONSUMPTION, consumptionParams(consumption));
     },
   };
 
   const custody: CustodyRepository = {
     async findById(id) {
-      const row = sqlite.prepare(`SELECT * FROM site_custody WHERE id = ?`).get(id) as CustodyRow | undefined;
+      const row = await db.get<CustodyRow>(`SELECT * FROM site_custody WHERE id = ?`, [id]);
       return row ? toCustody(row) : null;
     },
     async list(filter: CustodyFilter = {}) {
       const where: string[] = [];
-      const params: unknown[] = [];
+      const params: SqlValue[] = [];
       if (filter.projectId) { where.push("project_id = ?"); params.push(filter.projectId); }
       if (filter.warehouseId) { where.push("warehouse_id = ?"); params.push(filter.warehouseId); }
       if (filter.outstandingOnly) where.push("qty_returned < qty_out");
       const clause = where.length > 0 ? ` WHERE ${where.join(" AND ")}` : "";
-      const rows = sqlite
-        .prepare(`SELECT * FROM site_custody${clause} ORDER BY issued_date DESC, id DESC`)
-        .all(...(params as [])) as CustodyRow[];
+      const rows = await db.all<CustodyRow>(`SELECT * FROM site_custody${clause} ORDER BY issued_date DESC, id DESC`, params);
       return rows.map(toCustody);
     },
     async insert(item) {
-      refusingTakenId(sqlite, "site_custody", item.id);
-      return this.save(item);
+      await insertNew(db, item.id, UPSERT_CUSTODY, custodyParams(item));
     },
     async save(item) {
-      upsertCustody.run({
-        id: item.id,
-        project_id: item.projectId,
-        warehouse_id: item.warehouseId,
-        custodian_user_id: item.custodianUserId,
-        description_ar: item.descriptionAr,
-        qty_out: item.qtyOut.toScaledNumber(),
-        qty_returned: item.qtyReturned.toScaledNumber(),
-        issued_date: item.issuedDate,
-        expected_return_date: item.expectedReturnDate,
-        notes: item.notes,
-      });
+      await db.run(UPSERT_CUSTODY, custodyParams(item));
     },
   };
 
   const equipmentLogs: EquipmentLogRepository = {
     async findById(id) {
-      const row = sqlite.prepare(`SELECT * FROM equipment_log WHERE id = ?`).get(id) as EquipmentRow | undefined;
+      const row = await db.get<EquipmentRow>(`SELECT * FROM equipment_log WHERE id = ?`, [id]);
       return row ? toEquipmentLog(row) : null;
     },
     async findByDocNo(docNo) {
-      const row = sqlite.prepare(`SELECT * FROM equipment_log WHERE doc_no = ?`).get(docNo) as EquipmentRow | undefined;
+      const row = await db.get<EquipmentRow>(`SELECT * FROM equipment_log WHERE doc_no = ?`, [docNo]);
       return row ? toEquipmentLog(row) : null;
     },
     async list(filter: EquipmentLogFilter = {}) {
       const where: string[] = [];
-      const params: unknown[] = [];
+      const params: SqlValue[] = [];
       if (filter.projectId) { where.push("project_id = ?"); params.push(filter.projectId); }
       if (filter.assetId) { where.push("asset_id = ?"); params.push(filter.assetId); }
       if (filter.status) { where.push("status = ?"); params.push(filter.status); }
-      return selectAll<EquipmentRow>("equipment_log", where, params).map(toEquipmentLog);
+      return (await selectAll<EquipmentRow>("equipment_log", where, params)).map(toEquipmentLog);
     },
     async insert(log) {
-      refusingTakenId(sqlite, "equipment_log", log.id);
-      return this.save(log);
+      await insertNew(db, log.id, UPSERT_EQUIPMENT, equipmentParams(log));
     },
     async save(log) {
-      upsertEquipment.run({
-        id: log.id,
-        doc_no: log.docNo,
-        project_id: log.projectId,
-        asset_id: log.assetId,
-        date: log.date,
-        hours: log.hours.toScaledNumber(),
-        hourly_rate: log.hourlyRate.toScaledNumber(),
-        amount: log.amount.toScaledNumber(),
-        boq_line_id: log.boqLineId,
-        notes: log.notes,
-        status: log.status,
-        journal_entry_id: log.journalEntryId,
-        created_at: log.createdAt,
-        confirmed_at: log.confirmedAt,
-      });
+      await db.run(UPSERT_EQUIPMENT, equipmentParams(log));
     },
   };
 
@@ -585,7 +612,6 @@ export function createSqliteContractingSiteStore(
     consumptions,
     custody,
     equipmentLogs,
-    transaction: (fn) => withSqliteTransaction(sqlite, fn),
-    close: () => { if (owned) sqlite.close(); },
+    transaction: (fn) => db.transaction(fn),
   };
 }

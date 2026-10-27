@@ -176,7 +176,10 @@ export {
 } from "./purchasing-stores.js";
 export { createSqliteSalesInvoiceStore, type SqliteSalesInvoiceStoreHandle } from "./sales-invoice-store.js";
 export {
+  createManufacturingStores,
   createSqliteManufacturingStores,
+  ensureManufacturingSchema,
+  type ManufacturingStores,
   type SqliteManufacturingStores,
 } from "./manufacturing-stores.js";
 export { createSqliteRfqStores, type SqliteRfqStores } from "./rfq-store.js";
@@ -260,28 +263,51 @@ export {
   type SqliteActivityRepositoryHandle,
 } from "./crm-store.js";
 export { createSqliteProjectRepository, type SqliteProjectRepositoryHandle } from "./project-repository.js";
-export { createSqliteGuaranteeStore, type SqliteGuaranteeStoreHandle } from "./contracting-guarantees-store.js";
 export {
+  createGuaranteeStore,
+  createSqliteGuaranteeStore,
+  ensureGuaranteeSchema,
+  type SqliteGuaranteeStoreHandle,
+} from "./contracting-guarantees-store.js";
+export {
+  createContractingControlsStore,
   createSqliteContractingControlsStore,
+  ensureContractingControlsSchema,
   type SqliteContractingControlsStoreHandle,
 } from "./contracting-controls-store.js";
 export {
+  createContractingRecognitionStore,
   createSqliteContractingRecognitionStore,
+  ensureContractingRecognitionSchema,
   type SqliteRecognitionStoreHandle,
 } from "./contracting-recognition-store.js";
 export {
   createSqliteWorksContractStore,
+  createWorksContractStore,
+  ensureWorksContractSchema,
   type SqliteWorksContractStoreHandle,
 } from "./contracting-contracts-store.js";
 export {
+  createProgressCertificateStore,
   createSqliteProgressCertificateStore,
+  ensureProgressCertificateSchema,
   type SqliteProgressCertificateStoreHandle,
 } from "./contracting-certificates-store.js";
 export {
   createSqliteSubcontractStore,
+  createSubcontractStore,
+  ensureSubcontractSchema,
   type SqliteSubcontractStoreHandle,
 } from "./contracting-subcontracts-store.js";
 export {
+  createAssetCategoryRepository,
+  createAssetInternalRateHistoryRepository,
+  createAssetRepository,
+  createDepreciationRunRepository,
+  ensureAssetCategorySchema,
+  ensureAssetInternalRateHistorySchema,
+  ensureAssetSchema,
+  ensureDepreciationRunSchema,
   createSqliteAssetCategoryRepository,
   createSqliteAssetInternalRateHistoryRepository,
   createSqliteAssetRepository,
@@ -399,7 +425,10 @@ export {
 } from "./attachment-store.js";
 
 export {
+  createContractingSiteStore,
   createSqliteContractingSiteStore,
+  ensureContractingSiteSchema,
+  type ContractingSiteStoreHandle,
   type SqliteContractingSiteStoreHandle,
 } from "./contracting-site-store.js";
 export { createSqlitePlatformStores, type SqlitePlatformStoresHandle } from "./platform-store.js";

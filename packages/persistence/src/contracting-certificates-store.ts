@@ -1,6 +1,8 @@
-import Database from "better-sqlite3";
-import { openSqliteConnection, withSqliteTransaction, type SqliteConnectionInput } from "./sqlite-connection.js";
-import { refusingTakenId } from "./insert-new.js";
+import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
+import { refuseTakenIdAsync } from "./insert-new.js";
+import { childRowsByParentAsync } from "./list-query.js";
+import { TransactionMode, type SqlDb, type SqlValue } from "./sql/sql-db.js";
+import { sqliteDb } from "./sql/sqlite-db.js";
 import {
   Money,
   Qty,
@@ -156,12 +158,12 @@ interface HeaderRow {
   doc_no: string;
   contract_id: string;
   project_id: string;
-  serial: number;
+  serial: bigint;
   previous_certificate_id: string | null;
   period_from: string;
   period_to: string;
   execution_date: string;
-  is_final: number;
+  is_final: bigint;
   status: string;
   prepared_by: string | null;
   prepared_at: string | null;
@@ -181,37 +183,37 @@ interface HeaderRow {
   invoice_id: string | null;
   invoice_doc_no: string | null;
   journal_entry_id: string | null;
-  posted_deductions_total: number;
+  posted_deductions_total: bigint;
   due_date: string | null;
-  penalties_cumulative: number;
-  suspended_cumulative: number;
-  employer_materials_cumulative: number;
-  water_electricity_cumulative: number;
+  penalties_cumulative: bigint;
+  suspended_cumulative: bigint;
+  employer_materials_cumulative: bigint;
+  water_electricity_cumulative: bigint;
   notes: string | null;
-  gross_works: number;
-  materials_on_site: number;
-  certificate_total: number;
+  gross_works: bigint;
+  materials_on_site: bigint;
+  certificate_total: bigint;
   tender_discount_percent: string;
-  tender_discount: number;
-  net_certified: number;
-  previous_net_certified: number;
-  this_certificate_net_certified: number;
-  deductions_this_certificate: number;
-  deductions_cumulative: number;
-  suspended_balance: number;
-  invoice_base: number;
+  tender_discount: bigint;
+  net_certified: bigint;
+  previous_net_certified: bigint;
+  this_certificate_net_certified: bigint;
+  deductions_this_certificate: bigint;
+  deductions_cumulative: bigint;
+  suspended_balance: bigint;
+  invoice_base: bigint;
   vat_basis: string;
   vat_statutory_rate_percent: string;
   vat_effective_rate_percent: string;
-  vat: number;
-  previous_payments: number;
-  net_payable_this_certificate: number;
-  cumulative_net_payable: number;
-  contract_value_after_variations: number;
+  vat: bigint;
+  previous_payments: bigint;
+  net_payable_this_certificate: bigint;
+  cumulative_net_payable: bigint;
+  contract_value_after_variations: bigint;
   completion_percent: string;
-  retention_held_cumulative: number;
-  advance_received: number;
-  advance_outstanding: number;
+  retention_held_cumulative: bigint;
+  advance_received: bigint;
+  advance_outstanding: bigint;
 }
 
 interface WorkLineRow {
@@ -221,16 +223,16 @@ interface WorkLineRow {
   code: string;
   description_ar: string;
   unit: string;
-  unit_rate: number;
-  this_period_qty: number;
-  previous_cumulative_qty: number;
-  cumulative_qty: number;
-  contracted_qty: number;
+  unit_rate: bigint;
+  this_period_qty: bigint;
+  previous_cumulative_qty: bigint;
+  cumulative_qty: bigint;
+  contracted_qty: bigint;
   completion_percent: string;
-  previous_cumulative_value: number;
-  cumulative_value: number;
-  this_period_value: number;
-  sort_order: number;
+  previous_cumulative_value: bigint;
+  cumulative_value: bigint;
+  this_period_value: bigint;
+  sort_order: bigint;
 }
 
 interface MaterialLineRow {
@@ -239,13 +241,13 @@ interface MaterialLineRow {
   material_key: string;
   description_ar: string;
   unit: string;
-  qty: number;
-  unit_rate: number;
-  previous_cumulative_qty: number;
-  cumulative_qty: number;
-  value: number;
-  previous_value: number;
-  sort_order: number;
+  qty: bigint;
+  unit_rate: bigint;
+  previous_cumulative_qty: bigint;
+  cumulative_qty: bigint;
+  value: bigint;
+  previous_value: bigint;
+  sort_order: bigint;
 }
 
 interface DeductionRow {
@@ -253,13 +255,13 @@ interface DeductionRow {
   key: string;
   label_ar: string;
   percent: string | null;
-  cumulative: number;
-  previous: number;
-  this_certificate: number;
-  posted: number;
-  capped: number;
+  cumulative: bigint;
+  previous: bigint;
+  this_certificate: bigint;
+  posted: bigint;
+  capped: bigint;
   note_ar: string | null;
-  sort_order: number;
+  sort_order: bigint;
 }
 
 function toWorkLine(row: WorkLineRow): CertificateWorkLine {
@@ -278,7 +280,7 @@ function toWorkLine(row: WorkLineRow): CertificateWorkLine {
     previousCumulativeValue: Money.fromScaled(row.previous_cumulative_value),
     cumulativeValue: Money.fromScaled(row.cumulative_value),
     thisPeriodValue: Money.fromScaled(row.this_period_value),
-    sortOrder: row.sort_order,
+    sortOrder: Number(row.sort_order),
   };
 }
 
@@ -294,7 +296,7 @@ function toMaterialLine(row: MaterialLineRow): CertificateMaterialLine {
     cumulativeQty: Qty.fromScaled(row.cumulative_qty),
     value: Money.fromScaled(row.value),
     previousValue: Money.fromScaled(row.previous_value),
-    sortOrder: row.sort_order,
+    sortOrder: Number(row.sort_order),
   };
 }
 
@@ -306,8 +308,8 @@ function toDeduction(row: DeductionRow): CertificateDeductionRow {
     cumulative: Money.fromScaled(row.cumulative),
     previous: Money.fromScaled(row.previous),
     thisCertificate: Money.fromScaled(row.this_certificate),
-    posted: row.posted === 1,
-    capped: row.capped === 1,
+    posted: Number(row.posted) === 1,
+    capped: Number(row.capped) === 1,
     noteAr: row.note_ar ?? null,
   };
 }
@@ -342,24 +344,7 @@ function toComputation(row: HeaderRow, deductions: readonly CertificateDeduction
   };
 }
 
-class SqliteProgressCertificateStore implements ProgressCertificateStore {
-  private readonly upsertHeader: Database.Statement;
-  private readonly selectById: Database.Statement;
-  private readonly selectByDocNo: Database.Statement;
-  private readonly selectAll: Database.Statement;
-  private readonly selectByContract: Database.Statement;
-  private readonly deleteWorkLines: Database.Statement;
-  private readonly deleteMaterialLines: Database.Statement;
-  private readonly deleteDeductions: Database.Statement;
-  private readonly insertWorkLine: Database.Statement;
-  private readonly insertMaterialLine: Database.Statement;
-  private readonly insertDeduction: Database.Statement;
-  private readonly selectWorkLines: Database.Statement;
-  private readonly selectMaterialLines: Database.Statement;
-  private readonly selectDeductions: Database.Statement;
-
-  constructor(private readonly sqlite: Database.Database) {
-    this.upsertHeader = sqlite.prepare(`
+const UPSERT_HEADER = `
       INSERT INTO contracting_certificate (
         id, doc_no, contract_id, project_id, serial, previous_certificate_id, period_from, period_to,
         execution_date, is_final, status, prepared_by, prepared_at, measured_by, measured_at,
@@ -374,18 +359,18 @@ class SqliteProgressCertificateStore implements ProgressCertificateStore {
         cumulative_net_payable, contract_value_after_variations, completion_percent,
         retention_held_cumulative, advance_received, advance_outstanding
       ) VALUES (
-        @id, @doc_no, @contract_id, @project_id, @serial, @previous_certificate_id, @period_from, @period_to,
-        @execution_date, @is_final, @status, @prepared_by, @prepared_at, @measured_by, @measured_at,
-        @certified_by, @certified_at, @approved_by, @approved_at, @cancelled_at, @cancelled_by, @cancel_reason_ar,
-        @voided_at, @voided_by, @void_reason_ar, @void_journal_entry_id, @invoice_id, @invoice_doc_no,
-        @journal_entry_id, @posted_deductions_total, @due_date, @penalties_cumulative, @suspended_cumulative,
-        @employer_materials_cumulative, @water_electricity_cumulative, @notes,
-        @gross_works, @materials_on_site, @certificate_total, @tender_discount_percent, @tender_discount,
-        @net_certified, @previous_net_certified, @this_certificate_net_certified, @deductions_this_certificate,
-        @deductions_cumulative, @suspended_balance, @invoice_base, @vat_basis, @vat_statutory_rate_percent,
-        @vat_effective_rate_percent, @vat, @previous_payments, @net_payable_this_certificate,
-        @cumulative_net_payable, @contract_value_after_variations, @completion_percent,
-        @retention_held_cumulative, @advance_received, @advance_outstanding
+        ?, ?, ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?,
+        ?, ?, ?,
+        ?, ?, ?, ?, ?,
+        ?, ?, ?, ?,
+        ?, ?, ?, ?, ?,
+        ?, ?, ?, ?,
+        ?, ?, ?,
+        ?, ?, ?
       )
       ON CONFLICT(id) DO UPDATE SET
         doc_no = excluded.doc_no,
@@ -447,263 +432,308 @@ class SqliteProgressCertificateStore implements ProgressCertificateStore {
         retention_held_cumulative = excluded.retention_held_cumulative,
         advance_received = excluded.advance_received,
         advance_outstanding = excluded.advance_outstanding
-    `);
-    this.selectById = sqlite.prepare(`SELECT * FROM contracting_certificate WHERE id = ?`);
-    this.selectByDocNo = sqlite.prepare(`SELECT * FROM contracting_certificate WHERE doc_no = ?`);
-    this.selectAll = sqlite.prepare(`SELECT * FROM contracting_certificate ORDER BY contract_id, serial`);
-    this.selectByContract = sqlite.prepare(
-      `SELECT * FROM contracting_certificate WHERE contract_id = ? ORDER BY serial`,
-    );
-    this.deleteWorkLines = sqlite.prepare(`DELETE FROM contracting_certificate_work_line WHERE certificate_id = ?`);
-    this.deleteMaterialLines = sqlite.prepare(
-      `DELETE FROM contracting_certificate_material_line WHERE certificate_id = ?`,
-    );
-    this.deleteDeductions = sqlite.prepare(`DELETE FROM contracting_certificate_deduction WHERE certificate_id = ?`);
-    this.insertWorkLine = sqlite.prepare(`
+    `;
+
+function headerParams(certificate: ProgressCertificate): SqlValue[] {
+  const c = certificate.computed;
+  return [
+    certificate.id,
+    certificate.docNo,
+    certificate.contractId,
+    certificate.projectId,
+    certificate.serial,
+    certificate.previousCertificateId,
+    certificate.periodFrom,
+    certificate.periodTo,
+    certificate.executionDate,
+    certificate.isFinal ? 1 : 0,
+    certificate.status,
+    certificate.preparedBy,
+    certificate.preparedAt,
+    certificate.measuredBy,
+    certificate.measuredAt,
+    certificate.certifiedBy,
+    certificate.certifiedAt,
+    certificate.approvedBy,
+    certificate.approvedAt,
+    certificate.cancelledAt,
+    certificate.cancelledBy,
+    certificate.cancelReasonAr,
+    certificate.voidedAt,
+    certificate.voidedBy,
+    certificate.voidReasonAr,
+    certificate.voidJournalEntryId,
+    certificate.invoiceId,
+    certificate.invoiceDocNo,
+    certificate.journalEntryId,
+    certificate.postedDeductionsTotal.scaled,
+    certificate.dueDate,
+    certificate.penaltiesCumulative.scaled,
+    certificate.suspendedCumulative.scaled,
+    certificate.employerMaterialsCumulative.scaled,
+    certificate.waterElectricityCumulative.scaled,
+    certificate.notes,
+    c.grossWorks.scaled,
+    c.materialsOnSite.scaled,
+    c.certificateTotal.scaled,
+    c.tenderDiscountPercent,
+    c.tenderDiscount.scaled,
+    c.netCertified.scaled,
+    c.previousNetCertified.scaled,
+    c.thisCertificateNetCertified.scaled,
+    c.deductionsThisCertificate.scaled,
+    c.deductionsCumulative.scaled,
+    c.suspendedBalance.scaled,
+    c.invoiceBase.scaled,
+    c.vatBasis,
+    c.vatStatutoryRatePercent,
+    c.vatEffectiveRatePercent,
+    c.vat.scaled,
+    c.previousPayments.scaled,
+    c.netPayableThisCertificate.scaled,
+    c.cumulativeNetPayable.scaled,
+    c.contractValueAfterVariations.scaled,
+    c.completionPercent,
+    c.retentionHeldCumulative.scaled,
+    c.advanceReceived.scaled,
+    c.advanceOutstanding.scaled,
+  ];
+}
+
+const INSERT_WORK_LINE = `
       INSERT INTO contracting_certificate_work_line (
         id, certificate_id, boq_line_id, code, description_ar, unit, unit_rate, this_period_qty,
         previous_cumulative_qty, cumulative_qty, contracted_qty, completion_percent,
         previous_cumulative_value, cumulative_value, this_period_value, sort_order
       ) VALUES (
-        @id, @certificate_id, @boq_line_id, @code, @description_ar, @unit, @unit_rate, @this_period_qty,
-        @previous_cumulative_qty, @cumulative_qty, @contracted_qty, @completion_percent,
-        @previous_cumulative_value, @cumulative_value, @this_period_value, @sort_order
+        ?, ?, ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?,
+        ?, ?, ?, ?
       )
-    `);
-    this.insertMaterialLine = sqlite.prepare(`
+    `;
+
+function workLineParams(certificate: ProgressCertificate, line: CertificateWorkLine): SqlValue[] {
+  return [
+    line.id,
+    certificate.id,
+    line.boqLineId,
+    line.code,
+    line.descriptionAr,
+    line.unit,
+    line.unitRate.scaled,
+    line.thisPeriodQty.scaled,
+    line.previousCumulativeQty.scaled,
+    line.cumulativeQty.scaled,
+    line.contractedQty.scaled,
+    line.completionPercent,
+    line.previousCumulativeValue.scaled,
+    line.cumulativeValue.scaled,
+    line.thisPeriodValue.scaled,
+    line.sortOrder,
+  ];
+}
+
+const INSERT_MATERIAL_LINE = `
       INSERT INTO contracting_certificate_material_line (
         id, certificate_id, material_key, description_ar, unit, qty, unit_rate,
         previous_cumulative_qty, cumulative_qty, value, previous_value, sort_order
       ) VALUES (
-        @id, @certificate_id, @material_key, @description_ar, @unit, @qty, @unit_rate,
-        @previous_cumulative_qty, @cumulative_qty, @value, @previous_value, @sort_order
+        ?, ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?
       )
-    `);
-    this.insertDeduction = sqlite.prepare(`
+    `;
+
+function materialLineParams(certificate: ProgressCertificate, line: CertificateMaterialLine): SqlValue[] {
+  return [
+    line.id,
+    certificate.id,
+    line.materialKey,
+    line.descriptionAr,
+    line.unit,
+    line.qty.scaled,
+    line.unitRate.scaled,
+    line.previousCumulativeQty.scaled,
+    line.cumulativeQty.scaled,
+    line.value.scaled,
+    line.previousValue.scaled,
+    line.sortOrder,
+  ];
+}
+
+const INSERT_DEDUCTION = `
       INSERT INTO contracting_certificate_deduction (
         certificate_id, key, label_ar, percent, cumulative, previous, this_certificate, posted, capped, note_ar, sort_order
       ) VALUES (
-        @certificate_id, @key, @label_ar, @percent, @cumulative, @previous, @this_certificate, @posted, @capped, @note_ar, @sort_order
+        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
       )
-    `);
-    this.selectWorkLines = sqlite.prepare(
-      `SELECT * FROM contracting_certificate_work_line WHERE certificate_id = ? ORDER BY sort_order, id`,
-    );
-    this.selectMaterialLines = sqlite.prepare(
-      `SELECT * FROM contracting_certificate_material_line WHERE certificate_id = ? ORDER BY sort_order, id`,
-    );
-    this.selectDeductions = sqlite.prepare(
-      `SELECT * FROM contracting_certificate_deduction WHERE certificate_id = ? ORDER BY sort_order`,
-    );
+    `;
+
+function deductionParams(certificate: ProgressCertificate, deduction: CertificateDeductionRow, index: number): SqlValue[] {
+  return [
+    certificate.id,
+    deduction.key,
+    deduction.labelAr,
+    deduction.percent,
+    deduction.cumulative.scaled,
+    deduction.previous.scaled,
+    deduction.thisCertificate.scaled,
+    deduction.posted ? 1 : 0,
+    deduction.capped ? 1 : 0,
+    deduction.noteAr,
+    index,
+  ];
+}
+
+interface CertificateChildren {
+  readonly workLines: ReadonlyMap<string, WorkLineRow[]>;
+  readonly materialLines: ReadonlyMap<string, MaterialLineRow[]>;
+  readonly deductions: ReadonlyMap<string, DeductionRow[]>;
+}
+
+class SqlProgressCertificateStore implements ProgressCertificateStore {
+  constructor(private readonly db: SqlDb) {}
+
+  private async children(certificateIds: readonly string[]): Promise<CertificateChildren> {
+    const [workLines, materialLines, deductions] = [
+      await childRowsByParentAsync<WorkLineRow>(this.db, {
+        table: "contracting_certificate_work_line",
+        parentColumn: "certificate_id",
+        parentIds: certificateIds,
+        orderBy: "certificate_id, sort_order, id",
+      }),
+      await childRowsByParentAsync<MaterialLineRow>(this.db, {
+        table: "contracting_certificate_material_line",
+        parentColumn: "certificate_id",
+        parentIds: certificateIds,
+        orderBy: "certificate_id, sort_order, id",
+      }),
+      await childRowsByParentAsync<DeductionRow>(this.db, {
+        table: "contracting_certificate_deduction",
+        parentColumn: "certificate_id",
+        parentIds: certificateIds,
+        orderBy: "certificate_id, sort_order",
+      }),
+    ];
+    return { workLines, materialLines, deductions };
   }
 
-  private hydrate(row: HeaderRow): ProgressCertificate {
-    const workLines = (this.selectWorkLines.all(row.id) as WorkLineRow[]).map(toWorkLine);
-    const materialLines = (this.selectMaterialLines.all(row.id) as MaterialLineRow[]).map(toMaterialLine);
-    const deductions = (this.selectDeductions.all(row.id) as DeductionRow[]).map(toDeduction);
-    return {
-      id: row.id,
-      docNo: row.doc_no,
-      contractId: row.contract_id,
-      projectId: row.project_id,
-      serial: row.serial,
-      previousCertificateId: row.previous_certificate_id,
-      periodFrom: row.period_from,
-      periodTo: row.period_to,
-      executionDate: row.execution_date,
-      isFinal: row.is_final === 1,
-      status: row.status as ProgressCertificateStatus,
-      preparedBy: row.prepared_by,
-      preparedAt: row.prepared_at,
-      measuredBy: row.measured_by,
-      measuredAt: row.measured_at,
-      certifiedBy: row.certified_by,
-      certifiedAt: row.certified_at,
-      approvedBy: row.approved_by,
-      approvedAt: row.approved_at,
-      cancelledAt: row.cancelled_at,
-      cancelledBy: row.cancelled_by ?? null,
-      cancelReasonAr: row.cancel_reason_ar ?? null,
-      voidedAt: row.voided_at ?? null,
-      voidedBy: row.voided_by ?? null,
-      voidReasonAr: row.void_reason_ar ?? null,
-      voidJournalEntryId: row.void_journal_entry_id ?? null,
-      invoiceId: row.invoice_id,
-      invoiceDocNo: row.invoice_doc_no,
-      journalEntryId: row.journal_entry_id,
-      postedDeductionsTotal: Money.fromScaled(row.posted_deductions_total),
-      dueDate: row.due_date,
-      penaltiesCumulative: Money.fromScaled(row.penalties_cumulative),
-      suspendedCumulative: Money.fromScaled(row.suspended_cumulative),
-      employerMaterialsCumulative: Money.fromScaled(row.employer_materials_cumulative),
-      waterElectricityCumulative: Money.fromScaled(row.water_electricity_cumulative),
-      notes: row.notes,
-      workLines,
-      materialLines,
-      computed: toComputation(row, deductions),
-    };
+  private async hydrateAll(rows: readonly HeaderRow[]): Promise<ProgressCertificate[]> {
+    const children = await this.children(rows.map((row) => row.id));
+    return rows.map((row) => toCertificate(row, children));
   }
 
   async findById(id: string): Promise<ProgressCertificate | null> {
-    const row = this.selectById.get(id) as HeaderRow | undefined;
-    return row ? this.hydrate(row) : null;
+    const row = await this.db.get<HeaderRow>(`SELECT * FROM contracting_certificate WHERE id = ?`, [id]);
+    return row ? (await this.hydrateAll([row]))[0]! : null;
   }
 
   async findByDocNo(docNo: string): Promise<ProgressCertificate | null> {
-    const row = this.selectByDocNo.get(docNo) as HeaderRow | undefined;
-    return row ? this.hydrate(row) : null;
+    const row = await this.db.get<HeaderRow>(`SELECT * FROM contracting_certificate WHERE doc_no = ?`, [docNo]);
+    return row ? (await this.hydrateAll([row]))[0]! : null;
   }
 
   async list(filter?: ProgressCertificateListFilter): Promise<ProgressCertificate[]> {
-    const rows = this.selectAll.all() as HeaderRow[];
-    return rows
-      .filter(
+    const rows = await this.db.all<HeaderRow>(`SELECT * FROM contracting_certificate ORDER BY contract_id, serial`);
+    return this.hydrateAll(
+      rows.filter(
         (r) =>
           (filter?.contractId === undefined || r.contract_id === filter.contractId) &&
           (filter?.projectId === undefined || r.project_id === filter.projectId) &&
           (filter?.status === undefined || r.status === filter.status),
-      )
-      .map((r) => this.hydrate(r));
+      ),
+    );
   }
 
   async listByContract(contractId: string): Promise<ProgressCertificate[]> {
-    return (this.selectByContract.all(contractId) as HeaderRow[]).map((r) => this.hydrate(r));
+    return this.hydrateAll(
+      await this.db.all<HeaderRow>(`SELECT * FROM contracting_certificate WHERE contract_id = ? ORDER BY serial`, [contractId]),
+    );
   }
 
   async insert(certificate: ProgressCertificate): Promise<void> {
-    refusingTakenId(this.sqlite, "contracting_certificate", certificate.id);
-    return this.save(certificate);
+    await this.db.transaction(async () => {
+      await refuseTakenIdAsync(this.db, "contracting_certificate", certificate.id);
+      await this.write(certificate);
+    });
   }
 
   async save(certificate: ProgressCertificate): Promise<void> {
-    const write = this.sqlite.transaction(() => {
-      const c = certificate.computed;
-      this.upsertHeader.run({
-        id: certificate.id,
-        doc_no: certificate.docNo,
-        contract_id: certificate.contractId,
-        project_id: certificate.projectId,
-        serial: certificate.serial,
-        previous_certificate_id: certificate.previousCertificateId,
-        period_from: certificate.periodFrom,
-        period_to: certificate.periodTo,
-        execution_date: certificate.executionDate,
-        is_final: certificate.isFinal ? 1 : 0,
-        status: certificate.status,
-        prepared_by: certificate.preparedBy,
-        prepared_at: certificate.preparedAt,
-        measured_by: certificate.measuredBy,
-        measured_at: certificate.measuredAt,
-        certified_by: certificate.certifiedBy,
-        certified_at: certificate.certifiedAt,
-        approved_by: certificate.approvedBy,
-        approved_at: certificate.approvedAt,
-        cancelled_at: certificate.cancelledAt,
-        cancelled_by: certificate.cancelledBy,
-        cancel_reason_ar: certificate.cancelReasonAr,
-        voided_at: certificate.voidedAt,
-        voided_by: certificate.voidedBy,
-        void_reason_ar: certificate.voidReasonAr,
-        void_journal_entry_id: certificate.voidJournalEntryId,
-        invoice_id: certificate.invoiceId,
-        invoice_doc_no: certificate.invoiceDocNo,
-        journal_entry_id: certificate.journalEntryId,
-        posted_deductions_total: certificate.postedDeductionsTotal.toScaledNumber(),
-        due_date: certificate.dueDate,
-        penalties_cumulative: certificate.penaltiesCumulative.toScaledNumber(),
-        suspended_cumulative: certificate.suspendedCumulative.toScaledNumber(),
-        employer_materials_cumulative: certificate.employerMaterialsCumulative.toScaledNumber(),
-        water_electricity_cumulative: certificate.waterElectricityCumulative.toScaledNumber(),
-        notes: certificate.notes,
-        gross_works: c.grossWorks.toScaledNumber(),
-        materials_on_site: c.materialsOnSite.toScaledNumber(),
-        certificate_total: c.certificateTotal.toScaledNumber(),
-        tender_discount_percent: c.tenderDiscountPercent,
-        tender_discount: c.tenderDiscount.toScaledNumber(),
-        net_certified: c.netCertified.toScaledNumber(),
-        previous_net_certified: c.previousNetCertified.toScaledNumber(),
-        this_certificate_net_certified: c.thisCertificateNetCertified.toScaledNumber(),
-        deductions_this_certificate: c.deductionsThisCertificate.toScaledNumber(),
-        deductions_cumulative: c.deductionsCumulative.toScaledNumber(),
-        suspended_balance: c.suspendedBalance.toScaledNumber(),
-        invoice_base: c.invoiceBase.toScaledNumber(),
-        vat_basis: c.vatBasis,
-        vat_statutory_rate_percent: c.vatStatutoryRatePercent,
-        vat_effective_rate_percent: c.vatEffectiveRatePercent,
-        vat: c.vat.toScaledNumber(),
-        previous_payments: c.previousPayments.toScaledNumber(),
-        net_payable_this_certificate: c.netPayableThisCertificate.toScaledNumber(),
-        cumulative_net_payable: c.cumulativeNetPayable.toScaledNumber(),
-        contract_value_after_variations: c.contractValueAfterVariations.toScaledNumber(),
-        completion_percent: c.completionPercent,
-        retention_held_cumulative: c.retentionHeldCumulative.toScaledNumber(),
-        advance_received: c.advanceReceived.toScaledNumber(),
-        advance_outstanding: c.advanceOutstanding.toScaledNumber(),
-      });
-      this.deleteWorkLines.run(certificate.id);
-      this.deleteMaterialLines.run(certificate.id);
-      this.deleteDeductions.run(certificate.id);
-      for (const line of certificate.workLines) {
-        this.insertWorkLine.run({
-          id: line.id,
-          certificate_id: certificate.id,
-          boq_line_id: line.boqLineId,
-          code: line.code,
-          description_ar: line.descriptionAr,
-          unit: line.unit,
-          unit_rate: line.unitRate.toScaledNumber(),
-          this_period_qty: line.thisPeriodQty.toScaledNumber(),
-          previous_cumulative_qty: line.previousCumulativeQty.toScaledNumber(),
-          cumulative_qty: line.cumulativeQty.toScaledNumber(),
-          contracted_qty: line.contractedQty.toScaledNumber(),
-          completion_percent: line.completionPercent,
-          previous_cumulative_value: line.previousCumulativeValue.toScaledNumber(),
-          cumulative_value: line.cumulativeValue.toScaledNumber(),
-          this_period_value: line.thisPeriodValue.toScaledNumber(),
-          sort_order: line.sortOrder,
-        });
-      }
-      for (const line of certificate.materialLines) {
-        this.insertMaterialLine.run({
-          id: line.id,
-          certificate_id: certificate.id,
-          material_key: line.materialKey,
-          description_ar: line.descriptionAr,
-          unit: line.unit,
-          qty: line.qty.toScaledNumber(),
-          unit_rate: line.unitRate.toScaledNumber(),
-          previous_cumulative_qty: line.previousCumulativeQty.toScaledNumber(),
-          cumulative_qty: line.cumulativeQty.toScaledNumber(),
-          value: line.value.toScaledNumber(),
-          previous_value: line.previousValue.toScaledNumber(),
-          sort_order: line.sortOrder,
-        });
-      }
-      certificate.computed.deductions.forEach((deduction, index) => {
-        this.insertDeduction.run({
-          certificate_id: certificate.id,
-          key: deduction.key,
-          label_ar: deduction.labelAr,
-          percent: deduction.percent,
-          cumulative: deduction.cumulative.toScaledNumber(),
-          previous: deduction.previous.toScaledNumber(),
-          this_certificate: deduction.thisCertificate.toScaledNumber(),
-          posted: deduction.posted ? 1 : 0,
-          capped: deduction.capped ? 1 : 0,
-          note_ar: deduction.noteAr,
-          sort_order: index,
-        });
-      });
-    });
-    write();
+    await this.db.transaction(() => this.write(certificate));
+  }
+
+  private async write(certificate: ProgressCertificate): Promise<void> {
+    await this.db.run(UPSERT_HEADER, headerParams(certificate));
+    await this.db.run(`DELETE FROM contracting_certificate_work_line WHERE certificate_id = ?`, [certificate.id]);
+    await this.db.run(`DELETE FROM contracting_certificate_material_line WHERE certificate_id = ?`, [certificate.id]);
+    await this.db.run(`DELETE FROM contracting_certificate_deduction WHERE certificate_id = ?`, [certificate.id]);
+    for (const line of certificate.workLines) await this.db.run(INSERT_WORK_LINE, workLineParams(certificate, line));
+    for (const line of certificate.materialLines) await this.db.run(INSERT_MATERIAL_LINE, materialLineParams(certificate, line));
+    for (const [index, deduction] of certificate.computed.deductions.entries()) {
+      await this.db.run(INSERT_DEDUCTION, deductionParams(certificate, deduction, index));
+    }
   }
 
   async transaction<T>(fn: () => Promise<T>): Promise<T> {
     // Nesting-aware: approving a certificate confirms an invoice and posts a
     // journal entry, each of which opens its own transaction on this same
     // connection. A bare BEGIN here would be a transaction inside a transaction.
-    return withSqliteTransaction(this.sqlite, fn, "BEGIN IMMEDIATE");
+    return this.db.transaction(fn, TransactionMode.Immediate);
   }
+}
+
+function toCertificate(row: HeaderRow, children: CertificateChildren): ProgressCertificate {
+  const workLines = (children.workLines.get(row.id) ?? []).map(toWorkLine);
+  const materialLines = (children.materialLines.get(row.id) ?? []).map(toMaterialLine);
+  const deductions = (children.deductions.get(row.id) ?? []).map(toDeduction);
+  return {
+    id: row.id,
+    docNo: row.doc_no,
+    contractId: row.contract_id,
+    projectId: row.project_id,
+    serial: Number(row.serial),
+    previousCertificateId: row.previous_certificate_id,
+    periodFrom: row.period_from,
+    periodTo: row.period_to,
+    executionDate: row.execution_date,
+    isFinal: Number(row.is_final) === 1,
+    status: row.status as ProgressCertificateStatus,
+    preparedBy: row.prepared_by,
+    preparedAt: row.prepared_at,
+    measuredBy: row.measured_by,
+    measuredAt: row.measured_at,
+    certifiedBy: row.certified_by,
+    certifiedAt: row.certified_at,
+    approvedBy: row.approved_by,
+    approvedAt: row.approved_at,
+    cancelledAt: row.cancelled_at,
+    cancelledBy: row.cancelled_by ?? null,
+    cancelReasonAr: row.cancel_reason_ar ?? null,
+    voidedAt: row.voided_at ?? null,
+    voidedBy: row.voided_by ?? null,
+    voidReasonAr: row.void_reason_ar ?? null,
+    voidJournalEntryId: row.void_journal_entry_id ?? null,
+    invoiceId: row.invoice_id,
+    invoiceDocNo: row.invoice_doc_no,
+    journalEntryId: row.journal_entry_id,
+    postedDeductionsTotal: Money.fromScaled(row.posted_deductions_total),
+    dueDate: row.due_date,
+    penaltiesCumulative: Money.fromScaled(row.penalties_cumulative),
+    suspendedCumulative: Money.fromScaled(row.suspended_cumulative),
+    employerMaterialsCumulative: Money.fromScaled(row.employer_materials_cumulative),
+    waterElectricityCumulative: Money.fromScaled(row.water_electricity_cumulative),
+    notes: row.notes,
+    workLines,
+    materialLines,
+    computed: toComputation(row, deductions),
+  };
+}
+
+export async function ensureProgressCertificateSchema(db: SqlDb): Promise<void> {
+  await db.applySchema(CREATE_TABLES);
+}
+
+export function createProgressCertificateStore(db: SqlDb): ProgressCertificateStore {
+  return new SqlProgressCertificateStore(db);
 }
 
 export interface SqliteProgressCertificateStoreHandle extends ProgressCertificateStore {
@@ -738,8 +768,7 @@ export function createSqliteProgressCertificateStore(
   if (!deductionColumns.has("note_ar")) {
     sqlite.exec(`ALTER TABLE contracting_certificate_deduction ADD COLUMN note_ar TEXT`);
   }
-  const store = new SqliteProgressCertificateStore(sqlite);
-  return Object.assign(store, {
+  return Object.assign(createProgressCertificateStore(sqliteDb(sqlite)), {
     close: () => {
       if (owned) sqlite.close();
     },

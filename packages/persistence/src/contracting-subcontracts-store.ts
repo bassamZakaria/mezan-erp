@@ -1,6 +1,9 @@
-import Database from "better-sqlite3";
-import { openSqliteConnection, withSqliteTransaction, type SqliteConnectionInput } from "./sqlite-connection.js";
-import { refusingTakenId } from "./insert-new.js";
+import type Database from "better-sqlite3";
+import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
+import { refuseTakenIdAsync } from "./insert-new.js";
+import { childRowsByParentAsync } from "./list-query.js";
+import { TransactionMode, type SqlDb, type SqlValue } from "./sql/sql-db.js";
+import { sqliteDb } from "./sql/sqlite-db.js";
 import {
   Money,
   Qty,
@@ -230,7 +233,7 @@ interface SubcontractRow {
   supplier_id: string;
   title_ar: string;
   kind: string;
-  disguised_employment_reviewed: number;
+  disguised_employment_reviewed: bigint;
   review_note: string | null;
   signed_date: string;
   start_date: string;
@@ -249,11 +252,11 @@ interface SubcontractRow {
   withholding_tax_percent: string;
   deemed_wage_percent: string;
   social_insurance_rate_percent: string;
-  withhold_social_insurance: number;
+  withhold_social_insurance: bigint;
   social_insurance_note: string | null;
   penalty_cap_percent: string;
-  payment_term_days: number;
-  defects_liability_months: number;
+  payment_term_days: bigint;
+  defects_liability_months: bigint;
   vat_basis: string;
 }
 
@@ -264,12 +267,12 @@ interface LineRow {
   code: string;
   description_ar: string;
   unit: string;
-  qty: number;
-  unit_rate: number;
-  client_unit_rate: number;
-  margin_vs_client: number;
-  estimated_unit_cost: number | null;
-  sort_order: number;
+  qty: bigint;
+  unit_rate: bigint;
+  client_unit_rate: bigint;
+  margin_vs_client: bigint;
+  estimated_unit_cost: bigint | null;
+  sort_order: bigint;
 }
 
 interface AdvanceRow {
@@ -277,24 +280,24 @@ interface AdvanceRow {
   voucher_id: string;
   voucher_no: string | null;
   date: string;
-  amount: number;
-  sort_order: number;
+  amount: bigint;
+  sort_order: bigint;
 }
 
 interface ReleaseRow {
   id: string;
   subcontract_id: string;
   date: string;
-  amount: number;
+  amount: bigint;
   journal_entry_id: string;
   kind: string;
   release_event_date: string | null;
-  early_release: number;
+  early_release: bigint;
   invoice_id: string | null;
   invoice_doc_no: string | null;
   released_by: string | null;
   notes: string | null;
-  sort_order: number;
+  sort_order: bigint;
 }
 
 interface CertificateRow {
@@ -304,12 +307,12 @@ interface CertificateRow {
   contract_id: string;
   project_id: string;
   supplier_id: string;
-  serial: number;
+  serial: bigint;
   previous_certificate_id: string | null;
   period_from: string;
   period_to: string;
   execution_date: string;
-  is_final: number;
+  is_final: bigint;
   status: string;
   prepared_by: string | null;
   prepared_at: string | null;
@@ -325,37 +328,37 @@ interface CertificateRow {
   invoice_id: string | null;
   invoice_doc_no: string | null;
   journal_entry_id: string | null;
-  posted_deductions_total: number;
+  posted_deductions_total: bigint;
   due_date: string | null;
-  penalties_cumulative: number;
-  suspended_cumulative: number;
-  employer_materials_cumulative: number;
-  water_electricity_cumulative: number;
+  penalties_cumulative: bigint;
+  suspended_cumulative: bigint;
+  employer_materials_cumulative: bigint;
+  water_electricity_cumulative: bigint;
   notes: string | null;
-  gross_works: number;
-  materials_on_site: number;
-  certificate_total: number;
+  gross_works: bigint;
+  materials_on_site: bigint;
+  certificate_total: bigint;
   tender_discount_percent: string;
-  tender_discount: number;
-  net_certified: number;
-  previous_net_certified: number;
-  this_certificate_net_certified: number;
-  deductions_this_certificate: number;
-  deductions_cumulative: number;
-  suspended_balance: number;
-  invoice_base: number;
+  tender_discount: bigint;
+  net_certified: bigint;
+  previous_net_certified: bigint;
+  this_certificate_net_certified: bigint;
+  deductions_this_certificate: bigint;
+  deductions_cumulative: bigint;
+  suspended_balance: bigint;
+  invoice_base: bigint;
   vat_basis: string;
   vat_statutory_rate_percent: string;
   vat_effective_rate_percent: string;
-  vat: number;
-  previous_payments: number;
-  net_payable_this_certificate: number;
-  cumulative_net_payable: number;
-  contract_value_after_variations: number;
+  vat: bigint;
+  previous_payments: bigint;
+  net_payable_this_certificate: bigint;
+  cumulative_net_payable: bigint;
+  contract_value_after_variations: bigint;
   completion_percent: string;
-  retention_held_cumulative: number;
-  advance_received: number;
-  advance_outstanding: number;
+  retention_held_cumulative: bigint;
+  advance_received: bigint;
+  advance_outstanding: bigint;
 }
 
 interface WorkLineRow {
@@ -363,20 +366,20 @@ interface WorkLineRow {
   certificate_id: string;
   subcontract_line_id: string;
   client_boq_line_id: string;
-  client_certified_qty: number;
+  client_certified_qty: bigint;
   code: string;
   description_ar: string;
   unit: string;
-  unit_rate: number;
-  this_period_qty: number;
-  previous_cumulative_qty: number;
-  cumulative_qty: number;
-  contracted_qty: number;
+  unit_rate: bigint;
+  this_period_qty: bigint;
+  previous_cumulative_qty: bigint;
+  cumulative_qty: bigint;
+  contracted_qty: bigint;
   completion_percent: string;
-  previous_cumulative_value: number;
-  cumulative_value: number;
-  this_period_value: number;
-  sort_order: number;
+  previous_cumulative_value: bigint;
+  cumulative_value: bigint;
+  this_period_value: bigint;
+  sort_order: bigint;
 }
 
 interface DeductionRow {
@@ -384,12 +387,12 @@ interface DeductionRow {
   key: string;
   label_ar: string;
   percent: string | null;
-  cumulative: number;
-  previous: number;
-  this_certificate: number;
-  posted: number;
-  capped: number;
-  sort_order: number;
+  cumulative: bigint;
+  previous: bigint;
+  this_certificate: bigint;
+  posted: bigint;
+  capped: bigint;
+  sort_order: bigint;
 }
 
 function toLine(row: LineRow): SubcontractLine {
@@ -405,7 +408,7 @@ function toLine(row: LineRow): SubcontractLine {
     clientUnitRate: Money.fromScaled(row.client_unit_rate),
     marginVsClient: Money.fromScaled(row.margin_vs_client),
     estimatedUnitCost: row.estimated_unit_cost === null ? null : Money.fromScaled(row.estimated_unit_cost),
-    sortOrder: row.sort_order,
+    sortOrder: Number(row.sort_order),
   };
 }
 
@@ -426,7 +429,7 @@ function toRelease(row: ReleaseRow): SubcontractRetentionRelease {
     journalEntryId: row.journal_entry_id,
     kind: row.kind as SubcontractRetentionReleaseKind,
     releaseEventDate: row.release_event_date,
-    earlyRelease: row.early_release === 1,
+    earlyRelease: Number(row.early_release) === 1,
     invoiceId: row.invoice_id,
     invoiceDocNo: row.invoice_doc_no,
     releasedBy: row.released_by,
@@ -452,7 +455,7 @@ function toWorkLine(row: WorkLineRow): SubCertificateWorkLine {
     previousCumulativeValue: Money.fromScaled(row.previous_cumulative_value),
     cumulativeValue: Money.fromScaled(row.cumulative_value),
     thisPeriodValue: Money.fromScaled(row.this_period_value),
-    sortOrder: row.sort_order,
+    sortOrder: Number(row.sort_order),
   };
 }
 
@@ -464,8 +467,8 @@ function toDeduction(row: DeductionRow): CertificateDeductionRow {
     cumulative: Money.fromScaled(row.cumulative),
     previous: Money.fromScaled(row.previous),
     thisCertificate: Money.fromScaled(row.this_certificate),
-    posted: row.posted === 1,
-    capped: row.capped === 1,
+    posted: Number(row.posted) === 1,
+    capped: Number(row.capped) === 1,
     noteAr: null,
   };
 }
@@ -500,17 +503,7 @@ function toComputation(row: CertificateRow, deductions: readonly CertificateDedu
   };
 }
 
-class SqliteSubcontractStore implements SubcontractStore {
-  private readonly upsertSubcontract: Database.Statement;
-  private readonly upsertCertificate: Database.Statement;
-  private readonly insertLine: Database.Statement;
-  private readonly insertAdvance: Database.Statement;
-  private readonly insertRelease: Database.Statement;
-  private readonly insertWorkLine: Database.Statement;
-  private readonly insertDeduction: Database.Statement;
-
-  constructor(private readonly sqlite: Database.Database) {
-    this.upsertSubcontract = sqlite.prepare(`
+const UPSERT_SUBCONTRACT = `
       INSERT INTO subcontract (
         id, doc_no, contract_id, project_id, supplier_id, title_ar, kind,
         disguised_employment_reviewed, review_note, signed_date, start_date, planned_end_date,
@@ -520,13 +513,13 @@ class SqliteSubcontractStore implements SubcontractStore {
         withhold_social_insurance, social_insurance_note, penalty_cap_percent,
         payment_term_days, defects_liability_months, vat_basis
       ) VALUES (
-        @id, @doc_no, @contract_id, @project_id, @supplier_id, @title_ar, @kind,
-        @disguised_employment_reviewed, @review_note, @signed_date, @start_date, @planned_end_date,
-        @currency, @status, @activated_at, @completed_at, @terminated_at, @notes, @created_by,
-        @retention_percent, @retention_cap_percent, @advance_percent, @advance_recovery_percent,
-        @withholding_tax_percent, @deemed_wage_percent, @social_insurance_rate_percent,
-        @withhold_social_insurance, @social_insurance_note, @penalty_cap_percent,
-        @payment_term_days, @defects_liability_months, @vat_basis
+        ?, ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?,
+        ?, ?, ?,
+        ?, ?, ?,
+        ?, ?, ?
       )
       ON CONFLICT(id) DO UPDATE SET
         doc_no = excluded.doc_no,
@@ -560,30 +553,117 @@ class SqliteSubcontractStore implements SubcontractStore {
         payment_term_days = excluded.payment_term_days,
         defects_liability_months = excluded.defects_liability_months,
         vat_basis = excluded.vat_basis
-    `);
-    this.insertLine = sqlite.prepare(`
+    `;
+
+function subcontractParams(subcontract: Subcontract): SqlValue[] {
+  return [
+    subcontract.id,
+    subcontract.docNo,
+    subcontract.contractId,
+    subcontract.projectId,
+    subcontract.supplierId,
+    subcontract.titleAr,
+    subcontract.kind,
+    subcontract.disguisedEmploymentReviewed ? 1 : 0,
+    subcontract.reviewNote,
+    subcontract.signedDate,
+    subcontract.startDate,
+    subcontract.plannedEndDate,
+    subcontract.currency,
+    subcontract.status,
+    subcontract.activatedAt,
+    subcontract.completedAt,
+    subcontract.terminatedAt,
+    subcontract.notes,
+    subcontract.createdBy,
+    subcontract.retentionPercent,
+    subcontract.retentionCapPercent,
+    subcontract.advancePercent,
+    subcontract.advanceRecoveryPercent,
+    subcontract.withholdingTaxPercent,
+    subcontract.deemedWagePercent,
+    subcontract.socialInsuranceRatePercent,
+    subcontract.withholdSocialInsurance ? 1 : 0,
+    subcontract.socialInsuranceNote,
+    subcontract.penaltyCapPercent,
+    subcontract.paymentTermDays,
+    subcontract.defectsLiabilityMonths,
+    subcontract.vatBasis,
+  ];
+}
+
+const INSERT_LINE = `
       INSERT INTO subcontract_line (
         id, subcontract_id, client_boq_line_id, code, description_ar, unit, qty, unit_rate,
         client_unit_rate, margin_vs_client, estimated_unit_cost, sort_order
       ) VALUES (
-        @id, @subcontract_id, @client_boq_line_id, @code, @description_ar, @unit, @qty, @unit_rate,
-        @client_unit_rate, @margin_vs_client, @estimated_unit_cost, @sort_order
+        ?, ?, ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?
       )
-    `);
-    this.insertAdvance = sqlite.prepare(`
+    `;
+
+function lineParams(subcontract: Subcontract, line: SubcontractLine, index: number): SqlValue[] {
+  return [
+    line.id,
+    subcontract.id,
+    line.clientBoqLineId,
+    line.code,
+    line.descriptionAr,
+    line.unit,
+    line.qty.scaled,
+    line.unitRate.scaled,
+    line.clientUnitRate.scaled,
+    line.marginVsClient.scaled,
+    line.estimatedUnitCost?.scaled ?? null,
+    line.sortOrder || index + 1,
+  ];
+}
+
+const INSERT_ADVANCE = `
       INSERT INTO subcontract_advance (subcontract_id, voucher_id, voucher_no, date, amount, sort_order)
-      VALUES (@subcontract_id, @voucher_id, @voucher_no, @date, @amount, @sort_order)
-    `);
-    this.insertRelease = sqlite.prepare(`
+      VALUES (?, ?, ?, ?, ?, ?)
+    `;
+
+function advanceParams(subcontract: Subcontract, advance: SubcontractAdvancePayment, index: number): SqlValue[] {
+  return [
+    subcontract.id,
+    advance.voucherId,
+    advance.voucherNo,
+    advance.date,
+    advance.amount.scaled,
+    index + 1,
+  ];
+}
+
+const INSERT_RELEASE = `
       INSERT INTO subcontract_retention_release (
         id, subcontract_id, date, amount, journal_entry_id, kind, release_event_date,
         early_release, invoice_id, invoice_doc_no, released_by, notes, sort_order
       ) VALUES (
-        @id, @subcontract_id, @date, @amount, @journal_entry_id, @kind, @release_event_date,
-        @early_release, @invoice_id, @invoice_doc_no, @released_by, @notes, @sort_order
+        ?, ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?, ?
       )
-    `);
-    this.upsertCertificate = sqlite.prepare(`
+    `;
+
+function releaseParams(subcontract: Subcontract, release: SubcontractRetentionRelease, index: number): SqlValue[] {
+  return [
+    release.id,
+    subcontract.id,
+    release.date,
+    release.amount.scaled,
+    release.journalEntryId,
+    release.kind,
+    release.releaseEventDate,
+    release.earlyRelease ? 1 : 0,
+    release.invoiceId,
+    release.invoiceDocNo,
+    release.releasedBy,
+    release.notes,
+    index + 1,
+  ];
+}
+
+const UPSERT_CERTIFICATE = `
       INSERT INTO subcontract_certificate (
         id, doc_no, subcontract_id, contract_id, project_id, supplier_id, serial,
         previous_certificate_id, period_from, period_to, execution_date, is_final, status,
@@ -598,18 +678,18 @@ class SqliteSubcontractStore implements SubcontractStore {
         cumulative_net_payable, contract_value_after_variations, completion_percent,
         retention_held_cumulative, advance_received, advance_outstanding
       ) VALUES (
-        @id, @doc_no, @subcontract_id, @contract_id, @project_id, @supplier_id, @serial,
-        @previous_certificate_id, @period_from, @period_to, @execution_date, @is_final, @status,
-        @prepared_by, @prepared_at, @measured_by, @measured_at, @certified_by, @certified_at,
-        @approved_by, @approved_at, @cancelled_by, @cancelled_at, @cancel_reason_ar, @invoice_id, @invoice_doc_no, @journal_entry_id,
-        @posted_deductions_total, @due_date, @penalties_cumulative, @suspended_cumulative,
-        @employer_materials_cumulative, @water_electricity_cumulative, @notes,
-        @gross_works, @materials_on_site, @certificate_total, @tender_discount_percent, @tender_discount,
-        @net_certified, @previous_net_certified, @this_certificate_net_certified, @deductions_this_certificate,
-        @deductions_cumulative, @suspended_balance, @invoice_base, @vat_basis, @vat_statutory_rate_percent,
-        @vat_effective_rate_percent, @vat, @previous_payments, @net_payable_this_certificate,
-        @cumulative_net_payable, @contract_value_after_variations, @completion_percent,
-        @retention_held_cumulative, @advance_received, @advance_outstanding
+        ?, ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?,
+        ?, ?, ?,
+        ?, ?, ?, ?, ?,
+        ?, ?, ?, ?,
+        ?, ?, ?, ?, ?,
+        ?, ?, ?, ?,
+        ?, ?, ?,
+        ?, ?, ?
       )
       ON CONFLICT(id) DO UPDATE SET
         doc_no = excluded.doc_no,
@@ -669,408 +749,393 @@ class SqliteSubcontractStore implements SubcontractStore {
         retention_held_cumulative = excluded.retention_held_cumulative,
         advance_received = excluded.advance_received,
         advance_outstanding = excluded.advance_outstanding
-    `);
-    this.insertWorkLine = sqlite.prepare(`
+    `;
+
+function certificateParams(certificate: SubCertificate): SqlValue[] {
+  const c = certificate.computed;
+  return [
+    certificate.id,
+    certificate.docNo,
+    certificate.subcontractId,
+    certificate.contractId,
+    certificate.projectId,
+    certificate.supplierId,
+    certificate.serial,
+    certificate.previousCertificateId,
+    certificate.periodFrom,
+    certificate.periodTo,
+    certificate.executionDate,
+    certificate.isFinal ? 1 : 0,
+    certificate.status,
+    certificate.preparedBy,
+    certificate.preparedAt,
+    certificate.measuredBy,
+    certificate.measuredAt,
+    certificate.certifiedBy,
+    certificate.certifiedAt,
+    certificate.approvedBy,
+    certificate.approvedAt,
+    certificate.cancelledBy,
+    certificate.cancelledAt,
+    certificate.cancelReasonAr,
+    certificate.invoiceId,
+    certificate.invoiceDocNo,
+    certificate.journalEntryId,
+    certificate.postedDeductionsTotal.scaled,
+    certificate.dueDate,
+    certificate.penaltiesCumulative.scaled,
+    certificate.suspendedCumulative.scaled,
+    certificate.employerMaterialsCumulative.scaled,
+    certificate.waterElectricityCumulative.scaled,
+    certificate.notes,
+    c.grossWorks.scaled,
+    c.materialsOnSite.scaled,
+    c.certificateTotal.scaled,
+    c.tenderDiscountPercent,
+    c.tenderDiscount.scaled,
+    c.netCertified.scaled,
+    c.previousNetCertified.scaled,
+    c.thisCertificateNetCertified.scaled,
+    c.deductionsThisCertificate.scaled,
+    c.deductionsCumulative.scaled,
+    c.suspendedBalance.scaled,
+    c.invoiceBase.scaled,
+    c.vatBasis,
+    c.vatStatutoryRatePercent,
+    c.vatEffectiveRatePercent,
+    c.vat.scaled,
+    c.previousPayments.scaled,
+    c.netPayableThisCertificate.scaled,
+    c.cumulativeNetPayable.scaled,
+    c.contractValueAfterVariations.scaled,
+    c.completionPercent,
+    c.retentionHeldCumulative.scaled,
+    c.advanceReceived.scaled,
+    c.advanceOutstanding.scaled,
+  ];
+}
+
+const INSERT_WORK_LINE = `
       INSERT INTO subcontract_certificate_work_line (
         id, certificate_id, subcontract_line_id, client_boq_line_id, client_certified_qty, code,
         description_ar, unit, unit_rate, this_period_qty, previous_cumulative_qty, cumulative_qty,
         contracted_qty, completion_percent, previous_cumulative_value, cumulative_value,
         this_period_value, sort_order
       ) VALUES (
-        @id, @certificate_id, @subcontract_line_id, @client_boq_line_id, @client_certified_qty, @code,
-        @description_ar, @unit, @unit_rate, @this_period_qty, @previous_cumulative_qty, @cumulative_qty,
-        @contracted_qty, @completion_percent, @previous_cumulative_value, @cumulative_value,
-        @this_period_value, @sort_order
+        ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?,
+        ?, ?
       )
-    `);
-    this.insertDeduction = sqlite.prepare(`
+    `;
+
+function workLineParams(certificate: SubCertificate, line: SubCertificateWorkLine): SqlValue[] {
+  return [
+    line.id,
+    certificate.id,
+    line.boqLineId,
+    line.clientBoqLineId,
+    line.clientCertifiedCumulativeQty.scaled,
+    line.code,
+    line.descriptionAr,
+    line.unit,
+    line.unitRate.scaled,
+    line.thisPeriodQty.scaled,
+    line.previousCumulativeQty.scaled,
+    line.cumulativeQty.scaled,
+    line.contractedQty.scaled,
+    line.completionPercent,
+    line.previousCumulativeValue.scaled,
+    line.cumulativeValue.scaled,
+    line.thisPeriodValue.scaled,
+    line.sortOrder,
+  ];
+}
+
+const INSERT_DEDUCTION = `
       INSERT INTO subcontract_certificate_deduction (
         certificate_id, key, label_ar, percent, cumulative, previous, this_certificate, posted, capped, sort_order
       ) VALUES (
-        @certificate_id, @key, @label_ar, @percent, @cumulative, @previous, @this_certificate, @posted, @capped, @sort_order
+        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
       )
-    `);
+    `;
+
+function deductionParams(certificate: SubCertificate, deduction: CertificateDeductionRow, index: number): SqlValue[] {
+  return [
+    certificate.id,
+    deduction.key,
+    deduction.labelAr,
+    deduction.percent,
+    deduction.cumulative.scaled,
+    deduction.previous.scaled,
+    deduction.thisCertificate.scaled,
+    deduction.posted ? 1 : 0,
+    deduction.capped ? 1 : 0,
+    index,
+  ];
+}
+
+interface SubcontractChildren {
+  readonly lines: ReadonlyMap<string, LineRow[]>;
+  readonly advances: ReadonlyMap<string, AdvanceRow[]>;
+  readonly releases: ReadonlyMap<string, ReleaseRow[]>;
+}
+
+interface SubCertificateChildren {
+  readonly workLines: ReadonlyMap<string, WorkLineRow[]>;
+  readonly deductions: ReadonlyMap<string, DeductionRow[]>;
+}
+
+function toSubcontract(row: SubcontractRow, children: SubcontractChildren): Subcontract {
+  const lines = (children.lines.get(row.id) ?? []).map(toLine);
+  const advances = (children.advances.get(row.id) ?? []).map(toAdvance);
+  const releases = (children.releases.get(row.id) ?? []).map(toRelease);
+  return {
+    id: row.id,
+    docNo: row.doc_no,
+    contractId: row.contract_id,
+    projectId: row.project_id,
+    supplierId: row.supplier_id,
+    titleAr: row.title_ar,
+    kind: row.kind as SubcontractKind,
+    disguisedEmploymentReviewed: Number(row.disguised_employment_reviewed) === 1,
+    reviewNote: row.review_note,
+    signedDate: row.signed_date,
+    startDate: row.start_date,
+    plannedEndDate: row.planned_end_date,
+    currency: row.currency,
+    status: row.status as SubcontractStatus,
+    activatedAt: row.activated_at,
+    completedAt: row.completed_at,
+    terminatedAt: row.terminated_at,
+    notes: row.notes,
+    createdBy: row.created_by,
+    retentionPercent: row.retention_percent,
+    retentionCapPercent: row.retention_cap_percent,
+    advancePercent: row.advance_percent,
+    advanceRecoveryPercent: row.advance_recovery_percent,
+    withholdingTaxPercent: row.withholding_tax_percent,
+    deemedWagePercent: row.deemed_wage_percent,
+    socialInsuranceRatePercent: row.social_insurance_rate_percent,
+    withholdSocialInsurance: Number(row.withhold_social_insurance) === 1,
+    socialInsuranceNote: row.social_insurance_note,
+    penaltyCapPercent: row.penalty_cap_percent,
+    paymentTermDays: Number(row.payment_term_days),
+    defectsLiabilityMonths: Number(row.defects_liability_months),
+    vatBasis: row.vat_basis as VatBasis,
+    advances,
+    retentionReleases: releases,
+    lines,
+  };
+}
+
+function toSubCertificate(row: CertificateRow, children: SubCertificateChildren): SubCertificate {
+  const workLines = (children.workLines.get(row.id) ?? []).map(toWorkLine);
+  const deductions = (children.deductions.get(row.id) ?? []).map(toDeduction);
+  return {
+    id: row.id,
+    docNo: row.doc_no,
+    subcontractId: row.subcontract_id,
+    contractId: row.contract_id,
+    projectId: row.project_id,
+    supplierId: row.supplier_id,
+    serial: Number(row.serial),
+    previousCertificateId: row.previous_certificate_id,
+    periodFrom: row.period_from,
+    periodTo: row.period_to,
+    executionDate: row.execution_date,
+    isFinal: Number(row.is_final) === 1,
+    status: row.status as SubCertificateStatus,
+    preparedBy: row.prepared_by,
+    preparedAt: row.prepared_at,
+    measuredBy: row.measured_by,
+    measuredAt: row.measured_at,
+    certifiedBy: row.certified_by,
+    certifiedAt: row.certified_at,
+    approvedBy: row.approved_by,
+    approvedAt: row.approved_at,
+    cancelledBy: row.cancelled_by,
+    cancelledAt: row.cancelled_at,
+    cancelReasonAr: row.cancel_reason_ar,
+    invoiceId: row.invoice_id,
+    invoiceDocNo: row.invoice_doc_no,
+    journalEntryId: row.journal_entry_id,
+    postedDeductionsTotal: Money.fromScaled(row.posted_deductions_total),
+    dueDate: row.due_date,
+    penaltiesCumulative: Money.fromScaled(row.penalties_cumulative),
+    suspendedCumulative: Money.fromScaled(row.suspended_cumulative),
+    employerMaterialsCumulative: Money.fromScaled(row.employer_materials_cumulative),
+    waterElectricityCumulative: Money.fromScaled(row.water_electricity_cumulative),
+    notes: row.notes,
+    workLines,
+    computed: toComputation(row, deductions),
+  };
+}
+
+class SqlSubcontractStore implements SubcontractStore {
+  constructor(private readonly db: SqlDb) {}
+
+  private async hydrateAll(rows: readonly SubcontractRow[]): Promise<Subcontract[]> {
+    const parentIds = rows.map((row) => row.id);
+    const children: SubcontractChildren = {
+      lines: await childRowsByParentAsync<LineRow>(this.db, {
+        table: "subcontract_line",
+        parentColumn: "subcontract_id",
+        parentIds,
+        orderBy: "subcontract_id, sort_order, id",
+      }),
+      advances: await childRowsByParentAsync<AdvanceRow>(this.db, {
+        table: "subcontract_advance",
+        parentColumn: "subcontract_id",
+        parentIds,
+        orderBy: "subcontract_id, sort_order",
+      }),
+      releases: await childRowsByParentAsync<ReleaseRow>(this.db, {
+        table: "subcontract_retention_release",
+        parentColumn: "subcontract_id",
+        parentIds,
+        orderBy: "subcontract_id, sort_order",
+      }),
+    };
+    return rows.map((row) => toSubcontract(row, children));
   }
 
-  private hydrate(row: SubcontractRow): Subcontract {
-    const lines = (
-      this.sqlite
-        .prepare(`SELECT * FROM subcontract_line WHERE subcontract_id = ? ORDER BY sort_order, id`)
-        .all(row.id) as LineRow[]
-    ).map(toLine);
-    const advances = (
-      this.sqlite
-        .prepare(`SELECT * FROM subcontract_advance WHERE subcontract_id = ? ORDER BY sort_order`)
-        .all(row.id) as AdvanceRow[]
-    ).map(toAdvance);
-    const releases = (
-      this.sqlite
-        .prepare(`SELECT * FROM subcontract_retention_release WHERE subcontract_id = ? ORDER BY sort_order`)
-        .all(row.id) as ReleaseRow[]
-    ).map(toRelease);
-    return {
-      id: row.id,
-      docNo: row.doc_no,
-      contractId: row.contract_id,
-      projectId: row.project_id,
-      supplierId: row.supplier_id,
-      titleAr: row.title_ar,
-      kind: row.kind as SubcontractKind,
-      disguisedEmploymentReviewed: row.disguised_employment_reviewed === 1,
-      reviewNote: row.review_note,
-      signedDate: row.signed_date,
-      startDate: row.start_date,
-      plannedEndDate: row.planned_end_date,
-      currency: row.currency,
-      status: row.status as SubcontractStatus,
-      activatedAt: row.activated_at,
-      completedAt: row.completed_at,
-      terminatedAt: row.terminated_at,
-      notes: row.notes,
-      createdBy: row.created_by,
-      retentionPercent: row.retention_percent,
-      retentionCapPercent: row.retention_cap_percent,
-      advancePercent: row.advance_percent,
-      advanceRecoveryPercent: row.advance_recovery_percent,
-      withholdingTaxPercent: row.withholding_tax_percent,
-      deemedWagePercent: row.deemed_wage_percent,
-      socialInsuranceRatePercent: row.social_insurance_rate_percent,
-      withholdSocialInsurance: row.withhold_social_insurance === 1,
-      socialInsuranceNote: row.social_insurance_note,
-      penaltyCapPercent: row.penalty_cap_percent,
-      paymentTermDays: row.payment_term_days,
-      defectsLiabilityMonths: row.defects_liability_months,
-      vatBasis: row.vat_basis as VatBasis,
-      advances,
-      retentionReleases: releases,
-      lines,
+  private async hydrateCertificates(rows: readonly CertificateRow[]): Promise<SubCertificate[]> {
+    const parentIds = rows.map((row) => row.id);
+    const children: SubCertificateChildren = {
+      workLines: await childRowsByParentAsync<WorkLineRow>(this.db, {
+        table: "subcontract_certificate_work_line",
+        parentColumn: "certificate_id",
+        parentIds,
+        orderBy: "certificate_id, sort_order, id",
+      }),
+      deductions: await childRowsByParentAsync<DeductionRow>(this.db, {
+        table: "subcontract_certificate_deduction",
+        parentColumn: "certificate_id",
+        parentIds,
+        orderBy: "certificate_id, sort_order",
+      }),
     };
-  }
-
-  private hydrateCertificate(row: CertificateRow): SubCertificate {
-    const workLines = (
-      this.sqlite
-        .prepare(`SELECT * FROM subcontract_certificate_work_line WHERE certificate_id = ? ORDER BY sort_order, id`)
-        .all(row.id) as WorkLineRow[]
-    ).map(toWorkLine);
-    const deductions = (
-      this.sqlite
-        .prepare(`SELECT * FROM subcontract_certificate_deduction WHERE certificate_id = ? ORDER BY sort_order`)
-        .all(row.id) as DeductionRow[]
-    ).map(toDeduction);
-    return {
-      id: row.id,
-      docNo: row.doc_no,
-      subcontractId: row.subcontract_id,
-      contractId: row.contract_id,
-      projectId: row.project_id,
-      supplierId: row.supplier_id,
-      serial: row.serial,
-      previousCertificateId: row.previous_certificate_id,
-      periodFrom: row.period_from,
-      periodTo: row.period_to,
-      executionDate: row.execution_date,
-      isFinal: row.is_final === 1,
-      status: row.status as SubCertificateStatus,
-      preparedBy: row.prepared_by,
-      preparedAt: row.prepared_at,
-      measuredBy: row.measured_by,
-      measuredAt: row.measured_at,
-      certifiedBy: row.certified_by,
-      certifiedAt: row.certified_at,
-      approvedBy: row.approved_by,
-      approvedAt: row.approved_at,
-      cancelledBy: row.cancelled_by,
-      cancelledAt: row.cancelled_at,
-      cancelReasonAr: row.cancel_reason_ar,
-      invoiceId: row.invoice_id,
-      invoiceDocNo: row.invoice_doc_no,
-      journalEntryId: row.journal_entry_id,
-      postedDeductionsTotal: Money.fromScaled(row.posted_deductions_total),
-      dueDate: row.due_date,
-      penaltiesCumulative: Money.fromScaled(row.penalties_cumulative),
-      suspendedCumulative: Money.fromScaled(row.suspended_cumulative),
-      employerMaterialsCumulative: Money.fromScaled(row.employer_materials_cumulative),
-      waterElectricityCumulative: Money.fromScaled(row.water_electricity_cumulative),
-      notes: row.notes,
-      workLines,
-      computed: toComputation(row, deductions),
-    };
+    return rows.map((row) => toSubCertificate(row, children));
   }
 
   async findById(id: string): Promise<Subcontract | null> {
-    const row = this.sqlite.prepare(`SELECT * FROM subcontract WHERE id = ?`).get(id) as SubcontractRow | undefined;
-    return row ? this.hydrate(row) : null;
+    const row = await this.db.get<SubcontractRow>(`SELECT * FROM subcontract WHERE id = ?`, [id]);
+    return row ? (await this.hydrateAll([row]))[0]! : null;
   }
 
   async findByDocNo(docNo: string): Promise<Subcontract | null> {
-    const row = this.sqlite.prepare(`SELECT * FROM subcontract WHERE doc_no = ?`).get(docNo) as
-      | SubcontractRow
-      | undefined;
-    return row ? this.hydrate(row) : null;
+    const row = await this.db.get<SubcontractRow>(`SELECT * FROM subcontract WHERE doc_no = ?`, [docNo]);
+    return row ? (await this.hydrateAll([row]))[0]! : null;
   }
 
   async list(filter?: SubcontractListFilter): Promise<Subcontract[]> {
-    const rows = this.sqlite.prepare(`SELECT * FROM subcontract ORDER BY doc_no`).all() as SubcontractRow[];
-    return rows
-      .filter(
+    const rows = await this.db.all<SubcontractRow>(`SELECT * FROM subcontract ORDER BY doc_no`);
+    return this.hydrateAll(
+      rows.filter(
         (r) =>
           (filter?.contractId === undefined || r.contract_id === filter.contractId) &&
           (filter?.projectId === undefined || r.project_id === filter.projectId) &&
           (filter?.supplierId === undefined || r.supplier_id === filter.supplierId) &&
           (filter?.status === undefined || r.status === filter.status),
-      )
-      .map((r) => this.hydrate(r));
+      ),
+    );
   }
 
   async insert(subcontract: Subcontract): Promise<void> {
-    refusingTakenId(this.sqlite, "subcontract", subcontract.id);
-    return this.save(subcontract);
+    await this.db.transaction(async () => {
+      await refuseTakenIdAsync(this.db, "subcontract", subcontract.id);
+      await this.writeSubcontract(subcontract);
+    });
   }
 
   async save(subcontract: Subcontract): Promise<void> {
-    const write = this.sqlite.transaction(() => {
-      this.upsertSubcontract.run({
-        id: subcontract.id,
-        doc_no: subcontract.docNo,
-        contract_id: subcontract.contractId,
-        project_id: subcontract.projectId,
-        supplier_id: subcontract.supplierId,
-        title_ar: subcontract.titleAr,
-        kind: subcontract.kind,
-        disguised_employment_reviewed: subcontract.disguisedEmploymentReviewed ? 1 : 0,
-        review_note: subcontract.reviewNote,
-        signed_date: subcontract.signedDate,
-        start_date: subcontract.startDate,
-        planned_end_date: subcontract.plannedEndDate,
-        currency: subcontract.currency,
-        status: subcontract.status,
-        activated_at: subcontract.activatedAt,
-        completed_at: subcontract.completedAt,
-        terminated_at: subcontract.terminatedAt,
-        notes: subcontract.notes,
-        created_by: subcontract.createdBy,
-        retention_percent: subcontract.retentionPercent,
-        retention_cap_percent: subcontract.retentionCapPercent,
-        advance_percent: subcontract.advancePercent,
-        advance_recovery_percent: subcontract.advanceRecoveryPercent,
-        withholding_tax_percent: subcontract.withholdingTaxPercent,
-        deemed_wage_percent: subcontract.deemedWagePercent,
-        social_insurance_rate_percent: subcontract.socialInsuranceRatePercent,
-        withhold_social_insurance: subcontract.withholdSocialInsurance ? 1 : 0,
-        social_insurance_note: subcontract.socialInsuranceNote,
-        penalty_cap_percent: subcontract.penaltyCapPercent,
-        payment_term_days: subcontract.paymentTermDays,
-        defects_liability_months: subcontract.defectsLiabilityMonths,
-        vat_basis: subcontract.vatBasis,
-      });
-      this.sqlite.prepare(`DELETE FROM subcontract_line WHERE subcontract_id = ?`).run(subcontract.id);
-      this.sqlite.prepare(`DELETE FROM subcontract_advance WHERE subcontract_id = ?`).run(subcontract.id);
-      this.sqlite.prepare(`DELETE FROM subcontract_retention_release WHERE subcontract_id = ?`).run(subcontract.id);
-      subcontract.lines.forEach((line, index) => {
-        this.insertLine.run({
-          id: line.id,
-          subcontract_id: subcontract.id,
-          client_boq_line_id: line.clientBoqLineId,
-          code: line.code,
-          description_ar: line.descriptionAr,
-          unit: line.unit,
-          qty: line.qty.toScaledNumber(),
-          unit_rate: line.unitRate.toScaledNumber(),
-          client_unit_rate: line.clientUnitRate.toScaledNumber(),
-          margin_vs_client: line.marginVsClient.toScaledNumber(),
-          estimated_unit_cost: line.estimatedUnitCost?.toScaledNumber() ?? null,
-          sort_order: line.sortOrder || index + 1,
-        });
-      });
-      subcontract.advances.forEach((advance, index) => {
-        this.insertAdvance.run({
-          subcontract_id: subcontract.id,
-          voucher_id: advance.voucherId,
-          voucher_no: advance.voucherNo,
-          date: advance.date,
-          amount: advance.amount.toScaledNumber(),
-          sort_order: index + 1,
-        });
-      });
-      subcontract.retentionReleases.forEach((release, index) => {
-        this.insertRelease.run({
-          id: release.id,
-          subcontract_id: subcontract.id,
-          date: release.date,
-          amount: release.amount.toScaledNumber(),
-          journal_entry_id: release.journalEntryId,
-          kind: release.kind,
-          release_event_date: release.releaseEventDate,
-          early_release: release.earlyRelease ? 1 : 0,
-          invoice_id: release.invoiceId,
-          invoice_doc_no: release.invoiceDocNo,
-          released_by: release.releasedBy,
-          notes: release.notes,
-          sort_order: index + 1,
-        });
-      });
-    });
-    write();
+    await this.db.transaction(() => this.writeSubcontract(subcontract));
+  }
+
+  private async writeSubcontract(subcontract: Subcontract): Promise<void> {
+    await this.db.run(UPSERT_SUBCONTRACT, subcontractParams(subcontract));
+    await this.db.run(`DELETE FROM subcontract_line WHERE subcontract_id = ?`, [subcontract.id]);
+    await this.db.run(`DELETE FROM subcontract_advance WHERE subcontract_id = ?`, [subcontract.id]);
+    await this.db.run(`DELETE FROM subcontract_retention_release WHERE subcontract_id = ?`, [subcontract.id]);
+    for (const [index, line] of subcontract.lines.entries()) {
+      await this.db.run(INSERT_LINE, lineParams(subcontract, line, index));
+    }
+    for (const [index, advance] of subcontract.advances.entries()) {
+      await this.db.run(INSERT_ADVANCE, advanceParams(subcontract, advance, index));
+    }
+    for (const [index, release] of subcontract.retentionReleases.entries()) {
+      await this.db.run(INSERT_RELEASE, releaseParams(subcontract, release, index));
+    }
   }
 
   async findCertificateById(id: string): Promise<SubCertificate | null> {
-    const row = this.sqlite.prepare(`SELECT * FROM subcontract_certificate WHERE id = ?`).get(id) as
-      | CertificateRow
-      | undefined;
-    return row ? this.hydrateCertificate(row) : null;
+    const row = await this.db.get<CertificateRow>(`SELECT * FROM subcontract_certificate WHERE id = ?`, [id]);
+    return row ? (await this.hydrateCertificates([row]))[0]! : null;
   }
 
   async findCertificateByDocNo(docNo: string): Promise<SubCertificate | null> {
-    const row = this.sqlite.prepare(`SELECT * FROM subcontract_certificate WHERE doc_no = ?`).get(docNo) as
-      | CertificateRow
-      | undefined;
-    return row ? this.hydrateCertificate(row) : null;
+    const row = await this.db.get<CertificateRow>(`SELECT * FROM subcontract_certificate WHERE doc_no = ?`, [docNo]);
+    return row ? (await this.hydrateCertificates([row]))[0]! : null;
   }
 
   async listCertificates(filter?: SubCertificateListFilter): Promise<SubCertificate[]> {
-    const rows = this.sqlite
-      .prepare(`SELECT * FROM subcontract_certificate ORDER BY subcontract_id, serial`)
-      .all() as CertificateRow[];
-    return rows
-      .filter(
+    const rows = await this.db.all<CertificateRow>(`SELECT * FROM subcontract_certificate ORDER BY subcontract_id, serial`);
+    return this.hydrateCertificates(
+      rows.filter(
         (r) =>
           (filter?.subcontractId === undefined || r.subcontract_id === filter.subcontractId) &&
           (filter?.contractId === undefined || r.contract_id === filter.contractId) &&
           (filter?.projectId === undefined || r.project_id === filter.projectId) &&
           (filter?.supplierId === undefined || r.supplier_id === filter.supplierId) &&
           (filter?.status === undefined || r.status === filter.status),
-      )
-      .map((r) => this.hydrateCertificate(r));
+      ),
+    );
   }
 
   async listCertificatesBySubcontract(subcontractId: string): Promise<SubCertificate[]> {
-    const rows = this.sqlite
-      .prepare(`SELECT * FROM subcontract_certificate WHERE subcontract_id = ? ORDER BY serial`)
-      .all(subcontractId) as CertificateRow[];
-    return rows.map((r) => this.hydrateCertificate(r));
+    return this.hydrateCertificates(
+      await this.db.all<CertificateRow>(`SELECT * FROM subcontract_certificate WHERE subcontract_id = ? ORDER BY serial`, [
+        subcontractId,
+      ]),
+    );
   }
 
   async insertCertificate(certificate: SubCertificate): Promise<void> {
-    refusingTakenId(this.sqlite, "subcontract_certificate", certificate.id);
-    return this.saveCertificate(certificate);
+    await this.db.transaction(async () => {
+      await refuseTakenIdAsync(this.db, "subcontract_certificate", certificate.id);
+      await this.writeCertificate(certificate);
+    });
   }
 
   async saveCertificate(certificate: SubCertificate): Promise<void> {
-    const write = this.sqlite.transaction(() => {
-      const c = certificate.computed;
-      this.upsertCertificate.run({
-        id: certificate.id,
-        doc_no: certificate.docNo,
-        subcontract_id: certificate.subcontractId,
-        contract_id: certificate.contractId,
-        project_id: certificate.projectId,
-        supplier_id: certificate.supplierId,
-        serial: certificate.serial,
-        previous_certificate_id: certificate.previousCertificateId,
-        period_from: certificate.periodFrom,
-        period_to: certificate.periodTo,
-        execution_date: certificate.executionDate,
-        is_final: certificate.isFinal ? 1 : 0,
-        status: certificate.status,
-        prepared_by: certificate.preparedBy,
-        prepared_at: certificate.preparedAt,
-        measured_by: certificate.measuredBy,
-        measured_at: certificate.measuredAt,
-        certified_by: certificate.certifiedBy,
-        certified_at: certificate.certifiedAt,
-        approved_by: certificate.approvedBy,
-        approved_at: certificate.approvedAt,
-        cancelled_by: certificate.cancelledBy,
-        cancelled_at: certificate.cancelledAt,
-        cancel_reason_ar: certificate.cancelReasonAr,
-        invoice_id: certificate.invoiceId,
-        invoice_doc_no: certificate.invoiceDocNo,
-        journal_entry_id: certificate.journalEntryId,
-        posted_deductions_total: certificate.postedDeductionsTotal.toScaledNumber(),
-        due_date: certificate.dueDate,
-        penalties_cumulative: certificate.penaltiesCumulative.toScaledNumber(),
-        suspended_cumulative: certificate.suspendedCumulative.toScaledNumber(),
-        employer_materials_cumulative: certificate.employerMaterialsCumulative.toScaledNumber(),
-        water_electricity_cumulative: certificate.waterElectricityCumulative.toScaledNumber(),
-        notes: certificate.notes,
-        gross_works: c.grossWorks.toScaledNumber(),
-        materials_on_site: c.materialsOnSite.toScaledNumber(),
-        certificate_total: c.certificateTotal.toScaledNumber(),
-        tender_discount_percent: c.tenderDiscountPercent,
-        tender_discount: c.tenderDiscount.toScaledNumber(),
-        net_certified: c.netCertified.toScaledNumber(),
-        previous_net_certified: c.previousNetCertified.toScaledNumber(),
-        this_certificate_net_certified: c.thisCertificateNetCertified.toScaledNumber(),
-        deductions_this_certificate: c.deductionsThisCertificate.toScaledNumber(),
-        deductions_cumulative: c.deductionsCumulative.toScaledNumber(),
-        suspended_balance: c.suspendedBalance.toScaledNumber(),
-        invoice_base: c.invoiceBase.toScaledNumber(),
-        vat_basis: c.vatBasis,
-        vat_statutory_rate_percent: c.vatStatutoryRatePercent,
-        vat_effective_rate_percent: c.vatEffectiveRatePercent,
-        vat: c.vat.toScaledNumber(),
-        previous_payments: c.previousPayments.toScaledNumber(),
-        net_payable_this_certificate: c.netPayableThisCertificate.toScaledNumber(),
-        cumulative_net_payable: c.cumulativeNetPayable.toScaledNumber(),
-        contract_value_after_variations: c.contractValueAfterVariations.toScaledNumber(),
-        completion_percent: c.completionPercent,
-        retention_held_cumulative: c.retentionHeldCumulative.toScaledNumber(),
-        advance_received: c.advanceReceived.toScaledNumber(),
-        advance_outstanding: c.advanceOutstanding.toScaledNumber(),
-      });
-      this.sqlite
-        .prepare(`DELETE FROM subcontract_certificate_work_line WHERE certificate_id = ?`)
-        .run(certificate.id);
-      this.sqlite
-        .prepare(`DELETE FROM subcontract_certificate_deduction WHERE certificate_id = ?`)
-        .run(certificate.id);
-      for (const line of certificate.workLines) {
-        this.insertWorkLine.run({
-          id: line.id,
-          certificate_id: certificate.id,
-          subcontract_line_id: line.boqLineId,
-          client_boq_line_id: line.clientBoqLineId,
-          client_certified_qty: line.clientCertifiedCumulativeQty.toScaledNumber(),
-          code: line.code,
-          description_ar: line.descriptionAr,
-          unit: line.unit,
-          unit_rate: line.unitRate.toScaledNumber(),
-          this_period_qty: line.thisPeriodQty.toScaledNumber(),
-          previous_cumulative_qty: line.previousCumulativeQty.toScaledNumber(),
-          cumulative_qty: line.cumulativeQty.toScaledNumber(),
-          contracted_qty: line.contractedQty.toScaledNumber(),
-          completion_percent: line.completionPercent,
-          previous_cumulative_value: line.previousCumulativeValue.toScaledNumber(),
-          cumulative_value: line.cumulativeValue.toScaledNumber(),
-          this_period_value: line.thisPeriodValue.toScaledNumber(),
-          sort_order: line.sortOrder,
-        });
-      }
-      certificate.computed.deductions.forEach((deduction, index) => {
-        this.insertDeduction.run({
-          certificate_id: certificate.id,
-          key: deduction.key,
-          label_ar: deduction.labelAr,
-          percent: deduction.percent,
-          cumulative: deduction.cumulative.toScaledNumber(),
-          previous: deduction.previous.toScaledNumber(),
-          this_certificate: deduction.thisCertificate.toScaledNumber(),
-          posted: deduction.posted ? 1 : 0,
-          capped: deduction.capped ? 1 : 0,
-          sort_order: index,
-        });
-      });
-    });
-    write();
+    await this.db.transaction(() => this.writeCertificate(certificate));
+  }
+
+  private async writeCertificate(certificate: SubCertificate): Promise<void> {
+    await this.db.run(UPSERT_CERTIFICATE, certificateParams(certificate));
+    await this.db.run(`DELETE FROM subcontract_certificate_work_line WHERE certificate_id = ?`, [certificate.id]);
+    await this.db.run(`DELETE FROM subcontract_certificate_deduction WHERE certificate_id = ?`, [certificate.id]);
+    for (const line of certificate.workLines) await this.db.run(INSERT_WORK_LINE, workLineParams(certificate, line));
+    for (const [index, deduction] of certificate.computed.deductions.entries()) {
+      await this.db.run(INSERT_DEDUCTION, deductionParams(certificate, deduction, index));
+    }
   }
 
   async transaction<T>(fn: () => Promise<T>): Promise<T> {
     // Nesting-aware: approving a sub certificate confirms a purchase invoice and
     // posts a journal entry, each of which opens its own transaction on this
     // same connection.
-    return withSqliteTransaction(this.sqlite, fn, "BEGIN IMMEDIATE");
+    return this.db.transaction(fn, TransactionMode.Immediate);
   }
+}
+
+export async function ensureSubcontractSchema(db: SqlDb): Promise<void> {
+  await db.applySchema(CREATE_TABLES);
+}
+
+export function createSubcontractStore(db: SqlDb): SubcontractStore {
+  return new SqlSubcontractStore(db);
 }
 
 export interface SqliteSubcontractStoreHandle extends SubcontractStore {
@@ -1098,8 +1163,7 @@ export function createSqliteSubcontractStore(
   addColumnIfMissing(sqlite, "subcontract_retention_release", "invoice_doc_no", "invoice_doc_no TEXT");
   addColumnIfMissing(sqlite, "subcontract_certificate", "cancelled_by", "cancelled_by TEXT");
   addColumnIfMissing(sqlite, "subcontract_certificate", "cancel_reason_ar", "cancel_reason_ar TEXT");
-  const store = new SqliteSubcontractStore(sqlite);
-  return Object.assign(store, {
+  return Object.assign(createSubcontractStore(sqliteDb(sqlite)), {
     close: () => {
       if (owned) sqlite.close();
     },

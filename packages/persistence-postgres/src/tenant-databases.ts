@@ -4,6 +4,7 @@ import type { SqlDb } from "@mezan/persistence";
 import { assertCollation, assertSchemaName, CONNECT_TIMEOUT_MS, createTenantPool, dropTenantSchema, deriveRolePassword, PLATFORM_SCHEMA, postgresDb, provisionTenantSchema } from "./postgres-db.js";
 
 const SECRET_RE = /^[0-9a-f]{64}$/;
+const PLATFORM_POOL_MAX = 8;
 
 export class PlatformSchemaDropRefusedError extends Error {
   constructor() {
@@ -75,7 +76,7 @@ export class TenantDatabases {
         connectionString: this.options.connectionString,
         schema,
         password: deriveRolePassword(this.options.secret, schema),
-        max: this.options.maxConnectionsPerSchema ?? 3,
+        max: schema === PLATFORM_SCHEMA ? PLATFORM_POOL_MAX : (this.options.maxConnectionsPerSchema ?? 3),
         ...(this.options.onPoolError ? { onError: this.options.onPoolError } : {}),
       });
       entry = { schema, pool, db: postgresDb(pool, schema) };

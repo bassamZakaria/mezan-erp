@@ -49,7 +49,7 @@ export const area: BackendArea = {
           tenantCode,
           audit: ctx.audit,
           userName: async (userId) => (await ctx.uow.users.findById(userId))?.nameAr ?? null,
-          onDeliveryQueued: () => worker.kick(),
+          onDeliveryQueued: () => ctx.db.afterCommit(() => worker.kick()),
         },
         ctx.resolveAuthContext,
       ),

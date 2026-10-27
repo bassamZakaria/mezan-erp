@@ -175,7 +175,7 @@ export const area: BackendArea = {
     ctx.eventBus.subscribeAll((event) => {
       if (EXPIRY_EVENT_CODES.includes(event.code)) return;
       if (!RESCAN_ON.has(event.code) && !scanner.staleDay()) return;
-      setImmediate(scanner.scanSafely);
+      ctx.db.afterCommit(() => setImmediate(scanner.scanSafely));
     });
 
     const deps = {

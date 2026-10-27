@@ -74,6 +74,20 @@ describe.each(DIALECTS)("transactions and follow-ups on $dialect", ({ dialect })
   });
 });
 
+describe("a pooled transaction whose server session ends", () => {
+  runOn(SqlDialect.Postgres)("rejects that transaction and leaves the process and the pool serving", async () => {
+    const { db } = await open(SqlDialect.Postgres);
+    await expect(
+      db.transaction(async () => {
+        await db.exec("SET LOCAL idle_in_transaction_session_timeout = '200ms'");
+        await new Promise((resolve) => setTimeout(resolve, 700));
+        await db.get("SELECT 1 AS one");
+      }),
+    ).rejects.toThrow();
+    expect(await db.get<{ one: bigint }>("SELECT 1 AS one")).toEqual({ one: 1n });
+  });
+});
+
 describe("a Postgres pool with no free connection", () => {
   runOn(SqlDialect.Postgres)("answers DatabaseBusyError rather than waiting forever", async () => {
     const admin = new pg.Pool({ connectionString: PG_URL, max: 1 });

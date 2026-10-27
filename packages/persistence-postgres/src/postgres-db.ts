@@ -145,6 +145,7 @@ export async function provisionTenantSchema(admin: pg.Pool | pg.Client, schema: 
   assertSchemaName(schema);
   await assertCollation(admin);
   const client = admin instanceof pg.Pool ? await admin.connect() : admin;
+  const dropped = watchCheckedOut(client);
   try {
     await client.query("BEGIN");
     // REQUIRED: concurrent GRANT/REVOKE on the database race on pg_database's ACL row ("tuple concurrently updated").
@@ -167,7 +168,8 @@ export async function provisionTenantSchema(admin: pg.Pool | pg.Client, schema: 
     await client.query("ROLLBACK").catch(() => undefined);
     throw error;
   } finally {
-    if (admin instanceof pg.Pool) (client as pg.PoolClient).release();
+    dropped.stop();
+    if (admin instanceof pg.Pool) (client as pg.PoolClient).release(dropped.happened());
   }
 }
 
@@ -175,6 +177,7 @@ export async function dropTenantSchema(admin: pg.Pool | pg.Client, schema: strin
   assertSchemaName(schema);
   const name = pg.escapeIdentifier(schema);
   const client = admin instanceof pg.Pool ? await admin.connect() : admin;
+  const dropped = watchCheckedOut(client);
   try {
     await client.query("BEGIN");
     await client.query("SELECT pg_advisory_xact_lock($1, 0)", [PROVISION_LOCK_CLASS]);
@@ -187,7 +190,8 @@ export async function dropTenantSchema(admin: pg.Pool | pg.Client, schema: strin
     await client.query("ROLLBACK").catch(() => undefined);
     throw error;
   } finally {
-    if (admin instanceof pg.Pool) (client as pg.PoolClient).release();
+    dropped.stop();
+    if (admin instanceof pg.Pool) (client as pg.PoolClient).release(dropped.happened());
   }
 }
 
@@ -220,6 +224,19 @@ interface OpenTransaction extends Level {
 
 type Queryable = Pick<pg.PoolClient, "query">;
 
+const WRITER_WAIT_MS = 30_000;
+
+// REQUIRED: pg-pool listens for "error" only on idle clients; a checked-out client whose
+// server session ends (idle-in-transaction timeout, restart) would otherwise crash the process.
+function watchCheckedOut(client: pg.PoolClient | pg.Client): { happened(): boolean; stop(): void } {
+  let happened = false;
+  const onError = () => {
+    happened = true;
+  };
+  client.on("error", onError);
+  return { happened: () => happened, stop: () => client.off("error", onError) };
+}
+
 const POOL_TIMEOUT_MESSAGE = "timeout exceeded when trying to connect";
 
 async function busyAware<T>(work: Promise<T>): Promise<T> {
@@ -235,7 +252,8 @@ class PostgresDb implements SqlDb {
   readonly dialect = SqlDialect.Postgres;
   private readonly current = new AsyncLocalStorage<OpenTransaction>();
   private readonly level = new AsyncLocalStorage<Level>();
-  private writers: Promise<void> = Promise.resolve();
+  private writerHeld = false;
+  private readonly writersWaiting: (() => void)[] = [];
 
   constructor(
     private readonly pool: pg.Pool,
@@ -304,22 +322,44 @@ class PostgresDb implements SqlDb {
 
     // REQUIRED: writers queue here, not on the advisory lock, so a burst of writes
     // never holds every pooled connection while reads wait for one.
-    const previous = this.writers;
-    let leave!: () => void;
-    this.writers = new Promise<void>((resolve) => {
-      leave = resolve;
-    });
+    await this.takeWriterTurn();
     try {
-      await previous;
       return await this.outermost(fn);
     } finally {
-      leave();
+      this.passWriterTurn();
     }
+  }
+
+  private async takeWriterTurn(): Promise<void> {
+    if (!this.writerHeld) {
+      this.writerHeld = true;
+      return;
+    }
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        const at = this.writersWaiting.indexOf(arrive);
+        if (at >= 0) this.writersWaiting.splice(at, 1);
+        reject(new DatabaseBusyError(new Error(`waited ${WRITER_WAIT_MS}ms for the tenant's writer turn`)));
+      }, WRITER_WAIT_MS);
+      timer.unref?.();
+      const arrive = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+      this.writersWaiting.push(arrive);
+    });
+  }
+
+  private passWriterTurn(): void {
+    const next = this.writersWaiting.shift();
+    if (next) next();
+    else this.writerHeld = false;
   }
 
   private async outermost<T>(fn: () => Promise<T>): Promise<T> {
     const client = await busyAware(this.pool.connect());
     const tx: OpenTransaction = { client, open: true, savepoints: 0, queue: Promise.resolve(), committed: [] };
+    const dropped = watchCheckedOut(client);
     let broken = false;
     try {
       await client.query("BEGIN");
@@ -349,7 +389,8 @@ class PostgresDb implements SqlDb {
       throw error;
     } finally {
       tx.open = false;
-      client.release(broken);
+      dropped.stop();
+      client.release(broken || dropped.happened());
     }
   }
 

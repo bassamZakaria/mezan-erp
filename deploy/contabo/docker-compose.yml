@@ -72,6 +72,13 @@ services:
       # at once; idle pools give their connections back.
       - max_connections=200
       - -c
+      # The lock table is shared: about max_locks_per_transaction × max_connections
+      # slots (~200k here, on the order of 100 MB of shared memory). A schema has
+      # ~215 tables and ~200 indexes: dropping or restoring one takes ~900 locks
+      # in one transaction, its schema upgrade and its hourly dump hundreds more.
+      # The default (64, so ~13k slots) ran out around 15 companies restored at once.
+      - max_locks_per_transaction=1024
+      - -c
       - shared_buffers=512MB
       - -c
       - wal_level=replica
@@ -79,7 +86,11 @@ services:
       - archive_mode=on
       - -c
       # Restore with: restore_command = 'gunzip -c /wal-archive/%f.gz > %p'
-      - archive_command=test ! -f /wal-archive/%f.gz && gzip -c %p > /wal-archive/%f.gz.tmp && mv /wal-archive/%f.gz.tmp /wal-archive/%f.gz
+      # A segment already archived (a crash between mv and Postgres recording
+      # it) counts as done only if it is the same WAL; anything else stops
+      # archiving until someone looks. sync: the file, then its rename, reach disk
+      # before Postgres recycles the segment.
+      - archive_command=if [ -f /wal-archive/%f.gz ]; then gunzip -c /wal-archive/%f.gz | cmp -s - %p; else gzip -c %p > /wal-archive/%f.gz.tmp && sync /wal-archive/%f.gz.tmp && mv /wal-archive/%f.gz.tmp /wal-archive/%f.gz && sync /wal-archive; fi
       - -c
       - archive_timeout=300
       - -c
@@ -98,7 +109,8 @@ services:
     shm_size: 256m
     stop_grace_period: 60s
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d mezan"]
+      # -h: the image's init-time server listens on the unix socket only, and must not read as healthy.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U \"$$POSTGRES_USER\" -d mezan"]
       interval: 10s
       timeout: 5s
       retries: 6

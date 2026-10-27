@@ -23,6 +23,8 @@ jobs:
 
   image:
     name: build · push (amd64)
+    # An untested commit is never pushed to the registry, where a hand deploy could pick it up.
+    needs: test
     runs-on: ubuntu-latest
     outputs:
       digest: ${{ steps.build.outputs.digest }}

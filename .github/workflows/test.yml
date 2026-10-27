@@ -31,13 +31,17 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U mezan"
+          --health-cmd "pg_isready -h 127.0.0.1 -U mezan"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20
     env:
       CI: "true"
-      MEZAN_TEST_PG_URL: postgres://mezan:mezan@127.0.0.1:5432/mezan_test
+      # The app's login as on the VPS (deploy/contabo/postgres-init/10-mezan-app.sql),
+      # so a statement only a superuser may run fails here first.
+      MEZAN_TEST_PG_URL: postgres://mezan_app:mezan_app@127.0.0.1:5432/mezan_test
+      # Superuser, only for what deploy.sh does as one: creating and dropping databases.
+      MEZAN_TEST_PG_ADMIN_URL: postgres://mezan:mezan@127.0.0.1:5432/mezan_test
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -55,6 +59,12 @@ jobs:
 
       - name: Test database (C collation, as on the VPS)
         run: docker exec ${{ job.services.postgres.id }} psql -U mezan -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE mezan_test TEMPLATE template0 LC_COLLATE 'C' LC_CTYPE 'C' ENCODING 'UTF8'"
+
+      - name: App login (mezan_app, not a superuser, as on the VPS)
+        # CONNECTION LIMIT -1: parallel test files each open their own admin pool; the VPS's cap of 20 is for one process.
+        run: |
+          docker exec -i ${{ job.services.postgres.id }} psql -U mezan -d mezan_test -v ON_ERROR_STOP=1 -q < deploy/contabo/postgres-init/10-mezan-app.sql
+          docker exec ${{ job.services.postgres.id }} psql -U mezan -d mezan_test -v ON_ERROR_STOP=1 -qc "ALTER ROLE mezan_app LOGIN PASSWORD 'mezan_app' CONNECTION LIMIT -1"
 
       - name: Typecheck
         run: pnpm typecheck

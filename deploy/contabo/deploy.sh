@@ -7,7 +7,7 @@
 # Every deploy stops the app first (Postgres keeps running) and takes a
 # consistent copy of the books: expect about a minute of downtime. A deploy that
 # never gets ready restores that copy and goes back to the old tag.
-set -euo pipefail
+set -Eeuo pipefail
 
 COMPOSE_DIR="${MEZAN_COMPOSE_DIR:-/opt/mezan}"
 DATA_DIR="${MEZAN_DATA_DIR:-/srv/mezan/data}"
@@ -33,6 +33,23 @@ compose() { docker compose --project-directory "$COMPOSE_DIR" -f "$COMPOSE_DIR/d
 pg_user() { sed -n 's/^POSTGRES_USER=//p' "$PG_ENV" | tail -n 1; }
 psql_in() { docker exec -i mezan-postgres psql -U "$(pg_user)" -d mezan -v ON_ERROR_STOP=1 -Atc "$1"; }
 
+book_schemas() { psql_in "SELECT nspname FROM pg_namespace WHERE nspname = 'platform' OR nspname ~ '^t_[a-z0-9_]+\$' ORDER BY 1"; }
+
+PHASE=""
+on_exit() {
+  local code=$?
+  [ "$code" -ne 0 ] || return 0
+  case "$PHASE" in
+    stopped)
+      log "starting the old version again (nothing was switched)"
+      compose start mezan || log "could not start it: run 'docker compose start mezan' in $COMPOSE_DIR" ;;
+    tagged) log "the site may be down on tag $(tag_value MEZAN_IMAGE_TAG): see README 'Restore'" ;;
+    restoring) log "the restore did not finish: the site is down and the books may be part-restored. Both copies are in $PREDEPLOY_ROOT; see README 'Restore'" ;;
+  esac
+}
+trap 'log "failed at line $LINENO: $BASH_COMMAND"' ERR
+trap on_exit EXIT
+
 tag_value() { [ -f "$TAG_FILE" ] || return 0; sed -n "s/^$1=//p" "$TAG_FILE" | tail -n 1; }
 
 write_tags() {
@@ -43,7 +60,7 @@ write_tags() {
 
 preflight() {
   local tool
-  for tool in docker rsync flock; do command -v "$tool" >/dev/null || die "$tool is not installed"; done
+  for tool in docker rsync flock python3; do command -v "$tool" >/dev/null || die "$tool is not installed"; done
   for file in "$APP_ENV" "$SHARED_ENV" "$PG_ENV"; do
     [ -f "$file" ] || die "$file is missing"
     [ "$(stat -c '%a' "$file")" = "600" ] || die "$file must be mode 0600"
@@ -99,32 +116,63 @@ stop_cleanly() {
   [ ! -e "$RUNNING_MARKER" ] || die "$RUNNING_MARKER is still there, so the app did not close its databases; nothing was copied or changed"
 }
 
-snapshot_data() {
-  local label="$1" target="$PREDEPLOY_ROOT/$1"
-  local need_kb free_kb
-  need_kb="$(du -sk --exclude=backups --exclude=exports "$DATA_DIR" | cut -f1)"
+check_disk() {
+  local files_kb pg_kb=0 free_kb
+  files_kb="$(du -sk --exclude=backups --exclude=exports "$DATA_DIR" | cut -f1)"
+  if [ "$(docker inspect --format '{{.State.Running}}' mezan-postgres 2>/dev/null || true)" = "true" ]; then
+    pg_kb=$(( $(psql_in "SELECT pg_database_size('mezan')") / 1024 ))
+  fi
   mkdir -p "$PREDEPLOY_ROOT"
   free_kb="$(df -Pk "$PREDEPLOY_ROOT" | awk 'NR==2 {print $4}')"
-  [ "$free_kb" -gt $((need_kb * 2)) ] || die "not enough free disk for the pre-deploy copy (${need_kb} KB needed twice over, ${free_kb} KB free)"
+  # Twice: the pre-deploy copy, and on a failed deploy the copy of what the failed version wrote.
+  [ "$free_kb" -gt $(( (files_kb + pg_kb) * 2 )) ] || die "not enough free disk for the pre-deploy copy ($((files_kb + pg_kb)) KB of files and books needed twice over, ${free_kb} KB free); the app was not stopped"
+}
+
+# One file, and one transaction, per schema (as mezan-pg-backup.sh): a single
+# dump of the database locks every table at once and runs out of the lock table
+# with enough companies. Consistent across schemas only because the app is stopped.
+dump_books() {
+  local dir="$1" list schema
+  list="$(book_schemas)"
+  mkdir -p "$dir"
+  for schema in $list; do
+    docker exec mezan-postgres pg_dump -U "$(pg_user)" -d mezan -Fc -n "$schema" > "$dir/$schema.dump"
+  done
+}
+
+snapshot_data() {
+  local label="$1" target="$PREDEPLOY_ROOT/$1"
   log "copying the stopped databases to $target"
   rm -rf "$target"
   mkdir -p "$target"
   # The only moment a raw copy of a WAL database is consistent: the app is
   # stopped. -wal and -shm files travel with their database.
   rsync -a --exclude=/backups/ --exclude=/exports/ "$DATA_DIR/" "$target/"
-  if docker inspect mezan-postgres >/dev/null 2>&1; then
-    log "dumping the Postgres books to $target/postgres.dump"
-    docker exec mezan-postgres pg_dump -U "$(pg_user)" -d mezan -Fc > "$target/postgres.dump"
-  fi
+  log "dumping the Postgres books to $target/pg-dump/"
+  dump_books "$target/pg-dump"
   chmod 700 "$target"
   ls -1dt "$PREDEPLOY_ROOT"/*/ 2>/dev/null | tail -n +$((KEEP_PREDEPLOY_COPIES + 1)) | xargs -r rm -rf
 }
 
+# RFC 7677 / Postgres format: SCRAM-SHA-256$<iterations>:<salt>$<StoredKey>:<ServerKey>, password on stdin.
+scram_verifier() {
+  python3 -I -c '
+import base64, hashlib, hmac, os, sys
+password, salt, rounds = sys.stdin.buffer.read(), os.urandom(16), 4096
+salted = hashlib.pbkdf2_hmac("sha256", password, salt, rounds, 32)
+stored = hashlib.sha256(hmac.new(salted, b"Client Key", "sha256").digest()).digest()
+server = hmac.new(salted, b"Server Key", "sha256").digest()
+b64 = lambda raw: base64.b64encode(raw).decode()
+print("SCRAM-SHA-256$%d:%s$%s:%s" % (rounds, b64(salt), b64(stored), b64(server)))
+'
+}
+
 ensure_app_role() {
-  local password user
+  local password user verifier
   password="$(sed -n 's|^MEZAN_DATABASE_URL=postgres://mezan_app:\([0-9a-f]*\)@.*$|\1|p' "$APP_ENV" | tail -n 1)"
-  # Password on stdin, never on a command line another process could read.
-  { cat "$APP_ROLE_SQL"; printf "ALTER ROLE mezan_app LOGIN PASSWORD '%s';\n" "$password"; } \
+  # SECURITY: Postgres stores a SCRAM verifier as given, so the plain password never reaches the server's statement log. Both travel on stdin, never on a command line.
+  verifier="$(printf '%s' "$password" | scram_verifier)"
+  { cat "$APP_ROLE_SQL"; printf "ALTER ROLE mezan_app LOGIN PASSWORD '%s';\n" "$verifier"; } \
     | docker exec -i mezan-postgres psql -U "$(pg_user)" -d mezan -v ON_ERROR_STOP=1 -q >/dev/null
   user="$(sed -n 's|^MEZAN_DATABASE_URL=postgres://\([a-z_]*\):.*$|\1|p' "$APP_ENV" | tail -n 1)"
   [ "$(psql_in "SELECT rolsuper FROM pg_roles WHERE rolname = '$user'")" = "f" ] || die "the app's database user $user is a superuser or does not exist"
@@ -137,25 +185,41 @@ start_postgres() {
   ensure_app_role
 }
 
-restore_pg_dump() {
-  local dump="$1" toc name
-  toc="$(docker exec -i mezan-postgres pg_restore -l < "$dump")"
-  # Every schema the dump holds is dropped whole (CASCADE also takes tables a
-  # failed version added) and rebuilt, in one transaction. A role the dump
-  # names but the cluster lost (a tenant purged since) gets a NOLOGIN
-  # placeholder, or the restore stops at its ALTER … OWNER; the app's boot
-  # gives a served tenant's role its login and password back.
+restore_schema() {
+  local schema="$1" dump="$2"
+  [[ "$schema" =~ ^(platform|t_[a-z0-9_]+)$ ]] || die "$dump is not a schema dump"
+  # Dropped and rebuilt in one transaction: a restore that fails leaves the schema as it was.
+  # A role the cluster lost since (a company purged) gets a NOLOGIN placeholder, or the
+  # restore stops at its ALTER … OWNER; the app's boot gives a served company its login back.
   {
-    awk '!/^;/ && NF {print $NF}' <<<"$toc" | sort -u | while read -r name; do
-      [[ "$name" =~ ^[a-z_][a-z0-9_]*$ ]] || continue
-      printf "DO \$\$BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '%s') THEN CREATE ROLE %s NOLOGIN; END IF; END\$\$;\n" "$name" "$name"
-    done
-    awk '!/^;/ && $4 == "SCHEMA" && $5 == "-" {print $6}' <<<"$toc" | sort -u | while read -r name; do
-      [[ "$name" =~ ^(platform|t_[a-z0-9_]+)$ ]] || continue
-      printf 'DROP SCHEMA IF EXISTS %s CASCADE;\n' "$name"
-    done
+    printf "DO \$\$BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '%s') THEN CREATE ROLE %s NOLOGIN; END IF; END\$\$;\n" "$schema" "$schema"
+    printf 'SET client_min_messages = warning;\nDROP SCHEMA IF EXISTS %s CASCADE;\n' "$schema"
     docker exec -i mezan-postgres pg_restore -f - < "$dump"
   } | docker exec -i mezan-postgres psql -U "$(pg_user)" -d mezan -v ON_ERROR_STOP=1 --single-transaction -q >/dev/null
+}
+
+restore_pg_dumps() {
+  local dir="$1" live schema dump
+  live="$(book_schemas)"
+  # A schema the copy does not hold was created by the failed version (on the
+  # cutover: every one, platform too, so the retry seeds the owner afresh). Its
+  # data is in the failed-… copy. Its role goes too, after its grants.
+  for schema in $live; do
+    [ ! -f "$dir/$schema.dump" ] || continue
+    log "dropping $schema, which the failed version created"
+    psql_in "DROP SCHEMA $schema CASCADE" >/dev/null
+    if [ "$(psql_in "SELECT count(*) FROM pg_roles WHERE rolname = '$schema'")" = "1" ]; then
+      printf 'DROP OWNED BY %s CASCADE;\nDROP ROLE %s;\n' "$schema" "$schema" \
+        | docker exec -i mezan-postgres psql -U "$(pg_user)" -d mezan -v ON_ERROR_STOP=1 --single-transaction -q >/dev/null
+    fi
+  done
+  # Platform last: it is the directory of the companies the boot opens.
+  for dump in "$dir"/*.dump; do
+    [ -e "$dump" ] || continue
+    schema="$(basename "$dump" .dump)"
+    [ "$schema" = platform ] || restore_schema "$schema" "$dump"
+  done
+  [ ! -f "$dir/platform.dump" ] || restore_schema platform "$dir/platform.dump"
   ensure_app_role
   local orphans
   [ "$(psql_in "SELECT to_regclass('platform.tenant') IS NOT NULL")" = "t" ] || return 0
@@ -169,20 +233,22 @@ restore_snapshot() {
   local aside
   aside="$PREDEPLOY_ROOT/failed-$failed_tag-$(date -u +%Y%m%dT%H%M%SZ)"
   log "keeping what $failed_tag wrote at $aside and restoring $source"
+  PHASE=restoring
   compose stop mezan || true
   mkdir -p "$aside"
   rsync -a --exclude=/backups/ --exclude=/exports/ "$DATA_DIR/" "$aside/"
   chmod 700 "$aside"
-  if [ -f "$source/postgres.dump" ]; then
-    docker exec mezan-postgres pg_dump -U "$(pg_user)" -d mezan -Fc > "$aside/postgres.dump"
-    log "restoring the Postgres books from $source/postgres.dump"
-    restore_pg_dump "$source/postgres.dump"
+  if [ -d "$source/pg-dump" ]; then
+    dump_books "$aside/pg-dump"
+    log "restoring the Postgres books from $source/pg-dump/"
+    restore_pg_dumps "$source/pg-dump"
   fi
   find "$DATA_DIR" -mindepth 1 -maxdepth 1 ! -name backups ! -name exports ! -name "$CUTOVER_NAME" -exec rm -rf {} +
-  rsync -a --exclude=/postgres.dump --exclude="/$CUTOVER_NAME" "$source/" "$DATA_DIR/"
+  rsync -a --exclude=/pg-dump/ --exclude="/$CUTOVER_NAME" "$source/" "$DATA_DIR/"
   # Not backups/: pg-wal belongs to the postgres uid, and archiving stops if it changes hands.
   chown 1000:1000 "$DATA_DIR"
   find "$DATA_DIR" -mindepth 1 -maxdepth 1 ! -name backups ! -name exports ! -name "$CUTOVER_NAME" -exec chown -R 1000:1000 {} +
+  PHASE=tagged
 }
 
 deploy() {
@@ -201,15 +267,19 @@ deploy() {
     docker tag "${MEZAN_IMAGE:-ghcr.io/bassamzakaria/mezan-erp}@${new_tag#*@}" "${MEZAN_IMAGE:-ghcr.io/bassamzakaria/mezan-erp}:${new_tag%%@*}"
   fi
 
+  if [ -n "$old_tag" ]; then check_disk; fi
   stop_cleanly
+  PHASE=stopped
   start_postgres
   local label="${old_tag:-initial}"
   if [ -n "$old_tag" ]; then snapshot_data "$label"; fi
 
+  PHASE=tagged
   write_tags "$new_tag" "$old_tag"
   log "starting $new_tag"
   compose up -d --remove-orphans
   if wait_ready; then
+    PHASE=served
     log "$new_tag is ready"
     if [ ! -s "$CUTOVER_FILE" ]; then
       printf '%s\n' "$new_tag" > "$CUTOVER_FILE"
@@ -230,6 +300,7 @@ deploy() {
   log "rolling back to $old_tag"
   compose up -d --remove-orphans
   if wait_ready; then
+    PHASE=served
     log "rolled back to $old_tag on the pre-deploy copy; $new_tag needs fixing"
     exit 2
   fi

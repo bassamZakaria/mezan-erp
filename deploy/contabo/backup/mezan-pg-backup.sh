@@ -44,6 +44,12 @@ missing_schemas() {
   psql_in "SELECT string_agg(s, ' ' ORDER BY s) FROM (SELECT 't_' || replace(id, '-', '_') AS s FROM platform.tenant WHERE status NOT IN ('archived', 'provisioning')) served WHERE s NOT IN (SELECT nspname FROM pg_namespace)"
 }
 
+# A failed archive_command retries forever without failing anything else: the dump and base runs report it.
+check_archiver() {
+  [ "$(psql_in "SELECT COALESCE(last_failed_time > COALESCE(last_archived_time, '-infinity'), false) FROM pg_stat_archiver")" = "f" ] \
+    || { log "WAL archiving is failing (pg_stat_archiver.last_failed_wal; 'docker logs $CONTAINER')"; false; }
+}
+
 run_dump() {
   local stamp target schema list missing count
   stamp="$(date -u +%Y%m%dT%H%M%SZ)"
@@ -53,6 +59,8 @@ run_dump() {
   missing="$(missing_schemas)"
   [ -z "$missing" ] || { log "served companies with no schema: $missing"; false; }
   grep -qx platform <<<"$list" || { log "no platform schema"; false; }
+  # Left by a run that died; the timer's unit never runs twice at once.
+  find "$DUMP_ROOT" -mindepth 1 -maxdepth 1 -name '*.partial' -exec rm -rf {} +
   mkdir -p "$target.partial"
   for schema in $list; do
     docker exec "$CONTAINER" pg_dump -U "$POSTGRES_USER" -d "$DATABASE" -Fc -n "$schema" > "$target.partial/$schema.dump"
@@ -61,6 +69,7 @@ run_dump() {
   [ "$count" -eq "$(wc -w <<<"$list")" ] || { log "only $count of $(wc -w <<<"$list") dumps written"; false; }
   mv "$target.partial" "$target"
   find "$DUMP_ROOT" -mindepth 1 -maxdepth 1 -type d ! -name '*.partial' | sort | head -n -"$KEEP_DUMPS" | xargs -r rm -rf
+  check_archiver
   ping_heartbeat ""
   log "dumped $count schema(s) to $target"
 }
@@ -69,6 +78,7 @@ run_base() {
   local stamp oldest_kept
   stamp="$(date -u +%Y%m%dT%H%M%SZ)"
   mkdir -p "$BASE_ROOT"
+  find "$BASE_ROOT" -maxdepth 1 -name '*.partial' -exec rm -f {} +
   docker exec "$CONTAINER" pg_basebackup -U "$POSTGRES_USER" -D - -Ft -z -X none -c fast > "$BASE_ROOT/$stamp.tar.gz.partial"
   # The roles the schemas belong to; a base backup restores them anyway, a dump does not.
   docker exec "$CONTAINER" pg_dumpall -U "$POSTGRES_USER" --globals-only --no-role-passwords > "$BASE_ROOT/$stamp.globals.sql.partial"
@@ -82,7 +92,9 @@ run_base() {
   local first_wal
   first_wal="$(tar -xzOf "$oldest_kept" backup_label 2>/dev/null | sed -n 's/^START WAL LOCATION: .* (file \([0-9A-F]*\))$/\1/p')"
   # The archive holds <segment>.gz (docker-compose.yml archive_command).
-  [ -n "$first_wal" ] && docker exec "$CONTAINER" pg_archivecleanup -x .gz /wal-archive "$first_wal"
+  [ -n "$first_wal" ] || { log "no START WAL LOCATION in $oldest_kept; WAL not pruned"; false; }
+  docker exec "$CONTAINER" pg_archivecleanup -x .gz /wal-archive "$first_wal"
+  check_archiver
   ping_heartbeat ""
   log "base backup $stamp done"
 }

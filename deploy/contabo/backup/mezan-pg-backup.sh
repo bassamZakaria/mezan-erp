@@ -107,7 +107,8 @@ run_drill() {
   [ -n "$newest" ] || { log "no dump to drill"; exit 1; }
   scratch="drill_$(date -u +%Y%m%d%H%M%S)"
   psql_in "CREATE DATABASE $scratch TEMPLATE template0 LC_COLLATE 'C' LC_CTYPE 'C'" postgres
-  trap 'psql_in "DROP DATABASE IF EXISTS $scratch" postgres >/dev/null || true' EXIT
+  # Expanded now: $scratch is local and gone by the time the EXIT trap runs.
+  trap "psql_in 'DROP DATABASE IF EXISTS $scratch' postgres >/dev/null || true" EXIT
   for dump in "$newest"/*.dump; do
     schema="$(basename "$dump" .dump)"
     docker exec -i "$CONTAINER" pg_restore -U "$POSTGRES_USER" -d "$scratch" --no-owner --no-privileges < "$dump"

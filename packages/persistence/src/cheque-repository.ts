@@ -1,6 +1,7 @@
-import Database from "better-sqlite3";
-import { openSqliteConnection, withSqliteTransaction, type SqliteConnectionInput } from "./sqlite-connection.js";
-import { insertingNew } from "./insert-new.js";
+import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
+import { refuseUnlessInserted } from "./insert-new.js";
+import type { SqlDb, SqlValue } from "./sql/sql-db.js";
+import { sqliteDb } from "./sql/sqlite-db.js";
 import {
   Money,
   type Cheque,
@@ -9,8 +10,6 @@ import {
   type ChequeRepository,
   type ChequeStoredStatus,
 } from "@mezan/domain";
-
-/** SQLite-backed ChequeRepository (docs/archive/catalog/04 "سجل الشيكات"). Standalone, mirroring `createSqliteTreasuryAccountRepository`. */
 
 const CREATE_TABLE = `
 CREATE TABLE IF NOT EXISTS cheque (
@@ -111,7 +110,7 @@ function toCheque(row: ChequeRow): Cheque {
   };
 }
 
-function chequeParams(cheque: Cheque) {
+function chequeParams(cheque: Cheque): Record<string, SqlValue> {
   return {
     id: cheque.id,
     direction: cheque.direction,
@@ -120,7 +119,7 @@ function chequeParams(cheque: Cheque) {
     bank_name: cheque.bankName,
     bank_branch_name: cheque.bankBranchName,
     bank_account_number: cheque.bankAccountNumber,
-    amount: cheque.amount.toScaledNumber(),
+    amount: cheque.amount.scaled,
     currency: cheque.currency,
     issue_date: cheque.issueDate,
     due_date: cheque.dueDate,
@@ -143,59 +142,54 @@ function chequeParams(cheque: Cheque) {
   };
 }
 
-class SqliteChequeRepository implements ChequeRepository {
-  private readonly insert: Database.Statement;
-  private readonly updateStmt: Database.Statement;
-  private readonly selectById: Database.Statement;
-  private readonly selectByNumber: Database.Statement;
+const COLUMNS = [
+  "id", "direction", "status", "cheque_number", "bank_name", "bank_branch_name", "bank_account_number",
+  "amount", "currency", "issue_date", "due_date", "branch_id", "notes", "party_id",
+  "counterparty_gl_account_id", "control_under_collection_account_id", "control_bounced_account_id",
+  "bank_treasury_account_id", "created_at", "deposited_at", "collected_at", "bounced_at",
+  "replaces_cheque_id", "replaced_by_cheque_id", "creation_journal_entry_id",
+  "collection_journal_entry_id", "bounce_journal_entry_id",
+] as const;
 
-  constructor(private readonly sqlite: Database.Database) {
-    const columns = [
-      "id", "direction", "status", "cheque_number", "bank_name", "bank_branch_name", "bank_account_number",
-      "amount", "currency", "issue_date", "due_date", "branch_id", "notes", "party_id",
-      "counterparty_gl_account_id", "control_under_collection_account_id", "control_bounced_account_id",
-      "bank_treasury_account_id", "created_at", "deposited_at", "collected_at", "bounced_at",
-      "replaces_cheque_id", "replaced_by_cheque_id", "creation_journal_entry_id",
-      "collection_journal_entry_id", "bounce_journal_entry_id",
-    ];
-    this.insert = sqlite.prepare(
-      `INSERT INTO cheque (${columns.join(", ")}) VALUES (${columns.map((c) => `@${c}`).join(", ")})`,
-    );
-    this.updateStmt = sqlite.prepare(`
-      UPDATE cheque SET
-        status = @status, bank_treasury_account_id = @bank_treasury_account_id,
-        deposited_at = @deposited_at, collected_at = @collected_at, bounced_at = @bounced_at,
-        replaces_cheque_id = @replaces_cheque_id, replaced_by_cheque_id = @replaced_by_cheque_id,
-        creation_journal_entry_id = @creation_journal_entry_id,
-        collection_journal_entry_id = @collection_journal_entry_id,
-        bounce_journal_entry_id = @bounce_journal_entry_id
-      WHERE id = @id
-    `);
-    this.selectById = sqlite.prepare(`SELECT * FROM cheque WHERE id = ?`).safeIntegers();
-    this.selectByNumber = sqlite.prepare(`SELECT * FROM cheque WHERE direction = ? AND cheque_number = ?`).safeIntegers();
-  }
+const UPDATED_COLUMNS = [
+  "status", "bank_treasury_account_id", "deposited_at", "collected_at", "bounced_at",
+  "replaces_cheque_id", "replaced_by_cheque_id", "creation_journal_entry_id",
+  "collection_journal_entry_id", "bounce_journal_entry_id",
+] as const;
+
+class SqlChequeRepository implements ChequeRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async save(cheque: Cheque): Promise<void> {
-    insertingNew(cheque.id, () => this.insert.run(chequeParams(cheque)));
+    const row = chequeParams(cheque);
+    const inserted = await this.db.run(
+      `INSERT INTO cheque (${COLUMNS.join(", ")}) VALUES (${COLUMNS.map(() => "?").join(", ")}) ON CONFLICT (id) DO NOTHING`,
+      COLUMNS.map((column) => row[column] ?? null),
+    );
+    refuseUnlessInserted(cheque.id, inserted.changes);
   }
 
   async update(cheque: Cheque): Promise<void> {
-    this.updateStmt.run(chequeParams(cheque));
+    const row = chequeParams(cheque);
+    await this.db.run(
+      `UPDATE cheque SET ${UPDATED_COLUMNS.map((column) => `${column} = ?`).join(", ")} WHERE id = ?`,
+      [...UPDATED_COLUMNS.map((column) => row[column] ?? null), cheque.id],
+    );
   }
 
   async findById(id: string): Promise<Cheque | null> {
-    const row = this.selectById.get(id) as ChequeRow | undefined;
+    const row = await this.db.get<ChequeRow>(`SELECT * FROM cheque WHERE id = ?`, [id]);
     return row ? toCheque(row) : null;
   }
 
   async findByChequeNumber(direction: ChequeDirection, chequeNumber: string): Promise<Cheque | null> {
-    const row = this.selectByNumber.get(direction, chequeNumber) as ChequeRow | undefined;
+    const row = await this.db.get<ChequeRow>(`SELECT * FROM cheque WHERE direction = ? AND cheque_number = ?`, [direction, chequeNumber]);
     return row ? toCheque(row) : null;
   }
 
   async list(filter: ChequeListFilter = {}): Promise<readonly Cheque[]> {
     const clauses: string[] = [];
-    const params: unknown[] = [];
+    const params: SqlValue[] = [];
     if (filter.direction) {
       clauses.push("direction = ?");
       params.push(filter.direction);
@@ -213,15 +207,11 @@ class SqliteChequeRepository implements ChequeRepository {
       params.push(filter.toDate);
     }
     const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
-    const rows = this.sqlite
-      .prepare(`SELECT * FROM cheque ${where} ORDER BY due_date, created_at`)
-      .safeIntegers()
-      .all(...params) as ChequeRow[];
-    return rows.map(toCheque);
+    return (await this.db.all<ChequeRow>(`SELECT * FROM cheque ${where} ORDER BY due_date, created_at`, params)).map(toCheque);
   }
 
   async transaction<T>(fn: () => Promise<T>): Promise<T> {
-    return withSqliteTransaction(this.sqlite, fn, "BEGIN");
+    return this.db.transaction(fn);
   }
 }
 
@@ -229,11 +219,17 @@ export interface SqliteChequeRepositoryHandle extends ChequeRepository {
   close(): void;
 }
 
-/** Open a SQLite-backed ChequeRepository. ":memory:" for tests, a path for real. */
+export async function ensureChequeSchema(db: SqlDb): Promise<void> {
+  await db.applySchema(CREATE_TABLE);
+}
+
+export function createChequeRepository(db: SqlDb): ChequeRepository {
+  return new SqlChequeRepository(db);
+}
+
 export function createSqliteChequeRepository(path: SqliteConnectionInput = ":memory:"): SqliteChequeRepositoryHandle {
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_TABLE);
-  const repo = new SqliteChequeRepository(sqlite);
-  return Object.assign(repo, { close: () => { if (owned) sqlite.close(); } }) as SqliteChequeRepositoryHandle;
+  return Object.assign(createChequeRepository(sqliteDb(sqlite)), { close: () => { if (owned) sqlite.close(); } }) as SqliteChequeRepositoryHandle;
 }

@@ -18,7 +18,7 @@ import { createHash } from "node:crypto";
 import type { Context, MiddlewareHandler } from "hono";
 import { readSessionToken } from "@mezan/api";
 import type { PlatformHandle } from "@mezan/backend";
-import { createSqliteRateWindowStore } from "@mezan/persistence";
+import { createRateWindowStore } from "@mezan/persistence";
 import { callerSource } from "./client-source.js";
 
 const MAX_RECORDS = 10_000;
@@ -29,19 +29,25 @@ export interface RateWindow {
 }
 
 export interface RateWindowStore {
+  read(key: string, at: number): Promise<RateWindow | null>;
+  hit(key: string, at: number, windowMs: number): Promise<void>;
+  sweep(at: number, maxRecords: number): Promise<void>;
+}
+
+export interface RateLimiter {
+  /** Seconds the caller must wait before its next attempt may proceed, or 0. */
+  retryAfter(key: string): Promise<number>;
+  /** Records one attempt against `key`, whether or not the caller checked `retryAfter` first. */
+  consume(key: string): Promise<void>;
+}
+
+export interface MemoryWindows {
   read(key: string, at: number): RateWindow | null;
   hit(key: string, at: number, windowMs: number): void;
   sweep(at: number, maxRecords: number): void;
 }
 
-export interface RateLimiter {
-  /** Seconds the caller must wait before its next attempt may proceed, or 0. */
-  retryAfter(key: string): number;
-  /** Records one attempt against `key`, whether or not the caller checked `retryAfter` first. */
-  consume(key: string): void;
-}
-
-export function createMemoryRateWindowStore(): RateWindowStore {
+export function createMemoryWindows(): MemoryWindows {
   // REQUIRED: a key whose window restarts is re-inserted, so with one windowMs per store the Map's
   // order is resetAt order and both sweeps stop at the first live entry instead of scanning all.
   const windows = new Map<string, { hits: number; resetAt: number }>();
@@ -65,6 +71,40 @@ export function createMemoryRateWindowStore(): RateWindowStore {
   };
 }
 
+export function createMemoryRateWindowStore(): RateWindowStore {
+  const windows = createMemoryWindows();
+  return {
+    read: async (key, at) => windows.read(key, at),
+    hit: async (key, at, windowMs) => windows.hit(key, at, windowMs),
+    sweep: async (at, maxRecords) => windows.sweep(at, maxRecords),
+  };
+}
+
+function secondsLeft(w: RateWindow | null, at: number, limit: number): number {
+  if (!w || at >= w.resetAt || w.hits < limit) return 0;
+  return Math.ceil((w.resetAt - at) / 1000);
+}
+
+export interface RequestLimiter {
+  /** Counts the request and answers 0, or answers the seconds to wait and counts nothing. */
+  admit(key: string): number;
+}
+
+// REQUIRED: synchronous, so no other request runs between the check and the count and two requests on one key can never both slip under the limit.
+export function createRequestLimiter(limit: number, windowMs: number, now: () => number = Date.now, maxRecords: number = MAX_RECORDS): RequestLimiter {
+  const windows = createMemoryWindows();
+  return {
+    admit(key) {
+      const at = now();
+      const wait = secondsLeft(windows.read(key, at), at, limit);
+      if (wait > 0) return wait;
+      windows.hit(key, at, windowMs);
+      windows.sweep(at, maxRecords);
+      return 0;
+    },
+  };
+}
+
 export function createRateLimiter(
   limit: number,
   windowMs: number,
@@ -73,17 +113,14 @@ export function createRateLimiter(
   maxRecords: number = MAX_RECORDS,
 ): RateLimiter {
   return {
-    retryAfter(key) {
+    async retryAfter(key) {
       const at = now();
-      const w = store.read(key, at);
-      if (!w || at >= w.resetAt) return 0;
-      if (w.hits < limit) return 0;
-      return Math.ceil((w.resetAt - at) / 1000);
+      return secondsLeft(await store.read(key, at), at, limit);
     },
-    consume(key) {
+    async consume(key) {
       const at = now();
-      store.hit(key, at, windowMs);
-      store.sweep(at, maxRecords);
+      await store.hit(key, at, windowMs);
+      await store.sweep(at, maxRecords);
     },
   };
 }
@@ -96,12 +133,11 @@ export enum RequestCapRefusal {
   TooManyRequests = "TOO_MANY_REQUESTS",
 }
 
-// No await between the check and the count, so concurrent requests on one key can never both slip under the limit.
-export function requestCap(limiter: RateLimiter, keyOf: (c: Context) => string | null): MiddlewareHandler {
+export function requestCap(limiter: RequestLimiter, keyOf: (c: Context) => string | null): MiddlewareHandler {
   return async (c, next) => {
     const key = keyOf(c);
     if (key === null) return next();
-    const wait = limiter.retryAfter(key);
+    const wait = limiter.admit(key);
     if (wait > 0) {
       c.header("Retry-After", String(wait));
       return c.json(
@@ -109,7 +145,6 @@ export function requestCap(limiter: RateLimiter, keyOf: (c: Context) => string |
         429,
       );
     }
-    limiter.consume(key);
     return next();
   };
 }
@@ -129,5 +164,5 @@ export function sessionKey(c: Context): string | null {
 }
 
 export function platformRateLimiter(platform: PlatformHandle, scope: string, limit: number, windowMs: number): RateLimiter {
-  return createRateLimiter(limit, windowMs, Date.now, createSqliteRateWindowStore(platform.stores.sqlite, scope));
+  return createRateLimiter(limit, windowMs, Date.now, createRateWindowStore(platform.stores.db, scope));
 }

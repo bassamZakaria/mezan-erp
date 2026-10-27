@@ -9,8 +9,8 @@ import { createBackend, type BackendHandle } from "./create-backend.js";
 const ARABIC = /[؀-ۿ]/;
 const APPROVER_ROLE = "SUPERVISOR";
 const OLD_SHAPE = `
-CREATE TABLE approval_request_old AS
-  SELECT id, action_type, submitted_by, steps_json, current_step, status, decisions_json, entity_label, created_at, updated_at FROM approval_request;
+CREATE TABLE approval_request_old (id TEXT PRIMARY KEY, action_type TEXT NOT NULL, submitted_by TEXT NOT NULL, steps_json TEXT NOT NULL, current_step INTEGER NOT NULL, status TEXT NOT NULL, decisions_json TEXT NOT NULL, entity_label TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+INSERT INTO approval_request_old SELECT id, action_type, submitted_by, steps_json, current_step, status, decisions_json, entity_label, created_at, updated_at FROM approval_request;
 DROP TABLE approval_request;
 ALTER TABLE approval_request_old RENAME TO approval_request;
 DROP TABLE IF EXISTS upgrade_step;
@@ -28,9 +28,9 @@ let clerk: Caller;
 let supervisor: Caller;
 let admin: Caller;
 
-function callers(): void {
-  const as = (userId: string, permissions: string[], roleCode: string | null): Caller => {
-    const token = handle.sessions.issue({ userId, permissions, roleCode, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
+async function callers(): Promise<void> {
+  const as = async (userId: string, permissions: string[], roleCode: string | null): Promise<Caller> => {
+    const token = await handle.sessions.issue({ userId, permissions, roleCode, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
     return async (method, path, body) => {
       const res = await handle.app.fetch(
         new Request(`http://local${path}`, { method, headers: { "content-type": "application/json", authorization: `Bearer ${token}` }, body: body === undefined ? undefined : JSON.stringify(body) }),
@@ -39,9 +39,9 @@ function callers(): void {
       return { status: res.status, body: text ? JSON.parse(text) : null };
     };
   };
-  admin = as("USER-UP-ADMIN", ["*"], null);
-  clerk = as("USER-UP-CLERK", ["sales.invoice.create", "sales.invoice.confirm", "sales.invoice.view", "workflow.view"], "SALES_REP");
-  supervisor = as("USER-UP-SUPERVISOR", ["sales.invoice.view", "sales.invoice.confirm", "workflow.view", "workflow.approve", "workflow.reject"], APPROVER_ROLE);
+  admin = (await as("USER-UP-ADMIN", ["*"], null));
+  clerk = (await as("USER-UP-CLERK", ["sales.invoice.create", "sales.invoice.confirm", "sales.invoice.view", "workflow.view"], "SALES_REP"));
+  supervisor = (await as("USER-UP-SUPERVISOR", ["sales.invoice.view", "sales.invoice.confirm", "workflow.view", "workflow.approve", "workflow.reject"], APPROVER_ROLE));
 }
 
 const invoice = (id: string) => ({
@@ -76,7 +76,7 @@ async function hold(id: string): Promise<string> {
 beforeAll(async () => {
   dbPath = join(mkdtempSync(join(tmpdir(), "mezan-approval-upgrade-")), "books.db");
   handle = await createBackend({ dbPath });
-  callers();
+  await callers();
   expect((await admin("POST", "/customers", { id: "CUST-UP", code: "CUST-UP", nameAr: "عميل الترقية", type: "company" })).status).toBe(201);
   expect((await admin("POST", "/items", { id: "ITEM-UP", code: "ITEM-UP", nameAr: "خدمة", type: "service", baseUnitCode: "PCS", salePrice: "100" })).status).toBe(201);
   const role = await admin("POST", "/roles", { code: APPROVER_ROLE, name: "مشرف", description: "يعتمد الفواتير", permissions: ["sales.invoice.view", "sales.invoice.confirm", "workflow.view", "workflow.approve", "workflow.reject"] });
@@ -101,7 +101,7 @@ beforeAll(async () => {
   sqlite.close();
 
   handle = await createBackend({ dbPath });
-  callers();
+  await callers();
 }, 120_000);
 
 afterAll(() => handle?.close());
@@ -131,10 +131,10 @@ describe("upgrade — an approval given before requests carried their document's
     expect(standing.body.reason).toMatch(ARABIC);
     expect(standing.body.reason).toContain("اطلب الموافقة من جديد");
     expect((await clerk("GET", "/workflow/requests/NOBODY:confirm/standing")).status).toBe(404);
-    const elsewhere = handle.sessions.issue({ userId: "USER-UP-ELSEWHERE", permissions: ["sales.invoice.view", "workflow.view"], roleCode: null, branchScope: ["BR-ELSEWHERE"], warehouseScope: ALL_SCOPE });
+    const elsewhere = await handle.sessions.issue({ userId: "USER-UP-ELSEWHERE", permissions: ["sales.invoice.view", "workflow.view"], roleCode: null, branchScope: ["BR-ELSEWHERE"], warehouseScope: ALL_SCOPE });
     const foreign = await handle.app.fetch(new Request("http://local/workflow/requests/UP-APPROVED:confirm/standing", { headers: { authorization: `Bearer ${elsewhere}` } }));
     expect(foreign.status).toBe(404);
-    const own = handle.sessions.issue({ userId: "USER-UP-OWN-BRANCH", permissions: ["sales.invoice.view"], roleCode: null, branchScope: ["BR-MAIN"], warehouseScope: ALL_SCOPE });
+    const own = await handle.sessions.issue({ userId: "USER-UP-OWN-BRANCH", permissions: ["sales.invoice.view"], roleCode: null, branchScope: ["BR-MAIN"], warehouseScope: ALL_SCOPE });
     const ownBranch = await handle.app.fetch(new Request("http://local/workflow/requests/UP-APPROVED:confirm/standing", { headers: { authorization: `Bearer ${own}` } }));
     expect(ownBranch.status).toBe(200);
     const anonymous = await handle.app.fetch(new Request("http://local/workflow/requests/UP-APPROVED:confirm/standing"));
@@ -172,7 +172,7 @@ describe("upgrade — an approval given before requests carried their document's
   it("runs once: a later start re-marks nothing", async () => {
     handle.close();
     handle = await createBackend({ dbPath });
-    callers();
+    await callers();
     expect(sql("SELECT status FROM approval_request WHERE id = 'UP-APPROVED:confirm'")).toEqual({ status: "approved" });
     expect(sql("SELECT status FROM approval_request WHERE id = 'UP-PENDING:confirm'")).toEqual({ status: ApprovalStatusCode.ReapprovalRequired });
   });
@@ -183,7 +183,7 @@ describe("a held voucher names the approval request it waits on", () => {
     const created = await admin("POST", "/workflow/configs", { actionType: "TREASURY_VOUCHER_CONFIRM", steps: [{ role: APPROVER_ROLE }] });
     expect(created.status, JSON.stringify(created.body)).toBe(201);
     const cashier: Caller = async (method, path, body) => {
-      const token = handle.sessions.issue({ userId: "USER-UP-CASHIER", permissions: ["treasury.cash_voucher.create", "treasury.cash_voucher.confirm", "treasury.cash_voucher.view"], roleCode: "TREASURY_CASHIER", branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
+      const token = await handle.sessions.issue({ userId: "USER-UP-CASHIER", permissions: ["treasury.cash_voucher.create", "treasury.cash_voucher.confirm", "treasury.cash_voucher.view"], roleCode: "TREASURY_CASHIER", branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
       const res = await handle.app.fetch(new Request(`http://local${path}`, { method, headers: { "content-type": "application/json", authorization: `Bearer ${token}` }, body: body === undefined ? undefined : JSON.stringify(body) }));
       const text = await res.text();
       return { status: res.status, body: text ? JSON.parse(text) : null };

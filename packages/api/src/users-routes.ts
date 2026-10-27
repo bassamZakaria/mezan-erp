@@ -560,7 +560,7 @@ export function createUsersRoutes(
   // know; wrong answers count on the sign-in ladder like a wrong step-up PIN.
   async function refuseOwnCredentialChange(c: Context, user: User, presented: { currentPin?: string; currentPassword?: string }): Promise<Response | null> {
     const key = throttleKey(user.email, requestOrigin(c));
-    const waitSeconds = loginThrottle?.retryAfter(key) ?? 0;
+    const waitSeconds = (await loginThrottle?.retryAfter(key)) ?? 0;
     if (waitSeconds > 0) {
       c.header("retry-after", String(waitSeconds));
       return c.json(tooManyAttempts(waitSeconds), 429);
@@ -580,10 +580,10 @@ export function createUsersRoutes(
         ? user.pinHash !== null && (await hasher.verify(presented.currentPin, user.pinHash))
         : await hasher.verify(presented.currentPassword ?? "", user.passwordHash);
     if (held) {
-      loginThrottle?.succeed(key);
+      await loginThrottle?.succeed(key);
       return null;
     }
-    const lockedFor = loginThrottle?.fail(key) ?? 0;
+    const lockedFor = (await loginThrottle?.fail(key)) ?? 0;
     await auditRefusal(c, user.id, { reason: presented.currentPin !== undefined ? CurrentSecretRefusal.IncorrectPin : CurrentSecretRefusal.IncorrectPassword });
     if (lockedFor > 0) {
       c.header("retry-after", String(lockedFor));
@@ -834,10 +834,10 @@ export function createUsersRoutes(
           (before.accessExpiresAt ?? null) !== (user.accessExpiresAt ?? null) ||
           user.status !== "active")
       ) {
-        sessions.revokeUser(user.id);
+        await sessions.revokeUser(user.id);
       }
-      if (change.pinChanged) loginThrottle?.unlock(user.email);
-      if (before.email !== user.email) loginThrottle?.unlock(before.email);
+      if (change.pinChanged) await loginThrottle?.unlock(user.email);
+      if (before.email !== user.email) await loginThrottle?.unlock(before.email);
       return await answeredAfterHandOver(c, user, successor);
     } catch (err) {
       return userErrorResponse(c, err);
@@ -860,8 +860,8 @@ export function createUsersRoutes(
       const user = await setUserStatus(id, UserStatusCode.Inactive, uow);
       await auditUser(c, user, "DEACTIVATE");
       // Firing someone at 10:00 must not leave them posting at 10:05.
-      sessions?.revokeUser(user.id);
-      if (loginThrottle) loginThrottle.unlock(user.email);
+      await sessions?.revokeUser(user.id);
+      if (loginThrottle) await loginThrottle.unlock(user.email);
       return await answeredAfterHandOver(c, user, successor);
     } catch (err) {
       return userErrorResponse(c, err);
@@ -908,7 +908,7 @@ export function createUsersRoutes(
     if (erasedRefusal) return erasedRefusal;
     const outranked = await refuseIfTargetOutranks(c, c.req.param("id"));
     if (outranked) return outranked;
-    loginThrottle?.unlock(user.email);
+    await loginThrottle?.unlock(user.email);
     await recordSecurityAdminEvent(audit, c, {
       module: "admin",
       entityType: "USER",
@@ -1022,8 +1022,8 @@ export function createUsersRoutes(
             retained: ERASURE_RETAINS,
           });
         }
-        sessions?.revokeUser(id);
-        loginThrottle?.unlock(result.previousEmail);
+        await sessions?.revokeUser(id);
+        await loginThrottle?.unlock(result.previousEmail);
         return c.json({
           user: serializeUser(result.erased),
           erased: { ...result.counts, sessionsRevoked: sessions !== undefined },

@@ -25,7 +25,7 @@ async function world(activeModules: readonly string[] | null = null) {
   cleanups.push(() => backend.close());
   const { sqlite } = openSqliteConnection(dbPath);
   cleanups.push(() => sqlite.close());
-  const token = backend.sessions.issue({ userId: "admin", permissions: ["*"], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
+  const token = await backend.sessions.issue({ userId: "admin", permissions: ["*"], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
   const headers = { authorization: `Bearer ${token}`, "content-type": "application/json" };
 
   async function request(method: string, url: string, body?: unknown): Promise<Response> {
@@ -43,8 +43,8 @@ async function world(activeModules: readonly string[] | null = null) {
     if (!found) throw new Error(`check ${code} is missing from the checklist`);
     return found;
   }
-  function requestAs(userId: string, permissions: readonly string[]) {
-    const userToken = backend.sessions.issue({ userId, permissions: [...permissions], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
+  async function requestAs(userId: string, permissions: readonly string[]) {
+    const userToken = await backend.sessions.issue({ userId, permissions: [...permissions], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
     return async (method: string, url: string, body?: unknown): Promise<Response> =>
       backend.app.fetch(
         new Request(`http://local${url}`, {
@@ -601,7 +601,7 @@ describe("period-close checks read the real tables (ENH-E1-04)", () => {
   it("a month closed before the checklist existed can be locked over a failing check with a reason; one whose close is in the audit trail still needs a second person", async () => {
     const { sqlite, requestAs } = await world();
     const PERMISSIONS = ["accounting.period.view", "accounting.period.close", "accounting.period.lock", "accounting.period.override_close"];
-    const closer = requestAs("U-CLOSER", PERMISSIONS);
+    const closer = (await requestAs("U-CLOSER", PERMISSIONS));
     const reason = { overrideReason: "قفل نهائي باعتماد المدير المالي بعد المراجعة" };
     const lockEvents = (month: string) =>
       sqlite.prepare(`SELECT actor, json_extract(details, '$.reason') AS reason FROM audit_event WHERE entity_type = 'FISCAL_PERIOD' AND entity_id = ? AND action = 'LOCK'`).all(`fp-2026-${month}`);
@@ -621,7 +621,7 @@ describe("period-close checks read the real tables (ENH-E1-04)", () => {
     const sameUser = await closer("POST", "/fiscal-periods/fp-2026-03/lock", reason);
     expect(((await sameUser.json()) as { error: string }).error).toBe("PERIOD_LOCK_OVERRIDE_SAME_USER");
     expect(statusOf("03")).toBe("closed");
-    expect((await requestAs("U-CONTROLLER", PERMISSIONS)("POST", "/fiscal-periods/fp-2026-03/lock", reason)).status).toBe(200);
+    expect((await (await requestAs("U-CONTROLLER", PERMISSIONS))("POST", "/fiscal-periods/fp-2026-03/lock", reason)).status).toBe(200);
     expect(statusOf("03")).toBe("locked");
     expect(lockEvents("03")).toEqual([{ actor: "U-CONTROLLER", reason: reason.overrideReason }]);
   });

@@ -106,7 +106,7 @@ describe("releasing a tenant stuck in provisioning", () => {
     const router = { evict: async (id: string) => void evicted.push(id), invalidate: () => undefined, forget: () => undefined };
 
     const activating = withSqliteTransaction(
-      platform.stores.sqlite,
+      platform.stores.sqlite!,
       async () => {
         parked.arrive();
         await parked.opened;
@@ -239,13 +239,13 @@ describe("deleting a terminated tenant's data after the retention period", () =>
   it("schedules the deletion at archive, waits out the period and its extension, then deletes every local copy, leaves a tombstone and an audit row, and does it once", async () => {
     const { dataDir, platform, purge, tenant, evicted, exportsDiscarded, advance, anchorDir } = await terminatedWorld();
     const archived = await archiveTenant({ id: tenant.id, now: T }, platform.stores.tenants);
-    purge.scheduleOnArchive(archived, T);
-    expect(purge.view(archived).retention?.deleteAfter).toBe(new Date(Date.parse(T) + 90 * DAY).toISOString());
+    await purge.scheduleOnArchive(archived, T);
+    expect((await purge.view(archived)).retention?.deleteAfter).toBe(new Date(Date.parse(T) + 90 * DAY).toISOString());
 
     advance(89);
     expect(await purge.sweep()).toMatchObject({ purged: 0 });
-    expect(purge.extend({ tenant: archived, deleteAfter: "2027-02-01T00:00:00.000Z", reason: "the owner asked for more time to export", actorId: "op-1", at: T })).toBe(true);
-    expect(purge.extend({ tenant: archived, deleteAfter: "2027-01-01T00:00:00.000Z", reason: "an earlier date is refused", actorId: "op-1", at: T })).toBe(false);
+    expect(await purge.extend({ tenant: archived, deleteAfter: "2027-02-01T00:00:00.000Z", reason: "the owner asked for more time to export", actorId: "op-1", at: T })).toBe(true);
+    expect(await purge.extend({ tenant: archived, deleteAfter: "2027-01-01T00:00:00.000Z", reason: "an earlier date is refused", actorId: "op-1", at: T })).toBe(false);
     advance(2);
     expect(await purge.sweep()).toMatchObject({ purged: 0 });
     expect(existsSync(path.join(dataDir, tenant.dbFile))).toBe(true);
@@ -259,7 +259,7 @@ describe("deleting a terminated tenant's data after the retention period", () =>
     expect(evicted).toEqual([tenant.id]);
     expect(exportsDiscarded).toEqual([tenant.id]);
     expect(await platform.stores.tenants.findById(tenant.id)).toBeNull();
-    const tombstone = platform.stores.sqlite.prepare("SELECT * FROM tenant_tombstone").all();
+    const tombstone = platform.stores.sqlite!.prepare("SELECT * FROM tenant_tombstone").all();
     expect(tombstone).toEqual([{ id: tenant.id, code: "gone", deleted_at: expect.any(String) }]);
     const row = (await platform.audit.query("security")).find((r) => r.action === TENANT_DATA_PURGED_AUDIT);
     expect(row).toMatchObject({ severity: "CRITICAL", actor: TENANT_PURGE_SYSTEM_ACTOR, entityId: tenant.id });
@@ -273,6 +273,6 @@ describe("deleting a terminated tenant's data after the retention period", () =>
     const archived = await archiveTenant({ id: tenant.id, now: T }, platform.stores.tenants);
     advance(400);
     expect(await purge.sweep()).toEqual({ scheduled: 1, purged: 0, failed: 0 });
-    expect(Date.parse(purge.view(archived).retention!.deleteAfter) - Date.parse(T)).toBe(490 * DAY);
+    expect(Date.parse((await purge.view(archived)).retention!.deleteAfter) - Date.parse(T)).toBe(490 * DAY);
   });
 });

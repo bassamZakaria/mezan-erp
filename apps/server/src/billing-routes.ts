@@ -218,7 +218,7 @@ export function createTenantBillingRoutes(options: TenantBillingRoutesOptions): 
     // exactly as it is on any tenant route; the lookup below would otherwise
     // absorb the change unrecorded.
     await door.fetch(new Request("http://tenant/profile", { headers: { authorization: `Bearer ${token}`, ...device } }), source);
-    const grant = door.findSession(token, source, deviceSecret);
+    const grant = await door.findSession(token, source, deviceSecret);
     if (!grant) return c.json({ error: "UNAUTHENTICATED", message: "انتهت الجلسة، سجّل الدخول مرة أخرى" }, 401);
     return { tenant, grant, token, source, door, device };
   }

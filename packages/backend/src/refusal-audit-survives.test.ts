@@ -36,7 +36,7 @@ const securityRows = (): number => world.count("audit_event", "stream = 'securit
 
 async function post(path: string, body: unknown, session?: { userId: string; permissions: string[]; branchScope: readonly string[] | typeof ALL_SCOPE }): Promise<number> {
   const headers: Record<string, string> = { "content-type": "application/json" };
-  if (session) headers.authorization = `Bearer ${world.backend.sessions.issue({ ...session, roleCode: null, warehouseScope: ALL_SCOPE })}`;
+  if (session) headers.authorization = `Bearer ${await world.backend.sessions.issue({ ...session, roleCode: null, warehouseScope: ALL_SCOPE })}`;
   return (await world.backend.app.fetch(new Request(`http://local${path}`, { method: "POST", headers, body: JSON.stringify(body) }))).status;
 }
 

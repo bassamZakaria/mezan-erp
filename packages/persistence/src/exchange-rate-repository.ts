@@ -1,6 +1,7 @@
-import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
-import { insertingNew, prepareInsertOnly } from "./insert-new.js";
+import { insertNew } from "./insert-new.js";
+import type { SqlDb, SqlValue } from "./sql/sql-db.js";
+import { sqliteDb } from "./sql/sqlite-db.js";
 import type {
   ExchangeRate,
   ExchangeRateRepository,
@@ -8,8 +9,6 @@ import type {
   ExchangeRateStatus,
   ExchangeRateType,
 } from "@mezan/domain";
-
-/** SQLite-backed {@link ExchangeRateRepository} (docs/archive/catalog/04 "أسعار الصرف"). */
 
 const CREATE_TABLE = `
 CREATE TABLE IF NOT EXISTS exchange_rate (
@@ -23,6 +22,17 @@ CREATE TABLE IF NOT EXISTS exchange_rate (
 );
 CREATE INDEX IF NOT EXISTS idx_exchange_rate_lookup ON exchange_rate(currency, effective_date);
 `;
+
+const UPSERT = `
+  INSERT INTO exchange_rate (id, currency, rate, effective_date, rate_type, source, status)
+  VALUES (?, ?, ?, ?, ?, ?, ?)
+  ON CONFLICT(id) DO UPDATE SET
+    currency = excluded.currency,
+    rate = excluded.rate,
+    effective_date = excluded.effective_date,
+    rate_type = excluded.rate_type,
+    source = excluded.source,
+    status = excluded.status`;
 
 interface Row {
   id: string;
@@ -46,69 +56,39 @@ function toRate(row: Row): ExchangeRate {
   };
 }
 
-class SqliteExchangeRateRepository implements ExchangeRateRepository {
-  private readonly upsert: Database.Statement;
-  private readonly insertOnly: Database.Statement;
-  private readonly selectById: Database.Statement;
-  private readonly selectAll: Database.Statement;
-  private readonly selectRate: Database.Statement;
+function params(rate: ExchangeRate): SqlValue[] {
+  return [rate.id, rate.currency, rate.rate, rate.effectiveDate, rate.rateType, rate.source, rate.status];
+}
 
-  constructor(private readonly sqlite: Database.Database) {
-    this.upsert = sqlite.prepare(`
-      INSERT INTO exchange_rate (id, currency, rate, effective_date, rate_type, source, status)
-      VALUES (@id, @currency, @rate, @effective_date, @rate_type, @source, @status)
-      ON CONFLICT(id) DO UPDATE SET
-        currency = excluded.currency,
-        rate = excluded.rate,
-        effective_date = excluded.effective_date,
-        rate_type = excluded.rate_type,
-        source = excluded.source,
-        status = excluded.status
-    `);
-    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
-    this.selectById = sqlite.prepare(`SELECT * FROM exchange_rate WHERE id = ?`);
-    this.selectAll = sqlite.prepare(`SELECT * FROM exchange_rate ORDER BY currency, effective_date DESC`);
-    // Latest usable (approved/locked) rate for a currency on/before a date.
-    this.selectRate = sqlite.prepare(`
-      SELECT * FROM exchange_rate
-       WHERE currency = ? AND effective_date <= ? AND status IN ('approved', 'locked')
-       ORDER BY effective_date DESC, id DESC
-       LIMIT 1
-    `);
-  }
+class SqlExchangeRateRepository implements ExchangeRateRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async findById(id: string): Promise<ExchangeRate | null> {
-    const row = this.selectById.get(id) as Row | undefined;
+    const row = await this.db.get<Row>(`SELECT * FROM exchange_rate WHERE id = ?`, [id]);
     return row ? toRate(row) : null;
   }
 
   async list(): Promise<ExchangeRate[]> {
-    return (this.selectAll.all() as Row[]).map(toRate);
+    return (await this.db.all<Row>(`SELECT * FROM exchange_rate ORDER BY currency, effective_date DESC`)).map(toRate);
   }
 
   async findRate(currency: string, asOfDate: string): Promise<ExchangeRate | null> {
-    const row = this.selectRate.get(currency, asOfDate) as Row | undefined;
+    const row = await this.db.get<Row>(
+      `SELECT * FROM exchange_rate
+        WHERE currency = ? AND effective_date <= ? AND status IN ('approved', 'locked')
+        ORDER BY effective_date DESC, id DESC
+        LIMIT 1`,
+      [currency, asOfDate],
+    );
     return row ? toRate(row) : null;
   }
 
   async create(rate: ExchangeRate): Promise<void> {
-    insertingNew(rate.id, () => this.write(rate, this.insertOnly));
+    await insertNew(this.db, rate.id, UPSERT, params(rate));
   }
 
   async update(rate: ExchangeRate): Promise<void> {
-    this.write(rate);
-  }
-
-  private write(rate: ExchangeRate, statement: Database.Statement = this.upsert): void {
-    statement.run({
-      id: rate.id,
-      currency: rate.currency,
-      rate: rate.rate,
-      effective_date: rate.effectiveDate,
-      rate_type: rate.rateType,
-      source: rate.source,
-      status: rate.status,
-    });
+    await this.db.run(UPSERT, params(rate));
   }
 }
 
@@ -116,11 +96,17 @@ export interface SqliteExchangeRateRepositoryHandle extends ExchangeRateReposito
   close(): void;
 }
 
-/** Open a SQLite-backed ExchangeRateRepository. ":memory:" for tests, a path for real. */
+export async function ensureExchangeRateSchema(db: SqlDb): Promise<void> {
+  await db.applySchema(CREATE_TABLE);
+}
+
+export function createExchangeRateRepository(db: SqlDb): ExchangeRateRepository {
+  return new SqlExchangeRateRepository(db);
+}
+
 export function createSqliteExchangeRateRepository(path: SqliteConnectionInput = ":memory:"): SqliteExchangeRateRepositoryHandle {
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_TABLE);
-  const repo = new SqliteExchangeRateRepository(sqlite);
-  return Object.assign(repo, { close: () => { if (owned) sqlite.close(); } }) as SqliteExchangeRateRepositoryHandle;
+  return Object.assign(createExchangeRateRepository(sqliteDb(sqlite)), { close: () => { if (owned) sqlite.close(); } }) as SqliteExchangeRateRepositoryHandle;
 }

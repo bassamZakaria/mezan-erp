@@ -20,7 +20,7 @@ beforeAll(async () => {
 afterAll(() => world?.close());
 
 async function statusAs(role: SeededRole, path: string): Promise<number> {
-  const token = world.backend.sessions.issue({ userId: `shell-${role.code}`, permissions: role.permissions, roleCode: role.code, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
+  const token = await world.backend.sessions.issue({ userId: `shell-${role.code}`, permissions: role.permissions, roleCode: role.code, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
   return (await world.backend.app.fetch(new Request(`http://local${path}`, { headers: { authorization: `Bearer ${token}` } }))).status;
 }
 

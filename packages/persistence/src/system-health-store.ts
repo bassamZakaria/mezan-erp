@@ -1,6 +1,8 @@
 import { statSync } from "node:fs";
 import type Database from "better-sqlite3";
 import { EtaSubmissionStatusCode, NotificationChannelState } from "@mezan/domain";
+import { SqlDialect, type SqlDb } from "./sql/sql-db.js";
+import { sqliteDb } from "./sql/sqlite-db.js";
 
 export interface OutboxHealthReading {
   readonly queued: number;
@@ -31,9 +33,9 @@ export interface DatabaseHealthReading {
 }
 
 export interface SystemHealthStore {
-  outbox(): OutboxHealthReading;
-  eta(recentErrorLimit: number): EtaHealthReading;
-  database(): DatabaseHealthReading;
+  outbox(): Promise<OutboxHealthReading>;
+  eta(recentErrorLimit: number): Promise<EtaHealthReading>;
+  database(): Promise<DatabaseHealthReading>;
 }
 
 const MESSAGE_MAX = 240;
@@ -60,52 +62,59 @@ function fileBytes(path: string): number | null {
   }
 }
 
-export function createSqliteSystemHealthStore(sqlite: Database.Database): SystemHealthStore {
-  const outboxStmt = sqlite.prepare(
-    `SELECT
-       COALESCE(SUM(CASE WHEN j.value = @queued THEN 1 ELSE 0 END), 0) AS queued,
-       COALESCE(SUM(CASE WHEN j.value = @failed THEN 1 ELSE 0 END), 0) AS failed,
-       MIN(CASE WHEN j.value = @queued THEN n.created_at END) AS oldest
-     FROM notification n, json_each(n.channel_status_json) j
-     WHERE n.channel_status_json LIKE '%"queued"%' OR n.channel_status_json LIKE '%"failed"%'`,
-  );
-  const etaCounts = sqlite.prepare(`SELECT status, COUNT(*) AS c FROM eta_submission GROUP BY status`);
-  const etaOldest = sqlite.prepare(
-    `SELECT MIN(created_at) AS oldest FROM eta_submission WHERE status IN (@ready, @pending, @error)`,
-  );
-  const etaErrors = sqlite.prepare(
-    `SELECT internal_id, document_type, updated_at, errors FROM eta_submission WHERE status = @error ORDER BY updated_at DESC LIMIT @limit`,
-  );
+function outboxSql(db: SqlDb): string {
+  const channels = db.dialect === SqlDialect.Postgres ? "jsonb_each_text(n.channel_status_json::jsonb) j" : "json_each(n.channel_status_json) j";
+  return `SELECT
+       COALESCE(SUM(CASE WHEN j.value = ? THEN 1 ELSE 0 END), 0) AS queued,
+       COALESCE(SUM(CASE WHEN j.value = ? THEN 1 ELSE 0 END), 0) AS failed,
+       MIN(CASE WHEN j.value = ? THEN n.created_at END) AS oldest
+     FROM notification n, ${channels}
+     WHERE n.channel_status_json LIKE '%"queued"%' OR n.channel_status_json LIKE '%"failed"%'`;
+}
 
+async function databaseReading(db: SqlDb, dbFile: string | null): Promise<DatabaseHealthReading> {
+  if (db.dialect === SqlDialect.Postgres) {
+    const row = await db.get<{ bytes: bigint }>(
+      `SELECT CAST(COALESCE(SUM(pg_total_relation_size(c.oid)), 0) AS BIGINT) AS bytes
+         FROM pg_class c JOIN pg_namespace ns ON ns.oid = c.relnamespace
+        WHERE ns.nspname = current_schema() AND c.relkind = 'r'`,
+    );
+    return { dbBytes: Number(row!.bytes), walBytes: null, freeListBytes: 0 };
+  }
+  const row = await db.get<{ page_size: bigint; page_count: bigint; freelist_count: bigint }>(
+    `SELECT s.page_size AS page_size, c.page_count AS page_count, f.freelist_count AS freelist_count
+       FROM pragma_page_size() s, pragma_page_count() c, pragma_freelist_count() f`,
+  );
+  const pageSize = Number(row!.page_size);
+  const wal = dbFile && dbFile !== ":memory:" ? fileBytes(`${dbFile}-wal`) : null;
+  return { dbBytes: pageSize * Number(row!.page_count), walBytes: wal, freeListBytes: pageSize * Number(row!.freelist_count) };
+}
+
+export function createSystemHealthStore(db: SqlDb, dbFile: string | null = null): SystemHealthStore {
+  const unsent = [EtaSubmissionStatusCode.Ready, EtaSubmissionStatusCode.PendingSignature, EtaSubmissionStatusCode.Error];
   return {
-    outbox() {
-      const row = outboxStmt.get({ queued: NotificationChannelState.Queued, failed: NotificationChannelState.Failed }) as {
-        queued: number;
-        failed: number;
-        oldest: string | null;
-      };
-      return { queued: row.queued, failed: row.failed, oldestQueuedAt: row.oldest };
+    async outbox() {
+      const row = (await db.get<{ queued: bigint; failed: bigint; oldest: string | null }>(outboxSql(db), [
+        NotificationChannelState.Queued,
+        NotificationChannelState.Failed,
+        NotificationChannelState.Queued,
+      ]))!;
+      return { queued: Number(row.queued), failed: Number(row.failed), oldestQueuedAt: row.oldest };
     },
-    eta(recentErrorLimit) {
+    async eta(recentErrorLimit) {
       const counts = new Map<string, number>();
-      for (const row of etaCounts.all() as { status: string; c: number }[]) counts.set(row.status, row.c);
-      const oldest = etaOldest.get({
-        ready: EtaSubmissionStatusCode.Ready,
-        pending: EtaSubmissionStatusCode.PendingSignature,
-        error: EtaSubmissionStatusCode.Error,
-      }) as { oldest: string | null };
-      const errors = etaErrors.all({ error: EtaSubmissionStatusCode.Error, limit: recentErrorLimit }) as {
-        internal_id: string;
-        document_type: string;
-        updated_at: string;
-        errors: string;
-      }[];
+      for (const row of await db.all<{ status: string; c: bigint }>(`SELECT status, COUNT(*) AS c FROM eta_submission GROUP BY status`)) counts.set(row.status, Number(row.c));
+      const oldest = await db.get<{ oldest: string | null }>(`SELECT MIN(created_at) AS oldest FROM eta_submission WHERE status IN (?, ?, ?)`, unsent);
+      const errors = await db.all<{ internal_id: string; document_type: string; updated_at: string; errors: string }>(
+        `SELECT internal_id, document_type, updated_at, errors FROM eta_submission WHERE status = ? ORDER BY updated_at DESC LIMIT ?`,
+        [EtaSubmissionStatusCode.Error, recentErrorLimit],
+      );
       return {
         ready: counts.get(EtaSubmissionStatusCode.Ready) ?? 0,
         pendingSignature: counts.get(EtaSubmissionStatusCode.PendingSignature) ?? 0,
         error: counts.get(EtaSubmissionStatusCode.Error) ?? 0,
         submitted: counts.get(EtaSubmissionStatusCode.Submitted) ?? 0,
-        oldestUnsentAt: oldest.oldest,
+        oldestUnsentAt: oldest?.oldest ?? null,
         recentErrors: errors.map((r) => ({
           internalId: r.internal_id,
           documentType: r.document_type,
@@ -114,12 +123,10 @@ export function createSqliteSystemHealthStore(sqlite: Database.Database): System
         })),
       };
     },
-    database() {
-      const pageSize = Number(sqlite.pragma("page_size", { simple: true }));
-      const pages = Number(sqlite.pragma("page_count", { simple: true }));
-      const free = Number(sqlite.pragma("freelist_count", { simple: true }));
-      const wal = sqlite.name && sqlite.name !== ":memory:" ? fileBytes(`${sqlite.name}-wal`) : null;
-      return { dbBytes: pageSize * pages, walBytes: wal, freeListBytes: pageSize * free };
-    },
+    database: () => databaseReading(db, dbFile),
   };
+}
+
+export function createSqliteSystemHealthStore(sqlite: Database.Database): SystemHealthStore {
+  return createSystemHealthStore(sqliteDb(sqlite), sqlite.name || null);
 }

@@ -1,4 +1,3 @@
-import type Database from "better-sqlite3";
 import { createRecurringJournalRoutes, MasterDataKind } from "@mezan/api";
 import { DEPRECIABLE_ASSET_STATUSES, createRecurringJournalCommitmentSource, depreciationRunsCoverPeriod, routedAccountId, type PartyControlKind, type CommitmentSource } from "@mezan/domain";
 import {
@@ -9,6 +8,14 @@ import {
   createSqliteRecurringJournalSkipRepository,
   createSqliteRecurringJournalTemplateRepository,
   createSqliteVatFilingStore,
+  createAccountRoutingStore,
+  createAssetRepository,
+  createDepreciationRunRepository,
+  createRecurringJournalRunRepository,
+  createRecurringJournalSkipRepository,
+  createRecurringJournalTemplateRepository,
+  createVatFilingStore,
+  type SqlDb,
 } from "@mezan/persistence";
 import type { BackendArea, BackendModuleContext } from "../module-context.js";
 import { registerCashCommitmentSource } from "./e1-02.js";
@@ -21,20 +28,20 @@ import { registerCashCommitmentSource } from "./e1-02.js";
  * rather than opening a second one.
  */
 
-const commitmentSourceRegistry = new WeakMap<Database.Database, CommitmentSource>();
+const commitmentSourceRegistry = new WeakMap<SqlDb, CommitmentSource>();
 
-export function getRecurringJournalCommitmentSource(sqlite: Database.Database): CommitmentSource | undefined {
-  return commitmentSourceRegistry.get(sqlite);
+export function getRecurringJournalCommitmentSource(db: SqlDb): CommitmentSource | undefined {
+  return commitmentSourceRegistry.get(db);
 }
 
 export const area: BackendArea = {
   mount(ctx: BackendModuleContext) {
-    const templates = createSqliteRecurringJournalTemplateRepository(ctx.sqlite);
-    const runs = createSqliteRecurringJournalRunRepository(ctx.sqlite);
-    const skips = createSqliteRecurringJournalSkipRepository(ctx.sqlite);
-    const accountRouting = createSqliteAccountRoutingStore(ctx.sqlite);
-    const assets = createSqliteAssetRepository(ctx.sqlite);
-    const depreciationRuns = createSqliteDepreciationRunRepository(ctx.sqlite);
+    const templates = ctx.store((s) => createSqliteRecurringJournalTemplateRepository(s), (d) => createRecurringJournalTemplateRepository(d));
+    const runs = ctx.store((s) => createSqliteRecurringJournalRunRepository(s), (d) => createRecurringJournalRunRepository(d));
+    const skips = ctx.store((s) => createSqliteRecurringJournalSkipRepository(s), (d) => createRecurringJournalSkipRepository(d));
+    const accountRouting = ctx.store((s) => createSqliteAccountRoutingStore(s), (d) => createAccountRoutingStore(d));
+    const assets = ctx.store((s) => createSqliteAssetRepository(s), (d) => createAssetRepository(d));
+    const depreciationRuns = ctx.store((s) => createSqliteDepreciationRunRepository(s), (d) => createDepreciationRunRepository(d));
 
     async function resolvePartyControlAccounts(): Promise<ReadonlyMap<string, PartyControlKind>> {
       const routing = await accountRouting.get();
@@ -64,7 +71,7 @@ export const area: BackendArea = {
           resolvePartyControlAccounts,
           partyExists,
           audit: ctx.audit,
-          vatFilings: createSqliteVatFilingStore(ctx.sqlite),
+          vatFilings: ctx.store((s) => createSqliteVatFilingStore(s), (d) => createVatFilingStore(d)),
           dueDepreciation: {
             hasDepreciableAssets: async () => (await assets.list()).some((asset) => DEPRECIABLE_ASSET_STATUSES.has(asset.status)),
             hasRunForPeriod: async (period) => depreciationRunsCoverPeriod(await assets.list(), await depreciationRuns.list(), period),
@@ -81,8 +88,8 @@ export const area: BackendArea = {
       cashAccountIds: async () => new Set(await ctx.cashAndBankAccountIds()),
       partyControlAccountIds: async () => new Set((await resolvePartyControlAccounts()).keys()),
     });
-    commitmentSourceRegistry.set(ctx.sqlite, commitmentSource);
-    registerCashCommitmentSource(ctx.sqlite, commitmentSource);
+    commitmentSourceRegistry.set(ctx.db, commitmentSource);
+    registerCashCommitmentSource(ctx.db, commitmentSource);
 
     ctx.addCloser(templates);
     ctx.addCloser(runs);

@@ -97,7 +97,7 @@ describe("origin canonicalisation", () => {
 describe("a session is bound to where it was issued", () => {
   it("keeps the desktop's own IPC session working on the host", async () => {
     const sessions = createSessionRegistry();
-    const token = sessions.issue(clerkGrant); // no origin: the in-process mount
+    const token = await sessions.issue(clerkGrant); // no origin: the in-process mount
     const app = guardedApp(sessions);
 
     expect((await get(app, token, null)).status).toBe(200);
@@ -109,7 +109,7 @@ describe("a session is bound to where it was issued", () => {
     // "any origin" would make the check bypassable by anything that can reach
     // the in-process mount.
     const sessions = createSessionRegistry();
-    const token = sessions.issue(clerkGrant);
+    const token = await sessions.issue(clerkGrant);
     const app = guardedApp(sessions);
 
     expect((await get(app, token, TILL)).status).toBe(401);
@@ -117,7 +117,7 @@ describe("a session is bound to where it was issued", () => {
 
   it("lets a till use its own token from the address it logged in from", async () => {
     const sessions = createSessionRegistry();
-    const token = sessions.issue(clerkGrant, TILL);
+    const token = await sessions.issue(clerkGrant, TILL);
     const app = guardedApp(sessions);
 
     expect((await get(app, token, TILL)).status).toBe(200);
@@ -132,28 +132,28 @@ describe("a session is bound to where it was issued", () => {
     // mismatch REVOKES — it does not merely refuse the one request, and it
     // never re-binds.
     const sessions = createSessionRegistry();
-    const token = sessions.issue(clerkGrant, TILL);
+    const token = await sessions.issue(clerkGrant, TILL);
     const app = guardedApp(sessions);
 
     expect((await get(app, token, OTHER_TILL)).status).toBe(401);
     expect((await get(app, token, TILL)).status).toBe(401);
-    expect(sessions.find(token, TILL)).toBeNull();
+    expect(await sessions.find(token, TILL)).toBeNull();
   });
 
   it("refuses a till token presented over the in-process mount", async () => {
     const sessions = createSessionRegistry();
-    const token = sessions.issue(clerkGrant, TILL);
+    const token = await sessions.issue(clerkGrant, TILL);
     const app = guardedApp(sessions);
 
     expect((await get(app, token, null)).status).toBe(401);
   });
 
-  it("reports a moved token as moved, and a home-address expiry as expiry", () => {
+  it("reports a moved token as moved, and a home-address expiry as expiry", async () => {
     let clock = 1_000_000;
     const sessions = createSessionRegistry(() => clock);
 
-    const moved = sessions.issue(clerkGrant, TILL);
-    expect(sessions.inspect(moved, OTHER_TILL).refusal).toEqual({
+    const moved = await sessions.issue(clerkGrant, TILL);
+    expect((await sessions.inspect(moved, OTHER_TILL)).refusal).toEqual({
       reason: "moved",
       userId: "USER-CLERK",
       issuedFrom: TILL,
@@ -161,36 +161,36 @@ describe("a session is bound to where it was issued", () => {
       sessionEnded: true,
     });
 
-    const idled = sessions.issue(clerkGrant, TILL);
+    const idled = await sessions.issue(clerkGrant, TILL);
     clock += IDLE_TIMEOUT_MS + 1;
-    expect(sessions.inspect(idled, TILL).refusal?.reason).toBe("idle");
+    expect((await sessions.inspect(idled, TILL)).refusal?.reason).toBe("idle");
   });
 
-  it("names the host as an origin rather than as a missing value", () => {
+  it("names the host as an origin rather than as a missing value", async () => {
     const sessions = createSessionRegistry();
-    const token = sessions.issue(clerkGrant);
-    expect(sessions.inspect(token, TILL).refusal).toMatchObject({
+    const token = await sessions.issue(clerkGrant);
+    expect((await sessions.inspect(token, TILL)).refusal).toMatchObject({
       reason: "moved",
       issuedFrom: "host",
       presentedFrom: TILL,
     });
   });
 
-  it("still ends every session of a deactivated user, whatever they were bound to", () => {
+  it("still ends every session of a deactivated user, whatever they were bound to", async () => {
     const sessions = createSessionRegistry();
-    const host = sessions.issue(clerkGrant);
-    const till = sessions.issue(clerkGrant, TILL);
-    const other = sessions.issue({ ...clerkGrant, userId: "USER-OTHER" }, OTHER_TILL);
+    const host = await sessions.issue(clerkGrant);
+    const till = await sessions.issue(clerkGrant, TILL);
+    const other = await sessions.issue({ ...clerkGrant, userId: "USER-OTHER" }, OTHER_TILL);
 
-    sessions.revokeUser("USER-CLERK");
-    expect(sessions.find(host)).toBeNull();
-    expect(sessions.find(till, TILL)).toBeNull();
-    expect(sessions.find(other, OTHER_TILL)).not.toBeNull();
+    await sessions.revokeUser("USER-CLERK");
+    expect(await sessions.find(host)).toBeNull();
+    expect(await sessions.find(till, TILL)).toBeNull();
+    expect(await sessions.find(other, OTHER_TILL)).not.toBeNull();
   });
 
   it("keeps the branch/warehouse narrowing rules the binding sits on top of", async () => {
     const sessions = createSessionRegistry();
-    const token = sessions.issue({ ...clerkGrant, branchScope: ALL_SCOPE }, TILL);
+    const token = await sessions.issue({ ...clerkGrant, branchScope: ALL_SCOPE }, TILL);
     const resolve = createSessionAuthContextResolver(sessions);
     const app = new Hono();
     app.get("/scope", async (c) => {
@@ -217,51 +217,51 @@ describe("a session is bound to where it was issued", () => {
 });
 
 describe("a session has a maximum lifetime, however busy it is", () => {
-  it("ends a continuously used session at the absolute cap", () => {
+  it("ends a continuously used session at the absolute cap", async () => {
     let clock = 1_000_000;
     const sessions = createSessionRegistry(() => clock);
-    const token = sessions.issue(clerkGrant, TILL);
+    const token = await sessions.issue(clerkGrant, TILL);
 
     // Polled once an hour: `lastSeenAt` never goes stale, so the idle timeout
     // alone would have kept this alive forever.
     for (let hour = 1; hour <= 15; hour += 1) {
       clock += 60 * 60 * 1000;
-      expect(sessions.find(token, TILL)).not.toBeNull();
+      expect(await sessions.find(token, TILL)).not.toBeNull();
     }
     clock += 60 * 60 * 1000 + 1;
-    expect(sessions.find(token, TILL)).toBeNull();
+    expect(await sessions.find(token, TILL)).toBeNull();
   });
 
-  it("reports the cap as its own reason, distinct from going idle", () => {
+  it("reports the cap as its own reason, distinct from going idle", async () => {
     let clock = 1_000_000;
     const sessions = createSessionRegistry(() => clock);
-    const token = sessions.issue(clerkGrant, TILL);
+    const token = await sessions.issue(clerkGrant, TILL);
 
     clock += 6 * 60 * 60 * 1000;
-    expect(sessions.find(token, TILL)).not.toBeNull();
+    expect(await sessions.find(token, TILL)).not.toBeNull();
     clock += MAX_SESSION_MS - 6 * 60 * 60 * 1000 + 1;
-    expect(sessions.inspect(token, TILL).refusal?.reason).toBe("aged");
+    expect((await sessions.inspect(token, TILL)).refusal?.reason).toBe("aged");
   });
 
-  it("still expires an untouched session on the shorter idle timeout", () => {
+  it("still expires an untouched session on the shorter idle timeout", async () => {
     let clock = 1_000_000;
     const sessions = createSessionRegistry(() => clock);
-    const token = sessions.issue(clerkGrant, TILL);
+    const token = await sessions.issue(clerkGrant, TILL);
 
     clock += IDLE_TIMEOUT_MS + 1;
-    expect(sessions.inspect(token, TILL).refusal?.reason).toBe("idle");
+    expect((await sessions.inspect(token, TILL)).refusal?.reason).toBe("idle");
   });
 
-  it("sweeps aged sessions out on the next issue rather than holding them forever", () => {
+  it("sweeps aged sessions out on the next issue rather than holding them forever", async () => {
     let clock = 1_000_000;
     const sessions = createSessionRegistry(() => clock);
-    const aged = sessions.issue(clerkGrant, TILL);
+    const aged = await sessions.issue(clerkGrant, TILL);
     clock += 60 * 60 * 1000;
     // Used, so it is not idle — only the absolute cap can reap it.
-    expect(sessions.find(aged, TILL)).not.toBeNull();
+    expect(await sessions.find(aged, TILL)).not.toBeNull();
     clock += MAX_SESSION_MS;
-    sessions.issue(clerkGrant, OTHER_TILL);
-    expect(sessions.find(aged, TILL)).toBeNull();
+    await sessions.issue(clerkGrant, OTHER_TILL);
+    expect(await sessions.find(aged, TILL)).toBeNull();
   });
 });
 
@@ -276,7 +276,7 @@ describe("a moved token is recorded", () => {
   it("writes one CRITICAL security row naming both addresses", async () => {
     const sessions = createSessionRegistry();
     const { sink, rows } = collectingSink();
-    const token = sessions.issue(clerkGrant, TILL);
+    const token = await sessions.issue(clerkGrant, TILL);
     const app = reportingApp(sessions, sink);
 
     await app.fetch(
@@ -304,7 +304,7 @@ describe("a moved token is recorded", () => {
   it("writes nothing for a token used where it belongs, or for one that never existed", async () => {
     const sessions = createSessionRegistry();
     const { sink, rows } = collectingSink();
-    const token = sessions.issue(clerkGrant, TILL);
+    const token = await sessions.issue(clerkGrant, TILL);
     const app = reportingApp(sessions, sink);
 
     await app.fetch(
@@ -323,7 +323,7 @@ describe("a moved token is recorded", () => {
   it("fires once per token, because the mismatch revoked it", async () => {
     const sessions = createSessionRegistry();
     const { sink, rows } = collectingSink();
-    const token = sessions.issue(clerkGrant, TILL);
+    const token = await sessions.issue(clerkGrant, TILL);
     const app = reportingApp(sessions, sink);
 
     for (let i = 0; i < 5; i += 1) {
@@ -339,7 +339,7 @@ describe("a moved token is recorded", () => {
     for (const method of ["GET", "POST"]) {
       const sessions = createSessionRegistry();
       const { sink, rows } = collectingSink();
-      const token = sessions.issue(clerkGrant, TILL);
+      const token = await sessions.issue(clerkGrant, TILL);
       const resolve = createSessionAuthContextResolver(sessions);
       const app = new Hono();
       app.use("*", requestBodyLimit(resolve));
@@ -358,7 +358,7 @@ describe("a moved token is recorded", () => {
       expect(res.status, method).toBe(401);
       expect(rows.map((row) => row.action), method).toEqual(["SESSION_ORIGIN_REJECTED"]);
       expect(rows[0]?.details, method).toMatchObject({ method, issuedFrom: TILL, presentedFrom: OTHER_TILL });
-      expect(sessions.find(token, TILL), method).toBeNull();
+      expect(await sessions.find(token, TILL), method).toBeNull();
     }
   });
 
@@ -367,10 +367,10 @@ describe("a moved token is recorded", () => {
     let lookups = 0;
     const counting = {
       ...sessions,
-      inspect: (token: string, origin?: string | null) => ((lookups += 1), sessions.inspect(token, origin)),
-      find: (token: string, origin?: string | null) => ((lookups += 1), sessions.find(token, origin)),
+      inspect: async (token: string, origin?: string | null) => ((lookups += 1), await sessions.inspect(token, origin)),
+      find: async (token: string, origin?: string | null) => ((lookups += 1), await sessions.find(token, origin)),
     };
-    const token = sessions.issue(clerkGrant, TILL);
+    const token = await sessions.issue(clerkGrant, TILL);
     const resolve = createSessionAuthContextResolver(counting);
     const { sink } = collectingSink();
     const app = new Hono();
@@ -389,7 +389,7 @@ describe("a moved token is recorded", () => {
 
   it("never turns a failing audit write into a 500 on the request", async () => {
     const sessions = createSessionRegistry();
-    const token = sessions.issue(clerkGrant, TILL);
+    const token = await sessions.issue(clerkGrant, TILL);
     const exploding: AuditSink = {
       append: async () => {
         throw new Error("sink closed");
@@ -408,7 +408,7 @@ describe("a moved token is recorded", () => {
     // store alike, the revocation commits on its own before the audit write:
     // an audit failure that rolled it back would hand the moved token straight
     // back to whoever presented it.
-    expect(sessions.find(token, TILL)).toBeNull();
+    expect(await sessions.find(token, TILL)).toBeNull();
   });
 
   it("lets a re-login through on the same request path a stale token arrives on", async () => {
@@ -418,7 +418,7 @@ describe("a moved token is recorded", () => {
     // recovers through.
     const sessions = createSessionRegistry();
     const { sink, rows } = collectingSink();
-    const token = sessions.issue(clerkGrant, TILL);
+    const token = await sessions.issue(clerkGrant, TILL);
     const app = new Hono();
     app.use("*", sessionOriginReporting(sessions, sink));
     app.post("/auth/login", (c) => c.json({ token: "fresh" }));

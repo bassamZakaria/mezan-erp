@@ -15,7 +15,7 @@ describe("the demo tenant's recurring-journal worklist", () => {
     const dbPath = join(mkdtempSync(join(tmpdir(), "mezan-recurring-due-")), "books.db");
     const resolveEntitlements = () => createEntitlements({ plan: "DEMO", activeModules: MODULE_CATALOG, features: {}, seats: 50, expiresAt: null });
     handle = await createBackend({ dbPath, seedDemoData: true, resolveEntitlements });
-    const token = handle.sessions.issue({ userId: "USER-ADMIN", permissions: ["*"], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
+    const token = await handle.sessions.issue({ userId: "USER-ADMIN", permissions: ["*"], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
     read = async (path) => {
       const res = await handle.app.fetch(new Request(`http://local${path}`, { headers: { authorization: `Bearer ${token}` } }));
       expect(res.status, path).toBe(200);

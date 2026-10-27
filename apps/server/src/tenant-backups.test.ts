@@ -182,8 +182,8 @@ describe("a tenant's backup export", () => {
     live.prepare(`INSERT INTO sign_in_attempt VALUES ('account', 'ali@example.eg', 3)`).run();
     live.prepare(`INSERT INTO resource_lease VALUES ('hr-punch:u1', 'o', 1)`).run();
     const sessions = createSessionRegistry(Date.now, DEFAULT_SESSION_LIMITS, createSqliteSessionStore(live));
-    const first = sessions.issueDeviceBound({ userId: "u1", permissions: ["*"], roleCode: null, branchScope: "*", warehouseScope: "*" }, "41.33.10.10");
-    sessions.issueDeviceBound({ userId: "u2", permissions: ["*"], roleCode: null, branchScope: "*", warehouseScope: "*" }, "41.33.10.10", first.deviceSecret);
+    const first = await sessions.issueDeviceBound({ userId: "u1", permissions: ["*"], roleCode: null, branchScope: "*", warehouseScope: "*" }, "41.33.10.10");
+    await sessions.issueDeviceBound({ userId: "u2", permissions: ["*"], roleCode: null, branchScope: "*", warehouseScope: "*" }, "41.33.10.10", first.deviceSecret);
     const svc = service(dir, { acme: books });
 
     const offer = await svc.exportTenant({ tenant: tenantOf("acme"), passphrase: PASSPHRASE });

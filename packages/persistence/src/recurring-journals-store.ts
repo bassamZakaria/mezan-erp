@@ -1,6 +1,8 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
-import { insertingNew, prepareInsertOnly } from "./insert-new.js";
+import { insertNew } from "./insert-new.js";
+import { SqlDialect, type SqlDb, type SqlValue } from "./sql/sql-db.js";
+import { sqliteDb } from "./sql/sqlite-db.js";
 import {
   Money,
   RecurringJournalFrequency,
@@ -138,11 +140,11 @@ interface TemplateRow {
   name_en: string | null;
   memo: string;
   frequency: string;
-  day_of_period: number;
-  yearly_month: number | null;
+  day_of_period: bigint;
+  yearly_month: bigint | null;
   start_date: string;
   end_date: string | null;
-  auto_reverse_next_period: number;
+  auto_reverse_next_period: bigint;
   status: string;
   lines: string;
   created_at: string;
@@ -156,11 +158,11 @@ function toTemplate(row: TemplateRow): RecurringJournalTemplate {
     nameEn: row.name_en,
     memo: row.memo,
     frequency: row.frequency as RecurringJournalFrequency,
-    dayOfPeriod: row.day_of_period,
-    yearlyMonth: row.yearly_month,
+    dayOfPeriod: Number(row.day_of_period),
+    yearlyMonth: row.yearly_month === null ? null : Number(row.yearly_month),
     startDate: row.start_date,
     endDate: row.end_date,
-    autoReverseNextPeriod: row.auto_reverse_next_period === 1,
+    autoReverseNextPeriod: Number(row.auto_reverse_next_period) === 1,
     status: row.status as RecurringJournalTemplateStatus,
     lines: deserializeLines(row.lines),
     createdAt: row.created_at,
@@ -168,79 +170,75 @@ function toTemplate(row: TemplateRow): RecurringJournalTemplate {
   };
 }
 
-class SqliteRecurringJournalTemplateRepository implements RecurringJournalTemplateRepository {
-  private readonly upsert: Database.Statement;
-  private readonly insertOnly: Database.Statement;
-  private readonly selectById: Database.Statement;
-  private readonly selectAll: Database.Statement;
+const TEMPLATE_UPSERT = `
+  INSERT INTO recurring_journal_template
+    (id, name_ar, name_en, memo, frequency, day_of_period, yearly_month, start_date, end_date, auto_reverse_next_period, status, lines, created_at, updated_at)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  ON CONFLICT(id) DO UPDATE SET
+    name_ar = excluded.name_ar,
+    name_en = excluded.name_en,
+    memo = excluded.memo,
+    frequency = excluded.frequency,
+    day_of_period = excluded.day_of_period,
+    yearly_month = excluded.yearly_month,
+    start_date = excluded.start_date,
+    end_date = excluded.end_date,
+    auto_reverse_next_period = excluded.auto_reverse_next_period,
+    status = excluded.status,
+    lines = excluded.lines,
+    updated_at = excluded.updated_at`;
 
-  constructor(private readonly sqlite: Database.Database) {
-    this.upsert = sqlite.prepare(`
-      INSERT INTO recurring_journal_template
-        (id, name_ar, name_en, memo, frequency, day_of_period, yearly_month, start_date, end_date, auto_reverse_next_period, status, lines, created_at, updated_at)
-      VALUES
-        (@id, @name_ar, @name_en, @memo, @frequency, @day_of_period, @yearly_month, @start_date, @end_date, @auto_reverse_next_period, @status, @lines, @created_at, @updated_at)
-      ON CONFLICT(id) DO UPDATE SET
-        name_ar = excluded.name_ar,
-        name_en = excluded.name_en,
-        memo = excluded.memo,
-        frequency = excluded.frequency,
-        day_of_period = excluded.day_of_period,
-        yearly_month = excluded.yearly_month,
-        start_date = excluded.start_date,
-        end_date = excluded.end_date,
-        auto_reverse_next_period = excluded.auto_reverse_next_period,
-        status = excluded.status,
-        lines = excluded.lines,
-        updated_at = excluded.updated_at
-    `);
-    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
-    this.selectById = sqlite.prepare(`SELECT * FROM recurring_journal_template WHERE id = ?`);
-    this.selectAll = sqlite.prepare(`SELECT * FROM recurring_journal_template ORDER BY created_at ASC`);
-  }
+function templateParams(template: RecurringJournalTemplate): SqlValue[] {
+  return [
+    template.id,
+    template.nameAr,
+    template.nameEn,
+    template.memo,
+    template.frequency,
+    template.dayOfPeriod,
+    template.yearlyMonth,
+    template.startDate,
+    template.endDate,
+    template.autoReverseNextPeriod ? 1 : 0,
+    template.status,
+    serializeLines(template.lines),
+    template.createdAt,
+    template.updatedAt,
+  ];
+}
+
+class SqlRecurringJournalTemplateRepository implements RecurringJournalTemplateRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async findById(id: string): Promise<RecurringJournalTemplate | null> {
-    const row = this.selectById.get(id) as TemplateRow | undefined;
+    const row = await this.db.get<TemplateRow>(`SELECT * FROM recurring_journal_template WHERE id = ?`, [id]);
     return row ? toTemplate(row) : null;
   }
 
   async list(): Promise<readonly RecurringJournalTemplate[]> {
-    return (this.selectAll.all() as TemplateRow[]).map(toTemplate);
+    return (await this.db.all<TemplateRow>(`SELECT * FROM recurring_journal_template ORDER BY created_at ASC`)).map(toTemplate);
   }
 
   async save(template: RecurringJournalTemplate): Promise<void> {
-    this.write(template);
+    await this.db.run(TEMPLATE_UPSERT, templateParams(template));
   }
 
   async insert(template: RecurringJournalTemplate): Promise<void> {
-    insertingNew(template.id, () => this.write(template, this.insertOnly));
+    await insertNew(this.db, template.id, TEMPLATE_UPSERT, templateParams(template));
   }
+}
 
-  private write(template: RecurringJournalTemplate, statement: Database.Statement = this.upsert): void {
-    statement.run({
-      id: template.id,
-      name_ar: template.nameAr,
-      name_en: template.nameEn,
-      memo: template.memo,
-      frequency: template.frequency,
-      day_of_period: template.dayOfPeriod,
-      yearly_month: template.yearlyMonth,
-      start_date: template.startDate,
-      end_date: template.endDate,
-      auto_reverse_next_period: template.autoReverseNextPeriod ? 1 : 0,
-      status: template.status,
-      lines: serializeLines(template.lines),
-      created_at: template.createdAt,
-      updated_at: template.updatedAt,
-    });
-  }
+function inTemplateIds(db: SqlDb): string {
+  return db.dialect === SqlDialect.Postgres
+    ? "template_id IN (SELECT jsonb_array_elements_text(CAST(? AS jsonb)))"
+    : "template_id IN (SELECT value FROM json_each(?))";
 }
 
 interface RunRow {
   id: string;
   template_id: string;
   period: string;
-  generation: number;
+  generation: bigint;
   journal_entry_id: string;
   journal_entry_no: string | null;
   reversal_journal_entry_id: string | null;
@@ -254,7 +252,7 @@ function toRun(row: RunRow): RecurringJournalRun {
     id: row.id,
     templateId: row.template_id,
     period: row.period,
-    generation: row.generation,
+    generation: Number(row.generation),
     journalEntryId: row.journal_entry_id,
     journalEntryNo: row.journal_entry_no,
     reversalJournalEntryId: row.reversal_journal_entry_id,
@@ -264,74 +262,57 @@ function toRun(row: RunRow): RecurringJournalRun {
   };
 }
 
-class SqliteRecurringJournalRunRepository implements RecurringJournalRunRepository {
-  private readonly insert: Database.Statement;
-  private readonly selectByTemplateAndPeriod: Database.Statement;
-  private readonly selectByTemplate: Database.Statement;
-  private readonly selectAll: Database.Statement;
-  private readonly selectOfTemplates: Database.Statement;
-
-  constructor(private readonly sqlite: Database.Database) {
-    // ON CONFLICT DO NOTHING is the DB-level half of the idempotency
-    // guarantee: even a concurrent double-call for the same generation of a
-    // (template, period) leaves only the first run's row.
-    this.insert = sqlite.prepare(`
-      INSERT INTO recurring_journal_run
-        (id, template_id, period, generation, journal_entry_id, journal_entry_no, reversal_journal_entry_id, reversal_journal_entry_no, generated_at, generated_by)
-      VALUES
-        (@id, @template_id, @period, @generation, @journal_entry_id, @journal_entry_no, @reversal_journal_entry_id, @reversal_journal_entry_no, @generated_at, @generated_by)
-      ON CONFLICT(template_id, period, generation) DO NOTHING
-    `);
-    this.selectByTemplateAndPeriod = sqlite.prepare(
-      `SELECT * FROM recurring_journal_run WHERE template_id = ? AND period = ? ORDER BY generation DESC LIMIT 1`,
-    );
-    this.selectByTemplate = sqlite.prepare(
-      `SELECT * FROM recurring_journal_run WHERE template_id = ? ORDER BY period DESC, generation DESC`,
-    );
-    this.selectAll = sqlite.prepare(`SELECT * FROM recurring_journal_run ORDER BY generated_at DESC, generation DESC LIMIT ?`);
-    this.selectOfTemplates = sqlite.prepare(
-      `SELECT * FROM recurring_journal_run WHERE template_id IN (SELECT value FROM json_each(?)) ORDER BY generated_at DESC, generation DESC LIMIT ?`,
-    );
-  }
+class SqlRecurringJournalRunRepository implements RecurringJournalRunRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async findById(id: string): Promise<RecurringJournalRun | null> {
-    const row = this.sqlite.prepare(`SELECT * FROM recurring_journal_run WHERE id = ?`).get(id) as RunRow | undefined;
+    const row = await this.db.get<RunRow>(`SELECT * FROM recurring_journal_run WHERE id = ?`, [id]);
     return row ? toRun(row) : null;
   }
 
   async findByTemplateAndPeriod(templateId: string, period: string): Promise<RecurringJournalRun | null> {
-    const row = this.selectByTemplateAndPeriod.get(templateId, period) as RunRow | undefined;
+    const row = await this.db.get<RunRow>(
+      `SELECT * FROM recurring_journal_run WHERE template_id = ? AND period = ? ORDER BY generation DESC LIMIT 1`,
+      [templateId, period],
+    );
     return row ? toRun(row) : null;
   }
 
   async listByTemplate(templateId: string): Promise<readonly RecurringJournalRun[]> {
-    return (this.selectByTemplate.all(templateId) as RunRow[]).map(toRun);
+    return (await this.db.all<RunRow>(`SELECT * FROM recurring_journal_run WHERE template_id = ? ORDER BY period DESC, generation DESC`, [templateId])).map(toRun);
   }
 
   async list(limit = 200, templateIds?: readonly string[]): Promise<readonly RecurringJournalRun[]> {
-    const rows = templateIds ? this.selectOfTemplates.all(JSON.stringify(templateIds), limit) : this.selectAll.all(limit);
-    return (rows as RunRow[]).map(toRun);
+    const rows = templateIds
+      ? await this.db.all<RunRow>(
+          `SELECT * FROM recurring_journal_run WHERE ${inTemplateIds(this.db)} ORDER BY generated_at DESC, generation DESC LIMIT ?`,
+          [JSON.stringify(templateIds), limit],
+        )
+      : await this.db.all<RunRow>(`SELECT * FROM recurring_journal_run ORDER BY generated_at DESC, generation DESC LIMIT ?`, [limit]);
+    return rows.map(toRun);
   }
 
+  // ON CONFLICT DO NOTHING is the DB-level half of the idempotency guarantee:
+  // `false` means another call already claimed this generation of the period.
   async save(run: RecurringJournalRun): Promise<boolean> {
-    return this.insertRun(run);
-  }
-
-  private insertRun(run: RecurringJournalRun): boolean {
-    // `changes === 0` is exactly the ON CONFLICT DO NOTHING path: another
-    // call already claimed this (template, period) first.
-    const info = this.insert.run({
-      id: run.id,
-      template_id: run.templateId,
-      period: run.period,
-      generation: run.generation,
-      journal_entry_id: run.journalEntryId,
-      journal_entry_no: run.journalEntryNo,
-      reversal_journal_entry_id: run.reversalJournalEntryId,
-      reversal_journal_entry_no: run.reversalJournalEntryNo,
-      generated_at: run.generatedAt,
-      generated_by: run.generatedBy,
-    });
+    const info = await this.db.run(
+      `INSERT INTO recurring_journal_run
+         (id, template_id, period, generation, journal_entry_id, journal_entry_no, reversal_journal_entry_id, reversal_journal_entry_no, generated_at, generated_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(template_id, period, generation) DO NOTHING`,
+      [
+        run.id,
+        run.templateId,
+        run.period,
+        run.generation,
+        run.journalEntryId,
+        run.journalEntryNo,
+        run.reversalJournalEntryId,
+        run.reversalJournalEntryNo,
+        run.generatedAt,
+        run.generatedBy,
+      ],
+    );
     return info.changes > 0;
   }
 }
@@ -340,13 +321,28 @@ export interface SqliteRecurringJournalTemplateRepositoryHandle extends Recurrin
   close(): void;
 }
 
+export async function ensureRecurringJournalSchema(db: SqlDb): Promise<void> {
+  await db.applySchema(`${CREATE_TEMPLATE}${CREATE_RUN}${CREATE_SKIP}`);
+}
+
+export function createRecurringJournalTemplateRepository(db: SqlDb): RecurringJournalTemplateRepository {
+  return new SqlRecurringJournalTemplateRepository(db);
+}
+
+export function createRecurringJournalRunRepository(db: SqlDb): RecurringJournalRunRepository {
+  return new SqlRecurringJournalRunRepository(db);
+}
+
+export function createRecurringJournalSkipRepository(db: SqlDb): RecurringJournalSkipRepository {
+  return new SqlRecurringJournalSkipRepository(db);
+}
+
 export function createSqliteRecurringJournalTemplateRepository(
   path: SqliteConnectionInput = ":memory:",
 ): SqliteRecurringJournalTemplateRepositoryHandle {
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.exec(CREATE_TEMPLATE);
-  const repo = new SqliteRecurringJournalTemplateRepository(sqlite);
-  return Object.assign(repo, { close: () => { if (owned) sqlite.close(); } });
+  return Object.assign(createRecurringJournalTemplateRepository(sqliteDb(sqlite)), { close: () => { if (owned) sqlite.close(); } });
 }
 
 export interface SqliteRecurringJournalRunRepositoryHandle extends RecurringJournalRunRepository {
@@ -359,8 +355,7 @@ export function createSqliteRecurringJournalRunRepository(
   const { sqlite, owned } = openSqliteConnection(path);
   keyRunsByGeneration(sqlite);
   sqlite.exec(CREATE_RUN);
-  const repo = new SqliteRecurringJournalRunRepository(sqlite);
-  return Object.assign(repo, { close: () => { if (owned) sqlite.close(); } });
+  return Object.assign(createRecurringJournalRunRepository(sqliteDb(sqlite)), { close: () => { if (owned) sqlite.close(); } });
 }
 
 interface SkipRow {
@@ -383,58 +378,37 @@ function toSkip(row: SkipRow): RecurringJournalSkip {
   };
 }
 
-class SqliteRecurringJournalSkipRepository implements RecurringJournalSkipRepository {
-  private readonly insert: Database.Statement;
-  private readonly selectByTemplateAndPeriod: Database.Statement;
-  private readonly selectByTemplate: Database.Statement;
-  private readonly selectAll: Database.Statement;
-  private readonly selectOfTemplates: Database.Statement;
-
-  constructor(private readonly sqlite: Database.Database) {
-    // ON CONFLICT DO NOTHING mirrors the run repository's claim: a concurrent
-    // double-call for the same (template, period) leaves only the first skip.
-    this.insert = sqlite.prepare(`
-      INSERT INTO recurring_journal_skip
-        (id, template_id, period, note, skipped_at, skipped_by)
-      VALUES
-        (@id, @template_id, @period, @note, @skipped_at, @skipped_by)
-      ON CONFLICT(template_id, period) DO NOTHING
-    `);
-    this.selectByTemplateAndPeriod = sqlite.prepare(
-      `SELECT * FROM recurring_journal_skip WHERE template_id = ? AND period = ?`,
-    );
-    this.selectByTemplate = sqlite.prepare(
-      `SELECT * FROM recurring_journal_skip WHERE template_id = ? ORDER BY period DESC`,
-    );
-    this.selectAll = sqlite.prepare(`SELECT * FROM recurring_journal_skip ORDER BY skipped_at DESC LIMIT ?`);
-    this.selectOfTemplates = sqlite.prepare(
-      `SELECT * FROM recurring_journal_skip WHERE template_id IN (SELECT value FROM json_each(?)) ORDER BY skipped_at DESC LIMIT ?`,
-    );
-  }
+class SqlRecurringJournalSkipRepository implements RecurringJournalSkipRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async findByTemplateAndPeriod(templateId: string, period: string): Promise<RecurringJournalSkip | null> {
-    const row = this.selectByTemplateAndPeriod.get(templateId, period) as SkipRow | undefined;
+    const row = await this.db.get<SkipRow>(`SELECT * FROM recurring_journal_skip WHERE template_id = ? AND period = ?`, [templateId, period]);
     return row ? toSkip(row) : null;
   }
 
   async listByTemplate(templateId: string): Promise<readonly RecurringJournalSkip[]> {
-    return (this.selectByTemplate.all(templateId) as SkipRow[]).map(toSkip);
+    return (await this.db.all<SkipRow>(`SELECT * FROM recurring_journal_skip WHERE template_id = ? ORDER BY period DESC`, [templateId])).map(toSkip);
   }
 
   async list(limit = 200, templateIds?: readonly string[]): Promise<readonly RecurringJournalSkip[]> {
-    const rows = templateIds ? this.selectOfTemplates.all(JSON.stringify(templateIds), limit) : this.selectAll.all(limit);
-    return (rows as SkipRow[]).map(toSkip);
+    const rows = templateIds
+      ? await this.db.all<SkipRow>(
+          `SELECT * FROM recurring_journal_skip WHERE ${inTemplateIds(this.db)} ORDER BY skipped_at DESC LIMIT ?`,
+          [JSON.stringify(templateIds), limit],
+        )
+      : await this.db.all<SkipRow>(`SELECT * FROM recurring_journal_skip ORDER BY skipped_at DESC LIMIT ?`, [limit]);
+    return rows.map(toSkip);
   }
 
+  // Mirrors the run repository's claim: a concurrent double-call for the same
+  // (template, period) leaves only the first skip.
   async save(skip: RecurringJournalSkip): Promise<boolean> {
-    const info = this.insert.run({
-      id: skip.id,
-      template_id: skip.templateId,
-      period: skip.period,
-      note: skip.note,
-      skipped_at: skip.skippedAt,
-      skipped_by: skip.skippedBy,
-    });
+    const info = await this.db.run(
+      `INSERT INTO recurring_journal_skip (id, template_id, period, note, skipped_at, skipped_by)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(template_id, period) DO NOTHING`,
+      [skip.id, skip.templateId, skip.period, skip.note, skip.skippedAt, skip.skippedBy],
+    );
     return info.changes > 0;
   }
 }
@@ -448,6 +422,5 @@ export function createSqliteRecurringJournalSkipRepository(
 ): SqliteRecurringJournalSkipRepositoryHandle {
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.exec(CREATE_SKIP);
-  const repo = new SqliteRecurringJournalSkipRepository(sqlite);
-  return Object.assign(repo, { close: () => { if (owned) sqlite.close(); } });
+  return Object.assign(createRecurringJournalSkipRepository(sqliteDb(sqlite)), { close: () => { if (owned) sqlite.close(); } });
 }

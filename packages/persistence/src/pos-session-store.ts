@@ -1,4 +1,3 @@
-import type Database from "better-sqlite3";
 import {
   Money,
   PosSessionAlreadyOpenError,
@@ -7,9 +6,13 @@ import {
   type PosSessionStatus,
 } from "@mezan/domain";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
+import type { SqlDb } from "./sql/sql-db.js";
+import { sqliteDb } from "./sql/sqlite-db.js";
 
 // The two partial unique indexes ARE the "one open session per terminal and per
 // cashier" rule (plan §3.3); `open` relies on them rather than on a read-then-write.
+// CONTRACT: `open` maps the violation by index name, which both SQLite's and
+// Postgres's error text carry; the failed insert ends the caller's transaction.
 const CREATE_TABLES = `
 CREATE TABLE IF NOT EXISTS pos_session (
   id                 TEXT PRIMARY KEY,
@@ -37,7 +40,7 @@ interface SessionRow {
   shift_template_id: string | null;
   status: string;
   opened_at: string;
-  opening_float: number;
+  opening_float: bigint;
   closed_at: string | null;
 }
 
@@ -56,32 +59,25 @@ function toSession(row: SessionRow): PosSessionRecord {
   };
 }
 
-class SqlitePosSessionStore implements PosSessionRepository {
-  private readonly insert: Database.Statement;
-  private readonly selectOpenForTerminal: Database.Statement;
-
-  constructor(readonly sqlite: Database.Database) {
-    this.insert = sqlite.prepare(
-      `INSERT INTO pos_session (id, doc_no, terminal_id, branch_id, cashier_user_id, shift_template_id, status, opened_at, opening_float, closed_at)
-       VALUES (@id, @docNo, @terminalId, @branchId, @cashierUserId, @shiftTemplateId, @status, @openedAt, @openingFloat, @closedAt)`,
-    );
-    this.selectOpenForTerminal = sqlite.prepare(`SELECT * FROM pos_session WHERE terminal_id = ? AND status <> 'closed'`);
-  }
+class SqlPosSessionStore implements PosSessionRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async open(session: PosSessionRecord): Promise<void> {
     try {
-      this.insert.run({
-        id: session.id,
-        docNo: session.docNo,
-        terminalId: session.terminalId,
-        branchId: session.branchId,
-        cashierUserId: session.cashierUserId,
-        shiftTemplateId: session.shiftTemplateId,
-        status: "open",
-        openedAt: session.openedAt,
-        openingFloat: session.openingFloat.toScaledNumber(),
-        closedAt: null,
-      });
+      await this.db.run(
+        `INSERT INTO pos_session (id, doc_no, terminal_id, branch_id, cashier_user_id, shift_template_id, status, opened_at, opening_float, closed_at)
+         VALUES (?, ?, ?, ?, ?, ?, 'open', ?, ?, NULL)`,
+        [
+          session.id,
+          session.docNo,
+          session.terminalId,
+          session.branchId,
+          session.cashierUserId,
+          session.shiftTemplateId,
+          session.openedAt,
+          session.openingFloat.scaled,
+        ],
+      );
     } catch (err) {
       const message = err instanceof Error ? err.message : "";
       if (message.includes("idx_pos_session_open_terminal") || message.includes("pos_session.terminal_id")) {
@@ -95,7 +91,7 @@ class SqlitePosSessionStore implements PosSessionRepository {
   }
 
   async findOpenForTerminal(terminalId: string): Promise<PosSessionRecord | null> {
-    const row = this.selectOpenForTerminal.get(terminalId) as SessionRow | undefined;
+    const row = await this.db.get<SessionRow>(`SELECT * FROM pos_session WHERE terminal_id = ? AND status <> 'closed'`, [terminalId]);
     return row ? toSession(row) : null;
   }
 }
@@ -104,11 +100,18 @@ export interface SqlitePosSessionStoreHandle extends PosSessionRepository {
   close(): void;
 }
 
+export async function ensurePosSessionSchema(db: SqlDb): Promise<void> {
+  await db.applySchema(CREATE_TABLES);
+}
+
+export function createPosSessionStore(db: SqlDb): PosSessionRepository {
+  return new SqlPosSessionStore(db);
+}
+
 export function createSqlitePosSessionStore(path: SqliteConnectionInput = ":memory:"): SqlitePosSessionStoreHandle {
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.exec(CREATE_TABLES);
-  const store = new SqlitePosSessionStore(sqlite);
-  return Object.assign(store, {
+  return Object.assign(createPosSessionStore(sqliteDb(sqlite)), {
     close: () => {
       if (owned) sqlite.close();
     },

@@ -17,8 +17,8 @@ let dryZone: string;
 
 const WAREHOUSE = "WH-MAIN";
 
-function callerFor(userId: string, permissions: readonly string[]): Caller {
-  const token = world.backend.sessions.issue({ userId, permissions: [...permissions], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
+async function callerFor(userId: string, permissions: readonly string[]): Promise<Caller> {
+  const token = await world.backend.sessions.issue({ userId, permissions: [...permissions], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
   return async (method, url, body) => {
     const res = await world.backend.app.fetch(
       new Request(`http://local${url}`, { method, headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) }),
@@ -52,9 +52,9 @@ beforeAll(async () => {
   aliceId = await member("CNT_COUNTER_A", "عدّاد ألف", "alice.counter@cyag.example", ["inventory.count.scan"]);
   const bobId = await member("CNT_COUNTER_B", "عدّاد باء", "bob.counter@cyag.example", ["inventory.count.scan"]);
   carolId = await member("CNT_REVIEWER", "مراجع جيم", "carol.reviewer@cyag.example", ["inventory.count.review", "inventory.count.approve"]);
-  alice = callerFor(aliceId, ["inventory.count.scan"]);
-  bob = callerFor(bobId, ["inventory.count.scan"]);
-  carol = callerFor(carolId, ["inventory.count.review", "inventory.count.approve", "inventory.count.view"]);
+  alice = (await callerFor(aliceId, ["inventory.count.scan"]));
+  bob = (await callerFor(bobId, ["inventory.count.scan"]));
+  carol = (await callerFor(carolId, ["inventory.count.review", "inventory.count.approve", "inventory.count.view"]));
   await stocked("CM-COLA", "6221000000011", "10");
   await stocked("CM-JUICE", "6221000000028", "6");
   await stocked("CM-RICE", "6221000000035", "4");

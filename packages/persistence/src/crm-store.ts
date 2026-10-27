@@ -1,6 +1,8 @@
-import Database from "better-sqlite3";
+import type Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
-import { insertingNew, prepareInsertOnly } from "./insert-new.js";
+import { insertNew } from "./insert-new.js";
+import { placeholders, type SqlDb, type SqlValue } from "./sql/sql-db.js";
+import { sqliteDb } from "./sql/sqlite-db.js";
 import {
   Money,
   type Lead,
@@ -23,7 +25,7 @@ import {
 } from "@mezan/domain";
 
 /**
- * Self-contained SQLite stores for CRM (docs/archive/catalog/06 "العملاء المحتملون /
+ * Stores for CRM (docs/archive/catalog/06 "العملاء المحتملون /
  * الفرص / خط المبيعات / الأنشطة"). Four simple scalar-field entities, no
  * line-item arrays, so each mirrors `cost-center-repository.ts`'s
  * single-table style.
@@ -56,7 +58,7 @@ interface LeadRow {
   email: string | null;
   phone: string | null;
   source: string;
-  expected_value: number | null;
+  expected_value: bigint | null;
   interest: string | null;
   notes: string | null;
   status: string;
@@ -83,16 +85,9 @@ function toLead(row: LeadRow): Lead {
   };
 }
 
-class SqliteLeadRepository implements LeadRepository {
-  private readonly upsert: Database.Statement;
-  private readonly insertOnly: Database.Statement;
-  private readonly selectById: Database.Statement;
-  private readonly selectAll: Database.Statement;
-
-  constructor(private readonly sqlite: Database.Database) {
-    this.upsert = sqlite.prepare(`
+const LEAD_UPSERT = `
       INSERT INTO crm_lead (id, name, company, email, phone, source, expected_value, interest, notes, status, converted_customer_id, converted_opportunity_id, created_at)
-      VALUES (@id, @name, @company, @email, @phone, @source, @expected_value, @interest, @notes, @status, @converted_customer_id, @converted_opportunity_id, @created_at)
+      VALUES (${placeholders(13)})
       ON CONFLICT(id) DO UPDATE SET
         name = excluded.name,
         company = excluded.company,
@@ -104,46 +99,44 @@ class SqliteLeadRepository implements LeadRepository {
         notes = excluded.notes,
         status = excluded.status,
         converted_customer_id = excluded.converted_customer_id,
-        converted_opportunity_id = excluded.converted_opportunity_id
-    `);
-    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
-    this.selectById = sqlite.prepare(`SELECT * FROM crm_lead WHERE id = ?`);
-    this.selectAll = sqlite.prepare(`SELECT * FROM crm_lead`);
-  }
+        converted_opportunity_id = excluded.converted_opportunity_id`;
+
+function leadParams(lead: Lead): SqlValue[] {
+  return [
+    lead.id,
+    lead.name,
+    lead.company,
+    lead.email,
+    lead.phone,
+    lead.source,
+    lead.expectedValue == null ? null : lead.expectedValue.scaled,
+    lead.interest,
+    lead.notes,
+    lead.status,
+    lead.convertedCustomerId,
+    lead.convertedOpportunityId,
+    lead.createdAt,
+  ];
+}
+
+class SqlLeadRepository implements LeadRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async findById(id: string): Promise<Lead | null> {
-    const row = this.selectById.get(id) as LeadRow | undefined;
+    const row = await this.db.get<LeadRow>(`SELECT * FROM crm_lead WHERE id = ?`, [id]);
     return row ? toLead(row) : null;
   }
 
   async list(): Promise<Lead[]> {
-    return (this.selectAll.all() as LeadRow[]).map(toLead);
+    return (await this.db.all<LeadRow>(`SELECT * FROM crm_lead`)).map(toLead);
   }
 
   async create(lead: Lead): Promise<void> {
-    insertingNew(lead.id, () => this.write(lead, this.insertOnly));
+    await insertNew(this.db, lead.id, LEAD_UPSERT, leadParams(lead));
   }
 
   async update(lead: Lead): Promise<void> {
-    this.write(lead);
-  }
-
-  private write(lead: Lead, statement: Database.Statement = this.upsert): void {
-    statement.run({
-      id: lead.id,
-      name: lead.name,
-      company: lead.company,
-      email: lead.email,
-      phone: lead.phone,
-      source: lead.source,
-      expected_value: lead.expectedValue == null ? null : lead.expectedValue.toScaledNumber(),
-      interest: lead.interest,
-      notes: lead.notes,
-      status: lead.status,
-      converted_customer_id: lead.convertedCustomerId,
-      converted_opportunity_id: lead.convertedOpportunityId,
-      created_at: lead.createdAt,
-    });
+    await this.db.run(LEAD_UPSERT, leadParams(lead));
   }
 }
 
@@ -179,14 +172,16 @@ CREATE TABLE IF NOT EXISTS crm_opportunity_stage_entry (
 CREATE INDEX IF NOT EXISTS idx_crm_opportunity_stage_entry_opp ON crm_opportunity_stage_entry(opportunity_id, seq);
 `;
 
+const CREATE_OPPORTUNITY_OWNER_INDEX = `CREATE INDEX IF NOT EXISTS idx_crm_opportunity_owner ON crm_opportunity(owner_user_id)`;
+
 interface OpportunityRow {
   id: string;
   title: string;
   customer_id: string;
   branch_id: string | null;
   stage_id: string;
-  expected_value: number;
-  probability: number;
+  expected_value: bigint;
+  probability: bigint;
   expected_close_date: string | null;
   notes: string | null;
   owner_user_id: string | null;
@@ -205,7 +200,7 @@ function toOpportunity(row: OpportunityRow): Opportunity {
     branchId: row.branch_id,
     stageId: row.stage_id,
     expectedValue: Money.fromScaled(row.expected_value),
-    probability: row.probability,
+    probability: Number(row.probability),
     expectedCloseDate: row.expected_close_date,
     notes: row.notes,
     ownerUserId: row.owner_user_id,
@@ -217,24 +212,9 @@ function toOpportunity(row: OpportunityRow): Opportunity {
   };
 }
 
-class SqliteOpportunityRepository implements OpportunityRepository {
-  private readonly upsert: Database.Statement;
-  private readonly insertOnly: Database.Statement;
-  private readonly selectById: Database.Statement;
-  private readonly selectAll: Database.Statement;
-  private readonly lastStage: Database.Statement;
-  private readonly selectStage: Database.Statement;
-  private readonly insertEntry: Database.Statement;
-  private readonly selectEntries: Database.Statement;
-
-  constructor(private readonly sqlite: Database.Database) {
-    this.selectStage = sqlite.prepare(`SELECT stage_id FROM crm_opportunity WHERE id = ?`);
-    this.lastStage = sqlite.prepare(`SELECT stage_id FROM crm_opportunity_stage_entry WHERE opportunity_id = ? ORDER BY seq DESC LIMIT 1`);
-    this.insertEntry = sqlite.prepare(`INSERT INTO crm_opportunity_stage_entry (opportunity_id, stage_id, entered_at) VALUES (?, ?, ?)`);
-    this.selectEntries = sqlite.prepare(`SELECT opportunity_id, stage_id, entered_at FROM crm_opportunity_stage_entry ORDER BY seq`);
-    this.upsert = sqlite.prepare(`
+const OPPORTUNITY_UPSERT = `
       INSERT INTO crm_opportunity (id, title, customer_id, branch_id, stage_id, expected_value, probability, expected_close_date, notes, owner_user_id, lost_reason, lost_note, status, created_at, closed_at)
-      VALUES (@id, @title, @customer_id, @branch_id, @stage_id, @expected_value, @probability, @expected_close_date, @notes, @owner_user_id, @lost_reason, @lost_note, @status, @created_at, @closed_at)
+      VALUES (${placeholders(15)})
       ON CONFLICT(id) DO UPDATE SET
         title = excluded.title,
         customer_id = excluded.customer_id,
@@ -248,72 +228,79 @@ class SqliteOpportunityRepository implements OpportunityRepository {
         lost_reason = excluded.lost_reason,
         lost_note = excluded.lost_note,
         status = excluded.status,
-        closed_at = excluded.closed_at
-    `);
-    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
-    this.selectById = sqlite.prepare(`SELECT * FROM crm_opportunity WHERE id = ?`);
-    this.selectAll = sqlite.prepare(`SELECT * FROM crm_opportunity`);
-  }
+        closed_at = excluded.closed_at`;
+
+function opportunityParams(opportunity: Opportunity): SqlValue[] {
+  return [
+    opportunity.id,
+    opportunity.title,
+    opportunity.customerId,
+    opportunity.branchId,
+    opportunity.stageId,
+    opportunity.expectedValue.scaled,
+    opportunity.probability,
+    opportunity.expectedCloseDate,
+    opportunity.notes,
+    opportunity.ownerUserId,
+    opportunity.lostReason,
+    opportunity.lostNote,
+    opportunity.status,
+    opportunity.createdAt,
+    opportunity.closedAt,
+  ];
+}
+
+const INSERT_STAGE_ENTRY = `INSERT INTO crm_opportunity_stage_entry (opportunity_id, stage_id, entered_at) VALUES (?, ?, ?)`;
+
+class SqlOpportunityRepository implements OpportunityRepository, OpportunityStageHistorySource {
+  constructor(private readonly db: SqlDb) {}
 
   async findById(id: string): Promise<Opportunity | null> {
-    const row = this.selectById.get(id) as OpportunityRow | undefined;
+    const row = await this.db.get<OpportunityRow>(`SELECT * FROM crm_opportunity WHERE id = ?`, [id]);
     return row ? toOpportunity(row) : null;
   }
 
   async list(): Promise<Opportunity[]> {
-    return (this.selectAll.all() as OpportunityRow[]).map(toOpportunity);
+    return (await this.db.all<OpportunityRow>(`SELECT * FROM crm_opportunity`)).map(toOpportunity);
   }
 
   async create(opportunity: Opportunity): Promise<void> {
-    insertingNew(opportunity.id, () => this.write(opportunity, this.insertOnly));
+    await this.write(opportunity, true);
   }
 
   async update(opportunity: Opportunity): Promise<void> {
-    this.write(opportunity);
+    await this.write(opportunity, false);
   }
 
   async entries(): Promise<OpportunityStageEntry[]> {
-    return (this.selectEntries.all() as { opportunity_id: string; stage_id: string; entered_at: string }[]).map((row) => ({
+    const rows = await this.db.all<{ opportunity_id: string; stage_id: string; entered_at: string }>(
+      `SELECT opportunity_id, stage_id, entered_at FROM crm_opportunity_stage_entry ORDER BY seq`,
+    );
+    return rows.map((row) => ({
       opportunityId: row.opportunity_id,
       stageId: row.stage_id,
       enteredAt: row.entered_at,
     }));
   }
 
-  private recordStageEntry(opportunity: Opportunity, priorStageId: string | null): void {
-    const last = this.lastStage.get(opportunity.id) as { stage_id: string } | undefined;
+  private async recordStageEntry(opportunity: Opportunity, priorStageId: string | null): Promise<void> {
+    const last = await this.db.get<{ stage_id: string }>(
+      `SELECT stage_id FROM crm_opportunity_stage_entry WHERE opportunity_id = ? ORDER BY seq DESC LIMIT 1`,
+      [opportunity.id],
+    );
     if (last === undefined) {
-      this.insertEntry.run(opportunity.id, priorStageId ?? opportunity.stageId, opportunity.createdAt);
+      await this.db.run(INSERT_STAGE_ENTRY, [opportunity.id, priorStageId ?? opportunity.stageId, opportunity.createdAt]);
       if (priorStageId === null || priorStageId === opportunity.stageId) return;
     } else if (last.stage_id === opportunity.stageId) return;
-    this.insertEntry.run(opportunity.id, opportunity.stageId, opportunity.closedAt ?? new Date().toISOString());
+    await this.db.run(INSERT_STAGE_ENTRY, [opportunity.id, opportunity.stageId, opportunity.closedAt ?? new Date().toISOString()]);
   }
 
-  private write(opportunity: Opportunity, statement: Database.Statement = this.upsert): void {
-    this.sqlite.transaction(() => {
-      const prior = this.selectStage.get(opportunity.id) as { stage_id: string } | undefined;
-      this.runWrite(opportunity, statement);
-      this.recordStageEntry(opportunity, prior?.stage_id ?? null);
-    })();
-  }
-
-  private runWrite(opportunity: Opportunity, statement: Database.Statement): void {
-    statement.run({
-      id: opportunity.id,
-      title: opportunity.title,
-      customer_id: opportunity.customerId,
-      branch_id: opportunity.branchId,
-      stage_id: opportunity.stageId,
-      expected_value: opportunity.expectedValue.toScaledNumber(),
-      probability: opportunity.probability,
-      expected_close_date: opportunity.expectedCloseDate,
-      notes: opportunity.notes,
-      owner_user_id: opportunity.ownerUserId,
-      lost_reason: opportunity.lostReason,
-      lost_note: opportunity.lostNote,
-      status: opportunity.status,
-      created_at: opportunity.createdAt,
-      closed_at: opportunity.closedAt,
+  private write(opportunity: Opportunity, insertOnly: boolean): Promise<void> {
+    return this.db.transaction(async () => {
+      const prior = await this.db.get<{ stage_id: string }>(`SELECT stage_id FROM crm_opportunity WHERE id = ?`, [opportunity.id]);
+      if (insertOnly) await insertNew(this.db, opportunity.id, OPPORTUNITY_UPSERT, opportunityParams(opportunity));
+      else await this.db.run(OPPORTUNITY_UPSERT, opportunityParams(opportunity));
+      await this.recordStageEntry(opportunity, prior?.stage_id ?? null);
     });
   }
 }
@@ -336,37 +323,30 @@ CREATE TABLE IF NOT EXISTS crm_pipeline_stage (
 interface PipelineStageRow {
   id: string;
   name: string;
-  order: number;
-  default_probability: number;
+  order: bigint;
+  default_probability: bigint;
   color: string;
-  is_win_stage: number;
-  is_loss_stage: number;
-  active: number;
+  is_win_stage: bigint;
+  is_loss_stage: bigint;
+  active: bigint;
 }
 
 function toPipelineStage(row: PipelineStageRow): PipelineStage {
   return {
     id: row.id,
     name: row.name,
-    order: row.order,
-    defaultProbability: row.default_probability,
+    order: Number(row.order),
+    defaultProbability: Number(row.default_probability),
     color: row.color,
-    isWinStage: row.is_win_stage === 1,
-    isLossStage: row.is_loss_stage === 1,
-    active: row.active === 1,
+    isWinStage: Number(row.is_win_stage) === 1,
+    isLossStage: Number(row.is_loss_stage) === 1,
+    active: Number(row.active) === 1,
   };
 }
 
-class SqlitePipelineStageRepository implements PipelineStageRepository {
-  private readonly upsert: Database.Statement;
-  private readonly insertOnly: Database.Statement;
-  private readonly selectById: Database.Statement;
-  private readonly selectAll: Database.Statement;
-
-  constructor(private readonly sqlite: Database.Database) {
-    this.upsert = sqlite.prepare(`
+const PIPELINE_STAGE_UPSERT = `
       INSERT INTO crm_pipeline_stage (id, name, "order", default_probability, color, is_win_stage, is_loss_stage, active)
-      VALUES (@id, @name, @order, @default_probability, @color, @is_win_stage, @is_loss_stage, @active)
+      VALUES (${placeholders(8)})
       ON CONFLICT(id) DO UPDATE SET
         name = excluded.name,
         "order" = excluded."order",
@@ -374,41 +354,39 @@ class SqlitePipelineStageRepository implements PipelineStageRepository {
         color = excluded.color,
         is_win_stage = excluded.is_win_stage,
         is_loss_stage = excluded.is_loss_stage,
-        active = excluded.active
-    `);
-    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
-    this.selectById = sqlite.prepare(`SELECT * FROM crm_pipeline_stage WHERE id = ?`);
-    this.selectAll = sqlite.prepare(`SELECT * FROM crm_pipeline_stage`);
-  }
+        active = excluded.active`;
+
+function pipelineStageParams(stage: PipelineStage): SqlValue[] {
+  return [
+    stage.id,
+    stage.name,
+    stage.order,
+    stage.defaultProbability,
+    stage.color,
+    stage.isWinStage ? 1 : 0,
+    stage.isLossStage ? 1 : 0,
+    stage.active ? 1 : 0,
+  ];
+}
+
+class SqlPipelineStageRepository implements PipelineStageRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async findById(id: string): Promise<PipelineStage | null> {
-    const row = this.selectById.get(id) as PipelineStageRow | undefined;
+    const row = await this.db.get<PipelineStageRow>(`SELECT * FROM crm_pipeline_stage WHERE id = ?`, [id]);
     return row ? toPipelineStage(row) : null;
   }
 
   async list(): Promise<PipelineStage[]> {
-    return (this.selectAll.all() as PipelineStageRow[]).map(toPipelineStage);
+    return (await this.db.all<PipelineStageRow>(`SELECT * FROM crm_pipeline_stage`)).map(toPipelineStage);
   }
 
   async create(stage: PipelineStage): Promise<void> {
-    insertingNew(stage.id, () => this.write(stage, this.insertOnly));
+    await insertNew(this.db, stage.id, PIPELINE_STAGE_UPSERT, pipelineStageParams(stage));
   }
 
   async update(stage: PipelineStage): Promise<void> {
-    this.write(stage);
-  }
-
-  private write(stage: PipelineStage, statement: Database.Statement = this.upsert): void {
-    statement.run({
-      id: stage.id,
-      name: stage.name,
-      order: stage.order,
-      default_probability: stage.defaultProbability,
-      color: stage.color,
-      is_win_stage: stage.isWinStage ? 1 : 0,
-      is_loss_stage: stage.isLossStage ? 1 : 0,
-      active: stage.active ? 1 : 0,
-    });
+    await this.db.run(PIPELINE_STAGE_UPSERT, pipelineStageParams(stage));
   }
 }
 
@@ -463,16 +441,9 @@ function toActivity(row: ActivityRow): Activity {
   };
 }
 
-class SqliteActivityRepository implements ActivityRepository {
-  private readonly upsert: Database.Statement;
-  private readonly insertOnly: Database.Statement;
-  private readonly selectById: Database.Statement;
-  private readonly selectAll: Database.Statement;
-
-  constructor(private readonly sqlite: Database.Database) {
-    this.upsert = sqlite.prepare(`
+const ACTIVITY_UPSERT = `
       INSERT INTO crm_activity (id, subject, type, related_lead_id, related_opportunity_id, due_date, assignee_user_id, status, notes, created_at)
-      VALUES (@id, @subject, @type, @related_lead_id, @related_opportunity_id, @due_date, @assignee_user_id, @status, @notes, @created_at)
+      VALUES (${placeholders(10)})
       ON CONFLICT(id) DO UPDATE SET
         subject = excluded.subject,
         type = excluded.type,
@@ -481,43 +452,56 @@ class SqliteActivityRepository implements ActivityRepository {
         due_date = excluded.due_date,
         assignee_user_id = excluded.assignee_user_id,
         status = excluded.status,
-        notes = excluded.notes
-    `);
-    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
-    this.selectById = sqlite.prepare(`SELECT * FROM crm_activity WHERE id = ?`);
-    this.selectAll = sqlite.prepare(`SELECT * FROM crm_activity`);
-  }
+        notes = excluded.notes`;
+
+function activityParams(activity: Activity): SqlValue[] {
+  return [
+    activity.id,
+    activity.subject,
+    activity.type,
+    activity.relatedLeadId,
+    activity.relatedOpportunityId,
+    activity.dueDate,
+    activity.assigneeUserId,
+    activity.status,
+    activity.notes,
+    activity.createdAt,
+  ];
+}
+
+class SqlActivityRepository implements ActivityRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async findById(id: string): Promise<Activity | null> {
-    const row = this.selectById.get(id) as ActivityRow | undefined;
+    const row = await this.db.get<ActivityRow>(`SELECT * FROM crm_activity WHERE id = ?`, [id]);
     return row ? toActivity(row) : null;
   }
 
   async list(): Promise<Activity[]> {
-    return (this.selectAll.all() as ActivityRow[]).map(toActivity);
+    return (await this.db.all<ActivityRow>(`SELECT * FROM crm_activity`)).map(toActivity);
   }
 
   async create(activity: Activity): Promise<void> {
-    insertingNew(activity.id, () => this.write(activity, this.insertOnly));
+    await insertNew(this.db, activity.id, ACTIVITY_UPSERT, activityParams(activity));
   }
 
   async update(activity: Activity): Promise<void> {
-    this.write(activity);
+    await this.db.run(ACTIVITY_UPSERT, activityParams(activity));
+  }
+}
+
+class SqlActivityReminderLog implements ActivityReminderLog {
+  constructor(private readonly db: SqlDb) {}
+
+  async has(activityId: string, dueDate: string): Promise<boolean> {
+    return (await this.db.get(`SELECT 1 AS found FROM crm_activity_reminder WHERE activity_id = ? AND due_date = ?`, [activityId, dueDate])) !== undefined;
   }
 
-  private write(activity: Activity, statement: Database.Statement = this.upsert): void {
-    statement.run({
-      id: activity.id,
-      subject: activity.subject,
-      type: activity.type,
-      related_lead_id: activity.relatedLeadId,
-      related_opportunity_id: activity.relatedOpportunityId,
-      due_date: activity.dueDate,
-      assignee_user_id: activity.assigneeUserId,
-      status: activity.status,
-      notes: activity.notes,
-      created_at: activity.createdAt,
-    });
+  async record(activityId: string, dueDate: string, notifiedAt: string): Promise<void> {
+    await this.db.run(
+      `INSERT INTO crm_activity_reminder (activity_id, due_date, notified_at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING`,
+      [activityId, dueDate, notifiedAt],
+    );
   }
 }
 
@@ -536,16 +520,40 @@ export interface SqliteActivityRepositoryHandle extends ActivityRepository {
   close(): void;
 }
 
+export async function ensureCrmSchema(db: SqlDb): Promise<void> {
+  await db.applySchema(
+    [CREATE_LEAD, CREATE_OPPORTUNITY, CREATE_OPPORTUNITY_STAGE_ENTRY, `${CREATE_OPPORTUNITY_OWNER_INDEX};`, CREATE_PIPELINE_STAGE, CREATE_ACTIVITY].join("\n"),
+  );
+}
+
+export function createLeadRepository(db: SqlDb): LeadRepository {
+  return new SqlLeadRepository(db);
+}
+
+export function createOpportunityRepository(db: SqlDb): OpportunityRepository & OpportunityStageHistorySource {
+  return new SqlOpportunityRepository(db);
+}
+
+export function createPipelineStageRepository(db: SqlDb): PipelineStageRepository {
+  return new SqlPipelineStageRepository(db);
+}
+
+export function createActivityRepository(db: SqlDb): ActivityRepository {
+  return new SqlActivityRepository(db);
+}
+
+export function createActivityReminderLog(db: SqlDb): ActivityReminderLog {
+  return new SqlActivityReminderLog(db);
+}
+
 /** Open a SQLite-backed LeadRepository. ":memory:" for tests, a path for real. */
 export function createSqliteLeadRepository(path: SqliteConnectionInput = ":memory:"): SqliteLeadRepositoryHandle {
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_LEAD);
-  const repo = new SqliteLeadRepository(sqlite);
-  return Object.assign(repo, { close: () => { if (owned) sqlite.close(); } }) as SqliteLeadRepositoryHandle;
+  return Object.assign(createLeadRepository(sqliteDb(sqlite)), { close: () => { if (owned) sqlite.close(); } }) as SqliteLeadRepositoryHandle;
 }
 
-/** Open a SQLite-backed OpportunityRepository. ":memory:" for tests, a path for real. */
 /** Adds `branch_id` to a database created before the column existed. */
 function addOpportunityBranchColumnIfMissing(sqlite: Database.Database): void {
   const columns = sqlite.prepare(`PRAGMA table_info(crm_opportunity)`).all() as { name: string }[];
@@ -561,6 +569,7 @@ function addMissingColumns(sqlite: Database.Database, table: string, columns: Re
   }
 }
 
+/** Open a SQLite-backed OpportunityRepository. ":memory:" for tests, a path for real. */
 export function createSqliteOpportunityRepository(path: SqliteConnectionInput = ":memory:"): SqliteOpportunityRepositoryHandle {
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
@@ -568,9 +577,8 @@ export function createSqliteOpportunityRepository(path: SqliteConnectionInput = 
   sqlite.exec(CREATE_OPPORTUNITY_STAGE_ENTRY);
   addOpportunityBranchColumnIfMissing(sqlite);
   addMissingColumns(sqlite, "crm_opportunity", { owner_user_id: "TEXT", lost_reason: "TEXT", lost_note: "TEXT" });
-  sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_crm_opportunity_owner ON crm_opportunity(owner_user_id)`);
-  const repo = new SqliteOpportunityRepository(sqlite);
-  return Object.assign(repo, { close: () => { if (owned) sqlite.close(); } }) as SqliteOpportunityRepositoryHandle;
+  sqlite.exec(CREATE_OPPORTUNITY_OWNER_INDEX);
+  return Object.assign(createOpportunityRepository(sqliteDb(sqlite)), { close: () => { if (owned) sqlite.close(); } }) as SqliteOpportunityRepositoryHandle;
 }
 
 /** Open a SQLite-backed PipelineStageRepository. ":memory:" for tests, a path for real. */
@@ -578,8 +586,7 @@ export function createSqlitePipelineStageRepository(path: SqliteConnectionInput 
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_PIPELINE_STAGE);
-  const repo = new SqlitePipelineStageRepository(sqlite);
-  return Object.assign(repo, { close: () => { if (owned) sqlite.close(); } }) as SqlitePipelineStageRepositoryHandle;
+  return Object.assign(createPipelineStageRepository(sqliteDb(sqlite)), { close: () => { if (owned) sqlite.close(); } }) as SqlitePipelineStageRepositoryHandle;
 }
 
 /** Open a SQLite-backed ActivityRepository. ":memory:" for tests, a path for real. */
@@ -588,28 +595,7 @@ export function createSqliteActivityRepository(path: SqliteConnectionInput = ":m
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_ACTIVITY);
   addMissingColumns(sqlite, "crm_activity", { assignee_user_id: "TEXT" });
-  const repo = new SqliteActivityRepository(sqlite);
-  return Object.assign(repo, { close: () => { if (owned) sqlite.close(); } }) as SqliteActivityRepositoryHandle;
-}
-
-class SqliteActivityReminderLog implements ActivityReminderLog {
-  private readonly selectOne: Database.Statement;
-  private readonly insertOne: Database.Statement;
-
-  constructor(sqlite: Database.Database) {
-    this.selectOne = sqlite.prepare(`SELECT 1 AS found FROM crm_activity_reminder WHERE activity_id = ? AND due_date = ?`);
-    this.insertOne = sqlite.prepare(
-      `INSERT OR IGNORE INTO crm_activity_reminder (activity_id, due_date, notified_at) VALUES (?, ?, ?)`,
-    );
-  }
-
-  async has(activityId: string, dueDate: string): Promise<boolean> {
-    return this.selectOne.get(activityId, dueDate) !== undefined;
-  }
-
-  async record(activityId: string, dueDate: string, notifiedAt: string): Promise<void> {
-    this.insertOne.run(activityId, dueDate, notifiedAt);
-  }
+  return Object.assign(createActivityRepository(sqliteDb(sqlite)), { close: () => { if (owned) sqlite.close(); } }) as SqliteActivityRepositoryHandle;
 }
 
 export interface SqliteActivityReminderLogHandle extends ActivityReminderLog {
@@ -620,6 +606,5 @@ export interface SqliteActivityReminderLogHandle extends ActivityReminderLog {
 export function createSqliteActivityReminderLog(path: SqliteConnectionInput = ":memory:"): SqliteActivityReminderLogHandle {
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.exec(CREATE_ACTIVITY);
-  const log = new SqliteActivityReminderLog(sqlite);
-  return Object.assign(log, { close: () => { if (owned) sqlite.close(); } }) as SqliteActivityReminderLogHandle;
+  return Object.assign(createActivityReminderLog(sqliteDb(sqlite)), { close: () => { if (owned) sqlite.close(); } }) as SqliteActivityReminderLogHandle;
 }

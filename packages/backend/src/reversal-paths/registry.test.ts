@@ -29,7 +29,7 @@ describe("the named reversal path of every entry type the journal refuses", () =
 
   it.each(Object.entries(DOCUMENT_REVERSAL_PATHS))("%s answers on its route: gated, not missing", async (_type, path) => {
     const url = path.route.replace(/:year/, "1999").replace(/:kind/, "leave").replace(/:asOfDate/, "1999-01-01").replace(/:\w+/g, "NO-SUCH-DOCUMENT");
-    const token = world.backend.sessions.issue({ userId: "nobody", permissions: [], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
+    const token = await world.backend.sessions.issue({ userId: "nobody", permissions: [], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
     const res = await world.backend.app.fetch(new Request(`http://local${url}`, { method: path.method, headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: "{}" }));
     expect(res.status).toBe(403);
     expect(((await res.json()) as { permission?: string }).permission).toBe(path.permission);

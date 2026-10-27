@@ -12,8 +12,8 @@ const VOUCHER = "RA-VCH";
 const REQUEST = `${VOUCHER}:confirm`;
 const TODAY = new Date().toISOString().slice(0, 10);
 const BEFORE_FINGERPRINTS = `
-CREATE TABLE approval_request_old AS
-  SELECT id, action_type, submitted_by, steps_json, current_step, status, decisions_json, entity_label, created_at, updated_at FROM approval_request;
+CREATE TABLE approval_request_old (id TEXT PRIMARY KEY, action_type TEXT NOT NULL, submitted_by TEXT NOT NULL, steps_json TEXT NOT NULL, current_step INTEGER NOT NULL, status TEXT NOT NULL, decisions_json TEXT NOT NULL, entity_label TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+INSERT INTO approval_request_old SELECT id, action_type, submitted_by, steps_json, current_step, status, decisions_json, entity_label, created_at, updated_at FROM approval_request;
 DROP TABLE approval_request;
 ALTER TABLE approval_request_old RENAME TO approval_request;
 DROP TABLE IF EXISTS upgrade_step;
@@ -31,9 +31,9 @@ let admin: Caller;
 let cashier: Caller;
 let supervisor: Caller;
 
-function callers(): void {
-  const as = (userId: string, permissions: string[], roleCode: string | null): Caller => {
-    const token = handle.sessions.issue({ userId, permissions, roleCode, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
+async function callers(): Promise<void> {
+  const as = async (userId: string, permissions: string[], roleCode: string | null): Promise<Caller> => {
+    const token = await handle.sessions.issue({ userId, permissions, roleCode, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
     return async (method, path, body) => {
       const res = await handle.app.fetch(
         new Request(`http://local${path}`, { method, headers: { "content-type": "application/json", authorization: `Bearer ${token}` }, body: body === undefined ? undefined : JSON.stringify(body) }),
@@ -42,9 +42,9 @@ function callers(): void {
       return { status: res.status, body: text ? JSON.parse(text) : null };
     };
   };
-  admin = as("USER-RA-ADMIN", ["*"], null);
-  cashier = as("USER-RA-CASHIER", ["treasury.cash_voucher.create", "treasury.cash_voucher.confirm", "treasury.cash_voucher.view"], "TREASURY_CASHIER");
-  supervisor = as("USER-RA-SUPERVISOR", ["treasury.cash_voucher.view", "treasury.cash_voucher.confirm", "workflow.view", "workflow.approve", "workflow.reject"], APPROVER_ROLE);
+  admin = (await as("USER-RA-ADMIN", ["*"], null));
+  cashier = (await as("USER-RA-CASHIER", ["treasury.cash_voucher.create", "treasury.cash_voucher.confirm", "treasury.cash_voucher.view"], "TREASURY_CASHIER"));
+  supervisor = (await as("USER-RA-SUPERVISOR", ["treasury.cash_voucher.view", "treasury.cash_voucher.confirm", "workflow.view", "workflow.approve", "workflow.reject"], APPROVER_ROLE));
 }
 
 function sql<T = any>(query: string, ...params: unknown[]): T | undefined {
@@ -59,7 +59,7 @@ function sql<T = any>(query: string, ...params: unknown[]): T | undefined {
 beforeAll(async () => {
   dbPath = join(mkdtempSync(join(tmpdir(), "mezan-reapproval-flow-")), "books.db");
   handle = await createBackend({ dbPath });
-  callers();
+  await callers();
   const role = await admin("POST", "/roles", { code: APPROVER_ROLE, name: "مشرف الخزينة", description: "يعتمد السندات", permissions: ["treasury.cash_voucher.view", "treasury.cash_voucher.confirm", "workflow.view", "workflow.approve", "workflow.reject"] });
   expect(role.status, JSON.stringify(role.body)).toBe(201);
   expect((await admin("POST", "/workflow/configs", { actionType: "TREASURY_VOUCHER_CONFIRM", steps: [{ role: APPROVER_ROLE }] })).status).toBe(201);
@@ -76,7 +76,7 @@ beforeAll(async () => {
   sqlite.close();
 
   handle = await createBackend({ dbPath });
-  callers();
+  await callers();
 }, 120_000);
 
 afterAll(() => handle?.close());
@@ -138,7 +138,7 @@ describe("the approvals inbox names who asked and what for", () => {
     const roleId = ((await admin("GET", "/roles")).body as { id: string; code: string }[]).find((role) => role.code === APPROVER_ROLE)!.id;
     const made = await admin("POST", "/users", { nameAr: "أمين الخزينة سامي", email: "sami.cashier@cyag.example", roleId, isCompanyAdmin: false, branchScope: ["BR-MAIN"], warehouseScope: "*", password: "correct-horse-battery" });
     expect(made.status, JSON.stringify(made.body).slice(0, 300)).toBe(201);
-    const token = handle.sessions.issue({ userId: made.body.id, permissions: ["treasury.cash_voucher.create", "treasury.cash_voucher.confirm", "treasury.cash_voucher.view"], roleCode: "TREASURY_CASHIER", branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
+    const token = await handle.sessions.issue({ userId: made.body.id, permissions: ["treasury.cash_voucher.create", "treasury.cash_voucher.confirm", "treasury.cash_voucher.view"], roleCode: "TREASURY_CASHIER", branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
     const sami: Caller = async (method, path, body) => {
       const res = await handle.app.fetch(new Request(`http://local${path}`, { method, headers: { "content-type": "application/json", authorization: `Bearer ${token}` }, body: body === undefined ? undefined : JSON.stringify(body) }));
       const text = await res.text();

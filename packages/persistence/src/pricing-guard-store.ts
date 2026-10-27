@@ -1,6 +1,7 @@
-import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
-import { insertingNew, prepareInsertOnly } from "./insert-new.js";
+import { insertNew } from "./insert-new.js";
+import { placeholders, SqlDialect, type SqlDb, type SqlValue } from "./sql/sql-db.js";
+import { sqliteDb } from "./sql/sqlite-db.js";
 import {
   Money,
   Qty,
@@ -76,6 +77,20 @@ CREATE TRIGGER IF NOT EXISTS pricing_guard_override_no_delete BEFORE DELETE ON p
 BEGIN SELECT RAISE(ABORT, 'pricing_guard_override is append-only'); END;
 `;
 
+const OVERRIDE_APPEND_ONLY_POSTGRES = `
+CREATE OR REPLACE FUNCTION pricing_guard_override_append_only() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  RAISE EXCEPTION 'pricing_guard_override is append-only';
+END;
+$$;
+CREATE OR REPLACE TRIGGER pricing_guard_override_no_update BEFORE UPDATE ON pricing_guard_override
+  FOR EACH ROW EXECUTE FUNCTION pricing_guard_override_append_only();
+CREATE OR REPLACE TRIGGER pricing_guard_override_no_delete BEFORE DELETE ON pricing_guard_override
+  FOR EACH ROW EXECUTE FUNCTION pricing_guard_override_append_only();
+CREATE OR REPLACE TRIGGER pricing_guard_override_no_truncate BEFORE TRUNCATE ON pricing_guard_override
+  FOR EACH STATEMENT EXECUTE FUNCTION pricing_guard_override_append_only();
+`;
+
 interface RuleRow {
   id: string;
   name_ar: string;
@@ -112,72 +127,60 @@ function toRule(row: RuleRow): PricingGuardRule {
   };
 }
 
-class SqlitePricingGuardRuleRepository implements PricingGuardRuleRepository {
-  private readonly upsert: Database.Statement;
-  private readonly insertOnly: Database.Statement;
-  private readonly selectById: Database.Statement;
-  private readonly selectAll: Database.Statement;
+const UPSERT_RULE = `INSERT INTO pricing_guard_rule
+    (id, name_ar, item_id, category_id, customer_category, floor_price, min_margin_percent, mode, status, note, created_at, updated_at, created_by, updated_by)
+  VALUES
+    (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  ON CONFLICT(id) DO UPDATE SET
+    name_ar = excluded.name_ar,
+    item_id = excluded.item_id,
+    category_id = excluded.category_id,
+    customer_category = excluded.customer_category,
+    floor_price = excluded.floor_price,
+    min_margin_percent = excluded.min_margin_percent,
+    mode = excluded.mode,
+    status = excluded.status,
+    note = excluded.note,
+    updated_at = excluded.updated_at,
+    updated_by = excluded.updated_by`;
 
-  constructor(sqlite: Database.Database) {
-    this.upsert = sqlite.prepare(`
-      INSERT INTO pricing_guard_rule
-        (id, name_ar, item_id, category_id, customer_category, floor_price, min_margin_percent, mode, status, note, created_at, updated_at, created_by, updated_by)
-      VALUES
-        (@id, @name_ar, @item_id, @category_id, @customer_category, @floor_price, @min_margin_percent, @mode, @status, @note, @created_at, @updated_at, @created_by, @updated_by)
-      ON CONFLICT(id) DO UPDATE SET
-        name_ar = excluded.name_ar,
-        item_id = excluded.item_id,
-        category_id = excluded.category_id,
-        customer_category = excluded.customer_category,
-        floor_price = excluded.floor_price,
-        min_margin_percent = excluded.min_margin_percent,
-        mode = excluded.mode,
-        status = excluded.status,
-        note = excluded.note,
-        updated_at = excluded.updated_at,
-        updated_by = excluded.updated_by
-    `);
-    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
-    this.selectById = sqlite.prepare(`SELECT * FROM pricing_guard_rule WHERE id = ?`);
-    this.selectAll = sqlite.prepare(`SELECT * FROM pricing_guard_rule ORDER BY created_at ASC, id ASC`);
-    this.selectAll.safeIntegers(true);
-    this.selectById.safeIntegers(true);
-  }
+function ruleParams(rule: PricingGuardRule): SqlValue[] {
+  return [
+    rule.id,
+    rule.nameAr,
+    rule.itemId,
+    rule.categoryId,
+    rule.customerCategory,
+    rule.floorPrice === null ? null : rule.floorPrice.scaled,
+    rule.minMarginPercent === null ? null : String(rule.minMarginPercent),
+    rule.mode,
+    rule.status,
+    rule.note,
+    rule.createdAt,
+    rule.updatedAt,
+    rule.createdBy,
+    rule.updatedBy,
+  ];
+}
+
+class SqlPricingGuardRuleRepository implements PricingGuardRuleRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async findById(id: string): Promise<PricingGuardRule | null> {
-    const row = this.selectById.get(id) as RuleRow | undefined;
+    const row = await this.db.get<RuleRow>(`SELECT * FROM pricing_guard_rule WHERE id = ?`, [id]);
     return row ? toRule(row) : null;
   }
 
   async list(): Promise<readonly PricingGuardRule[]> {
-    return (this.selectAll.all() as RuleRow[]).map(toRule);
+    return (await this.db.all<RuleRow>(`SELECT * FROM pricing_guard_rule ORDER BY created_at ASC, id ASC`)).map(toRule);
   }
 
   async insert(rule: PricingGuardRule): Promise<void> {
-    insertingNew(rule.id, () => this.insertOnly.run(this.params(rule)));
+    await insertNew(this.db, rule.id, UPSERT_RULE, ruleParams(rule));
   }
 
   async save(rule: PricingGuardRule): Promise<void> {
-    this.upsert.run(this.params(rule));
-  }
-
-  private params(rule: PricingGuardRule) {
-    return {
-      id: rule.id,
-      name_ar: rule.nameAr,
-      item_id: rule.itemId,
-      category_id: rule.categoryId,
-      customer_category: rule.customerCategory,
-      floor_price: rule.floorPrice === null ? null : rule.floorPrice.scaled,
-      min_margin_percent: rule.minMarginPercent === null ? null : String(rule.minMarginPercent),
-      mode: rule.mode,
-      status: rule.status,
-      note: rule.note,
-      created_at: rule.createdAt,
-      updated_at: rule.updatedAt,
-      created_by: rule.createdBy,
-      updated_by: rule.updatedBy,
-    };
+    await this.db.run(UPSERT_RULE, ruleParams(rule));
   }
 }
 
@@ -251,42 +254,37 @@ function toOverride(row: OverrideRow): PricingGuardOverride {
   };
 }
 
-class SqlitePricingGuardOverrideRepository implements PricingGuardOverrideRepository {
-  private readonly insert: Database.Statement;
+const INSERT_OVERRIDE = `INSERT INTO pricing_guard_override
+    (id, doc_type, doc_id, doc_no, doc_date, customer_id, customer_name_ar, branch_id, line_id, item_id, base_qty, net_base, net_unit_price,
+     unit_cost, cost_basis, margin_basis_points, breaches, kind, approval_request_id, actor, recorded_at)
+  VALUES
+    (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  ON CONFLICT(doc_type, doc_id, line_id) DO NOTHING`;
 
-  constructor(private readonly sqlite: Database.Database) {
-    this.insert = sqlite.prepare(`
-      INSERT INTO pricing_guard_override
-        (id, doc_type, doc_id, doc_no, doc_date, customer_id, customer_name_ar, branch_id, line_id, item_id, base_qty, net_base, net_unit_price,
-         unit_cost, cost_basis, margin_basis_points, breaches, kind, approval_request_id, actor, recorded_at)
-      VALUES
-        (@id, @doc_type, @doc_id, @doc_no, @doc_date, @customer_id, @customer_name_ar, @branch_id, @line_id, @item_id, @base_qty, @net_base, @net_unit_price,
-         @unit_cost, @cost_basis, @margin_basis_points, @breaches, @kind, @approval_request_id, @actor, @recorded_at)
-      ON CONFLICT(doc_type, doc_id, line_id) DO NOTHING
-    `);
-  }
+class SqlPricingGuardOverrideRepository implements PricingGuardOverrideRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async recordAll(rows: readonly PricingGuardOverride[]): Promise<void> {
-    const write = this.sqlite.transaction((batch: readonly PricingGuardOverride[]) => {
-      for (const row of batch) {
-        this.insert.run({
-          id: row.id,
-          doc_type: row.docType,
-          doc_id: row.docId,
-          doc_no: row.docNo,
-          doc_date: row.docDate,
-          customer_id: row.customerId,
-          customer_name_ar: row.customerNameAr,
-          branch_id: row.branchId,
-          line_id: row.lineId,
-          item_id: row.itemId,
-          base_qty: row.baseQty.scaled,
-          net_base: row.netBase.scaled,
-          net_unit_price: row.netUnitPrice.scaled,
-          unit_cost: row.unitCost === null ? null : row.unitCost.scaled,
-          cost_basis: row.costBasis,
-          margin_basis_points: row.marginBasisPoints,
-          breaches: JSON.stringify(
+    await this.db.transaction(async () => {
+      for (const row of rows) {
+        await this.db.run(INSERT_OVERRIDE, [
+          row.id,
+          row.docType,
+          row.docId,
+          row.docNo,
+          row.docDate,
+          row.customerId,
+          row.customerNameAr,
+          row.branchId,
+          row.lineId,
+          row.itemId,
+          row.baseQty.scaled,
+          row.netBase.scaled,
+          row.netUnitPrice.scaled,
+          row.unitCost === null ? null : row.unitCost.scaled,
+          row.costBasis,
+          row.marginBasisPoints,
+          JSON.stringify(
             row.breaches.map((breach) => ({
               ruleId: breach.ruleId,
               ruleNameAr: breach.ruleNameAr,
@@ -296,19 +294,18 @@ class SqlitePricingGuardOverrideRepository implements PricingGuardOverrideReposi
               minMarginPercent: breach.minMarginPercent,
             })),
           ),
-          kind: row.kind,
-          approval_request_id: row.approvalRequestId,
-          actor: row.actor,
-          recorded_at: row.recordedAt,
-        });
+          row.kind,
+          row.approvalRequestId,
+          row.actor,
+          row.recordedAt,
+        ]);
       }
     });
-    write(rows);
   }
 
   async list(filter: PricingGuardOverrideFilter): Promise<readonly PricingGuardOverride[]> {
     const where: string[] = [];
-    const params: unknown[] = [];
+    const params: SqlValue[] = [];
     if (filter.fromDate) {
       where.push("doc_date >= ?");
       params.push(filter.fromDate);
@@ -331,21 +328,34 @@ class SqlitePricingGuardOverrideRepository implements PricingGuardOverrideReposi
     }
     if (filter.branchScope) {
       if (filter.branchScope.length === 0) return [];
-      where.push(`branch_id IN (${filter.branchScope.map(() => "?").join(", ")})`);
+      where.push(`branch_id IN (${placeholders(filter.branchScope.length)})`);
       params.push(...filter.branchScope);
     }
-    const statement = this.sqlite.prepare(
+    const rows = await this.db.all<OverrideRow>(
       `SELECT * FROM pricing_guard_override ${where.length > 0 ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY doc_date DESC, recorded_at DESC, id ASC`,
+      params,
     );
-    statement.safeIntegers(true);
-    return (statement.all(...params) as OverrideRow[]).map(toOverride);
+    return rows.map(toOverride);
   }
 }
 
-export interface SqlitePricingGuardStores {
+export interface PricingGuardStores {
   readonly rules: PricingGuardRuleRepository;
   readonly overrides: PricingGuardOverrideRepository;
+}
+
+export interface SqlitePricingGuardStores extends PricingGuardStores {
   close(): void;
+}
+
+export async function ensurePricingGuardSchema(db: SqlDb): Promise<void> {
+  await db.applySchema(CREATE_RULE);
+  await db.applySchema(CREATE_OVERRIDE);
+  if (db.dialect === SqlDialect.Postgres) await db.exec(OVERRIDE_APPEND_ONLY_POSTGRES);
+}
+
+export function createPricingGuardStores(db: SqlDb): PricingGuardStores {
+  return { rules: new SqlPricingGuardRuleRepository(db), overrides: new SqlPricingGuardOverrideRepository(db) };
 }
 
 export function createSqlitePricingGuardStores(path: SqliteConnectionInput = ":memory:"): SqlitePricingGuardStores {
@@ -354,8 +364,7 @@ export function createSqlitePricingGuardStores(path: SqliteConnectionInput = ":m
   sqlite.exec(CREATE_OVERRIDE);
   sqlite.exec(OVERRIDE_APPEND_ONLY);
   return {
-    rules: new SqlitePricingGuardRuleRepository(sqlite),
-    overrides: new SqlitePricingGuardOverrideRepository(sqlite),
+    ...createPricingGuardStores(sqliteDb(sqlite)),
     close: () => {
       if (owned) sqlite.close();
     },

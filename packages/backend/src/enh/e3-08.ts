@@ -1,6 +1,6 @@
 import { createEvidencePackRoutes } from "@mezan/api";
 import { createDefaultSettings, type Money } from "@mezan/domain";
-import { createSqliteEvidencePackStore, resolveEvidenceSigningSeed, type AuditChainVerifyPort } from "@mezan/persistence";
+import { createSqliteEvidencePackStore, resolveEvidenceSigningSeed, type AuditChainVerifyPort, createEvidencePackStore } from "@mezan/persistence";
 import type { BackendArea, BackendModuleContext } from "../module-context.js";
 
 const AUDIT_PREFIX = "/audit";
@@ -12,11 +12,22 @@ class LedgerBalancesUnavailableError extends Error {
   }
 }
 
+export class EvidenceSigningSeedUnavailableError extends Error {
+  constructor() {
+    super("The evidence pack signing key has no source on this database: no database key and no database file.");
+    this.name = "EvidenceSigningSeedUnavailableError";
+  }
+}
+
 export const area: BackendArea = {
   mount(ctx: BackendModuleContext) {
-    const store = createSqliteEvidencePackStore(ctx.sqlite);
+    const store = ctx.store((s) => createSqliteEvidencePackStore(s), (d) => createEvidencePackStore(d));
     let seed: string | null = null;
-    const signingSeed = () => (seed ??= resolveEvidenceSigningSeed(ctx.sqlite, ctx.databaseKey));
+    const signingSeed = (): string => {
+      if (seed) return seed;
+      if (!ctx.sqlite && !ctx.databaseKey) throw new EvidenceSigningSeedUnavailableError();
+      return (seed = resolveEvidenceSigningSeed(ctx.sqlite!, ctx.databaseKey));
+    };
     const { accountBalances } = ctx.stores.ledger;
     if (!accountBalances) throw new LedgerBalancesUnavailableError();
     const chain = ctx.audit as Partial<AuditChainVerifyPort>;

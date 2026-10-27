@@ -1,6 +1,7 @@
-import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
-import { insertingNew, prepareInsertOnly } from "./insert-new.js";
+import { insertNew } from "./insert-new.js";
+import { placeholders, type SqlDb, type SqlValue } from "./sql/sql-db.js";
+import { sqliteDb } from "./sql/sqlite-db.js";
 import {
   Qty,
   type AttendanceEntry,
@@ -22,7 +23,7 @@ import {
 } from "@mezan/domain";
 
 /**
- * Self-contained SQLite stores for the HR time & leave layer (docs/archive/catalog/06
+ * Stores for the HR time & leave layer (docs/archive/catalog/06
  * "الحضور والانصراف" / "سياسات الإجازات" / "استحقاقات الإجازات"). Same
  * single-file, table-per-entity style as `hr-store.ts`; `Qty` day counts are
  * stored as the scaled INTEGER the value object carries, never as a REAL.
@@ -55,8 +56,8 @@ interface AttendanceRow {
   date: string;
   check_in: string | null;
   check_out: string | null;
-  worked_minutes: number;
-  approved_overtime_minutes: number | null;
+  worked_minutes: bigint;
+  approved_overtime_minutes: bigint | null;
   holiday_compensation: string | null;
   status: string;
   notes: string | null;
@@ -71,8 +72,8 @@ function toAttendance(row: AttendanceRow): AttendanceEntry {
     date: row.date,
     checkIn: row.check_in,
     checkOut: row.check_out,
-    workedMinutes: row.worked_minutes,
-    approvedOvertimeMinutes: row.approved_overtime_minutes ?? null,
+    workedMinutes: Number(row.worked_minutes),
+    approvedOvertimeMinutes: row.approved_overtime_minutes === null ? null : Number(row.approved_overtime_minutes),
     holidayCompensation: row.holiday_compensation === "day_off" ? "day_off" : "pay",
     status: row.status as AttendanceStatus,
     notes: row.notes,
@@ -81,16 +82,9 @@ function toAttendance(row: AttendanceRow): AttendanceEntry {
   };
 }
 
-class SqliteAttendanceRepository implements AttendanceRepository {
-  private readonly upsert: Database.Statement;
-  private readonly insertOnly: Database.Statement;
-  private readonly selectById: Database.Statement;
-  private readonly selectByEmployeeAndDate: Database.Statement;
-
-  constructor(private readonly sqlite: Database.Database) {
-    this.upsert = sqlite.prepare(`
+const ATTENDANCE_UPSERT = `
       INSERT INTO hr_attendance (id, employee_id, date, check_in, check_out, worked_minutes, approved_overtime_minutes, holiday_compensation, status, notes, created_at, updated_at)
-      VALUES (@id, @employee_id, @date, @check_in, @check_out, @worked_minutes, @approved_overtime_minutes, @holiday_compensation, @status, @notes, @created_at, @updated_at)
+      VALUES (${placeholders(12)})
       ON CONFLICT(id) DO UPDATE SET
         check_in = excluded.check_in,
         check_out = excluded.check_out,
@@ -99,26 +93,41 @@ class SqliteAttendanceRepository implements AttendanceRepository {
         holiday_compensation = excluded.holiday_compensation,
         status = excluded.status,
         notes = excluded.notes,
-        updated_at = excluded.updated_at
-    `);
-    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
-    this.selectById = sqlite.prepare(`SELECT * FROM hr_attendance WHERE id = ?`);
-    this.selectByEmployeeAndDate = sqlite.prepare(`SELECT * FROM hr_attendance WHERE employee_id = ? AND date = ?`);
-  }
+        updated_at = excluded.updated_at`;
+
+function attendanceParams(entry: AttendanceEntry): SqlValue[] {
+  return [
+    entry.id,
+    entry.employeeId,
+    entry.date,
+    entry.checkIn,
+    entry.checkOut,
+    entry.workedMinutes,
+    entry.approvedOvertimeMinutes,
+    entry.holidayCompensation,
+    entry.status,
+    entry.notes,
+    entry.createdAt,
+    entry.updatedAt,
+  ];
+}
+
+class SqlAttendanceRepository implements AttendanceRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async findById(id: string): Promise<AttendanceEntry | null> {
-    const row = this.selectById.get(id) as AttendanceRow | undefined;
+    const row = await this.db.get<AttendanceRow>(`SELECT * FROM hr_attendance WHERE id = ?`, [id]);
     return row ? toAttendance(row) : null;
   }
 
   async findByEmployeeAndDate(employeeId: string, date: string): Promise<AttendanceEntry | null> {
-    const row = this.selectByEmployeeAndDate.get(employeeId, date) as AttendanceRow | undefined;
+    const row = await this.db.get<AttendanceRow>(`SELECT * FROM hr_attendance WHERE employee_id = ? AND date = ?`, [employeeId, date]);
     return row ? toAttendance(row) : null;
   }
 
   async list(filter: AttendanceFilter = {}): Promise<AttendanceEntry[]> {
     const clauses: string[] = [];
-    const params: unknown[] = [];
+    const params: SqlValue[] = [];
     if (filter.employeeId) {
       clauses.push("employee_id = ?");
       params.push(filter.employeeId);
@@ -136,33 +145,16 @@ class SqliteAttendanceRepository implements AttendanceRepository {
       params.push(filter.status);
     }
     const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
-    const rows = this.sqlite.prepare(`SELECT * FROM hr_attendance ${where} ORDER BY date DESC, employee_id`).all(...params) as AttendanceRow[];
+    const rows = await this.db.all<AttendanceRow>(`SELECT * FROM hr_attendance ${where} ORDER BY date DESC, employee_id`, params);
     return rows.map(toAttendance);
   }
 
   async create(entry: AttendanceEntry): Promise<void> {
-    insertingNew(entry.id, () => this.write(entry, this.insertOnly));
+    await insertNew(this.db, entry.id, ATTENDANCE_UPSERT, attendanceParams(entry));
   }
 
   async update(entry: AttendanceEntry): Promise<void> {
-    this.write(entry);
-  }
-
-  private write(entry: AttendanceEntry, statement: Database.Statement = this.upsert): void {
-    statement.run({
-      id: entry.id,
-      employee_id: entry.employeeId,
-      date: entry.date,
-      check_in: entry.checkIn,
-      check_out: entry.checkOut,
-      worked_minutes: entry.workedMinutes,
-      approved_overtime_minutes: entry.approvedOvertimeMinutes,
-      holiday_compensation: entry.holidayCompensation,
-      status: entry.status,
-      notes: entry.notes,
-      created_at: entry.createdAt,
-      updated_at: entry.updatedAt,
-    });
+    await this.db.run(ATTENDANCE_UPSERT, attendanceParams(entry));
   }
 }
 
@@ -188,14 +180,14 @@ CREATE TABLE IF NOT EXISTS hr_leave_policy (
 interface LeavePolicyRow {
   id: string;
   leave_type: string;
-  entitlement_days: number;
+  entitlement_days: bigint;
   accrual_frequency: string;
-  carry_over: number;
-  max_carry_over_days: number | null;
-  payout_on_termination: number;
-  legally_mandated: number;
+  carry_over: bigint;
+  max_carry_over_days: bigint | null;
+  payout_on_termination: bigint;
+  legally_mandated: bigint;
   preset_code: string | null;
-  active: number;
+  active: bigint;
   created_at: string;
   updated_at: string;
 }
@@ -206,29 +198,20 @@ function toLeavePolicy(row: LeavePolicyRow): LeavePolicy {
     leaveType: row.leave_type as LeaveType,
     entitlementDays: Qty.fromScaled(row.entitlement_days),
     accrualFrequency: row.accrual_frequency as LeaveAccrualFrequency,
-    carryOver: row.carry_over === 1,
+    carryOver: Number(row.carry_over) === 1,
     maxCarryOverDays: row.max_carry_over_days === null ? null : Qty.fromScaled(row.max_carry_over_days),
-    payoutOnTermination: row.payout_on_termination === 1,
-    legallyMandated: row.legally_mandated === 1,
+    payoutOnTermination: Number(row.payout_on_termination) === 1,
+    legallyMandated: Number(row.legally_mandated) === 1,
     presetCode: row.preset_code,
-    active: row.active === 1,
+    active: Number(row.active) === 1,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
 }
 
-class SqliteLeavePolicyRepository implements LeavePolicyRepository {
-  private readonly upsert: Database.Statement;
-  private readonly insertOnly: Database.Statement;
-  private readonly selectById: Database.Statement;
-  private readonly selectByLeaveType: Database.Statement;
-  private readonly selectAll: Database.Statement;
-  private readonly deleteById: Database.Statement;
-
-  constructor(sqlite: Database.Database) {
-    this.upsert = sqlite.prepare(`
+const LEAVE_POLICY_UPSERT = `
       INSERT INTO hr_leave_policy (id, leave_type, entitlement_days, accrual_frequency, carry_over, max_carry_over_days, payout_on_termination, legally_mandated, preset_code, active, created_at, updated_at)
-      VALUES (@id, @leave_type, @entitlement_days, @accrual_frequency, @carry_over, @max_carry_over_days, @payout_on_termination, @legally_mandated, @preset_code, @active, @created_at, @updated_at)
+      VALUES (${placeholders(12)})
       ON CONFLICT(id) DO UPDATE SET
         entitlement_days = excluded.entitlement_days,
         accrual_frequency = excluded.accrual_frequency,
@@ -238,56 +221,52 @@ class SqliteLeavePolicyRepository implements LeavePolicyRepository {
         legally_mandated = excluded.legally_mandated,
         preset_code = excluded.preset_code,
         active = excluded.active,
-        updated_at = excluded.updated_at
-    `);
-    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
-    this.selectById = sqlite.prepare(`SELECT * FROM hr_leave_policy WHERE id = ?`);
-    this.selectByLeaveType = sqlite.prepare(`SELECT * FROM hr_leave_policy WHERE leave_type = ?`);
-    this.selectAll = sqlite.prepare(`SELECT * FROM hr_leave_policy ORDER BY leave_type`);
-    this.deleteById = sqlite.prepare(`DELETE FROM hr_leave_policy WHERE id = ?`);
-  }
+        updated_at = excluded.updated_at`;
+
+function leavePolicyParams(policy: LeavePolicy): SqlValue[] {
+  return [
+    policy.id,
+    policy.leaveType,
+    policy.entitlementDays.scaled,
+    policy.accrualFrequency,
+    policy.carryOver ? 1 : 0,
+    policy.maxCarryOverDays === null ? null : policy.maxCarryOverDays.scaled,
+    policy.payoutOnTermination ? 1 : 0,
+    policy.legallyMandated ? 1 : 0,
+    policy.presetCode,
+    policy.active ? 1 : 0,
+    policy.createdAt,
+    policy.updatedAt,
+  ];
+}
+
+class SqlLeavePolicyRepository implements LeavePolicyRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async findById(id: string): Promise<LeavePolicy | null> {
-    const row = this.selectById.get(id) as LeavePolicyRow | undefined;
+    const row = await this.db.get<LeavePolicyRow>(`SELECT * FROM hr_leave_policy WHERE id = ?`, [id]);
     return row ? toLeavePolicy(row) : null;
   }
 
   async findByLeaveType(leaveType: LeaveType): Promise<LeavePolicy | null> {
-    const row = this.selectByLeaveType.get(leaveType) as LeavePolicyRow | undefined;
+    const row = await this.db.get<LeavePolicyRow>(`SELECT * FROM hr_leave_policy WHERE leave_type = ?`, [leaveType]);
     return row ? toLeavePolicy(row) : null;
   }
 
   async list(): Promise<LeavePolicy[]> {
-    return (this.selectAll.all() as LeavePolicyRow[]).map(toLeavePolicy);
+    return (await this.db.all<LeavePolicyRow>(`SELECT * FROM hr_leave_policy ORDER BY leave_type`)).map(toLeavePolicy);
   }
 
   async create(policy: LeavePolicy): Promise<void> {
-    insertingNew(policy.id, () => this.write(policy, this.insertOnly));
+    await insertNew(this.db, policy.id, LEAVE_POLICY_UPSERT, leavePolicyParams(policy));
   }
 
   async update(policy: LeavePolicy): Promise<void> {
-    this.write(policy);
+    await this.db.run(LEAVE_POLICY_UPSERT, leavePolicyParams(policy));
   }
 
   async remove(id: string): Promise<void> {
-    this.deleteById.run(id);
-  }
-
-  private write(policy: LeavePolicy, statement: Database.Statement = this.upsert): void {
-    statement.run({
-      id: policy.id,
-      leave_type: policy.leaveType,
-      entitlement_days: policy.entitlementDays.toScaledNumber(),
-      accrual_frequency: policy.accrualFrequency,
-      carry_over: policy.carryOver ? 1 : 0,
-      max_carry_over_days: policy.maxCarryOverDays === null ? null : policy.maxCarryOverDays.toScaledNumber(),
-      payout_on_termination: policy.payoutOnTermination ? 1 : 0,
-      legally_mandated: policy.legallyMandated ? 1 : 0,
-      preset_code: policy.presetCode,
-      active: policy.active ? 1 : 0,
-      created_at: policy.createdAt,
-      updated_at: policy.updatedAt,
-    });
+    await this.db.run(`DELETE FROM hr_leave_policy WHERE id = ?`, [id]);
   }
 }
 
@@ -312,10 +291,10 @@ interface LeaveBalanceRow {
   id: string;
   employee_id: string;
   leave_type: string;
-  year: number;
-  entitled: number;
-  carried_over: number;
-  used: number;
+  year: bigint;
+  entitled: bigint;
+  carried_over: bigint;
+  used: bigint;
   created_at: string;
   updated_at: string;
 }
@@ -325,7 +304,7 @@ function toLeaveBalance(row: LeaveBalanceRow): LeaveBalance {
     id: row.id,
     employeeId: row.employee_id,
     leaveType: row.leave_type as LeaveType,
-    year: row.year,
+    year: Number(row.year),
     entitled: Qty.fromScaled(row.entitled),
     carriedOver: Qty.fromScaled(row.carried_over),
     used: Qty.fromScaled(row.used),
@@ -334,40 +313,48 @@ function toLeaveBalance(row: LeaveBalanceRow): LeaveBalance {
   };
 }
 
-class SqliteLeaveBalanceRepository implements LeaveBalanceRepository {
-  private readonly upsert: Database.Statement;
-  private readonly insertOnly: Database.Statement;
-  private readonly selectById: Database.Statement;
-  private readonly selectOne: Database.Statement;
-
-  constructor(private readonly sqlite: Database.Database) {
-    this.upsert = sqlite.prepare(`
+const LEAVE_BALANCE_UPSERT = `
       INSERT INTO hr_leave_balance (id, employee_id, leave_type, year, entitled, carried_over, used, created_at, updated_at)
-      VALUES (@id, @employee_id, @leave_type, @year, @entitled, @carried_over, @used, @created_at, @updated_at)
+      VALUES (${placeholders(9)})
       ON CONFLICT(id) DO UPDATE SET
         entitled = excluded.entitled,
         carried_over = excluded.carried_over,
         used = excluded.used,
-        updated_at = excluded.updated_at
-    `);
-    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
-    this.selectById = sqlite.prepare(`SELECT * FROM hr_leave_balance WHERE id = ?`);
-    this.selectOne = sqlite.prepare(`SELECT * FROM hr_leave_balance WHERE employee_id = ? AND leave_type = ? AND year = ?`);
-  }
+        updated_at = excluded.updated_at`;
+
+function leaveBalanceParams(balance: LeaveBalance): SqlValue[] {
+  return [
+    balance.id,
+    balance.employeeId,
+    balance.leaveType,
+    balance.year,
+    balance.entitled.scaled,
+    balance.carriedOver.scaled,
+    balance.used.scaled,
+    balance.createdAt,
+    balance.updatedAt,
+  ];
+}
+
+class SqlLeaveBalanceRepository implements LeaveBalanceRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async findById(id: string): Promise<LeaveBalance | null> {
-    const row = this.selectById.get(id) as LeaveBalanceRow | undefined;
+    const row = await this.db.get<LeaveBalanceRow>(`SELECT * FROM hr_leave_balance WHERE id = ?`, [id]);
     return row ? toLeaveBalance(row) : null;
   }
 
   async find(employeeId: string, leaveType: LeaveType, year: number): Promise<LeaveBalance | null> {
-    const row = this.selectOne.get(employeeId, leaveType, year) as LeaveBalanceRow | undefined;
+    const row = await this.db.get<LeaveBalanceRow>(
+      `SELECT * FROM hr_leave_balance WHERE employee_id = ? AND leave_type = ? AND year = ?`,
+      [employeeId, leaveType, year],
+    );
     return row ? toLeaveBalance(row) : null;
   }
 
   async list(filter: LeaveBalanceFilter = {}): Promise<LeaveBalance[]> {
     const clauses: string[] = [];
-    const params: unknown[] = [];
+    const params: SqlValue[] = [];
     if (filter.employeeId) {
       clauses.push("employee_id = ?");
       params.push(filter.employeeId);
@@ -381,32 +368,16 @@ class SqliteLeaveBalanceRepository implements LeaveBalanceRepository {
       params.push(filter.year);
     }
     const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
-    const rows = this.sqlite
-      .prepare(`SELECT * FROM hr_leave_balance ${where} ORDER BY year DESC, employee_id, leave_type`)
-      .all(...params) as LeaveBalanceRow[];
+    const rows = await this.db.all<LeaveBalanceRow>(`SELECT * FROM hr_leave_balance ${where} ORDER BY year DESC, employee_id, leave_type`, params);
     return rows.map(toLeaveBalance);
   }
 
   async create(balance: LeaveBalance): Promise<void> {
-    insertingNew(balance.id, () => this.write(balance, this.insertOnly));
+    await insertNew(this.db, balance.id, LEAVE_BALANCE_UPSERT, leaveBalanceParams(balance));
   }
 
   async update(balance: LeaveBalance): Promise<void> {
-    this.write(balance);
-  }
-
-  private write(balance: LeaveBalance, statement: Database.Statement = this.upsert): void {
-    statement.run({
-      id: balance.id,
-      employee_id: balance.employeeId,
-      leave_type: balance.leaveType,
-      year: balance.year,
-      entitled: balance.entitled.toScaledNumber(),
-      carried_over: balance.carriedOver.toScaledNumber(),
-      used: balance.used.toScaledNumber(),
-      created_at: balance.createdAt,
-      updated_at: balance.updatedAt,
-    });
+    await this.db.run(LEAVE_BALANCE_UPSERT, leaveBalanceParams(balance));
   }
 }
 
@@ -442,8 +413,8 @@ interface LeaveAccrualBatchRow {
   run_type: string;
   run_date: string;
   notes: string | null;
-  employee_count: number;
-  total_days: number;
+  employee_count: bigint;
+  total_days: bigint;
   lines_json: string;
   run_by: string | null;
   created_at: string;
@@ -469,7 +440,7 @@ function toLeaveAccrualBatch(row: LeaveAccrualBatchRow): LeaveAccrualBatch {
     runType: row.run_type as LeaveAccrualRunType,
     runDate: row.run_date,
     notes: row.notes,
-    employeeCount: row.employee_count,
+    employeeCount: Number(row.employee_count),
     totalDays: Qty.fromScaled(row.total_days),
     lines,
     runBy: row.run_by,
@@ -477,54 +448,45 @@ function toLeaveAccrualBatch(row: LeaveAccrualBatchRow): LeaveAccrualBatch {
   };
 }
 
-class SqliteLeaveAccrualBatchRepository implements LeaveAccrualBatchRepository {
-  private readonly insert: Database.Statement;
-  private readonly selectById: Database.Statement;
-  private readonly selectByPeriodKey: Database.Statement;
-  private readonly selectAll: Database.Statement;
-  private readonly selectByRunType: Database.Statement;
-
-  constructor(sqlite: Database.Database) {
-    this.insert = sqlite.prepare(`
-      INSERT INTO hr_leave_accrual_batch (id, number, period_key, frequency, run_type, run_date, notes, employee_count, total_days, lines_json, run_by, created_at)
-      VALUES (@id, @number, @period_key, @frequency, @run_type, @run_date, @notes, @employee_count, @total_days, @lines_json, @run_by, @created_at)
-    `);
-    this.selectById = sqlite.prepare(`SELECT * FROM hr_leave_accrual_batch WHERE id = ?`);
-    this.selectByPeriodKey = sqlite.prepare(`SELECT * FROM hr_leave_accrual_batch WHERE period_key = ?`);
-    this.selectAll = sqlite.prepare(`SELECT * FROM hr_leave_accrual_batch ORDER BY run_date DESC, created_at DESC`);
-    this.selectByRunType = sqlite.prepare(`SELECT * FROM hr_leave_accrual_batch WHERE run_type = ? ORDER BY run_date DESC, created_at DESC`);
-  }
+class SqlLeaveAccrualBatchRepository implements LeaveAccrualBatchRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async findById(id: string): Promise<LeaveAccrualBatch | null> {
-    const row = this.selectById.get(id) as LeaveAccrualBatchRow | undefined;
+    const row = await this.db.get<LeaveAccrualBatchRow>(`SELECT * FROM hr_leave_accrual_batch WHERE id = ?`, [id]);
     return row ? toLeaveAccrualBatch(row) : null;
   }
 
   async findByPeriodKey(periodKey: string): Promise<LeaveAccrualBatch | null> {
-    const row = this.selectByPeriodKey.get(periodKey) as LeaveAccrualBatchRow | undefined;
+    const row = await this.db.get<LeaveAccrualBatchRow>(`SELECT * FROM hr_leave_accrual_batch WHERE period_key = ?`, [periodKey]);
     return row ? toLeaveAccrualBatch(row) : null;
   }
 
   async list(filter: LeaveAccrualBatchFilter = {}): Promise<LeaveAccrualBatch[]> {
-    const rows = (filter.runType ? this.selectByRunType.all(filter.runType) : this.selectAll.all()) as LeaveAccrualBatchRow[];
+    const rows = filter.runType
+      ? await this.db.all<LeaveAccrualBatchRow>(`SELECT * FROM hr_leave_accrual_batch WHERE run_type = ? ORDER BY run_date DESC, created_at DESC`, [filter.runType])
+      : await this.db.all<LeaveAccrualBatchRow>(`SELECT * FROM hr_leave_accrual_batch ORDER BY run_date DESC, created_at DESC`);
     return rows.map(toLeaveAccrualBatch);
   }
 
   async create(batch: LeaveAccrualBatch): Promise<void> {
-    this.insert.run({
-      id: batch.id,
-      number: batch.number,
-      period_key: batch.periodKey,
-      frequency: batch.frequency,
-      run_type: batch.runType,
-      run_date: batch.runDate,
-      notes: batch.notes,
-      employee_count: batch.employeeCount,
-      total_days: batch.totalDays.toScaledNumber(),
-      lines_json: JSON.stringify(batch.lines.map((l) => ({ employeeId: l.employeeId, leaveType: l.leaveType, days: l.days.toScaledNumber() }))),
-      run_by: batch.runBy,
-      created_at: batch.createdAt,
-    });
+    await this.db.run(
+      `INSERT INTO hr_leave_accrual_batch (id, number, period_key, frequency, run_type, run_date, notes, employee_count, total_days, lines_json, run_by, created_at)
+       VALUES (${placeholders(12)})`,
+      [
+        batch.id,
+        batch.number,
+        batch.periodKey,
+        batch.frequency,
+        batch.runType,
+        batch.runDate,
+        batch.notes,
+        batch.employeeCount,
+        batch.totalDays.scaled,
+        JSON.stringify(batch.lines.map((l) => ({ employeeId: l.employeeId, leaveType: l.leaveType, days: l.days.toScaledNumber() }))),
+        batch.runBy,
+        batch.createdAt,
+      ],
+    );
   }
 }
 
@@ -543,6 +505,26 @@ export interface SqliteLeaveAccrualBatchRepositoryHandle extends LeaveAccrualBat
   close(): void;
 }
 
+export async function ensureHrTimeLeaveSchema(db: SqlDb): Promise<void> {
+  await db.applySchema([CREATE_ATTENDANCE, CREATE_LEAVE_POLICY, CREATE_LEAVE_BALANCE, CREATE_LEAVE_ACCRUAL_BATCH].join("\n"));
+}
+
+export function createAttendanceRepository(db: SqlDb): AttendanceRepository {
+  return new SqlAttendanceRepository(db);
+}
+
+export function createLeavePolicyRepository(db: SqlDb): LeavePolicyRepository {
+  return new SqlLeavePolicyRepository(db);
+}
+
+export function createLeaveBalanceRepository(db: SqlDb): LeaveBalanceRepository {
+  return new SqlLeaveBalanceRepository(db);
+}
+
+export function createLeaveAccrualBatchRepository(db: SqlDb): LeaveAccrualBatchRepository {
+  return new SqlLeaveAccrualBatchRepository(db);
+}
+
 /** Open a SQLite-backed AttendanceRepository. ":memory:" for tests, a path (or shared connection) for real. */
 export function createSqliteAttendanceRepository(path: SqliteConnectionInput = ":memory:"): SqliteAttendanceRepositoryHandle {
   const { sqlite, owned } = openSqliteConnection(path);
@@ -557,7 +539,7 @@ export function createSqliteAttendanceRepository(path: SqliteConnectionInput = "
   if (!(sqlite.pragma(`table_info(hr_attendance)`) as { name: string }[]).some((c) => c.name === "holiday_compensation")) {
     sqlite.exec(`ALTER TABLE hr_attendance ADD COLUMN holiday_compensation TEXT NOT NULL DEFAULT 'pay'`);
   }
-  const repo = new SqliteAttendanceRepository(sqlite);
+  const repo = createAttendanceRepository(sqliteDb(sqlite));
   return Object.assign(repo, { close: () => { if (owned) sqlite.close(); } }) as SqliteAttendanceRepositoryHandle;
 }
 
@@ -566,7 +548,7 @@ export function createSqliteLeavePolicyRepository(path: SqliteConnectionInput = 
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_LEAVE_POLICY);
-  const repo = new SqliteLeavePolicyRepository(sqlite);
+  const repo = createLeavePolicyRepository(sqliteDb(sqlite));
   return Object.assign(repo, { close: () => { if (owned) sqlite.close(); } }) as SqliteLeavePolicyRepositoryHandle;
 }
 
@@ -575,7 +557,7 @@ export function createSqliteLeaveBalanceRepository(path: SqliteConnectionInput =
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_LEAVE_BALANCE);
-  const repo = new SqliteLeaveBalanceRepository(sqlite);
+  const repo = createLeaveBalanceRepository(sqliteDb(sqlite));
   return Object.assign(repo, { close: () => { if (owned) sqlite.close(); } }) as SqliteLeaveBalanceRepositoryHandle;
 }
 
@@ -584,6 +566,6 @@ export function createSqliteLeaveAccrualBatchRepository(path: SqliteConnectionIn
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_LEAVE_ACCRUAL_BATCH);
-  const repo = new SqliteLeaveAccrualBatchRepository(sqlite);
+  const repo = createLeaveAccrualBatchRepository(sqliteDb(sqlite));
   return Object.assign(repo, { close: () => { if (owned) sqlite.close(); } }) as SqliteLeaveAccrualBatchRepositoryHandle;
 }

@@ -368,10 +368,10 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
           setError(throttled ? t("login.tooManyAttempts") : err.message || t("login.error.generic"));
           setErrorEndsWithTheWait(throttled);
           setUnlockOffered(err instanceof AccountLockedError && err.unlockByCode);
+          submittedFor.current = "";
           if (timedWait) {
             setLockedForSeconds(Math.max(1, Math.ceil(err.retryAfterSeconds ?? 1)));
             setWaitingOnBusyServer(err.status === SERVER_BUSY);
-            submittedFor.current = "";
           }
           setPinDigits(Array(PIN_LENGTH).fill(""));
           inputRefs.current[0]?.focus();

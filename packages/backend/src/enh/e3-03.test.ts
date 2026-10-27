@@ -120,10 +120,10 @@ describe("ENH-E3-03 reorder", () => {
   });
 
   it("refuses to create orders without the create permission", async () => {
-    const limited = backend.sessions.issue({ userId: "LIMITED", permissions: ["inventory.reorder.view", "inventory.stock.view"], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
+    const limited = await backend.sessions.issue({ userId: "LIMITED", permissions: ["inventory.reorder.view", "inventory.stock.view"], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
     expect((await call("GET", "/reorder/worklist", undefined, limited)).status).toBe(200);
     expect((await call("POST", "/reorder/orders", { lines: [{ itemId: ITEM, warehouseId: WAREHOUSE, qty: "42" }] }, limited)).status).toBe(403);
-    const noPurchasing = backend.sessions.issue({ userId: "LIMITED-2", permissions: ["inventory.reorder.view", "inventory.reorder.create", "inventory.stock.view"], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
+    const noPurchasing = await backend.sessions.issue({ userId: "LIMITED-2", permissions: ["inventory.reorder.view", "inventory.reorder.create", "inventory.stock.view"], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
     expect((await call("POST", "/reorder/orders", { lines: [{ itemId: ITEM, warehouseId: WAREHOUSE, qty: "42" }] }, noPurchasing)).status).toBe(403);
   });
 
@@ -186,7 +186,7 @@ describe("ENH-E3-03 reorder", () => {
   });
 
   it("keeps a restricted caller to their own warehouses", async () => {
-    const scoped = backend.sessions.issue({
+    const scoped = await backend.sessions.issue({
       userId: "SCOPED",
       permissions: ["inventory.reorder.view", "inventory.reorder.manage", "inventory.stock.view"],
       roleCode: null,

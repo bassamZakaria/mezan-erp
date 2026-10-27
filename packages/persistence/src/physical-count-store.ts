@@ -1,5 +1,7 @@
-import Database from "better-sqlite3";
-import { insertingNew } from "./insert-new.js";
+import type Database from "better-sqlite3";
+import { refuseUnlessInserted } from "./insert-new.js";
+import type { SqlDb, SqlValue } from "./sql/sql-db.js";
+import { sqliteDb } from "./sql/sqlite-db.js";
 import {
   Money,
   Qty,
@@ -43,8 +45,8 @@ interface CountRow {
   date: string;
   memo: string;
   status: string;
-  blind: number;
-  zoned: number;
+  blind: bigint;
+  zoned: bigint;
   lines_json: string;
   created_at: string;
   completed_at: string | null;
@@ -79,21 +81,21 @@ function lineFromWire(wire: WireLine): PhysicalCountLine {
   };
 }
 
-function toRow(count: PhysicalCount): Record<string, unknown> {
-  return {
-    id: count.id,
-    count_no: count.countNo,
-    warehouse_id: count.warehouseId,
-    date: count.date,
-    memo: count.memo,
-    status: count.status,
-    blind: count.blind ? 1 : 0,
-    zoned: count.zoned ? 1 : 0,
-    lines_json: JSON.stringify(count.lines.map(lineToWire)),
-    created_at: count.createdAt,
-    completed_at: count.completedAt,
-    generated_adjustment_id: count.generatedAdjustmentId,
-  };
+function countParams(count: PhysicalCount): SqlValue[] {
+  return [
+    count.countNo,
+    count.warehouseId,
+    count.date,
+    count.memo,
+    count.status,
+    count.blind ? 1 : 0,
+    count.zoned ? 1 : 0,
+    JSON.stringify(count.lines.map(lineToWire)),
+    count.completedAt,
+    count.generatedAdjustmentId,
+    count.createdAt,
+    count.id,
+  ];
 }
 
 function fromRow(row: CountRow): PhysicalCount {
@@ -105,8 +107,8 @@ function fromRow(row: CountRow): PhysicalCount {
     date: row.date,
     memo: row.memo,
     status: row.status as PhysicalCountStatus,
-    blind: row.blind === 1,
-    zoned: row.zoned === 1,
+    blind: Number(row.blind) === 1,
+    zoned: Number(row.zoned) === 1,
     lines: wireLines.map(lineFromWire),
     createdAt: row.created_at,
     completedAt: row.completed_at,
@@ -128,46 +130,40 @@ function addMissingColumns(sqlite: Database.Database): void {
   }
 }
 
-class SqlitePhysicalCountStore implements PhysicalCountRepository {
-  private readonly insert: Database.Statement;
-  private readonly upsert: Database.Statement;
-  private readonly selectById: Database.Statement;
-
-  constructor(private readonly sqlite: Database.Database) {
-    this.sqlite.exec(CREATE_TABLE);
-    addMissingColumns(sqlite);
-    this.insert = sqlite.prepare(`
-      INSERT INTO physical_count
-        (id, count_no, warehouse_id, date, memo, status, blind, zoned, lines_json, created_at, completed_at, generated_adjustment_id)
-      VALUES
-        (@id, @count_no, @warehouse_id, @date, @memo, @status, @blind, @zoned, @lines_json, @created_at, @completed_at, @generated_adjustment_id)
-    `);
-    this.upsert = sqlite.prepare(`
-      UPDATE physical_count SET
-        count_no = @count_no, warehouse_id = @warehouse_id, date = @date, memo = @memo,
-        status = @status, blind = @blind, zoned = @zoned, lines_json = @lines_json, completed_at = @completed_at,
-        generated_adjustment_id = @generated_adjustment_id
-      WHERE id = @id
-    `);
-    this.selectById = sqlite.prepare(`SELECT * FROM physical_count WHERE id = ?`);
-  }
+class SqlPhysicalCountStore implements PhysicalCountRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async save(count: PhysicalCount): Promise<void> {
-    insertingNew(count.id, () => this.insert.run(toRow(count)));
+    const inserted = await this.db.run(
+      `INSERT INTO physical_count
+         (count_no, warehouse_id, date, memo, status, blind, zoned, lines_json, completed_at, generated_adjustment_id, created_at, id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT (id) DO NOTHING`,
+      countParams(count),
+    );
+    refuseUnlessInserted(count.id, inserted.changes);
   }
 
   async update(count: PhysicalCount): Promise<void> {
-    this.upsert.run(toRow(count));
+    const params = countParams(count);
+    await this.db.run(
+      `UPDATE physical_count SET
+         count_no = ?, warehouse_id = ?, date = ?, memo = ?,
+         status = ?, blind = ?, zoned = ?, lines_json = ?, completed_at = ?,
+         generated_adjustment_id = ?
+       WHERE id = ?`,
+      [...params.slice(0, 10), count.id],
+    );
   }
 
   async findById(id: string): Promise<PhysicalCount | null> {
-    const row = this.selectById.get(id) as CountRow | undefined;
+    const row = await this.db.get<CountRow>(`SELECT * FROM physical_count WHERE id = ?`, [id]);
     return row ? fromRow(row) : null;
   }
 
   async list(filter: PhysicalCountListFilter = {}): Promise<readonly PhysicalCount[]> {
     const clauses: string[] = [];
-    const params: unknown[] = [];
+    const params: SqlValue[] = [];
     if (filter.status) {
       clauses.push("status = ?");
       params.push(filter.status);
@@ -177,16 +173,24 @@ class SqlitePhysicalCountStore implements PhysicalCountRepository {
       params.push(filter.warehouseId);
     }
     const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
-    const rows = this.sqlite
-      .prepare(`SELECT * FROM physical_count ${where} ORDER BY date, created_at`)
-      .all(...params) as CountRow[];
+    const rows = await this.db.all<CountRow>(`SELECT * FROM physical_count ${where} ORDER BY date, created_at`, params);
     return rows.map(fromRow);
   }
 }
 
 export type SqlitePhysicalCountStoreHandle = PhysicalCountRepository;
 
+export async function ensurePhysicalCountSchema(db: SqlDb): Promise<void> {
+  await db.applySchema(CREATE_TABLE);
+}
+
+export function createPhysicalCountStore(db: SqlDb): PhysicalCountRepository {
+  return new SqlPhysicalCountStore(db);
+}
+
 /** Wire a {@link PhysicalCountRepository} onto an already-open connection. */
 export function createSqlitePhysicalCountStore(sqlite: Database.Database): SqlitePhysicalCountStoreHandle {
-  return new SqlitePhysicalCountStore(sqlite);
+  sqlite.exec(CREATE_TABLE);
+  addMissingColumns(sqlite);
+  return createPhysicalCountStore(sqliteDb(sqlite));
 }

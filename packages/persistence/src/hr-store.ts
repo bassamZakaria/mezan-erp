@@ -1,6 +1,8 @@
-import Database from "better-sqlite3";
+import type Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
-import { insertingNew, prepareInsertOnly } from "./insert-new.js";
+import { insertNew } from "./insert-new.js";
+import type { SqlDb, SqlValue } from "./sql/sql-db.js";
+import { sqliteDb } from "./sql/sqlite-db.js";
 import {
   DuplicateDeviceBadgeError,
   type SalaryPaymentMethod,
@@ -35,7 +37,7 @@ import {
 } from "@mezan/domain";
 
 /**
- * Self-contained SQLite stores for HR master data (docs/archive/catalog/06
+ * Stores for HR master data (docs/archive/catalog/06
  * "الموارد البشرية" — hr/master-data). Mirrors `crm-store.ts`'s single-file,
  * single-table-per-entity style; nested value objects (allowances/deductions/
  * leave-entitlement on Contract, address/emergency-contact on Employee) are
@@ -67,9 +69,9 @@ interface DepartmentRow {
   name_ar: string | null;
   parent_department_id: string | null;
   manager_id: string | null;
-  overtime_eligible: number;
+  overtime_eligible: bigint;
   standard_work_hours: number | null;
-  active: number;
+  active: bigint;
   created_at: string;
 }
 
@@ -81,24 +83,31 @@ function toDepartment(row: DepartmentRow): Department {
     nameAr: row.name_ar,
     parentDepartmentId: row.parent_department_id,
     managerId: row.manager_id,
-    overtimeEligible: row.overtime_eligible === 1,
-    standardWorkHours: row.standard_work_hours,
-    active: row.active === 1,
+    overtimeEligible: Number(row.overtime_eligible) === 1,
+    standardWorkHours: row.standard_work_hours === null ? null : Number(row.standard_work_hours),
+    active: Number(row.active) === 1,
     createdAt: row.created_at,
   };
 }
 
-class SqliteDepartmentRepository implements DepartmentRepository {
-  private readonly upsert: Database.Statement;
-  private readonly insertOnly: Database.Statement;
-  private readonly selectById: Database.Statement;
-  private readonly selectByCode: Database.Statement;
-  private readonly selectAll: Database.Statement;
+function departmentParams(department: Department): SqlValue[] {
+  return [
+    department.id,
+    department.code,
+    department.name,
+    department.nameAr,
+    department.parentDepartmentId,
+    department.managerId,
+    department.overtimeEligible ? 1 : 0,
+    department.standardWorkHours,
+    department.active ? 1 : 0,
+    department.createdAt,
+  ];
+}
 
-  constructor(private readonly sqlite: Database.Database) {
-    this.upsert = sqlite.prepare(`
+const DEPARTMENT_UPSERT = `
       INSERT INTO hr_department (id, code, name, name_ar, parent_department_id, manager_id, overtime_eligible, standard_work_hours, active, created_at)
-      VALUES (@id, @code, @name, @name_ar, @parent_department_id, @manager_id, @overtime_eligible, @standard_work_hours, @active, @created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         name = excluded.name,
         name_ar = excluded.name_ar,
@@ -107,48 +116,31 @@ class SqliteDepartmentRepository implements DepartmentRepository {
         overtime_eligible = excluded.overtime_eligible,
         standard_work_hours = excluded.standard_work_hours,
         active = excluded.active
-    `);
-    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
-    this.selectById = sqlite.prepare(`SELECT * FROM hr_department WHERE id = ?`);
-    this.selectByCode = sqlite.prepare(`SELECT * FROM hr_department WHERE code = ?`);
-    this.selectAll = sqlite.prepare(`SELECT * FROM hr_department ORDER BY name`);
-  }
+    `;
+
+class SqlDepartmentRepository implements DepartmentRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async findById(id: string): Promise<Department | null> {
-    const row = this.selectById.get(id) as DepartmentRow | undefined;
+    const row = await this.db.get<DepartmentRow>(`SELECT * FROM hr_department WHERE id = ?`, [id]);
     return row ? toDepartment(row) : null;
   }
 
   async findByCode(code: string): Promise<Department | null> {
-    const row = this.selectByCode.get(code) as DepartmentRow | undefined;
+    const row = await this.db.get<DepartmentRow>(`SELECT * FROM hr_department WHERE code = ?`, [code]);
     return row ? toDepartment(row) : null;
   }
 
   async list(): Promise<Department[]> {
-    return (this.selectAll.all() as DepartmentRow[]).map(toDepartment);
+    return (await this.db.all<DepartmentRow>(`SELECT * FROM hr_department ORDER BY name`)).map(toDepartment);
   }
 
   async create(department: Department): Promise<void> {
-    insertingNew(department.id, () => this.write(department, this.insertOnly));
+    await insertNew(this.db, department.id, DEPARTMENT_UPSERT, departmentParams(department));
   }
 
   async update(department: Department): Promise<void> {
-    this.write(department);
-  }
-
-  private write(department: Department, statement: Database.Statement = this.upsert): void {
-    statement.run({
-      id: department.id,
-      code: department.code,
-      name: department.name,
-      name_ar: department.nameAr,
-      parent_department_id: department.parentDepartmentId,
-      manager_id: department.managerId,
-      overtime_eligible: department.overtimeEligible ? 1 : 0,
-      standard_work_hours: department.standardWorkHours,
-      active: department.active ? 1 : 0,
-      created_at: department.createdAt,
-    });
+    await this.db.run(DEPARTMENT_UPSERT, departmentParams(department));
   }
 }
 
@@ -170,7 +162,7 @@ interface JobTitleRow {
   department_id: string;
   name: string;
   name_ar: string | null;
-  active: number;
+  active: bigint;
   created_at: string;
 }
 
@@ -180,63 +172,53 @@ function toJobTitle(row: JobTitleRow): JobTitle {
     departmentId: row.department_id,
     name: row.name,
     nameAr: row.name_ar,
-    active: row.active === 1,
+    active: Number(row.active) === 1,
     createdAt: row.created_at,
   };
 }
 
-class SqliteJobTitleRepository implements JobTitleRepository {
-  private readonly upsert: Database.Statement;
-  private readonly insertOnly: Database.Statement;
-  private readonly selectById: Database.Statement;
-  private readonly selectAll: Database.Statement;
-  private readonly selectByDepartment: Database.Statement;
+function jobTitleParams(jobTitle: JobTitle): SqlValue[] {
+  return [
+    jobTitle.id,
+    jobTitle.departmentId,
+    jobTitle.name,
+    jobTitle.nameAr,
+    jobTitle.active ? 1 : 0,
+    jobTitle.createdAt,
+  ];
+}
 
-  constructor(private readonly sqlite: Database.Database) {
-    this.upsert = sqlite.prepare(`
+const JOB_TITLE_UPSERT = `
       INSERT INTO hr_job_title (id, department_id, name, name_ar, active, created_at)
-      VALUES (@id, @department_id, @name, @name_ar, @active, @created_at)
+      VALUES (?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         name = excluded.name,
         name_ar = excluded.name_ar,
         active = excluded.active
-    `);
-    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
-    this.selectById = sqlite.prepare(`SELECT * FROM hr_job_title WHERE id = ?`);
-    this.selectAll = sqlite.prepare(`SELECT * FROM hr_job_title ORDER BY name`);
-    this.selectByDepartment = sqlite.prepare(`SELECT * FROM hr_job_title WHERE department_id = ? ORDER BY name`);
-  }
+    `;
+
+class SqlJobTitleRepository implements JobTitleRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async findById(id: string): Promise<JobTitle | null> {
-    const row = this.selectById.get(id) as JobTitleRow | undefined;
+    const row = await this.db.get<JobTitleRow>(`SELECT * FROM hr_job_title WHERE id = ?`, [id]);
     return row ? toJobTitle(row) : null;
   }
 
   async list(): Promise<JobTitle[]> {
-    return (this.selectAll.all() as JobTitleRow[]).map(toJobTitle);
+    return (await this.db.all<JobTitleRow>(`SELECT * FROM hr_job_title ORDER BY name`)).map(toJobTitle);
   }
 
   async listByDepartmentId(departmentId: string): Promise<JobTitle[]> {
-    return (this.selectByDepartment.all(departmentId) as JobTitleRow[]).map(toJobTitle);
+    return (await this.db.all<JobTitleRow>(`SELECT * FROM hr_job_title WHERE department_id = ? ORDER BY name`, [departmentId])).map(toJobTitle);
   }
 
   async create(jobTitle: JobTitle): Promise<void> {
-    insertingNew(jobTitle.id, () => this.write(jobTitle, this.insertOnly));
+    await insertNew(this.db, jobTitle.id, JOB_TITLE_UPSERT, jobTitleParams(jobTitle));
   }
 
   async update(jobTitle: JobTitle): Promise<void> {
-    this.write(jobTitle);
-  }
-
-  private write(jobTitle: JobTitle, statement: Database.Statement = this.upsert): void {
-    statement.run({
-      id: jobTitle.id,
-      department_id: jobTitle.departmentId,
-      name: jobTitle.name,
-      name_ar: jobTitle.nameAr,
-      active: jobTitle.active ? 1 : 0,
-      created_at: jobTitle.createdAt,
-    });
+    await this.db.run(JOB_TITLE_UPSERT, jobTitleParams(jobTitle));
   }
 }
 
@@ -270,6 +252,8 @@ CREATE TABLE IF NOT EXISTS hr_employee (
   require_selfie_at_clock_in    INTEGER NOT NULL,
   require_biometric_at_clock_in INTEGER NOT NULL,
   device_badge_id               TEXT,
+  has_pension_entitlement       INTEGER,
+  tax_disability_exemption      INTEGER NOT NULL DEFAULT 0,
   address_json                  TEXT,
   emergency_contact_json        TEXT,
   salary_payment_method         TEXT,
@@ -306,11 +290,11 @@ interface EmployeeRow {
   standard_work_hours: number | null;
   probation_end_date: string | null;
   prior_service_years: number;
-  require_selfie_at_clock_in: number;
-  require_biometric_at_clock_in: number;
+  require_selfie_at_clock_in: bigint;
+  require_biometric_at_clock_in: bigint;
   device_badge_id: string | null;
-  has_pension_entitlement: number | null;
-  tax_disability_exemption: number;
+  has_pension_entitlement: bigint | null;
+  tax_disability_exemption: bigint;
   address_json: string | null;
   emergency_contact_json: string | null;
   salary_payment_method: string | null;
@@ -344,14 +328,14 @@ function toEmployee(row: EmployeeRow): Employee {
     workerCategory: row.worker_category as WorkerCategory,
     employmentType: row.employment_type as "full_time" | "part_time",
     overtimeEligibility: row.overtime_eligibility as OvertimeEligibility,
-    standardWorkHours: row.standard_work_hours,
+    standardWorkHours: row.standard_work_hours === null ? null : Number(row.standard_work_hours),
     probationEndDate: row.probation_end_date,
-    priorServiceYears: row.prior_service_years,
-    requireSelfieAtClockIn: row.require_selfie_at_clock_in === 1,
-    requireBiometricAtClockIn: row.require_biometric_at_clock_in === 1,
+    priorServiceYears: Number(row.prior_service_years),
+    requireSelfieAtClockIn: Number(row.require_selfie_at_clock_in) === 1,
+    requireBiometricAtClockIn: Number(row.require_biometric_at_clock_in) === 1,
     deviceBadgeId: row.device_badge_id,
-    hasPensionEntitlement: row.has_pension_entitlement === null || row.has_pension_entitlement === undefined ? null : row.has_pension_entitlement === 1,
-    taxDisabilityExemption: row.tax_disability_exemption === 1,
+    hasPensionEntitlement: row.has_pension_entitlement === null || row.has_pension_entitlement === undefined ? null : Number(row.has_pension_entitlement) === 1,
+    taxDisabilityExemption: Number(row.tax_disability_exemption) === 1,
     address: row.address_json ? (JSON.parse(row.address_json) as EmployeeAddress) : null,
     emergencyContact: row.emergency_contact_json ? (JSON.parse(row.emergency_contact_json) as EmergencyContact) : null,
     salaryPaymentMethod: (row.salary_payment_method as SalaryPaymentMethod | null) ?? null,
@@ -362,14 +346,49 @@ function toEmployee(row: EmployeeRow): Employee {
   };
 }
 
-class SqliteEmployeeRepository implements EmployeeRepository {
-  private readonly upsert: Database.Statement;
-  private readonly insertOnly: Database.Statement;
-  private readonly selectById: Database.Statement;
-  private readonly selectAll: Database.Statement;
+function employeeParams(employee: Employee): SqlValue[] {
+  return [
+    employee.id,
+    employee.code,
+    employee.firstName,
+    employee.lastName,
+    employee.firstNameAr,
+    employee.lastNameAr,
+    employee.email,
+    employee.phone,
+    employee.birthDate,
+    employee.nationalId,
+    employee.gender,
+    employee.maritalStatus,
+    employee.departmentId,
+    employee.jobTitleId,
+    employee.managerId,
+    employee.branchId,
+    employee.hireDate,
+    employee.workerCategory,
+    employee.employmentType,
+    employee.overtimeEligibility,
+    employee.standardWorkHours,
+    employee.probationEndDate,
+    employee.priorServiceYears,
+    employee.requireSelfieAtClockIn ? 1 : 0,
+    employee.requireBiometricAtClockIn ? 1 : 0,
+    employee.deviceBadgeId,
+    employee.hasPensionEntitlement === null ? null : employee.hasPensionEntitlement ? 1 : 0,
+    employee.taxDisabilityExemption ? 1 : 0,
+    employee.address ? JSON.stringify(employee.address) : null,
+    employee.emergencyContact ? JSON.stringify(employee.emergencyContact) : null,
+    employee.salaryPaymentMethod ?? null,
+    employee.bankAccount?.iban ?? null,
+    employee.bankAccount?.accountName ?? null,
+    employee.bankAccount?.bankName ?? null,
+    employee.status,
+    employee.terminatedAt,
+    employee.createdAt,
+  ];
+}
 
-  constructor(private readonly sqlite: Database.Database) {
-    this.upsert = sqlite.prepare(`
+const EMPLOYEE_UPSERT = `
       INSERT INTO hr_employee (
         id, code, first_name, last_name, first_name_ar, last_name_ar, email, phone, birth_date, national_id,
         gender, marital_status, department_id, job_title_id, manager_id, branch_id, hire_date, worker_category,
@@ -378,11 +397,11 @@ class SqliteEmployeeRepository implements EmployeeRepository {
         address_json, emergency_contact_json, salary_payment_method, bank_iban, bank_account_name, bank_name, status, terminated_at, created_at
       )
       VALUES (
-        @id, @code, @first_name, @last_name, @first_name_ar, @last_name_ar, @email, @phone, @birth_date, @national_id,
-        @gender, @marital_status, @department_id, @job_title_id, @manager_id, @branch_id, @hire_date, @worker_category,
-        @employment_type, @overtime_eligibility, @standard_work_hours, @probation_end_date, @prior_service_years,
-        @require_selfie_at_clock_in, @require_biometric_at_clock_in, @device_badge_id, @has_pension_entitlement, @tax_disability_exemption,
-        @address_json, @emergency_contact_json, @salary_payment_method, @bank_iban, @bank_account_name, @bank_name, @status, @terminated_at, @created_at
+        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?, ?, ?, ?, ?
       )
       ON CONFLICT(id) DO UPDATE SET
         first_name = excluded.first_name,
@@ -419,84 +438,46 @@ class SqliteEmployeeRepository implements EmployeeRepository {
         bank_name = excluded.bank_name,
         status = excluded.status,
         terminated_at = excluded.terminated_at
-    `);
-    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
-    this.selectById = sqlite.prepare(`SELECT * FROM hr_employee WHERE id = ?`);
-    this.selectAll = sqlite.prepare(`SELECT * FROM hr_employee ORDER BY created_at`);
-  }
+    `;
+
+class SqlEmployeeRepository implements EmployeeRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async findById(id: string): Promise<Employee | null> {
-    const row = this.selectById.get(id) as EmployeeRow | undefined;
+    const row = await this.db.get<EmployeeRow>(`SELECT * FROM hr_employee WHERE id = ?`, [id]);
     return row ? toEmployee(row) : null;
   }
 
   async list(): Promise<Employee[]> {
-    return (this.selectAll.all() as EmployeeRow[]).map(toEmployee);
+    return (await this.db.all<EmployeeRow>(`SELECT * FROM hr_employee ORDER BY created_at`)).map(toEmployee);
   }
 
   async create(employee: Employee): Promise<void> {
-    insertingNew(employee.id, () => this.write(employee, this.insertOnly));
+    await this.write(employee, true);
   }
 
   async update(employee: Employee): Promise<void> {
-    this.write(employee);
+    await this.write(employee, false);
   }
 
-  private write(employee: Employee, statement: Database.Statement = this.upsert): void {
+  private async write(employee: Employee, insertOnly: boolean): Promise<void> {
     try {
-      this.writeRow(employee, statement);
+      if (insertOnly) await insertNew(this.db, employee.id, EMPLOYEE_UPSERT, employeeParams(employee));
+      else await this.db.run(EMPLOYEE_UPSERT, employeeParams(employee));
     } catch (err) {
       if (employee.deviceBadgeId && isDeviceBadgeClash(err)) throw new DuplicateDeviceBadgeError(employee.deviceBadgeId, null);
       throw err;
     }
   }
-
-  private writeRow(employee: Employee, statement: Database.Statement): void {
-    statement.run({
-      id: employee.id,
-      code: employee.code,
-      first_name: employee.firstName,
-      last_name: employee.lastName,
-      first_name_ar: employee.firstNameAr,
-      last_name_ar: employee.lastNameAr,
-      email: employee.email,
-      phone: employee.phone,
-      birth_date: employee.birthDate,
-      national_id: employee.nationalId,
-      gender: employee.gender,
-      marital_status: employee.maritalStatus,
-      department_id: employee.departmentId,
-      job_title_id: employee.jobTitleId,
-      manager_id: employee.managerId,
-      branch_id: employee.branchId,
-      hire_date: employee.hireDate,
-      worker_category: employee.workerCategory,
-      employment_type: employee.employmentType,
-      overtime_eligibility: employee.overtimeEligibility,
-      standard_work_hours: employee.standardWorkHours,
-      probation_end_date: employee.probationEndDate,
-      prior_service_years: employee.priorServiceYears,
-      require_selfie_at_clock_in: employee.requireSelfieAtClockIn ? 1 : 0,
-      require_biometric_at_clock_in: employee.requireBiometricAtClockIn ? 1 : 0,
-      device_badge_id: employee.deviceBadgeId,
-      has_pension_entitlement: employee.hasPensionEntitlement === null ? null : employee.hasPensionEntitlement ? 1 : 0,
-      tax_disability_exemption: employee.taxDisabilityExemption ? 1 : 0,
-      address_json: employee.address ? JSON.stringify(employee.address) : null,
-      emergency_contact_json: employee.emergencyContact ? JSON.stringify(employee.emergencyContact) : null,
-      salary_payment_method: employee.salaryPaymentMethod ?? null,
-      bank_iban: employee.bankAccount?.iban ?? null,
-      bank_account_name: employee.bankAccount?.accountName ?? null,
-      bank_name: employee.bankAccount?.bankName ?? null,
-      status: employee.status,
-      terminated_at: employee.terminatedAt,
-      created_at: employee.createdAt,
-    });
-  }
 }
+
+const DEVICE_BADGE_INDEX = "ux_hr_employee_device_badge";
+const CREATE_DEVICE_BADGE_INDEX = `CREATE UNIQUE INDEX IF NOT EXISTS ${DEVICE_BADGE_INDEX} ON hr_employee (device_badge_id) WHERE device_badge_id IS NOT NULL`;
 
 function isDeviceBadgeClash(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
-  const code = (err as { code?: string }).code;
+  const { code, constraint } = err as { code?: string; constraint?: string };
+  if (code === "23505") return constraint === DEVICE_BADGE_INDEX;
   return code === "SQLITE_CONSTRAINT_UNIQUE" && err.message.includes("device_badge_id");
 }
 
@@ -532,7 +513,7 @@ interface ContractRow {
   pay_frequency: string;
   start_date: string;
   end_date: string | null;
-  monthly_salary: number;
+  monthly_salary: bigint;
   currency: string;
   leave_entitlement_json: string;
   allowances_json: string;
@@ -578,22 +559,35 @@ function toContract(row: ContractRow): Contract {
   };
 }
 
-class SqliteContractRepository implements ContractRepository {
-  private readonly upsert: Database.Statement;
-  private readonly insertOnly: Database.Statement;
-  private readonly selectById: Database.Statement;
-  private readonly selectAll: Database.Statement;
-  private readonly selectByEmployee: Database.Statement;
+function contractParams(contract: Contract): SqlValue[] {
+  return [
+    contract.id,
+    contract.number,
+    contract.employeeId,
+    contract.type,
+    contract.payBasis,
+    contract.payFrequency,
+    contract.startDate,
+    contract.endDate,
+    contract.monthlySalary.scaled,
+    contract.currency,
+    JSON.stringify(contract.leaveEntitlement),
+    serializeLineItems(contract.allowances),
+    serializeLineItems(contract.deductions),
+    contract.status,
+    contract.terminatedAt,
+    contract.createdAt,
+  ];
+}
 
-  constructor(private readonly sqlite: Database.Database) {
-    this.upsert = sqlite.prepare(`
+const CONTRACT_UPSERT = `
       INSERT INTO hr_contract (
         id, number, employee_id, type, pay_basis, pay_frequency, start_date, end_date, monthly_salary, currency,
         leave_entitlement_json, allowances_json, deductions_json, status, terminated_at, created_at
       )
       VALUES (
-        @id, @number, @employee_id, @type, @pay_basis, @pay_frequency, @start_date, @end_date, @monthly_salary, @currency,
-        @leave_entitlement_json, @allowances_json, @deductions_json, @status, @terminated_at, @created_at
+        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?, ?
       )
       ON CONFLICT(id) DO UPDATE SET
         type = excluded.type,
@@ -608,53 +602,30 @@ class SqliteContractRepository implements ContractRepository {
         deductions_json = excluded.deductions_json,
         status = excluded.status,
         terminated_at = excluded.terminated_at
-    `);
-    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
-    this.selectById = sqlite.prepare(`SELECT * FROM hr_contract WHERE id = ?`);
-    this.selectAll = sqlite.prepare(`SELECT * FROM hr_contract ORDER BY created_at`);
-    this.selectByEmployee = sqlite.prepare(`SELECT * FROM hr_contract WHERE employee_id = ? ORDER BY created_at`);
-  }
+    `;
+
+class SqlContractRepository implements ContractRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async findById(id: string): Promise<Contract | null> {
-    const row = this.selectById.get(id) as ContractRow | undefined;
+    const row = await this.db.get<ContractRow>(`SELECT * FROM hr_contract WHERE id = ?`, [id]);
     return row ? toContract(row) : null;
   }
 
   async list(): Promise<Contract[]> {
-    return (this.selectAll.all() as ContractRow[]).map(toContract);
+    return (await this.db.all<ContractRow>(`SELECT * FROM hr_contract ORDER BY created_at`)).map(toContract);
   }
 
   async listByEmployeeId(employeeId: string): Promise<Contract[]> {
-    return (this.selectByEmployee.all(employeeId) as ContractRow[]).map(toContract);
+    return (await this.db.all<ContractRow>(`SELECT * FROM hr_contract WHERE employee_id = ? ORDER BY created_at`, [employeeId])).map(toContract);
   }
 
   async create(contract: Contract): Promise<void> {
-    insertingNew(contract.id, () => this.write(contract, this.insertOnly));
+    await insertNew(this.db, contract.id, CONTRACT_UPSERT, contractParams(contract));
   }
 
   async update(contract: Contract): Promise<void> {
-    this.write(contract);
-  }
-
-  private write(contract: Contract, statement: Database.Statement = this.upsert): void {
-    statement.run({
-      id: contract.id,
-      number: contract.number,
-      employee_id: contract.employeeId,
-      type: contract.type,
-      pay_basis: contract.payBasis,
-      pay_frequency: contract.payFrequency,
-      start_date: contract.startDate,
-      end_date: contract.endDate,
-      monthly_salary: contract.monthlySalary.toScaledNumber(),
-      currency: contract.currency,
-      leave_entitlement_json: JSON.stringify(contract.leaveEntitlement),
-      allowances_json: serializeLineItems(contract.allowances),
-      deductions_json: serializeLineItems(contract.deductions),
-      status: contract.status,
-      terminated_at: contract.terminatedAt,
-      created_at: contract.createdAt,
-    });
+    await this.db.run(CONTRACT_UPSERT, contractParams(contract));
   }
 }
 
@@ -676,7 +647,7 @@ interface HolidayRow {
   date: string;
   name_en: string;
   name_ar: string | null;
-  recurring_annual: number;
+  recurring_annual: bigint;
   created_at: string;
 }
 
@@ -686,64 +657,54 @@ function toHoliday(row: HolidayRow): Holiday {
     date: row.date,
     nameEn: row.name_en,
     nameAr: row.name_ar,
-    recurringAnnual: row.recurring_annual === 1,
+    recurringAnnual: Number(row.recurring_annual) === 1,
     createdAt: row.created_at,
   };
 }
 
-class SqliteHolidayRepository implements HolidayRepository {
-  private readonly upsert: Database.Statement;
-  private readonly insertOnly: Database.Statement;
-  private readonly selectById: Database.Statement;
-  private readonly selectAll: Database.Statement;
-  private readonly deleteById: Database.Statement;
+function holidayParams(holiday: Holiday): SqlValue[] {
+  return [
+    holiday.id,
+    holiday.date,
+    holiday.nameEn,
+    holiday.nameAr,
+    holiday.recurringAnnual ? 1 : 0,
+    holiday.createdAt,
+  ];
+}
 
-  constructor(private readonly sqlite: Database.Database) {
-    this.upsert = sqlite.prepare(`
+const HOLIDAY_UPSERT = `
       INSERT INTO hr_holiday (id, date, name_en, name_ar, recurring_annual, created_at)
-      VALUES (@id, @date, @name_en, @name_ar, @recurring_annual, @created_at)
+      VALUES (?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         date = excluded.date,
         name_en = excluded.name_en,
         name_ar = excluded.name_ar,
         recurring_annual = excluded.recurring_annual
-    `);
-    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
-    this.selectById = sqlite.prepare(`SELECT * FROM hr_holiday WHERE id = ?`);
-    this.selectAll = sqlite.prepare(`SELECT * FROM hr_holiday ORDER BY date`);
-    this.deleteById = sqlite.prepare(`DELETE FROM hr_holiday WHERE id = ?`);
-  }
+    `;
+
+class SqlHolidayRepository implements HolidayRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async findById(id: string): Promise<Holiday | null> {
-    const row = this.selectById.get(id) as HolidayRow | undefined;
+    const row = await this.db.get<HolidayRow>(`SELECT * FROM hr_holiday WHERE id = ?`, [id]);
     return row ? toHoliday(row) : null;
   }
 
   async list(): Promise<Holiday[]> {
-    return (this.selectAll.all() as HolidayRow[]).map(toHoliday);
+    return (await this.db.all<HolidayRow>(`SELECT * FROM hr_holiday ORDER BY date`)).map(toHoliday);
   }
 
   async create(holiday: Holiday): Promise<void> {
-    insertingNew(holiday.id, () => this.write(holiday, this.insertOnly));
+    await insertNew(this.db, holiday.id, HOLIDAY_UPSERT, holidayParams(holiday));
   }
 
   async update(holiday: Holiday): Promise<void> {
-    this.write(holiday);
+    await this.db.run(HOLIDAY_UPSERT, holidayParams(holiday));
   }
 
   async remove(id: string): Promise<void> {
-    this.deleteById.run(id);
-  }
-
-  private write(holiday: Holiday, statement: Database.Statement = this.upsert): void {
-    statement.run({
-      id: holiday.id,
-      date: holiday.date,
-      name_en: holiday.nameEn,
-      name_ar: holiday.nameAr,
-      recurring_annual: holiday.recurringAnnual ? 1 : 0,
-      created_at: holiday.createdAt,
-    });
+    await this.db.run(`DELETE FROM hr_holiday WHERE id = ?`, [id]);
   }
 }
 
@@ -772,7 +733,7 @@ interface LeaveRequestRow {
   number: string;
   employee_id: string;
   leave_type: string;
-  half_day: number;
+  half_day: bigint;
   start_date: string;
   end_date: string;
   days: number;
@@ -789,10 +750,10 @@ function toLeaveRequest(row: LeaveRequestRow): LeaveRequest {
     number: row.number,
     employeeId: row.employee_id,
     leaveType: row.leave_type as LeaveType,
-    halfDay: row.half_day === 1,
+    halfDay: Number(row.half_day) === 1,
     startDate: row.start_date,
     endDate: row.end_date,
-    days: row.days,
+    days: Number(row.days),
     reason: row.reason,
     status: row.status as LeaveRequestStatus,
     createdAt: row.created_at,
@@ -801,65 +762,55 @@ function toLeaveRequest(row: LeaveRequestRow): LeaveRequest {
   };
 }
 
-class SqliteLeaveRequestRepository implements LeaveRequestRepository {
-  private readonly upsert: Database.Statement;
-  private readonly insertOnly: Database.Statement;
-  private readonly selectById: Database.Statement;
-  private readonly selectAll: Database.Statement;
-  private readonly selectByEmployee: Database.Statement;
+function leaveRequestParams(request: LeaveRequest): SqlValue[] {
+  return [
+    request.id,
+    request.number,
+    request.employeeId,
+    request.leaveType,
+    request.halfDay ? 1 : 0,
+    request.startDate,
+    request.endDate,
+    request.days,
+    request.reason,
+    request.status,
+    request.createdAt,
+    request.decidedAt,
+    request.decidedBy,
+  ];
+}
 
-  constructor(private readonly sqlite: Database.Database) {
-    this.upsert = sqlite.prepare(`
+const LEAVE_REQUEST_UPSERT = `
       INSERT INTO hr_leave_request (id, number, employee_id, leave_type, half_day, start_date, end_date, days, reason, status, created_at, decided_at, decided_by)
-      VALUES (@id, @number, @employee_id, @leave_type, @half_day, @start_date, @end_date, @days, @reason, @status, @created_at, @decided_at, @decided_by)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         status = excluded.status,
         decided_at = excluded.decided_at,
         decided_by = excluded.decided_by
-    `);
-    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
-    this.selectById = sqlite.prepare(`SELECT * FROM hr_leave_request WHERE id = ?`);
-    this.selectAll = sqlite.prepare(`SELECT * FROM hr_leave_request ORDER BY created_at DESC`);
-    this.selectByEmployee = sqlite.prepare(`SELECT * FROM hr_leave_request WHERE employee_id = ? ORDER BY created_at DESC`);
-  }
+    `;
+
+class SqlLeaveRequestRepository implements LeaveRequestRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async findById(id: string): Promise<LeaveRequest | null> {
-    const row = this.selectById.get(id) as LeaveRequestRow | undefined;
+    const row = await this.db.get<LeaveRequestRow>(`SELECT * FROM hr_leave_request WHERE id = ?`, [id]);
     return row ? toLeaveRequest(row) : null;
   }
 
   async list(): Promise<LeaveRequest[]> {
-    return (this.selectAll.all() as LeaveRequestRow[]).map(toLeaveRequest);
+    return (await this.db.all<LeaveRequestRow>(`SELECT * FROM hr_leave_request ORDER BY created_at DESC`)).map(toLeaveRequest);
   }
 
   async listByEmployeeId(employeeId: string): Promise<LeaveRequest[]> {
-    return (this.selectByEmployee.all(employeeId) as LeaveRequestRow[]).map(toLeaveRequest);
+    return (await this.db.all<LeaveRequestRow>(`SELECT * FROM hr_leave_request WHERE employee_id = ? ORDER BY created_at DESC`, [employeeId])).map(toLeaveRequest);
   }
 
   async create(request: LeaveRequest): Promise<void> {
-    insertingNew(request.id, () => this.write(request, this.insertOnly));
+    await insertNew(this.db, request.id, LEAVE_REQUEST_UPSERT, leaveRequestParams(request));
   }
 
   async update(request: LeaveRequest): Promise<void> {
-    this.write(request);
-  }
-
-  private write(request: LeaveRequest, statement: Database.Statement = this.upsert): void {
-    statement.run({
-      id: request.id,
-      number: request.number,
-      employee_id: request.employeeId,
-      leave_type: request.leaveType,
-      half_day: request.halfDay ? 1 : 0,
-      start_date: request.startDate,
-      end_date: request.endDate,
-      days: request.days,
-      reason: request.reason,
-      status: request.status,
-      created_at: request.createdAt,
-      decided_at: request.decidedAt,
-      decided_by: request.decidedBy,
-    });
+    await this.db.run(LEAVE_REQUEST_UPSERT, leaveRequestParams(request));
   }
 }
 
@@ -884,12 +835,42 @@ export interface SqliteLeaveRequestRepositoryHandle extends LeaveRequestReposito
   close(): void;
 }
 
+export async function ensureHrSchema(db: SqlDb): Promise<void> {
+  await db.applySchema(
+    [CREATE_DEPARTMENT, CREATE_JOB_TITLE, CREATE_EMPLOYEE, `${CREATE_DEVICE_BADGE_INDEX};`, CREATE_CONTRACT, CREATE_HOLIDAY, CREATE_LEAVE_REQUEST].join("\n"),
+  );
+}
+
+export function createDepartmentRepository(db: SqlDb): DepartmentRepository {
+  return new SqlDepartmentRepository(db);
+}
+
+export function createJobTitleRepository(db: SqlDb): JobTitleRepository {
+  return new SqlJobTitleRepository(db);
+}
+
+export function createEmployeeRepository(db: SqlDb): EmployeeRepository {
+  return new SqlEmployeeRepository(db);
+}
+
+export function createContractRepository(db: SqlDb): ContractRepository {
+  return new SqlContractRepository(db);
+}
+
+export function createHolidayRepository(db: SqlDb): HolidayRepository {
+  return new SqlHolidayRepository(db);
+}
+
+export function createLeaveRequestRepository(db: SqlDb): LeaveRequestRepository {
+  return new SqlLeaveRequestRepository(db);
+}
+
 /** Open a SQLite-backed DepartmentRepository. ":memory:" for tests, a path (or shared connection) for real. */
 export function createSqliteDepartmentRepository(path: SqliteConnectionInput = ":memory:"): SqliteDepartmentRepositoryHandle {
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_DEPARTMENT);
-  const repo = new SqliteDepartmentRepository(sqlite);
+  const repo = createDepartmentRepository(sqliteDb(sqlite));
   return Object.assign(repo, { close: () => { if (owned) sqlite.close(); } }) as SqliteDepartmentRepositoryHandle;
 }
 
@@ -898,7 +879,7 @@ export function createSqliteJobTitleRepository(path: SqliteConnectionInput = ":m
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_JOB_TITLE);
-  const repo = new SqliteJobTitleRepository(sqlite);
+  const repo = createJobTitleRepository(sqliteDb(sqlite));
   return Object.assign(repo, { close: () => { if (owned) sqlite.close(); } }) as SqliteJobTitleRepositoryHandle;
 }
 
@@ -911,7 +892,7 @@ function ensureDeviceBadgeIndex(sqlite: Database.Database): void {
     .prepare(`SELECT device_badge_id FROM hr_employee WHERE device_badge_id IS NOT NULL GROUP BY device_badge_id HAVING COUNT(*) > 1 LIMIT 1`)
     .get();
   if (clash) return;
-  sqlite.exec(`CREATE UNIQUE INDEX IF NOT EXISTS ux_hr_employee_device_badge ON hr_employee (device_badge_id) WHERE device_badge_id IS NOT NULL`);
+  sqlite.exec(CREATE_DEVICE_BADGE_INDEX);
 }
 
 /** Open a SQLite-backed EmployeeRepository. ":memory:" for tests, a path (or shared connection) for real. */
@@ -927,7 +908,7 @@ export function createSqliteEmployeeRepository(path: SqliteConnectionInput = ":m
     if (!columns.has(column)) sqlite.exec(`ALTER TABLE hr_employee ADD COLUMN ${column} TEXT`);
   }
   ensureDeviceBadgeIndex(sqlite);
-  const repo = new SqliteEmployeeRepository(sqlite);
+  const repo = createEmployeeRepository(sqliteDb(sqlite));
   return Object.assign(repo, { close: () => { if (owned) sqlite.close(); } }) as SqliteEmployeeRepositoryHandle;
 }
 
@@ -936,7 +917,7 @@ export function createSqliteContractRepository(path: SqliteConnectionInput = ":m
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_CONTRACT);
-  const repo = new SqliteContractRepository(sqlite);
+  const repo = createContractRepository(sqliteDb(sqlite));
   return Object.assign(repo, { close: () => { if (owned) sqlite.close(); } }) as SqliteContractRepositoryHandle;
 }
 
@@ -945,7 +926,7 @@ export function createSqliteHolidayRepository(path: SqliteConnectionInput = ":me
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_HOLIDAY);
-  const repo = new SqliteHolidayRepository(sqlite);
+  const repo = createHolidayRepository(sqliteDb(sqlite));
   return Object.assign(repo, { close: () => { if (owned) sqlite.close(); } }) as SqliteHolidayRepositoryHandle;
 }
 
@@ -954,6 +935,6 @@ export function createSqliteLeaveRequestRepository(path: SqliteConnectionInput =
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_LEAVE_REQUEST);
-  const repo = new SqliteLeaveRequestRepository(sqlite);
+  const repo = createLeaveRequestRepository(sqliteDb(sqlite));
   return Object.assign(repo, { close: () => { if (owned) sqlite.close(); } }) as SqliteLeaveRequestRepositoryHandle;
 }

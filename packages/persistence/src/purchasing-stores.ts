@@ -1,10 +1,12 @@
-import Database from "better-sqlite3";
+import type Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
-import { countMatching, FilterClauses, selectPage } from "./list-query.js";
-import { columnsOf, writeRowColumnsWhere } from "./document-field-write.js";
+import { countMatchingAsync, FilterClauses, selectPageAsync } from "./list-query.js";
+import { columnsOf, writeRowColumnsWhereAsync } from "./document-field-write.js";
 import { markInvoicesNamedByRegister } from "./document-kind-backfill.js";
-import { addVersionColumns, createDocumentVersionStore, type DocumentVersionStore } from "./document-version.js";
-import { insertingNew, prepareInsertOnly } from "./insert-new.js";
+import { addVersionColumns, createSqlDocumentVersionStore, type DocumentVersionStore } from "./document-version.js";
+import { insertNew } from "./insert-new.js";
+import { escapeLike, placeholders, type SqlDb, type SqlValue } from "./sql/sql-db.js";
+import { sqliteDb } from "./sql/sqlite-db.js";
 import {
   Money,
   Qty,
@@ -52,7 +54,9 @@ CREATE TABLE IF NOT EXISTS purchase_order (
   lines                  TEXT NOT NULL,
   status                 TEXT NOT NULL,
   created_by             TEXT NOT NULL,
-  created_at             TEXT NOT NULL
+  created_at             TEXT NOT NULL,
+  version                INTEGER NOT NULL DEFAULT 1,
+  last_modified_by       TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_po_supplier ON purchase_order(supplier_id);
 `;
@@ -104,66 +108,57 @@ function poToDomain(row: PoRow): PurchaseOrder {
   };
 }
 
-class SqlitePurchaseOrderStore implements PurchaseOrderRepository {
-  private readonly upsert: Database.Statement;
-  private readonly insertOnly: Database.Statement;
-  private readonly selectById: Database.Statement;
-  private readonly selectAll: Database.Statement;
+const UPSERT_PO = `INSERT INTO purchase_order (id, number, supplier_id, date, expected_delivery_date, branch_id, warehouse_id, currency, notes, lines, status, created_by, created_at)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  ON CONFLICT(id) DO UPDATE SET
+    supplier_id = excluded.supplier_id, date = excluded.date,
+    expected_delivery_date = excluded.expected_delivery_date, branch_id = excluded.branch_id,
+    warehouse_id = excluded.warehouse_id, currency = excluded.currency, notes = excluded.notes,
+    lines = excluded.lines, status = excluded.status`;
 
-  constructor(sqlite: Database.Database, private readonly versions?: DocumentVersionStore) {
-    this.upsert = sqlite.prepare(`
-      INSERT INTO purchase_order (id, number, supplier_id, date, expected_delivery_date, branch_id, warehouse_id, currency, notes, lines, status, created_by, created_at)
-      VALUES (@id, @number, @supplier_id, @date, @expected_delivery_date, @branch_id, @warehouse_id, @currency, @notes, @lines, @status, @created_by, @created_at)
-      ON CONFLICT(id) DO UPDATE SET
-        supplier_id = excluded.supplier_id, date = excluded.date,
-        expected_delivery_date = excluded.expected_delivery_date, branch_id = excluded.branch_id,
-        warehouse_id = excluded.warehouse_id, currency = excluded.currency, notes = excluded.notes,
-        lines = excluded.lines, status = excluded.status
-    `);
-    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
-    this.selectById = sqlite.prepare(`SELECT * FROM purchase_order WHERE id = ?`);
-    this.selectAll = sqlite.prepare(`SELECT * FROM purchase_order`);
-  }
+function poParams(o: PurchaseOrder): SqlValue[] {
+  return [
+    o.id,
+    o.number,
+    o.supplierId,
+    o.date,
+    o.expectedDeliveryDate,
+    o.branchId,
+    o.warehouseId,
+    o.currency,
+    o.notes,
+    JSON.stringify(
+      o.lines.map((l) => ({
+        itemId: l.itemId,
+        description: l.description,
+        qty: l.qty.toString(),
+        unitPrice: l.unitPrice.toString(),
+        receivedQty: l.receivedQty.toString(),
+      })),
+    ),
+    o.status,
+    o.createdBy,
+    o.createdAt,
+  ];
+}
+
+class SqlPurchaseOrderStore implements PurchaseOrderRepository {
+  constructor(private readonly db: SqlDb, private readonly versions?: DocumentVersionStore) {}
 
   async findById(id: string): Promise<PurchaseOrder | null> {
-    const row = this.selectById.get(id) as PoRow | undefined;
+    const row = await this.db.get<PoRow>(`SELECT * FROM purchase_order WHERE id = ?`, [id]);
     return row ? poToDomain(row) : null;
   }
   async list(): Promise<PurchaseOrder[]> {
-    return (this.selectAll.all() as PoRow[]).map(poToDomain);
+    return (await this.db.all<PoRow>(`SELECT * FROM purchase_order`)).map(poToDomain);
   }
   async create(order: PurchaseOrder): Promise<void> {
-    insertingNew(order.id, () => this.write(order, this.insertOnly));
+    await insertNew(this.db, order.id, UPSERT_PO, poParams(order));
   }
   async update(order: PurchaseOrder): Promise<void> {
-    this.write(order);
+    await this.db.run(UPSERT_PO, poParams(order));
     // N-9: any write moves the version, whichever path made the change.
-    this.versions?.bump(order.id);
-  }
-  private write(o: PurchaseOrder, statement: Database.Statement = this.upsert): void {
-    statement.run({
-      id: o.id,
-      number: o.number,
-      supplier_id: o.supplierId,
-      date: o.date,
-      expected_delivery_date: o.expectedDeliveryDate,
-      branch_id: o.branchId,
-      warehouse_id: o.warehouseId,
-      currency: o.currency,
-      notes: o.notes,
-      lines: JSON.stringify(
-        o.lines.map((l) => ({
-          itemId: l.itemId,
-          description: l.description,
-          qty: l.qty.toString(),
-          unitPrice: l.unitPrice.toString(),
-          receivedQty: l.receivedQty.toString(),
-        })),
-      ),
-      status: o.status,
-      created_by: o.createdBy,
-      created_at: o.createdAt,
-    });
+    await this.versions?.bump(order.id);
   }
 }
 
@@ -199,7 +194,7 @@ interface GrRow {
   project_id: string | null;
   lines: string;
   status: string;
-  invoiced: number;
+  invoiced: bigint;
   created_by: string;
   created_at: string;
 }
@@ -235,73 +230,62 @@ function grToDomain(row: GrRow): GoodsReceipt {
     projectId: row.project_id,
     lines,
     status: row.status as GoodsReceiptStatus,
-    invoiced: row.invoiced === 1,
+    invoiced: Number(row.invoiced) === 1,
     createdBy: row.created_by,
     createdAt: row.created_at,
   };
 }
 
-class SqliteGoodsReceiptStore implements GoodsReceiptRepository {
-  private readonly upsert: Database.Statement;
-  private readonly insertOnly: Database.Statement;
-  private readonly selectById: Database.Statement;
-  private readonly selectAll: Database.Statement;
-  private readonly selectByOrder: Database.Statement;
+const UPSERT_GR = `INSERT INTO goods_receipt (id, number, purchase_order_id, supplier_id, warehouse_id, date, notes, project_id, lines, status, invoiced, created_by, created_at)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  ON CONFLICT(id) DO UPDATE SET
+    supplier_id = excluded.supplier_id, warehouse_id = excluded.warehouse_id, date = excluded.date,
+    notes = excluded.notes, project_id = excluded.project_id, lines = excluded.lines, status = excluded.status, invoiced = excluded.invoiced`;
 
-  constructor(private readonly sqlite: Database.Database) {
-    this.upsert = sqlite.prepare(`
-      INSERT INTO goods_receipt (id, number, purchase_order_id, supplier_id, warehouse_id, date, notes, project_id, lines, status, invoiced, created_by, created_at)
-      VALUES (@id, @number, @purchase_order_id, @supplier_id, @warehouse_id, @date, @notes, @project_id, @lines, @status, @invoiced, @created_by, @created_at)
-      ON CONFLICT(id) DO UPDATE SET
-        supplier_id = excluded.supplier_id, warehouse_id = excluded.warehouse_id, date = excluded.date,
-        notes = excluded.notes, project_id = excluded.project_id, lines = excluded.lines, status = excluded.status, invoiced = excluded.invoiced
-    `);
-    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
-    this.selectById = sqlite.prepare(`SELECT * FROM goods_receipt WHERE id = ?`);
-    this.selectAll = sqlite.prepare(`SELECT * FROM goods_receipt`);
-    this.selectByOrder = sqlite.prepare(`SELECT * FROM goods_receipt WHERE purchase_order_id = ?`);
-  }
+function grParams(r: GoodsReceipt): SqlValue[] {
+  return [
+    r.id,
+    r.number,
+    r.purchaseOrderId,
+    r.supplierId,
+    r.warehouseId,
+    r.date,
+    r.notes,
+    r.projectId ?? null,
+    goodsReceiptLinesJson(r),
+    r.status,
+    r.invoiced ? 1 : 0,
+    r.createdBy,
+    r.createdAt,
+  ];
+}
+
+class SqlGoodsReceiptStore implements GoodsReceiptRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async findById(id: string): Promise<GoodsReceipt | null> {
-    const row = this.selectById.get(id) as GrRow | undefined;
+    const row = await this.db.get<GrRow>(`SELECT * FROM goods_receipt WHERE id = ?`, [id]);
     return row ? grToDomain(row) : null;
   }
   async list(): Promise<GoodsReceipt[]> {
-    return (this.selectAll.all() as GrRow[]).map(grToDomain);
+    return (await this.db.all<GrRow>(`SELECT * FROM goods_receipt`)).map(grToDomain);
   }
   async listByOrder(purchaseOrderId: string): Promise<GoodsReceipt[]> {
-    return (this.selectByOrder.all(purchaseOrderId) as GrRow[]).map(grToDomain);
+    return (await this.db.all<GrRow>(`SELECT * FROM goods_receipt WHERE purchase_order_id = ?`, [purchaseOrderId])).map(grToDomain);
   }
   async create(receipt: GoodsReceipt): Promise<void> {
-    insertingNew(receipt.id, () => this.write(receipt, this.insertOnly));
+    await insertNew(this.db, receipt.id, UPSERT_GR, grParams(receipt));
   }
   async update(receipt: GoodsReceipt): Promise<void> {
-    this.write(receipt);
+    await this.db.run(UPSERT_GR, grParams(receipt));
   }
   async writeFields(next: GoodsReceipt, fields: readonly GoodsReceiptField[], expected: { readonly status: GoodsReceipt["status"] }): Promise<boolean> {
-    return writeRowColumnsWhere(this.sqlite, {
+    return writeRowColumnsWhereAsync(this.db, {
       table: "goods_receipt",
       row: { status: next.status, invoiced: next.invoiced ? 1 : 0, lines: goodsReceiptLinesJson(next) },
       columns: columnsOf(GOODS_RECEIPT_COLUMNS, fields),
       id: next.id,
       expectedStatuses: [expected.status],
-    });
-  }
-  private write(r: GoodsReceipt, statement: Database.Statement = this.upsert): void {
-    statement.run({
-      id: r.id,
-      number: r.number,
-      purchase_order_id: r.purchaseOrderId,
-      supplier_id: r.supplierId,
-      warehouse_id: r.warehouseId,
-      date: r.date,
-      notes: r.notes,
-      project_id: r.projectId ?? null,
-      lines: goodsReceiptLinesJson(r),
-      status: r.status,
-      invoiced: r.invoiced ? 1 : 0,
-      created_by: r.createdBy,
-      created_at: r.createdAt,
     });
   }
 }
@@ -372,7 +356,9 @@ CREATE TABLE IF NOT EXISTS purchase_invoice (
   fx_rate                 TEXT,
   created_by              TEXT NOT NULL,
   created_at              TEXT NOT NULL,
-  document_kind           TEXT NOT NULL DEFAULT 'standard'
+  document_kind           TEXT NOT NULL DEFAULT 'standard',
+  version                 INTEGER NOT NULL DEFAULT 1,
+  last_modified_by        TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_pi_supplier ON purchase_invoice(supplier_id);
 CREATE INDEX IF NOT EXISTS idx_pi_status ON purchase_invoice(status);
@@ -450,28 +436,43 @@ function piToDomain(row: PiRow): PurchaseInvoice {
   };
 }
 
-class SqlitePurchaseInvoiceStore implements PurchaseInvoiceRepository {
-  private readonly upsert: Database.Statement;
-  private readonly insertOnly: Database.Statement;
-  private readonly selectById: Database.Statement;
+const UPSERT_PI = `INSERT INTO purchase_invoice (id, number, supplier_id, date, due_date, supplier_invoice_number, branch_id, warehouse_id, currency, notes, receipt_id, project_id, lines, status, fx_rate, created_by, created_at, document_kind)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  ON CONFLICT(id) DO UPDATE SET
+    supplier_id = excluded.supplier_id, date = excluded.date, due_date = excluded.due_date,
+    supplier_invoice_number = excluded.supplier_invoice_number, branch_id = excluded.branch_id,
+    warehouse_id = excluded.warehouse_id, currency = excluded.currency, notes = excluded.notes,
+    receipt_id = excluded.receipt_id, project_id = excluded.project_id, lines = excluded.lines, status = excluded.status,
+    fx_rate = excluded.fx_rate`;
 
-  constructor(private readonly sqlite: Database.Database, private readonly versions?: DocumentVersionStore) {
-    this.upsert = sqlite.prepare(`
-      INSERT INTO purchase_invoice (id, number, supplier_id, date, due_date, supplier_invoice_number, branch_id, warehouse_id, currency, notes, receipt_id, project_id, lines, status, fx_rate, created_by, created_at, document_kind)
-      VALUES (@id, @number, @supplier_id, @date, @due_date, @supplier_invoice_number, @branch_id, @warehouse_id, @currency, @notes, @receipt_id, @project_id, @lines, @status, @fx_rate, @created_by, @created_at, @document_kind)
-      ON CONFLICT(id) DO UPDATE SET
-        supplier_id = excluded.supplier_id, date = excluded.date, due_date = excluded.due_date,
-        supplier_invoice_number = excluded.supplier_invoice_number, branch_id = excluded.branch_id,
-        warehouse_id = excluded.warehouse_id, currency = excluded.currency, notes = excluded.notes,
-        receipt_id = excluded.receipt_id, project_id = excluded.project_id, lines = excluded.lines, status = excluded.status,
-        fx_rate = excluded.fx_rate
-    `);
-    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
-    this.selectById = sqlite.prepare(`SELECT * FROM purchase_invoice WHERE id = ?`);
-  }
+function piParams(inv: PurchaseInvoice): SqlValue[] {
+  return [
+    inv.id,
+    inv.number,
+    inv.supplierId,
+    inv.date,
+    inv.dueDate,
+    inv.supplierInvoiceNumber,
+    inv.branchId,
+    inv.warehouseId,
+    inv.currency,
+    inv.notes,
+    inv.receiptId,
+    inv.projectId ?? null,
+    purchaseInvoiceLinesJson(inv),
+    inv.status,
+    inv.fxRate ?? null,
+    inv.createdBy,
+    inv.createdAt,
+    inv.documentKind ?? InvoiceDocumentKind.Standard,
+  ];
+}
+
+class SqlPurchaseInvoiceStore implements PurchaseInvoiceRepository {
+  constructor(private readonly db: SqlDb, private readonly versions?: DocumentVersionStore) {}
 
   async findById(id: string): Promise<PurchaseInvoice | null> {
-    const row = this.selectById.get(id) as PiRow | undefined;
+    const row = await this.db.get<PiRow>(`SELECT * FROM purchase_invoice WHERE id = ?`, [id]);
     return row ? piToDomain(row) : null;
   }
 
@@ -488,20 +489,20 @@ class SqlitePurchaseInvoiceStore implements PurchaseInvoiceRepository {
       // An empty set matches nothing, exactly as asked — dropping the clause
       // would widen it to every status.
       if (filter.statusIn.length === 0) where.raw("0 = 1");
-      else where.raw(`status IN (${filter.statusIn.map(() => "?").join(",")})`, ...filter.statusIn);
+      else where.raw(`status IN (${placeholders(filter.statusIn.length)})`, ...filter.statusIn);
     }
     const term = filter.search?.trim();
     if (term) {
-      const like = `%${term.toLowerCase()}%`;
+      const like = `%${escapeLike(term.toLowerCase())}%`;
       const named = filter.searchSupplierIds ?? [];
-      const byName = named.length > 0 ? ` OR supplier_id IN (${named.map(() => "?").join(",")})` : "";
-      where.raw(`(LOWER(number) LIKE ? OR LOWER(COALESCE(supplier_invoice_number, '')) LIKE ?${byName})`, like, like, ...named);
+      const byName = named.length > 0 ? ` OR supplier_id IN (${placeholders(named.length)})` : "";
+      where.raw(`(LOWER(number) LIKE ? ESCAPE '\\' OR LOWER(COALESCE(supplier_invoice_number, '')) LIKE ? ESCAPE '\\'${byName})`, like, like, ...named);
     }
     return where;
   }
 
   async list(filter: PurchaseInvoiceListFilter = {}): Promise<PurchaseInvoice[]> {
-    const rows = selectPage<PiRow>(this.sqlite, {
+    const rows = await selectPageAsync<PiRow>(this.db, {
       table: "purchase_invoice",
       where: this.clausesFor(filter),
       orderBy: "date, id",
@@ -511,29 +512,29 @@ class SqlitePurchaseInvoiceStore implements PurchaseInvoiceRepository {
   }
 
   async count(filter: PurchaseInvoiceListFilter = {}): Promise<number> {
-    return countMatching(this.sqlite, "purchase_invoice", this.clausesFor(filter));
+    return countMatchingAsync(this.db, "purchase_invoice", this.clausesFor(filter));
   }
   async create(invoice: PurchaseInvoice): Promise<void> {
-    insertingNew(invoice.id, () => this.write(invoice, this.insertOnly));
+    await insertNew(this.db, invoice.id, UPSERT_PI, piParams(invoice));
   }
   async update(invoice: PurchaseInvoice): Promise<void> {
-    this.write(invoice);
+    await this.db.run(UPSERT_PI, piParams(invoice));
     // N-9: any write moves the version, whichever path made the change.
-    this.versions?.bump(invoice.id);
+    await this.versions?.bump(invoice.id);
   }
   async writeFields(next: PurchaseInvoice, fields: readonly PurchaseInvoiceField[], expected: { readonly status: PurchaseInvoice["status"] }): Promise<boolean> {
-    const written = writeRowColumnsWhere(this.sqlite, {
+    const written = await writeRowColumnsWhereAsync(this.db, {
       table: "purchase_invoice",
       row: { status: next.status, fx_rate: next.fxRate ?? null, lines: purchaseInvoiceLinesJson(next) },
       columns: columnsOf(PURCHASE_INVOICE_COLUMNS, fields),
       id: next.id,
       expectedStatuses: [expected.status],
     });
-    if (written) this.versions?.bump(next.id);
+    if (written) await this.versions?.bump(next.id);
     return written;
   }
   async nameLineTaxRate(invoiceId: string, lineIndexes: readonly number[], taxRatePercent: number, taxRateId: string): Promise<number> {
-    const row = this.selectById.get(invoiceId) as PiRow | undefined;
+    const row = await this.db.get<PiRow>(`SELECT * FROM purchase_invoice WHERE id = ?`, [invoiceId]);
     if (!row || row.status !== PurchaseInvoiceStatusCode.Confirmed) return 0;
     const lines = JSON.parse(row.lines) as { taxRatePercent: number; taxRateId?: string | null }[];
     let named = 0;
@@ -544,34 +545,13 @@ class SqlitePurchaseInvoiceStore implements PurchaseInvoiceRepository {
       named += 1;
     }
     if (named === 0) return 0;
-    const written = this.sqlite
-      .prepare(`UPDATE purchase_invoice SET lines = ? WHERE id = ? AND status = ? AND lines = ?`)
-      .run(JSON.stringify(lines), invoiceId, PurchaseInvoiceStatusCode.Confirmed, row.lines).changes;
+    const { changes: written } = await this.db.run(
+      `UPDATE purchase_invoice SET lines = ? WHERE id = ? AND status = ? AND lines = ?`,
+      [JSON.stringify(lines), invoiceId, PurchaseInvoiceStatusCode.Confirmed, row.lines],
+    );
     if (written === 0) return 0;
-    this.versions?.bump(invoiceId);
+    await this.versions?.bump(invoiceId);
     return named;
-  }
-  private write(inv: PurchaseInvoice, statement: Database.Statement = this.upsert): void {
-    statement.run({
-      id: inv.id,
-      number: inv.number,
-      supplier_id: inv.supplierId,
-      date: inv.date,
-      due_date: inv.dueDate,
-      supplier_invoice_number: inv.supplierInvoiceNumber,
-      branch_id: inv.branchId,
-      warehouse_id: inv.warehouseId,
-      currency: inv.currency,
-      notes: inv.notes,
-      receipt_id: inv.receiptId,
-      project_id: inv.projectId ?? null,
-      document_kind: inv.documentKind ?? InvoiceDocumentKind.Standard,
-      lines: purchaseInvoiceLinesJson(inv),
-      status: inv.status,
-      fx_rate: inv.fxRate ?? null,
-      created_by: inv.createdBy,
-      created_at: inv.createdAt,
-    });
   }
 }
 
@@ -591,13 +571,32 @@ export interface SqlitePurchaseInvoiceStoreHandle extends PurchaseInvoiceReposit
   close(): void;
 }
 
+export async function ensurePurchasingSchema(db: SqlDb): Promise<void> {
+  await db.applySchema(CREATE_PO);
+  await db.applySchema(CREATE_GR);
+  await db.applySchema(CREATE_PI);
+}
+
+export function createPurchaseOrderStore(db: SqlDb): PurchaseOrderRepository & { readonly versions: DocumentVersionStore } {
+  const versions = createSqlDocumentVersionStore(db, "purchase_order");
+  return Object.assign(new SqlPurchaseOrderStore(db, versions), { versions });
+}
+
+export function createGoodsReceiptStore(db: SqlDb): GoodsReceiptRepository {
+  return new SqlGoodsReceiptStore(db);
+}
+
+export function createPurchaseInvoiceStore(db: SqlDb): PurchaseInvoiceRepository & { readonly versions: DocumentVersionStore } {
+  const versions = createSqlDocumentVersionStore(db, "purchase_invoice");
+  return Object.assign(new SqlPurchaseInvoiceStore(db, versions), { versions });
+}
+
 /** Open a SQLite-backed PurchaseOrderRepository. ":memory:" for tests, a path for real. */
 export function createSqlitePurchaseOrderStore(path: SqliteConnectionInput = ":memory:"): SqlitePurchaseOrderStoreHandle {
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.exec(CREATE_PO);
   addVersionColumns(sqlite, "purchase_order");
-  const versions = createDocumentVersionStore(sqlite, "purchase_order");
-  return Object.assign(new SqlitePurchaseOrderStore(sqlite, versions), { versions, close: () => { if (owned) sqlite.close(); } });
+  return Object.assign(createPurchaseOrderStore(sqliteDb(sqlite)), { close: () => { if (owned) sqlite.close(); } });
 }
 
 /** Add a column in place when an existing books file predates it — `CREATE TABLE IF NOT EXISTS` never widens an existing table. */
@@ -626,7 +625,7 @@ export function createSqliteGoodsReceiptStore(path: SqliteConnectionInput = ":me
   sqlite.exec(CREATE_GR);
   // `project_id` arrived after the table shipped (D-01).
   addColumnIfMissing(sqlite, "goods_receipt", "project_id", "project_id TEXT");
-  return Object.assign(new SqliteGoodsReceiptStore(sqlite), { close: () => { if (owned) sqlite.close(); } });
+  return Object.assign(createGoodsReceiptStore(sqliteDb(sqlite)), { close: () => { if (owned) sqlite.close(); } });
 }
 
 /** Open a SQLite-backed PurchaseInvoiceRepository. */
@@ -639,8 +638,7 @@ export function createSqlitePurchaseInvoiceStore(path: SqliteConnectionInput = "
   addColumnIfMissing(sqlite, "purchase_invoice", "project_id", "project_id TEXT");
   markPurchaseRetentionReleases(sqlite, kindUnrecorded);
   addVersionColumns(sqlite, "purchase_invoice");
-  const versions = createDocumentVersionStore(sqlite, "purchase_invoice");
-  return Object.assign(new SqlitePurchaseInvoiceStore(sqlite, versions), { versions, close: () => { if (owned) sqlite.close(); } });
+  return Object.assign(createPurchaseInvoiceStore(sqliteDb(sqlite)), { close: () => { if (owned) sqlite.close(); } });
 }
 
 /**
@@ -664,10 +662,11 @@ export function createSqlitePurchasingStores(path: SqliteConnectionInput = ":mem
   addColumnIfMissing(sqlite, "purchase_invoice", "fx_rate", "fx_rate TEXT");
   addColumnIfMissing(sqlite, "purchase_invoice", "project_id", "project_id TEXT");
   markPurchaseRetentionReleases(sqlite, kindUnrecorded);
+  const db = sqliteDb(sqlite);
   return {
-    orders: new SqlitePurchaseOrderStore(sqlite),
-    receipts: new SqliteGoodsReceiptStore(sqlite),
-    invoices: new SqlitePurchaseInvoiceStore(sqlite),
+    orders: new SqlPurchaseOrderStore(db),
+    receipts: new SqlGoodsReceiptStore(db),
+    invoices: new SqlPurchaseInvoiceStore(db),
     close: () => { if (owned) sqlite.close(); },
   };
 }

@@ -7,8 +7,8 @@ export interface KeyedLock {
 
 export interface LeaseStore {
   /** One atomic statement: true only when the key was free or its previous lease had expired. */
-  tryAcquire(key: string, owner: string, expiresAt: number, now: number): boolean;
-  release(key: string, owner: string): void;
+  tryAcquire(key: string, owner: string, expiresAt: number, now: number): Promise<boolean>;
+  release(key: string, owner: string): Promise<void>;
 }
 
 export class LockBusyError extends Error {
@@ -70,14 +70,14 @@ export function createLeasedKeyedLock(options: LeasedKeyedLockOptions): KeyedLoc
       local.run(key, async () => {
         const owner = randomUUID();
         const deadline = now() + waitMs;
-        while (!options.store.tryAcquire(key, owner, now() + leaseMs, now())) {
+        while (!(await options.store.tryAcquire(key, owner, now() + leaseMs, now()))) {
           if (now() >= deadline) throw new LockBusyError(key);
           await sleep(pollMs);
         }
         try {
           return await work();
         } finally {
-          options.store.release(key, owner);
+          await options.store.release(key, owner);
         }
       }),
   };

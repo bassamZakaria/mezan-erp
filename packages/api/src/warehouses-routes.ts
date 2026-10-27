@@ -26,7 +26,7 @@ function inUseRefusal(use: WarehouseUse): { error: WarehouseRefusalCode; message
 export function createWarehousesRoutes(
   store: WarehouseRepository,
   resolveAuthContext: AuthContextResolver,
-  useOf?: (warehouseId: string) => WarehouseUse,
+  useOf?: (warehouseId: string) => WarehouseUse | Promise<WarehouseUse>,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
@@ -97,7 +97,7 @@ export function createWarehousesRoutes(
       const next = updateWarehouse(current, parsed.data);
       // LEDGER INVARIANT: a warehouse's stock and unposted documents belong to
       // its branch. Re-homing it under them makes that pairing false in storage.
-      const rehomed = next.branchId !== current.branchId && useOf ? inUseRefusal(useOf(id)) : null;
+      const rehomed = next.branchId !== current.branchId && useOf ? inUseRefusal(await useOf(id)) : null;
       if (rehomed) return c.json(rehomed, 409);
       await store.save(next);
       return c.json(next);

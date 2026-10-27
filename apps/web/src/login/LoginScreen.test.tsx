@@ -168,6 +168,23 @@ describe.each(["light", "dark"] as const)("LoginScreen (%s theme)", (theme) => {
     expect(await screen.findByRole("alert")).toHaveTextContent("اسم المستخدم أو رمز PIN غير صحيح.");
   });
 
+  it("sends a second sign-in and shows the error again when the same rejected email and PIN are retried", async () => {
+    let attempts = 0;
+    const transport = stubTransport({
+      ...preAuth,
+      "POST /auth/login": () => {
+        attempts += 1;
+        return { status: 401, body: { error: "INVALID_CREDENTIALS", message: "اسم المستخدم أو رمز PIN غير صحيح." } };
+      },
+    });
+    renderWithProviders(<LoginScreen onStartWizard={() => {}} />, { transport });
+    fillPin("000000");
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    fillPin("000000");
+    await vi.waitFor(() => expect(attempts).toBe(2));
+    expect(await screen.findByRole("alert")).toHaveTextContent("اسم المستخدم أو رمز PIN غير صحيح.");
+  });
+
   it("establishes the ApiContext session after a successful real sign-in", async () => {
     renderWithProviders(
       <>

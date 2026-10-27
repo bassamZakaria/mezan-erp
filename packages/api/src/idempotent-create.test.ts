@@ -52,9 +52,9 @@ describe("a create whose answer could not be kept", () => {
     let failing = true;
     const t = mounted((store) => ({
       ...store,
-      record: (...args) => {
+      record: async (...args) => {
         if (failing) throw new Error("disk full");
-        store.record(...args);
+        await store.record(...args);
       },
     }));
 

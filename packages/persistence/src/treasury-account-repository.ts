@@ -1,9 +1,9 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 import { Money, type TreasuryAccount, type TreasuryAccountRepository, type TreasuryAccountStatus, type TreasuryAccountType } from "@mezan/domain";
-import { insertingNew, prepareInsertOnly } from "./insert-new.js";
-
-/** SQLite-backed TreasuryAccountRepository (docs/archive/catalog/04 "حسابات الخزينة"). Standalone, mirroring `createSqliteAccountRepository`. */
+import { insertNew } from "./insert-new.js";
+import type { SqlDb, SqlValue } from "./sql/sql-db.js";
+import { sqliteDb } from "./sql/sqlite-db.js";
 
 const CREATE_TABLE = `
 CREATE TABLE IF NOT EXISTS treasury_account (
@@ -33,9 +33,9 @@ interface TreasuryAccountRow {
   bank_account_number: string | null;
   branch_id: string | null;
   gl_account_id: string | null;
-  opening_balance: number;
+  opening_balance: bigint;
   opening_balance_date: string | null;
-  guarantee_facility_limit: number | null;
+  guarantee_facility_limit: bigint | null;
   status: string;
 }
 
@@ -57,76 +57,64 @@ function toTreasuryAccount(row: TreasuryAccountRow): TreasuryAccount {
   };
 }
 
-class SqliteTreasuryAccountRepository implements TreasuryAccountRepository {
-  private readonly upsert: Database.Statement;
-  private readonly insertOnly: Database.Statement;
-  private readonly selectById: Database.Statement;
-  private readonly selectByCode: Database.Statement;
-  private readonly selectAll: Database.Statement;
+const UPSERT = `
+  INSERT INTO treasury_account (id, code, name, name_en, type, currency, bank_account_number, branch_id, gl_account_id, opening_balance, opening_balance_date, guarantee_facility_limit, status)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  ON CONFLICT(id) DO UPDATE SET
+    code = excluded.code,
+    name = excluded.name,
+    name_en = excluded.name_en,
+    type = excluded.type,
+    currency = excluded.currency,
+    bank_account_number = excluded.bank_account_number,
+    branch_id = excluded.branch_id,
+    gl_account_id = excluded.gl_account_id,
+    opening_balance = excluded.opening_balance,
+    opening_balance_date = excluded.opening_balance_date,
+    guarantee_facility_limit = excluded.guarantee_facility_limit,
+    status = excluded.status`;
 
-  constructor(private readonly sqlite: Database.Database) {
-    this.upsert = sqlite.prepare(`
-      INSERT INTO treasury_account (id, code, name, name_en, type, currency, bank_account_number, branch_id, gl_account_id, opening_balance, opening_balance_date, guarantee_facility_limit, status)
-      VALUES (@id, @code, @name, @name_en, @type, @currency, @bank_account_number, @branch_id, @gl_account_id, @opening_balance, @opening_balance_date, @guarantee_facility_limit, @status)
-      ON CONFLICT(id) DO UPDATE SET
-        code = excluded.code,
-        name = excluded.name,
-        name_en = excluded.name_en,
-        type = excluded.type,
-        currency = excluded.currency,
-        bank_account_number = excluded.bank_account_number,
-        branch_id = excluded.branch_id,
-        gl_account_id = excluded.gl_account_id,
-        opening_balance = excluded.opening_balance,
-        opening_balance_date = excluded.opening_balance_date,
-        guarantee_facility_limit = excluded.guarantee_facility_limit,
-        status = excluded.status
-    `);
-    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
-    this.selectById = sqlite.prepare(`SELECT * FROM treasury_account WHERE id = ?`);
-    this.selectByCode = sqlite.prepare(`SELECT * FROM treasury_account WHERE code = ?`);
-    this.selectAll = sqlite.prepare(`SELECT * FROM treasury_account`);
-  }
+function params(account: TreasuryAccount): SqlValue[] {
+  return [
+    account.id,
+    account.code,
+    account.name,
+    account.nameEn,
+    account.type,
+    account.currency,
+    account.bankAccountNumber,
+    account.branchId ?? null,
+    account.glAccountId,
+    account.openingBalance.scaled,
+    account.openingBalanceDate,
+    account.guaranteeFacilityLimit ? account.guaranteeFacilityLimit.scaled : null,
+    account.status,
+  ];
+}
+
+class SqlTreasuryAccountRepository implements TreasuryAccountRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async findById(id: string): Promise<TreasuryAccount | null> {
-    const row = this.selectById.get(id) as TreasuryAccountRow | undefined;
+    const row = await this.db.get<TreasuryAccountRow>(`SELECT * FROM treasury_account WHERE id = ?`, [id]);
     return row ? toTreasuryAccount(row) : null;
   }
 
   async findByCode(code: string): Promise<TreasuryAccount | null> {
-    const row = this.selectByCode.get(code) as TreasuryAccountRow | undefined;
+    const row = await this.db.get<TreasuryAccountRow>(`SELECT * FROM treasury_account WHERE code = ?`, [code]);
     return row ? toTreasuryAccount(row) : null;
   }
 
   async list(): Promise<TreasuryAccount[]> {
-    const rows = this.selectAll.all() as TreasuryAccountRow[];
-    return rows.map(toTreasuryAccount);
+    return (await this.db.all<TreasuryAccountRow>(`SELECT * FROM treasury_account`)).map(toTreasuryAccount);
   }
 
   async create(account: TreasuryAccount): Promise<void> {
-    insertingNew(account.id, () => this.write(account, this.insertOnly));
+    await insertNew(this.db, account.id, UPSERT, params(account));
   }
 
   async update(account: TreasuryAccount): Promise<void> {
-    this.write(account);
-  }
-
-  private write(account: TreasuryAccount, statement: Database.Statement = this.upsert): void {
-    statement.run({
-      id: account.id,
-      code: account.code,
-      name: account.name,
-      name_en: account.nameEn,
-      type: account.type,
-      currency: account.currency,
-      bank_account_number: account.bankAccountNumber,
-      branch_id: account.branchId ?? null,
-      gl_account_id: account.glAccountId,
-      opening_balance: account.openingBalance.toScaledNumber(),
-      opening_balance_date: account.openingBalanceDate,
-      guarantee_facility_limit: account.guaranteeFacilityLimit ? account.guaranteeFacilityLimit.toScaledNumber() : null,
-      status: account.status,
-    });
+    await this.db.run(UPSERT, params(account));
   }
 }
 
@@ -202,14 +190,20 @@ export interface SqliteTreasuryAccountRepositoryHandle extends TreasuryAccountRe
   close(): void;
 }
 
-/** Open a SQLite-backed TreasuryAccountRepository. ":memory:" for tests, a path for real. */
+export async function ensureTreasuryAccountSchema(db: SqlDb): Promise<void> {
+  await db.applySchema(CREATE_TABLE);
+}
+
+export function createTreasuryAccountRepository(db: SqlDb): TreasuryAccountRepository {
+  return new SqlTreasuryAccountRepository(db);
+}
+
 export function createSqliteTreasuryAccountRepository(path: SqliteConnectionInput = ":memory:"): SqliteTreasuryAccountRepositoryHandle {
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_TABLE);
   migrateTreasuryAccountSchema(sqlite);
-  const repo = new SqliteTreasuryAccountRepository(sqlite);
-  return Object.assign(repo, {
+  return Object.assign(createTreasuryAccountRepository(sqliteDb(sqlite)), {
     close: () => { if (owned) sqlite.close(); },
   }) as SqliteTreasuryAccountRepositoryHandle;
 }

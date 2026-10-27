@@ -180,7 +180,7 @@ describe("createPlatformAuth", () => {
     const platform = await newPlatform();
     const sessions = createSessionRegistry();
     const auth = createPlatformAuth({ platform, sessions, now: FIXED_NOW });
-    const token = sessions.issue({ userId: "U-TENANT", permissions: ["*"], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
+    const token = await sessions.issue({ userId: "U-TENANT", permissions: ["*"], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
 
     const testApp = new Hono();
     testApp.get("/anything", auth.requirePlatform(), (c) => c.json({ ok: true }));

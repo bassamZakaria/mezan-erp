@@ -61,12 +61,12 @@ beforeAll(async () => {
     createEntitlements({ plan: "DEMO", activeModules: MODULE_CATALOG, features: { [LAN_MULTI_TILL_FEATURE]: true }, seats: 50, expiresAt: null });
   handle = await createBackend({ dbPath, seedDemoData: true, lan: { resolveEntitlements }, resolveEntitlements });
   sqlite = openSqliteConnection(dbPath).sqlite;
-  const session = (userId: string, warehouseScope: typeof ALL_SCOPE | string[]) =>
-    callerFor(handle.sessions.issue({ userId, permissions: userId === "USER-ADMIN" ? ["*"] : [...ALL_PERMISSION_CODES], roleCode: null, branchScope: ALL_SCOPE, warehouseScope }));
-  admin = session("USER-ADMIN", ALL_SCOPE);
-  siteKeeperOnly = session("USER-WF-SITE", [SITE_WAREHOUSE]);
-  mainKeeperOnly = session("USER-WF-MAIN", [MAIN_WAREHOUSE]);
-  otherSiteKeeperOnly = session("USER-WF-SITE-2", [OTHER_SITE_WAREHOUSE]);
+  const session = async (userId: string, warehouseScope: typeof ALL_SCOPE | string[]) =>
+    callerFor(await handle.sessions.issue({ userId, permissions: userId === "USER-ADMIN" ? ["*"] : [...ALL_PERMISSION_CODES], roleCode: null, branchScope: ALL_SCOPE, warehouseScope }));
+  admin = (await session("USER-ADMIN", ALL_SCOPE));
+  siteKeeperOnly = (await session("USER-WF-SITE", [SITE_WAREHOUSE]));
+  mainKeeperOnly = (await session("USER-WF-MAIN", [MAIN_WAREHOUSE]));
+  otherSiteKeeperOnly = (await session("USER-WF-SITE-2", [OTHER_SITE_WAREHOUSE]));
 }, BOOT_TIMEOUT_MS);
 
 afterAll(() => {
@@ -236,11 +236,11 @@ describe("a van rep granted only the van's own store works the trip", () => {
   let stranger: Caller;
   let tripId: string;
 
-  beforeAll(() => {
-    const session = (userId: string, warehouseScope: string[]) =>
-      callerFor(handle.sessions.issue({ userId, permissions: [...ALL_PERMISSION_CODES], roleCode: null, branchScope: ALL_SCOPE, warehouseScope }));
-    vanRep = session("USER-WF-VAN-REP", [VAN_WAREHOUSE]);
-    stranger = session("USER-WF-STRANGER", ["WH-ALEX"]);
+  beforeAll(async () => {
+    const session = async (userId: string, warehouseScope: string[]) =>
+      callerFor(await handle.sessions.issue({ userId, permissions: [...ALL_PERMISSION_CODES], roleCode: null, branchScope: ALL_SCOPE, warehouseScope }));
+    vanRep = (await session("USER-WF-VAN-REP", [VAN_WAREHOUSE]));
+    stranger = (await session("USER-WF-STRANGER", ["WH-ALEX"]));
     tripId = one<{ id: string }>("SELECT id FROM van_trip WHERE status = 'ongoing' AND van_warehouse_id = ? LIMIT 1", VAN_WAREHOUSE)!.id;
     expect(one<{ w: string }>("SELECT source_warehouse_id AS w FROM van_trip WHERE id = ?", tripId)!.w).toBe(MAIN_WAREHOUSE);
   });

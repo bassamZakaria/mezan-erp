@@ -79,7 +79,7 @@ describe("a return is raised only against an invoice its author may read", () =>
 
 describe("a purchase-returns role reads the source invoices of the warehouses it is granted, and no others", () => {
   async function clerk(method: string, path: string, body: unknown, warehouseScope: readonly string[] | typeof ALL_SCOPE, permissions: readonly string[] = RETURNS_CLERK) {
-    const bearer = kit.backend.sessions.issue({ userId: "RETURNS-CLERK", permissions, roleCode: null, branchScope: ALL_SCOPE, warehouseScope });
+    const bearer = await kit.backend.sessions.issue({ userId: "RETURNS-CLERK", permissions, roleCode: null, branchScope: ALL_SCOPE, warehouseScope });
     const res = await kit.backend.app.fetch(
       new Request(`http://local${path}`, {
         method,

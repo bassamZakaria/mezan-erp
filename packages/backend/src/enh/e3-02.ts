@@ -4,6 +4,10 @@ import {
   createSqliteOwnerDigestStore,
   createSqlitePricingGuardStores,
   createSqliteVanTripRepository,
+  createNotificationStore,
+  createOwnerDigestStore,
+  createPricingGuardStores,
+  createVanTripRepository,
 } from "@mezan/persistence";
 import type { BackendArea, BackendModuleContext } from "../module-context.js";
 import { cockpitDepsOf } from "./e1-01.js";
@@ -19,7 +23,7 @@ const OWNER_DIGEST_BOOK_VERSION = "owner-digest";
  * operator presses «إرسال الآن»; on the cloud a tenant that switched the schedule
  * on is served by the host timer calling `runOwnerDigest`.
  */
-export function ownerDigestServiceOf(ctx: BackendModuleContext, store = createSqliteOwnerDigestStore(ctx.sqlite)) {
+export function ownerDigestServiceOf(ctx: BackendModuleContext, store = ctx.store((s) => createSqliteOwnerDigestStore(s), (d) => createOwnerDigestStore(d))) {
   return createOwnerDigestService({
     cockpit: cockpitDepsOf(ctx, () => OWNER_DIGEST_BOOK_VERSION),
     settings: ctx.stores.settings,
@@ -28,12 +32,12 @@ export function ownerDigestServiceOf(ctx: BackendModuleContext, store = createSq
     roles: ctx.uow.roles,
     salesInvoices: ctx.stores.salesInvoices,
     audit: ctx.auditQuery,
-    pricingOverrides: createSqlitePricingGuardStores(ctx.sqlite).overrides,
-    vanTrips: createSqliteVanTripRepository(ctx.sqlite),
+    pricingOverrides: ctx.store((s) => createSqlitePricingGuardStores(s), (d) => createPricingGuardStores(d)).overrides,
+    vanTrips: ctx.store((s) => createSqliteVanTripRepository(s), (d) => createVanTripRepository(d)),
     approvals: ctx.approvalRequests,
     eta: ctx.stores.eta.submissions,
     backup: ctx.backupStatus,
-    notifications: createSqliteNotificationStore(ctx.sqlite),
+    notifications: ctx.store((s) => createSqliteNotificationStore(s), (d) => createNotificationStore(d)),
     mailConfigured: ctx.notificationOutbox.configured,
     drainOnly: ctx.notificationOutbox.drainOnly,
     scheduleSupported: ctx.cloud,
@@ -42,7 +46,7 @@ export function ownerDigestServiceOf(ctx: BackendModuleContext, store = createSq
 
 export const area: BackendArea = {
   mount(ctx: BackendModuleContext) {
-    const store = createSqliteOwnerDigestStore(ctx.sqlite);
+    const store = ctx.store((s) => createSqliteOwnerDigestStore(s), (d) => createOwnerDigestStore(d));
     const service = ownerDigestServiceOf(ctx, store);
 
     ctx.app.route(

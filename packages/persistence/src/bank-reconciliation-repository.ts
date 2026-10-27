@@ -1,6 +1,7 @@
-import Database from "better-sqlite3";
-import { openSqliteConnection, withSqliteTransaction, type SqliteConnectionInput } from "./sqlite-connection.js";
-import { insertingNew } from "./insert-new.js";
+import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
+import { refuseUnlessInserted } from "./insert-new.js";
+import { placeholders, SqlDialect, type SqlDb, type SqlValue } from "./sql/sql-db.js";
+import { sqliteDb } from "./sql/sqlite-db.js";
 import {
   BASE_CURRENCY,
   Money,
@@ -24,12 +25,6 @@ import {
   type StatementLineStatus,
 } from "@mezan/domain";
 
-/**
- * SQLite-backed persistence for Bank Statement Reconciliation (docs/archive/catalog/04
- * "تسوية كشوف البنك"): statements, their lines, and the per-treasury-account
- * column mapping ("يحفظ التعيين لكل حساب").
- */
-
 const CREATE_TABLES = `
 CREATE TABLE IF NOT EXISTS bank_statement (
   id                  TEXT PRIMARY KEY,
@@ -48,7 +43,8 @@ CREATE TABLE IF NOT EXISTS bank_statement (
   finalized_at        TEXT,
   unmatched_at_finalize      INTEGER,
   finalize_override_reason   TEXT,
-  finalized_by               TEXT
+  finalized_by               TEXT,
+  difference_at_finalize     INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_bank_statement_account ON bank_statement(treasury_account_id);
 CREATE INDEX IF NOT EXISTS idx_bank_statement_status ON bank_statement(status);
@@ -65,7 +61,9 @@ CREATE TABLE IF NOT EXISTS statement_line (
   amount           INTEGER NOT NULL,
   status           TEXT NOT NULL,
   matched_entry_id TEXT,
-  matched_at       TEXT
+  matched_at       TEXT,
+  counterparty     TEXT,
+  match_source     TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_statement_line_statement ON statement_line(statement_id);
 
@@ -74,6 +72,7 @@ CREATE TABLE IF NOT EXISTS statement_line_match (
   entry_id            TEXT NOT NULL,
   statement_id        TEXT NOT NULL,
   treasury_account_id TEXT NOT NULL,
+  match_seq           INTEGER,
   PRIMARY KEY (line_id, entry_id)
 );
 CREATE UNIQUE INDEX IF NOT EXISTS ux_statement_line_match_entry ON statement_line_match(treasury_account_id, entry_id);
@@ -170,7 +169,7 @@ function toStatement(row: StatementRow): BankStatement {
   };
 }
 
-function statementParams(s: BankStatement) {
+function statementParams(s: BankStatement): Record<string, SqlValue> {
   return {
     id: s.id,
     treasury_account_id: s.treasuryAccountId,
@@ -181,15 +180,15 @@ function statementParams(s: BankStatement) {
     statement_number: s.statementNumber,
     period_start: s.periodStart,
     period_end: s.periodEnd,
-    opening_balance: s.openingBalance.toScaledNumber(),
-    closing_balance: s.closingBalance.toScaledNumber(),
+    opening_balance: s.openingBalance.scaled,
+    closing_balance: s.closingBalance.scaled,
     status: s.status,
     imported_at: s.importedAt,
     finalized_at: s.finalizedAt,
     unmatched_at_finalize: s.unmatchedAtFinalize ?? null,
     finalize_override_reason: s.finalizeOverrideReason ?? null,
     finalized_by: s.finalizedBy ?? null,
-    difference_at_finalize: s.differenceAtFinalize ? s.differenceAtFinalize.toScaledNumber() : null,
+    difference_at_finalize: s.differenceAtFinalize ? s.differenceAtFinalize.scaled : null,
   };
 }
 
@@ -224,14 +223,14 @@ function toLine(row: LineRow, entryIds?: readonly string[]): StatementLine {
   };
 }
 
-function lineParams(l: StatementLine) {
+function lineParams(l: StatementLine): Record<string, SqlValue> {
   return {
     id: l.id,
     statement_id: l.statementId,
     date: l.date,
     description: l.description,
     reference: l.reference,
-    amount: l.amount.toScaledNumber(),
+    amount: l.amount.scaled,
     status: l.status,
     matched_entry_id: l.matchedEntryId,
     matched_at: l.matchedAt,
@@ -240,87 +239,54 @@ function lineParams(l: StatementLine) {
   };
 }
 
-class SqliteBankStatementRepository implements BankStatementRepository {
-  private readonly insertStatement: Database.Statement;
-  private readonly updateStatement: Database.Statement;
-  private readonly selectStatementById: Database.Statement;
-  private readonly selectStatementByFingerprint: Database.Statement;
-  private readonly insertLine: Database.Statement;
-  private readonly updateLineStmt: Database.Statement;
-  private readonly selectLineById: Database.Statement;
-  private readonly selectLinesByStatement: Database.Statement;
-  private readonly selectMatchesByLine: Database.Statement;
-  private readonly selectMatchesByStatement: Database.Statement;
-  private readonly deleteMatchesByLine: Database.Statement;
-  private readonly insertMatch: Database.Statement;
-  private readonly selectTakenForAccount: Database.Statement;
+const STATEMENT_COLUMNS = [
+  "id", "treasury_account_id", "branch_id", "currency", "import_fingerprint", "source", "statement_number", "period_start", "period_end",
+  "opening_balance", "closing_balance", "status", "imported_at", "finalized_at",
+  "unmatched_at_finalize", "finalize_override_reason", "finalized_by", "difference_at_finalize",
+] as const;
+const STATEMENT_UPDATE_COLUMNS = ["status", "finalized_at", "unmatched_at_finalize", "finalize_override_reason", "finalized_by", "difference_at_finalize"] as const;
+const LINE_COLUMNS = ["id", "statement_id", "date", "description", "reference", "amount", "status", "matched_entry_id", "matched_at", "counterparty", "match_source"] as const;
+const LINE_UPDATE_COLUMNS = ["status", "matched_entry_id", "matched_at", "match_source"] as const;
 
-  constructor(private readonly sqlite: Database.Database) {
-    this.insertStatement = sqlite.prepare(`
-      INSERT INTO bank_statement (
-        id, treasury_account_id, branch_id, currency, import_fingerprint, source, statement_number, period_start, period_end,
-        opening_balance, closing_balance, status, imported_at, finalized_at,
-        unmatched_at_finalize, finalize_override_reason, finalized_by, difference_at_finalize
-      ) VALUES (
-        @id, @treasury_account_id, @branch_id, @currency, @import_fingerprint, @source, @statement_number, @period_start, @period_end,
-        @opening_balance, @closing_balance, @status, @imported_at, @finalized_at,
-        @unmatched_at_finalize, @finalize_override_reason, @finalized_by, @difference_at_finalize
-      )
-    `);
-    this.updateStatement = sqlite.prepare(`
-      UPDATE bank_statement SET status = @status, finalized_at = @finalized_at,
-        unmatched_at_finalize = @unmatched_at_finalize,
-        finalize_override_reason = @finalize_override_reason,
-        finalized_by = @finalized_by,
-        difference_at_finalize = @difference_at_finalize
-      WHERE id = @id
-    `);
-    this.selectStatementById = sqlite.prepare(`SELECT * FROM bank_statement WHERE id = ?`).safeIntegers();
-    this.selectStatementByFingerprint = sqlite
-      .prepare(`SELECT * FROM bank_statement WHERE treasury_account_id = ? AND import_fingerprint = ?`)
-      .safeIntegers();
+function pick(row: Record<string, SqlValue>, columns: readonly string[]): SqlValue[] {
+  return columns.map((column) => row[column] ?? null);
+}
 
-    this.insertLine = sqlite.prepare(`
-      INSERT INTO statement_line (id, statement_id, date, description, reference, amount, status, matched_entry_id, matched_at, counterparty, match_source)
-      VALUES (@id, @statement_id, @date, @description, @reference, @amount, @status, @matched_entry_id, @matched_at, @counterparty, @match_source)
-    `);
-    this.updateLineStmt = sqlite.prepare(`
-      UPDATE statement_line SET status = @status, matched_entry_id = @matched_entry_id, matched_at = @matched_at,
-        match_source = @match_source WHERE id = @id
-    `);
-    this.selectLineById = sqlite.prepare(`SELECT * FROM statement_line WHERE id = ?`).safeIntegers();
-    this.selectLinesByStatement = sqlite.prepare(`SELECT * FROM statement_line WHERE statement_id = ? ORDER BY date, id`).safeIntegers();
-    this.selectMatchesByLine = sqlite.prepare(`SELECT entry_id FROM statement_line_match WHERE line_id = ? ORDER BY rowid`);
-    this.selectMatchesByStatement = sqlite.prepare(`SELECT line_id, entry_id FROM statement_line_match WHERE statement_id = ? ORDER BY rowid`);
-    this.deleteMatchesByLine = sqlite.prepare(`DELETE FROM statement_line_match WHERE line_id = ?`);
-    this.insertMatch = sqlite.prepare(
-      `INSERT INTO statement_line_match (line_id, entry_id, statement_id, treasury_account_id) VALUES (?, ?, ?, ?)`,
-    );
-    this.selectTakenForAccount = sqlite.prepare(`
-      SELECT entry_id FROM statement_line_match WHERE treasury_account_id = @account
-      UNION
-      SELECT l.matched_entry_id FROM statement_line l JOIN bank_statement s ON s.id = l.statement_id
-       WHERE s.treasury_account_id = @account AND l.status = 'matched' AND l.matched_entry_id IS NOT NULL
-    `);
+function insertSql(table: string, columns: readonly string[]): string {
+  return `INSERT INTO ${table} (${columns.join(", ")}) VALUES (${placeholders(columns.length)}) ON CONFLICT (id) DO NOTHING`;
+}
+
+function updateSql(table: string, columns: readonly string[]): string {
+  return `UPDATE ${table} SET ${columns.map((column) => `${column} = ?`).join(", ")} WHERE id = ?`;
+}
+
+class SqlBankStatementRepository implements BankStatementRepository {
+  // SQLite keeps reading links in rowid order, as it always has; Postgres has
+  // no rowid, so it reads them in the order `replaceLineMatches` wrote them.
+  private readonly matchOrder: string;
+
+  constructor(private readonly db: SqlDb) {
+    this.matchOrder = db.dialect === SqlDialect.Postgres ? "match_seq" : "rowid";
   }
 
   async save(statement: BankStatement): Promise<void> {
-    insertingNew(statement.id, () => this.insertStatement.run(statementParams(statement)));
+    const inserted = await this.db.run(insertSql("bank_statement", STATEMENT_COLUMNS), pick(statementParams(statement), STATEMENT_COLUMNS));
+    refuseUnlessInserted(statement.id, inserted.changes);
   }
   async update(statement: BankStatement): Promise<void> {
-    this.updateStatement.run(statementParams(statement));
+    await this.db.run(updateSql("bank_statement", STATEMENT_UPDATE_COLUMNS), [...pick(statementParams(statement), STATEMENT_UPDATE_COLUMNS), statement.id]);
   }
   async findById(id: string): Promise<BankStatement | null> {
-    const row = this.selectStatementById.get(id) as StatementRow | undefined;
+    const row = await this.db.get<StatementRow>(`SELECT * FROM bank_statement WHERE id = ?`, [id]);
     return row ? toStatement(row) : null;
   }
   async findByFingerprint(treasuryAccountId: string, fingerprint: string): Promise<BankStatement | null> {
-    const row = this.selectStatementByFingerprint.get(treasuryAccountId, fingerprint) as StatementRow | undefined;
+    const row = await this.db.get<StatementRow>(`SELECT * FROM bank_statement WHERE treasury_account_id = ? AND import_fingerprint = ?`, [treasuryAccountId, fingerprint]);
     return row ? toStatement(row) : null;
   }
   async list(filter: BankStatementListFilter = {}): Promise<readonly BankStatement[]> {
     const clauses: string[] = [];
-    const params: unknown[] = [];
+    const params: SqlValue[] = [];
     if (filter.treasuryAccountId) {
       clauses.push("treasury_account_id = ?");
       params.push(filter.treasuryAccountId);
@@ -340,68 +306,77 @@ class SqliteBankStatementRepository implements BankStatementRepository {
     if (filter.branchIds) {
       // A statement carrying no branch is not attributable, so it stays
       // visible under a narrowed scope — the same rule `withinScope` applies.
-      const placeholders = filter.branchIds.map(() => "?").join(", ");
-      clauses.push(`(branch_id IS NULL OR branch_id IN (${placeholders || "NULL"}))`);
+      clauses.push(`(branch_id IS NULL OR branch_id IN (${placeholders(filter.branchIds.length) || "NULL"}))`);
       params.push(...filter.branchIds);
     }
     const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
-    const rows = this.sqlite
-      .prepare(`SELECT * FROM bank_statement ${where} ORDER BY imported_at DESC`)
-      .safeIntegers()
-      .all(...params) as StatementRow[];
-    return rows.map(toStatement);
+    return (await this.db.all<StatementRow>(`SELECT * FROM bank_statement ${where} ORDER BY imported_at DESC`, params)).map(toStatement);
   }
   async saveLines(lines: readonly StatementLine[]): Promise<void> {
-    for (const line of lines) insertingNew(line.id, () => this.insertLine.run(lineParams(line)));
+    for (const line of lines) await this.saveLine(line);
   }
   async saveLine(line: StatementLine): Promise<void> {
-    insertingNew(line.id, () => this.insertLine.run(lineParams(line)));
+    const inserted = await this.db.run(insertSql("statement_line", LINE_COLUMNS), pick(lineParams(line), LINE_COLUMNS));
+    refuseUnlessInserted(line.id, inserted.changes);
   }
   async updateLine(line: StatementLine): Promise<void> {
-    this.updateLineStmt.run(lineParams(line));
+    await this.db.run(updateSql("statement_line", LINE_UPDATE_COLUMNS), [...pick(lineParams(line), LINE_UPDATE_COLUMNS), line.id]);
   }
   async findLineById(id: string): Promise<StatementLine | null> {
-    const row = this.selectLineById.get(id) as LineRow | undefined;
+    const row = await this.db.get<LineRow>(`SELECT * FROM statement_line WHERE id = ?`, [id]);
     if (!row) return null;
-    const entryIds = (this.selectMatchesByLine.all(id) as { entry_id: string }[]).map((r) => r.entry_id);
-    return toLine(row, entryIds);
+    const matches = await this.db.all<{ entry_id: string }>(`SELECT entry_id FROM statement_line_match WHERE line_id = ? ORDER BY ${this.matchOrder}`, [id]);
+    return toLine(row, matches.map((r) => r.entry_id));
   }
   async listLines(statementId: string): Promise<readonly StatementLine[]> {
     const links = new Map<string, string[]>();
-    for (const row of this.selectMatchesByStatement.all(statementId) as { line_id: string; entry_id: string }[]) {
+    const matches = await this.db.all<{ line_id: string; entry_id: string }>(
+      `SELECT line_id, entry_id FROM statement_line_match WHERE statement_id = ? ORDER BY ${this.matchOrder}`,
+      [statementId],
+    );
+    for (const row of matches) {
       const list = links.get(row.line_id) ?? [];
       list.push(row.entry_id);
       links.set(row.line_id, list);
     }
-    return (this.selectLinesByStatement.all(statementId) as LineRow[]).map((row) => toLine(row, links.get(row.id)));
+    return (await this.db.all<LineRow>(`SELECT * FROM statement_line WHERE statement_id = ? ORDER BY date, id`, [statementId])).map((row) => toLine(row, links.get(row.id)));
   }
   async replaceLineMatches(line: StatementLine, treasuryAccountId: string, entryIds: readonly string[]): Promise<void> {
-    this.deleteMatchesByLine.run(line.id);
-    for (const entryId of entryIds) this.insertMatch.run(line.id, entryId, line.statementId, treasuryAccountId);
+    await this.db.run(`DELETE FROM statement_line_match WHERE line_id = ?`, [line.id]);
+    for (const [index, entryId] of entryIds.entries()) {
+      await this.db.run(
+        `INSERT INTO statement_line_match (line_id, entry_id, statement_id, treasury_account_id, match_seq) VALUES (?, ?, ?, ?, ?)`,
+        [line.id, entryId, line.statementId, treasuryAccountId, index],
+      );
+    }
   }
   async matchedEntryIdsForAccount(treasuryAccountId: string): Promise<ReadonlySet<string>> {
-    const rows = this.selectTakenForAccount.all({ account: treasuryAccountId }) as { entry_id: string }[];
+    const rows = await this.db.all<{ entry_id: string }>(
+      `SELECT entry_id FROM statement_line_match WHERE treasury_account_id = ?
+       UNION
+       SELECT l.matched_entry_id FROM statement_line l JOIN bank_statement s ON s.id = l.statement_id
+        WHERE s.treasury_account_id = ? AND l.status = 'matched' AND l.matched_entry_id IS NOT NULL`,
+      [treasuryAccountId, treasuryAccountId],
+    );
     return new Set(rows.map((r) => r.entry_id));
   }
   async lineCounts(statementIds: readonly string[]): Promise<ReadonlyMap<string, { total: number; matched: number }>> {
     const counts = new Map<string, { total: number; matched: number }>();
     if (statementIds.length === 0) return counts;
-    const placeholders = statementIds.map(() => "?").join(",");
-    const rows = this.sqlite
-      .prepare(
-        `SELECT statement_id,
-                COUNT(*) AS total,
-                SUM(CASE WHEN status = 'matched' THEN 1 ELSE 0 END) AS matched
-           FROM statement_line
-          WHERE statement_id IN (${placeholders})
-          GROUP BY statement_id`,
-      )
-      .all(...statementIds) as Array<{ statement_id: string; total: number; matched: number }>;
+    const rows = await this.db.all<{ statement_id: string; total: bigint; matched: bigint }>(
+      `SELECT statement_id,
+              COUNT(*) AS total,
+              SUM(CASE WHEN status = 'matched' THEN 1 ELSE 0 END) AS matched
+         FROM statement_line
+        WHERE statement_id IN (${placeholders(statementIds.length)})
+        GROUP BY statement_id`,
+      statementIds,
+    );
     for (const row of rows) counts.set(row.statement_id, { total: Number(row.total), matched: Number(row.matched) });
     return counts;
   }
   async transaction<T>(fn: () => Promise<T>): Promise<T> {
-    return withSqliteTransaction(this.sqlite, fn, "BEGIN");
+    return this.db.transaction(fn);
   }
 }
 
@@ -431,43 +406,36 @@ function toMapping(row: MappingRow): StatementColumnMapping {
   };
 }
 
-class SqliteColumnMappingRepository implements StatementColumnMappingRepository {
-  private readonly upsertStmt: Database.Statement;
-  private readonly selectByAccount: Database.Statement;
-
-  constructor(sqlite: Database.Database) {
-    this.upsertStmt = sqlite.prepare(`
-      INSERT INTO statement_column_mapping (
-        treasury_account_id, date_column, description_column, amount_column, debit_column, credit_column, reference_column, date_format, updated_at
-      ) VALUES (
-        @treasury_account_id, @date_column, @description_column, @amount_column, @debit_column, @credit_column, @reference_column, @date_format, @updated_at
-      )
-      ON CONFLICT(treasury_account_id) DO UPDATE SET
-        date_column = excluded.date_column, description_column = excluded.description_column,
-        amount_column = excluded.amount_column, debit_column = excluded.debit_column,
-        credit_column = excluded.credit_column, reference_column = excluded.reference_column,
-        date_format = excluded.date_format, updated_at = excluded.updated_at
-    `);
-    this.selectByAccount = sqlite.prepare(`SELECT * FROM statement_column_mapping WHERE treasury_account_id = ?`);
-  }
+class SqlColumnMappingRepository implements StatementColumnMappingRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async findByTreasuryAccount(treasuryAccountId: string): Promise<StatementColumnMapping | null> {
-    const row = this.selectByAccount.get(treasuryAccountId) as MappingRow | undefined;
+    const row = await this.db.get<MappingRow>(`SELECT * FROM statement_column_mapping WHERE treasury_account_id = ?`, [treasuryAccountId]);
     return row ? toMapping(row) : null;
   }
 
   async upsert(mapping: StatementColumnMapping): Promise<void> {
-    this.upsertStmt.run({
-      treasury_account_id: mapping.treasuryAccountId,
-      date_column: mapping.dateColumn,
-      description_column: mapping.descriptionColumn,
-      amount_column: mapping.amountColumn,
-      debit_column: mapping.debitColumn,
-      credit_column: mapping.creditColumn,
-      reference_column: mapping.referenceColumn,
-      date_format: mapping.dateFormat,
-      updated_at: mapping.updatedAt,
-    });
+    await this.db.run(
+      `INSERT INTO statement_column_mapping (
+         treasury_account_id, date_column, description_column, amount_column, debit_column, credit_column, reference_column, date_format, updated_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(treasury_account_id) DO UPDATE SET
+         date_column = excluded.date_column, description_column = excluded.description_column,
+         amount_column = excluded.amount_column, debit_column = excluded.debit_column,
+         credit_column = excluded.credit_column, reference_column = excluded.reference_column,
+         date_format = excluded.date_format, updated_at = excluded.updated_at`,
+      [
+        mapping.treasuryAccountId,
+        mapping.dateColumn,
+        mapping.descriptionColumn,
+        mapping.amountColumn,
+        mapping.debitColumn,
+        mapping.creditColumn,
+        mapping.referenceColumn,
+        mapping.dateFormat,
+        mapping.updatedAt,
+      ],
+    );
   }
 }
 
@@ -476,13 +444,13 @@ interface SuggestionRow {
   statement_id: string;
   line_id: string;
   entry_ids: string;
-  rank: number;
-  score: number;
-  amount_score: number;
-  date_score: number;
-  reference_score: number;
-  counterparty_score: number;
-  date_delta_days: number;
+  rank: bigint;
+  score: bigint;
+  amount_score: bigint;
+  date_score: bigint;
+  reference_score: bigint;
+  counterparty_score: bigint;
+  date_delta_days: bigint;
   status: string;
   created_at: string;
   decided_at: string | null;
@@ -509,63 +477,51 @@ function toSuggestion(row: SuggestionRow): MatchSuggestionRecord {
   };
 }
 
-function suggestionParams(r: MatchSuggestionRecord) {
-  return {
-    id: r.id,
-    statement_id: r.statementId,
-    line_id: r.lineId,
-    entry_ids: JSON.stringify(r.entryIds),
-    rank: r.rank,
-    score: r.score,
-    amount_score: r.amountScore,
-    date_score: r.dateScore,
-    reference_score: r.referenceScore,
-    counterparty_score: r.counterpartyScore,
-    date_delta_days: r.dateDeltaDays,
-    status: r.status,
-    created_at: r.createdAt,
-    decided_at: r.decidedAt,
-    decided_by: r.decidedBy,
-  };
+function suggestionParams(r: MatchSuggestionRecord): SqlValue[] {
+  return [
+    r.id,
+    r.statementId,
+    r.lineId,
+    JSON.stringify(r.entryIds),
+    r.rank,
+    r.score,
+    r.amountScore,
+    r.dateScore,
+    r.referenceScore,
+    r.counterpartyScore,
+    r.dateDeltaDays,
+    r.status,
+    r.createdAt,
+    r.decidedAt,
+    r.decidedBy,
+  ];
 }
 
-class SqliteMatchSuggestionRepository implements MatchSuggestionRepository {
-  private readonly insert: Database.Statement;
-  private readonly updateStmt: Database.Statement;
-  private readonly byStatement: Database.Statement;
-  private readonly byId: Database.Statement;
-  private readonly deletePendingStmt: Database.Statement;
-
-  constructor(sqlite: Database.Database) {
-    this.insert = sqlite.prepare(`
-      INSERT INTO bank_match_suggestion (id, statement_id, line_id, entry_ids, rank, score, amount_score, date_score,
-        reference_score, counterparty_score, date_delta_days, status, created_at, decided_at, decided_by)
-      VALUES (@id, @statement_id, @line_id, @entry_ids, @rank, @score, @amount_score, @date_score,
-        @reference_score, @counterparty_score, @date_delta_days, @status, @created_at, @decided_at, @decided_by)
-    `);
-    this.updateStmt = sqlite.prepare(
-      `UPDATE bank_match_suggestion SET status = @status, decided_at = @decided_at, decided_by = @decided_by WHERE id = @id`,
-    );
-    this.byStatement = sqlite.prepare(`SELECT * FROM bank_match_suggestion WHERE statement_id = ? ORDER BY line_id, rank`);
-    this.byId = sqlite.prepare(`SELECT * FROM bank_match_suggestion WHERE id = ?`);
-    this.deletePendingStmt = sqlite.prepare(`DELETE FROM bank_match_suggestion WHERE statement_id = ? AND status = 'pending'`);
-  }
+class SqlMatchSuggestionRepository implements MatchSuggestionRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async listByStatement(statementId: string): Promise<readonly MatchSuggestionRecord[]> {
-    return (this.byStatement.all(statementId) as SuggestionRow[]).map(toSuggestion);
+    return (await this.db.all<SuggestionRow>(`SELECT * FROM bank_match_suggestion WHERE statement_id = ? ORDER BY line_id, rank`, [statementId])).map(toSuggestion);
   }
   async findById(id: string): Promise<MatchSuggestionRecord | null> {
-    const row = this.byId.get(id) as SuggestionRow | undefined;
+    const row = await this.db.get<SuggestionRow>(`SELECT * FROM bank_match_suggestion WHERE id = ?`, [id]);
     return row ? toSuggestion(row) : null;
   }
   async saveMany(records: readonly MatchSuggestionRecord[]): Promise<void> {
-    for (const record of records) this.insert.run(suggestionParams(record));
+    for (const record of records) {
+      await this.db.run(
+        `INSERT INTO bank_match_suggestion (id, statement_id, line_id, entry_ids, rank, score, amount_score, date_score,
+           reference_score, counterparty_score, date_delta_days, status, created_at, decided_at, decided_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        suggestionParams(record),
+      );
+    }
   }
   async update(record: MatchSuggestionRecord): Promise<void> {
-    this.updateStmt.run({ id: record.id, status: record.status, decided_at: record.decidedAt, decided_by: record.decidedBy });
+    await this.db.run(`UPDATE bank_match_suggestion SET status = ?, decided_at = ?, decided_by = ? WHERE id = ?`, [record.status, record.decidedAt, record.decidedBy, record.id]);
   }
   async deletePending(statementId: string): Promise<void> {
-    this.deletePendingStmt.run(statementId);
+    await this.db.run(`DELETE FROM bank_match_suggestion WHERE statement_id = ? AND status = 'pending'`, [statementId]);
   }
 }
 
@@ -578,8 +534,8 @@ interface RuleRow {
   direction: string;
   account_id: string;
   cost_center_id: string | null;
-  priority: number;
-  active: number;
+  priority: bigint;
+  active: bigint;
   created_at: string;
   updated_at: string;
 }
@@ -601,7 +557,7 @@ function toRule(row: RuleRow): BankRule {
   };
 }
 
-function ruleParams(rule: BankRule) {
+function ruleParams(rule: BankRule): Record<string, SqlValue> {
   return {
     id: rule.id,
     name: rule.name,
@@ -618,58 +574,55 @@ function ruleParams(rule: BankRule) {
   };
 }
 
-class SqliteBankRuleRepository implements BankRuleRepository {
-  private readonly insert: Database.Statement;
-  private readonly updateStmt: Database.Statement;
-  private readonly all: Database.Statement;
-  private readonly byId: Database.Statement;
-  private readonly remove: Database.Statement;
+const RULE_COLUMNS = ["id", "name", "treasury_account_id", "pattern", "match_type", "direction", "account_id", "cost_center_id", "priority", "active", "created_at", "updated_at"] as const;
+const RULE_UPDATE_COLUMNS = ["name", "treasury_account_id", "pattern", "match_type", "direction", "account_id", "cost_center_id", "priority", "active", "updated_at"] as const;
 
-  constructor(sqlite: Database.Database) {
-    this.insert = sqlite.prepare(`
-      INSERT INTO bank_rule (id, name, treasury_account_id, pattern, match_type, direction, account_id, cost_center_id,
-        priority, active, created_at, updated_at)
-      VALUES (@id, @name, @treasury_account_id, @pattern, @match_type, @direction, @account_id, @cost_center_id,
-        @priority, @active, @created_at, @updated_at)
-    `);
-    this.updateStmt = sqlite.prepare(`
-      UPDATE bank_rule SET name = @name, treasury_account_id = @treasury_account_id, pattern = @pattern,
-        match_type = @match_type, direction = @direction, account_id = @account_id, cost_center_id = @cost_center_id,
-        priority = @priority, active = @active, updated_at = @updated_at
-      WHERE id = @id
-    `);
-    this.all = sqlite.prepare(`SELECT * FROM bank_rule ORDER BY priority, created_at, id`);
-    this.byId = sqlite.prepare(`SELECT * FROM bank_rule WHERE id = ?`);
-    this.remove = sqlite.prepare(`DELETE FROM bank_rule WHERE id = ?`);
-  }
+class SqlBankRuleRepository implements BankRuleRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async list(): Promise<readonly BankRule[]> {
-    return (this.all.all() as RuleRow[]).map(toRule);
+    return (await this.db.all<RuleRow>(`SELECT * FROM bank_rule ORDER BY priority, created_at, id`)).map(toRule);
   }
   async findById(id: string): Promise<BankRule | null> {
-    const row = this.byId.get(id) as RuleRow | undefined;
+    const row = await this.db.get<RuleRow>(`SELECT * FROM bank_rule WHERE id = ?`, [id]);
     return row ? toRule(row) : null;
   }
   async save(rule: BankRule): Promise<void> {
-    insertingNew(rule.id, () => this.insert.run(ruleParams(rule)));
+    const inserted = await this.db.run(insertSql("bank_rule", RULE_COLUMNS), pick(ruleParams(rule), RULE_COLUMNS));
+    refuseUnlessInserted(rule.id, inserted.changes);
   }
   async update(rule: BankRule): Promise<void> {
-    this.updateStmt.run(ruleParams(rule));
+    await this.db.run(updateSql("bank_rule", RULE_UPDATE_COLUMNS), [...pick(ruleParams(rule), RULE_UPDATE_COLUMNS), rule.id]);
   }
   async delete(id: string): Promise<void> {
-    this.remove.run(id);
+    await this.db.run(`DELETE FROM bank_rule WHERE id = ?`, [id]);
   }
 }
 
-export interface SqliteBankReconciliationStoreHandle {
+export interface BankReconciliationStoreHandle {
   readonly statements: BankStatementRepository;
   readonly mappings: StatementColumnMappingRepository;
   readonly suggestions: MatchSuggestionRepository;
   readonly rules: BankRuleRepository;
+}
+
+export interface SqliteBankReconciliationStoreHandle extends BankReconciliationStoreHandle {
   close(): void;
 }
 
-/** Open a SQLite-backed bank-reconciliation store (statements + lines + column mappings). ":memory:" for tests. */
+export async function ensureBankReconciliationSchema(db: SqlDb): Promise<void> {
+  await db.applySchema(CREATE_TABLES);
+}
+
+export function createBankReconciliationStore(db: SqlDb): BankReconciliationStoreHandle {
+  return {
+    statements: new SqlBankStatementRepository(db),
+    mappings: new SqlColumnMappingRepository(db),
+    suggestions: new SqlMatchSuggestionRepository(db),
+    rules: new SqlBankRuleRepository(db),
+  };
+}
+
 export function createSqliteBankReconciliationStore(path: SqliteConnectionInput = ":memory:"): SqliteBankReconciliationStoreHandle {
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
@@ -702,10 +655,7 @@ export function createSqliteBankReconciliationStore(path: SqliteConnectionInput 
     if (!lineColumns.has(name)) sqlite.exec(`ALTER TABLE statement_line ADD COLUMN ${name} ${type}`);
   }
   return {
-    statements: new SqliteBankStatementRepository(sqlite),
-    mappings: new SqliteColumnMappingRepository(sqlite),
-    suggestions: new SqliteMatchSuggestionRepository(sqlite),
-    rules: new SqliteBankRuleRepository(sqlite),
+    ...createBankReconciliationStore(sqliteDb(sqlite)),
     close: () => { if (owned) sqlite.close(); },
   };
 }

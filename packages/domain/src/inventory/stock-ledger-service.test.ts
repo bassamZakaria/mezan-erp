@@ -22,7 +22,7 @@ function build(policy = { allowNegativeStock: false }, fallbackUnitCost?: (itemI
     layers,
     snapshots,
     policy,
-    events: { publish: (e) => events.push(e) },
+    events: { publish: async (e) => void events.push(e) },
     gl: { post: async (p) => void postings.push(p) },
     clock: () => `2026-02-01T00:00:${String(clockTick++).padStart(2, "0")}.000Z`,
     fallbackUnitCost,

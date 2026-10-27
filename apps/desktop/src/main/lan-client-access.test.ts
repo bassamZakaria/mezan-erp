@@ -97,7 +97,7 @@ async function startHost() {
     lan: { resolveEntitlements: () => entitlements, registry: seatRegistry },
   });
   const authorize = createLanClientAuthorizer({
-    resolveSessionUser: (token, origin) => backend.sessions.find(token, origin)?.userId ?? null,
+    resolveSessionUser: async (token, origin) => (await backend.sessions.find(token, origin))?.userId ?? null,
     registry: seatRegistry,
   });
   const handle = startLanHost({

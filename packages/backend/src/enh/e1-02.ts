@@ -1,4 +1,3 @@
-import type Database from "better-sqlite3";
 import { createCashForecastRoutes, type CashForecastRoutesDeps } from "@mezan/api";
 import {
   branchGrantCoversEvent,
@@ -22,6 +21,16 @@ import {
   createStandaloneSqliteInstallmentPlanStore,
   createStandaloneSqlitePurchaseReturnStore,
   createStandaloneSqliteSalesReturnStore,
+  createCashForecastStore,
+  createNotificationStore,
+  createChequeRepository,
+  createHistoricalPurchaseArchiveStore,
+  createHistoricalSalesArchiveStore,
+  createInstallmentPlanStore,
+  createPurchaseInvoiceStore,
+  createPurchaseReturnStore,
+  createSalesReturnStore,
+  type SqlDb,
 } from "@mezan/persistence";
 import { randomUUID } from "node:crypto";
 import type { BackendArea, BackendModuleContext } from "../module-context.js";
@@ -30,14 +39,14 @@ export const CASH_FORECAST_PERMISSION = "treasury.cash_forecast.view";
 export const CASH_FORECAST_ALERT_EVENT = "CASH_FORECAST_LOW" satisfies EventCode;
 const CASH_FORECAST_LINK = "/treasury/cash-forecast";
 
-const commitmentRegistry = new WeakMap<Database.Database, CommitmentSource[]>();
+const commitmentRegistry = new WeakMap<SqlDb, CommitmentSource[]>();
 
-export function registerCashCommitmentSource(sqlite: Database.Database, source: CommitmentSource): void {
-  const sources = commitmentRegistry.get(sqlite) ?? [];
+export function registerCashCommitmentSource(db: SqlDb, source: CommitmentSource): void {
+  const sources = commitmentRegistry.get(db) ?? [];
   const at = sources.findIndex((s) => s.id === source.id);
   if (at >= 0) sources.splice(at, 1, source);
   else sources.push(source);
-  commitmentRegistry.set(sqlite, sources);
+  commitmentRegistry.set(db, sources);
 }
 
 function majorLabel(money: Money): string {
@@ -50,18 +59,18 @@ function majorLabel(money: Money): string {
 }
 
 export function reportsDeps(ctx: BackendModuleContext): CashForecastRoutesDeps["reports"] {
-  const { sqlite, stores } = ctx;
-  const salesArchives = createSqliteHistoricalSalesArchiveStore(sqlite);
-  const purchaseArchives = createSqliteHistoricalPurchaseArchiveStore(sqlite);
+  const { stores } = ctx;
+  const salesArchives = ctx.store((s) => createSqliteHistoricalSalesArchiveStore(s), (d) => createHistoricalSalesArchiveStore(d));
+  const purchaseArchives = ctx.store((s) => createSqliteHistoricalPurchaseArchiveStore(s), (d) => createHistoricalPurchaseArchiveStore(d));
   return {
     salesInvoices: stores.salesInvoices,
     allocatable: stores.vouchers.invoices,
-    salesReturnDocs: createStandaloneSqliteSalesReturnStore(sqlite),
-    purchaseReturnDocs: createStandaloneSqlitePurchaseReturnStore(sqlite),
-    cheques: createSqliteChequeRepository(sqlite),
+    salesReturnDocs: ctx.store((s) => createStandaloneSqliteSalesReturnStore(s), (d) => createSalesReturnStore(d)),
+    purchaseReturnDocs: ctx.store((s) => createStandaloneSqlitePurchaseReturnStore(s), (d) => createPurchaseReturnStore(d)),
+    cheques: ctx.store((s) => createSqliteChequeRepository(s), (d) => createChequeRepository(d)),
     voucherDocuments: stores.vouchers.documents,
     allocations: stores.vouchers.allocations,
-    purchaseInvoices: createSqlitePurchaseInvoiceStore(sqlite),
+    purchaseInvoices: ctx.store((s) => createSqlitePurchaseInvoiceStore(s), (d) => createPurchaseInvoiceStore(d)),
     historicalArchives: { sales: () => salesArchives.list(), purchases: () => purchaseArchives.list() },
     customers: stores.customers,
     suppliers: stores.suppliers,
@@ -70,7 +79,7 @@ export function reportsDeps(ctx: BackendModuleContext): CashForecastRoutesDeps["
     stockLedger: stores.stockLedger.ledger,
     costLayers: stores.stockLedger.layers,
     wacSnapshots: stores.stockLedger.snapshots,
-    installmentPlans: createStandaloneSqliteInstallmentPlanStore(sqlite),
+    installmentPlans: ctx.store((s) => createStandaloneSqliteInstallmentPlanStore(s), (d) => createInstallmentPlanStore(d)),
     ledger: stores.ledger,
     accounts: stores.accounts,
   };
@@ -99,8 +108,8 @@ async function recipients(ctx: BackendModuleContext): Promise<string[]> {
 
 export const area: BackendArea = {
   mount(ctx) {
-    const store = createSqliteCashForecastStore(ctx.sqlite);
-    const notifications = createSqliteNotificationStore(ctx.sqlite);
+    const store = ctx.store((s) => createSqliteCashForecastStore(s), (d) => createCashForecastStore(d));
+    const notifications = ctx.store((s) => createSqliteNotificationStore(s), (d) => createNotificationStore(d));
     const notify = async (alert: CashForecastAlertRecord): Promise<number> => {
       const userIds = await recipients(ctx);
       const title = "تنبيه سيولة: الرصيد المتوقع أقل من الحد";
@@ -163,7 +172,7 @@ export const area: BackendArea = {
           cashAndBankAccountIds: ctx.cashAndBankAccountIds,
           accounts: ctx.stores.accounts,
           store,
-          commitmentSources: () => commitmentRegistry.get(ctx.sqlite) ?? [],
+          commitmentSources: () => commitmentRegistry.get(ctx.db) ?? [],
           notify,
           audit: ctx.audit,
         },

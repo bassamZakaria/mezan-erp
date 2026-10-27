@@ -12,13 +12,13 @@ const REP_PERMISSIONS = ["sales.invoice.create", "sales.invoice.view_own", "sale
 async function rig() {
   const h = await createBackend({ dbPath: ":memory:" });
   handles.push(h);
-  const as = (userId: string, permissions: string[]) => ({
-    authorization: `Bearer ${h.sessions.issue({ userId, permissions, roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE })}`,
+  const as = async (userId: string, permissions: string[]) => ({
+    authorization: `Bearer ${await h.sessions.issue({ userId, permissions, roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE })}`,
     "content-type": "application/json",
   });
   const send = (method: string, pathname: string, headers: Record<string, string>, body?: unknown) =>
     h.app.fetch(new Request(`http://local${pathname}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) }));
-  const admin = as("admin", ["*"]);
+  const admin = await as("admin", ["*"]);
   await send("POST", "/customers", admin, {
     id: "CUST-1", code: "CUST-1", nameAr: "عميل نقدي", paymentTermsDays: 30, currency: "EGP", openingBalance: "0", active: true, creditLimit: "0", taxExempt: false, etaBuyerType: "auto",
   });
@@ -45,7 +45,7 @@ describe("a sales rep who may create an invoice but only read their own", () => 
     expect(user.status).toBe(201);
     const userId = ((await user.json()) as { id: string }).id;
     const rep = {
-      authorization: `Bearer ${h.sessions.issue({ userId, permissions: REP_PERMISSIONS, roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE })}`,
+      authorization: `Bearer ${await h.sessions.issue({ userId, permissions: REP_PERMISSIONS, roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE })}`,
       "content-type": "application/json",
     };
     return { rep, employeeId: employeeId as string };
@@ -71,7 +71,7 @@ describe("a sales rep who may create an invoice but only read their own", () => 
 
   it("a rep whose account has no employee file is refused in Arabic and nothing is stored, however often the create is sent", async () => {
     const { send, as, admin } = await rig();
-    const rep = as("rep-without-employee", REP_PERMISSIONS);
+    const rep = await as("rep-without-employee", REP_PERMISSIONS);
 
     for (const attempt of [1, 2]) {
       const refused = await send("POST", "/sales-invoices", rep, invoice("m-rep-0"));

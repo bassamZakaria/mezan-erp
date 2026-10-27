@@ -1,5 +1,7 @@
 import type Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
+import type { SqlDb } from "./sql/sql-db.js";
+import { sqliteDb } from "./sql/sqlite-db.js";
 import {
   NO_SIMPLIFIED_REGIME,
   type SimplifiedRegimeElection,
@@ -63,52 +65,45 @@ function toElection(row: RegimeRow): SimplifiedRegimeElection {
   };
 }
 
-class SqliteSimplifiedRegimeStore implements SimplifiedRegimeRepository {
-  private readonly upsert: Database.Statement;
-  private readonly select: Database.Statement;
-
-  constructor(sqlite: Database.Database) {
-    this.upsert = sqlite.prepare(`
-      INSERT INTO simplified_regime
-        (id, state, elected_on, form_110_reference, irrevocable_until, withdrawn_on,
-         form_111_reference, e_invoicing_joined_on, notes, recorded_at, recorded_by)
-      VALUES
-        (@id, @state, @elected_on, @form_110_reference, @irrevocable_until, @withdrawn_on,
-         @form_111_reference, @e_invoicing_joined_on, @notes, @recorded_at, @recorded_by)
-      ON CONFLICT(id) DO UPDATE SET
-        state = excluded.state,
-        elected_on = excluded.elected_on,
-        form_110_reference = excluded.form_110_reference,
-        irrevocable_until = excluded.irrevocable_until,
-        withdrawn_on = excluded.withdrawn_on,
-        form_111_reference = excluded.form_111_reference,
-        e_invoicing_joined_on = excluded.e_invoicing_joined_on,
-        notes = excluded.notes,
-        recorded_at = excluded.recorded_at,
-        recorded_by = excluded.recorded_by
-    `);
-    this.select = sqlite.prepare(`SELECT * FROM simplified_regime WHERE id = ?`);
-  }
+class SqlSimplifiedRegimeStore implements SimplifiedRegimeRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async get(): Promise<SimplifiedRegimeElection | null> {
-    const row = this.select.get(ROW_ID) as RegimeRow | undefined;
+    const row = await this.db.get<RegimeRow>(`SELECT * FROM simplified_regime WHERE id = ?`, [ROW_ID]);
     return row ? toElection(row) : null;
   }
 
   async save(election: SimplifiedRegimeElection): Promise<void> {
-    this.upsert.run({
-      id: ROW_ID,
-      state: election.state,
-      elected_on: election.electedOn,
-      form_110_reference: election.form110Reference,
-      irrevocable_until: election.irrevocableUntil,
-      withdrawn_on: election.withdrawnOn,
-      form_111_reference: election.form111Reference,
-      e_invoicing_joined_on: election.eInvoicingJoinedOn,
-      notes: election.notes,
-      recorded_at: election.recordedAt,
-      recorded_by: election.recordedBy,
-    });
+    await this.db.run(
+      `INSERT INTO simplified_regime
+         (id, state, elected_on, form_110_reference, irrevocable_until, withdrawn_on,
+          form_111_reference, e_invoicing_joined_on, notes, recorded_at, recorded_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         state = excluded.state,
+         elected_on = excluded.elected_on,
+         form_110_reference = excluded.form_110_reference,
+         irrevocable_until = excluded.irrevocable_until,
+         withdrawn_on = excluded.withdrawn_on,
+         form_111_reference = excluded.form_111_reference,
+         e_invoicing_joined_on = excluded.e_invoicing_joined_on,
+         notes = excluded.notes,
+         recorded_at = excluded.recorded_at,
+         recorded_by = excluded.recorded_by`,
+      [
+        ROW_ID,
+        election.state,
+        election.electedOn,
+        election.form110Reference,
+        election.irrevocableUntil,
+        election.withdrawnOn,
+        election.form111Reference,
+        election.eInvoicingJoinedOn,
+        election.notes,
+        election.recordedAt,
+        election.recordedBy,
+      ],
+    );
   }
 }
 
@@ -117,9 +112,17 @@ export async function readSimplifiedRegime(store: SimplifiedRegimeRepository): P
   return (await store.get()) ?? NO_SIMPLIFIED_REGIME;
 }
 
+export async function ensureSimplifiedRegimeSchema(db: SqlDb): Promise<void> {
+  await db.applySchema(CREATE_TABLE);
+}
+
+export function createSimplifiedRegimeStore(db: SqlDb): SimplifiedRegimeRepository {
+  return new SqlSimplifiedRegimeStore(db);
+}
+
 export function createSqliteSimplifiedRegimeStore(sqlite: Database.Database): SimplifiedRegimeRepository {
   sqlite.exec(CREATE_TABLE);
-  return new SqliteSimplifiedRegimeStore(sqlite);
+  return createSimplifiedRegimeStore(sqliteDb(sqlite));
 }
 
 export interface SqliteSimplifiedRegimeStoreHandle extends SimplifiedRegimeRepository {

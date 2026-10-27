@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
-import type Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
+import { MAX_BOUND_PARAMS } from "./list-query.js";
+import { placeholders, type SqlDb, type SqlValue } from "./sql/sql-db.js";
+import { sqliteDb } from "./sql/sqlite-db.js";
 import {
   CustomerMessageStatus,
   DunningChannel,
@@ -119,25 +121,25 @@ const REMINDER_DEFAULT_LIMIT = 500;
 
 interface PolicyRow {
   steps_json: string;
-  auto_send_enabled: number;
+  auto_send_enabled: bigint;
   minimum_overdue: string;
-  pause_on_promise: number;
+  pause_on_promise: bigint;
   last_scheduled_run: string | null;
   updated_at: string | null;
   updated_by: string | null;
 }
 
-class SqlitePolicyRepository implements DunningPolicyRepository {
-  constructor(private readonly sqlite: Database.Database) {}
+class SqlPolicyRepository implements DunningPolicyRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async get(): Promise<DunningPolicy | null> {
-    const row = this.sqlite.prepare(`SELECT * FROM dunning_policy WHERE id = ?`).get(DEFAULT_POLICY_ID) as PolicyRow | undefined;
+    const row = await this.db.get<PolicyRow>(`SELECT * FROM dunning_policy WHERE id = ?`, [DEFAULT_POLICY_ID]);
     if (!row) return null;
     return {
       steps: JSON.parse(row.steps_json) as DunningStep[],
-      autoSendEnabled: row.auto_send_enabled === 1,
+      autoSendEnabled: Number(row.auto_send_enabled) === 1,
       minimumOverdueAmount: Money.fromMajor(row.minimum_overdue),
-      pauseWhilePromisePending: row.pause_on_promise === 1,
+      pauseWhilePromisePending: Number(row.pause_on_promise) === 1,
       lastScheduledRunDate: row.last_scheduled_run,
       updatedAt: row.updated_at,
       updatedBy: row.updated_by,
@@ -145,29 +147,28 @@ class SqlitePolicyRepository implements DunningPolicyRepository {
   }
 
   async save(policy: DunningPolicy): Promise<void> {
-    this.sqlite
-      .prepare(
-        `INSERT INTO dunning_policy (id, steps_json, auto_send_enabled, minimum_overdue, pause_on_promise, last_scheduled_run, updated_at, updated_by)
-         VALUES (@id, @steps_json, @auto_send_enabled, @minimum_overdue, @pause_on_promise, @last_scheduled_run, @updated_at, @updated_by)
-         ON CONFLICT(id) DO UPDATE SET
-           steps_json = excluded.steps_json,
-           auto_send_enabled = excluded.auto_send_enabled,
-           minimum_overdue = excluded.minimum_overdue,
-           pause_on_promise = excluded.pause_on_promise,
-           last_scheduled_run = excluded.last_scheduled_run,
-           updated_at = excluded.updated_at,
-           updated_by = excluded.updated_by`,
-      )
-      .run({
-        id: DEFAULT_POLICY_ID,
-        steps_json: JSON.stringify(policy.steps),
-        auto_send_enabled: policy.autoSendEnabled ? 1 : 0,
-        minimum_overdue: policy.minimumOverdueAmount.toString(),
-        pause_on_promise: policy.pauseWhilePromisePending ? 1 : 0,
-        last_scheduled_run: policy.lastScheduledRunDate,
-        updated_at: policy.updatedAt,
-        updated_by: policy.updatedBy,
-      });
+    await this.db.run(
+      `INSERT INTO dunning_policy (id, steps_json, auto_send_enabled, minimum_overdue, pause_on_promise, last_scheduled_run, updated_at, updated_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         steps_json = excluded.steps_json,
+         auto_send_enabled = excluded.auto_send_enabled,
+         minimum_overdue = excluded.minimum_overdue,
+         pause_on_promise = excluded.pause_on_promise,
+         last_scheduled_run = excluded.last_scheduled_run,
+         updated_at = excluded.updated_at,
+         updated_by = excluded.updated_by`,
+      [
+        DEFAULT_POLICY_ID,
+        JSON.stringify(policy.steps),
+        policy.autoSendEnabled ? 1 : 0,
+        policy.minimumOverdueAmount.toString(),
+        policy.pauseWhilePromisePending ? 1 : 0,
+        policy.lastScheduledRunDate,
+        policy.updatedAt,
+        policy.updatedBy,
+      ],
+    );
   }
 }
 
@@ -175,7 +176,7 @@ interface ReminderRow {
   id: string;
   item_key: string;
   step_id: string;
-  step_level: number;
+  step_level: bigint;
   customer_id: string;
   document_id: string | null;
   reference: string | null;
@@ -183,7 +184,7 @@ interface ReminderRow {
   subject: string;
   body: string;
   amount: string;
-  days_overdue: number;
+  days_overdue: bigint;
   due_date: string;
   status: string;
   void_reason: string | null;
@@ -202,7 +203,7 @@ function toReminder(row: ReminderRow): DunningReminder {
     id: row.id,
     itemKey: row.item_key,
     stepId: row.step_id,
-    stepLevel: row.step_level,
+    stepLevel: Number(row.step_level),
     customerId: row.customer_id,
     documentId: row.document_id,
     reference: row.reference,
@@ -210,7 +211,7 @@ function toReminder(row: ReminderRow): DunningReminder {
     subject: row.subject,
     body: row.body,
     amount: Money.fromMajor(row.amount),
-    daysOverdue: row.days_overdue,
+    daysOverdue: Number(row.days_overdue),
     dueDate: row.due_date,
     status: row.status as DunningReminderStatus,
     voidReason: row.void_reason as DunningVoidReason | null,
@@ -225,84 +226,91 @@ function toReminder(row: ReminderRow): DunningReminder {
   };
 }
 
-function reminderParams(r: DunningReminder) {
-  return {
-    id: r.id,
-    item_key: r.itemKey,
-    step_id: r.stepId,
-    step_level: r.stepLevel,
-    customer_id: r.customerId,
-    document_id: r.documentId,
-    reference: r.reference,
-    channel: r.channel,
-    subject: r.subject,
-    body: r.body,
-    amount: r.amount.toString(),
-    days_overdue: r.daysOverdue,
-    due_date: r.dueDate,
-    status: r.status,
-    void_reason: r.voidReason,
-    failure_reason: r.failureReason,
-    message_id: r.messageId,
-    prepared_on: r.preparedOn,
-    prepared_at: r.preparedAt,
-    prepared_by: r.preparedBy,
-    sent_at: r.sentAt,
-    sent_by: r.sentBy,
-    outcome: r.outcome,
-  };
+const REMINDER_COLUMNS =
+  "id, item_key, step_id, step_level, customer_id, document_id, reference, channel, subject, body, amount, days_overdue, due_date, status, void_reason, failure_reason, message_id, prepared_on, prepared_at, prepared_by, sent_at, sent_by, outcome";
+
+function reminderParams(r: DunningReminder): SqlValue[] {
+  return [
+    r.id,
+    r.itemKey,
+    r.stepId,
+    r.stepLevel,
+    r.customerId,
+    r.documentId,
+    r.reference,
+    r.channel,
+    r.subject,
+    r.body,
+    r.amount.toString(),
+    r.daysOverdue,
+    r.dueDate,
+    r.status,
+    r.voidReason,
+    r.failureReason,
+    r.messageId,
+    r.preparedOn,
+    r.preparedAt,
+    r.preparedBy,
+    r.sentAt,
+    r.sentBy,
+    r.outcome,
+  ];
 }
 
-class SqliteReminderRepository implements DunningReminderRepository {
-  private readonly insert: Database.Statement;
-  private readonly update_: Database.Statement;
-
-  constructor(private readonly sqlite: Database.Database) {
-    this.insert = sqlite.prepare(`
-      INSERT INTO dunning_reminder
-        (id, item_key, step_id, step_level, customer_id, document_id, reference, channel, subject, body, amount, days_overdue, due_date, status, void_reason, failure_reason, message_id, prepared_on, prepared_at, prepared_by, sent_at, sent_by, outcome)
-      VALUES
-        (@id, @item_key, @step_id, @step_level, @customer_id, @document_id, @reference, @channel, @subject, @body, @amount, @days_overdue, @due_date, @status, @void_reason, @failure_reason, @message_id, @prepared_on, @prepared_at, @prepared_by, @sent_at, @sent_by, @outcome)
-      ON CONFLICT(item_key, step_id) DO NOTHING
-    `);
-    this.update_ = sqlite.prepare(`
-      UPDATE dunning_reminder SET
-        status = @status, void_reason = @void_reason, failure_reason = @failure_reason, message_id = @message_id,
-        sent_at = @sent_at, sent_by = @sent_by, outcome = @outcome
-      WHERE id = @id
-    `);
-  }
+class SqlReminderRepository implements DunningReminderRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async findById(id: string): Promise<DunningReminder | null> {
-    const row = this.sqlite.prepare(`SELECT * FROM dunning_reminder WHERE id = ?`).get(id) as ReminderRow | undefined;
+    const row = await this.db.get<ReminderRow>(`SELECT * FROM dunning_reminder WHERE id = ?`, [id]);
     return row ? toReminder(row) : null;
   }
 
   async list(filter: DunningReminderListFilter = {}): Promise<readonly DunningReminder[]> {
     const clauses: string[] = [];
-    const params: unknown[] = [];
+    const params: SqlValue[] = [];
     if (filter.customerId !== undefined) {
       clauses.push("customer_id = ?");
       params.push(filter.customerId);
     }
     if (filter.statuses !== undefined) {
       if (filter.statuses.length === 0) return [];
-      clauses.push(`status IN (SELECT value FROM json_each(?))`);
-      params.push(JSON.stringify(filter.statuses));
+      clauses.push(`status IN (${placeholders(filter.statuses.length)})`);
+      params.push(...filter.statuses);
     }
     const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
-    const rows = this.sqlite
-      .prepare(`SELECT * FROM dunning_reminder ${where} ORDER BY prepared_at DESC, step_level DESC LIMIT ?`)
-      .all(...params, filter.limit ?? REMINDER_DEFAULT_LIMIT) as ReminderRow[];
+    const rows = await this.db.all<ReminderRow>(
+      `SELECT * FROM dunning_reminder ${where} ORDER BY prepared_at DESC, step_level DESC LIMIT ?`,
+      [...params, filter.limit ?? REMINDER_DEFAULT_LIMIT],
+    );
     return rows.map(toReminder);
   }
 
   async insertIfAbsent(reminder: DunningReminder): Promise<boolean> {
-    return this.insert.run(reminderParams(reminder)).changes === 1;
+    const result = await this.db.run(
+      `INSERT INTO dunning_reminder (${REMINDER_COLUMNS}) VALUES (${placeholders(23)})
+       ON CONFLICT(item_key, step_id) DO NOTHING`,
+      reminderParams(reminder),
+    );
+    return result.changes === 1;
   }
 
   async update(reminder: DunningReminder): Promise<void> {
-    this.update_.run(reminderParams(reminder));
+    await this.db.run(
+      `UPDATE dunning_reminder SET
+         status = ?, void_reason = ?, failure_reason = ?, message_id = ?,
+         sent_at = ?, sent_by = ?, outcome = ?
+       WHERE id = ?`,
+      [
+        reminder.status,
+        reminder.voidReason,
+        reminder.failureReason,
+        reminder.messageId,
+        reminder.sentAt,
+        reminder.sentBy,
+        reminder.outcome,
+        reminder.id,
+      ],
+    );
   }
 }
 
@@ -336,42 +344,41 @@ function toPromise(row: PromiseRow): PromiseToPay {
   };
 }
 
-class SqlitePromiseRepository implements PromiseToPayRepository {
-  constructor(private readonly sqlite: Database.Database) {}
+class SqlPromiseRepository implements PromiseToPayRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async findById(id: string): Promise<PromiseToPay | null> {
-    const row = this.sqlite.prepare(`SELECT * FROM promise_to_pay WHERE id = ?`).get(id) as PromiseRow | undefined;
+    const row = await this.db.get<PromiseRow>(`SELECT * FROM promise_to_pay WHERE id = ?`, [id]);
     return row ? toPromise(row) : null;
   }
 
   async list(filter: { readonly customerId?: string } = {}): Promise<readonly PromiseToPay[]> {
     const rows =
       filter.customerId !== undefined
-        ? (this.sqlite.prepare(`SELECT * FROM promise_to_pay WHERE customer_id = ? ORDER BY created_at DESC`).all(filter.customerId) as PromiseRow[])
-        : (this.sqlite.prepare(`SELECT * FROM promise_to_pay ORDER BY created_at DESC`).all() as PromiseRow[]);
+        ? await this.db.all<PromiseRow>(`SELECT * FROM promise_to_pay WHERE customer_id = ? ORDER BY created_at DESC`, [filter.customerId])
+        : await this.db.all<PromiseRow>(`SELECT * FROM promise_to_pay ORDER BY created_at DESC`);
     return rows.map(toPromise);
   }
 
   async save(promise: PromiseToPay): Promise<void> {
-    this.sqlite
-      .prepare(
-        `INSERT INTO promise_to_pay (id, customer_id, promised_date, amount, invoice_ids, note, created_on, created_at, created_by, cancelled_at, cancelled_by)
-         VALUES (@id, @customer_id, @promised_date, @amount, @invoice_ids, @note, @created_on, @created_at, @created_by, @cancelled_at, @cancelled_by)
-         ON CONFLICT(id) DO UPDATE SET cancelled_at = excluded.cancelled_at, cancelled_by = excluded.cancelled_by`,
-      )
-      .run({
-        id: promise.id,
-        customer_id: promise.customerId,
-        promised_date: promise.promisedDate,
-        amount: promise.amount.toString(),
-        invoice_ids: JSON.stringify(promise.invoiceIds),
-        note: promise.note,
-        created_on: promise.createdOn,
-        created_at: promise.createdAt,
-        created_by: promise.createdBy,
-        cancelled_at: promise.cancelledAt,
-        cancelled_by: promise.cancelledBy,
-      });
+    await this.db.run(
+      `INSERT INTO promise_to_pay (id, customer_id, promised_date, amount, invoice_ids, note, created_on, created_at, created_by, cancelled_at, cancelled_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET cancelled_at = excluded.cancelled_at, cancelled_by = excluded.cancelled_by`,
+      [
+        promise.id,
+        promise.customerId,
+        promise.promisedDate,
+        promise.amount.toString(),
+        JSON.stringify(promise.invoiceIds),
+        promise.note,
+        promise.createdOn,
+        promise.createdAt,
+        promise.createdBy,
+        promise.cancelledAt,
+        promise.cancelledBy,
+      ],
+    );
   }
 }
 
@@ -384,15 +391,15 @@ interface ActivityRow {
   created_by: string;
 }
 
-class SqliteActivityRepository implements CollectionActivityRepository {
-  constructor(private readonly sqlite: Database.Database) {}
+class SqlActivityRepository implements CollectionActivityRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async list(filter: { readonly customerId?: string; readonly limit?: number } = {}): Promise<readonly CollectionActivity[]> {
     const limit = filter.limit ?? ACTIVITY_DEFAULT_LIMIT;
     const rows =
       filter.customerId !== undefined
-        ? (this.sqlite.prepare(`SELECT * FROM collection_activity WHERE customer_id = ? ORDER BY created_at DESC LIMIT ?`).all(filter.customerId, limit) as ActivityRow[])
-        : (this.sqlite.prepare(`SELECT * FROM collection_activity ORDER BY created_at DESC LIMIT ?`).all(limit) as ActivityRow[]);
+        ? await this.db.all<ActivityRow>(`SELECT * FROM collection_activity WHERE customer_id = ? ORDER BY created_at DESC LIMIT ?`, [filter.customerId, limit])
+        : await this.db.all<ActivityRow>(`SELECT * FROM collection_activity ORDER BY created_at DESC LIMIT ?`, [limit]);
     return rows.map((row) => ({
       id: row.id,
       customerId: row.customer_id,
@@ -404,9 +411,10 @@ class SqliteActivityRepository implements CollectionActivityRepository {
   }
 
   async save(activity: CollectionActivity): Promise<void> {
-    this.sqlite
-      .prepare(`INSERT INTO collection_activity (id, customer_id, kind, text, created_at, created_by) VALUES (?, ?, ?, ?, ?, ?)`)
-      .run(activity.id, activity.customerId, activity.kind, activity.text, activity.createdAt, activity.createdBy);
+    await this.db.run(
+      `INSERT INTO collection_activity (id, customer_id, kind, text, created_at, created_by) VALUES (?, ?, ?, ?, ?, ?)`,
+      [activity.id, activity.customerId, activity.kind, activity.text, activity.createdAt, activity.createdBy],
+    );
   }
 }
 
@@ -426,29 +434,28 @@ const toHold = (row: HoldRow): CollectionHold => ({
   createdBy: row.created_by,
 });
 
-class SqliteHoldRepository implements CollectionHoldRepository {
-  constructor(private readonly sqlite: Database.Database) {}
+class SqlHoldRepository implements CollectionHoldRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async list(): Promise<readonly CollectionHold[]> {
-    return (this.sqlite.prepare(`SELECT * FROM collection_hold ORDER BY created_at DESC`).all() as HoldRow[]).map(toHold);
+    return (await this.db.all<HoldRow>(`SELECT * FROM collection_hold ORDER BY created_at DESC`)).map(toHold);
   }
 
   async find(customerId: string): Promise<CollectionHold | null> {
-    const row = this.sqlite.prepare(`SELECT * FROM collection_hold WHERE customer_id = ?`).get(customerId) as HoldRow | undefined;
+    const row = await this.db.get<HoldRow>(`SELECT * FROM collection_hold WHERE customer_id = ?`, [customerId]);
     return row ? toHold(row) : null;
   }
 
   async save(hold: CollectionHold): Promise<void> {
-    this.sqlite
-      .prepare(
-        `INSERT INTO collection_hold (customer_id, reason, until, created_at, created_by) VALUES (?, ?, ?, ?, ?)
-         ON CONFLICT(customer_id) DO UPDATE SET reason = excluded.reason, until = excluded.until, created_at = excluded.created_at, created_by = excluded.created_by`,
-      )
-      .run(hold.customerId, hold.reason, hold.until, hold.createdAt, hold.createdBy);
+    await this.db.run(
+      `INSERT INTO collection_hold (customer_id, reason, until, created_at, created_by) VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(customer_id) DO UPDATE SET reason = excluded.reason, until = excluded.until, created_at = excluded.created_at, created_by = excluded.created_by`,
+      [hold.customerId, hold.reason, hold.until, hold.createdAt, hold.createdBy],
+    );
   }
 
   async remove(customerId: string): Promise<void> {
-    this.sqlite.prepare(`DELETE FROM collection_hold WHERE customer_id = ?`).run(customerId);
+    await this.db.run(`DELETE FROM collection_hold WHERE customer_id = ?`, [customerId]);
   }
 }
 
@@ -474,41 +481,47 @@ const toMessage = (row: MessageRow): CustomerMessage => ({
   sentAt: row.sent_at,
 });
 
-class SqliteCustomerMessageOutbox implements CustomerMessageOutbox {
-  constructor(private readonly sqlite: Database.Database) {}
+class SqlCustomerMessageOutbox implements CustomerMessageOutbox {
+  constructor(private readonly db: SqlDb) {}
 
   async findById(id: string): Promise<CustomerMessage | null> {
-    const row = this.sqlite.prepare(`SELECT * FROM customer_message WHERE id = ?`).get(id) as MessageRow | undefined;
+    const row = await this.db.get<MessageRow>(`SELECT * FROM customer_message WHERE id = ?`, [id]);
     return row ? toMessage(row) : null;
   }
 
   async findByIds(ids: readonly string[]): Promise<ReadonlyMap<string, CustomerMessage>> {
-    if (ids.length === 0) return new Map();
-    const rows = this.sqlite.prepare(`SELECT * FROM customer_message WHERE id IN (SELECT value FROM json_each(?))`).all(JSON.stringify(ids)) as MessageRow[];
-    return new Map(rows.map((row) => [row.id, toMessage(row)]));
+    const found = new Map<string, CustomerMessage>();
+    const unique = [...new Set(ids)];
+    for (let start = 0; start < unique.length; start += MAX_BOUND_PARAMS) {
+      const chunk = unique.slice(start, start + MAX_BOUND_PARAMS);
+      const rows = await this.db.all<MessageRow>(`SELECT * FROM customer_message WHERE id IN (${placeholders(chunk.length)})`, chunk);
+      for (const row of rows) found.set(row.id, toMessage(row));
+    }
+    return found;
   }
 
   async listQueued(limit: number): Promise<readonly CustomerMessage[]> {
-    const rows = this.sqlite
-      .prepare(`SELECT * FROM customer_message WHERE status = ? ORDER BY created_at ASC LIMIT ?`)
-      .all(CustomerMessageStatus.Queued, limit) as MessageRow[];
+    const rows = await this.db.all<MessageRow>(`SELECT * FROM customer_message WHERE status = ? ORDER BY created_at ASC LIMIT ?`, [
+      CustomerMessageStatus.Queued,
+      limit,
+    ]);
     return rows.map(toMessage);
   }
 
   async enqueue(message: CustomerMessage): Promise<void> {
-    this.sqlite
-      .prepare(
-        `INSERT INTO customer_message (id, customer_id, subject, body, status, failure_reason, created_at, sent_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(message.id, message.customerId, message.subject, message.body, message.status, message.failureReason, message.createdAt, message.sentAt);
+    await this.db.run(
+      `INSERT INTO customer_message (id, customer_id, subject, body, status, failure_reason, created_at, sent_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [message.id, message.customerId, message.subject, message.body, message.status, message.failureReason, message.createdAt, message.sentAt],
+    );
   }
 
   async claim(id: string, at: string): Promise<string | null> {
     const token = randomUUID();
-    const changes = this.sqlite
-      .prepare(`UPDATE customer_message SET status = ?, claim_token = ?, claimed_at = ? WHERE id = ? AND status = ?`)
-      .run(CustomerMessageStatus.Sending, token, at, id, CustomerMessageStatus.Queued).changes;
+    const { changes } = await this.db.run(
+      `UPDATE customer_message SET status = ?, claim_token = ?, claimed_at = ? WHERE id = ? AND status = ?`,
+      [CustomerMessageStatus.Sending, token, at, id, CustomerMessageStatus.Queued],
+    );
     return changes === 1 ? token : null;
   }
 
@@ -518,43 +531,56 @@ class SqliteCustomerMessageOutbox implements CustomerMessageOutbox {
     claim: string,
     outcome: { readonly sentAt: string | null; readonly failureReason: string | null },
   ): Promise<boolean> {
-    return (
-      this.sqlite
-        .prepare(
-          `UPDATE customer_message SET status = ?, sent_at = ?, failure_reason = ?, claim_token = NULL, claimed_at = NULL
-           WHERE id = ? AND status = ? AND claim_token = ?`,
-        )
-        .run(status, outcome.sentAt, outcome.failureReason, id, CustomerMessageStatus.Sending, claim).changes === 1
+    const { changes } = await this.db.run(
+      `UPDATE customer_message SET status = ?, sent_at = ?, failure_reason = ?, claim_token = NULL, claimed_at = NULL
+       WHERE id = ? AND status = ? AND claim_token = ?`,
+      [status, outcome.sentAt, outcome.failureReason, id, CustomerMessageStatus.Sending, claim],
     );
+    return changes === 1;
   }
 
   async requeueStaleSending(before: string): Promise<number> {
-    return this.sqlite
-      .prepare(`UPDATE customer_message SET status = ?, claim_token = NULL, claimed_at = NULL WHERE status = ? AND (claimed_at IS NULL OR claimed_at < ?)`)
-      .run(CustomerMessageStatus.Queued, CustomerMessageStatus.Sending, before).changes;
+    const { changes } = await this.db.run(
+      `UPDATE customer_message SET status = ?, claim_token = NULL, claimed_at = NULL WHERE status = ? AND (claimed_at IS NULL OR claimed_at < ?)`,
+      [CustomerMessageStatus.Queued, CustomerMessageStatus.Sending, before],
+    );
+    return changes;
   }
 }
 
-export interface SqliteCollectionsStoreHandle {
+export interface CollectionsStoreHandle {
   readonly policy: DunningPolicyRepository;
   readonly reminders: DunningReminderRepository;
   readonly promises: PromiseToPayRepository;
   readonly activities: CollectionActivityRepository;
   readonly holds: CollectionHoldRepository;
   readonly outbox: CustomerMessageOutbox;
+}
+
+export interface SqliteCollectionsStoreHandle extends CollectionsStoreHandle {
   close(): void;
+}
+
+export async function ensureCollectionsSchema(db: SqlDb): Promise<void> {
+  await db.applySchema(CREATE_TABLES);
+}
+
+export function createCollectionsStore(db: SqlDb): CollectionsStoreHandle {
+  return {
+    policy: new SqlPolicyRepository(db),
+    reminders: new SqlReminderRepository(db),
+    promises: new SqlPromiseRepository(db),
+    activities: new SqlActivityRepository(db),
+    holds: new SqlHoldRepository(db),
+    outbox: new SqlCustomerMessageOutbox(db),
+  };
 }
 
 export function createSqliteCollectionsStore(path: SqliteConnectionInput = ":memory:"): SqliteCollectionsStoreHandle {
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.exec(CREATE_TABLES);
   return {
-    policy: new SqlitePolicyRepository(sqlite),
-    reminders: new SqliteReminderRepository(sqlite),
-    promises: new SqlitePromiseRepository(sqlite),
-    activities: new SqliteActivityRepository(sqlite),
-    holds: new SqliteHoldRepository(sqlite),
-    outbox: new SqliteCustomerMessageOutbox(sqlite),
+    ...createCollectionsStore(sqliteDb(sqlite)),
     close: () => {
       if (owned) sqlite.close();
     },

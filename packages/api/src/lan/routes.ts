@@ -218,7 +218,7 @@ export function createLanRoutes(options: LanRoutesOptions) {
     }
   });
 
-  app.delete("/sessions/:sessionId", licensedGate, permission("admin.devices.manage"), (c) => {
+  app.delete("/sessions/:sessionId", licensedGate, permission("admin.devices.manage"), async (c) => {
     const sessionId = c.req.param("sessionId");
     try {
       const seatUserId = registry.list().find((session) => session.sessionId === sessionId)?.userId;
@@ -229,7 +229,7 @@ export function createLanRoutes(options: LanRoutesOptions) {
       // its bearer token and kept working. Revoking the exact token it
       // connected with is what makes the disconnect real (PR #54 review
       // finding #3).
-      if (token && options.sessions) options.sessions.revoke(token);
+      if (token && options.sessions) await options.sessions.revoke(token);
       tellSeat(seatUserId, "disconnected", { sessionId });
       return c.body(null, 204);
     } catch (err) {

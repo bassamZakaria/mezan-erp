@@ -1,4 +1,7 @@
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
+import { ensureInsertionOrder, insertionOrder } from "./sql/insertion-order.js";
+import { TransactionMode, type SqlDb } from "./sql/sql-db.js";
+import { sqliteDb } from "./sql/sqlite-db.js";
 
 const CREATE_TABLE = `
 CREATE TABLE IF NOT EXISTS sign_in_attempt (
@@ -28,17 +31,17 @@ export interface StoredAttemptChange<T> {
 }
 
 export interface SqliteAttemptStore {
-  update<T>(key: string, change: (held: StoredAttempt | null) => StoredAttemptChange<T>): T;
-  peek(key: string): StoredAttempt | null;
-  remove(key: string): void;
-  removeWithPrefix(prefix: string): void;
-  sweep(at: number, limits: { readonly decayMs: number; readonly maxRecords: number }): void;
-  size(): number;
+  update<T>(key: string, change: (held: StoredAttempt | null) => StoredAttemptChange<T>): Promise<T>;
+  peek(key: string): Promise<StoredAttempt | null>;
+  remove(key: string): Promise<void>;
+  removeWithPrefix(prefix: string): Promise<void>;
+  sweep(at: number, limits: { readonly decayMs: number; readonly maxRecords: number }): Promise<void>;
+  size(): Promise<number>;
 }
 
 interface Row {
   failures: string;
-  locked_until: number;
+  locked_until: bigint;
 }
 
 function parseFailures(raw: string): number[] {
@@ -54,58 +57,70 @@ function prefixEnd(prefix: string): string {
   return `${prefix.slice(0, -1)}${String.fromCharCode(prefix.charCodeAt(prefix.length - 1) + 1)}`;
 }
 
+const attemptOf = (row: Row): StoredAttempt => ({ failures: parseFailures(row.failures), lockedUntil: Number(row.locked_until) });
+
+export async function ensureAttemptSchema(db: SqlDb): Promise<void> {
+  await db.applySchema(CREATE_TABLE);
+  await ensureInsertionOrder(db, "sign_in_attempt");
+}
+
 /**
  * SECURITY: the failure count lives in the database every server instance of
  * the tenant (or of the platform) shares, and every change to it is one
- * `BEGIN IMMEDIATE` transaction. A count held in process memory gives an
+ * immediate (write-locked) transaction. A count held in process memory gives an
  * attacker who spreads guesses across N instances N times the free attempts
  * and N independent lockouts.
  */
+export function createAttemptStore(db: SqlDb, scope: SignInAttemptScope): SqliteAttemptStore {
+  const order = insertionOrder(db);
+  const read = (key: string) => db.get<Row>(`SELECT failures, locked_until FROM sign_in_attempt WHERE scope = ? AND attempt_key = ?`, [scope, key]);
+  const count = async () => Number((await db.get<{ n: bigint }>(`SELECT COUNT(*) AS n FROM sign_in_attempt WHERE scope = ?`, [scope]))!.n);
+  const remove = async (key: string) => {
+    await db.run(`DELETE FROM sign_in_attempt WHERE scope = ? AND attempt_key = ?`, [scope, key]);
+  };
+  return {
+    update: <T>(key: string, change: (held: StoredAttempt | null) => StoredAttemptChange<T>): Promise<T> =>
+      db.transaction(async () => {
+        const row = await read(key);
+        const outcome = change(row ? attemptOf(row) : null);
+        if (outcome.record === null) await remove(key);
+        else if (outcome.record !== undefined) {
+          await db.run(
+            `INSERT INTO sign_in_attempt (scope, attempt_key, failures, locked_until, last_failure_at) VALUES (?, ?, ?, ?, ?)
+             ON CONFLICT (scope, attempt_key) DO UPDATE SET
+               failures = excluded.failures, locked_until = excluded.locked_until, last_failure_at = excluded.last_failure_at`,
+            [scope, key, JSON.stringify(outcome.record.failures), outcome.record.lockedUntil, outcome.record.failures.at(-1) ?? 0],
+          );
+        }
+        return outcome.result;
+      }, TransactionMode.Immediate),
+    async peek(key) {
+      const row = await read(key);
+      return row ? attemptOf(row) : null;
+    },
+    remove,
+    removeWithPrefix: async (prefix) => {
+      await db.run(`DELETE FROM sign_in_attempt WHERE scope = ? AND attempt_key >= ? AND attempt_key < ?`, [scope, prefix, prefixEnd(prefix)]);
+    },
+    sweep: (at, limits) =>
+      db.transaction(async () => {
+        await db.run(`DELETE FROM sign_in_attempt WHERE scope = ? AND locked_until <= ? AND last_failure_at <= ?`, [scope, at, at - limits.decayMs]);
+        const over = (await count()) - limits.maxRecords;
+        if (over > 0) {
+          await db.run(
+            `DELETE FROM sign_in_attempt WHERE scope = ? AND attempt_key IN (
+               SELECT attempt_key FROM sign_in_attempt WHERE scope = ? ORDER BY last_failure_at, ${order} LIMIT ?
+             )`,
+            [scope, scope, over],
+          );
+        }
+      }, TransactionMode.Immediate),
+    size: count,
+  };
+}
+
 export function createSqliteAttemptStore(input: SqliteConnectionInput, scope: SignInAttemptScope): SqliteAttemptStore {
   const { sqlite } = openSqliteConnection(input);
   sqlite.exec(CREATE_TABLE);
-
-  const get = sqlite.prepare(`SELECT failures, locked_until FROM sign_in_attempt WHERE scope = ? AND attempt_key = ?`);
-  const put = sqlite.prepare(
-    `INSERT INTO sign_in_attempt (scope, attempt_key, failures, locked_until, last_failure_at) VALUES (?, ?, ?, ?, ?)
-     ON CONFLICT (scope, attempt_key) DO UPDATE SET
-       failures = excluded.failures, locked_until = excluded.locked_until, last_failure_at = excluded.last_failure_at`,
-  );
-  const remove = sqlite.prepare(`DELETE FROM sign_in_attempt WHERE scope = ? AND attempt_key = ?`);
-  const removeRange = sqlite.prepare(`DELETE FROM sign_in_attempt WHERE scope = ? AND attempt_key >= ? AND attempt_key < ?`);
-  const expire = sqlite.prepare(`DELETE FROM sign_in_attempt WHERE scope = ? AND locked_until <= ? AND last_failure_at <= ?`);
-  const count = sqlite.prepare(`SELECT COUNT(*) AS n FROM sign_in_attempt WHERE scope = ?`);
-  const dropOldest = sqlite.prepare(
-    `DELETE FROM sign_in_attempt WHERE rowid IN (
-       SELECT rowid FROM sign_in_attempt WHERE scope = ? ORDER BY last_failure_at, rowid LIMIT ?
-     )`,
-  );
-
-  const exchange = sqlite.transaction(<T>(key: string, change: (held: StoredAttempt | null) => StoredAttemptChange<T>): T => {
-    const row = get.get(scope, key) as Row | undefined;
-    const outcome = change(row ? { failures: parseFailures(row.failures), lockedUntil: row.locked_until } : null);
-    if (outcome.record === null) remove.run(scope, key);
-    else if (outcome.record !== undefined) {
-      put.run(scope, key, JSON.stringify(outcome.record.failures), outcome.record.lockedUntil, outcome.record.failures.at(-1) ?? 0);
-    }
-    return outcome.result;
-  });
-
-  const trim = sqlite.transaction((at: number, limits: { readonly decayMs: number; readonly maxRecords: number }) => {
-    expire.run(scope, at, at - limits.decayMs);
-    const over = (count.get(scope) as { n: number }).n - limits.maxRecords;
-    if (over > 0) dropOldest.run(scope, over);
-  });
-
-  return {
-    update: <T>(key: string, change: (held: StoredAttempt | null) => StoredAttemptChange<T>): T => exchange.immediate(key, change) as T,
-    peek(key) {
-      const row = get.get(scope, key) as Row | undefined;
-      return row ? { failures: parseFailures(row.failures), lockedUntil: row.locked_until } : null;
-    },
-    remove: (key) => void remove.run(scope, key),
-    removeWithPrefix: (prefix) => void removeRange.run(scope, prefix, prefixEnd(prefix)),
-    sweep: (at, limits) => trim.immediate(at, limits),
-    size: () => (count.get(scope) as { n: number }).n,
-  };
+  return createAttemptStore(sqliteDb(sqlite), scope);
 }

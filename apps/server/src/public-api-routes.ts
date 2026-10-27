@@ -172,9 +172,9 @@ export function createPublicApiRoutes(deps: PublicApiDeps): Hono {
       return refuse(c, PublicApiRefusal.ModuleNotLicensed, 403);
     }
     const bucket = `${tenant.id}:${auth.keyId}`;
-    const retry = await onPlatform(() => {
-      const after = keyLimiter.retryAfter(bucket);
-      if (after === 0) keyLimiter.consume(bucket);
+    const retry = await onPlatform(async () => {
+      const after = await keyLimiter.retryAfter(bucket);
+      if (after === 0) await keyLimiter.consume(bucket);
       return after;
     });
     if (retry > 0) {

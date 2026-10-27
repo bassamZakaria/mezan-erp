@@ -98,7 +98,7 @@ export interface CockpitRoutesDeps {
   readonly cheques: { list(): Promise<readonly Cheque[]> };
   readonly wacSnapshots: { list(): Promise<readonly WacSnapshot[]> };
   readonly warehouses: { findAll(): Promise<readonly { readonly id: string; readonly branchId: string }[]> };
-  readonly bookVersion: () => string;
+  readonly bookVersion: () => string | Promise<string>;
   readonly today?: () => string;
   readonly now?: () => string;
 }
@@ -330,7 +330,7 @@ async function moversSection(
 }
 
 export async function composeCockpit(deps: CockpitRoutesDeps, caller: CockpitCaller, branchId: string, today: string, now: string): Promise<CockpitDTO> {
-  const bookVersion = deps.bookVersion();
+  const bookVersion = await deps.bookVersion();
   const compareDate = cockpitAddDays(today, -COCKPIT_SPARK_DAYS);
   const sparkFrom = cockpitAddDays(today, -(COCKPIT_SPARK_DAYS - 1));
   const trendFrom = cockpitAddDays(today, -(COCKPIT_SPARK_DAYS * COCKPIT_MARGIN_WEEKS - 1));
@@ -427,8 +427,8 @@ export function createCockpitRoutes(deps: CockpitRoutesDeps, resolveAuthContext:
    * business figure, and gating it on the cockpit's permission left everyone
    * else's dashboard frozen until they reloaded the page by hand.
    */
-  app.get("/version", createAuthenticatedGate(resolveAuthContext), (c) => {
-    const body: CockpitVersionDTO = { bookVersion: deps.bookVersion() };
+  app.get("/version", createAuthenticatedGate(resolveAuthContext), async (c) => {
+    const body: CockpitVersionDTO = { bookVersion: await deps.bookVersion() };
     return c.json(body);
   });
 

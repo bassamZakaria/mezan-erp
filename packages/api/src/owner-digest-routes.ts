@@ -60,7 +60,7 @@ export function createOwnerDigestRoutes(deps: OwnerDigestRoutesDeps, resolveAuth
   const { service } = deps;
 
   async function settingsDTO(): Promise<OwnerDigestSettingsDTO> {
-    const loaded = service.loadSettings();
+    const loaded = await service.loadSettings();
     return {
       ...loaded.settings,
       scheduleSupported: deps.scheduleSupported,
@@ -106,9 +106,9 @@ export function createOwnerDigestRoutes(deps: OwnerDigestRoutesDeps, resolveAuth
         return c.json(refusal(OwnerDigestRefusal.UnknownRecipient, "أحد المستلمين غير موجود أو غير نشط.", "A recipient does not exist or is not active."), 400);
       }
     }
-    const before = service.loadSettings().settings;
+    const before = (await service.loadSettings()).settings;
     const actor = getAuthContext(c)?.userId ?? "system";
-    deps.store.saveSettings(parsed.data, service.nowIso(), actor);
+    await deps.store.saveSettings(parsed.data, service.nowIso(), actor);
     await recordAdminEvent(deps.audit, c, {
       module: "accounting",
       entityType: "owner_digest_settings",
@@ -131,7 +131,7 @@ export function createOwnerDigestRoutes(deps: OwnerDigestRoutesDeps, resolveAuth
     }
     const auth = getAuthContext(c);
     if (!auth) return c.json(refusal(OwnerDigestRefusal.Unauthenticated, "سجّل الدخول أولاً.", "Sign in first."), 401);
-    const { settings } = service.loadSettings();
+    const { settings } = await service.loadSettings();
     const user = await deps.users.findById(auth.userId);
     const recipient = await service.recipientFromAuth(auth, user ? user.nameAr : null);
     const digest = await service.compose(recipient, {
@@ -167,7 +167,7 @@ export function createOwnerDigestRoutes(deps: OwnerDigestRoutesDeps, resolveAuth
 
   app.get("/runs", gate("accounting.owner_digest.manage"), async (c) => {
     const names = new Map((await deps.users.list()).map((user) => [user.id, user.nameAr] as const));
-    const runs: OwnerDigestRunDTO[] = deps.store.recent(RECENT_RUNS).map((run) => ({
+    const runs: OwnerDigestRunDTO[] = (await deps.store.recent(RECENT_RUNS)).map((run) => ({
       id: run.id,
       cadence: run.cadence,
       periodKey: run.periodKey,

@@ -31,7 +31,7 @@ async function reopenMonth(periodId: string): Promise<void> {
 
 async function call(method: string, path: string, body?: unknown, permissions?: readonly string[]): Promise<Reply> {
   const bearer = permissions
-    ? backend.sessions.issue({ userId: "LIMITED", permissions, roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE })
+    ? await backend.sessions.issue({ userId: "LIMITED", permissions, roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE })
     : token;
   const res = await backend.app.fetch(
     new Request(`http://local${path}`, {
@@ -76,7 +76,7 @@ beforeAll(async () => {
     seedDemoData: true,
     resolveEntitlements: () => createEntitlements({ plan: "DEMO", activeModules: MODULE_CATALOG, features: {}, seats: 50, expiresAt: null }),
   });
-  token = backend.sessions.issue({ userId: "USER-ADMIN", permissions: ["*"], roleCode: "*", branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
+  token = await backend.sessions.issue({ userId: "USER-ADMIN", permissions: ["*"], roleCode: "*", branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
 }, 120_000);
 
 afterAll(async () => {

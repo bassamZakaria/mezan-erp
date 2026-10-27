@@ -218,9 +218,9 @@ export function createSignupRoutes(options: SignupRoutesOptions): Hono {
    */
   app.get("/check-code", async (c) => {
     const ip = callerSource(c);
-    const wait = checkCodeLimit.retryAfter(ip);
+    const wait = await checkCodeLimit.retryAfter(ip);
     if (wait > 0) return tooManyRequests(c, wait);
-    checkCodeLimit.consume(ip);
+    await checkCodeLimit.consume(ip);
 
     const code = (c.req.query("code") ?? "").trim().toLowerCase();
     if (!/^[a-z0-9](?:[a-z0-9-]{1,30}[a-z0-9])$/.test(code)) {
@@ -234,12 +234,12 @@ export function createSignupRoutes(options: SignupRoutesOptions): Hono {
 
   app.post("/", async (c) => {
     const ip = callerSource(c);
-    const ipWait = startIpLimit.retryAfter(ip);
+    const ipWait = await startIpLimit.retryAfter(ip);
     if (ipWait > 0) return tooManyRequests(c, ipWait);
     // Consumed BEFORE parsing, not after: a flood of malformed bodies must
     // still cost the sender rate-limit budget, or the limiter only ever
     // throttles requests that were already well-formed.
-    startIpLimit.consume(ip);
+    await startIpLimit.consume(ip);
 
     if ((await currentMode()) === SignupMode.Closed) {
       return c.json({ error: SignupRefusalCode.Closed, message: "التسجيل مغلق حاليًا. تواصل معنا لفتح حساب." }, 403);
@@ -258,9 +258,9 @@ export function createSignupRoutes(options: SignupRoutesOptions): Hono {
       return c.json(result, 201);
     }
 
-    const emailWait = startEmailLimit.retryAfter(body.ownerEmail);
+    const emailWait = await startEmailLimit.retryAfter(body.ownerEmail);
     if (emailWait > 0) return tooManyRequests(c, emailWait);
-    startEmailLimit.consume(body.ownerEmail);
+    await startEmailLimit.consume(body.ownerEmail);
 
     if (isDisposableEmailDomain(body.ownerEmail)) {
       return c.json({ error: "DISPOSABLE_EMAIL", message: "لا يمكن استخدام بريد إلكتروني مؤقّت للتسجيل" }, 400);
@@ -432,9 +432,9 @@ export function createSignupRoutes(options: SignupRoutesOptions): Hono {
   // answered with that company's 503 instead.
   app.post("/owner-handover", async (c) => {
     const ip = callerSource(c);
-    const wait = verifyIpLimit.retryAfter(ip);
+    const wait = await verifyIpLimit.retryAfter(ip);
     if (wait > 0) return tooManyRequests(c, wait);
-    verifyIpLimit.consume(ip);
+    await verifyIpLimit.consume(ip);
 
     const parsed = verifySignupRequestSchema.safeParse(await c.req.json().catch(() => null));
     const confirmed = parsed.success ? await router.confirmPendingOwnerByToken(parsed.data.token) : null;
@@ -446,9 +446,9 @@ export function createSignupRoutes(options: SignupRoutesOptions): Hono {
 
   app.post("/verify", async (c) => {
     const ip = callerSource(c);
-    const wait = verifyIpLimit.retryAfter(ip);
+    const wait = await verifyIpLimit.retryAfter(ip);
     if (wait > 0) return tooManyRequests(c, wait);
-    verifyIpLimit.consume(ip);
+    await verifyIpLimit.consume(ip);
 
     const parsed = verifySignupRequestSchema.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return signupErrorResponse(c, new SignupTokenInvalidError());

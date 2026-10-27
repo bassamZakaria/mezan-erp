@@ -17,8 +17,14 @@ permissions:
   packages: write
 
 jobs:
+  test:
+    name: tests
+    uses: ./.github/workflows/test.yml
+
   image:
     name: build · push (amd64)
+    # An untested commit is never pushed to the registry, where a hand deploy could pick it up.
+    needs: test
     runs-on: ubuntu-latest
     outputs:
       digest: ${{ steps.build.outputs.digest }}
@@ -63,7 +69,8 @@ jobs:
 
   deploy:
     name: deploy · contabo
-    needs: image
+    # Nothing reaches the VPS unless the tests passed on this commit.
+    needs: [test, image]
     # The contabo environment holds the DEPLOY_* secrets and admits only the staging branch.
     if: github.ref == 'refs/heads/staging'
     environment: contabo

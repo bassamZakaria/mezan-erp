@@ -30,7 +30,7 @@ const TRANSFER_PERMISSIONS = ["inventory.transfer.view", "inventory.transfer.cre
 
 async function actorStep(
   app: App,
-  headers: Record<string, string>,
+  headers: Record<string, string> | Promise<Record<string, string>>,
   method: string,
   path: string,
   body?: unknown,
@@ -38,7 +38,7 @@ async function actorStep(
   const res = await app.fetch(
     new Request(`http://demo-seed${path}`, {
       method,
-      headers,
+      headers: await headers,
       body: body === undefined ? undefined : JSON.stringify(body),
     }),
   );
@@ -110,8 +110,8 @@ export async function seedContractingSite(app: App): Promise<void> {
   await step(app, "POST", "/inventory/stock-transfers/XFER-DEMO-SITE-1/confirm", {});
 
   // --- إذن الصرف والاستلام بالموقع, by two different people ---
-  const issuerHeaders = seedActorHeaders(storekeeper.id, TRANSFER_PERMISSIONS, "WAREHOUSE_KEEPER");
-  const receiverHeaders = seedActorHeaders(supervisor.id, TRANSFER_PERMISSIONS, "SUPERVISOR");
+  const issuerHeaders = await seedActorHeaders(storekeeper.id, TRANSFER_PERMISSIONS, "WAREHOUSE_KEEPER");
+  const receiverHeaders = await seedActorHeaders(supervisor.id, TRANSFER_PERMISSIONS, "SUPERVISOR");
 
   await actorStep(app, issuerHeaders, "POST", "/contracting/site/issues", {
     id: "ISS-DEMO-1",

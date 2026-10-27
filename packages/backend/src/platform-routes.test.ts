@@ -1878,9 +1878,9 @@ describe("the deletion of a terminated tenant's data, from the console", () => {
   function retentionPort(log: string[]): PlatformTenantRetentionPort {
     const schedule = new Map<string, { terminatedAt: string; deleteAfter: string }>();
     return {
-      view: (tenant) => ({ retentionDays: 90, retention: schedule.has(tenant.id) ? { ...schedule.get(tenant.id)!, lastExtension: null } : null }),
-      scheduleOnArchive: (tenant, at) => void schedule.set(tenant.id, { terminatedAt: at, deleteAfter: "2026-04-01T00:00:00.000Z" }),
-      extend: ({ tenant, deleteAfter }) => {
+      view: async (tenant) => ({ retentionDays: 90, retention: schedule.has(tenant.id) ? { ...schedule.get(tenant.id)!, lastExtension: null } : null }),
+      scheduleOnArchive: async (tenant, at) => void schedule.set(tenant.id, { terminatedAt: at, deleteAfter: "2026-04-01T00:00:00.000Z" }),
+      extend: async ({ tenant, deleteAfter }) => {
         log.push(`extend ${deleteAfter}`);
         schedule.set(tenant.id, { ...schedule.get(tenant.id)!, deleteAfter });
         return true;

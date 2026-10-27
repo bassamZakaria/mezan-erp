@@ -29,7 +29,7 @@ function keep(handle: BackendHandle): App {
 
 const headerCache = new WeakMap<App, Map<string, Record<string, string>>>();
 
-function sessionHeaders(app: App, userId: string, permissions: readonly string[]): Record<string, string> {
+async function sessionHeaders(app: App, userId: string, permissions: readonly string[]): Promise<Record<string, string>> {
   const sessions = registries.get(app);
   if (!sessions) throw new Error("app was not built through newBackend()/newFileBackedBackend()");
   const perApp = headerCache.get(app) ?? new Map<string, Record<string, string>>();
@@ -37,7 +37,7 @@ function sessionHeaders(app: App, userId: string, permissions: readonly string[]
   const key = `${userId}|${permissions.join(",")}`;
   const cached = perApp.get(key);
   if (cached) return cached;
-  const token = sessions.issue({
+  const token = await sessions.issue({
     userId,
     permissions,
     roleCode: null,
@@ -50,8 +50,8 @@ function sessionHeaders(app: App, userId: string, permissions: readonly string[]
 }
 
 /** A live session for a tenant admin (`"*"`) on `app`. */
-function admin(app: App): Record<string, string> {
-  return sessionHeaders(app, "admin", ["*"]);
+async function admin(app: App): Promise<Record<string, string>> {
+  return await sessionHeaders(app, "admin", ["*"]);
 }
 
 async function newBackend() {
@@ -104,7 +104,7 @@ describe("createBackend — seeded app", () => {
   it("computes a real dashboard summary — seeded COA, zero money, empty activity", async () => {
     const app = await newBackend();
     const res = await app.fetch(
-      new Request("http://local/dashboard/summary", { headers: admin(app) }),
+      new Request("http://local/dashboard/summary", { headers: await admin(app) }),
     );
     expect(res.status).toBe(200);
     const summary = (await res.json()) as DashboardSummaryDTO;
@@ -121,14 +121,14 @@ describe("createBackend — seeded app", () => {
     expect(anonymous.status).toBe(401);
 
     const signedInElsewhere = await app.fetch(
-      new Request("http://local/dashboard/summary", { headers: sessionHeaders(app, "u-nobody", ["sales.customer.view"]) }),
+      new Request("http://local/dashboard/summary", { headers: await sessionHeaders(app, "u-nobody", ["sales.customer.view"]) }),
     );
     expect(signedInElsewhere.status).toBe(403);
   });
 
   it("the dashboard asks for dashboard.view as well as the ledger read it folds", async () => {
     const app = await newBackend();
-    const as = (permissions: string[]) => app.fetch(new Request("http://local/dashboard/summary", { headers: sessionHeaders(app, "u-dash", permissions) }));
+    const as = async (permissions: string[]) => app.fetch(new Request("http://local/dashboard/summary", { headers: await sessionHeaders(app, "u-dash", permissions) }));
     const ledgerOnly = await as(["accounting.journal.view"]);
     expect(ledgerOnly.status).toBe(403);
     expect(((await ledgerOnly.json()) as { permission?: string }).permission).toBe("dashboard.view");
@@ -148,7 +148,7 @@ describe("createBackend — seeded app", () => {
   it("mounts /reports/* over the real seeded repositories (docs/archive/catalog/08)", async () => {
     const app = await newBackend();
     const res = await app.fetch(
-      new Request("http://local/reports/sales/by-period?groupBy=day", { headers: admin(app) }),
+      new Request("http://local/reports/sales/by-period?groupBy=day", { headers: await admin(app) }),
     );
     expect(res.status).toBe(200);
     const body = (await res.json()) as { rows: unknown[] };
@@ -178,16 +178,16 @@ const AUTHED_PERMISSIONS = [
 ];
 
 /** A live session holding exactly {@link AUTHED_PERMISSIONS}, as user `u1`. */
-function authed(app: App): Record<string, string> {
-  return sessionHeaders(app, "u1", AUTHED_PERMISSIONS);
+async function authed(app: App): Promise<Record<string, string>> {
+  return await sessionHeaders(app, "u1", AUTHED_PERMISSIONS);
 }
 
-function authedPost(app: App, path: string, body: unknown) {
-  return post(app, path, body, authed(app));
+async function authedPost(app: App, path: string, body: unknown) {
+  return post(app, path, body, await authed(app));
 }
 
-function authedGet(app: App, path: string) {
-  return app.fetch(new Request(`http://local${path}`, { headers: authed(app) }));
+async function authedGet(app: App, path: string) {
+  return app.fetch(new Request(`http://local${path}`, { headers: await authed(app) }));
 }
 
 async function createCustomer(app: App, id: string, creditLimit: string, taxNumber?: string) {
@@ -334,7 +334,7 @@ describe("createBackend — sales-quotes, price-lists, promotions, credit contro
     const putSettings = await app.fetch(
       new Request("http://local/settings", {
         method: "PUT",
-        headers: { "content-type": "application/json", ...authed(app) },
+        headers: { "content-type": "application/json", ...(await authed(app)) },
         body: JSON.stringify({ creditControlEnabled: true, creditControlMode: "BLOCK" }),
       }),
     );
@@ -356,7 +356,7 @@ describe("createBackend — sales-quotes, price-lists, promotions, credit contro
     const putSettings = await app.fetch(
       new Request("http://local/settings", {
         method: "PUT",
-        headers: { "content-type": "application/json", ...authed(app) },
+        headers: { "content-type": "application/json", ...(await authed(app)) },
         body: JSON.stringify({ creditControlEnabled: true, creditControlMode: "WARNING" }),
       }),
     );
@@ -377,7 +377,7 @@ describe("createBackend — sales-quotes, price-lists, promotions, credit contro
     const putSettings = await app.fetch(
       new Request("http://local/settings", {
         method: "PUT",
-        headers: { "content-type": "application/json", ...authed(app) },
+        headers: { "content-type": "application/json", ...(await authed(app)) },
         body: JSON.stringify({ creditControlEnabled: true, creditControlMode: "BLOCK" }),
       }),
     );
@@ -410,17 +410,17 @@ describe("createBackend — cheques + bank reconciliation (phase7/treasury-compl
         counterpartyGlAccountId: "1105",
         controlAccounts: { underCollectionAccountId: "1320", bouncedAccountId: "1360" },
       },
-      admin(app),
+      await admin(app),
     );
     expect(created.status).toBe(201);
     expect((await created.json()) as { status: string }).toMatchObject({ status: "pending" });
 
-    const bank = await post(app, "/treasury-accounts", { id: "ta-bank1", code: "BANK-1", name: "البنك", type: "bank", currency: "EGP", branchId: "BR-MAIN", glAccountId: "1310" }, admin(app));
+    const bank = await post(app, "/treasury-accounts", { id: "ta-bank1", code: "BANK-1", name: "البنك", type: "bank", currency: "EGP", branchId: "BR-MAIN", glAccountId: "1310" }, await admin(app));
     expect(bank.status).toBe(201);
-    const deposited = await post(app, "/cheques/chq-1/deposit", { bankTreasuryAccountId: "ta-bank1" }, admin(app));
+    const deposited = await post(app, "/cheques/chq-1/deposit", { bankTreasuryAccountId: "ta-bank1" }, await admin(app));
     expect(deposited.status).toBe(200);
 
-    const collected = await post(app, "/cheques/chq-1/collect", { bankGlAccountId: "1310" }, admin(app));
+    const collected = await post(app, "/cheques/chq-1/collect", { bankGlAccountId: "1310" }, await admin(app));
     expect(collected.status).toBe(200);
     const body = (await collected.json()) as { status: string; collectionJournalEntryId: string | null };
     expect(body.status).toBe("collected");
@@ -444,7 +444,7 @@ describe("createBackend — cheques + bank reconciliation (phase7/treasury-compl
         counterpartyGlAccountId: "2100",
         controlAccounts: { underCollectionAccountId: "2150" },
       },
-      admin(app),
+      await admin(app),
     );
     expect(res.status).toBe(201);
   });
@@ -455,7 +455,7 @@ describe("createBackend — cheques + bank reconciliation (phase7/treasury-compl
     await createServiceItem(app);
     expect((await authedPost(app, "/sales-invoices", invoiceBody("inv-chq", "cust-chq", "5335.20"))).status).toBe(201);
     expect((await authedPost(app, "/sales-invoices/inv-chq/confirm", {})).status).toBe(200);
-    const get = async (path: string) => (await app.fetch(new Request(`http://local${path}`, { headers: admin(app) }))).json() as Promise<any>;
+    const get = async (path: string) => (await app.fetch(new Request(`http://local${path}`, { headers: await admin(app) }))).json() as Promise<any>;
     const ar = async () => Number((await get("/gl/accounts/1105/ledger")).balance.balance);
 
     const created = await post(
@@ -474,17 +474,17 @@ describe("createBackend — cheques + bank reconciliation (phase7/treasury-compl
         counterpartyGlAccountId: "1105",
         controlAccounts: { underCollectionAccountId: "1320", bouncedAccountId: "1360" },
       },
-      admin(app),
+      await admin(app),
     );
     expect(created.status).toBe(201);
-    const allocated = await post(app, "/cheques/chq-d192/allocations", { invoiceId: "inv-chq", amount: "1750.00" }, admin(app));
+    const allocated = await post(app, "/cheques/chq-d192/allocations", { invoiceId: "inv-chq", amount: "1750.00" }, await admin(app));
     expect(allocated.status).toBe(201);
     expect(((await allocated.json()) as { allocations: unknown[] }).allocations).toHaveLength(1);
     expect(await get("/sales-invoices/inv-chq")).toMatchObject({ status: "partially_paid", remainingBalance: "3585.200000" });
     expect(await ar()).toBe(3585.2);
 
-    expect((await post(app, "/cheques/chq-d192/deposit", { bankTreasuryAccountId: "ta-bank1" }, admin(app))).status).toBe(200);
-    const bounced = await post(app, "/cheques/chq-d192/bounce", { date: "2026-08-25" }, admin(app));
+    expect((await post(app, "/cheques/chq-d192/deposit", { bankTreasuryAccountId: "ta-bank1" }, await admin(app))).status).toBe(200);
+    const bounced = await post(app, "/cheques/chq-d192/bounce", { date: "2026-08-25" }, await admin(app));
     expect(bounced.status).toBe(200);
     expect((await bounced.json()) as { status: string; allocations: unknown[] }).toMatchObject({ status: "bounced", allocations: [] });
 
@@ -502,7 +502,7 @@ describe("createBackend — cheques + bank reconciliation (phase7/treasury-compl
     const app = await newBackend();
     expect((await app.fetch(new Request("http://local/cheques"))).status).toBe(401);
     const res = await app.fetch(
-      new Request("http://local/cheques", { headers: sessionHeaders(app, "u-nobody", ["sales.customer.view"]) }),
+      new Request("http://local/cheques", { headers: await sessionHeaders(app, "u-nobody", ["sales.customer.view"]) }),
     );
     expect(res.status).toBe(403);
   });
@@ -516,7 +516,7 @@ describe("createBackend — cheques + bank reconciliation (phase7/treasury-compl
       app,
       "/treasury-accounts",
       { id: "ta-bank1", code: "TA-BANK1", name: "بنك مصر — الحساب الجاري", type: "bank", branchId: "BR-MAIN", glAccountId: "1310", openingBalance: "0" },
-      admin(app),
+      await admin(app),
     );
     expect(account.status).toBe(201);
     // And the match needs a book entry that actually MOVES that bank account
@@ -534,7 +534,7 @@ describe("createBackend — cheques + bank reconciliation (phase7/treasury-compl
           { accountId: "4100", debit: "0", credit: "100.00" },
         ],
       },
-      admin(app),
+      await admin(app),
     );
     expect(deposit.status).toBe(201);
     const res = await post(
@@ -550,21 +550,21 @@ describe("createBackend — cheques + bank reconciliation (phase7/treasury-compl
         openingBalance: "0.00",
         closingBalance: "95.00",
       },
-      admin(app),
+      await admin(app),
     );
     expect(res.status).toBe(201);
     const imported = (await res.json()) as { status: string; lines: { amount: string }[] };
     expect(imported.status).toBe("imported");
     expect(imported.lines.map((l) => l.amount)).toEqual(["100.000000", "-5.000000"]);
 
-    const mapping = await app.fetch(new Request("http://local/bank-statements/column-mapping/ta-bank1", { headers: admin(app) }));
+    const mapping = await app.fetch(new Request("http://local/bank-statements/column-mapping/ta-bank1", { headers: await admin(app) }));
     expect(mapping.status).toBe(200);
     expect((await mapping.json()) as { amountColumn: string }).toMatchObject({ amountColumn: "Amount", dateFormat: "YYYY-MM-DD" });
 
-    const matched = await post(app, "/bank-statements/stmt-1/lines/stmt-1:L0/match", { entryId: "je-1" }, admin(app));
+    const matched = await post(app, "/bank-statements/stmt-1/lines/stmt-1:L0/match", { entryId: "je-1" }, await admin(app));
     expect(matched.status).toBe(200);
 
-    const detail = await app.fetch(new Request("http://local/bank-statements/stmt-1", { headers: admin(app) }));
+    const detail = await app.fetch(new Request("http://local/bank-statements/stmt-1", { headers: await admin(app) }));
     expect((await detail.json()) as { status: string }).toMatchObject({
       status: "in_progress",
       matchSummary: { total: 2, matched: 1, unmatched: 1, matchRate: 0.5 },
@@ -575,7 +575,7 @@ describe("createBackend — cheques + bank reconciliation (phase7/treasury-compl
     const app = await newBackend();
     expect((await app.fetch(new Request("http://local/bank-statements"))).status).toBe(401);
     const res = await app.fetch(
-      new Request("http://local/bank-statements", { headers: sessionHeaders(app, "u-nobody", ["sales.customer.view"]) }),
+      new Request("http://local/bank-statements", { headers: await sessionHeaders(app, "u-nobody", ["sales.customer.view"]) }),
     );
     expect(res.status).toBe(403);
   });
@@ -585,7 +585,7 @@ describe("createBackend — CRM, Projects, Fixed Assets, Field/Van Sales (phase1
 
   it("seeds the 7 standard CRM pipeline stages on an empty DB", async () => {
     const app = await newBackend();
-    const res = await app.fetch(new Request("http://local/crm/pipeline-stages", { headers: admin(app) }));
+    const res = await app.fetch(new Request("http://local/crm/pipeline-stages", { headers: await admin(app) }));
     expect(res.status).toBe(200);
     const stages = (await res.json()) as { name: string; isWinStage: boolean; isLossStage: boolean }[];
     expect(stages).toHaveLength(7);
@@ -595,21 +595,21 @@ describe("createBackend — CRM, Projects, Fixed Assets, Field/Van Sales (phase1
 
   it("runs a lead through the full state machine and converts it to a customer + opportunity", async () => {
     const app = await newBackend();
-    const create = await post(app, "/crm/leads", { id: "lead-1", name: "شركة الأمل" }, admin(app));
+    const create = await post(app, "/crm/leads", { id: "lead-1", name: "شركة الأمل" }, await admin(app));
     expect(create.status).toBe(201);
     expect(((await create.json()) as { status: string }).status).toBe("new");
 
-    const contacted = await post(app, "/crm/leads/lead-1/transition", { status: "contacted" }, admin(app));
+    const contacted = await post(app, "/crm/leads/lead-1/transition", { status: "contacted" }, await admin(app));
     expect(contacted.status).toBe(200);
-    const qualified = await post(app, "/crm/leads/lead-1/transition", { status: "qualified" }, admin(app));
+    const qualified = await post(app, "/crm/leads/lead-1/transition", { status: "qualified" }, await admin(app));
     expect(qualified.status).toBe(200);
     expect(((await qualified.json()) as { status: string }).status).toBe("qualified");
 
     // an invalid jump (qualified -> contacted) is rejected by the state machine
-    const invalid = await post(app, "/crm/leads/lead-1/transition", { status: "contacted" }, admin(app));
+    const invalid = await post(app, "/crm/leads/lead-1/transition", { status: "contacted" }, await admin(app));
     expect(invalid.status).toBe(422);
 
-    const stages = (await (await app.fetch(new Request("http://local/crm/pipeline-stages", { headers: admin(app) }))).json()) as {
+    const stages = (await (await app.fetch(new Request("http://local/crm/pipeline-stages", { headers: await admin(app) }))).json()) as {
       id: string;
       isWinStage: boolean;
     }[];
@@ -624,7 +624,7 @@ describe("createBackend — CRM, Projects, Fixed Assets, Field/Van Sales (phase1
         createOpportunity: true,
         opportunity: { id: "opp-1", title: "صفقة الأمل", stageId: openStage.id, expectedValue: "5000", probability: 40 },
       },
-      admin(app),
+      await admin(app),
     );
     expect(convert.status).toBe(200);
     const converted = (await convert.json()) as {
@@ -634,20 +634,20 @@ describe("createBackend — CRM, Projects, Fixed Assets, Field/Van Sales (phase1
     expect(converted.lead.convertedCustomerId).toBe("cust-from-lead-1");
     expect(converted.lead.convertedOpportunityId).toBe("opp-1");
 
-    const customer = await app.fetch(new Request("http://local/customers/cust-from-lead-1", { headers: admin(app) }));
+    const customer = await app.fetch(new Request("http://local/customers/cust-from-lead-1", { headers: await admin(app) }));
     expect(customer.status).toBe(200);
-    const opportunity = await app.fetch(new Request("http://local/crm/opportunities/opp-1", { headers: admin(app) }));
+    const opportunity = await app.fetch(new Request("http://local/crm/opportunities/opp-1", { headers: await admin(app) }));
     expect(opportunity.status).toBe(200);
   });
 
   it("creates a project and auto-creates its linked PRJ-{code} cost center", async () => {
     const app = await newBackend();
-    const create = await post(app, "/projects", { id: "proj-1", code: "TOWER-A", nameAr: "مشروع البرج أ", budget: "100000" }, admin(app));
+    const create = await post(app, "/projects", { id: "proj-1", code: "TOWER-A", nameAr: "مشروع البرج أ", budget: "100000" }, await admin(app));
     expect(create.status).toBe(201);
     const project = (await create.json()) as { costCenterId: string; status: string };
     expect(project.status).toBe("planned");
 
-    const costCenter = await app.fetch(new Request(`http://local/cost-centers/${project.costCenterId}`, { headers: admin(app) }));
+    const costCenter = await app.fetch(new Request(`http://local/cost-centers/${project.costCenterId}`, { headers: await admin(app) }));
     expect(costCenter.status).toBe(200);
     const cc = (await costCenter.json()) as { code: string };
     expect(cc.code).toBe("PRJ-TOWER-A");
@@ -659,7 +659,7 @@ describe("createBackend — CRM, Projects, Fixed Assets, Field/Van Sales (phase1
       app,
       "/assets/categories",
       { id: "cat-1", code: "FA-01", nameAr: "سيارات", defaultUsefulLifeMonths: 60, defaultSalvagePercent: 10 },
-      admin(app),
+      await admin(app),
     );
     expect(category.status).toBe(201);
 
@@ -675,24 +675,24 @@ describe("createBackend — CRM, Projects, Fixed Assets, Field/Van Sales (phase1
         acquisitionCost: "120000",
         usefulLifeMonths: 60,
       },
-      admin(app),
+      await admin(app),
     );
     expect(asset.status).toBe(201);
 
-    const run = await post(app, "/assets/depreciation/runs", { period: "2026-02" }, admin(app));
+    const run = await post(app, "/assets/depreciation/runs", { period: "2026-02" }, await admin(app));
     expect(run.status).toBe(201);
     const created = (await run.json()) as { id: string; status: string; totalAmount: string; lines: unknown[] };
     expect(created.status).toBe("draft");
     expect(created.lines).toHaveLength(1);
     expect(Number(created.totalAmount)).toBeGreaterThan(0);
 
-    const posted = await post(app, `/assets/depreciation/runs/${created.id}/post`, {}, admin(app));
+    const posted = await post(app, `/assets/depreciation/runs/${created.id}/post`, {}, await admin(app));
     expect(posted.status).toBe(200);
     const postedRun = (await posted.json()) as { status: string; journalEntryId: string | null };
     expect(postedRun.status).toBe("posted");
     expect(postedRun.journalEntryId).toBeTruthy();
 
-    const entry = await app.fetch(new Request(`http://local/gl/journal-entries/${postedRun.journalEntryId}`, { headers: admin(app) }));
+    const entry = await app.fetch(new Request(`http://local/gl/journal-entries/${postedRun.journalEntryId}`, { headers: await admin(app) }));
     expect(entry.status).toBe(200);
     const je = (await entry.json()) as { lines: { accountId: string; debit: string; credit: string }[] };
     const totalDebit = je.lines.reduce((n, l) => n + Number(l.debit), 0);
@@ -705,27 +705,27 @@ describe("createBackend — CRM, Projects, Fixed Assets, Field/Van Sales (phase1
   it("opens a van trip (real treasury transfer + real stock transfer) and settles it with cash + stock variance", async () => {
     const app = await newBackend();
 
-    const van = await post(app, "/warehouses", { id: "wh-van1", code: "WH-VAN1", name: "مستودع الڤان 1", nameEn: null, branchId: "BR-MAIN", type: "VAN" }, admin(app));
+    const van = await post(app, "/warehouses", { id: "wh-van1", code: "WH-VAN1", name: "مستودع الڤان 1", nameEn: null, branchId: "BR-MAIN", type: "VAN" }, await admin(app));
     expect(van.status).toBe(201);
     const sourceTa = await post(
       app,
       "/treasury-accounts",
       { id: "ta-main", code: "TA-MAIN", name: "خزينة الفرع الرئيسي", branchId: "BR-MAIN", glAccountId: "1300-1", openingBalance: "10000" },
-      admin(app),
+      await admin(app),
     );
     expect(sourceTa.status).toBe(201);
     const vanTa = await post(
       app,
       "/treasury-accounts",
       { id: "ta-van1", code: "TA-VAN1", name: "خزينة الڤان 1", branchId: "BR-MAIN", glAccountId: "1310" },
-      admin(app),
+      await admin(app),
     );
     expect(vanTa.status).toBe(201);
     const item = await post(
       app,
       "/items",
       { id: "item-van1", code: "ITEM-VAN1", nameAr: "منتج للفان", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" },
-      admin(app),
+      await admin(app),
     );
     expect(item.status).toBe(201);
 
@@ -734,7 +734,7 @@ describe("createBackend — CRM, Projects, Fixed Assets, Field/Van Sales (phase1
       app,
       "/hr/employees",
       { id: "emp-1", firstName: "سائق", lastName: "الڤان", branchId: "BR-MAIN", hireDate: "2026-01-01" },
-      admin(app),
+      await admin(app),
     );
     expect(driver.status).toBe(201);
 
@@ -755,10 +755,10 @@ describe("createBackend — CRM, Projects, Fixed Assets, Field/Van Sales (phase1
         treasuryGlAccountId: "1300-1",
         counterpartyGlAccountId: "3100",
       },
-      admin(app),
+      await admin(app),
     );
     expect(fund.status).toBe(201);
-    const fundConfirm = await post(app, "/vouchers/voucher-fund-main/confirm", {}, admin(app));
+    const fundConfirm = await post(app, "/vouchers/voucher-fund-main/confirm", {}, await admin(app));
     expect(fundConfirm.status).toBe(200);
 
     // load the source warehouse with stock the van trip can transfer out of
@@ -771,7 +771,7 @@ describe("createBackend — CRM, Projects, Fixed Assets, Field/Van Sales (phase1
         reason: "INITIAL_STOCK",
         lines: [{ itemId: "item-van1", direction: "IN", qty: "20", unitCost: "50" }],
       },
-      admin(app),
+      await admin(app),
     );
     expect(adjust.status).toBe(201);
 
@@ -790,7 +790,7 @@ describe("createBackend — CRM, Projects, Fixed Assets, Field/Van Sales (phase1
         crew: [{ employeeId: "emp-1", role: "driver" }],
         loadedStock: [{ itemId: "item-van1", qty: "10" }],
       },
-      admin(app),
+      await admin(app),
     );
     expect(open.status).toBe(201);
     const trip = (await open.json()) as { id: string; status: string; openingCashFloat: string };
@@ -799,14 +799,14 @@ describe("createBackend — CRM, Projects, Fixed Assets, Field/Van Sales (phase1
 
     // opening the trip really moved stock into the van warehouse via the real stock ledger
     const vanStock = await app.fetch(
-      new Request("http://local/inventory/balance?itemId=item-van1&warehouseId=wh-van1", { headers: admin(app) }),
+      new Request("http://local/inventory/balance?itemId=item-van1&warehouseId=wh-van1", { headers: await admin(app) }),
     );
     expect(vanStock.status).toBe(200);
     expect(Number(((await vanStock.json()) as { onHand: string }).onHand)).toBe(10);
 
     // and it really moved cash between the two treasury accounts via a confirmed inter-treasury voucher
     const sourceStock = await app.fetch(
-      new Request("http://local/inventory/balance?itemId=item-van1&warehouseId=WH-MAIN", { headers: admin(app) }),
+      new Request("http://local/inventory/balance?itemId=item-van1&warehouseId=WH-MAIN", { headers: await admin(app) }),
     );
     expect(Number(((await sourceStock.json()) as { onHand: string }).onHand)).toBe(10); // 20 loaded - 10 transferred to the van
 
@@ -814,7 +814,7 @@ describe("createBackend — CRM, Projects, Fixed Assets, Field/Van Sales (phase1
       app,
       `/field/van-trips/${trip.id}/cash-movements`,
       { id: "cm-1", kind: "collection", amount: "300", occurredAt: "2026-08-21T10:00:00.000Z" },
-      admin(app),
+      await admin(app),
     );
     expect(collection.status).toBe(200);
 
@@ -837,16 +837,16 @@ describe("createBackend — CRM, Projects, Fixed Assets, Field/Van Sales (phase1
         treasuryGlAccountId: "1310",
         counterpartyGlAccountId: "4900",
       },
-      admin(app),
+      await admin(app),
     );
     expect(vanCollection.status).toBe(201);
-    expect((await post(app, "/vouchers/voucher-van-collection/confirm", {}, admin(app))).status).toBe(200);
+    expect((await post(app, "/vouchers/voucher-van-collection/confirm", {}, await admin(app))).status).toBe(200);
 
     const settle = await post(
       app,
       `/field/van-trips/${trip.id}/settle`,
       { countedCash: "780", stockCounts: [{ itemId: "item-van1", countedQty: "6" }] },
-      admin(app),
+      await admin(app),
     );
     expect(settle.status).toBe(200);
     const settled = (await settle.json()) as {
@@ -861,21 +861,21 @@ describe("createBackend — CRM, Projects, Fixed Assets, Field/Van Sales (phase1
     const line = settled.settlement.stockCounts.find((s) => s.itemId === "item-van1")!;
     expect(line.varianceQty).toBe("-4.000000");
 
-    const supervisor = sessionHeaders(app, "u-supervisor", ["field.van_trip.approve", "field.van_trip.view"]);
+    const supervisor = (await sessionHeaders(app, "u-supervisor", ["field.van_trip.approve", "field.van_trip.view"]));
     const approve = await post(app, `/field/van-trips/${trip.id}/approve`, {}, supervisor);
     expect(approve.status).toBe(200);
     expect(((await approve.json()) as { trip: { status: string } }).trip.status).toBe("settled");
     const balanceOf = async (warehouseId: string) =>
-      ((await (await app.fetch(new Request(`http://local/inventory/balance?itemId=item-van1&warehouseId=${warehouseId}`, { headers: admin(app) }))).json()) as { onHand: string }).onHand;
+      ((await (await app.fetch(new Request(`http://local/inventory/balance?itemId=item-van1&warehouseId=${warehouseId}`, { headers: await admin(app) }))).json()) as { onHand: string }).onHand;
     expect(await balanceOf("wh-van1")).toBe("0.000000");
     expect(await balanceOf("WH-MAIN")).toBe("16.000000");
-    const rec = (await (await app.fetch(new Request("http://local/reconciliation", { headers: admin(app) }))).json()) as { rows: { key: string; glBalance: string; matched: boolean }[] };
+    const rec = (await (await app.fetch(new Request("http://local/reconciliation", { headers: await admin(app) }))).json()) as { rows: { key: string; glBalance: string; matched: boolean }[] };
     expect(rec.rows.find((r) => r.key === "inventory")).toMatchObject({ glBalance: "800.000000", matched: true });
   });
 
   it("gates /crm, /projects, /assets and /field/van-trips behind their own permissions", async () => {
     const app = await newBackend();
-    const outsider = sessionHeaders(app, "u-nobody", ["sales.customer.view"]);
+    const outsider = await sessionHeaders(app, "u-nobody", ["sales.customer.view"]);
     for (const path of ["/crm/leads", "/projects", "/assets", "/field/van-trips"]) {
       expect((await app.fetch(new Request(`http://local${path}`))).status, `anonymous GET ${path}`).toBe(401);
       expect(
@@ -889,30 +889,30 @@ describe("createBackend — CRM, Projects, Fixed Assets, Field/Van Sales (phase1
 describe("createBackend — sweep/finish-and-mount: manufacturing, RFQ, historical import", () => {
   it("mounts /manufacturing/* over the seeded COA's dedicated leaf accounts", async () => {
     const app = await newBackend();
-    const boms = await app.fetch(new Request("http://local/manufacturing/boms", { headers: admin(app) }));
+    const boms = await app.fetch(new Request("http://local/manufacturing/boms", { headers: await admin(app) }));
     expect(boms.status).toBe(200);
     expect((await boms.json()) as unknown[]).toEqual([]);
 
     const workOrders = await app.fetch(
-      new Request("http://local/manufacturing/work-orders", { headers: admin(app) }),
+      new Request("http://local/manufacturing/work-orders", { headers: await admin(app) }),
     );
     expect(workOrders.status).toBe(200);
 
     const configInstances = await app.fetch(
-      new Request("http://local/manufacturing/config-instances", { headers: admin(app) }),
+      new Request("http://local/manufacturing/config-instances", { headers: await admin(app) }),
     );
     expect(configInstances.status).toBe(200);
     expect((await configInstances.json()) as unknown[]).toEqual([]);
 
     // The 4 dedicated leaf accounts from the standard COA template exist on the seeded DB.
-    const accounts = await app.fetch(new Request("http://local/accounts", { headers: admin(app) }));
+    const accounts = await app.fetch(new Request("http://local/accounts", { headers: await admin(app) }));
     const accountIds = ((await accounts.json()) as { id: string }[]).map((a) => a.id);
     expect(accountIds).toEqual(expect.arrayContaining(["1210", "1220", "5110", "5210"]));
   });
 
   it("mounts /rfqs over the shared purchase-order store + numbering", async () => {
     const app = await newBackend();
-    const res = await app.fetch(new Request("http://local/rfqs", { headers: admin(app) }));
+    const res = await app.fetch(new Request("http://local/rfqs", { headers: await admin(app) }));
     expect(res.status).toBe(200);
     expect((await res.json()) as unknown[]).toEqual([]);
   });
@@ -920,7 +920,7 @@ describe("createBackend — sweep/finish-and-mount: manufacturing, RFQ, historic
   it("mounts /purchases/historical-import/archives (no GL adapter — archive only)", async () => {
     const app = await newBackend();
     const res = await app.fetch(
-      new Request("http://local/purchases/historical-import/archives", { headers: admin(app) }),
+      new Request("http://local/purchases/historical-import/archives", { headers: await admin(app) }),
     );
     expect(res.status).toBe(200);
     expect((await res.json()) as unknown[]).toEqual([]);
@@ -928,7 +928,7 @@ describe("createBackend — sweep/finish-and-mount: manufacturing, RFQ, historic
 
   it("mounts /sales-returns, /purchase-returns, /landed-costs, /installments/plans, /installments/follow-ups", async () => {
     const app = await newBackend();
-    const headers = admin(app);
+    const headers = await admin(app);
     for (const path of [
       "/sales-returns",
       "/purchase-returns",
@@ -957,7 +957,7 @@ describe("createBackend — partner opening balances reach the ledger (B-2)", ()
   };
 
   async function entry(app: App, id: string) {
-    const res = await app.fetch(new Request(`http://local/gl/journal-entries/${id}`, { headers: admin(app) }));
+    const res = await app.fetch(new Request(`http://local/gl/journal-entries/${id}`, { headers: await admin(app) }));
     if (res.status !== 200) return null;
     return (await res.json()) as Entry;
   }
@@ -969,7 +969,7 @@ describe("createBackend — partner opening balances reach the ledger (B-2)", ()
    * editing the one already on the ledger (D142), so the id cannot be stable.
    */
   async function openingEntryFor(app: App, customerId: string): Promise<Entry | null> {
-    const res = await app.fetch(new Request("http://local/gl/journal-entries", { headers: admin(app) }));
+    const res = await app.fetch(new Request("http://local/gl/journal-entries", { headers: await admin(app) }));
     if (res.status !== 200) return null;
     const body = (await res.json()) as { rows?: { id: string; sourceDocType?: string | null; sourceDocId?: string | null }[] } | { id: string; sourceDocType?: string | null; sourceDocId?: string | null }[];
     const rows = Array.isArray(body) ? body : (body.rows ?? []);
@@ -979,7 +979,7 @@ describe("createBackend — partner opening balances reach the ledger (B-2)", ()
 
   /** Every opening-balance entry for one customer — the original and each correction. */
   async function openingEntriesFor(app: App, customerId: string): Promise<Entry[]> {
-    const res = await app.fetch(new Request("http://local/gl/journal-entries", { headers: admin(app) }));
+    const res = await app.fetch(new Request("http://local/gl/journal-entries", { headers: await admin(app) }));
     if (res.status !== 200) return [];
     const body = (await res.json()) as { rows?: { id: string; sourceDocType?: string | null; sourceDocId?: string | null }[] } | { id: string; sourceDocType?: string | null; sourceDocId?: string | null }[];
     const rows = Array.isArray(body) ? body : (body.rows ?? []);
@@ -1022,7 +1022,7 @@ describe("createBackend — partner opening balances reach the ledger (B-2)", ()
       code: "supp-ob",
       nameAr: "مورد برصيد افتتاحي",
       openingBalance: "1250.50",
-    }, admin(app));
+    }, await admin(app));
     expect(supplier.status).toBe(201);
     const supEntry = await entry(app, "OB-SUPP-JE:supp-ob");
     expect(supEntry).not.toBeNull();
@@ -1044,9 +1044,9 @@ describe("createBackend — partner opening balances reach the ledger (B-2)", ()
       taxExempt: false,
       etaBuyerType: "auto",
     });
-    await post(app, "/suppliers", { id: "supp-rec", code: "supp-rec", nameAr: "مورد", openingBalance: "1250.50" }, admin(app));
+    await post(app, "/suppliers", { id: "supp-rec", code: "supp-rec", nameAr: "مورد", openingBalance: "1250.50" }, await admin(app));
 
-    const res = await app.fetch(new Request("http://local/reconciliation", { headers: admin(app) }));
+    const res = await app.fetch(new Request("http://local/reconciliation", { headers: await admin(app) }));
     const { rows } = (await res.json()) as {
       rows: { key: string; subLedgerBalance: string; glBalance: string; matched: boolean }[];
     };
@@ -1078,7 +1078,7 @@ describe("createBackend — partner opening balances reach the ledger (B-2)", ()
     const patch = await app.fetch(
       new Request("http://local/customers/cust-chg", {
         method: "PATCH",
-        headers: { "content-type": "application/json", ...admin(app) },
+        headers: { "content-type": "application/json", ...(await admin(app)) },
         body: JSON.stringify({ openingBalance: "7500.00" }),
       }),
     );
@@ -1115,7 +1115,7 @@ describe("createBackend — partner opening balances reach the ledger (B-2)", ()
     expect(repost?.lines.find((l) => l.accountId === "1105")?.debit).toBe("7500.000000");
 
     // And AR nets to the new figure, not to 12,500 or to 2,500.
-    const rec = await app.fetch(new Request("http://local/reconciliation", { headers: admin(app) }));
+    const rec = await app.fetch(new Request("http://local/reconciliation", { headers: await admin(app) }));
     const { rows } = (await rec.json()) as { rows: { key: string; glBalance: string; matched: boolean }[] };
     expect(rows.find((r) => r.key === "ar")!.glBalance).toBe("7500.000000");
     expect(rows.find((r) => r.key === "ar")!.matched).toBe(true);
@@ -1141,7 +1141,7 @@ describe("createBackend — partner opening balances reach the ledger (B-2)", ()
 
       const second = keep(await createBackend({ dbPath }));
       const res = await second.fetch(
-        new Request("http://local/gl/journal-entries/OB-CUST-JE:cust-legacy", { headers: admin(second) }),
+        new Request("http://local/gl/journal-entries/OB-CUST-JE:cust-legacy", { headers: await admin(second) }),
       );
       expect(res.status, "the backfill must post the unposted opening balance on the next start").toBe(200);
       const posted = (await res.json()) as { lines: { accountId: string; debit: string }[] };
@@ -1163,7 +1163,7 @@ describe("createBackend — partner opening balances reach the ledger (B-2)", ()
  */
 describe("createBackend — duplicate opening-balance postings are reported and repaired (D241)", () => {
   async function get(app: App, path: string): Promise<any> {
-    return (await app.fetch(new Request(`http://local${path}`, { headers: admin(app) }))).json();
+    return (await app.fetch(new Request(`http://local${path}`, { headers: await admin(app) }))).json();
   }
 
   /**
@@ -1218,8 +1218,8 @@ describe("createBackend — duplicate opening-balance postings are reported and 
       expect((await post(first, "/customers", {
         id: "cust-dup", code: "cust-dup", nameAr: "عميل مكرر", paymentTermsDays: 30, currency: "EGP", openingBalance: "750",
         active: true, creditLimit: "0", taxExempt: false, etaBuyerType: "auto",
-      }, admin(first))).status).toBe(201);
-      expect((await post(first, "/suppliers", { id: "sup-dup", code: "sup-dup", nameAr: "مورد مكرر", openingBalance: "300" }, admin(first))).status).toBe(201);
+      }, await admin(first))).status).toBe(201);
+      expect((await post(first, "/suppliers", { id: "sup-dup", code: "sup-dup", nameAr: "مورد مكرر", openingBalance: "300" }, await admin(first))).status).toBe(201);
       await injectLegacyDuplicate(dbPath, "customer", "cust-dup", "750");
       await injectLegacyDuplicate(dbPath, "supplier", "sup-dup", "300");
 
@@ -1240,7 +1240,7 @@ describe("createBackend — duplicate opening-balance postings are reported and 
       expect((await get(app, "/gl/accounts/1105/ledger")).balance.balance).toBe("1500.000000");
       expect((await get(app, "/gl/accounts/2100/ledger")).balance.balance).toBe("-600.000000");
 
-      const res = await app.fetch(new Request("http://local/gl/opening-balance-duplicates", { headers: admin(app) }));
+      const res = await app.fetch(new Request("http://local/gl/opening-balance-duplicates", { headers: await admin(app) }));
       expect(res.status).toBe(200);
       const body = (await res.json()) as { rows: { kind: string; partyId: string; wanted: number; totalPosted: number; excess: number; entryCount: number }[] };
       const customerRow = body.rows.find((r) => r.partyId === "cust-dup");
@@ -1252,14 +1252,14 @@ describe("createBackend — duplicate opening-balance postings are reported and 
 
   it("refuses the report to a caller with no accounting.reports.view permission", async () => {
     await withDuplicatedTenant(async ({ app }) => {
-      const res = await app.fetch(new Request("http://local/gl/opening-balance-duplicates", { headers: sessionHeaders(app, "u-nobody", ["sales.customer.view"]) }));
+      const res = await app.fetch(new Request("http://local/gl/opening-balance-duplicates", { headers: await sessionHeaders(app, "u-nobody", ["sales.customer.view"]) }));
       expect(res.status).toBe(403);
     });
   });
 
   it("repairs the customer's duplicate: reverses exactly the excess, ties the ladder, and does nothing on a second run", async () => {
     await withDuplicatedTenant(async ({ app }) => {
-      const repair = () => app.fetch(new Request("http://local/gl/opening-balance-duplicates/customer/cust-dup/repair", { method: "POST", headers: admin(app) }));
+      const repair = async () => app.fetch(new Request("http://local/gl/opening-balance-duplicates/customer/cust-dup/repair", { method: "POST", headers: await admin(app) }));
 
       const first = await repair();
       expect(first.status).toBe(200);
@@ -1289,7 +1289,7 @@ describe("createBackend — duplicate opening-balance postings are reported and 
 
   it("repairs the supplier's duplicate the identical way", async () => {
     await withDuplicatedTenant(async ({ app }) => {
-      const res = await app.fetch(new Request("http://local/gl/opening-balance-duplicates/supplier/sup-dup/repair", { method: "POST", headers: admin(app) }));
+      const res = await app.fetch(new Request("http://local/gl/opening-balance-duplicates/supplier/sup-dup/repair", { method: "POST", headers: await admin(app) }));
       expect(res.status).toBe(200);
       expect(await res.json()).toMatchObject({ kind: "supplier", partyId: "sup-dup", repaired: true });
       expect((await get(app, "/gl/accounts/2100/ledger")).balance.balance).toBe("-300.000000");
@@ -1303,7 +1303,7 @@ describe("createBackend — duplicate opening-balance postings are reported and 
       const res = await app.fetch(
         new Request("http://local/gl/opening-balance-duplicates/customer/cust-dup/repair", {
           method: "POST",
-          headers: sessionHeaders(app, "u-nobody", ["accounting.reports.view"]),
+          headers: await sessionHeaders(app, "u-nobody", ["accounting.reports.view"]),
         }),
       );
       expect(res.status).toBe(403);
@@ -1313,7 +1313,7 @@ describe("createBackend — duplicate opening-balance postings are reported and 
 
   it("a restart after the repair posts nothing new — the backfill still only fills a gap", async () => {
     await withDuplicatedTenant(async ({ app, reopen }) => {
-      await app.fetch(new Request("http://local/gl/opening-balance-duplicates/customer/cust-dup/repair", { method: "POST", headers: admin(app) }));
+      await app.fetch(new Request("http://local/gl/opening-balance-duplicates/customer/cust-dup/repair", { method: "POST", headers: await admin(app) }));
       const restarted = await reopen();
       expect((await get(restarted, "/gl/accounts/1105/ledger")).balance.balance).toBe("750.000000");
     });
@@ -1328,7 +1328,7 @@ describe("createBackend — duplicate opening-balance postings are reported and 
 describe("createBackend — the reconciliation reads the tenant's control accounts (B-8)", () => {
   it("reports the shipped defaults with no routing table", async () => {
     const app = await newBackend();
-    const res = await app.fetch(new Request("http://local/reconciliation", { headers: admin(app) }));
+    const res = await app.fetch(new Request("http://local/reconciliation", { headers: await admin(app) }));
     expect(res.status).toBe(200);
     const { rows } = (await res.json()) as { rows: { key: string; controlAccountId: string }[] };
     expect(rows.find((r) => r.key === "ar")!.controlAccountId).toBe("1105");
@@ -1341,7 +1341,7 @@ describe("createBackend — the reconciliation reads the tenant's control accoun
     const put = await app.fetch(
       new Request("http://local/accounting/account-routing", {
         method: "PUT",
-        headers: { "content-type": "application/json", ...admin(app) },
+        headers: { "content-type": "application/json", ...(await admin(app)) },
         body: JSON.stringify({
           overrides: { "control.receivable": "1100", "control.payable": "2110", "control.inventory": "1210" },
         }),
@@ -1349,7 +1349,7 @@ describe("createBackend — the reconciliation reads the tenant's control accoun
     );
     expect(put.status).toBe(200);
 
-    const res = await app.fetch(new Request("http://local/reconciliation", { headers: admin(app) }));
+    const res = await app.fetch(new Request("http://local/reconciliation", { headers: await admin(app) }));
     const { rows } = (await res.json()) as { rows: { key: string; controlAccountId: string }[] };
     expect(rows.find((r) => r.key === "ar")!.controlAccountId).toBe("1100");
     expect(rows.find((r) => r.key === "ap")!.controlAccountId).toBe("2110");
@@ -1397,21 +1397,21 @@ describe("createBackend — a return of a VAT invoice credits the VAT (B-3)", ()
       sourceInvoiceId: "inv-vat-1",
       reason: "OTHER",
       requested: [{ itemId: "SVC-1", qty: "1" }],
-    }, admin(app));
+    }, await admin(app));
     expect(draft.status).toBe(201);
     const draftDoc = (await draft.json()) as { lines: { taxAmount: string; taxRatePercent: number | null }[] };
     // Half the quantity returned → half the invoice's 28.00 VAT.
     expect(draftDoc.lines[0]!.taxAmount).toBe("14.000000");
     expect(draftDoc.lines[0]!.taxRatePercent).toBe(14);
 
-    const confirmRes = await post(app, "/sales-returns/sr-vat-1/confirm", {}, admin(app));
+    const confirmRes = await post(app, "/sales-returns/sr-vat-1/confirm", {}, await admin(app));
     expect(confirmRes.status).toBe(200);
     const returned = (await confirmRes.json()) as { document: { journalEntryId: string | null } };
     const entryId = returned.document.journalEntryId;
     expect(entryId).toBeTruthy();
 
     const entryRes = await app.fetch(
-      new Request(`http://local/gl/journal-entries/${entryId}`, { headers: admin(app) }),
+      new Request(`http://local/gl/journal-entries/${entryId}`, { headers: await admin(app) }),
     );
     expect(entryRes.status).toBe(200);
     const entry = (await entryRes.json()) as { lines: { accountId: string; debit: string; credit: string }[] };
@@ -1429,8 +1429,8 @@ describe("createBackend — a return of a VAT invoice credits the VAT (B-3)", ()
  * authority code — without them the receipt is refused as not ready.
  */
 async function completeEtaRegistration(app: App) {
-  const put = (path: string, body: unknown) =>
-    app.fetch(new Request(`http://local${path}`, { method: "PUT", headers: { ...admin(app), "content-type": "application/json" }, body: JSON.stringify(body) }));
+  const put = async (path: string, body: unknown) =>
+    app.fetch(new Request(`http://local${path}`, { method: "PUT", headers: { ...(await admin(app)), "content-type": "application/json" }, body: JSON.stringify(body) }));
   expect((await put("/eta/config", {
     taxRegistrationNumber: "123456789",
     activityCode: "4711",
@@ -1460,7 +1460,7 @@ describe("createBackend — ETA enqueue bridge (D122)", () => {
   }
 
   async function submissions(app: App) {
-    const res = await app.fetch(new Request("http://local/eta/submissions", { headers: admin(app) }));
+    const res = await app.fetch(new Request("http://local/eta/submissions", { headers: await admin(app) }));
     expect(res.status).toBe(200);
     return (await res.json()) as { internalId: string; documentType: string }[];
   }
@@ -1488,7 +1488,7 @@ describe("createBackend — ETA enqueue bridge (D122)", () => {
     const res = await app.fetch(
       new Request("http://local/eta/branch-codes/BR-MAIN", {
         method: "PUT",
-        headers: { ...admin(app), "content-type": "application/json" },
+        headers: { ...(await admin(app)), "content-type": "application/json" },
         body: JSON.stringify({ etaBranchCode: "1", deviceSerialNumber: "POS-0001" }),
       }),
     );
@@ -1518,7 +1518,7 @@ describe("createBackend — ETA enqueue bridge (D122)", () => {
     // resolves at the authority's own portal — the whole point of the receipt
     // regime, and the thing a walk-in customer leaves the shop holding.
     const printed = await app.fetch(
-      new Request(`http://local/eta/receipts/${encodeURIComponent(docNo)}`, { headers: admin(app) }),
+      new Request(`http://local/eta/receipts/${encodeURIComponent(docNo)}`, { headers: await admin(app) }),
     );
     expect(printed.status).toBe(200);
     const body = (await printed.json()) as {
@@ -1572,9 +1572,9 @@ describe("createBackend — ETA enqueue bridge (D122)", () => {
           taxAmount: "0",
         },
       ],
-    }, admin(app));
+    }, await admin(app));
     expect(createReturn.status).toBe(201);
-    const confirmReturn = await post(app, "/sales-returns/sr-eta-1/confirm", {}, admin(app));
+    const confirmReturn = await post(app, "/sales-returns/sr-eta-1/confirm", {}, await admin(app));
     expect(confirmReturn.status).toBe(200);
     const returnDoc = (await confirmReturn.json()) as { document: { docNo: string } };
     expect(returnDoc.document.docNo).toBeTruthy();
@@ -1617,7 +1617,7 @@ describe("createBackend — the e-receipt path (D282–D284)", () => {
     const res = await app.fetch(
       new Request("http://local/eta/branch-codes/BR-MAIN", {
         method: "PUT",
-        headers: { ...admin(app), "content-type": "application/json" },
+        headers: { ...(await admin(app)), "content-type": "application/json" },
         body: JSON.stringify({ etaBranchCode: "1", deviceSerialNumber: "POS-0001", ...extra }),
       }),
     );
@@ -1638,7 +1638,7 @@ describe("createBackend — the e-receipt path (D282–D284)", () => {
   }
 
   async function receipt(app: App, receiptNo: string): Promise<Receipt> {
-    const res = await app.fetch(new Request(`http://local/eta/receipts/${encodeURIComponent(receiptNo)}`, { headers: admin(app) }));
+    const res = await app.fetch(new Request(`http://local/eta/receipts/${encodeURIComponent(receiptNo)}`, { headers: await admin(app) }));
     expect(res.status).toBe(200);
     return (await res.json()) as Receipt;
   }
@@ -1647,7 +1647,7 @@ describe("createBackend — the e-receipt path (D282–D284)", () => {
     const res = await app.fetch(
       new Request("http://local/eta/config", {
         method: "PUT",
-        headers: { ...admin(app), "content-type": "application/json" },
+        headers: { ...(await admin(app)), "content-type": "application/json" },
         body: JSON.stringify({ autoSubmitOnConfirm: on, taxRegistrationNumber: "123456789" }),
       }),
     );
@@ -1713,15 +1713,15 @@ describe("createBackend — the e-receipt path (D282–D284)", () => {
       sourceInvoiceId: sale.id,
       reason: "DEFECTIVE",
       requested: [{ itemId: "SVC-1", qty: "1" }],
-    }, admin(app));
+    }, await admin(app));
     expect(draft.status).toBe(201);
-    const confirmed = await post(app, "/sales-returns/sr-r-4/confirm", {}, admin(app));
+    const confirmed = await post(app, "/sales-returns/sr-r-4/confirm", {}, await admin(app));
     expect(confirmed.status).toBe(200);
     const { document } = (await confirmed.json()) as { document: { docNo: string } };
 
     let refund: Receipt | null = null;
     for (let i = 0; i < 40 && !refund; i += 1) {
-      const res = await app.fetch(new Request(`http://local/eta/receipts/${encodeURIComponent(document.docNo)}`, { headers: admin(app) }));
+      const res = await app.fetch(new Request(`http://local/eta/receipts/${encodeURIComponent(document.docNo)}`, { headers: await admin(app) }));
       if (res.status === 200) refund = (await res.json()) as Receipt;
       else await new Promise((resolve) => setTimeout(resolve, 5));
     }
@@ -1732,7 +1732,7 @@ describe("createBackend — the e-receipt path (D282–D284)", () => {
     expect(refund!.submission.payload.header.previousUUID).toBe(sale.etaReceipt!.uuid);
     expect(refund!.submission.payload.totalAmount).toBe("114.00000");
 
-    const queue = (await (await app.fetch(new Request("http://local/eta/submissions", { headers: admin(app) }))).json()) as {
+    const queue = (await (await app.fetch(new Request("http://local/eta/submissions", { headers: await admin(app) }))).json()) as {
       internalId: string;
       documentType: string;
     }[];
@@ -1748,7 +1748,7 @@ describe("createBackend — the e-receipt path (D282–D284)", () => {
       app,
       "/treasury-accounts",
       { id: "ta-card", code: "ta-card", name: "نقاط البيع", branchId: "BR-MAIN", glAccountId: "1300-1", type: "cash", currency: "EGP", openingBalance: "0" },
-      admin(app),
+      await admin(app),
     );
     expect(treasury.status).toBe(201);
     // No device yet: the confirm cannot receipt, and says so without failing the sale.
@@ -1760,7 +1760,7 @@ describe("createBackend — the e-receipt path (D282–D284)", () => {
     expect(confirmed.etaReceipt).toBeNull();
     expect(confirmed.etaReceiptError.code).toBe("ETA_DEVICE_SERIAL_NOT_REGISTERED");
 
-    const paid = await post(app, "/sales-invoices/inv-r-5/payments", { amount: "100.00", treasuryAccountId: "ta-card", paymentMethod: "card" }, admin(app));
+    const paid = await post(app, "/sales-invoices/inv-r-5/payments", { amount: "100.00", treasuryAccountId: "ta-card", paymentMethod: "card" }, await admin(app));
     expect(paid.status).toBe(200);
     await registerDevice(app);
     const issued = await handle.etaReceipts!.issueInvoiceReceipt("inv-r-5");
@@ -1778,10 +1778,10 @@ describe("createBackend — the e-receipt path (D282–D284)", () => {
     expect(((await confirm.json()) as { etaReceiptError: { code: string } }).etaReceiptError.code).toBe("ETA_DEVICE_SERIAL_NOT_REGISTERED");
     await registerDevice(app);
 
-    const retried = await post(app, "/sales-invoices/inv-r-7/eta-receipt/retry", {}, admin(app));
+    const retried = await post(app, "/sales-invoices/inv-r-7/eta-receipt/retry", {}, await admin(app));
     expect(retried.status).toBe(200);
     expect(await retried.json()).toEqual({ documentId: "inv-r-7", filing: "issued" });
-    const again = await post(app, "/sales-invoices/inv-r-7/eta-receipt/retry", {}, admin(app));
+    const again = await post(app, "/sales-invoices/inv-r-7/eta-receipt/retry", {}, await admin(app));
     expect(await again.json()).toEqual({ documentId: "inv-r-7", filing: null });
   });
 
@@ -1897,7 +1897,7 @@ describe("createBackend — the e-receipt path (D282–D284)", () => {
       // freshly corrected receipt back to error before this asserts its
       // freshly-issued جاهز state.
       await setAutoSubmit(app, false);
-      const reissue = await post(app, `/eta/receipts/reissue/invoice/${sale.id}`, {}, admin(app));
+      const reissue = await post(app, `/eta/receipts/reissue/invoice/${sale.id}`, {}, await admin(app));
       expect(reissue.status).toBe(200);
       const printed = (await reissue.json()) as Printed;
       expect(printed.receiptNo).toBe(`${sale.docNo}-R2`);
@@ -1908,10 +1908,10 @@ describe("createBackend — the e-receipt path (D282–D284)", () => {
       expect(corrected.submission.payload.header.previousUUID).toBe(rejected!.uuid);
       expect(corrected.submission.status).toBe("ready");
 
-      const second = await post(app, `/eta/receipts/reissue/invoice/${sale.id}`, {}, admin(app));
+      const second = await post(app, `/eta/receipts/reissue/invoice/${sale.id}`, {}, await admin(app));
       expect(second.status).toBe(422);
       expect((await second.json()) as { error: string }).toMatchObject({ error: "ETA_RECEIPT_NOT_APPLICABLE" });
-      const third = await app.fetch(new Request(`http://local/eta/receipts/${encodeURIComponent(`${sale.docNo}-R3`)}`, { headers: admin(app) }));
+      const third = await app.fetch(new Request(`http://local/eta/receipts/${encodeURIComponent(`${sale.docNo}-R3`)}`, { headers: await admin(app) }));
       expect(third.status).toBe(404);
     });
 
@@ -1924,7 +1924,7 @@ describe("createBackend — the e-receipt path (D282–D284)", () => {
       const sale = await consumerSale(app, "inv-reissue-2", "cust-reissue-2");
       expect((await receipt(app, sale.docNo)).submission.status).toBe("ready");
 
-      const reissue = await post(app, `/eta/receipts/reissue/invoice/${sale.id}`, {}, admin(app));
+      const reissue = await post(app, `/eta/receipts/reissue/invoice/${sale.id}`, {}, await admin(app));
       expect(reissue.status).toBe(422);
       expect((await reissue.json()) as { error: string }).toMatchObject({ error: "ETA_RECEIPT_NOT_APPLICABLE" });
     });
@@ -1944,7 +1944,7 @@ describe("createBackend — تحصيل من عميل (collect) posts a real bala
       app,
       "/treasury-accounts",
       { id, code: id, name: "الخزينة الرئيسية", branchId: "BR-MAIN", glAccountId: "1300-1", type: "cash", currency: "EGP", openingBalance },
-      admin(app),
+      await admin(app),
     );
     expect(res.status).toBe(201);
   }
@@ -1964,7 +1964,7 @@ describe("createBackend — تحصيل من عميل (collect) posts a real bala
 
     // Non-zero opening AR balance BEFORE the collection.
     const beforeJe = await app.fetch(
-      new Request(`http://local/gl/journal-entries/${confirmed.journalEntryId}`, { headers: admin(app) }),
+      new Request(`http://local/gl/journal-entries/${confirmed.journalEntryId}`, { headers: await admin(app) }),
     );
     const beforeLines = ((await beforeJe.json()) as { lines: { accountId: string; debit: string; credit: string }[] }).lines;
     const arBefore = beforeLines.find((l) => l.accountId === "1105");
@@ -1974,7 +1974,7 @@ describe("createBackend — تحصيل من عميل (collect) posts a real bala
       app,
       "/sales-invoices/inv-collect-1/payments",
       { amount: "400.00", treasuryAccountId: "ta-collect-1", paymentMethod: "cash" },
-      admin(app),
+      await admin(app),
     );
     expect(collect.status).toBe(200);
     const collected = (await collect.json()) as {
@@ -1988,7 +1988,7 @@ describe("createBackend — تحصيل من عميل (collect) posts a real bala
     expect(collected.status).not.toBe("paid");
 
     const voucherRes = await app.fetch(
-      new Request(`http://local/vouchers/${collected.voucherId}`, { headers: admin(app) }),
+      new Request(`http://local/vouchers/${collected.voucherId}`, { headers: await admin(app) }),
     );
     expect(voucherRes.status).toBe(200);
     const voucher = (await voucherRes.json()) as { journalEntryId: string; amount: string; status: string };
@@ -1996,7 +1996,7 @@ describe("createBackend — تحصيل من عميل (collect) posts a real bala
     expect(voucher.amount).toBe("400.000000");
 
     const je = await app.fetch(
-      new Request(`http://local/gl/journal-entries/${voucher.journalEntryId}`, { headers: admin(app) }),
+      new Request(`http://local/gl/journal-entries/${voucher.journalEntryId}`, { headers: await admin(app) }),
     );
     expect(je.status).toBe(200);
     const lines = ((await je.json()) as { lines: { accountId: string; debit: string; credit: string }[] }).lines;
@@ -2025,11 +2025,11 @@ describe("createBackend — تحصيل من عميل (collect) posts a real bala
       app,
       "/sales-invoices/inv-collect-2/payments",
       { amount: "150.00", treasuryAccountId: "ta-collect-2", paymentMethod: "cash" },
-      admin(app),
+      await admin(app),
     );
     expect(overCollect.status).toBe(422);
 
-    const invoiceRes = await app.fetch(new Request("http://local/sales-invoices/inv-collect-2", { headers: admin(app) }));
+    const invoiceRes = await app.fetch(new Request("http://local/sales-invoices/inv-collect-2", { headers: await admin(app) }));
     const invoice = (await invoiceRes.json()) as { amountPaid: string };
     expect(invoice.amountPaid).toBe("0.000000");
   });
@@ -2051,7 +2051,7 @@ describe("createBackend — reconciliation still ties after a confirmed sales re
       app,
       "/items",
       { id: "item-recon-1", code: "item-recon-1", nameAr: "منتج تسوية", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" },
-      admin(app),
+      await admin(app),
     );
     expect(item.status).toBe(201);
 
@@ -2064,7 +2064,7 @@ describe("createBackend — reconciliation still ties after a confirmed sales re
         reason: "INITIAL_STOCK",
         lines: [{ itemId: "item-recon-1", direction: "IN", qty: "100", unitCost: "10" }],
       },
-      admin(app),
+      await admin(app),
     );
     expect(adjustment.status).toBe(201);
 
@@ -2098,15 +2098,15 @@ describe("createBackend — reconciliation still ties after a confirmed sales re
           },
         ],
       },
-      admin(app),
+      await admin(app),
     );
     expect(createInvoice.status).toBe(201);
-    const confirmInvoice = await post(app, "/sales-invoices/inv-recon-1/confirm", {}, admin(app));
+    const confirmInvoice = await post(app, "/sales-invoices/inv-recon-1/confirm", {}, await admin(app));
     expect(confirmInvoice.status).toBe(200);
     const invoice = (await confirmInvoice.json()) as { id: string; docNo: string };
 
     // Non-zero opening position BEFORE the return: AR = 20 * 50 = 1000.
-    const beforeRecon = await app.fetch(new Request("http://local/reconciliation", { headers: admin(app) }));
+    const beforeRecon = await app.fetch(new Request("http://local/reconciliation", { headers: await admin(app) }));
     const before = (await beforeRecon.json()) as {
       allMatched: boolean;
       rows: { key: string; subLedgerBalance: string; glBalance: string; matched: boolean }[];
@@ -2141,13 +2141,13 @@ describe("createBackend — reconciliation still ties after a confirmed sales re
           },
         ],
       },
-      admin(app),
+      await admin(app),
     );
     expect(createReturn.status).toBe(201);
-    const confirmReturn = await post(app, "/sales-returns/sr-recon-1/confirm", {}, admin(app));
+    const confirmReturn = await post(app, "/sales-returns/sr-recon-1/confirm", {}, await admin(app));
     expect(confirmReturn.status).toBe(200);
 
-    const afterRecon = await app.fetch(new Request("http://local/reconciliation", { headers: admin(app) }));
+    const afterRecon = await app.fetch(new Request("http://local/reconciliation", { headers: await admin(app) }));
     const after = (await afterRecon.json()) as {
       allMatched: boolean;
       rows: { key: string; subLedgerBalance: string; glBalance: string; matched: boolean }[];
@@ -2183,7 +2183,7 @@ describe("createBackend — a return of a VAT-charged invoice credits the VAT ba
           app,
           "/items",
           { id: "item-vat-ret", code: "item-vat-ret", nameAr: "منتج بضريبة", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" },
-          admin(app),
+          await admin(app),
         )
       ).status,
     ).toBe(201);
@@ -2199,7 +2199,7 @@ describe("createBackend — a return of a VAT-charged invoice credits the VAT ba
             reason: "INITIAL_STOCK",
             lines: [{ itemId: "item-vat-ret", direction: "IN", qty: "100", unitCost: "10" }],
           },
-          admin(app),
+          await admin(app),
         )
       ).status,
     ).toBe(201);
@@ -2236,11 +2236,11 @@ describe("createBackend — a return of a VAT-charged invoice credits the VAT ba
               },
             ],
           },
-          admin(app),
+          await admin(app),
         )
       ).status,
     ).toBe(201);
-    const confirmInvoice = await post(app, "/sales-invoices/inv-vat-ret/confirm", {}, admin(app));
+    const confirmInvoice = await post(app, "/sales-invoices/inv-vat-ret/confirm", {}, await admin(app));
     expect(confirmInvoice.status).toBe(200);
 
     const built = await post(
@@ -2255,7 +2255,7 @@ describe("createBackend — a return of a VAT-charged invoice credits the VAT ba
         reason: "DEFECTIVE",
         requested: [{ itemId: "item-vat-ret", qty: "5" }],
       },
-      admin(app),
+      await admin(app),
     );
     expect(built.status).toBe(201);
     const draft = (await built.json()) as { lines: { taxAmount: string; taxRatePercent: number | null }[] };
@@ -2263,12 +2263,12 @@ describe("createBackend — a return of a VAT-charged invoice credits the VAT ba
     expect(Number(draft.lines[0]!.taxAmount)).toBe(35);
     expect(draft.lines[0]!.taxRatePercent).toBe(14);
 
-    const confirmed = await post(app, "/sales-returns/sr-vat-ret/confirm", {}, admin(app));
+    const confirmed = await post(app, "/sales-returns/sr-vat-ret/confirm", {}, await admin(app));
     expect(confirmed.status).toBe(200);
     const { document } = (await confirmed.json()) as { document: { journalEntryId: string } };
 
     const entry = await app.fetch(
-      new Request(`http://local/gl/journal-entries/${document.journalEntryId}`, { headers: admin(app) }),
+      new Request(`http://local/gl/journal-entries/${document.journalEntryId}`, { headers: await admin(app) }),
     );
     const je = (await entry.json()) as {
       lines: { accountId: string; debit: string; credit: string; taxRatePercent: number | null }[];
@@ -2297,7 +2297,7 @@ describe("createBackend — سداد للمورد (pay) posts a real balanced en
       app,
       "/treasury-accounts",
       { id: "ta-pay-1", code: "ta-pay-1", name: "الخزينة الرئيسية", branchId: "BR-MAIN", glAccountId: "1300-1", type: "cash", currency: "EGP", openingBalance: "1000.00" },
-      admin(app),
+      await admin(app),
     );
     expect(treasury.status).toBe(201);
 
@@ -2314,7 +2314,7 @@ describe("createBackend — سداد للمورد (pay) posts a real balanced en
       app,
       "/sales-invoices/inv-fund-pay-1/payments",
       { amount: "1000.00", treasuryAccountId: "ta-pay-1", paymentMethod: "cash" },
-      admin(app),
+      await admin(app),
     );
     expect(fund.status).toBe(200);
 
@@ -2322,7 +2322,7 @@ describe("createBackend — سداد للمورد (pay) posts a real balanced en
       app,
       "/suppliers",
       { id: "sup-pay-1", code: "sup-pay-1", nameAr: "مورد pay-1", currency: "EGP", openingBalance: "0" },
-      admin(app),
+      await admin(app),
     );
     expect(supplier.status).toBe(201);
 
@@ -2337,10 +2337,10 @@ describe("createBackend — سداد للمورد (pay) posts a real balanced en
         warehouseId: "WH-MAIN",
         lines: [{ description: "إيجار مخزن", kind: "expense", qty: "1", unitCost: "800.00", taxRatePercent: 0 }],
       },
-      admin(app),
+      await admin(app),
     );
     expect(createInvoice.status).toBe(201);
-    const confirmInvoice = await post(app, "/purchases/invoices/pi-pay-1/confirm", {}, admin(app));
+    const confirmInvoice = await post(app, "/purchases/invoices/pi-pay-1/confirm", {}, await admin(app));
     expect(confirmInvoice.status).toBe(200);
     const confirmed = (await confirmInvoice.json()) as { total: string };
     expect(confirmed.total).toBe("800.000000");
@@ -2349,20 +2349,20 @@ describe("createBackend — سداد للمورد (pay) posts a real balanced en
       app,
       "/purchases/invoices/pi-pay-1/payments",
       { amount: "300.00", treasuryAccountId: "ta-pay-1", paymentMethod: "cash" },
-      admin(app),
+      await admin(app),
     );
     expect(pay.status).toBe(200);
     const paid = (await pay.json()) as { voucherId: string; amountPaid: string; remainingBalance: string };
     expect(paid.amountPaid).toBe("300.000000");
     expect(paid.remainingBalance).toBe("500.000000");
 
-    const voucherRes = await app.fetch(new Request(`http://local/vouchers/${paid.voucherId}`, { headers: admin(app) }));
+    const voucherRes = await app.fetch(new Request(`http://local/vouchers/${paid.voucherId}`, { headers: await admin(app) }));
     expect(voucherRes.status).toBe(200);
     const voucher = (await voucherRes.json()) as { journalEntryId: string; status: string; amount: string };
     expect(voucher.status).toBe("confirmed");
     expect(voucher.amount).toBe("300.000000");
 
-    const je = await app.fetch(new Request(`http://local/gl/journal-entries/${voucher.journalEntryId}`, { headers: admin(app) }));
+    const je = await app.fetch(new Request(`http://local/gl/journal-entries/${voucher.journalEntryId}`, { headers: await admin(app) }));
     expect(je.status).toBe(200);
     const lines = ((await je.json()) as { lines: { accountId: string; debit: string; credit: string }[] }).lines;
     const treasuryLine = lines.find((l) => l.accountId === "1300-1");
@@ -2379,9 +2379,9 @@ describe("createBackend — سداد للمورد (pay) posts a real balanced en
       app,
       "/treasury-accounts",
       { id: "ta-pay-2", code: "ta-pay-2", name: "الخزينة", branchId: "BR-MAIN", glAccountId: "1300-1", type: "cash", currency: "EGP", openingBalance: "0" },
-      admin(app),
+      await admin(app),
     );
-    await post(app, "/suppliers", { id: "sup-pay-2", code: "sup-pay-2", nameAr: "مورد pay-2" }, admin(app));
+    await post(app, "/suppliers", { id: "sup-pay-2", code: "sup-pay-2", nameAr: "مورد pay-2" }, await admin(app));
     await post(
       app,
       "/purchases/invoices",
@@ -2393,19 +2393,19 @@ describe("createBackend — سداد للمورد (pay) posts a real balanced en
         warehouseId: "WH-MAIN",
         lines: [{ description: "صيانة", kind: "expense", qty: "1", unitCost: "100.00", taxRatePercent: 0 }],
       },
-      admin(app),
+      await admin(app),
     );
-    await post(app, "/purchases/invoices/pi-pay-2/confirm", {}, admin(app));
+    await post(app, "/purchases/invoices/pi-pay-2/confirm", {}, await admin(app));
 
     const overpay = await post(
       app,
       "/purchases/invoices/pi-pay-2/payments",
       { amount: "150.00", treasuryAccountId: "ta-pay-2", paymentMethod: "cash" },
-      admin(app),
+      await admin(app),
     );
     expect(overpay.status).toBe(422);
 
-    const invoiceRes = await app.fetch(new Request("http://local/purchases/invoices/pi-pay-2", { headers: admin(app) }));
+    const invoiceRes = await app.fetch(new Request("http://local/purchases/invoices/pi-pay-2", { headers: await admin(app) }));
     const invoice = (await invoiceRes.json()) as { amountPaid: string };
     expect(invoice.amountPaid).toBe("0.000000");
   });
@@ -2422,11 +2422,11 @@ describe("createBackend — workflow/approvals (w8/workflow-ui)", () => {
 
   it("mounts /workflow/configs and /workflow/requests", async () => {
     const app = await newBackend();
-    const configs = await app.fetch(new Request("http://local/workflow/configs", { headers: admin(app) }));
+    const configs = await app.fetch(new Request("http://local/workflow/configs", { headers: await admin(app) }));
     expect(configs.status).toBe(200);
     expect((await configs.json()) as unknown[]).toEqual([]);
 
-    const pending = await app.fetch(new Request("http://local/workflow/requests/pending", { headers: admin(app) }));
+    const pending = await app.fetch(new Request("http://local/workflow/requests/pending", { headers: await admin(app) }));
     expect(pending.status).toBe(200);
     expect((await pending.json()) as unknown[]).toEqual([]);
   });
@@ -2436,7 +2436,7 @@ describe("createBackend — phase9/accounting-depth: reconciliation, inventory-o
 
   it("mounts /reconciliation with real AR/AP/inventory sub-ledger totals — all zero and matched on a fresh seeded DB", async () => {
     const app = await newBackend();
-    const res = await app.fetch(new Request("http://local/reconciliation", { headers: admin(app) }));
+    const res = await app.fetch(new Request("http://local/reconciliation", { headers: await admin(app) }));
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       rows: Array<{ key: string; controlAccountId: string; subLedgerBalance: string; glBalance: string; matched: boolean }>;
@@ -2470,7 +2470,7 @@ describe("createBackend — phase9/accounting-depth: reconciliation, inventory-o
   it("mounts /inventory/stock-adjustments — INITIAL_STOCK draft → confirm posts stock AND a real balanced GL entry", async () => {
     const app = await newBackend();
     expect(
-      (await post(app, "/items", { id: "item-adj", code: "ITEM-ADJ", nameAr: "منتج تسوية", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" }, admin(app))).status,
+      (await post(app, "/items", { id: "item-adj", code: "ITEM-ADJ", nameAr: "منتج تسوية", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" }, await admin(app))).status,
     ).toBe(201);
 
     const draft = await post(
@@ -2481,11 +2481,11 @@ describe("createBackend — phase9/accounting-depth: reconciliation, inventory-o
         date: "2026-08-22",
         lines: [{ itemId: "item-adj", warehouseId: "WH-MAIN", reason: "INITIAL_STOCK", direction: "IN", qty: "100", unitCost: "10" }],
       },
-      admin(app),
+      await admin(app),
     );
     expect(draft.status).toBe(201);
 
-    const confirm = await post(app, "/inventory/stock-adjustments/sa-1/confirm", {}, admin(app));
+    const confirm = await post(app, "/inventory/stock-adjustments/sa-1/confirm", {}, await admin(app));
     expect(confirm.status).toBe(200);
     const confirmed = (await confirm.json()) as { document: { status: string } };
     expect(confirmed.document.status).toBe("confirmed");
@@ -2493,7 +2493,7 @@ describe("createBackend — phase9/accounting-depth: reconciliation, inventory-o
     // The GL entry id == the adjustment's own doc id (createInventoryGlPostingHook's
     // trick — see packages/api/src/stock-documents-routes.test.ts); the document's own
     // journalEntryId field is a SEPARATE mechanism this stock hook doesn't populate.
-    const entry = await app.fetch(new Request("http://local/gl/journal-entries/sa-1", { headers: admin(app) }));
+    const entry = await app.fetch(new Request("http://local/gl/journal-entries/sa-1", { headers: await admin(app) }));
     expect(entry.status).toBe(200);
     const je = (await entry.json()) as { lines: { accountId: string; debit: string; credit: string }[] };
     const totalDebit = je.lines.reduce((n, l) => n + Number(l.debit), 0);
@@ -2501,14 +2501,14 @@ describe("createBackend — phase9/accounting-depth: reconciliation, inventory-o
     expect(totalDebit).toBeCloseTo(totalCredit, 6);
     expect(totalDebit).toBe(1000); // 100 qty × 10 unit cost
 
-    const balance = await app.fetch(new Request("http://local/inventory/balance?itemId=item-adj&warehouseId=WH-MAIN", { headers: admin(app) }));
+    const balance = await app.fetch(new Request("http://local/inventory/balance?itemId=item-adj&warehouseId=WH-MAIN", { headers: await admin(app) }));
     expect(Number(((await balance.json()) as { onHand: string }).onHand)).toBe(100);
   });
 
   it("mounts /inventory/stock-transfers and /inventory/physical-counts (empty on a fresh seeded DB)", async () => {
     const app = await newBackend();
     for (const path of ["/inventory/stock-transfers", "/inventory/physical-counts"]) {
-      const res = await app.fetch(new Request(`http://local${path}`, { headers: admin(app) }));
+      const res = await app.fetch(new Request(`http://local${path}`, { headers: await admin(app) }));
       expect(res.status, `GET ${path}`).toBe(200);
       expect((await res.json()) as unknown[]).toEqual([]);
     }
@@ -2517,7 +2517,7 @@ describe("createBackend — phase9/accounting-depth: reconciliation, inventory-o
   it("runs a physical count end to end: start → record → complete → generate adjustment, reusing the SAME stock-adjustments service", async () => {
     const app = await newBackend();
     expect(
-      (await post(app, "/items", { id: "item-pc", code: "ITEM-PC", nameAr: "منتج جرد", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" }, admin(app))).status,
+      (await post(app, "/items", { id: "item-pc", code: "ITEM-PC", nameAr: "منتج جرد", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" }, await admin(app))).status,
     ).toBe(201);
     expect(
       (
@@ -2525,26 +2525,26 @@ describe("createBackend — phase9/accounting-depth: reconciliation, inventory-o
           app,
           "/inventory/stock-adjustments/draft",
           { id: "sa-seed", date: "2026-08-01", lines: [{ itemId: "item-pc", warehouseId: "WH-MAIN", reason: "INITIAL_STOCK", direction: "IN", qty: "50", unitCost: "5" }] },
-          admin(app),
+          await admin(app),
         )
       ).status,
     ).toBe(201);
-    expect((await post(app, "/inventory/stock-adjustments/sa-seed/confirm", {}, admin(app))).status).toBe(200);
+    expect((await post(app, "/inventory/stock-adjustments/sa-seed/confirm", {}, await admin(app))).status).toBe(200);
 
-    const started = await post(app, "/inventory/physical-counts", { id: "pc-1", warehouseId: "WH-MAIN", date: "2026-08-22", itemIds: ["item-pc"] }, admin(app));
+    const started = await post(app, "/inventory/physical-counts", { id: "pc-1", warehouseId: "WH-MAIN", date: "2026-08-22", itemIds: ["item-pc"] }, await admin(app));
     expect(started.status).toBe(201);
     const count = (await started.json()) as { status: string; lines: { itemId: string; systemQty: string }[] };
     expect(count.status).toBe("IN_PROGRESS");
     expect(count.lines[0]?.systemQty).toBe("50.000000");
 
-    const recorded = await post(app, "/inventory/physical-counts/pc-1/counts", { entries: [{ itemId: "item-pc", countedQty: "48" }] }, admin(app));
+    const recorded = await post(app, "/inventory/physical-counts/pc-1/counts", { entries: [{ itemId: "item-pc", countedQty: "48" }] }, await admin(app));
     expect(recorded.status).toBe(200);
 
-    const completed = await post(app, "/inventory/physical-counts/pc-1/complete", {}, admin(app));
+    const completed = await post(app, "/inventory/physical-counts/pc-1/complete", {}, await admin(app));
     expect(completed.status).toBe(200);
     expect(((await completed.json()) as { status: string }).status).toBe("COMPLETED");
 
-    const generated = await post(app, "/inventory/physical-counts/pc-1/generate-adjustment", { adjustmentId: "sa-from-pc-1" }, admin(app));
+    const generated = await post(app, "/inventory/physical-counts/pc-1/generate-adjustment", { adjustmentId: "sa-from-pc-1" }, await admin(app));
     expect(generated.status).toBe(200);
     const result = (await generated.json()) as { count: { status: string; generatedAdjustmentId: string | null }; adjustment: { status: string; lines: unknown[] } | null };
     expect(result.count.status).toBe("ADJUSTMENT_GENERATED");
@@ -2553,7 +2553,7 @@ describe("createBackend — phase9/accounting-depth: reconciliation, inventory-o
     // stock-adjustments service, proving physical-counts and stock-adjustments share one DocumentService.
     expect(result.adjustment?.status).toBe("confirmed");
 
-    const balance = await app.fetch(new Request("http://local/inventory/balance?itemId=item-pc&warehouseId=WH-MAIN", { headers: admin(app) }));
+    const balance = await app.fetch(new Request("http://local/inventory/balance?itemId=item-pc&warehouseId=WH-MAIN", { headers: await admin(app) }));
     expect(Number(((await balance.json()) as { onHand: string }).onHand)).toBe(48); // 50 - 2 variance
   });
 });
@@ -2592,7 +2592,7 @@ describe("createBackend — SQLite concurrency (file-backed DB)", () => {
           app,
           "/items",
           { id: "item-1", code: "ITEM-1", nameAr: "منتج 1", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" },
-          admin(app),
+          await admin(app),
         )
       ).status,
     ).toBe(201);
@@ -2607,7 +2607,7 @@ describe("createBackend — SQLite concurrency (file-backed DB)", () => {
             reason: "INITIAL_STOCK",
             lines: [{ itemId: "item-1", direction: "IN", qty: "1000", unitCost: "10" }],
           },
-          admin(app),
+          await admin(app),
         )
       ).status,
     ).toBe(201);
@@ -2628,7 +2628,7 @@ describe("createBackend — SQLite concurrency (file-backed DB)", () => {
             taxExempt: false,
             etaBuyerType: "auto",
           },
-          admin(app),
+          await admin(app),
         )
       ).status,
     ).toBe(201);
@@ -2666,17 +2666,17 @@ describe("createBackend — SQLite concurrency (file-backed DB)", () => {
     const app = await newFileBackedBackend();
     await seedStockAndCustomer(app);
 
-    const draft = await post(app, "/sales-invoices", stockInvoiceBody("inv-file-1"), admin(app));
+    const draft = await post(app, "/sales-invoices", stockInvoiceBody("inv-file-1"), await admin(app));
     expect(draft.status).toBe(201);
 
-    const confirm = await post(app, "/sales-invoices/inv-file-1/confirm", {}, admin(app));
+    const confirm = await post(app, "/sales-invoices/inv-file-1/confirm", {}, await admin(app));
     expect(confirm.status).toBe(200);
     const confirmed = (await confirm.json()) as { status: string; journalEntryId: string | null };
     expect(confirmed.status).toBe("confirmed");
     expect(confirmed.journalEntryId).toBeTruthy();
 
     const entry = await app.fetch(
-      new Request(`http://local/gl/journal-entries/${confirmed.journalEntryId}`, { headers: admin(app) }),
+      new Request(`http://local/gl/journal-entries/${confirmed.journalEntryId}`, { headers: await admin(app) }),
     );
     expect(entry.status).toBe(200);
     const je = (await entry.json()) as { lines: { accountId: string; debit: string; credit: string }[] };
@@ -2686,7 +2686,7 @@ describe("createBackend — SQLite concurrency (file-backed DB)", () => {
     expect(totalDebit).toBeGreaterThan(0);
 
     const balance = await app.fetch(
-      new Request("http://local/inventory/balance?itemId=item-1&warehouseId=WH-MAIN", { headers: admin(app) }),
+      new Request("http://local/inventory/balance?itemId=item-1&warehouseId=WH-MAIN", { headers: await admin(app) }),
     );
     expect(Number(((await balance.json()) as { onHand: string }).onHand)).toBe(995); // 1000 - 5
   });
@@ -2698,20 +2698,20 @@ describe("createBackend — SQLite concurrency (file-backed DB)", () => {
     const N = 6;
     const ids = Array.from({ length: N }, (_, i) => `inv-conc-${i}`);
     for (const id of ids) {
-      expect((await post(app, "/sales-invoices", stockInvoiceBody(id), admin(app))).status).toBe(201);
+      expect((await post(app, "/sales-invoices", stockInvoiceBody(id), await admin(app))).status).toBe(201);
     }
 
     // Overlapping confirms — this is exactly the shape that used to throw
     // SQLITE_BUSY (separate connections) or "no such savepoint" (a shared
     // connection without the per-connection serialization queue).
     const results = await Promise.all(
-      ids.map((id) => post(app, `/sales-invoices/${id}/confirm`, {}, admin(app))),
+      ids.map(async (id) => post(app, `/sales-invoices/${id}/confirm`, {}, await admin(app))),
     );
     for (const r of results) expect(r.status).toBe(200);
 
     const docNos = await Promise.all(
       ids.map(async (id) => {
-        const detail = await app.fetch(new Request(`http://local/sales-invoices/${id}`, { headers: admin(app) }));
+        const detail = await app.fetch(new Request(`http://local/sales-invoices/${id}`, { headers: await admin(app) }));
         return ((await detail.json()) as { docNo: string }).docNo;
       }),
     );
@@ -2719,7 +2719,7 @@ describe("createBackend — SQLite concurrency (file-backed DB)", () => {
     expect(new Set(docNos).size).toBe(N);
 
     const balance = await app.fetch(
-      new Request("http://local/inventory/balance?itemId=item-1&warehouseId=WH-MAIN", { headers: admin(app) }),
+      new Request("http://local/inventory/balance?itemId=item-1&warehouseId=WH-MAIN", { headers: await admin(app) }),
     );
     expect(Number(((await balance.json()) as { onHand: string }).onHand)).toBe(1000 - N * 5);
   });
@@ -2733,7 +2733,7 @@ describe("createBackend — SQLite concurrency (file-backed DB)", () => {
     // create-backend.ts passing it the shared `sqlite` connection reuses it instead.
     const app = await newFileBackedBackend();
     expect(
-      (await post(app, "/items", { id: "item-adj-file", code: "ITEM-ADJ-FILE", nameAr: "منتج تسوية", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" }, admin(app))).status,
+      (await post(app, "/items", { id: "item-adj-file", code: "ITEM-ADJ-FILE", nameAr: "منتج تسوية", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" }, await admin(app))).status,
     ).toBe(201);
 
     const draft = await post(
@@ -2744,21 +2744,21 @@ describe("createBackend — SQLite concurrency (file-backed DB)", () => {
         date: "2026-08-22",
         lines: [{ itemId: "item-adj-file", warehouseId: "WH-MAIN", reason: "INITIAL_STOCK", direction: "IN", qty: "100", unitCost: "10" }],
       },
-      admin(app),
+      await admin(app),
     );
     expect(draft.status).toBe(201);
 
-    const confirm = await post(app, "/inventory/stock-adjustments/sa-file-1/confirm", {}, admin(app));
+    const confirm = await post(app, "/inventory/stock-adjustments/sa-file-1/confirm", {}, await admin(app));
     expect(confirm.status).toBe(200);
     const confirmed = (await confirm.json()) as { document: { status: string } };
     expect(confirmed.document.status).toBe("confirmed");
 
     // The GL entry id == the adjustment's own doc id (createInventoryGlPostingHook's trick).
-    const entry = await app.fetch(new Request("http://local/gl/journal-entries/sa-file-1", { headers: admin(app) }));
+    const entry = await app.fetch(new Request("http://local/gl/journal-entries/sa-file-1", { headers: await admin(app) }));
     expect(entry.status).toBe(200);
 
     const balance = await app.fetch(
-      new Request("http://local/inventory/balance?itemId=item-adj-file&warehouseId=WH-MAIN", { headers: admin(app) }),
+      new Request("http://local/inventory/balance?itemId=item-adj-file&warehouseId=WH-MAIN", { headers: await admin(app) }),
     );
     expect(Number(((await balance.json()) as { onHand: string }).onHand)).toBe(100);
   });
@@ -2795,7 +2795,7 @@ describe("createBackend — financial statements over real posted GL (file-backe
   }
 
   async function postEntry(app: App, id: string, date: string, memo: string, lines: Line[]) {
-    const res = await post(app, "/gl/journal-entries", { id, date, memo, source: "manual", lines }, admin(app));
+    const res = await post(app, "/gl/journal-entries", { id, date, memo, source: "manual", lines }, await admin(app));
     expect(res.status, `post ${id}`).toBe(201);
   }
 
@@ -2807,7 +2807,7 @@ describe("createBackend — financial statements over real posted GL (file-backe
   async function seedLedger(app: App) {
     // A manual line on 1105/2100 names its party (D205).
     await createCustomer(app, "cust-fs", "0");
-    expect((await post(app, "/suppliers", { id: "sup-fs", code: "sup-fs", nameAr: "مورد", openingBalance: "0" }, admin(app))).status).toBe(201);
+    expect((await post(app, "/suppliers", { id: "sup-fs", code: "sup-fs", nameAr: "مورد", openingBalance: "0" }, await admin(app))).status).toBe(201);
     await postEntry(app, "je-cap", "2026-02-01", "رأس المال", [line("1300-1", "200000", "0"), line("3100", "0", "200000")]);
     await postEntry(app, "je-sale", "2026-03-01", "مبيعات آجلة (ض.ق.م 14%)", [
       line("1105", "114000", "0", "cust-fs"),
@@ -2829,7 +2829,7 @@ describe("createBackend — financial statements over real posted GL (file-backe
     reconciliation: { labelAr: string; reportTotal: number; referenceTotal: number; diff: number; withinTolerance: boolean } | null;
   }
   async function getReport(app: App, apiPath: string): Promise<ReportBody> {
-    const res = await app.fetch(new Request(`http://local/financial-reports${apiPath}`, { headers: admin(app) }));
+    const res = await app.fetch(new Request(`http://local/financial-reports${apiPath}`, { headers: await admin(app) }));
     expect(res.status, `GET /financial-reports${apiPath}`).toBe(200);
     return (await res.json()) as ReportBody;
   }
@@ -2876,7 +2876,7 @@ describe("createBackend — financial statements over real posted GL (file-backe
     const app = await newFileBackedBackend();
     await seedLedger(app);
     for (const [id, nameAr] of [["1300-2", "صندوق المندوب"], ["1300-ALEX", "صندوق فرع الإسكندرية"], ["1310-USD", "حساب بنكي بالدولار"]] as const) {
-      expect((await post(app, "/accounts", { id, code: id, nameAr, type: "asset", naturalBalance: "debit", parentId: "1300", isHeader: false }, admin(app))).status, id).toBe(201);
+      expect((await post(app, "/accounts", { id, code: id, nameAr, type: "asset", naturalBalance: "debit", parentId: "1300", isHeader: false }, await admin(app))).status, id).toBe(201);
     }
     await postEntry(app, "je-van", "2026-05-01", "عهدة نقدية للمندوب", [line("1300-2", "7000", "0"), line("1300-1", "0", "7000")]);
     await postEntry(app, "je-alex", "2026-05-02", "تمويل صندوق الفرع", [line("1300-ALEX", "3000", "0"), line("3100", "0", "3000")]);
@@ -2895,7 +2895,7 @@ describe("createBackend — financial statements over real posted GL (file-backe
   it("the dashboard's cash tile is the same set: a guarantee margin is not cash, though its code starts with 13", async () => {
     const app = await newFileBackedBackend();
     await seedLedger(app);
-    const cashOf = async () => Number(((await (await app.fetch(new Request("http://local/dashboard/summary", { headers: admin(app) }))).json()) as DashboardSummaryDTO).gl.cash);
+    const cashOf = async () => Number(((await (await app.fetch(new Request("http://local/dashboard/summary", { headers: await admin(app) }))).json()) as DashboardSummaryDTO).gl.cash);
     expect(await cashOf()).toBeCloseTo(195000, 2);
     await postEntry(app, "je-margin-2", "2026-05-05", "غطاء خطاب ضمان", [line("1340", "20000", "0"), line("1300-1", "0", "20000")]);
     expect(await cashOf()).toBeCloseTo(175000, 2);
@@ -2961,7 +2961,7 @@ describe("createBackend — financial statements over real posted GL (file-backe
       app,
       "/gl/journal-entries/draft",
       { id: "je-draft", date: "2026-05-01", memo: "مسودة", source: "manual", lines: [line("1300-1", "9999", "0"), line("4100", "0", "9999")] },
-      admin(app),
+      await admin(app),
     );
     expect(draft.status).toBe(201);
     const body = await getReport(app, "/trial-balance?asOfDate=2026-12-31");
@@ -2980,7 +2980,7 @@ describe("createBackend — the reconciliation tie at a NON-ZERO balance", () =>
   };
 
   async function reconciliation(app: Awaited<ReturnType<typeof newBackend>>) {
-    const res = await app.fetch(new Request("http://local/reconciliation", { headers: admin(app) }));
+    const res = await app.fetch(new Request("http://local/reconciliation", { headers: await admin(app) }));
     expect(res.status).toBe(200);
     return (await res.json()) as { rows: ReconRow[]; allMatched: boolean };
   }
@@ -2990,7 +2990,7 @@ describe("createBackend — the reconciliation tie at a NON-ZERO balance", () =>
   it("inventory: the stock valuation equals GL 1200 after real stock has been received", async () => {
     const app = await newBackend();
     expect(
-      (await post(app, "/items", { id: "item-recon", code: "ITEM-RECON", nameAr: "صنف التسوية", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" }, admin(app))).status,
+      (await post(app, "/items", { id: "item-recon", code: "ITEM-RECON", nameAr: "صنف التسوية", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" }, await admin(app))).status,
     ).toBe(201);
 
     // 40 units at 12.50 = 500.00 of inventory value, posted through the real
@@ -3005,11 +3005,11 @@ describe("createBackend — the reconciliation tie at a NON-ZERO balance", () =>
             date: "2026-08-22",
             lines: [{ itemId: "item-recon", warehouseId: "WH-MAIN", reason: "INITIAL_STOCK", direction: "IN", qty: "40", unitCost: "12.50" }],
           },
-          admin(app),
+          await admin(app),
         )
       ).status,
     ).toBe(201);
-    expect((await post(app, "/inventory/stock-adjustments/sa-recon/confirm", {}, admin(app))).status).toBe(200);
+    expect((await post(app, "/inventory/stock-adjustments/sa-recon/confirm", {}, await admin(app))).status).toBe(200);
 
     const body = await reconciliation(app);
     const inventory = row(body, "inventory");
@@ -3024,7 +3024,7 @@ describe("createBackend — the reconciliation tie at a NON-ZERO balance", () =>
 
   it("inventory: issuing stock moves BOTH sides together, so they still agree", async () => {
     const app = await newBackend();
-    await post(app, "/items", { id: "item-recon", code: "ITEM-RECON", nameAr: "صنف التسوية", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" }, admin(app));
+    await post(app, "/items", { id: "item-recon", code: "ITEM-RECON", nameAr: "صنف التسوية", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" }, await admin(app));
     await post(
       app,
       "/inventory/stock-adjustments/draft",
@@ -3033,9 +3033,9 @@ describe("createBackend — the reconciliation tie at a NON-ZERO balance", () =>
         date: "2026-08-22",
         lines: [{ itemId: "item-recon", warehouseId: "WH-MAIN", reason: "INITIAL_STOCK", direction: "IN", qty: "40", unitCost: "12.50" }],
       },
-      admin(app),
+      await admin(app),
     );
-    await post(app, "/inventory/stock-adjustments/sa-in/confirm", {}, admin(app));
+    await post(app, "/inventory/stock-adjustments/sa-in/confirm", {}, await admin(app));
 
     // Ten units out at the 12.50 average = 125.00 leaving inventory.
     await post(
@@ -3046,9 +3046,9 @@ describe("createBackend — the reconciliation tie at a NON-ZERO balance", () =>
         date: "2026-08-23",
         lines: [{ itemId: "item-recon", warehouseId: "WH-MAIN", reason: "DAMAGE", direction: "OUT", qty: "10" }],
       },
-      admin(app),
+      await admin(app),
     );
-    expect((await post(app, "/inventory/stock-adjustments/sa-out/confirm", {}, admin(app))).status).toBe(200);
+    expect((await post(app, "/inventory/stock-adjustments/sa-out/confirm", {}, await admin(app))).status).toBe(200);
 
     const inventory = row(await reconciliation(app), "inventory");
     expect(inventory.subLedgerBalance).toBe("375.000000");
@@ -3058,7 +3058,7 @@ describe("createBackend — the reconciliation tie at a NON-ZERO balance", () =>
 
   it("reports a mismatch rather than hiding it, when only one side moves", async () => {
     const app = await newBackend();
-    await post(app, "/items", { id: "item-recon", code: "ITEM-RECON", nameAr: "صنف التسوية", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" }, admin(app));
+    await post(app, "/items", { id: "item-recon", code: "ITEM-RECON", nameAr: "صنف التسوية", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" }, await admin(app));
     await post(
       app,
       "/inventory/stock-adjustments/draft",
@@ -3067,9 +3067,9 @@ describe("createBackend — the reconciliation tie at a NON-ZERO balance", () =>
         date: "2026-08-22",
         lines: [{ itemId: "item-recon", warehouseId: "WH-MAIN", reason: "INITIAL_STOCK", direction: "IN", qty: "40", unitCost: "12.50" }],
       },
-      admin(app),
+      await admin(app),
     );
-    await post(app, "/inventory/stock-adjustments/sa-in/confirm", {}, admin(app));
+    await post(app, "/inventory/stock-adjustments/sa-in/confirm", {}, await admin(app));
 
     // A manual journal entry straight into the inventory control account, with
     // nothing behind it in the stock ledger — exactly the drift the
@@ -3086,7 +3086,7 @@ describe("createBackend — the reconciliation tie at a NON-ZERO balance", () =>
           { accountId: "5100", debit: "0", credit: "100.00" },
         ],
       },
-      admin(app),
+      await admin(app),
     );
     expect(je.status).toBe(201);
 
@@ -3119,7 +3119,7 @@ describe("createBackend — the reconciliation tie at a NON-ZERO balance", () =>
       app,
       "/treasury-accounts",
       { id: "ta-onacct", code: "TA-ONACCT", name: "خزينة", branchId: "BR-MAIN", glAccountId: "1300-1" },
-      admin(app),
+      await admin(app),
     );
     expect(ta.status).toBe(201);
 
@@ -3138,10 +3138,10 @@ describe("createBackend — the reconciliation tie at a NON-ZERO balance", () =>
         counterpartyGlAccountId: "1105",
         customerId: "cust-onacct",
       },
-      admin(app),
+      await admin(app),
     );
     expect(voucher.status).toBe(201);
-    expect((await post(app, "/vouchers/voucher-onacct/confirm", {}, admin(app))).status).toBe(200);
+    expect((await post(app, "/vouchers/voucher-onacct/confirm", {}, await admin(app))).status).toBe(200);
 
     const body = await reconciliation(app);
     const ar = row(body, "ar");
@@ -3175,7 +3175,7 @@ describe("createBackend — the reconciliation tie at a NON-ZERO balance", () =>
         counterpartyGlAccountId: "1105",
         controlAccounts: { underCollectionAccountId: "1320", bouncedAccountId: "1360" },
       },
-      admin(app),
+      await admin(app),
     );
     expect(chq.status).toBe(201);
 
@@ -3196,7 +3196,7 @@ describe("createBackend — the reconciliation tie at a NON-ZERO balance", () =>
       app,
       "/treasury-accounts",
       { id: "ta-payacct", code: "TA-PAYACCT", name: "خزينة", branchId: "BR-MAIN", glAccountId: "1300-1" },
-      admin(app),
+      await admin(app),
     );
     expect(ta.status).toBe(201);
     // The collection carries its OWN date, as the screen sends it. It used to
@@ -3208,11 +3208,11 @@ describe("createBackend — the reconciliation tie at a NON-ZERO balance", () =>
       app,
       "/sales-invoices/inv-fund-ap/payments",
       { amount: "1000.00", date: "2026-08-22", treasuryAccountId: "ta-payacct", paymentMethod: "cash" },
-      admin(app),
+      await admin(app),
     );
     expect(fund.status).toBe(200);
 
-    await post(app, "/suppliers", { id: "sup-onacct", code: "sup-onacct", nameAr: "مورد", currency: "EGP", openingBalance: "0" }, admin(app));
+    await post(app, "/suppliers", { id: "sup-onacct", code: "sup-onacct", nameAr: "مورد", currency: "EGP", openingBalance: "0" }, await admin(app));
     const createInvoice = await post(
       app,
       "/purchases/invoices",
@@ -3224,10 +3224,10 @@ describe("createBackend — the reconciliation tie at a NON-ZERO balance", () =>
         warehouseId: "WH-MAIN",
         lines: [{ description: "خدمة", kind: "expense", qty: "1", unitCost: "500.00", taxRatePercent: 0 }],
       },
-      admin(app),
+      await admin(app),
     );
     expect(createInvoice.status).toBe(201);
-    expect((await post(app, "/purchases/invoices/pi-onacct/confirm", {}, admin(app))).status).toBe(200);
+    expect((await post(app, "/purchases/invoices/pi-onacct/confirm", {}, await admin(app))).status).toBe(200);
 
     const voucher = await post(
       app,
@@ -3244,10 +3244,10 @@ describe("createBackend — the reconciliation tie at a NON-ZERO balance", () =>
         counterpartyGlAccountId: "2100",
         supplierId: "sup-onacct",
       },
-      admin(app),
+      await admin(app),
     );
     expect(voucher.status).toBe(201);
-    expect((await post(app, "/vouchers/voucher-ap-onacct/confirm", {}, admin(app))).status).toBe(200);
+    expect((await post(app, "/vouchers/voucher-ap-onacct/confirm", {}, await admin(app))).status).toBe(200);
 
     const body = await reconciliation(app);
     const ap = row(body, "ap");
@@ -3260,10 +3260,10 @@ describe("createBackend — the reconciliation tie at a NON-ZERO balance", () =>
   it("ap: a confirmed purchase return debits AP, and the sub-ledger still ties to the GL", async () => {
     const app = await newBackend();
     expect(
-      (await post(app, "/items", { id: "item-pr", code: "ITEM-PR", nameAr: "صنف مرتجع", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" }, admin(app))).status,
+      (await post(app, "/items", { id: "item-pr", code: "ITEM-PR", nameAr: "صنف مرتجع", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" }, await admin(app))).status,
     ).toBe(201);
     expect(
-      (await post(app, "/suppliers", { id: "sup-pr", code: "sup-pr", nameAr: "مورد مرتجع", currency: "EGP", openingBalance: "0" }, admin(app))).status,
+      (await post(app, "/suppliers", { id: "sup-pr", code: "sup-pr", nameAr: "مورد مرتجع", currency: "EGP", openingBalance: "0" }, await admin(app))).status,
     ).toBe(201);
 
     const createInvoice = await post(
@@ -3277,10 +3277,10 @@ describe("createBackend — the reconciliation tie at a NON-ZERO balance", () =>
         warehouseId: "WH-MAIN",
         lines: [{ itemId: "item-pr", description: "صنف مرتجع", kind: "inventory", qty: "10", unitCost: "20.00", taxRatePercent: 0 }],
       },
-      admin(app),
+      await admin(app),
     );
     expect(createInvoice.status).toBe(201);
-    const confirmInvoice = await post(app, "/purchases/invoices/pi-pr/confirm", {}, admin(app));
+    const confirmInvoice = await post(app, "/purchases/invoices/pi-pr/confirm", {}, await admin(app));
     expect(confirmInvoice.status).toBe(200);
     const invoice = (await confirmInvoice.json()) as { id: string; number: string };
 
@@ -3306,10 +3306,10 @@ describe("createBackend — the reconciliation tie at a NON-ZERO balance", () =>
         },
       ],
     };
-    const createReturn = await post(app, "/purchase-returns", purchaseReturnPayload, admin(app));
+    const createReturn = await post(app, "/purchase-returns", purchaseReturnPayload, await admin(app));
     expect(createReturn.status).toBe(201);
     const draftReturn = (await createReturn.json()) as { id: string };
-    const confirmReturn = await post(app, `/purchase-returns/${draftReturn.id}/confirm`, {}, admin(app));
+    const confirmReturn = await post(app, `/purchase-returns/${draftReturn.id}/confirm`, {}, await admin(app));
     expect(confirmReturn.status).toBe(200);
 
     const after = await reconciliation(app);
@@ -3323,38 +3323,38 @@ describe("createBackend — the reconciliation tie at a NON-ZERO balance", () =>
 
 describe("createBackend — a purchase invoice nets its confirmed returns (D216, D240)", () => {
   async function get(app: App, path: string): Promise<any> {
-    return (await app.fetch(new Request(`http://local${path}`, { headers: admin(app) }))).json();
+    return (await app.fetch(new Request(`http://local${path}`, { headers: await admin(app) }))).json();
   }
   async function cashTreasury(app: App) {
     expect(
-      (await post(app, "/treasury-accounts", { id: "ta-cash", code: "TA-CASH", name: "الخزينة", branchId: "BR-MAIN", glAccountId: "1300-1", openingBalance: "0" }, admin(app))).status,
+      (await post(app, "/treasury-accounts", { id: "ta-cash", code: "TA-CASH", name: "الخزينة", branchId: "BR-MAIN", glAccountId: "1300-1", openingBalance: "0" }, await admin(app))).status,
     ).toBe(201);
     const fund = {
       id: "v-fund", date: "2026-08-22", voucherType: "capital_injection", amount: "5000", branchId: "BR-MAIN", paymentMethod: "cash",
       treasuryAccountId: "ta-cash", treasuryGlAccountId: "1300-1", counterpartyGlAccountId: "3100",
     };
-    expect((await post(app, "/vouchers", fund, admin(app))).status).toBe(201);
-    expect((await post(app, "/vouchers/v-fund/confirm", {}, admin(app))).status).toBe(200);
+    expect((await post(app, "/vouchers", fund, await admin(app))).status).toBe(201);
+    expect((await post(app, "/vouchers/v-fund/confirm", {}, await admin(app))).status).toBe(200);
   }
   async function returnedBill(app: App, returnQty: string) {
     await cashTreasury(app);
-    expect((await post(app, "/items", { id: "item-d216", code: "ITEM-D216", nameAr: "صنف", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" }, admin(app))).status).toBe(201);
-    expect((await post(app, "/suppliers", { id: "sup-d216", code: "sup-d216", nameAr: "مورد", currency: "EGP", openingBalance: "0" }, admin(app))).status).toBe(201);
+    expect((await post(app, "/items", { id: "item-d216", code: "ITEM-D216", nameAr: "صنف", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" }, await admin(app))).status).toBe(201);
+    expect((await post(app, "/suppliers", { id: "sup-d216", code: "sup-d216", nameAr: "مورد", currency: "EGP", openingBalance: "0" }, await admin(app))).status).toBe(201);
     expect(
       (
         await post(app, "/purchases/invoices", {
           id: "pi-d216", supplierId: "sup-d216", date: "2026-08-22", dueDate: "2026-08-25", branchId: "BR-MAIN", warehouseId: "WH-MAIN",
           lines: [{ itemId: "item-d216", description: "صنف", kind: "inventory", qty: "10", unitCost: "20.00", taxRatePercent: 0 }],
-        }, admin(app))
+        }, await admin(app))
       ).status,
     ).toBe(201);
-    const invoice = (await (await post(app, "/purchases/invoices/pi-d216/confirm", {}, admin(app))).json()) as { id: string; number: string };
+    const invoice = (await (await post(app, "/purchases/invoices/pi-d216/confirm", {}, await admin(app))).json()) as { id: string; number: string };
     const created = await post(app, "/purchase-returns", {
       id: "pr-d216", date: "2026-08-23", memo: "",
       lines: [{ itemId: "item-d216", warehouseId: "WH-MAIN", supplierId: "sup-d216", sourceInvoiceId: invoice.id, sourceInvoiceNumber: invoice.number, reason: "DEFECTIVE", availableQty: "10", qty: returnQty, unitCost: "20.00", taxAmount: "0" }],
-    }, admin(app));
+    }, await admin(app));
     expect(created.status).toBe(201);
-    expect((await post(app, "/purchase-returns/pr-d216/confirm", {}, admin(app))).status).toBe(200);
+    expect((await post(app, "/purchase-returns/pr-d216/confirm", {}, await admin(app))).status).toBe(200);
   }
 
   it("D216: the invoice's remaining balance nets a partial return, and the pay cap follows it", async () => {
@@ -3367,9 +3367,9 @@ describe("createBackend — a purchase invoice nets its confirmed returns (D216,
     const bySupplier = await get(app, "/reports/purchases/by-supplier?dateFrom=2026-08-01&dateTo=2026-08-31");
     expect(bySupplier.rows.find((r: { supplierId: string }) => r.supplierId === "sup-d216")?.outstanding).toBe(140);
 
-    const over = await post(app, "/purchases/invoices/pi-d216/payments", { amount: "140.01", treasuryAccountId: "ta-cash", date: "2026-08-24" }, admin(app));
+    const over = await post(app, "/purchases/invoices/pi-d216/payments", { amount: "140.01", treasuryAccountId: "ta-cash", date: "2026-08-24" }, await admin(app));
     expect(over.status).toBe(422);
-    const paid = await post(app, "/purchases/invoices/pi-d216/payments", { amount: "140", treasuryAccountId: "ta-cash", date: "2026-08-24" }, admin(app));
+    const paid = await post(app, "/purchases/invoices/pi-d216/payments", { amount: "140", treasuryAccountId: "ta-cash", date: "2026-08-24" }, await admin(app));
     expect(paid.status).toBe(200);
     expect(await paid.json()).toMatchObject({ amountPaid: "140.000000", remainingBalance: "0.000000" });
     const settledBySupplier = await get(app, "/reports/purchases/by-supplier?dateFrom=2026-08-01&dateTo=2026-08-31");
@@ -3394,7 +3394,7 @@ describe("createBackend — a purchase invoice nets its confirmed returns (D216,
   it("D240: a purchase invoice with a confirmed return or a payment cannot be cancelled", async () => {
     const app = await newBackend();
     await returnedBill(app, "3");
-    const refused = await post(app, "/purchases/invoices/pi-d216/cancel", {}, admin(app));
+    const refused = await post(app, "/purchases/invoices/pi-d216/cancel", {}, await admin(app));
     expect(refused.status).toBe(409);
     expect(((await refused.json()) as { error: string }).error).toBe("INVOICE_HAS_RETURNS");
     expect((await get(app, "/purchases/invoices/pi-d216")).status).toBe("confirmed");
@@ -3403,18 +3403,18 @@ describe("createBackend — a purchase invoice nets its confirmed returns (D216,
   it("D240: a paid purchase invoice cannot be cancelled either, so its payment never loses its invoice", async () => {
     const app = await newBackend();
     await cashTreasury(app);
-    expect((await post(app, "/suppliers", { id: "sup-d240", code: "sup-d240", nameAr: "مورد", currency: "EGP", openingBalance: "0" }, admin(app))).status).toBe(201);
+    expect((await post(app, "/suppliers", { id: "sup-d240", code: "sup-d240", nameAr: "مورد", currency: "EGP", openingBalance: "0" }, await admin(app))).status).toBe(201);
     expect(
       (
         await post(app, "/purchases/invoices", {
           id: "pi-d240", supplierId: "sup-d240", date: "2026-08-22", branchId: "BR-MAIN", warehouseId: "WH-MAIN",
           lines: [{ description: "خدمة", kind: "expense", qty: "1", unitCost: "100.00", taxRatePercent: 0 }],
-        }, admin(app))
+        }, await admin(app))
       ).status,
     ).toBe(201);
-    expect((await post(app, "/purchases/invoices/pi-d240/confirm", {}, admin(app))).status).toBe(200);
-    expect((await post(app, "/purchases/invoices/pi-d240/payments", { amount: "40", treasuryAccountId: "ta-cash", date: "2026-08-23" }, admin(app))).status).toBe(200);
-    const refused = await post(app, "/purchases/invoices/pi-d240/cancel", {}, admin(app));
+    expect((await post(app, "/purchases/invoices/pi-d240/confirm", {}, await admin(app))).status).toBe(200);
+    expect((await post(app, "/purchases/invoices/pi-d240/payments", { amount: "40", treasuryAccountId: "ta-cash", date: "2026-08-23" }, await admin(app))).status).toBe(200);
+    const refused = await post(app, "/purchases/invoices/pi-d240/cancel", {}, await admin(app));
     expect(refused.status).toBe(409);
     expect(((await refused.json()) as { error: string }).error).toBe("INVOICE_HAS_PAYMENTS");
     const ladder = await get(app, "/reports/aging/suppliers");
@@ -3426,7 +3426,7 @@ describe("createBackend — stock reservations (مخزون محجوز), derived 
   it("a draft sales invoice's stock line reserves qty, confirming it releases the reservation and moves onHand instead", async () => {
     const app = await newBackend();
     expect(
-      (await post(app, "/items", { id: "item-resv", code: "ITEM-RESV", nameAr: "صنف محجوز", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" }, admin(app))).status,
+      (await post(app, "/items", { id: "item-resv", code: "ITEM-RESV", nameAr: "صنف محجوز", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" }, await admin(app))).status,
     ).toBe(201);
     expect(
       (
@@ -3434,11 +3434,11 @@ describe("createBackend — stock reservations (مخزون محجوز), derived 
           app,
           "/inventory/stock-adjustments/draft",
           { id: "sa-resv", date: "2026-08-01", lines: [{ itemId: "item-resv", warehouseId: "WH-MAIN", reason: "INITIAL_STOCK", direction: "IN", qty: "50", unitCost: "10" }] },
-          admin(app),
+          await admin(app),
         )
       ).status,
     ).toBe(201);
-    expect((await post(app, "/inventory/stock-adjustments/sa-resv/confirm", {}, admin(app))).status).toBe(200);
+    expect((await post(app, "/inventory/stock-adjustments/sa-resv/confirm", {}, await admin(app))).status).toBe(200);
 
     await createCustomer(app, "cust-resv", "0");
     const createInvoice = await post(
@@ -3469,12 +3469,12 @@ describe("createBackend — stock reservations (مخزون محجوز), derived 
           },
         ],
       },
-      admin(app),
+      await admin(app),
     );
     expect(createInvoice.status).toBe(201);
 
     const beforeConfirm = await app.fetch(
-      new Request("http://local/inventory/stock-balance?warehouseId=WH-MAIN", { headers: admin(app) }),
+      new Request("http://local/inventory/stock-balance?warehouseId=WH-MAIN", { headers: await admin(app) }),
     );
     expect(beforeConfirm.status).toBe(200);
     const beforeBody = (await beforeConfirm.json()) as { rows: { itemId: string; onHand: string; reserved: string; available: string }[] };
@@ -3484,10 +3484,10 @@ describe("createBackend — stock reservations (مخزون محجوز), derived 
     expect(beforeRow!.reserved).toBe("12.000000");
     expect(beforeRow!.available).toBe("38.000000");
 
-    expect((await post(app, "/sales-invoices/inv-resv-1/confirm", {}, admin(app))).status).toBe(200);
+    expect((await post(app, "/sales-invoices/inv-resv-1/confirm", {}, await admin(app))).status).toBe(200);
 
     const afterConfirm = await app.fetch(
-      new Request("http://local/inventory/stock-balance?warehouseId=WH-MAIN", { headers: admin(app) }),
+      new Request("http://local/inventory/stock-balance?warehouseId=WH-MAIN", { headers: await admin(app) }),
     );
     const afterBody = (await afterConfirm.json()) as { rows: { itemId: string; onHand: string; reserved: string; available: string }[] };
     const afterRow = afterBody.rows.find((r) => r.itemId === "item-resv");
@@ -3501,7 +3501,7 @@ describe("createBackend — stock reservations (مخزون محجوز), derived 
   it("a draft stock transfer reserves qty out of its SOURCE warehouse only, not the destination", async () => {
     const app = await newBackend();
     expect(
-      (await post(app, "/items", { id: "item-resv-t", code: "ITEM-RESV-T", nameAr: "صنف تحويل", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" }, admin(app))).status,
+      (await post(app, "/items", { id: "item-resv-t", code: "ITEM-RESV-T", nameAr: "صنف تحويل", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" }, await admin(app))).status,
     ).toBe(201);
     expect(
       (
@@ -3509,32 +3509,32 @@ describe("createBackend — stock reservations (مخزون محجوز), derived 
           app,
           "/inventory/stock-adjustments/draft",
           { id: "sa-resv-t", date: "2026-08-01", lines: [{ itemId: "item-resv-t", warehouseId: "WH-MAIN", reason: "INITIAL_STOCK", direction: "IN", qty: "30", unitCost: "5" }] },
-          admin(app),
+          await admin(app),
         )
       ).status,
     ).toBe(201);
-    expect((await post(app, "/inventory/stock-adjustments/sa-resv-t/confirm", {}, admin(app))).status).toBe(200);
+    expect((await post(app, "/inventory/stock-adjustments/sa-resv-t/confirm", {}, await admin(app))).status).toBe(200);
     expect(
-      (await post(app, "/warehouses", { id: "WH-DEST", code: "WH-DEST", name: "مستودع الوجهة", nameEn: null, branchId: "BR-MAIN", type: "MAIN" }, admin(app))).status,
+      (await post(app, "/warehouses", { id: "WH-DEST", code: "WH-DEST", name: "مستودع الوجهة", nameEn: null, branchId: "BR-MAIN", type: "MAIN" }, await admin(app))).status,
     ).toBe(201);
 
     const draft = await post(
       app,
       "/inventory/stock-transfers/draft",
       { id: "trf-resv-1", date: "2026-08-22", lines: [{ itemId: "item-resv-t", fromWarehouseId: "WH-MAIN", toWarehouseId: "WH-DEST", qty: "9" }] },
-      admin(app),
+      await admin(app),
     );
     expect(draft.status).toBe(201);
 
     const balance = await app.fetch(
-      new Request("http://local/inventory/stock-balance?warehouseId=WH-MAIN", { headers: admin(app) }),
+      new Request("http://local/inventory/stock-balance?warehouseId=WH-MAIN", { headers: await admin(app) }),
     );
     const body = (await balance.json()) as { rows: { itemId: string; reserved: string }[] };
     const sourceRow = body.rows.find((r) => r.itemId === "item-resv-t");
     expect(sourceRow?.reserved).toBe("9.000000");
 
     const destBalance = await app.fetch(
-      new Request("http://local/inventory/stock-balance?warehouseId=WH-DEST", { headers: admin(app) }),
+      new Request("http://local/inventory/stock-balance?warehouseId=WH-DEST", { headers: await admin(app) }),
     );
     const destBody = (await destBalance.json()) as { rows: { itemId: string; reserved: string }[] };
     const destRow = destBody.rows.find((r) => r.itemId === "item-resv-t");
@@ -3547,7 +3547,7 @@ describe("createBackend — سداد للمورد / تحصيل من عميل ref
   it("purchases pay(): a treasury account with no glAccountId is refused", async () => {
     const app = await newBackend();
     expect(
-      (await post(app, "/suppliers", { id: "sup-notreas", code: "sup-notreas", nameAr: "مورد", currency: "EGP", openingBalance: "0" }, admin(app))).status,
+      (await post(app, "/suppliers", { id: "sup-notreas", code: "sup-notreas", nameAr: "مورد", currency: "EGP", openingBalance: "0" }, await admin(app))).status,
     ).toBe(201);
     const createInvoice = await post(
       app,
@@ -3560,20 +3560,20 @@ describe("createBackend — سداد للمورد / تحصيل من عميل ref
         warehouseId: "WH-MAIN",
         lines: [{ description: "خدمة", kind: "expense", qty: "1", unitCost: "100.00", taxRatePercent: 0 }],
       },
-      admin(app),
+      await admin(app),
     );
     expect(createInvoice.status).toBe(201);
-    expect((await post(app, "/purchases/invoices/pi-notreas/confirm", {}, admin(app))).status).toBe(200);
+    expect((await post(app, "/purchases/invoices/pi-notreas/confirm", {}, await admin(app))).status).toBe(200);
 
     const pay = await post(
       app,
       "/purchases/invoices/pi-notreas/payments",
       { amount: "50.00", treasuryAccountId: "no-such-treasury", paymentMethod: "cash" },
-      admin(app),
+      await admin(app),
     );
     expect(pay.status).toBeGreaterThanOrEqual(400);
 
-    const invoiceRes = await app.fetch(new Request("http://local/purchases/invoices/pi-notreas", { headers: admin(app) }));
+    const invoiceRes = await app.fetch(new Request("http://local/purchases/invoices/pi-notreas", { headers: await admin(app) }));
     const invoice = (await invoiceRes.json()) as { status: string };
     // Nothing was paid — the invoice's own status must not have moved.
     expect(invoice.status).not.toBe("paid");
@@ -3590,11 +3590,11 @@ describe("createBackend — سداد للمورد / تحصيل من عميل ref
       app,
       "/sales-invoices/inv-notreas/payments",
       { amount: "50.00", treasuryAccountId: "no-such-treasury", paymentMethod: "cash" },
-      admin(app),
+      await admin(app),
     );
     expect(collect.status).toBeGreaterThanOrEqual(400);
 
-    const invoiceRes = await app.fetch(new Request("http://local/sales-invoices/inv-notreas", { headers: admin(app) }));
+    const invoiceRes = await app.fetch(new Request("http://local/sales-invoices/inv-notreas", { headers: await admin(app) }));
     const invoice = (await invoiceRes.json()) as { amountPaid: string };
     expect(invoice.amountPaid).toBe("0.000000");
   });
@@ -3615,7 +3615,7 @@ describe("createBackend — استرداد للعميل: refunding a confirmed s
       app,
       "/treasury-accounts",
       { id: "ta-refund", code: "TA-REFUND", name: "خزينة", branchId: "BR-MAIN", glAccountId: "1300-1", openingBalance: "1000" },
-      admin(app),
+      await admin(app),
     );
     expect(ta.status).toBe(201);
 
@@ -3629,7 +3629,7 @@ describe("createBackend — استرداد للعميل: refunding a confirmed s
       app,
       "/sales-invoices/inv-refund-fund/payments",
       { amount: "200.00", treasuryAccountId: "ta-refund", paymentMethod: "cash" },
-      admin(app),
+      await admin(app),
     );
     expect(fund.status).toBe(200);
 
@@ -3656,10 +3656,10 @@ describe("createBackend — استرداد للعميل: refunding a confirmed s
           },
         ],
       },
-      admin(app),
+      await admin(app),
     );
     expect(createReturn.status).toBe(201);
-    const confirmReturn = await post(app, "/sales-returns/sr-refund-1/confirm", {}, admin(app));
+    const confirmReturn = await post(app, "/sales-returns/sr-refund-1/confirm", {}, await admin(app));
     expect(confirmReturn.status).toBe(200);
     const confirmed = (await confirmReturn.json()) as { document: { awaitingRefund: boolean; refundDue: string } };
     expect(confirmed.document.awaitingRefund).toBe(true);
@@ -3669,7 +3669,7 @@ describe("createBackend — استرداد للعميل: refunding a confirmed s
       app,
       "/sales-returns/sr-refund-1/refund",
       { amount: "200.00", treasuryAccountId: "ta-refund", paymentMethod: "cash" },
-      admin(app),
+      await admin(app),
     );
     expect(refund.status).toBe(200);
     const refunded = (await refund.json()) as { awaitingRefund: boolean; refundDue: string; voucherId: string; voucherNo: string | null };
@@ -3678,13 +3678,13 @@ describe("createBackend — استرداد للعميل: refunding a confirmed s
     expect(refunded.voucherId).toBeTruthy();
     expect(refunded.voucherNo).toBeTruthy();
 
-    const voucherRes = await app.fetch(new Request(`http://local/vouchers/${refunded.voucherId}`, { headers: admin(app) }));
+    const voucherRes = await app.fetch(new Request(`http://local/vouchers/${refunded.voucherId}`, { headers: await admin(app) }));
     expect(voucherRes.status).toBe(200);
     const voucher = (await voucherRes.json()) as { status: string; journalEntryId: string; amount: string };
     expect(voucher.status).toBe("confirmed");
     expect(voucher.amount).toBe("200.000000");
 
-    const je = await app.fetch(new Request(`http://local/gl/journal-entries/${voucher.journalEntryId}`, { headers: admin(app) }));
+    const je = await app.fetch(new Request(`http://local/gl/journal-entries/${voucher.journalEntryId}`, { headers: await admin(app) }));
     const lines = ((await je.json()) as { lines: { accountId: string; debit: string; credit: string }[] }).lines;
     const ar = lines.find((l) => l.accountId === "1105");
     const till = lines.find((l) => l.accountId === "1300-1");
@@ -3708,7 +3708,7 @@ describe("createBackend — «مرتجع من فاتورة» restocks at cost, n
           app,
           "/items",
           { id: "item-d145", code: "item-d145", nameAr: "منتج", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" },
-          admin(app),
+          await admin(app),
         )
       ).status,
     ).toBe(201);
@@ -3723,7 +3723,7 @@ describe("createBackend — «مرتجع من فاتورة» restocks at cost, n
             reason: "INITIAL_STOCK",
             lines: [{ itemId: "item-d145", direction: "IN", qty: "100", unitCost: "10" }],
           },
-          admin(app),
+          await admin(app),
         )
       ).status,
     ).toBe(201);
@@ -3759,11 +3759,11 @@ describe("createBackend — «مرتجع من فاتورة» restocks at cost, n
               },
             ],
           },
-          admin(app),
+          await admin(app),
         )
       ).status,
     ).toBe(201);
-    expect((await post(app, "/sales-invoices/inv-d145/confirm", {}, admin(app))).status).toBe(200);
+    expect((await post(app, "/sales-invoices/inv-d145/confirm", {}, await admin(app))).status).toBe(200);
 
     // Built through /from-invoice — the route the screen uses, and the one that
     // reads cost off the invoice rather than taking the caller's word.
@@ -3778,7 +3778,7 @@ describe("createBackend — «مرتجع من فاتورة» restocks at cost, n
         reason: "DEFECTIVE",
         requested: [{ itemId: "item-d145", qty: "5" }],
       },
-      admin(app),
+      await admin(app),
     );
     expect(built.status).toBe(201);
     const draft = (await built.json()) as { lines: { unitCost: string; unitPrice: string }[] };
@@ -3787,9 +3787,9 @@ describe("createBackend — «مرتجع من فاتورة» restocks at cost, n
     expect(draft.lines[0]?.unitCost).toBe("10.000000");
     expect(draft.lines[0]?.unitPrice).toBe("50.000000");
 
-    expect((await post(app, "/sales-returns/sr-d145/confirm", {}, admin(app))).status).toBe(200);
+    expect((await post(app, "/sales-returns/sr-d145/confirm", {}, await admin(app))).status).toBe(200);
 
-    const recon = await app.fetch(new Request("http://local/reconciliation", { headers: admin(app) }));
+    const recon = await app.fetch(new Request("http://local/reconciliation", { headers: await admin(app) }));
     const after = (await recon.json()) as {
       allMatched: boolean;
       rows: { key: string; subLedgerBalance: string; glBalance: string }[];
@@ -3823,7 +3823,7 @@ describe("createBackend — a confirmed sales return is queued to ETA as a credi
           app,
           "/items",
           { id: "item-eta-ret", code: "item-eta-ret", nameAr: "منتج", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" },
-          admin(app),
+          await admin(app),
         )
       ).status,
     ).toBe(201);
@@ -3838,7 +3838,7 @@ describe("createBackend — a confirmed sales return is queued to ETA as a credi
             reason: "INITIAL_STOCK",
             lines: [{ itemId: "item-eta-ret", direction: "IN", qty: "50", unitCost: "10" }],
           },
-          admin(app),
+          await admin(app),
         )
       ).status,
     ).toBe(201);
@@ -3873,11 +3873,11 @@ describe("createBackend — a confirmed sales return is queued to ETA as a credi
               },
             ],
           },
-          admin(app),
+          await admin(app),
         )
       ).status,
     ).toBe(201);
-    expect((await post(app, "/sales-invoices/inv-eta-ret/confirm", {}, admin(app))).status).toBe(200);
+    expect((await post(app, "/sales-invoices/inv-eta-ret/confirm", {}, await admin(app))).status).toBe(200);
 
     expect(
       (
@@ -3892,15 +3892,15 @@ describe("createBackend — a confirmed sales return is queued to ETA as a credi
             reason: "DEFECTIVE",
             requested: [{ itemId: "item-eta-ret", qty: "2" }],
           },
-          admin(app),
+          await admin(app),
         )
       ).status,
     ).toBe(201);
-    expect((await post(app, "/sales-returns/sr-eta-ret/confirm", {}, admin(app))).status).toBe(200);
+    expect((await post(app, "/sales-returns/sr-eta-ret/confirm", {}, await admin(app))).status).toBe(200);
   }
 
   async function queue(app: Awaited<ReturnType<typeof newBackend>>) {
-    const res = await app.fetch(new Request("http://local/eta/submissions", { headers: admin(app) }));
+    const res = await app.fetch(new Request("http://local/eta/submissions", { headers: await admin(app) }));
     expect(res.status).toBe(200);
     return (await res.json()) as { internalId: string; documentType: string; status: string }[];
   }
@@ -3912,7 +3912,7 @@ describe("createBackend — a confirmed sales return is queued to ETA as a credi
         await app.fetch(
           new Request("http://local/eta/config", {
             method: "PUT",
-            headers: { "content-type": "application/json", ...admin(app) },
+            headers: { "content-type": "application/json", ...(await admin(app)) },
             body: JSON.stringify({ autoSubmitOnConfirm: true }),
           }),
         )
@@ -3937,7 +3937,7 @@ describe("createBackend — a confirmed sales return is queued to ETA as a credi
         await app.fetch(
           new Request("http://local/eta/config", {
             method: "PUT",
-            headers: { "content-type": "application/json", ...admin(app) },
+            headers: { "content-type": "application/json", ...(await admin(app)) },
             body: JSON.stringify({ autoSubmitOnConfirm: false }),
           }),
         )
@@ -3965,7 +3965,7 @@ describe("createBackend — a landed cost does not touch the AP control account 
           app,
           "/items",
           { id: "item-lc", code: "item-lc", nameAr: "منتج مستورد", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" },
-          admin(app),
+          await admin(app),
         )
       ).status,
     ).toBe(201);
@@ -3980,13 +3980,13 @@ describe("createBackend — a landed cost does not touch the AP control account 
             reason: "INITIAL_STOCK",
             lines: [{ itemId: "item-lc", direction: "IN", qty: "100", unitCost: "10" }],
           },
-          admin(app),
+          await admin(app),
         )
       ).status,
     ).toBe(201);
 
     const before = (await (
-      await app.fetch(new Request("http://local/reconciliation", { headers: admin(app) }))
+      await app.fetch(new Request("http://local/reconciliation", { headers: await admin(app) }))
     ).json()) as { allMatched: boolean; rows: { key: string; subLedgerBalance: string; glBalance: string }[] };
     expect(before.allMatched).toBe(true);
     const apBefore = before.rows.find((r) => r.key === "ap")!;
@@ -4012,13 +4012,13 @@ describe("createBackend — a landed cost does not touch the AP control account 
           },
         ],
       },
-      admin(app),
+      await admin(app),
     );
     expect(created.status).toBe(201);
-    expect((await post(app, "/landed-costs/lc-1/confirm", {}, admin(app))).status).toBe(200);
+    expect((await post(app, "/landed-costs/lc-1/confirm", {}, await admin(app))).status).toBe(200);
 
     const after = (await (
-      await app.fetch(new Request("http://local/reconciliation", { headers: admin(app) }))
+      await app.fetch(new Request("http://local/reconciliation", { headers: await admin(app) }))
     ).json()) as { allMatched: boolean; rows: { key: string; subLedgerBalance: string; glBalance: string }[] };
 
     const apAfter = after.rows.find((r) => r.key === "ap")!;
@@ -4037,7 +4037,7 @@ describe("createBackend — a landed cost does not touch the AP control account 
           app,
           "/items",
           { id: "item-lc2", code: "item-lc2", nameAr: "منتج", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" },
-          admin(app),
+          await admin(app),
         )
       ).status,
     ).toBe(201);
@@ -4062,7 +4062,7 @@ describe("createBackend — a landed cost does not touch the AP control account 
           },
         ],
       },
-      admin(app),
+      await admin(app),
     );
     expect(created.status).toBe(201);
     const body = (await created.json()) as { lines: { costItems: { supplierId: string | null }[] }[] };
@@ -4083,7 +4083,7 @@ describe("createBackend — the purchasing policy toggles are enforced (D72)", (
     const res = await app.fetch(
       new Request("http://local/settings", {
         method: "PUT",
-        headers: { "content-type": "application/json", ...admin(app) },
+        headers: { "content-type": "application/json", ...(await admin(app)) },
         body: JSON.stringify(patch),
       }),
     );
@@ -4097,7 +4097,7 @@ describe("createBackend — the purchasing policy toggles are enforced (D72)", (
           app,
           "/items",
           { id, code: id, nameAr: "منتج", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" },
-          admin(app),
+          await admin(app),
         )
       ).status,
     ).toBe(201);
@@ -4105,7 +4105,7 @@ describe("createBackend — the purchasing policy toggles are enforced (D72)", (
 
   async function seedSupplier(app: Awaited<ReturnType<typeof newBackend>>, id: string) {
     expect(
-      (await post(app, "/suppliers", { id, code: id, nameAr: "مورد", openingBalance: "0" }, admin(app))).status,
+      (await post(app, "/suppliers", { id, code: id, nameAr: "مورد", openingBalance: "0" }, await admin(app))).status,
     ).toBe(201);
   }
 
@@ -4124,7 +4124,7 @@ describe("createBackend — the purchasing policy toggles are enforced (D72)", (
     const app = await newBackend();
     await seedItem(app, "item-d72a");
     await seedSupplier(app, "SUP-1");
-    const res = await post(app, "/purchases/receipts", adHocReceipt("grn-d72a", "item-d72a"), admin(app));
+    const res = await post(app, "/purchases/receipts", adHocReceipt("grn-d72a", "item-d72a"), await admin(app));
     expect(res.status).toBe(201);
   });
 
@@ -4133,7 +4133,7 @@ describe("createBackend — the purchasing policy toggles are enforced (D72)", (
     await seedItem(app, "item-d72b");
     await setToggles(app, { requirePoForGrn: true });
 
-    const res = await post(app, "/purchases/receipts", adHocReceipt("grn-d72b", "item-d72b"), admin(app));
+    const res = await post(app, "/purchases/receipts", adHocReceipt("grn-d72b", "item-d72b"), await admin(app));
     expect(res.status).toBeGreaterThanOrEqual(400);
   });
 
@@ -4153,7 +4153,7 @@ describe("createBackend — the purchasing policy toggles are enforced (D72)", (
         warehouseId: "WH-MAIN",
         lines: [{ itemId: "item-d72c", qty: "5", unitCost: "10" }],
       },
-      admin(app),
+      await admin(app),
     );
     expect(res.status).toBeGreaterThanOrEqual(400);
   });
@@ -4173,7 +4173,7 @@ describe("createBackend — an invoice cannot name a GL account the tenant does 
           app,
           "/items",
           { id: `item-${suffix}`, code: `item-${suffix}`, nameAr: "منتج", type: "service", baseUnitCode: "PCS" },
-          admin(app),
+          await admin(app),
         )
       ).status,
     ).toBe(201);
@@ -4211,7 +4211,7 @@ describe("createBackend — an invoice cannot name a GL account the tenant does 
   it("refuses a revenue account that is not in the chart at all", async () => {
     const app = await newBackend();
     await itemAndCustomer(app, "d108a");
-    const res = await post(app, "/sales-invoices", invoice("d108a", {}, { revenueAccountId: "9999" }), admin(app));
+    const res = await post(app, "/sales-invoices", invoice("d108a", {}, { revenueAccountId: "9999" }), await admin(app));
     expect(res.status).toBe(422);
     const body = (await res.json()) as { error: string; accounts: string[] };
     expect(body.error).toBe("GL_ACCOUNT_NOT_POSTABLE");
@@ -4222,7 +4222,7 @@ describe("createBackend — an invoice cannot name a GL account the tenant does 
     const app = await newBackend();
     await itemAndCustomer(app, "d108b");
     // 4000 is the revenue header in the standard template; its children post.
-    const res = await post(app, "/sales-invoices", invoice("d108b", {}, { revenueAccountId: "4000" }), admin(app));
+    const res = await post(app, "/sales-invoices", invoice("d108b", {}, { revenueAccountId: "4000" }), await admin(app));
     expect(res.status).toBe(422);
     expect(((await res.json()) as { error: string }).error).toBe("GL_ACCOUNT_NOT_POSTABLE");
   });
@@ -4230,7 +4230,7 @@ describe("createBackend — an invoice cannot name a GL account the tenant does 
   it("refuses a bad AR account on the header, not only on a line", async () => {
     const app = await newBackend();
     await itemAndCustomer(app, "d108c");
-    const res = await post(app, "/sales-invoices", invoice("d108c", { arAccountId: "9998" }), admin(app));
+    const res = await post(app, "/sales-invoices", invoice("d108c", { arAccountId: "9998" }), await admin(app));
     expect(res.status).toBe(422);
     expect(((await res.json()) as { accounts: string[] }).accounts).toContain("9998");
   });
@@ -4238,7 +4238,7 @@ describe("createBackend — an invoice cannot name a GL account the tenant does 
   it("still accepts the real seeded accounts, so the check is not refusing everything", async () => {
     const app = await newBackend();
     await itemAndCustomer(app, "d108d");
-    const res = await post(app, "/sales-invoices", invoice("d108d"), admin(app));
+    const res = await post(app, "/sales-invoices", invoice("d108d"), await admin(app));
     expect(res.status).toBe(201);
   });
 });
@@ -4320,10 +4320,10 @@ describe("createBackend — السماح بالبيع من مستودع آخر: 
   it("a stock line pulls from the OTHER warehouse when the invoiced warehouse holds none of the item", async () => {
     const app = await newBackend();
     expect(
-      (await post(app, "/items", { id: "item-xwh", code: "ITEM-XWH", nameAr: "صنف متعدد المخازن", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" }, admin(app))).status,
+      (await post(app, "/items", { id: "item-xwh", code: "ITEM-XWH", nameAr: "صنف متعدد المخازن", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" }, await admin(app))).status,
     ).toBe(201);
     expect(
-      (await post(app, "/warehouses", { id: "WH-OTHER", code: "WH-OTHER", name: "مستودع آخر", nameEn: null, branchId: "BR-MAIN", type: "MAIN" }, admin(app))).status,
+      (await post(app, "/warehouses", { id: "WH-OTHER", code: "WH-OTHER", name: "مستودع آخر", nameEn: null, branchId: "BR-MAIN", type: "MAIN" }, await admin(app))).status,
     ).toBe(201);
     // Stock exists ONLY in WH-OTHER, never in WH-MAIN.
     expect(
@@ -4332,11 +4332,11 @@ describe("createBackend — السماح بالبيع من مستودع آخر: 
           app,
           "/inventory/stock-adjustments/draft",
           { id: "sa-xwh", date: "2026-08-01", lines: [{ itemId: "item-xwh", warehouseId: "WH-OTHER", reason: "INITIAL_STOCK", direction: "IN", qty: "20", unitCost: "15" }] },
-          admin(app),
+          await admin(app),
         )
       ).status,
     ).toBe(201);
-    expect((await post(app, "/inventory/stock-adjustments/sa-xwh/confirm", {}, admin(app))).status).toBe(200);
+    expect((await post(app, "/inventory/stock-adjustments/sa-xwh/confirm", {}, await admin(app))).status).toBe(200);
 
     await createCustomer(app, "cust-xwh", "0");
     const createInvoice = await post(
@@ -4367,19 +4367,19 @@ describe("createBackend — السماح بالبيع من مستودع آخر: 
           },
         ],
       },
-      admin(app),
+      await admin(app),
     );
     expect(createInvoice.status).toBe(201);
-    const confirm = await post(app, "/sales-invoices/inv-xwh-1/confirm", {}, admin(app));
+    const confirm = await post(app, "/sales-invoices/inv-xwh-1/confirm", {}, await admin(app));
     // Without cross-warehouse fallback this would refuse for negative stock in WH-MAIN.
     expect(confirm.status).toBe(200);
 
     const otherBalance = await app.fetch(
-      new Request("http://local/inventory/balance?itemId=item-xwh&warehouseId=WH-OTHER", { headers: admin(app) }),
+      new Request("http://local/inventory/balance?itemId=item-xwh&warehouseId=WH-OTHER", { headers: await admin(app) }),
     );
     expect(Number(((await otherBalance.json()) as { onHand: string }).onHand)).toBe(15); // 20 - 5 pulled
     const mainBalance = await app.fetch(
-      new Request("http://local/inventory/balance?itemId=item-xwh&warehouseId=WH-MAIN", { headers: admin(app) }),
+      new Request("http://local/inventory/balance?itemId=item-xwh&warehouseId=WH-MAIN", { headers: await admin(app) }),
     );
     expect(Number(((await mainBalance.json()) as { onHand: string }).onHand)).toBe(0);
   });
@@ -4393,7 +4393,7 @@ describe("createBackend — GET /gl/balances-by-currency reads real open receiva
     await authedPost(app, "/sales-invoices", invoiceBody("inv-bal-1", "cust-bal", "1000.00"));
     await authedPost(app, "/sales-invoices/inv-bal-1/confirm", {});
 
-    await post(app, "/suppliers", { id: "sup-bal", code: "sup-bal", nameAr: "مورد", currency: "EGP", openingBalance: "0" }, admin(app));
+    await post(app, "/suppliers", { id: "sup-bal", code: "sup-bal", nameAr: "مورد", currency: "EGP", openingBalance: "0" }, await admin(app));
     const createInvoice = await post(
       app,
       "/purchases/invoices",
@@ -4405,12 +4405,12 @@ describe("createBackend — GET /gl/balances-by-currency reads real open receiva
         warehouseId: "WH-MAIN",
         lines: [{ description: "خدمة", kind: "expense", qty: "1", unitCost: "400.00", taxRatePercent: 0 }],
       },
-      admin(app),
+      await admin(app),
     );
     expect(createInvoice.status).toBe(201);
-    expect((await post(app, "/purchases/invoices/pi-bal-1/confirm", {}, admin(app))).status).toBe(200);
+    expect((await post(app, "/purchases/invoices/pi-bal-1/confirm", {}, await admin(app))).status).toBe(200);
 
-    const res = await app.fetch(new Request("http://local/gl/balances-by-currency", { headers: admin(app) }));
+    const res = await app.fetch(new Request("http://local/gl/balances-by-currency", { headers: await admin(app) }));
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       baseCurrency: string;
@@ -4444,7 +4444,7 @@ describe("createBackend — seedDemoData wires a real session and seeds through 
   afterAll(() => seeded.close());
 
   it("seeds more than zero customers, reachable over the real HTTP surface", async () => {
-    const res = await seeded.app.fetch(new Request("http://local/customers", { headers: admin(seeded.app) }));
+    const res = await seeded.app.fetch(new Request("http://local/customers", { headers: await admin(seeded.app) }));
     expect(res.status).toBe(200);
     const customersList = (await res.json()) as unknown[];
     expect(customersList.length).toBeGreaterThan(0);
@@ -4464,7 +4464,7 @@ describe("createBackend — seedDemoData wires a real session and seeds through 
     );
     expect(claim.status).toBe(409);
 
-    const settings = await handle.app.fetch(new Request("http://local/settings", { headers: admin(handle.app) }));
+    const settings = await handle.app.fetch(new Request("http://local/settings", { headers: await admin(handle.app) }));
     expect(((await settings.json()) as { companyName: string }).companyName).toBe(SEED_TENANT_NAME);
   }, DEMO_SEED_BUDGET_MS);
 
@@ -4477,7 +4477,7 @@ describe("createBackend — seedDemoData wires a real session and seeds through 
   it("an approved progress certificate's invoice reaches the ETA queue exactly once", async () => {
     const app = seeded.app;
 
-    const certRes = await app.fetch(new Request("http://local/contracting/certificates", { headers: admin(app) }));
+    const certRes = await app.fetch(new Request("http://local/contracting/certificates", { headers: await admin(app) }));
     expect(certRes.status).toBe(200);
     const certificates = (await certRes.json()) as { invoiceDocNo: string | null }[];
     const billed = certificates.map((c) => c.invoiceDocNo).filter((docNo): docNo is string => docNo !== null);
@@ -4486,7 +4486,7 @@ describe("createBackend — seedDemoData wires a real session and seeds through 
     // The bridge queues on a floating promise after confirm returns.
     await new Promise((resolve) => setTimeout(resolve, 200));
 
-    const queueRes = await app.fetch(new Request("http://local/eta/submissions", { headers: admin(app) }));
+    const queueRes = await app.fetch(new Request("http://local/eta/submissions", { headers: await admin(app) }));
     expect(queueRes.status).toBe(200);
     const queued = (await queueRes.json()) as { internalId: string; documentType: string }[];
     for (const docNo of billed) {
@@ -4505,21 +4505,21 @@ describe("resolveEntitlements", () => {
           createEntitlements({ plan: "core", activeModules: ["sales"], features: {}, seats: 1, expiresAt: null }),
       }),
     );
-    const res = await app.fetch(new Request("http://local/entitlements", { headers: admin(app) }));
+    const res = await app.fetch(new Request("http://local/entitlements", { headers: await admin(app) }));
     expect(res.status).toBe(200);
     const body = (await res.json()) as { plan: string; activeModules: string[]; seats: number };
     expect(body.plan).toBe("core");
     expect(body.activeModules).toEqual(["sales"]);
     expect(body.seats).toBe(1);
 
-    const refused = await app.fetch(new Request("http://local/hr/employees", { headers: admin(app) }));
+    const refused = await app.fetch(new Request("http://local/hr/employees", { headers: await admin(app) }));
     expect(refused.status).toBe(403);
     expect(await refused.json()).toMatchObject({ error: "MODULE_NOT_LICENSED", module: "hr" });
   });
 
   it("defaults to the full ENTERPRISE catalog when omitted", async () => {
     const app = keep(await createBackend({ dbPath: ":memory:" }));
-    const res = await app.fetch(new Request("http://local/entitlements", { headers: admin(app) }));
+    const res = await app.fetch(new Request("http://local/entitlements", { headers: await admin(app) }));
     expect(res.status).toBe(200);
     const body = (await res.json()) as { plan: string };
     expect(body.plan).toBe("ENTERPRISE");
@@ -4544,7 +4544,7 @@ describe("backupTo", () => {
         await handle.app.fetch(
           new Request("http://local/items", {
             method: "POST",
-            headers: { "content-type": "application/json", ...admin(handle.app) },
+            headers: { "content-type": "application/json", ...(await admin(handle.app)) },
             body: JSON.stringify({ id: "item-1", code: "ITEM-1", nameAr: "منتج 1", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" }),
           }),
         )
@@ -4552,7 +4552,7 @@ describe("backupTo", () => {
     ).toBe(201);
 
     const destination = path.join(dir, "backup.sqlite");
-    await handle.backupTo(destination);
+    await handle.backupTo!(destination);
 
     expect(existsSync(destination)).toBe(true);
     const { sqlite: copy } = openSqliteConnection(destination);
@@ -4568,7 +4568,7 @@ describe("backupTo", () => {
 
 describe("createBackend — FX aging, the customers screen and cheque vouchers (D194–D196)", () => {
   async function get(app: App, path: string): Promise<any> {
-    return (await app.fetch(new Request(`http://local${path}`, { headers: admin(app) }))).json();
+    return (await app.fetch(new Request(`http://local${path}`, { headers: await admin(app) }))).json();
   }
   async function reconDiff(app: App, key: "ar" | "ap"): Promise<number> {
     const { rows } = (await get(app, "/reconciliation")) as { rows: { key: string; subLedgerBalance: string; glBalance: string }[] };
@@ -4583,7 +4583,7 @@ describe("createBackend — FX aging, the customers screen and cheque vouchers (
       app,
       "/treasury-accounts",
       { id: "ta-cash", code: "TA-CASH", name: "الخزينة", branchId: "BR-MAIN", glAccountId: "1300-1", openingBalance: "0" },
-      admin(app),
+      await admin(app),
     );
     expect(res.status).toBe(201);
   }
@@ -4604,9 +4604,9 @@ describe("createBackend — FX aging, the customers screen and cheque vouchers (
   }
 
   async function approvedRate(app: App, id: string, currency: string, rate: string, effectiveDate: string) {
-    const created = await post(app, "/exchange-rates", { id, currency, rate, effectiveDate, rateType: "standard", source: "manual" }, admin(app));
+    const created = await post(app, "/exchange-rates", { id, currency, rate, effectiveDate, rateType: "standard", source: "manual" }, await admin(app));
     expect(created.status).toBe(201);
-    expect((await post(app, `/exchange-rates/${id}/approve`, {}, admin(app))).status).toBe(200);
+    expect((await post(app, `/exchange-rates/${id}/approve`, {}, await admin(app))).status).toBe(200);
   }
 
   it("D197: reversing an on-account collection leaves AR reconciled — the mirror voucher is not a second receipt", async () => {
@@ -4616,11 +4616,11 @@ describe("createBackend — FX aging, the customers screen and cheque vouchers (
     await cashTreasury(app);
     expect((await authedPost(app, "/sales-invoices", invoiceBody("inv-rev", "cust-rev", "1000"))).status).toBe(201);
     expect((await authedPost(app, "/sales-invoices/inv-rev/confirm", {})).status).toBe(200);
-    expect((await post(app, "/vouchers", collection("v-rev", "cust-rev", "400"), admin(app))).status).toBe(201);
-    expect((await post(app, "/vouchers/v-rev/confirm", {}, admin(app))).status).toBe(200);
+    expect((await post(app, "/vouchers", collection("v-rev", "cust-rev", "400"), await admin(app))).status).toBe(201);
+    expect((await post(app, "/vouchers/v-rev/confirm", {}, await admin(app))).status).toBe(200);
     expect(await reconDiff(app, "ar")).toBe(0);
 
-    expect((await post(app, "/vouchers/v-rev/reverse", { memo: "سبب العكس", date: "2026-08-23" }, admin(app))).status).toBe(201);
+    expect((await post(app, "/vouchers/v-rev/reverse", { memo: "سبب العكس", date: "2026-08-23" }, await admin(app))).status).toBe(201);
     expect(await glBalance(app, "1105")).toBe(1000);
     expect(await reconDiff(app, "ar")).toBe(0);
     const aging = await get(app, "/reports/aging/customers?asOfDate=2026-09-30");
@@ -4632,14 +4632,14 @@ describe("createBackend — FX aging, the customers screen and cheque vouchers (
     const app = await newBackend();
     await cashTreasury(app);
     const fund = { ...collection("v-fund", "none", "1000"), voucherType: "capital_injection", counterpartyGlAccountId: "3100", customerId: null };
-    expect((await post(app, "/vouchers", fund, admin(app))).status).toBe(201);
-    expect((await post(app, "/vouchers/v-fund/confirm", {}, admin(app))).status).toBe(200);
+    expect((await post(app, "/vouchers", fund, await admin(app))).status).toBe(201);
+    expect((await post(app, "/vouchers/v-fund/confirm", {}, await admin(app))).status).toBe(200);
     const expense = { ...collection("v-exp", "none", "250"), voucherType: "other_expense", counterpartyGlAccountId: "5910", customerId: null };
-    expect((await post(app, "/vouchers", expense, admin(app))).status).toBe(201);
-    expect((await post(app, "/vouchers/v-exp/confirm", {}, admin(app))).status).toBe(200);
+    expect((await post(app, "/vouchers", expense, await admin(app))).status).toBe(201);
+    expect((await post(app, "/vouchers/v-exp/confirm", {}, await admin(app))).status).toBe(200);
     expect(Number((await get(app, "/dashboard/summary")).gl.expenses)).toBe(250);
 
-    expect((await post(app, "/vouchers/v-exp/reverse", { memo: "سبب العكس", date: "2026-08-23" }, admin(app))).status).toBe(201);
+    expect((await post(app, "/vouchers/v-exp/reverse", { memo: "سبب العكس", date: "2026-08-23" }, await admin(app))).status).toBe(201);
     expect(Number((await get(app, "/dashboard/summary")).gl.expenses)).toBe(0);
     const entries = (await get(app, "/gl/journal-entries?pageSize=200")) as { items?: { sourceModule: string; memo: string }[] } | { sourceModule: string }[];
     const list = Array.isArray(entries) ? entries : (entries.items ?? []);
@@ -4657,7 +4657,7 @@ describe("createBackend — FX aging, the customers screen and cheque vouchers (
     const put = await app.fetch(
       new Request("http://local/settings", {
         method: "PUT",
-        headers: { "content-type": "application/json", ...admin(app) },
+        headers: { "content-type": "application/json", ...(await admin(app)) },
         body: JSON.stringify({ ...settings, multiCurrencyEnabled: true }),
       }),
     );
@@ -4666,7 +4666,7 @@ describe("createBackend — FX aging, the customers screen and cheque vouchers (
     expect((await authedPost(app, "/sales-invoices/inv-usd/confirm", {})).status).toBe(200);
     expect(await glBalance(app, "1105")).toBe(4800);
 
-    expect((await post(app, "/suppliers", { id: "sup-sar", code: "sup-sar", nameAr: "مورد بالريال", currency: "SAR", openingBalance: "0" }, admin(app))).status).toBe(201);
+    expect((await post(app, "/suppliers", { id: "sup-sar", code: "sup-sar", nameAr: "مورد بالريال", currency: "SAR", openingBalance: "0" }, await admin(app))).status).toBe(201);
     const bill = await post(
       app,
       "/purchases/invoices",
@@ -4680,10 +4680,10 @@ describe("createBackend — FX aging, the customers screen and cheque vouchers (
         currency: "SAR",
         lines: [{ description: "خدمة بالريال", kind: "expense", qty: "1", unitCost: "100", taxRatePercent: 0 }],
       },
-      admin(app),
+      await admin(app),
     );
     expect(bill.status).toBe(201);
-    expect((await post(app, "/purchases/invoices/pi-sar/confirm", {}, admin(app))).status).toBe(200);
+    expect((await post(app, "/purchases/invoices/pi-sar/confirm", {}, await admin(app))).status).toBe(200);
     expect(-(await glBalance(app, "2100"))).toBe(1320);
 
     const customers = await get(app, "/reports/aging/customers?asOfDate=2026-08-31");
@@ -4695,7 +4695,7 @@ describe("createBackend — FX aging, the customers screen and cheque vouchers (
 
     await approvedRate(app, "fx-usd-2", "USD", "50.00", "2026-08-31");
     await approvedRate(app, "fx-sar-2", "SAR", "13.50", "2026-08-31");
-    const revalued = await post(app, "/revaluation/post", { date: "2026-08-31", currencies: ["USD", "SAR"], autoReverse: false }, admin(app));
+    const revalued = await post(app, "/revaluation/post", { date: "2026-08-31", currencies: ["USD", "SAR"], autoReverse: false }, await admin(app));
     expect(revalued.status).toBe(201);
     expect(await glBalance(app, "1105")).toBe(5000);
     expect(-(await glBalance(app, "2100"))).toBe(1350);
@@ -4727,8 +4727,8 @@ describe("createBackend — FX aging, the customers screen and cheque vouchers (
     expect((await authedPost(app, "/sales-invoices", invoiceBody("inv-owe", "cust-owe", "1000"))).status).toBe(201);
     expect((await authedPost(app, "/sales-invoices/inv-owe/confirm", {})).status).toBe(200);
     for (const [id, customerId, amount] of [["v-onacc", "cust-owe", "100"], ["v-advance", "cust-credit", "50"]] as const) {
-      expect((await post(app, "/vouchers", collection(id, customerId, amount), admin(app))).status).toBe(201);
-      expect((await post(app, "/vouchers/" + id + "/confirm", {}, admin(app))).status).toBe(200);
+      expect((await post(app, "/vouchers", collection(id, customerId, amount), await admin(app))).status).toBe(201);
+      expect((await post(app, "/vouchers/" + id + "/confirm", {}, await admin(app))).status).toBe(200);
     }
 
     const aging = await get(app, "/reports/aging/customers");
@@ -4753,9 +4753,9 @@ describe("createBackend — FX aging, the customers screen and cheque vouchers (
     expect((await authedPost(app, "/sales-invoices/inv-chq/confirm", {})).status).toBe(200);
 
     const body = collection("v-chq", "cust-chq", "400", { paymentMethod: "cheque", referenceNo: "CHQ-196" });
-    expect((await post(app, "/vouchers", body, admin(app))).status).toBe(201);
+    expect((await post(app, "/vouchers", body, await admin(app))).status).toBe(201);
     expect((await get(app, "/cheques")).find?.((c: { id: string }) => c.id === "v-chq")).toBeUndefined();
-    expect((await post(app, "/vouchers/v-chq/confirm", {}, admin(app))).status).toBe(200);
+    expect((await post(app, "/vouchers/v-chq/confirm", {}, await admin(app))).status).toBe(200);
 
     const cheque = await get(app, "/cheques/v-chq");
     expect(cheque).toMatchObject({ direction: "incoming", status: "pending", chequeNumber: "CHQ-196", partyId: "cust-chq", amount: "400.000000" });
@@ -4767,12 +4767,12 @@ describe("createBackend — FX aging, the customers screen and cheque vouchers (
     expect(aging.grandTotals.total).toBe("600.000000");
     expect(aging.reconciliation).toMatchObject({ withinTolerance: true });
 
-    expect((await post(app, "/vouchers/v-chq/allocations", { invoiceId: "inv-chq", amount: "400.00" }, admin(app))).status).toBe(201);
+    expect((await post(app, "/vouchers/v-chq/allocations", { invoiceId: "inv-chq", amount: "400.00" }, await admin(app))).status).toBe(201);
     expect((await get(app, "/cheques/v-chq")).allocations).toHaveLength(1);
-    expect((await post(app, "/vouchers/v-chq/reverse", { memo: "سبب العكس", date: "2026-08-23" }, admin(app))).status).toBe(422);
+    expect((await post(app, "/vouchers/v-chq/reverse", { memo: "سبب العكس", date: "2026-08-23" }, await admin(app))).status).toBe(422);
 
-    expect((await post(app, "/cheques/v-chq/deposit", { bankTreasuryAccountId: "ta-cash" }, admin(app))).status).toBe(200);
-    expect((await post(app, "/cheques/v-chq/bounce", { date: "2026-08-25" }, admin(app))).status).toBe(200);
+    expect((await post(app, "/cheques/v-chq/deposit", { bankTreasuryAccountId: "ta-cash" }, await admin(app))).status).toBe(200);
+    expect((await post(app, "/cheques/v-chq/bounce", { date: "2026-08-25" }, await admin(app))).status).toBe(200);
     expect((await get(app, "/vouchers/v-chq")).status).toBe("reversed");
     expect(await get(app, "/sales-invoices/inv-chq")).toMatchObject({ status: "confirmed", remainingBalance: "1000.000000" });
     expect(await glBalance(app, "1105")).toBe(1000);
@@ -4787,7 +4787,7 @@ describe("createBackend — FX aging, the customers screen and cheque vouchers (
       app,
       "/cheques/v-chq/replace",
       { newCheque: { id: "chq-196-b", chequeNumber: "CHQ-196-B", bankName: "بنك مصر", issueDate: "2026-08-26", dueDate: "2026-09-10", branchId: "BR-MAIN" } },
-      admin(app),
+      await admin(app),
     );
     expect(replaced.status).toBe(201);
     expect(await glBalance(app, "1105")).toBe(600);
@@ -4800,9 +4800,9 @@ describe("createBackend — FX aging, the customers screen and cheque vouchers (
   it("D196: a «شيك» supplier payment issues an outgoing cheque and debits AP once", async () => {
     const app = await newBackend();
     await cashTreasury(app);
-    expect((await post(app, "/vouchers", { ...collection("v-fund", "cust-none", "1000"), voucherType: "capital_injection", counterpartyGlAccountId: "3100", customerId: null }, admin(app))).status).toBe(201);
-    expect((await post(app, "/vouchers/v-fund/confirm", {}, admin(app))).status).toBe(200);
-    expect((await post(app, "/suppliers", { id: "sup-chq", code: "sup-chq", nameAr: "مورد", currency: "EGP", openingBalance: "0" }, admin(app))).status).toBe(201);
+    expect((await post(app, "/vouchers", { ...collection("v-fund", "cust-none", "1000"), voucherType: "capital_injection", counterpartyGlAccountId: "3100", customerId: null }, await admin(app))).status).toBe(201);
+    expect((await post(app, "/vouchers/v-fund/confirm", {}, await admin(app))).status).toBe(200);
+    expect((await post(app, "/suppliers", { id: "sup-chq", code: "sup-chq", nameAr: "مورد", currency: "EGP", openingBalance: "0" }, await admin(app))).status).toBe(201);
     const payment = {
       id: "v-pay-chq",
       date: "2026-08-22",
@@ -4816,8 +4816,8 @@ describe("createBackend — FX aging, the customers screen and cheque vouchers (
       supplierId: "sup-chq",
       referenceNo: "OUT-196",
     };
-    expect((await post(app, "/vouchers", payment, admin(app))).status).toBe(201);
-    expect((await post(app, "/vouchers/v-pay-chq/confirm", {}, admin(app))).status).toBe(200);
+    expect((await post(app, "/vouchers", payment, await admin(app))).status).toBe(201);
+    expect((await post(app, "/vouchers/v-pay-chq/confirm", {}, await admin(app))).status).toBe(200);
     expect(await get(app, "/cheques/v-pay-chq")).toMatchObject({ direction: "outgoing", partyId: "sup-chq", chequeNumber: "OUT-196" });
     expect(await glBalance(app, "2100")).toBe(300);
     expect(await glBalance(app, "2150")).toBe(-300);
@@ -4828,7 +4828,7 @@ describe("createBackend — FX aging, the customers screen and cheque vouchers (
 
 describe("createBackend — party balances no invoice carries, and one figure per party (D200–D205, D210, D211)", () => {
   async function get(app: App, path: string): Promise<any> {
-    return (await app.fetch(new Request(`http://local${path}`, { headers: admin(app) }))).json();
+    return (await app.fetch(new Request(`http://local${path}`, { headers: await admin(app) }))).json();
   }
   async function reconDiffs(app: App): Promise<{ ar: string; ap: string }> {
     const { rows } = (await get(app, "/reconciliation")) as { rows: { key: string; difference: string }[] };
@@ -4839,7 +4839,7 @@ describe("createBackend — party balances no invoice carries, and one figure pe
       app,
       "/treasury-accounts",
       { id: "ta-cash", code: "TA-CASH", name: "الخزينة", branchId: "BR-MAIN", glAccountId: "1300-1", openingBalance: "0" },
-      admin(app),
+      await admin(app),
     );
     expect(res.status).toBe(201);
   }
@@ -4852,7 +4852,7 @@ describe("createBackend — party balances no invoice carries, and one figure pe
     const refused = await post(app, "/gl/journal-entries", journal("je-np", [
       { accountId: "1105", debit: "500", credit: "0" },
       { accountId: "4100", debit: "0", credit: "500" },
-    ]), admin(app));
+    ]), await admin(app));
     expect(refused.status).toBe(422);
     const body = (await refused.json()) as { error: string; message: string; messageEn: string };
     expect(body.error).toBe("PARTY_REQUIRED_ON_CONTROL_ACCOUNT");
@@ -4861,7 +4861,7 @@ describe("createBackend — party balances no invoice carries, and one figure pe
     const ap = await post(app, "/gl/journal-entries", journal("je-np-ap", [
       { accountId: "5900", debit: "300", credit: "0" },
       { accountId: "2100", debit: "0", credit: "300" },
-    ]), admin(app));
+    ]), await admin(app));
     expect(ap.status).toBe(422);
     expect(Number((await get(app, "/gl/accounts/1105/ledger")).balance.balance)).toBe(0);
     expect(await get(app, "/gl/party-control-accounts")).toEqual(
@@ -4876,13 +4876,13 @@ describe("createBackend — party balances no invoice carries, and one figure pe
       { accountId: "1105", debit: "1140", credit: "0", partyId: "cust-je" },
       { accountId: "4100", debit: "0", credit: "1000" },
       { accountId: "2200", debit: "0", credit: "140" },
-    ]), admin(app));
+    ]), await admin(app));
     expect(posted.status).toBe(201);
     expect(((await posted.json()) as { lines: { partyId: string | null }[] }).lines[0]?.partyId).toBe("cust-je");
     const credit = await post(app, "/gl/journal-entries", journal("je-cust-cr", [
       { accountId: "5900", debit: "140", credit: "0" },
       { accountId: "1105", debit: "0", credit: "140", partyId: "cust-je" },
-    ]), admin(app));
+    ]), await admin(app));
     expect(credit.status).toBe(201);
 
     expect(await reconDiffs(app)).toEqual({ ar: "0.000000", ap: "0.000000" });
@@ -4906,7 +4906,7 @@ describe("createBackend — party balances no invoice carries, and one figure pe
         { accountCode: "1105", debit: "10000.00", credit: "0" },
         { accountCode: "3100", debit: "0", credit: "10000.00" },
       ],
-    }, admin(app));
+    }, await admin(app));
     expect(res.status).toBe(422);
     const body = (await res.json()) as { errors: { reasons: string[] }[] };
     expect(body.errors[0]!.reasons[0]).toContain("بطاقة كل عميل");
@@ -4916,7 +4916,7 @@ describe("createBackend — party balances no invoice carries, and one figure pe
         { accountCode: "1310", debit: "10000.00", credit: "0" },
         { accountCode: "3100", debit: "0", credit: "10000.00" },
       ],
-    }, admin(app));
+    }, await admin(app));
     expect(clean.status).toBe(201);
   });
 
@@ -4928,7 +4928,7 @@ describe("createBackend — party balances no invoice carries, and one figure pe
         { accountCode: "2100", debit: "0", credit: "4000.00" },
         { accountCode: "3100", debit: "0", credit: "6000.00" },
       ],
-    }, admin(app));
+    }, await admin(app));
     expect(res.status).toBe(200);
     const body = (await res.json()) as { errors: { rowNumber: number; reasons: string[] }[] };
     expect(body.errors.map((e) => e.rowNumber)).toEqual([1, 2]);
@@ -4944,7 +4944,7 @@ describe("createBackend — party balances no invoice carries, and one figure pe
       active: true, creditLimit: "0", taxExempt: false, etaBuyerType: "auto",
     });
     expect(customer.status).toBe(201);
-    expect((await post(app, "/suppliers", { id: "sup-ob", code: "sup-ob", nameAr: "مورد برصيد", openingBalance: "300" }, admin(app))).status).toBe(201);
+    expect((await post(app, "/suppliers", { id: "sup-ob", code: "sup-ob", nameAr: "مورد برصيد", openingBalance: "300" }, await admin(app))).status).toBe(201);
 
     const customers = await get(app, "/reports/aging/customers");
     expect(customers.rows.find((r: { customerId: string }) => r.customerId === "cust-ob")?.total).toBe("750.000000");
@@ -4961,22 +4961,22 @@ describe("createBackend — party balances no invoice carries, and one figure pe
 
   it("D201: what the suppliers screen says a supplier is owed is their aging row at the rate each invoice was booked at", async () => {
     const app = await newBackend();
-    const created = await post(app, "/exchange-rates", { id: "fx-sar", currency: "SAR", rate: "13.20", effectiveDate: "2026-08-01", rateType: "standard", source: "manual" }, admin(app));
+    const created = await post(app, "/exchange-rates", { id: "fx-sar", currency: "SAR", rate: "13.20", effectiveDate: "2026-08-01", rateType: "standard", source: "manual" }, await admin(app));
     expect(created.status).toBe(201);
-    expect((await post(app, "/exchange-rates/fx-sar/approve", {}, admin(app))).status).toBe(200);
+    expect((await post(app, "/exchange-rates/fx-sar/approve", {}, await admin(app))).status).toBe(200);
     const settings = await get(app, "/settings");
     await app.fetch(new Request("http://local/settings", {
       method: "PUT",
-      headers: { "content-type": "application/json", ...admin(app) },
+      headers: { "content-type": "application/json", ...(await admin(app)) },
       body: JSON.stringify({ ...settings, multiCurrencyEnabled: true }),
     }));
-    expect((await post(app, "/suppliers", { id: "sup-sar", code: "sup-sar", nameAr: "مورد بالريال", currency: "SAR", openingBalance: "0" }, admin(app))).status).toBe(201);
+    expect((await post(app, "/suppliers", { id: "sup-sar", code: "sup-sar", nameAr: "مورد بالريال", currency: "SAR", openingBalance: "0" }, await admin(app))).status).toBe(201);
     const bill = await post(app, "/purchases/invoices", {
       id: "pi-sar", supplierId: "sup-sar", date: "2026-08-22", dueDate: "2026-09-21", branchId: "BR-MAIN", warehouseId: "WH-MAIN", currency: "SAR",
       lines: [{ description: "خدمة بالريال", kind: "expense", qty: "1", unitCost: "100", taxRatePercent: 0 }],
-    }, admin(app));
+    }, await admin(app));
     expect(bill.status).toBe(201);
-    expect((await post(app, "/purchases/invoices/pi-sar/confirm", {}, admin(app))).status).toBe(200);
+    expect((await post(app, "/purchases/invoices/pi-sar/confirm", {}, await admin(app))).status).toBe(200);
 
     expect((await get(app, "/suppliers/sup-sar")).owed).toBe("1320.000000");
     const listed = (await get(app, "/suppliers")) as { id: string; owed: string }[];
@@ -4992,20 +4992,20 @@ describe("createBackend — party balances no invoice carries, and one figure pe
       id: "v-fund", date: "2026-08-22", voucherType: "capital_injection", amount: "5000", branchId: "BR-MAIN", paymentMethod: "cash",
       treasuryAccountId: "ta-cash", treasuryGlAccountId: "1300-1", counterpartyGlAccountId: "3100",
     };
-    expect((await post(app, "/vouchers", fund, admin(app))).status).toBe(201);
-    expect((await post(app, "/vouchers/v-fund/confirm", {}, admin(app))).status).toBe(200);
-    expect((await post(app, "/suppliers", { id: "sup-wht", code: "sup-wht", nameAr: "مورد خاضع", openingBalance: "0" }, admin(app))).status).toBe(201);
+    expect((await post(app, "/vouchers", fund, await admin(app))).status).toBe(201);
+    expect((await post(app, "/vouchers/v-fund/confirm", {}, await admin(app))).status).toBe(200);
+    expect((await post(app, "/suppliers", { id: "sup-wht", code: "sup-wht", nameAr: "مورد خاضع", openingBalance: "0" }, await admin(app))).status).toBe(201);
     const voucher = await post(app, "/vouchers", {
       id: "v-wht", date: "2026-08-22", voucherType: "supplier_payment", amount: "1000", branchId: "BR-MAIN", paymentMethod: "cash",
       treasuryAccountId: "ta-cash", treasuryGlAccountId: "1300-1", counterpartyGlAccountId: "2100", supplierId: "sup-wht",
       withholdingRatePercent: 3, withholdingAmount: "30", withholdingGlAccountId: "2210",
-    }, admin(app));
+    }, await admin(app));
     expect(voucher.status).toBe(201);
-    expect((await post(app, "/vouchers/v-wht/confirm", {}, admin(app))).status).toBe(200);
+    expect((await post(app, "/vouchers/v-wht/confirm", {}, await admin(app))).status).toBe(200);
     const before = await get(app, "/reports/tax/withholding?periodFrom=2026-01-01&periodTo=2026-12-31");
     expect(before.rows.filter((r: { voucherId: string }) => r.voucherId === "v-wht")).toHaveLength(1);
 
-    expect((await post(app, "/vouchers/v-wht/reverse", { memo: "سبب العكس", date: "2026-08-23" }, admin(app))).status).toBe(201);
+    expect((await post(app, "/vouchers/v-wht/reverse", { memo: "سبب العكس", date: "2026-08-23" }, await admin(app))).status).toBe(201);
     const after = await get(app, "/reports/tax/withholding?periodFrom=2026-01-01&periodTo=2026-12-31");
     expect(after.rows).toEqual([]);
     const reversed = (await get(app, "/vouchers")) as { id: string; reversesDocId?: string | null }[];
@@ -5068,19 +5068,19 @@ describe("createBackend — a legacy draft with no party becomes postable throug
   }
 
   async function get(app: App, apiPath: string): Promise<any> {
-    return (await app.fetch(new Request(`http://local${apiPath}`, { headers: admin(app) }))).json();
+    return (await app.fetch(new Request(`http://local${apiPath}`, { headers: await admin(app) }))).json();
   }
-  function put(app: App, apiPath: string, body: unknown) {
+  async function put(app: App, apiPath: string, body: unknown) {
     return app.fetch(
       new Request(`http://local${apiPath}`, {
         method: "PUT",
-        headers: { "content-type": "application/json", ...admin(app) },
+        headers: { "content-type": "application/json", ...(await admin(app)) },
         body: JSON.stringify(body),
       }),
     );
   }
-  function del(app: App, apiPath: string) {
-    return app.fetch(new Request(`http://local${apiPath}`, { method: "DELETE", headers: admin(app) }));
+  async function del(app: App, apiPath: string) {
+    return app.fetch(new Request(`http://local${apiPath}`, { method: "DELETE", headers: await admin(app) }));
   }
   async function arDiff(app: App): Promise<string> {
     const { rows } = (await get(app, "/reconciliation")) as { rows: { key: string; difference: string }[] };
@@ -5092,7 +5092,7 @@ describe("createBackend — a legacy draft with no party becomes postable throug
     await createCustomer(app, "cust-legacy", "0");
     await saveLegacyDraft(dbPath);
 
-    const blocked = await post(app, "/gl/journal-entries/je-legacy/post", {}, admin(app));
+    const blocked = await post(app, "/gl/journal-entries/je-legacy/post", {}, await admin(app));
     expect(blocked.status).toBe(422);
     expect(((await blocked.json()) as { error: string }).error).toBe("PARTY_REQUIRED_ON_CONTROL_ACCOUNT");
 
@@ -5109,7 +5109,7 @@ describe("createBackend — a legacy draft with no party becomes postable throug
     expect(editedBody.status).toBe("draft");
     expect(editedBody.lines.find((l) => l.partyId)?.partyId).toBe("cust-legacy");
 
-    const posted = await post(app, "/gl/journal-entries/je-legacy/post", {}, admin(app));
+    const posted = await post(app, "/gl/journal-entries/je-legacy/post", {}, await admin(app));
     expect(posted.status).toBe(200);
     expect(((await posted.json()) as { entryNo: string | null }).entryNo).toBeTruthy();
 
@@ -5125,14 +5125,14 @@ describe("createBackend — a legacy draft with no party becomes postable throug
 
     const res = await del(app, "/gl/journal-entries/je-legacy");
     expect(res.status).toBe(204);
-    expect((await app.fetch(new Request("http://local/gl/journal-entries/je-legacy", { headers: admin(app) }))).status).toBe(404);
-    expect((await post(app, "/gl/journal-entries/je-legacy/post", {}, admin(app))).status).toBe(404);
+    expect((await app.fetch(new Request("http://local/gl/journal-entries/je-legacy", { headers: await admin(app) }))).status).toBe(404);
+    expect((await post(app, "/gl/journal-entries/je-legacy/post", {}, await admin(app))).status).toBe(404);
   });
 });
 
 describe("createBackend — foreign documents settle and return in base (D202, D203)", () => {
   async function get(app: App, path: string): Promise<any> {
-    return (await app.fetch(new Request(`http://local${path}`, { headers: admin(app) }))).json();
+    return (await app.fetch(new Request(`http://local${path}`, { headers: await admin(app) }))).json();
   }
   async function reconDiff(app: App, key: "ar" | "ap"): Promise<number> {
     const { rows } = (await get(app, "/reconciliation")) as { rows: { key: string; subLedgerBalance: string; glBalance: string }[] };
@@ -5143,8 +5143,8 @@ describe("createBackend — foreign documents settle and return in base (D202, D
     return Number((await get(app, `/gl/accounts/${accountId}/ledger`)).balance.balance);
   }
   async function approvedRate(app: App, id: string, currency: string, rate: string, effectiveDate: string) {
-    expect((await post(app, "/exchange-rates", { id, currency, rate, effectiveDate, rateType: "standard", source: "manual" }, admin(app))).status).toBe(201);
-    expect((await post(app, `/exchange-rates/${id}/approve`, {}, admin(app))).status).toBe(200);
+    expect((await post(app, "/exchange-rates", { id, currency, rate, effectiveDate, rateType: "standard", source: "manual" }, await admin(app))).status).toBe(201);
+    expect((await post(app, `/exchange-rates/${id}/approve`, {}, await admin(app))).status).toBe(200);
   }
   async function multiCurrency(app: App) {
     await approvedRate(app, "fx-usd", "USD", "48.00", "2026-08-01");
@@ -5153,13 +5153,13 @@ describe("createBackend — foreign documents settle and return in base (D202, D
     const put = await app.fetch(
       new Request("http://local/settings", {
         method: "PUT",
-        headers: { "content-type": "application/json", ...admin(app) },
+        headers: { "content-type": "application/json", ...(await admin(app)) },
         body: JSON.stringify({ ...settings, multiCurrencyEnabled: true }),
       }),
     );
     expect(put.status).toBe(200);
     expect(
-      (await post(app, "/treasury-accounts", { id: "ta-cash", code: "TA-CASH", name: "الخزينة", branchId: "BR-MAIN", glAccountId: "1300-1", openingBalance: "0" }, admin(app))).status,
+      (await post(app, "/treasury-accounts", { id: "ta-cash", code: "TA-CASH", name: "الخزينة", branchId: "BR-MAIN", glAccountId: "1300-1", openingBalance: "0" }, await admin(app))).status,
     ).toBe(201);
   }
 
@@ -5171,7 +5171,7 @@ describe("createBackend — foreign documents settle and return in base (D202, D
     expect((await authedPost(app, "/sales-invoices", { ...invoiceBody("inv-usd", "cust-usd", "100"), currency: "USD" })).status).toBe(201);
     expect((await authedPost(app, "/sales-invoices/inv-usd/confirm", {})).status).toBe(200);
 
-    const paid = await post(app, "/sales-invoices/inv-usd/payments", { amount: "1000", treasuryAccountId: "ta-cash", date: "2026-08-23" }, admin(app));
+    const paid = await post(app, "/sales-invoices/inv-usd/payments", { amount: "1000", treasuryAccountId: "ta-cash", date: "2026-08-23" }, await admin(app));
     expect(paid.status).toBe(200);
     const invoice = await get(app, "/sales-invoices/inv-usd");
     expect(invoice.status).toBe("partially_paid");
@@ -5179,7 +5179,7 @@ describe("createBackend — foreign documents settle and return in base (D202, D
     expect(invoice.amountPaid).toBe("1000.000000");
     expect(invoice.remainingBalance).toBe("3800.000000");
     expect(await glBalance(app, "1105")).toBe(3800);
-    expect((await post(app, "/sales-invoices/inv-usd/payments", { amount: "3800.01", treasuryAccountId: "ta-cash", date: "2026-08-23" }, admin(app))).status).toBe(422);
+    expect((await post(app, "/sales-invoices/inv-usd/payments", { amount: "3800.01", treasuryAccountId: "ta-cash", date: "2026-08-23" }, await admin(app))).status).toBe(422);
     expect((await get(app, "/sales-invoices/stats")).sales).toBe("4800.000000");
   });
 
@@ -5190,9 +5190,9 @@ describe("createBackend — foreign documents settle and return in base (D202, D
     await multiCurrency(app);
     expect((await authedPost(app, "/sales-invoices", invoiceBody("inv-cash", "cust-cash", "2000"))).status).toBe(201);
     expect((await authedPost(app, "/sales-invoices/inv-cash/confirm", {})).status).toBe(200);
-    expect((await post(app, "/sales-invoices/inv-cash/payments", { amount: "2000", treasuryAccountId: "ta-cash", date: "2026-08-22" }, admin(app))).status).toBe(200);
+    expect((await post(app, "/sales-invoices/inv-cash/payments", { amount: "2000", treasuryAccountId: "ta-cash", date: "2026-08-22" }, await admin(app))).status).toBe(200);
 
-    expect((await post(app, "/suppliers", { id: "sup-sar", code: "sup-sar", nameAr: "مورد بالريال", currency: "SAR", openingBalance: "0" }, admin(app))).status).toBe(201);
+    expect((await post(app, "/suppliers", { id: "sup-sar", code: "sup-sar", nameAr: "مورد بالريال", currency: "SAR", openingBalance: "0" }, await admin(app))).status).toBe(201);
     const bill = await post(
       app,
       "/purchases/invoices",
@@ -5206,12 +5206,12 @@ describe("createBackend — foreign documents settle and return in base (D202, D
         currency: "SAR",
         lines: [{ description: "خدمة بالريال", kind: "expense", qty: "1", unitCost: "100", taxRatePercent: 0 }],
       },
-      admin(app),
+      await admin(app),
     );
     expect(bill.status).toBe(201);
-    expect((await post(app, "/purchases/invoices/pi-sar/confirm", {}, admin(app))).status).toBe(200);
+    expect((await post(app, "/purchases/invoices/pi-sar/confirm", {}, await admin(app))).status).toBe(200);
 
-    const paid = await post(app, "/purchases/invoices/pi-sar/payments", { amount: "500", treasuryAccountId: "ta-cash", date: "2026-08-23" }, admin(app));
+    const paid = await post(app, "/purchases/invoices/pi-sar/payments", { amount: "500", treasuryAccountId: "ta-cash", date: "2026-08-23" }, await admin(app));
     expect(paid.status).toBe(200);
     const invoice = await get(app, "/purchases/invoices/pi-sar");
     expect(invoice.total).toBe("100.000000");
@@ -5219,7 +5219,7 @@ describe("createBackend — foreign documents settle and return in base (D202, D
     expect(invoice.amountPaid).toBe("500.000000");
     expect(invoice.remainingBalance).toBe("820.000000");
     expect(-(await glBalance(app, "2100"))).toBe(820);
-    expect((await post(app, "/purchases/invoices/pi-sar/payments", { amount: "820.01", treasuryAccountId: "ta-cash", date: "2026-08-23" }, admin(app))).status).toBe(422);
+    expect((await post(app, "/purchases/invoices/pi-sar/payments", { amount: "820.01", treasuryAccountId: "ta-cash", date: "2026-08-23" }, await admin(app))).status).toBe(422);
     expect(await reconDiff(app, "ap")).toBe(0);
   });
 
@@ -5231,14 +5231,14 @@ describe("createBackend — foreign documents settle and return in base (D202, D
     const body = invoiceBody("inv-ret", "cust-ret", "500");
     expect((await authedPost(app, "/sales-invoices", { ...body, lines: [{ ...body.lines[0], qty: "2" }] })).status).toBe(201);
     expect((await authedPost(app, "/sales-invoices/inv-ret/confirm", {})).status).toBe(200);
-    expect((await post(app, "/sales-invoices/inv-ret/payments", { amount: "200", treasuryAccountId: "ta-cash", date: "2026-08-22" }, admin(app))).status).toBe(200);
+    expect((await post(app, "/sales-invoices/inv-ret/payments", { amount: "200", treasuryAccountId: "ta-cash", date: "2026-08-22" }, await admin(app))).status).toBe(200);
     expect((await post(app, "/sales-returns/from-invoice", {
       id: "sr-ret", date: "2026-08-23", memo: "", warehouseId: "WH-MAIN", sourceInvoiceId: "inv-ret", reason: "OTHER", requested: [{ itemId: "SVC-1", qty: "1" }],
-    }, admin(app))).status).toBe(201);
-    expect((await post(app, "/sales-returns/sr-ret/confirm", {}, admin(app))).status).toBe(200);
+    }, await admin(app))).status).toBe(201);
+    expect((await post(app, "/sales-returns/sr-ret/confirm", {}, await admin(app))).status).toBe(200);
     expect((await get(app, "/sales-invoices/inv-ret")).remainingBalance).toBe("300.000000");
 
-    const over = await post(app, "/sales-invoices/inv-ret/payments", { amount: "300.01", treasuryAccountId: "ta-cash", date: "2026-08-24" }, admin(app));
+    const over = await post(app, "/sales-invoices/inv-ret/payments", { amount: "300.01", treasuryAccountId: "ta-cash", date: "2026-08-24" }, await admin(app));
     expect(over.status).toBe(422);
     const byCustomer = await get(app, "/reports/sales/by-customer?dateFrom=2026-08-01&dateTo=2026-08-31");
     expect(byCustomer.rows.find((r: { customerId: string }) => r.customerId === "cust-ret")?.outstanding).toBe(300);
@@ -5248,7 +5248,7 @@ describe("createBackend — foreign documents settle and return in base (D202, D
     expect(drill.facts.find((f: { key: string }) => f.key === "outstanding")?.value).toBe("300.00");
     expect((await get(app, "/customers/cust-ret")).owed).toBe("300.000000");
 
-    expect((await post(app, "/sales-invoices/inv-ret/payments", { amount: "300", treasuryAccountId: "ta-cash", date: "2026-08-24" }, admin(app))).status).toBe(200);
+    expect((await post(app, "/sales-invoices/inv-ret/payments", { amount: "300", treasuryAccountId: "ta-cash", date: "2026-08-24" }, await admin(app))).status).toBe(200);
     expect((await get(app, "/sales-invoices/inv-ret")).remainingBalance).toBe("0.000000");
     expect(await reconDiff(app, "ar")).toBe(0);
   });
@@ -5266,9 +5266,9 @@ describe("createBackend — foreign documents settle and return in base (D202, D
 
     const fromInvoice = await post(app, "/sales-returns/from-invoice", {
       id: "sr-usd", date: "2026-08-23", memo: "", warehouseId: "WH-MAIN", sourceInvoiceId: "inv-usd", reason: "OTHER", requested: [{ itemId: "SVC-1", qty: "1" }],
-    }, admin(app));
+    }, await admin(app));
     expect(fromInvoice.status).toBe(201);
-    expect((await post(app, "/sales-returns/sr-usd/confirm", {}, admin(app))).status).toBe(200);
+    expect((await post(app, "/sales-returns/sr-usd/confirm", {}, await admin(app))).status).toBe(200);
     expect(await glBalance(app, "1105")).toBe(4800);
     expect(await reconDiff(app, "ar")).toBe(0);
     const returned = await get(app, "/sales-returns/sr-usd");
@@ -5282,9 +5282,9 @@ describe("createBackend — foreign documents settle and return in base (D202, D
         itemId: "SVC-1", warehouseId: "WH-MAIN", customerId: "cust-usd", sourceInvoiceId: "inv-usd2", sourceInvoiceNumber: null, reason: "OTHER",
         availableQty: "1", qty: "1", unitPrice: "100", unitCost: "0", taxAmount: "0", fxRate: "1", currency: "EGP",
       }],
-    }, admin(app));
+    }, await admin(app));
     expect(raw.status).toBe(201);
-    expect((await post(app, "/sales-returns/sr-usd2/confirm", {}, admin(app))).status).toBe(200);
+    expect((await post(app, "/sales-returns/sr-usd2/confirm", {}, await admin(app))).status).toBe(200);
     expect(await glBalance(app, "1105")).toBe(0);
     expect(await reconDiff(app, "ar")).toBe(0);
   });
@@ -5302,9 +5302,9 @@ describe("createBackend — foreign documents settle and return in base (D202, D
     expect((await authedPost(app, "/sales-invoices/inv-usd/confirm", {})).status).toBe(200);
     await approvedRate(app, "fx-usd-50", "USD", "50.00", "2026-08-25");
 
-    const over = await post(app, "/sales-invoices/inv-usd/payments", { amount: "5000.01", treasuryAccountId: "ta-cash", date: "2026-08-26" }, admin(app));
+    const over = await post(app, "/sales-invoices/inv-usd/payments", { amount: "5000.01", treasuryAccountId: "ta-cash", date: "2026-08-26" }, await admin(app));
     expect(over.status).toBe(422);
-    const paid = await post(app, "/sales-invoices/inv-usd/payments", { amount: "5000", treasuryAccountId: "ta-cash", date: "2026-08-26" }, admin(app));
+    const paid = await post(app, "/sales-invoices/inv-usd/payments", { amount: "5000", treasuryAccountId: "ta-cash", date: "2026-08-26" }, await admin(app));
     expect(paid.status).toBe(200);
     const invoice = await get(app, "/sales-invoices/inv-usd");
     expect(invoice.status).toBe("paid");
@@ -5323,7 +5323,7 @@ describe("createBackend — foreign documents settle and return in base (D202, D
     expect(stmt.agingTotal).toBe("0.000000");
     expect(stmt.lines.find((line) => line.kind === "fx_difference")?.increase).toBe("200.000000");
 
-    const preview = await post(app, "/revaluation/preview", { date: "2026-08-31", currencies: ["USD"] }, admin(app));
+    const preview = await post(app, "/revaluation/preview", { date: "2026-08-31", currencies: ["USD"] }, await admin(app));
     expect(((await preview.json()) as { hasImpact: boolean }).hasImpact).toBe(false);
     for (const asOfDate of ["2026-08-25", "2026-08-26"]) {
       const asOf = await get(app, `/reports/aging/customers?asOfDate=${asOfDate}`);
@@ -5334,31 +5334,31 @@ describe("createBackend — foreign documents settle and return in base (D202, D
   it("D221: a SAR payment at 13.50 against a bill booked at 13.20 books a 30.00 loss, and undoing the allocation undoes it", async () => {
     const app = await newBackend();
     await multiCurrency(app);
-    expect((await post(app, "/suppliers", { id: "sup-sar", code: "sup-sar", nameAr: "مورد بالريال", currency: "SAR", openingBalance: "0" }, admin(app))).status).toBe(201);
+    expect((await post(app, "/suppliers", { id: "sup-sar", code: "sup-sar", nameAr: "مورد بالريال", currency: "SAR", openingBalance: "0" }, await admin(app))).status).toBe(201);
     expect((await post(app, "/purchases/invoices", {
       id: "pi-sar", supplierId: "sup-sar", date: "2026-08-22", dueDate: "2026-09-21", branchId: "BR-MAIN", warehouseId: "WH-MAIN", currency: "SAR",
       lines: [{ description: "خدمة بالريال", kind: "expense", qty: "1", unitCost: "100", taxRatePercent: 0 }],
-    }, admin(app))).status).toBe(201);
-    expect((await post(app, "/purchases/invoices/pi-sar/confirm", {}, admin(app))).status).toBe(200);
+    }, await admin(app))).status).toBe(201);
+    expect((await post(app, "/purchases/invoices/pi-sar/confirm", {}, await admin(app))).status).toBe(200);
     await approvedRate(app, "fx-sar-135", "SAR", "13.50", "2026-08-25");
-    expect((await post(app, "/accounts", { id: "1300-SAR", code: "1300-SAR", nameAr: "خزينة الريال", type: "asset", naturalBalance: "debit", parentId: "1300", isHeader: false }, admin(app))).status).toBe(201);
+    expect((await post(app, "/accounts", { id: "1300-SAR", code: "1300-SAR", nameAr: "خزينة الريال", type: "asset", naturalBalance: "debit", parentId: "1300", isHeader: false }, await admin(app))).status).toBe(201);
     expect((await post(app, "/gl/journal-entries", {
       id: "je-fund", date: "2026-08-24", memo: "تمويل", source: "manual", lines: [
         { accountId: "1300-SAR", debit: "5000", credit: "0" },
         { accountId: "3100", debit: "0", credit: "5000" },
       ],
-    }, admin(app))).status).toBeLessThan(300);
+    }, await admin(app))).status).toBeLessThan(300);
 
-    const shared = await post(app, "/treasury-accounts", { id: "ta-cash-sar", code: "TA-CASH-SAR", name: "خزينة الريال", currency: "SAR", branchId: "BR-MAIN", glAccountId: "1300-1", openingBalance: "0" }, admin(app));
+    const shared = await post(app, "/treasury-accounts", { id: "ta-cash-sar", code: "TA-CASH-SAR", name: "خزينة الريال", currency: "SAR", branchId: "BR-MAIN", glAccountId: "1300-1", openingBalance: "0" }, await admin(app));
     expect(shared.status).toBe(422);
     expect(((await shared.json()) as { error: string }).error).toBe("TREASURY_GL_ACCOUNT_CURRENCY_CONFLICT");
-    expect((await post(app, "/treasury-accounts", { id: "ta-cash-sar", code: "TA-CASH-SAR", name: "خزينة الريال", type: "bank", currency: "SAR", branchId: "BR-MAIN", glAccountId: "1300-SAR", openingBalance: "0" }, admin(app))).status).toBe(201);
+    expect((await post(app, "/treasury-accounts", { id: "ta-cash-sar", code: "TA-CASH-SAR", name: "خزينة الريال", type: "bank", currency: "SAR", branchId: "BR-MAIN", glAccountId: "1300-SAR", openingBalance: "0" }, await admin(app))).status).toBe(201);
     expect((await post(app, "/vouchers", {
       id: "v-sar", date: "2026-08-26", voucherType: "supplier_payment", amount: "100", currency: "SAR", branchId: "BR-MAIN", paymentMethod: "cash",
       treasuryAccountId: "ta-cash-sar", treasuryGlAccountId: "1300-SAR", counterpartyGlAccountId: "2100", supplierId: "sup-sar",
-    }, admin(app))).status).toBe(201);
-    expect((await post(app, "/vouchers/v-sar/confirm", {}, admin(app))).status).toBe(200);
-    const allocated = await post(app, "/vouchers/v-sar/allocations", { allocationId: "al-sar", invoiceId: "pi-sar", amount: "1350" }, admin(app));
+    }, await admin(app))).status).toBe(201);
+    expect((await post(app, "/vouchers/v-sar/confirm", {}, await admin(app))).status).toBe(200);
+    const allocated = await post(app, "/vouchers/v-sar/allocations", { allocationId: "al-sar", invoiceId: "pi-sar", amount: "1350" }, await admin(app));
     expect(allocated.status).toBe(201);
     expect(await allocated.json()).toMatchObject({ amount: "1350.000000", invoiceAmount: "1320.000000", fxDifference: "30.000000" });
     expect(await glBalance(app, "2100")).toBe(0);
@@ -5370,7 +5370,7 @@ describe("createBackend — foreign documents settle and return in base (D202, D
     expect(paidStmt.closing).toBe("0.000000");
     expect(paidStmt.agingTotal).toBe("0.000000");
 
-    expect((await post(app, "/allocations/al-sar/reverse", {}, admin(app))).status).toBe(200);
+    expect((await post(app, "/allocations/al-sar/reverse", {}, await admin(app))).status).toBe(200);
     expect(await glBalance(app, "5920")).toBe(0);
     expect(await glBalance(app, "2100")).toBe(30);
     expect((await get(app, "/purchases/invoices/pi-sar")).remainingBalance).toBe("1320.000000");
@@ -5394,9 +5394,9 @@ describe("createBackend — foreign documents settle and return in base (D202, D
     expect((await post(app, "/vouchers", {
       id: "v-early", date: "2026-07-15", voucherType: "customer_collection", amount: "4800", branchId: "BR-MAIN", paymentMethod: "cash",
       treasuryAccountId: "ta-cash", treasuryGlAccountId: "1300-1", counterpartyGlAccountId: "1105", customerId: "cust-usd",
-    }, admin(app))).status).toBe(201);
-    expect((await post(app, "/vouchers/v-early/confirm", {}, admin(app))).status).toBe(200);
-    const refused = await post(app, "/vouchers/v-early/allocations", { allocationId: "al-early", invoiceId: "inv-usd", amount: "4800" }, admin(app));
+    }, await admin(app))).status).toBe(201);
+    expect((await post(app, "/vouchers/v-early/confirm", {}, await admin(app))).status).toBe(200);
+    const refused = await post(app, "/vouchers/v-early/allocations", { allocationId: "al-early", invoiceId: "inv-usd", amount: "4800" }, await admin(app));
     expect(refused.status).toBe(422);
     expect(((await refused.json()) as { error: string }).error).toBe("FX_RATE_MISSING");
     expect((await get(app, "/sales-invoices/inv-usd")).remainingBalance).toBe("4800.000000");
@@ -5415,16 +5415,16 @@ describe("createBackend — foreign documents settle and return in base (D202, D
     expect((await open()).map((row) => row.outstanding)).toEqual(["1000.000000"]);
     expect((await post(app, "/sales-returns/from-invoice", {
       id: "sr-ret", date: "2026-08-23", memo: "", warehouseId: "WH-MAIN", sourceInvoiceId: "inv-ret", reason: "OTHER", requested: [{ itemId: "SVC-1", qty: "1" }],
-    }, admin(app))).status).toBe(201);
-    expect((await post(app, "/sales-returns/sr-ret/confirm", {}, admin(app))).status).toBe(200);
+    }, await admin(app))).status).toBe(201);
+    expect((await post(app, "/sales-returns/sr-ret/confirm", {}, await admin(app))).status).toBe(200);
     expect(await open()).toEqual([]);
 
     expect((await post(app, "/vouchers", {
       id: "v-ret", date: "2026-08-24", voucherType: "customer_collection", amount: "1000", branchId: "BR-MAIN", paymentMethod: "cash",
       treasuryAccountId: "ta-cash", treasuryGlAccountId: "1300-1", counterpartyGlAccountId: "1105", customerId: "cust-ret",
-    }, admin(app))).status).toBe(201);
-    expect((await post(app, "/vouchers/v-ret/confirm", {}, admin(app))).status).toBe(200);
-    const refused = await post(app, "/vouchers/v-ret/allocations", { allocationId: "al-ret", invoiceId: "inv-ret", amount: "1" }, admin(app));
+    }, await admin(app))).status).toBe(201);
+    expect((await post(app, "/vouchers/v-ret/confirm", {}, await admin(app))).status).toBe(200);
+    const refused = await post(app, "/vouchers/v-ret/allocations", { allocationId: "al-ret", invoiceId: "inv-ret", amount: "1" }, await admin(app));
     expect(refused.status).toBe(422);
     expect((await get(app, "/sales-invoices/inv-ret")).amountPaid).toBe("0.000000");
     expect(await reconDiff(app, "ar")).toBe(0);
@@ -5440,13 +5440,13 @@ describe("createBackend — foreign documents settle and return in base (D202, D
     expect((await authedPost(app, "/sales-invoices/inv-usd/confirm", {})).status).toBe(200);
     expect((await post(app, "/sales-returns/from-invoice", {
       id: "sr-half", date: "2026-08-23", memo: "", warehouseId: "WH-MAIN", sourceInvoiceId: "inv-usd", reason: "OTHER", requested: [{ itemId: "SVC-1", qty: "1" }],
-    }, admin(app))).status).toBe(201);
-    expect((await post(app, "/sales-returns/sr-half/confirm", {}, admin(app))).status).toBe(200);
+    }, await admin(app))).status).toBe(201);
+    expect((await post(app, "/sales-returns/sr-half/confirm", {}, await admin(app))).status).toBe(200);
     expect(await glBalance(app, "1105")).toBe(2400);
     await approvedRate(app, "fx-usd-50", "USD", "50.00", "2026-08-25");
 
-    expect((await post(app, "/sales-invoices/inv-usd/payments", { amount: "2500.01", treasuryAccountId: "ta-cash", date: "2026-08-26" }, admin(app))).status).toBe(422);
-    expect((await post(app, "/sales-invoices/inv-usd/payments", { amount: "2500", treasuryAccountId: "ta-cash", date: "2026-08-26" }, admin(app))).status).toBe(200);
+    expect((await post(app, "/sales-invoices/inv-usd/payments", { amount: "2500.01", treasuryAccountId: "ta-cash", date: "2026-08-26" }, await admin(app))).status).toBe(422);
+    expect((await post(app, "/sales-invoices/inv-usd/payments", { amount: "2500", treasuryAccountId: "ta-cash", date: "2026-08-26" }, await admin(app))).status).toBe(200);
     expect((await get(app, "/sales-invoices/inv-usd")).remainingBalance).toBe("0.000000");
     expect(await glBalance(app, "1105")).toBe(0);
     expect(await glBalance(app, "4920")).toBe(-100);
@@ -5455,7 +5455,7 @@ describe("createBackend — foreign documents settle and return in base (D202, D
     expect(stmt.closing).toBe("0.000000");
     expect(stmt.agingTotal).toBe("0.000000");
     await approvedRate(app, "fx-usd-47", "USD", "47.00", "2026-08-30");
-    const preview = await post(app, "/revaluation/preview", { date: "2026-08-31", currencies: ["USD"] }, admin(app));
+    const preview = await post(app, "/revaluation/preview", { date: "2026-08-31", currencies: ["USD"] }, await admin(app));
     expect(((await preview.json()) as { hasImpact: boolean }).hasImpact).toBe(false);
   });
 
@@ -5467,17 +5467,17 @@ describe("createBackend — foreign documents settle and return in base (D202, D
     expect((await authedPost(app, "/sales-invoices", { ...invoiceBody("inv-usd", "cust-usd", "100"), currency: "USD" })).status).toBe(201);
     expect((await authedPost(app, "/sales-invoices/inv-usd/confirm", {})).status).toBe(200);
     await approvedRate(app, "fx-usd-49", "USD", "49.00", "2026-08-28");
-    expect((await post(app, "/revaluation/post", { date: "2026-08-31", currencies: ["USD"], autoReverse: true }, admin(app))).status).toBe(201);
+    expect((await post(app, "/revaluation/post", { date: "2026-08-31", currencies: ["USD"], autoReverse: true }, await admin(app))).status).toBe(201);
     expect(await glBalance(app, "1105")).toBe(4800);
     await approvedRate(app, "fx-usd-50", "USD", "50.00", "2026-09-05");
 
-    expect((await post(app, "/sales-invoices/inv-usd/payments", { amount: "5000", treasuryAccountId: "ta-cash", date: "2026-09-10" }, admin(app))).status).toBe(200);
+    expect((await post(app, "/sales-invoices/inv-usd/payments", { amount: "5000", treasuryAccountId: "ta-cash", date: "2026-09-10" }, await admin(app))).status).toBe(200);
     expect(await glBalance(app, "1105")).toBe(0);
     expect(await glBalance(app, "4920")).toBe(-200);
     expect(await glBalance(app, "5920")).toBe(0);
     expect(await glBalance(app, "4940")).toBe(0);
     expect(await reconDiff(app, "ar")).toBe(0);
-    const preview = await post(app, "/revaluation/preview", { date: "2026-09-30", currencies: ["USD"] }, admin(app));
+    const preview = await post(app, "/revaluation/preview", { date: "2026-09-30", currencies: ["USD"] }, await admin(app));
     expect(((await preview.json()) as { hasImpact: boolean }).hasImpact).toBe(false);
   });
 
@@ -5488,7 +5488,7 @@ describe("createBackend — foreign documents settle and return in base (D202, D
     expect((await authedPost(app, "/sales-invoices", { ...invoiceBody("inv-usd", "cust-usd", "100"), currency: "USD" })).status).toBe(201);
     expect((await authedPost(app, "/sales-invoices/inv-usd/confirm", {})).status).toBe(200);
     await approvedRate(app, "fx-usd-50", "USD", "50.00", "2026-08-25");
-    expect((await post(app, "/sales-invoices/inv-usd/payments", { amount: "5000", treasuryAccountId: "ta-cash", date: "2026-08-26" }, admin(app))).status).toBe(200);
+    expect((await post(app, "/sales-invoices/inv-usd/payments", { amount: "5000", treasuryAccountId: "ta-cash", date: "2026-08-26" }, await admin(app))).status).toBe(200);
   }
 
   it("D229: books seeded before the exchange-difference accounts get them on start, once, and post to them afterwards", async () => {
@@ -5521,7 +5521,7 @@ describe("createBackend — foreign documents settle and return in base (D202, D
       expect((await authedPost(app, "/sales-invoices", { ...invoiceBody("inv-usd", "cust-usd", "100"), currency: "USD" })).status).toBe(201);
       expect((await authedPost(app, "/sales-invoices/inv-usd/confirm", {})).status).toBe(200);
       await approvedRate(app, "fx-usd-47", "USD", "47.00", "2026-08-23");
-      const revalued = await post(app, "/revaluation/post", { date: "2026-08-23", currencies: ["USD"], autoReverse: true }, admin(app));
+      const revalued = await post(app, "/revaluation/post", { date: "2026-08-23", currencies: ["USD"], autoReverse: true }, await admin(app));
       expect(revalued.status).toBe(201);
       const { entryId } = (await revalued.json()) as { entryId: string };
       const entry = (await get(app, `/gl/journal-entries/${entryId}`)) as { lines: { accountId: string; debit: string }[] };
@@ -5529,7 +5529,7 @@ describe("createBackend — foreign documents settle and return in base (D202, D
       expect(entry.lines.some((line) => line.accountId === "5900")).toBe(false);
 
       await approvedRate(app, "fx-usd-50", "USD", "50.00", "2026-08-25");
-      expect((await post(app, "/sales-invoices/inv-usd/payments", { amount: "5000", treasuryAccountId: "ta-cash", date: "2026-08-26" }, admin(app))).status).toBe(200);
+      expect((await post(app, "/sales-invoices/inv-usd/payments", { amount: "5000", treasuryAccountId: "ta-cash", date: "2026-08-26" }, await admin(app))).status).toBe(200);
       expect(await glBalance(app, "4920")).toBe(-200);
       expect(await glBalance(app, "4900")).toBe(0);
       expect(await glBalance(app, "5940")).toBe(0);
@@ -5544,7 +5544,7 @@ describe("createBackend — foreign documents settle and return in base (D202, D
     const routing = await app.fetch(
       new Request("http://local/accounting/account-routing", {
         method: "PUT",
-        headers: { "content-type": "application/json", ...admin(app) },
+        headers: { "content-type": "application/json", ...(await admin(app)) },
         body: JSON.stringify({ overrides: { "fx.realised_gain": "4910" } }),
       }),
     );
@@ -5569,14 +5569,14 @@ describe("createBackend — foreign documents settle and return in base (D202, D
 
   it("D215: a purchase return raised through the raw POST inherits its invoice's project and cost category", async () => {
     const app = await newBackend();
-    expect((await post(app, "/projects", { id: "proj-1", code: "TOWER-A", nameAr: "مشروع البرج أ", budget: "100000" }, admin(app))).status).toBe(201);
-    expect((await post(app, "/items", { id: "item-prj", code: "ITEM-PRJ", nameAr: "حديد", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" }, admin(app))).status).toBe(201);
-    expect((await post(app, "/suppliers", { id: "sup-prj", code: "sup-prj", nameAr: "مورد المشروع", openingBalance: "0" }, admin(app))).status).toBe(201);
+    expect((await post(app, "/projects", { id: "proj-1", code: "TOWER-A", nameAr: "مشروع البرج أ", budget: "100000" }, await admin(app))).status).toBe(201);
+    expect((await post(app, "/items", { id: "item-prj", code: "ITEM-PRJ", nameAr: "حديد", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" }, await admin(app))).status).toBe(201);
+    expect((await post(app, "/suppliers", { id: "sup-prj", code: "sup-prj", nameAr: "مورد المشروع", openingBalance: "0" }, await admin(app))).status).toBe(201);
     expect((await post(app, "/purchases/invoices", {
       id: "pi-prj", supplierId: "sup-prj", date: "2026-08-22", dueDate: "2026-09-21", branchId: "BR-MAIN", warehouseId: "WH-MAIN", projectId: "proj-1",
       lines: [{ itemId: "item-prj", description: "حديد", kind: "inventory", qty: "10", unitCost: "20", taxRatePercent: 14, costCategory: "materials" }],
-    }, admin(app))).status).toBe(201);
-    expect((await post(app, "/purchases/invoices/pi-prj/confirm", {}, admin(app))).status).toBe(200);
+    }, await admin(app))).status).toBe(201);
+    expect((await post(app, "/purchases/invoices/pi-prj/confirm", {}, await admin(app))).status).toBe(200);
 
     const created = await post(app, "/purchase-returns", {
       id: "pr-prj", date: "2026-08-23", memo: "",
@@ -5584,25 +5584,25 @@ describe("createBackend — foreign documents settle and return in base (D202, D
         itemId: "item-prj", warehouseId: "WH-MAIN", supplierId: "sup-prj", sourceInvoiceId: "pi-prj", sourceInvoiceNumber: null, reason: "DEFECTIVE",
         availableQty: "10", qty: "2", unitCost: "20", taxAmount: "5.60", taxRatePercent: 14,
       }],
-    }, admin(app));
+    }, await admin(app));
     expect(created.status).toBe(201);
     const line = ((await created.json()) as { lines: { projectId: string | null; costCategory: string | null }[] }).lines[0]!;
     expect(line.projectId).toBe("proj-1");
     expect(line.costCategory).toBe("materials");
-    expect((await post(app, "/purchase-returns/pr-prj/confirm", {}, admin(app))).status).toBe(200);
+    expect((await post(app, "/purchase-returns/pr-prj/confirm", {}, await admin(app))).status).toBe(200);
   });
 
   it("D203: a purchase return against a SAR invoice debits 2100 at the invoice's rate, whatever rate the caller sends", async () => {
     const app = await newBackend();
     await multiCurrency(app);
-    expect((await post(app, "/items", { id: "item-sar", code: "ITEM-SAR", nameAr: "صنف بالريال", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" }, admin(app))).status).toBe(201);
-    expect((await post(app, "/suppliers", { id: "sup-sar", code: "sup-sar", nameAr: "مورد بالريال", currency: "SAR", openingBalance: "0" }, admin(app))).status).toBe(201);
+    expect((await post(app, "/items", { id: "item-sar", code: "ITEM-SAR", nameAr: "صنف بالريال", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" }, await admin(app))).status).toBe(201);
+    expect((await post(app, "/suppliers", { id: "sup-sar", code: "sup-sar", nameAr: "مورد بالريال", currency: "SAR", openingBalance: "0" }, await admin(app))).status).toBe(201);
     const bill = await post(app, "/purchases/invoices", {
       id: "pi-sar", supplierId: "sup-sar", date: "2026-08-22", dueDate: "2026-09-21", branchId: "BR-MAIN", warehouseId: "WH-MAIN", currency: "SAR",
       lines: [{ itemId: "item-sar", description: "صنف بالريال", kind: "inventory", qty: "10", unitCost: "20", taxRatePercent: 14 }],
-    }, admin(app));
+    }, await admin(app));
     expect(bill.status).toBe(201);
-    const confirmed = (await (await post(app, "/purchases/invoices/pi-sar/confirm", {}, admin(app))).json()) as { number: string };
+    const confirmed = (await (await post(app, "/purchases/invoices/pi-sar/confirm", {}, await admin(app))).json()) as { number: string };
     expect(-(await glBalance(app, "2100"))).toBe(3009.6);
 
     const created = await post(app, "/purchase-returns", {
@@ -5611,9 +5611,9 @@ describe("createBackend — foreign documents settle and return in base (D202, D
         itemId: "item-sar", warehouseId: "WH-MAIN", supplierId: "sup-sar", sourceInvoiceId: "pi-sar", sourceInvoiceNumber: confirmed.number, reason: "DEFECTIVE",
         availableQty: "10", qty: "3", unitCost: "20", taxAmount: "8.40", taxRatePercent: 14, fxRate: "1", currency: "EGP",
       }],
-    }, admin(app));
+    }, await admin(app));
     expect(created.status).toBe(201);
-    expect((await post(app, "/purchase-returns/pr-sar/confirm", {}, admin(app))).status).toBe(200);
+    expect((await post(app, "/purchase-returns/pr-sar/confirm", {}, await admin(app))).status).toBe(200);
     expect(-(await glBalance(app, "2100"))).toBe(2106.72);
     expect((await get(app, "/purchase-returns/pr-sar")).grandTotal).toBe("902.880000");
     expect(await reconDiff(app, "ap")).toBe(0);
@@ -5624,7 +5624,7 @@ describe("createBackend — foreign documents settle and return in base (D202, D
 
   type RevaluationPreview = { hasImpact: boolean; details: { accountId: string; foreignAmount: string; bookedBase: string; delta: string; gainLoss: string }[] };
   async function revaluationPreview(app: App, date: string): Promise<RevaluationPreview> {
-    const res = await post(app, "/revaluation/preview", { date, currencies: ["USD"] }, admin(app));
+    const res = await post(app, "/revaluation/preview", { date, currencies: ["USD"] }, await admin(app));
     expect(res.status).toBe(200);
     return (await res.json()) as RevaluationPreview;
   }
@@ -5641,7 +5641,7 @@ describe("createBackend — foreign documents settle and return in base (D202, D
     expect((await authedPost(app, "/sales-invoices", { ...invoiceBody("inv-usd", "cust-usd", "100"), currency: "USD" })).status).toBe(201);
     expect((await authedPost(app, "/sales-invoices/inv-usd/confirm", {})).status).toBe(200);
     await approvedRate(app, "fx-usd-50", "USD", "50.00", "2026-08-25");
-    expect((await post(app, "/sales-invoices/inv-usd/payments", { amount: "5000", treasuryAccountId: "ta-cash", date: "2026-08-26" }, admin(app))).status).toBe(200);
+    expect((await post(app, "/sales-invoices/inv-usd/payments", { amount: "5000", treasuryAccountId: "ta-cash", date: "2026-08-26" }, await admin(app))).status).toBe(200);
     await approvedRate(app, "fx-usd-47", "USD", "47.00", "2026-08-30");
 
     expect((await get(app, "/sales-invoices/inv-usd")).status).toBe("paid");
@@ -5669,25 +5669,25 @@ describe("createBackend — foreign documents settle and return in base (D202, D
     expect((await post(app, "/vouchers", {
       id: "v-half", date: "2026-08-26", voucherType: "customer_collection", amount: "2500", branchId: "BR-MAIN", paymentMethod: "cash",
       treasuryAccountId: "ta-cash", treasuryGlAccountId: "1300-1", counterpartyGlAccountId: "1105", customerId: "cust-usd",
-    }, admin(app))).status).toBe(201);
-    expect((await post(app, "/vouchers/v-half/confirm", {}, admin(app))).status).toBe(200);
+    }, await admin(app))).status).toBe(201);
+    expect((await post(app, "/vouchers/v-half/confirm", {}, await admin(app))).status).toBe(200);
     const open = { foreign: "100.000000", booked: "4800.000000", delta: "-100.000000", gainLoss: "-100.000000" };
     const half = { foreign: "50.000000", booked: "2400.000000", delta: "-50.000000", gainLoss: "-50.000000" };
 
     const today = toTenantDay(new Date().toISOString());
 
-    expect((await post(app, "/vouchers/v-half/allocations", { allocationId: "al-1", invoiceId: "inv-usd", amount: "2500", date: today }, admin(app))).status).toBe(201);
+    expect((await post(app, "/vouchers/v-half/allocations", { allocationId: "al-1", invoiceId: "inv-usd", amount: "2500", date: today }, await admin(app))).status).toBe(201);
     expect(await glBalance(app, "4920")).toBe(-100);
     expect(await position(app, today, "1105")).toEqual(half);
     // D265: applied by hand today, so at the August close the receipt was still on account.
     expect(await position(app, "2026-08-31", "1105")).toEqual(open);
-    expect((await post(app, "/allocations/al-1/reverse", {}, admin(app))).status).toBe(200);
+    expect((await post(app, "/allocations/al-1/reverse", {}, await admin(app))).status).toBe(200);
     expect(await position(app, today, "1105")).toEqual(open);
-    expect((await post(app, "/vouchers/v-half/allocations", { allocationId: "al-2", invoiceId: "inv-usd", amount: "2500", date: today }, admin(app))).status).toBe(201);
+    expect((await post(app, "/vouchers/v-half/allocations", { allocationId: "al-2", invoiceId: "inv-usd", amount: "2500", date: today }, await admin(app))).status).toBe(201);
     expect(await position(app, today, "1105")).toEqual(half);
     expect(await reconDiff(app, "ar")).toBe(0);
 
-    expect((await post(app, "/vouchers/v-half/reverse", { memo: "سبب العكس", date: "2026-08-28" }, admin(app))).status).toBe(201);
+    expect((await post(app, "/vouchers/v-half/reverse", { memo: "سبب العكس", date: "2026-08-28" }, await admin(app))).status).toBe(201);
     expect((await get(app, "/sales-invoices/inv-usd")).remainingBalance).toBe("4800.000000");
     expect(await glBalance(app, "4920")).toBe(0);
     expect(await position(app, today, "1105")).toEqual(open);
@@ -5698,27 +5698,27 @@ describe("createBackend — foreign documents settle and return in base (D202, D
   it("D260: a USD bill paid by an EGP «شيك» at 50.00 is closed at a 47.00 month-end, and the cheque bouncing reopens it", async () => {
     const app = await newBackend();
     await multiCurrency(app);
-    expect((await post(app, "/suppliers", { id: "sup-usd", code: "sup-usd", nameAr: "مورد بالدولار", currency: "USD", openingBalance: "0" }, admin(app))).status).toBe(201);
+    expect((await post(app, "/suppliers", { id: "sup-usd", code: "sup-usd", nameAr: "مورد بالدولار", currency: "USD", openingBalance: "0" }, await admin(app))).status).toBe(201);
     expect((await post(app, "/purchases/invoices", {
       id: "pi-usd", supplierId: "sup-usd", date: "2026-08-22", dueDate: "2026-09-21", branchId: "BR-MAIN", warehouseId: "WH-MAIN", currency: "USD",
       lines: [{ description: "خدمة بالدولار", kind: "expense", qty: "1", unitCost: "100", taxRatePercent: 0 }],
-    }, admin(app))).status).toBe(201);
-    expect((await post(app, "/purchases/invoices/pi-usd/confirm", {}, admin(app))).status).toBe(200);
+    }, await admin(app))).status).toBe(201);
+    expect((await post(app, "/purchases/invoices/pi-usd/confirm", {}, await admin(app))).status).toBe(200);
     expect((await post(app, "/gl/journal-entries", {
       id: "je-fund", date: "2026-08-24", memo: "تمويل", source: "manual", lines: [
         { accountId: "1300-1", debit: "6000", credit: "0" },
         { accountId: "3100", debit: "0", credit: "6000" },
       ],
-    }, admin(app))).status).toBeLessThan(300);
+    }, await admin(app))).status).toBeLessThan(300);
     await approvedRate(app, "fx-usd-50", "USD", "50.00", "2026-08-25");
     await approvedRate(app, "fx-usd-47", "USD", "47.00", "2026-08-30");
     expect((await post(app, "/vouchers", {
       id: "v-chq", date: "2026-08-26", voucherType: "supplier_payment", amount: "5000", branchId: "BR-MAIN", paymentMethod: "cheque", referenceNo: "OUT-260",
       treasuryAccountId: "ta-cash", treasuryGlAccountId: "1300-1", counterpartyGlAccountId: "2100", supplierId: "sup-usd",
-    }, admin(app))).status).toBe(201);
-    expect((await post(app, "/vouchers/v-chq/confirm", {}, admin(app))).status).toBe(200);
+    }, await admin(app))).status).toBe(201);
+    expect((await post(app, "/vouchers/v-chq/confirm", {}, await admin(app))).status).toBe(200);
     const today = toTenantDay(new Date().toISOString());
-    expect((await post(app, "/cheques/v-chq/allocations", { allocationId: "al-chq", invoiceId: "pi-usd", amount: "5000", date: today }, admin(app))).status).toBe(201);
+    expect((await post(app, "/cheques/v-chq/allocations", { allocationId: "al-chq", invoiceId: "pi-usd", amount: "5000", date: today }, await admin(app))).status).toBe(201);
     expect((await get(app, "/purchases/invoices/pi-usd")).remainingBalance).toBe("0.000000");
     expect(await glBalance(app, "2100")).toBe(0);
     expect(await glBalance(app, "5920")).toBe(200);
@@ -5730,8 +5730,8 @@ describe("createBackend — foreign documents settle and return in base (D202, D
     expect(await position(app, "2026-08-31", "2100")).toEqual(open);
     expect(await reconDiff(app, "ap")).toBe(0);
 
-    expect((await post(app, "/cheques/v-chq/deposit", { bankTreasuryAccountId: "ta-cash" }, admin(app))).status).toBe(200);
-    expect((await post(app, "/cheques/v-chq/bounce", { date: "2026-08-28" }, admin(app))).status).toBe(200);
+    expect((await post(app, "/cheques/v-chq/deposit", { bankTreasuryAccountId: "ta-cash" }, await admin(app))).status).toBe(200);
+    expect((await post(app, "/cheques/v-chq/bounce", { date: "2026-08-28" }, await admin(app))).status).toBe(200);
     expect((await get(app, "/purchases/invoices/pi-usd")).remainingBalance).toBe("4800.000000");
     expect(await glBalance(app, "5920")).toBe(0);
     expect(await position(app, today, "2100")).toEqual(open);
@@ -5770,8 +5770,8 @@ describe("createBackend — foreign documents settle and return in base (D202, D
     expect((await post(app, "/vouchers", {
       id: "v-half", date: "2026-08-26", voucherType: "customer_collection", amount: "2500", branchId: "BR-MAIN", paymentMethod: "cash",
       treasuryAccountId: "ta-cash", treasuryGlAccountId: "1300-1", counterpartyGlAccountId: "1105", customerId: "cust-usd",
-    }, admin(app))).status).toBe(201);
-    expect((await post(app, "/vouchers/v-half/confirm", {}, admin(app))).status).toBe(200);
+    }, await admin(app))).status).toBe(201);
+    expect((await post(app, "/vouchers/v-half/confirm", {}, await admin(app))).status).toBe(200);
   }
   const OPEN = { foreign: "100.000000", booked: "4800.000000", delta: "200.000000", gainLoss: "200.000000" };
   const HALF = { foreign: "50.000000", booked: "2400.000000", delta: "100.000000", gainLoss: "100.000000" };
@@ -5781,13 +5781,13 @@ describe("createBackend — foreign documents settle and return in base (D202, D
   it("ENH-E1-04: the FX check wants a revaluation run AS OF the period end, per currency — a mid-month run does not pass, a run for another currency does not pass, and a month-end run does", async () => {
     const app = await newBackend();
     await halfReceiptOnAccount(app);
-    const periods = (await (await app.fetch(new Request("http://local/fiscal-periods", { headers: admin(app) }))).json()) as { id: string; startDate: string; endDate: string }[];
+    const periods = (await (await app.fetch(new Request("http://local/fiscal-periods", { headers: await admin(app) }))).json()) as { id: string; startDate: string; endDate: string }[];
     const august = periods.find((p) => p.startDate <= "2026-08-28" && p.endDate >= "2026-08-28")!;
     const fx = async () => {
-      const checklist = (await (await app.fetch(new Request(`http://local/period-close/${august.id}/checks`, { headers: admin(app) }))).json()) as { checks: { code: string; status: string; findings: { ref: string; passed: boolean; asOfDate: string | null }[] }[] };
+      const checklist = (await (await app.fetch(new Request(`http://local/period-close/${august.id}/checks`, { headers: await admin(app) }))).json()) as { checks: { code: string; status: string; findings: { ref: string; passed: boolean; asOfDate: string | null }[] }[] };
       return checklist.checks.find((c) => c.code === "fx_revaluation")!;
     };
-    const revalue = (body: Record<string, unknown>) => post(app, "/revaluation/post", { autoReverse: false, ...body }, admin(app));
+    const revalue = async (body: Record<string, unknown>) => post(app, "/revaluation/post", { autoReverse: false, ...body }, await admin(app));
 
     expect(await fx()).toMatchObject({ status: "fail", findings: [{ ref: "USD", passed: false, asOfDate: "2026-08-31" }] });
 
@@ -5810,8 +5810,8 @@ describe("createBackend — foreign documents settle and return in base (D202, D
     await halfReceiptOnAccount(app);
     const today = toTenantDay(new Date().toISOString());
     for (const id of ["al-1", "al-2"]) {
-      expect((await post(app, "/vouchers/v-half/allocations", { allocationId: id, invoiceId: "inv-usd", amount: "2500", date: today }, admin(app))).status).toBe(201);
-      if (id === "al-1") expect((await post(app, "/allocations/al-1/reverse", {}, admin(app))).status).toBe(200);
+      expect((await post(app, "/vouchers/v-half/allocations", { allocationId: id, invoiceId: "inv-usd", amount: "2500", date: today }, await admin(app))).status).toBe(201);
+      if (id === "al-1") expect((await post(app, "/allocations/al-1/reverse", {}, await admin(app))).status).toBe(200);
     }
     for (const id of ["FXR:al-1", "FXR:al-1:REV", "FXR:al-2"]) {
       expect({ id, date: (await get(app, `/gl/journal-entries/${encodeURIComponent(id)}`)).date }).toEqual({ id, date: today });
@@ -5830,17 +5830,17 @@ describe("createBackend — foreign documents settle and return in base (D202, D
     vi.useFakeTimers({ toFake: ["Date"] });
     try {
       at("2026-08-28");
-      expect((await post(app, "/vouchers/v-half/allocations", { allocationId: "al-1", invoiceId: "inv-usd", amount: "2500", date: "2026-08-28" }, admin(app))).status).toBe(201);
+      expect((await post(app, "/vouchers/v-half/allocations", { allocationId: "al-1", invoiceId: "inv-usd", amount: "2500", date: "2026-08-28" }, await admin(app))).status).toBe(201);
       const periods = (await get(app, "/fiscal-periods")) as { id: string; startDate: string; endDate: string }[];
       const august = periods.find((p) => p.startDate <= "2026-08-28" && p.endDate >= "2026-08-28")!;
       at("2026-09-02");
-      const bareClose = await post(app, `/fiscal-periods/${august.id}/close`, {}, admin(app));
+      const bareClose = await post(app, `/fiscal-periods/${august.id}/close`, {}, await admin(app));
       expect(bareClose.status).toBe(409);
       expect(((await bareClose.json()) as { failedChecks: string[] }).failedChecks).toEqual(["fx_revaluation"]);
-      expect((await post(app, `/fiscal-periods/${august.id}/close`, { overrideReason: "إقفال أغسطس قبل إعادة تقييم العملات" }, admin(app))).status).toBe(200);
-      expect((await post(app, "/allocations/al-1/reverse", {}, admin(app))).status).toBe(200);
+      expect((await post(app, `/fiscal-periods/${august.id}/close`, { overrideReason: "إقفال أغسطس قبل إعادة تقييم العملات" }, await admin(app))).status).toBe(200);
+      expect((await post(app, "/allocations/al-1/reverse", {}, await admin(app))).status).toBe(200);
       at("2026-09-05");
-      expect((await post(app, "/vouchers/v-half/allocations", { allocationId: "al-2", invoiceId: "inv-usd", amount: "2500", date: "2026-09-05" }, admin(app))).status).toBe(201);
+      expect((await post(app, "/vouchers/v-half/allocations", { allocationId: "al-2", invoiceId: "inv-usd", amount: "2500", date: "2026-09-05" }, await admin(app))).status).toBe(201);
     } finally {
       vi.useRealTimers();
     }
@@ -5855,17 +5855,17 @@ describe("createBackend — foreign documents settle and return in base (D202, D
 
 describe("createBackend — a ladder run as of a past day ties to its control account as of that day (D220, D223)", () => {
   async function get(app: App, path: string): Promise<any> {
-    return (await app.fetch(new Request(`http://local${path}`, { headers: admin(app) }))).json();
+    return (await app.fetch(new Request(`http://local${path}`, { headers: await admin(app) }))).json();
   }
   async function fundedCash(app: App) {
     expect(
-      (await post(app, "/treasury-accounts", { id: "ta-cash", code: "TA-CASH", name: "الخزينة", branchId: "BR-MAIN", glAccountId: "1300-1", openingBalance: "0" }, admin(app))).status,
+      (await post(app, "/treasury-accounts", { id: "ta-cash", code: "TA-CASH", name: "الخزينة", branchId: "BR-MAIN", glAccountId: "1300-1", openingBalance: "0" }, await admin(app))).status,
     ).toBe(201);
     expect((await post(app, "/vouchers", {
       id: "v-fund", date: "2026-08-01", voucherType: "capital_injection", amount: "50000", branchId: "BR-MAIN", paymentMethod: "cash",
       treasuryAccountId: "ta-cash", treasuryGlAccountId: "1300-1", counterpartyGlAccountId: "3100",
-    }, admin(app))).status).toBe(201);
-    expect((await post(app, "/vouchers/v-fund/confirm", {}, admin(app))).status).toBe(200);
+    }, await admin(app))).status).toBe(201);
+    expect((await post(app, "/vouchers/v-fund/confirm", {}, await admin(app))).status).toBe(200);
   }
   async function ladderAt(app: App, kind: "customers" | "suppliers", date: string, partyId: string) {
     const report = await get(app, `/reports/aging/${kind}?asOfDate=${date}`);
@@ -5883,27 +5883,27 @@ describe("createBackend — a ladder run as of a past day ties to its control ac
     expect((await authedPost(app, "/sales-invoices/inv-a/confirm", {})).status).toBe(200);
     expect((await authedPost(app, "/sales-invoices", { ...invoiceBody("inv-v", "cust-asof", "300"), date: "2026-08-02", dueDate: "2026-08-31" })).status).toBe(201);
     expect((await authedPost(app, "/sales-invoices/inv-v/confirm", {})).status).toBe(200);
-    expect((await post(app, "/sales-invoices/inv-a/payments", { amount: "400", treasuryAccountId: "ta-cash", date: "2026-08-10" }, admin(app))).status).toBe(200);
+    expect((await post(app, "/sales-invoices/inv-a/payments", { amount: "400", treasuryAccountId: "ta-cash", date: "2026-08-10" }, await admin(app))).status).toBe(200);
     expect((await post(app, "/sales-returns/from-invoice", {
       id: "sr-asof", date: "2026-08-12", memo: "", warehouseId: "WH-MAIN", sourceInvoiceId: "inv-a", reason: "OTHER", requested: [{ itemId: "SVC-1", qty: "1" }],
-    }, admin(app))).status).toBe(201);
-    expect((await post(app, "/sales-returns/sr-asof/confirm", {}, admin(app))).status).toBe(200);
+    }, await admin(app))).status).toBe(201);
+    expect((await post(app, "/sales-returns/sr-asof/confirm", {}, await admin(app))).status).toBe(200);
     const receipt = (id: string, date: string, amount: string) => ({
       id, date, voucherType: "customer_collection", amount, branchId: "BR-MAIN", paymentMethod: "cash",
       treasuryAccountId: "ta-cash", treasuryGlAccountId: "1300-1", counterpartyGlAccountId: "1105", customerId: "cust-asof",
     });
     for (const [id, date, amount] of [["v-oa", "2026-08-15", "100"], ["v-rev", "2026-08-20", "50"]] as const) {
-      expect((await post(app, "/vouchers", receipt(id, date, amount), admin(app))).status).toBe(201);
-      expect((await post(app, `/vouchers/${id}/confirm`, {}, admin(app))).status).toBe(200);
+      expect((await post(app, "/vouchers", receipt(id, date, amount), await admin(app))).status).toBe(201);
+      expect((await post(app, `/vouchers/${id}/confirm`, {}, await admin(app))).status).toBe(200);
     }
-    expect((await post(app, "/vouchers/v-rev/reverse", { memo: "سبب العكس", date: "2026-08-25" }, admin(app))).status).toBe(201);
+    expect((await post(app, "/vouchers/v-rev/reverse", { memo: "سبب العكس", date: "2026-08-25" }, await admin(app))).status).toBe(201);
     expect((await post(app, "/cheques", {
       id: "chq-asof", direction: "incoming", chequeNumber: "770001", bankName: "بنك القاهرة", amount: "70.00", issueDate: "2026-08-18", dueDate: "2026-08-19",
       branchId: "BR-MAIN", partyId: "cust-asof", counterpartyGlAccountId: "1105", controlAccounts: { underCollectionAccountId: "1320", bouncedAccountId: "1360" },
-    }, admin(app))).status).toBe(201);
-    expect((await post(app, "/cheques/chq-asof/deposit", { bankTreasuryAccountId: "ta-bank1" }, admin(app))).status).toBe(200);
-    expect((await post(app, "/cheques/chq-asof/bounce", { date: "2026-08-28" }, admin(app))).status).toBe(200);
-    expect((await post(app, "/sales-invoices/inv-v/void", { reason: "صدرت بالخطأ" }, admin(app))).status).toBe(200);
+    }, await admin(app))).status).toBe(201);
+    expect((await post(app, "/cheques/chq-asof/deposit", { bankTreasuryAccountId: "ta-bank1" }, await admin(app))).status).toBe(200);
+    expect((await post(app, "/cheques/chq-asof/bounce", { date: "2026-08-28" }, await admin(app))).status).toBe(200);
+    expect((await post(app, "/sales-invoices/inv-v/void", { reason: "صدرت بالخطأ" }, await admin(app))).status).toBe(200);
 
     for (const [date, owed] of [
       ["2026-08-05", 1300], ["2026-08-11", 900], ["2026-08-13", 400], ["2026-08-16", 300],
@@ -5921,24 +5921,24 @@ describe("createBackend — a ladder run as of a past day ties to its control ac
   it("D220: payments, returns and cancellations dated after the day are not netted on the supplier ladder", async () => {
     const app = await newBackend();
     await fundedCash(app);
-    expect((await post(app, "/items", { id: "item-asof", code: "ITEM-ASOF", nameAr: "صنف", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" }, admin(app))).status).toBe(201);
-    expect((await post(app, "/suppliers", { id: "sup-asof", code: "sup-asof", nameAr: "مورد", currency: "EGP", openingBalance: "0" }, admin(app))).status).toBe(201);
+    expect((await post(app, "/items", { id: "item-asof", code: "ITEM-ASOF", nameAr: "صنف", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" }, await admin(app))).status).toBe(201);
+    expect((await post(app, "/suppliers", { id: "sup-asof", code: "sup-asof", nameAr: "مورد", currency: "EGP", openingBalance: "0" }, await admin(app))).status).toBe(201);
     const bill = (id: string, date: string, qty: string) => ({
       id, supplierId: "sup-asof", date, dueDate: "2026-08-31", branchId: "BR-MAIN", warehouseId: "WH-MAIN",
       lines: [{ itemId: "item-asof", description: "صنف", kind: "inventory", qty, unitCost: "100.00", taxRatePercent: 0 }],
     });
     for (const [id, date, qty] of [["pi-a", "2026-08-01", "10"], ["pi-c", "2026-08-02", "2"]] as const) {
-      expect((await post(app, "/purchases/invoices", bill(id, date, qty), admin(app))).status).toBe(201);
-      expect((await post(app, `/purchases/invoices/${id}/confirm`, {}, admin(app))).status).toBe(200);
+      expect((await post(app, "/purchases/invoices", bill(id, date, qty), await admin(app))).status).toBe(201);
+      expect((await post(app, `/purchases/invoices/${id}/confirm`, {}, await admin(app))).status).toBe(200);
     }
-    expect((await post(app, "/purchases/invoices/pi-a/payments", { amount: "300", treasuryAccountId: "ta-cash", date: "2026-08-10" }, admin(app))).status).toBe(200);
+    expect((await post(app, "/purchases/invoices/pi-a/payments", { amount: "300", treasuryAccountId: "ta-cash", date: "2026-08-10" }, await admin(app))).status).toBe(200);
     const number = (await get(app, "/purchases/invoices/pi-a")).number;
     expect((await post(app, "/purchase-returns", {
       id: "pr-asof", date: "2026-08-12", memo: "",
       lines: [{ itemId: "item-asof", warehouseId: "WH-MAIN", supplierId: "sup-asof", sourceInvoiceId: "pi-a", sourceInvoiceNumber: number, reason: "DEFECTIVE", availableQty: "10", qty: "1", unitCost: "100.00", taxAmount: "0" }],
-    }, admin(app))).status).toBe(201);
-    expect((await post(app, "/purchase-returns/pr-asof/confirm", {}, admin(app))).status).toBe(200);
-    expect((await post(app, "/purchases/invoices/pi-c/cancel", {}, admin(app))).status).toBe(200);
+    }, await admin(app))).status).toBe(201);
+    expect((await post(app, "/purchase-returns/pr-asof/confirm", {}, await admin(app))).status).toBe(200);
+    expect((await post(app, "/purchases/invoices/pi-c/cancel", {}, await admin(app))).status).toBe(200);
 
     for (const [date, owed] of [["2026-08-05", 1200], ["2026-08-11", 900], ["2026-08-13", 800]] as const) {
       const at = await ladderAt(app, "suppliers", date, "sup-asof");
@@ -5987,7 +5987,7 @@ describe("createBackend — a ladder run as of a past day ties to its control ac
       expect((await post(firstHandle.app, "/customers", {
         id: "cust-new", code: "cust-new", nameAr: "عميل جديد", paymentTermsDays: 30, currency: "EGP", openingBalance: "750",
         active: true, creditLimit: "0", taxExempt: false, etaBuyerType: "auto",
-      }, admin(firstHandle.app))).status).toBe(201);
+      }, await admin(firstHandle.app))).status).toBe(201);
       firstHandle.close();
 
       const app = keep(await createBackend({ dbPath }));
@@ -6006,11 +6006,11 @@ describe("createBackend — scheduled collections for the cloud host's timer (DE
     const app = keep(handle);
     expect(await handle.runScheduledCollections()).toBeNull();
 
-    const policy = (await (await app.fetch(new Request("http://local/collections/policy", { headers: admin(app) }))).json()) as Record<string, unknown>;
+    const policy = (await (await app.fetch(new Request("http://local/collections/policy", { headers: await admin(app) }))).json()) as Record<string, unknown>;
     const saved = await app.fetch(
       new Request("http://local/collections/policy", {
         method: "PUT",
-        headers: { "content-type": "application/json", ...admin(app) },
+        headers: { "content-type": "application/json", ...(await admin(app)) },
         body: JSON.stringify({ steps: policy["steps"], autoSendEnabled: true, minimumOverdueAmount: policy["minimumOverdueAmount"], pauseWhilePromisePending: policy["pauseWhilePromisePending"] }),
       }),
     );

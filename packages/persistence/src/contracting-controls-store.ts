@@ -1,6 +1,7 @@
-import Database from "better-sqlite3";
-import { openSqliteConnection, withSqliteTransaction, type SqliteConnectionInput } from "./sqlite-connection.js";
-import { insertingNew, prepareInsertOnly } from "./insert-new.js";
+import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
+import { insertNew } from "./insert-new.js";
+import { placeholders, TransactionMode, type SqlDb, type SqlValue } from "./sql/sql-db.js";
+import { sqliteDb } from "./sql/sqlite-db.js";
 import {
   Money,
   type RetentionRelease,
@@ -56,9 +57,9 @@ interface ReleaseRow {
   customer_id: string;
   kind: string;
   date: string;
-  amount: number;
+  amount: bigint;
   release_event_date: string | null;
-  early_release: number;
+  early_release: bigint;
   status: string;
   notes: string | null;
   invoice_id: string | null;
@@ -83,7 +84,7 @@ function toRelease(row: ReleaseRow): RetentionRelease {
     date: row.date,
     amount: Money.fromScaled(row.amount),
     releaseEventDate: row.release_event_date,
-    earlyRelease: row.early_release === 1,
+    earlyRelease: Number(row.early_release) === 1,
     status: row.status as RetentionReleaseStatus,
     notes: row.notes,
     invoiceId: row.invoice_id,
@@ -97,24 +98,12 @@ function toRelease(row: ReleaseRow): RetentionRelease {
   };
 }
 
-class SqliteRetentionReleaseStore implements RetentionReleaseStore {
-  private readonly upsert: Database.Statement;
-  private readonly insertOnly: Database.Statement;
-  private readonly selectById: Database.Statement;
-  private readonly selectByDocNo: Database.Statement;
-  private readonly selectAll: Database.Statement;
-
-  constructor(private readonly sqlite: Database.Database) {
-    this.upsert = sqlite.prepare(`
+const UPSERT = `
       INSERT INTO contracting_retention_release (
         id, doc_no, contract_id, contract_doc_no, project_id, customer_id, kind, date, amount,
         release_event_date, early_release, status, notes, invoice_id, invoice_doc_no,
         released_at, released_by, approved_by, cancelled_at, created_at, created_by
-      ) VALUES (
-        @id, @doc_no, @contract_id, @contract_doc_no, @project_id, @customer_id, @kind, @date, @amount,
-        @release_event_date, @early_release, @status, @notes, @invoice_id, @invoice_doc_no,
-        @released_at, @released_by, @approved_by, @cancelled_at, @created_at, @created_by
-      )
+      ) VALUES (${placeholders(21)})
       ON CONFLICT(id) DO UPDATE SET
         kind = excluded.kind,
         date = excluded.date,
@@ -129,27 +118,50 @@ class SqliteRetentionReleaseStore implements RetentionReleaseStore {
         released_by = excluded.released_by,
         approved_by = excluded.approved_by,
         cancelled_at = excluded.cancelled_at
-    `);
-    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
-    this.selectById = sqlite.prepare(`SELECT * FROM contracting_retention_release WHERE id = ?`);
-    this.selectByDocNo = sqlite.prepare(`SELECT * FROM contracting_retention_release WHERE doc_no = ?`);
-    this.selectAll = sqlite.prepare(
-      `SELECT * FROM contracting_retention_release ORDER BY date DESC, doc_no DESC`,
-    );
-  }
+    `;
+
+function releaseParams(release: RetentionRelease): SqlValue[] {
+  return [
+    release.id,
+    release.docNo,
+    release.contractId,
+    release.contractDocNo,
+    release.projectId,
+    release.customerId,
+    release.kind,
+    release.date,
+    release.amount.scaled,
+    release.releaseEventDate,
+    release.earlyRelease ? 1 : 0,
+    release.status,
+    release.notes,
+    release.invoiceId,
+    release.invoiceDocNo,
+    release.releasedAt,
+    release.releasedBy,
+    release.approvedBy,
+    release.cancelledAt,
+    release.createdAt,
+    release.createdBy,
+  ];
+}
+
+class SqlRetentionReleaseStore implements RetentionReleaseStore {
+  constructor(private readonly db: SqlDb) {}
 
   async findById(id: string): Promise<RetentionRelease | null> {
-    const row = this.selectById.get(id) as ReleaseRow | undefined;
+    const row = await this.db.get<ReleaseRow>(`SELECT * FROM contracting_retention_release WHERE id = ?`, [id]);
     return row ? toRelease(row) : null;
   }
 
   async findByDocNo(docNo: string): Promise<RetentionRelease | null> {
-    const row = this.selectByDocNo.get(docNo) as ReleaseRow | undefined;
+    const row = await this.db.get<ReleaseRow>(`SELECT * FROM contracting_retention_release WHERE doc_no = ?`, [docNo]);
     return row ? toRelease(row) : null;
   }
 
   async list(filter?: RetentionReleaseListFilter): Promise<RetentionRelease[]> {
-    return (this.selectAll.all() as ReleaseRow[])
+    const rows = await this.db.all<ReleaseRow>(`SELECT * FROM contracting_retention_release ORDER BY date DESC, doc_no DESC`);
+    return rows
       .map(toRelease)
       .filter(
         (r) =>
@@ -160,42 +172,24 @@ class SqliteRetentionReleaseStore implements RetentionReleaseStore {
   }
 
   async save(release: RetentionRelease): Promise<void> {
-    this.write(release);
+    await this.db.run(UPSERT, releaseParams(release));
   }
 
   async insert(release: RetentionRelease): Promise<void> {
-    insertingNew(release.id, () => this.write(release, this.insertOnly));
-  }
-
-  private write(release: RetentionRelease, statement: Database.Statement = this.upsert): void {
-    statement.run({
-      id: release.id,
-      doc_no: release.docNo,
-      contract_id: release.contractId,
-      contract_doc_no: release.contractDocNo,
-      project_id: release.projectId,
-      customer_id: release.customerId,
-      kind: release.kind,
-      date: release.date,
-      amount: release.amount.toScaledNumber(),
-      release_event_date: release.releaseEventDate,
-      early_release: release.earlyRelease ? 1 : 0,
-      status: release.status,
-      notes: release.notes,
-      invoice_id: release.invoiceId,
-      invoice_doc_no: release.invoiceDocNo,
-      released_at: release.releasedAt,
-      released_by: release.releasedBy,
-      approved_by: release.approvedBy,
-      cancelled_at: release.cancelledAt,
-      created_at: release.createdAt,
-      created_by: release.createdBy,
-    });
+    await insertNew(this.db, release.id, UPSERT, releaseParams(release));
   }
 
   async transaction<T>(fn: () => Promise<T>): Promise<T> {
-    return withSqliteTransaction(this.sqlite, fn, "BEGIN IMMEDIATE");
+    return this.db.transaction(fn, TransactionMode.Immediate);
   }
+}
+
+export async function ensureContractingControlsSchema(db: SqlDb): Promise<void> {
+  await db.applySchema(CREATE_TABLE);
+}
+
+export function createContractingControlsStore(db: SqlDb): RetentionReleaseStore {
+  return new SqlRetentionReleaseStore(db);
 }
 
 export interface SqliteContractingControlsStoreHandle extends RetentionReleaseStore {
@@ -215,8 +209,7 @@ export function createSqliteContractingControlsStore(
   if (!releaseColumns.has("approved_by")) {
     sqlite.exec(`ALTER TABLE contracting_retention_release ADD COLUMN approved_by TEXT`);
   }
-  const store = new SqliteRetentionReleaseStore(sqlite);
-  return Object.assign(store, {
+  return Object.assign(createContractingControlsStore(sqliteDb(sqlite)), {
     close: () => {
       if (owned) sqlite.close();
     },

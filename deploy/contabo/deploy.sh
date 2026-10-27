@@ -112,8 +112,10 @@ stop_cleanly() {
   compose stop mezan
   local exit_code
   exit_code="$(docker inspect --format '{{.State.ExitCode}}' mezan)"
-  [ "$exit_code" = "0" ] || die "the app exited with code $exit_code, not a clean close; nothing was copied or changed. Read 'docker logs mezan', then 'compose start mezan' to resume the old version"
-  [ ! -e "$RUNNING_MARKER" ] || die "$RUNNING_MARKER is still there, so the app did not close its databases; nothing was copied or changed"
+  [ ! -e "$RUNNING_MARKER" ] || die "the app exited with code $exit_code and left $RUNNING_MARKER, so it did not close its databases; nothing was copied or changed. Read 'docker logs mezan', then 'compose start mezan' to resume the old version"
+  # The app writes the marker once it has booted and removes it only on a clean close, so a
+  # failure with no marker is a version that died while booting and never served: a fix may replace it.
+  [ "$exit_code" = "0" ] || log "the app exited with code $exit_code without ever finishing its boot (no $RUNNING_MARKER); going on"
 }
 
 check_disk() {
@@ -254,8 +256,9 @@ restore_snapshot() {
 }
 
 deploy() {
-  local new_tag="$1" old_tag
+  local new_tag="$1" old_tag old_previous
   old_tag="$(tag_value MEZAN_IMAGE_TAG)"
+  old_previous="$(tag_value MEZAN_PREVIOUS_IMAGE_TAG)"
   [ "$new_tag" != "$old_tag" ] || die "$new_tag is already the running tag"
 
   if docker image inspect "${MEZAN_IMAGE:-ghcr.io/bassamzakaria/mezan-erp}:$new_tag" >/dev/null 2>&1; then
@@ -264,6 +267,8 @@ deploy() {
     log "pulling $new_tag before any downtime"
     MEZAN_IMAGE_TAG="$new_tag" compose pull mezan
   fi
+  # Postgres and Caddy too, before any downtime: on the cutover postgres is not on the host yet.
+  MEZAN_IMAGE_TAG="$new_tag" compose pull --policy missing postgres caddy
   # An image pulled by digest has no local tag, so prune_images would delete it once it is the rollback image.
   if [[ "$new_tag" == *@* ]]; then
     docker tag "${MEZAN_IMAGE:-ghcr.io/bassamzakaria/mezan-erp}@${new_tag#*@}" "${MEZAN_IMAGE:-ghcr.io/bassamzakaria/mezan-erp}:${new_tag%%@*}"
@@ -297,7 +302,8 @@ deploy() {
 
   # Always: the failed version may have changed any schema, and only the copy
   # says what the old version expects.
-  write_tags "$old_tag" "$new_tag"
+  # Not $new_tag: --rollback would then deploy the tag that just failed.
+  write_tags "$old_tag" "$old_previous"
   restore_snapshot "$label" "$new_tag"
   log "rolling back to $old_tag"
   compose up -d --remove-orphans

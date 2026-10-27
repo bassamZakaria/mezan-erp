@@ -1,6 +1,7 @@
-import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
-import { insertingNew, prepareInsertOnly } from "./insert-new.js";
+import { insertNew } from "./insert-new.js";
+import { placeholders, type SqlDb, type SqlValue } from "./sql/sql-db.js";
+import { sqliteDb } from "./sql/sqlite-db.js";
 import {
   Money,
   type GuaranteeKind,
@@ -62,19 +63,19 @@ interface GuaranteeRow {
   beneficiary_name_ar: string;
   bank_treasury_account_id: string;
   bank_name_ar: string;
-  face_value: number;
+  face_value: bigint;
   percent_of_contract: string | null;
   cash_margin_percent: string;
-  cash_margin_amount: number;
+  cash_margin_amount: bigint;
   issue_date: string;
   expiry_date: string;
   status: string;
-  current_value: number;
+  current_value: bigint;
   reductions: string;
   restorations: string;
   closed_date: string | null;
   closed_by: string | null;
-  closed_amount: number;
+  closed_amount: bigint;
   notes: string | null;
 }
 
@@ -125,26 +126,13 @@ function toGuarantee(row: GuaranteeRow): LetterOfGuarantee {
   };
 }
 
-class SqliteLetterOfGuaranteeRepository implements LetterOfGuaranteeRepository {
-  private readonly upsert: Database.Statement;
-  private readonly insertOnly: Database.Statement;
-  private readonly selectById: Database.Statement;
-  private readonly selectByDocNo: Database.Statement;
-  private readonly selectAll: Database.Statement;
-
-  constructor(sqlite: Database.Database) {
-    this.upsert = sqlite.prepare(`
+const UPSERT = `
       INSERT INTO contracting_guarantee (
         id, doc_no, kind, project_id, contract_id, tender_ref, beneficiary_name_ar,
         bank_treasury_account_id, bank_name_ar, face_value, percent_of_contract,
         cash_margin_percent, cash_margin_amount, issue_date, expiry_date, status,
         current_value, reductions, restorations, closed_date, closed_by, closed_amount, notes
-      ) VALUES (
-        @id, @doc_no, @kind, @project_id, @contract_id, @tender_ref, @beneficiary_name_ar,
-        @bank_treasury_account_id, @bank_name_ar, @face_value, @percent_of_contract,
-        @cash_margin_percent, @cash_margin_amount, @issue_date, @expiry_date, @status,
-        @current_value, @reductions, @restorations, @closed_date, @closed_by, @closed_amount, @notes
-      )
+      ) VALUES (${placeholders(23)})
       ON CONFLICT(id) DO UPDATE SET
         doc_no = excluded.doc_no,
         kind = excluded.kind,
@@ -168,78 +156,80 @@ class SqliteLetterOfGuaranteeRepository implements LetterOfGuaranteeRepository {
         closed_by = excluded.closed_by,
         closed_amount = excluded.closed_amount,
         notes = excluded.notes
-    `);
-    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
-    this.selectById = sqlite.prepare(`SELECT * FROM contracting_guarantee WHERE id = ?`);
-    this.selectByDocNo = sqlite.prepare(`SELECT * FROM contracting_guarantee WHERE doc_no = ?`);
-    this.selectAll = sqlite.prepare(`SELECT * FROM contracting_guarantee ORDER BY issue_date DESC, id DESC`);
-  }
+    `;
+
+function reductionsJson(reductions: readonly GuaranteeReduction[]): string {
+  return JSON.stringify(
+    reductions.map((r) => ({
+      date: r.date,
+      amount: r.amount.toScaledNumber(),
+      reason: r.reason,
+      sourceRef: r.sourceRef,
+      userId: r.userId,
+    })),
+  );
+}
+
+function guaranteeParams(guarantee: LetterOfGuarantee): SqlValue[] {
+  return [
+    guarantee.id,
+    guarantee.docNo,
+    guarantee.kind,
+    guarantee.projectId,
+    guarantee.contractId,
+    guarantee.tenderRef,
+    guarantee.beneficiaryNameAr,
+    guarantee.bankTreasuryAccountId,
+    guarantee.bankNameAr,
+    guarantee.faceValue.scaled,
+    guarantee.percentOfContract,
+    guarantee.cashMarginPercent,
+    guarantee.cashMarginAmount.scaled,
+    guarantee.issueDate,
+    guarantee.expiryDate,
+    guarantee.status,
+    guarantee.currentValue.scaled,
+    reductionsJson(guarantee.reductions),
+    reductionsJson(guarantee.restorations),
+    guarantee.closedDate,
+    guarantee.closedBy,
+    guarantee.closedAmount.scaled,
+    guarantee.notes,
+  ];
+}
+
+class SqlLetterOfGuaranteeRepository implements LetterOfGuaranteeRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async findById(id: string): Promise<LetterOfGuarantee | null> {
-    const row = this.selectById.get(id) as GuaranteeRow | undefined;
+    const row = await this.db.get<GuaranteeRow>(`SELECT * FROM contracting_guarantee WHERE id = ?`, [id]);
     return row ? toGuarantee(row) : null;
   }
 
   async findByDocNo(docNo: string): Promise<LetterOfGuarantee | null> {
-    const row = this.selectByDocNo.get(docNo) as GuaranteeRow | undefined;
+    const row = await this.db.get<GuaranteeRow>(`SELECT * FROM contracting_guarantee WHERE doc_no = ?`, [docNo]);
     return row ? toGuarantee(row) : null;
   }
 
   async list(): Promise<LetterOfGuarantee[]> {
-    return (this.selectAll.all() as GuaranteeRow[]).map(toGuarantee);
+    return (await this.db.all<GuaranteeRow>(`SELECT * FROM contracting_guarantee ORDER BY issue_date DESC, id DESC`)).map(toGuarantee);
   }
 
   async create(guarantee: LetterOfGuarantee): Promise<void> {
-    insertingNew(guarantee.id, () => this.write(guarantee, this.insertOnly));
+    await insertNew(this.db, guarantee.id, UPSERT, guaranteeParams(guarantee));
   }
 
   async update(guarantee: LetterOfGuarantee): Promise<void> {
-    this.write(guarantee);
+    await this.db.run(UPSERT, guaranteeParams(guarantee));
   }
+}
 
-  private write(guarantee: LetterOfGuarantee, statement: Database.Statement = this.upsert): void {
-    statement.run({
-      id: guarantee.id,
-      doc_no: guarantee.docNo,
-      kind: guarantee.kind,
-      project_id: guarantee.projectId,
-      contract_id: guarantee.contractId,
-      tender_ref: guarantee.tenderRef,
-      beneficiary_name_ar: guarantee.beneficiaryNameAr,
-      bank_treasury_account_id: guarantee.bankTreasuryAccountId,
-      bank_name_ar: guarantee.bankNameAr,
-      face_value: guarantee.faceValue.toScaledNumber(),
-      percent_of_contract: guarantee.percentOfContract,
-      cash_margin_percent: guarantee.cashMarginPercent,
-      cash_margin_amount: guarantee.cashMarginAmount.toScaledNumber(),
-      issue_date: guarantee.issueDate,
-      expiry_date: guarantee.expiryDate,
-      status: guarantee.status,
-      current_value: guarantee.currentValue.toScaledNumber(),
-      reductions: JSON.stringify(
-        guarantee.reductions.map((r) => ({
-          date: r.date,
-          amount: r.amount.toScaledNumber(),
-          reason: r.reason,
-          sourceRef: r.sourceRef,
-          userId: r.userId,
-        })),
-      ),
-      restorations: JSON.stringify(
-        guarantee.restorations.map((r) => ({
-          date: r.date,
-          amount: r.amount.toScaledNumber(),
-          reason: r.reason,
-          sourceRef: r.sourceRef,
-          userId: r.userId,
-        })),
-      ),
-      closed_date: guarantee.closedDate,
-      closed_by: guarantee.closedBy,
-      closed_amount: guarantee.closedAmount.toScaledNumber(),
-      notes: guarantee.notes,
-    });
-  }
+export async function ensureGuaranteeSchema(db: SqlDb): Promise<void> {
+  await db.applySchema(CREATE_TABLE);
+}
+
+export function createGuaranteeStore(db: SqlDb): LetterOfGuaranteeRepository {
+  return new SqlLetterOfGuaranteeRepository(db);
 }
 
 export interface SqliteGuaranteeStoreHandle extends LetterOfGuaranteeRepository {
@@ -258,8 +248,7 @@ export function createSqliteGuaranteeStore(path: SqliteConnectionInput = ":memor
   ) {
     sqlite.exec(`ALTER TABLE contracting_guarantee ADD COLUMN restorations TEXT NOT NULL DEFAULT '[]'`);
   }
-  const repo = new SqliteLetterOfGuaranteeRepository(sqlite);
-  return Object.assign(repo, {
+  return Object.assign(createGuaranteeStore(sqliteDb(sqlite)), {
     close: () => {
       if (owned) sqlite.close();
     },

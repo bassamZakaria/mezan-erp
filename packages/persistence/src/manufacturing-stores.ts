@@ -1,6 +1,7 @@
-import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
-import { insertingNew, prepareInsertOnly } from "./insert-new.js";
+import { insertNew } from "./insert-new.js";
+import type { SqlDb, SqlValue } from "./sql/sql-db.js";
+import { sqliteDb } from "./sql/sqlite-db.js";
 import {
   Money,
   Qty,
@@ -65,7 +66,7 @@ interface BomRow {
   id: string;
   number: string;
   product_item_id: string;
-  version: number;
+  version: bigint;
   standard_qty: string;
   unit: string;
   labor_cost: string;
@@ -73,7 +74,7 @@ interface BomRow {
   version_notes: string | null;
   lines: string;
   status: string;
-  custom: number;
+  custom: bigint;
   created_by: string;
   created_at: string;
 }
@@ -96,7 +97,7 @@ function bomToDomain(row: BomRow): Bom {
     id: row.id,
     number: row.number,
     productItemId: row.product_item_id,
-    version: row.version,
+    version: Number(row.version),
     standardQty: Qty.fromMajor(row.standard_qty),
     unit: row.unit,
     laborCost: Money.fromMajor(row.labor_cost),
@@ -104,63 +105,34 @@ function bomToDomain(row: BomRow): Bom {
     versionNotes: row.version_notes,
     lines,
     status: row.status as ActivationStatus,
-    custom: row.custom === 1,
+    custom: Number(row.custom) === 1,
     createdBy: row.created_by,
     createdAt: row.created_at,
   };
 }
 
-class SqliteBomStore implements BomRepository {
-  private readonly upsert: Database.Statement;
-  private readonly insertOnly: Database.Statement;
-  private readonly selectById: Database.Statement;
-  private readonly selectAll: Database.Statement;
-  private readonly selectByProduct: Database.Statement;
-
-  constructor(sqlite: Database.Database) {
-    this.upsert = sqlite.prepare(`
+const UPSERT_BOM = `
       INSERT INTO bom (id, number, product_item_id, version, standard_qty, unit, labor_cost, overhead_cost, version_notes, lines, status, custom, created_by, created_at)
-      VALUES (@id, @number, @product_item_id, @version, @standard_qty, @unit, @labor_cost, @overhead_cost, @version_notes, @lines, @status, @custom, @created_by, @created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         product_item_id = excluded.product_item_id, version = excluded.version,
         standard_qty = excluded.standard_qty, unit = excluded.unit, labor_cost = excluded.labor_cost,
         overhead_cost = excluded.overhead_cost, version_notes = excluded.version_notes,
         lines = excluded.lines, status = excluded.status, custom = excluded.custom
-    `);
-    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
-    this.selectById = sqlite.prepare(`SELECT * FROM bom WHERE id = ?`);
-    this.selectAll = sqlite.prepare(`SELECT * FROM bom`);
-    this.selectByProduct = sqlite.prepare(`SELECT * FROM bom WHERE product_item_id = ?`);
-  }
+    `;
 
-  async findById(id: string): Promise<Bom | null> {
-    const row = this.selectById.get(id) as BomRow | undefined;
-    return row ? bomToDomain(row) : null;
-  }
-  async list(): Promise<Bom[]> {
-    return (this.selectAll.all() as BomRow[]).map(bomToDomain);
-  }
-  async listByProduct(productItemId: string): Promise<Bom[]> {
-    return (this.selectByProduct.all(productItemId) as BomRow[]).map(bomToDomain);
-  }
-  async create(bom: Bom): Promise<void> {
-    insertingNew(bom.id, () => this.write(bom, this.insertOnly));
-  }
-  async update(bom: Bom): Promise<void> {
-    this.write(bom);
-  }
-  private write(b: Bom, statement: Database.Statement = this.upsert): void {
-    statement.run({
-      id: b.id,
-      number: b.number,
-      product_item_id: b.productItemId,
-      version: b.version,
-      standard_qty: b.standardQty.toString(),
-      unit: b.unit,
-      labor_cost: b.laborCost.toString(),
-      overhead_cost: b.overheadCost.toString(),
-      version_notes: b.versionNotes,
-      lines: JSON.stringify(
+function bomParams(b: Bom): SqlValue[] {
+  return [
+    b.id,
+    b.number,
+    b.productItemId,
+    b.version,
+    b.standardQty.toString(),
+    b.unit,
+    b.laborCost.toString(),
+    b.overheadCost.toString(),
+    b.versionNotes,
+    JSON.stringify(
         b.lines.map((l) => ({
           itemId: l.itemId,
           qty: l.qty.toString(),
@@ -169,11 +141,31 @@ class SqliteBomStore implements BomRepository {
           notes: l.notes,
         })),
       ),
-      status: b.status,
-      custom: b.custom ? 1 : 0,
-      created_by: b.createdBy,
-      created_at: b.createdAt,
-    });
+    b.status,
+    b.custom ? 1 : 0,
+    b.createdBy,
+    b.createdAt,
+  ];
+}
+
+class SqlBomStore implements BomRepository {
+  constructor(private readonly db: SqlDb) {}
+
+  async findById(id: string): Promise<Bom | null> {
+    const row = await this.db.get<BomRow>(`SELECT * FROM bom WHERE id = ?`, [id]);
+    return row ? bomToDomain(row) : null;
+  }
+  async list(): Promise<Bom[]> {
+    return (await this.db.all<BomRow>(`SELECT * FROM bom`)).map(bomToDomain);
+  }
+  async listByProduct(productItemId: string): Promise<Bom[]> {
+    return (await this.db.all<BomRow>(`SELECT * FROM bom WHERE product_item_id = ?`, [productItemId])).map(bomToDomain);
+  }
+  async create(bom: Bom): Promise<void> {
+    await insertNew(this.db, bom.id, UPSERT_BOM, bomParams(bom));
+  }
+  async update(bom: Bom): Promise<void> {
+    await this.db.run(UPSERT_BOM, bomParams(bom));
   }
 }
 
@@ -212,7 +204,8 @@ CREATE TABLE IF NOT EXISTS work_order (
   started_at             TEXT,
   issued_at              TEXT,
   received_at            TEXT,
-  completed_at           TEXT
+  completed_at           TEXT,
+  project_id             TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_wo_bom ON work_order(bom_id);
 CREATE INDEX IF NOT EXISTS idx_wo_ci ON work_order(config_instance_id);
@@ -222,7 +215,7 @@ interface WoRow {
   id: string;
   number: string;
   bom_id: string;
-  bom_version: number;
+  bom_version: bigint;
   product_item_id: string;
   planned_qty: string;
   produced_qty: string;
@@ -244,7 +237,7 @@ interface WoRow {
   waste_log: string;
   shop_floor_log: string | null;
   config_instance_id: string | null;
-  gl_posted: number;
+  gl_posted: bigint;
   created_by: string;
   created_at: string;
   started_at: string | null;
@@ -312,7 +305,7 @@ function woToDomain(row: WoRow): WorkOrder {
     id: row.id,
     number: row.number,
     bomId: row.bom_id,
-    bomVersion: row.bom_version,
+    bomVersion: Number(row.bom_version),
     productItemId: row.product_item_id,
     plannedQty: Qty.fromMajor(row.planned_qty),
     producedQty: Qty.fromMajor(row.produced_qty),
@@ -337,7 +330,7 @@ function woToDomain(row: WoRow): WorkOrder {
     // Rows written before R9.1 carry no shop-floor log.
     shopFloorLog: JSON.parse(row.shop_floor_log ?? "[]") as WorkOrderShopFloorEntry[],
     configInstanceId: row.config_instance_id,
-    glPosted: row.gl_posted === 1,
+    glPosted: Number(row.gl_posted) === 1,
     createdBy: row.created_by,
     createdAt: row.created_at,
     startedAt: row.started_at,
@@ -348,16 +341,9 @@ function woToDomain(row: WoRow): WorkOrder {
   };
 }
 
-class SqliteWorkOrderStore implements WorkOrderRepository {
-  private readonly upsert: Database.Statement;
-  private readonly insertOnly: Database.Statement;
-  private readonly selectById: Database.Statement;
-  private readonly selectAll: Database.Statement;
-
-  constructor(sqlite: Database.Database) {
-    this.upsert = sqlite.prepare(`
+const UPSERT_WORK_ORDER = `
       INSERT INTO work_order (id, number, bom_id, bom_version, product_item_id, planned_qty, produced_qty, source_warehouse_id, wip_warehouse_id, destination_warehouse_id, priority, scheduled_start_date, scheduled_end_date, notes, status, stage, materials, material_cost, labor_cost, overhead_cost, extra_cost, cost_log, waste_log, shop_floor_log, config_instance_id, gl_posted, created_by, created_at, started_at, issued_at, received_at, completed_at, project_id)
-      VALUES (@id, @number, @bom_id, @bom_version, @product_item_id, @planned_qty, @produced_qty, @source_warehouse_id, @wip_warehouse_id, @destination_warehouse_id, @priority, @scheduled_start_date, @scheduled_end_date, @notes, @status, @stage, @materials, @material_cost, @labor_cost, @overhead_cost, @extra_cost, @cost_log, @waste_log, @shop_floor_log, @config_instance_id, @gl_posted, @created_by, @created_at, @started_at, @issued_at, @received_at, @completed_at, @project_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         planned_qty = excluded.planned_qty, produced_qty = excluded.produced_qty,
         source_warehouse_id = excluded.source_warehouse_id, wip_warehouse_id = excluded.wip_warehouse_id,
@@ -372,44 +358,27 @@ class SqliteWorkOrderStore implements WorkOrderRepository {
         started_at = excluded.started_at, issued_at = excluded.issued_at,
         received_at = excluded.received_at, completed_at = excluded.completed_at,
         project_id = excluded.project_id
-    `);
-    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
-    this.selectById = sqlite.prepare(`SELECT * FROM work_order WHERE id = ?`);
-    this.selectAll = sqlite.prepare(`SELECT * FROM work_order`);
-  }
+    `;
 
-  async findById(id: string): Promise<WorkOrder | null> {
-    const row = this.selectById.get(id) as WoRow | undefined;
-    return row ? woToDomain(row) : null;
-  }
-  async list(): Promise<WorkOrder[]> {
-    return (this.selectAll.all() as WoRow[]).map(woToDomain);
-  }
-  async create(order: WorkOrder): Promise<void> {
-    insertingNew(order.id, () => this.write(order, this.insertOnly));
-  }
-  async update(order: WorkOrder): Promise<void> {
-    this.write(order);
-  }
-  private write(o: WorkOrder, statement: Database.Statement = this.upsert): void {
-    statement.run({
-      id: o.id,
-      number: o.number,
-      bom_id: o.bomId,
-      bom_version: o.bomVersion,
-      product_item_id: o.productItemId,
-      planned_qty: o.plannedQty.toString(),
-      produced_qty: o.producedQty.toString(),
-      source_warehouse_id: o.sourceWarehouseId,
-      wip_warehouse_id: o.wipWarehouseId,
-      destination_warehouse_id: o.destinationWarehouseId,
-      priority: o.priority,
-      scheduled_start_date: o.scheduledStartDate,
-      scheduled_end_date: o.scheduledEndDate,
-      notes: o.notes,
-      status: o.status,
-      stage: o.stage,
-      materials: JSON.stringify(
+function workOrderParams(o: WorkOrder): SqlValue[] {
+  return [
+    o.id,
+    o.number,
+    o.bomId,
+    o.bomVersion,
+    o.productItemId,
+    o.plannedQty.toString(),
+    o.producedQty.toString(),
+    o.sourceWarehouseId,
+    o.wipWarehouseId,
+    o.destinationWarehouseId,
+    o.priority,
+    o.scheduledStartDate,
+    o.scheduledEndDate,
+    o.notes,
+    o.status,
+    o.stage,
+    JSON.stringify(
         o.materials.map((m) => ({
           itemId: m.itemId,
           requiredQty: m.requiredQty.toString(),
@@ -420,14 +389,14 @@ class SqliteWorkOrderStore implements WorkOrderRepository {
           issuedUnitCost: m.issuedUnitCost.toString(),
         })),
       ),
-      material_cost: o.materialCost.toString(),
-      labor_cost: o.laborCost.toString(),
-      overhead_cost: o.overheadCost.toString(),
-      extra_cost: o.extraCost.toString(),
-      cost_log: JSON.stringify(
+    o.materialCost.toString(),
+    o.laborCost.toString(),
+    o.overheadCost.toString(),
+    o.extraCost.toString(),
+    JSON.stringify(
         o.costLog.map((c) => ({ kind: c.kind, amount: c.amount.toString(), notes: c.notes, at: c.at })),
       ),
-      waste_log: JSON.stringify(
+    JSON.stringify(
         o.wasteLog.map((w) => ({
           itemId: w.itemId,
           qty: w.qty.toString(),
@@ -440,17 +409,34 @@ class SqliteWorkOrderStore implements WorkOrderRepository {
           abnormalCost: w.abnormalCost.toString(),
         })),
       ),
-      shop_floor_log: JSON.stringify(o.shopFloorLog),
-      config_instance_id: o.configInstanceId,
-      gl_posted: o.glPosted ? 1 : 0,
-      created_by: o.createdBy,
-      created_at: o.createdAt,
-      started_at: o.startedAt,
-      issued_at: o.issuedAt,
-      received_at: o.receivedAt,
-      completed_at: o.completedAt,
-      project_id: o.projectId,
-    });
+    JSON.stringify(o.shopFloorLog),
+    o.configInstanceId,
+    o.glPosted ? 1 : 0,
+    o.createdBy,
+    o.createdAt,
+    o.startedAt,
+    o.issuedAt,
+    o.receivedAt,
+    o.completedAt,
+    o.projectId,
+  ];
+}
+
+class SqlWorkOrderStore implements WorkOrderRepository {
+  constructor(private readonly db: SqlDb) {}
+
+  async findById(id: string): Promise<WorkOrder | null> {
+    const row = await this.db.get<WoRow>(`SELECT * FROM work_order WHERE id = ?`, [id]);
+    return row ? woToDomain(row) : null;
+  }
+  async list(): Promise<WorkOrder[]> {
+    return (await this.db.all<WoRow>(`SELECT * FROM work_order`)).map(woToDomain);
+  }
+  async create(order: WorkOrder): Promise<void> {
+    await insertNew(this.db, order.id, UPSERT_WORK_ORDER, workOrderParams(order));
+  }
+  async update(order: WorkOrder): Promise<void> {
+    await this.db.run(UPSERT_WORK_ORDER, workOrderParams(order));
   }
 }
 
@@ -520,67 +506,58 @@ function cpToDomain(row: CpRow): ConfigurableProduct {
   };
 }
 
-class SqliteConfigurableProductStore implements ConfigurableProductRepository {
-  private readonly upsert: Database.Statement;
-  private readonly insertOnly: Database.Statement;
-  private readonly selectById: Database.Statement;
-  private readonly selectByCode: Database.Statement;
-  private readonly selectAll: Database.Statement;
-
-  constructor(sqlite: Database.Database) {
-    this.upsert = sqlite.prepare(`
+const UPSERT_CONFIGURABLE_PRODUCT = `
       INSERT INTO configurable_product (id, code, name_ar, name_en, output_item_id, unit, description, inputs, materials, pricing_method, price_formula, labor_formula, overhead_formula, item_policy, status, created_by, created_at)
-      VALUES (@id, @code, @name_ar, @name_en, @output_item_id, @unit, @description, @inputs, @materials, @pricing_method, @price_formula, @labor_formula, @overhead_formula, @item_policy, @status, @created_by, @created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         code = excluded.code, name_ar = excluded.name_ar, name_en = excluded.name_en,
         output_item_id = excluded.output_item_id, unit = excluded.unit, description = excluded.description,
         inputs = excluded.inputs, materials = excluded.materials, pricing_method = excluded.pricing_method,
         price_formula = excluded.price_formula, labor_formula = excluded.labor_formula,
         overhead_formula = excluded.overhead_formula, item_policy = excluded.item_policy, status = excluded.status
-    `);
-    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
-    this.selectById = sqlite.prepare(`SELECT * FROM configurable_product WHERE id = ?`);
-    this.selectByCode = sqlite.prepare(`SELECT * FROM configurable_product WHERE code = ?`);
-    this.selectAll = sqlite.prepare(`SELECT * FROM configurable_product`);
-  }
+    `;
+
+function configurableProductParams(p: ConfigurableProduct): SqlValue[] {
+  return [
+    p.id,
+    p.code,
+    p.nameAr,
+    p.nameEn,
+    p.outputItemId,
+    p.unit,
+    p.description,
+    JSON.stringify(p.inputs),
+    JSON.stringify(p.materials),
+    p.pricingMethod,
+    p.priceFormula,
+    p.laborFormula,
+    p.overheadFormula,
+    p.itemPolicy,
+    p.status,
+    p.createdBy,
+    p.createdAt,
+  ];
+}
+
+class SqlConfigurableProductStore implements ConfigurableProductRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async findById(id: string): Promise<ConfigurableProduct | null> {
-    const row = this.selectById.get(id) as CpRow | undefined;
+    const row = await this.db.get<CpRow>(`SELECT * FROM configurable_product WHERE id = ?`, [id]);
     return row ? cpToDomain(row) : null;
   }
   async findByCode(code: string): Promise<ConfigurableProduct | null> {
-    const row = this.selectByCode.get(code) as CpRow | undefined;
+    const row = await this.db.get<CpRow>(`SELECT * FROM configurable_product WHERE code = ?`, [code]);
     return row ? cpToDomain(row) : null;
   }
   async list(): Promise<ConfigurableProduct[]> {
-    return (this.selectAll.all() as CpRow[]).map(cpToDomain);
+    return (await this.db.all<CpRow>(`SELECT * FROM configurable_product`)).map(cpToDomain);
   }
   async create(product: ConfigurableProduct): Promise<void> {
-    insertingNew(product.id, () => this.write(product, this.insertOnly));
+    await insertNew(this.db, product.id, UPSERT_CONFIGURABLE_PRODUCT, configurableProductParams(product));
   }
   async update(product: ConfigurableProduct): Promise<void> {
-    this.write(product);
-  }
-  private write(p: ConfigurableProduct, statement: Database.Statement = this.upsert): void {
-    statement.run({
-      id: p.id,
-      code: p.code,
-      name_ar: p.nameAr,
-      name_en: p.nameEn,
-      output_item_id: p.outputItemId,
-      unit: p.unit,
-      description: p.description,
-      inputs: JSON.stringify(p.inputs),
-      materials: JSON.stringify(p.materials),
-      pricing_method: p.pricingMethod,
-      price_formula: p.priceFormula,
-      labor_formula: p.laborFormula,
-      overhead_formula: p.overheadFormula,
-      item_policy: p.itemPolicy,
-      status: p.status,
-      created_by: p.createdBy,
-      created_at: p.createdAt,
-    });
+    await this.db.run(UPSERT_CONFIGURABLE_PRODUCT, configurableProductParams(product));
   }
 }
 
@@ -674,57 +651,33 @@ function ciToDomain(row: CiRow): ConfigInstance {
   };
 }
 
-class SqliteConfigInstanceStore implements ConfigInstanceRepository {
-  private readonly upsert: Database.Statement;
-  private readonly insertOnly: Database.Statement;
-  private readonly selectById: Database.Statement;
-  private readonly selectAll: Database.Statement;
-
-  constructor(sqlite: Database.Database) {
-    this.upsert = sqlite.prepare(`
+const UPSERT_CONFIG_INSTANCE = `
       INSERT INTO config_instance (id, number, configurable_product_id, product_name_ar, output_item_id, spec, qty, customer_id, sell_unit_price, notes, status, bom_id, work_order_id, materials, material_cost_per_unit, labor_cost_per_unit, overhead_cost_per_unit, estimated_unit_cost, actual_cost, created_by, created_at)
-      VALUES (@id, @number, @configurable_product_id, @product_name_ar, @output_item_id, @spec, @qty, @customer_id, @sell_unit_price, @notes, @status, @bom_id, @work_order_id, @materials, @material_cost_per_unit, @labor_cost_per_unit, @overhead_cost_per_unit, @estimated_unit_cost, @actual_cost, @created_by, @created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         customer_id = excluded.customer_id, sell_unit_price = excluded.sell_unit_price,
         notes = excluded.notes, status = excluded.status, materials = excluded.materials,
         material_cost_per_unit = excluded.material_cost_per_unit, labor_cost_per_unit = excluded.labor_cost_per_unit,
         overhead_cost_per_unit = excluded.overhead_cost_per_unit, estimated_unit_cost = excluded.estimated_unit_cost,
         actual_cost = excluded.actual_cost
-    `);
-    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
-    this.selectById = sqlite.prepare(`SELECT * FROM config_instance WHERE id = ?`);
-    this.selectAll = sqlite.prepare(`SELECT * FROM config_instance`);
-  }
+    `;
 
-  async findById(id: string): Promise<ConfigInstance | null> {
-    const row = this.selectById.get(id) as CiRow | undefined;
-    return row ? ciToDomain(row) : null;
-  }
-  async list(): Promise<ConfigInstance[]> {
-    return (this.selectAll.all() as CiRow[]).map(ciToDomain);
-  }
-  async create(instance: ConfigInstance): Promise<void> {
-    insertingNew(instance.id, () => this.write(instance, this.insertOnly));
-  }
-  async update(instance: ConfigInstance): Promise<void> {
-    this.write(instance);
-  }
-  private write(i: ConfigInstance, statement: Database.Statement = this.upsert): void {
-    statement.run({
-      id: i.id,
-      number: i.number,
-      configurable_product_id: i.configurableProductId,
-      product_name_ar: i.productNameAr,
-      output_item_id: i.outputItemId,
-      spec: JSON.stringify(i.spec),
-      qty: i.qty.toString(),
-      customer_id: i.customerId,
-      sell_unit_price: i.sellUnitPrice === null ? null : i.sellUnitPrice.toString(),
-      notes: i.notes,
-      status: i.status,
-      bom_id: i.bomId,
-      work_order_id: i.workOrderId,
-      materials: JSON.stringify(
+function configInstanceParams(i: ConfigInstance): SqlValue[] {
+  return [
+    i.id,
+    i.number,
+    i.configurableProductId,
+    i.productNameAr,
+    i.outputItemId,
+    JSON.stringify(i.spec),
+    i.qty.toString(),
+    i.customerId,
+    i.sellUnitPrice === null ? null : i.sellUnitPrice.toString(),
+    i.notes,
+    i.status,
+    i.bomId,
+    i.workOrderId,
+    JSON.stringify(
         i.materials.map((m) => ({
           itemId: m.itemId,
           qtyPerUnit: m.qtyPerUnit.toString(),
@@ -732,14 +685,31 @@ class SqliteConfigInstanceStore implements ConfigInstanceRepository {
           lineCost: m.lineCost.toString(),
         })),
       ),
-      material_cost_per_unit: i.materialCostPerUnit.toString(),
-      labor_cost_per_unit: i.laborCostPerUnit.toString(),
-      overhead_cost_per_unit: i.overheadCostPerUnit.toString(),
-      estimated_unit_cost: i.estimatedUnitCost.toString(),
-      actual_cost: i.actualCost === null ? null : i.actualCost.toString(),
-      created_by: i.createdBy,
-      created_at: i.createdAt,
-    });
+    i.materialCostPerUnit.toString(),
+    i.laborCostPerUnit.toString(),
+    i.overheadCostPerUnit.toString(),
+    i.estimatedUnitCost.toString(),
+    i.actualCost === null ? null : i.actualCost.toString(),
+    i.createdBy,
+    i.createdAt,
+  ];
+}
+
+class SqlConfigInstanceStore implements ConfigInstanceRepository {
+  constructor(private readonly db: SqlDb) {}
+
+  async findById(id: string): Promise<ConfigInstance | null> {
+    const row = await this.db.get<CiRow>(`SELECT * FROM config_instance WHERE id = ?`, [id]);
+    return row ? ciToDomain(row) : null;
+  }
+  async list(): Promise<ConfigInstance[]> {
+    return (await this.db.all<CiRow>(`SELECT * FROM config_instance`)).map(ciToDomain);
+  }
+  async create(instance: ConfigInstance): Promise<void> {
+    await insertNew(this.db, instance.id, UPSERT_CONFIG_INSTANCE, configInstanceParams(instance));
+  }
+  async update(instance: ConfigInstance): Promise<void> {
+    await this.db.run(UPSERT_CONFIG_INSTANCE, configInstanceParams(instance));
   }
 }
 
@@ -779,54 +749,45 @@ function wsToDomain(row: WsRow): WorkStation {
   };
 }
 
-class SqliteWorkStationStore implements WorkStationRepository {
-  private readonly upsert: Database.Statement;
-  private readonly insertOnly: Database.Statement;
-  private readonly selectById: Database.Statement;
-  private readonly selectByCode: Database.Statement;
-  private readonly selectAll: Database.Statement;
-
-  constructor(sqlite: Database.Database) {
-    this.upsert = sqlite.prepare(`
+const UPSERT_WORK_STATION = `
       INSERT INTO work_station (id, code, name_ar, name_en, notes, status, created_at)
-      VALUES (@id, @code, @name_ar, @name_en, @notes, @status, @created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         code = excluded.code, name_ar = excluded.name_ar, name_en = excluded.name_en,
         notes = excluded.notes, status = excluded.status
-    `);
-    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
-    this.selectById = sqlite.prepare(`SELECT * FROM work_station WHERE id = ?`);
-    this.selectByCode = sqlite.prepare(`SELECT * FROM work_station WHERE code = ?`);
-    this.selectAll = sqlite.prepare(`SELECT * FROM work_station ORDER BY code`);
-  }
+    `;
+
+function workStationParams(w: WorkStation): SqlValue[] {
+  return [
+    w.id,
+    w.code,
+    w.nameAr,
+    w.nameEn,
+    w.notes,
+    w.status,
+    w.createdAt,
+  ];
+}
+
+class SqlWorkStationStore implements WorkStationRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async findById(id: string): Promise<WorkStation | null> {
-    const row = this.selectById.get(id) as WsRow | undefined;
+    const row = await this.db.get<WsRow>(`SELECT * FROM work_station WHERE id = ?`, [id]);
     return row ? wsToDomain(row) : null;
   }
   async findByCode(code: string): Promise<WorkStation | null> {
-    const row = this.selectByCode.get(code) as WsRow | undefined;
+    const row = await this.db.get<WsRow>(`SELECT * FROM work_station WHERE code = ?`, [code]);
     return row ? wsToDomain(row) : null;
   }
   async list(): Promise<WorkStation[]> {
-    return (this.selectAll.all() as WsRow[]).map(wsToDomain);
+    return (await this.db.all<WsRow>(`SELECT * FROM work_station ORDER BY code`)).map(wsToDomain);
   }
   async create(station: WorkStation): Promise<void> {
-    insertingNew(station.id, () => this.write(station, this.insertOnly));
+    await insertNew(this.db, station.id, UPSERT_WORK_STATION, workStationParams(station));
   }
   async update(station: WorkStation): Promise<void> {
-    this.write(station);
-  }
-  private write(w: WorkStation, statement: Database.Statement = this.upsert): void {
-    statement.run({
-      id: w.id,
-      code: w.code,
-      name_ar: w.nameAr,
-      name_en: w.nameEn,
-      notes: w.notes,
-      status: w.status,
-      created_at: w.createdAt,
-    });
+    await this.db.run(UPSERT_WORK_STATION, workStationParams(station));
   }
 }
 
@@ -836,13 +797,30 @@ class SqliteWorkStationStore implements WorkStationRepository {
  * Open all four manufacturing stores on ONE shared connection — the shape the
  * API mounts, so the whole module lives in a single database file.
  */
-export interface SqliteManufacturingStores {
+export interface ManufacturingStores {
   readonly boms: BomRepository;
   readonly workOrders: WorkOrderRepository;
   readonly configurableProducts: ConfigurableProductRepository;
   readonly configInstances: ConfigInstanceRepository;
   readonly workStations: WorkStationRepository;
+}
+
+export interface SqliteManufacturingStores extends ManufacturingStores {
   close(): void;
+}
+
+export async function ensureManufacturingSchema(db: SqlDb): Promise<void> {
+  await db.applySchema(`${CREATE_BOM}${CREATE_WO}${CREATE_CP}${CREATE_CI}${CREATE_WS}`);
+}
+
+export function createManufacturingStores(db: SqlDb): ManufacturingStores {
+  return {
+    boms: new SqlBomStore(db),
+    workOrders: new SqlWorkOrderStore(db),
+    configurableProducts: new SqlConfigurableProductStore(db),
+    configInstances: new SqlConfigInstanceStore(db),
+    workStations: new SqlWorkStationStore(db),
+  };
 }
 
 export function createSqliteManufacturingStores(path: SqliteConnectionInput = ":memory:"): SqliteManufacturingStores {
@@ -869,12 +847,5 @@ export function createSqliteManufacturingStores(path: SqliteConnectionInput = ":
   if (!woColumns.some((c) => c.name === "project_id")) {
     sqlite.exec(`ALTER TABLE work_order ADD COLUMN project_id TEXT`);
   }
-  return {
-    boms: new SqliteBomStore(sqlite),
-    workOrders: new SqliteWorkOrderStore(sqlite),
-    configurableProducts: new SqliteConfigurableProductStore(sqlite),
-    configInstances: new SqliteConfigInstanceStore(sqlite),
-    workStations: new SqliteWorkStationStore(sqlite),
-    close: () => { if (owned) sqlite.close(); },
-  };
+  return { ...createManufacturingStores(sqliteDb(sqlite)), close: () => { if (owned) sqlite.close(); } };
 }

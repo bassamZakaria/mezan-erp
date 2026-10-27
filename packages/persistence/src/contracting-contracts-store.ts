@@ -1,6 +1,8 @@
-import Database from "better-sqlite3";
-import { openSqliteConnection, withSqliteTransaction, type SqliteConnectionInput } from "./sqlite-connection.js";
-import { refusingTakenId } from "./insert-new.js";
+import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
+import { insertNew, refuseTakenIdAsync } from "./insert-new.js";
+import { childRowsByParentAsync } from "./list-query.js";
+import { TransactionMode, type SqlDb, type SqlValue } from "./sql/sql-db.js";
+import { sqliteDb } from "./sql/sqlite-db.js";
 import {
   Money,
   Qty,
@@ -153,7 +155,7 @@ interface ContractRow {
   completed_at: string | null;
   terminated_at: string | null;
   notes: string | null;
-  estimated_total_cost: number | null;
+  estimated_total_cost: bigint | null;
   budget_revisions: string;
   tender_discount_percent: string;
   retention_percent: string;
@@ -166,8 +168,8 @@ interface ContractRow {
   social_insurance_note: string | null;
   withholding_tax_percent: string;
   vat_basis: string;
-  payment_term_days: number;
-  defects_liability_months: number;
+  payment_term_days: bigint;
+  defects_liability_months: bigint;
   recognition_policy: string;
   stamp_duty_percent: string;
   late_penalty_percent_per_period: string;
@@ -185,15 +187,15 @@ interface BoqRow {
   description_ar: string;
   description_en: string | null;
   unit: string;
-  qty: number;
-  unit_rate: number;
-  estimated_unit_cost: number | null;
+  qty: bigint;
+  unit_rate: bigint;
+  estimated_unit_cost: bigint | null;
   section: string | null;
-  sort_order: number;
+  sort_order: bigint;
   origin: string;
   variation_order_id: string | null;
   cost_category: string | null;
-  theoretical_qty_per_unit: number | null;
+  theoretical_qty_per_unit: bigint | null;
   theoretical_item_id: string | null;
 }
 
@@ -202,8 +204,8 @@ interface AdjustmentRow {
   contract_id: string;
   boq_line_id: string;
   variation_order_id: string;
-  qty_delta: number;
-  unit_rate_override: number | null;
+  qty_delta: bigint;
+  unit_rate_override: bigint | null;
   approved_at: string;
 }
 
@@ -228,9 +230,9 @@ interface VariationLineRow {
   kind: string;
   boq_line_id: string | null;
   new_line: string | null;
-  qty_delta: number | null;
-  unit_rate_override: number | null;
-  sort_order: number;
+  qty_delta: bigint | null;
+  unit_rate_override: bigint | null;
+  sort_order: bigint;
 }
 
 interface SerialisedBudgetRevision {
@@ -293,8 +295,8 @@ function toContract(row: ContractRow): WorksContract {
     socialInsuranceNote: row.social_insurance_note,
     withholdingTaxPercent: row.withholding_tax_percent,
     vatBasis: row.vat_basis as VatBasis,
-    paymentTermDays: row.payment_term_days,
-    defectsLiabilityMonths: row.defects_liability_months,
+    paymentTermDays: Number(row.payment_term_days),
+    defectsLiabilityMonths: Number(row.defects_liability_months),
     recognitionPolicy: row.recognition_policy as RecognitionPolicy,
     stampDutyPercent: row.stamp_duty_percent,
     latePenaltyPercentPerPeriod: row.late_penalty_percent_per_period,
@@ -318,7 +320,7 @@ function toBoqLine(row: BoqRow): BoqLine {
     unitRate: Money.fromScaled(row.unit_rate),
     estimatedUnitCost: row.estimated_unit_cost === null ? null : Money.fromScaled(row.estimated_unit_cost),
     section: row.section,
-    sortOrder: row.sort_order,
+    sortOrder: Number(row.sort_order),
     origin: row.origin === "variation" ? "variation" : "base",
     variationOrderId: row.variation_order_id,
     costCategory: (row.cost_category as CostCategory | null) ?? null,
@@ -371,53 +373,7 @@ function fromNewLine(spec: NewBoqLineSpec | null): string | null {
   return JSON.stringify(serialised);
 }
 
-class SqliteWorksContractStore implements WorksContractStore {
-  constructor(private readonly sqlite: Database.Database) {}
-
-  async findContractById(id: string): Promise<WorksContract | null> {
-    const row = this.sqlite.prepare(`SELECT * FROM works_contract WHERE id = ?`).get(id) as ContractRow | undefined;
-    return row ? toContract(row) : null;
-  }
-
-  async findContractByDocNo(docNo: string): Promise<WorksContract | null> {
-    const row = this.sqlite.prepare(`SELECT * FROM works_contract WHERE doc_no = ?`).get(docNo) as ContractRow | undefined;
-    return row ? toContract(row) : null;
-  }
-
-  async listContracts(filter?: WorksContractListFilter): Promise<WorksContract[]> {
-    const clauses: string[] = [];
-    const params: unknown[] = [];
-    if (filter?.projectId) {
-      clauses.push("project_id = ?");
-      params.push(filter.projectId);
-    }
-    if (filter?.status) {
-      clauses.push("status = ?");
-      params.push(filter.status);
-    }
-    const where = clauses.length > 0 ? ` WHERE ${clauses.join(" AND ")}` : "";
-    const rows = this.sqlite
-      .prepare(`SELECT * FROM works_contract${where} ORDER BY doc_no`)
-      .all(...params) as ContractRow[];
-    return rows.map(toContract);
-  }
-
-  async insertContract(contract: WorksContract): Promise<void> {
-    refusingTakenId(this.sqlite, "works_contract", contract.id);
-    return this.saveContract(contract);
-  }
-
-  async saveContract(contract: WorksContract): Promise<void> {
-    const revisions: SerialisedBudgetRevision[] = contract.budgetRevisions.map((r) => ({
-      date: r.date,
-      previousValue: r.previousValue?.toString() ?? null,
-      newValue: r.newValue?.toString() ?? null,
-      reason: r.reason,
-      userId: r.userId,
-    }));
-    this.sqlite
-      .prepare(
-        `INSERT INTO works_contract (
+const UPSERT_CONTRACT = `INSERT INTO works_contract (
            id, doc_no, project_id, customer_id, title_ar, title_en, contract_type, signed_date, start_date,
            planned_end_date, currency, status, activated_at, completed_at, terminated_at, notes,
            estimated_total_cost, budget_revisions, tender_discount_percent, retention_percent,
@@ -427,14 +383,14 @@ class SqliteWorksContractStore implements WorksContractStore {
            late_penalty_percent_per_period, late_penalty_cap_percent, final_security_percent,
            provisional_release_percent, provisional_handover_date, final_handover_date
          ) VALUES (
-           @id, @doc_no, @project_id, @customer_id, @title_ar, @title_en, @contract_type, @signed_date, @start_date,
-           @planned_end_date, @currency, @status, @activated_at, @completed_at, @terminated_at, @notes,
-           @estimated_total_cost, @budget_revisions, @tender_discount_percent, @retention_percent,
-           @retention_cap_percent, @advance_percent, @advance_recovery_percent, @materials_on_site_percent,
-           @deemed_wage_percent, @social_insurance_rate_percent, @social_insurance_note, @withholding_tax_percent,
-           @vat_basis, @payment_term_days, @defects_liability_months, @recognition_policy, @stamp_duty_percent,
-           @late_penalty_percent_per_period, @late_penalty_cap_percent, @final_security_percent,
-           @provisional_release_percent, @provisional_handover_date, @final_handover_date
+           ?, ?, ?, ?, ?, ?, ?, ?, ?,
+           ?, ?, ?, ?, ?, ?, ?,
+           ?, ?, ?, ?,
+           ?, ?, ?, ?,
+           ?, ?, ?, ?,
+           ?, ?, ?, ?, ?,
+           ?, ?, ?,
+           ?, ?, ?
          )
          ON CONFLICT(id) DO UPDATE SET
            project_id = excluded.project_id,
@@ -473,141 +429,80 @@ class SqliteWorksContractStore implements WorksContractStore {
            final_security_percent = excluded.final_security_percent,
            provisional_release_percent = excluded.provisional_release_percent,
            provisional_handover_date = excluded.provisional_handover_date,
-           final_handover_date = excluded.final_handover_date`,
-      )
-      .run({
-        id: contract.id,
-        doc_no: contract.docNo,
-        project_id: contract.projectId,
-        customer_id: contract.customerId,
-        title_ar: contract.titleAr,
-        title_en: contract.titleEn,
-        contract_type: contract.contractType,
-        signed_date: contract.signedDate,
-        start_date: contract.startDate,
-        planned_end_date: contract.plannedEndDate,
-        currency: contract.currency,
-        status: contract.status,
-        activated_at: contract.activatedAt,
-        completed_at: contract.completedAt,
-        terminated_at: contract.terminatedAt,
-        notes: contract.notes,
-        estimated_total_cost: contract.estimatedTotalCost?.toScaledNumber() ?? null,
-        budget_revisions: JSON.stringify(revisions),
-        tender_discount_percent: contract.tenderDiscountPercent,
-        retention_percent: contract.retentionPercent,
-        retention_cap_percent: contract.retentionCapPercent,
-        advance_percent: contract.advancePercent,
-        advance_recovery_percent: contract.advanceRecoveryPercent,
-        materials_on_site_percent: contract.materialsOnSitePercent,
-        deemed_wage_percent: contract.deemedWagePercent,
-        social_insurance_rate_percent: contract.socialInsuranceRatePercent,
-        social_insurance_note: contract.socialInsuranceNote,
-        withholding_tax_percent: contract.withholdingTaxPercent,
-        vat_basis: contract.vatBasis,
-        payment_term_days: contract.paymentTermDays,
-        defects_liability_months: contract.defectsLiabilityMonths,
-        recognition_policy: contract.recognitionPolicy,
-        stamp_duty_percent: contract.stampDutyPercent,
-        late_penalty_percent_per_period: contract.latePenaltyPercentPerPeriod,
-        late_penalty_cap_percent: contract.latePenaltyCapPercent,
-        final_security_percent: contract.finalSecurityPercent,
-        provisional_release_percent: contract.provisionalReleasePercent,
-        provisional_handover_date: contract.provisionalHandoverDate,
-        final_handover_date: contract.finalHandoverDate,
-      });
-  }
+           final_handover_date = excluded.final_handover_date`;
 
-  async listBoqLines(contractId: string): Promise<BoqLine[]> {
-    const rows = this.sqlite
-      .prepare(`SELECT * FROM contract_boq_line WHERE contract_id = ? ORDER BY sort_order`)
-      .all(contractId) as BoqRow[];
-    return rows.map(toBoqLine);
-  }
+function contractRowParams(contract: WorksContract): SqlValue[] {
+  const revisions: SerialisedBudgetRevision[] = contract.budgetRevisions.map((r) => ({
+    date: r.date,
+    previousValue: r.previousValue?.toString() ?? null,
+    newValue: r.newValue?.toString() ?? null,
+    reason: r.reason,
+    userId: r.userId,
+  }));
+  return [
+    contract.id,
+    contract.docNo,
+    contract.projectId,
+    contract.customerId,
+    contract.titleAr,
+    contract.titleEn,
+    contract.contractType,
+    contract.signedDate,
+    contract.startDate,
+    contract.plannedEndDate,
+    contract.currency,
+    contract.status,
+    contract.activatedAt,
+    contract.completedAt,
+    contract.terminatedAt,
+    contract.notes,
+    contract.estimatedTotalCost?.scaled ?? null,
+    JSON.stringify(revisions),
+    contract.tenderDiscountPercent,
+    contract.retentionPercent,
+    contract.retentionCapPercent,
+    contract.advancePercent,
+    contract.advanceRecoveryPercent,
+    contract.materialsOnSitePercent,
+    contract.deemedWagePercent,
+    contract.socialInsuranceRatePercent,
+    contract.socialInsuranceNote,
+    contract.withholdingTaxPercent,
+    contract.vatBasis,
+    contract.paymentTermDays,
+    contract.defectsLiabilityMonths,
+    contract.recognitionPolicy,
+    contract.stampDutyPercent,
+    contract.latePenaltyPercentPerPeriod,
+    contract.latePenaltyCapPercent,
+    contract.finalSecurityPercent,
+    contract.provisionalReleasePercent,
+    contract.provisionalHandoverDate,
+    contract.finalHandoverDate,
+  ];
+}
 
-  async replaceBoqLines(contractId: string, lines: readonly BoqLine[]): Promise<void> {
-    await this.transaction(async () => {
-      this.sqlite.prepare(`DELETE FROM contract_boq_line WHERE contract_id = ?`).run(contractId);
-      this.writeBoqLines(lines);
-    });
-  }
-
-  async addBoqLines(lines: readonly BoqLine[]): Promise<void> {
-    await this.transaction(async () => {
-      this.writeBoqLines(lines);
-    });
-  }
-
-  async listAdjustments(contractId: string): Promise<BoqLineAdjustment[]> {
-    const rows = this.sqlite
-      .prepare(`SELECT * FROM contract_boq_line_adjustment WHERE contract_id = ? ORDER BY approved_at, id`)
-      .all(contractId) as AdjustmentRow[];
-    return rows.map(toAdjustment);
-  }
-
-  async addAdjustments(adjustments: readonly BoqLineAdjustment[]): Promise<void> {
-    const stmt = this.sqlite.prepare(
-      `INSERT INTO contract_boq_line_adjustment (id, contract_id, boq_line_id, variation_order_id, qty_delta, unit_rate_override, approved_at)
-       VALUES (@id, @contract_id, @boq_line_id, @variation_order_id, @qty_delta, @unit_rate_override, @approved_at)
+const UPSERT_ADJUSTMENT = `INSERT INTO contract_boq_line_adjustment (id, contract_id, boq_line_id, variation_order_id, qty_delta, unit_rate_override, approved_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          qty_delta = excluded.qty_delta,
          unit_rate_override = excluded.unit_rate_override,
-         approved_at = excluded.approved_at`,
-    );
-    await this.transaction(async () => {
-      for (const a of adjustments) {
-        stmt.run({
-          id: a.id,
-          contract_id: a.contractId,
-          boq_line_id: a.boqLineId,
-          variation_order_id: a.variationOrderId,
-          qty_delta: a.qtyDelta.toScaledNumber(),
-          unit_rate_override: a.unitRateOverride?.toScaledNumber() ?? null,
-          approved_at: a.approvedAt,
-        });
-      }
-    });
-  }
+         approved_at = excluded.approved_at`;
 
-  async listVariationOrders(filter?: VariationOrderListFilter): Promise<VariationOrder[]> {
-    const clauses: string[] = [];
-    const params: unknown[] = [];
-    if (filter?.contractId) {
-      clauses.push("contract_id = ?");
-      params.push(filter.contractId);
-    }
-    if (filter?.status) {
-      clauses.push("status = ?");
-      params.push(filter.status);
-    }
-    const where = clauses.length > 0 ? ` WHERE ${clauses.join(" AND ")}` : "";
-    const rows = this.sqlite
-      .prepare(`SELECT * FROM contract_variation_order${where} ORDER BY doc_no`)
-      .all(...params) as VariationRow[];
-    return rows.map((row) => this.hydrateVariation(row));
-  }
+function adjustmentParams(a: BoqLineAdjustment): SqlValue[] {
+  return [
+    a.id,
+    a.contractId,
+    a.boqLineId,
+    a.variationOrderId,
+    a.qtyDelta.scaled,
+    a.unitRateOverride?.scaled ?? null,
+    a.approvedAt,
+  ];
+}
 
-  async findVariationOrderById(id: string): Promise<VariationOrder | null> {
-    const row = this.sqlite.prepare(`SELECT * FROM contract_variation_order WHERE id = ?`).get(id) as VariationRow | undefined;
-    return row ? this.hydrateVariation(row) : null;
-  }
-
-  async findVariationOrderByDocNo(docNo: string): Promise<VariationOrder | null> {
-    const row = this.sqlite.prepare(`SELECT * FROM contract_variation_order WHERE doc_no = ?`).get(docNo) as VariationRow | undefined;
-    return row ? this.hydrateVariation(row) : null;
-  }
-
-  async insertVariationOrder(order: VariationOrder): Promise<void> {
-    refusingTakenId(this.sqlite, "contract_variation_order", order.id);
-    return this.saveVariationOrder(order);
-  }
-
-  async saveVariationOrder(order: VariationOrder): Promise<void> {
-    await this.transaction(async () => {
-      this.sqlite
-        .prepare(
-          `INSERT INTO contract_variation_order (id, doc_no, contract_id, date, title_ar, reason, requested_by, status, approved_at, approved_by, rejected_reason, created_by)
-           VALUES (@id, @doc_no, @contract_id, @date, @title_ar, @reason, @requested_by, @status, @approved_at, @approved_by, @rejected_reason, @created_by)
+const UPSERT_VARIATION = `INSERT INTO contract_variation_order (id, doc_no, contract_id, date, title_ar, reason, requested_by, status, approved_at, approved_by, rejected_reason, created_by)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(id) DO UPDATE SET
              date = excluded.date,
              title_ar = excluded.title_ar,
@@ -616,50 +511,43 @@ class SqliteWorksContractStore implements WorksContractStore {
              status = excluded.status,
              approved_at = excluded.approved_at,
              approved_by = excluded.approved_by,
-             rejected_reason = excluded.rejected_reason`,
-        )
-        .run({
-          id: order.id,
-          doc_no: order.docNo,
-          contract_id: order.contractId,
-          date: order.date,
-          title_ar: order.titleAr,
-          reason: order.reason,
-          requested_by: order.requestedBy,
-          status: order.status,
-          approved_at: order.approvedAt,
-          approved_by: order.approvedBy,
-          rejected_reason: order.rejectedReason,
-          created_by: order.createdBy,
-        });
-      this.sqlite.prepare(`DELETE FROM contract_variation_order_line WHERE variation_order_id = ?`).run(order.id);
-      const stmt = this.sqlite.prepare(
-        `INSERT INTO contract_variation_order_line (id, variation_order_id, kind, boq_line_id, new_line, qty_delta, unit_rate_override, sort_order)
-         VALUES (@id, @variation_order_id, @kind, @boq_line_id, @new_line, @qty_delta, @unit_rate_override, @sort_order)`,
-      );
-      for (const line of order.lines) {
-        stmt.run({
-          id: line.id,
-          variation_order_id: order.id,
-          kind: line.kind,
-          boq_line_id: line.boqLineId,
-          new_line: fromNewLine(line.newLine),
-          qty_delta: line.qtyDelta?.toScaledNumber() ?? null,
-          unit_rate_override: line.unitRateOverride?.toScaledNumber() ?? null,
-          sort_order: line.sortOrder,
-        });
-      }
-    });
-  }
+             rejected_reason = excluded.rejected_reason`;
 
-  async transaction<T>(fn: () => Promise<T>): Promise<T> {
-    return withSqliteTransaction(this.sqlite, fn, "BEGIN IMMEDIATE");
-  }
+function variationParams(order: VariationOrder): SqlValue[] {
+  return [
+    order.id,
+    order.docNo,
+    order.contractId,
+    order.date,
+    order.titleAr,
+    order.reason,
+    order.requestedBy,
+    order.status,
+    order.approvedAt,
+    order.approvedBy,
+    order.rejectedReason,
+    order.createdBy,
+  ];
+}
 
-  private writeBoqLines(lines: readonly BoqLine[]): void {
-    const stmt = this.sqlite.prepare(
-      `INSERT INTO contract_boq_line (id, contract_id, code, description_ar, description_en, unit, qty, unit_rate, estimated_unit_cost, section, sort_order, origin, variation_order_id, cost_category, theoretical_qty_per_unit, theoretical_item_id)
-       VALUES (@id, @contract_id, @code, @description_ar, @description_en, @unit, @qty, @unit_rate, @estimated_unit_cost, @section, @sort_order, @origin, @variation_order_id, @cost_category, @theoretical_qty_per_unit, @theoretical_item_id)
+const INSERT_VARIATION_LINE = `INSERT INTO contract_variation_order_line (id, variation_order_id, kind, boq_line_id, new_line, qty_delta, unit_rate_override, sort_order)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
+
+function variationLineParams(orderId: string, line: VariationOrderLine): SqlValue[] {
+  return [
+    line.id,
+    orderId,
+    line.kind,
+    line.boqLineId,
+    fromNewLine(line.newLine),
+    line.qtyDelta?.scaled ?? null,
+    line.unitRateOverride?.scaled ?? null,
+    line.sortOrder,
+  ];
+}
+
+const UPSERT_BOQ_LINE = `INSERT INTO contract_boq_line (id, contract_id, code, description_ar, description_en, unit, qty, unit_rate, estimated_unit_cost, section, sort_order, origin, variation_order_id, cost_category, theoretical_qty_per_unit, theoretical_item_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          code = excluded.code,
          description_ar = excluded.description_ar,
@@ -674,60 +562,198 @@ class SqliteWorksContractStore implements WorksContractStore {
          variation_order_id = excluded.variation_order_id,
          cost_category = excluded.cost_category,
          theoretical_qty_per_unit = excluded.theoretical_qty_per_unit,
-         theoretical_item_id = excluded.theoretical_item_id`,
-    );
-    for (const line of lines) {
-      stmt.run({
-        id: line.id,
-        contract_id: line.contractId,
-        code: line.code,
-        description_ar: line.descriptionAr,
-        description_en: line.descriptionEn,
-        unit: line.unit,
-        qty: line.qty.toScaledNumber(),
-        unit_rate: line.unitRate.toScaledNumber(),
-        estimated_unit_cost: line.estimatedUnitCost?.toScaledNumber() ?? null,
-        section: line.section,
-        sort_order: line.sortOrder,
-        origin: line.origin,
-        variation_order_id: line.variationOrderId,
-        cost_category: line.costCategory,
-        theoretical_qty_per_unit: line.theoreticalQtyPerUnit?.toScaledNumber() ?? null,
-        theoretical_item_id: line.theoreticalItemId,
-      });
-    }
+         theoretical_item_id = excluded.theoretical_item_id`;
+
+function boqLineParams(line: BoqLine): SqlValue[] {
+  return [
+    line.id,
+    line.contractId,
+    line.code,
+    line.descriptionAr,
+    line.descriptionEn,
+    line.unit,
+    line.qty.scaled,
+    line.unitRate.scaled,
+    line.estimatedUnitCost?.scaled ?? null,
+    line.section,
+    line.sortOrder,
+    line.origin,
+    line.variationOrderId,
+    line.costCategory,
+    line.theoreticalQtyPerUnit?.scaled ?? null,
+    line.theoreticalItemId,
+  ];
+}
+
+class SqlWorksContractStore implements WorksContractStore {
+  constructor(private readonly db: SqlDb) {}
+
+  async findContractById(id: string): Promise<WorksContract | null> {
+    const row = await this.db.get<ContractRow>(`SELECT * FROM works_contract WHERE id = ?`, [id]);
+    return row ? toContract(row) : null;
   }
 
-  private hydrateVariation(row: VariationRow): VariationOrder {
-    const lineRows = this.sqlite
-      .prepare(`SELECT * FROM contract_variation_order_line WHERE variation_order_id = ? ORDER BY sort_order`)
-      .all(row.id) as VariationLineRow[];
-    const lines: VariationOrderLine[] = lineRows.map((l) => ({
-      id: l.id,
-      variationOrderId: l.variation_order_id,
-      kind: l.kind as VariationLineKind,
-      boqLineId: l.boq_line_id,
-      newLine: toNewLine(l.new_line),
-      qtyDelta: l.qty_delta === null ? null : Qty.fromScaled(l.qty_delta),
-      unitRateOverride: l.unit_rate_override === null ? null : Money.fromScaled(l.unit_rate_override),
-      sortOrder: l.sort_order,
-    }));
-    return {
-      id: row.id,
-      docNo: row.doc_no,
-      contractId: row.contract_id,
-      date: row.date,
-      titleAr: row.title_ar,
-      reason: row.reason,
-      requestedBy: row.requested_by,
-      status: row.status as VariationOrderStatus,
-      approvedAt: row.approved_at,
-      approvedBy: row.approved_by,
-      rejectedReason: row.rejected_reason,
-      createdBy: row.created_by,
-      lines,
-    };
+  async findContractByDocNo(docNo: string): Promise<WorksContract | null> {
+    const row = await this.db.get<ContractRow>(`SELECT * FROM works_contract WHERE doc_no = ?`, [docNo]);
+    return row ? toContract(row) : null;
   }
+
+  async listContracts(filter?: WorksContractListFilter): Promise<WorksContract[]> {
+    const clauses: string[] = [];
+    const params: SqlValue[] = [];
+    if (filter?.projectId) {
+      clauses.push("project_id = ?");
+      params.push(filter.projectId);
+    }
+    if (filter?.status) {
+      clauses.push("status = ?");
+      params.push(filter.status);
+    }
+    const where = clauses.length > 0 ? ` WHERE ${clauses.join(" AND ")}` : "";
+    const rows = await this.db.all<ContractRow>(`SELECT * FROM works_contract${where} ORDER BY doc_no`, params);
+    return rows.map(toContract);
+  }
+
+  async insertContract(contract: WorksContract): Promise<void> {
+    await insertNew(this.db, contract.id, UPSERT_CONTRACT, contractRowParams(contract));
+  }
+
+  async saveContract(contract: WorksContract): Promise<void> {
+    await this.db.run(UPSERT_CONTRACT, contractRowParams(contract));
+  }
+
+  async listBoqLines(contractId: string): Promise<BoqLine[]> {
+    const rows = await this.db.all<BoqRow>(`SELECT * FROM contract_boq_line WHERE contract_id = ? ORDER BY sort_order`, [contractId]);
+    return rows.map(toBoqLine);
+  }
+
+  async replaceBoqLines(contractId: string, lines: readonly BoqLine[]): Promise<void> {
+    await this.transaction(async () => {
+      await this.db.run(`DELETE FROM contract_boq_line WHERE contract_id = ?`, [contractId]);
+      await this.writeBoqLines(lines);
+    });
+  }
+
+  async addBoqLines(lines: readonly BoqLine[]): Promise<void> {
+    await this.transaction(async () => {
+      await this.writeBoqLines(lines);
+    });
+  }
+
+  async listAdjustments(contractId: string): Promise<BoqLineAdjustment[]> {
+    const rows = await this.db.all<AdjustmentRow>(
+      `SELECT * FROM contract_boq_line_adjustment WHERE contract_id = ? ORDER BY approved_at, id`,
+      [contractId],
+    );
+    return rows.map(toAdjustment);
+  }
+
+  async addAdjustments(adjustments: readonly BoqLineAdjustment[]): Promise<void> {
+    await this.transaction(async () => {
+      for (const a of adjustments) await this.db.run(UPSERT_ADJUSTMENT, adjustmentParams(a));
+    });
+  }
+
+  async listVariationOrders(filter?: VariationOrderListFilter): Promise<VariationOrder[]> {
+    const clauses: string[] = [];
+    const params: SqlValue[] = [];
+    if (filter?.contractId) {
+      clauses.push("contract_id = ?");
+      params.push(filter.contractId);
+    }
+    if (filter?.status) {
+      clauses.push("status = ?");
+      params.push(filter.status);
+    }
+    const where = clauses.length > 0 ? ` WHERE ${clauses.join(" AND ")}` : "";
+    const rows = await this.db.all<VariationRow>(`SELECT * FROM contract_variation_order${where} ORDER BY doc_no`, params);
+    const linesByOrder = await childRowsByParentAsync<VariationLineRow>(this.db, {
+      table: "contract_variation_order_line",
+      parentColumn: "variation_order_id",
+      parentIds: rows.map((row) => row.id),
+      orderBy: "variation_order_id, sort_order",
+    });
+    return rows.map((row) => toVariation(row, linesByOrder.get(row.id) ?? []));
+  }
+
+  async findVariationOrderById(id: string): Promise<VariationOrder | null> {
+    const row = await this.db.get<VariationRow>(`SELECT * FROM contract_variation_order WHERE id = ?`, [id]);
+    return row ? this.hydrateVariation(row) : null;
+  }
+
+  async findVariationOrderByDocNo(docNo: string): Promise<VariationOrder | null> {
+    const row = await this.db.get<VariationRow>(`SELECT * FROM contract_variation_order WHERE doc_no = ?`, [docNo]);
+    return row ? this.hydrateVariation(row) : null;
+  }
+
+  async insertVariationOrder(order: VariationOrder): Promise<void> {
+    await this.transaction(async () => {
+      await refuseTakenIdAsync(this.db, "contract_variation_order", order.id);
+      await this.writeVariationOrder(order);
+    });
+  }
+
+  async saveVariationOrder(order: VariationOrder): Promise<void> {
+    await this.transaction(() => this.writeVariationOrder(order));
+  }
+
+  async transaction<T>(fn: () => Promise<T>): Promise<T> {
+    return this.db.transaction(fn, TransactionMode.Immediate);
+  }
+
+  private async writeVariationOrder(order: VariationOrder): Promise<void> {
+    await this.db.run(UPSERT_VARIATION, variationParams(order));
+    await this.db.run(`DELETE FROM contract_variation_order_line WHERE variation_order_id = ?`, [order.id]);
+    for (const line of order.lines) await this.db.run(INSERT_VARIATION_LINE, variationLineParams(order.id, line));
+  }
+
+  private async writeBoqLines(lines: readonly BoqLine[]): Promise<void> {
+    for (const line of lines) await this.db.run(UPSERT_BOQ_LINE, boqLineParams(line));
+  }
+
+  private async hydrateVariation(row: VariationRow): Promise<VariationOrder> {
+    const lineRows = await this.db.all<VariationLineRow>(
+      `SELECT * FROM contract_variation_order_line WHERE variation_order_id = ? ORDER BY sort_order`,
+      [row.id],
+    );
+    return toVariation(row, lineRows);
+  }
+}
+
+function toVariation(row: VariationRow, lineRows: readonly VariationLineRow[]): VariationOrder {
+  const lines: VariationOrderLine[] = lineRows.map((l) => ({
+    id: l.id,
+    variationOrderId: l.variation_order_id,
+    kind: l.kind as VariationLineKind,
+    boqLineId: l.boq_line_id,
+    newLine: toNewLine(l.new_line),
+    qtyDelta: l.qty_delta === null ? null : Qty.fromScaled(l.qty_delta),
+    unitRateOverride: l.unit_rate_override === null ? null : Money.fromScaled(l.unit_rate_override),
+    sortOrder: Number(l.sort_order),
+  }));
+  return {
+    id: row.id,
+    docNo: row.doc_no,
+    contractId: row.contract_id,
+    date: row.date,
+    titleAr: row.title_ar,
+    reason: row.reason,
+    requestedBy: row.requested_by,
+    status: row.status as VariationOrderStatus,
+    approvedAt: row.approved_at,
+    approvedBy: row.approved_by,
+    rejectedReason: row.rejected_reason,
+    createdBy: row.created_by,
+    lines,
+  };
+}
+
+export async function ensureWorksContractSchema(db: SqlDb): Promise<void> {
+  await db.applySchema(CREATE_TABLES);
+}
+
+export function createWorksContractStore(db: SqlDb): WorksContractStore {
+  return new SqlWorksContractStore(db);
 }
 
 export interface SqliteWorksContractStoreHandle extends WorksContractStore {
@@ -740,8 +766,7 @@ export function createSqliteWorksContractStore(
 ): SqliteWorksContractStoreHandle {
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.exec(CREATE_TABLES);
-  const store = new SqliteWorksContractStore(sqlite);
-  return Object.assign(store, {
+  return Object.assign(createWorksContractStore(sqliteDb(sqlite)), {
     close: () => {
       if (owned) sqlite.close();
     },

@@ -70,6 +70,26 @@ export interface CloudEnv {
   readonly alertEmail?: string;
   // SECURITY: 64 hex characters; seals stored webhook and SMTP secrets. Unset, a key file is generated in the platform dir.
   readonly secretsKey?: string;
+  // Set: the platform and every tenant live in Postgres. Unset: SQLite files under `platformDir`.
+  readonly postgres?: PostgresEnv;
+}
+
+export interface PostgresEnv {
+  readonly url: string;
+  readonly tenantDbSecret: string;
+  readonly auditChainKey: string;
+}
+
+function parsePostgres(env: Record<string, string | undefined>): PostgresEnv | undefined {
+  const url = trimmedOrUndefined(env["MEZAN_DATABASE_URL"]);
+  if (!url) return undefined;
+  const tenantDbSecret = trimmedOrUndefined(env["MEZAN_TENANT_DB_SECRET"]);
+  if (!tenantDbSecret) throw new Error("MEZAN_DATABASE_URL is set without MEZAN_TENANT_DB_SECRET (64 lower-case hex; openssl rand -hex 32)");
+  const auditChainKey = trimmedOrUndefined(env["MEZAN_AUDIT_CHAIN_KEY"]);
+  if (!auditChainKey) {
+    throw new Error("MEZAN_DATABASE_URL is set without MEZAN_AUDIT_CHAIN_KEY: on Postgres there is no file beside the database to mint it in (64 lower-case hex; openssl rand -hex 32)");
+  }
+  return { url, tenantDbSecret, auditChainKey };
 }
 
 export interface ParseEnvOptions {
@@ -372,6 +392,7 @@ export function parseEnv(env: Record<string, string | undefined> = process.env, 
     reviewTenant: parseReviewTenant(env),
     alertEmail: parseAlertEmail(env["MEZAN_ALERT_EMAIL"]),
     secretsKey: trimmedOrUndefined(env["MEZAN_SECRETS_KEY"]),
+    postgres: parsePostgres(env),
   });
 }
 

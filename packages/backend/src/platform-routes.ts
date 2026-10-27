@@ -345,7 +345,7 @@ export interface CreatePlatformRoutesOptions {
   readonly reconcileOwner?: (tenant: Tenant) => Promise<void>;
   // CONTRACT: only tenants whose backend is already open. The list must not open every tenant's database to draw itself.
   readonly reconcileOpenOwners?: () => Promise<void>;
-  readonly operations?: () => PlatformOperationsDTO;
+  readonly operations?: () => Promise<PlatformOperationsDTO>;
   readonly invalidateEntitlements: (code: string) => void;
   readonly envSettings?: PlatformEnvSettingsPort;
   readonly idOf?: () => string;
@@ -1790,9 +1790,9 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
     }
   });
 
-  app.get("/operations", requireOwner, (c) => {
+  app.get("/operations", requireOwner, async (c) => {
     if (!options.operations) return c.json({ error: "OPERATIONS_UNAVAILABLE", message: "حالة التشغيل غير متاحة على هذا الخادم.", messageEn: "Operations status is not available on this server." }, 404);
-    return c.json(options.operations());
+    return c.json(await options.operations());
   });
 
   app.get("/security/unrecorded", requireOwner, (c) => {

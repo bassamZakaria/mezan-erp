@@ -1,7 +1,7 @@
 import { OwnerPinResetOutcome, TenantOwnerAccountNotFoundError, type OwnerPinResetAccount, type PlatformHandle } from "@mezan/backend";
 import type { OwnerPinResetResultDTO } from "@mezan/contracts";
 import { TenantNotFoundError, type Tenant } from "@mezan/domain";
-import { withSqliteTransaction } from "@mezan/persistence";
+import { TransactionMode } from "@mezan/persistence";
 import { generateOwnerPin, platformActor } from "./provision-tenant.js";
 import type { TenantRouter } from "./tenant-router.js";
 
@@ -28,14 +28,13 @@ export async function resetTenantOwnerPin(
   // REQUIRED ORDERING: the fence and the platform audit row of the intent are
   // one write, made before the PIN moves. An audit that cannot record leaves
   // the PIN as it was.
-  const fence = await withSqliteTransaction(
-    deps.platform.stores.sqlite,
+  const fence = await deps.platform.stores.db.transaction(
     async () => {
       const taken = await deps.platform.stores.signupRequests.takeProvisionFence((deps.now ?? (() => new Date()))().toISOString());
       await input.recordIntent?.({ userId: account.id, signInEmail: account.email, adminEmail: tenant.ownerEmail });
       return taken;
     },
-    "BEGIN IMMEDIATE",
+    TransactionMode.Immediate,
   );
   const outcome = await deps.platform.outsideTheTurn(() =>
     backend.resetOwnerPin({

@@ -5,7 +5,7 @@ import { createLogger, type JobTracker } from "@mezan/api";
 import { PlatformAuditUnavailableError, type PlatformHandle, type PlatformTenantRetentionPort } from "@mezan/backend";
 import type { TenantPurgeResultDTO, TenantRetentionDTO } from "@mezan/contracts";
 import { AuditSeverityCode, recordSecurityEvent, TenantStatusCode, type Tenant } from "@mezan/domain";
-import { createTenantRetentionStore, withSqliteTransaction, type TenantRetentionStore } from "@mezan/persistence";
+import { createTenantRetentionStoreOn, TransactionMode, type TenantRetentionStore } from "@mezan/persistence";
 import { legacyBackupsOf, tenantBackupFolder } from "./backup-scheduler.js";
 import { platformActor } from "./provision-tenant.js";
 import { tenantDbPath, type TenantRouter } from "./tenant-router.js";
@@ -49,6 +49,8 @@ export interface TenantPurgeDeps {
   readonly discardExports: (tenantId: string) => void;
   readonly now: () => Date;
   readonly store?: TenantRetentionStore;
+  // Postgres: drops the tenant's schema and role, and names what it dropped.
+  readonly dropDatabase?: (tenant: Tenant) => Promise<string>;
 }
 
 export interface TenantPurgeService extends PlatformTenantRetentionPort {
@@ -100,7 +102,7 @@ const addDays = (iso: string, days: number): string => new Date(Date.parse(iso) 
 
 export function createTenantPurge(deps: TenantPurgeDeps): TenantPurgeService {
   const { platform, dataDir } = deps;
-  const store = deps.store ?? createTenantRetentionStore(platform.stores.sqlite);
+  const store = deps.store ?? createTenantRetentionStoreOn(platform.stores.db);
   const nowIso = () => deps.now().toISOString();
 
   const view = async (tenant: Tenant): Promise<TenantRetentionDTO> => {
@@ -126,16 +128,18 @@ export function createTenantPurge(deps: TenantPurgeDeps): TenantPurgeService {
     const planned = filesOf(tenant);
     purgeLog.warn({ event: TenantPurgeLogEvent.Planned, tenantId: tenant.id, code: tenant.code, trigger: by.trigger, files: planned }, `tenant "${tenant.code}" is about to be deleted`);
     const removed: string[] = [];
+    const dropped: string[] = [];
     await platform.outsideTheTurn(async () => {
       await deps.router.evict(tenant.id);
       deps.discardExports(tenant.id);
+      if (deps.dropDatabase) dropped.push(await deps.dropDatabase(tenant));
       for (const target of planned) await shredTree(target, removed);
     });
+    const removedNames = [...dropped, ...removed.map((file) => path.relative(dataDir, file))];
     const deletedAt = nowIso();
     // REQUIRED ORDERING: files first, rows last. A crash between them leaves the row, and the next pass finishes
     // the job; the other way round would orphan files nothing ever looks for again.
-    await withSqliteTransaction(
-      platform.stores.sqlite,
+    await platform.stores.db.transaction(
       async () => {
         await store.removeTenantRows(tenant, deletedAt);
         await recordSecurityEvent(platform.audit, {
@@ -146,16 +150,16 @@ export function createTenantPurge(deps: TenantPurgeDeps): TenantPurgeService {
           actor: by.actor,
           severity: AuditSeverityCode.Critical,
           timestamp: deletedAt,
-          details: { code: tenant.code, trigger: by.trigger, reason: by.reason, removed: removed.map((file) => path.relative(dataDir, file)), keptOffServer: ["restic snapshots", "off-server audit anchors"] },
+          details: { code: tenant.code, trigger: by.trigger, reason: by.reason, removed: removedNames, keptOffServer: ["restic snapshots", "off-server audit anchors"] },
         }).catch((cause: unknown) => {
           throw new PlatformAuditUnavailableError(cause);
         });
       },
-      "BEGIN IMMEDIATE",
+      TransactionMode.Immediate,
     );
     deps.router.invalidate(tenant.code);
-    purgeLog.warn({ event: TenantPurgeLogEvent.Purged, tenantId: tenant.id, code: tenant.code, trigger: by.trigger, removed: removed.length }, `tenant "${tenant.code}" was deleted`);
-    return { tenantId: tenant.id, code: tenant.code, deletedAt, removed: removed.map((file) => path.relative(dataDir, file)) };
+    purgeLog.warn({ event: TenantPurgeLogEvent.Purged, tenantId: tenant.id, code: tenant.code, trigger: by.trigger, removed: removedNames.length }, `tenant "${tenant.code}" was deleted`);
+    return { tenantId: tenant.id, code: tenant.code, deletedAt, removed: removedNames };
   }
 
   return {

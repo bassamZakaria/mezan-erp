@@ -1,8 +1,14 @@
 import pg from "pg";
 import type { SqlDb } from "@mezan/persistence";
-import { assertSchemaName, createTenantPool, deriveRolePassword, postgresDb, provisionTenantSchema } from "./postgres-db.js";
+import { assertCollation, assertSchemaName, createTenantPool, deriveRolePassword, PLATFORM_SCHEMA, postgresDb, provisionTenantSchema } from "./postgres-db.js";
 
 const SECRET_RE = /^[0-9a-f]{64}$/;
+
+export class PlatformSchemaDropRefusedError extends Error {
+  constructor() {
+    super(`The "${PLATFORM_SCHEMA}" schema is never dropped.`);
+  }
+}
 
 export class InvalidTenantDbSecretError extends Error {
   constructor() {
@@ -33,6 +39,10 @@ export class TenantDatabases {
     this.admin = new pg.Pool({ connectionString: options.connectionString, max: 2 });
   }
 
+  assertCollation(): Promise<void> {
+    return assertCollation(this.admin);
+  }
+
   async provision(schema: string): Promise<void> {
     await provisionTenantSchema(this.admin, schema, deriveRolePassword(this.options.secret, schema));
   }
@@ -53,11 +63,30 @@ export class TenantDatabases {
     return entry;
   }
 
+  // REQUIRED ORDERING: detach before the pool's user closes, then end the pool.
+  // The next `get` of the schema opens a fresh pool instead of one about to end.
+  detach(entry: SchemaDatabase): void {
+    if (this.open.get(entry.schema) === entry) this.open.delete(entry.schema);
+  }
+
   async release(schema: string): Promise<void> {
     const entry = this.open.get(schema);
     if (!entry) return;
     this.open.delete(schema);
     await entry.pool.end();
+  }
+
+  // Run as the database owner. The role carries the schema's name; a role
+  // already gone means an earlier drop got that far, so a repeat finishes it.
+  async drop(schema: string): Promise<void> {
+    assertSchemaName(schema);
+    if (schema === PLATFORM_SCHEMA) throw new PlatformSchemaDropRefusedError();
+    await this.release(schema);
+    const name = pg.escapeIdentifier(schema);
+    const { rows } = await this.admin.query<{ exists: boolean }>("SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = $1) AS exists", [schema]);
+    if (rows[0]?.exists) await this.admin.query(`DROP OWNED BY ${name} CASCADE`);
+    await this.admin.query(`DROP SCHEMA IF EXISTS ${name} CASCADE`);
+    await this.admin.query(`DROP ROLE IF EXISTS ${name}`);
   }
 
   async close(): Promise<void> {

@@ -254,6 +254,9 @@ importers:
       '@mezan/persistence':
         specifier: workspace:*
         version: link:../../packages/persistence
+      '@mezan/persistence-postgres':
+        specifier: workspace:*
+        version: link:../../packages/persistence-postgres
       hono:
         specifier: ^4.13.7
         version: 4.13.13

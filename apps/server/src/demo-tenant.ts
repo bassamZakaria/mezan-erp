@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
-import { createTenant, activateTenant, startModuleTrial, startSubscription } from "@mezan/domain";
+import { createTenant, activateTenant, startModuleTrial, startSubscription, tenantSchema } from "@mezan/domain";
 import { SmtpDestinationPolicy } from "@mezan/api";
 import { createBackend, SEED_ADMIN_PIN, type BackendHandle, type PlatformHandle } from "@mezan/backend";
 import { createTenantResolvers } from "./tenant-entitlements.js";
@@ -116,14 +116,21 @@ export async function provisionSeededTenant(deps: ProvisionDemoTenantDeps, spec:
   const activated = await activateTenant({ id: tenant.id, now: nowIso }, deps.platform.stores.tenants);
   await spec.beforeSeed?.(tenant.id);
 
-  const dbPath = tenantDbPath(deps.env.platformDir, activated.dbFile);
-  mkdirSync(path.dirname(dbPath), { recursive: true });
   const resolvers = createTenantResolvers(deps.platform, spec.code, { now });
+  const postgres = deps.router.postgres;
+  let storage;
+  if (postgres) {
+    const schema = tenantSchema(activated.id);
+    await postgres.databases.provision(schema);
+    storage = { db: postgres.databases.get(schema).db, auditChainKey: postgres.auditChainKey };
+  } else {
+    const dbPath = tenantDbPath(deps.env.platformDir, activated.dbFile);
+    mkdirSync(path.dirname(dbPath), { recursive: true });
+    storage = { dbPath, connection: { exclusive: deps.env.sqliteExclusive }, tenantBinding: activated.id };
+  }
   const backend = await createBackend({
-    dbPath,
+    ...storage,
     scheduledJobs: false,
-    connection: { exclusive: deps.env.sqliteExclusive },
-    tenantBinding: activated.id,
     tenantMailDestinations: SmtpDestinationPolicy.PublicOnly,
     seedDemoData: true,
     seedAdminPin: spec.adminPin,

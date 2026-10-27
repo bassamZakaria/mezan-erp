@@ -19,7 +19,7 @@ import {
   type SessionRegistry,
   tooManyAttempts,
 } from "@mezan/api";
-import { createSqliteAttemptStore, SignInAttemptScope } from "@mezan/persistence";
+import { createAttemptStore, SignInAttemptScope } from "@mezan/persistence";
 import type { PlatformHandle } from "./create-platform.js";
 
 declare module "hono" {
@@ -68,7 +68,7 @@ function lockedOut(c: Context, seconds: number) {
 
 export function createPlatformAuth(deps: PlatformAuthDeps): PlatformAuth {
   const { platform, sessions, now } = deps;
-  const throttle = deps.loginThrottle ?? createLoginThrottle(() => now().getTime(), createSqliteAttemptStore(platform.stores.sqlite, SignInAttemptScope.Ladder));
+  const throttle = deps.loginThrottle ?? createLoginThrottle(() => now().getTime(), createAttemptStore(platform.stores.db, SignInAttemptScope.Ladder));
   const sourceOf = deps.sourceOf ?? requestOrigin;
 
   function security(c: Context, action: string, severity: "CRITICAL" | "WARNING" | "INFO", details: Record<string, unknown>) {

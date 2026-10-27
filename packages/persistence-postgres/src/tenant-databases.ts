@@ -1,7 +1,7 @@
 import { createHmac } from "node:crypto";
 import pg from "pg";
 import type { SqlDb } from "@mezan/persistence";
-import { assertCollation, assertSchemaName, CONNECT_TIMEOUT_MS, createTenantPool, deriveRolePassword, PLATFORM_SCHEMA, postgresDb, provisionTenantSchema } from "./postgres-db.js";
+import { assertCollation, assertSchemaName, CONNECT_TIMEOUT_MS, createTenantPool, dropTenantSchema, deriveRolePassword, PLATFORM_SCHEMA, postgresDb, provisionTenantSchema } from "./postgres-db.js";
 
 const SECRET_RE = /^[0-9a-f]{64}$/;
 
@@ -97,17 +97,11 @@ export class TenantDatabases {
     await entry.pool.end();
   }
 
-  // Run as the database owner. The role carries the schema's name; a role
-  // already gone means an earlier drop got that far, so a repeat finishes it.
   async drop(schema: string): Promise<void> {
     assertSchemaName(schema);
     if (schema === PLATFORM_SCHEMA) throw new PlatformSchemaDropRefusedError();
     await this.release(schema);
-    const name = pg.escapeIdentifier(schema);
-    const { rows } = await this.admin.query<{ exists: boolean }>("SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = $1) AS exists", [schema]);
-    if (rows[0]?.exists) await this.admin.query(`DROP OWNED BY ${name} CASCADE`);
-    await this.admin.query(`DROP SCHEMA IF EXISTS ${name} CASCADE`);
-    await this.admin.query(`DROP ROLE IF EXISTS ${name}`);
+    await dropTenantSchema(this.admin, schema);
   }
 
   async close(): Promise<void> {

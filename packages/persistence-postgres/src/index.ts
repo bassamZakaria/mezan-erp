@@ -4,6 +4,7 @@ export {
   ConnectionOptionsInUrlError,
   createTenantPool,
   deriveRolePassword,
+  dropTenantSchema,
   PLATFORM_SCHEMA,
   InvalidSchemaNameError,
   postgresDb,

@@ -124,11 +124,17 @@ export async function assertCollation(admin: pg.Pool | pg.Client): Promise<void>
 }
 
 const INSUFFICIENT_PRIVILEGE = "42501";
+const PROVISION_LOCK_CLASS = 7302;
 
-async function ownerOnly(statement: Promise<unknown>): Promise<void> {
-  await statement.catch((error: { code?: string }) => {
-    if (error.code !== INSUFFICIENT_PRIVILEGE) throw error;
-  });
+async function ownerOnly(client: pg.Pool | pg.Client | pg.PoolClient, statement: string): Promise<void> {
+  await client.query("SAVEPOINT owner_only");
+  try {
+    await client.query(statement);
+    await client.query("RELEASE SAVEPOINT owner_only");
+  } catch (error) {
+    await client.query("ROLLBACK TO SAVEPOINT owner_only");
+    if ((error as { code?: string }).code !== INSUFFICIENT_PRIVILEGE) throw error;
+  }
 }
 
 // Run as the database owner; safe to repeat. The role is the schema's only
@@ -137,20 +143,54 @@ async function ownerOnly(statement: Promise<unknown>): Promise<void> {
 export async function provisionTenantSchema(admin: pg.Pool | pg.Client, schema: string, password: string): Promise<void> {
   assertSchemaName(schema);
   await assertCollation(admin);
-  const { rows } = await admin.query<{ db: string; exists: boolean }>(
-    "SELECT current_database() AS db, EXISTS (SELECT 1 FROM pg_roles WHERE rolname = $1) AS exists",
-    [schema],
-  );
-  const { db: database, exists } = rows[0]!;
-  // The deploy's init SQL runs these as the superuser; the app's non-superuser role is refused and moves on.
-  await ownerOnly(admin.query("REVOKE ALL ON SCHEMA public FROM PUBLIC"));
-  await ownerOnly(admin.query(`REVOKE ALL ON DATABASE ${pg.escapeIdentifier(database)} FROM PUBLIC`));
-  const verb = exists ? "ALTER" : "CREATE";
-  await admin.query(`${verb} ROLE ${schema} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT CONNECTION LIMIT ${ROLE_CONNECTION_LIMIT} PASSWORD ${pg.escapeLiteral(scramVerifier(password))}`);
-  await admin.query(`ALTER ROLE ${schema} SET statement_timeout = '${ROLE_STATEMENT_TIMEOUT}'`);
-  await admin.query(`ALTER ROLE ${schema} SET idle_in_transaction_session_timeout = '${ROLE_IDLE_IN_TRANSACTION_TIMEOUT}'`);
-  await admin.query(`GRANT CONNECT ON DATABASE ${pg.escapeIdentifier(database)} TO ${schema}`);
-  await admin.query(`CREATE SCHEMA IF NOT EXISTS ${schema} AUTHORIZATION ${schema}`);
+  const client = admin instanceof pg.Pool ? await admin.connect() : admin;
+  try {
+    await client.query("BEGIN");
+    // REQUIRED: concurrent GRANT/REVOKE on the database race on pg_database's ACL row ("tuple concurrently updated").
+    await client.query("SELECT pg_advisory_xact_lock($1, 0)", [PROVISION_LOCK_CLASS]);
+    const { rows } = await client.query<{ db: string; exists: boolean }>(
+      "SELECT current_database() AS db, EXISTS (SELECT 1 FROM pg_roles WHERE rolname = $1) AS exists",
+      [schema],
+    );
+    const { db: database, exists } = rows[0]!;
+    // The deploy's init SQL runs these as the superuser; the app's non-superuser role is refused and moves on.
+    await ownerOnly(client, "REVOKE ALL ON SCHEMA public FROM PUBLIC");
+    await ownerOnly(client, `REVOKE ALL ON DATABASE ${pg.escapeIdentifier(database)} FROM PUBLIC`);
+    const verb = exists ? "ALTER" : "CREATE";
+    await client.query(`${verb} ROLE ${schema} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT CONNECTION LIMIT ${ROLE_CONNECTION_LIMIT} PASSWORD ${pg.escapeLiteral(scramVerifier(password))}`);
+    await client.query(`ALTER ROLE ${schema} SET statement_timeout = '${ROLE_STATEMENT_TIMEOUT}'`);
+    await client.query(`ALTER ROLE ${schema} SET idle_in_transaction_session_timeout = '${ROLE_IDLE_IN_TRANSACTION_TIMEOUT}'`);
+    await client.query(`GRANT CONNECT ON DATABASE ${pg.escapeIdentifier(database)} TO ${schema}`);
+    await client.query(`CREATE SCHEMA IF NOT EXISTS ${schema} AUTHORIZATION ${schema}`);
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    throw error;
+  } finally {
+    if (admin instanceof pg.Pool) (client as pg.PoolClient).release();
+  }
+}
+
+// Run as the database owner. The role carries the schema's name; a role already
+// gone means an earlier drop got that far, so a repeat finishes it.
+export async function dropTenantSchema(admin: pg.Pool | pg.Client, schema: string): Promise<void> {
+  assertSchemaName(schema);
+  const name = pg.escapeIdentifier(schema);
+  const client = admin instanceof pg.Pool ? await admin.connect() : admin;
+  try {
+    await client.query("BEGIN");
+    await client.query("SELECT pg_advisory_xact_lock($1, 0)", [PROVISION_LOCK_CLASS]);
+    const { rows } = await client.query<{ exists: boolean }>("SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = $1) AS exists", [schema]);
+    if (rows[0]?.exists) await client.query(`DROP OWNED BY ${name} CASCADE`);
+    await client.query(`DROP SCHEMA IF EXISTS ${name} CASCADE`);
+    await client.query(`DROP ROLE IF EXISTS ${name}`);
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    throw error;
+  } finally {
+    if (admin instanceof pg.Pool) (client as pg.PoolClient).release();
+  }
 }
 
 const SCRAM_ITERATIONS = 4096;

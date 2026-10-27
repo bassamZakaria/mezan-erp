@@ -33,6 +33,7 @@ import {
   postgresDb,
   TenantSchemaMismatchError,
   TransactionAbortedError,
+  dropTenantSchema,
 } from "./postgres-db.js";
 import { provisionTestTenant } from "./test-support.js";
 
@@ -63,10 +64,7 @@ afterEach(() => {
 afterAll(async () => {
   for (const tenant of tenants) await tenant.pool.end();
   if (admin) {
-    for (const tenant of tenants) {
-      await admin.query(`DROP OWNED BY ${tenant.schema} CASCADE`);
-      await admin.query(`DROP ROLE ${tenant.schema}`);
-    }
+    for (const tenant of tenants) await dropTenantSchema(admin, tenant.schema);
     await admin.end();
   }
 });

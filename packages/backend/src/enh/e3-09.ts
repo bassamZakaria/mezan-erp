@@ -32,11 +32,13 @@ export const area: BackendArea = {
     ctx.addCloser({ close: () => worker.stop() });
 
     ctx.eventBus.subscribeAll((event) => {
-      void turn(async () => enqueueWebhookDeliveries(store, event, now().toISOString()))
-        .then((queued) => {
-          if (queued > 0) worker.kick();
-        })
-        .catch((error: unknown) => areaLog.error({ err: error }, `could not queue webhooks for "${event.code}"`));
+      ctx.db.afterCommit(() => {
+        void turn(async () => enqueueWebhookDeliveries(store, event, now().toISOString()))
+          .then((queued) => {
+            if (queued > 0) worker.kick();
+          })
+          .catch((error: unknown) => areaLog.error({ err: error }, `could not queue webhooks for "${event.code}"`));
+      });
     });
 
     ctx.app.route(

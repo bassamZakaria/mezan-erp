@@ -418,18 +418,15 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
       return c.json({ error: "INVALID_CREDENTIALS", message: "اسم المستخدم أو رمز PIN غير صحيح." }, 401);
     }
     if (signedIn === null) {
-      const failure = await atomically(() => guard.failed(needle, origin, user !== null));
+      const { failure, unlock } = await atomically(async () => {
+        const failed = await guard.failed(needle, origin, user !== null);
+        const mailed = failed.verdict === SignInVerdict.Locked && failed.justLocked && user && deps.onAccountLocked;
+        return { failure: failed, unlock: mailed ? { unlockCode: await guard.issueUnlockCode(needle), unlockLinkToken: await guard.issueUnlockLink(needle) } : null };
+      });
       if (failure.verdict === SignInVerdict.Locked) {
         if (failure.justLocked) {
           await security(c, "ACCOUNT_HARD_LOCKED", AuditSeverityCode.Critical, { username: needle, userId: user?.id });
-          if (user) {
-            await deps.onAccountLocked?.({
-              user,
-              unlockCode: await guard.issueUnlockCode(needle),
-              unlockLinkToken: await guard.issueUnlockLink(needle),
-              source: origin ?? "host",
-            });
-          }
+          if (user && unlock) await deps.onAccountLocked?.({ user, ...unlock, source: origin ?? "host" });
         }
         return refused(c, failure);
       }

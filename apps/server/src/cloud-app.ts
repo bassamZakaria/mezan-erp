@@ -15,7 +15,7 @@ import {
   type PlatformHandle,
   type RecordedActivation,
 } from "@mezan/backend";
-import { BodyLimitRefusal, LogEvent, createJobRegistry, createLogger, createSessionRegistry, requestLogging, type JobRegistry } from "@mezan/api";
+import { BodyLimitRefusal, LogEvent, refuseNulCharacters, createJobRegistry, createLogger, createSessionRegistry, requestLogging, type JobRegistry } from "@mezan/api";
 import { HealthLevel, SubscriptionStatusKind, TenantNotFoundError, TenantStatusCode, jobLevel, tenantSchema, type Tenant } from "@mezan/domain";
 import { createAesGcmSecretBox, createSessionStore, CURRENT_SCHEMA_VERSION, emptyBooksScratch, type SqlDb } from "@mezan/persistence";
 import { PLATFORM_SCHEMA, schemaKey, SchemaKeyPurpose, TenantDatabases } from "@mezan/persistence-postgres";
@@ -534,6 +534,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
 
   root.use("/api/*", requireOriginSecret(env.originSecret));
   root.use("/api/*", sourceGate);
+  root.use("/api/*", refuseNulCharacters({ body: false }));
 
   // SECURITY / REQUIRED ORDERING (DEC-27): the integration API is mounted here, after the origin
   // secret and the source gate and BEFORE the cookie sessions, so a browser cookie never reaches

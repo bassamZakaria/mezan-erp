@@ -335,6 +335,7 @@ export const area: BackendArea = {
         };
         return evaluatePeriodClose(window, scope.payrollEntitled ? sources : { ...sources, payrollDue: async () => NO_PAYROLL_DUE }, {
           now: new Date().toISOString(),
+          ...(critical ? {} : { isolate: <T>(fn: () => Promise<T>) => ctx.db.transaction(fn) }),
           onCheckFailure: ({ code, error }) => areaLog.error({ err: error }, `check "${code}" could not be evaluated for ${period.id}`),
         });
       },

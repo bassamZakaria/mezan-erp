@@ -452,7 +452,9 @@ describe.skipIf(!PG_URL)("createCloudApp on Postgres", () => {
       expect(rows[0]?.value).toMatch(/^\d+$/);
     } finally {
       await admin.query(`DROP DATABASE IF EXISTS ${database} WITH (FORCE)`);
-      await admin.query("DROP ROLE IF EXISTS platform");
+      await admin.query("DROP ROLE IF EXISTS platform").catch((error: { code?: string }) => {
+        if (error.code !== "2BP01") throw error;
+      });
       await admin.end();
     }
   });

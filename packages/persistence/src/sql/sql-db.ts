@@ -30,6 +30,16 @@ export interface SqlDb {
   // A read that must not observe another transaction's uncommitted rows.
   read<T>(fn: () => Promise<T>): Promise<T>;
   transaction<T>(fn: () => Promise<T>, mode?: TransactionMode): Promise<T>;
+  // Fire-and-forget follow-ups (notifications, webhooks) start here: with a pooled
+  // transaction open they run once it commits, on their own connection, and are
+  // dropped if it rolls back; otherwise at once.
+  afterCommit(fn: () => void): void;
+}
+
+export class DatabaseBusyError extends Error {
+  constructor(readonly cause: unknown) {
+    super("The company's database had no free connection in time.");
+  }
 }
 
 export function placeholders(count: number): string {

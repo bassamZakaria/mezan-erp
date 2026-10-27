@@ -779,6 +779,7 @@ async function bridgedDocumentBranchIds(directory: BranchDirectory, docType: str
 
 function createDocumentEventBridge(
   eventBus: EventBus,
+  afterCommit: (fn: () => void) => void,
   directory: BranchDirectory,
   mapping: DocumentEventMapping,
   enrich?: (docId: string) => Promise<Record<string, unknown>>,
@@ -793,11 +794,13 @@ function createDocumentEventBridge(
       // lookup here just widens the payload before that dispatch runs — a
       // failed lookup logs and drops the event rather than ever throwing back
       // into the document's own confirm/cancel transaction.
-      void Promise.all([bridgedDocumentBranchIds(directory, event.docType, event.docId), enrich ? enrich(event.docId) : {}])
-        .then(([branchIds, extra]) => eventBus.publish(code, { ...basePayload, ...extra, [EVENT_BRANCH_IDS_KEY]: branchIds }, event.occurredAt))
-        .catch((error: unknown) => {
-          backendLog.error({ area: "notifications", err: error }, `event bridge lookup failed for ${event.docType}/${event.type}`);
-        });
+      afterCommit(() => {
+        void Promise.all([bridgedDocumentBranchIds(directory, event.docType, event.docId), enrich ? enrich(event.docId) : {}])
+          .then(([branchIds, extra]) => eventBus.publish(code, { ...basePayload, ...extra, [EVENT_BRANCH_IDS_KEY]: branchIds }, event.occurredAt))
+          .catch((error: unknown) => {
+            backendLog.error({ area: "notifications", err: error }, `event bridge lookup failed for ${event.docType}/${event.type}`);
+          });
+      });
     },
   };
 }
@@ -1506,8 +1509,10 @@ async function composeBackend(options: CreateBackendOptions, db: SqlDb, sqlite: 
   });
   const notifyInTheTurn = inTheTurn("notification rules");
   eventBus.subscribeAll((event) => {
-    void notifyInTheTurn(() => notificationEngine.handle(event)).catch((error: unknown) => {
-      backendLog.error({ area: "notifications", err: error }, `engine failed handling "${event.code}"`);
+    db.afterCommit(() => {
+      void notifyInTheTurn(() => notificationEngine.handle(event)).catch((error: unknown) => {
+        backendLog.error({ area: "notifications", err: error }, `engine failed handling "${event.code}"`);
+      });
     });
   });
 
@@ -1717,8 +1722,7 @@ async function composeBackend(options: CreateBackendOptions, db: SqlDb, sqlite: 
   const salesInvoiceEventMapping = {
     SALES_INVOICE: { DOCUMENT_CONFIRMED: "SALES_INVOICE_CONFIRMED", DOCUMENT_CANCELLED: "SALES_INVOICE_VOIDED" },
   } satisfies DocumentEventMapping;
-  const salesInvoiceEventBridge = createDocumentEventBridge(
-    eventBus,
+  const salesInvoiceEventBridge = createDocumentEventBridge(eventBus, (fn) => db.afterCommit(fn),
     deferredBranchDirectory,
     salesInvoiceEventMapping,
     async (docId) => {
@@ -2442,7 +2446,7 @@ async function composeBackend(options: CreateBackendOptions, db: SqlDb, sqlite: 
     SALES_RETURN: { DOCUMENT_CONFIRMED: "SALES_RETURN_CONFIRMED" },
     PURCHASE_RETURN: { DOCUMENT_CONFIRMED: "PURCHASE_RETURN_CONFIRMED", DOCUMENT_CANCELLED: "PURCHASE_RETURN_VOIDED" },
   } satisfies DocumentEventMapping;
-  const returnsEventBridge = createDocumentEventBridge(eventBus, deferredBranchDirectory, returnsEventMapping);
+  const returnsEventBridge = createDocumentEventBridge(eventBus, (fn) => db.afterCommit(fn), deferredBranchDirectory, returnsEventMapping);
 
   /*
    * The purchase chain is not a `DocumentService`, so it never had a publisher
@@ -2458,7 +2462,7 @@ async function composeBackend(options: CreateBackendOptions, db: SqlDb, sqlite: 
     GOODS_RECEIPT: { DOCUMENT_CONFIRMED: "PURCHASE_RECEIPT_CONFIRMED", DOCUMENT_CANCELLED: "PURCHASE_RECEIPT_VOIDED" },
     PURCHASE_INVOICE: { DOCUMENT_CONFIRMED: "PURCHASE_INVOICE_CONFIRMED", DOCUMENT_CANCELLED: "PURCHASE_INVOICE_VOIDED" },
   } satisfies DocumentEventMapping;
-  const purchasesEventBridge = createDocumentEventBridge(eventBus, deferredBranchDirectory, purchasesEventMapping);
+  const purchasesEventBridge = createDocumentEventBridge(eventBus, (fn) => db.afterCommit(fn), deferredBranchDirectory, purchasesEventMapping);
 
   /*
    * `VoucherService` has declared an `events` port since it was written and
@@ -2468,7 +2472,7 @@ async function composeBackend(options: CreateBackendOptions, db: SqlDb, sqlite: 
   const voucherEventMapping = {
     [VOUCHER_DOC_TYPE]: { DOCUMENT_CONFIRMED: "CASH_VOUCHER_CONFIRMED" },
   } satisfies DocumentEventMapping;
-  const voucherEventBridge = createDocumentEventBridge(eventBus, deferredBranchDirectory, voucherEventMapping);
+  const voucherEventBridge = createDocumentEventBridge(eventBus, (fn) => db.afterCommit(fn), deferredBranchDirectory, voucherEventMapping);
 
   const salesReturnEvents = fanOutDocumentEvents(
     returnsEventBridge,

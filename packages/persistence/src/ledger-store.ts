@@ -60,7 +60,7 @@ CREATE TABLE IF NOT EXISTS journal_line (
   cost_center_id TEXT,
   currency      TEXT,
   fx_rate       TEXT,
-  tax_rate_percent DOUBLE PRECISION,
+  tax_rate_percent REAL,
   tax_rate_id   TEXT,
   project_id    TEXT,
   cost_category TEXT,

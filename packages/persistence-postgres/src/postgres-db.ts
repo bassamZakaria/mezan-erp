@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash, createHmac, pbkdf2Sync, randomBytes } from "node:crypto";
 import pg from "pg";
-import { declaredAddableColumns, numberedPlaceholders, SqlDialect, type RunResult, type SqlDb, type SqlValue } from "@mezan/persistence";
+import { DatabaseBusyError, declaredAddableColumns, numberedPlaceholders, SqlDialect, type RunResult, type SqlDb, type SqlValue } from "@mezan/persistence";
 import { translateDdl } from "./translate-ddl.js";
 
 const TENANT_SCHEMA_RE = /^t_[a-z0-9_]{1,61}$/;
@@ -168,14 +168,27 @@ interface OpenTransaction extends Level {
   readonly client: pg.PoolClient;
   open: boolean;
   savepoints: number;
+  readonly committed: (() => void)[];
 }
 
 type Queryable = Pick<pg.PoolClient, "query">;
+
+const POOL_TIMEOUT_MESSAGE = "timeout exceeded when trying to connect";
+
+async function busyAware<T>(work: Promise<T>): Promise<T> {
+  try {
+    return await work;
+  } catch (error) {
+    if (error instanceof Error && error.message.includes(POOL_TIMEOUT_MESSAGE)) throw new DatabaseBusyError(error);
+    throw error;
+  }
+}
 
 class PostgresDb implements SqlDb {
   readonly dialect = SqlDialect.Postgres;
   private readonly current = new AsyncLocalStorage<OpenTransaction>();
   private readonly level = new AsyncLocalStorage<Level>();
+  private writers: Promise<void> = Promise.resolve();
 
   constructor(
     private readonly pool: pg.Pool,
@@ -188,7 +201,7 @@ class PostgresDb implements SqlDb {
   }
 
   private async query(sql: string, params: readonly SqlValue[]): Promise<pg.QueryResult> {
-    return this.target().query(numberedPlaceholders(sql), params as unknown[]);
+    return busyAware(this.target().query(numberedPlaceholders(sql), params as unknown[]));
   }
 
   async all<Row>(sql: string, params: readonly SqlValue[] = []): Promise<Row[]> {
@@ -204,7 +217,14 @@ class PostgresDb implements SqlDb {
   }
 
   async exec(sql: string): Promise<void> {
-    await this.target().query(sql);
+    await busyAware(this.target().query(sql));
+  }
+
+  afterCommit(fn: () => void): void {
+    const tx = this.current.getStore();
+    const detached = () => this.current.exit(() => this.level.exit(fn));
+    if (tx?.open) tx.committed.push(detached);
+    else detached();
   }
 
   async applySchema(ddl: string): Promise<void> {
@@ -233,8 +253,24 @@ class PostgresDb implements SqlDb {
     const outer = this.current.getStore();
     if (outer?.open) return this.savepoint(outer, fn);
 
-    const client = await this.pool.connect();
-    const tx: OpenTransaction = { client, open: true, savepoints: 0, queue: Promise.resolve() };
+    // REQUIRED: writers queue here, not on the advisory lock, so a burst of writes
+    // never holds every pooled connection while reads wait for one.
+    const previous = this.writers;
+    let leave!: () => void;
+    this.writers = new Promise<void>((resolve) => {
+      leave = resolve;
+    });
+    try {
+      await previous;
+      return await this.outermost(fn);
+    } finally {
+      leave();
+    }
+  }
+
+  private async outermost<T>(fn: () => Promise<T>): Promise<T> {
+    const client = await busyAware(this.pool.connect());
+    const tx: OpenTransaction = { client, open: true, savepoints: 0, queue: Promise.resolve(), committed: [] };
     let broken = false;
     try {
       await client.query("BEGIN");
@@ -252,6 +288,8 @@ class PostgresDb implements SqlDb {
       // caught it, and Postgres then answers COMMIT with ROLLBACK, not an error.
       const commit = await client.query("COMMIT");
       if (commit.command !== "COMMIT") throw new TransactionAbortedError();
+      tx.open = false;
+      for (const follow of tx.committed) setImmediate(follow);
       return result;
     } catch (error) {
       try {

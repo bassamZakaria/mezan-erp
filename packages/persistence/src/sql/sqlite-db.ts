@@ -17,7 +17,7 @@ class SqliteDb implements SqlDb {
   private statement(sql: string): Database.Statement {
     let statement = this.statements.get(sql);
     if (!statement) {
-      if (this.statements.size >= STATEMENT_CACHE_LIMIT) this.statements.clear();
+      if (this.statements.size >= STATEMENT_CACHE_LIMIT) this.statements.delete(this.statements.keys().next().value!);
       statement = this.sqlite.prepare(sql);
       if (statement.reader) statement.safeIntegers(true);
       this.statements.set(sql, statement);
@@ -43,6 +43,10 @@ class SqliteDb implements SqlDb {
 
   async applySchema(ddl: string): Promise<void> {
     this.sqlite.exec(ddl);
+  }
+
+  afterCommit(fn: () => void): void {
+    fn();
   }
 
   read<T>(fn: () => Promise<T>): Promise<T> {

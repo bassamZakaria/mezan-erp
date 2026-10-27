@@ -1,11 +1,12 @@
-import Database from "better-sqlite3";
+import type Database from "better-sqlite3";
 import type { DocumentField, DocumentListFilter, DocumentRepository, DocumentStatus, DocumentWritePrecondition, FrameworkDocument } from "@mezan/domain";
-import { insertingNew } from "./insert-new.js";
-import { columnsOf, FRAMEWORK_DOCUMENT_COLUMNS, writeRowColumnsWhere } from "./document-field-write.js";
-import { withSqliteTransaction } from "./sqlite-connection.js";
+import { refuseUnlessInserted } from "./insert-new.js";
+import { columnsOf, FRAMEWORK_DOCUMENT_COLUMNS } from "./document-field-write.js";
+import { placeholders, type SqlDb, type SqlValue } from "./sql/sql-db.js";
+import { sqliteDb } from "./sql/sqlite-db.js";
 
 /**
- * Generic SQLite-backed {@link DocumentRepository} for a document-framework
+ * Generic {@link DocumentRepository} for a document-framework
  * consumer (docs/archive/plan.md §3). One table per concrete document type (Stock
  * Adjustment, Stock Transfer, …); `lines` is stored as one JSON blob column —
  * the type-specific line shape is opaque to this store, so it never needs its
@@ -44,54 +45,43 @@ export interface FrameworkDocumentStoreOptions<Line> {
  */
 export type SqliteFrameworkDocumentStoreHandle<Line> = DocumentRepository<Line>;
 
-class SqliteFrameworkDocumentStore<Line> implements DocumentRepository<Line> {
-  private readonly insert: Database.Statement;
-  private readonly upsert: Database.Statement;
-  private readonly selectById: Database.Statement;
+function frameworkDocumentDdl(tableName: string): string {
+  return `
+    CREATE TABLE IF NOT EXISTS ${tableName} (
+      id                   TEXT PRIMARY KEY,
+      doc_no               TEXT,
+      date                 TEXT NOT NULL,
+      memo                 TEXT NOT NULL,
+      status               TEXT NOT NULL,
+      lines_json           TEXT NOT NULL,
+      created_at           TEXT NOT NULL,
+      confirmed_at         TEXT,
+      reverses_doc_id      TEXT,
+      reversed_by_doc_id   TEXT,
+      workflow_request_id  TEXT,
+      journal_entry_id     TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_${tableName}_status ON ${tableName}(status);
+    CREATE INDEX IF NOT EXISTS idx_${tableName}_date ON ${tableName}(date);
+  `;
+}
 
+const ROW_COLUMNS = [
+  "id", "doc_no", "date", "memo", "status", "lines_json", "created_at", "confirmed_at",
+  "reverses_doc_id", "reversed_by_doc_id", "workflow_request_id", "journal_entry_id",
+] as const;
+
+const UPDATE_COLUMNS = ROW_COLUMNS.filter((column) => column !== "id" && column !== "created_at");
+
+type DocumentRowValues = Record<(typeof ROW_COLUMNS)[number], SqlValue>;
+
+class SqlFrameworkDocumentStore<Line> implements DocumentRepository<Line> {
   constructor(
-    private readonly sqlite: Database.Database,
+    private readonly db: SqlDb,
     private readonly opts: FrameworkDocumentStoreOptions<Line>,
-  ) {
-    this.sqlite.exec(`
-      CREATE TABLE IF NOT EXISTS ${opts.tableName} (
-        id                   TEXT PRIMARY KEY,
-        doc_no               TEXT,
-        date                 TEXT NOT NULL,
-        memo                 TEXT NOT NULL,
-        status               TEXT NOT NULL,
-        lines_json           TEXT NOT NULL,
-        created_at           TEXT NOT NULL,
-        confirmed_at         TEXT,
-        reverses_doc_id      TEXT,
-        reversed_by_doc_id   TEXT,
-        workflow_request_id  TEXT,
-        journal_entry_id     TEXT
-      );
-      CREATE INDEX IF NOT EXISTS idx_${opts.tableName}_status ON ${opts.tableName}(status);
-      CREATE INDEX IF NOT EXISTS idx_${opts.tableName}_date ON ${opts.tableName}(date);
-    `);
+  ) {}
 
-    this.insert = sqlite.prepare(`
-      INSERT INTO ${opts.tableName}
-        (id, doc_no, date, memo, status, lines_json, created_at, confirmed_at,
-         reverses_doc_id, reversed_by_doc_id, workflow_request_id, journal_entry_id)
-      VALUES
-        (@id, @doc_no, @date, @memo, @status, @lines_json, @created_at, @confirmed_at,
-         @reverses_doc_id, @reversed_by_doc_id, @workflow_request_id, @journal_entry_id)
-    `);
-    this.upsert = sqlite.prepare(`
-      UPDATE ${opts.tableName} SET
-        doc_no = @doc_no, date = @date, memo = @memo, status = @status,
-        lines_json = @lines_json, confirmed_at = @confirmed_at,
-        reverses_doc_id = @reverses_doc_id, reversed_by_doc_id = @reversed_by_doc_id,
-        workflow_request_id = @workflow_request_id, journal_entry_id = @journal_entry_id
-      WHERE id = @id
-    `);
-    this.selectById = sqlite.prepare(`SELECT * FROM ${opts.tableName} WHERE id = ?`);
-  }
-
-  private toRow(doc: FrameworkDocument<Line>): Record<string, unknown> {
+  private toRow(doc: FrameworkDocument<Line>): DocumentRowValues {
     return {
       id: doc.id,
       doc_no: doc.docNo,
@@ -128,31 +118,42 @@ class SqliteFrameworkDocumentStore<Line> implements DocumentRepository<Line> {
   }
 
   async save(doc: FrameworkDocument<Line>): Promise<void> {
-    insertingNew(doc.id, () => this.insert.run(this.toRow(doc)));
+    const row = this.toRow(doc);
+    const inserted = await this.db.run(
+      `INSERT INTO ${this.opts.tableName} (${ROW_COLUMNS.join(", ")}) VALUES (${placeholders(ROW_COLUMNS.length)})
+       ON CONFLICT (id) DO NOTHING`,
+      ROW_COLUMNS.map((column) => row[column]),
+    );
+    refuseUnlessInserted(doc.id, inserted.changes);
   }
 
   async update(doc: FrameworkDocument<Line>): Promise<void> {
-    this.upsert.run(this.toRow(doc));
+    const row = this.toRow(doc);
+    await this.db.run(
+      `UPDATE ${this.opts.tableName} SET ${UPDATE_COLUMNS.map((column) => `${column} = ?`).join(", ")} WHERE id = ?`,
+      [...UPDATE_COLUMNS.map((column) => row[column]), doc.id],
+    );
   }
 
   async writeFields(next: FrameworkDocument<Line>, fields: readonly DocumentField[], expected: DocumentWritePrecondition): Promise<boolean> {
-    return writeRowColumnsWhere(this.sqlite, {
-      table: this.opts.tableName,
-      row: this.toRow(next),
-      columns: columnsOf(FRAMEWORK_DOCUMENT_COLUMNS, fields),
-      id: next.id,
-      expectedStatuses: [expected.status],
-    });
+    const columns = columnsOf(FRAMEWORK_DOCUMENT_COLUMNS, fields);
+    if (columns.length === 0) return false;
+    const row = this.toRow(next) as Record<string, SqlValue>;
+    const result = await this.db.run(
+      `UPDATE ${this.opts.tableName} SET ${columns.map((column) => `${column} = ?`).join(", ")} WHERE id = ? AND status IN (?)`,
+      [...columns.map((column) => row[column]!), next.id, expected.status],
+    );
+    return result.changes === 1;
   }
 
   async findById(id: string): Promise<FrameworkDocument<Line> | null> {
-    const row = this.selectById.get(id) as DocumentRow | undefined;
+    const row = await this.db.get<DocumentRow>(`SELECT * FROM ${this.opts.tableName} WHERE id = ?`, [id]);
     return row ? this.fromRow(row) : null;
   }
 
   async list(filter: DocumentListFilter = {}): Promise<readonly FrameworkDocument<Line>[]> {
     const clauses: string[] = [];
-    const params: unknown[] = [];
+    const params: SqlValue[] = [];
     if (filter.status) {
       clauses.push("status = ?");
       params.push(filter.status);
@@ -166,32 +167,27 @@ class SqliteFrameworkDocumentStore<Line> implements DocumentRepository<Line> {
       params.push(filter.toDate);
     }
     const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
-    const rows = this.sqlite
-      .prepare(`SELECT * FROM ${this.opts.tableName} ${where} ORDER BY date, created_at`)
-      .all(...params) as DocumentRow[];
+    const rows = await this.db.all<DocumentRow>(`SELECT * FROM ${this.opts.tableName} ${where} ORDER BY date, created_at`, params);
     return rows.map((r) => this.fromRow(r));
   }
 
   /**
-   * `withSqliteTransaction` — matches every other store in this package
-   * (document-store.ts, sqlite-connection.ts's own doc comment): safe both for
-   * re-entrancy (a nested call on the SAME shared connection, e.g. this
-   * document's own confirm() driving the stock-ledger engine's GL posting,
-   * becomes a SAVEPOINT instead of a second top-level BEGIN — which SQLite
-   * rejects with "cannot start a transaction within a transaction") and for
-   * concurrent outermost calls on a connection several stores now share
-   * (create-backend.ts's ONE connection).
+   * Re-entrant: a nested call on the same connection (this document's own
+   * confirm() driving the stock-ledger engine's GL posting) becomes a
+   * SAVEPOINT, and concurrent outermost calls on the connection several
+   * stores share are serialised.
    */
   async transaction<T>(fn: () => Promise<T>): Promise<T> {
-    return withSqliteTransaction(this.sqlite, fn);
+    return this.db.transaction(fn);
   }
 }
 
-export function createSqliteFrameworkDocumentStore<Line>(
-  sqlite: Database.Database,
-  opts: FrameworkDocumentStoreOptions<Line>,
-): SqliteFrameworkDocumentStoreHandle<Line> {
-  const store = new SqliteFrameworkDocumentStore<Line>(sqlite, opts);
+export async function ensureFrameworkDocumentSchema(db: SqlDb, tableName: string): Promise<void> {
+  await db.applySchema(frameworkDocumentDdl(tableName));
+}
+
+export function createFrameworkDocumentStore<Line>(db: SqlDb, opts: FrameworkDocumentStoreOptions<Line>): DocumentRepository<Line> {
+  const store = new SqlFrameworkDocumentStore<Line>(db, opts);
   return {
     save: (d) => store.save(d),
     update: (d) => store.update(d),
@@ -200,4 +196,12 @@ export function createSqliteFrameworkDocumentStore<Line>(
     list: (f) => store.list(f),
     transaction: (fn) => store.transaction(fn),
   };
+}
+
+export function createSqliteFrameworkDocumentStore<Line>(
+  sqlite: Database.Database,
+  opts: FrameworkDocumentStoreOptions<Line>,
+): SqliteFrameworkDocumentStoreHandle<Line> {
+  sqlite.exec(frameworkDocumentDdl(opts.tableName));
+  return createFrameworkDocumentStore(sqliteDb(sqlite), opts);
 }

@@ -82,6 +82,8 @@ export {
   type SqliteSettingsStoreHandle,
 } from "./settings-store.js";
 export {
+  createBarcodeConfigStore,
+  ensureBarcodeConfigSchema,
   createSqliteBarcodeConfigStore,
   type SqliteBarcodeConfigStoreHandle,
 } from "./barcode-config-store.js";
@@ -216,6 +218,8 @@ export {
   createStandaloneSqliteInstallmentPlanStore,
 } from "./installment-plan-store.js";
 export {
+  createFollowUpStore,
+  ensureFollowUpSchema,
   createSqliteFollowUpStore,
   createStandaloneSqliteFollowUpStore,
   type SqliteFollowUpStoreHandle,
@@ -248,6 +252,12 @@ export {
 
 // --- phase11/crm-projects-assets-field ---
 export {
+  createLeadRepository,
+  createOpportunityRepository,
+  createPipelineStageRepository,
+  createActivityRepository,
+  createActivityReminderLog,
+  ensureCrmSchema,
   createSqliteLeadRepository,
   createSqliteOpportunityRepository,
   createSqlitePipelineStageRepository,
@@ -291,8 +301,16 @@ export {
   type SqliteAssetRepositoryHandle,
   type SqliteDepreciationRunRepositoryHandle,
 } from "./fixed-assets-store.js";
-export { createSqliteVanTripRepository, type SqliteVanTripRepositoryHandle } from "./van-trip-store.js";
 export {
+  createVanTripRepository,
+  ensureVanTripSchema,
+  createSqliteVanTripRepository,
+  type VanTripRepositoryHandle,
+  type SqliteVanTripRepositoryHandle,
+} from "./van-trip-store.js";
+export {
+  createFrameworkDocumentStore,
+  ensureFrameworkDocumentSchema,
   createSqliteFrameworkDocumentStore,
   type FrameworkDocumentStoreOptions,
   type SqliteFrameworkDocumentStoreHandle,
@@ -312,6 +330,13 @@ export {
 
 // --- hr-store.ts — HR master data (hr/master-data) ---
 export {
+  createDepartmentRepository,
+  createJobTitleRepository,
+  createEmployeeRepository,
+  createContractRepository,
+  createHolidayRepository,
+  createLeaveRequestRepository,
+  ensureHrSchema,
   createSqliteDepartmentRepository,
   createSqliteJobTitleRepository,
   createSqliteEmployeeRepository,
@@ -328,6 +353,14 @@ export {
 
 // --- hr-payroll-store.ts — HR payroll runs, payslips and employee advances ---
 export {
+  createEmployeeAdvanceRepository,
+  createPayrollRunRepository,
+  createPayslipRepository,
+  createPayrollComponentRepository,
+  createGarnishmentRepository,
+  createStatutoryOverrideRepository,
+  createPayrollStatutoryFlagRepository,
+  ensureHrPayrollSchema,
   createSqliteEmployeeAdvanceRepository,
   createSqlitePayrollRunRepository,
   createSqlitePayslipRepository,
@@ -343,7 +376,12 @@ export {
   type SqlitePayslipRepositoryHandle,
   type SqlitePayrollComponentRepositoryHandle,
 } from "./hr-payroll-store.js";
-export { createSqliteClockCredentialRepository, type SqliteClockCredentialRepositoryHandle } from "./hr-self-store.js";
+export {
+  createClockCredentialRepository,
+  ensureClockCredentialSchema,
+  createSqliteClockCredentialRepository,
+  type SqliteClockCredentialRepositoryHandle,
+} from "./hr-self-store.js";
 export { grantSuccessorPermissionsOnce } from "./permission-successors.js";
 export { createSqliteWebauthnChallengeRepository, type SqliteWebauthnChallengeRepositoryHandle } from "./webauthn-challenge-store.js";
 export {
@@ -357,6 +395,8 @@ export {
 
 
 export {
+  createLabelLayoutStore,
+  ensureLabelLayoutSchema,
   createSqliteLabelLayoutStore,
   type SqliteLabelLayoutStoreHandle,
 } from "./label-layout-store.js";
@@ -376,6 +416,11 @@ export {
 
 // --- hr-time-leave-store.ts — HR attendance, leave policies, balances, accrual batches ---
 export {
+  createAttendanceRepository,
+  createLeavePolicyRepository,
+  createLeaveBalanceRepository,
+  createLeaveAccrualBatchRepository,
+  ensureHrTimeLeaveSchema,
   createSqliteAttendanceRepository,
   createSqliteLeavePolicyRepository,
   createSqliteLeaveBalanceRepository,

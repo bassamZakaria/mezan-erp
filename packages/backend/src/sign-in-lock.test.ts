@@ -539,7 +539,7 @@ describe("a locked account can always be recovered", () => {
 
     expect([real.status, ghost.status]).toEqual([423, 423]);
     expect(await ghost.json()).toEqual(await real.json());
-    expect(second.lockedAccounts()).toEqual([OWNER.email]);
+    expect(await second.lockedAccounts()).toEqual([OWNER.email]);
   }, 120_000);
 
   it("tells a cloud tenant with no mail server that the platform's operator unlocks the account, and never to use a server machine", async () => {
@@ -569,12 +569,12 @@ describe("a locked account can always be recovered", () => {
     const h = await open({ platformOperatorUnlocks: true });
     await claim(h);
     await twentyWrongPins(h);
-    expect(h.lockedAccounts()).toEqual([OWNER.email]);
+    expect(await h.lockedAccounts()).toEqual([OWNER.email]);
 
     expect(await h.unlockAccount("nobody@shop.eg", "platform:op-1")).toBe(false);
     expect(await h.unlockAccount(OWNER.email.toUpperCase(), "platform:op-1")).toBe(true);
 
-    expect(h.lockedAccounts()).toEqual([]);
+    expect(await h.lockedAccounts()).toEqual([]);
     const signedIn = await signIn(h, OWNER.pin, "196.221.5.5");
     expect(signedIn.status).toBe(200);
     const session = (await signedIn.json()) as SessionDTO;

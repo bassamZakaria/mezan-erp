@@ -19,17 +19,17 @@ export interface AccountLockRecord {
 }
 
 export interface AccountLockStore {
-  get(account: string): AccountLockRecord | null;
-  put(account: string, record: AccountLockRecord): void;
-  delete(account: string): void;
-  accountOfLink(linkHash: string): string | null;
+  get(account: string): Promise<AccountLockRecord | null>;
+  put(account: string, record: AccountLockRecord): Promise<void>;
+  delete(account: string): Promise<void>;
+  accountOfLink(linkHash: string): Promise<string | null>;
 }
 
 export function createMemoryAccountLockStore(maxRecords = Number.POSITIVE_INFINITY): AccountLockStore {
   const records = new Map<string, AccountLockRecord>();
   return {
-    get: (account) => records.get(account) ?? null,
-    put(account, record) {
+    get: async (account) => records.get(account) ?? null,
+    async put(account, record) {
       records.delete(account);
       records.set(account, record);
       while (records.size > maxRecords) {
@@ -38,8 +38,8 @@ export function createMemoryAccountLockStore(maxRecords = Number.POSITIVE_INFINI
         records.delete(oldest.value);
       }
     },
-    delete: (account) => void records.delete(account),
-    accountOfLink(linkHash) {
+    delete: async (account) => void records.delete(account),
+    async accountOfLink(linkHash) {
       for (const [account, record] of records) if (record.unlockLinkHash === linkHash) return account;
       return null;
     },
@@ -52,17 +52,17 @@ export interface AccountLockOutcome {
 }
 
 export interface AccountLocks {
-  isLocked(account: string, exists: boolean): boolean;
-  fail(account: string, exists: boolean): AccountLockOutcome;
-  clear(account: string): void;
+  isLocked(account: string, exists: boolean): Promise<boolean>;
+  fail(account: string, exists: boolean): Promise<AccountLockOutcome>;
+  clear(account: string): Promise<void>;
   // SECURITY: true only for a locked account whose last code and link have
   // expired, or that was never issued any. It is what bounds the lock mail to
   // one an hour, whoever keeps knocking.
-  unlockReissueDue(account: string): boolean;
-  issueUnlockCode(account: string): string | null;
-  redeemUnlockCode(account: string, code: string): boolean;
-  issueUnlockLink(account: string): string | null;
-  redeemUnlockLink(token: string): string | null;
+  unlockReissueDue(account: string): Promise<boolean>;
+  issueUnlockCode(account: string): Promise<string | null>;
+  redeemUnlockCode(account: string, code: string): Promise<boolean>;
+  issueUnlockLink(account: string): Promise<string | null>;
+  redeemUnlockLink(token: string): Promise<string | null>;
 }
 
 export interface AccountLocksOptions {
@@ -99,41 +99,41 @@ export function createAccountLocks(options: AccountLocksOptions): AccountLocks {
   const storeFor = (exists: boolean): AccountLockStore => (exists ? options.known : unknown);
 
   return {
-    isLocked(account, exists) {
-      return storeFor(exists).get(accountKey(account))?.lockedAt != null;
+    async isLocked(account, exists) {
+      return (await storeFor(exists).get(accountKey(account)))?.lockedAt != null;
     },
-    fail(account, exists) {
+    async fail(account, exists) {
       const key = accountKey(account);
       const store = storeFor(exists);
-      const record = store.get(key) ?? EMPTY;
+      const record = (await store.get(key)) ?? EMPTY;
       if (record.lockedAt !== null) return { locked: true, justLocked: false };
       const at = now();
       const failures = [...record.failures.filter((failedAt) => at - failedAt < ACCOUNT_LOCK_WINDOW_MS), at];
       const locked = failures.length >= ACCOUNT_LOCK_FAILURES;
-      store.put(key, { ...record, failures, lockedAt: locked ? at : null });
+      await store.put(key, { ...record, failures, lockedAt: locked ? at : null });
       return { locked, justLocked: locked };
     },
-    clear(account) {
+    async clear(account) {
       const key = accountKey(account);
-      options.known.delete(key);
-      unknown.delete(key);
+      await options.known.delete(key);
+      await unknown.delete(key);
     },
-    unlockReissueDue(account) {
-      const record = options.known.get(accountKey(account));
+    async unlockReissueDue(account) {
+      const record = await options.known.get(accountKey(account));
       if (!record || record.lockedAt === null) return false;
       return record.unlockExpiresAt === null || now() > record.unlockExpiresAt;
     },
-    issueUnlockCode(account) {
+    async issueUnlockCode(account) {
       const key = accountKey(account);
-      const record = options.known.get(key);
+      const record = await options.known.get(key);
       if (!record || record.lockedAt === null) return null;
       const code = newUnlockCode();
-      options.known.put(key, { ...record, unlockHash: hashCode(code), unlockExpiresAt: now() + UNLOCK_CODE_TTL_MS, unlockAttempts: 0 });
+      await options.known.put(key, { ...record, unlockHash: hashCode(code), unlockExpiresAt: now() + UNLOCK_CODE_TTL_MS, unlockAttempts: 0 });
       return code;
     },
-    redeemUnlockCode(account, code) {
+    async redeemUnlockCode(account, code) {
       const key = accountKey(account);
-      const record = options.known.get(key);
+      const record = await options.known.get(key);
       if (!record || record.lockedAt === null || record.unlockHash === null || record.unlockExpiresAt === null) return false;
       if (now() > record.unlockExpiresAt) return false;
       const offered = Buffer.from(hashCode(code), "hex");
@@ -142,27 +142,27 @@ export function createAccountLocks(options: AccountLocksOptions): AccountLocks {
       // caller is held by the per-address throttle; counting wrong tries here
       // would let anyone who can reach the route spend the administrator's code.
       if (offered.length !== expected.length || !timingSafeEqual(offered, expected)) return false;
-      options.known.delete(key);
+      await options.known.delete(key);
       return true;
     },
-    issueUnlockLink(account) {
+    async issueUnlockLink(account) {
       const key = accountKey(account);
-      const record = options.known.get(key);
+      const record = await options.known.get(key);
       if (!record || record.lockedAt === null) return null;
       const token = randomBytes(UNLOCK_LINK_BYTES).toString("base64url");
-      options.known.put(key, { ...record, unlockLinkHash: hashLink(token), unlockExpiresAt: now() + UNLOCK_CODE_TTL_MS });
+      await options.known.put(key, { ...record, unlockLinkHash: hashLink(token), unlockExpiresAt: now() + UNLOCK_CODE_TTL_MS });
       return token;
     },
-    redeemUnlockLink(token) {
+    async redeemUnlockLink(token) {
       const offered = hashLink(token);
-      const key = options.known.accountOfLink(offered);
-      const record = key === null ? null : options.known.get(key);
+      const key = await options.known.accountOfLink(offered);
+      const record = key === null ? null : await options.known.get(key);
       if (key === null || !record || record.lockedAt === null || record.unlockExpiresAt === null) return null;
       if (!record.unlockLinkHash || now() > record.unlockExpiresAt) return null;
       const expected = Buffer.from(record.unlockLinkHash, "hex");
       const presented = Buffer.from(offered, "hex");
       if (presented.length !== expected.length || !timingSafeEqual(presented, expected)) return null;
-      options.known.delete(key);
+      await options.known.delete(key);
       return key;
     },
   };
@@ -193,10 +193,10 @@ export interface SignInGuard {
   failed(account: string, source: string | null, exists: boolean): Promise<SignInDecision>;
   succeeded(account: string, source: string | null): Promise<void>;
   unlock(account: string): Promise<void>;
-  unlockReissueDue(account: string): boolean;
-  issueUnlockCode(account: string): string | null;
+  unlockReissueDue(account: string): Promise<boolean>;
+  issueUnlockCode(account: string): Promise<string | null>;
   redeemUnlockCode(account: string, code: string): Promise<boolean>;
-  issueUnlockLink(account: string): string | null;
+  issueUnlockLink(account: string): Promise<string | null>;
   redeemUnlockLink(token: string): Promise<string | null>;
 }
 
@@ -211,13 +211,13 @@ const decision = (verdict: SignInVerdict, retryAfterSeconds = 0, justLocked = fa
 export function createSignInGuard(options: SignInGuardOptions): SignInGuard {
   const { throttle, sources, locks } = options;
   const unlock = async (account: string): Promise<void> => {
-    locks.clear(account);
+    await locks.clear(account);
     await throttle.unlock(account);
   };
   return {
     async check(account, source, exists) {
       const bucket = throttleSource(source);
-      if (bucket !== null && locks.isLocked(account, exists)) return decision(SignInVerdict.Locked);
+      if (bucket !== null && (await locks.isLocked(account, exists))) return decision(SignInVerdict.Locked);
       const accountWait = await throttle.retryAfter(throttleKey(account, source));
       const wait = Math.max(accountWait, bucket === null ? 0 : await sources.retryAfter(bucket));
       return wait > 0 ? decision(SignInVerdict.Wait, wait) : decision(SignInVerdict.Proceed);
@@ -227,7 +227,7 @@ export function createSignInGuard(options: SignInGuardOptions): SignInGuard {
       const accountWait = await throttle.fail(throttleKey(account, source));
       const wait = Math.max(accountWait, bucket === null ? 0 : await sources.fail(bucket));
       if (bucket !== null) {
-        const lock = locks.fail(account, exists);
+        const lock = await locks.fail(account, exists);
         if (lock.locked) return decision(SignInVerdict.Locked, 0, lock.justLocked);
       }
       return wait > 0 ? decision(SignInVerdict.Wait, wait) : decision(SignInVerdict.Failed);
@@ -239,13 +239,13 @@ export function createSignInGuard(options: SignInGuardOptions): SignInGuard {
     unlockReissueDue: (account) => locks.unlockReissueDue(account),
     issueUnlockCode: (account) => locks.issueUnlockCode(account),
     async redeemUnlockCode(account, code) {
-      if (!locks.redeemUnlockCode(account, code)) return false;
+      if (!(await locks.redeemUnlockCode(account, code))) return false;
       await unlock(account);
       return true;
     },
     issueUnlockLink: (account) => locks.issueUnlockLink(account),
     async redeemUnlockLink(token) {
-      const account = locks.redeemUnlockLink(token);
+      const account = await locks.redeemUnlockLink(token);
       if (account !== null) await unlock(account);
       return account;
     },

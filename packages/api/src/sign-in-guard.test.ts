@@ -212,7 +212,7 @@ describe("what ends a lock", () => {
 
   it("is the one-time code mailed when it locked, once, and only while it is fresh", async () => {
     const r = (await locked());
-    const code = r.guard.issueUnlockCode(OWNER);
+    const code = await r.guard.issueUnlockCode(OWNER);
     expect(code).toMatch(/^[A-Z2-7]{16}$/);
 
     expect(await r.guard.redeemUnlockCode(OWNER, "AAAAAAAAAAAAAAAA")).toBe(false);
@@ -224,14 +224,14 @@ describe("what ends a lock", () => {
 
   it("refuses the code after an hour", async () => {
     const late = (await locked());
-    const stale = late.guard.issueUnlockCode(OWNER)!;
+    const stale = (await late.guard.issueUnlockCode(OWNER))!;
     late.advance(HOUR + 1);
     expect(await late.guard.redeemUnlockCode(OWNER, stale)).toBe(false);
   });
 
   it("is never spent by wrong codes: after fifty of them the mailed code still opens the account", async () => {
     const guessed = (await locked());
-    const real = guessed.guard.issueUnlockCode(OWNER)!;
+    const real = (await guessed.guard.issueUnlockCode(OWNER))!;
     for (let i = 0; i < 50; i += 1) expect(await guessed.guard.redeemUnlockCode(OWNER, "BBBBBBBBBBBBBBBB")).toBe(false);
     expect((await guessed.guard.check(OWNER, "196.221.5.5", true)).verdict).toBe(SignInVerdict.Locked);
     expect(await guessed.guard.redeemUnlockCode(OWNER, real)).toBe(true);
@@ -240,18 +240,18 @@ describe("what ends a lock", () => {
 
   it("is due a fresh code and link only once the last ones have expired, so a locked account is mailed at most once an hour", async () => {
     const r = (await locked());
-    expect(r.guard.unlockReissueDue(OWNER)).toBe(true);
-    const firstCode = r.guard.issueUnlockCode(OWNER)!;
-    const firstLink = r.guard.issueUnlockLink(OWNER)!;
-    expect(r.guard.unlockReissueDue(OWNER)).toBe(false);
+    expect((await r.guard.unlockReissueDue(OWNER))).toBe(true);
+    const firstCode = (await r.guard.issueUnlockCode(OWNER))!;
+    const firstLink = (await r.guard.issueUnlockLink(OWNER))!;
+    expect((await r.guard.unlockReissueDue(OWNER))).toBe(false);
     r.advance(HOUR - 1);
-    expect(r.guard.unlockReissueDue(OWNER)).toBe(false);
+    expect((await r.guard.unlockReissueDue(OWNER))).toBe(false);
     r.advance(2);
-    expect(r.guard.unlockReissueDue(OWNER)).toBe(true);
+    expect((await r.guard.unlockReissueDue(OWNER))).toBe(true);
 
-    const secondCode = r.guard.issueUnlockCode(OWNER)!;
-    const secondLink = r.guard.issueUnlockLink(OWNER)!;
-    expect(r.guard.unlockReissueDue(OWNER)).toBe(false);
+    const secondCode = (await r.guard.issueUnlockCode(OWNER))!;
+    const secondLink = (await r.guard.issueUnlockLink(OWNER))!;
+    expect((await r.guard.unlockReissueDue(OWNER))).toBe(false);
     expect(await r.guard.redeemUnlockCode(OWNER, firstCode)).toBe(false);
     expect(await r.guard.redeemUnlockLink(firstLink)).toBeNull();
     expect(await r.guard.redeemUnlockLink(secondLink)).toBe(OWNER);
@@ -260,17 +260,17 @@ describe("what ends a lock", () => {
 
   it("is never due anything for an account that is not locked, or for a name nobody holds", async () => {
     const r = rig();
-    expect(r.guard.unlockReissueDue(OWNER)).toBe(false);
+    expect((await r.guard.unlockReissueDue(OWNER))).toBe(false);
     for (let i = 0; i < ACCOUNT_LOCK_FAILURES; i += 1) await r.guess("nobody@shop.test", `10.4.${i}.1`, false);
-    expect(r.guard.unlockReissueDue("nobody@shop.test")).toBe(false);
+    expect((await r.guard.unlockReissueDue("nobody@shop.test"))).toBe(false);
   });
 
   it("is the single-use link mailed when it locked: it names no account, opens the one it was issued for, and dies with the code", async () => {
     const r = (await locked());
-    const code = r.guard.issueUnlockCode(OWNER)!;
-    const link = r.guard.issueUnlockLink(OWNER)!;
+    const code = (await r.guard.issueUnlockCode(OWNER))!;
+    const link = (await r.guard.issueUnlockLink(OWNER))!;
     expect(link).toMatch(/^[A-Za-z0-9_-]{43}$/);
-    expect(JSON.stringify(r.known.get(OWNER))).not.toContain(link);
+    expect(JSON.stringify(await r.known.get(OWNER))).not.toContain(link);
 
     expect(await r.guard.redeemUnlockLink(`${link.slice(0, -1)}${link.endsWith("A") ? "B" : "A"}`)).toBeNull();
     expect((await r.guard.check(OWNER, "196.221.5.5", true)).verdict).toBe(SignInVerdict.Locked);
@@ -282,19 +282,19 @@ describe("what ends a lock", () => {
 
   it("refuses the link after an hour, after the code was used, and after an administrator unlocked the account", async () => {
     const late = (await locked());
-    const stale = late.guard.issueUnlockLink(OWNER)!;
+    const stale = (await late.guard.issueUnlockLink(OWNER))!;
     late.advance(HOUR + 1);
     expect(await late.guard.redeemUnlockLink(stale)).toBeNull();
     expect((await late.guard.check(OWNER, "196.221.5.5", true)).verdict).toBe(SignInVerdict.Locked);
 
     const byCode = (await locked());
-    const code = byCode.guard.issueUnlockCode(OWNER)!;
-    const afterCode = byCode.guard.issueUnlockLink(OWNER)!;
+    const code = (await byCode.guard.issueUnlockCode(OWNER))!;
+    const afterCode = (await byCode.guard.issueUnlockLink(OWNER))!;
     expect(await byCode.guard.redeemUnlockCode(OWNER, code)).toBe(true);
     expect(await byCode.guard.redeemUnlockLink(afterCode)).toBeNull();
 
     const byAdmin = (await locked());
-    const afterAdmin = byAdmin.guard.issueUnlockLink(OWNER)!;
+    const afterAdmin = (await byAdmin.guard.issueUnlockLink(OWNER))!;
     await byAdmin.guard.unlock(OWNER);
     for (let i = 0; i < ACCOUNT_LOCK_FAILURES; i += 1) await byAdmin.guess(OWNER, `10.3.${i}.1`);
     expect(await byAdmin.guard.redeemUnlockLink(afterAdmin)).toBeNull();
@@ -303,16 +303,16 @@ describe("what ends a lock", () => {
 
   it("issues no link for an account that is not locked or does not exist", async () => {
     const r = rig();
-    expect(r.guard.issueUnlockLink(OWNER)).toBeNull();
+    expect((await r.guard.issueUnlockLink(OWNER))).toBeNull();
     for (let i = 0; i < ACCOUNT_LOCK_FAILURES; i += 1) await r.guess("nobody@shop.test", `10.4.${i}.1`, false);
-    expect(r.guard.issueUnlockLink("nobody@shop.test")).toBeNull();
+    expect((await r.guard.issueUnlockLink("nobody@shop.test"))).toBeNull();
   });
 
   it("issues no code for an account that is not locked or does not exist", async () => {
     const r = rig();
-    expect(r.guard.issueUnlockCode(OWNER)).toBeNull();
+    expect((await r.guard.issueUnlockCode(OWNER))).toBeNull();
     for (let i = 0; i < ACCOUNT_LOCK_FAILURES; i += 1) await r.guess("nobody@shop.test", `10.4.${i}.1`, false);
-    expect(r.guard.issueUnlockCode("nobody@shop.test")).toBeNull();
+    expect((await r.guard.issueUnlockCode("nobody@shop.test"))).toBeNull();
   });
 
   it("survives a restart: a new guard over the same store still refuses", async () => {

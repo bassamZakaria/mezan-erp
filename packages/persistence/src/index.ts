@@ -222,18 +222,26 @@ export {
 export {
   createSqliteSalesReturnStore,
   createStandaloneSqliteSalesReturnStore,
+  createSalesReturnStore,
+  ensureSalesReturnSchema,
 } from "./sales-return-store.js";
 export {
   createSqlitePurchaseReturnStore,
   createStandaloneSqlitePurchaseReturnStore,
+  createPurchaseReturnStore,
+  ensurePurchaseReturnSchema,
 } from "./purchase-return-store.js";
 export {
   createSqliteLandedCostStore,
   createStandaloneSqliteLandedCostStore,
+  createLandedCostStore,
+  ensureLandedCostSchema,
 } from "./landed-cost-store.js";
 export {
   createSqliteInstallmentPlanStore,
   createStandaloneSqliteInstallmentPlanStore,
+  createInstallmentPlanStore,
+  ensureInstallmentPlanSchema,
 } from "./installment-plan-store.js";
 export {
   createFollowUpStore,
@@ -366,6 +374,9 @@ export {
 } from "./physical-count-store.js";
 export {
   createSqliteInventoryOpsStore,
+  createInventoryOpsStore,
+  ensureInventoryOpsSchema,
+  type InventoryOpsStoreHandle,
   type SqliteInventoryOpsStoreHandle,
 } from "./inventory-ops-store.js";
 export {
@@ -528,7 +539,17 @@ export { createSqliteRateWindowStore, type SqliteRateWindowStore } from "./rate-
 export { createSqliteLeaseStore, type SqliteLeaseStore } from "./resource-lease-store.js";
 export { createSqliteAttemptStore, SignInAttemptScope, type SqliteAttemptStore, type StoredAttempt } from "./sign-in-attempt-store.js";
 export { createSqliteSessionStore, SESSION_TABLES, type SqliteSessionStore, type PersistedSession, type PersistedDisplacedSession } from "./session-store.js";
-export { createSqliteAccountLockStore, type SqliteAccountLockStore, type StoredAccountLock } from "./account-lock-store.js";
+export {
+  createAccountLockStore,
+  createSqliteAccountLockStore,
+  ensureAccountLockSchema,
+  type AccountLockRows,
+  type AccountLockStoreHandle,
+  type AccountLockStoreOptions,
+  type SqliteAccountLockStore,
+  type StoredAccountLock,
+} from "./account-lock-store.js";
+export { ensureTenantSchema } from "./tenant-schema.js";
 export { drainForeignWrites, drainUntransactedAudits, keepRecent } from "./untransacted-audits.js";
 export { createFileSecurityEventFallback, securityFallbackFor, type FileSecurityEventFallbackOptions } from "./security-fallback-file.js";
 export { createSqliteUpgradeLedger, UpgradeStepId, type UpgradeLedger } from "./upgrade-ledger.js";

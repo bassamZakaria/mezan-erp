@@ -1,9 +1,13 @@
 import Database from "better-sqlite3";
 import type { SqliteConnectionInput } from "./sqlite-connection.js";
 import { Money, Qty, type LandedCostLine } from "@mezan/domain";
+import type { DocumentRepository } from "@mezan/domain";
+import type { SqlDb } from "./sql/sql-db.js";
 import {
+  createDocumentStore,
   createSqliteDocumentStore,
   createStandaloneSqliteDocumentStore,
+  ensureDocumentSchema,
   ensureDocumentTable,
   type SqliteDocumentStoreHandle,
 } from "./document-store.js";
@@ -95,4 +99,12 @@ export function createSqliteLandedCostStore(sqlite: Database.Database) {
 
 export function createStandaloneSqliteLandedCostStore(path: SqliteConnectionInput = ":memory:"): SqliteDocumentStoreHandle<LandedCostLine> {
   return createStandaloneSqliteDocumentStore<LandedCostLine>(DOC_TYPE, serializeLine, deserializeLine, path);
+}
+
+export async function ensureLandedCostSchema(db: SqlDb): Promise<void> {
+  await ensureDocumentSchema(db);
+}
+
+export function createLandedCostStore(db: SqlDb): DocumentRepository<LandedCostLine> {
+  return createDocumentStore<LandedCostLine>(db, DOC_TYPE, serializeLine, deserializeLine);
 }

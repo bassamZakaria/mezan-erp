@@ -1,0 +1,63 @@
+name: Tests
+
+# Typecheck and the unit suite, with the Postgres half of the ledger suite
+# against the same major version the VPS runs. Release image calls this as the
+# gate in front of the staging deploy.
+on:
+  pull_request:
+  push:
+    branches: [staging, main, fixes-after-demo]
+  workflow_call:
+
+concurrency:
+  # github.workflow is the caller's name when called, so a gate run never cancels a push run.
+  group: ${{ github.workflow }}-tests-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: typecheck · vitest (postgres 17.6)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17.6
+        env:
+          POSTGRES_USER: mezan
+          POSTGRES_PASSWORD: mezan
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U mezan"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      CI: "true"
+      MEZAN_TEST_PG_URL: postgres://mezan:mezan@127.0.0.1:5432/mezan_test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+
+      - name: pnpm (packageManager in package.json)
+        run: corepack enable
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Test database (C collation, as on the VPS)
+        run: docker exec ${{ job.services.postgres.id }} psql -U mezan -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE mezan_test TEMPLATE template0 LC_COLLATE 'C' LC_CTYPE 'C' ENCODING 'UTF8'"
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Unit tests
+        run: pnpm exec vitest run

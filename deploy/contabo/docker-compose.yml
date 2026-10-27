@@ -17,7 +17,6 @@ services:
     env_file:
       - ${MEZAN_ENV_FILE:-/srv/mezan/env}
       - ${MEZAN_SHARED_ENV_FILE:-/srv/mezan/shared.env}
-      - ${MEZAN_PG_ENV_FILE:-/srv/mezan/pg.env}
     environment:
       MEZAN_PLATFORM_DIR: /data
       PORT: "8080"
@@ -58,16 +57,19 @@ services:
     # network, reaches it.
     expose:
       - "5432"
+    # Only the superuser's POSTGRES_* settings; the app's login and secrets are in /srv/mezan/env.
     env_file:
       - ${MEZAN_PG_ENV_FILE:-/srv/mezan/pg.env}
     environment:
-      POSTGRES_DB: mezan
       # REQUIRED: C collation and ctype. Every store sorts and case-folds text the
       # way SQLite does only under C; the app refuses to provision otherwise.
+      # Applies only when /srv/mezan/pg/data is empty (README "Cutover to Postgres").
       POSTGRES_INITDB_ARGS: "--locale=C --encoding=UTF8 --data-checksums"
     command:
       - postgres
       - -c
+      # Budget: 3 per open tenant + 5 platform + 2 admin, so about 60 tenants open
+      # at once; idle pools give their connections back.
       - max_connections=200
       - -c
       - shared_buffers=512MB
@@ -76,14 +78,23 @@ services:
       - -c
       - archive_mode=on
       - -c
-      - archive_command=test ! -f /wal-archive/%f && cp %p /wal-archive/%f
+      # Restore with: restore_command = 'gunzip -c /wal-archive/%f.gz > %p'
+      - archive_command=test ! -f /wal-archive/%f.gz && gzip -c %p > /wal-archive/%f.gz.tmp && mv /wal-archive/%f.gz.tmp /wal-archive/%f.gz
       - -c
-      - archive_timeout=60
+      - archive_timeout=300
       - -c
       - password_encryption=scram-sha-256
+      - -c
+      - idle_in_transaction_session_timeout=60s
+      - -c
+      - log_lock_waits=on
+      - -c
+      - log_min_duration_statement=2000
     volumes:
       - ${MEZAN_PG_DATA_DIR:-/srv/mezan/pg/data}:/var/lib/postgresql/data
       - ${MEZAN_PG_WAL_ARCHIVE_DIR:-/srv/mezan/data/backups/pg-wal}:/wal-archive
+      # Runs once, on an empty data directory; deploy.sh re-runs it on every deploy.
+      - ./postgres-init:/docker-entrypoint-initdb.d:ro
     shm_size: 256m
     stop_grace_period: 60s
     healthcheck:

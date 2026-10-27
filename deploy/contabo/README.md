@@ -1,11 +1,12 @@
 # Mezan cloud edition on a Contabo VPS
 
-One Ubuntu VPS running Docker Compose: the `mezan` app container and a stock `caddy:2` in front of it. CI builds the image; the VPS only pulls it.
+One Ubuntu VPS running Docker Compose: the `mezan` app container, a `postgres:17.6` container holding the books, and a stock `caddy:2` in front. CI builds the image; the VPS only pulls it.
 
 ```
 internet ─▶ :80/:443 Caddy (TLS, security headers, x-mezan-origin) ─▶ mezan:8080 (compose network only)
                                                                          │
-                         /srv/mezan/data  ◀──────────────────────────────┘  (SQLite: platform.db, tenants/, backups/)
+                         /srv/mezan/data  ◀──────────────────────────────┤  (keys, exports, backups/)
+                               │                  mezan-postgres:5432 ◀──┘  (db network only; data in /srv/mezan/pg/data)
                                │
             restic (systemd timer, hourly) ─▶ Contabo Object Storage bucket #1 (encrypted, versioned)
             app audit anchors (every 15 min) ─▶ bucket #2 (Object Lock)
@@ -13,8 +14,9 @@ internet ─▶ :80/:443 Caddy (TLS, security headers, x-mezan-origin) ─▶ me
 
 | File | Goes to | What it is |
 | --- | --- | --- |
-| `docker-compose.yml`, `Caddyfile`, `caddy.d/`, `deploy.sh`, `backup/` | `/opt/mezan/` | this folder, copied as is |
-| `.env.example` | `/srv/mezan/env` (root, 0600) | the app's environment |
+| `docker-compose.yml`, `Caddyfile`, `caddy.d/`, `deploy.sh`, `backup/`, `postgres-init/` | `/opt/mezan/` | this folder, copied as is |
+| `.env.example` | `/srv/mezan/env` (root, 0600) | the app's environment, including its database login `MEZAN_DATABASE_URL` and `MEZAN_TENANT_DB_SECRET` |
+| `pg.env.example` | `/srv/mezan/pg.env` (root, 0600) | the Postgres superuser (`POSTGRES_*` only); the only file the postgres container reads, never given to the app |
 | `shared.env.example` | `/srv/mezan/shared.env` (root, 0600) | domain, ACME e-mail and the origin secret; the only file Caddy reads |
 | `backup/restic.env.example` | `/srv/mezan/restic.env` (root, 0600) | backup repository and its password |
 | — | `/opt/mezan/.env` | written by `deploy.sh`: `MEZAN_IMAGE_TAG`, `MEZAN_PREVIOUS_IMAGE_TAG` |
@@ -55,7 +57,7 @@ and `systemctl restart docker`. **Why:** ufw does not filter Docker-published po
 - **DNS:** `A` (and `AAAA` once the Docker IPv6 step above is done) for the apex, for example `mezan.example.com`, pointing at the VPS. No wildcard in code mode. DNS only (grey cloud) is simplest. Cloudflare's proxy (orange cloud) also works: the Caddyfile believes `CF-Connecting-IP` only from Cloudflare's published ranges and hands the app that address as `X-Forwarded-For`, so per-address throttles still see each visitor and a direct caller cannot forge one. `X-Forwarded-Host`/`-Proto` are always overwritten, because trusting a range would otherwise pass them through from the caller. The range list is a manual copy: refresh it if Cloudflare changes its ranges. `SITE_DOMAIN` may list several names, comma-separated.
 - **Mail:** a transactional SMTP provider (Postmark, Mailgun, Brevo …) with SPF and DKIM on the sending domain. Mail sent straight from a fresh VPS address goes to spam, and the server's alerts depend on mail. Set `MEZAN_SMTP_*`, `MEZAN_PUBLIC_URL` and `MEZAN_ALERT_EMAIL=bassam.s.zakaria@gmail.com`.
 - **Uptime:** UptimeRobot HTTP(s) monitor on `https://<domain>/readyz`, 5 minutes, keyword `"ready"` (docs/OPERATIONS.md).
-- **Backup heartbeat:** a healthchecks.io check (period 1 hour, grace 2 hours) or an UptimeRobot heartbeat monitor; its URL is `BACKUP_HEARTBEAT_URL`. A missed ping is the alert that backups stopped.
+- **Backup heartbeat:** a healthchecks.io check (period 1 hour, grace 2 hours) or an UptimeRobot heartbeat monitor; its URL is `BACKUP_HEARTBEAT_URL`. A missed ping is the alert that backups stopped. The Postgres jobs have one check each: `PG_DUMP_HEARTBEAT_URL` (hourly), `PG_BASE_HEARTBEAT_URL` (daily), `PG_DRILL_HEARTBEAT_URL` (weekly), all in `restic.env`.
 
 ## 3. Object storage
 
@@ -100,9 +102,14 @@ cp /opt/mezan/.env.example /srv/mezan/env && cp /opt/mezan/shared.env.example /s
 cp /opt/mezan/backup/restic.env.example /srv/mezan/restic.env
 cp /opt/mezan/pg.env.example /srv/mezan/pg.env
 chmod 600 /srv/mezan/env /srv/mezan/shared.env /srv/mezan/restic.env /srv/mezan/pg.env   # then fill them in
-# pg.env: POSTGRES_PASSWORD and MEZAN_TENANT_DB_SECRET from `openssl rand -hex 32`, never changed afterwards
-# before the first boot: MEZAN_AUDIT_CHAIN_KEY=$(openssl rand -hex 32) in /srv/mezan/env, never changed afterwards
+# pg.env: POSTGRES_PASSWORD=$(openssl rand -hex 32)
+# env:    MEZAN_DATABASE_URL=postgres://mezan_app:$(openssl rand -hex 32)@postgres:5432/mezan
+#         MEZAN_TENANT_DB_SECRET=$(openssl rand -hex 32)
+#         MEZAN_AUDIT_CHAIN_KEY=$(openssl rand -hex 32)   before the first boot, never changed afterwards
+mkdir -p /srv/mezan/pg/data    # must be EMPTY: the C locale and data checksums are set only by initdb
 ```
+
+The app logs in as `mezan_app`, which is not a superuser: it may create, alter and drop the per-company roles and schemas, nothing else. `deploy.sh` creates it (`postgres-init/10-mezan-app.sql`, also run by the image on an empty data directory), sets its password from `MEZAN_DATABASE_URL` on every deploy and refuses to start the app if that user is a superuser. The superuser in `pg.env` is used only by `deploy.sh` and the backup jobs.
 
 Then set up the automatic deploy (§5) and push to `staging`. To deploy by hand instead, log in once with a `read:packages` token (`docker login ghcr.io --password-stdin`; it stays in `/root/.docker/config.json`) and run `/opt/mezan/deploy.sh <tag>`. On first boot without `MEZAN_PLATFORM_OWNER_PASSWORD` the owner password is written to `/srv/mezan/data/platform-owner-password.txt`: sign in at `/platform/login`, change it, delete the file.
 
@@ -136,14 +143,35 @@ Secrets of the GitHub environment `contabo` (deployment branches: `staging` only
 
 ```
 sudo /opt/mezan/deploy.sh <sha>
-sudo /opt/mezan/deploy.sh --rollback        # back to the tag that ran before
+sudo /opt/mezan/deploy.sh --rollback        # the tag that ran before, on the current books
 ```
 
-`deploy.sh` pulls first, then: stops the app (SIGTERM, up to 90 s) and **refuses to go on** unless it exited 0 and removed its `mezan-running.json` marker; copies the stopped data directory (databases with their `-wal`/`-shm`, not `backups/`) to `/srv/mezan-predeploy/<old tag>/` (the last three are kept); starts the new tag and waits up to 120 s for the healthcheck (`/readyz`). If it never gets ready it goes back to the old tag, and if the failed version changed any database's `PRAGMA user_version` (or the old version answers `SchemaTooNewError`), it moves the data aside to `/srv/mezan-predeploy/failed-<tag>-<time>/` and restores the pre-deploy copy first. An image-only rollback works only between releases with the same schema version; anything written by the failed version after the copy is in that `failed-` folder.
+`deploy.sh` pulls first, then: stops the app (SIGTERM, up to 90 s) and **refuses to go on** unless it exited 0 and removed its `mezan-running.json` marker; starts Postgres and re-applies the `mezan_app` role; copies the stopped data directory (not `backups/`) and a `pg_dump` of the whole database to `/srv/mezan-predeploy/<old tag>/` (the last three are kept); starts the new tag and waits up to 120 s for the healthcheck (`/readyz`). If it never gets ready it **always** moves what the failed version wrote to `/srv/mezan-predeploy/failed-<tag>-<time>/` (files and a dump), restores the pre-deploy copy and starts the old tag. The Postgres restore drops every schema the dump holds (`CASCADE`, so tables the failed version added go too) and rebuilds it in one transaction; a role the dump names but the cluster no longer has (a company purged since) is first created as a `NOLOGIN` placeholder, and the app's boot gives each served company's role its login back. Schemas with no row in `platform.tenant` afterwards (a company the failed version created) are logged as a `WARNING` and kept: drop them by hand once checked.
 
-**Downtime:** about a minute per deploy. The app is the only writer of its SQLite files (`MEZAN_SQLITE_EXCLUSIVE=1`), so the old and new versions cannot overlap.
+`--rollback` is different: it deploys the previous image **on the current books**, without restoring anything. If that image cannot run on them it never gets ready, and the failure path above puts the books back as they were and returns to the current tag. To go back to the books from before a deploy, restore its `/srv/mezan-predeploy/<tag>/postgres.dump` (§6). The first tag that ran on Postgres is recorded in `/srv/mezan/data/postgres-cutover-tag`; `--rollback` from that tag is refused, because the tag before it served the SQLite books, which stopped changing at the cutover. (If this script first runs on a box already on Postgres, the marker names that deploy's tag, so a rollback from it is refused too: deploy the wanted tag by name.) `deploy.sh <tag>` by name cannot tell a pre-cutover tag apart: never deploy one by hand.
+
+**Downtime:** about a minute per deploy. The old and new versions never run at once.
 
 The server's own shutdown budget is 75 s (`apps/server/src/process-lifecycle.ts`); if a backup run takes longer the process exits 1 with the marker left behind and `deploy.sh` refuses. Wait a minute, `docker compose start mezan`, and deploy again.
+
+## Cutover to Postgres (once, on a box that ran the SQLite books)
+
+Done by hand, as root on the VPS, from a checkout of the commit you will deploy. **The staging SQLite books are not carried over:** Postgres starts empty, the platform owner is created again and every company signs up again. The old files are left where they are and not read as books any more: `platform.db`, `tenants/` and `backups/` in `/srv/mezan/data`, plus the copy `deploy.sh` makes in `/srv/mezan-predeploy/<old tag>/`. Delete them once nobody needs them.
+
+1. Stop automatic deploys for the duration: `mv /home/deploy/.ssh/authorized_keys /root/deploy-authorized_keys`.
+2. Copy this folder over the old one, keeping `/opt/mezan/.env` (the running tag): `rsync -a deploy/contabo/ /opt/mezan/`, then `install -o root -g root -m 0755 /opt/mezan/ci-deploy.sh /usr/local/bin/mezan-ci-deploy`.
+3. Env files (all root, 0600):
+   - `/srv/mezan/pg.env` from `pg.env.example`: `POSTGRES_USER=mezan_owner`, `POSTGRES_PASSWORD=$(openssl rand -hex 32)`, `POSTGRES_DB=mezan`, and **nothing else** (`deploy.sh` refuses any `MEZAN_*` line there).
+   - `/srv/mezan/env`: add `MEZAN_DATABASE_URL=postgres://mezan_app:$(openssl rand -hex 32)@postgres:5432/mezan` and `MEZAN_TENANT_DB_SECRET=$(openssl rand -hex 32)`; keep `MEZAN_AUDIT_CHAIN_KEY`, or set it with `openssl rand -hex 32` if missing (the evidence and audit keys of every schema derive from it).
+   - `/srv/mezan/restic.env`: add `PG_DUMP_HEARTBEAT_URL`, `PG_BASE_HEARTBEAT_URL`, `PG_DRILL_HEARTBEAT_URL` (one healthchecks.io check each, periods in `restic.env.example`).
+   - Copy all of them to the password manager.
+4. `mkdir -p /srv/mezan/pg/data` and check it is **empty** (`ls -A`). The image runs `initdb` (C locale, UTF-8, data checksums) and `postgres-init/` only on an empty directory; if an earlier attempt left files, `docker compose -f /opt/mezan/docker-compose.yml rm -sf postgres` and move the directory aside first.
+5. Timers: `cp /opt/mezan/backup/*.service /opt/mezan/backup/*.timer /etc/systemd/system/ && systemctl daemon-reload && systemctl enable --now mezan-pg-dump.timer mezan-pg-base.timer mezan-pg-drill.timer`.
+6. Deploy by hand with the tag from the **Release image** run's notice: `docker login ghcr.io` (a `read:packages` token), then `/opt/mezan/deploy.sh <sha>@sha256:<digest>`.
+7. Check: `cat /srv/mezan/data/postgres-cutover-tag` names that tag; `docker logs mezan` shows the books on Postgres; the owner password is in `/srv/mezan/data/platform-owner-password.txt` (sign in, change it, delete the file); sign up a test company; `systemctl start mezan-pg-dump.service mezan-pg-base.service` and `journalctl -u mezan-pg-dump.service -n 20` succeed; a few minutes later `/srv/mezan/data/backups/pg-wal/` holds `*.gz` files owned by uid 999.
+8. Re-enable automatic deploys: `mv /root/deploy-authorized_keys /home/deploy/.ssh/authorized_keys`.
+
+From here `--rollback` refuses to go back past the cutover tag (§5).
 
 ## Settings changed from the console
 
@@ -157,18 +185,53 @@ sudo rm /srv/mezan/data/env-overrides.json && cd /opt/mezan && sudo docker compo
 
 ### Postgres (the books)
 
-Every tenant is a schema `t_<code>` with its own role, beside one `platform` schema, in the `mezan` database of the `mezan-postgres` container. `mezan-pg-backup.sh` writes under `/srv/mezan/data/backups/` (shipped off the box by the hourly restic job): `pg-dump/<stamp>/<schema>.dump` every hour (48 kept locally), a `pg-base/` base backup every day (2 kept) and the archived WAL in `pg-wal/` (every 60 s), so the whole cluster can be recovered to any minute. Every Sunday the drill restores the newest dumps into a scratch database and refuses if a tenant's posted journal does not balance (`PG_BACKUP_HEARTBEAT_URL` in `restic.env` reports it).
+Every company is a schema `t_<tenant id, with - replaced by _>` owned by a role of the same name, beside one `platform` schema (role `platform`), in the `mezan` database of the `mezan-postgres` container. `mezan-pg-backup.sh` writes under `/srv/mezan/data/backups/` (files mode 0600, shipped off the box by the hourly restic job):
 
-One tenant, to the last hourly dump:
+- `pg-dump/<stamp>/<schema>.dump` every hour, 48 kept locally. The run fails (and pings `PG_DUMP_HEARTBEAT_URL/fail`) if the schema list cannot be read, if any active or suspended company has no schema, or if any dump is missing or empty.
+- `pg-base/<stamp>.tar.gz` (base backup) and `pg-base/<stamp>.globals.sql` (every role, no passwords) every day, 2 kept; `PG_BASE_HEARTBEAT_URL`.
+- `pg-wal/<segment>.gz`, the archived WAL, gzipped, at least every 5 minutes (`archive_timeout=300`), so the whole cluster can be recovered to within about 5 minutes.
+- Every Sunday the drill restores the newest dumps into a scratch database and refuses if a company's posted journal does not balance; `PG_DRILL_HEARTBEAT_URL`.
+
+Find a company's schema from its company code:
+
+```
+docker exec -i mezan-postgres psql -U mezan_owner -d mezan -Atc "SELECT 't_' || replace(id, '-', '_') FROM platform.tenant WHERE code = '<company code>'"
+```
+
+One company, to the last hourly dump:
 
 ```
 cd /opt/mezan && docker compose stop mezan
-docker exec -i mezan-postgres psql -U mezan_owner -d mezan -c 'DROP SCHEMA t_<code> CASCADE'
-docker exec -i mezan-postgres pg_restore -U mezan_owner -d mezan --single-transaction < /srv/mezan/data/backups/pg-dump/<stamp>/t_<code>.dump
+docker exec -i mezan-postgres psql -U mezan_owner -d mezan -c 'DROP SCHEMA t_<id> CASCADE'
+# only if the role is gone (the company was purged): a placeholder, the boot restores its login
+docker exec -i mezan-postgres psql -U mezan_owner -d mezan -c 'CREATE ROLE t_<id> NOLOGIN'
+docker exec -i mezan-postgres pg_restore -U mezan_owner -d mezan --single-transaction < /srv/mezan/data/backups/pg-dump/<stamp>/t_<id>.dump
+docker exec -i mezan-postgres psql -U mezan_owner -d mezan -v ON_ERROR_STOP=1 -q < /opt/mezan/postgres-init/10-mezan-app.sql
 docker compose start mezan
 ```
 
-The whole cluster to a point in time: stop both containers, move `/srv/mezan/pg/data` aside, unpack the newest `pg-base/*.tar.gz` into it (owner 999, mode 700), add `restore_command = 'cp /wal-archive/%f %p'` and `recovery_target_time = '<UTC time>'` to its `postgresql.auto.conf`, `touch recovery.signal`, start `postgres` alone, check, then `SELECT pg_wal_replay_resume();` and start `mezan`.
+The whole database from a pre-deploy copy (`/srv/mezan-predeploy/<tag>/postgres.dump`): the same way `deploy.sh` does it after a failed deploy (`restore_pg_dump` in `deploy.sh`): create any missing owner role as `NOLOGIN`, drop each schema in the dump with `CASCADE`, then `pg_restore -f - < dump | psql --single-transaction`.
+
+The whole cluster to a point in time: stop both containers, move `/srv/mezan/pg/data` aside, unpack the newest `pg-base/*.tar.gz` into an empty `/srv/mezan/pg/data` (`tar -xzf … -C …`, owner 999, mode 700), add `restore_command = 'gunzip -c /wal-archive/%f.gz > %p'` and `recovery_target_time = '<UTC time>'` to its `postgresql.auto.conf`, `touch recovery.signal`, start `postgres` alone, check, then `SELECT pg_wal_replay_resume();` and start `mezan` (its boot re-sets every company role's password). The roles live in the base backup; `<stamp>.globals.sql` is for rebuilding them on a fresh cluster before restoring dumps (the passwords then come from the app's boot).
+
+**What the weekly drill does not prove.** It restores the newest per-schema dumps with `--no-owner` into a scratch database and checks each posted journal balances. It does not test the base backup, the WAL archive, the roles or ownership, the off-box copy in restic, or that the app can open the result.
+
+**Monthly: replay the base backup and WAL** (on the VPS; about the size of the database in free disk; touches nothing live):
+
+```
+d=/srv/mezan-pitr-drill && rm -rf $d && mkdir -p $d/data && chmod 700 $d/data
+tar -xzf "$(ls /srv/mezan/data/backups/pg-base/*.tar.gz | tail -n 1)" -C $d/data
+printf "restore_command = 'gunzip -c /wal-archive/%%f.gz > %%p'\n" >> $d/data/postgresql.auto.conf
+touch $d/data/recovery.signal && chown -R 999:999 $d/data
+# archive_mode=off: the drill must never write into the live archive, which it mounts read-only.
+docker run -d --name mezan-pitr-drill --network none -v $d/data:/var/lib/postgresql/data \
+  -v /srv/mezan/data/backups/pg-wal:/wal-archive:ro postgres:17.6 -c archive_mode=off
+docker logs -f mezan-pitr-drill     # wait for "archive recovery complete" / "ready to accept connections"
+docker exec mezan-pitr-drill psql -U mezan_owner -d mezan -Atc "SELECT count(*) FROM platform.tenant; SELECT max(updated_at) FROM platform.tenant"
+docker rm -f mezan-pitr-drill && rm -rf $d
+```
+
+The tenant count must match the live one and the latest `updated_at` must be within minutes of now; pick one company and run the drill's balance query on its schema. Restore one restic snapshot of `pg-base/` and `pg-wal/` to `/root/restore` once a quarter and repeat from there, which is the only proof the off-box copy works.
 
 ### Files (keys, anchors, older SQLite snapshots)
 
@@ -193,7 +256,7 @@ Restoring an older snapshot is, to the anchors, a rollback: the anchor sweep the
 
 A lost VPS: new VPS, steps 1 to 4 with the same `/srv/mezan/env` (from the password manager), restore `platform.db` and every tenant from restic, start. The audit chains verify only with the key they were written with: `MEZAN_AUDIT_CHAIN_KEY` if it was set, otherwise the `audit-chain.key` files the backup job also copies (restore each beside its database, owner 1000, mode 0600) before the first start.
 
-**Keep in the password manager:** `/srv/mezan/env` (in particular `MEZAN_AUDIT_CHAIN_KEY`, `MEZAN_AUDIT_ANCHOR_SIGNING_KEY`, SMTP and Paymob keys), `/srv/mezan/shared.env`, `/srv/mezan/pg.env` (`MEZAN_TENANT_DB_SECRET` derives every tenant role's password), and `RESTIC_PASSWORD`.
+**Keep in the password manager:** `/srv/mezan/env` (in particular `MEZAN_AUDIT_CHAIN_KEY`, `MEZAN_DATABASE_URL`, `MEZAN_TENANT_DB_SECRET`, `MEZAN_AUDIT_ANCHOR_SIGNING_KEY`, SMTP and Paymob keys), `/srv/mezan/shared.env`, `/srv/mezan/pg.env` (the superuser password), and `RESTIC_PASSWORD`.
 
 ## 7. Logs
 

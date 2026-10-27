@@ -79,30 +79,26 @@ export const area: BackendArea = {
       ),
     );
 
-    ctx.inventoryEvents.subscribe((event) => {
+    ctx.inventoryEvents.subscribe(async (event) => {
       if (event.type !== "StockMoved") return;
-      try {
-        store.lowStock.recordMove({
-          itemId: event.movement.itemId,
-          warehouseId: event.movement.warehouseId,
-          onHandAfter: event.onHandAfter,
-          at: new Date().toISOString(),
-          alertId: randomUUID(),
-        });
-      } catch (error) {
-        areaLog.error({ err: error }, "could not evaluate the reorder point for a stock movement");
-      }
+      await store.lowStock.recordMove({
+        itemId: event.movement.itemId,
+        warehouseId: event.movement.warehouseId,
+        onHandAfter: event.onHandAfter,
+        at: new Date().toISOString(),
+        alertId: randomUUID(),
+      });
     });
 
     let flushing = false;
     const publishPending = async (): Promise<void> => {
-      for (const alert of store.lowStock.pending()) {
+      for (const alert of await store.lowStock.pending()) {
         try {
           ctx.eventBus.publish(LOW_STOCK_EVENT, alertPayload(alert), alert.detectedAt);
         } catch (error) {
           areaLog.error({ err: error }, "a low-stock subscriber failed");
         }
-        store.lowStock.markPublished(alert.id, new Date().toISOString());
+        await store.lowStock.markPublished(alert.id, new Date().toISOString());
       }
     };
     const flush = async (): Promise<void> => {

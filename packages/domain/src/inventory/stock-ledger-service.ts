@@ -608,14 +608,14 @@ export class StockLedgerService {
       averageCost,
     });
 
-    this.deps.events?.publish({
+    await this.deps.events?.publish({
       type: "StockMoved",
       movement,
       onHandAfter: newOnHand,
       averageCostAfter: averageCost,
     });
     if (deficit) {
-      this.deps.events?.publish({
+      await this.deps.events?.publish({
         type: "StockIssuedShort",
         movementId: movement.id,
         itemId: input.itemId,
@@ -745,7 +745,7 @@ export class StockLedgerService {
         );
       }
 
-      this.deps.events?.publish({
+      await this.deps.events?.publish({
         type: "StockAdjustmentPosted",
         adjustmentId: command.adjustmentId,
         warehouseId: command.warehouseId,
@@ -1011,7 +1011,7 @@ export class StockLedgerService {
         });
       }
 
-      this.deps.events?.publish({
+      await this.deps.events?.publish({
         type: "StockTransferPosted",
         transferId: command.transferId,
         fromWarehouseId: command.fromWarehouseId,

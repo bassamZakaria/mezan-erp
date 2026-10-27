@@ -1,7 +1,9 @@
-import Database from "better-sqlite3";
+import type Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
-import { insertingNew } from "./insert-new.js";
-import { childRowsByParent } from "./list-query.js";
+import { refuseUnlessInserted } from "./insert-new.js";
+import { childRowsByParentAsync } from "./list-query.js";
+import type { SqlDb, SqlValue } from "./sql/sql-db.js";
+import { sqliteDb } from "./sql/sqlite-db.js";
 import {
   Money,
   Qty,
@@ -46,7 +48,9 @@ CREATE TABLE IF NOT EXISTS promotion (
   start_date            TEXT NOT NULL,
   end_date              TEXT NOT NULL,
   active                INTEGER NOT NULL,
-  created_at            TEXT NOT NULL
+  created_at            TEXT NOT NULL,
+  min_qty               INTEGER,
+  max_discount_amount   INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_promotion_active ON promotion(active);
 CREATE TABLE IF NOT EXISTS promotion_bundle_component (
@@ -146,142 +150,95 @@ function toPromotion(row: PromotionRow, bundleComponents: readonly PromotionBund
   };
 }
 
-function promotionParams(promotion: Promotion) {
-  return {
-    id: promotion.id,
-    code: promotion.code,
-    priority: promotion.priority,
-    name_ar: promotion.nameAr,
-    name_en: promotion.nameEn,
-    description: promotion.description,
-    type: promotion.type,
-    percent_value: promotion.percentValue,
-    amount_value: promotion.amountValue === null ? null : promotion.amountValue.toScaledNumber(),
-    min_invoice_value: promotion.minInvoiceValue === null ? null : promotion.minInvoiceValue.toScaledNumber(),
-    min_qty: promotion.minQty === null ? null : promotion.minQty.toScaledNumber(),
-    max_discount_amount: promotion.maxDiscountAmount === null ? null : promotion.maxDiscountAmount.toScaledNumber(),
-    buy_qty: promotion.buyQty,
-    get_qty: promotion.getQty,
-    requires_coupon: promotion.requiresCoupon ? 1 : 0,
-    day_hour_restriction: promotion.dayHourRestriction === null ? null : JSON.stringify(promotion.dayHourRestriction),
-    scope_type: promotion.scope.type,
-    scope_ids: JSON.stringify(promotion.scope.ids),
-    start_date: promotion.startDate,
-    end_date: promotion.endDate,
-    active: promotion.active ? 1 : 0,
-    created_at: promotion.createdAt,
-  };
+const PROMOTION_COLUMNS = [
+  "code", "priority", "name_ar", "name_en", "description", "type", "percent_value", "amount_value",
+  "min_invoice_value", "min_qty", "max_discount_amount", "buy_qty", "get_qty", "requires_coupon",
+  "day_hour_restriction", "scope_type", "scope_ids", "start_date", "end_date", "active", "created_at",
+] as const;
+
+function promotionParams(promotion: Promotion): SqlValue[] {
+  return [
+    promotion.code,
+    promotion.priority,
+    promotion.nameAr,
+    promotion.nameEn,
+    promotion.description,
+    promotion.type,
+    promotion.percentValue,
+    promotion.amountValue === null ? null : promotion.amountValue.scaled,
+    promotion.minInvoiceValue === null ? null : promotion.minInvoiceValue.scaled,
+    promotion.minQty === null ? null : promotion.minQty.scaled,
+    promotion.maxDiscountAmount === null ? null : promotion.maxDiscountAmount.scaled,
+    promotion.buyQty,
+    promotion.getQty,
+    promotion.requiresCoupon ? 1 : 0,
+    promotion.dayHourRestriction === null ? null : JSON.stringify(promotion.dayHourRestriction),
+    promotion.scope.type,
+    JSON.stringify(promotion.scope.ids),
+    promotion.startDate,
+    promotion.endDate,
+    promotion.active ? 1 : 0,
+    promotion.createdAt,
+    promotion.id,
+  ];
 }
 
-class SqlitePromotionRepository implements PromotionRepository {
-  private readonly insertPromotion: Database.Statement;
-  private readonly updatePromotionStmt: Database.Statement;
-  private readonly deleteBundleComponents: Database.Statement;
-  private readonly insertBundleComponent: Database.Statement;
-  private readonly selectById: Database.Statement;
-  private readonly selectBundleComponents: Database.Statement;
+const INSERT_PROMOTION = `INSERT INTO promotion (${PROMOTION_COLUMNS.join(", ")}, id)
+  VALUES (${PROMOTION_COLUMNS.map(() => "?").join(", ")}, ?)
+  ON CONFLICT (id) DO NOTHING`;
+const UPDATE_PROMOTION = `UPDATE promotion SET ${PROMOTION_COLUMNS.map((column) => `${column} = ?`).join(", ")} WHERE id = ?`;
 
-  constructor(private readonly sqlite: Database.Database) {
-    this.insertPromotion = sqlite.prepare(`
-      INSERT INTO promotion (
-        id, code, priority, name_ar, name_en, description, type, percent_value, amount_value,
-        min_invoice_value, min_qty, max_discount_amount, buy_qty, get_qty, requires_coupon,
-        day_hour_restriction, scope_type, scope_ids, start_date, end_date, active, created_at
-      ) VALUES (
-        @id, @code, @priority, @name_ar, @name_en, @description, @type, @percent_value, @amount_value,
-        @min_invoice_value, @min_qty, @max_discount_amount, @buy_qty, @get_qty, @requires_coupon,
-        @day_hour_restriction, @scope_type, @scope_ids, @start_date, @end_date, @active, @created_at
-      )
-    `);
-    this.updatePromotionStmt = sqlite.prepare(`
-      UPDATE promotion SET
-        code = @code,
-        priority = @priority,
-        name_ar = @name_ar,
-        name_en = @name_en,
-        description = @description,
-        type = @type,
-        percent_value = @percent_value,
-        amount_value = @amount_value,
-        min_invoice_value = @min_invoice_value,
-        min_qty = @min_qty,
-        max_discount_amount = @max_discount_amount,
-        buy_qty = @buy_qty,
-        get_qty = @get_qty,
-        requires_coupon = @requires_coupon,
-        day_hour_restriction = @day_hour_restriction,
-        scope_type = @scope_type,
-        scope_ids = @scope_ids,
-        start_date = @start_date,
-        end_date = @end_date,
-        active = @active,
-        created_at = @created_at
-      WHERE id = @id
-    `);
-    this.deleteBundleComponents = sqlite.prepare(`DELETE FROM promotion_bundle_component WHERE promotion_id = ?`);
-    this.insertBundleComponent = sqlite.prepare(`
-      INSERT INTO promotion_bundle_component (promotion_id, line_no, item_id, qty)
-      VALUES (@promotion_id, @line_no, @item_id, @qty)
-    `);
-    this.selectById = sqlite.prepare(`SELECT * FROM promotion WHERE id = ?`).safeIntegers();
-    this.selectBundleComponents = sqlite
-      .prepare(`SELECT item_id, qty FROM promotion_bundle_component WHERE promotion_id = ? ORDER BY line_no`)
-      .safeIntegers();
-  }
+class SqlPromotionRepository implements PromotionRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async save(promotion: Promotion): Promise<void> {
-    insertingNew(promotion.id, () => this.insertPromotion.run(promotionParams(promotion)));
-    this.insertBundleComponents(promotion);
+    refuseUnlessInserted(promotion.id, (await this.db.run(INSERT_PROMOTION, promotionParams(promotion))).changes);
+    await this.insertBundleComponents(promotion);
   }
 
   async update(promotion: Promotion): Promise<void> {
-    this.updatePromotionStmt.run(promotionParams(promotion));
-    this.deleteBundleComponents.run(promotion.id);
-    this.insertBundleComponents(promotion);
+    await this.db.run(UPDATE_PROMOTION, promotionParams(promotion));
+    await this.db.run(`DELETE FROM promotion_bundle_component WHERE promotion_id = ?`, [promotion.id]);
+    await this.insertBundleComponents(promotion);
   }
 
   async findById(id: string): Promise<Promotion | null> {
-    const row = this.selectById.get(id) as PromotionRow | undefined;
+    const row = await this.db.get<PromotionRow>(`SELECT * FROM promotion WHERE id = ?`, [id]);
     return row ? this.hydrate(row) : null;
   }
 
   async list(filter: PromotionListFilter = {}): Promise<readonly Promotion[]> {
     const clauses: string[] = [];
-    const params: unknown[] = [];
+    const params: SqlValue[] = [];
     if (filter.active !== undefined) {
       clauses.push("active = ?");
       params.push(filter.active ? 1 : 0);
     }
     const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
-    const rows = this.sqlite
-      .prepare(`SELECT * FROM promotion ${where} ORDER BY created_at`)
-      .safeIntegers()
-      .all(...params) as PromotionRow[];
-    // One query for the whole page's children, not one per parent row.
-    const componentsByPromotion = childRowsByParent<BundleComponentRow & { promotion_id: string }>(this.sqlite, {
+    const rows = await this.db.all<PromotionRow>(`SELECT * FROM promotion ${where} ORDER BY created_at`, params);
+    const componentsByPromotion = await childRowsByParentAsync<BundleComponentRow & { promotion_id: string }>(this.db, {
       table: "promotion_bundle_component",
       parentColumn: "promotion_id",
       parentIds: rows.map((row) => row.id),
       orderBy: "promotion_id, line_no",
       columns: "promotion_id, item_id, qty",
-      safeIntegers: true,
     });
-    return rows.map((row) => this.hydrate(row, componentsByPromotion.get(row.id) ?? []));
+    return Promise.all(rows.map((row) => this.hydrate(row, componentsByPromotion.get(row.id) ?? [])));
   }
 
-  private insertBundleComponents(promotion: Promotion): void {
-    promotion.bundleComponents.forEach((component, index) => {
-      this.insertBundleComponent.run({
-        promotion_id: promotion.id,
-        line_no: index,
-        item_id: component.itemId,
-        qty: component.qty.toScaledNumber(),
-      });
-    });
+  private async insertBundleComponents(promotion: Promotion): Promise<void> {
+    for (const [index, component] of promotion.bundleComponents.entries()) {
+      await this.db.run(
+        `INSERT INTO promotion_bundle_component (promotion_id, line_no, item_id, qty) VALUES (?, ?, ?, ?)`,
+        [promotion.id, index, component.itemId, component.qty.scaled],
+      );
+    }
   }
 
-  private hydrate(row: PromotionRow, preloadedComponents?: readonly BundleComponentRow[]): Promotion {
-    const componentRows = preloadedComponents ?? (this.selectBundleComponents.all(row.id) as BundleComponentRow[]);
+  private async hydrate(row: PromotionRow, preloadedComponents?: readonly BundleComponentRow[]): Promise<Promotion> {
+    const componentRows =
+      preloadedComponents ??
+      (await this.db.all<BundleComponentRow>(`SELECT item_id, qty FROM promotion_bundle_component WHERE promotion_id = ? ORDER BY line_no`, [row.id]));
     return toPromotion(row, componentRows.map(toBundleComponent));
   }
 }
@@ -290,14 +247,21 @@ export interface SqlitePromotionStoreHandle extends PromotionRepository {
   close(): void;
 }
 
+export async function ensurePromotionSchema(db: SqlDb): Promise<void> {
+  await db.applySchema(CREATE_TABLES);
+}
+
+export function createPromotionStore(db: SqlDb): PromotionRepository {
+  return new SqlPromotionRepository(db);
+}
+
 /** Open a SQLite-backed PromotionRepository. ":memory:" for tests, a path for real. */
 export function createSqlitePromotionStore(path: SqliteConnectionInput = ":memory:"): SqlitePromotionStoreHandle {
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_TABLES);
   addMissingColumns(sqlite);
-  const repo = new SqlitePromotionRepository(sqlite);
-  return Object.assign(repo, {
+  return Object.assign(createPromotionStore(sqliteDb(sqlite)), {
     close: () => { if (owned) sqlite.close(); },
-  }) as SqlitePromotionStoreHandle;
+  });
 }

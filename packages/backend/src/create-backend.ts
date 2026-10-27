@@ -1453,13 +1453,13 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
     },
     transaction: <T>(fn: () => Promise<T>): Promise<T> => ledger.transaction(fn),
   };
-  const inventoryEventHandlers = new Set<(event: InventoryDomainEvent) => void>();
+  const inventoryEventHandlers = new Set<(event: InventoryDomainEvent) => Promise<void>>();
   const stockService = new StockLedgerService({
     events: {
-      publish: (event) => {
+      publish: async (event) => {
         for (const handler of inventoryEventHandlers) {
           try {
-            handler(event);
+            await stockLedger.transaction(() => handler(event));
           } catch (error) {
             backendLog.error({ area: "inventory", err: error }, "a stock-event subscriber failed");
           }

@@ -1,7 +1,8 @@
-import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 import { DuplicateItemCodeError, Money, type AlternateUnit, type CostingMethod, type EtaCodeType, type Item, type ItemRepository, type ItemStatus, type ItemType, type ItemSpecificationValue } from "@mezan/domain";
-import { insertingNew, prepareInsertOnly } from "./insert-new.js";
+import { insertNew } from "./insert-new.js";
+import type { SqlDb, SqlValue } from "./sql/sql-db.js";
+import { sqliteDb } from "./sql/sqlite-db.js";
 
 /**
  * Self-contained SQLite-backed ItemRepository (docs/archive/catalog/03-inventory.md
@@ -69,12 +70,12 @@ interface ItemRow {
   default_supplier_id: string | null;
   specifications: string | null;
   costing_method: string;
-  sale_price: number | null;
-  cost_price: number | null;
+  sale_price: bigint | null;
+  cost_price: bigint | null;
   tax_rate_percent: number;
-  track_inventory: number;
-  track_batches: number;
-  track_expiry: number;
+  track_inventory: bigint;
+  track_batches: bigint;
+  track_expiry: bigint;
   reorder_point: number | null;
   image_attachment_id: string | null;
   reorder_qty: number | null;
@@ -108,9 +109,9 @@ function toItem(row: ItemRow): Item {
     salePrice: row.sale_price === null ? null : Money.fromScaled(row.sale_price),
     costPrice: row.cost_price === null ? null : Money.fromScaled(row.cost_price),
     taxRatePercent: row.tax_rate_percent,
-    trackInventory: row.track_inventory === 1,
-    trackBatches: row.track_batches === 1,
-    trackExpiry: row.track_expiry === 1,
+    trackInventory: Number(row.track_inventory) === 1,
+    trackBatches: Number(row.track_batches) === 1,
+    trackExpiry: Number(row.track_expiry) === 1,
     reorderPoint: row.reorder_point,
     imageAttachmentId: row.image_attachment_id ?? null,
     reorderQty: row.reorder_qty,
@@ -124,15 +125,7 @@ function toItem(row: ItemRow): Item {
   };
 }
 
-class SqliteItemStore implements ItemRepository {
-  private readonly upsert: Database.Statement;
-  private readonly insertOnly: Database.Statement;
-  private readonly selectById: Database.Statement;
-  private readonly selectByCode: Database.Statement;
-  private readonly selectAll: Database.Statement;
-
-  constructor(private readonly sqlite: Database.Database) {
-    this.upsert = sqlite.prepare(`
+const UPSERT_ITEM = `
       INSERT INTO item (
         id, code, name_ar, name_en, type, base_unit_code, alternate_units, barcodes,
         category_id, brand, season_id, description, default_supplier_id, specifications, costing_method, sale_price, cost_price, tax_rate_percent,
@@ -140,11 +133,11 @@ class SqliteItemStore implements ItemRepository {
         revenue_account_id, cogs_account_id, inventory_account_id,
         eta_code_type, eta_item_code, gpc_code, status
       ) VALUES (
-        @id, @code, @name_ar, @name_en, @type, @base_unit_code, @alternate_units, @barcodes,
-        @category_id, @brand, @season_id, @description, @default_supplier_id, @specifications, @costing_method, @sale_price, @cost_price, @tax_rate_percent,
-        @track_inventory, @track_batches, @track_expiry, @reorder_point, @image_attachment_id, @reorder_qty,
-        @revenue_account_id, @cogs_account_id, @inventory_account_id,
-        @eta_code_type, @eta_item_code, @gpc_code, @status
+        ?, ?, ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?, ?,
+        ?, ?, ?,
+        ?, ?, ?, ?
       )
       ON CONFLICT(id) DO UPDATE SET
         code = excluded.code,
@@ -177,101 +170,110 @@ class SqliteItemStore implements ItemRepository {
         eta_item_code = excluded.eta_item_code,
         gpc_code = excluded.gpc_code,
         status = excluded.status
-    `);
-    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
-    this.selectById = sqlite.prepare(`SELECT * FROM item WHERE id = ?`);
-    this.selectByCode = sqlite.prepare(`SELECT * FROM item WHERE code = ?`);
-    this.selectAll = sqlite.prepare(`SELECT * FROM item`);
-  }
+`;
+
+function itemParams(item: Item): SqlValue[] {
+  return [
+    item.id,
+    item.code,
+    item.nameAr,
+    item.nameEn,
+    item.type,
+    item.baseUnitCode,
+    JSON.stringify(item.alternateUnits),
+    JSON.stringify(item.barcodes),
+    item.categoryId,
+    item.brandId,
+    item.seasonId,
+    item.description,
+    item.defaultSupplierId,
+    JSON.stringify(item.specifications),
+    item.costingMethod,
+    item.salePrice === null ? null : item.salePrice.scaled,
+    item.costPrice === null ? null : item.costPrice.scaled,
+    item.taxRatePercent,
+    item.trackInventory ? 1 : 0,
+    item.trackBatches ? 1 : 0,
+    item.trackExpiry ? 1 : 0,
+    item.reorderPoint,
+    item.imageAttachmentId,
+    item.reorderQty,
+    item.revenueAccountId,
+    item.cogsAccountId,
+    item.inventoryAccountId,
+    item.etaCodeType,
+    item.etaItemCode,
+    item.gpcCode,
+    item.status,
+  ];
+}
+
+class SqlItemStore implements ItemRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async findById(id: string): Promise<Item | null> {
-    const row = this.selectById.get(id) as ItemRow | undefined;
+    const row = await this.db.get<ItemRow>(`SELECT * FROM item WHERE id = ?`, [id]);
     return row ? toItem(row) : null;
   }
 
   async findByCode(code: string): Promise<Item | null> {
-    const row = this.selectByCode.get(code) as ItemRow | undefined;
+    const row = await this.db.get<ItemRow>(`SELECT * FROM item WHERE code = ?`, [code]);
     return row ? toItem(row) : null;
   }
 
   async list(): Promise<Item[]> {
-    const rows = this.selectAll.all() as ItemRow[];
-    return rows.map(toItem);
+    return (await this.db.all<ItemRow>(`SELECT * FROM item`)).map(toItem);
   }
 
   async create(item: Item): Promise<void> {
-    insertingNew(item.id, () => this.write(item, this.insertOnly));
+    await this.writing(item, () => insertNew(this.db, item.id, UPSERT_ITEM, itemParams(item)));
   }
 
   async update(item: Item): Promise<void> {
-    this.write(item);
+    await this.writing(item, () => this.db.run(UPSERT_ITEM, itemParams(item)));
   }
 
   /**
-   * `code` is the table's only UNIQUE column besides the `id` primary key
-   * that `ON CONFLICT(id)` already handles, so any constraint failure here is
-   * a code clash — surfaced as the same domain error the in-memory fake and
-   * the pre-check throw, so `createItem`'s allocation retry can catch it
-   * regardless of which layer won the race.
+   * `code` is the table's only UNIQUE column besides the `id` primary key, so
+   * a clash surfaces as the same domain error the in-memory fake throws, so
+   * `createItem`'s allocation retry can catch it whichever layer won the race.
+   * It is asked before the write because a failed statement aborts a Postgres
+   * transaction; the catch covers a create that lands between check and write.
    */
-  private write(item: Item, statement: Database.Statement = this.upsert): void {
+  private async writing(item: Item, write: () => Promise<unknown>): Promise<void> {
+    const taken = await this.db.get<{ id: string }>(`SELECT id FROM item WHERE code = ? AND id <> ?`, [item.code, item.id]);
+    if (taken) throw new DuplicateItemCodeError(item.code);
     try {
-      this.runUpsert(item, statement);
-    } catch (err) {
-      if (err instanceof Error && "code" in err && (err as { code?: string }).code === "SQLITE_CONSTRAINT_UNIQUE") {
-        throw new DuplicateItemCodeError(item.code);
-      }
-      throw err;
+      await write();
+    } catch (error) {
+      if (isUniqueViolation(error)) throw new DuplicateItemCodeError(item.code);
+      throw error;
     }
   }
+}
 
-  private runUpsert(item: Item, statement: Database.Statement): void {
-    statement.run({
-      id: item.id,
-      code: item.code,
-      name_ar: item.nameAr,
-      name_en: item.nameEn,
-      type: item.type,
-      base_unit_code: item.baseUnitCode,
-      alternate_units: JSON.stringify(item.alternateUnits),
-      barcodes: JSON.stringify(item.barcodes),
-      category_id: item.categoryId,
-      brand: item.brandId,
-      season_id: item.seasonId,
-      description: item.description,
-      default_supplier_id: item.defaultSupplierId,
-      specifications: JSON.stringify(item.specifications),
-      costing_method: item.costingMethod,
-      sale_price: item.salePrice === null ? null : item.salePrice.toScaledNumber(),
-      cost_price: item.costPrice === null ? null : item.costPrice.toScaledNumber(),
-      tax_rate_percent: item.taxRatePercent,
-      track_inventory: item.trackInventory ? 1 : 0,
-      track_batches: item.trackBatches ? 1 : 0,
-      track_expiry: item.trackExpiry ? 1 : 0,
-      reorder_point: item.reorderPoint,
-      image_attachment_id: item.imageAttachmentId,
-      reorder_qty: item.reorderQty,
-      revenue_account_id: item.revenueAccountId,
-      cogs_account_id: item.cogsAccountId,
-      inventory_account_id: item.inventoryAccountId,
-      eta_code_type: item.etaCodeType,
-      eta_item_code: item.etaItemCode,
-      gpc_code: item.gpcCode,
-      status: item.status,
-    });
-  }
+function isUniqueViolation(error: unknown): boolean {
+  const { code } = (error ?? {}) as { code?: string };
+  return code === "SQLITE_CONSTRAINT_UNIQUE" || code === "23505";
 }
 
 export interface SqliteItemStoreHandle extends ItemRepository {
   close(): void;
 }
 
+export async function ensureItemSchema(db: SqlDb): Promise<void> {
+  await db.applySchema(CREATE_TABLE);
+}
+
+export function createItemStore(db: SqlDb): ItemRepository {
+  return new SqlItemStore(db);
+}
+
 /** Open a SQLite-backed ItemRepository. ":memory:" for tests, a path for real. */
 export function createSqliteItemStore(path: SqliteConnectionInput = ":memory:"): SqliteItemStoreHandle {
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.exec(CREATE_TABLE);
-  const store = new SqliteItemStore(sqlite);
-  return Object.assign(store, {
+  return Object.assign(createItemStore(sqliteDb(sqlite)), {
     close: () => { if (owned) sqlite.close(); },
-  }) as SqliteItemStoreHandle;
+  });
 }

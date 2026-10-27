@@ -1,5 +1,7 @@
-import Database from "better-sqlite3";
+import type Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
+import type { SqlDb } from "./sql/sql-db.js";
+import { sqliteDb } from "./sql/sqlite-db.js";
 import type {
   ItemCatalogStatus,
   ItemSpecification,
@@ -34,7 +36,7 @@ interface SpecificationRow {
   type: string;
   values_json: string;
   unit: string | null;
-  filterable: number;
+  filterable: bigint;
   status: string;
 }
 
@@ -46,74 +48,72 @@ function toSpecification(row: SpecificationRow): ItemSpecification {
     type: row.type as ItemSpecificationType,
     values: JSON.parse(row.values_json) as string[],
     unit: row.unit,
-    filterable: row.filterable === 1,
+    filterable: Number(row.filterable) === 1,
     status: row.status as ItemCatalogStatus,
   };
 }
 
-class SqliteItemSpecificationRepository implements ItemSpecificationRepository {
-  private readonly upsert: Database.Statement;
-  private readonly selectByCode: Database.Statement;
-  private readonly selectAll: Database.Statement;
-  private readonly deleteByCode: Database.Statement;
+const UPSERT_SPECIFICATION = `INSERT INTO item_specification (code, name_ar, name_en, type, values_json, unit, filterable, status)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  ON CONFLICT(code) DO UPDATE SET
+    name_ar = excluded.name_ar,
+    name_en = excluded.name_en,
+    type = excluded.type,
+    values_json = excluded.values_json,
+    unit = excluded.unit,
+    filterable = excluded.filterable,
+    status = excluded.status`;
 
-  constructor(sqlite: Database.Database) {
-    this.upsert = sqlite.prepare(`
-      INSERT INTO item_specification (code, name_ar, name_en, type, values_json, unit, filterable, status)
-      VALUES (@code, @name_ar, @name_en, @type, @values_json, @unit, @filterable, @status)
-      ON CONFLICT(code) DO UPDATE SET
-        name_ar = excluded.name_ar,
-        name_en = excluded.name_en,
-        type = excluded.type,
-        values_json = excluded.values_json,
-        unit = excluded.unit,
-        filterable = excluded.filterable,
-        status = excluded.status
-    `);
-    this.selectByCode = sqlite.prepare(`SELECT * FROM item_specification WHERE code = ?`);
-    this.selectAll = sqlite.prepare(`SELECT * FROM item_specification ORDER BY code`);
-    this.deleteByCode = sqlite.prepare(`DELETE FROM item_specification WHERE code = ?`);
-  }
+class SqlItemSpecificationRepository implements ItemSpecificationRepository {
+  constructor(private readonly db: SqlDb) {}
 
-  private write(specification: ItemSpecification): void {
-    this.upsert.run({
-      code: specification.code,
-      name_ar: specification.nameAr,
-      name_en: specification.nameEn,
-      type: specification.type,
-      values_json: JSON.stringify(specification.values),
-      unit: specification.unit,
-      filterable: specification.filterable ? 1 : 0,
-      status: specification.status,
-    });
+  private async write(specification: ItemSpecification): Promise<void> {
+    await this.db.run(UPSERT_SPECIFICATION, [
+      specification.code,
+      specification.nameAr,
+      specification.nameEn,
+      specification.type,
+      JSON.stringify(specification.values),
+      specification.unit,
+      specification.filterable ? 1 : 0,
+      specification.status,
+    ]);
   }
 
   async findByCode(code: string): Promise<ItemSpecification | null> {
-    const row = this.selectByCode.get(code) as SpecificationRow | undefined;
+    const row = await this.db.get<SpecificationRow>(`SELECT * FROM item_specification WHERE code = ?`, [code]);
     return row ? toSpecification(row) : null;
   }
 
   async list(): Promise<ItemSpecification[]> {
-    return (this.selectAll.all() as SpecificationRow[]).map(toSpecification);
+    return (await this.db.all<SpecificationRow>(`SELECT * FROM item_specification ORDER BY code`)).map(toSpecification);
   }
 
   async create(specification: ItemSpecification): Promise<void> {
-    this.write(specification);
+    await this.write(specification);
   }
 
   async update(specification: ItemSpecification): Promise<void> {
-    this.write(specification);
+    await this.write(specification);
   }
 
   async delete(code: string): Promise<void> {
-    this.deleteByCode.run(code);
+    await this.db.run(`DELETE FROM item_specification WHERE code = ?`, [code]);
   }
+}
+
+export async function ensureItemSpecificationSchema(db: SqlDb): Promise<void> {
+  await db.applySchema(CREATE_TABLE);
+}
+
+export function createItemSpecificationRepository(db: SqlDb): ItemSpecificationRepository {
+  return new SqlItemSpecificationRepository(db);
 }
 
 /** Build the registry on an EXISTING connection, so a composed app keeps one DB handle. */
 export function createSqliteItemSpecificationRepository(sqlite: Database.Database): ItemSpecificationRepository {
   sqlite.exec(CREATE_TABLE);
-  return new SqliteItemSpecificationRepository(sqlite);
+  return createItemSpecificationRepository(sqliteDb(sqlite));
 }
 
 export interface SqliteItemSpecificationStoreHandle {

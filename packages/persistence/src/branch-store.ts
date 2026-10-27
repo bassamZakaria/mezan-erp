@@ -1,7 +1,8 @@
-import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 import type { Branch, BranchRepository } from "@mezan/domain";
-import { insertingNew, prepareInsertOnly, refusingTakenId } from "./insert-new.js";
+import { insertNew, refuseTakenIdAsync } from "./insert-new.js";
+import type { SqlDb, SqlValue } from "./sql/sql-db.js";
+import { sqliteDb } from "./sql/sqlite-db.js";
 
 /** SQLite-backed BranchRepository (docs/archive/catalog/09 §"إدارة الفروع"). */
 
@@ -27,8 +28,8 @@ interface BranchRow {
   phone: string | null;
   email: string | null;
   address: string | null;
-  is_main: number;
-  active: number;
+  is_main: bigint;
+  active: bigint;
 }
 
 function toBranch(row: BranchRow): Branch {
@@ -40,62 +41,52 @@ function toBranch(row: BranchRow): Branch {
     phone: row.phone,
     email: row.email,
     address: row.address,
-    isMain: row.is_main === 1,
-    active: row.active === 1,
+    isMain: Number(row.is_main) === 1,
+    active: Number(row.active) === 1,
   };
 }
 
-class SqliteBranchStore implements BranchRepository {
-  private readonly upsert: Database.Statement;
-  private readonly insertOnly: Database.Statement;
-  private readonly selectAll: Database.Statement;
-  private readonly selectById: Database.Statement;
-
-  constructor(private readonly sqlite: Database.Database) {
-    this.upsert = sqlite.prepare(
-      `INSERT INTO branch (id, code, name, parent_branch_id, phone, email, address, is_main, active)
-       VALUES (@id, @code, @name, @parentBranchId, @phone, @email, @address, @isMain, @active)
+const UPSERT_BRANCH = `INSERT INTO branch (id, code, name, parent_branch_id, phone, email, address, is_main, active)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
-         code = @code, name = @name, parent_branch_id = @parentBranchId,
-         phone = @phone, email = @email, address = @address,
-         is_main = @isMain, active = @active`,
-    );
-    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
-    this.selectAll = sqlite.prepare(`SELECT * FROM branch ORDER BY code ASC`);
-    this.selectById = sqlite.prepare(`SELECT * FROM branch WHERE id = ?`);
-  }
+         code = excluded.code, name = excluded.name, parent_branch_id = excluded.parent_branch_id,
+         phone = excluded.phone, email = excluded.email, address = excluded.address,
+         is_main = excluded.is_main, active = excluded.active`;
+
+function branchParams(branch: Branch): SqlValue[] {
+  return [
+    branch.id,
+    branch.code,
+    branch.name,
+    branch.parentBranchId,
+    branch.phone,
+    branch.email,
+    branch.address,
+    branch.isMain ? 1 : 0,
+    branch.active ? 1 : 0,
+  ];
+}
+
+class SqlBranchStore implements BranchRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async findAll(): Promise<readonly Branch[]> {
-    return (this.selectAll.all() as BranchRow[]).map(toBranch);
+    return (await this.db.all<BranchRow>(`SELECT * FROM branch ORDER BY code ASC`)).map(toBranch);
   }
 
   async findById(id: string): Promise<Branch | null> {
-    const row = this.selectById.get(id) as BranchRow | undefined;
+    const row = await this.db.get<BranchRow>(`SELECT * FROM branch WHERE id = ?`, [id]);
     return row ? toBranch(row) : null;
   }
 
   async save(branch: Branch): Promise<void> {
-    this.write(branch);
+    await this.db.run(UPSERT_BRANCH, branchParams(branch));
   }
 
   async insert(branch: Branch): Promise<void> {
     // ORDERING: a resubmitted branch collides on its code too, and SQLite names that constraint first — the id is asked about before the write so the refusal is the id's.
-    refusingTakenId(this.sqlite, "branch", branch.id);
-    insertingNew(branch.id, () => this.write(branch, this.insertOnly));
-  }
-
-  private write(branch: Branch, statement: Database.Statement = this.upsert): void {
-    statement.run({
-      id: branch.id,
-      code: branch.code,
-      name: branch.name,
-      parentBranchId: branch.parentBranchId,
-      phone: branch.phone,
-      email: branch.email,
-      address: branch.address,
-      isMain: branch.isMain ? 1 : 0,
-      active: branch.active ? 1 : 0,
-    });
+    await refuseTakenIdAsync(this.db, "branch", branch.id);
+    await insertNew(this.db, branch.id, UPSERT_BRANCH, branchParams(branch));
   }
 }
 
@@ -103,12 +94,19 @@ export interface SqliteBranchStoreHandle extends BranchRepository {
   close(): void;
 }
 
+export async function ensureBranchSchema(db: SqlDb): Promise<void> {
+  await db.applySchema(CREATE_TABLE);
+}
+
+export function createBranchStore(db: SqlDb): BranchRepository {
+  return new SqlBranchStore(db);
+}
+
 /** Open a SQLite-backed BranchRepository. ":memory:" for tests, a path for real. */
 export function createSqliteBranchStore(path: SqliteConnectionInput = ":memory:"): SqliteBranchStoreHandle {
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.exec(CREATE_TABLE);
-  const store = new SqliteBranchStore(sqlite);
-  return Object.assign(store, {
+  return Object.assign(createBranchStore(sqliteDb(sqlite)), {
     close: () => { if (owned) sqlite.close(); },
-  }) as SqliteBranchStoreHandle;
+  });
 }

@@ -1,4 +1,6 @@
 import type Database from "better-sqlite3";
+import { placeholders, type SqlDb } from "./sql/sql-db.js";
+import { sqliteDb } from "./sql/sqlite-db.js";
 
 /**
  * الإصدار (row version) — optimistic concurrency for the documents two tills can
@@ -55,21 +57,18 @@ export interface DocumentVersionStore {
    */
   readMany(ids: readonly string[]): Promise<ReadonlyMap<string, number>>;
   /** Called by every write path, so ANY change to the row moves the version. */
-  bump(id: string): void;
+  bump(id: string): Promise<void>;
   /** Records who made the change that just won, so the next stale caller can be told. */
   stampModifier(id: string, actor: string | null): Promise<void>;
 }
 
 const ID_CHUNK = 500;
 
-export function createDocumentVersionStore(sqlite: Database.Database, table: string): DocumentVersionStore {
-  const select = sqlite.prepare(`SELECT version, last_modified_by FROM ${table} WHERE id = ?`);
-  const increment = sqlite.prepare(`UPDATE ${table} SET version = version + 1 WHERE id = ?`);
-  const stamp = sqlite.prepare(`UPDATE ${table} SET last_modified_by = ? WHERE id = ?`);
+export function createSqlDocumentVersionStore(db: SqlDb, table: string): DocumentVersionStore {
   return {
     async read(id) {
-      const row = select.get(id) as { version: number; last_modified_by: string | null } | undefined;
-      return row ? { version: row.version, lastModifiedBy: row.last_modified_by } : null;
+      const row = await db.get<{ version: bigint; last_modified_by: string | null }>(`SELECT version, last_modified_by FROM ${table} WHERE id = ?`, [id]);
+      return row ? { version: Number(row.version), lastModifiedBy: row.last_modified_by } : null;
     },
     async readMany(ids) {
       const found = new Map<string, number>();
@@ -77,18 +76,20 @@ export function createDocumentVersionStore(sqlite: Database.Database, table: str
       // rather than sent as one enormous IN list.
       for (let i = 0; i < ids.length; i += ID_CHUNK) {
         const chunk = ids.slice(i, i + ID_CHUNK);
-        const rows = sqlite
-          .prepare(`SELECT id, version FROM ${table} WHERE id IN (${chunk.map(() => "?").join(",")})`)
-          .all(...chunk) as { id: string; version: number }[];
-        for (const row of rows) found.set(row.id, row.version);
+        const rows = await db.all<{ id: string; version: bigint }>(`SELECT id, version FROM ${table} WHERE id IN (${placeholders(chunk.length)})`, chunk);
+        for (const row of rows) found.set(row.id, Number(row.version));
       }
       return found;
     },
-    bump(id) {
-      increment.run(id);
+    async bump(id) {
+      await db.run(`UPDATE ${table} SET version = version + 1 WHERE id = ?`, [id]);
     },
     async stampModifier(id, actor) {
-      stamp.run(actor, id);
+      await db.run(`UPDATE ${table} SET last_modified_by = ? WHERE id = ?`, [actor, id]);
     },
   };
+}
+
+export function createDocumentVersionStore(sqlite: Database.Database, table: string): DocumentVersionStore {
+  return createSqlDocumentVersionStore(sqliteDb(sqlite), table);
 }

@@ -213,7 +213,8 @@ restore_pg_dumps() {
     log "dropping $schema, which the failed version created"
     psql_in "DROP SCHEMA $schema CASCADE" >/dev/null
     if [ "$(psql_in "SELECT count(*) FROM pg_roles WHERE rolname = '$schema'")" = "1" ]; then
-      printf 'DROP OWNED BY %s CASCADE;\nDROP ROLE %s;\n' "$schema" "$schema" \
+      # The app granted it CONNECT; only the grantor can revoke that, and DROP ROLE refuses while it stands.
+      printf 'DROP OWNED BY %s CASCADE;\nSET ROLE mezan_app;\nREVOKE ALL ON DATABASE mezan FROM %s;\nRESET ROLE;\nDROP ROLE %s;\n' "$schema" "$schema" "$schema" \
         | docker exec -i mezan-postgres psql -U "$(pg_user)" -d mezan -v ON_ERROR_STOP=1 --single-transaction -q >/dev/null
     fi
   done

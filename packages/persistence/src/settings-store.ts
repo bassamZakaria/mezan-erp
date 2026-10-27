@@ -119,7 +119,6 @@ export function createSqliteSettingsStore(path: SqliteConnectionInput = ":memory
   }) as SqliteSettingsStoreHandle;
 }
 
-// The SQLite factory stays synchronous, so the legacy-row upgrade runs here as it always has.
 function sealStoredPasswordNow(sqlite: Database.Database, secrets: SecretBox | undefined): void {
   if (!secrets) return;
   const row = sqlite.prepare(`SELECT data FROM tenant_settings WHERE id = ?`).get(SETTINGS_ROW_ID) as { data: string } | undefined;

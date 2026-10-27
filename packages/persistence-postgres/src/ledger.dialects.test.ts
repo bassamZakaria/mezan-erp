@@ -1,4 +1,3 @@
-import { randomBytes, randomUUID } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -15,10 +14,12 @@ import {
   type JournalPostingDeps,
 } from "@mezan/domain";
 import {
+  createAccountRepository,
+  createFiscalPeriodRepository,
   createLedgerStore,
-  createSqliteAccountRepository,
-  createSqliteFiscalPeriodRepository,
   createSqliteLedgerStore,
+  ensureAccountSchema,
+  ensureFiscalPeriodSchema,
   ensureLedgerSchema,
   sqliteDb,
   SqlDialect,
@@ -30,10 +31,10 @@ import {
   ConnectionOptionsInUrlError,
   createTenantPool,
   postgresDb,
-  provisionTenantSchema,
   TenantSchemaMismatchError,
   TransactionAbortedError,
 } from "./postgres-db.js";
+import { provisionTestTenant } from "./test-support.js";
 
 const PG_URL = process.env.MEZAN_TEST_PG_URL;
 if (process.env.CI && !PG_URL) throw new Error("MEZAN_TEST_PG_URL must be set in CI: the Postgres half of the ledger suite may not skip there.");
@@ -71,9 +72,7 @@ afterAll(async () => {
 });
 
 async function postgresTenant(max = 8): Promise<Tenant> {
-  const schema = `t_${randomUUID().replace(/-/g, "").slice(0, 16)}`;
-  const password = randomBytes(18).toString("base64url");
-  await provisionTenantSchema(admin!, schema, password);
+  const { schema, password } = await provisionTestTenant(admin!);
   const pool = createTenantPool({ connectionString: PG_URL!, schema, password, max });
   const db = postgresDb(pool, schema);
   await ensureLedgerSchema(db);
@@ -92,10 +91,11 @@ function account(id: string, overrides: Partial<Account> = {}): Account {
   return { id, code: id, nameAr: id, nameEn: null, type: "asset", naturalBalance: "debit", parentId: null, isHeader: false, status: "active", ...overrides };
 }
 
-async function deps(ledger: LedgerStoreHandle): Promise<JournalPostingDeps> {
-  const accounts = createSqliteAccountRepository();
-  const periods = createSqliteFiscalPeriodRepository();
-  closers.push(accounts, periods);
+async function deps({ ledger, db }: { ledger: LedgerStoreHandle; db: SqlDb }): Promise<JournalPostingDeps> {
+  await ensureAccountSchema(db);
+  await ensureFiscalPeriodSchema(db);
+  const accounts = createAccountRepository(db);
+  const periods = createFiscalPeriodRepository(db);
   await accounts.create(account("1300"));
   await accounts.create(account("4000", { type: "revenue", naturalBalance: "credit" }));
   await accounts.create(account("2200", { type: "liability", naturalBalance: "credit" }));
@@ -138,8 +138,8 @@ describe.each(dialects)("ledger store on $dialect", ({ dialect, open }) => {
   const run = dialect === SqlDialect.Postgres && !PG_URL ? it.skip : it;
 
   run("posts a balanced entry with a number, and every balance is exact to the minor unit", async () => {
-    const { ledger } = await open();
-    const posted = await postJournalEntry(sale("je-1", "1150.75", "1009.43", "141.32"), await deps(ledger));
+    const { ledger, db } = await open();
+    const posted = await postJournalEntry(sale("je-1", "1150.75", "1009.43", "141.32"), await deps({ ledger, db }));
 
     expect(posted.entryNo).toBe("JE-000001");
     expect(await ledger.findById("je-1")).toEqual(posted);
@@ -152,16 +152,16 @@ describe.each(dialects)("ledger store on $dialect", ({ dialect, open }) => {
   });
 
   run("keeps an amount past 2^53 scaled units exact", async () => {
-    const { ledger } = await open();
-    await postJournalEntry(sale("je-big", "98765432109.123456", "86636343955.371456", "12129088153.752000"), await deps(ledger));
+    const { ledger, db } = await open();
+    await postJournalEntry(sale("je-big", "98765432109.123456", "86636343955.371456", "12129088153.752000"), await deps({ ledger, db }));
 
     expect((await ledger.accountBalance("1300")).balance.equals(Money.fromMajor("98765432109.123456"))).toBe(true);
     expect((await ledger.accountBalances!()).get("4000")?.equals(Money.fromMajor("-86636343955.371456"))).toBe(true);
   });
 
   run("numbers twenty concurrent posts 1 to 20 with no gap and no repeat", async () => {
-    const { ledger } = await open();
-    const d = await deps(ledger);
+    const { ledger, db } = await open();
+    const d = await deps({ ledger, db });
     const posted = await Promise.all(Array.from({ length: 20 }, (_, i) => postJournalEntry(sale(`je-c${i}`, "114.00", "100.00", "14.00"), d)));
 
     expect(posted.map((e) => e.entryNo).sort()).toEqual(numbered(20));
@@ -172,8 +172,8 @@ describe.each(dialects)("ledger store on $dialect", ({ dialect, open }) => {
   });
 
   run("rolls back the entry and its number when the transaction fails", async () => {
-    const { ledger } = await open();
-    const d = await deps(ledger);
+    const { ledger, db } = await open();
+    const d = await deps({ ledger, db });
     await expect(
       ledger.transaction!(async () => {
         await ledger.numbering.next("JOURNAL_ENTRY");
@@ -226,8 +226,8 @@ describe.each(dialects)("ledger store on $dialect", ({ dialect, open }) => {
   });
 
   run("refuses a taken id, and a refusal caught inside a transaction leaves the rest of it committed", async () => {
-    const { ledger } = await open();
-    const d = await deps(ledger);
+    const { ledger, db } = await open();
+    const d = await deps({ ledger, db });
     await postJournalEntry(sale("je-dup", "114.00", "100.00", "14.00"), d);
     await expect(postJournalEntry(sale("je-dup", "114.00", "100.00", "14.00"), d)).rejects.toBeInstanceOf(DuplicateRecordIdError);
 
@@ -239,8 +239,8 @@ describe.each(dialects)("ledger store on $dialect", ({ dialect, open }) => {
   });
 
   run("filters, pages and searches the journal the same way", async () => {
-    const { ledger } = await open();
-    const d = await deps(ledger);
+    const { ledger, db } = await open();
+    const d = await deps({ ledger, db });
     for (const i of [1, 2, 3]) await postJournalEntry(sale(`je-f${i}`, "114.00", "100.00", "14.00"), d);
 
     expect((await ledger.list!({ limit: 2, offset: 1 })).map((e) => e.id)).toEqual(["je-f2", "je-f3"]);
@@ -400,8 +400,8 @@ describe.skipIf(!PG_URL)("postgres tenants", () => {
   it("keeps two tenants' books, ids and numbering apart while their requests interleave", async () => {
     const a = await postgresTenant();
     const b = await postgresTenant();
-    const da = await deps(a.ledger);
-    const db = await deps(b.ledger);
+    const da = await deps(a);
+    const db = await deps(b);
 
     const posted = await Promise.all([
       ...Array.from({ length: 5 }, (_, i) => postJournalEntry(sale(`je-${i}`, "114.00", "100.00", "14.00"), da)),

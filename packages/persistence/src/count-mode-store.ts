@@ -88,6 +88,8 @@ END;
 $$;
 CREATE OR REPLACE TRIGGER physical_count_scan_no_delete BEFORE DELETE ON physical_count_scan
   FOR EACH ROW EXECUTE FUNCTION physical_count_scan_no_delete();
+CREATE OR REPLACE TRIGGER physical_count_scan_no_truncate BEFORE TRUNCATE ON physical_count_scan
+  FOR EACH STATEMENT EXECUTE FUNCTION physical_count_scan_no_delete();
 CREATE OR REPLACE FUNCTION physical_count_scan_void_only() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
   RAISE EXCEPTION 'physical_count_scan is append-only: a scan can only be voided';

@@ -87,6 +87,8 @@ CREATE OR REPLACE TRIGGER pricing_guard_override_no_update BEFORE UPDATE ON pric
   FOR EACH ROW EXECUTE FUNCTION pricing_guard_override_append_only();
 CREATE OR REPLACE TRIGGER pricing_guard_override_no_delete BEFORE DELETE ON pricing_guard_override
   FOR EACH ROW EXECUTE FUNCTION pricing_guard_override_append_only();
+CREATE OR REPLACE TRIGGER pricing_guard_override_no_truncate BEFORE TRUNCATE ON pricing_guard_override
+  FOR EACH STATEMENT EXECUTE FUNCTION pricing_guard_override_append_only();
 `;
 
 interface RuleRow {

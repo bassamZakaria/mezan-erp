@@ -112,6 +112,8 @@ import {
 import { duplicateIdRefusal } from "./duplicate-id.js";
 import { DuplicateRecordIdError, priceFloorRequestIdOf, type DocumentPricingGuardPort } from "@mezan/domain";
 import { pricingGuardRefusal } from "./pricing-guard-routes.js";
+import { domainRefusalOf, INTERNAL_ERROR_MESSAGE_AR, INTERNAL_ERROR_MESSAGE_EN, type DomainRefusal } from "./domain-refusal.js";
+import { createLogger, LogEvent } from "./observability/index.js";
 import { partyIdsNamed, type PartyDirectory } from "./party-name-search.js";
 
 /**
@@ -467,6 +469,8 @@ function confirmPreviewBody(preview: { readonly invoice: SalesInvoice; readonly 
 }
 
 const SALES_INVOICE_DOC_TYPE = "SALES_INVOICE";
+const ETA_RECEIPT_FAILED = "ETA_RECEIPT_FAILED";
+const log = createLogger("sales-invoices");
 const JOURNAL_VIEW_PERMISSION = "accounting.journal.view";
 const REVERSED_STATUS: SalesInvoice["status"] = "reversed";
 
@@ -1303,18 +1307,18 @@ export function createSalesInvoicesRoutes(
       });
       await stampDocumentModifier(deps.versionGuard, result.invoice.id, ctx?.userId);
       let etaReceipt: { receiptNo: string; uuid: string; qrValue: string } | null = null;
-      let etaReceiptError: { code: string; message: string } | null = null;
+      let etaReceiptError: DomainRefusal | null = null;
       if (!result.held && deps.issueEtaReceipt) {
         try {
           etaReceipt = await deps.issueEtaReceipt(result.invoice.id, {
             paymentMethod: parsed.data.receiptPaymentMethod,
           });
         } catch (err) {
-          const code = (err as { code?: unknown }).code;
-          etaReceiptError = {
-            code: typeof code === "string" ? code : "ETA_RECEIPT_FAILED",
-            message: err instanceof Error ? err.message : String(err),
-          };
+          etaReceiptError = domainRefusalOf(err);
+          if (!etaReceiptError) {
+            log.error({ event: LogEvent.UnhandledError, invoiceId: result.invoice.id, err }, "ETA receipt issue failed");
+            etaReceiptError = { code: ETA_RECEIPT_FAILED, message: INTERNAL_ERROR_MESSAGE_AR, messageEn: INTERNAL_ERROR_MESSAGE_EN };
+          }
         }
       }
       return c.json({

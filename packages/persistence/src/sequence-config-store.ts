@@ -4,8 +4,6 @@ import type { SequenceConfigStore, SequenceOverride } from "@mezan/domain";
 import type { SqlDb } from "./sql/sql-db.js";
 import { sqliteDb } from "./sql/sqlite-db.js";
 
-// Holds only an admin's overrides of a sequence; the counter value stays in
-// `sequence_counter`, guarded separately.
 const CREATE_TABLE = `
 CREATE TABLE IF NOT EXISTS sequence_config (
   code         TEXT PRIMARY KEY,

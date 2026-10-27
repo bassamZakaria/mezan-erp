@@ -216,6 +216,11 @@ export async function ensureIntegrationSchema(db: SqlDb): Promise<void> {
   await db.applySchema(CREATE_TABLES);
 }
 
+enum ApiKeyLookupColumn {
+  Id = "id",
+  Lookup = "lookup",
+}
+
 const DELIVERY_COLUMNS = "id, webhook_id, event_code, payload, branch_ids, status, attempts, next_attempt_at, last_attempt_at, last_status_code, last_error, created_at, delivered_at, redelivery_of";
 
 // SECURITY: with a platform key the signing secret is sealed at rest and a record carries only the
@@ -224,7 +229,7 @@ const DELIVERY_COLUMNS = "id, webhook_id, event_code, payload, branch_ids, statu
 export function createIntegrationStore(db: SqlDb, secrets?: SecretBox): IntegrationStore {
   const sealSigningSecret = (webhookId: string, value: string): string =>
     secrets && !isSealedSecret(value) ? secrets.seal(value, signingSecretContext(webhookId)) : value;
-  const apiKey = async (column: "id" | "lookup", value: string): Promise<ApiKeyRecord | null> => {
+  const apiKey = async (column: ApiKeyLookupColumn, value: string): Promise<ApiKeyRecord | null> => {
     const row = await db.get<ApiKeyRow>(`SELECT * FROM integration_api_key WHERE ${column} = ?`, [value]);
     return row ? apiKeyOf(row) : null;
   };
@@ -239,8 +244,8 @@ export function createIntegrationStore(db: SqlDb, secrets?: SecretBox): Integrat
         );
       },
       list: async () => (await db.all<ApiKeyRow>(`SELECT * FROM integration_api_key ORDER BY created_at DESC, id`)).map(apiKeyOf),
-      findById: (id) => apiKey("id", id),
-      findByLookup: (lookup) => apiKey("lookup", lookup),
+      findById: (id) => apiKey(ApiKeyLookupColumn.Id, id),
+      findByLookup: (lookup) => apiKey(ApiKeyLookupColumn.Lookup, lookup),
       revoke: async (id, at, by) => (await db.run(`UPDATE integration_api_key SET revoked_at = ?, revoked_by = ? WHERE id = ? AND revoked_at IS NULL`, [at, by, id])).changes === 1,
       async touch(id, at) {
         await db.run(`UPDATE integration_api_key SET last_used_at = ? WHERE id = ?`, [at, id]);

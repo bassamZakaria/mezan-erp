@@ -715,6 +715,8 @@ CREATE OR REPLACE TRIGGER period_close_summary_no_update BEFORE UPDATE ON period
   FOR EACH ROW EXECUTE FUNCTION period_close_summary_append_only();
 CREATE OR REPLACE TRIGGER period_close_summary_no_delete BEFORE DELETE ON period_close_summary
   FOR EACH ROW EXECUTE FUNCTION period_close_summary_append_only();
+CREATE OR REPLACE TRIGGER period_close_summary_no_truncate BEFORE TRUNCATE ON period_close_summary
+  FOR EACH STATEMENT EXECUTE FUNCTION period_close_summary_append_only();
 `;
 
 export async function ensurePeriodCloseSchema(db: SqlDb): Promise<void> {

@@ -125,6 +125,8 @@ CREATE OR REPLACE TRIGGER stock_movement_no_update BEFORE UPDATE ON stock_moveme
   FOR EACH ROW EXECUTE FUNCTION stock_movement_append_only();
 CREATE OR REPLACE TRIGGER stock_movement_no_delete BEFORE DELETE ON stock_movement
   FOR EACH ROW EXECUTE FUNCTION stock_movement_append_only();
+CREATE OR REPLACE TRIGGER stock_movement_no_truncate BEFORE TRUNCATE ON stock_movement
+  FOR EACH STATEMENT EXECUTE FUNCTION stock_movement_append_only();
 CREATE OR REPLACE FUNCTION cost_layer_immutable_cost() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
   RAISE EXCEPTION 'cost_layer unit cost / origin is immutable';

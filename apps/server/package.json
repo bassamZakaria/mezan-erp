@@ -12,5 +12,9 @@
     "@mezan/persistence-postgres": "workspace:*",
     "hono": "^4.13.7",
     "tar": "^7.5.22"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.23.1",
+    "pg": "^8.23.1"
   }
 }

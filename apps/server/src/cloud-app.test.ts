@@ -2,6 +2,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync 
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { Context } from "hono";
+import pg from "pg";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { OWNER_PASSWORD_FILE, createCloudApp, type CloudApp } from "./cloud-app.js";
 import { parseEnv, type CloudEnv } from "./env.js";
@@ -417,5 +418,42 @@ describe("createCloudApp", () => {
     expect(blocked.status).toBe(401);
     const allowed = await app.root.fetch(new Request("http://cloud.internal/", { headers: { authorization: "Basic secret" } }));
     expect(allowed.status).toBe(200);
+  });
+});
+
+const PG_URL = process.env.MEZAN_TEST_PG_URL;
+if (process.env.CI && !PG_URL) throw new Error("MEZAN_TEST_PG_URL must be set in CI: the cloud's Postgres boot may not skip there.");
+
+describe.skipIf(!PG_URL)("createCloudApp on Postgres", () => {
+  it("boots the platform on its own schema, serves the owner, and finds the same owner after a restart", async () => {
+    const database = `mezan_boot_${Date.now()}`;
+    const admin = new pg.Client({ connectionString: PG_URL });
+    await admin.connect();
+    await admin.query(`CREATE DATABASE ${database} TEMPLATE template0 LC_COLLATE 'C' LC_CTYPE 'C'`);
+    const url = new URL(PG_URL!);
+    url.pathname = `/${database}`;
+    const env = testEnv({ postgres: { url: url.toString(), tenantDbSecret: "a".repeat(64), auditChainKey: "b".repeat(64) } });
+    try {
+      const first = await createCloudApp(env, { now: () => new Date(T) });
+      reachable(first.root, PROXY_HOPS);
+      expect((await first.readiness()).ready).toBe(true);
+      expect(await platformLogin(first, "owner@mezan.local", "owner-password-123")).toBeTruthy();
+      await first.close();
+
+      const second = await createCloudApp({ ...env, platformOwnerPassword: undefined }, { now: () => new Date(T) });
+      reachable(second.root, PROXY_HOPS);
+      expect(await platformLogin(second, "owner@mezan.local", "owner-password-123")).toBeTruthy();
+      await second.close();
+
+      const stamp = new pg.Client({ connectionString: url.toString() });
+      await stamp.connect();
+      const { rows } = await stamp.query<{ value: string }>("SELECT value FROM platform.schema_meta WHERE key = 'schema_version'");
+      await stamp.end();
+      expect(rows[0]?.value).toMatch(/^\d+$/);
+    } finally {
+      await admin.query(`DROP DATABASE IF EXISTS ${database} WITH (FORCE)`);
+      await admin.query("DROP ROLE IF EXISTS platform");
+      await admin.end();
+    }
   });
 });

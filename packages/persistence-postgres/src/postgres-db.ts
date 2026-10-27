@@ -150,15 +150,17 @@ export async function provisionTenantSchema(admin: pg.Pool | pg.Client, schema: 
     await client.query("BEGIN");
     // REQUIRED: concurrent GRANT/REVOKE on the database race on pg_database's ACL row ("tuple concurrently updated").
     await client.query("SELECT pg_advisory_xact_lock($1, 0)", [PROVISION_LOCK_CLASS]);
-    const { rows } = await client.query<{ db: string; exists: boolean }>(
-      "SELECT current_database() AS db, EXISTS (SELECT 1 FROM pg_roles WHERE rolname = $1) AS exists",
+    const { rows } = await client.query<{ db: string; exists: boolean; elevated: boolean }>(
+      "SELECT current_database() AS db, EXISTS (SELECT 1 FROM pg_roles WHERE rolname = $1) AS exists, EXISTS (SELECT 1 FROM pg_roles WHERE rolname = $1 AND (rolsuper OR rolcreatedb OR rolreplication OR rolbypassrls)) AS elevated",
       [schema],
     );
-    const { db: database, exists } = rows[0]!;
+    const { db: database, exists, elevated } = rows[0]!;
+    if (elevated) throw new Error(`role ${schema} holds SUPERUSER, CREATEDB, REPLICATION or BYPASSRLS; only a superuser can remove it`);
     await ownerOnly(client, "REVOKE ALL ON SCHEMA public FROM PUBLIC");
     await ownerOnly(client, `REVOKE ALL ON DATABASE ${pg.escapeIdentifier(database)} FROM PUBLIC`);
-    const verb = exists ? "ALTER" : "CREATE";
-    await client.query(`${verb} ROLE ${schema} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT CONNECTION LIMIT ${ROLE_CONNECTION_LIMIT} PASSWORD ${pg.escapeLiteral(scramVerifier(password))}`);
+    // REQUIRED: Postgres 16+ refuses ALTER ROLE naming SUPERUSER or CREATEDB from a role without them (mezan_app), even to turn them off; the check above stands in for them.
+    const attributes = exists ? "" : "NOSUPERUSER NOCREATEDB ";
+    await client.query(`${exists ? "ALTER" : "CREATE"} ROLE ${schema} LOGIN ${attributes}NOCREATEROLE NOINHERIT CONNECTION LIMIT ${ROLE_CONNECTION_LIMIT} PASSWORD ${pg.escapeLiteral(scramVerifier(password))}`);
     await client.query(`ALTER ROLE ${schema} SET statement_timeout = '${ROLE_STATEMENT_TIMEOUT}'`);
     await client.query(`ALTER ROLE ${schema} SET idle_in_transaction_session_timeout = '${ROLE_IDLE_IN_TRANSACTION_TIMEOUT}'`);
     await client.query(`GRANT CONNECT ON DATABASE ${pg.escapeIdentifier(database)} TO ${schema}`);

@@ -1,5 +1,7 @@
+import pg from "pg";
 import { describe, expect, it } from "vitest";
-import { assertSchemaName, InvalidSchemaNameError } from "./postgres-db.js";
+import { assertSchemaName, dropTenantSchema, InvalidSchemaNameError, provisionTenantSchema } from "./postgres-db.js";
+import { PG_URL, provisionTestTenant } from "./test-support.js";
 import { translateDdl, UntranslatableDdlError } from "./translate-ddl.js";
 
 describe("assertSchemaName", () => {
@@ -21,5 +23,21 @@ describe("translateDdl", () => {
 
   it("refuses a trigger, which needs a Postgres-specific script", () => {
     expect(() => translateDdl("CREATE TRIGGER x BEFORE UPDATE ON t BEGIN SELECT 1; END;")).toThrow(UntranslatableDdlError);
+  });
+});
+
+describe("provisionTenantSchema", () => {
+  (PG_URL ? it : it.skip)("re-provisions an existing company role as the app's non-superuser login, as every boot after the first does", async () => {
+    const admin = new pg.Pool({ connectionString: PG_URL, max: 1 });
+    try {
+      const { schema } = await provisionTestTenant(admin);
+      try {
+        await expect(provisionTenantSchema(admin, schema, "a-second-password")).resolves.toBeUndefined();
+      } finally {
+        await dropTenantSchema(admin, schema);
+      }
+    } finally {
+      await admin.end();
+    }
   });
 });

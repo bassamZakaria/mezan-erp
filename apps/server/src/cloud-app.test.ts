@@ -422,14 +422,16 @@ describe("createCloudApp", () => {
 });
 
 const PG_URL = process.env.MEZAN_TEST_PG_URL;
+const PG_ADMIN_URL = process.env.MEZAN_TEST_PG_ADMIN_URL;
 if (process.env.CI && !PG_URL) throw new Error("MEZAN_TEST_PG_URL must be set in CI: the cloud's Postgres boot may not skip there.");
 
 describe.skipIf(!PG_URL)("createCloudApp on Postgres", () => {
   it("boots the platform on its own schema, serves the owner, and finds the same owner after a restart", async () => {
     const database = `mezan_boot_${Date.now()}`;
-    const admin = new pg.Client({ connectionString: PG_URL });
+    const admin = new pg.Client({ connectionString: PG_ADMIN_URL ?? PG_URL });
     await admin.connect();
     await admin.query(`CREATE DATABASE ${database} TEMPLATE template0 LC_COLLATE 'C' LC_CTYPE 'C'`);
+    if (PG_ADMIN_URL) await admin.query(`GRANT CONNECT, CREATE ON DATABASE ${database} TO ${new URL(PG_URL!).username} WITH GRANT OPTION`);
     const url = new URL(PG_URL!);
     url.pathname = `/${database}`;
     const env = testEnv({ postgres: { url: url.toString(), tenantDbSecret: "a".repeat(64), auditChainKey: "b".repeat(64) } });

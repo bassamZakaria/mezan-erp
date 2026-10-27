@@ -74,8 +74,8 @@ export interface BackendModuleContext {
   /** Issues a sale's e-receipt synchronously with the terminal's serial and tender (D283). */
   readonly etaReceipts: EtaReceiptIssuer;
   readonly stores: BackendStores;
-  /** Runs synchronously INSIDE the posting's transaction: a subscriber must not await, must not throw, and may only write rows that belong with the posting. */
-  readonly inventoryEvents: { readonly subscribe: (handler: (event: InventoryDomainEvent) => void) => () => void };
+  /** CONTRACT: handlers are awaited one after another INSIDE the posting's transaction, each in its own savepoint, and may only write rows that belong with the posting. A handler that throws has its own writes rolled back and is logged; the posting still commits. */
+  readonly inventoryEvents: { readonly subscribe: (handler: (event: InventoryDomainEvent) => Promise<void>) => () => void };
   /** The customer-addressed mail queue and the operator-initiated drain that sends it through the tenant's SMTP session. */
   readonly customerMail: {
     readonly store: ReturnType<typeof createSqliteCollectionsStore>;

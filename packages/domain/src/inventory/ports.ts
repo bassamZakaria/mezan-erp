@@ -115,9 +115,9 @@ export type InventoryDomainEvent =
       readonly movementIds: readonly string[];
     };
 
-/** Sink for inventory domain events (workflow/notifications/realtime fan-out). */
+/** Sink for inventory domain events. Awaited inside the posting's transaction, so a subscriber's writes commit or roll back with the posting. */
 export interface InventoryEventPublisher {
-  publish(event: InventoryDomainEvent): void;
+  publish(event: InventoryDomainEvent): Promise<void>;
 }
 
 // --- GL posting hook (no import of the accounting module) ------------------

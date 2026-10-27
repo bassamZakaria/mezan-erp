@@ -1,10 +1,12 @@
-import Database from "better-sqlite3";
-import { openSqliteConnection, withSqliteTransaction, type SqliteConnectionInput } from "./sqlite-connection.js";
-import { insertingNew } from "./insert-new.js";
-import { addVersionColumns, createDocumentVersionStore, type DocumentVersionStore } from "./document-version.js";
-import { columnsOf, writeRowColumnsWhere } from "./document-field-write.js";
+import type Database from "better-sqlite3";
+import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
+import { refuseUnlessInserted } from "./insert-new.js";
+import { addVersionColumns, createSqlDocumentVersionStore, type DocumentVersionStore } from "./document-version.js";
+import { columnsOf, writeRowColumnsWhereAsync } from "./document-field-write.js";
 import { markInvoicesNamedByRegister } from "./document-kind-backfill.js";
-import { childRowsByParent, countMatching, FilterClauses, selectPage } from "./list-query.js";
+import { childRowsByParentAsync, countMatchingAsync, FilterClauses, selectPageAsync } from "./list-query.js";
+import { escapeLike, placeholders, TransactionMode, type SqlDb, type SqlValue } from "./sql/sql-db.js";
+import { sqliteDb } from "./sql/sqlite-db.js";
 import {
   InvoiceDocumentKind,
   Money,
@@ -72,7 +74,10 @@ CREATE TABLE IF NOT EXISTS sales_invoice (
   reversed_by_invoice_id TEXT REFERENCES sales_invoice(id),
   document_kind          TEXT NOT NULL DEFAULT 'standard',
   void_reason            TEXT,
-  source_quote_id        TEXT
+  source_quote_id        TEXT,
+  tax_inclusive          INTEGER,
+  version                INTEGER NOT NULL DEFAULT 1,
+  last_modified_by       TEXT
 );
 CREATE TABLE IF NOT EXISTS sales_invoice_line (
   invoice_id           TEXT NOT NULL REFERENCES sales_invoice(id),
@@ -185,8 +190,8 @@ interface InvoiceRow {
   document_kind: string | null;
   void_reason: string | null;
   source_quote_id: string | null;
-  customer_tax_exempt: number;
-  tax_inclusive: number | null;
+  customer_tax_exempt: bigint;
+  tax_inclusive: bigint | null;
   warehouse_id: string;
   branch_id: string;
   salesperson_id: string | null;
@@ -197,7 +202,7 @@ interface InvoiceRow {
   promotion_code: string | null;
   promotion_name_ar: string | null;
   promotion_coupon_code: string | null;
-  promotion_discount_total: number | null;
+  promotion_discount_total: bigint | null;
   promotion_line_discounts_json: string | null;
   promotion_applied_at: string | null;
   currency: string;
@@ -206,10 +211,10 @@ interface InvoiceRow {
   internal_notes: string | null;
   discount_type: string;
   discount_percent: number | null;
-  discount_amount: number | null;
+  discount_amount: bigint | null;
   ar_account_id: string;
   tax_account_id: string;
-  amount_paid: number;
+  amount_paid: bigint;
   created_at: string;
   confirmed_at: string | null;
   journal_entry_id: string | null;
@@ -222,7 +227,7 @@ interface LineRow {
   line_id: string;
   item_id: string;
   item_name_ar: string;
-  is_stock: number;
+  is_stock: bigint;
   qty: bigint;
   unit_code: string | null;
   unit_factor: number | null;
@@ -244,7 +249,7 @@ function toDiscount(row: InvoiceRow): SalesInvoiceDiscount {
   if (row.discount_type === "percent") {
     return { type: "percent", percent: row.discount_percent ?? 0 };
   }
-  return { type: "amount", amount: Money.fromScaled(row.discount_amount ?? 0) };
+  return { type: "amount", amount: Money.fromScaled(row.discount_amount ?? 0n) };
 }
 
 function toLine(row: LineRow): SalesInvoiceLine {
@@ -252,7 +257,6 @@ function toLine(row: LineRow): SalesInvoiceLine {
     lineId: row.line_id,
     itemId: row.item_id,
     itemNameAr: row.item_name_ar,
-    // The line SELECT uses .safeIntegers(), so INTEGER columns arrive as bigint.
     isStock: Number(row.is_stock) === 1,
     qty: Qty.fromScaled(row.qty),
     unitCode: row.unit_code ?? "",
@@ -296,7 +300,7 @@ function toAppliedPromotion(row: InvoiceRow): AppliedSalesInvoicePromotion | nul
     code: row.promotion_code ?? row.promotion_id,
     nameAr: row.promotion_name_ar ?? row.promotion_id,
     couponCode: row.promotion_coupon_code,
-    discountTotal: Money.fromScaled(row.promotion_discount_total ?? 0),
+    discountTotal: Money.fromScaled(row.promotion_discount_total ?? 0n),
     lineDiscounts: wire.map((d) => ({
       lineId: d.lineId,
       itemId: d.itemId,
@@ -306,11 +310,9 @@ function toAppliedPromotion(row: InvoiceRow): AppliedSalesInvoicePromotion | nul
   };
 }
 
-function invoiceParams(invoice: SalesInvoice) {
-  const isPercent = invoice.discount.type === "percent";
+function invoiceRecord(invoice: SalesInvoice): Record<(typeof INVOICE_COLUMNS)[number], SqlValue> {
   const promotion = invoice.appliedPromotion;
   return {
-    id: invoice.id,
     doc_type: invoice.docType,
     doc_no: invoice.docNo,
     status: invoice.status,
@@ -333,7 +335,7 @@ function invoiceParams(invoice: SalesInvoice) {
     promotion_code: promotion?.code ?? null,
     promotion_name_ar: promotion?.nameAr ?? null,
     promotion_coupon_code: promotion?.couponCode ?? null,
-    promotion_discount_total: promotion ? promotion.discountTotal.toScaledNumber() : null,
+    promotion_discount_total: promotion ? promotion.discountTotal.scaled : null,
     promotion_line_discounts_json: promotion
       ? JSON.stringify(
           promotion.lineDiscounts.map(
@@ -351,11 +353,11 @@ function invoiceParams(invoice: SalesInvoice) {
     notes: invoice.notes,
     internal_notes: invoice.internalNotes,
     discount_type: invoice.discount.type,
-    discount_percent: isPercent ? invoice.discount.percent : null,
-    discount_amount: isPercent ? null : invoice.discount.amount.toScaledNumber(),
+    discount_percent: invoice.discount.type === "percent" ? invoice.discount.percent : null,
+    discount_amount: invoice.discount.type === "percent" ? null : invoice.discount.amount.scaled,
     ar_account_id: invoice.arAccountId,
     tax_account_id: invoice.taxAccountId,
-    amount_paid: invoice.amountPaid.toScaledNumber(),
+    amount_paid: invoice.amountPaid.scaled,
     created_at: invoice.createdAt,
     confirmed_at: invoice.confirmedAt,
     journal_entry_id: invoice.journalEntryId,
@@ -364,6 +366,33 @@ function invoiceParams(invoice: SalesInvoice) {
     reversed_by_invoice_id: invoice.reversedByInvoiceId,
   };
 }
+
+const INVOICE_COLUMNS = [
+  "doc_type", "doc_no", "status", "date", "due_date", "customer_id", "customer_name_ar",
+  "customer_tax_exempt", "tax_inclusive", "warehouse_id", "branch_id", "salesperson_id", "salesperson_name_ar",
+  "project_id",
+  "coupon_code", "promotion_id", "promotion_code", "promotion_name_ar", "promotion_coupon_code",
+  "promotion_discount_total", "promotion_line_discounts_json", "promotion_applied_at",
+  "currency", "fx_rate", "notes", "internal_notes",
+  "discount_type", "discount_percent", "discount_amount", "ar_account_id", "tax_account_id",
+  "amount_paid", "created_at", "confirmed_at", "journal_entry_id", "workflow_request_id",
+  "reverses_invoice_id", "reversed_by_invoice_id", "document_kind", "void_reason", "source_quote_id",
+] as const;
+
+function invoiceParams(invoice: SalesInvoice): SqlValue[] {
+  const record = invoiceRecord(invoice);
+  return [...INVOICE_COLUMNS.map((column) => record[column]), invoice.id];
+}
+
+const INSERT_INVOICE = `INSERT INTO sales_invoice (${INVOICE_COLUMNS.join(", ")}, id)
+  VALUES (${INVOICE_COLUMNS.map(() => "?").join(", ")}, ?)
+  ON CONFLICT (id) DO NOTHING`;
+const UPDATE_INVOICE = `UPDATE sales_invoice SET ${INVOICE_COLUMNS.map((column) => `${column} = ?`).join(", ")} WHERE id = ?`;
+
+const LINE_COLUMNS =
+  "line_id, item_id, item_name_ar, is_stock, qty, unit_code, unit_factor, base_qty, " +
+  "unit_price, line_discount_type, line_discount_amount, discount_percent, tax_rate_percent, tax_rate_id, " +
+  "revenue_account_id, cogs_account_id, inventory_account_id, unit_cost, cost_center_id";
 
 const UNPOSTED_STATUSES: readonly SalesInvoiceStatus[] = ["draft", "pending"];
 
@@ -374,171 +403,65 @@ const SALES_INVOICE_COLUMNS: Readonly<Record<SalesInvoiceField, readonly string[
   [SalesInvoiceField.VoidReason]: ["void_reason"],
 };
 
-class SqliteSalesInvoiceRepository implements SalesInvoiceRepository {
-  private readonly insertInvoice: Database.Statement;
-  private readonly updateInvoice: Database.Statement;
-  private readonly deleteLines: Database.Statement;
-  private readonly insertLine: Database.Statement;
-  private readonly selectInvoiceById: Database.Statement;
-  private readonly selectInvoiceByDocNo: Database.Statement;
-  private readonly selectLines: Database.Statement;
-
-  constructor(private readonly sqlite: Database.Database, private readonly versions?: DocumentVersionStore) {
-    this.insertInvoice = sqlite.prepare(`
-      INSERT INTO sales_invoice (
-        id, doc_type, doc_no, status, date, due_date, customer_id, customer_name_ar,
-        customer_tax_exempt, tax_inclusive, warehouse_id, branch_id, salesperson_id, salesperson_name_ar,
-        project_id,
-        coupon_code, promotion_id, promotion_code, promotion_name_ar, promotion_coupon_code,
-        promotion_discount_total, promotion_line_discounts_json, promotion_applied_at,
-        currency, fx_rate, notes, internal_notes,
-        discount_type, discount_percent, discount_amount, ar_account_id, tax_account_id,
-        amount_paid, created_at, confirmed_at, journal_entry_id, workflow_request_id,
-        reverses_invoice_id, reversed_by_invoice_id, document_kind, void_reason, source_quote_id
-      ) VALUES (
-        @id, @doc_type, @doc_no, @status, @date, @due_date, @customer_id, @customer_name_ar,
-        @customer_tax_exempt, @tax_inclusive, @warehouse_id, @branch_id, @salesperson_id, @salesperson_name_ar,
-        @project_id,
-        @coupon_code, @promotion_id, @promotion_code, @promotion_name_ar, @promotion_coupon_code,
-        @promotion_discount_total, @promotion_line_discounts_json, @promotion_applied_at,
-        @currency, @fx_rate, @notes, @internal_notes,
-        @discount_type, @discount_percent, @discount_amount, @ar_account_id, @tax_account_id,
-        @amount_paid, @created_at, @confirmed_at, @journal_entry_id, @workflow_request_id,
-        @reverses_invoice_id, @reversed_by_invoice_id, @document_kind, @void_reason, @source_quote_id
-      )
-    `);
-    this.updateInvoice = sqlite.prepare(`
-      UPDATE sales_invoice SET
-        doc_type = @doc_type,
-        doc_no = @doc_no,
-        status = @status,
-        date = @date,
-        due_date = @due_date,
-        customer_id = @customer_id,
-        customer_name_ar = @customer_name_ar,
-        customer_tax_exempt = @customer_tax_exempt,
-        tax_inclusive = @tax_inclusive,
-        warehouse_id = @warehouse_id,
-        branch_id = @branch_id,
-        salesperson_id = @salesperson_id,
-        salesperson_name_ar = @salesperson_name_ar,
-        project_id = @project_id,
-        coupon_code = @coupon_code,
-        promotion_id = @promotion_id,
-        promotion_code = @promotion_code,
-        promotion_name_ar = @promotion_name_ar,
-        promotion_coupon_code = @promotion_coupon_code,
-        promotion_discount_total = @promotion_discount_total,
-        promotion_line_discounts_json = @promotion_line_discounts_json,
-        promotion_applied_at = @promotion_applied_at,
-        currency = @currency,
-        fx_rate = @fx_rate,
-        notes = @notes,
-        internal_notes = @internal_notes,
-        discount_type = @discount_type,
-        discount_percent = @discount_percent,
-        discount_amount = @discount_amount,
-        ar_account_id = @ar_account_id,
-        tax_account_id = @tax_account_id,
-        amount_paid = @amount_paid,
-        created_at = @created_at,
-        confirmed_at = @confirmed_at,
-        journal_entry_id = @journal_entry_id,
-        workflow_request_id = @workflow_request_id,
-        reverses_invoice_id = @reverses_invoice_id,
-        reversed_by_invoice_id = @reversed_by_invoice_id,
-        document_kind = @document_kind,
-        void_reason = @void_reason,
-        source_quote_id = @source_quote_id
-      WHERE id = @id
-    `);
-    this.deleteLines = sqlite.prepare(`DELETE FROM sales_invoice_line WHERE invoice_id = ?`);
-    this.insertLine = sqlite.prepare(`
-      INSERT INTO sales_invoice_line (
-        invoice_id, line_no, line_id, item_id, item_name_ar, is_stock, qty,
-        unit_code, unit_factor, base_qty, unit_price,
-        line_discount_type, line_discount_amount,
-        discount_percent, tax_rate_percent, tax_rate_id, revenue_account_id, cogs_account_id,
-        inventory_account_id, unit_cost, cost_center_id
-      ) VALUES (
-        @invoice_id, @line_no, @line_id, @item_id, @item_name_ar, @is_stock, @qty,
-        @unit_code, @unit_factor, @base_qty, @unit_price,
-        @line_discount_type, @line_discount_amount,
-        @discount_percent, @tax_rate_percent, @tax_rate_id, @revenue_account_id, @cogs_account_id,
-        @inventory_account_id, @unit_cost, @cost_center_id
-      )
-    `);
-    this.selectInvoiceById = sqlite.prepare(`SELECT * FROM sales_invoice WHERE id = ?`);
-    this.selectInvoiceByDocNo = sqlite.prepare(`SELECT * FROM sales_invoice WHERE doc_no = ?`);
-    this.selectLines = sqlite
-      .prepare(
-        `SELECT line_id, item_id, item_name_ar, is_stock, qty, unit_code, unit_factor, base_qty,
-                unit_price, line_discount_type, line_discount_amount, discount_percent,
-                tax_rate_percent, tax_rate_id, revenue_account_id, cogs_account_id, inventory_account_id, unit_cost,
-                cost_center_id
-           FROM sales_invoice_line WHERE invoice_id = ? ORDER BY line_no`,
-      )
-      .safeIntegers();
-  }
+class SqlSalesInvoiceRepository implements SalesInvoiceRepository {
+  constructor(private readonly db: SqlDb, private readonly versions?: DocumentVersionStore) {}
 
   async save(invoice: SalesInvoice): Promise<void> {
-    insertingNew(invoice.id, () => this.insertInvoice.run(invoiceParams(invoice)));
-    this.insertLines(invoice);
+    refuseUnlessInserted(invoice.id, (await this.db.run(INSERT_INVOICE, invoiceParams(invoice))).changes);
+    await this.insertLines(invoice);
   }
 
   async update(invoice: SalesInvoice): Promise<void> {
-    this.updateInvoice.run(invoiceParams(invoice));
-    this.deleteLines.run(invoice.id);
-    this.insertLines(invoice);
+    await this.db.run(UPDATE_INVOICE, invoiceParams(invoice));
+    await this.db.run(`DELETE FROM sales_invoice_line WHERE invoice_id = ?`, [invoice.id]);
+    await this.insertLines(invoice);
     // N-9: EVERY write moves the version, so a caller holding an older one is
     // detectable whichever path made the change.
-    this.versions?.bump(invoice.id);
+    await this.versions?.bump(invoice.id);
   }
 
   async writeFields(next: SalesInvoice, fields: readonly SalesInvoiceField[], expected: SalesInvoiceWritePrecondition): Promise<boolean> {
-    const written = writeRowColumnsWhere(this.sqlite, {
+    const written = await writeRowColumnsWhereAsync(this.db, {
       table: "sales_invoice",
-      row: invoiceParams(next),
+      row: invoiceRecord(next),
       columns: columnsOf(SALES_INVOICE_COLUMNS, fields),
       id: next.id,
       expectedStatuses: expected.status,
     });
-    if (written) this.versions?.bump(next.id);
+    if (written) await this.versions?.bump(next.id);
     return written;
   }
 
   async replaceUnposted(next: SalesInvoice, expected: SalesInvoiceWritePrecondition): Promise<boolean> {
     const unposted = expected.status.filter((status) => UNPOSTED_STATUSES.includes(status));
     if (unposted.length === 0) return false;
-    const changes = this.sqlite
-      .prepare(`SELECT 1 FROM sales_invoice WHERE id = ? AND status IN (${unposted.map(() => "?").join(",")})`)
-      .get(next.id, ...unposted);
-    if (!changes) return false;
+    const found = await this.db.get(`SELECT 1 AS found FROM sales_invoice WHERE id = ? AND status IN (${placeholders(unposted.length)})`, [next.id, ...unposted]);
+    if (!found) return false;
     await this.update(next);
     return true;
   }
 
   async nameLineTaxRate(invoiceId: string, lineIds: readonly string[], taxRatePercent: number, taxRateId: string): Promise<number> {
     if (lineIds.length === 0) return 0;
-    const named = this.sqlite
-      .prepare(
-        `UPDATE sales_invoice_line SET tax_rate_id = ?
-          WHERE invoice_id = ? AND tax_rate_id IS NULL AND tax_rate_percent = ?
-            AND line_id IN (${lineIds.map(() => "?").join(",")})
-            AND invoice_id IN (SELECT id FROM sales_invoice WHERE status IN (${[...SALES_INVOICE_ACTIVE_STATUSES].map(() => "?").join(",")}))`,
-      )
-      .run(taxRateId, invoiceId, taxRatePercent, ...lineIds, ...SALES_INVOICE_ACTIVE_STATUSES).changes;
-    if (named > 0) this.versions?.bump(invoiceId);
+    const active = [...SALES_INVOICE_ACTIVE_STATUSES];
+    const { changes: named } = await this.db.run(
+      `UPDATE sales_invoice_line SET tax_rate_id = ?
+        WHERE invoice_id = ? AND tax_rate_id IS NULL AND tax_rate_percent = ?
+          AND line_id IN (${placeholders(lineIds.length)})
+          AND invoice_id IN (SELECT id FROM sales_invoice WHERE status IN (${placeholders(active.length)}))`,
+      [taxRateId, invoiceId, taxRatePercent, ...lineIds, ...active],
+    );
+    if (named > 0) await this.versions?.bump(invoiceId);
     return named;
   }
 
   async findById(id: string): Promise<SalesInvoice | null> {
-    const row = this.selectInvoiceById.get(id) as InvoiceRow | undefined;
+    const row = await this.db.get<InvoiceRow>(`SELECT * FROM sales_invoice WHERE id = ?`, [id]);
     return row ? this.hydrate(row) : null;
   }
 
   async findByDocNo(docNo: string): Promise<SalesInvoice | null> {
-    const row = this.selectInvoiceByDocNo.get(docNo) as InvoiceRow | undefined;
+    const row = await this.db.get<InvoiceRow>(`SELECT * FROM sales_invoice WHERE doc_no = ?`, [docNo]);
     return row ? this.hydrate(row) : null;
   }
 
@@ -561,7 +484,7 @@ class SqliteSalesInvoiceRepository implements SalesInvoiceRepository {
       // An empty set matches nothing, exactly as the caller asked — falling
       // through to "no clause" would widen it to every status.
       if (filter.statusIn.length === 0) where.raw("0 = 1");
-      else where.raw(`status IN (${filter.statusIn.map(() => "?").join(",")})`, ...filter.statusIn);
+      else where.raw(`status IN (${placeholders(filter.statusIn.length)})`, ...filter.statusIn);
     }
     // SCOPE, not a filter. An empty array means the caller may see nothing, so
     // it must narrow to the unattributable rows rather than fall through to
@@ -573,7 +496,7 @@ class SqliteSalesInvoiceRepository implements SalesInvoiceRepository {
       ["warehouse_id", filter.warehouseScope],
     ] as const) {
       if (!ids) continue;
-      const marks = (values: readonly string[]) => values.map(() => "?").join(",");
+      const marks = (values: readonly string[]) => placeholders(values.length);
       const standsOn = column === "branch_id" ? filter.branchScopeWarehouses : undefined;
       if (standsOn) {
         const own = ids.length > 0 ? `branch_id IN (${marks(ids)})` : "0 = 1";
@@ -584,16 +507,16 @@ class SqliteSalesInvoiceRepository implements SalesInvoiceRepository {
     }
     const term = filter.search?.trim();
     if (term) {
-      const like = `%${term.toLowerCase()}%`;
+      const like = `%${escapeLike(term.toLowerCase())}%`;
       const named = filter.searchCustomerIds ?? [];
-      const byName = named.length > 0 ? ` OR customer_id IN (${named.map(() => "?").join(",")})` : "";
-      where.raw(`(LOWER(doc_no) LIKE ? OR LOWER(customer_name_ar) LIKE ?${byName})`, like, like, ...named);
+      const byName = named.length > 0 ? ` OR customer_id IN (${placeholders(named.length)})` : "";
+      where.raw(`(LOWER(doc_no) LIKE ? ESCAPE '\\' OR LOWER(customer_name_ar) LIKE ? ESCAPE '\\'${byName})`, like, like, ...named);
     }
     return where;
   }
 
   async list(filter: SalesInvoiceListFilter = {}): Promise<readonly SalesInvoice[]> {
-    const rows = selectPage<InvoiceRow>(this.sqlite, {
+    const rows = await selectPageAsync<InvoiceRow>(this.db, {
       table: "sales_invoice",
       where: this.clausesFor(filter),
       orderBy:
@@ -602,23 +525,18 @@ class SqliteSalesInvoiceRepository implements SalesInvoiceRepository {
           : "date, created_at",
       page: { limit: filter.limit, offset: filter.offset },
     });
-    // One query for the whole page's lines, not one per invoice.
-    const linesByInvoice = childRowsByParent<LineRow & { invoice_id: string }>(this.sqlite, {
+    const linesByInvoice = await childRowsByParentAsync<LineRow & { invoice_id: string }>(this.db, {
       table: "sales_invoice_line",
       parentColumn: "invoice_id",
       parentIds: rows.map((row) => row.id),
       orderBy: "invoice_id, line_no",
-      columns:
-        "invoice_id, line_id, item_id, item_name_ar, is_stock, qty, unit_code, unit_factor, base_qty, " +
-        "unit_price, line_discount_type, line_discount_amount, discount_percent, tax_rate_percent, tax_rate_id, " +
-        "revenue_account_id, cogs_account_id, inventory_account_id, unit_cost, cost_center_id",
-      safeIntegers: true,
+      columns: `invoice_id, ${LINE_COLUMNS}`,
     });
-    return rows.map((row) => this.hydrate(row, linesByInvoice.get(row.id) ?? []));
+    return Promise.all(rows.map((row) => this.hydrate(row, linesByInvoice.get(row.id) ?? [])));
   }
 
   async count(filter: SalesInvoiceListFilter = {}): Promise<number> {
-    return countMatching(this.sqlite, "sales_invoice", this.clausesFor(filter));
+    return countMatchingAsync(this.db, "sales_invoice", this.clausesFor(filter));
   }
 
   /**
@@ -630,46 +548,58 @@ class SqliteSalesInvoiceRepository implements SalesInvoiceRepository {
   async countByStatus(filter: SalesInvoiceListFilter = {}): Promise<ReadonlyMap<SalesInvoiceStatus, number>> {
     const { status: _status, statusIn: _statusIn, limit: _limit, offset: _offset, ...rest } = filter;
     const where = this.clausesFor(rest);
-    const rows = this.sqlite
-      .prepare(`SELECT status, COUNT(*) AS n FROM sales_invoice ${where.sql} GROUP BY status`)
-      .all(...where.values) as { status: string; n: number | bigint }[];
+    const rows = await this.db.all<{ status: string; n: bigint }>(
+      `SELECT status, COUNT(*) AS n FROM sales_invoice ${where.sql} GROUP BY status`,
+      where.values as SqlValue[],
+    );
     return new Map(rows.map((row) => [row.status as SalesInvoiceStatus, Number(row.n)]));
   }
 
   async transaction<T>(fn: () => Promise<T>): Promise<T> {
-    return withSqliteTransaction(this.sqlite, fn, "BEGIN IMMEDIATE");
+    return this.db.transaction(fn, TransactionMode.Immediate);
   }
 
-  private insertLines(invoice: SalesInvoice): void {
-    invoice.lines.forEach((line, index) => {
-      this.insertLine.run({
-        invoice_id: invoice.id,
-        line_no: index,
-        line_id: line.lineId,
-        item_id: line.itemId,
-        item_name_ar: line.itemNameAr,
-        is_stock: line.isStock ? 1 : 0,
-        qty: line.qty.toScaledNumber(),
-        unit_code: line.unitCode === "" ? null : line.unitCode,
-        unit_factor: line.unitFactor,
-        base_qty: line.baseQty.toScaledNumber(),
-        unit_price: line.unitPrice.toScaledNumber(),
-        line_discount_type: line.discountType,
-        line_discount_amount: line.discountAmount.toScaledNumber(),
-        discount_percent: line.discountPercent,
-        tax_rate_percent: line.taxRatePercent,
-        tax_rate_id: line.taxRateId,
-        revenue_account_id: line.revenueAccountId,
-        cogs_account_id: line.cogsAccountId,
-        inventory_account_id: line.inventoryAccountId,
-        unit_cost: line.unitCost === null ? null : line.unitCost.toScaledNumber(),
-        cost_center_id: line.costCenterId,
-      });
-    });
+  private async insertLines(invoice: SalesInvoice): Promise<void> {
+    for (const [index, line] of invoice.lines.entries()) {
+      await this.db.run(
+        `INSERT INTO sales_invoice_line (
+          invoice_id, line_no, line_id, item_id, item_name_ar, is_stock, qty,
+          unit_code, unit_factor, base_qty, unit_price,
+          line_discount_type, line_discount_amount,
+          discount_percent, tax_rate_percent, tax_rate_id, revenue_account_id, cogs_account_id,
+          inventory_account_id, unit_cost, cost_center_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          invoice.id,
+          index,
+          line.lineId,
+          line.itemId,
+          line.itemNameAr,
+          line.isStock ? 1 : 0,
+          line.qty.scaled,
+          line.unitCode === "" ? null : line.unitCode,
+          line.unitFactor,
+          line.baseQty.scaled,
+          line.unitPrice.scaled,
+          line.discountType,
+          line.discountAmount.scaled,
+          line.discountPercent,
+          line.taxRatePercent,
+          line.taxRateId,
+          line.revenueAccountId,
+          line.cogsAccountId,
+          line.inventoryAccountId,
+          line.unitCost === null ? null : line.unitCost.scaled,
+          line.costCenterId,
+        ],
+      );
+    }
   }
 
-  private hydrate(row: InvoiceRow, preloadedLines?: readonly LineRow[]): SalesInvoice {
-    const lineRows = preloadedLines ?? (this.selectLines.all(row.id) as LineRow[]);
+  private async hydrate(row: InvoiceRow, preloadedLines?: readonly LineRow[]): Promise<SalesInvoice> {
+    const lineRows =
+      preloadedLines ??
+      (await this.db.all<LineRow>(`SELECT ${LINE_COLUMNS} FROM sales_invoice_line WHERE invoice_id = ? ORDER BY line_no`, [row.id]));
     return {
       id: row.id,
       docType: row.doc_type as SalesInvoice["docType"],
@@ -682,8 +612,8 @@ class SqliteSalesInvoiceRepository implements SalesInvoiceRepository {
       documentKind: row.document_kind === InvoiceDocumentKind.RetentionRelease ? InvoiceDocumentKind.RetentionRelease : InvoiceDocumentKind.Standard,
       voidReason: row.void_reason ?? null,
       sourceQuoteId: row.source_quote_id ?? null,
-      customerTaxExempt: row.customer_tax_exempt === 1,
-      taxInclusive: row.tax_inclusive === 1,
+      customerTaxExempt: Number(row.customer_tax_exempt) === 1,
+      taxInclusive: row.tax_inclusive !== null && Number(row.tax_inclusive) === 1,
       warehouseId: row.warehouse_id,
       branchId: row.branch_id,
       salespersonId: row.salesperson_id,
@@ -710,10 +640,23 @@ class SqliteSalesInvoiceRepository implements SalesInvoiceRepository {
   }
 }
 
-export interface SqliteSalesInvoiceStoreHandle extends SalesInvoiceRepository {
+export interface SalesInvoiceStoreHandle extends SalesInvoiceRepository {
   /** N-9 — the row version an optimistic update compares against. */
   readonly versions: DocumentVersionStore;
+}
+
+export interface SqliteSalesInvoiceStoreHandle extends SalesInvoiceStoreHandle {
   close(): void;
+}
+
+export async function ensureSalesInvoiceSchema(db: SqlDb): Promise<void> {
+  await db.applySchema(CREATE_TABLES);
+  await db.applySchema(CREATE_INDEXES);
+}
+
+export function createSalesInvoiceStore(db: SqlDb): SalesInvoiceStoreHandle {
+  const versions = createSqlDocumentVersionStore(db, "sales_invoice");
+  return Object.assign(new SqlSalesInvoiceRepository(db, versions), { versions });
 }
 
 /** Open a SQLite-backed SalesInvoiceRepository. ":memory:" for tests, a path for real. */
@@ -730,10 +673,7 @@ export function createSqliteSalesInvoiceStore(path: SqliteConnectionInput = ":me
   }
   sqlite.exec(CREATE_INDEXES);
   addVersionColumns(sqlite, "sales_invoice");
-  const versions = createDocumentVersionStore(sqlite, "sales_invoice");
-  const repo = new SqliteSalesInvoiceRepository(sqlite, versions);
-  return Object.assign(repo, {
-    versions,
+  return Object.assign(createSalesInvoiceStore(sqliteDb(sqlite)), {
     close: () => { if (owned) sqlite.close(); },
-  }) as SqliteSalesInvoiceStoreHandle;
+  });
 }

@@ -438,3 +438,27 @@ export { markApprovalsNeedingReapproval } from "./approval-request-store.js";
 export { createSqliteOwnerPinFence, type OwnerPinFence } from "./owner-pin-fence.js";
 export { createSqliteCredentialResetMarks, type CredentialResetMarks } from "./credential-reset-marks.js";
 export { createTenantRetentionStore, type TenantRetentionRecord, type TenantRetentionStore, type TenantTombstone } from "./tenant-retention-store.js";
+export { createBranchStore, ensureBranchSchema } from "./branch-store.js";
+export { createWarehouseStore, ensureWarehouseSchema } from "./warehouse-store.js";
+export { createCustomerRepository, ensureCustomerSchema } from "./customer-repository.js";
+export { createSupplierRepository, ensureSupplierSchema } from "./supplier-repository.js";
+export { createItemStore, ensureItemSchema } from "./item-store.js";
+export { createItemCatalogStores, ensureItemCatalogSchema } from "./item-catalog-store.js";
+export { createItemSpecificationRepository, ensureItemSpecificationSchema } from "./item-specification-store.js";
+export { createProductTemplateStore, ensureProductTemplateSchema, type ProductTemplateStoreHandle } from "./product-template-store.js";
+export { createStockLedgerStore, ensureStockLedgerSchema, type StockLedgerHandle } from "./stock-ledger-store.js";
+export { createSalesInvoiceStore, ensureSalesInvoiceSchema, type SalesInvoiceStoreHandle } from "./sales-invoice-store.js";
+export { createSalesQuoteStore, ensureSalesQuoteSchema, type SalesQuoteStoreHandle } from "./sales-quote-store.js";
+export { createPriceListStore, ensurePriceListSchema } from "./price-list-store.js";
+export { createPromotionStore, ensurePromotionSchema } from "./promotion-store.js";
+export { createPricingGuardStores, ensurePricingGuardSchema, type PricingGuardStores } from "./pricing-guard-store.js";
+export {
+  createGoodsReceiptStore,
+  createPurchaseInvoiceStore,
+  createPurchaseOrderStore,
+  ensurePurchasingSchema,
+} from "./purchasing-stores.js";
+export { createRfqStores, ensureRfqSchema, type RfqStores } from "./rfq-store.js";
+export { createPhysicalCountStore, ensurePhysicalCountSchema } from "./physical-count-store.js";
+export { createHistoricalSalesArchiveStore, ensureHistoricalSalesArchiveSchema } from "./sales-historical-import-store.js";
+export { createSqlDocumentVersionStore } from "./document-version.js";

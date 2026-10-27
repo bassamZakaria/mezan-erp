@@ -1,6 +1,8 @@
-import Database from "better-sqlite3";
+import type Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
-import { insertingNew, prepareInsertOnly } from "./insert-new.js";
+import { insertNew } from "./insert-new.js";
+import type { SqlDb } from "./sql/sql-db.js";
+import { sqliteDb } from "./sql/sqlite-db.js";
 import type {
   ItemCatalogStatus,
   ItemCategory,
@@ -83,77 +85,59 @@ function toCategory(row: CategoryRow): ItemCategory {
   };
 }
 
-function createUnitRepository(sqlite: Database.Database): ItemUnitRepository {
-  const upsert = sqlite.prepare(`
-    INSERT INTO item_unit (code, name_ar, name_en, status)
-    VALUES (@code, @name_ar, @name_en, @status)
-    ON CONFLICT(code) DO UPDATE SET
-      name_ar = excluded.name_ar,
-      name_en = excluded.name_en,
-      status = excluded.status
-  `);
-  const selectByCode = sqlite.prepare(`SELECT * FROM item_unit WHERE code = ?`);
-  const selectAll = sqlite.prepare(`SELECT * FROM item_unit ORDER BY code`);
+const UPSERT_UNIT = `INSERT INTO item_unit (code, name_ar, name_en, status)
+  VALUES (?, ?, ?, ?)
+  ON CONFLICT(code) DO UPDATE SET
+    name_ar = excluded.name_ar,
+    name_en = excluded.name_en,
+    status = excluded.status`;
 
-  function write(unit: ItemUnit): void {
-    upsert.run({ code: unit.code, name_ar: unit.nameAr, name_en: unit.nameEn, status: unit.status });
+function createUnitRepository(db: SqlDb): ItemUnitRepository {
+  async function write(unit: ItemUnit): Promise<void> {
+    await db.run(UPSERT_UNIT, [unit.code, unit.nameAr, unit.nameEn, unit.status]);
   }
 
   return {
     async findByCode(code) {
-      const row = selectByCode.get(code) as UnitRow | undefined;
+      const row = await db.get<UnitRow>(`SELECT * FROM item_unit WHERE code = ?`, [code]);
       return row ? toUnit(row) : null;
     },
     async list() {
-      return (selectAll.all() as UnitRow[]).map(toUnit);
+      return (await db.all<UnitRow>(`SELECT * FROM item_unit ORDER BY code`)).map(toUnit);
     },
     async create(unit) {
-      write(unit);
+      await write(unit);
     },
     async update(unit) {
-      write(unit);
+      await write(unit);
     },
   };
 }
 
-function createCategoryRepository(sqlite: Database.Database): ItemCategoryRepository {
-  const upsert = sqlite.prepare(`
-    INSERT INTO item_category (id, name_ar, name_en, parent_id, status)
-    VALUES (@id, @name_ar, @name_en, @parent_id, @status)
-    ON CONFLICT(id) DO UPDATE SET
-      name_ar = excluded.name_ar,
-      name_en = excluded.name_en,
-      parent_id = excluded.parent_id,
-      status = excluded.status
-  `);
-  const selectById = sqlite.prepare(`SELECT * FROM item_category WHERE id = ?`);
-  const selectAll = sqlite.prepare(`SELECT * FROM item_category ORDER BY name_ar`);
+const UPSERT_CATEGORY = `INSERT INTO item_category (id, name_ar, name_en, parent_id, status)
+  VALUES (?, ?, ?, ?, ?)
+  ON CONFLICT(id) DO UPDATE SET
+    name_ar = excluded.name_ar,
+    name_en = excluded.name_en,
+    parent_id = excluded.parent_id,
+    status = excluded.status`;
 
-  const insertOnly = prepareInsertOnly(sqlite, upsert.source);
-
-  function write(category: ItemCategory, statement: Database.Statement = upsert): void {
-    statement.run({
-      id: category.id,
-      name_ar: category.nameAr,
-      name_en: category.nameEn,
-      parent_id: category.parentId,
-      status: category.status,
-    });
-  }
+function createCategoryRepository(db: SqlDb): ItemCategoryRepository {
+  const params = (category: ItemCategory) => [category.id, category.nameAr, category.nameEn, category.parentId, category.status];
 
   return {
     async findById(id) {
-      const row = selectById.get(id) as CategoryRow | undefined;
+      const row = await db.get<CategoryRow>(`SELECT * FROM item_category WHERE id = ?`, [id]);
       return row ? toCategory(row) : null;
     },
     async list() {
-      return (selectAll.all() as CategoryRow[]).map(toCategory);
+      return (await db.all<CategoryRow>(`SELECT * FROM item_category ORDER BY name_ar`)).map(toCategory);
     },
     async create(category) {
-      insertingNew(category.id, () => write(category, insertOnly));
+      await insertNew(db, category.id, UPSERT_CATEGORY, params(category));
     },
     async update(category) {
-      write(category);
+      await db.run(UPSERT_CATEGORY, params(category));
     },
   };
 }
@@ -193,98 +177,66 @@ function toSeason(row: SeasonRow): ItemSeason {
   };
 }
 
-function createBrandRepository(sqlite: Database.Database): ItemBrandRepository {
-  const upsert = sqlite.prepare(`
-    INSERT INTO item_brand (id, code, name_ar, name_en, status)
-    VALUES (@id, @code, @name_ar, @name_en, @status)
-    ON CONFLICT(id) DO UPDATE SET
-      code = excluded.code,
-      name_ar = excluded.name_ar,
-      name_en = excluded.name_en,
-      status = excluded.status
-  `);
-  const selectById = sqlite.prepare(`SELECT * FROM item_brand WHERE id = ?`);
-  const selectAll = sqlite.prepare(`SELECT * FROM item_brand ORDER BY name_ar`);
-  const remove = sqlite.prepare(`DELETE FROM item_brand WHERE id = ?`);
+const UPSERT_BRAND = `INSERT INTO item_brand (id, code, name_ar, name_en, status)
+  VALUES (?, ?, ?, ?, ?)
+  ON CONFLICT(id) DO UPDATE SET
+    code = excluded.code,
+    name_ar = excluded.name_ar,
+    name_en = excluded.name_en,
+    status = excluded.status`;
 
-  const insertOnly = prepareInsertOnly(sqlite, upsert.source);
-
-  function write(brand: ItemBrand, statement: Database.Statement = upsert): void {
-    statement.run({
-      id: brand.id,
-      code: brand.code,
-      name_ar: brand.nameAr,
-      name_en: brand.nameEn,
-      status: brand.status,
-    });
-  }
+function createBrandRepository(db: SqlDb): ItemBrandRepository {
+  const params = (brand: ItemBrand) => [brand.id, brand.code, brand.nameAr, brand.nameEn, brand.status];
 
   return {
     async findById(id) {
-      const row = selectById.get(id) as BrandRow | undefined;
+      const row = await db.get<BrandRow>(`SELECT * FROM item_brand WHERE id = ?`, [id]);
       return row ? toBrand(row) : null;
     },
     async list() {
-      return (selectAll.all() as BrandRow[]).map(toBrand);
+      return (await db.all<BrandRow>(`SELECT * FROM item_brand ORDER BY name_ar`)).map(toBrand);
     },
     async create(brand) {
-      insertingNew(brand.id, () => write(brand, insertOnly));
+      await insertNew(db, brand.id, UPSERT_BRAND, params(brand));
     },
     async update(brand) {
-      write(brand);
+      await db.run(UPSERT_BRAND, params(brand));
     },
     async delete(id) {
-      remove.run(id);
+      await db.run(`DELETE FROM item_brand WHERE id = ?`, [id]);
     },
   };
 }
 
-function createSeasonRepository(sqlite: Database.Database): ItemSeasonRepository {
-  const upsert = sqlite.prepare(`
-    INSERT INTO item_season (id, code, name_ar, name_en, start_date, end_date, status)
-    VALUES (@id, @code, @name_ar, @name_en, @start_date, @end_date, @status)
-    ON CONFLICT(id) DO UPDATE SET
-      code = excluded.code,
-      name_ar = excluded.name_ar,
-      name_en = excluded.name_en,
-      start_date = excluded.start_date,
-      end_date = excluded.end_date,
-      status = excluded.status
-  `);
-  const selectById = sqlite.prepare(`SELECT * FROM item_season WHERE id = ?`);
-  const selectAll = sqlite.prepare(`SELECT * FROM item_season ORDER BY start_date DESC, name_ar`);
-  const remove = sqlite.prepare(`DELETE FROM item_season WHERE id = ?`);
+const UPSERT_SEASON = `INSERT INTO item_season (id, code, name_ar, name_en, start_date, end_date, status)
+  VALUES (?, ?, ?, ?, ?, ?, ?)
+  ON CONFLICT(id) DO UPDATE SET
+    code = excluded.code,
+    name_ar = excluded.name_ar,
+    name_en = excluded.name_en,
+    start_date = excluded.start_date,
+    end_date = excluded.end_date,
+    status = excluded.status`;
 
-  const insertOnly = prepareInsertOnly(sqlite, upsert.source);
-
-  function write(season: ItemSeason, statement: Database.Statement = upsert): void {
-    statement.run({
-      id: season.id,
-      code: season.code,
-      name_ar: season.nameAr,
-      name_en: season.nameEn,
-      start_date: season.startDate,
-      end_date: season.endDate,
-      status: season.status,
-    });
-  }
+function createSeasonRepository(db: SqlDb): ItemSeasonRepository {
+  const params = (season: ItemSeason) => [season.id, season.code, season.nameAr, season.nameEn, season.startDate, season.endDate, season.status];
 
   return {
     async findById(id) {
-      const row = selectById.get(id) as SeasonRow | undefined;
+      const row = await db.get<SeasonRow>(`SELECT * FROM item_season WHERE id = ?`, [id]);
       return row ? toSeason(row) : null;
     },
     async list() {
-      return (selectAll.all() as SeasonRow[]).map(toSeason);
+      return (await db.all<SeasonRow>(`SELECT * FROM item_season ORDER BY start_date DESC NULLS LAST, name_ar`)).map(toSeason);
     },
     async create(season) {
-      insertingNew(season.id, () => write(season, insertOnly));
+      await insertNew(db, season.id, UPSERT_SEASON, params(season));
     },
     async update(season) {
-      write(season);
+      await db.run(UPSERT_SEASON, params(season));
     },
     async delete(id) {
-      remove.run(id);
+      await db.run(`DELETE FROM item_season WHERE id = ?`, [id]);
     },
   };
 }
@@ -296,17 +248,24 @@ export interface SqliteItemCatalogStores {
   readonly seasons: ItemSeasonRepository;
 }
 
-/** Build the item-catalog repositories on an EXISTING connection, so a composed app keeps one DB handle. */
-export function createSqliteItemCatalogStores(sqlite: Database.Database): SqliteItemCatalogStores {
-  sqlite.exec(CREATE_TABLES);
+export async function ensureItemCatalogSchema(db: SqlDb): Promise<void> {
+  await db.applySchema(CREATE_TABLES);
+}
+
+export function createItemCatalogStores(db: SqlDb): SqliteItemCatalogStores {
   return {
-    units: createUnitRepository(sqlite),
-    categories: createCategoryRepository(sqlite),
-    brands: createBrandRepository(sqlite),
-    seasons: createSeasonRepository(sqlite),
+    units: createUnitRepository(db),
+    categories: createCategoryRepository(db),
+    brands: createBrandRepository(db),
+    seasons: createSeasonRepository(db),
   };
 }
 
+/** Build the item-catalog repositories on an EXISTING connection, so a composed app keeps one DB handle. */
+export function createSqliteItemCatalogStores(sqlite: Database.Database): SqliteItemCatalogStores {
+  sqlite.exec(CREATE_TABLES);
+  return createItemCatalogStores(sqliteDb(sqlite));
+}
 export interface SqliteItemCatalogStoreHandle extends SqliteItemCatalogStores {
   close(): void;
 }

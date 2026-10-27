@@ -43,9 +43,7 @@ preflight() {
     [ "$(stat -c '%a' "$file")" = "600" ] || die "$file must be mode 0600"
   done
   grep -Eq '^MEZAN_ORIGIN_SECRET=[A-Za-z0-9_-]{32,}$' "$SHARED_ENV" || die "MEZAN_ORIGIN_SECRET in $SHARED_ENV must be at least 32 letters, digits, - or _ (it is substituted into the Caddyfile)"
-  if grep -q '^MEZAN_AUDIT_CHAIN_KEY=' "$APP_ENV" && ! grep -Eq '^MEZAN_AUDIT_CHAIN_KEY=[0-9a-f]{64}$' "$APP_ENV"; then
-    die "MEZAN_AUDIT_CHAIN_KEY in $APP_ENV must be 64 lower-case hex characters, or absent"
-  fi
+  grep -Eq '^MEZAN_AUDIT_CHAIN_KEY=[0-9a-f]{64}$' "$APP_ENV" || die "MEZAN_AUDIT_CHAIN_KEY in $APP_ENV must be 64 lower-case hex characters (openssl rand -hex 32); the Postgres server refuses to start without it"
   if grep -q '^MEZAN_ORIGIN_SECRET=' "$APP_ENV"; then die "MEZAN_ORIGIN_SECRET belongs in $SHARED_ENV only; remove it from $APP_ENV"; fi
   [ "$(stat -c '%u' "$DATA_DIR")" = "1000" ] || die "$DATA_DIR must be owned by uid 1000 (the image's node user)"
   local key

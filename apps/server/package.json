@@ -9,6 +9,7 @@
     "@mezan/backend": "workspace:*",
     "@mezan/domain": "workspace:*",
     "@mezan/persistence": "workspace:*",
+    "@mezan/persistence-postgres": "workspace:*",
     "hono": "^4.13.7",
     "tar": "^7.5.22"
   }

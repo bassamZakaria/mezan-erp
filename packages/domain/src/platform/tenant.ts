@@ -145,6 +145,16 @@ export function tenantDbFile(tenantId: string): string {
   return `tenants/${tenantId}.db`;
 }
 
+const SCHEMA_SAFE_ID = /^[a-z0-9-]{1,61}$/;
+
+// SECURITY: like the file, a tenant's Postgres schema (and the role that owns
+// it) is named by its id. Ids admitted here carry no `_`, so mapping `-` to `_`
+// can never give two distinct ids one schema.
+export function tenantSchema(tenantId: string): string {
+  if (!SCHEMA_SAFE_ID.test(tenantId)) throw new InvalidTenantError(["معرّف المنشأة لا يصلح اسمًا لمخطط قاعدة البيانات"]);
+  return `t_${tenantId.replace(/-/g, "_")}`;
+}
+
 function validate(cmd: CreateTenantCommand): string[] {
   const reasons: string[] = [];
   if (cmd.id.trim() === "") reasons.push("المعرّف مطلوب");

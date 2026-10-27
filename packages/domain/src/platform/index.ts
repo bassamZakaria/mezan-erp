@@ -6,7 +6,7 @@ export {
   createTenant, activateTenant, suspendTenant, resumeTenant, archiveTenant, releaseTenant, releasedTenantCode, tenantWithOwnerContact, tenantHandedTo, tenantNeedingOwner, tenantWithPendingOwner, tenantWithPendingOwnerConfirmed, tenantWithPendingOwnerDeclined, tenantWithPendingOwnerLink, tenantWithOwnerRecordDue, tenantWithBooksReview,
   TenantBooksReview, TenantDbFileRefusal, tenantDbFileRefusalAnswer, tenantDbFileRefusalOf, type TenantDbFileRefusalAnswer,
   PendingOwnerLink, OwnerConfirmation, PENDING_OWNER_MAX_AGE_MS, pendingOwnerExpiresAt, pendingOwnerExpired,
-  tenantDbFile,
+  tenantDbFile, tenantSchema,
   TenantStatusCode, OwnerContactProof,
   type Tenant, type TenantStatus, type TenantRepository, type TenantOwnerAccount, type PendingOwner, type OwnerRecordDue,
   type CreateTenantCommand, type TenantTransitionCommand,

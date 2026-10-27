@@ -259,7 +259,9 @@ export async function runBackups(options: RunBackupsOptions): Promise<BackupRun>
       const backend = await options.router.backendOf(tenant.id);
       const folder = tenantBackupFolder(options.dir, tenant.id);
       adoptLegacyBackups(options.dir, tenant);
-      await verify(await writeOneBackup((destination) => backend.backupTo(destination), folder, stamp));
+      const backupTo = backend.backupTo;
+      if (backupTo === undefined) continue;
+      await verify(await writeOneBackup((destination) => backupTo(destination), folder, stamp));
       pruneOldBackups(folder, keep);
     } catch (err) {
       const refusal = tenantDbFileRefusalOf(err);

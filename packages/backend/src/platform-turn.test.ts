@@ -101,7 +101,7 @@ describe("the platform database's turn", () => {
     const creating = platform.inTheTurn("user create", () => addUser(platform, "slow-hash"));
     await new Promise((resolve) => setTimeout(resolve, 10));
     await platform.inTheTurn("another write", async () => {
-      platform.stores.sqlite.prepare("UPDATE plan SET sort_order = sort_order").run();
+      platform.stores.sqlite!.prepare("UPDATE plan SET sort_order = sort_order").run();
     });
     hashing.open();
     await creating;

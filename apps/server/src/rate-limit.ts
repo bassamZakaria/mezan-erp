@@ -15,7 +15,7 @@
  */
 
 import type { PlatformHandle } from "@mezan/backend";
-import { createSqliteRateWindowStore } from "@mezan/persistence";
+import { createRateWindowStore } from "@mezan/persistence";
 
 const MAX_RECORDS = 10_000;
 
@@ -80,5 +80,5 @@ export function createRateLimiter(
 }
 
 export function platformRateLimiter(platform: PlatformHandle, scope: string, limit: number, windowMs: number): RateLimiter {
-  return createRateLimiter(limit, windowMs, Date.now, createSqliteRateWindowStore(platform.stores.sqlite, scope));
+  return createRateLimiter(limit, windowMs, Date.now, createRateWindowStore(platform.stores.db, scope));
 }

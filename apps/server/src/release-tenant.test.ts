@@ -106,7 +106,7 @@ describe("releasing a tenant stuck in provisioning", () => {
     const router = { evict: async (id: string) => void evicted.push(id), invalidate: () => undefined };
 
     const activating = withSqliteTransaction(
-      platform.stores.sqlite,
+      platform.stores.sqlite!,
       async () => {
         parked.arrive();
         await parked.opened;
@@ -259,7 +259,7 @@ describe("deleting a terminated tenant's data after the retention period", () =>
     expect(evicted).toEqual([tenant.id]);
     expect(exportsDiscarded).toEqual([tenant.id]);
     expect(await platform.stores.tenants.findById(tenant.id)).toBeNull();
-    const tombstone = platform.stores.sqlite.prepare("SELECT * FROM tenant_tombstone").all();
+    const tombstone = platform.stores.sqlite!.prepare("SELECT * FROM tenant_tombstone").all();
     expect(tombstone).toEqual([{ id: tenant.id, code: "gone", deleted_at: expect.any(String) }]);
     const row = (await platform.audit.query("security")).find((r) => r.action === TENANT_DATA_PURGED_AUDIT);
     expect(row).toMatchObject({ severity: "CRITICAL", actor: TENANT_PURGE_SYSTEM_ACTOR, entityId: tenant.id });

@@ -2,7 +2,7 @@ import { randomInt, randomUUID } from "node:crypto";
 import { activateTenant, createTenant, normalizeEmail, startSubscription, TenantCodeTakenError, TenantStatusCode, type BillingCycle, type Tenant } from "@mezan/domain";
 import { OwnerPinResetOutcome, PlatformAuditUnavailableError, ProvisioningRefusalCode, TENANT_CODE_PROVISIONING, TenantOwnerAccountNotFoundError, type PlatformHandle, type RecordedActivation } from "@mezan/backend";
 import { tenantDTOOf, type ProvisionResultDTO } from "@mezan/contracts";
-import { withSqliteTransaction } from "@mezan/persistence";
+import { TransactionMode } from "@mezan/persistence";
 import type { TenantRouter } from "./tenant-router.js";
 import { createLogger } from "@mezan/api";
 
@@ -165,7 +165,7 @@ const codesInFlight = new WeakMap<object, Set<string>>();
 // by that claim and its fence instead, across processes, and never waits here.
 export async function provisionTenant(cmd: ProvisionTenantCommand, deps: ProvisionTenantDeps): Promise<ProvisionTenantResult> {
   if (deps.stillOurs) return provisionUnderItsClaim(cmd, deps);
-  const key = deps.platform.stores.sqlite;
+  const key = deps.platform.stores;
   const inFlight = codesInFlight.get(key) ?? new Set<string>();
   codesInFlight.set(key, inFlight);
   if (inFlight.has(cmd.code)) throw new TenantCodeProvisioningError(cmd.code);
@@ -180,7 +180,7 @@ export async function provisionTenant(cmd: ProvisionTenantCommand, deps: Provisi
 async function provisionUnderItsClaim(cmd: ProvisionTenantCommand, deps: ProvisionTenantDeps): Promise<ProvisionTenantResult> {
   const nowIso = deps.now().toISOString();
   const { platform } = deps;
-  const { tenants, subscriptions, plans, sqlite } = platform.stores;
+  const { tenants, subscriptions, plans, db } = platform.stores;
 
   const stillOurs = async (): Promise<void> => {
     if (deps.stillOurs && !(await deps.stillOurs())) throw new ProvisioningSupersededError();
@@ -215,8 +215,7 @@ async function provisionUnderItsClaim(cmd: ProvisionTenantCommand, deps: Provisi
     // the holder that superseded it is about to need it.
     await stillOurs();
     await platform.inTheTurn("tenant subscription", () =>
-      withSqliteTransaction(
-        sqlite,
+      db.transaction(
         async () => {
           await stillProvisionable();
           if (live || (await subscriptions.findLiveByTenant(registered.id))) return;
@@ -226,7 +225,7 @@ async function provisionUnderItsClaim(cmd: ProvisionTenantCommand, deps: Provisi
             plans,
           );
         },
-        "BEGIN IMMEDIATE",
+        TransactionMode.Immediate,
       ),
     );
 
@@ -238,14 +237,13 @@ async function provisionUnderItsClaim(cmd: ProvisionTenantCommand, deps: Provisi
     // write; `recorded` runs inside the transaction that re-checks the claim.
     const recorded: RecordedActivation = deps.activation ?? ((activate) => activate());
     const tenant = await platform.inTheTurn("tenant activation", () =>
-      withSqliteTransaction(
-        sqlite,
+      db.transaction(
         () =>
           recorded(async () => {
             const latest = await stillProvisionable();
             return latest.status === TenantStatusCode.Provisioning ? activateTenant({ id: latest.id, now: nowIso }, tenants) : latest;
           }),
-        "BEGIN IMMEDIATE",
+        TransactionMode.Immediate,
       ),
     );
 

@@ -19,7 +19,8 @@ import {
 } from "@mezan/persistence";
 import type { CompanyOwnerPort, UserEmailChange } from "@mezan/api";
 import { REFUSED_TENANT_BOOKS, TenantBooksStanding, TenantResolveMode, type PlatformResolveDTO, type TenantBooksDTO } from "@mezan/contracts";
-import { TenantBooksReview, tenantDbFile, tenantHandedTo, tenantIsServed, TenantStatusCode, tenantWithBooksReview, tenantWithOwnerRecordDue, type Tenant } from "@mezan/domain";
+import type { TenantDatabases } from "@mezan/persistence-postgres";
+import { TenantBooksReview, tenantDbFile, tenantHandedTo, tenantSchema, tenantIsServed, TenantStatusCode, tenantWithBooksReview, tenantWithOwnerRecordDue, type Tenant } from "@mezan/domain";
 import { createBackendCache, type BackendCache } from "./backend-cache.js";
 import { callerSource, originEnv, requireCloudSource, SOCKET_ONLY, type ClientSourceOptions, type CloudSource, type SourceReporter } from "./client-source.js";
 import {
@@ -82,6 +83,13 @@ export interface TenantRouterOptions {
   /** Passed straight through to every tenant `createBackend` call (e.g. `{ exclusive: true }` on EFS). Ignored when `openBackend` is supplied. */
   readonly connection?: SqliteOpenOptions;
   readonly mailPendingHandOver?: (mail: PendingHandOverMail) => Promise<void>;
+  // Set: every tenant is a Postgres schema of its own; `openBackend`, `connection` and the books files are not consulted.
+  readonly postgres?: TenantPostgres;
+}
+
+export interface TenantPostgres {
+  readonly databases: TenantDatabases;
+  readonly auditChainKey: string;
 }
 
 export interface TenantBackendHooks {
@@ -168,6 +176,7 @@ export interface OpenTenant {
 
 export interface TenantRouter {
   readonly app: Hono;
+  readonly postgres?: TenantPostgres;
   // SECURITY: the backend as THIS PROCESS acts on it (provisioning, backups,
   // seeding) — an in-process call with no address reads as the host's own
   // console. A route answering a caller uses `callerDoor`, never this.
@@ -247,29 +256,60 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
       return !tenant || tenant.ownerUserId !== null || tenant.status !== TenantStatusCode.Provisioning;
     },
   });
+  const backendOptions = (code: string, r: TenantResolvers, hooks: TenantBackendHooks, mail: TenantMail, books: TenantBooks) => ({
+    seedWhenEmpty: books.provisioning,
+    securityMail: options.securityMail,
+    unlockLink: mail.unlockLink,
+    platformOperatorUnlocks: true,
+    sessionsInDatabase: true,
+    tenantMailDestinations: SmtpDestinationPolicy.PublicOnly,
+    secrets: options.secrets,
+    resolveEntitlements: () => r.resolveEntitlements(),
+    resolveLicenseState: () => r.resolveLicenseState(),
+    onUserEmailChanged: hooks.onUserEmailChanged,
+    onUserSignedIn: hooks.onUserSignedIn,
+    companyOwner: hooks.companyOwner,
+    claimedElsewhere: hooks.claimedElsewhere,
+    integrations: { tenantCode: code },
+  });
   const openBackend = options.openBackend ?? (async (code, dbPath, r, hooks, connection, mail, books) => {
     mkdirSync(path.dirname(dbPath), { recursive: true });
     return createBackend({
+      ...backendOptions(code, r, hooks, mail, books),
       dbPath,
       connection,
       tenantBinding: books.bind ? books.tenantId : undefined,
-      seedWhenEmpty: books.provisioning,
-      securityMail: options.securityMail,
-      unlockLink: mail.unlockLink,
-      platformOperatorUnlocks: true,
-      sessionsInDatabase: true,
-      tenantMailDestinations: SmtpDestinationPolicy.PublicOnly,
-      secrets: options.secrets,
       backupStatus: async () => readTenantBackupStatus(options.dataDir, books.tenantId, dbPath, options.now),
-      resolveEntitlements: () => r.resolveEntitlements(),
-      resolveLicenseState: () => r.resolveLicenseState(),
-      onUserEmailChanged: hooks.onUserEmailChanged,
-      onUserSignedIn: hooks.onUserSignedIn,
-      companyOwner: hooks.companyOwner,
-      claimedElsewhere: hooks.claimedElsewhere,
-      integrations: { tenantCode: code },
     });
   });
+  // REQUIRED ORDERING: a provisioning tenant gets its schema on its first open,
+  // as it gets its file on SQLite; any other tenant must already have one. The
+  // pool is detached before the backend closes and ended after, so an open that
+  // follows an eviction never shares a pool that is about to end.
+  const openOnPostgres = async (pgOptions: TenantPostgres, tenant: Tenant): Promise<BackendHandle> => {
+    const { id: tenantId, code } = tenant;
+    const provisioning = tenant.status === TenantStatusCode.Provisioning;
+    const schema = tenantSchema(tenantId);
+    if (provisioning) await pgOptions.databases.provision(schema);
+    const entry = pgOptions.databases.get(schema);
+    const mail: TenantMail = { unlockLink: options.unlockLinkFor?.(code) };
+    const backend = await createBackend({
+      ...backendOptions(code, resolversFor(code), hooksFor(tenantId, code), mail, { tenantId, provisioning, bind: true }),
+      db: entry.db,
+      auditChainKey: pgOptions.auditChainKey,
+    });
+    return {
+      ...backend,
+      close: async () => {
+        pgOptions.databases.detach(entry);
+        try {
+          await backend.close();
+        } finally {
+          await entry.pool.end();
+        }
+      },
+    };
+  };
   // SECURITY: open backends are keyed by tenant id, never by code. A code is
   // reused once its tenant is released; keyed by code, the next company under
   // that code could be handed the previous company's open database.
@@ -286,6 +326,12 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
     open: async (tenantId) => {
       const stored = await options.platform.stores.tenants.findById(tenantId);
       if (!stored) throw new Error("TENANT_NOT_FOUND");
+      if (options.postgres) {
+        const backend = await openOnPostgres(options.postgres, stored);
+        openCodes.set(tenantId, stored.code);
+        await ownerContact.reconcile(tenantId, backend).catch((err: unknown) => log.error({ err: err }, `owner contact of "${stored.code}" could not be reconciled on open`));
+        return backend;
+      }
       // REQUIRED ORDERING: whose books these are is settled where the file
       // lies, and the connection that asked is closed, before the file is
       // moved under the tenant's id or opened for use. Refused books keep
@@ -486,6 +532,10 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
 
   async function discardDatabase(tenant: Pick<Tenant, "id" | "dbFile">): Promise<void> {
     await cache.evict(tenant.id);
+    if (options.postgres) {
+      await options.postgres.databases.drop(tenantSchema(tenant.id));
+      return;
+    }
     const database = tenantDbPath(options.dataDir, tenant.dbFile);
     const directory = path.dirname(database);
     if (!existsSync(directory)) return;
@@ -495,6 +545,7 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
 
   return {
     app,
+    postgres: options.postgres,
     discardDatabase,
     backendFor: openFor,
     callerDoor: async (code) => doorTo(await openFor(code)),
@@ -542,6 +593,7 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
       return ownerContact.resendPending((await liveTenant(tenantId)).id, actor);
     },
     async scanBooks() {
+      if (options.postgres) return { standings: new Map<TenantBooksStanding, number>(), refused: [], unread: [] };
       const listed = (await options.platform.stores.tenants.list()).filter((tenant) => tenant.status !== TenantStatusCode.Archived);
       const counted = new Map<TenantBooksStanding, number>();
       const refused: { id: string; code: string; standing: TenantBooksStanding }[] = [];
@@ -564,12 +616,18 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
     },
     async lastBooksStandingOf(tenant) {
       if (tenant.status === TenantStatusCode.Archived) return null;
+      if (options.postgres) return TenantBooksStanding.Bound;
       return standings.get(tenant.id) ?? standingNow(tenant);
     },
     async booksStandingOf(tenant) {
-      return tenant.status === TenantStatusCode.Archived ? null : standingNow(tenant);
+      if (tenant.status === TenantStatusCode.Archived) return null;
+      return options.postgres ? TenantBooksStanding.Bound : standingNow(tenant);
     },
     async booksOf(tenantId) {
+      if (options.postgres) {
+        await liveTenant(tenantId);
+        return { standing: TenantBooksStanding.Bound, companyName: null, admins: [] };
+      }
       const { verdict } = await booksOnTheConsole(tenantId);
       const { standing, identity } = verdict;
       return {
@@ -583,6 +641,7 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
     // are one write; and a backend opened meanwhile is closed again, so the
     // next request is served from books that are bound.
     async confirmBooks({ tenantId, userId, companyName, actor }) {
+      if (options.postgres) return liveTenant(tenantId);
       const { tenant, file, verdict } = await booksOnTheConsole(tenantId);
       if (verdict.refusal && verdict.standing !== TenantBooksStanding.Disowned) throw verdict.refusal;
       const admin = verdict.identity ? activeCompanyAdminsIn(verdict.identity).find((candidate) => candidate.id === userId) : undefined;
@@ -620,6 +679,7 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
     // A request arriving in between is answered by the backend that is about to
     // close; the one after it opens the books again and is refused.
     async disownBooks({ tenantId, actor }) {
+      if (options.postgres) throw new TenantBooksBoundError();
       const { tenant, verdict } = await booksOnTheConsole(tenantId);
       if (verdict.standing === TenantBooksStanding.Disowned) return tenant;
       if (verdict.refusal) throw verdict.refusal;
@@ -634,6 +694,7 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
     // in any other order the file would be served as unbound books until the
     // mark was written.
     async unbindBooks({ tenantId, actor }) {
+      if (options.postgres) throw new TenantBooksNotBoundError();
       const { tenant, file, verdict } = await booksOnTheConsole(tenantId);
       if (verdict.identity?.boundTenantId !== tenant.id) {
         if (verdict.refusal && verdict.standing !== TenantBooksStanding.Disowned) throw verdict.refusal;

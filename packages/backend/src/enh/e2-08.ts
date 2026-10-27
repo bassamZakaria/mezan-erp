@@ -81,7 +81,7 @@ export const area: BackendArea = {
       customerCategory: async (customerId) => (await customers.findById(customerId))?.category ?? null,
       rateOn: (currency, date) => ctx.treasuryFx.rateOn(currency, date),
       baseCurrency: async () => ((await settings.get()) ?? createDefaultSettings()).currency,
-      approvalChainConfigured: async () => (workflowConfigs.resolveSync(PRICE_FLOOR_ACTION)?.steps.length ?? 0) > 0,
+      approvalChainConfigured: async () => ((await workflowConfigs.resolve(PRICE_FLOOR_ACTION))?.steps.length ?? 0) > 0,
     });
     registry.set(ctx.sqlite, guard);
 

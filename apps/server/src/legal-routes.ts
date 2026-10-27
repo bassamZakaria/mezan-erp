@@ -227,8 +227,8 @@ export function createLegalRoutes(deps: LegalRoutesDeps): Hono {
       return deletionPage(c, lang, Notice.None, 200);
     }
     const ip = callerSource(c);
-    if (limiter.retryAfter(ip) > 0) return deletionPage(c, lang, Notice.TooMany, 429);
-    limiter.consume(ip);
+    if ((await limiter.retryAfter(ip)) > 0) return deletionPage(c, lang, Notice.TooMany, 429);
+    await limiter.consume(ip);
 
     const body = (await c.req.parseBody()) as Record<string, unknown>;
     const companyCode = fieldOf(body, "companyCode");

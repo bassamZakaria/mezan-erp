@@ -1,4 +1,3 @@
-import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 import type {
   GateableActionType,
@@ -7,9 +6,11 @@ import type {
   WorkflowConfigRecord,
   WorkflowConfigRepository,
 } from "@mezan/domain";
+import type { SqlDb } from "./sql/sql-db.js";
+import { sqliteDb } from "./sql/sqlite-db.js";
 
 /**
- * SQLite-backed {@link WorkflowConfigRepository} (docs/archive/catalog/09 §إعدادات
+ * SQL-backed {@link WorkflowConfigRepository} (docs/archive/catalog/09 §إعدادات
  * الموافقات). One row per action type — `action_type` is UNIQUE so the DB
  * itself backstops the domain's "one config per action type" rule.
  */
@@ -32,6 +33,8 @@ interface Row {
   updated_at: string;
 }
 
+const COLUMNS = "id, action_type, steps_json, created_at, updated_at";
+
 function toRecord(row: Row): WorkflowConfigRecord {
   return {
     id: row.id,
@@ -42,71 +45,60 @@ function toRecord(row: Row): WorkflowConfigRecord {
   };
 }
 
-class SqliteWorkflowConfigStore implements WorkflowConfigRepository {
-  private readonly upsert: Database.Statement;
-  private readonly selectAll: Database.Statement;
-  private readonly selectById: Database.Statement;
-  private readonly selectByActionType: Database.Statement;
-  private readonly deleteById: Database.Statement;
-
-  constructor(private readonly sqlite: Database.Database) {
-    this.upsert = sqlite.prepare(`
-      INSERT INTO workflow_config (id, action_type, steps_json, created_at, updated_at)
-      VALUES (@id, @action_type, @steps_json, @created_at, @updated_at)
-      ON CONFLICT(id) DO UPDATE SET
-        action_type = excluded.action_type,
-        steps_json = excluded.steps_json,
-        updated_at = excluded.updated_at
-    `);
-    this.selectAll = sqlite.prepare(`SELECT * FROM workflow_config ORDER BY action_type`);
-    this.selectById = sqlite.prepare(`SELECT * FROM workflow_config WHERE id = ?`);
-    this.selectByActionType = sqlite.prepare(`SELECT * FROM workflow_config WHERE action_type = ?`);
-    this.deleteById = sqlite.prepare(`DELETE FROM workflow_config WHERE id = ?`);
-  }
+class SqlWorkflowConfigStore implements WorkflowConfigRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async list(): Promise<readonly WorkflowConfigRecord[]> {
-    return (this.selectAll.all() as Row[]).map(toRecord);
+    return (await this.db.all<Row>(`SELECT ${COLUMNS} FROM workflow_config ORDER BY action_type`)).map(toRecord);
   }
 
   async findById(id: string): Promise<WorkflowConfigRecord | null> {
-    const row = this.selectById.get(id) as Row | undefined;
+    const row = await this.db.get<Row>(`SELECT ${COLUMNS} FROM workflow_config WHERE id = ?`, [id]);
     return row ? toRecord(row) : null;
   }
 
   async findByActionType(actionType: GateableActionType): Promise<WorkflowConfigRecord | null> {
-    const row = this.selectByActionType.get(actionType) as Row | undefined;
+    const row = await this.db.get<Row>(`SELECT ${COLUMNS} FROM workflow_config WHERE action_type = ?`, [actionType]);
     return row ? toRecord(row) : null;
   }
 
   async save(record: WorkflowConfigRecord): Promise<void> {
-    this.upsert.run({
-      id: record.id,
-      action_type: record.actionType,
-      steps_json: JSON.stringify(record.steps),
-      created_at: record.createdAt,
-      updated_at: record.updatedAt,
-    });
+    await this.db.run(
+      `INSERT INTO workflow_config (${COLUMNS})
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         action_type = excluded.action_type,
+         steps_json = excluded.steps_json,
+         updated_at = excluded.updated_at`,
+      [record.id, record.actionType, JSON.stringify(record.steps), record.createdAt, record.updatedAt],
+    );
   }
 
   async delete(id: string): Promise<void> {
-    this.deleteById.run(id);
+    await this.db.run(`DELETE FROM workflow_config WHERE id = ?`, [id]);
   }
 
-  /**
-   * Synchronous lookup for `createDocumentWorkflowGate`'s `resolveConfig`
-   * (a document confirm can't await mid-transaction) — same query as
-   * `findByActionType`, just not wrapped in a Promise.
-   */
-  resolveSync(actionType: GateableActionType): GateConfig | null {
-    const row = this.selectByActionType.get(actionType) as Row | undefined;
+  async resolve(actionType: GateableActionType): Promise<GateConfig | null> {
+    const row = await this.db.get<{ steps_json: string }>(`SELECT steps_json FROM workflow_config WHERE action_type = ?`, [actionType]);
     if (!row) return null;
     return { actionType, steps: JSON.parse(row.steps_json) as GateStep[] };
   }
 }
 
-export interface SqliteWorkflowConfigStoreHandle extends WorkflowConfigRepository {
-  resolveSync(actionType: GateableActionType): GateConfig | null;
+export interface WorkflowConfigStoreHandle extends WorkflowConfigRepository {
+  resolve(actionType: GateableActionType): Promise<GateConfig | null>;
+}
+
+export interface SqliteWorkflowConfigStoreHandle extends WorkflowConfigStoreHandle {
   close(): void;
+}
+
+export async function ensureWorkflowConfigSchema(db: SqlDb): Promise<void> {
+  await db.applySchema(CREATE_TABLE);
+}
+
+export function createWorkflowConfigStore(db: SqlDb): WorkflowConfigStoreHandle {
+  return new SqlWorkflowConfigStore(db);
 }
 
 /** Open a SQLite-backed WorkflowConfigRepository. ":memory:" for tests, a path (or a shared connection) for real. */
@@ -116,6 +108,5 @@ export function createSqliteWorkflowConfigStore(
   const { sqlite, owned } = openSqliteConnection(input);
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_TABLE);
-  const store = new SqliteWorkflowConfigStore(sqlite);
-  return Object.assign(store, { close: () => { if (owned) sqlite.close(); } }) as SqliteWorkflowConfigStoreHandle;
+  return Object.assign(createWorkflowConfigStore(sqliteDb(sqlite)), { close: () => { if (owned) sqlite.close(); } }) as SqliteWorkflowConfigStoreHandle;
 }

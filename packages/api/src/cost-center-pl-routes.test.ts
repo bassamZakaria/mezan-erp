@@ -18,8 +18,8 @@ function account(id: string, overrides: Partial<Account> = {}): Account {
   return { id, code: id, nameAr: id, nameEn: null, type: "asset", naturalBalance: "debit", parentId: null, isHeader: false, status: "active", ...overrides };
 }
 
-function grant(sessions: ReturnType<typeof createSessionRegistry>, permissions: string[]) {
-  const token = sessions.issue({ userId: "u1", permissions, roleCode: null, branchScope: "*", warehouseScope: "*" });
+async function grant(sessions: ReturnType<typeof createSessionRegistry>, permissions: string[]) {
+  const token = await sessions.issue({ userId: "u1", permissions, roleCode: null, branchScope: "*", warehouseScope: "*" });
   return { headers: { authorization: `Bearer ${token}` } };
 }
 
@@ -80,7 +80,7 @@ describe("cost-center-pl router — permission gate", () => {
   it("403s a caller without accounting.reports.view", async () => {
     const deps = await seed();
     const { app, sessions } = newApp(deps);
-    const res = await app.fetch(req("/", grant(sessions, ["accounting.coa.view"])));
+    const res = await app.fetch(req("/", (await grant(sessions, ["accounting.coa.view"]))));
     expect(res.status).toBe(403);
     expect(((await res.json()) as { permission: string }).permission).toBe("accounting.reports.view");
   });
@@ -90,7 +90,7 @@ describe("cost-center-pl router — GET /", () => {
   it("groups posted revenue/expense lines by cost center, unassigned bucketed separately, totals reconcile", async () => {
     const deps = await seed();
     const { app, sessions } = newApp(deps);
-    const res = await app.fetch(req("/?fromDate=2026-08-01&toDate=2026-08-31", grant(sessions, ["accounting.reports.view"])));
+    const res = await app.fetch(req("/?fromDate=2026-08-01&toDate=2026-08-31", (await grant(sessions, ["accounting.reports.view"]))));
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       rows: Array<{ costCenterId: string | null; code: string; revenue: string; expense: string; profit: string }>;
@@ -117,7 +117,7 @@ describe("cost-center-pl router — GET /", () => {
   it("returns empty rows and zero totals for a date range with no activity", async () => {
     const deps = await seed();
     const { app, sessions } = newApp(deps);
-    const res = await app.fetch(req("/?fromDate=2020-01-01&toDate=2020-01-31", grant(sessions, ["accounting.reports.view"])));
+    const res = await app.fetch(req("/?fromDate=2020-01-01&toDate=2020-01-31", (await grant(sessions, ["accounting.reports.view"]))));
     expect(res.status).toBe(200);
     const body = (await res.json()) as { rows: unknown[]; totals: { profit: string } };
     expect(body.rows).toEqual([]);
@@ -146,7 +146,7 @@ describe("cost-center-pl router — branch scope (D111)", () => {
 
     const { app, sessions } = newApp(deps);
     const revenueOfA = async (branchScope: "*" | string[], extra: string[] = []) => {
-      const token = sessions.issue({ userId: "u1", permissions: ["accounting.reports.view", ...extra], roleCode: null, branchScope, warehouseScope: "*" });
+      const token = await sessions.issue({ userId: "u1", permissions: ["accounting.reports.view", ...extra], roleCode: null, branchScope, warehouseScope: "*" });
       const res = await app.fetch(req("/", { headers: { authorization: `Bearer ${token}` } }));
       const body = (await res.json()) as { rows: { costCenterId: string; revenue: string }[] };
       return body.rows.find((row) => row.costCenterId === "cc-a")?.revenue;

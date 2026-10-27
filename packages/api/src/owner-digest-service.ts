@@ -197,8 +197,8 @@ export function createOwnerDigestService(deps: OwnerDigestDeps) {
     return { companyName: settings.companyName, currency: settings.currency, timezone: settings.timezone || DEFAULT_TIME_ZONE };
   }
 
-  function loadSettings(): { readonly settings: OwnerDigestSettingsInputDTO; readonly updatedAt: string | null; readonly updatedBy: string | null } {
-    const stored = deps.store.getSettings();
+  async function loadSettings(): Promise<{ readonly settings: OwnerDigestSettingsInputDTO; readonly updatedAt: string | null; readonly updatedBy: string | null }> {
+    const stored = await deps.store.getSettings();
     return stored
       ? { settings: stored.settings, updatedAt: stored.updatedAt, updatedBy: stored.updatedBy }
       : { settings: defaultOwnerDigestSettings(), updatedAt: null, updatedBy: null };
@@ -371,7 +371,7 @@ export function createOwnerDigestService(deps: OwnerDigestDeps) {
   async function compose(recipient: OwnerDigestRecipient, input: ComposeInput): Promise<OwnerDigestDTO> {
     const now = nowIso();
     const { companyName, currency, timezone } = await tenant();
-    const { settings } = loadSettings();
+    const { settings } = await loadSettings();
     const thresholds = settings.thresholds;
     const period = ownerDigestPeriod(input.cadence, input.endingOn);
     const cockpit = await composeCockpit(deps.cockpit, recipient.caller, input.branchId, period.to, now);
@@ -480,7 +480,7 @@ export function createOwnerDigestService(deps: OwnerDigestDeps) {
     const runId = newId();
     const notificationId = newId();
     const createdAt = nowIso();
-    const claimed = deps.store.claim({
+    const claimed = await deps.store.claim({
       id: runId,
       cadence,
       periodKey: period.key,
@@ -515,9 +515,9 @@ export function createOwnerDigestService(deps: OwnerDigestDeps) {
         createdAt,
         readAt: null,
       });
-      deps.store.complete(runId, rendered.html);
+      await deps.store.complete(runId, rendered.html);
     } catch (error) {
-      deps.store.release(runId);
+      await deps.store.release(runId);
       throw error;
     }
     return { queued: { notificationId }, skipped: null, already: false };
@@ -548,7 +548,7 @@ export function createOwnerDigestService(deps: OwnerDigestDeps) {
     readonly language?: OwnerDigestLanguage;
     readonly endingOn?: string;
   }): Promise<{ readonly result: OwnerDigestSendResultDTO; readonly queuedIds: ReadonlySet<string> }> {
-    const { settings } = loadSettings();
+    const { settings } = await loadSettings();
     const { timezone } = await tenant();
     const cadence = input.cadence ?? settings.cadence;
     const endingOn = input.endingOn ?? latestCompleteDay(toTenantDay(nowIso(), timezone));
@@ -560,7 +560,7 @@ export function createOwnerDigestService(deps: OwnerDigestDeps) {
   }
 
   async function runScheduled(): Promise<ScheduledDigestResult> {
-    const { settings } = loadSettings();
+    const { settings } = await loadSettings();
     const none: ScheduledDigestResult = { ran: false, period: null, queued: 0, skipped: [] };
     if (!deps.scheduleSupported || !settings.scheduleEnabled || settings.recipientUserIds.length === 0) return none;
     const { timezone } = await tenant();

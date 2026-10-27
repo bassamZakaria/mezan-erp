@@ -148,12 +148,12 @@ async function toSession(user: User, deps: AuthRoutesDeps, origin: string | null
     // permissions travel too, but only so the UI can hide what the user cannot
     // do — the server re-reads them from this session on every request and
     // never from what comes back.
-    ...issueSession(
+    ...(await issueSession(
       deps.sessions,
       { userId: user.id, permissions, roleCode, branchScope: user.branchScope, warehouseScope: user.warehouseScope, accessExpiresAt: accessExpiresAtMs(user) },
       origin,
       device,
-    ),
+    )),
   };
 }
 
@@ -161,8 +161,8 @@ interface DeviceBinding {
   readonly heldSecret: string | null;
 }
 
-function issueSession(sessions: SessionRegistry, grant: SessionGrant, origin: string | null, device: DeviceBinding | null): { token: string; deviceSecret?: string } {
-  return device ? sessions.issueDeviceBound(grant, origin, device.heldSecret) : { token: sessions.issue(grant, origin) };
+async function issueSession(sessions: SessionRegistry, grant: SessionGrant, origin: string | null, device: DeviceBinding | null): Promise<{ token: string; deviceSecret?: string }> {
+  return device ? sessions.issueDeviceBound(grant, origin, device.heldSecret) : { token: await sessions.issue(grant, origin) };
 }
 
 function deviceBindingOf(c: Context): DeviceBinding | null {
@@ -221,7 +221,7 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
     // not reach the handler, which would hash for it under the connection's turn.
     await deps.audit?.settled?.();
     const known = (await deps.uow.users.findByEmail(needle)) !== null;
-    if (guard.check(needle, origin, known).verdict !== SignInVerdict.Proceed) return;
+    if ((await guard.check(needle, origin, known)).verdict !== SignInVerdict.Proceed) return;
     const checked = gate.admit(throttleSource(origin), async () => {
       await deps.audit?.settled?.();
       const user = await deps.uow.users.findByEmail(needle);
@@ -287,10 +287,10 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
    * fully provisioned shop could be walked back to "unclaimed" and re-taken
    * with one anonymous POST.
    */
-  function hasLiveSession(c: Context): boolean {
+  async function hasLiveSession(c: Context): Promise<boolean> {
     const token = readSessionToken(c);
     if (!token) return false;
-    return deps.sessions.find(token, requestOrigin(c), c.req.header(DEVICE_SECRET_HEADER) ?? null) !== null;
+    return (await deps.sessions.find(token, requestOrigin(c), c.req.header(DEVICE_SECRET_HEADER) ?? null)) !== null;
   }
 
   async function tenantIsClaimed(): Promise<boolean> {
@@ -381,7 +381,7 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
     // "who can log in" a property of a field any admin may edit, and two people
     // who share a display name shared an account door.
     const user = await deps.uow.users.findByEmail(needle);
-    const held = guard.check(needle, origin, user !== null);
+    const held = await guard.check(needle, origin, user !== null);
     if (held.verdict !== SignInVerdict.Proceed) {
       await security(c, "LOGIN_BLOCKED", AuditSeverityCode.Warning, {
         username: needle,
@@ -409,7 +409,7 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
       return c.json({ error: "INVALID_CREDENTIALS", message: "اسم المستخدم أو رمز PIN غير صحيح." }, 401);
     }
     if (signedIn === null) {
-      const failure = guard.failed(needle, origin, user !== null);
+      const failure = await guard.failed(needle, origin, user !== null);
       if (failure.verdict === SignInVerdict.Locked) {
         if (failure.justLocked) {
           await security(c, "ACCOUNT_HARD_LOCKED", AuditSeverityCode.Critical, { username: needle, userId: user?.id });
@@ -439,7 +439,7 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
      * credential, so it can never tell an outsider how many users a tenant has.
      */
     if (isAccessExpired(signedIn, Date.now())) {
-      guard.succeeded(needle, origin);
+      await guard.succeeded(needle, origin);
       await security(c, "LOGIN_REFUSED_ACCESS_EXPIRED", AuditSeverityCode.Warning, { userId: signedIn.id, accessExpiresAt: signedIn.accessExpiresAt ?? null });
       return c.json(
         {
@@ -464,7 +464,7 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
         }
       }
     }
-    guard.succeeded(needle, origin);
+    await guard.succeeded(needle, origin);
     const at = new Date().toISOString();
     await recordSuccessfulLogin(signedIn.id, at, deps.uow);
     await security(c, "LOGIN_SUCCEEDED", AuditSeverityCode.Info, { userId: signedIn.id, username: needle });
@@ -483,20 +483,20 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     const token = readSessionToken(c);
     const origin = requestOrigin(c);
-    const grant = token ? deps.sessions.find(token, origin, c.req.header(DEVICE_SECRET_HEADER) ?? null) : null;
+    const grant = token ? await deps.sessions.find(token, origin, c.req.header(DEVICE_SECRET_HEADER) ?? null) : null;
     const user = grant ? await deps.uow.users.findById(grant.userId) : null;
     if (!token || !user || user.status !== UserStatusCode.Active || !user.pinHash) {
       return c.json({ error: "UNAUTHENTICATED", message: "انتهت الجلسة، سجّل الدخول مرة أخرى." }, 401);
     }
-    const held = guard.check(user.email, origin, true);
+    const held = await guard.check(user.email, origin, true);
     if (held.verdict !== SignInVerdict.Proceed) return refused(c, held);
     if (!(await deps.hasher.verify(parsed.data.pin, user.pinHash))) {
-      const failure = guard.failed(user.email, origin, true);
+      const failure = await guard.failed(user.email, origin, true);
       await security(c, "STEP_UP_FAILED", AuditSeverityCode.Warning, { userId: user.id });
       if (failure.verdict === SignInVerdict.Locked || failure.verdict === SignInVerdict.Wait) return refused(c, failure);
       return c.json({ error: CurrentSecretRefusal.IncorrectPin, message: "رمز PIN غير صحيح." }, 403);
     }
-    deps.sessions.confirmStepUp(token);
+    await deps.sessions.confirmStepUp(token);
     await security(c, "STEP_UP_CONFIRMED", AuditSeverityCode.Info, { userId: user.id });
     return c.json({ ok: true });
   });
@@ -507,10 +507,10 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
     const needle = parsed.data.username.trim().toLowerCase();
     const origin = requestOrigin(c);
     const bucket = throttleSource(origin);
-    const wait = bucket === null ? 0 : sources.retryAfter(bucket);
+    const wait = bucket === null ? 0 : await sources.retryAfter(bucket);
     if (wait > 0) return lockedOut(c, wait);
-    if (!guard.redeemUnlockCode(needle, parsed.data.code)) {
-      if (bucket !== null) sources.fail(bucket);
+    if (!(await guard.redeemUnlockCode(needle, parsed.data.code))) {
+      if (bucket !== null) await sources.fail(bucket);
       await security(c, "ACCOUNT_UNLOCK_REFUSED", AuditSeverityCode.Warning, { username: needle });
       return c.json({ error: SignInRefusal.InvalidUnlockCode, message: "رمز فكّ القفل غير صحيح أو انتهت صلاحيته." }, 400);
     }
@@ -523,11 +523,11 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
     const parsed = unlockAccountByLinkRequestSchema.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     const bucket = throttleSource(requestOrigin(c));
-    const wait = bucket === null ? 0 : sources.retryAfter(bucket);
+    const wait = bucket === null ? 0 : await sources.retryAfter(bucket);
     if (wait > 0) return lockedOut(c, wait);
-    const account = guard.redeemUnlockLink(parsed.data.token);
+    const account = await guard.redeemUnlockLink(parsed.data.token);
     if (account === null) {
-      if (bucket !== null) sources.fail(bucket);
+      if (bucket !== null) await sources.fail(bucket);
       await security(c, "ACCOUNT_UNLOCK_REFUSED", AuditSeverityCode.Warning, { byLink: true });
       return c.json({ error: SignInRefusal.InvalidUnlockLink, message: "رابط فكّ القفل غير صالح، أو انتهت صلاحيته، أو استُخدم من قبل." }, 400);
     }
@@ -556,9 +556,9 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
    * has nothing to do differently: the session it wanted ended is, from its
    * side, ended.
    */
-  app.post("/auth/logout", (c) => {
+  app.post("/auth/logout", async (c) => {
     const token = readSessionToken(c);
-    if (token && deps.sessions.find(token, requestOrigin(c), c.req.header(DEVICE_SECRET_HEADER) ?? null)) deps.sessions.revoke(token);
+    if (token && (await deps.sessions.find(token, requestOrigin(c), c.req.header(DEVICE_SECRET_HEADER) ?? null))) await deps.sessions.revoke(token);
     return c.json({ ok: true });
   });
 
@@ -600,7 +600,7 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
     // SECURITY: this route is unauthenticated and a tenant code is guessable,
     // so once someone owns the tenant its record counts are answered only to a
     // signed-in session (the first-run wizard's seed step holds one).
-    if (claimed && !hasLiveSession(c)) return c.json({ claimed, demoSeeded });
+    if (claimed && !(await hasLiveSession(c))) return c.json({ claimed, demoSeeded });
     return c.json({ ...(await currentCounts(deps.seedStores)), claimed, demoSeeded });
   });
 
@@ -623,7 +623,7 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
    */
   app.post("/bootstrap/seed", async (c) => {
     const result = deps.seedWhenEmpty === false ? await currentCounts(deps.seedStores) : await seedIfEmpty(deps.seedStores);
-    if (!hasLiveSession(c) && (await tenantIsClaimed())) return c.json({ claimed: true });
+    if (!(await hasLiveSession(c)) && (await tenantIsClaimed())) return c.json({ claimed: true });
     return c.json(result);
   });
 

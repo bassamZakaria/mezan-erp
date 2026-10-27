@@ -34,7 +34,7 @@ export async function seededWorld(options: Partial<CreateBackendOptions> = {}): 
     ...options,
   });
   const sqlite = openSqliteConnection(dbPath).sqlite;
-  const token = backend.sessions.issue({ userId: "admin", permissions: ["*"], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
+  const token = await backend.sessions.issue({ userId: "admin", permissions: ["*"], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
   const headers = { authorization: `Bearer ${token}`, "content-type": "application/json" };
 
   async function request(method: string, url: string, body?: unknown): Promise<Answer> {

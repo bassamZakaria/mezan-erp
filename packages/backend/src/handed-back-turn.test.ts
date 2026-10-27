@@ -37,7 +37,7 @@ async function open(options: Partial<CreateBackendOptions> = {}) {
     return { status: res.status, body: parsed };
   };
   const bearer = (token: string) => ({ ...JSON_BODY, authorization: `Bearer ${token}` });
-  const adminToken = handle.sessions.issue({ userId: "admin", permissions: ["*"], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
+  const adminToken = await handle.sessions.issue({ userId: "admin", permissions: ["*"], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
   const anonymous = (method: string, path: string, body?: unknown) => send(method, path, body, JSON_BODY);
   const admin = (method: string, path: string, body?: unknown) => send(method, path, body, bearer(adminToken));
   const as = (token: string) => (method: string, path: string, body?: unknown) => send(method, path, body, bearer(token));

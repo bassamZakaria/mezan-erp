@@ -7,7 +7,7 @@ import {
 } from "@mezan/persistence";
 import type { BackendArea, BackendModuleContext } from "../module-context.js";
 
-export function cockpitDepsOf(ctx: BackendModuleContext, bookVersion: () => string): CockpitRoutesDeps {
+export function cockpitDepsOf(ctx: BackendModuleContext, bookVersion: () => string | Promise<string>): CockpitRoutesDeps {
   const { stores } = ctx;
   return {
     ledger: stores.ledger,
@@ -35,6 +35,6 @@ export const area: BackendArea = {
       busVersion += 1;
     });
     const watermark = createSqliteLedgerWatermark(ctx.sqlite);
-    ctx.app.route("/dashboard", createCockpitRoutes(cockpitDepsOf(ctx, () => `${busVersion}.${watermark.read()}`), ctx.resolveAuthContext));
+    ctx.app.route("/dashboard", createCockpitRoutes(cockpitDepsOf(ctx, async () => `${busVersion}.${await watermark.read()}`), ctx.resolveAuthContext));
   },
 };

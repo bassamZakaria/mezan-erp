@@ -139,7 +139,7 @@ async function run(app: App): Promise<void> {
   await step(app, "POST", `/vouchers/${COLLECTION_VOUCHER_ID}/confirm`, {});
   await step(app, "POST", `/vouchers/${COLLECTION_VOUCHER_ID}/allocations`, { invoiceId: SALES_INVOICE_ID, amount: "1000.00" });
 
-  const asBranchClerk = seedBranchActorHeaders(seededUserId(SeedPerson.WarehouseKeeper), ["inventory.item.view", "inventory.item.create"], [SECOND_BRANCH_ID]);
+  const asBranchClerk = await seedBranchActorHeaders(seededUserId(SeedPerson.WarehouseKeeper), ["inventory.item.view", "inventory.item.create"], [SECOND_BRANCH_ID]);
   const created = await app.fetch(
     new Request("http://demo-seed/items", {
       method: "POST",

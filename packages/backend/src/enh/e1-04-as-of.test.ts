@@ -81,7 +81,7 @@ beforeAll(async () => {
     resolveEntitlements: () => createEntitlements({ plan: "DEMO", activeModules: MODULE_CATALOG, features: {}, seats: 50, expiresAt: null }),
   });
   sqlite = openSqliteConnection(dbPath).sqlite;
-  const token = backend.sessions.issue({ userId: "admin", permissions: ["*"], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
+  const token = await backend.sessions.issue({ userId: "admin", permissions: ["*"], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
   headers = { authorization: `Bearer ${token}`, "content-type": "application/json" };
 }, 120_000);
 
@@ -361,7 +361,7 @@ describe("a shut month takes no posting and no stock movement, whichever documen
       );
       await ok("POST", "/fiscal-periods/fp-2026-08/close", REASON, 200);
     } else {
-      const controller = backend.sessions.issue({ userId: "controller", permissions: ["*"], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
+      const controller = await backend.sessions.issue({ userId: "controller", permissions: ["*"], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
       const res = await backend.app.fetch(
         new Request("http://local/fiscal-periods/fp-2026-08/lock", { method: "POST", headers: { authorization: `Bearer ${controller}`, "content-type": "application/json" }, body: JSON.stringify(REASON) }),
       );

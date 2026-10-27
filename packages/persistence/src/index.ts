@@ -64,6 +64,10 @@ export {
 export { createSequenceConfigStore, ensureSequenceConfigSchema, type SequenceConfigStoreHandle } from "./sequence-config-store.js";
 export {
   createSqliteAuditSink,
+  createAuditSink,
+  ensureAuditSchema,
+  type AuditSinkHandle,
+  type AuditSinkOptions,
   deriveAuditChainKey,
   openAuditChainFile,
   isAuditChainAnchorSource,
@@ -557,3 +561,25 @@ export { createRfqStores, ensureRfqSchema, type RfqStores } from "./rfq-store.js
 export { createPhysicalCountStore, ensurePhysicalCountSchema } from "./physical-count-store.js";
 export { createHistoricalSalesArchiveStore, ensureHistoricalSalesArchiveSchema } from "./sales-historical-import-store.js";
 export { createSqlDocumentVersionStore } from "./document-version.js";
+
+export { createSettingsStore, ensureSettingsSchema } from "./settings-store.js";
+export { createUserPreferencesStore, ensureUserPreferencesSchema } from "./user-preferences-store.js";
+export { createWorkflowConfigStore, ensureWorkflowConfigSchema, type WorkflowConfigStoreHandle } from "./workflow-config-store.js";
+export { createNotificationStore, ensureNotificationSchema, type NotificationStoreHandle } from "./notification-store.js";
+export { createNotificationRuleStore, ensureNotificationRuleSchema } from "./notification-rule-store.js";
+export { createApprovalRequestStore, ensureApprovalRequestSchema } from "./approval-request-store.js";
+export { createAttachmentRepository, ensureAttachmentSchema } from "./attachment-store.js";
+export { createDocumentStore, ensureDocumentSchema } from "./document-store.js";
+export { writeRowColumnsWhereAsync } from "./document-field-write.js";
+export { createEtaStore, ensureEtaSchema, type EtaStoreHandle } from "./eta-store.js";
+export { createPrintTemplateConfigStore, ensurePrintTemplateConfigSchema } from "./print-template-config-store.js";
+export { createPlatformStores, ensurePlatformSchema, type PlatformStoresHandle } from "./platform-store.js";
+export { createWebauthnChallengeRepository, ensureWebauthnChallengeSchema } from "./webauthn-challenge-store.js";
+export { createIdempotentRequestStore, ensureIdempotentRequestSchema } from "./idempotent-request-store.js";
+export { createRateWindowStore, ensureRateWindowSchema } from "./rate-window-store.js";
+export { createLeaseStore, ensureLeaseSchema } from "./resource-lease-store.js";
+export { createAttemptStore, ensureAttemptSchema } from "./sign-in-attempt-store.js";
+export { createSessionStore, ensureSessionSchema } from "./session-store.js";
+export { createOwnerPinFence, ensureOwnerPinFenceSchema } from "./owner-pin-fence.js";
+export { createCredentialResetMarks, ensureCredentialResetMarksSchema } from "./credential-reset-marks.js";
+export { createTenantRetentionStoreOn, ensureTenantRetentionSchema } from "./tenant-retention-store.js";

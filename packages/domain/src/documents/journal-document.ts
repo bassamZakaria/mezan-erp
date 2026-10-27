@@ -229,7 +229,7 @@ export function stockVarianceLines(unmirrored: Money | undefined, accounts: Stoc
  * grants immediately and the document confirms without a hold.
  */
 export function createDocumentWorkflowGate(
-  resolveConfig: (actionType: GateableActionType) => GateConfig | null,
+  resolveConfig: (actionType: GateableActionType) => GateConfig | null | Promise<GateConfig | null>,
   /**
    * Persists a request that is actually held, so it reaches the approvals
    * inbox. Without it the gate built the request in memory, returned
@@ -241,7 +241,7 @@ export function createDocumentWorkflowGate(
 ): DocumentWorkflowGate {
   return {
     async evaluate(input) {
-      const config = resolveConfig(input.actionType) ?? { actionType: input.actionType, steps: [] };
+      const config = (await resolveConfig(input.actionType)) ?? { actionType: input.actionType, steps: [] };
       if (requests) {
         const subject: ApprovalSubject = {
           documentId: input.document.id,

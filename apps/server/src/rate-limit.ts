@@ -25,28 +25,28 @@ export interface RateWindow {
 }
 
 export interface RateWindowStore {
-  read(key: string, at: number): RateWindow | null;
-  hit(key: string, at: number, windowMs: number): void;
-  sweep(at: number, maxRecords: number): void;
+  read(key: string, at: number): Promise<RateWindow | null>;
+  hit(key: string, at: number, windowMs: number): Promise<void>;
+  sweep(at: number, maxRecords: number): Promise<void>;
 }
 
 export interface RateLimiter {
   /** Seconds the caller must wait before its next attempt may proceed, or 0. */
-  retryAfter(key: string): number;
+  retryAfter(key: string): Promise<number>;
   /** Records one attempt against `key`, whether or not the caller checked `retryAfter` first. */
-  consume(key: string): void;
+  consume(key: string): Promise<void>;
 }
 
 export function createMemoryRateWindowStore(): RateWindowStore {
   const windows = new Map<string, { hits: number; resetAt: number }>();
   return {
-    read: (key) => windows.get(key) ?? null,
-    hit(key, at, windowMs) {
+    read: async (key) => windows.get(key) ?? null,
+    async hit(key, at, windowMs) {
       const existing = windows.get(key);
       if (!existing || at >= existing.resetAt) windows.set(key, { hits: 1, resetAt: at + windowMs });
       else existing.hits += 1;
     },
-    sweep(at, maxRecords) {
+    async sweep(at, maxRecords) {
       for (const [key, w] of windows) {
         if (at >= w.resetAt) windows.delete(key);
       }
@@ -64,17 +64,17 @@ export function createRateLimiter(
   store: RateWindowStore = createMemoryRateWindowStore(),
 ): RateLimiter {
   return {
-    retryAfter(key) {
+    async retryAfter(key) {
       const at = now();
-      const w = store.read(key, at);
+      const w = await store.read(key, at);
       if (!w || at >= w.resetAt) return 0;
       if (w.hits < limit) return 0;
       return Math.ceil((w.resetAt - at) / 1000);
     },
-    consume(key) {
+    async consume(key) {
       const at = now();
-      store.hit(key, at, windowMs);
-      store.sweep(at, MAX_RECORDS);
+      await store.hit(key, at, windowMs);
+      await store.sweep(at, MAX_RECORDS);
     },
   };
 }

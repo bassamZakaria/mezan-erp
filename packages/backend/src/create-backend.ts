@@ -268,6 +268,7 @@ import {
   type SqliteOpenOptions,
   createSqliteUnitOfWork,
   grantSuccessorPermissionsOnce,
+  sqliteDb,
   createSqliteAccountRepository,
   createSqliteSettingsStore,
   createSqliteVatFilingStore,
@@ -778,7 +779,7 @@ export interface BackendHandle {
    * backoff together; a reset that skips it hands out a PIN the account still
    * refuses.
    */
-  credentialsResetByAdministrator(account: string): void;
+  credentialsResetByAdministrator(account: string): Promise<void>;
   lockedAccounts(): readonly string[];
   // SECURITY: not an HTTP route. Only code that holds the handle (the platform
   // console) can call it; it records the unlock in this tenant's own audit
@@ -1078,9 +1079,9 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
   const labelLayouts = createSqliteLabelLayoutStore(sqlite);
 
   const uow = createSqliteUnitOfWork(sqlite);
-  grantSuccessorPermissionsOnce(sqlite, REVERSAL_PERMISSIONS_GRANT, reversalPermissionSuccessors());
+  await grantSuccessorPermissionsOnce(sqliteDb(sqlite), REVERSAL_PERMISSIONS_GRANT, reversalPermissionSuccessors());
   // INVARIANT: a marker of its own — books that already hold the marker above were upgraded before the voucher route joined the registry and would never be given its permission.
-  grantSuccessorPermissionsOnce(sqlite, VOUCHER_REVERSAL_PERMISSION_GRANT, reversalPermissionSuccessors([ReversalDocumentType.Voucher]));
+  await grantSuccessorPermissionsOnce(sqliteDb(sqlite), VOUCHER_REVERSAL_PERMISSION_GRANT, reversalPermissionSuccessors([ReversalDocumentType.Voucher]));
   const settings = createSqliteSettingsStore(sqlite, options.secrets);
   const vatFilings = createSqliteVatFilingStore(sqlite);
   const simplifiedRegime = createSqliteSimplifiedRegimeStore(sqlite);
@@ -1349,7 +1350,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
   const notificationRules = createSqliteNotificationRuleStore(sqlite);
   const notifications = createSqliteNotificationStore(sqlite);
   const customerMail = createSqliteCollectionsStore(sqlite);
-  removeNotificationLinesMatching(sqlite, ACCOUNT_LOCKED_NOTICE, STORED_UNLOCK_SECRET);
+  await removeNotificationLinesMatching(sqliteDb(sqlite), ACCOUNT_LOCKED_NOTICE, STORED_UNLOCK_SECRET);
   const eventBus = new EventBus({
     onError: (error, event) => {
       backendLog.error({ area: "notifications", err: error }, `a subscriber failed handling "${event.code}"`);
@@ -2301,7 +2302,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
 
   const documentGl = createJournalGlHook(salesInvoiceGl, STOCK_VARIANCE_ACCOUNTS);
   const documentWorkflowGate = createDocumentWorkflowGate(
-    (actionType) => workflowConfigs.resolveSync(actionType),
+    (actionType) => workflowConfigs.resolve(actionType),
     approvalRequests,
   );
 
@@ -3572,7 +3573,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
     allocations: vouchers.allocations,
     invoices: vouchers.invoices,
     settings,
-    resolveGateConfig: (actionType) => workflowConfigs.resolveSync(actionType),
+    resolveGateConfig: (actionType) => workflowConfigs.resolve(actionType),
     partyName: voucherPartyNameOf,
     audit: auditSink,
   });
@@ -3706,9 +3707,9 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
   // REQUIRED: every unlock in the product — the Users screen, a PIN reset, an
   // email change — goes through this one object, and it must clear the
   // account lock as well as the backoff or the button unlocks nothing.
-  const credentialsResetByAdministrator = (account: string): void => {
+  const credentialsResetByAdministrator = async (account: string): Promise<void> => {
     accountLocks.clear(account);
-    signInLadder.unlock(account);
+    await signInLadder.unlock(account);
   };
   const loginThrottle: LoginThrottle = { ...signInLadder, unlock: credentialsResetByAdministrator };
   const ownerDigestStore = createSqliteOwnerDigestStore(sqlite);
@@ -3743,7 +3744,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
       if (!recipientEmail) return { kind: "rejected", reason: "لا يوجد بريد إلكتروني مسجَّل لهذا المستخدم." };
       const body = notification.eventCode === ACCOUNT_LOCKED_NOTICE ? lockMailBodies.get(notification.id)?.body : notification.body;
       if (body === undefined) return { kind: "rejected", reason: "انتهت صلاحية رمز فكّ القفل قبل إرساله؛ يُرسل رمز جديد عند المحاولة التالية." };
-      const html = notification.eventCode === OWNER_DIGEST_EVENT ? ownerDigestStore.mailHtml(notification.id) : null;
+      const html = notification.eventCode === OWNER_DIGEST_EVENT ? await ownerDigestStore.mailHtml(notification.id) : null;
       try {
         const sent = await outsideTheTurn(() => withinDeadline(OutsideWork.Mail, () => sendMail(smtp, recipientEmail, { subject: notification.title, body, ...(html ? { html } : {}) }, sendOptions)));
         const outcome = dispatchOutcomeOf(sent);
@@ -4452,7 +4453,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
           userId,
           email,
           canAdminister: user !== null && user.isCompanyAdmin && user.status === UserStatusCode.Active,
-          credentialIsOwn: !credentialResets.has(userId),
+          credentialIsOwn: !(await credentialResets.has(userId)),
         };
         await outsideTheTurn(() => options.onUserSignedIn!(signedIn));
       }
@@ -4556,8 +4557,8 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
     security: { sessions, loginThrottle },
     ...(options.onUserEmailChanged
       ? {
-          onUserEmailChanged: (change) => {
-            const announced = { ...change, actorCredentialIsOwn: !credentialResets.has(change.actorId) };
+          onUserEmailChanged: async (change) => {
+            const announced = { ...change, actorCredentialIsOwn: !(await credentialResets.has(change.actorId)) };
             return outsideTheTurn(() => options.onUserEmailChanged!(announced));
           },
         }
@@ -4566,8 +4567,8 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
       ? {
           companyOwner: {
             currentOwnerUserId: () => outsideTheTurn(() => options.companyOwner!.currentOwnerUserId()),
-            handOver: (input) => {
-              const handed = { ...input, actorCredentialIsOwn: !credentialResets.has(input.actorId) };
+            handOver: async (input) => {
+              const handed = { ...input, actorCredentialIsOwn: !(await credentialResets.has(input.actorId)) };
               return outsideTheTurn(() => options.companyOwner!.handOver(handed));
             },
           },
@@ -4682,7 +4683,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
       // A configured TREASURY_VOUCHER_CONFIRM chain used to be ignored
       // outright: without these two the gate resolved every config to null and
       // held requests were never persisted for the inbox.
-      resolveGateConfig: (actionType) => workflowConfigs.resolveSync(actionType),
+      resolveGateConfig: (actionType) => workflowConfigs.resolve(actionType),
     partyName: voucherPartyNameOf,
       approvalRequests,
       documents: vouchers.documents,
@@ -4973,7 +4974,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
         settings,
         exchangeRates,
         baseCurrency: "EGP",
-        resolveGateConfig: (actionType) => workflowConfigs.resolveSync(actionType),
+        resolveGateConfig: (actionType) => workflowConfigs.resolve(actionType),
     partyName: voucherPartyNameOf,
         approvalRequests,
         audit: auditSink,
@@ -5819,7 +5820,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
 
   if (options.seedDemoData) {
     await seedDemoTenant(app, {
-      token: sessions.issue({
+      token: await sessions.issue({
         userId: SEED_ADMIN_USER_ID,
         permissions: ["*"],
         roleCode: null,
@@ -5841,7 +5842,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
   // CONTRACT: idempotent on `eventId`. The platform asks again after a crash
   // until it has seen this succeed, so the same event must leave one row.
   async function recordOwnerAssigned(input: OwnerAssignedRecord): Promise<void> {
-    credentialResets.clear(input.userId);
+    await credentialResets.clear(input.userId);
     const { events } = await auditSink.queryEvents({ stream: "security", action: COMPANY_OWNER_ASSIGNED_AUDIT, entityId: input.userId, limit: OWNER_ASSIGNED_LOOKBACK });
     if (events.some((row) => (row.details as Record<string, unknown> | undefined)?.["eventId"] === input.eventId)) return;
     await recordSecurityEvent(auditSink, {
@@ -5872,8 +5873,8 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
     // handed out is the one that still signs in.
     const written = await uow.transaction(async (tx) => {
       if (cmd.fence !== undefined) {
-        if (cmd.fence < ownerPinFence.current()) return false;
-        ownerPinFence.raiseTo(cmd.fence);
+        if (cmd.fence < (await ownerPinFence.current())) return false;
+        await ownerPinFence.raiseTo(cmd.fence);
       }
       const current = await tx.users.findById(owner.id);
       if (!current) return OwnerPinResetOutcome.OwnerVanished;
@@ -5882,9 +5883,9 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
     });
     if (written === OwnerPinResetOutcome.OwnerVanished) return written;
     if (!written) return OwnerPinResetOutcome.Superseded;
-    if (!cmd.onlyIfNeverSignedIn) credentialResets.mark(owner.id, new Date().toISOString(), cmd.actor);
-    sessions.revokeUser(owner.id);
-    credentialsResetByAdministrator(owner.email);
+    if (!cmd.onlyIfNeverSignedIn) await credentialResets.mark(owner.id, new Date().toISOString(), cmd.actor);
+    await sessions.revokeUser(owner.id);
+    await credentialsResetByAdministrator(owner.email);
     await recordSecurityEvent(auditSink, {
       module: "auth",
       entityType: "USER",
@@ -5904,7 +5905,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
       auditSink.atomic(async () => {
         if (!accountLockStore.lockedAccounts().includes(key)) return false;
         const user = await uow.users.findByEmail(key);
-        credentialsResetByAdministrator(key);
+        await credentialsResetByAdministrator(key);
         await recordSecurityEvent(auditSink, {
           module: "auth",
           entityType: "AUTH_USER",

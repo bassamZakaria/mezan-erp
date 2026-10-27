@@ -73,24 +73,24 @@ export interface AttemptChange<T> {
  * instances each grant an attacker a fresh set of free attempts.
  */
 export interface AttemptStore {
-  update<T>(key: string, change: (held: AttemptRecord | null) => AttemptChange<T>): T;
+  update<T>(key: string, change: (held: AttemptRecord | null) => AttemptChange<T>): Promise<T>;
   /** A plain read for the common "no failures held" and "still locked" answers, which must not take the write lock. */
-  peek(key: string): AttemptRecord | null;
-  remove(key: string): void;
-  removeWithPrefix(prefix: string): void;
-  sweep(at: number, limits: { readonly decayMs: number; readonly maxRecords: number }): void;
-  size(): number;
+  peek(key: string): Promise<AttemptRecord | null>;
+  remove(key: string): Promise<void>;
+  removeWithPrefix(prefix: string): Promise<void>;
+  sweep(at: number, limits: { readonly decayMs: number; readonly maxRecords: number }): Promise<void>;
+  size(): Promise<number>;
 }
 
 export interface LoginThrottle {
   /** Seconds the caller must wait, or 0 when the attempt may proceed. */
-  retryAfter(key: string): number;
+  retryAfter(key: string): Promise<number>;
   /** Records a failure and returns the seconds the account is now locked for. */
-  fail(key: string): number;
-  succeed(key: string): void;
-  unlock(account: string): void;
+  fail(key: string): Promise<number>;
+  succeed(key: string): Promise<void>;
+  unlock(account: string): Promise<void>;
   /** How many records are held. For the exception report and for tests. */
-  size(): number;
+  size(): Promise<number>;
 }
 
 export enum SignInRefusal {
@@ -173,22 +173,22 @@ function liveRecord(held: AttemptRecord | null, at: number): AttemptRecord | nul
 export function createMemoryAttemptStore(): AttemptStore {
   const records = new Map<string, AttemptRecord>();
   return {
-    update(key, change) {
+    async update(key, change) {
       const held = records.get(key);
       const outcome = change(held ? { failures: [...held.failures], lockedUntil: held.lockedUntil } : null);
       if (outcome.record === null) records.delete(key);
       else if (outcome.record !== undefined) records.set(key, outcome.record);
       return outcome.result;
     },
-    peek(key) {
+    async peek(key) {
       const held = records.get(key);
       return held ? { failures: [...held.failures], lockedUntil: held.lockedUntil } : null;
     },
-    remove: (key) => void records.delete(key),
-    removeWithPrefix(prefix) {
+    remove: async (key) => void records.delete(key),
+    async removeWithPrefix(prefix) {
       for (const held of [...records.keys()]) if (held.startsWith(prefix)) records.delete(held);
     },
-    sweep(at, limits) {
+    async sweep(at, limits) {
       for (const [key, record] of [...records]) {
         const stale = record.lockedUntil <= at && at - lastFailureAt(record) > limits.decayMs;
         if (stale) records.delete(key);
@@ -197,7 +197,7 @@ export function createMemoryAttemptStore(): AttemptStore {
       const oldestFirst = [...records.entries()].sort((a, b) => lastFailureAt(a[1]) - lastFailureAt(b[1]));
       for (const [key] of oldestFirst.slice(0, records.size - limits.maxRecords)) records.delete(key);
     },
-    size: () => records.size,
+    size: async () => records.size,
   };
 }
 
@@ -253,9 +253,9 @@ function accountOf(key: string): string {
 
 export function createLoginThrottle(now: () => number = Date.now, store: AttemptStore = createMemoryAttemptStore()): LoginThrottle {
   return {
-    retryAfter(key) {
+    async retryAfter(key) {
       const at = now();
-      const seen = store.peek(key);
+      const seen = await store.peek(key);
       if (!seen) return 0;
       const open = liveRecord(seen, at);
       if (open && open.lockedUntil > at) return Math.ceil((open.lockedUntil - at) / 1000);
@@ -274,28 +274,28 @@ export function createLoginThrottle(now: () => number = Date.now, store: Attempt
         return { result: 0 };
       });
     },
-    fail(key) {
+    async fail(key) {
       const at = now();
-      const lock = store.update(key, (held) => {
+      const lock = await store.update(key, (held) => {
         const record = liveRecord(held, at) ?? { failures: [], lockedUntil: 0 };
         record.failures.push(at);
         const duration = lockDuration(record.failures.length);
         record.lockedUntil = duration > 0 ? at + duration : 0;
         return { record, result: duration };
       });
-      store.sweep(at, LIMITS);
+      await store.sweep(at, LIMITS);
       return Math.ceil(lock / 1000);
     },
     // ONLY the key the credential was verified on. Clearing the whole account
     // here let anyone who could sign in from one address wipe the count an
     // attacker was building against the same account from another.
-    succeed(key) {
-      store.remove(key);
+    async succeed(key) {
+      await store.remove(key);
     },
-    unlock(account) {
+    async unlock(account) {
       const needle = accountOf(throttleKey(account, null));
-      store.remove(needle);
-      store.removeWithPrefix(`${needle}${KEY_SEPARATOR}`);
+      await store.remove(needle);
+      await store.removeWithPrefix(`${needle}${KEY_SEPARATOR}`);
     },
     size() {
       return store.size();
@@ -306,9 +306,9 @@ export function createLoginThrottle(now: () => number = Date.now, store: Attempt
 const SOURCE_FREE_ATTEMPTS = 30;
 
 export interface SourceThrottle {
-  retryAfter(source: string): number;
-  fail(source: string): number;
-  size(): number;
+  retryAfter(source: string): Promise<number>;
+  fail(source: string): Promise<number>;
+  size(): Promise<number>;
 }
 
 /**
@@ -322,14 +322,14 @@ export function createSourceThrottle(
   store: AttemptStore = createMemoryAttemptStore(),
 ): SourceThrottle {
   return {
-    retryAfter(source) {
+    async retryAfter(source) {
       const at = now();
-      const record = liveRecord(store.peek(source), at);
+      const record = liveRecord(await store.peek(source), at);
       return record && record.lockedUntil > at ? Math.ceil((record.lockedUntil - at) / 1000) : 0;
     },
-    fail(source) {
+    async fail(source) {
       const at = now();
-      const lock = store.update(source, (held) => {
+      const lock = await store.update(source, (held) => {
         const record = liveRecord(held, at) ?? { failures: [], lockedUntil: 0 };
         record.failures.push(at);
         const doublings = record.failures.length - freeAttempts - 1;
@@ -337,7 +337,7 @@ export function createSourceThrottle(
         record.lockedUntil = duration > 0 ? at + duration : 0;
         return { record, result: duration };
       });
-      store.sweep(at, LIMITS);
+      await store.sweep(at, LIMITS);
       return Math.ceil(lock / 1000);
     },
     size() {

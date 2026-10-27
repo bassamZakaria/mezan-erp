@@ -27,7 +27,7 @@ beforeAll(async () => {
 afterAll(() => world?.close());
 
 async function statusAs(role: SeededRole, request: DashboardRequest): Promise<number> {
-  const token = world.backend.sessions.issue({ userId: `dash-${role.code}`, permissions: role.permissions, roleCode: role.code, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
+  const token = await world.backend.sessions.issue({ userId: `dash-${role.code}`, permissions: role.permissions, roleCode: role.code, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
   const url = `http://local${DASHBOARD_REQUESTS[request].path}${PROBE_QUERY[request] ?? ""}`;
   return (await world.backend.app.fetch(new Request(url, { headers: { authorization: `Bearer ${token}` } }))).status;
 }

@@ -154,7 +154,7 @@ describe("provisionTenant", () => {
 
     // Seeding already ran, through the in-process handle.
     const backend = await router.backendFor("old");
-    const token = backend.sessions.issue({ userId: "probe", permissions: [], roleCode: null, branchScope: "*", warehouseScope: "*" });
+    const token = await backend.sessions.issue({ userId: "probe", permissions: [], roleCode: null, branchScope: "*", warehouseScope: "*" });
     const statusRes = await backend.app.fetch(new Request("http://tenant.internal/bootstrap/status", { headers: { authorization: `Bearer ${token}` } }));
     const status = (await statusRes.json()) as Record<string, number | boolean>;
     expect(status["claimed"]).toBe(true);

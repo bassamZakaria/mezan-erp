@@ -1,13 +1,14 @@
-import Database from "better-sqlite3";
+import type Database from "better-sqlite3";
 import { openSqliteConnection, withSqliteTransaction, type SqliteConnectionInput } from "./sqlite-connection.js";
-import { columnsOf, FRAMEWORK_DOCUMENT_COLUMNS, writeRowColumnsWhere } from "./document-field-write.js";
+import { columnsOf, FRAMEWORK_DOCUMENT_COLUMNS, writeRowColumnsWhere, writeRowColumnsWhereAsync } from "./document-field-write.js";
+import { placeholders, SqlDialect, type SqlDb, type SqlValue } from "./sql/sql-db.js";
 import type {
   DocumentListFilter,
   DocumentRepository,
   DocumentStatus,
   FrameworkDocument,
 } from "@mezan/domain";
-import { insertingNew } from "./insert-new.js";
+import { insertingNew, refuseUnlessInserted } from "./insert-new.js";
 
 /**
  * Generic SQLite-backed {@link DocumentRepository} for the document framework
@@ -211,6 +212,159 @@ export function createSqliteDocumentStore<Line>(
     },
     async transaction(fn) {
       return withSqliteTransaction(sqlite, fn);
+    },
+  };
+}
+
+export async function ensureDocumentSchema(db: SqlDb): Promise<void> {
+  await db.applySchema(CREATE_TABLE);
+}
+
+const DOCUMENT_COLUMNS = `id, doc_type, doc_no, date, memo, status, lines_json, created_at, confirmed_at,
+       reverses_doc_id, reversed_by_doc_id, workflow_request_id, journal_entry_id`;
+
+/**
+ * The shared-SQL twin of {@link createSqliteDocumentStore}: one
+ * `DocumentRepository<Line>` for ONE `docType` on `db`. Call
+ * {@link ensureDocumentSchema} once per database first.
+ */
+export function createDocumentStore<Line>(
+  db: SqlDb,
+  docType: string,
+  serializeLine: (line: Line) => unknown,
+  deserializeLine: (wire: unknown) => Line,
+): DocumentRepository<Line> {
+  function toRow(doc: FrameworkDocument<Line>): Record<string, SqlValue> {
+    return {
+      id: doc.id,
+      doc_type: docType,
+      doc_no: doc.docNo,
+      date: doc.date,
+      memo: doc.memo,
+      status: doc.status,
+      lines_json: JSON.stringify(doc.lines.map(serializeLine)),
+      created_at: doc.createdAt,
+      confirmed_at: doc.confirmedAt,
+      reverses_doc_id: doc.reversesDocId,
+      reversed_by_doc_id: doc.reversedByDocId,
+      workflow_request_id: doc.workflowRequestId,
+      journal_entry_id: doc.journalEntryId,
+    };
+  }
+
+  function fromRow(row: DocumentRow): FrameworkDocument<Line> {
+    return {
+      id: row.id,
+      docType: row.doc_type,
+      docNo: row.doc_no,
+      date: row.date,
+      memo: row.memo,
+      status: row.status as DocumentStatus,
+      lines: (JSON.parse(row.lines_json) as unknown[]).map(deserializeLine),
+      createdAt: row.created_at,
+      confirmedAt: row.confirmed_at,
+      reversesDocId: row.reverses_doc_id,
+      reversedByDocId: row.reversed_by_doc_id,
+      workflowRequestId: row.workflow_request_id,
+      journalEntryId: row.journal_entry_id,
+    };
+  }
+
+  const byId = (id: string) => db.get<DocumentRow>(`SELECT ${DOCUMENT_COLUMNS} FROM framework_document WHERE id = ? AND doc_type = ?`, [id, docType]);
+  const lineRefSource =
+    db.dialect === SqlDialect.Postgres
+      ? { from: "jsonb_array_elements(d.lines_json::jsonb) l", value: "(l.value ->> ?)" }
+      : { from: "json_each(d.lines_json) l", value: "json_extract(l.value, ?)" };
+
+  return {
+    async save(doc) {
+      const r = toRow(doc);
+      const inserted = await db.run(
+        `INSERT INTO framework_document (${DOCUMENT_COLUMNS})
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT (id) DO NOTHING`,
+        [r.id!, r.doc_type!, r.doc_no!, r.date!, r.memo!, r.status!, r.lines_json!, r.created_at!, r.confirmed_at!, r.reverses_doc_id!, r.reversed_by_doc_id!, r.workflow_request_id!, r.journal_entry_id!],
+      );
+      refuseUnlessInserted(doc.id, inserted.changes);
+    },
+    async update(doc) {
+      const r = toRow(doc);
+      await db.run(
+        `UPDATE framework_document SET
+           doc_no = ?, date = ?, memo = ?, status = ?, lines_json = ?,
+           confirmed_at = ?, reverses_doc_id = ?,
+           reversed_by_doc_id = ?, workflow_request_id = ?,
+           journal_entry_id = ?
+         WHERE id = ? AND doc_type = ?`,
+        [r.doc_no!, r.date!, r.memo!, r.status!, r.lines_json!, r.confirmed_at!, r.reverses_doc_id!, r.reversed_by_doc_id!, r.workflow_request_id!, r.journal_entry_id!, r.id!, docType],
+      );
+    },
+    async writeFields(next, fields, expected) {
+      return writeRowColumnsWhereAsync(db, {
+        table: "framework_document",
+        row: toRow(next),
+        columns: columnsOf(FRAMEWORK_DOCUMENT_COLUMNS, fields),
+        id: next.id,
+        expectedStatuses: [expected.status],
+        and: { sql: "doc_type = ?", params: [docType] },
+      });
+    },
+    async findById(id) {
+      const row = await byId(id);
+      return row ? fromRow(row) : null;
+    },
+    async list(filter: DocumentListFilter = {}) {
+      const rows = await db.all<DocumentRow>(`SELECT ${DOCUMENT_COLUMNS} FROM framework_document WHERE doc_type = ? ORDER BY date, created_at`, [docType]);
+      return rows
+        .filter((r) => (filter.status ? r.status === filter.status : true))
+        .filter((r) => (filter.fromDate ? r.date >= filter.fromDate : true))
+        .filter((r) => (filter.toDate ? r.date <= filter.toDate : true))
+        .map(fromRow);
+    },
+    async listByLineRef(field: string, ids: readonly string[], filter: DocumentListFilter = {}) {
+      if (ids.length === 0) return [];
+      const key = db.dialect === SqlDialect.Postgres ? field : `$.${field}`;
+      const out: FrameworkDocument<Line>[] = [];
+      for (let start = 0; start < ids.length; start += MAX_BOUND_IDS) {
+        const chunk = ids.slice(start, start + MAX_BOUND_IDS);
+        const clauses = ["d.doc_type = ?"];
+        const params: SqlValue[] = [docType];
+        if (filter.status) { clauses.push("d.status = ?"); params.push(filter.status); }
+        if (filter.fromDate) { clauses.push("d.date >= ?"); params.push(filter.fromDate); }
+        if (filter.toDate) { clauses.push("d.date <= ?"); params.push(filter.toDate); }
+        clauses.push(`${lineRefSource.value} IN (${placeholders(chunk.length)})`);
+        params.push(key, ...chunk);
+        const rows = await db.all<DocumentRow>(
+          `SELECT DISTINCT ${DOCUMENT_COLUMNS.replace(/(\w+)/g, "d.$1")} FROM framework_document d, ${lineRefSource.from}
+            WHERE ${clauses.join(" AND ")} ORDER BY d.date, d.created_at`,
+          params,
+        );
+        for (const row of rows) out.push(fromRow(row));
+      }
+      return out;
+    },
+    async nameSourcedLineTaxRate(docId: string, sourceInvoiceId: string, taxRatePercent: number, taxRateId: string) {
+      const row = await byId(docId);
+      if (!row) return 0;
+      // EXTERNAL CONTRACT: the wire names both return stores serialise.
+      const lines = JSON.parse(row.lines_json) as { sourceInvoiceId?: string; taxRatePercent?: number | null; taxRateId?: string | null }[];
+      let named = 0;
+      for (const line of lines) {
+        if (line.sourceInvoiceId !== sourceInvoiceId || (line.taxRateId ?? null) !== null || line.taxRatePercent !== taxRatePercent) continue;
+        line.taxRateId = taxRateId;
+        named += 1;
+      }
+      if (named === 0) return 0;
+      const { changes } = await db.run(`UPDATE framework_document SET lines_json = ? WHERE id = ? AND doc_type = ? AND lines_json = ?`, [
+        JSON.stringify(lines),
+        docId,
+        docType,
+        row.lines_json,
+      ]);
+      return changes === 0 ? 0 : named;
+    },
+    async transaction(fn) {
+      return db.transaction(fn);
     },
   };
 }

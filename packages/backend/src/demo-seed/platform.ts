@@ -24,7 +24,7 @@ interface ActorOptions {
   readonly roles?: string;
 }
 
-function actorHeaders({ userId, permissions = "", roles = "" }: ActorOptions): Record<string, string> {
+function actorHeaders({ userId, permissions = "", roles = "" }: ActorOptions): Promise<Record<string, string>> {
   const codes = permissions.split(",").map((s) => s.trim()).filter(Boolean);
   const role = roles.split(",").map((s) => s.trim()).filter(Boolean)[0] ?? null;
   return seedActorHeaders(userId, codes, role);
@@ -42,7 +42,7 @@ async function stepAs(app: App, method: string, path: string, actor: ActorOption
   const res = await app.fetch(
     new Request(`http://demo-seed${path}`, {
       method,
-      headers: actorHeaders(actor),
+      headers: await actorHeaders(actor),
       body: body === undefined ? undefined : JSON.stringify(body),
     }),
   );

@@ -189,15 +189,15 @@ export interface SignInDecision {
  * included.
  */
 export interface SignInGuard {
-  check(account: string, source: string | null, exists: boolean): SignInDecision;
-  failed(account: string, source: string | null, exists: boolean): SignInDecision;
-  succeeded(account: string, source: string | null): void;
-  unlock(account: string): void;
+  check(account: string, source: string | null, exists: boolean): Promise<SignInDecision>;
+  failed(account: string, source: string | null, exists: boolean): Promise<SignInDecision>;
+  succeeded(account: string, source: string | null): Promise<void>;
+  unlock(account: string): Promise<void>;
   unlockReissueDue(account: string): boolean;
   issueUnlockCode(account: string): string | null;
-  redeemUnlockCode(account: string, code: string): boolean;
+  redeemUnlockCode(account: string, code: string): Promise<boolean>;
   issueUnlockLink(account: string): string | null;
-  redeemUnlockLink(token: string): string | null;
+  redeemUnlockLink(token: string): Promise<string | null>;
 }
 
 export interface SignInGuardOptions {
@@ -210,41 +210,43 @@ const decision = (verdict: SignInVerdict, retryAfterSeconds = 0, justLocked = fa
 
 export function createSignInGuard(options: SignInGuardOptions): SignInGuard {
   const { throttle, sources, locks } = options;
-  const unlock = (account: string): void => {
+  const unlock = async (account: string): Promise<void> => {
     locks.clear(account);
-    throttle.unlock(account);
+    await throttle.unlock(account);
   };
   return {
-    check(account, source, exists) {
+    async check(account, source, exists) {
       const bucket = throttleSource(source);
       if (bucket !== null && locks.isLocked(account, exists)) return decision(SignInVerdict.Locked);
-      const wait = Math.max(throttle.retryAfter(throttleKey(account, source)), bucket === null ? 0 : sources.retryAfter(bucket));
+      const accountWait = await throttle.retryAfter(throttleKey(account, source));
+      const wait = Math.max(accountWait, bucket === null ? 0 : await sources.retryAfter(bucket));
       return wait > 0 ? decision(SignInVerdict.Wait, wait) : decision(SignInVerdict.Proceed);
     },
-    failed(account, source, exists) {
+    async failed(account, source, exists) {
       const bucket = throttleSource(source);
-      const wait = Math.max(throttle.fail(throttleKey(account, source)), bucket === null ? 0 : sources.fail(bucket));
+      const accountWait = await throttle.fail(throttleKey(account, source));
+      const wait = Math.max(accountWait, bucket === null ? 0 : await sources.fail(bucket));
       if (bucket !== null) {
         const lock = locks.fail(account, exists);
         if (lock.locked) return decision(SignInVerdict.Locked, 0, lock.justLocked);
       }
       return wait > 0 ? decision(SignInVerdict.Wait, wait) : decision(SignInVerdict.Failed);
     },
-    succeeded(account, source) {
-      throttle.succeed(throttleKey(account, source));
+    async succeeded(account, source) {
+      await throttle.succeed(throttleKey(account, source));
     },
     unlock,
     unlockReissueDue: (account) => locks.unlockReissueDue(account),
     issueUnlockCode: (account) => locks.issueUnlockCode(account),
-    redeemUnlockCode(account, code) {
+    async redeemUnlockCode(account, code) {
       if (!locks.redeemUnlockCode(account, code)) return false;
-      unlock(account);
+      await unlock(account);
       return true;
     },
     issueUnlockLink: (account) => locks.issueUnlockLink(account),
-    redeemUnlockLink(token) {
+    async redeemUnlockLink(token) {
       const account = locks.redeemUnlockLink(token);
-      if (account !== null) unlock(account);
+      if (account !== null) await unlock(account);
       return account;
     },
   };

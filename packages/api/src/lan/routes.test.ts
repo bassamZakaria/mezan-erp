@@ -45,16 +45,16 @@ function fakeAuthSessions(): { sessions: SessionRegistry; revoked: string[] } {
   const revoked: string[] = [];
   return {
     sessions: {
-      issue: () => "unused",
-      issueDeviceBound: () => ({ token: "unused", deviceSecret: "unused" }),
-      needsStepUp: () => false,
-      confirmStepUp: () => {},
-      find: () => null,
-      inspect: () => ({ grant: null, refusal: null }),
-      revoke: (token: string) => {
+      issue: async () => "unused",
+      issueDeviceBound: async () => ({ token: "unused", deviceSecret: "unused" }),
+      needsStepUp: async () => false,
+      confirmStepUp: async () => {},
+      find: async () => null,
+      inspect: async () => ({ grant: null, refusal: null }),
+      revoke: async (token: string) => {
         revoked.push(token);
       },
-      revokeUser: () => {},
+      revokeUser: async () => {},
     },
     revoked,
   };

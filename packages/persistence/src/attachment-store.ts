@@ -1,10 +1,12 @@
-import Database from "better-sqlite3";
+import type Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
-import { insertingNew } from "./insert-new.js";
+import { refuseUnlessInserted } from "./insert-new.js";
+import type { SqlDb } from "./sql/sql-db.js";
+import { sqliteDb } from "./sql/sqlite-db.js";
 import type { Attachment, AttachmentContent, AttachmentEntityType, AttachmentRepository } from "@mezan/domain";
 
 /**
- * SQLite-backed المرفقات store. The bytes live in the same database file as
+ * SQL-backed المرفقات store. The bytes live in the same database as
  * everything else, so the desktop backup — which copies that one file — carries
  * the attachments with it and a restore is not silently missing them.
  *
@@ -36,7 +38,7 @@ interface AttachmentRow {
   entity_id: string;
   file_name: string;
   mime_type: string;
-  byte_size: number;
+  byte_size: bigint;
   uploaded_by: string;
   uploaded_at: string;
   notes: string | null;
@@ -49,78 +51,73 @@ function toAttachment(row: AttachmentRow): Attachment {
     entityId: row.entity_id,
     fileName: row.file_name,
     mimeType: row.mime_type,
-    byteSize: row.byte_size,
+    byteSize: Number(row.byte_size),
     uploadedBy: row.uploaded_by,
     uploadedAt: row.uploaded_at,
     notes: row.notes,
   };
 }
 
-class SqliteAttachmentRepository implements AttachmentRepository {
-  private readonly insert: Database.Statement;
-  private readonly selectByEntity: Database.Statement;
-  private readonly selectAll: Database.Statement;
-  private readonly selectById: Database.Statement;
-  private readonly selectContentById: Database.Statement;
-  private readonly deleteById: Database.Statement;
-
-  constructor(sqlite: Database.Database) {
-    this.insert = sqlite.prepare(`
-      INSERT INTO attachment (id, entity_type, entity_id, file_name, mime_type, byte_size, uploaded_by, uploaded_at, notes, content)
-      VALUES (@id, @entity_type, @entity_id, @file_name, @mime_type, @byte_size, @uploaded_by, @uploaded_at, @notes, @content)
-    `);
-    this.selectByEntity = sqlite.prepare(
-      `SELECT ${META_COLUMNS} FROM attachment WHERE entity_type = ? AND entity_id = ? ORDER BY uploaded_at DESC, id DESC`,
-    );
-    this.selectAll = sqlite.prepare(`SELECT ${META_COLUMNS} FROM attachment ORDER BY uploaded_at DESC, id DESC`);
-    this.selectById = sqlite.prepare(`SELECT ${META_COLUMNS} FROM attachment WHERE id = ?`);
-    this.selectContentById = sqlite.prepare(`SELECT ${META_COLUMNS}, content FROM attachment WHERE id = ?`);
-    this.deleteById = sqlite.prepare(`DELETE FROM attachment WHERE id = ?`);
-  }
+class SqlAttachmentRepository implements AttachmentRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async list(entityType: AttachmentEntityType, entityId: string): Promise<Attachment[]> {
-    return (this.selectByEntity.all(entityType, entityId) as AttachmentRow[]).map(toAttachment);
+    return (
+      await this.db.all<AttachmentRow>(`SELECT ${META_COLUMNS} FROM attachment WHERE entity_type = ? AND entity_id = ? ORDER BY uploaded_at DESC, id DESC`, [entityType, entityId])
+    ).map(toAttachment);
   }
 
   async listAll(): Promise<Attachment[]> {
-    return (this.selectAll.all() as AttachmentRow[]).map(toAttachment);
+    return (await this.db.all<AttachmentRow>(`SELECT ${META_COLUMNS} FROM attachment ORDER BY uploaded_at DESC, id DESC`)).map(toAttachment);
   }
 
   async findById(id: string): Promise<Attachment | null> {
-    const row = this.selectById.get(id) as AttachmentRow | undefined;
+    const row = await this.db.get<AttachmentRow>(`SELECT ${META_COLUMNS} FROM attachment WHERE id = ?`, [id]);
     return row ? toAttachment(row) : null;
   }
 
   async readContent(id: string): Promise<AttachmentContent | null> {
-    const row = this.selectContentById.get(id) as (AttachmentRow & { content: Buffer }) | undefined;
+    const row = await this.db.get<AttachmentRow & { content: Uint8Array }>(`SELECT ${META_COLUMNS}, content FROM attachment WHERE id = ?`, [id]);
     if (!row) return null;
     return { attachment: toAttachment(row), bytes: new Uint8Array(row.content) };
   }
 
   async create(attachment: Attachment, bytes: Uint8Array): Promise<void> {
-    insertingNew(attachment.id, () => this.insert.run({
-      id: attachment.id,
-      entity_type: attachment.entityType,
-      entity_id: attachment.entityId,
-      file_name: attachment.fileName,
-      mime_type: attachment.mimeType,
-      byte_size: attachment.byteSize,
-      uploaded_by: attachment.uploadedBy,
-      uploaded_at: attachment.uploadedAt,
-      notes: attachment.notes,
-      content: Buffer.from(bytes),
-    }));
+    const inserted = await this.db.run(
+      `INSERT INTO attachment (${META_COLUMNS}, content) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO NOTHING`,
+      [
+        attachment.id,
+        attachment.entityType,
+        attachment.entityId,
+        attachment.fileName,
+        attachment.mimeType,
+        attachment.byteSize,
+        attachment.uploadedBy,
+        attachment.uploadedAt,
+        attachment.notes,
+        Buffer.from(bytes),
+      ],
+    );
+    refuseUnlessInserted(attachment.id, inserted.changes);
   }
 
   async delete(id: string): Promise<void> {
-    this.deleteById.run(id);
+    await this.db.run(`DELETE FROM attachment WHERE id = ?`, [id]);
   }
+}
+
+export async function ensureAttachmentSchema(db: SqlDb): Promise<void> {
+  await db.applySchema(CREATE_TABLE);
+}
+
+export function createAttachmentRepository(db: SqlDb): AttachmentRepository {
+  return new SqlAttachmentRepository(db);
 }
 
 /** Build the store on an EXISTING connection, so a composed app keeps one DB handle. */
 export function createSqliteAttachmentRepository(sqlite: Database.Database): AttachmentRepository {
   sqlite.exec(CREATE_TABLE);
-  return new SqliteAttachmentRepository(sqlite);
+  return createAttachmentRepository(sqliteDb(sqlite));
 }
 
 export interface SqliteAttachmentStoreHandle {

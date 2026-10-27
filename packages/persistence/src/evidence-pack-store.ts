@@ -3,8 +3,10 @@ import { createHash, randomBytes } from "node:crypto";
 import path from "node:path";
 import type Database from "better-sqlite3";
 import { Money } from "@mezan/domain";
+import { SqlDialect, type SqlDb, type SqlValue } from "./sql/sql-db.js";
+import { sqliteDb } from "./sql/sqlite-db.js";
 
-const CREATE_REGISTER = `
+const CREATE_REGISTER_TABLE = `
 CREATE TABLE IF NOT EXISTS evidence_pack (
   id                TEXT PRIMARY KEY,
   period_from       TEXT NOT NULL,
@@ -19,11 +21,28 @@ CREATE TABLE IF NOT EXISTS evidence_pack (
   audit_chain_ok    INTEGER NOT NULL CHECK (audit_chain_ok IN (0, 1))
 );
 CREATE INDEX IF NOT EXISTS idx_evidence_pack_built_at ON evidence_pack(built_at);
+`;
+
+const SQLITE_REGISTER_TRIGGERS = `
 CREATE TRIGGER IF NOT EXISTS evidence_pack_no_update BEFORE UPDATE ON evidence_pack
 BEGIN SELECT RAISE(ABORT, 'evidence_pack is append-only'); END;
 CREATE TRIGGER IF NOT EXISTS evidence_pack_no_delete BEFORE DELETE ON evidence_pack
 BEGIN SELECT RAISE(ABORT, 'evidence_pack is append-only'); END;
 `;
+
+// CONTRACT: the same message text as the SQLite RAISE(ABORT, ...) above.
+const POSTGRES_REGISTER_TRIGGERS = `
+CREATE OR REPLACE FUNCTION evidence_pack_append_only() RETURNS trigger LANGUAGE plpgsql AS $fn$
+BEGIN
+  RAISE EXCEPTION 'evidence_pack is append-only';
+END;
+$fn$;
+CREATE OR REPLACE TRIGGER evidence_pack_no_update BEFORE UPDATE ON evidence_pack FOR EACH ROW EXECUTE FUNCTION evidence_pack_append_only();
+CREATE OR REPLACE TRIGGER evidence_pack_no_delete BEFORE DELETE ON evidence_pack FOR EACH ROW EXECUTE FUNCTION evidence_pack_append_only();
+CREATE OR REPLACE TRIGGER evidence_pack_no_truncate BEFORE TRUNCATE ON evidence_pack FOR EACH STATEMENT EXECUTE FUNCTION evidence_pack_append_only();
+`;
+
+const EXPORT_CHUNK_ROWS = 5000;
 
 const SEED_HEX = /^[0-9a-f]{64}$/;
 const processSeeds = new WeakMap<Database.Database, string>();
@@ -112,13 +131,15 @@ export interface EvidenceAuditRow {
 }
 
 export interface EvidencePackStore {
-  record(pack: EvidencePackRecord): void;
-  list(limit: number): readonly EvidencePackRecord[];
-  numberedDocuments(): readonly EvidenceNumberedDocumentRow[];
-  counterAdjustments(): readonly EvidenceCounterAdjustmentRow[];
-  deletedNumbers(): readonly EvidenceDeletedNumberRow[];
-  glLines(from: string, to: string): IterableIterator<EvidenceGlLineRow>;
-  auditEvents(from: string, to: string): IterableIterator<EvidenceAuditRow>;
+  record(pack: EvidencePackRecord): Promise<void>;
+  list(limit: number): Promise<readonly EvidencePackRecord[]>;
+  numberedDocuments(): Promise<readonly EvidenceNumberedDocumentRow[]>;
+  counterAdjustments(): Promise<readonly EvidenceCounterAdjustmentRow[]>;
+  deletedNumbers(): Promise<readonly EvidenceDeletedNumberRow[]>;
+  // Every row is handed to `each` from ONE transaction, a chunk at a time, so
+  // the export is one consistent snapshot without holding the period in memory.
+  glLines(from: string, to: string, each: (row: EvidenceGlLineRow) => void): Promise<void>;
+  auditEvents(from: string, to: string, each: (row: EvidenceAuditRow) => void): Promise<void>;
 }
 
 interface RegisterRow {
@@ -130,9 +151,9 @@ interface RegisterRow {
   built_at: string;
   manifest_sha256: string;
   key_id: string;
-  file_count: number;
-  total_bytes: number;
-  audit_chain_ok: number;
+  file_count: bigint;
+  total_bytes: bigint;
+  audit_chain_ok: bigint;
 }
 
 function parseObject(raw: string | null): Record<string, unknown> | null {
@@ -170,12 +191,27 @@ interface NumberedSource {
   readonly hasDocType: boolean;
 }
 
-function numberedSources(sqlite: Database.Database): NumberedSource[] {
-  const tables = sqlite.prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name`).all() as { name: string }[];
+async function tableNames(db: SqlDb): Promise<string[]> {
+  const sql =
+    db.dialect === SqlDialect.Postgres
+      ? `SELECT table_name AS name FROM information_schema.tables WHERE table_schema = current_schema() AND table_type = 'BASE TABLE' ORDER BY table_name`
+      : `SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name`;
+  return (await db.all<{ name: string }>(sql)).map((row) => row.name);
+}
+
+async function columnNames(db: SqlDb, table: string): Promise<Set<string>> {
+  const rows =
+    db.dialect === SqlDialect.Postgres
+      ? await db.all<{ name: string }>(`SELECT column_name AS name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = ?`, [table])
+      : await db.all<{ name: string }>(`SELECT name FROM pragma_table_info(?)`, [table]);
+  return new Set(rows.map((c) => c.name));
+}
+
+async function numberedSources(db: SqlDb): Promise<NumberedSource[]> {
   const sources: NumberedSource[] = [];
-  for (const { name } of tables) {
+  for (const name of await tableNames(db)) {
     if (REFERENCING_TABLES.has(name)) continue;
-    const columns = new Set((sqlite.prepare(`PRAGMA table_info(${quoteIdent(name)})`).all() as { name: string }[]).map((c) => c.name));
+    const columns = await columnNames(db, name);
     const numberColumn = NUMBER_COLUMNS.find((c) => columns.has(c));
     if (!numberColumn) continue;
     sources.push({
@@ -228,33 +264,83 @@ export function resolveEvidenceSigningSeed(sqlite: Database.Database, databaseKe
   return minted;
 }
 
-export function createSqliteEvidencePackStore(sqlite: Database.Database): EvidencePackStore {
-  sqlite.exec(CREATE_REGISTER);
-  const insert = sqlite.prepare(
-    `INSERT INTO evidence_pack (id, period_from, period_to, built_by, built_by_name, built_at, manifest_sha256, key_id, file_count, total_bytes, audit_chain_ok)
-     VALUES (@id, @period_from, @period_to, @built_by, @built_by_name, @built_at, @manifest_sha256, @key_id, @file_count, @total_bytes, @audit_chain_ok)`,
-  );
-  const listStatement = sqlite.prepare(`SELECT * FROM evidence_pack ORDER BY built_at DESC, id DESC LIMIT ?`);
+interface GlLineRow {
+  date: string;
+  entry_no: string | null;
+  entry_id: string;
+  status: string;
+  source: string;
+  source_doc_type: string | null;
+  source_doc_number: string | null;
+  memo: string | null;
+  line_no: bigint;
+  account_id: string;
+  debit: bigint;
+  credit: bigint;
+  line_memo: string | null;
+  branch_id: string | null;
+  cost_center_id: string | null;
+  project_id: string | null;
+  party_id: string | null;
+  currency: string | null;
+  fx_rate: string | null;
+  tax_rate_percent: number | null;
+}
 
+interface AuditExtractRow {
+  id: bigint;
+  timestamp: string;
+  stream: string;
+  module: string;
+  entity_type: string;
+  entity_id: string | null;
+  action: string;
+  actor: string;
+  branch_id: string | null;
+  severity: string;
+  details: string | null;
+  row_hash: string | null;
+}
+
+async function inChunks<Row>(db: SqlDb, sql: string, params: readonly SqlValue[], each: (row: Row) => void): Promise<void> {
+  await db.transaction(async () => {
+    for (let offset = 0; ; offset += EXPORT_CHUNK_ROWS) {
+      const rows = await db.all<Row>(`${sql} LIMIT ? OFFSET ?`, [...params, EXPORT_CHUNK_ROWS, offset]);
+      for (const row of rows) each(row);
+      if (rows.length < EXPORT_CHUNK_ROWS) return;
+    }
+  });
+}
+
+export async function ensureEvidencePackSchema(db: SqlDb): Promise<void> {
+  await db.applySchema(CREATE_REGISTER_TABLE);
+  await db.exec(db.dialect === SqlDialect.Postgres ? POSTGRES_REGISTER_TRIGGERS : SQLITE_REGISTER_TRIGGERS);
+}
+
+export function createEvidencePackStore(db: SqlDb): EvidencePackStore {
   return {
-    record(pack) {
-      insert.run({
-        id: pack.id,
-        period_from: pack.periodFrom,
-        period_to: pack.periodTo,
-        built_by: pack.builtBy,
-        built_by_name: pack.builtByName,
-        built_at: pack.builtAt,
-        manifest_sha256: pack.manifestSha256,
-        key_id: pack.keyId,
-        file_count: pack.fileCount,
-        total_bytes: pack.totalBytes,
-        audit_chain_ok: pack.auditChainOk ? 1 : 0,
-      });
+    async record(pack) {
+      await db.run(
+        `INSERT INTO evidence_pack (id, period_from, period_to, built_by, built_by_name, built_at, manifest_sha256, key_id, file_count, total_bytes, audit_chain_ok)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          pack.id,
+          pack.periodFrom,
+          pack.periodTo,
+          pack.builtBy,
+          pack.builtByName,
+          pack.builtAt,
+          pack.manifestSha256,
+          pack.keyId,
+          pack.fileCount,
+          pack.totalBytes,
+          pack.auditChainOk ? 1 : 0,
+        ],
+      );
     },
 
-    list(limit) {
-      return (listStatement.all(limit) as RegisterRow[]).map((row) => ({
+    async list(limit) {
+      return (await db.all<RegisterRow>(`SELECT * FROM evidence_pack ORDER BY built_at DESC, id DESC LIMIT ?`, [limit])).map((row) => ({
         id: row.id,
         periodFrom: row.period_from,
         periodTo: row.period_to,
@@ -263,22 +349,22 @@ export function createSqliteEvidencePackStore(sqlite: Database.Database): Eviden
         builtAt: row.built_at,
         manifestSha256: row.manifest_sha256,
         keyId: row.key_id,
-        fileCount: row.file_count,
-        totalBytes: row.total_bytes,
-        auditChainOk: row.audit_chain_ok === 1,
+        fileCount: Number(row.file_count),
+        totalBytes: Number(row.total_bytes),
+        auditChainOk: Number(row.audit_chain_ok) === 1,
       }));
     },
 
-    numberedDocuments() {
+    async numberedDocuments() {
       const out: EvidenceNumberedDocumentRow[] = [];
-      for (const source of numberedSources(sqlite)) {
-        const number = quoteIdent(source.numberColumn);
-        const date = source.dateColumn ? `substr(${quoteIdent(source.dateColumn)}, 1, 10)` : "''";
-        const status = source.hasStatus ? "status" : "''";
-        const docType = source.hasDocType ? "doc_type" : "NULL";
-        const rows = sqlite
-          .prepare(`SELECT ${number} AS number, ${date} AS date, ${status} AS status, ${docType} AS doc_type FROM ${quoteIdent(source.table)} WHERE ${number} IS NOT NULL AND ${number} <> ''`)
-          .iterate() as IterableIterator<{ number: string; date: string | null; status: string | null; doc_type: string | null }>;
+      for (const source of await numberedSources(db)) {
+        const number = `CAST(${quoteIdent(source.numberColumn)} AS TEXT)`;
+        const date = source.dateColumn ? `substr(CAST(${quoteIdent(source.dateColumn)} AS TEXT), 1, 10)` : "''";
+        const status = source.hasStatus ? "CAST(status AS TEXT)" : "''";
+        const docType = source.hasDocType ? "CAST(doc_type AS TEXT)" : "NULL";
+        const rows = await db.all<{ number: string; date: string | null; status: string | null; doc_type: string | null }>(
+          `SELECT ${number} AS number, ${date} AS date, ${status} AS status, ${docType} AS doc_type FROM ${quoteIdent(source.table)} WHERE ${quoteIdent(source.numberColumn)} IS NOT NULL AND ${number} <> ''`,
+        );
         for (const row of rows) {
           const state = String(row.status ?? "").toLowerCase();
           out.push({
@@ -293,10 +379,11 @@ export function createSqliteEvidencePackStore(sqlite: Database.Database): Eviden
       return out;
     },
 
-    counterAdjustments() {
-      const rows = sqlite
-        .prepare(`SELECT timestamp, actor, details FROM audit_event WHERE entity_type = ? AND action = ? ORDER BY id`)
-        .all(SEQUENCE_ENTITY, COUNTER_ADJUSTED_ACTION) as { timestamp: string; actor: string; details: string | null }[];
+    async counterAdjustments() {
+      const rows = await db.all<{ timestamp: string; actor: string; details: string | null }>(
+        `SELECT timestamp, actor, details FROM audit_event WHERE entity_type = ? AND action = ? ORDER BY id`,
+        [SEQUENCE_ENTITY, COUNTER_ADJUSTED_ACTION],
+      );
       const out: EvidenceCounterAdjustmentRow[] = [];
       for (const row of rows) {
         const details = parseObject(row.details);
@@ -308,10 +395,11 @@ export function createSqliteEvidencePackStore(sqlite: Database.Database): Eviden
       return out;
     },
 
-    deletedNumbers() {
-      const rows = sqlite
-        .prepare(`SELECT timestamp, actor, entity_id, details FROM audit_event WHERE action LIKE ? ORDER BY id`)
-        .all(DELETE_ACTION_PATTERN) as { timestamp: string; actor: string; entity_id: string | null; details: string | null }[];
+    async deletedNumbers() {
+      const rows = await db.all<{ timestamp: string; actor: string; entity_id: string | null; details: string | null }>(
+        `SELECT timestamp, actor, entity_id, details FROM audit_event WHERE action LIKE ? ORDER BY id`,
+        [DELETE_ACTION_PATTERN],
+      );
       return rows.map((row) => {
         const candidates: string[] = [];
         if (row.entity_id) candidates.push(row.entity_id);
@@ -320,64 +408,72 @@ export function createSqliteEvidencePackStore(sqlite: Database.Database): Eviden
       });
     },
 
-    *glLines(from, to) {
-      const statement = sqlite
-        .prepare(
-          `SELECT e.date, e.entry_no, e.id AS entry_id, e.status, e.source, e.source_doc_type, e.source_doc_number, e.memo,
-                  l.line_no, l.account_id, l.debit, l.credit, l.memo AS line_memo, l.branch_id, l.cost_center_id, l.project_id,
-                  l.party_id, l.currency, l.fx_rate, l.tax_rate_percent
-             FROM journal_entry e JOIN journal_line l ON l.entry_id = e.id
-            WHERE e.status IN ('posted', 'reversed') AND e.date >= ? AND e.date < ?
-            ORDER BY e.date, e.entry_no, e.id, l.line_no`,
-        )
-        .safeIntegers(true);
-      for (const raw of statement.iterate(from, nextDay(to)) as IterableIterator<Record<string, unknown>>) {
-        yield {
-          date: String(raw["date"]).slice(0, 10),
-          entryNo: raw["entry_no"] === null ? null : String(raw["entry_no"]),
-          entryId: String(raw["entry_id"]),
-          status: String(raw["status"]),
-          source: String(raw["source"]),
-          sourceDocType: raw["source_doc_type"] === null ? null : String(raw["source_doc_type"]),
-          sourceDocNumber: raw["source_doc_number"] === null ? null : String(raw["source_doc_number"]),
-          lineNo: Number(raw["line_no"]),
-          accountId: String(raw["account_id"]),
-          debit: Money.fromScaled(raw["debit"] as bigint).toString(),
-          credit: Money.fromScaled(raw["credit"] as bigint).toString(),
-          memo: raw["memo"] === null ? null : String(raw["memo"]),
-          lineMemo: raw["line_memo"] === null ? null : String(raw["line_memo"]),
-          branchId: raw["branch_id"] === null ? null : String(raw["branch_id"]),
-          costCenterId: raw["cost_center_id"] === null ? null : String(raw["cost_center_id"]),
-          projectId: raw["project_id"] === null ? null : String(raw["project_id"]),
-          partyId: raw["party_id"] === null ? null : String(raw["party_id"]),
-          currency: raw["currency"] === null ? null : String(raw["currency"]),
-          fxRate: raw["fx_rate"] === null ? null : String(raw["fx_rate"]),
-          taxRatePercent: raw["tax_rate_percent"] === null ? null : Number(raw["tax_rate_percent"]),
-        };
-      }
+    glLines(from, to, each) {
+      return inChunks<GlLineRow>(
+        db,
+        `SELECT e.date AS date, e.entry_no AS entry_no, e.id AS entry_id, e.status AS status, e.source AS source,
+                e.source_doc_type AS source_doc_type, e.source_doc_number AS source_doc_number, e.memo AS memo,
+                l.line_no AS line_no, l.account_id AS account_id, l.debit AS debit, l.credit AS credit, l.memo AS line_memo,
+                l.branch_id AS branch_id, l.cost_center_id AS cost_center_id, l.project_id AS project_id,
+                l.party_id AS party_id, l.currency AS currency, l.fx_rate AS fx_rate, l.tax_rate_percent AS tax_rate_percent
+           FROM journal_entry e JOIN journal_line l ON l.entry_id = e.id
+          WHERE e.status IN ('posted', 'reversed') AND e.date >= ? AND e.date < ?
+          ORDER BY e.date, e.entry_no, e.id, l.line_no`,
+        [from, nextDay(to)],
+        (raw) =>
+          each({
+            date: String(raw.date).slice(0, 10),
+            entryNo: raw.entry_no === null ? null : String(raw.entry_no),
+            entryId: String(raw.entry_id),
+            status: String(raw.status),
+            source: String(raw.source),
+            sourceDocType: raw.source_doc_type === null ? null : String(raw.source_doc_type),
+            sourceDocNumber: raw.source_doc_number === null ? null : String(raw.source_doc_number),
+            lineNo: Number(raw.line_no),
+            accountId: String(raw.account_id),
+            debit: Money.fromScaled(raw.debit).toString(),
+            credit: Money.fromScaled(raw.credit).toString(),
+            memo: raw.memo === null ? null : String(raw.memo),
+            lineMemo: raw.line_memo === null ? null : String(raw.line_memo),
+            branchId: raw.branch_id === null ? null : String(raw.branch_id),
+            costCenterId: raw.cost_center_id === null ? null : String(raw.cost_center_id),
+            projectId: raw.project_id === null ? null : String(raw.project_id),
+            partyId: raw.party_id === null ? null : String(raw.party_id),
+            currency: raw.currency === null ? null : String(raw.currency),
+            fxRate: raw.fx_rate === null ? null : String(raw.fx_rate),
+            taxRatePercent: raw.tax_rate_percent === null ? null : Number(raw.tax_rate_percent),
+          }),
+      );
     },
 
-    *auditEvents(from, to) {
-      const statement = sqlite.prepare(
+    auditEvents(from, to, each) {
+      return inChunks<AuditExtractRow>(
+        db,
         `SELECT id, timestamp, stream, module, entity_type, entity_id, action, actor, branch_id, severity, details, row_hash
            FROM audit_event WHERE timestamp >= ? AND timestamp < ? ORDER BY id`,
+        [from, nextDay(to)],
+        (row) =>
+          each({
+            id: Number(row.id),
+            timestamp: String(row.timestamp),
+            stream: String(row.stream),
+            module: String(row.module),
+            entityType: String(row.entity_type),
+            entityId: row.entity_id === null ? null : String(row.entity_id),
+            action: String(row.action),
+            actor: String(row.actor),
+            branchId: row.branch_id === null ? null : String(row.branch_id),
+            severity: String(row.severity),
+            details: parseObject(row.details === null ? null : String(row.details)),
+            rowHash: row.row_hash === null ? null : String(row.row_hash),
+          }),
       );
-      for (const row of statement.iterate(from, nextDay(to)) as IterableIterator<Record<string, unknown>>) {
-        yield {
-          id: Number(row["id"]),
-          timestamp: String(row["timestamp"]),
-          stream: String(row["stream"]),
-          module: String(row["module"]),
-          entityType: String(row["entity_type"]),
-          entityId: row["entity_id"] === null ? null : String(row["entity_id"]),
-          action: String(row["action"]),
-          actor: String(row["actor"]),
-          branchId: row["branch_id"] === null ? null : String(row["branch_id"]),
-          severity: String(row["severity"]),
-          details: parseObject(row["details"] === null ? null : String(row["details"])),
-          rowHash: row["row_hash"] === null ? null : String(row["row_hash"]),
-        };
-      }
     },
   };
+}
+
+export function createSqliteEvidencePackStore(sqlite: Database.Database): EvidencePackStore {
+  sqlite.exec(CREATE_REGISTER_TABLE);
+  sqlite.exec(SQLITE_REGISTER_TRIGGERS);
+  return createEvidencePackStore(sqliteDb(sqlite));
 }

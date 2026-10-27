@@ -36,10 +36,12 @@ export async function writeRowColumnsWhereAsync(db: SqlDb, write: GuardedRowWrit
   if (write.columns.length === 0 || write.expectedStatuses.length === 0) return false;
   const assignments = write.columns.map((column) => `${column} = ?`).join(", ");
   const extra = write.and ? ` AND ${write.and.sql}` : "";
-  const { changes } = await db.run(
-    `UPDATE ${write.table} SET ${assignments} WHERE id = ? AND status IN (${placeholders(write.expectedStatuses.length)})${extra}`,
-    [...write.columns.map((column) => write.row[column] as SqlValue), write.id, ...write.expectedStatuses, ...((write.and?.params ?? []) as SqlValue[])],
-  );
+  const { changes } = await db.run(`UPDATE ${write.table} SET ${assignments} WHERE id = ? AND status IN (${placeholders(write.expectedStatuses.length)})${extra}`, [
+    ...write.columns.map((column) => (write.row[column] ?? null) as SqlValue),
+    write.id,
+    ...write.expectedStatuses,
+    ...((write.and?.params ?? []) as SqlValue[]),
+  ]);
   return changes === 1;
 }
 

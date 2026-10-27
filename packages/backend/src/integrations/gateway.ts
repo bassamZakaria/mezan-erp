@@ -98,7 +98,7 @@ export function createIntegrationsGateway(deps: IntegrationsGatewayDeps): Integr
     authenticate: (token, raw) =>
       deps.turn(async () => {
         if (token.tenantCode !== deps.tenantCode) return null;
-        const key = deps.store.apiKeys.findByLookup(token.lookup);
+        const key = await deps.store.apiKeys.findByLookup(token.lookup);
         if (!key || !sameHash(hashApiKeyToken(raw), key.tokenHash)) return null;
         const at = deps.now();
         if (apiKeyStatus(key, at.toISOString()) !== ApiKeyStatusDTO.Active) return null;
@@ -107,7 +107,7 @@ export function createIntegrationsGateway(deps: IntegrationsGatewayDeps): Integr
         const permissions = effectiveApiPermissions(key.scopes, owner.permissions);
         if (permissions.length === 0) return null;
         if (key.lastUsedAt === null || at.getTime() - Date.parse(key.lastUsedAt) >= API_KEY_LAST_USED_WRITE_INTERVAL_MS) {
-          deps.store.apiKeys.touch(key.id, at.toISOString());
+          await deps.store.apiKeys.touch(key.id, at.toISOString());
         }
         return {
           keyId: key.id,
@@ -125,7 +125,7 @@ export function createIntegrationsGateway(deps: IntegrationsGatewayDeps): Integr
     findIdempotent: (scope, key) => deps.turn(async () => deps.idempotency.find(scope, key)),
     recordIdempotent: (scope, key, answer) =>
       deps.turn(async () => {
-        deps.idempotency.record(scope, key, answer, deps.now().toISOString());
+        await deps.idempotency.record(scope, key, answer, deps.now().toISOString());
       }),
     recordWrite: (entry) =>
       deps.turn(() =>

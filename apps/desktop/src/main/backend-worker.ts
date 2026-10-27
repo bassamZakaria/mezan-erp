@@ -193,8 +193,8 @@ async function run(call: BackendCall): Promise<BackendCallResult> {
       // main/lan-authorization.ts, where its tests are.
       return authorizeSeatedSession(
         {
-          resolveSessionUser: (token, origin) =>
-            live.backend.sessions.find(token, origin)?.userId ?? null,
+          resolveSessionUser: async (token, origin) =>
+            (await live.backend.sessions.find(token, origin))?.userId ?? null,
           registry: live.seats,
         },
         call.token,

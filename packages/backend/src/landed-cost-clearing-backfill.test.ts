@@ -24,7 +24,7 @@ async function restart(): Promise<(method: string, url: string, body?: unknown) 
     resolveEntitlements: () => createEntitlements({ plan: "DEMO", activeModules: MODULE_CATALOG, features: {}, seats: 50, expiresAt: null }),
   });
   const backend = restarted;
-  const token = backend.sessions.issue({ userId: "admin", permissions: ["*"], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
+  const token = await backend.sessions.issue({ userId: "admin", permissions: ["*"], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
   return async (method, url, body) => {
     const res = await backend.app.fetch(new Request(`http://local${url}`, { method, headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) }));
     return { status: res.status, body: (await res.json()) as Record<string, unknown> };

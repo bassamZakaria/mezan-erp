@@ -120,17 +120,17 @@ export interface DisplacedSession {
 export interface SessionStore {
   /** How stale a stored `lastSeenAt` may be before a lookup rewrites it. */
   readonly lastSeenWriteIntervalMs: number;
-  atomically<T>(work: () => T): T;
-  get(key: string): StoredSession | null;
-  put(key: string, session: StoredSession): void;
-  remove(key: string): void;
-  removeUser(userId: string): void;
-  onDevice(deviceHash: string): ReadonlyArray<readonly [string, StoredSession]>;
-  displaced(key: string): DisplacedSession | null;
+  atomically<T>(work: () => Promise<T>): Promise<T>;
+  get(key: string): Promise<StoredSession | null>;
+  put(key: string, session: StoredSession): Promise<void>;
+  remove(key: string): Promise<void>;
+  removeUser(userId: string): Promise<void>;
+  onDevice(deviceHash: string): Promise<ReadonlyArray<readonly [string, StoredSession]>>;
+  displaced(key: string): Promise<DisplacedSession | null>;
   /** Bounded to {@link DISPLACED_SESSIONS_REMEMBERED}, oldest dropped first. */
-  rememberDisplaced(key: string, ended: DisplacedSession): void;
-  forgetDisplaced(key: string): void;
-  sweep(at: number, displacedForMs: number): void;
+  rememberDisplaced(key: string, ended: DisplacedSession): Promise<void>;
+  forgetDisplaced(key: string): Promise<void>;
+  sweep(at: number, displacedForMs: number): Promise<void>;
 }
 
 function expiredAt(session: StoredSession, at: number, limits: SessionLimits): SessionRefusalKind | null {
@@ -150,15 +150,15 @@ export function createMemorySessionStore(): SessionStore {
   return {
     lastSeenWriteIntervalMs: 0,
     atomically: (work) => work(),
-    get: (key) => byHash.get(key) ?? null,
-    put: (key, session) => void byHash.set(key, session),
-    remove: (key) => void byHash.delete(key),
-    removeUser(userId) {
+    get: async (key) => byHash.get(key) ?? null,
+    put: async (key, session) => void byHash.set(key, session),
+    remove: async (key) => void byHash.delete(key),
+    async removeUser(userId) {
       for (const [key, session] of byHash) if (session.userId === userId) byHash.delete(key);
     },
-    onDevice: (deviceHash) => [...byHash].filter(([, session]) => session.deviceHash !== null && tokensMatch(session.deviceHash, deviceHash)),
-    displaced: (key) => displaced.get(key) ?? null,
-    rememberDisplaced(key, ended) {
+    onDevice: async (deviceHash) => [...byHash].filter(([, session]) => session.deviceHash !== null && tokensMatch(session.deviceHash, deviceHash)),
+    displaced: async (key) => displaced.get(key) ?? null,
+    async rememberDisplaced(key, ended) {
       displaced.delete(key);
       displaced.set(key, ended);
       while (displaced.size > DISPLACED_SESSIONS_REMEMBERED) {
@@ -167,8 +167,8 @@ export function createMemorySessionStore(): SessionStore {
         displaced.delete(oldest.value);
       }
     },
-    forgetDisplaced: (key) => void displaced.delete(key),
-    sweep(at, displacedForMs) {
+    forgetDisplaced: async (key) => void displaced.delete(key),
+    async sweep(at, displacedForMs) {
       for (const [key, session] of byHash) {
         if (expiredAt(session, at, session)) byHash.delete(key);
       }
@@ -218,7 +218,7 @@ export interface SessionRegistry {
    * host, and a network client presenting that token is refused. The default
    * therefore fails closed; supplying a caller-controlled value would not.
    */
-  issue(grant: SessionGrant, origin?: string | null): string;
+  issue(grant: SessionGrant, origin?: string | null): Promise<string>;
   // SECURITY: a session bound to a secret held by the device that signed in,
   // for a client whose address legitimately changes (a phone between networks).
   // The bearer token alone is then worth nothing: presented without the secret
@@ -226,14 +226,14 @@ export interface SessionRegistry {
   // SESSION, never a credential on its own — every request still needs the
   // bearer token, so a browser that held it in a cookie would gain no
   // cross-site request surface from it.
-  issueDeviceBound(grant: SessionGrant, origin?: string | null, heldSecret?: string | null): DeviceBoundSession;
-  needsStepUp(token: string): boolean;
-  confirmStepUp(token: string): void;
-  find(token: string, origin?: string | null, device?: string | null): SessionGrant | null;
+  issueDeviceBound(grant: SessionGrant, origin?: string | null, heldSecret?: string | null): Promise<DeviceBoundSession>;
+  needsStepUp(token: string): Promise<boolean>;
+  confirmStepUp(token: string): Promise<void>;
+  find(token: string, origin?: string | null, device?: string | null): Promise<SessionGrant | null>;
   /** Same lookup as {@link find}, but says WHY when it refuses. */
-  inspect(token: string, origin?: string | null, device?: string | null): SessionLookup;
-  revoke(token: string): void;
-  revokeUser(userId: string): void;
+  inspect(token: string, origin?: string | null, device?: string | null): Promise<SessionLookup>;
+  revoke(token: string): Promise<void>;
+  revokeUser(userId: string): Promise<void>;
 }
 
 function hashToken(token: string): string {
@@ -367,10 +367,10 @@ export function createSessionRegistry(
   limits: SessionLimits = DEFAULT_SESSION_LIMITS,
   store: SessionStore = createMemorySessionStore(),
 ): SessionRegistry {
-  function open(grant: SessionGrant, origin: string | null, deviceHash: string | null, at: number): string {
+  async function open(grant: SessionGrant, origin: string | null, deviceHash: string | null, at: number): Promise<string> {
     const token = randomBytes(32).toString("base64url");
     const from = canonicalOrigin(origin);
-    store.put(hashToken(token), {
+    await store.put(hashToken(token), {
       userId: grant.userId,
       permissions: [...grant.permissions],
       roleCode: grant.roleCode,
@@ -396,10 +396,10 @@ export function createSessionRegistry(
     return at - session.lastSeenAt >= store.lastSeenWriteIntervalMs ? { ...session, lastSeenAt: at } : undefined;
   }
 
-  function evaluate(key: string, at: number, presented: string | null, device: string | null): Evaluation {
-    const session = store.get(key);
+  async function evaluate(key: string, at: number, presented: string | null, device: string | null): Promise<Evaluation> {
+    const session = await store.get(key);
     if (!session) {
-      const ended = store.displaced(key);
+      const ended = await store.displaced(key);
       if (!ended || at - ended.at > limits.idleMs) return { lookup: { grant: null, refusal: null } };
       return {
         lookup: {
@@ -444,17 +444,17 @@ export function createSessionRegistry(
   }
 
   const registry: SessionRegistry = {
-    issue(grant, origin = null) {
+    async issue(grant, origin = null) {
       const at = now();
-      return store.atomically(() => {
-        store.sweep(at, limits.idleMs);
+      return store.atomically(async () => {
+        await store.sweep(at, limits.idleMs);
         return open(grant, origin, null, at);
       });
     },
-    issueDeviceBound(grant, origin = null, heldSecret = null) {
+    async issueDeviceBound(grant, origin = null, heldSecret = null) {
       const at = now();
-      return store.atomically(() => {
-        store.sweep(at, limits.idleMs);
+      return store.atomically(async () => {
+        await store.sweep(at, limits.idleMs);
         // SECURITY: a secret the caller presents is adopted only when a LIVE
         // session of the SAME user was issued with it. Anything else — a value
         // the server never issued, or another user's secret planted on this
@@ -464,61 +464,61 @@ export function createSessionRegistry(
         // overwritten, so nothing legitimate presents it again.
         if (heldSecret) {
           const heldHash = hashToken(heldSecret);
-          const onThisDevice = store.onDevice(heldHash).filter(([, session]) => !expired(session, at));
+          const onThisDevice = (await store.onDevice(heldHash)).filter(([, session]) => !expired(session, at));
           const mine = onThisDevice.filter(([, session]) => session.userId === grant.userId);
           if (mine.length > 0) {
-            for (const [key] of mine) store.remove(key);
-            return { token: open(grant, origin, heldHash, at), deviceSecret: heldSecret };
+            for (const [key] of mine) await store.remove(key);
+            return { token: await open(grant, origin, heldHash, at), deviceSecret: heldSecret };
           }
           for (const [key, session] of onThisDevice) {
-            store.remove(key);
-            store.rememberDisplaced(key, { userId: session.userId, issuedFrom: session.issuedFrom, at });
+            await store.remove(key);
+            await store.rememberDisplaced(key, { userId: session.userId, issuedFrom: session.issuedFrom, at });
           }
         }
         const deviceSecret = randomBytes(32).toString("base64url");
-        return { token: open(grant, origin, hashToken(deviceSecret), at), deviceSecret };
+        return { token: await open(grant, origin, hashToken(deviceSecret), at), deviceSecret };
       });
     },
-    needsStepUp(token) {
-      return store.get(hashToken(token))?.movedSincePin === true;
+    async needsStepUp(token) {
+      return (await store.get(hashToken(token)))?.movedSincePin === true;
     },
-    confirmStepUp(token) {
+    async confirmStepUp(token) {
       const key = hashToken(token);
-      store.atomically(() => {
-        const session = store.get(key);
-        if (session?.movedSincePin) store.put(key, { ...session, movedSincePin: false });
+      await store.atomically(async () => {
+        const session = await store.get(key);
+        if (session?.movedSincePin) await store.put(key, { ...session, movedSincePin: false });
       });
     },
-    inspect(token, origin = null, device = null) {
+    async inspect(token, origin = null, device = null) {
       const at = now();
       const key = hashToken(token);
       const presented = canonicalOrigin(origin);
-      const first = evaluate(key, at, presented, device);
+      const first = await evaluate(key, at, presented, device);
       if (first.write === undefined) return first.lookup;
       // SECURITY: on a shared tenant connection this write can land inside
       // another request's open transaction and be rolled back with it. Nothing
       // depends on it surviving: every lookup re-applies expiry, origin and
       // device checks, so an ended session that came back is ended again on
       // its next presentation.
-      return store.atomically(() => {
-        const settled = evaluate(key, at, presented, device);
-        if (settled.write === null) store.remove(key);
-        else if (settled.write !== undefined) store.put(key, settled.write);
+      return store.atomically(async () => {
+        const settled = await evaluate(key, at, presented, device);
+        if (settled.write === null) await store.remove(key);
+        else if (settled.write !== undefined) await store.put(key, settled.write);
         return settled.lookup;
       });
     },
-    find(token, origin = null, device = null) {
-      return registry.inspect(token, origin, device).grant;
+    async find(token, origin = null, device = null) {
+      return (await registry.inspect(token, origin, device)).grant;
     },
-    revoke(token) {
+    async revoke(token) {
       const key = hashToken(token);
-      store.atomically(() => {
-        store.remove(key);
-        store.forgetDisplaced(key);
+      await store.atomically(async () => {
+        await store.remove(key);
+        await store.forgetDisplaced(key);
       });
     },
-    revokeUser(userId) {
-      store.removeUser(userId);
+    async revokeUser(userId) {
+      await store.removeUser(userId);
     },
   };
 
@@ -556,7 +556,7 @@ function narrowScope(granted: ScopeSelection, requested: string | undefined): Sc
   return allowed.length > 0 ? allowed : granted;
 }
 
-const lookedUp = new WeakMap<SessionRegistry, WeakMap<Context, SessionLookup>>();
+const lookedUp = new WeakMap<SessionRegistry, WeakMap<Context, Promise<SessionLookup>>>();
 
 // ONE lookup per request, shared by everything that asks who the caller is. A
 // lookup that refuses a moved token also revokes it, so a second lookup on the
@@ -564,7 +564,7 @@ const lookedUp = new WeakMap<SessionRegistry, WeakMap<Context, SessionLookup>>()
 // asked first would swallow the refusal the forensic row is written from.
 // Keyed by the context, not the Request: the body limit replaces `c.req.raw`
 // when a body arrives with no declared length.
-function sessionLookup(sessions: SessionRegistry, c: Context, token: string): SessionLookup {
+function sessionLookup(sessions: SessionRegistry, c: Context, token: string): Promise<SessionLookup> {
   let perRequest = lookedUp.get(sessions);
   if (!perRequest) {
     perRequest = new WeakMap();
@@ -629,7 +629,7 @@ function delegatedGrantOf(c: Context): SessionGrant | null {
  * — never the permissive default the header resolver produced.
  */
 export function createSessionAuthContextResolver(sessions: SessionRegistry): AuthContextResolver {
-  return function resolveAuthContext(c: Context): AuthContext {
+  return async function resolveAuthContext(c: Context): Promise<AuthContext> {
     if (existenceReads.has(c.req.raw)) return EXISTENCE_READER;
     const delegated = delegatedGrantOf(c);
     if (delegated) {
@@ -649,7 +649,7 @@ export function createSessionAuthContextResolver(sessions: SessionRegistry): Aut
     // session is revoked on the way out. 401, never a quieter, smaller grant —
     // a mismatched origin degrading to reduced permissions would be a session
     // the thief still holds.
-    const { grant, refusal } = sessionLookup(sessions, c, token);
+    const { grant, refusal } = await sessionLookup(sessions, c, token);
     if (refusal?.reason === SessionRefusalKind.Displaced) markSessionDisplaced(c);
     if (!grant) return ANONYMOUS;
     annotateRequest({ userId: grant.userId });
@@ -687,7 +687,7 @@ export function sessionOriginReporting(sessions: SessionRegistry, audit: AuditSi
   return async function reportMovedSessions(c, next) {
     const token = readSessionToken(c);
     if (token) {
-      const { refusal, addressChange } = sessionLookup(sessions, c, token);
+      const { refusal, addressChange } = await sessionLookup(sessions, c, token);
       if (addressChange) {
         await recordSecurityEventOrFallback(audit, {
           module: "auth",
@@ -760,7 +760,7 @@ export function stepUpGate(sessions: SessionRegistry): MiddlewareHandler {
   return async function requireRecentPin(c, next) {
     if (c.req.method === "GET" || c.req.method === "HEAD") return next();
     const token = readSessionToken(c);
-    if (!token || !sessions.needsStepUp(token)) return next();
+    if (!token || !(await sessions.needsStepUp(token))) return next();
     return c.json(
       { error: STEP_UP_REQUIRED, message: "تغيّر عنوان اتصالك منذ تسجيل الدخول. أعد إدخال رمز PIN لتأكيد هذا الإجراء." },
       403,

@@ -19,34 +19,34 @@ function twoInstances(limit: number, windowMs: number, clock: () => number) {
 }
 
 describe("rate limiter shared through the platform database", () => {
-  it("counts attempts spread across two instances against ONE limit", () => {
+  it("counts attempts spread across two instances against ONE limit", async () => {
     let now = 1_000;
     const [a, b] = twoInstances(3, 60_000, () => now);
-    a.consume("owner@shop.test");
-    b.consume("owner@shop.test");
-    expect(a.retryAfter("owner@shop.test")).toBe(0);
-    a.consume("owner@shop.test");
-    expect(b.retryAfter("owner@shop.test")).toBe(60);
+    await a.consume("owner@shop.test");
+    await b.consume("owner@shop.test");
+    expect(await a.retryAfter("owner@shop.test")).toBe(0);
+    await a.consume("owner@shop.test");
+    expect(await b.retryAfter("owner@shop.test")).toBe(60);
     now += 60_000;
-    expect(a.retryAfter("owner@shop.test")).toBe(0);
+    expect(await a.retryAfter("owner@shop.test")).toBe(0);
   });
 
-  it("starts a fresh window after the old one lapsed, on either instance", () => {
+  it("starts a fresh window after the old one lapsed, on either instance", async () => {
     let now = 1_000;
     const [a, b] = twoInstances(1, 10_000, () => now);
-    a.consume("k");
-    expect(b.retryAfter("k")).toBe(10);
+    await a.consume("k");
+    expect(await b.retryAfter("k")).toBe(10);
     now += 10_000;
-    b.consume("k");
-    expect(a.retryAfter("k")).toBe(10);
+    await b.consume("k");
+    expect(await a.retryAfter("k")).toBe(10);
   });
 
-  it("keeps the in-process default working with no store", () => {
+  it("keeps the in-process default working with no store", async () => {
     let now = 0;
     const limiter = createRateLimiter(1, 1_000, () => now);
-    limiter.consume("k");
-    expect(limiter.retryAfter("k")).toBe(1);
+    await limiter.consume("k");
+    expect(await limiter.retryAfter("k")).toBe(1);
     now += 1_000;
-    expect(limiter.retryAfter("k")).toBe(0);
+    expect(await limiter.retryAfter("k")).toBe(0);
   });
 });

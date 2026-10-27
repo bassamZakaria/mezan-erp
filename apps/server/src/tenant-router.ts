@@ -145,7 +145,7 @@ const CROSS_TENANT_FREE_ATTEMPTS = 90;
 
 export interface TenantDoor {
   fetch(request: Request, source: CloudSource): Promise<Response>;
-  findSession(token: string, source: CloudSource, deviceSecret: string | null): SessionGrant | null;
+  findSession(token: string, source: CloudSource, deviceSecret: string | null): Promise<SessionGrant | null>;
   readonly integrations: IntegrationsGateway | null;
   // SECURITY: answers `request` as `grant` without a session token. Only the `/api/v1` gateway
   // calls it, with a grant it resolved from a verified API key.
@@ -468,13 +468,13 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
     if (c.req.method !== "POST" || subPath !== SIGN_IN) return door.fetch(forwarded, source);
 
     const counted = throttleSource(source) ?? source;
-    const wait = signInSources.retryAfter(counted);
+    const wait = await signInSources.retryAfter(counted);
     if (wait > 0) {
       c.header("retry-after", String(wait));
       return c.json(tooManyAttempts(wait), 429);
     }
     const answer = await door.fetch(forwarded, source);
-    if (COUNTED_AS_FAILED.has(answer.status)) signInSources.fail(counted);
+    if (COUNTED_AS_FAILED.has(answer.status)) await signInSources.fail(counted);
     return answer;
   });
 

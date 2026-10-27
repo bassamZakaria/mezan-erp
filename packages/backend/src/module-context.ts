@@ -103,7 +103,7 @@ export interface BackendModuleContext {
   readonly backupStatus: (() => Promise<OwnerDigestBackupReading | null>) | undefined;
   readonly ownerDigestSlot: OwnerDigestSlot;
   readonly collectionsScheduleSlot: CollectionsScheduleSlot;
-  readonly auditChain: { verifyHead(): { reason: AuditChainHeadReason; headRowId: number | null } };
+  readonly auditChain: { verifyHead(): Promise<{ reason: AuditChainHeadReason; headRowId: number | null }> };
   readonly scheduledJobStatus: () => readonly ScheduledJobStatus[];
   readonly resolveLicenseState?: LicenseStateResolver;
   readonly cloudTenant: boolean;

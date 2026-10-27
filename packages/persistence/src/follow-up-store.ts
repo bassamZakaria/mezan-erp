@@ -1,9 +1,11 @@
-import Database from "better-sqlite3";
+import type Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 import type { CollectionFollowUp, CollectionFollowUpListFilter, CollectionFollowUpRepository } from "@mezan/domain";
-import { insertingNew, prepareInsertOnly } from "./insert-new.js";
+import { insertNew } from "./insert-new.js";
+import { placeholders, type SqlDb, type SqlValue } from "./sql/sql-db.js";
+import { sqliteDb } from "./sql/sqlite-db.js";
 
-/** SQLite-backed {@link CollectionFollowUpRepository} — متابعة التحصيل (docs/archive/catalog/05). Its own small table (not a `FrameworkDocument` — see follow-up.ts's doc-comment). */
+/** {@link CollectionFollowUpRepository} — متابعة التحصيل (docs/archive/catalog/05). Its own small table (not a `FrameworkDocument` — see follow-up.ts's doc-comment). */
 
 const CREATE_TABLE = `
 CREATE TABLE IF NOT EXISTS collection_follow_up (
@@ -54,61 +56,53 @@ export interface SqliteFollowUpStoreHandle extends CollectionFollowUpRepository 
   close(): void;
 }
 
-export function createSqliteFollowUpStore(sqlite: Database.Database): CollectionFollowUpRepository {
-  sqlite.exec(CREATE_TABLE);
-  const upsert = sqlite.prepare(`
-    INSERT INTO collection_follow_up
-      (id, customer_id, installment_plan_id, type, follow_up_date, assigned_to, notes, status, outcome, created_at)
-    VALUES
-      (@id, @customer_id, @installment_plan_id, @type, @follow_up_date, @assigned_to, @notes, @status, @outcome, @created_at)
+const COLUMNS = ["id", "customer_id", "installment_plan_id", "type", "follow_up_date", "assigned_to", "notes", "status", "outcome", "created_at"] as const;
+
+const UPSERT = `
+    INSERT INTO collection_follow_up (${COLUMNS.join(", ")})
+    VALUES (${placeholders(COLUMNS.length)})
     ON CONFLICT(id) DO UPDATE SET
       installment_plan_id = excluded.installment_plan_id,
       notes = excluded.notes,
       status = excluded.status,
-      outcome = excluded.outcome
-  `);
-  const selectById = sqlite.prepare(`SELECT * FROM collection_follow_up WHERE id = ?`);
-  const selectAll = sqlite.prepare(`SELECT * FROM collection_follow_up ORDER BY follow_up_date DESC, created_at DESC`);
+      outcome = excluded.outcome`;
 
-  function toRow(f: CollectionFollowUp) {
-    return {
-      id: f.id,
-      customer_id: f.customerId,
-      installment_plan_id: f.installmentPlanId,
-      type: f.type,
-      follow_up_date: f.followUpDate,
-      assigned_to: f.assignedTo,
-      notes: f.notes,
-      status: f.status,
-      outcome: f.outcome,
-      created_at: f.createdAt,
-    };
-  }
+function toParams(f: CollectionFollowUp): SqlValue[] {
+  return [f.id, f.customerId, f.installmentPlanId, f.type, f.followUpDate, f.assignedTo, f.notes, f.status, f.outcome, f.createdAt];
+}
 
-  const insertOnly = prepareInsertOnly(sqlite, upsert.source);
+export async function ensureFollowUpSchema(db: SqlDb): Promise<void> {
+  await db.applySchema(CREATE_TABLE);
+}
 
+export function createFollowUpStore(db: SqlDb): CollectionFollowUpRepository {
   return {
     async save(f) {
-      upsert.run(toRow(f));
+      await db.run(UPSERT, toParams(f));
     },
     async insert(f) {
-      insertingNew(f.id, () => insertOnly.run(toRow(f)));
+      await insertNew(db, f.id, UPSERT, toParams(f));
     },
     async update(f) {
-      upsert.run(toRow(f));
+      await db.run(UPSERT, toParams(f));
     },
     async findById(id) {
-      const row = selectById.get(id) as Row | undefined;
+      const row = await db.get<Row>(`SELECT * FROM collection_follow_up WHERE id = ?`, [id]);
       return row ? fromRow(row) : null;
     },
     async list(filter: CollectionFollowUpListFilter = {}) {
-      const rows = selectAll.all() as Row[];
+      const rows = await db.all<Row>(`SELECT * FROM collection_follow_up ORDER BY follow_up_date DESC, created_at DESC`);
       return rows
         .filter((r) => (filter.status ? r.status === filter.status : true))
         .filter((r) => (filter.customerId ? r.customer_id === filter.customerId : true))
         .map(fromRow);
     },
   };
+}
+
+export function createSqliteFollowUpStore(sqlite: Database.Database): CollectionFollowUpRepository {
+  sqlite.exec(CREATE_TABLE);
+  return createFollowUpStore(sqliteDb(sqlite));
 }
 
 export function createStandaloneSqliteFollowUpStore(path: SqliteConnectionInput = ":memory:"): SqliteFollowUpStoreHandle {

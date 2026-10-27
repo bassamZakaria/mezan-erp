@@ -1,6 +1,8 @@
-import Database from "better-sqlite3";
+import type Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
-import { insertingNew, prepareInsertOnly } from "./insert-new.js";
+import { insertNew } from "./insert-new.js";
+import type { SqlDb, SqlValue } from "./sql/sql-db.js";
+import { sqliteDb } from "./sql/sqlite-db.js";
 import {
   Money,
   type AdvanceInstallment,
@@ -34,7 +36,7 @@ import {
 } from "@mezan/domain";
 
 /**
- * SQLite stores for HR payroll (docs/archive/catalog/06 "الرواتب" / "سلف الموظفين").
+ * Stores for HR payroll (docs/archive/catalog/06 "الرواتب" / "سلف الموظفين").
  * Same single-file, single-table-per-entity style as `hr-store.ts`; the
  * instalment schedule and the payslip lines are JSON TEXT columns, and every
  * money column is the scaled INTEGER the `Money` value object round-trips.
@@ -70,9 +72,9 @@ interface AdvanceRow {
   id: string;
   number: string;
   employee_id: string;
-  amount: number;
+  amount: bigint;
   currency: string;
-  installment_count: number;
+  installment_count: bigint;
   first_deduction_date: string;
   reason: string | null;
   installments_json: string;
@@ -146,7 +148,7 @@ function toAdvance(row: AdvanceRow): EmployeeAdvance {
     employeeId: row.employee_id,
     amount: Money.fromScaled(row.amount),
     currency: row.currency,
-    installmentCount: row.installment_count,
+    installmentCount: Number(row.installment_count),
     firstDeductionDate: row.first_deduction_date,
     reason: row.reason,
     installments: deserializeInstallments(row.installments_json),
@@ -163,24 +165,40 @@ function toAdvance(row: AdvanceRow): EmployeeAdvance {
   };
 }
 
-class SqliteEmployeeAdvanceRepository implements EmployeeAdvanceRepository {
-  private readonly upsert: Database.Statement;
-  private readonly insertOnly: Database.Statement;
-  private readonly selectById: Database.Statement;
-  private readonly selectAll: Database.Statement;
-  private readonly selectByEmployee: Database.Statement;
+function advanceParams(advance: EmployeeAdvance): SqlValue[] {
+  return [
+    advance.id,
+    advance.number,
+    advance.employeeId,
+    advance.amount.scaled,
+    advance.currency,
+    advance.installmentCount,
+    advance.firstDeductionDate,
+    advance.reason,
+    serializeInstallments(advance.installments),
+    advance.status,
+    advance.requestedAt,
+    advance.decidedAt,
+    advance.decidedBy,
+    advance.disbursedAt,
+    advance.disbursementVoucherId,
+    advance.disbursementJournalEntryId,
+    advance.repaidAt,
+    advance.createdAt,
+    serializeRepayments(advance.repayments),
+  ];
+}
 
-  constructor(sqlite: Database.Database) {
-    this.upsert = sqlite.prepare(`
+const ADVANCE_UPSERT = `
       INSERT INTO hr_employee_advance (
         id, number, employee_id, amount, currency, installment_count, first_deduction_date, reason,
         installments_json, status, requested_at, decided_at, decided_by, disbursed_at,
         disbursement_voucher_id, disbursement_journal_entry_id, repaid_at, created_at, repayments_json
       )
       VALUES (
-        @id, @number, @employee_id, @amount, @currency, @installment_count, @first_deduction_date, @reason,
-        @installments_json, @status, @requested_at, @decided_at, @decided_by, @disbursed_at,
-        @disbursement_voucher_id, @disbursement_journal_entry_id, @repaid_at, @created_at, @repayments_json
+        ?, ?, ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?
       )
       ON CONFLICT(id) DO UPDATE SET
         amount = excluded.amount,
@@ -197,56 +215,30 @@ class SqliteEmployeeAdvanceRepository implements EmployeeAdvanceRepository {
         disbursement_journal_entry_id = excluded.disbursement_journal_entry_id,
         repaid_at = excluded.repaid_at,
         repayments_json = excluded.repayments_json
-    `);
-    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
-    this.selectById = sqlite.prepare(`SELECT * FROM hr_employee_advance WHERE id = ?`);
-    this.selectAll = sqlite.prepare(`SELECT * FROM hr_employee_advance ORDER BY created_at DESC`);
-    this.selectByEmployee = sqlite.prepare(`SELECT * FROM hr_employee_advance WHERE employee_id = ? ORDER BY created_at`);
-  }
+    `;
+
+class SqlEmployeeAdvanceRepository implements EmployeeAdvanceRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async findById(id: string): Promise<EmployeeAdvance | null> {
-    const row = this.selectById.get(id) as AdvanceRow | undefined;
+    const row = await this.db.get<AdvanceRow>(`SELECT * FROM hr_employee_advance WHERE id = ?`, [id]);
     return row ? toAdvance(row) : null;
   }
 
   async list(): Promise<EmployeeAdvance[]> {
-    return (this.selectAll.all() as AdvanceRow[]).map(toAdvance);
+    return (await this.db.all<AdvanceRow>(`SELECT * FROM hr_employee_advance ORDER BY created_at DESC`)).map(toAdvance);
   }
 
   async listByEmployeeId(employeeId: string): Promise<EmployeeAdvance[]> {
-    return (this.selectByEmployee.all(employeeId) as AdvanceRow[]).map(toAdvance);
+    return (await this.db.all<AdvanceRow>(`SELECT * FROM hr_employee_advance WHERE employee_id = ? ORDER BY created_at`, [employeeId])).map(toAdvance);
   }
 
   async create(advance: EmployeeAdvance): Promise<void> {
-    insertingNew(advance.id, () => this.write(advance, this.insertOnly));
+    await insertNew(this.db, advance.id, ADVANCE_UPSERT, advanceParams(advance));
   }
 
   async update(advance: EmployeeAdvance): Promise<void> {
-    this.write(advance);
-  }
-
-  private write(advance: EmployeeAdvance, statement: Database.Statement = this.upsert): void {
-    statement.run({
-      id: advance.id,
-      number: advance.number,
-      employee_id: advance.employeeId,
-      amount: advance.amount.toScaledNumber(),
-      currency: advance.currency,
-      installment_count: advance.installmentCount,
-      first_deduction_date: advance.firstDeductionDate,
-      reason: advance.reason,
-      installments_json: serializeInstallments(advance.installments),
-      status: advance.status,
-      requested_at: advance.requestedAt,
-      decided_at: advance.decidedAt,
-      decided_by: advance.decidedBy,
-      disbursed_at: advance.disbursedAt,
-      disbursement_voucher_id: advance.disbursementVoucherId,
-      disbursement_journal_entry_id: advance.disbursementJournalEntryId,
-      repaid_at: advance.repaidAt,
-      created_at: advance.createdAt,
-      repayments_json: serializeRepayments(advance.repayments),
-    });
+    await this.db.run(ADVANCE_UPSERT, advanceParams(advance));
   }
 }
 
@@ -287,19 +279,19 @@ CREATE TABLE IF NOT EXISTS hr_payroll_run (
 interface PayrollRunRow {
   id: string;
   number: string;
-  year: number;
-  month: number;
+  year: bigint;
+  month: bigint;
   period_start: string;
   period_end: string;
   branch_id: string | null;
   currency: string;
   status: string;
-  employee_count: number;
-  total_gross: number;
-  total_deductions: number;
-  total_employer_contributions: number;
-  total_net: number;
-  total_employer_cost: number | null;
+  employee_count: bigint;
+  total_gross: bigint;
+  total_deductions: bigint;
+  total_employer_contributions: bigint;
+  total_net: bigint;
+  total_employer_cost: bigint | null;
   unpaid_leave_source: string;
   overtime_source: string | null;
   statutory_tables_json: string | null;
@@ -318,14 +310,14 @@ function toPayrollRun(row: PayrollRunRow): PayrollRun {
   return {
     id: row.id,
     number: row.number,
-    year: row.year,
-    month: row.month,
+    year: Number(row.year),
+    month: Number(row.month),
     periodStart: row.period_start,
     periodEnd: row.period_end,
     branchId: row.branch_id,
     currency: row.currency,
     status: row.status as PayrollRunStatus,
-    employeeCount: row.employee_count,
+    employeeCount: Number(row.employee_count),
     totalGross: Money.fromScaled(row.total_gross),
     totalDeductions: Money.fromScaled(row.total_deductions),
     totalEmployerContributions: Money.fromScaled(row.total_employer_contributions),
@@ -348,16 +340,39 @@ function toPayrollRun(row: PayrollRunRow): PayrollRun {
   };
 }
 
-class SqlitePayrollRunRepository implements PayrollRunRepository {
-  private readonly upsert: Database.Statement;
-  private readonly insertOnly: Database.Statement;
-  private readonly selectById: Database.Statement;
-  private readonly selectByPeriod: Database.Statement;
-  private readonly selectByPeriodNullBranch: Database.Statement;
-  private readonly selectAll: Database.Statement;
+function payrollRunParams(run: PayrollRun): SqlValue[] {
+  return [
+    run.id,
+    run.number,
+    run.year,
+    run.month,
+    run.periodStart,
+    run.periodEnd,
+    run.branchId,
+    run.currency,
+    run.status,
+    run.employeeCount,
+    run.totalGross.scaled,
+    run.totalDeductions.scaled,
+    run.totalEmployerContributions.scaled,
+    run.totalNet.scaled,
+    run.totalEmployerCost === null ? null : run.totalEmployerCost.scaled,
+    run.unpaidLeaveSource,
+    run.overtimeSource,
+    JSON.stringify(run.statutoryTableCodes),
+    JSON.stringify(run.warnings),
+    run.journalEntryId,
+    run.disbursementVoucherId,
+    run.calculatedAt,
+    run.approvedAt,
+    run.approvedBy,
+    run.disbursedAt,
+    run.cancelledAt,
+    run.createdAt,
+  ];
+}
 
-  constructor(sqlite: Database.Database) {
-    this.upsert = sqlite.prepare(`
+const PAYROLL_RUN_UPSERT = `
       INSERT INTO hr_payroll_run (
         id, number, year, month, period_start, period_end, branch_id, currency, status, employee_count,
         total_gross, total_deductions, total_employer_contributions, total_net, total_employer_cost,
@@ -366,11 +381,11 @@ class SqlitePayrollRunRepository implements PayrollRunRepository {
         disbursed_at, cancelled_at, created_at
       )
       VALUES (
-        @id, @number, @year, @month, @period_start, @period_end, @branch_id, @currency, @status, @employee_count,
-        @total_gross, @total_deductions, @total_employer_contributions, @total_net, @total_employer_cost,
-        @unpaid_leave_source, @overtime_source, @statutory_tables_json,
-        @warnings_json, @journal_entry_id, @disbursement_voucher_id, @calculated_at, @approved_at, @approved_by,
-        @disbursed_at, @cancelled_at, @created_at
+        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?,
+        ?, ?, ?,
+        ?, ?, ?, ?, ?, ?,
+        ?, ?, ?
       )
       ON CONFLICT(id) DO UPDATE SET
         status = excluded.status,
@@ -391,68 +406,34 @@ class SqlitePayrollRunRepository implements PayrollRunRepository {
         approved_by = excluded.approved_by,
         disbursed_at = excluded.disbursed_at,
         cancelled_at = excluded.cancelled_at
-    `);
-    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
-    this.selectById = sqlite.prepare(`SELECT * FROM hr_payroll_run WHERE id = ?`);
-    this.selectByPeriod = sqlite.prepare(`SELECT * FROM hr_payroll_run WHERE year = ? AND month = ? AND branch_id = ?`);
-    this.selectByPeriodNullBranch = sqlite.prepare(`SELECT * FROM hr_payroll_run WHERE year = ? AND month = ? AND branch_id IS NULL`);
-    this.selectAll = sqlite.prepare(`SELECT * FROM hr_payroll_run ORDER BY year DESC, month DESC, created_at DESC`);
-  }
+    `;
+
+class SqlPayrollRunRepository implements PayrollRunRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async findById(id: string): Promise<PayrollRun | null> {
-    const row = this.selectById.get(id) as PayrollRunRow | undefined;
+    const row = await this.db.get<PayrollRunRow>(`SELECT * FROM hr_payroll_run WHERE id = ?`, [id]);
     return row ? toPayrollRun(row) : null;
   }
 
   async findByPeriod(year: number, month: number, branchId: string | null): Promise<PayrollRun | null> {
-    const row = (
-      branchId === null ? this.selectByPeriodNullBranch.get(year, month) : this.selectByPeriod.get(year, month, branchId)
-    ) as PayrollRunRow | undefined;
+    const row =
+      branchId === null
+        ? await this.db.get<PayrollRunRow>(`SELECT * FROM hr_payroll_run WHERE year = ? AND month = ? AND branch_id IS NULL`, [year, month])
+        : await this.db.get<PayrollRunRow>(`SELECT * FROM hr_payroll_run WHERE year = ? AND month = ? AND branch_id = ?`, [year, month, branchId]);
     return row ? toPayrollRun(row) : null;
   }
 
   async list(): Promise<PayrollRun[]> {
-    return (this.selectAll.all() as PayrollRunRow[]).map(toPayrollRun);
+    return (await this.db.all<PayrollRunRow>(`SELECT * FROM hr_payroll_run ORDER BY year DESC, month DESC, created_at DESC`)).map(toPayrollRun);
   }
 
   async create(run: PayrollRun): Promise<void> {
-    insertingNew(run.id, () => this.write(run, this.insertOnly));
+    await insertNew(this.db, run.id, PAYROLL_RUN_UPSERT, payrollRunParams(run));
   }
 
   async update(run: PayrollRun): Promise<void> {
-    this.write(run);
-  }
-
-  private write(run: PayrollRun, statement: Database.Statement = this.upsert): void {
-    statement.run({
-      id: run.id,
-      number: run.number,
-      year: run.year,
-      month: run.month,
-      period_start: run.periodStart,
-      period_end: run.periodEnd,
-      branch_id: run.branchId,
-      currency: run.currency,
-      status: run.status,
-      employee_count: run.employeeCount,
-      total_gross: run.totalGross.toScaledNumber(),
-      total_deductions: run.totalDeductions.toScaledNumber(),
-      total_employer_contributions: run.totalEmployerContributions.toScaledNumber(),
-      total_net: run.totalNet.toScaledNumber(),
-      total_employer_cost: run.totalEmployerCost === null ? null : run.totalEmployerCost.toScaledNumber(),
-      unpaid_leave_source: run.unpaidLeaveSource,
-      overtime_source: run.overtimeSource,
-      statutory_tables_json: JSON.stringify(run.statutoryTableCodes),
-      warnings_json: JSON.stringify(run.warnings),
-      journal_entry_id: run.journalEntryId,
-      disbursement_voucher_id: run.disbursementVoucherId,
-      calculated_at: run.calculatedAt,
-      approved_at: run.approvedAt,
-      approved_by: run.approvedBy,
-      disbursed_at: run.disbursedAt,
-      cancelled_at: run.cancelledAt,
-      created_at: run.createdAt,
-    });
+    await this.db.run(PAYROLL_RUN_UPSERT, payrollRunParams(run));
   }
 }
 
@@ -493,17 +474,17 @@ interface PayslipRow {
   currency: string;
   period_start: string;
   period_end: string;
-  period_days: number;
-  paid_days: number;
+  period_days: bigint;
+  paid_days: bigint;
   lines_json: string;
-  gross_earnings: number;
-  total_deductions: number;
-  employer_contributions: number;
-  net_pay: number;
-  insurable_wage: number | null;
-  insurable_wage_capped: number | null;
-  annual_taxable_income: number | null;
-  total_employer_cost: number | null;
+  gross_earnings: bigint;
+  total_deductions: bigint;
+  employer_contributions: bigint;
+  net_pay: bigint;
+  insurable_wage: bigint | null;
+  insurable_wage_capped: bigint | null;
+  annual_taxable_income: bigint | null;
+  total_employer_cost: bigint | null;
   basis_json: string | null;
   created_at: string;
 }
@@ -599,16 +580,16 @@ function toPayslip(row: PayslipRow): Payslip {
     currency: row.currency,
     periodStart: row.period_start,
     periodEnd: row.period_end,
-    periodDays: row.period_days,
-    paidDays: row.paid_days,
+    periodDays: Number(row.period_days),
+    paidDays: Number(row.paid_days),
     lines: deserializeLines(row.lines_json),
     grossEarnings: Money.fromScaled(row.gross_earnings),
     totalDeductions: Money.fromScaled(row.total_deductions),
     employerContributions: Money.fromScaled(row.employer_contributions),
     netPay: Money.fromScaled(row.net_pay),
-    insurableWage: Money.fromScaled(row.insurable_wage ?? 0),
-    insurableWageCapped: (row.insurable_wage_capped ?? 0) === 1,
-    annualTaxableIncome: Money.fromScaled(row.annual_taxable_income ?? 0),
+    insurableWage: Money.fromScaled(row.insurable_wage ?? 0n),
+    insurableWageCapped: Number(row.insurable_wage_capped ?? 0n) === 1,
+    annualTaxableIncome: Money.fromScaled(row.annual_taxable_income ?? 0n),
     // D191: as toPayrollRun above — NULL means never computed, not a genuine zero.
     totalEmployerCost: row.total_employer_cost === null ? null : Money.fromScaled(row.total_employer_cost),
     basis: deserializeBasis(row.basis_json ?? null),
@@ -616,24 +597,42 @@ function toPayslip(row: PayslipRow): Payslip {
   };
 }
 
-class SqlitePayslipRepository implements PayslipRepository {
-  private readonly upsert: Database.Statement;
-  private readonly selectById: Database.Statement;
-  private readonly selectByRun: Database.Statement;
-  private readonly selectByEmployee: Database.Statement;
-  private readonly deleteByRun: Database.Statement;
+function payslipParams(payslip: Payslip): SqlValue[] {
+  return [
+    payslip.id,
+    payslip.number,
+    payslip.runId,
+    payslip.employeeId,
+    payslip.contractId,
+    payslip.currency,
+    payslip.periodStart,
+    payslip.periodEnd,
+    payslip.periodDays,
+    payslip.paidDays,
+    serializeLines(payslip.lines),
+    payslip.grossEarnings.scaled,
+    payslip.totalDeductions.scaled,
+    payslip.employerContributions.scaled,
+    payslip.netPay.scaled,
+    payslip.insurableWage.scaled,
+    payslip.insurableWageCapped ? 1 : 0,
+    payslip.annualTaxableIncome.scaled,
+    payslip.totalEmployerCost === null ? null : payslip.totalEmployerCost.scaled,
+    serializeBasis(payslip.basis ?? null),
+    payslip.createdAt,
+  ];
+}
 
-  constructor(sqlite: Database.Database) {
-    this.upsert = sqlite.prepare(`
+const PAYSLIP_UPSERT = `
       INSERT INTO hr_payslip (
         id, number, run_id, employee_id, contract_id, currency, period_start, period_end, period_days, paid_days,
         lines_json, gross_earnings, total_deductions, employer_contributions, net_pay,
         insurable_wage, insurable_wage_capped, annual_taxable_income, total_employer_cost, basis_json, created_at
       )
       VALUES (
-        @id, @number, @run_id, @employee_id, @contract_id, @currency, @period_start, @period_end, @period_days, @paid_days,
-        @lines_json, @gross_earnings, @total_deductions, @employer_contributions, @net_pay,
-        @insurable_wage, @insurable_wage_capped, @annual_taxable_income, @total_employer_cost, @basis_json, @created_at
+        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?, ?
       )
       ON CONFLICT(id) DO UPDATE SET
         lines_json = excluded.lines_json,
@@ -646,54 +645,30 @@ class SqlitePayslipRepository implements PayslipRepository {
         annual_taxable_income = excluded.annual_taxable_income,
         total_employer_cost = excluded.total_employer_cost,
         basis_json = excluded.basis_json
-    `);
-    this.selectById = sqlite.prepare(`SELECT * FROM hr_payslip WHERE id = ?`);
-    this.selectByRun = sqlite.prepare(`SELECT * FROM hr_payslip WHERE run_id = ? ORDER BY number`);
-    this.selectByEmployee = sqlite.prepare(`SELECT * FROM hr_payslip WHERE employee_id = ? ORDER BY period_start DESC`);
-    this.deleteByRun = sqlite.prepare(`DELETE FROM hr_payslip WHERE run_id = ?`);
-  }
+    `;
+
+class SqlPayslipRepository implements PayslipRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async findById(id: string): Promise<Payslip | null> {
-    const row = this.selectById.get(id) as PayslipRow | undefined;
+    const row = await this.db.get<PayslipRow>(`SELECT * FROM hr_payslip WHERE id = ?`, [id]);
     return row ? toPayslip(row) : null;
   }
 
   async listByRunId(runId: string): Promise<Payslip[]> {
-    return (this.selectByRun.all(runId) as PayslipRow[]).map(toPayslip);
+    return (await this.db.all<PayslipRow>(`SELECT * FROM hr_payslip WHERE run_id = ? ORDER BY number`, [runId])).map(toPayslip);
   }
 
   async listByEmployeeId(employeeId: string): Promise<Payslip[]> {
-    return (this.selectByEmployee.all(employeeId) as PayslipRow[]).map(toPayslip);
+    return (await this.db.all<PayslipRow>(`SELECT * FROM hr_payslip WHERE employee_id = ? ORDER BY period_start DESC`, [employeeId])).map(toPayslip);
   }
 
   async create(payslip: Payslip): Promise<void> {
-    this.upsert.run({
-      id: payslip.id,
-      number: payslip.number,
-      run_id: payslip.runId,
-      employee_id: payslip.employeeId,
-      contract_id: payslip.contractId,
-      currency: payslip.currency,
-      period_start: payslip.periodStart,
-      period_end: payslip.periodEnd,
-      period_days: payslip.periodDays,
-      paid_days: payslip.paidDays,
-      lines_json: serializeLines(payslip.lines),
-      gross_earnings: payslip.grossEarnings.toScaledNumber(),
-      total_deductions: payslip.totalDeductions.toScaledNumber(),
-      employer_contributions: payslip.employerContributions.toScaledNumber(),
-      net_pay: payslip.netPay.toScaledNumber(),
-      insurable_wage: payslip.insurableWage.toScaledNumber(),
-      insurable_wage_capped: payslip.insurableWageCapped ? 1 : 0,
-      annual_taxable_income: payslip.annualTaxableIncome.toScaledNumber(),
-      total_employer_cost: payslip.totalEmployerCost === null ? null : payslip.totalEmployerCost.toScaledNumber(),
-      basis_json: serializeBasis(payslip.basis ?? null),
-      created_at: payslip.createdAt,
-    });
+    await this.db.run(PAYSLIP_UPSERT, payslipParams(payslip));
   }
 
   async deleteByRunId(runId: string): Promise<void> {
-    this.deleteByRun.run(runId);
+    await this.db.run(`DELETE FROM hr_payslip WHERE run_id = ?`, [runId]);
   }
 }
 
@@ -727,15 +702,15 @@ interface GarnishmentRow {
   kind: string;
   reference: string;
   label_ar: string;
-  total_amount: number;
-  monthly_amount: number;
-  outstanding: number;
-  recovered: number;
+  total_amount: bigint;
+  monthly_amount: bigint;
+  outstanding: bigint;
+  recovered: bigint;
   currency: string;
   start_date: string;
   end_date: string | null;
   notes: string | null;
-  active: number;
+  active: bigint;
   created_at: string;
   updated_at: string;
 }
@@ -755,27 +730,41 @@ function toGarnishment(row: GarnishmentRow): GarnishmentRecord {
     startDate: row.start_date,
     endDate: row.end_date,
     notes: row.notes,
-    active: row.active === 1,
+    active: Number(row.active) === 1,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
 }
 
-class SqliteGarnishmentRepository implements GarnishmentRepository {
-  private readonly upsert: Database.Statement;
-  private readonly insertOnly: Database.Statement;
-  private readonly selectById: Database.Statement;
-  private readonly selectByEmployee: Database.Statement;
+function garnishmentParams(record: GarnishmentRecord): SqlValue[] {
+  return [
+    record.id,
+    record.employeeId,
+    record.kind,
+    record.reference,
+    record.labelAr,
+    record.totalAmount.scaled,
+    record.monthlyAmount.scaled,
+    record.outstanding.scaled,
+    record.recovered.scaled,
+    record.currency,
+    record.startDate,
+    record.endDate,
+    record.notes,
+    record.active ? 1 : 0,
+    record.createdAt,
+    record.updatedAt,
+  ];
+}
 
-  constructor(private readonly sqlite: Database.Database) {
-    this.upsert = sqlite.prepare(`
+const GARNISHMENT_UPSERT = `
       INSERT INTO hr_garnishment (
         id, employee_id, kind, reference, label_ar, total_amount, monthly_amount, outstanding, recovered,
         currency, start_date, end_date, notes, active, created_at, updated_at
       )
       VALUES (
-        @id, @employee_id, @kind, @reference, @label_ar, @total_amount, @monthly_amount, @outstanding, @recovered,
-        @currency, @start_date, @end_date, @notes, @active, @created_at, @updated_at
+        ?, ?, ?, ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?, ?, ?
       )
       ON CONFLICT(id) DO UPDATE SET
         kind = excluded.kind,
@@ -791,20 +780,19 @@ class SqliteGarnishmentRepository implements GarnishmentRepository {
         notes = excluded.notes,
         active = excluded.active,
         updated_at = excluded.updated_at
-    `);
-    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
-    this.selectById = sqlite.prepare(`SELECT * FROM hr_garnishment WHERE id = ?`);
-    this.selectByEmployee = sqlite.prepare(`SELECT * FROM hr_garnishment WHERE employee_id = ? ORDER BY start_date DESC, reference`);
-  }
+    `;
+
+class SqlGarnishmentRepository implements GarnishmentRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async findById(id: string): Promise<GarnishmentRecord | null> {
-    const row = this.selectById.get(id) as GarnishmentRow | undefined;
+    const row = await this.db.get<GarnishmentRow>(`SELECT * FROM hr_garnishment WHERE id = ?`, [id]);
     return row ? toGarnishment(row) : null;
   }
 
   async list(filter?: GarnishmentFilter): Promise<GarnishmentRecord[]> {
     const clauses: string[] = [];
-    const params: unknown[] = [];
+    const params: SqlValue[] = [];
     if (filter?.employeeId) {
       clauses.push("employee_id = ?");
       params.push(filter.employeeId);
@@ -814,43 +802,20 @@ class SqliteGarnishmentRepository implements GarnishmentRepository {
       params.push(filter.active ? 1 : 0);
     }
     const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
-    const rows = this.sqlite
-      .prepare(`SELECT * FROM hr_garnishment ${where} ORDER BY start_date DESC, reference`)
-      .all(...params) as GarnishmentRow[];
+    const rows = await this.db.all<GarnishmentRow>(`SELECT * FROM hr_garnishment ${where} ORDER BY start_date DESC, reference`, params);
     return rows.map(toGarnishment);
   }
 
   async listByEmployeeId(employeeId: string): Promise<GarnishmentRecord[]> {
-    return (this.selectByEmployee.all(employeeId) as GarnishmentRow[]).map(toGarnishment);
+    return (await this.db.all<GarnishmentRow>(`SELECT * FROM hr_garnishment WHERE employee_id = ? ORDER BY start_date DESC, reference`, [employeeId])).map(toGarnishment);
   }
 
   async create(record: GarnishmentRecord): Promise<void> {
-    insertingNew(record.id, () => this.write(record, this.insertOnly));
+    await insertNew(this.db, record.id, GARNISHMENT_UPSERT, garnishmentParams(record));
   }
 
   async update(record: GarnishmentRecord): Promise<void> {
-    this.write(record);
-  }
-
-  private write(record: GarnishmentRecord, statement: Database.Statement = this.upsert): void {
-    statement.run({
-      id: record.id,
-      employee_id: record.employeeId,
-      kind: record.kind,
-      reference: record.reference,
-      label_ar: record.labelAr,
-      total_amount: record.totalAmount.toScaledNumber(),
-      monthly_amount: record.monthlyAmount.toScaledNumber(),
-      outstanding: record.outstanding.toScaledNumber(),
-      recovered: record.recovered.toScaledNumber(),
-      currency: record.currency,
-      start_date: record.startDate,
-      end_date: record.endDate,
-      notes: record.notes,
-      active: record.active ? 1 : 0,
-      created_at: record.createdAt,
-      updated_at: record.updatedAt,
-    });
+    await this.db.run(GARNISHMENT_UPSERT, garnishmentParams(record));
   }
 }
 
@@ -868,7 +833,7 @@ CREATE TABLE IF NOT EXISTS hr_statutory_insurance_year (
 `;
 
 interface StatutoryOverrideRow {
-  year: number;
+  year: bigint;
   monthly_wage_floor: string;
   monthly_wage_ceiling: string;
   note: string | null;
@@ -883,7 +848,7 @@ interface StatutoryOverrideRow {
  */
 function toOverride(row: StatutoryOverrideRow): SocialInsuranceYearOverride {
   return {
-    year: row.year,
+    year: Number(row.year),
     monthlyWageFloor: row.monthly_wage_floor,
     monthlyWageCeiling: row.monthly_wage_ceiling,
     note: row.note,
@@ -892,50 +857,46 @@ function toOverride(row: StatutoryOverrideRow): SocialInsuranceYearOverride {
   };
 }
 
-class SqliteStatutoryOverrideRepository implements StatutoryOverrideRepository {
-  private readonly upsertStmt: Database.Statement;
-  private readonly selectAll: Database.Statement;
-  private readonly selectByYear: Database.Statement;
-  private readonly deleteByYear: Database.Statement;
+function overrideParams(override: SocialInsuranceYearOverride): SqlValue[] {
+  return [
+    override.year,
+    override.monthlyWageFloor,
+    override.monthlyWageCeiling,
+    override.note,
+    override.enteredBy,
+    override.enteredAt,
+  ];
+}
 
-  constructor(sqlite: Database.Database) {
-    this.upsertStmt = sqlite.prepare(`
+const STATUTORY_OVERRIDE_UPSERT = `
       INSERT INTO hr_statutory_insurance_year (year, monthly_wage_floor, monthly_wage_ceiling, note, entered_by, entered_at)
-      VALUES (@year, @monthly_wage_floor, @monthly_wage_ceiling, @note, @entered_by, @entered_at)
+      VALUES (?, ?, ?, ?, ?, ?)
       ON CONFLICT(year) DO UPDATE SET
         monthly_wage_floor = excluded.monthly_wage_floor,
         monthly_wage_ceiling = excluded.monthly_wage_ceiling,
         note = excluded.note,
         entered_by = excluded.entered_by,
         entered_at = excluded.entered_at
-    `);
-    this.selectAll = sqlite.prepare(`SELECT * FROM hr_statutory_insurance_year ORDER BY year`);
-    this.selectByYear = sqlite.prepare(`SELECT * FROM hr_statutory_insurance_year WHERE year = ?`);
-    this.deleteByYear = sqlite.prepare(`DELETE FROM hr_statutory_insurance_year WHERE year = ?`);
-  }
+    `;
+
+class SqlStatutoryOverrideRepository implements StatutoryOverrideRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async list(): Promise<SocialInsuranceYearOverride[]> {
-    return (this.selectAll.all() as StatutoryOverrideRow[]).map(toOverride);
+    return (await this.db.all<StatutoryOverrideRow>(`SELECT * FROM hr_statutory_insurance_year ORDER BY year`)).map(toOverride);
   }
 
   async findByYear(year: number): Promise<SocialInsuranceYearOverride | null> {
-    const row = this.selectByYear.get(year) as StatutoryOverrideRow | undefined;
+    const row = await this.db.get<StatutoryOverrideRow>(`SELECT * FROM hr_statutory_insurance_year WHERE year = ?`, [year]);
     return row ? toOverride(row) : null;
   }
 
   async upsert(override: SocialInsuranceYearOverride): Promise<void> {
-    this.upsertStmt.run({
-      year: override.year,
-      monthly_wage_floor: override.monthlyWageFloor,
-      monthly_wage_ceiling: override.monthlyWageCeiling,
-      note: override.note,
-      entered_by: override.enteredBy,
-      entered_at: override.enteredAt,
-    });
+    await this.db.run(STATUTORY_OVERRIDE_UPSERT, overrideParams(override));
   }
 
   async remove(year: number): Promise<void> {
-    this.deleteByYear.run(year);
+    await this.db.run(`DELETE FROM hr_statutory_insurance_year WHERE year = ?`, [year]);
   }
 }
 
@@ -989,6 +950,40 @@ export interface SqlitePayslipRepositoryHandle extends PayslipRepository {
   close(): void;
 }
 
+export async function ensureHrPayrollSchema(db: SqlDb): Promise<void> {
+  await db.applySchema(
+    [CREATE_ADVANCE, CREATE_PAYROLL_RUN, CREATE_PAYSLIP, CREATE_GARNISHMENT, CREATE_STATUTORY_OVERRIDE, CREATE_PAYROLL_COMPONENT, CREATE_STATUTORY_FLAG].join("\n"),
+  );
+}
+
+export function createEmployeeAdvanceRepository(db: SqlDb): EmployeeAdvanceRepository {
+  return new SqlEmployeeAdvanceRepository(db);
+}
+
+export function createPayrollRunRepository(db: SqlDb): PayrollRunRepository {
+  return new SqlPayrollRunRepository(db);
+}
+
+export function createPayslipRepository(db: SqlDb): PayslipRepository {
+  return new SqlPayslipRepository(db);
+}
+
+export function createPayrollComponentRepository(db: SqlDb): PayrollComponentRepository {
+  return new SqlPayrollComponentRepository(db);
+}
+
+export function createGarnishmentRepository(db: SqlDb): GarnishmentRepository {
+  return new SqlGarnishmentRepository(db);
+}
+
+export function createStatutoryOverrideRepository(db: SqlDb): StatutoryOverrideRepository {
+  return new SqlStatutoryOverrideRepository(db);
+}
+
+export function createPayrollStatutoryFlagRepository(db: SqlDb): PayrollStatutoryFlagRepository {
+  return new SqlPayrollStatutoryFlagRepository(db);
+}
+
 /** Open a SQLite-backed EmployeeAdvanceRepository. ":memory:" for tests, a path (or shared connection) for real. */
 export function createSqliteEmployeeAdvanceRepository(path: SqliteConnectionInput = ":memory:"): SqliteEmployeeAdvanceRepositoryHandle {
   const { sqlite, owned } = openSqliteConnection(path);
@@ -996,7 +991,7 @@ export function createSqliteEmployeeAdvanceRepository(path: SqliteConnectionInpu
   sqlite.exec(CREATE_ADVANCE);
   const advanceColumns = new Set((sqlite.pragma("table_info(hr_employee_advance)") as { name: string }[]).map((c) => c.name));
   if (!advanceColumns.has("repayments_json")) sqlite.exec("ALTER TABLE hr_employee_advance ADD COLUMN repayments_json TEXT");
-  const repo = new SqliteEmployeeAdvanceRepository(sqlite);
+  const repo = createEmployeeAdvanceRepository(sqliteDb(sqlite));
   return Object.assign(repo, { close: () => { if (owned) sqlite.close(); } }) as SqliteEmployeeAdvanceRepositoryHandle;
 }
 
@@ -1006,7 +1001,7 @@ export function createSqlitePayrollRunRepository(path: SqliteConnectionInput = "
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_PAYROLL_RUN);
   migratePayrollRunSchema(sqlite);
-  const repo = new SqlitePayrollRunRepository(sqlite);
+  const repo = createPayrollRunRepository(sqliteDb(sqlite));
   return Object.assign(repo, { close: () => { if (owned) sqlite.close(); } }) as SqlitePayrollRunRepositoryHandle;
 }
 
@@ -1016,7 +1011,7 @@ export function createSqlitePayslipRepository(path: SqliteConnectionInput = ":me
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_PAYSLIP);
   migratePayslipSchema(sqlite);
-  const repo = new SqlitePayslipRepository(sqlite);
+  const repo = createPayslipRepository(sqliteDb(sqlite));
   return Object.assign(repo, { close: () => { if (owned) sqlite.close(); } }) as SqlitePayslipRepositoryHandle;
 }
 
@@ -1043,7 +1038,7 @@ interface PayrollComponentRow {
   name_en: string | null;
   kind: string;
   gl_account_id: string | null;
-  active: number;
+  active: bigint;
   created_at: string;
   updated_at: string;
 }
@@ -1056,23 +1051,29 @@ function toPayrollComponent(row: PayrollComponentRow): PayrollComponent {
     nameEn: row.name_en,
     kind: row.kind as PayrollComponentKind,
     glAccountId: row.gl_account_id,
-    active: row.active === 1,
+    active: Number(row.active) === 1,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
 }
 
-class SqlitePayrollComponentRepository implements PayrollComponentRepository {
-  private readonly upsert: Database.Statement;
-  private readonly insertOnly: Database.Statement;
-  private readonly selectById: Database.Statement;
-  private readonly selectByCode: Database.Statement;
-  private readonly selectAll: Database.Statement;
+function componentParams(component: PayrollComponent): SqlValue[] {
+  return [
+    component.id,
+    component.code,
+    component.nameAr,
+    component.nameEn,
+    component.kind,
+    component.glAccountId,
+    component.active ? 1 : 0,
+    component.createdAt,
+    component.updatedAt,
+  ];
+}
 
-  constructor(private readonly sqlite: Database.Database) {
-    this.upsert = sqlite.prepare(`
+const PAYROLL_COMPONENT_UPSERT = `
       INSERT INTO hr_payroll_component (id, code, name_ar, name_en, kind, gl_account_id, active, created_at, updated_at)
-      VALUES (@id, @code, @name_ar, @name_en, @kind, @gl_account_id, @active, @created_at, @updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         code = excluded.code,
         name_ar = excluded.name_ar,
@@ -1081,51 +1082,34 @@ class SqlitePayrollComponentRepository implements PayrollComponentRepository {
         gl_account_id = excluded.gl_account_id,
         active = excluded.active,
         updated_at = excluded.updated_at
-    `);
-    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
-    this.selectById = sqlite.prepare(`SELECT * FROM hr_payroll_component WHERE id = ?`);
-    this.selectByCode = sqlite.prepare(`SELECT * FROM hr_payroll_component WHERE code = ?`);
-    this.selectAll = sqlite.prepare(`SELECT * FROM hr_payroll_component ORDER BY kind, code`);
-  }
+    `;
+
+class SqlPayrollComponentRepository implements PayrollComponentRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async findById(id: string): Promise<PayrollComponent | null> {
-    const row = this.selectById.get(id) as PayrollComponentRow | undefined;
+    const row = await this.db.get<PayrollComponentRow>(`SELECT * FROM hr_payroll_component WHERE id = ?`, [id]);
     return row ? toPayrollComponent(row) : null;
   }
 
   async findByCode(code: string): Promise<PayrollComponent | null> {
-    const row = this.selectByCode.get(code) as PayrollComponentRow | undefined;
+    const row = await this.db.get<PayrollComponentRow>(`SELECT * FROM hr_payroll_component WHERE code = ?`, [code]);
     return row ? toPayrollComponent(row) : null;
   }
 
   async list(filter?: PayrollComponentFilter): Promise<PayrollComponent[]> {
-    let rows = (this.selectAll.all() as PayrollComponentRow[]).map(toPayrollComponent);
+    let rows = (await this.db.all<PayrollComponentRow>(`SELECT * FROM hr_payroll_component ORDER BY kind, code`)).map(toPayrollComponent);
     if (filter?.kind) rows = rows.filter((row) => row.kind === filter.kind);
     if (filter?.active !== undefined && filter.active !== null) rows = rows.filter((row) => row.active === filter.active);
     return rows;
   }
 
   async create(component: PayrollComponent): Promise<void> {
-    insertingNew(component.id, () => this.write(component, this.insertOnly));
+    await insertNew(this.db, component.id, PAYROLL_COMPONENT_UPSERT, componentParams(component));
   }
 
   async update(component: PayrollComponent): Promise<void> {
-    this.write(component);
-  }
-
-  private write(component: PayrollComponent, statement: Database.Statement = this.upsert): void {
-    statement.run({
-      id: component.id,
-      code: component.code,
-      name_ar: component.nameAr,
-      name_en: component.nameEn,
-      kind: component.kind,
-      gl_account_id: component.glAccountId,
-      active: component.active ? 1 : 0,
-      created_at: component.createdAt,
-      updated_at: component.updatedAt,
-    });
-    void this.sqlite;
+    await this.db.run(PAYROLL_COMPONENT_UPSERT, componentParams(component));
   }
 }
 
@@ -1138,7 +1122,7 @@ export function createSqlitePayrollComponentRepository(path: SqliteConnectionInp
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_PAYROLL_COMPONENT);
-  const repo = new SqlitePayrollComponentRepository(sqlite);
+  const repo = createPayrollComponentRepository(sqliteDb(sqlite));
   return Object.assign(repo, { close: () => { if (owned) sqlite.close(); } }) as SqlitePayrollComponentRepositoryHandle;
 }
 
@@ -1151,7 +1135,7 @@ export function createSqliteGarnishmentRepository(path: SqliteConnectionInput = 
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_GARNISHMENT);
-  const repo = new SqliteGarnishmentRepository(sqlite);
+  const repo = createGarnishmentRepository(sqliteDb(sqlite));
   return Object.assign(repo, { close: () => { if (owned) sqlite.close(); } }) as SqliteGarnishmentRepositoryHandle;
 }
 
@@ -1164,7 +1148,7 @@ export function createSqliteStatutoryOverrideRepository(path: SqliteConnectionIn
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_STATUTORY_OVERRIDE);
-  const repo = new SqliteStatutoryOverrideRepository(sqlite);
+  const repo = createStatutoryOverrideRepository(sqliteDb(sqlite));
   return Object.assign(repo, { close: () => { if (owned) sqlite.close(); } }) as SqliteStatutoryOverrideRepositoryHandle;
 }
 
@@ -1181,42 +1165,32 @@ CREATE TABLE IF NOT EXISTS hr_payroll_statutory_flag (
 `;
 
 interface StatutoryFlagRow {
-  enabled: number;
+  enabled: bigint;
   changed_by: string | null;
   changed_at: string | null;
-  acknowledged: number;
+  acknowledged: bigint;
 }
 
-class SqlitePayrollStatutoryFlagRepository implements PayrollStatutoryFlagRepository {
-  private readonly select: Database.Statement;
-  private readonly upsert: Database.Statement;
-
-  constructor(sqlite: Database.Database) {
-    this.select = sqlite.prepare(`SELECT enabled, changed_by, changed_at, acknowledged FROM hr_payroll_statutory_flag WHERE id = 1`);
-    this.upsert = sqlite.prepare(`
-      INSERT INTO hr_payroll_statutory_flag (id, enabled, changed_by, changed_at, acknowledged)
-      VALUES (1, @enabled, @changed_by, @changed_at, @acknowledged)
-      ON CONFLICT(id) DO UPDATE SET
-        enabled = excluded.enabled,
-        changed_by = excluded.changed_by,
-        changed_at = excluded.changed_at,
-        acknowledged = excluded.acknowledged
-    `);
-  }
+class SqlPayrollStatutoryFlagRepository implements PayrollStatutoryFlagRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async get(): Promise<PayrollStatutoryFlag> {
-    const row = this.select.get() as StatutoryFlagRow | undefined;
+    const row = await this.db.get<StatutoryFlagRow>(`SELECT enabled, changed_by, changed_at, acknowledged FROM hr_payroll_statutory_flag WHERE id = 1`);
     if (!row) return DEFAULT_PAYROLL_STATUTORY_FLAG;
-    return { enabled: row.enabled === 1, changedBy: row.changed_by, changedAt: row.changed_at, acknowledged: row.acknowledged === 1 };
+    return { enabled: Number(row.enabled) === 1, changedBy: row.changed_by, changedAt: row.changed_at, acknowledged: Number(row.acknowledged) === 1 };
   }
 
   async set(flag: PayrollStatutoryFlag): Promise<void> {
-    this.upsert.run({
-      enabled: flag.enabled ? 1 : 0,
-      changed_by: flag.changedBy,
-      changed_at: flag.changedAt,
-      acknowledged: flag.acknowledged ? 1 : 0,
-    });
+    await this.db.run(
+      `INSERT INTO hr_payroll_statutory_flag (id, enabled, changed_by, changed_at, acknowledged)
+       VALUES (1, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         enabled = excluded.enabled,
+         changed_by = excluded.changed_by,
+         changed_at = excluded.changed_at,
+         acknowledged = excluded.acknowledged`,
+      [flag.enabled ? 1 : 0, flag.changedBy, flag.changedAt, flag.acknowledged ? 1 : 0],
+    );
   }
 }
 
@@ -1228,6 +1202,6 @@ export interface SqlitePayrollStatutoryFlagRepositoryHandle extends PayrollStatu
 export function createSqlitePayrollStatutoryFlagRepository(path: SqliteConnectionInput = ":memory:"): SqlitePayrollStatutoryFlagRepositoryHandle {
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.exec(CREATE_STATUTORY_FLAG);
-  const repo = new SqlitePayrollStatutoryFlagRepository(sqlite);
+  const repo = createPayrollStatutoryFlagRepository(sqliteDb(sqlite));
   return Object.assign(repo, { close: () => { if (owned) sqlite.close(); } }) as SqlitePayrollStatutoryFlagRepositoryHandle;
 }

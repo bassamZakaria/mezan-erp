@@ -1,5 +1,7 @@
-import Database from "better-sqlite3";
+import type Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
+import type { SqlDb } from "./sql/sql-db.js";
+import { sqliteDb } from "./sql/sqlite-db.js";
 import type { ClockCredential, ClockCredentialRepository } from "@mezan/domain";
 
 const CREATE_CLOCK_CREDENTIAL = `
@@ -23,9 +25,9 @@ interface ClockCredentialRow {
   user_id: string;
   credential_id: string;
   public_key_spki: string;
-  algorithm: number;
+  algorithm: bigint;
   rp_id: string;
-  sign_count: number;
+  sign_count: bigint;
   created_at: string;
   last_used_at: string | null;
 }
@@ -37,57 +39,56 @@ function toCredential(row: ClockCredentialRow): ClockCredential {
     userId: row.user_id,
     credentialId: row.credential_id,
     publicKeySpki: row.public_key_spki,
-    algorithm: row.algorithm,
+    algorithm: Number(row.algorithm),
     rpId: row.rp_id,
-    signCount: row.sign_count,
+    signCount: Number(row.sign_count),
     createdAt: row.created_at,
     lastUsedAt: row.last_used_at,
   };
 }
 
-class SqliteClockCredentialRepository implements ClockCredentialRepository {
-  private readonly selectByEmployee: Database.Statement;
-  private readonly insert: Database.Statement;
-  private readonly touch: Database.Statement;
-  private readonly removeByEmployee: Database.Statement;
-
-  constructor(sqlite: Database.Database) {
-    this.selectByEmployee = sqlite.prepare(`SELECT * FROM hr_clock_credential WHERE employee_id = ?`);
-    this.insert = sqlite.prepare(`
-      INSERT INTO hr_clock_credential (id, employee_id, user_id, credential_id, public_key_spki, algorithm, rp_id, sign_count, created_at, last_used_at)
-      VALUES (@id, @employee_id, @user_id, @credential_id, @public_key_spki, @algorithm, @rp_id, @sign_count, @created_at, @last_used_at)
-    `);
-    this.touch = sqlite.prepare(`UPDATE hr_clock_credential SET sign_count = ?, last_used_at = ? WHERE id = ?`);
-    this.removeByEmployee = sqlite.prepare(`DELETE FROM hr_clock_credential WHERE employee_id = ?`);
-  }
+class SqlClockCredentialRepository implements ClockCredentialRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async findByEmployeeId(employeeId: string): Promise<ClockCredential | null> {
-    const row = this.selectByEmployee.get(employeeId) as ClockCredentialRow | undefined;
+    const row = await this.db.get<ClockCredentialRow>(`SELECT * FROM hr_clock_credential WHERE employee_id = ?`, [employeeId]);
     return row ? toCredential(row) : null;
   }
 
   async create(credential: ClockCredential): Promise<void> {
-    this.insert.run({
-      id: credential.id,
-      employee_id: credential.employeeId,
-      user_id: credential.userId,
-      credential_id: credential.credentialId,
-      public_key_spki: credential.publicKeySpki,
-      algorithm: credential.algorithm,
-      rp_id: credential.rpId,
-      sign_count: credential.signCount,
-      created_at: credential.createdAt,
-      last_used_at: credential.lastUsedAt,
-    });
+    await this.db.run(
+      `INSERT INTO hr_clock_credential (id, employee_id, user_id, credential_id, public_key_spki, algorithm, rp_id, sign_count, created_at, last_used_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        credential.id,
+        credential.employeeId,
+        credential.userId,
+        credential.credentialId,
+        credential.publicKeySpki,
+        credential.algorithm,
+        credential.rpId,
+        credential.signCount,
+        credential.createdAt,
+        credential.lastUsedAt,
+      ],
+    );
   }
 
   async recordUse(id: string, signCount: number, usedAt: string): Promise<void> {
-    this.touch.run(signCount, usedAt, id);
+    await this.db.run(`UPDATE hr_clock_credential SET sign_count = ?, last_used_at = ? WHERE id = ?`, [signCount, usedAt, id]);
   }
 
   async deleteByEmployeeId(employeeId: string): Promise<number> {
-    return this.removeByEmployee.run(employeeId).changes;
+    return (await this.db.run(`DELETE FROM hr_clock_credential WHERE employee_id = ?`, [employeeId])).changes;
   }
+}
+
+export async function ensureClockCredentialSchema(db: SqlDb): Promise<void> {
+  await db.applySchema(CREATE_CLOCK_CREDENTIAL);
+}
+
+export function createClockCredentialRepository(db: SqlDb): ClockCredentialRepository {
+  return new SqlClockCredentialRepository(db);
 }
 
 export type SqliteClockCredentialRepositoryHandle = ClockCredentialRepository & { close(): void };
@@ -125,6 +126,6 @@ export function createSqliteClockCredentialRepository(path: SqliteConnectionInpu
   const firstRun = !tableExists(sqlite, "hr_clock_credential");
   sqlite.exec(CREATE_CLOCK_CREDENTIAL);
   if (firstRun) grantSelfLeaveToExistingRoles(sqlite);
-  const repo = new SqliteClockCredentialRepository(sqlite);
+  const repo = createClockCredentialRepository(sqliteDb(sqlite));
   return Object.assign(repo, { close: () => { if (owned) sqlite.close(); } }) as SqliteClockCredentialRepositoryHandle;
 }

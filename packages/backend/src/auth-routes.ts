@@ -357,10 +357,10 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
   // the only await, with nothing awaited before the issue: two attempts that
   // arrive together cannot both mail.
   async function mailFreshUnlockIfDue(c: Context, needle: string, user: User, origin: string | null): Promise<void> {
-    if (!deps.onAccountLocked || !guard.unlockReissueDue(needle)) return;
-    if (!(await canMailUnlockCode()) || !guard.unlockReissueDue(needle)) return;
-    const unlockCode = guard.issueUnlockCode(needle);
-    const unlockLinkToken = guard.issueUnlockLink(needle);
+    if (!deps.onAccountLocked || !(await guard.unlockReissueDue(needle))) return;
+    if (!(await canMailUnlockCode()) || !(await guard.unlockReissueDue(needle))) return;
+    const unlockCode = await guard.issueUnlockCode(needle);
+    const unlockLinkToken = await guard.issueUnlockLink(needle);
     await security(c, "ACCOUNT_UNLOCK_REISSUED", AuditSeverityCode.Warning, { username: needle, userId: user.id });
     await deps.onAccountLocked({ user, unlockCode, unlockLinkToken, source: origin ?? "host", reissued: true });
   }
@@ -416,8 +416,8 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
           if (user) {
             await deps.onAccountLocked?.({
               user,
-              unlockCode: guard.issueUnlockCode(needle),
-              unlockLinkToken: guard.issueUnlockLink(needle),
+              unlockCode: await guard.issueUnlockCode(needle),
+              unlockLinkToken: await guard.issueUnlockLink(needle),
               source: origin ?? "host",
             });
           }

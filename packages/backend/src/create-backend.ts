@@ -780,7 +780,7 @@ export interface BackendHandle {
    * refuses.
    */
   credentialsResetByAdministrator(account: string): Promise<void>;
-  lockedAccounts(): readonly string[];
+  lockedAccounts(): Promise<readonly string[]>;
   // SECURITY: not an HTTP route. Only code that holds the handle (the platform
   // console) can call it; it records the unlock in this tenant's own audit
   // trail in the transaction that clears the lock, and answers false for an
@@ -3708,7 +3708,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
   // email change — goes through this one object, and it must clear the
   // account lock as well as the backoff or the button unlocks nothing.
   const credentialsResetByAdministrator = async (account: string): Promise<void> => {
-    accountLocks.clear(account);
+    await accountLocks.clear(account);
     await signInLadder.unlock(account);
   };
   const loginThrottle: LoginThrottle = { ...signInLadder, unlock: credentialsResetByAdministrator };
@@ -5903,7 +5903,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
     const key = account.trim().toLowerCase();
     return platformUnlockInTheTurn(() =>
       auditSink.atomic(async () => {
-        if (!accountLockStore.lockedAccounts().includes(key)) return false;
+        if (!(await accountLockStore.lockedAccounts()).includes(key)) return false;
         const user = await uow.users.findByEmail(key);
         await credentialsResetByAdministrator(key);
         await recordSecurityEvent(auditSink, {

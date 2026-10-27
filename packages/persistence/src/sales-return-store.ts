@@ -1,9 +1,13 @@
 import Database from "better-sqlite3";
 import type { SqliteConnectionInput } from "./sqlite-connection.js";
 import { Money, Qty, type SalesReturnLine } from "@mezan/domain";
+import type { DocumentRepository } from "@mezan/domain";
+import type { SqlDb } from "./sql/sql-db.js";
 import {
+  createDocumentStore,
   createSqliteDocumentStore,
   createStandaloneSqliteDocumentStore,
+  ensureDocumentSchema,
   ensureDocumentTable,
   type SqliteDocumentStoreHandle,
 } from "./document-store.js";
@@ -87,4 +91,12 @@ export function createSqliteSalesReturnStore(sqlite: Database.Database) {
 
 export function createStandaloneSqliteSalesReturnStore(path: SqliteConnectionInput = ":memory:"): SqliteDocumentStoreHandle<SalesReturnLine> {
   return createStandaloneSqliteDocumentStore<SalesReturnLine>(DOC_TYPE, serializeLine, deserializeLine, path);
+}
+
+export async function ensureSalesReturnSchema(db: SqlDb): Promise<void> {
+  await ensureDocumentSchema(db);
+}
+
+export function createSalesReturnStore(db: SqlDb): DocumentRepository<SalesReturnLine> {
+  return createDocumentStore<SalesReturnLine>(db, DOC_TYPE, serializeLine, deserializeLine);
 }

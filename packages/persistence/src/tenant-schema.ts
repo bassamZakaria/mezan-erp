@@ -1,0 +1,210 @@
+import { ensureAccountLockSchema } from "./account-lock-store.js";
+import { ensureAccountSchema } from "./account-repository.js";
+import { ensureAccountRoutingSchema } from "./account-routing-store.js";
+import { ensureApprovalRequestSchema } from "./approval-request-store.js";
+import { ensureAttachmentSchema } from "./attachment-store.js";
+import { ensureAuditSchema } from "./audit-sink.js";
+import { ensureBankReconciliationSchema } from "./bank-reconciliation-repository.js";
+import { ensureBarcodeConfigSchema } from "./barcode-config-store.js";
+import { ensureBranchSchema } from "./branch-store.js";
+import { ensureCashForecastSchema } from "./cash-forecast-store.js";
+import { ensureChequeSchema } from "./cheque-repository.js";
+import { ensureClientErrorSchema } from "./client-error-store.js";
+import { ensureCollectionsSchema } from "./collections-store.js";
+import { ensureProgressCertificateSchema } from "./contracting-certificates-store.js";
+import { ensureWorksContractSchema } from "./contracting-contracts-store.js";
+import { ensureContractingControlsSchema } from "./contracting-controls-store.js";
+import { ensureGuaranteeSchema } from "./contracting-guarantees-store.js";
+import { ensureContractingRecognitionSchema } from "./contracting-recognition-store.js";
+import { ensureContractingSiteSchema } from "./contracting-site-store.js";
+import { ensureSubcontractSchema } from "./contracting-subcontracts-store.js";
+import { ensureCostCenterSchema } from "./cost-center-repository.js";
+import { ensureCountModeSchema } from "./count-mode-store.js";
+import { ensureCredentialResetMarksSchema } from "./credential-reset-marks.js";
+import { ensureCrmSchema } from "./crm-store.js";
+import { ensureCustomerSchema } from "./customer-repository.js";
+import { ensureDocumentSchema } from "./document-store.js";
+import { ensureEtaSchema } from "./eta-store.js";
+import { ensureEvidencePackSchema } from "./evidence-pack-store.js";
+import { ensureExchangeRateSchema } from "./exchange-rate-repository.js";
+import { ensureExpirySchema } from "./expiry-store.js";
+import { ensureFiscalPeriodSchema } from "./fiscal-period-repository.js";
+import {
+  ensureAssetCategorySchema,
+  ensureAssetInternalRateHistorySchema,
+  ensureAssetSchema,
+  ensureDepreciationRunSchema,
+} from "./fixed-assets-store.js";
+import { ensureFollowUpSchema } from "./follow-up-store.js";
+import { ensureHistoricalPurchaseArchiveSchema } from "./historical-import-store.js";
+import { ensureHrPayrollSchema } from "./hr-payroll-store.js";
+import { ensureClockCredentialSchema } from "./hr-self-store.js";
+import { ensureHrSchema } from "./hr-store.js";
+import { ensureHrTimeLeaveSchema } from "./hr-time-leave-store.js";
+import { ensureIdempotentRequestSchema } from "./idempotent-request-store.js";
+import { ensureInstallmentPlanSchema } from "./installment-plan-store.js";
+import { ensureIntegrationSchema } from "./integration-store.js";
+import { ensureInventoryOpsSchema } from "./inventory-ops-store.js";
+import { ensureItemCatalogSchema } from "./item-catalog-store.js";
+import { ensureItemSpecificationSchema } from "./item-specification-store.js";
+import { ensureItemSchema } from "./item-store.js";
+import { ensureLabelLayoutSchema } from "./label-layout-store.js";
+import { ensureLandedCostSchema } from "./landed-cost-store.js";
+import { ensureLedgerSchema } from "./ledger-store.js";
+import { ensureManufacturingSchema } from "./manufacturing-stores.js";
+import { ensureNotificationRuleSchema } from "./notification-rule-store.js";
+import { ensureNotificationSchema } from "./notification-store.js";
+import { ensureOwnerDigestSchema } from "./owner-digest-store.js";
+import { ensureOwnerPinFenceSchema } from "./owner-pin-fence.js";
+import { ensurePeriodCloseSchema } from "./period-close-store.js";
+import { ensurePosSessionSchema } from "./pos-session-store.js";
+import { ensurePosSchema } from "./pos-store.js";
+import { ensurePriceListSchema } from "./price-list-store.js";
+import { ensurePricingGuardSchema } from "./pricing-guard-store.js";
+import { ensurePrintTemplateConfigSchema } from "./print-template-config-store.js";
+import { ensureProductTemplateSchema } from "./product-template-store.js";
+import { ensureProjectSchema } from "./project-repository.js";
+import { ensurePromotionSchema } from "./promotion-store.js";
+import { ensurePurchaseReturnSchema } from "./purchase-return-store.js";
+import { ensurePurchasingSchema } from "./purchasing-stores.js";
+import { ensureRecurringJournalSchema } from "./recurring-journals-store.js";
+import { ensureReorderSchema } from "./reorder-store.js";
+import { ensureLeaseSchema } from "./resource-lease-store.js";
+import { ensureRfqSchema } from "./rfq-store.js";
+import { ensureHistoricalSalesArchiveSchema } from "./sales-historical-import-store.js";
+import { ensureSalesInvoiceSchema } from "./sales-invoice-store.js";
+import { ensureSalesQuoteSchema } from "./sales-quote-store.js";
+import { ensureSalesReturnSchema } from "./sales-return-store.js";
+import { ensureSequenceConfigSchema } from "./sequence-config-store.js";
+import { ensureSequenceSchema } from "./sequence-store.js";
+import { ensureSessionSchema } from "./session-store.js";
+import { ensureSettingsSchema } from "./settings-store.js";
+import { ensureAttemptSchema } from "./sign-in-attempt-store.js";
+import { ensureSimplifiedRegimeSchema } from "./simplified-regime-store.js";
+import type { SqlDb } from "./sql/sql-db.js";
+import { ensureStockLedgerSchema } from "./stock-ledger-store.js";
+import { ensureSupplierSchema } from "./supplier-repository.js";
+import { ensureTaxGroupSchema } from "./tax-group-store.js";
+import { ensureTaxRateSchema } from "./tax-rate-repository.js";
+import { ensureTreasuryAccountSchema } from "./treasury-account-repository.js";
+import { ensureUnitOfWorkSchema } from "./unit-of-work.js";
+import { ensureUpgradeLedgerSchema } from "./upgrade-ledger.js";
+import { ensureUserPreferencesSchema } from "./user-preferences-store.js";
+import { ensureVanTripSchema } from "./van-trip-store.js";
+import { ensureVatFilingSchema } from "./vat-filing-store.js";
+import { ensureVoucherSchema } from "./voucher-store.js";
+import { ensureWarehouseSchema } from "./warehouse-store.js";
+import { ensureWebauthnChallengeSchema } from "./webauthn-challenge-store.js";
+import { ensureWorkflowConfigSchema } from "./workflow-config-store.js";
+import { ensureWritedownRunSchema } from "./writedown-run-store.js";
+
+// Every REFERENCES in the tenant DDL points at a table created earlier in the
+// SAME ensure call, so no cross-store order is required today. A new cross-store
+// REFERENCES must be placed after the ensure that creates its target: Postgres
+// refuses a forward reference that SQLite accepts.
+export async function ensureTenantSchema(db: SqlDb): Promise<void> {
+  await ensureUpgradeLedgerSchema(db);
+  await ensureSettingsSchema(db);
+  await ensureUnitOfWorkSchema(db);
+  await ensureSessionSchema(db);
+  await ensureAttemptSchema(db);
+  await ensureAccountLockSchema(db);
+  await ensureCredentialResetMarksSchema(db);
+  await ensureOwnerPinFenceSchema(db);
+  await ensureWebauthnChallengeSchema(db);
+  await ensureUserPreferencesSchema(db);
+  await ensureIdempotentRequestSchema(db);
+  await ensureLeaseSchema(db);
+  await ensureAuditSchema(db);
+
+  await ensureSequenceSchema(db);
+  await ensureSequenceConfigSchema(db);
+  await ensureAccountSchema(db);
+  await ensureAccountRoutingSchema(db);
+  await ensureCostCenterSchema(db);
+  await ensureBranchSchema(db);
+  await ensureWarehouseSchema(db);
+  await ensureFiscalPeriodSchema(db);
+  await ensureExchangeRateSchema(db);
+  await ensureTaxRateSchema(db);
+  await ensureTaxGroupSchema(db);
+  await ensureSimplifiedRegimeSchema(db);
+  await ensureProjectSchema(db);
+  await ensureTreasuryAccountSchema(db);
+  await ensureCustomerSchema(db);
+  await ensureSupplierSchema(db);
+  await ensureItemCatalogSchema(db);
+  await ensureItemSchema(db);
+  await ensureItemSpecificationSchema(db);
+  await ensureProductTemplateSchema(db);
+  await ensurePriceListSchema(db);
+  await ensurePromotionSchema(db);
+  await ensureLabelLayoutSchema(db);
+  await ensureBarcodeConfigSchema(db);
+  await ensurePrintTemplateConfigSchema(db);
+  await ensureWorkflowConfigSchema(db);
+  await ensureNotificationRuleSchema(db);
+  await ensureNotificationSchema(db);
+  await ensureAttachmentSchema(db);
+  await ensureApprovalRequestSchema(db);
+
+  await ensureLedgerSchema(db);
+  await ensureStockLedgerSchema(db);
+  await ensureDocumentSchema(db);
+  await ensureSalesQuoteSchema(db);
+  await ensureSalesInvoiceSchema(db);
+  await ensureSalesReturnSchema(db);
+  await ensureInstallmentPlanSchema(db);
+  await ensurePurchasingSchema(db);
+  await ensureRfqSchema(db);
+  await ensurePurchaseReturnSchema(db);
+  await ensureLandedCostSchema(db);
+  await ensureVoucherSchema(db);
+  await ensureChequeSchema(db);
+  await ensureBankReconciliationSchema(db);
+  await ensureFollowUpSchema(db);
+  await ensureCollectionsSchema(db);
+  await ensureHistoricalPurchaseArchiveSchema(db);
+  await ensureHistoricalSalesArchiveSchema(db);
+  await ensureVatFilingSchema(db);
+  await ensureEtaSchema(db);
+
+  await ensureInventoryOpsSchema(db);
+  await ensureCountModeSchema(db);
+  await ensureExpirySchema(db);
+  await ensureReorderSchema(db);
+  await ensureWritedownRunSchema(db);
+  await ensureVanTripSchema(db);
+  await ensureManufacturingSchema(db);
+  await ensurePricingGuardSchema(db);
+  await ensurePosSchema(db);
+  await ensurePosSessionSchema(db);
+
+  await ensureAssetCategorySchema(db);
+  await ensureAssetSchema(db);
+  await ensureAssetInternalRateHistorySchema(db);
+  await ensureDepreciationRunSchema(db);
+
+  await ensureHrSchema(db);
+  await ensureHrTimeLeaveSchema(db);
+  await ensureHrPayrollSchema(db);
+  await ensureClockCredentialSchema(db);
+
+  await ensureCrmSchema(db);
+
+  await ensureWorksContractSchema(db);
+  await ensureProgressCertificateSchema(db);
+  await ensureSubcontractSchema(db);
+  await ensureGuaranteeSchema(db);
+  await ensureContractingControlsSchema(db);
+  await ensureContractingRecognitionSchema(db);
+  await ensureContractingSiteSchema(db);
+
+  await ensurePeriodCloseSchema(db);
+  await ensureRecurringJournalSchema(db);
+  await ensureCashForecastSchema(db);
+  await ensureOwnerDigestSchema(db);
+  await ensureEvidencePackSchema(db);
+  await ensureIntegrationSchema(db);
+  await ensureClientErrorSchema(db);
+}

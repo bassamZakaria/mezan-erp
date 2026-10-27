@@ -15,9 +15,9 @@ import {
   type PlatformHandle,
   type RecordedActivation,
 } from "@mezan/backend";
-import { AuditBoundaryRefusal, BodyLimitRefusal, LogEvent, refuseNulCharacters, createJobRegistry, createLogger, createSessionRegistry, requestLogging, type JobRegistry } from "@mezan/api";
+import { AuditBoundaryRefusal, BodyLimitRefusal, LogEvent, createJobRegistry, createLogger, createSessionRegistry, requestLogging, type JobRegistry } from "@mezan/api";
 import { HealthLevel, SubscriptionStatusKind, TenantNotFoundError, TenantStatusCode, jobLevel, tenantSchema, type Tenant } from "@mezan/domain";
-import { createAesGcmSecretBox, createSessionStore, CURRENT_SCHEMA_VERSION, DatabaseBusyError, emptyBooksScratch, type SqlDb } from "@mezan/persistence";
+import { createAesGcmSecretBox, createSessionStore, CURRENT_SCHEMA_VERSION, DatabaseBusyError, NulCharacterError, emptyBooksScratch, type SqlDb } from "@mezan/persistence";
 import { PLATFORM_SCHEMA, schemaKey, SchemaKeyPurpose, TenantDatabases } from "@mezan/persistence-postgres";
 import { HealthLevelDTO, PUBLIC_API_BASE_PATH, type CreateTenantRequestDTO, type OwnerPinResetResultDTO, type PlatformOperationsDTO, type ProvisionResultDTO, type ProvisionRetryRequestDTO } from "@mezan/contracts";
 import { booksScratchDir, createTenantRouter, requireOriginSecret, type TenantBooksScan, type TenantRouter } from "./tenant-router.js";
@@ -63,7 +63,6 @@ import { derivedKey, platformKey } from "./secrets-key.js";
 const CSRF_KEY_USE = "mezan-cookie-csrf-v1";
 
 const log = createLogger("cloud");
-const NUL_CHECKED_BODY_BYTES = 1024 * 1024;
 
 export enum PlatformJobKind {
   Dunning = "platform_dunning",
@@ -535,7 +534,6 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
 
   root.use("/api/*", requireOriginSecret(env.originSecret));
   root.use("/api/*", sourceGate);
-  root.use("/api/*", refuseNulCharacters({ maxBodyBytes: NUL_CHECKED_BODY_BYTES }));
 
   // SECURITY / REQUIRED ORDERING (DEC-27): the integration API is mounted here, after the origin
   // secret and the source gate and BEFORE the cookie sessions, so a browser cookie never reaches
@@ -582,6 +580,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
 
   root.onError((err, c) => {
     log.error({ event: LogEvent.UnhandledError, method: c.req.method, route: c.req.path, err }, "unhandled error");
+    if (err instanceof NulCharacterError) return c.json({ error: err.code, message: err.messageAr, messageEn: err.message }, 400);
     if (err instanceof DatabaseBusyError) {
       c.header("retry-after", "2");
       return c.json({ error: AuditBoundaryRefusal.ConnectionBusy, message: "قاعدة البيانات مشغولة الآن، فلم يُحفظ أي تغيير. حاول مرة أخرى بعد قليل.", messageEn: "The database is busy, so nothing was saved. Try again shortly." }, 503);

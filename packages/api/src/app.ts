@@ -1,5 +1,4 @@
-import { DatabaseBusyError } from "@mezan/persistence";
-import { refuseNulCharacters } from "./nul-guard.js";
+import { DatabaseBusyError, NulCharacterError } from "@mezan/persistence";
 import { customerTaxProfileFrom } from "./customer-tax-profile.js";
 import { LogEvent, createLogger, requestLogging } from "./observability/index.js";
 import { Hono, type Context } from "hono";
@@ -1118,7 +1117,6 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   if (health) app.get("/health", (c) => c.json(health()));
 
   app.use("*", requestBodyLimit(resolveAuth));
-  app.use("*", refuseNulCharacters());
 
   const preparations: Readonly<Record<string, BoundaryPreparation>> = { "/users": hashUserSecretsBeforeTheTransaction };
   for (const [prefix, prepare] of Object.entries(preparations)) {
@@ -2001,6 +1999,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     } catch {
       // A logger that throws must not turn a 500 into a crash.
     }
+    if (err instanceof NulCharacterError) return c.json({ error: err.code, message: err.messageAr, messageEn: err.message }, 400);
     if (err instanceof ForeignWriteError || err instanceof DatabaseBusyError) {
       c.header("retry-after", "2");
       return c.json(

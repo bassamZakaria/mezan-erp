@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash, createHmac, pbkdf2Sync, randomBytes } from "node:crypto";
 import pg from "pg";
-import { DatabaseBusyError, declaredAddableColumns, numberedPlaceholders, SqlDialect, type RunResult, type SqlDb, type SqlValue } from "@mezan/persistence";
+import { DatabaseBusyError, declaredAddableColumns, NulCharacterError, numberedPlaceholders, SqlDialect, type RunResult, type SqlDb, type SqlValue } from "@mezan/persistence";
 import { translateDdl } from "./translate-ddl.js";
 
 const TENANT_SCHEMA_RE = /^t_[a-z0-9_]{1,61}$/;
@@ -225,6 +225,17 @@ interface OpenTransaction extends Level {
 type Queryable = Pick<pg.PoolClient, "query">;
 
 const WRITER_WAIT_MS = 30_000;
+const JSON_TEXT = /^\s*[[{]/;
+const JSON_NUL_ESCAPE = /(?<!\\)(?:\\\\)*\\u0000/i;
+
+// SECURITY: Postgres refuses a NUL in text, and one written as a JSON escape into a
+// JSON-text column breaks every later ::jsonb cast of that column for the whole tenant.
+function refuseNulCharacters(params: readonly SqlValue[]): void {
+  for (const value of params) {
+    if (typeof value !== "string") continue;
+    if (value.includes("\u0000") || (JSON_TEXT.test(value) && JSON_NUL_ESCAPE.test(value))) throw new NulCharacterError();
+  }
+}
 
 // REQUIRED: pg-pool listens for "error" only on idle clients; a checked-out client whose
 // server session ends (idle-in-transaction timeout, restart) would otherwise crash the process.
@@ -266,6 +277,7 @@ class PostgresDb implements SqlDb {
   }
 
   private async query(sql: string, params: readonly SqlValue[]): Promise<pg.QueryResult> {
+    refuseNulCharacters(params);
     return busyAware(this.target().query(numberedPlaceholders(sql), params as unknown[]));
   }
 

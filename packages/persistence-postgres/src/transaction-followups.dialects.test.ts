@@ -1,6 +1,6 @@
 import pg from "pg";
 import { describe, expect } from "vitest";
-import { DatabaseBusyError, SqlDialect, createRateWindowStore, ensureRateWindowSchema } from "@mezan/persistence";
+import { DatabaseBusyError, NulCharacterError, SqlDialect, createRateWindowStore, ensureRateWindowSchema } from "@mezan/persistence";
 import { createTenantPool, dropTenantSchema, postgresDb } from "./postgres-db.js";
 import { DIALECTS, PG_URL, provisionTestTenant, runOn, useDialectDbs } from "./test-support.js";
 
@@ -71,6 +71,22 @@ describe.each(DIALECTS)("transactions and follow-ups on $dialect", ({ dialect })
     expect(await store.read("middle", 50)).toMatchObject({ hits: 1 });
     expect(await store.read("newest", 50)).toMatchObject({ hits: 1 });
     expect(await other.read("elsewhere", 5)).toMatchObject({ hits: 1 });
+  });
+});
+
+describe("NUL characters on Postgres", () => {
+  runOn(SqlDialect.Postgres)("refuses a raw NUL and a NUL escape in JSON text, and stores text that only spells one out", async () => {
+    const { db } = await open(SqlDialect.Postgres);
+    await db.exec("CREATE TABLE note (id TEXT PRIMARY KEY, body TEXT NOT NULL)");
+    await expect(db.run("INSERT INTO note (id, body) VALUES (?, ?)", ["a", "x\u0000y"])).rejects.toBeInstanceOf(NulCharacterError);
+    await expect(db.run("INSERT INTO note (id, body) VALUES (?, ?)", ["b", JSON.stringify([{ batch: "A\u0000" }])])).rejects.toBeInstanceOf(NulCharacterError);
+    await db.transaction(async () => {
+      await expect(db.run("INSERT INTO note (id, body) VALUES (?, ?)", ["c", "x\u0000"])).rejects.toBeInstanceOf(NulCharacterError);
+      await db.run("INSERT INTO note (id, body) VALUES (?, ?)", ["d", JSON.stringify([{ memo: "see \\u0000" }])]);
+      await db.run("INSERT INTO note (id, body) VALUES (?, ?)", ["e", "see \\u0000 in plain text"]);
+    });
+    expect((await db.all<{ id: string }>("SELECT id FROM note ORDER BY id")).map((row) => row.id)).toEqual(["d", "e"]);
+    expect(await db.get<{ ok: boolean }>("SELECT body::jsonb IS NOT NULL AS ok FROM note WHERE id = 'd'")).toEqual({ ok: true });
   });
 });
 

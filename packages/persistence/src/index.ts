@@ -166,6 +166,7 @@ export {
   SqlDialect,
   TransactionMode,
   DatabaseBusyError,
+  NulCharacterError,
   UnsupportedSqlSyntaxError,
   escapeLike,
   isPrimaryKeyViolation,

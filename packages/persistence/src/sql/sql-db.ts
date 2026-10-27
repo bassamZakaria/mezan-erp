@@ -37,6 +37,14 @@ export interface SqlDb {
   afterCommit(fn: () => void): void;
 }
 
+export class NulCharacterError extends Error {
+  readonly code = "NUL_CHARACTER_REFUSED";
+  readonly messageAr = "يحتوي الطلب على حرف غير مسموح به، فلم يُحفظ أي تغيير.";
+  constructor() {
+    super("The request contains a character that is not allowed, so nothing was saved.");
+  }
+}
+
 export class DatabaseBusyError extends Error {
   constructor(readonly cause: unknown) {
     super("The company's database had no free connection in time.");

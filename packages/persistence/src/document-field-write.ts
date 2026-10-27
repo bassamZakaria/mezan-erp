@@ -1,5 +1,6 @@
 import type Database from "better-sqlite3";
 import { DocumentField } from "@mezan/domain";
+import type { SqlDb, SqlValue } from "./sql/sql-db.js";
 
 export const FRAMEWORK_DOCUMENT_COLUMNS: Readonly<Record<DocumentField, readonly string[]>> = {
   [DocumentField.DocNo]: ["doc_no"],
@@ -28,6 +29,18 @@ export function writeRowColumnsWhere(sqlite: Database.Database, write: GuardedRo
   const changes = sqlite
     .prepare(`UPDATE ${write.table} SET ${assignments} WHERE id = ? AND status IN (${statuses})${extra}`)
     .run(...write.columns.map((column) => write.row[column]), write.id, ...write.expectedStatuses, ...(write.and?.params ?? [])).changes;
+  return changes === 1;
+}
+
+export async function writeRowColumnsWhereAsync(db: SqlDb, write: GuardedRowWrite): Promise<boolean> {
+  if (write.columns.length === 0 || write.expectedStatuses.length === 0) return false;
+  const assignments = write.columns.map((column) => `${column} = ?`).join(", ");
+  const statuses = write.expectedStatuses.map(() => "?").join(",");
+  const extra = write.and ? ` AND ${write.and.sql}` : "";
+  const { changes } = await db.run(
+    `UPDATE ${write.table} SET ${assignments} WHERE id = ? AND status IN (${statuses})${extra}`,
+    [...write.columns.map((column) => write.row[column]), write.id, ...write.expectedStatuses, ...(write.and?.params ?? [])] as SqlValue[],
+  );
   return changes === 1;
 }
 

@@ -1,10 +1,9 @@
-import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 import type { FiscalPeriod, FiscalPeriodRepository, FiscalPeriodStatus } from "@mezan/domain";
 import { calendarDay } from "@mezan/domain";
-import { insertingNew, prepareInsertOnly } from "./insert-new.js";
-
-/** SQLite-backed FiscalPeriodRepository (docs/archive/catalog/04 "الفترات المالية"). Standalone, mirroring `createSqliteAccountRepository`. */
+import { insertNew } from "./insert-new.js";
+import type { SqlDb, SqlValue } from "./sql/sql-db.js";
+import { sqliteDb } from "./sql/sqlite-db.js";
 
 const CREATE_TABLE = `
 CREATE TABLE IF NOT EXISTS fiscal_period (
@@ -19,10 +18,20 @@ CREATE TABLE IF NOT EXISTS fiscal_period (
 CREATE INDEX IF NOT EXISTS idx_fiscal_period_year ON fiscal_period(year);
 `;
 
+const UPSERT = `
+  INSERT INTO fiscal_period (id, year, period_number, start_date, end_date, status)
+  VALUES (?, ?, ?, ?, ?, ?)
+  ON CONFLICT(id) DO UPDATE SET
+    year = excluded.year,
+    period_number = excluded.period_number,
+    start_date = excluded.start_date,
+    end_date = excluded.end_date,
+    status = excluded.status`;
+
 interface FiscalPeriodRow {
   id: string;
-  year: number;
-  period_number: number;
+  year: bigint;
+  period_number: bigint;
   start_date: string;
   end_date: string;
   status: string;
@@ -31,89 +40,52 @@ interface FiscalPeriodRow {
 function toFiscalPeriod(row: FiscalPeriodRow): FiscalPeriod {
   return {
     id: row.id,
-    year: row.year,
-    periodNumber: row.period_number,
+    year: Number(row.year),
+    periodNumber: Number(row.period_number),
     startDate: row.start_date,
     endDate: row.end_date,
     status: row.status as FiscalPeriodStatus,
   };
 }
 
-class SqliteFiscalPeriodRepository implements FiscalPeriodRepository {
-  private readonly upsert: Database.Statement;
-  private readonly insertOnly: Database.Statement;
-  private readonly selectById: Database.Statement;
-  private readonly selectByDate: Database.Statement;
-  private readonly selectByYearAndNumber: Database.Statement;
-  private readonly selectByYear: Database.Statement;
-  private readonly selectAll: Database.Statement;
+function params(period: FiscalPeriod): SqlValue[] {
+  return [period.id, period.year, period.periodNumber, period.startDate, period.endDate, period.status];
+}
 
-  constructor(private readonly sqlite: Database.Database) {
-    this.upsert = sqlite.prepare(`
-      INSERT INTO fiscal_period (id, year, period_number, start_date, end_date, status)
-      VALUES (@id, @year, @period_number, @start_date, @end_date, @status)
-      ON CONFLICT(id) DO UPDATE SET
-        year = excluded.year,
-        period_number = excluded.period_number,
-        start_date = excluded.start_date,
-        end_date = excluded.end_date,
-        status = excluded.status
-    `);
-    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
-    this.selectById = sqlite.prepare(`SELECT * FROM fiscal_period WHERE id = ?`);
-    this.selectByDate = sqlite.prepare(`SELECT * FROM fiscal_period WHERE ? BETWEEN start_date AND end_date`);
-    this.selectByYearAndNumber = sqlite.prepare(`SELECT * FROM fiscal_period WHERE year = ? AND period_number = ?`);
-    this.selectByYear = sqlite.prepare(`SELECT * FROM fiscal_period WHERE year = ? ORDER BY period_number`);
-    this.selectAll = sqlite.prepare(`SELECT * FROM fiscal_period ORDER BY year, period_number`);
-  }
+class SqlFiscalPeriodRepository implements FiscalPeriodRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async findById(id: string): Promise<FiscalPeriod | null> {
-    const row = this.selectById.get(id) as FiscalPeriodRow | undefined;
+    const row = await this.db.get<FiscalPeriodRow>(`SELECT * FROM fiscal_period WHERE id = ?`, [id]);
     return row ? toFiscalPeriod(row) : null;
   }
 
   async findByDate(date: string): Promise<FiscalPeriod | null> {
-    // `start_date`/`end_date` are DAYS and callers pass an INSTANT — a
-    // document's `occurredAt`. String order puts "2026-08-31T03:10:33.016Z"
-    // after "2026-08-31", so `BETWEEN` matched nothing on the last day of every
-    // month and every GL posting that day failed for want of a period. On the
-    // one day a shop posts most. See `calendarDay`.
-    const row = this.selectByDate.get(calendarDay(date)) as FiscalPeriodRow | undefined;
+    // `start_date`/`end_date` are DAYS and callers pass an INSTANT: cut it to
+    // its calendar day, or BETWEEN misses every posting on a month's last day.
+    const row = await this.db.get<FiscalPeriodRow>(`SELECT * FROM fiscal_period WHERE ? BETWEEN start_date AND end_date`, [calendarDay(date)]);
     return row ? toFiscalPeriod(row) : null;
   }
 
   async findByYearAndNumber(year: number, periodNumber: number): Promise<FiscalPeriod | null> {
-    const row = this.selectByYearAndNumber.get(year, periodNumber) as FiscalPeriodRow | undefined;
+    const row = await this.db.get<FiscalPeriodRow>(`SELECT * FROM fiscal_period WHERE year = ? AND period_number = ?`, [year, periodNumber]);
     return row ? toFiscalPeriod(row) : null;
   }
 
   async listByYear(year: number): Promise<FiscalPeriod[]> {
-    const rows = this.selectByYear.all(year) as FiscalPeriodRow[];
-    return rows.map(toFiscalPeriod);
+    return (await this.db.all<FiscalPeriodRow>(`SELECT * FROM fiscal_period WHERE year = ? ORDER BY period_number`, [year])).map(toFiscalPeriod);
   }
 
   async list(): Promise<FiscalPeriod[]> {
-    const rows = this.selectAll.all() as FiscalPeriodRow[];
-    return rows.map(toFiscalPeriod);
+    return (await this.db.all<FiscalPeriodRow>(`SELECT * FROM fiscal_period ORDER BY year, period_number`)).map(toFiscalPeriod);
   }
 
   async create(period: FiscalPeriod): Promise<void> {
-    insertingNew(period.id, () => this.write(period, this.insertOnly));
+    await insertNew(this.db, period.id, UPSERT, params(period));
   }
 
   async update(period: FiscalPeriod): Promise<void> {
-    this.write(period);
-  }
-
-  private write(period: FiscalPeriod, statement: Database.Statement = this.upsert): void {
-    statement.run({
-      id: period.id,
-      year: period.year,
-      period_number: period.periodNumber,
-      start_date: period.startDate,
-      end_date: period.endDate,
-      status: period.status,
-    });
+    await this.db.run(UPSERT, params(period));
   }
 }
 
@@ -121,13 +93,19 @@ export interface SqliteFiscalPeriodRepositoryHandle extends FiscalPeriodReposito
   close(): void;
 }
 
-/** Open a SQLite-backed FiscalPeriodRepository. ":memory:" for tests, a path for real. */
+export async function ensureFiscalPeriodSchema(db: SqlDb): Promise<void> {
+  await db.applySchema(CREATE_TABLE);
+}
+
+export function createFiscalPeriodRepository(db: SqlDb): FiscalPeriodRepository {
+  return new SqlFiscalPeriodRepository(db);
+}
+
 export function createSqliteFiscalPeriodRepository(path: SqliteConnectionInput = ":memory:"): SqliteFiscalPeriodRepositoryHandle {
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_TABLE);
-  const repo = new SqliteFiscalPeriodRepository(sqlite);
-  return Object.assign(repo, {
+  return Object.assign(createFiscalPeriodRepository(sqliteDb(sqlite)), {
     close: () => { if (owned) sqlite.close(); },
   }) as SqliteFiscalPeriodRepositoryHandle;
 }

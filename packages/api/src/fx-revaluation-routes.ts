@@ -57,7 +57,7 @@ export interface FxRevaluationRoutesDeps {
   readonly events?: JournalPostingDeps["events"];
   readonly now?: () => string;
   readonly idGen?: () => string;
-  readonly recordRun?: (run: FxRevaluationRun) => void;
+  readonly recordRun?: (run: FxRevaluationRun) => void | Promise<void>;
   readonly openFxItems?: (asOfDate: string) => Promise<ReadonlyMap<string, readonly OpenFxItem[]>>;
   readonly saveShares?: (entryId: string, shares: readonly FxRevaluationShare[]) => Promise<void>;
   readonly shareConsumer?: (entryId: string) => Promise<string | null>;
@@ -225,7 +225,7 @@ export function createFxRevaluationRoutes(
           await deps.saveShares?.(posted.entry.id, posted.computed.shares);
           await deps.releaseSharesRelievedSince?.(date, posted.computed.shares);
         }
-        deps.recordRun?.({
+        await deps.recordRun?.({
           asOfDate: date,
           currencies: requested.length > 0 ? requested : [FX_REVALUATION_ALL_CURRENCIES],
           entryId: posted.entry?.id ?? null,

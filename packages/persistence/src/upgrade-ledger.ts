@@ -1,5 +1,6 @@
 import type Database from "better-sqlite3";
-import { withSqliteTransaction } from "./sqlite-connection.js";
+import type { SqlDb } from "./sql/sql-db.js";
+import { sqliteDb } from "./sql/sqlite-db.js";
 
 export enum UpgradeStepId {
   SeededRoleDutySplit = "seeded_role_duty_split",
@@ -21,18 +22,24 @@ CREATE TABLE IF NOT EXISTS upgrade_step (
 );
 `;
 
-export function createSqliteUpgradeLedger(sqlite: Database.Database, now: () => Date = () => new Date()): UpgradeLedger {
-  sqlite.exec(SCHEMA);
-  const seen = sqlite.prepare<[string], { id: string }>("SELECT id FROM upgrade_step WHERE id = ?");
-  const record = sqlite.prepare("INSERT INTO upgrade_step (id, applied_at) VALUES (?, ?)");
+export async function ensureUpgradeLedgerSchema(db: SqlDb): Promise<void> {
+  await db.applySchema(SCHEMA);
+}
+
+export function createUpgradeLedger(db: SqlDb, now: () => Date = () => new Date()): UpgradeLedger {
   return {
     async runOnce(id, step) {
-      if (seen.get(id)) return false;
-      await withSqliteTransaction(sqlite, async () => {
+      if (await db.get(`SELECT id FROM upgrade_step WHERE id = ?`, [id])) return false;
+      await db.transaction(async () => {
         await step();
-        record.run(id, now().toISOString());
+        await db.run(`INSERT INTO upgrade_step (id, applied_at) VALUES (?, ?)`, [id, now().toISOString()]);
       });
       return true;
     },
   };
+}
+
+export function createSqliteUpgradeLedger(sqlite: Database.Database, now: () => Date = () => new Date()): UpgradeLedger {
+  sqlite.exec(SCHEMA);
+  return createUpgradeLedger(sqliteDb(sqlite), now);
 }

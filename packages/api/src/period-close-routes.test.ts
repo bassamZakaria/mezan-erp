@@ -34,7 +34,7 @@ interface World {
   blocking: PeriodCloseCheckCode[];
   evaluations: number;
   singleOperatorMode: boolean;
-  onEvaluate: () => void;
+  onEvaluate: () => void | Promise<void>;
   nextSummaryId: () => string;
 }
 
@@ -65,7 +65,7 @@ async function setup(options: { withAudit?: boolean; atomicAudit?: boolean } = {
   async function evaluate(period: FiscalPeriod): Promise<PeriodCloseEvaluation> {
     world.evaluations += 1;
     const blocking = [...world.blocking];
-    world.onEvaluate();
+    await world.onEvaluate();
     return {
       periodId: period.id,
       year: period.year,
@@ -110,7 +110,7 @@ async function setup(options: { withAudit?: boolean; atomicAudit?: boolean } = {
     lastClosedBy: async (periodId) => (await store.summaries.list({ periodId }))[0]?.closedBy ?? null,
     singleOperatorMode: async () => world.singleOperatorMode,
     listSummaries: async (periodId) => {
-      const audited = new Set(store.queries.auditedSeals(periodId));
+      const audited = new Set(await store.queries.auditedSeals(periodId));
       return (await store.summaries.list({ periodId })).map((summary) => ({ summary, sealValid: verifyPeriodCloseSeal(summary, audited) }));
     },
     changeToken: store.critical.changeToken,
@@ -266,9 +266,9 @@ describe("the close is one atomic step", () => {
 
   it("a document saved between the checks and the close forces the checks to be read again, and they now refuse", async () => {
     const { periods, repo, store, world } = await setup();
-    world.onEvaluate = () => {
+    world.onEvaluate = async () => {
       if (world.evaluations !== 1) return;
-      store.fxRuns.record({ asOfDate: "2026-01-31", currencies: ["USD"], entryId: null, ranBy: "someone-else", ranAt: "2026-02-01T00:00:00.000Z" });
+      await store.fxRuns.record({ asOfDate: "2026-01-31", currencies: ["USD"], entryId: null, ranBy: "someone-else", ranAt: "2026-02-01T00:00:00.000Z" });
       world.blocking = [PeriodCloseCheckCode.Drafts];
     };
     const res = await periods.fetch(post(`/${PERIOD_ID}/close`, CLOSE));
@@ -299,7 +299,7 @@ describe("the close is one atomic step", () => {
       letGo = resolve;
     });
     const otherRequest = withSqliteTransaction(sqlite, async () => {
-      store.fxRuns.record({ asOfDate: "2026-01-31", currencies: ["USD"], entryId: null, ranBy: "other", ranAt: "2026-02-01T00:00:00.000Z" });
+      await store.fxRuns.record({ asOfDate: "2026-01-31", currencies: ["USD"], entryId: null, ranBy: "other", ranAt: "2026-02-01T00:00:00.000Z" });
       await held;
       throw new Error("the other request fails and rolls back");
     });

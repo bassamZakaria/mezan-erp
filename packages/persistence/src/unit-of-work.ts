@@ -1,7 +1,8 @@
 import Database from "better-sqlite3";
-import { openSqliteConnection, withSqliteTransaction, type SqliteConnectionInput } from "./sqlite-connection.js";
-import { drizzle, type BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
-import { eq, asc } from "drizzle-orm";
+import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
+import { refuseUnlessInserted } from "./insert-new.js";
+import { SqlDialect, type SqlDb, type SqlValue } from "./sql/sql-db.js";
+import { sqliteDb } from "./sql/sqlite-db.js";
 import {
   Money,
   normalizeEmail,
@@ -14,9 +15,6 @@ import {
   type UserRepository,
   type ScopeSelection,
 } from "@mezan/domain";
-import { schema, journalEntry, journalLine, role, user } from "./schema.js";
-
-type Db = BetterSQLite3Database<typeof schema>;
 
 const CREATE_TABLES = `
 CREATE TABLE IF NOT EXISTS uow_journal_entry (
@@ -127,203 +125,210 @@ function scopeFromJson(raw: string): ScopeSelection {
   return parsed === "*" ? "*" : parsed;
 }
 
-class DrizzleRoleRepository implements RoleRepository {
-  constructor(private readonly db: Db) {}
+interface RoleRow {
+  id: string;
+  code: string;
+  name: string;
+  description: string;
+  permissions: string;
+  is_system: bigint;
+  created_at: string;
+}
+
+const ROLE_COLUMNS = "id, code, name, description, permissions, is_system, created_at";
+
+class SqlRoleRepository implements RoleRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async save(r: Role): Promise<void> {
-    this.db
-      .insert(role)
-      .values({
-        id: r.id,
-        code: r.code,
-        name: r.name,
-        description: r.description,
-        permissions: JSON.stringify(r.permissions),
-        isSystem: r.isSystem,
-        createdAt: r.createdAt,
-      })
-      .onConflictDoUpdate({
-        target: role.id,
-        set: {
-          code: r.code,
-          name: r.name,
-          description: r.description,
-          permissions: JSON.stringify(r.permissions),
-          isSystem: r.isSystem,
-        },
-      })
-      .run();
+    await this.db.run(
+      `INSERT INTO role (id, code, name, description, permissions, is_system, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT (id) DO UPDATE SET
+         code = excluded.code,
+         name = excluded.name,
+         description = excluded.description,
+         permissions = excluded.permissions,
+         is_system = excluded.is_system`,
+      [r.id, r.code, r.name, r.description, JSON.stringify(r.permissions), r.isSystem ? 1 : 0, r.createdAt],
+    );
   }
 
   async findById(id: string): Promise<Role | null> {
-    const row = this.db.select().from(role).where(eq(role.id, id)).get();
+    const row = await this.db.get<RoleRow>(`SELECT ${ROLE_COLUMNS} FROM role WHERE id = ?`, [id]);
     return row ? rowToRole(row) : null;
   }
 
   async findByCode(code: string): Promise<Role | null> {
-    const row = this.db.select().from(role).where(eq(role.code, code)).get();
+    const row = await this.db.get<RoleRow>(`SELECT ${ROLE_COLUMNS} FROM role WHERE code = ?`, [code]);
     return row ? rowToRole(row) : null;
   }
 
   async list(): Promise<readonly Role[]> {
-    return this.db.select().from(role).all().map(rowToRole);
+    return (await this.db.all<RoleRow>(`SELECT ${ROLE_COLUMNS} FROM role`)).map(rowToRole);
   }
 
   async delete(id: string): Promise<void> {
-    this.db.delete(role).where(eq(role.id, id)).run();
+    await this.db.run(`DELETE FROM role WHERE id = ?`, [id]);
   }
 }
 
-function rowToRole(row: typeof role.$inferSelect): Role {
+function rowToRole(row: RoleRow): Role {
   return {
     id: row.id,
     code: row.code,
     name: row.name,
     description: row.description,
     permissions: JSON.parse(row.permissions) as string[],
-    isSystem: row.isSystem,
-    createdAt: row.createdAt,
+    isSystem: Number(row.is_system) === 1,
+    createdAt: row.created_at,
   };
 }
 
-class DrizzleUserRepository implements UserRepository {
-  constructor(private readonly db: Db) {}
+interface UserRow {
+  id: string;
+  name_ar: string;
+  name_en: string | null;
+  email: string;
+  phone: string | null;
+  password_hash: string;
+  pin_hash: string | null;
+  role_id: string | null;
+  is_company_admin: bigint;
+  employee_id: string | null;
+  branch_scope: string;
+  warehouse_scope: string;
+  status: string;
+  photo_url: string | null;
+  last_login_at: string | null;
+  created_at: string;
+  erased_at: string | null;
+  access_expires_at: string | null;
+}
+
+const USER_COLUMNS =
+  "id, name_ar, name_en, email, phone, password_hash, pin_hash, role_id, is_company_admin, employee_id, branch_scope, warehouse_scope, status, photo_url, last_login_at, created_at, erased_at, access_expires_at";
+
+class SqlUserRepository implements UserRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async save(u: User): Promise<void> {
-    this.db
-      .insert(user)
-      .values({
-        id: u.id,
-        nameAr: u.nameAr,
-        nameEn: u.nameEn,
-        email: u.email,
-        phone: u.phone,
-        passwordHash: u.passwordHash,
-        pinHash: u.pinHash,
-        roleId: u.roleId,
-        isCompanyAdmin: u.isCompanyAdmin,
-        employeeId: u.employeeId,
-        branchScope: scopeToJson(u.branchScope),
-        warehouseScope: scopeToJson(u.warehouseScope),
-        status: u.status,
-        photoUrl: u.photoUrl,
-        lastLoginAt: u.lastLoginAt,
-        createdAt: u.createdAt,
-        erasedAt: u.erasedAt ?? null,
-        accessExpiresAt: u.accessExpiresAt ?? null,
-      })
-      .onConflictDoUpdate({
-        target: user.id,
-        set: {
-          nameAr: u.nameAr,
-        nameEn: u.nameEn,
-          email: u.email,
-          phone: u.phone,
-          passwordHash: u.passwordHash,
-          pinHash: u.pinHash,
-          roleId: u.roleId,
-          isCompanyAdmin: u.isCompanyAdmin,
-          employeeId: u.employeeId,
-          branchScope: scopeToJson(u.branchScope),
-          warehouseScope: scopeToJson(u.warehouseScope),
-          status: u.status,
-          photoUrl: u.photoUrl,
-          lastLoginAt: u.lastLoginAt,
-          erasedAt: u.erasedAt ?? null,
-          accessExpiresAt: u.accessExpiresAt ?? null,
-        },
-      })
-      .run();
+    const params: SqlValue[] = [
+      u.id,
+      u.nameAr,
+      u.nameEn,
+      u.email,
+      u.phone,
+      u.passwordHash,
+      u.pinHash,
+      u.roleId,
+      u.isCompanyAdmin ? 1 : 0,
+      u.employeeId,
+      scopeToJson(u.branchScope),
+      scopeToJson(u.warehouseScope),
+      u.status,
+      u.photoUrl,
+      u.lastLoginAt,
+      u.createdAt,
+      u.erasedAt ?? null,
+      u.accessExpiresAt ?? null,
+    ];
+    await this.db.run(
+      `INSERT INTO "user" (${USER_COLUMNS})
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT (id) DO UPDATE SET
+         name_ar = excluded.name_ar,
+         name_en = excluded.name_en,
+         email = excluded.email,
+         phone = excluded.phone,
+         password_hash = excluded.password_hash,
+         pin_hash = excluded.pin_hash,
+         role_id = excluded.role_id,
+         is_company_admin = excluded.is_company_admin,
+         employee_id = excluded.employee_id,
+         branch_scope = excluded.branch_scope,
+         warehouse_scope = excluded.warehouse_scope,
+         status = excluded.status,
+         photo_url = excluded.photo_url,
+         last_login_at = excluded.last_login_at,
+         erased_at = excluded.erased_at,
+         access_expires_at = excluded.access_expires_at`,
+      params,
+    );
   }
 
   async findById(id: string): Promise<User | null> {
-    const row = this.db.select().from(user).where(eq(user.id, id)).get();
+    const row = await this.db.get<UserRow>(`SELECT ${USER_COLUMNS} FROM "user" WHERE id = ?`, [id]);
     return row ? rowToUser(row) : null;
   }
 
   async findByEmail(email: string): Promise<User | null> {
-    const row = this.db.select().from(user).where(eq(user.email, normalizeEmail(email))).get();
+    const row = await this.db.get<UserRow>(`SELECT ${USER_COLUMNS} FROM "user" WHERE email = ?`, [normalizeEmail(email)]);
     return row ? rowToUser(row) : null;
   }
 
   async list(): Promise<readonly User[]> {
-    return this.db.select().from(user).all().map(rowToUser);
+    return (await this.db.all<UserRow>(`SELECT ${USER_COLUMNS} FROM "user"`)).map(rowToUser);
   }
 }
 
-function rowToUser(row: typeof user.$inferSelect): User {
+function rowToUser(row: UserRow): User {
   return {
     id: row.id,
-    nameAr: row.nameAr,
-    nameEn: row.nameEn,
+    nameAr: row.name_ar,
+    nameEn: row.name_en,
     email: row.email,
     phone: row.phone,
-    passwordHash: row.passwordHash,
-    pinHash: row.pinHash,
-    roleId: row.roleId,
-    isCompanyAdmin: row.isCompanyAdmin,
-    employeeId: row.employeeId,
-    branchScope: scopeFromJson(row.branchScope),
-    warehouseScope: scopeFromJson(row.warehouseScope),
+    passwordHash: row.password_hash,
+    pinHash: row.pin_hash,
+    roleId: row.role_id,
+    isCompanyAdmin: Number(row.is_company_admin) === 1,
+    employeeId: row.employee_id,
+    branchScope: scopeFromJson(row.branch_scope),
+    warehouseScope: scopeFromJson(row.warehouse_scope),
     status: row.status as User["status"],
-    photoUrl: row.photoUrl,
-    lastLoginAt: row.lastLoginAt,
-    createdAt: row.createdAt,
-    erasedAt: row.erasedAt,
-    accessExpiresAt: row.accessExpiresAt,
+    photoUrl: row.photo_url,
+    lastLoginAt: row.last_login_at,
+    createdAt: row.created_at,
+    erasedAt: row.erased_at,
+    accessExpiresAt: row.access_expires_at,
   };
 }
 
-class DrizzleJournalRepository implements JournalRepository {
-  constructor(private readonly db: Db) {}
+class SqlJournalRepository implements JournalRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async save(entry: JournalEntry): Promise<void> {
-    this.db
-      .insert(journalEntry)
-      .values({
-        id: entry.id,
-        date: entry.date,
-        memo: entry.memo,
-        status: entry.status,
-      })
-      .run();
-
-    entry.lines.forEach((line, index) => {
-      this.db
-        .insert(journalLine)
-        .values({
-          entryId: entry.id,
-          lineNo: index,
-          accountId: line.accountId,
-          debit: line.debit.toScaledNumber(),
-          credit: line.credit.toScaledNumber(),
-        })
-        .run();
-    });
+    const inserted = await this.db.run(
+      `INSERT INTO uow_journal_entry (id, date, memo, status) VALUES (?, ?, ?, ?) ON CONFLICT (id) DO NOTHING`,
+      [entry.id, entry.date, entry.memo, entry.status],
+    );
+    refuseUnlessInserted(entry.id, inserted.changes);
+    for (const [index, line] of entry.lines.entries()) {
+      await this.db.run(
+        `INSERT INTO uow_journal_line (entry_id, line_no, account_id, debit, credit) VALUES (?, ?, ?, ?, ?)`,
+        [entry.id, index, line.accountId, line.debit.scaled, line.credit.scaled],
+      );
+    }
   }
 
   async findById(id: string): Promise<JournalEntry | null> {
-    const header = this.db
-      .select()
-      .from(journalEntry)
-      .where(eq(journalEntry.id, id))
-      .get();
+    const header = await this.db.get<{ id: string; date: string; memo: string; status: string }>(
+      `SELECT id, date, memo, status FROM uow_journal_entry WHERE id = ?`,
+      [id],
+    );
     if (!header) return null;
-
-    const lineRows = this.db
-      .select()
-      .from(journalLine)
-      .where(eq(journalLine.entryId, id))
-      .orderBy(asc(journalLine.lineNo))
-      .all();
-
+    const lineRows = await this.db.all<{ account_id: string; debit: bigint; credit: bigint }>(
+      `SELECT account_id, debit, credit FROM uow_journal_line WHERE entry_id = ? ORDER BY line_no`,
+      [id],
+    );
     return {
       id: header.id,
       date: header.date,
       memo: header.memo,
       status: header.status as "posted",
       lines: lineRows.map((row) => ({
-        accountId: row.accountId,
+        accountId: row.account_id,
         debit: Money.fromScaled(row.debit),
         credit: Money.fromScaled(row.credit),
       })),
@@ -331,27 +336,19 @@ class DrizzleJournalRepository implements JournalRepository {
   }
 }
 
-/**
- * SQLite-backed UnitOfWork. better-sqlite3 is fully synchronous, so a manual
- * BEGIN/COMMIT/ROLLBACK is exact even behind the async port: the writes inside
- * `fn` execute synchronously between BEGIN and COMMIT.
- */
-class SqliteUnitOfWork implements UnitOfWork {
+class SqlUnitOfWork implements UnitOfWork {
   readonly journal: JournalRepository;
   readonly roles: RoleRepository;
   readonly users: UserRepository;
 
-  constructor(
-    private readonly db: Db,
-    private readonly sqlite: Database.Database,
-  ) {
-    this.journal = new DrizzleJournalRepository(db);
-    this.roles = new DrizzleRoleRepository(db);
-    this.users = new DrizzleUserRepository(db);
+  constructor(private readonly db: SqlDb) {
+    this.journal = new SqlJournalRepository(db);
+    this.roles = new SqlRoleRepository(db);
+    this.users = new SqlUserRepository(db);
   }
 
   async transaction<T>(fn: (uow: UnitOfWork) => Promise<T>): Promise<T> {
-    return withSqliteTransaction(this.sqlite, () => fn(this));
+    return this.db.transaction(() => fn(this));
   }
 }
 
@@ -359,10 +356,15 @@ export interface SqliteUnitOfWorkHandle extends UnitOfWork {
   close(): void;
 }
 
-/**
- * Create a SQLite-backed UnitOfWork. Pass ":memory:" for tests, or a file path
- * for a real (WAL) database — the desktop-edition shape.
- */
+export async function ensureUnitOfWorkSchema(db: SqlDb): Promise<void> {
+  const ddl = db.dialect === SqlDialect.Postgres ? CREATE_TABLES.replace(/\buser\b(?=\s*\()/g, '"user"') : CREATE_TABLES;
+  await db.applySchema(ddl);
+}
+
+export function createUnitOfWork(db: SqlDb): UnitOfWork {
+  return new SqlUnitOfWork(db);
+}
+
 export function createSqliteUnitOfWork(
   path: SqliteConnectionInput = ":memory:",
 ): SqliteUnitOfWorkHandle {
@@ -370,11 +372,7 @@ export function createSqliteUnitOfWork(
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_TABLES);
   migrateUserLogin(sqlite);
-
-  const db = drizzle(sqlite, { schema });
-  const uow = new SqliteUnitOfWork(db, sqlite);
-
-  return Object.assign(uow, {
+  return Object.assign(createUnitOfWork(sqliteDb(sqlite)), {
     close: () => { if (owned) sqlite.close(); },
   }) as SqliteUnitOfWorkHandle;
 }

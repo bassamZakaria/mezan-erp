@@ -1,15 +1,8 @@
-import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 import type { Account, AccountRepository, AccountStatus, AccountType, NaturalBalance } from "@mezan/domain";
-import { insertingNew, prepareInsertOnly } from "./insert-new.js";
-
-/**
- * SQLite-backed AccountRepository (docs/archive/catalog/04 "دليل الحسابات"). Standalone,
- * like {@link import("./sequence-store.js").createSqliteSequenceStore} — the
- * Chart of Accounts isn't part of the journal-posting UnitOfWork yet (movements
- * wiring is Phase 2), so it owns its own connection/table rather than folding
- * into `createSqliteUnitOfWork`.
- */
+import { insertNew } from "./insert-new.js";
+import type { SqlDb, SqlValue } from "./sql/sql-db.js";
+import { sqliteDb } from "./sql/sqlite-db.js";
 
 const CREATE_TABLE = `
 CREATE TABLE IF NOT EXISTS account (
@@ -26,6 +19,19 @@ CREATE TABLE IF NOT EXISTS account (
 CREATE INDEX IF NOT EXISTS idx_account_parent ON account(parent_id);
 `;
 
+const UPSERT = `
+  INSERT INTO account (id, code, name_ar, name_en, type, natural_balance, parent_id, is_header, status)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  ON CONFLICT(id) DO UPDATE SET
+    code = excluded.code,
+    name_ar = excluded.name_ar,
+    name_en = excluded.name_en,
+    type = excluded.type,
+    natural_balance = excluded.natural_balance,
+    parent_id = excluded.parent_id,
+    is_header = excluded.is_header,
+    status = excluded.status`;
+
 interface AccountRow {
   id: string;
   code: string;
@@ -34,7 +40,7 @@ interface AccountRow {
   type: string;
   natural_balance: string;
   parent_id: string | null;
-  is_header: number;
+  is_header: bigint;
   status: string;
 }
 
@@ -47,73 +53,48 @@ function toAccount(row: AccountRow): Account {
     type: row.type as AccountType,
     naturalBalance: row.natural_balance as NaturalBalance,
     parentId: row.parent_id,
-    isHeader: row.is_header === 1,
+    isHeader: Number(row.is_header) === 1,
     status: row.status as AccountStatus,
   };
 }
 
-class SqliteAccountRepository implements AccountRepository {
-  private readonly upsert: Database.Statement;
-  private readonly insertOnly: Database.Statement;
-  private readonly selectById: Database.Statement;
-  private readonly selectByCode: Database.Statement;
-  private readonly selectAll: Database.Statement;
+function params(account: Account): SqlValue[] {
+  return [
+    account.id,
+    account.code,
+    account.nameAr,
+    account.nameEn,
+    account.type,
+    account.naturalBalance,
+    account.parentId,
+    account.isHeader ? 1 : 0,
+    account.status,
+  ];
+}
 
-  constructor(private readonly sqlite: Database.Database) {
-    this.upsert = sqlite.prepare(`
-      INSERT INTO account (id, code, name_ar, name_en, type, natural_balance, parent_id, is_header, status)
-      VALUES (@id, @code, @name_ar, @name_en, @type, @natural_balance, @parent_id, @is_header, @status)
-      ON CONFLICT(id) DO UPDATE SET
-        code = excluded.code,
-        name_ar = excluded.name_ar,
-        name_en = excluded.name_en,
-        type = excluded.type,
-        natural_balance = excluded.natural_balance,
-        parent_id = excluded.parent_id,
-        is_header = excluded.is_header,
-        status = excluded.status
-    `);
-    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
-    this.selectById = sqlite.prepare(`SELECT * FROM account WHERE id = ?`);
-    this.selectByCode = sqlite.prepare(`SELECT * FROM account WHERE code = ?`);
-    this.selectAll = sqlite.prepare(`SELECT * FROM account`);
-  }
+class SqlAccountRepository implements AccountRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async findById(id: string): Promise<Account | null> {
-    const row = this.selectById.get(id) as AccountRow | undefined;
+    const row = await this.db.get<AccountRow>(`SELECT * FROM account WHERE id = ?`, [id]);
     return row ? toAccount(row) : null;
   }
 
   async findByCode(code: string): Promise<Account | null> {
-    const row = this.selectByCode.get(code) as AccountRow | undefined;
+    const row = await this.db.get<AccountRow>(`SELECT * FROM account WHERE code = ?`, [code]);
     return row ? toAccount(row) : null;
   }
 
   async list(): Promise<Account[]> {
-    const rows = this.selectAll.all() as AccountRow[];
-    return rows.map(toAccount);
+    return (await this.db.all<AccountRow>(`SELECT * FROM account`)).map(toAccount);
   }
 
   async create(account: Account): Promise<void> {
-    insertingNew(account.id, () => this.write(account, this.insertOnly));
+    await insertNew(this.db, account.id, UPSERT, params(account));
   }
 
   async update(account: Account): Promise<void> {
-    this.write(account);
-  }
-
-  private write(account: Account, statement: Database.Statement = this.upsert): void {
-    statement.run({
-      id: account.id,
-      code: account.code,
-      name_ar: account.nameAr,
-      name_en: account.nameEn,
-      type: account.type,
-      natural_balance: account.naturalBalance,
-      parent_id: account.parentId,
-      is_header: account.isHeader ? 1 : 0,
-      status: account.status,
-    });
+    await this.db.run(UPSERT, params(account));
   }
 }
 
@@ -121,13 +102,19 @@ export interface SqliteAccountRepositoryHandle extends AccountRepository {
   close(): void;
 }
 
-/** Open a SQLite-backed AccountRepository. ":memory:" for tests, a path for real. */
+export async function ensureAccountSchema(db: SqlDb): Promise<void> {
+  await db.applySchema(CREATE_TABLE);
+}
+
+export function createAccountRepository(db: SqlDb): AccountRepository {
+  return new SqlAccountRepository(db);
+}
+
 export function createSqliteAccountRepository(path: SqliteConnectionInput = ":memory:"): SqliteAccountRepositoryHandle {
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_TABLE);
-  const repo = new SqliteAccountRepository(sqlite);
-  return Object.assign(repo, {
+  return Object.assign(createAccountRepository(sqliteDb(sqlite)), {
     close: () => { if (owned) sqlite.close(); },
   }) as SqliteAccountRepositoryHandle;
 }

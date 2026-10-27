@@ -2,6 +2,7 @@ export {
   createSqliteUnitOfWork,
   type SqliteUnitOfWorkHandle,
 } from "./unit-of-work.js";
+export { createUnitOfWork, ensureUnitOfWorkSchema } from "./unit-of-work.js";
 export {
   CURRENT_SCHEMA_VERSION,
   declaredAddableColumns,
@@ -55,10 +56,12 @@ export {
   type SequenceCounterRow,
   type SqliteSequenceStoreHandle,
 } from "./sequence-store.js";
+export { createSequenceStore, ensureSequenceSchema, type SequenceStoreHandle } from "./sequence-store.js";
 export {
   createSqliteSequenceConfigStore,
   type SqliteSequenceConfigStoreHandle,
 } from "./sequence-config-store.js";
+export { createSequenceConfigStore, ensureSequenceConfigSchema, type SequenceConfigStoreHandle } from "./sequence-config-store.js";
 export {
   createSqliteAuditSink,
   deriveAuditChainKey,
@@ -77,6 +80,7 @@ export {
   createSqliteAccountRepository,
   type SqliteAccountRepositoryHandle,
 } from "./account-repository.js";
+export { createAccountRepository, ensureAccountSchema } from "./account-repository.js";
 export {
   createSqliteSettingsStore,
   type SqliteSettingsStoreHandle,
@@ -123,19 +127,24 @@ export {
   createSqliteTaxRateRepository,
   type SqliteTaxRateRepositoryHandle,
 } from "./tax-rate-repository.js";
+export { createTaxRateRepository, ensureTaxRateSchema } from "./tax-rate-repository.js";
 export { createSqliteTaxRateUsage } from "./tax-rate-usage.js";
+export { createTaxRateUsage } from "./tax-rate-usage.js";
 export {
   createSqliteCostCenterRepository,
   type SqliteCostCenterRepositoryHandle,
 } from "./cost-center-repository.js";
+export { createCostCenterRepository, ensureCostCenterSchema } from "./cost-center-repository.js";
 export {
   createSqliteTreasuryAccountRepository,
   type SqliteTreasuryAccountRepositoryHandle,
 } from "./treasury-account-repository.js";
+export { createTreasuryAccountRepository, ensureTreasuryAccountSchema } from "./treasury-account-repository.js";
 export {
   createSqliteFiscalPeriodRepository,
   type SqliteFiscalPeriodRepositoryHandle,
 } from "./fiscal-period-repository.js";
+export { createFiscalPeriodRepository, ensureFiscalPeriodSchema } from "./fiscal-period-repository.js";
 export {
   createSqliteStockLedgerStore,
   type SqliteStockLedgerHandle,
@@ -164,6 +173,7 @@ export {
   createSqliteVoucherStore,
   type SqliteVoucherStoreHandle,
 } from "./voucher-store.js";
+export { createVoucherStore, ensureVoucherSchema, type VoucherStoreHandle } from "./voucher-store.js";
 export {
   createSqlitePurchaseOrderStore,
   createSqliteGoodsReceiptStore,
@@ -184,6 +194,7 @@ export {
   createSqliteHistoricalPurchaseArchiveStore,
   type SqliteHistoricalPurchaseArchiveStoreHandle,
 } from "./historical-import-store.js";
+export { createHistoricalPurchaseArchiveStore, ensureHistoricalPurchaseArchiveSchema } from "./historical-import-store.js";
 export {
   createDataMigrationTransactor,
   type DataMigrationTransactor,
@@ -227,6 +238,7 @@ export {
   createSqliteExchangeRateRepository,
   type SqliteExchangeRateRepositoryHandle,
 } from "./exchange-rate-repository.js";
+export { createExchangeRateRepository, ensureExchangeRateSchema } from "./exchange-rate-repository.js";
 export {
   createSqliteWorkflowConfigStore,
   type SqliteWorkflowConfigStoreHandle,
@@ -241,10 +253,12 @@ export {
   type EtaConfigStore,
 } from "./eta-store.js";
 export { createSqliteChequeRepository, type SqliteChequeRepositoryHandle } from "./cheque-repository.js";
+export { createChequeRepository, ensureChequeSchema } from "./cheque-repository.js";
 export {
   createSqliteBankReconciliationStore,
   type SqliteBankReconciliationStoreHandle,
 } from "./bank-reconciliation-repository.js";
+export { createBankReconciliationStore, ensureBankReconciliationSchema, type BankReconciliationStoreHandle } from "./bank-reconciliation-repository.js";
 
 // --- phase11/crm-projects-assets-field ---
 export {
@@ -260,6 +274,7 @@ export {
   type SqliteActivityRepositoryHandle,
 } from "./crm-store.js";
 export { createSqliteProjectRepository, type SqliteProjectRepositoryHandle } from "./project-repository.js";
+export { createProjectRepository, ensureProjectSchema } from "./project-repository.js";
 export { createSqliteGuaranteeStore, type SqliteGuaranteeStoreHandle } from "./contracting-guarantees-store.js";
 export {
   createSqliteContractingControlsStore,
@@ -350,6 +365,7 @@ export {
   createSqliteWritedownRunRepository,
   type SqliteWritedownRunRepositoryHandle,
 } from "./writedown-run-store.js";
+export { createWritedownRunRepository, ensureWritedownRunSchema } from "./writedown-run-store.js";
 export {
   createSqliteProductTemplateStore,
   type SqliteProductTemplateStoreHandle,
@@ -387,10 +403,13 @@ export {
 } from "./hr-time-leave-store.js";
 
 export { createSqliteAccountRoutingStore } from "./account-routing-store.js";
+export { createAccountRoutingStore, ensureAccountRoutingSchema } from "./account-routing-store.js";
 
 export { createSqliteTaxGroupStore } from "./tax-group-store.js";
+export { createTaxGroupStore, ensureTaxGroupSchema } from "./tax-group-store.js";
 
 export { createSqliteVatFilingStore } from "./vat-filing-store.js";
+export { createVatFilingStore, ensureVatFilingSchema } from "./vat-filing-store.js";
 
 export {
   createSqliteAttachmentRepository,
@@ -410,6 +429,7 @@ export {
   readSimplifiedRegime,
   type SqliteSimplifiedRegimeStoreHandle,
 } from "./simplified-regime-store.js";
+export { createSimplifiedRegimeStore, ensureSimplifiedRegimeSchema } from "./simplified-regime-store.js";
 
 export {
   addVersionColumns,
@@ -434,6 +454,7 @@ export { createSqliteAccountLockStore, type SqliteAccountLockStore, type StoredA
 export { drainForeignWrites, drainUntransactedAudits, keepRecent } from "./untransacted-audits.js";
 export { createFileSecurityEventFallback, securityFallbackFor, type FileSecurityEventFallbackOptions } from "./security-fallback-file.js";
 export { createSqliteUpgradeLedger, UpgradeStepId, type UpgradeLedger } from "./upgrade-ledger.js";
+export { createUpgradeLedger, ensureUpgradeLedgerSchema } from "./upgrade-ledger.js";
 export { markApprovalsNeedingReapproval } from "./approval-request-store.js";
 export { createSqliteOwnerPinFence, type OwnerPinFence } from "./owner-pin-fence.js";
 export { createSqliteCredentialResetMarks, type CredentialResetMarks } from "./credential-reset-marks.js";

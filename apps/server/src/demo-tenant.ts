@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { schemaKey, SchemaKeyPurpose } from "@mezan/persistence-postgres";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { createTenant, activateTenant, startModuleTrial, startSubscription, tenantSchema } from "@mezan/domain";
@@ -122,7 +123,11 @@ export async function provisionSeededTenant(deps: ProvisionDemoTenantDeps, spec:
   if (postgres) {
     const schema = tenantSchema(activated.id);
     await postgres.databases.provision(schema);
-    storage = { db: postgres.databases.get(schema).db, auditChainKey: postgres.auditChainKey, evidenceKey: postgres.databases.evidenceKey(schema) };
+    storage = {
+      db: postgres.databases.get(schema).db,
+      auditChainKey: schemaKey(postgres.auditChainKey, SchemaKeyPurpose.Audit, schema),
+      evidenceKey: schemaKey(postgres.auditChainKey, SchemaKeyPurpose.Evidence, schema),
+    };
   } else {
     const dbPath = tenantDbPath(deps.env.platformDir, activated.dbFile);
     mkdirSync(path.dirname(dbPath), { recursive: true });

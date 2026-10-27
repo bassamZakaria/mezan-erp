@@ -19,7 +19,7 @@ import {
 } from "@mezan/persistence";
 import type { CompanyOwnerPort, UserEmailChange } from "@mezan/api";
 import { REFUSED_TENANT_BOOKS, TenantBooksStanding, TenantResolveMode, type PlatformResolveDTO, type TenantBooksDTO } from "@mezan/contracts";
-import type { TenantDatabases } from "@mezan/persistence-postgres";
+import { schemaKey, SchemaKeyPurpose, type TenantDatabases } from "@mezan/persistence-postgres";
 import { TenantBooksReview, tenantDbFile, tenantHandedTo, tenantSchema, tenantIsServed, TenantStatusCode, tenantWithBooksReview, tenantWithOwnerRecordDue, type Tenant } from "@mezan/domain";
 import { createBackendCache, type BackendCache } from "./backend-cache.js";
 import { callerSource, originEnv, requireCloudSource, SOCKET_ONLY, type ClientSourceOptions, type CloudSource, type SourceReporter } from "./client-source.js";
@@ -296,8 +296,8 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
     const backend = await createBackend({
       ...backendOptions(code, resolversFor(code), hooksFor(tenantId, code), mail, { tenantId, provisioning, bind: true }),
       db: entry.db,
-      auditChainKey: pgOptions.auditChainKey,
-      evidenceKey: pgOptions.databases.evidenceKey(schema),
+      auditChainKey: schemaKey(pgOptions.auditChainKey, SchemaKeyPurpose.Audit, schema),
+      evidenceKey: schemaKey(pgOptions.auditChainKey, SchemaKeyPurpose.Evidence, schema),
     });
     return {
       ...backend,

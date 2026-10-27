@@ -14,4 +14,4 @@ export {
   type TenantPoolOptions,
 } from "./postgres-db.js";
 export { translateDdl, UntranslatableDdlError } from "./translate-ddl.js";
-export { InvalidTenantDbSecretError, PlatformSchemaDropRefusedError, TenantDatabases, type SchemaDatabase, type TenantDatabasesOptions } from "./tenant-databases.js";
+export { InvalidTenantDbSecretError, PlatformSchemaDropRefusedError, schemaKey, SchemaKeyPurpose, TenantDatabases, type SchemaDatabase, type TenantDatabasesOptions } from "./tenant-databases.js";

@@ -17,6 +17,16 @@ export class InvalidTenantDbSecretError extends Error {
   }
 }
 
+export enum SchemaKeyPurpose {
+  Audit = "audit",
+  Evidence = "evidence",
+}
+
+// CONTRACT: every audit chain and evidence pack of a schema is keyed on this; changing the master key or the derivation makes them all read as altered.
+export function schemaKey(masterKey: string, purpose: SchemaKeyPurpose, schema: string): string {
+  return createHmac("sha256", masterKey).update(`mezan-schema-key:${purpose}:${assertSchemaName(schema)}`).digest("hex");
+}
+
 export interface TenantDatabasesOptions {
   readonly connectionString: string;
   readonly secret: string;
@@ -30,8 +40,6 @@ export interface SchemaDatabase {
   readonly db: SqlDb;
 }
 
-// The cloud's one door to Postgres: an owner pool used only to provision, and
-// one pool per schema that connects as that schema's own role.
 export class TenantDatabases {
   private readonly admin: pg.Pool;
   private readonly open = new Map<string, SchemaDatabase>();
@@ -50,9 +58,13 @@ export class TenantDatabases {
     await provisionTenantSchema(this.admin, schema, deriveRolePassword(this.options.secret, schema));
   }
 
-  // CONTRACT: derived from MEZAN_TENANT_DB_SECRET; rotating the secret invalidates every evidence pack already signed.
-  evidenceKey(schema: string): string {
-    return createHmac("sha256", this.options.secret).update(`mezan-tenant-evidence:${assertSchemaName(schema)}`).digest("hex");
+  // Re-sets each existing schema's role (its password follows the current secret) and
+  // returns the schemas that do not exist, which must never be recreated empty here.
+  async reprovisionExisting(schemas: readonly string[]): Promise<string[]> {
+    const { rows } = await this.admin.query<{ nspname: string }>("SELECT nspname FROM pg_namespace WHERE nspname = ANY($1::text[])", [schemas.map(assertSchemaName)]);
+    const present = new Set(rows.map((row) => row.nspname));
+    for (const schema of schemas) if (present.has(schema)) await this.provision(schema);
+    return schemas.filter((schema) => !present.has(schema));
   }
 
   get(schema: string): SchemaDatabase {

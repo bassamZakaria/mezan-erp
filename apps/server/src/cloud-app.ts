@@ -16,9 +16,9 @@ import {
   type RecordedActivation,
 } from "@mezan/backend";
 import { BodyLimitRefusal, LogEvent, createJobRegistry, createLogger, createSessionRegistry, requestLogging, type JobRegistry } from "@mezan/api";
-import { HealthLevel, SubscriptionStatusKind, TenantNotFoundError, jobLevel, tenantSchema, type Tenant } from "@mezan/domain";
+import { HealthLevel, SubscriptionStatusKind, TenantNotFoundError, TenantStatusCode, jobLevel, tenantSchema, type Tenant } from "@mezan/domain";
 import { createAesGcmSecretBox, createSessionStore, CURRENT_SCHEMA_VERSION, emptyBooksScratch, type SqlDb } from "@mezan/persistence";
-import { PLATFORM_SCHEMA, TenantDatabases } from "@mezan/persistence-postgres";
+import { PLATFORM_SCHEMA, schemaKey, SchemaKeyPurpose, TenantDatabases } from "@mezan/persistence-postgres";
 import { HealthLevelDTO, PUBLIC_API_BASE_PATH, type CreateTenantRequestDTO, type OwnerPinResetResultDTO, type PlatformOperationsDTO, type ProvisionResultDTO, type ProvisionRetryRequestDTO } from "@mezan/contracts";
 import { booksScratchDir, createTenantRouter, requireOriginSecret, type TenantBooksScan, type TenantRouter } from "./tenant-router.js";
 import { answerTenantDbFileRefusal } from "./tenant-db-file.js";
@@ -207,8 +207,17 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
   if (env.postgres && tenantDatabases) {
     await tenantDatabases.assertCollation();
     await tenantDatabases.provision(PLATFORM_SCHEMA);
-    platform = await createPlatform({ db: tenantDatabases.get(PLATFORM_SCHEMA).db, auditChainKey: env.postgres.auditChainKey, fallbackBase: platformDbPath, now, owner });
-    log.info(
+    platform = await createPlatform({
+      db: tenantDatabases.get(PLATFORM_SCHEMA).db,
+      auditChainKey: schemaKey(env.postgres.auditChainKey, SchemaKeyPurpose.Audit, PLATFORM_SCHEMA),
+      fallbackBase: platformDbPath,
+      now,
+      owner,
+    });
+    const served = (await platform.stores.tenants.list()).filter((tenant) => tenant.status !== TenantStatusCode.Archived && tenant.status !== TenantStatusCode.Provisioning);
+    const missing = await tenantDatabases.reprovisionExisting(served.map((tenant) => tenantSchema(tenant.id)));
+    if (missing.length > 0) log.error({ event: LogEvent.ConfigurationWarning, missing }, `${missing.length} served companies have no Postgres schema; their books cannot open until it is restored`);
+    log.warn(
       { event: LogEvent.ConfigurationWarning },
       "the books are on Postgres: the file backup scheduler and the audit-anchor job are off (deploy takes pg_dump; anchoring needs the SQLite audit turn)",
     );

@@ -227,7 +227,8 @@ touch $d/data/recovery.signal && chown -R 999:999 $d/data
 docker run -d --name mezan-pitr-drill --network none -v $d/data:/var/lib/postgresql/data \
   -v /srv/mezan/data/backups/pg-wal:/wal-archive:ro postgres:17.6 -c archive_mode=off
 docker logs -f mezan-pitr-drill     # wait for "archive recovery complete" / "ready to accept connections"
-docker exec mezan-pitr-drill psql -U mezan_owner -d mezan -Atc "SELECT count(*) FROM platform.tenant; SELECT max(updated_at) FROM platform.tenant"
+docker exec mezan-pitr-drill psql -U mezan_owner -d mezan -At -c "SELECT count(*) FROM platform.tenant" -c "SELECT max(updated_at) FROM platform.tenant"
+docker exec mezan-postgres psql -U mezan_owner -d mezan -At -c "SELECT count(*) FROM platform.tenant"   # the live count
 docker rm -f mezan-pitr-drill && rm -rf $d
 ```
 

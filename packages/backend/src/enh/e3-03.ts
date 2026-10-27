@@ -6,6 +6,9 @@ import {
   createSqliteReorderStore,
   createSqlitePurchaseOrderStore,
   type LowStockAlert,
+  createInventoryOpsStore,
+  createPurchaseOrderStore,
+  createReorderStore,
 } from "@mezan/persistence";
 import type { BackendArea, BackendModuleContext } from "../module-context.js";
 import { createLogger } from "@mezan/api";
@@ -17,7 +20,7 @@ const LOW_STOCK_LINK = "/inventory/reorder";
 const FLUSH_INTERVAL_MS = 1_000;
 
 function reservationSource(ctx: BackendModuleContext): StockReservationSource {
-  const inventoryOps = createSqliteInventoryOpsStore(ctx.sqlite);
+  const inventoryOps = ctx.store((s) => createSqliteInventoryOpsStore(s), (d) => createInventoryOpsStore(d));
   return {
     // INVARIANT: mirrors the reservations `createBackend` hands the inventory routes — draft sales invoices and draft transfers (source warehouse only). Change one, change both.
     async list() {
@@ -57,8 +60,8 @@ function alertPayload(alert: LowStockAlert): Record<string, unknown> {
 
 export const area: BackendArea = {
   mount(ctx) {
-    const store = createSqliteReorderStore(ctx.sqlite);
-    const orders = createSqlitePurchaseOrderStore(ctx.sqlite);
+    const store = ctx.store((s) => createSqliteReorderStore(s), (d) => createReorderStore(d));
+    const orders = ctx.store((s) => createSqlitePurchaseOrderStore(s), (d) => createPurchaseOrderStore(d));
 
     ctx.app.route(
       "/reorder",

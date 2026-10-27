@@ -40,6 +40,13 @@ import {
   createSqlitePeriodCloseStore,
   createSqliteRecurringJournalTemplateRepository,
   type PeriodCloseFxLineGroup,
+  type PeriodCloseStoreHandle,
+  type SqlDb,
+  createPeriodCloseStore,
+  createAssetRepository,
+  createContractRepository,
+  createDepreciationRunRepository,
+  createRecurringJournalTemplateRepository,
 } from "@mezan/persistence";
 import type { BackendArea, BackendModuleContext } from "../module-context.js";
 import { stockLedgerDateMismatches, type DatedJournalEntry, type DatedStockMovement, type StockLedgerDateMismatch } from "@mezan/domain";
@@ -115,18 +122,18 @@ function depreciationBranch(asset: Asset): string | null {
   return asset.scope === AssetScope.Branch ? asset.branchId : null;
 }
 
-export function readStockLedgerDateMismatches(sqlite: BackendModuleContext["sqlite"]): StockLedgerDateMismatch[] {
-  const movements = sqlite.prepare(`SELECT source_doc_type AS sourceDocType, source_doc_id AS sourceDocId, source_doc_number AS sourceDocNumber, occurred_at AS occurredAt FROM stock_movement`).all() as DatedStockMovement[];
-  const entries = sqlite.prepare(`SELECT id, date, source_doc_id AS sourceDocId, reverses_entry_id AS reversesEntryId FROM journal_entry WHERE status IN ('posted', 'reversed')`).all() as DatedJournalEntry[];
+export async function readStockLedgerDateMismatches(db: SqlDb): Promise<StockLedgerDateMismatch[]> {
+  const movements = await db.all<DatedStockMovement>(`SELECT source_doc_type AS "sourceDocType", source_doc_id AS "sourceDocId", source_doc_number AS "sourceDocNumber", occurred_at AS "occurredAt" FROM stock_movement`);
+  const entries = await db.all<DatedJournalEntry>(`SELECT id, date, source_doc_id AS "sourceDocId", reverses_entry_id AS "reversesEntryId" FROM journal_entry WHERE status IN ('posted', 'reversed')`);
   return stockLedgerDateMismatches(movements, entries);
 }
 
-function buildSources(ctx: BackendModuleContext, store: ReturnType<typeof createSqlitePeriodCloseStore>, closers: { close(): void }[]): PeriodCloseSources {
-  const { sqlite, stores } = ctx;
-  const templates = createSqliteRecurringJournalTemplateRepository(sqlite);
-  const assets = createSqliteAssetRepository(sqlite);
-  const depreciationRuns = createSqliteDepreciationRunRepository(sqlite);
-  const contracts = createSqliteContractRepository(sqlite);
+function buildSources(ctx: BackendModuleContext, store: PeriodCloseStoreHandle, closers: object[]): PeriodCloseSources {
+  const { stores } = ctx;
+  const templates = ctx.store((s) => createSqliteRecurringJournalTemplateRepository(s), (d) => createRecurringJournalTemplateRepository(d));
+  const assets = ctx.store((s) => createSqliteAssetRepository(s), (d) => createAssetRepository(d));
+  const depreciationRuns = ctx.store((s) => createSqliteDepreciationRunRepository(s), (d) => createDepreciationRunRepository(d));
+  const contracts = ctx.store((s) => createSqliteContractRepository(s), (d) => createContractRepository(d));
   closers.push(templates, assets, depreciationRuns, contracts);
   const { queries, fxRuns } = store;
   const accountBalances = ledgerBalances(stores.ledger);
@@ -217,7 +224,7 @@ function buildSources(ctx: BackendModuleContext, store: ReturnType<typeof create
     foreignResidues,
     async stockLedgerDates(window) {
       const within = (day: string) => day >= window.startDate && day <= window.endDate;
-      return readStockLedgerDateMismatches(sqlite).filter((row) => within(row.movedOn) || row.postedOn.some(within));
+      return (await readStockLedgerDateMismatches(ctx.db)).filter((row) => within(row.movedOn) || row.postedOn.some(within));
     },
     fxRevaluedCurrencies: async (window) => fxRuns.currenciesRevaluedAsOf(window.endDate),
 
@@ -278,8 +285,10 @@ function buildSources(ctx: BackendModuleContext, store: ReturnType<typeof create
 
 export const area: BackendArea = {
   mount(ctx: BackendModuleContext) {
-    const closers: { close(): void }[] = [];
-    const store = createSqlitePeriodCloseStore(ctx.sqlite);
+    const closers: object[] = [];
+    const sqliteStore = ctx.sqlite ? createSqlitePeriodCloseStore(ctx.sqlite) : null;
+    const store: PeriodCloseStoreHandle = sqliteStore ?? createPeriodCloseStore(ctx.db);
+    const critical = sqliteStore?.critical ?? null;
     closers.push(store);
     const sources = buildSources(ctx, store, closers);
     const accountBalances = ledgerBalances(ctx.stores.ledger);
@@ -333,8 +342,9 @@ export const area: BackendArea = {
         const audited = new Set(await store.queries.auditedSeals(periodId));
         return (await store.summaries.list({ periodId })).map((summary) => ({ summary, sealValid: verifyPeriodCloseSeal(summary, audited) }));
       },
-      changeToken: store.critical.changeToken,
-      commit: appendAudit ? (request) => store.critical.commit({ ...request, appendAudit }) : null,
+      changeToken: critical ? critical.changeToken : () => 0,
+      // SECURITY: no critical section on Postgres yet, so commit stays null and the guard refuses every close and lock (PeriodCloseUnauditableError, bilingual) rather than half-closing.
+      commit: critical && appendAudit ? (request) => critical.commit({ ...request, appendAudit }) : null,
     });
 
     ctx.periodCloseGuard.register(guard);

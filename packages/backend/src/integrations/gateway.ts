@@ -16,7 +16,7 @@ import {
   type ScopeSelection,
   type UnitOfWork,
 } from "@mezan/domain";
-import type { IdempotentRequestStore, SqliteIntegrationStore } from "@mezan/persistence";
+import type { IdempotentRequestStore, IntegrationStore } from "@mezan/persistence";
 
 export interface ApiKeyAuthentication {
   readonly keyId: string;
@@ -84,7 +84,7 @@ const API_WRITE_ACTION = "integrations.api.write";
 
 export interface IntegrationsGatewayDeps {
   readonly tenantCode: string;
-  readonly store: SqliteIntegrationStore;
+  readonly store: IntegrationStore;
   readonly idempotency: IdempotentRequestStore;
   readonly uow: UnitOfWork;
   readonly audit: AuditSink;

@@ -257,11 +257,11 @@ export async function runBackups(options: RunBackupsOptions): Promise<BackupRun>
     if (!tenant || tenant.status === TenantStatusCode.Archived) continue;
     try {
       const backend = await options.router.backendOf(tenant.id);
+      const backupTo = backend.backupTo?.bind(backend);
+      if (!backupTo) continue;
       const folder = tenantBackupFolder(options.dir, tenant.id);
       adoptLegacyBackups(options.dir, tenant);
-      const backupTo = backend.backupTo;
-      if (backupTo === undefined) continue;
-      await verify(await writeOneBackup((destination) => backupTo(destination), folder, stamp));
+      await verify(await writeOneBackup(backupTo, folder, stamp));
       pruneOldBackups(folder, keep);
     } catch (err) {
       const refusal = tenantDbFileRefusalOf(err);

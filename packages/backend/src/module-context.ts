@@ -5,66 +5,69 @@ import type { ScheduledJobStatus } from "./scheduled-jobs.js";
 import type { IntegrationsGateway } from "./integrations/gateway.js";
 import type { WebhookTransport } from "./integrations/webhook-transport.js";
 import type { ApprovalRequestRepository, AuditChainHeadReason, AuditQueryPort, AuditSink, DrainResult, EventBus, InventoryDomainEvent, PayrollBindings, UnitOfWork } from "@mezan/domain";
+import type { SqlDb } from "@mezan/persistence";
 import type {
   createScryptHasher,
-  createSqliteAccountRepository,
-  createSqliteBranchStore,
-  createSqliteCostCenterRepository,
-  createSqliteCollectionsStore,
-  createSqliteCustomerRepository,
-  createSqliteEmployeeRepository,
-  createSqliteEtaStore,
-  createSqliteFiscalPeriodRepository,
-  createSqliteItemStore,
-  createSqliteLedgerStore,
-  createSqlitePriceListStore,
-  createSqlitePromotionStore,
-  createSqliteSalesInvoiceStore,
-  createSqliteSequenceConfigStore,
-  createSqliteSequenceStore,
-  createSqliteSettingsStore,
-  createSqliteStockLedgerStore,
-  createSqliteSupplierRepository,
-  createSqliteTaxRateRepository,
-  createSqliteTreasuryAccountRepository,
-  createSqliteVoucherStore,
-  createSqliteWarehouseStore,
+  createAccountRepository,
+  createBranchStore,
+  createCostCenterRepository,
+  createCollectionsStore,
+  createCustomerRepository,
+  createEmployeeRepository,
+  createEtaStore,
+  createFiscalPeriodRepository,
+  createItemStore,
+  createLedgerStore,
+  createPriceListStore,
+  createPromotionStore,
+  createSalesInvoiceStore,
+  createSequenceConfigStore,
+  createSequenceStore,
+  createSettingsStore,
+  createStockLedgerStore,
+  createSupplierRepository,
+  createTaxRateRepository,
+  createTreasuryAccountRepository,
+  createVoucherStore,
+  createWarehouseStore,
   SecretBox,
 } from "@mezan/persistence";
 
 export interface BackendStores {
-  readonly settings: ReturnType<typeof createSqliteSettingsStore>;
-  readonly branches: ReturnType<typeof createSqliteBranchStore>;
-  readonly warehouses: ReturnType<typeof createSqliteWarehouseStore>;
-  readonly accounts: ReturnType<typeof createSqliteAccountRepository>;
-  readonly customers: ReturnType<typeof createSqliteCustomerRepository>;
-  readonly suppliers: ReturnType<typeof createSqliteSupplierRepository>;
-  readonly items: ReturnType<typeof createSqliteItemStore>;
-  readonly taxRates: ReturnType<typeof createSqliteTaxRateRepository>;
-  readonly costCenters: ReturnType<typeof createSqliteCostCenterRepository>;
-  readonly treasuryAccounts: ReturnType<typeof createSqliteTreasuryAccountRepository>;
-  readonly fiscalPeriods: ReturnType<typeof createSqliteFiscalPeriodRepository>;
-  readonly ledger: ReturnType<typeof createSqliteLedgerStore>;
-  readonly stockLedger: ReturnType<typeof createSqliteStockLedgerStore>;
-  readonly salesInvoices: ReturnType<typeof createSqliteSalesInvoiceStore>;
-  readonly vouchers: ReturnType<typeof createSqliteVoucherStore>;
-  readonly priceLists: ReturnType<typeof createSqlitePriceListStore>;
-  readonly promotions: ReturnType<typeof createSqlitePromotionStore>;
-  readonly eta: ReturnType<typeof createSqliteEtaStore>;
-  readonly employees: ReturnType<typeof createSqliteEmployeeRepository>;
-  readonly sequenceConfig: ReturnType<typeof createSqliteSequenceConfigStore>;
-  readonly sequenceCounters: ReturnType<typeof createSqliteSequenceStore>;
+  readonly settings: Awaited<ReturnType<typeof createSettingsStore>>;
+  readonly branches: ReturnType<typeof createBranchStore>;
+  readonly warehouses: ReturnType<typeof createWarehouseStore>;
+  readonly accounts: ReturnType<typeof createAccountRepository>;
+  readonly customers: ReturnType<typeof createCustomerRepository>;
+  readonly suppliers: ReturnType<typeof createSupplierRepository>;
+  readonly items: ReturnType<typeof createItemStore>;
+  readonly taxRates: ReturnType<typeof createTaxRateRepository>;
+  readonly costCenters: ReturnType<typeof createCostCenterRepository>;
+  readonly treasuryAccounts: ReturnType<typeof createTreasuryAccountRepository>;
+  readonly fiscalPeriods: ReturnType<typeof createFiscalPeriodRepository>;
+  readonly ledger: ReturnType<typeof createLedgerStore>;
+  readonly stockLedger: ReturnType<typeof createStockLedgerStore>;
+  readonly salesInvoices: ReturnType<typeof createSalesInvoiceStore>;
+  readonly vouchers: ReturnType<typeof createVoucherStore>;
+  readonly priceLists: ReturnType<typeof createPriceListStore>;
+  readonly promotions: ReturnType<typeof createPromotionStore>;
+  readonly eta: ReturnType<typeof createEtaStore>;
+  readonly employees: ReturnType<typeof createEmployeeRepository>;
+  readonly sequenceConfig: ReturnType<typeof createSequenceConfigStore>;
+  readonly sequenceCounters: ReturnType<typeof createSequenceStore>;
 }
 
 /**
  * What `createBackend` hands every POS and enhancement area once, after the
- * core API is mounted. An area opens its own store handles on `sqlite`: every
- * store shares that ONE connection (see `createBackend`), so a second handle on
- * another area's tables is cheap and never a second writer.
+ * core API is mounted. An area opens its own store handles through `store`, on
+ * the ONE database the backend runs on (see `createBackend`), so a second handle
+ * on another area's tables is cheap and never a second writer.
  */
 export interface BackendModuleContext {
   readonly app: App;
-  readonly sqlite: Database.Database;
+  readonly db: SqlDb;
+  readonly sqlite?: Database.Database;
+  readonly store: <T>(viaSqlite: (sqlite: Database.Database) => T, viaDb: (db: SqlDb) => T) => T;
   readonly uow: UnitOfWork;
   readonly resolveAuthContext: AuthContextResolver;
   readonly sessions: SessionRegistry;
@@ -78,7 +81,7 @@ export interface BackendModuleContext {
   readonly inventoryEvents: { readonly subscribe: (handler: (event: InventoryDomainEvent) => Promise<void>) => () => void };
   /** The customer-addressed mail queue and the operator-initiated drain that sends it through the tenant's SMTP session. */
   readonly customerMail: {
-    readonly store: ReturnType<typeof createSqliteCollectionsStore>;
+    readonly store: ReturnType<typeof createCollectionsStore>;
     readonly drain: () => Promise<DrainResult>;
     readonly configured: () => Promise<boolean>;
   };
@@ -109,7 +112,7 @@ export interface BackendModuleContext {
   readonly cloudTenant: boolean;
   readonly integrations: IntegrationsSurface | null;
   readonly integrationsSlot: IntegrationsSlot;
-  readonly addCloser: (closer: { close(): void }) => void;
+  readonly addCloser: (closer: object) => void;
   /** The exact deps `/reports` runs on, so an area that reproduces a report reproduces the on-screen figure. */
   readonly reports: ReportsRoutesDeps;
   // SECURITY: the database encryption key (desktop: sealed in the OS keychain). Only for deriving install keys; never logged or returned.

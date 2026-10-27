@@ -473,7 +473,7 @@ describe("a locked account can always be recovered", () => {
     const notices = await (await get("/notifications")).text();
     expect(notices).toContain("تم قفل حساب");
     expect(notices).toContain("أُرسل");
-    await h.backupTo(path.join(dir, "backup.db"));
+    await h.backupTo!(path.join(dir, "backup.db"));
 
     const { sqlite } = openSqliteConnection(path.join(dir, "backup.db"));
     const tables = (sqlite.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as { name: string }[]).map((row) => row.name);

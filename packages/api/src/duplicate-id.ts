@@ -30,18 +30,18 @@ const REFUSED_FOR_THE_CALLER: ReadonlySet<number> = new Set([401, 403]);
  * which `numbersDrawn` reads off the counters; the composition root passes a
  * transactor that writes security events after the rollback either way.
  */
-export function refusedCreateRollsBack(transactor: ConfigTransactor, numbersDrawn?: () => string, createRoutes: ReadonlySet<string> = ID_CARRYING_CREATE_ROUTES): MiddlewareHandler {
+export function refusedCreateRollsBack(transactor: ConfigTransactor, numbersDrawn?: () => string | Promise<string>, createRoutes: ReadonlySet<string> = ID_CARRYING_CREATE_ROUTES): MiddlewareHandler {
   return async function refusedCreate(c, next) {
     const routePath = c.req.method === "POST" ? terminalRoutePathOf(c) : undefined;
     if (routePath === undefined || !createRoutes.has(routePath)) return next();
     try {
       await transactor.run(async () => {
-        const before = numbersDrawn?.();
+        const before = await numbersDrawn?.();
         await next();
         if (refusedRequests.has(c.req.raw)) throw new RefusedCreateRollback();
         const answered = c.res.status;
         if (answered < REFUSED_FROM) return;
-        if (!REFUSED_FOR_THE_CALLER.has(answered) || (numbersDrawn !== undefined && numbersDrawn() !== before)) throw new RefusedCreateRollback();
+        if (!REFUSED_FOR_THE_CALLER.has(answered) || (numbersDrawn !== undefined && (await numbersDrawn()) !== before)) throw new RefusedCreateRollback();
       });
     } catch (err) {
       if (!(err instanceof RefusedCreateRollback)) throw err;

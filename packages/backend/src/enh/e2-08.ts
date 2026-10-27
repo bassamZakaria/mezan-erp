@@ -1,4 +1,3 @@
-import type Database from "better-sqlite3";
 import { createPricingGuardRoutes } from "@mezan/api";
 import {
   PricingGuardLineOutcome,
@@ -9,21 +8,21 @@ import {
   type Money,
   type StockMovement,
 } from "@mezan/domain";
-import { createSqliteApprovalRequestStore, createSqliteItemCatalogStores, createSqlitePricingGuardStores, createSqliteWorkflowConfigStore } from "@mezan/persistence";
+import { createSqliteApprovalRequestStore, createSqliteItemCatalogStores, createSqlitePricingGuardStores, createSqliteWorkflowConfigStore, createApprovalRequestStore, createItemCatalogStores, createPricingGuardStores, createWorkflowConfigStore, type SqlDb } from "@mezan/persistence";
 import type { BackendArea, BackendModuleContext } from "../module-context.js";
 
 const PRICE_FLOOR_ACTION = "SALES_PRICE_FLOOR_OVERRIDE" as const;
 const CATEGORY_DEPTH_LIMIT = 32;
 
-const registry = new WeakMap<Database.Database, DocumentPricingGuardPort>();
+const registry = new WeakMap<SqlDb, DocumentPricingGuardPort>();
 
 // ORDERING: the core API mounts before the enhancement areas, so the port reads the guard at call time.
-export function pricingGuardPortFor(sqlite: Database.Database): DocumentPricingGuardPort {
+export function pricingGuardPortFor(db: SqlDb): DocumentPricingGuardPort {
   return {
-    evaluate: async (input) => registry.get(sqlite)?.evaluate(input) ?? { outcome: PricingGuardLineOutcome.Pass, lines: [] },
-    approvalChainConfigured: async () => (await registry.get(sqlite)?.approvalChainConfigured()) ?? false,
+    evaluate: async (input) => registry.get(db)?.evaluate(input) ?? { outcome: PricingGuardLineOutcome.Pass, lines: [] },
+    approvalChainConfigured: async () => (await registry.get(db)?.approvalChainConfigured()) ?? false,
     recordOverrides: async (rows) => {
-      await registry.get(sqlite)?.recordOverrides(rows);
+      await registry.get(db)?.recordOverrides(rows);
     },
   };
 }
@@ -40,10 +39,10 @@ function groupByWarehouse(movements: readonly StockMovement[]): Map<string, Stoc
 
 export const area: BackendArea = {
   mount(ctx: BackendModuleContext) {
-    const stores = createSqlitePricingGuardStores(ctx.sqlite);
-    const catalog = createSqliteItemCatalogStores(ctx.sqlite);
-    const workflowConfigs = createSqliteWorkflowConfigStore(ctx.sqlite);
-    const approvalRequests = createSqliteApprovalRequestStore(ctx.sqlite);
+    const stores = ctx.store((s) => createSqlitePricingGuardStores(s), (d) => createPricingGuardStores(d));
+    const catalog = ctx.store((s) => createSqliteItemCatalogStores(s), (d) => createItemCatalogStores(d));
+    const workflowConfigs = ctx.store((s) => createSqliteWorkflowConfigStore(s), (d) => createWorkflowConfigStore(d));
+    const approvalRequests = ctx.store((s) => createSqliteApprovalRequestStore(s), (d) => createApprovalRequestStore(d));
     const { items, customers, warehouses, stockLedger, settings } = ctx.stores;
 
     async function categoryAncestry(itemId: string): Promise<readonly string[]> {
@@ -83,7 +82,7 @@ export const area: BackendArea = {
       baseCurrency: async () => ((await settings.get()) ?? createDefaultSettings()).currency,
       approvalChainConfigured: async () => ((await workflowConfigs.resolve(PRICE_FLOOR_ACTION))?.steps.length ?? 0) > 0,
     });
-    registry.set(ctx.sqlite, guard);
+    registry.set(ctx.db, guard);
 
     ctx.app.route(
       "/pricing-guard",

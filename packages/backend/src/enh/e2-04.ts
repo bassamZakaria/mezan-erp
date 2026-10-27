@@ -16,7 +16,7 @@ import {
   type LotRequirementLookup,
   type NotificationRule,
 } from "@mezan/domain";
-import { createSqliteBatchTrailStore, createSqliteExpiryStore, createSqliteNotificationRuleStore } from "@mezan/persistence";
+import { createSqliteBatchTrailStore, createSqliteExpiryStore, createSqliteNotificationRuleStore, createBatchTrailStore, createExpiryStore, createNotificationRuleStore } from "@mezan/persistence";
 import type { BackendArea, BackendModuleContext } from "../module-context.js";
 import { createLogger } from "@mezan/api";
 
@@ -87,8 +87,10 @@ function defaultRules(now: string): NotificationRule[] {
 function createScanner(ctx: BackendModuleContext, store: ReturnType<typeof createSqliteExpiryStore>) {
   let running: Promise<number> | null = null;
   let lastScanDay: string | null = null;
+  let closed = false;
+  ctx.addCloser({ close: () => { closed = true; } });
   const run = async (): Promise<number> => {
-    if (!ctx.sqlite.open) return 0;
+    if (closed || ctx.sqlite?.open === false) return 0;
     const today = toTenantDay(new Date().toISOString());
     lastScanDay = today;
     const settings = await store.getSettings();
@@ -157,11 +159,11 @@ function createScanner(ctx: BackendModuleContext, store: ReturnType<typeof creat
 
 export const area: BackendArea = {
   async mount(ctx) {
-    const store = createSqliteExpiryStore(ctx.sqlite);
-    const trail = createSqliteBatchTrailStore(ctx.sqlite);
+    const store = ctx.store((s) => createSqliteExpiryStore(s), (d) => createExpiryStore(d));
+    const trail = ctx.store((s) => createSqliteBatchTrailStore(s), (d) => createBatchTrailStore(d));
 
     if ((await store.getFlag(DEFAULT_RULES_FLAG)) === null) {
-      const rules = createSqliteNotificationRuleStore(ctx.sqlite);
+      const rules = ctx.store((s) => createSqliteNotificationRuleStore(s), (d) => createNotificationRuleStore(d));
       const now = new Date().toISOString();
       for (const rule of defaultRules(now)) {
         if (!(await rules.findById(rule.id))) await rules.save(rule);

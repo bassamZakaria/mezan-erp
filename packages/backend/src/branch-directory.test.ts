@@ -50,31 +50,31 @@ describe("the branch directory fails loudly instead of answering «absent»", ()
     drifted.close();
   });
 
-  it("is built over the real schema, and answers for every record kind without an SQL error", () => {
+  it("is built over the real schema, and answers for every record kind without an SQL error", async () => {
     const directory = createSqliteBranchDirectory(sqlite);
     for (const kind of Object.values(BranchRecordKind)) {
       for (const access of Object.values(BranchAccess)) {
-        expect(() => directory.branchesOf(kind, "NO-SUCH-RECORD", access), kind).not.toThrow();
+        await expect(Promise.resolve(directory.branchesOf(kind, "NO-SUCH-RECORD", access)), kind).resolves.toBeDefined();
       }
     }
   });
 
-  it("resolves an approval request held on a purchase invoice to the invoice's branch", () => {
+  it("resolves an approval request held on a purchase invoice to the invoice's branch", async () => {
     const invoice = sqlite.prepare("SELECT id FROM purchase_invoice WHERE branch_id = 'BR-MAIN' LIMIT 1").get() as { id: string };
     const requestId = `${invoice.id}:confirm`;
     sqlite
       .prepare("INSERT OR REPLACE INTO approval_request (id, action_type, submitted_by, steps_json, current_step, status, decisions_json, created_at, updated_at) VALUES (?, 'PURCHASE_INVOICE_CONFIRM', 'USER-ADMIN', '[]', 0, 'pending', '[]', '2026-01-01', '2026-01-01')")
       .run(requestId);
-    expect(createSqliteBranchDirectory(sqlite).branchesOf(BranchRecordKind.ApprovalRequest, requestId, BranchAccess.Write)).toEqual(["BR-MAIN"]);
+    expect(await createSqliteBranchDirectory(sqlite).branchesOf(BranchRecordKind.ApprovalRequest, requestId, BranchAccess.Write)).toEqual(["BR-MAIN"]);
   });
 
-  it("reads a write-down run that names no warehouse by the warehouses of its lines, not as nobody's", () => {
+  it("reads a write-down run that names no warehouse by the warehouses of its lines, not as nobody's", async () => {
     sqlite
       .prepare("INSERT OR REPLACE INTO writedown_run (id, period, warehouse_id, status, lines, total_amount, created_at) VALUES ('R3-WD-ALL', '2020-01', NULL, 'draft', ?, 0, '2020-01-31')")
       .run(JSON.stringify([{ itemId: "ITEM-DEMO-1", warehouseId: "WH-MAIN" }, { itemId: "ITEM-DEMO-1", warehouseId: "WH-ALEX" }]));
     const directory = createSqliteBranchDirectory(sqlite);
-    expect(directory.branchesOf(BranchRecordKind.WritedownRun, "R3-WD-ALL", BranchAccess.Read)).toEqual(["BR-MAIN", "BR-ALEX"]);
+    expect(await directory.branchesOf(BranchRecordKind.WritedownRun, "R3-WD-ALL", BranchAccess.Read)).toEqual(["BR-MAIN", "BR-ALEX"]);
     sqlite.prepare("UPDATE writedown_run SET warehouse_id = 'WH-ALEX' WHERE id = 'R3-WD-ALL'").run();
-    expect(directory.branchesOf(BranchRecordKind.WritedownRun, "R3-WD-ALL", BranchAccess.Read)).toEqual(["BR-ALEX"]);
+    expect(await directory.branchesOf(BranchRecordKind.WritedownRun, "R3-WD-ALL", BranchAccess.Read)).toEqual(["BR-ALEX"]);
   });
 });

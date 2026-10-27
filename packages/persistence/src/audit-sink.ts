@@ -338,7 +338,7 @@ class SqlAuditSink implements AuditSink, AuditQueryPort, AuditChainVerifyPort {
   private readonly heldBack = new AsyncLocalStorage<{ open: boolean; readonly events: AuditEvent[] }>();
 
   constructor(
-    private readonly db: SqlDb,
+    private readonly sql: SqlDb,
     private readonly chainKey: Buffer,
     private readonly ambient?: AuditSinkAmbient,
   ) {}
@@ -354,12 +354,12 @@ class SqlAuditSink implements AuditSink, AuditQueryPort, AuditChainVerifyPort {
   // REQUIRED: runs under `db.transaction(..., Immediate)` — the tenant's write
   // lock — so two appends can never read the same head.
   private async appendChained(row: AuditChainFields, fields: readonly string[]): Promise<void> {
-    const prevHash = (await this.db.get<{ row_hash: string }>(`SELECT row_hash FROM audit_chain_head WHERE id = 1`))?.row_hash ?? GENESIS;
+    const prevHash = (await this.sql.get<{ row_hash: string }>(`SELECT row_hash FROM audit_chain_head WHERE id = 1`))?.row_hash ?? GENESIS;
     const rowHash = hashRow(row, prevHash);
-    const inserted = await this.db.get<{ id: bigint }>(`${INSERT_AUDIT_ROW} RETURNING id`, rowParams(row, prevHash, rowHash));
+    const inserted = await this.sql.get<{ id: bigint }>(`${INSERT_AUDIT_ROW} RETURNING id`, rowParams(row, prevHash, rowHash));
     const rowId = Number(inserted!.id);
-    for (const field of fields) await this.db.run(INSERT_FIELD, [rowId, field]);
-    await this.db.run(WRITE_HEAD, [rowId, rowHash, macHead(this.chainKey, rowId, rowHash)]);
+    for (const field of fields) await this.sql.run(INSERT_FIELD, [rowId, field]);
+    await this.sql.run(WRITE_HEAD, [rowId, rowHash, macHead(this.chainKey, rowId, rowHash)]);
   }
 
   // A STAND-ALONE append takes the tenant's write lock through `db.transaction`,
@@ -379,7 +379,7 @@ class SqlAuditSink implements AuditSink, AuditQueryPort, AuditChainVerifyPort {
     const fields = auditChangedFieldNames(event.details);
     if (this.ambient?.appendInsideCallerTransaction(row, fields)) return;
     this.ambient?.reportUntransacted(event);
-    await this.db.transaction(() => this.appendChained(row, fields), TransactionMode.Immediate);
+    await this.sql.transaction(() => this.appendChained(row, fields), TransactionMode.Immediate);
   }
 
   // SECURITY: a security event appended while `fn` runs is written only after
@@ -401,12 +401,12 @@ class SqlAuditSink implements AuditSink, AuditQueryPort, AuditChainVerifyPort {
   }
 
   atomic<T>(fn: () => Promise<T>): Promise<T> {
-    return this.db.transaction(fn);
+    return this.sql.transaction(fn);
   }
 
   private async findIndexFault(rows: readonly { id: bigint; details: string | null }[]): Promise<number | null> {
     const stored = new Map<number, string[]>();
-    for (const r of await this.db.all<{ event_id: bigint; field: string }>(`SELECT event_id, field FROM audit_event_field ORDER BY event_id, field`)) {
+    for (const r of await this.sql.all<{ event_id: bigint; field: string }>(`SELECT event_id, field FROM audit_event_field ORDER BY event_id, field`)) {
       const eventId = Number(r.event_id);
       const list = stored.get(eventId);
       if (list) list.push(r.field);
@@ -424,7 +424,7 @@ class SqlAuditSink implements AuditSink, AuditQueryPort, AuditChainVerifyPort {
   }
 
   private head(): Promise<HeadRow | undefined> {
-    return this.db.get<HeadRow>(`SELECT row_id, row_hash, mac FROM audit_chain_head WHERE id = 1`);
+    return this.sql.get<HeadRow>(`SELECT row_id, row_hash, mac FROM audit_chain_head WHERE id = 1`);
   }
 
   /**
@@ -438,8 +438,8 @@ class SqlAuditSink implements AuditSink, AuditQueryPort, AuditChainVerifyPort {
    */
   // One transaction, so no append can land between reading the rows and reading the head.
   async verifyChain(): Promise<AuditChainVerification> {
-    return this.db.transaction(async () => {
-      const rows = await this.db.all<ChainRow>(`SELECT id, ${AUDIT_ROW_COLUMNS}, prev_hash, row_hash FROM audit_event ORDER BY id ASC`);
+    return this.sql.transaction(async () => {
+      const rows = await this.sql.all<ChainRow>(`SELECT id, ${AUDIT_ROW_COLUMNS}, prev_hash, row_hash FROM audit_event ORDER BY id ASC`);
 
       const unchained = rows.filter((r) => r.row_hash === null).length;
       const chained = rows.filter((r) => r.row_hash !== null);
@@ -490,9 +490,9 @@ class SqlAuditSink implements AuditSink, AuditQueryPort, AuditChainVerifyPort {
   }
 
   async verifyHead(): Promise<{ reason: AuditChainHeadReason; headRowId: number | null }> {
-    const { head, last } = await this.db.transaction(async () => ({
+    const { head, last } = await this.sql.transaction(async () => ({
       head: await this.head(),
-      last: await this.db.get<{ id: bigint; row_hash: string }>(`SELECT id, row_hash FROM audit_event WHERE row_hash IS NOT NULL ORDER BY id DESC LIMIT 1`),
+      last: await this.sql.get<{ id: bigint; row_hash: string }>(`SELECT id, row_hash FROM audit_event WHERE row_hash IS NOT NULL ORDER BY id DESC LIMIT 1`),
     }));
     if (!head) return { reason: last ? AuditChainHeadReason.HeadMissing : AuditChainHeadReason.Empty, headRowId: null };
     const headRowId = Number(head.row_id);
@@ -506,17 +506,17 @@ class SqlAuditSink implements AuditSink, AuditQueryPort, AuditChainVerifyPort {
   }
 
   async chainHead(): Promise<AuditChainHeadReading | null> {
-    const head = await this.db.get<{ row_id: bigint; row_hash: string }>(`SELECT row_id, row_hash FROM audit_chain_head WHERE id = 1`);
+    const head = await this.sql.get<{ row_id: bigint; row_hash: string }>(`SELECT row_id, row_hash FROM audit_chain_head WHERE id = 1`);
     return head ? { rowId: Number(head.row_id), rowHash: head.row_hash } : null;
   }
 
   async chainRowHash(rowId: number): Promise<string | null> {
-    const row = await this.db.get<{ row_hash: string | null }>(`SELECT row_hash FROM audit_event WHERE id = ?`, [rowId]);
+    const row = await this.sql.get<{ row_hash: string | null }>(`SELECT row_hash FROM audit_event WHERE id = ?`, [rowId]);
     return row?.row_hash ?? null;
   }
 
   async query(stream: AuditStream, limit = 100): Promise<readonly AuditEvent[]> {
-    const rows = await this.db.all<AuditRow>(`SELECT ${AUDIT_ROW_COLUMNS} FROM audit_event WHERE stream = ? ORDER BY id DESC LIMIT ?`, [stream, limit]);
+    const rows = await this.sql.all<AuditRow>(`SELECT ${AUDIT_ROW_COLUMNS} FROM audit_event WHERE stream = ? ORDER BY id DESC LIMIT ?`, [stream, limit]);
     return rows.map(rowToEvent);
   }
 
@@ -555,8 +555,8 @@ class SqlAuditSink implements AuditSink, AuditQueryPort, AuditChainVerifyPort {
     const limit = Math.min(Math.max(filter.limit ?? 50, 1), 200);
     const offset = Math.max(filter.offset ?? 0, 0);
 
-    const total = Number((await this.db.get<{ c: bigint }>(`SELECT COUNT(*) AS c FROM audit_event ${where}`, params))!.c);
-    const rows = await this.db.all<AuditRow>(
+    const total = Number((await this.sql.get<{ c: bigint }>(`SELECT COUNT(*) AS c FROM audit_event ${where}`, params))!.c);
+    const rows = await this.sql.all<AuditRow>(
       `SELECT ${AUDIT_ROW_COLUMNS} FROM audit_event ${where} ORDER BY id DESC LIMIT ? OFFSET ?`,
       [...params, limit, offset],
     );

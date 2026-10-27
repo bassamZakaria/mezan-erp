@@ -385,9 +385,10 @@ describe("a bearer token presented without the secret of the device it was issue
 
   it(`ends the session on the ${DEVICE_MISMATCH_LIMIT}th refusal inside ${DEVICE_MISMATCH_WINDOW_MS / MINUTE} minutes, and says so on that refusal`, async () => {
     const { sessions, session } = (await bound());
-    const refusals = Array.from({ length: DEVICE_MISMATCH_LIMIT }, async () => (await sessions.inspect(session.token, "196.221.5.5", null)).refusal);
+    const ended: (boolean | undefined)[] = [];
+    for (let i = 0; i < DEVICE_MISMATCH_LIMIT; i += 1) ended.push((await sessions.inspect(session.token, "196.221.5.5", null)).refusal?.sessionEnded);
 
-    expect(refusals.map(async (refusal) => (await refusal)?.sessionEnded)).toEqual([...Array<boolean>(DEVICE_MISMATCH_LIMIT - 1).fill(false), true]);
+    expect(ended).toEqual([...Array<boolean>(DEVICE_MISMATCH_LIMIT - 1).fill(false), true]);
     expect(await sessions.inspect(session.token, "41.33.10.10", session.deviceSecret)).toEqual({ grant: null, refusal: null });
   });
 

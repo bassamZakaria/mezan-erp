@@ -161,7 +161,7 @@ export function createAttachmentsRoutes(
     const kept: Attachment[] = [];
     const verdicts = new Map<string, boolean>();
     for (const row of rows) {
-      const key = `${row.entityType}\u0000${row.entityId}`;
+      const key = `${row.entityType}\u001F${row.entityId}`;
       if (!verdicts.has(key)) verdicts.set(key, (await entityOutsideGrant(c, row.entityType, row.entityId)) === null);
       if (verdicts.get(key)) kept.push(row);
     }

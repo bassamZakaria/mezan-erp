@@ -163,8 +163,8 @@ export function idempotentCreate(options: IdempotentCreateOptions): IdempotentCr
     const caller = await resolveAuthContext(c);
     if (!caller.authenticated) return next();
 
-    const scope = `${c.req.path}\u0000${caller.userId}`;
-    const slot = `${scope}\u0000${key}`;
+    const scope = `${c.req.path}\u001F${caller.userId}`;
+    const slot = `${scope}\u001F${key}`;
     const requestHash = createHash("sha256").update(JSON.stringify(canonical(body)), "utf8").digest("hex");
     // ORDER MATTERS: nothing is awaited between the last look at `inFlight` and
     // the claim below, or two sends of one create both find the slot free. The

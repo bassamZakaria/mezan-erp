@@ -12,8 +12,8 @@ const VOUCHER = "RA-VCH";
 const REQUEST = `${VOUCHER}:confirm`;
 const TODAY = new Date().toISOString().slice(0, 10);
 const BEFORE_FINGERPRINTS = `
-CREATE TABLE approval_request_old AS
-  SELECT id, action_type, submitted_by, steps_json, current_step, status, decisions_json, entity_label, created_at, updated_at FROM approval_request;
+CREATE TABLE approval_request_old (id TEXT PRIMARY KEY, action_type TEXT NOT NULL, submitted_by TEXT NOT NULL, steps_json TEXT NOT NULL, current_step INTEGER NOT NULL, status TEXT NOT NULL, decisions_json TEXT NOT NULL, entity_label TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+INSERT INTO approval_request_old SELECT id, action_type, submitted_by, steps_json, current_step, status, decisions_json, entity_label, created_at, updated_at FROM approval_request;
 DROP TABLE approval_request;
 ALTER TABLE approval_request_old RENAME TO approval_request;
 DROP TABLE IF EXISTS upgrade_step;

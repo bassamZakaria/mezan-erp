@@ -587,7 +587,7 @@ export function createSalesInvoicesRoutes(
    * list to the whole tenant, which is the exact failure the tier exists to
    * prevent.
    */
-  const NO_SUCH_ACTOR = "\u0000no-actor";
+  const NO_SUCH_ACTOR = "\u001Fno-actor";
 
   const actorOf = (c: Context) => getAuthContext(c)?.userId ?? "system";
   /**

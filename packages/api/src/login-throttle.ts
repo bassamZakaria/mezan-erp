@@ -217,7 +217,7 @@ function lockDuration(failures: number): number {
  * no unambiguous split and the account could not be recovered from the key. A
  * NUL cannot occur in either half.
  */
-const KEY_SEPARATOR = "\u0000";
+const KEY_SEPARATOR = "\u001F";
 /**
  * The key a failed attempt is counted against.
  *

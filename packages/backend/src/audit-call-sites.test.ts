@@ -278,7 +278,7 @@ const OUTSIDE_THE_BOUNDARY: Readonly<Record<string, string>> = {
 
 const NOT_ROUTE_REACHED: Readonly<Record<string, string>> = {
   "packages/backend/src/pos/master.ts:36": "injected into the POS settings routes as deps.ensureWalkInCustomer; it writes inside its own withSqliteTransaction",
-  "packages/backend/src/enh/e3-06.ts:183": "runs from the event bus when a quote is accepted, never from a route; the opportunity write and its event share deps.audit.atomic",
+  "packages/backend/src/enh/e3-06.ts:189": "runs from the event bus when a quote is accepted, never from a route; the opportunity write and its event share deps.audit.atomic",
 };
 
 describe("every route-layer audit call site sits behind an audit boundary", () => {

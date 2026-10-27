@@ -1,6 +1,6 @@
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 import { ensureInsertionOrder, insertionOrder } from "./sql/insertion-order.js";
-import { TransactionMode, type SqlDb } from "./sql/sql-db.js";
+import { type SqlDb } from "./sql/sql-db.js";
 import { sqliteDb } from "./sql/sqlite-db.js";
 
 const CREATE_TABLE = `
@@ -52,17 +52,16 @@ export function createRateWindowStore(db: SqlDb, scope: string): SqliteRateWindo
         [scope, key, resetAt, at, at, resetAt],
       );
     },
-    sweep: (at, maxRecords) =>
-      db.transaction(async () => {
-        await db.run(`DELETE FROM rate_window WHERE scope = ? AND reset_at <= ?`, [scope, at]);
-        const over = Number((await db.get<{ n: bigint }>(`SELECT COUNT(*) AS n FROM rate_window WHERE scope = ?`, [scope]))!.n) - maxRecords;
-        if (over > 0) {
-          await db.run(
-            `DELETE FROM rate_window WHERE scope = ? AND hit_key IN (SELECT hit_key FROM rate_window WHERE scope = ? ORDER BY reset_at, ${order} LIMIT ?)`,
-            [scope, scope, over],
-          );
-        }
-      }, TransactionMode.Immediate),
+    async sweep(at, maxRecords) {
+      await db.run(`DELETE FROM rate_window WHERE scope = ? AND reset_at <= ?`, [scope, at]);
+      const over = Number((await db.get<{ n: bigint }>(`SELECT COUNT(*) AS n FROM rate_window WHERE scope = ?`, [scope]))!.n) - maxRecords;
+      if (over > 0) {
+        await db.run(
+          `DELETE FROM rate_window WHERE scope = ? AND hit_key IN (SELECT hit_key FROM rate_window WHERE scope = ? ORDER BY reset_at, ${order} LIMIT ?)`,
+          [scope, scope, over],
+        );
+      }
+    },
   };
 }
 

@@ -8,7 +8,7 @@ export const INTERNAL_ERROR_MESSAGE_AR = "تعذّر إكمال العملية �
 export const INTERNAL_ERROR_MESSAGE_EN = "The operation could not be completed because of an internal error. Try again, and contact support if it keeps happening.";
 
 const DOMAIN_CODE = /^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+$/;
-const FOREIGN_CODE_PREFIXES = ["SQLITE_", "ERR_"];
+const FOREIGN_CODE_PREFIXES = ["SQLITE_", "ERR_", "EAI_", "CERT_", "UNABLE_", "DEPTH_", "SELF_SIGNED", "UND_ERR_", "HPE_"];
 
 // SECURITY: driver errors carry a `code` too (a Postgres SQLSTATE such as "23505", a
 // better-sqlite3 "SQLITE_…", a Node "ERR_…") and their message quotes SQL; only a

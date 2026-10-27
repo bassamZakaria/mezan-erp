@@ -279,6 +279,7 @@ class PostgresDb implements SqlDb {
   async applySchema(ddl: string): Promise<void> {
     const translated = translateDdl(ddl);
     await this.transaction(async () => {
+      await this.exec("SET LOCAL statement_timeout = 0");
       const present = new Set(
         (await this.all<{ t: string; c: string }>("SELECT table_name AS t, column_name AS c FROM information_schema.columns WHERE table_schema = current_schema()")).map(
           (row) => `${row.t}.${row.c}`,

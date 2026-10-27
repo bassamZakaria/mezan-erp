@@ -22,6 +22,8 @@ describe("domainRefusalOf", () => {
     ["a Postgres SQLSTATE with a letter", driverError('relation "t_abc.voucher" does not exist', "42P01")],
     ["a better-sqlite3 code", driverError("UNIQUE constraint failed: voucher.id", "SQLITE_CONSTRAINT_PRIMARYKEY")],
     ["a Node code", driverError("bad arg", "ERR_INVALID_ARG_TYPE")],
+    ["a DNS failure naming a host", driverError("getaddrinfo EAI_AGAIN eta.internal", "EAI_AGAIN")],
+    ["a TLS failure", driverError("certificate has expired", "CERT_HAS_EXPIRED")],
     ["an error with no code", new Error("SELECT * FROM voucher")],
     ["a thrown string", "boom"],
   ])("withholds %s", (_label, err) => {

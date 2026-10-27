@@ -43,6 +43,8 @@ import {
   type PeriodCloseStoreHandle,
   type SqlDb,
   createPeriodCloseStore,
+  createSqlPeriodCloseCommit,
+  TransactionMode,
   createAssetRepository,
   createContractRepository,
   createDepreciationRunRepository,
@@ -289,6 +291,7 @@ export const area: BackendArea = {
     const sqliteStore = ctx.sqlite ? createSqlitePeriodCloseStore(ctx.sqlite) : null;
     const store: PeriodCloseStoreHandle = sqliteStore ?? createPeriodCloseStore(ctx.db);
     const critical = sqliteStore?.critical ?? null;
+    const sqlCommit = createSqlPeriodCloseCommit(ctx.db);
     closers.push(store);
     const sources = buildSources(ctx, store, closers);
     const accountBalances = ledgerBalances(ctx.stores.ledger);
@@ -343,8 +346,8 @@ export const area: BackendArea = {
         return (await store.summaries.list({ periodId })).map((summary) => ({ summary, sealValid: verifyPeriodCloseSeal(summary, audited) }));
       },
       changeToken: critical ? critical.changeToken : () => 0,
-      // SECURITY: no critical section on Postgres yet, so commit stays null and the guard refuses every close and lock (PeriodCloseUnauditableError, bilingual) rather than half-closing.
-      commit: critical && appendAudit ? (request) => critical.commit({ ...request, appendAudit }) : null,
+      commit: critical ? (appendAudit ? (request) => critical.commit({ ...request, appendAudit }) : null) : (request) => sqlCommit({ ...request, appendAudit: (event) => ctx.audit.append(event) }),
+      ...(critical ? {} : { serialize: <T>(fn: () => Promise<T>) => ctx.db.transaction(fn, TransactionMode.Immediate) }),
     });
 
     ctx.periodCloseGuard.register(guard);

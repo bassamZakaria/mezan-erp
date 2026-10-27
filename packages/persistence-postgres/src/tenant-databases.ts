@@ -1,3 +1,4 @@
+import { createHmac } from "node:crypto";
 import pg from "pg";
 import type { SqlDb } from "@mezan/persistence";
 import { assertCollation, assertSchemaName, createTenantPool, deriveRolePassword, PLATFORM_SCHEMA, postgresDb, provisionTenantSchema } from "./postgres-db.js";
@@ -45,6 +46,11 @@ export class TenantDatabases {
 
   async provision(schema: string): Promise<void> {
     await provisionTenantSchema(this.admin, schema, deriveRolePassword(this.options.secret, schema));
+  }
+
+  // CONTRACT: derived from MEZAN_TENANT_DB_SECRET; rotating the secret invalidates every evidence pack already signed.
+  evidenceKey(schema: string): string {
+    return createHmac("sha256", this.options.secret).update(`mezan-tenant-evidence:${assertSchemaName(schema)}`).digest("hex");
   }
 
   get(schema: string): SchemaDatabase {

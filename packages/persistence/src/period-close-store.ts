@@ -677,6 +677,23 @@ function createCriticalSection(sqlite: Database.Database): PeriodCloseCriticalSe
   };
 }
 
+export type SqlPeriodCloseCommit = Omit<PeriodCloseCommit, "changeToken" | "appendAudit"> & {
+  readonly appendAudit: (event: AuditEvent) => Promise<void>;
+};
+
+// CONTRACT: the caller runs this inside the same db.transaction as the checks it
+// commits on; that transaction's tenant write lock stands in for SQLite's change token.
+export function createSqlPeriodCloseCommit(db: SqlDb): (input: SqlPeriodCloseCommit) => Promise<PeriodCloseCommitOutcome> {
+  return async (input) => {
+    const current = await db.get<{ status: string }>(`SELECT status FROM fiscal_period WHERE id = ?`, [input.periodId]);
+    if (current?.status !== input.fromStatus) return PeriodCloseCommitOutcome.Stale;
+    await db.run(`UPDATE fiscal_period SET status = ? WHERE id = ? AND status = ?`, [input.toStatus, input.periodId, input.fromStatus]);
+    if (input.summary) await db.run(SUMMARY_INSERT, summaryParams(input.summary));
+    await input.appendAudit(input.auditEvent);
+    return PeriodCloseCommitOutcome.Committed;
+  };
+}
+
 export interface PeriodCloseStoreHandle {
   readonly summaries: PeriodCloseSummaryRepository;
   readonly queries: PeriodCloseQueries;

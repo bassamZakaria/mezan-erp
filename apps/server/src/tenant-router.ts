@@ -297,6 +297,7 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
       ...backendOptions(code, resolversFor(code), hooksFor(tenantId, code), mail, { tenantId, provisioning, bind: true }),
       db: entry.db,
       auditChainKey: pgOptions.auditChainKey,
+      evidenceKey: pgOptions.databases.evidenceKey(schema),
     });
     return {
       ...backend,

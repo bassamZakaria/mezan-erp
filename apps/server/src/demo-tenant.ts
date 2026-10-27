@@ -122,7 +122,7 @@ export async function provisionSeededTenant(deps: ProvisionDemoTenantDeps, spec:
   if (postgres) {
     const schema = tenantSchema(activated.id);
     await postgres.databases.provision(schema);
-    storage = { db: postgres.databases.get(schema).db, auditChainKey: postgres.auditChainKey };
+    storage = { db: postgres.databases.get(schema).db, auditChainKey: postgres.auditChainKey, evidenceKey: postgres.databases.evidenceKey(schema) };
   } else {
     const dbPath = tenantDbPath(deps.env.platformDir, activated.dbFile);
     mkdirSync(path.dirname(dbPath), { recursive: true });

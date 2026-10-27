@@ -1086,6 +1086,7 @@ export interface CreateBackendOptions {
   readonly db?: SqlDb;
   // SECURITY: the audit chain head's MAC key on `db`. Absent, MEZAN_AUDIT_CHAIN_KEY; with neither the backend refuses to start.
   readonly auditChainKey?: string;
+  readonly evidenceKey?: string;
 }
 
 /**
@@ -5864,7 +5865,7 @@ async function composeBackend(options: CreateBackendOptions, db: SqlDb, sqlite: 
     integrationsSlot,
     addCloser: (closer) => areaClosers.push(closer),
     reports: reportsDeps,
-    ...(options.connection?.key ? { databaseKey: options.connection.key } : {}),
+    ...(options.connection?.key ? { databaseKey: options.connection.key } : options.evidenceKey ? { databaseKey: options.evidenceKey } : {}),
     ...(options.secrets ? { secrets: options.secrets } : {}),
   };
   await mountPos(areaContext);

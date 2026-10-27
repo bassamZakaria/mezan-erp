@@ -94,6 +94,7 @@ export interface TenantPoolOptions {
   readonly max?: number;
   readonly idleTimeoutMillis?: number;
   readonly onError?: (error: Error, schema: string) => void;
+  readonly connectionTimeoutMillis?: number;
 }
 
 // TENANT ISOLATION: each tenant connects as its own role, which owns its schema
@@ -106,7 +107,7 @@ export function createTenantPool(options: TenantPoolOptions): pg.Pool {
     connectionString: tenantConnectionString(options.connectionString, schema, options.password),
     max: options.max ?? 5,
     idleTimeoutMillis: options.idleTimeoutMillis ?? 30_000,
-    connectionTimeoutMillis: CONNECT_TIMEOUT_MS,
+    connectionTimeoutMillis: options.connectionTimeoutMillis ?? CONNECT_TIMEOUT_MS,
     options: `-c search_path=${schema}`,
     types: typeParsers,
   });
@@ -153,7 +154,6 @@ export async function provisionTenantSchema(admin: pg.Pool | pg.Client, schema: 
       [schema],
     );
     const { db: database, exists } = rows[0]!;
-    // The deploy's init SQL runs these as the superuser; the app's non-superuser role is refused and moves on.
     await ownerOnly(client, "REVOKE ALL ON SCHEMA public FROM PUBLIC");
     await ownerOnly(client, `REVOKE ALL ON DATABASE ${pg.escapeIdentifier(database)} FROM PUBLIC`);
     const verb = exists ? "ALTER" : "CREATE";
@@ -171,8 +171,6 @@ export async function provisionTenantSchema(admin: pg.Pool | pg.Client, schema: 
   }
 }
 
-// Run as the database owner. The role carries the schema's name; a role already
-// gone means an earlier drop got that far, so a repeat finishes it.
 export async function dropTenantSchema(admin: pg.Pool | pg.Client, schema: string): Promise<void> {
   assertSchemaName(schema);
   const name = pg.escapeIdentifier(schema);
@@ -296,7 +294,8 @@ class PostgresDb implements SqlDb {
   }
 
   read<T>(fn: () => Promise<T>): Promise<T> {
-    return fn();
+    const tx = this.current.getStore();
+    return tx?.open ? this.savepoint(tx, fn) : fn();
   }
 
   async transaction<T>(fn: () => Promise<T>): Promise<T> {
@@ -373,13 +372,16 @@ class PostgresDb implements SqlDb {
   }
 
   private async runSavepoint<T>(tx: OpenTransaction, fn: () => Promise<T>): Promise<T> {
+    if (!tx.open) throw new TransactionAbortedError();
     const name = `sp_${++tx.savepoints}`;
+    const followUps = tx.committed.length;
     await tx.client.query(`SAVEPOINT ${name}`);
     try {
       const result = await fn();
       await tx.client.query(`RELEASE SAVEPOINT ${name}`);
       return result;
     } catch (error) {
+      tx.committed.length = followUps;
       await tx.client.query(`ROLLBACK TO SAVEPOINT ${name}`);
       await tx.client.query(`RELEASE SAVEPOINT ${name}`);
       throw error;

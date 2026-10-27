@@ -23,6 +23,12 @@ describe("refuseNulCharacters", () => {
     expect((await app().fetch(new Request("http://t/items/a%00b"))).status).toBe(400);
   });
 
+  it("passes text that only spells out a NUL escape, and refuses a raw NUL sent with no content type", async () => {
+    expect((await post(JSON.stringify({ memo: "see \\u0000 in the docs" }), "application/json")).status).toBe(200);
+    const bare = await app().fetch(new Request("http://t/x", { method: "POST", body: new TextEncoder().encode("a\u0000b") }));
+    expect(bare.status).toBe(400);
+  });
+
   it("passes ordinary JSON, and a binary upload whose bytes include zero, to the handler whole", async () => {
     expect((await post(JSON.stringify({ name: "عادي" }), "application/json")).status).toBe(200);
     const upload = await post(new Uint8Array([0, 1, 0, 2]), "application/octet-stream");

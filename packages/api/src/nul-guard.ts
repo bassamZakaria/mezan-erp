@@ -3,7 +3,7 @@ import { isMutatingRequest, preloadBody } from "./audit-boundary.js";
 
 export const NUL_CHARACTER_REFUSED = "NUL_CHARACTER_REFUSED";
 
-const JSON_NUL_ESCAPE = /\\u0000/i;
+const JSON_NUL_ESCAPE = /(?<!\\)(?:\\\\)*\\u0000/i;
 
 function refuse(c: Context): Response {
   return c.json(

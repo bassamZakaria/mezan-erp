@@ -394,7 +394,6 @@ export interface EvaluatePeriodCloseOptions {
   readonly now: string;
   readonly checks?: readonly PeriodCloseCheckDefinition[];
   readonly onCheckFailure?: PeriodCloseFailureReporter;
-  // Runs each check in its own savepoint where a failed statement would otherwise abort the caller's transaction.
   readonly isolate?: <T>(fn: () => Promise<T>) => Promise<T>;
 }
 

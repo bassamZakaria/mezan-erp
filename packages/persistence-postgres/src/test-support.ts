@@ -42,8 +42,11 @@ export function useDialectDbs(): (dialect: SqlDialect) => Promise<DialectDb> {
     for (const file of files) file.close();
     for (const pool of pools) await pool.end();
     if (admin) {
-      for (const schema of schemas) await dropTenantSchema(admin, schema);
-      await admin.end();
+      try {
+        for (const schema of schemas) await dropTenantSchema(admin, schema).catch(() => undefined);
+      } finally {
+        await admin.end();
+      }
     }
   });
 

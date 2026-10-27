@@ -3,6 +3,7 @@ import {
   BankStatementSource,
   CountZoneKind,
   CountZoneStatus,
+  DocumentStatusCode,
   Money,
   NotificationChannelCode,
   NotificationChannelState,
@@ -124,7 +125,7 @@ describe.each(DIALECTS)("dialect-specific SQL on $dialect", ({ dialect }) => {
   run("lists documents by a line reference once each, honouring the header filters", async () => {
     type Line = { sourceInvoiceId?: string; qty: string };
     const store = createDocumentStore<Line>(await booksOn(dialect), "PARITY_RETURN", (line) => line, (wire) => wire as Line);
-    const doc = (id: string, date: string, status: "draft" | "confirmed", lines: Line[]) => ({
+    const doc = (id: string, date: string, status: DocumentStatusCode, lines: Line[]) => ({
       id,
       docType: "PARITY_RETURN",
       docNo: null,
@@ -139,14 +140,14 @@ describe.each(DIALECTS)("dialect-specific SQL on $dialect", ({ dialect }) => {
       workflowRequestId: null,
       journalEntryId: null,
     });
-    await store.save(doc("r-1", "2026-08-01", "confirmed", [{ sourceInvoiceId: "inv-a", qty: "1" }, { sourceInvoiceId: "inv-b", qty: "2" }, { sourceInvoiceId: "inv-a", qty: "3" }]));
-    await store.save(doc("r-2", "2026-08-02", "draft", [{ sourceInvoiceId: "inv-c", qty: "1" }]));
-    await store.save(doc("r-3", "2026-08-03", "confirmed", [{ qty: "1" }]));
+    await store.save(doc("r-1", "2026-08-01", DocumentStatusCode.Confirmed, [{ sourceInvoiceId: "inv-a", qty: "1" }, { sourceInvoiceId: "inv-b", qty: "2" }, { sourceInvoiceId: "inv-a", qty: "3" }]));
+    await store.save(doc("r-2", "2026-08-02", DocumentStatusCode.Draft, [{ sourceInvoiceId: "inv-c", qty: "1" }]));
+    await store.save(doc("r-3", "2026-08-03", DocumentStatusCode.Confirmed, [{ qty: "1" }]));
 
     const ids = async (refs: string[], filter = {}) => (await store.listByLineRef!("sourceInvoiceId", refs, filter)).map((d) => d.id);
     expect(await ids(["inv-a", "inv-b"])).toEqual(["r-1"]);
     expect(await ids(["inv-a", "inv-c"])).toEqual(["r-1", "r-2"]);
-    expect(await ids(["inv-a", "inv-c"], { status: "draft" })).toEqual(["r-2"]);
+    expect(await ids(["inv-a", "inv-c"], { status: DocumentStatusCode.Draft })).toEqual(["r-2"]);
     expect(await ids(["inv-a", "inv-c"], { fromDate: "2026-08-02" })).toEqual(["r-2"]);
     expect(await ids(["inv"])).toEqual([]);
     expect(await ids([])).toEqual([]);

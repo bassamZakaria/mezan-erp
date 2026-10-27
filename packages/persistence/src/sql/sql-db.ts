@@ -27,7 +27,8 @@ export interface SqlDb {
   // `ddl` is written in SQLite's dialect; Postgres translates it. Existing
   // tables gain any column the DDL declares and they lack, before the script runs.
   applySchema(ddl: string): Promise<void>;
-  // A read that must not observe another transaction's uncommitted rows.
+  // A read that must not observe another transaction's uncommitted rows. Inside an
+  // open pooled transaction it runs in a savepoint, so its failure cannot abort that transaction.
   read<T>(fn: () => Promise<T>): Promise<T>;
   transaction<T>(fn: () => Promise<T>, mode?: TransactionMode): Promise<T>;
   // Fire-and-forget follow-ups (notifications, webhooks) start here: with a pooled

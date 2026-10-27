@@ -56,6 +56,8 @@ export interface AuthRoutesDeps {
   readonly demoSeeded?: boolean;
   readonly onSignedIn?: (user: { readonly userId: string; readonly email: string }) => Promise<void>;
   readonly uow: UnitOfWork;
+  // REQUIRED: one writer at a time around the unlock reissue's check-then-write.
+  readonly atomic?: <T>(fn: () => Promise<T>) => Promise<T>;
   readonly hasher: SecretHasher;
   readonly settings: SettingsRepository;
   readonly seedStores: SeedStores;
@@ -356,11 +358,18 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
   // most one mail an hour. The second read of `unlockReissueDue` is made after
   // the only await, with nothing awaited before the issue: two attempts that
   // arrive together cannot both mail.
+  const atomically = <T>(fn: () => Promise<T>): Promise<T> => (deps.atomic ? deps.atomic(fn) : fn());
+
   async function mailFreshUnlockIfDue(c: Context, needle: string, user: User, origin: string | null): Promise<void> {
     if (!deps.onAccountLocked || !(await guard.unlockReissueDue(needle))) return;
-    if (!(await canMailUnlockCode()) || !(await guard.unlockReissueDue(needle))) return;
-    const unlockCode = await guard.issueUnlockCode(needle);
-    const unlockLinkToken = await guard.issueUnlockLink(needle);
+    if (!(await canMailUnlockCode())) return;
+    const reissue = async () => {
+      if (!(await guard.unlockReissueDue(needle))) return null;
+      return { unlockCode: await guard.issueUnlockCode(needle), unlockLinkToken: await guard.issueUnlockLink(needle) };
+    };
+    const issued = await atomically(reissue);
+    if (!issued) return;
+    const { unlockCode, unlockLinkToken } = issued;
     await security(c, "ACCOUNT_UNLOCK_REISSUED", AuditSeverityCode.Warning, { username: needle, userId: user.id });
     await deps.onAccountLocked({ user, unlockCode, unlockLinkToken, source: origin ?? "host", reissued: true });
   }
@@ -409,7 +418,7 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
       return c.json({ error: "INVALID_CREDENTIALS", message: "اسم المستخدم أو رمز PIN غير صحيح." }, 401);
     }
     if (signedIn === null) {
-      const failure = await guard.failed(needle, origin, user !== null);
+      const failure = await atomically(() => guard.failed(needle, origin, user !== null));
       if (failure.verdict === SignInVerdict.Locked) {
         if (failure.justLocked) {
           await security(c, "ACCOUNT_HARD_LOCKED", AuditSeverityCode.Critical, { username: needle, userId: user?.id });
@@ -491,7 +500,7 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
     const held = await guard.check(user.email, origin, true);
     if (held.verdict !== SignInVerdict.Proceed) return refused(c, held);
     if (!(await deps.hasher.verify(parsed.data.pin, user.pinHash))) {
-      const failure = await guard.failed(user.email, origin, true);
+      const failure = await atomically(() => guard.failed(user.email, origin, true));
       await security(c, "STEP_UP_FAILED", AuditSeverityCode.Warning, { userId: user.id });
       if (failure.verdict === SignInVerdict.Locked || failure.verdict === SignInVerdict.Wait) return refused(c, failure);
       return c.json({ error: CurrentSecretRefusal.IncorrectPin, message: "رمز PIN غير صحيح." }, 403);

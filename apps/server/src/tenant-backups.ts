@@ -205,6 +205,9 @@ export function createTenantBackups(options: TenantBackupsOptions): TenantBackup
         await mkdir(stage, { mode: DIR_MODE });
         const dbFile = path.join(stage, "db.sqlite");
         const backend = await router.backendOf(tenant.id);
+        if (!backend.backupTo) {
+          throw refuse(TenantBackupRefusal.ExportFailed, "تصدير الملف غير متاح لهذه المنشأة", "A file export is not available for this company's database", 422);
+        }
         await backend.backupTo(dbFile);
         scrubSnapshot(dbFile);
 

@@ -42,7 +42,7 @@ import {
   type WebhookDTO,
   type WebhookDeliveryDTO,
 } from "@mezan/contracts";
-import type { SqliteIntegrationStore, WebhookDeliveryStats } from "@mezan/persistence";
+import type { IntegrationStore, WebhookDeliveryStats } from "@mezan/persistence";
 import { createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
 import { recordAdminEvent, recordSecurityAdminEvent } from "./admin-audit.js";
 
@@ -93,7 +93,7 @@ export function hashApiKeyToken(token: string): string {
 }
 
 export interface IntegrationsRoutesDeps {
-  readonly store: SqliteIntegrationStore;
+  readonly store: IntegrationStore;
   readonly tenantCode: string;
   readonly audit: AuditSink;
   readonly userName: (userId: string) => Promise<string | null>;
@@ -162,7 +162,7 @@ function newSigningSecret(): string {
 }
 
 /** Queues one delivery per active subscription to `event`. Synchronous: it runs on the bus. */
-export async function enqueueWebhookDeliveries(store: SqliteIntegrationStore, event: DomainEvent, nowIso: string): Promise<number> {
+export async function enqueueWebhookDeliveries(store: IntegrationStore, event: DomainEvent, nowIso: string): Promise<number> {
   const subscribers = await store.webhooks.subscribedTo(event.code);
   for (const webhook of subscribers) {
     const id = randomUUID();

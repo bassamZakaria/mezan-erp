@@ -13,7 +13,7 @@ import {
   recordSensitiveEvent,
   type BranchEtaDevice,
 } from "@mezan/domain";
-import { createSqlitePosStore, withSqliteTransaction } from "@mezan/persistence";
+import { createSqlitePosStore, createPosStore } from "@mezan/persistence";
 import type { BackendArea, BackendModuleContext } from "../module-context.js";
 
 async function ensureWalkInCustomer(ctx: BackendModuleContext): Promise<string> {
@@ -31,7 +31,7 @@ async function ensureWalkInCustomer(ctx: BackendModuleContext): Promise<string> 
   // Every counter sale that names no buyer hangs off this party, so it carries
   // real receivables — and it was the one customer the product created with no
   // record of when or why it appeared in the register.
-  await withSqliteTransaction(ctx.sqlite, async () => {
+  await ctx.db.transaction(async () => {
     await customers.save(walkIn);
     await recordSensitiveEvent(ctx.audit, {
       module: "pos",
@@ -49,11 +49,11 @@ async function ensureWalkInCustomer(ctx: BackendModuleContext): Promise<string> 
 /** POS master data: terminals, payment methods, POS settings, and the platform's shift templates. */
 export const area: BackendArea = {
   mount(ctx) {
-    const store = createSqlitePosStore(ctx.sqlite);
+    const store = ctx.store((s) => createSqlitePosStore(s), (d) => createPosStore(d));
     ctx.addCloser(store);
     const { branches, warehouses, treasuryAccounts, eta } = ctx.stores;
     // The boundary a config write shares with its audit row (D298).
-    const transactor: ConfigTransactor = { run: (fn) => withSqliteTransaction(ctx.sqlite, fn) };
+    const transactor: ConfigTransactor = { run: (fn) => ctx.db.transaction(fn) };
 
     ctx.app.route(
       "/pos/terminals",

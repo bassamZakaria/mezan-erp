@@ -417,7 +417,7 @@ export interface CreateAppOptions {
   /** Mounts `/warehouses` (docs/archive/catalog/09) when present — omit it for no `/warehouses` route. */
   readonly warehouseStore?: WarehouseRepository;
   /** What still ties a warehouse to its branch; without it a warehouse can be re-homed under stock and open documents. */
-  readonly warehouseUse?: (warehouseId: string) => WarehouseUse;
+  readonly warehouseUse?: (warehouseId: string) => WarehouseUse | Promise<WarehouseUse>;
   /** Mounts `/customers` (docs/archive/catalog/01 "العملاء") when present — omit it for no `/customers` route. */
   readonly customerStore?: CustomerRepository;
   /** Mounts `/suppliers` (docs/archive/catalog/02 "الموردون") when present — omit it for no `/suppliers` route. */
@@ -433,7 +433,7 @@ export interface CreateAppOptions {
   /** The transaction a create route shares with what it writes beside the record, so a refused create leaves nothing. */
   readonly createTransactor?: ConfigTransactor;
   /** LEDGER INVARIANT: reads every document-number counter, so a refused create that drew one is rolled back whole (`refusedCreateRollsBack`). */
-  readonly numbersDrawn?: () => string;
+  readonly numbersDrawn?: () => string | Promise<string>;
   /** مجموعات الضرائب (R6.4) — mounts `/tax-groups` when present. */
   readonly taxGroupRepo?: TaxGroupRepository;
   /** Mounts `/tax-rates` (docs/archive/catalog/04 "الضرائب") when present — omit it for no `/tax-rates` route. */

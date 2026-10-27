@@ -1,5 +1,5 @@
 import { createIntegrationsRoutes, enqueueWebhookDeliveries, INTEGRATIONS_MOUNT } from "@mezan/api";
-import { createSqliteIdempotentRequestStore, createSqliteIntegrationStore } from "@mezan/persistence";
+import { createSqliteIdempotentRequestStore, createSqliteIntegrationStore, createIdempotentRequestStore, createIntegrationStore } from "@mezan/persistence";
 import type { BackendArea, BackendModuleContext } from "../module-context.js";
 import { createIntegrationsGateway, currentUserGrant, type Turn } from "../integrations/gateway.js";
 import { startWebhookDeliveryWorker } from "../integrations/delivery-worker.js";
@@ -20,7 +20,7 @@ export const area: BackendArea = {
     const { tenantCode } = ctx.integrations;
     const now = () => new Date();
     const turn = turnOf(ctx);
-    const store = createSqliteIntegrationStore(ctx.sqlite, ctx.secrets);
+    const store = ctx.store((s) => createSqliteIntegrationStore(s, ctx.secrets), (d) => createIntegrationStore(d, ctx.secrets));
     const worker = startWebhookDeliveryWorker({
       store,
       transport: ctx.integrations.transport ?? createPinnedWebhookTransport(),
@@ -56,7 +56,7 @@ export const area: BackendArea = {
     ctx.integrationsSlot.gateway = createIntegrationsGateway({
       tenantCode,
       store,
-      idempotency: createSqliteIdempotentRequestStore(ctx.sqlite),
+      idempotency: ctx.store((s) => createSqliteIdempotentRequestStore(s), (d) => createIdempotentRequestStore(d)),
       uow: ctx.uow,
       audit: ctx.audit,
       turn,

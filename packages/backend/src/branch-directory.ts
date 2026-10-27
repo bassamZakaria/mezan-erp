@@ -1,10 +1,11 @@
 import type Database from "better-sqlite3";
 import { BranchAccess, BranchRecordKind, type BranchDirectory } from "@mezan/api";
 import { documentIdOfConfirmRequest } from "@mezan/domain";
-import { WAREHOUSE_FAMILIES, lineWarehousesOf, linesColumnOf, warehouseColumnsOf } from "./warehouse-families.js";
+import type { SqlDb } from "@mezan/persistence";
+import { WAREHOUSE_FAMILIES, columnsOfTable, lineWarehousesOf, linesColumnIn, linesColumnOf, warehouseColumnsIn, warehouseColumnsOf } from "./warehouse-families.js";
 
 type Branches = readonly (string | null)[] | null;
-type Resolver = (id: string, access: BranchAccess) => Branches;
+type Resolver = (id: string, access: BranchAccess) => Promise<Branches>;
 
 const K = BranchRecordKind;
 
@@ -120,6 +121,10 @@ function text(value: unknown): string | null {
   return typeof value === "string" && value !== "" ? value : null;
 }
 
+type Rows = Record<string, unknown>[];
+type Query = (id: string, docType?: string) => Promise<Rows>;
+type QueryFactory = (sql: string) => Query;
+
 /**
  * SECURITY: the one place a record's branch is read for the branch boundary.
  * It reads the STORED row — never a request body — so the answer cannot be
@@ -132,12 +137,30 @@ function text(value: unknown): string | null {
  * nothing to refuse.
  */
 export function createSqliteBranchDirectory(sqlite: Database.Database): BranchDirectory {
-  type Query = (id: string, docType?: string) => Record<string, unknown>[];
-  const query = (sql: string): Query => {
+  const query: QueryFactory = (sql) => {
     const statement = sqlite.prepare(sql);
-    return (id, docType) => statement.all(docType === undefined ? { id } : { id, docType }) as Record<string, unknown>[];
+    return async (id, docType) => statement.all(docType === undefined ? { id } : { id, docType }) as Rows;
   };
-  const found = (rows: Record<string, unknown>[]): Branches => (rows.length === 0 ? null : rows.map((row) => text(row["b"])));
+  return buildBranchDirectory(query, (table) => warehouseColumnsOf(sqlite, table), (table) => linesColumnOf(sqlite, table));
+}
+
+export async function createBranchDirectory(db: SqlDb): Promise<BranchDirectory> {
+  const query: QueryFactory = (sql) => {
+    const order: string[] = [];
+    const positional = sql.replace(/@(id|docType)\b/g, (_match, name: string) => {
+      order.push(name);
+      return "?";
+    });
+    return (id, docType) => db.all<Record<string, unknown>>(positional, order.map((name) => (name === "id" ? id : docType ?? null)));
+  };
+  const columns = new Map<string, readonly string[]>();
+  for (const family of WAREHOUSE_FAMILIES) columns.set(family.table, await columnsOfTable(db, family.table));
+  const columnsOf = (table: string): readonly string[] => columns.get(table) ?? [];
+  return buildBranchDirectory(query, (table) => warehouseColumnsIn(columnsOf(table)), (table) => linesColumnIn(columnsOf(table)));
+}
+
+function buildBranchDirectory(query: QueryFactory, warehouseColumns: (table: string) => readonly string[], linesColumn: (table: string) => string | null): BranchDirectory {
+  const found = (rows: Rows): Branches => (rows.length === 0 ? null : rows.map((row) => text(row["b"])));
 
   const columnQueries = new Map<BranchRecordKind, Query>(
     (Object.entries(COLUMN_SOURCES) as [BranchRecordKind, ColumnSource][]).map(([kind, source]) => [
@@ -171,117 +194,130 @@ export function createSqliteBranchDirectory(sqlite: Database.Database): BranchDi
     etaReceiptGap: query("SELECT internal_id FROM eta_receipt_gap WHERE internal_id = @id"),
   };
 
-  const warehouseBranch = (warehouseId: unknown): string | null => {
+  const warehouseBranch = async (warehouseId: unknown): Promise<string | null> => {
     const id = text(warehouseId);
-    return id ? text(sql.warehouse(id)[0]?.["b"]) : null;
+    return id ? text((await sql.warehouse(id))[0]?.["b"]) : null;
   };
 
-  const firstOf = (kinds: readonly BranchRecordKind[], id: string, access: BranchAccess): Branches => {
+  const firstOf = async (kinds: readonly BranchRecordKind[], id: string, access: BranchAccess): Promise<Branches> => {
     for (const kind of kinds) {
-      const branches = resolve(kind, id, access);
+      const branches = await resolve(kind, id, access);
       if (branches !== null) return branches;
     }
     return null;
   };
 
-  const frameworkDocument = (id: string, docType: string | undefined, access: BranchAccess): Branches => {
-    const row = docType ? sql.frameworkTyped(id, docType)[0] : sql.frameworkAny(id)[0];
+  const frameworkDocument = async (id: string, docType: string | undefined, access: BranchAccess): Promise<Branches> => {
+    const row = docType ? (await sql.frameworkTyped(id, docType))[0] : (await sql.frameworkAny(id))[0];
     if (!row) return null;
-    return parseLines(row["lines_json"]).map((line) => {
-      const own = text(line["branchId"]) ?? warehouseBranch(line["warehouseId"]);
-      if (own) return own;
+    const branches: (string | null)[] = [];
+    for (const line of parseLines(row["lines_json"])) {
+      const own = text(line["branchId"]) ?? (await warehouseBranch(line["warehouseId"]));
+      if (own) {
+        branches.push(own);
+        continue;
+      }
       const source = text(line["sourceInvoiceId"]);
-      return source ? (firstOf(SOURCE_DOCUMENT_KINDS, source, access)?.find((branch) => branch !== null) ?? null) : null;
-    });
+      branches.push(source ? ((await firstOf(SOURCE_DOCUMENT_KINDS, source, access))?.find((branch) => branch !== null) ?? null) : null);
+    }
+    return branches;
   };
 
-  const stockDocument = (table: StockDocumentTable, id: string, warehouseKeys: readonly string[]): Branches => {
-    const row = stockDocumentQueries[table](id)[0];
+  const warehouseBranches = async (warehouseIds: readonly unknown[]): Promise<(string | null)[]> => {
+    const branches: (string | null)[] = [];
+    for (const warehouseId of warehouseIds) branches.push(await warehouseBranch(warehouseId));
+    return branches;
+  };
+
+  const stockDocument = async (table: StockDocumentTable, id: string, warehouseKeys: readonly string[]): Promise<Branches> => {
+    const row = (await stockDocumentQueries[table](id))[0];
     if (!row) return null;
-    return parseLines(row["lines_json"]).flatMap((line) => warehouseKeys.map((key) => warehouseBranch(line[key])));
+    return warehouseBranches(parseLines(row["lines_json"]).flatMap((line) => warehouseKeys.map((key) => line[key])));
   };
 
   const special: Partial<Record<BranchRecordKind, Resolver>> = {
-    [K.Branch]: (id) => [id],
-    [K.JournalEntry]: (id) => found(sql.journalEntry(id)),
-    [K.RecurringTemplate]: (id) => {
-      const row = sql.recurringTemplate(id)[0];
+    [K.Branch]: async (id) => [id],
+    [K.JournalEntry]: async (id) => found(await sql.journalEntry(id)),
+    [K.RecurringTemplate]: async (id) => {
+      const row = (await sql.recurringTemplate(id))[0];
       return row ? parseLines(row["lines"]).map((line) => text(line["branchId"])) : null;
     },
-    [K.RecurringRun]: (id, access) => {
-      const row = sql.recurringRun(id)[0];
+    [K.RecurringRun]: async (id, access) => {
+      const row = (await sql.recurringRun(id))[0];
       const templateId = text(row?.["template_id"]);
-      return row ? (templateId ? (resolve(K.RecurringTemplate, templateId, access) ?? []) : []) : null;
+      return row ? (templateId ? ((await resolve(K.RecurringTemplate, templateId, access)) ?? []) : []) : null;
     },
     [K.StockAdjustment]: (id) => stockDocument("stock_adjustment_document", id, ["warehouseId"]),
     [K.StockTransfer]: (id) => stockDocument("stock_transfer_document", id, ["fromWarehouseId", "toWarehouseId"]),
-    [K.PostedStockDocument]: (id) => found(sql.postedStock(id)),
-    [K.WritedownRun]: (id) => {
-      const row = sql.writedownRun(id)[0];
+    [K.PostedStockDocument]: async (id) => found(await sql.postedStock(id)),
+    [K.WritedownRun]: async (id) => {
+      const row = (await sql.writedownRun(id))[0];
       if (!row) return null;
-      const own = warehouseBranch(row["warehouse_id"]);
-      return own ? [own] : parseLines(row["lines"]).map((line) => warehouseBranch(line["warehouseId"]));
+      const own = await warehouseBranch(row["warehouse_id"]);
+      return own ? [own] : warehouseBranches(parseLines(row["lines"]).map((line) => line["warehouseId"]));
     },
-    [K.DepreciationRun]: (id, access) => {
-      const row = sql.depreciationRun(id)[0];
+    [K.DepreciationRun]: async (id, access) => {
+      const row = (await sql.depreciationRun(id))[0];
       if (!row) return null;
       const own = text(row["branch_id"]);
       if (own) return [own];
-      return parseLines(row["lines"]).flatMap((line) => {
+      const branches: (string | null)[] = [];
+      for (const line of parseLines(row["lines"])) {
         const assetId = text(line["assetId"]);
-        return assetId ? (resolve(K.Asset, assetId, access) ?? []) : [];
-      });
+        if (assetId) branches.push(...((await resolve(K.Asset, assetId, access)) ?? []));
+      }
+      return branches;
     },
-    [K.ConfigInstance]: (id, access) => {
-      const row = sql.configInstance(id)[0];
+    [K.ConfigInstance]: async (id, access) => {
+      const row = (await sql.configInstance(id))[0];
       const workOrderId = text(row?.["work_order_id"]);
-      return row ? (workOrderId ? (resolve(K.WorkOrder, workOrderId, access) ?? []) : []) : null;
+      return row ? (workOrderId ? ((await resolve(K.WorkOrder, workOrderId, access)) ?? []) : []) : null;
     },
-    [K.VoucherAllocation]: (id, access) => {
-      const row = sql.voucherAllocation(id)[0];
+    [K.VoucherAllocation]: async (id, access) => {
+      const row = (await sql.voucherAllocation(id))[0];
       if (!row) return null;
       const voucherId = text(row["voucher_id"]);
       const invoiceId = text(row["invoice_id"]);
       return [
-        ...(voucherId ? (resolve(K.Voucher, voucherId, access) ?? []) : []),
-        ...(invoiceId ? (resolve(K.AnyInvoice, invoiceId, access) ?? []) : []),
+        ...(voucherId ? ((await resolve(K.Voucher, voucherId, access)) ?? []) : []),
+        ...(invoiceId ? ((await resolve(K.AnyInvoice, invoiceId, access)) ?? []) : []),
       ];
     },
-    [K.CollectionFollowUp]: (id, access) => {
-      const row = sql.followUp(id)[0];
+    [K.CollectionFollowUp]: async (id, access) => {
+      const row = (await sql.followUp(id))[0];
       const planId = text(row?.["installment_plan_id"]);
-      return row ? (planId ? (resolve(K.InstallmentPlan, planId, access) ?? []) : []) : null;
+      return row ? (planId ? ((await resolve(K.InstallmentPlan, planId, access)) ?? []) : []) : null;
     },
-    [K.ApprovalRequest]: (id, access) => {
-      const request = sql.approvalRequest(id)[0];
+    [K.ApprovalRequest]: async (id, access) => {
+      const request = (await sql.approvalRequest(id))[0];
       if (!request) return null;
       for (const [heldBy, kind] of workflowHeldQueries) {
-        const held = text(heldBy(id)[0]?.["id"]);
-        if (held) return resolve(kind, held, access) ?? [];
+        const held = text((await heldBy(id))[0]?.["id"]);
+        if (held) return (await resolve(kind, held, access)) ?? [];
       }
       const documentId = text(request["document_id"]) ?? documentIdOfConfirmRequest(id);
-      return documentId ? (firstOf(ANY_DOCUMENT_KINDS, documentId, access) ?? []) : [];
+      return documentId ? ((await firstOf(ANY_DOCUMENT_KINDS, documentId, access)) ?? []) : [];
     },
-    [K.EtaSubmission]: (id, access) => {
-      const row = sql.etaSubmission(id)[0];
+    [K.EtaSubmission]: async (id, access) => {
+      const row = (await sql.etaSubmission(id))[0];
       const internalId = text(row?.["internal_id"]);
-      return row ? (internalId ? (firstOf(ANY_DOCUMENT_KINDS, internalId, access) ?? []) : []) : null;
+      return row ? (internalId ? ((await firstOf(ANY_DOCUMENT_KINDS, internalId, access)) ?? []) : []) : null;
     },
-    [K.EtaReceipt]: (id, access) => {
-      const known = sql.etaSubmissionOf(id).length > 0 || sql.etaReceiptGap(id).length > 0;
-      return known ? (firstOf(ANY_DOCUMENT_KINDS, id, access) ?? []) : null;
+    [K.EtaReceipt]: async (id, access) => {
+      const known = (await sql.etaSubmissionOf(id)).length > 0 || (await sql.etaReceiptGap(id)).length > 0;
+      return known ? ((await firstOf(ANY_DOCUMENT_KINDS, id, access)) ?? []) : null;
     },
     [K.AnyInvoice]: (id, access) => firstOf([K.SalesInvoice, K.PurchaseInvoice], id, access),
     [K.SourceDocument]: (id, access) => firstOf(SOURCE_DOCUMENT_KINDS, id, access),
     [K.AnyDocument]: (id, access) => firstOf(ANY_DOCUMENT_KINDS, id, access),
   };
 
-  function resolve(kind: BranchRecordKind, id: string, access: BranchAccess): Branches {
+  async function resolve(kind: BranchRecordKind, id: string, access: BranchAccess): Promise<Branches> {
     const fromColumns = columnQueries.get(kind);
-    if (fromColumns) return found(fromColumns(id));
+    if (fromColumns) return found(await fromColumns(id));
     const docType = FRAMEWORK_DOC_TYPE[kind];
     if (docType) return frameworkDocument(id, docType, access);
-    return special[kind]?.(id, access) ?? null;
+    return (await special[kind]?.(id, access)) ?? null;
   }
 
   interface FamilyRead {
@@ -291,8 +327,8 @@ export function createSqliteBranchDirectory(sqlite: Database.Database): BranchDi
   }
   const familyReads = new Map<BranchRecordKind, FamilyRead>(
     WAREHOUSE_FAMILIES.map((family) => {
-      const columns = warehouseColumnsOf(sqlite, family.table);
-      const lines = linesColumnOf(sqlite, family.table);
+      const columns = warehouseColumns(family.table);
+      const lines = linesColumn(family.table);
       const selected = [...columns, ...(lines ? [lines] : [])];
       if (selected.length === 0) throw new Error(`warehouse family "${family.table}" names no warehouse column and carries no lines`);
       const byNumber = family.numberColumn ? ` OR d.${family.numberColumn} = @id` : "";
@@ -311,36 +347,36 @@ export function createSqliteBranchDirectory(sqlite: Database.Database): BranchDi
   };
   const present = (values: readonly unknown[]): string[] => [...new Set(values.map(text).filter((value): value is string => value !== null))];
 
-  function warehousesOf(kind: BranchRecordKind, id: string): readonly string[] | null {
-    if (kind === K.Warehouse) return sql.warehouse(id).length === 0 ? null : [id];
+  async function warehousesOf(kind: BranchRecordKind, id: string): Promise<readonly string[] | null> {
+    if (kind === K.Warehouse) return (await sql.warehouse(id)).length === 0 ? null : [id];
     const family = familyReads.get(kind);
     if (family) {
-      const rows = family.rows(id);
+      const rows = await family.rows(id);
       if (rows.length === 0) return null;
       return present(rows.flatMap((row) => [...family.columns.map((column) => row[column]), ...(family.lines ? lineWarehousesOf(row[family.lines]) : [])]));
     }
     if (kind === K.SiteReceipt) {
-      const rows = siteReceiptWarehouses(id);
+      const rows = await siteReceiptWarehouses(id);
       return rows.length === 0 ? null : present(rows.flatMap((row) => [row["destination"], row["transit"]]));
     }
     if (kind === K.PostedStockDocument) {
-      const rows = postedStockWarehouses(id);
+      const rows = await postedStockWarehouses(id);
       return rows.length === 0 ? null : present(rows.map((row) => row["w"]));
     }
     for (const member of WAREHOUSE_COMPOSITES[kind] ?? []) {
-      const warehouses = warehousesOf(member, id);
+      const warehouses = await warehousesOf(member, id);
       if (warehouses !== null) return warehouses;
     }
-    return resolve(kind, id, BranchAccess.Read) === null ? null : [];
+    return (await resolve(kind, id, BranchAccess.Read)) === null ? null : [];
   }
 
-  function actingWarehousesOf(kind: BranchRecordKind, id: string): readonly string[] | null {
+  async function actingWarehousesOf(kind: BranchRecordKind, id: string): Promise<readonly string[] | null> {
     if (kind === K.SiteReceipt) {
-      const row = siteReceiptWarehouses(id)[0];
+      const row = (await siteReceiptWarehouses(id))[0];
       return row ? present([row["destination"]]) : null;
     }
     const columns = ACTING_WAREHOUSE_COLUMNS[kind];
-    const row = columns ? familyReads.get(kind)?.rows(id)[0] : undefined;
+    const row = columns ? (await familyReads.get(kind)?.rows(id))?.[0] : undefined;
     return row && columns ? present(columns.map((column) => row[column])) : null;
   }
 

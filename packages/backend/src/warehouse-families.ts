@@ -1,5 +1,6 @@
 import type Database from "better-sqlite3";
 import { BranchRecordKind } from "@mezan/api";
+import { SqlDialect, type SqlDb } from "@mezan/persistence";
 
 const K = BranchRecordKind;
 
@@ -89,12 +90,31 @@ function columnsOf(sqlite: Database.Database, table: string): string[] {
   return (sqlite.prepare(`PRAGMA table_info("${table}")`).all() as { name: string }[]).map((column) => column.name);
 }
 
+export async function columnsOfTable(db: SqlDb, table: string): Promise<string[]> {
+  if (db.dialect === SqlDialect.Postgres) {
+    const rows = await db.all<{ column_name: string }>(
+      "SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = ? ORDER BY ordinal_position",
+      [table],
+    );
+    return rows.map((row) => row.column_name);
+  }
+  return (await db.all<{ name: string }>(`PRAGMA table_info("${table}")`)).map((column) => column.name);
+}
+
+export function warehouseColumnsIn(columns: readonly string[]): string[] {
+  return columns.filter((column) => WAREHOUSE_COLUMN.test(column));
+}
+
+export function linesColumnIn(columns: readonly string[]): string | null {
+  return columns.find((column) => LINES_COLUMN.test(column)) ?? null;
+}
+
 export function warehouseColumnsOf(sqlite: Database.Database, table: string): string[] {
-  return columnsOf(sqlite, table).filter((column) => WAREHOUSE_COLUMN.test(column));
+  return warehouseColumnsIn(columnsOf(sqlite, table));
 }
 
 export function linesColumnOf(sqlite: Database.Database, table: string): string | null {
-  return columnsOf(sqlite, table).find((column) => LINES_COLUMN.test(column)) ?? null;
+  return linesColumnIn(columnsOf(sqlite, table));
 }
 
 export function hasStatus(sqlite: Database.Database, table: string): boolean {

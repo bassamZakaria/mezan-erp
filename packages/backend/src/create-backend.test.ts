@@ -4552,7 +4552,7 @@ describe("backupTo", () => {
     ).toBe(201);
 
     const destination = path.join(dir, "backup.sqlite");
-    await handle.backupTo(destination);
+    await handle.backupTo!(destination);
 
     expect(existsSync(destination)).toBe(true);
     const { sqlite: copy } = openSqliteConnection(destination);

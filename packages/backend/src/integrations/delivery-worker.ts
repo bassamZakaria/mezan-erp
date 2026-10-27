@@ -20,7 +20,7 @@ import {
   type WebhookDeliveryRecord,
   type WebhookRecord,
 } from "@mezan/domain";
-import type { SqliteIntegrationStore } from "@mezan/persistence";
+import type { IntegrationStore } from "@mezan/persistence";
 import type { Turn, UserGrant } from "./gateway.js";
 import { signWebhookPayload, type WebhookTransport } from "./webhook-transport.js";
 
@@ -33,7 +33,7 @@ enum SkipReason {
 }
 
 export interface WebhookDeliveryWorkerDeps {
-  readonly store: SqliteIntegrationStore;
+  readonly store: IntegrationStore;
   readonly transport: WebhookTransport;
   readonly turn: Turn;
   readonly grantOf: (userId: string) => Promise<UserGrant | null>;

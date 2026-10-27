@@ -123,6 +123,14 @@ export async function assertCollation(admin: pg.Pool | pg.Client): Promise<void>
   if (row.datcollate !== "C" || row.datctype !== "C") throw new UnsupportedCollationError(row.datcollate, row.datctype);
 }
 
+const INSUFFICIENT_PRIVILEGE = "42501";
+
+async function ownerOnly(statement: Promise<unknown>): Promise<void> {
+  await statement.catch((error: { code?: string }) => {
+    if (error.code !== INSUFFICIENT_PRIVILEGE) throw error;
+  });
+}
+
 // Run as the database owner; safe to repeat. The role is the schema's only
 // grantee, so a query that names another tenant's schema is refused by Postgres
 // itself. A repeat resets the role's password to the one given.
@@ -134,8 +142,9 @@ export async function provisionTenantSchema(admin: pg.Pool | pg.Client, schema: 
     [schema],
   );
   const { db: database, exists } = rows[0]!;
-  await admin.query("REVOKE ALL ON SCHEMA public FROM PUBLIC");
-  await admin.query(`REVOKE ALL ON DATABASE ${pg.escapeIdentifier(database)} FROM PUBLIC`);
+  // The deploy's init SQL runs these as the superuser; the app's non-superuser role is refused and moves on.
+  await ownerOnly(admin.query("REVOKE ALL ON SCHEMA public FROM PUBLIC"));
+  await ownerOnly(admin.query(`REVOKE ALL ON DATABASE ${pg.escapeIdentifier(database)} FROM PUBLIC`));
   const verb = exists ? "ALTER" : "CREATE";
   await admin.query(`${verb} ROLE ${schema} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT CONNECTION LIMIT ${ROLE_CONNECTION_LIMIT} PASSWORD ${pg.escapeLiteral(scramVerifier(password))}`);
   await admin.query(`ALTER ROLE ${schema} SET statement_timeout = '${ROLE_STATEMENT_TIMEOUT}'`);

@@ -151,7 +151,9 @@ snapshot_data() {
   log "dumping the Postgres books to $target/pg-dump/"
   dump_books "$target/pg-dump"
   chmod 700 "$target"
-  ls -1dt "$PREDEPLOY_ROOT"/*/ 2>/dev/null | tail -n +$((KEEP_PREDEPLOY_COPIES + 1)) | xargs -r rm -rf
+  # A failed-… copy holds the only record of writes made while a failed tag ran; it is never counted or pruned here.
+  # shellcheck disable=SC2010
+  ls -1dt "$PREDEPLOY_ROOT"/*/ 2>/dev/null | { grep -v '/failed-' || true; } | tail -n +$((KEEP_PREDEPLOY_COPIES + 1)) | xargs -r rm -rf
 }
 
 # RFC 7677 / Postgres format: SCRAM-SHA-256$<iterations>:<salt>$<StoredKey>:<ServerKey>, password on stdin.

@@ -60,6 +60,7 @@ run_dump() {
   [ -z "$missing" ] || { log "served companies with no schema: $missing"; false; }
   grep -qx platform <<<"$list" || { log "no platform schema"; false; }
   # Left by a run that died; the timer's unit never runs twice at once.
+  mkdir -p "$DUMP_ROOT"
   find "$DUMP_ROOT" -mindepth 1 -maxdepth 1 -name '*.partial' -exec rm -rf {} +
   mkdir -p "$target.partial"
   for schema in $list; do
@@ -101,6 +102,7 @@ run_base() {
 
 run_drill() {
   local newest scratch dump schema imbalance checked=0
+  mkdir -p "$DUMP_ROOT"
   newest="$(find "$DUMP_ROOT" -mindepth 1 -maxdepth 1 -type d ! -name '*.partial' | sort | tail -n 1)"
   [ -n "$newest" ] || { log "no dump to drill"; exit 1; }
   scratch="drill_$(date -u +%Y%m%d%H%M%S)"

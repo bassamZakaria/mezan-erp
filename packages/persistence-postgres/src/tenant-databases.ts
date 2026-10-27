@@ -1,7 +1,7 @@
 import { createHmac } from "node:crypto";
 import pg from "pg";
 import type { SqlDb } from "@mezan/persistence";
-import { assertCollation, assertSchemaName, createTenantPool, deriveRolePassword, PLATFORM_SCHEMA, postgresDb, provisionTenantSchema } from "./postgres-db.js";
+import { assertCollation, assertSchemaName, CONNECT_TIMEOUT_MS, createTenantPool, deriveRolePassword, PLATFORM_SCHEMA, postgresDb, provisionTenantSchema } from "./postgres-db.js";
 
 const SECRET_RE = /^[0-9a-f]{64}$/;
 
@@ -21,6 +21,7 @@ export interface TenantDatabasesOptions {
   readonly connectionString: string;
   readonly secret: string;
   readonly maxConnectionsPerSchema?: number;
+  readonly onPoolError?: (error: Error, schema: string) => void;
 }
 
 export interface SchemaDatabase {
@@ -37,7 +38,8 @@ export class TenantDatabases {
 
   constructor(private readonly options: TenantDatabasesOptions) {
     if (!SECRET_RE.test(options.secret)) throw new InvalidTenantDbSecretError();
-    this.admin = new pg.Pool({ connectionString: options.connectionString, max: 2 });
+    this.admin = new pg.Pool({ connectionString: options.connectionString, max: 2, connectionTimeoutMillis: CONNECT_TIMEOUT_MS });
+    this.admin.on("error", (error) => options.onPoolError?.(error, "admin"));
   }
 
   assertCollation(): Promise<void> {
@@ -61,7 +63,8 @@ export class TenantDatabases {
         connectionString: this.options.connectionString,
         schema,
         password: deriveRolePassword(this.options.secret, schema),
-        max: this.options.maxConnectionsPerSchema ?? 5,
+        max: this.options.maxConnectionsPerSchema ?? 3,
+        ...(this.options.onPoolError ? { onError: this.options.onPoolError } : {}),
       });
       entry = { schema, pool, db: postgresDb(pool, schema) };
       this.open.set(schema, entry);

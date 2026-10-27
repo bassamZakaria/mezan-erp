@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { createHmac } from "node:crypto";
+import { createHash, createHmac, pbkdf2Sync, randomBytes } from "node:crypto";
 import pg from "pg";
 import { declaredAddableColumns, numberedPlaceholders, SqlDialect, type RunResult, type SqlDb, type SqlValue } from "@mezan/persistence";
 import { translateDdl } from "./translate-ddl.js";
@@ -36,6 +36,18 @@ export class ConnectionOptionsInUrlError extends Error {
   }
 }
 
+export class ConnectionParameterInUrlError extends Error {
+  constructor(readonly parameter: string) {
+    super(`The Postgres connection string may not carry "${parameter}": only sslmode and application_name are allowed, so no parameter can replace a tenant's own role.`);
+  }
+}
+
+export class TenantRoleMismatchError extends Error {
+  constructor(readonly expected: string, readonly actual: string | null) {
+    super(`Connected as role "${actual ?? "?"}" for schema "${expected}": every tenant must connect as its own role.`);
+  }
+}
+
 export class TenantSchemaMismatchError extends Error {
   constructor(expected: string, actual: string | null) {
     super(`A connection for tenant schema "${expected}" is on "${actual ?? "(none)"}".`);
@@ -59,13 +71,21 @@ export function assertSchemaName(schema: string): string {
   return schema;
 }
 
+const ALLOWED_URL_PARAMETERS = new Set(["sslmode", "application_name"]);
+
 function tenantConnectionString(connectionString: string, schema: string, password: string): string {
   const url = new URL(connectionString);
   if (url.searchParams.has("options")) throw new ConnectionOptionsInUrlError();
+  for (const parameter of url.searchParams.keys()) if (!ALLOWED_URL_PARAMETERS.has(parameter)) throw new ConnectionParameterInUrlError(parameter);
   url.username = schema;
   url.password = password;
   return url.toString();
 }
+
+export const CONNECT_TIMEOUT_MS = 10_000;
+const ROLE_STATEMENT_TIMEOUT = "120s";
+const ROLE_IDLE_IN_TRANSACTION_TIMEOUT = "60s";
+const ROLE_CONNECTION_LIMIT = 10;
 
 export interface TenantPoolOptions {
   readonly connectionString: string;
@@ -73,6 +93,7 @@ export interface TenantPoolOptions {
   readonly password: string;
   readonly max?: number;
   readonly idleTimeoutMillis?: number;
+  readonly onError?: (error: Error, schema: string) => void;
 }
 
 // TENANT ISOLATION: each tenant connects as its own role, which owns its schema
@@ -81,13 +102,17 @@ export interface TenantPoolOptions {
 // issues `SET search_path` or `SET ROLE`.
 export function createTenantPool(options: TenantPoolOptions): pg.Pool {
   const schema = assertSchemaName(options.schema);
-  return new pg.Pool({
+  const pool = new pg.Pool({
     connectionString: tenantConnectionString(options.connectionString, schema, options.password),
     max: options.max ?? 5,
     idleTimeoutMillis: options.idleTimeoutMillis ?? 30_000,
+    connectionTimeoutMillis: CONNECT_TIMEOUT_MS,
     options: `-c search_path=${schema}`,
     types: typeParsers,
   });
+  // REQUIRED: an idle client whose server connection drops emits "error" on the pool; unheard, it crashes the process.
+  pool.on("error", (error) => options.onError?.(error, schema));
+  return pool;
 }
 
 export async function assertCollation(admin: pg.Pool | pg.Client): Promise<void> {
@@ -112,9 +137,22 @@ export async function provisionTenantSchema(admin: pg.Pool | pg.Client, schema: 
   await admin.query("REVOKE ALL ON SCHEMA public FROM PUBLIC");
   await admin.query(`REVOKE ALL ON DATABASE ${pg.escapeIdentifier(database)} FROM PUBLIC`);
   const verb = exists ? "ALTER" : "CREATE";
-  await admin.query(`${verb} ROLE ${schema} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT PASSWORD ${pg.escapeLiteral(password)}`);
+  await admin.query(`${verb} ROLE ${schema} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT CONNECTION LIMIT ${ROLE_CONNECTION_LIMIT} PASSWORD ${pg.escapeLiteral(scramVerifier(password))}`);
+  await admin.query(`ALTER ROLE ${schema} SET statement_timeout = '${ROLE_STATEMENT_TIMEOUT}'`);
+  await admin.query(`ALTER ROLE ${schema} SET idle_in_transaction_session_timeout = '${ROLE_IDLE_IN_TRANSACTION_TIMEOUT}'`);
   await admin.query(`GRANT CONNECT ON DATABASE ${pg.escapeIdentifier(database)} TO ${schema}`);
   await admin.query(`CREATE SCHEMA IF NOT EXISTS ${schema} AUTHORIZATION ${schema}`);
+}
+
+const SCRAM_ITERATIONS = 4096;
+
+// SECURITY: Postgres stores this verifier as-is, so the plaintext password never travels in a statement a server log could keep.
+export function scramVerifier(password: string): string {
+  const salt = randomBytes(16);
+  const salted = pbkdf2Sync(password, salt, SCRAM_ITERATIONS, 32, "sha256");
+  const storedKey = createHash("sha256").update(createHmac("sha256", salted).update("Client Key").digest()).digest();
+  const serverKey = createHmac("sha256", salted).update("Server Key").digest();
+  return `SCRAM-SHA-256$${SCRAM_ITERATIONS}:${salt.toString("base64")}$${storedKey.toString("base64")}:${serverKey.toString("base64")}`;
 }
 
 export function deriveRolePassword(secret: string, schema: string): string {
@@ -172,8 +210,16 @@ class PostgresDb implements SqlDb {
   async applySchema(ddl: string): Promise<void> {
     const translated = translateDdl(ddl);
     await this.transaction(async () => {
+      const present = new Set(
+        (await this.all<{ t: string; c: string }>("SELECT table_name AS t, column_name AS c FROM information_schema.columns WHERE table_schema = current_schema()")).map(
+          (row) => `${row.t}.${row.c}`,
+        ),
+      );
+      const tables = new Set([...present].map((key) => key.slice(0, key.indexOf("."))));
       for (const { table, name, type } of declaredAddableColumns(translated)) {
-        await this.exec(`ALTER TABLE IF EXISTS ${table} ADD COLUMN IF NOT EXISTS ${name} ${type}`);
+        const key = `${table.toLowerCase()}.${name.toLowerCase()}`;
+        if (!tables.has(table.toLowerCase()) || present.has(key)) continue;
+        await this.exec(`ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS ${name} ${type}`);
       }
       await this.exec(translated);
     });
@@ -195,11 +241,12 @@ class PostgresDb implements SqlDb {
       // REQUIRED: one writer per tenant at a time, as on SQLite. Every caller in
       // this codebase was written against SQLite's single writer, so check-then-
       // write sequences (stock, credit limits, numbering) rely on it.
-      const { rows } = await client.query<{ schema: string | null }>(
-        "SELECT pg_advisory_xact_lock($1, hashtext($2)), current_schema() AS schema",
+      const { rows } = await client.query<{ schema: string | null; role: string | null }>(
+        "SELECT pg_advisory_xact_lock($1, hashtext($2)), current_schema() AS schema, current_user AS role",
         [TENANT_LOCK_CLASS, this.schema],
       );
       if (rows[0]?.schema !== this.schema) throw new TenantSchemaMismatchError(this.schema, rows[0]?.schema ?? null);
+      if (rows[0]?.role !== this.schema) throw new TenantRoleMismatchError(this.schema, rows[0]?.role ?? null);
       const result = await this.current.run(tx, fn);
       // A statement that failed inside `fn` aborts the transaction even when `fn`
       // caught it, and Postgres then answers COMMIT with ROLLBACK, not an error.

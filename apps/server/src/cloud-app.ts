@@ -202,7 +202,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
   const ownerPassword = env.platformOwnerEmail ? (env.platformOwnerPassword ?? generateOwnerPassword()) : undefined;
   const owner = env.platformOwnerEmail && ownerPassword ? { email: env.platformOwnerEmail, password: ownerPassword } : undefined;
   const platformDbPath = path.join(env.platformDir, "platform.db");
-  const tenantDatabases = env.postgres ? new TenantDatabases({ connectionString: env.postgres.url, secret: env.postgres.tenantDbSecret }) : null;
+  const tenantDatabases = env.postgres ? new TenantDatabases({ connectionString: env.postgres.url, secret: env.postgres.tenantDbSecret, onPoolError: (err, schema) => log.error({ err, schema }, `a Postgres connection for ${schema} failed while idle`) }) : null;
   let platform: PlatformHandle;
   if (env.postgres && tenantDatabases) {
     await tenantDatabases.assertCollation();

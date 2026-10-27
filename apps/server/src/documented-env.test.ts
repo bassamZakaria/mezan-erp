@@ -16,6 +16,7 @@ const SAMPLE_VALUES: Record<string, string> = {
   MEZAN_SMTP_USERNAME: "smtp-user",
   MEZAN_SMTP_PASSWORD: "smtp-password",
   MEZAN_AUDIT_CHAIN_KEY: "c".repeat(64),
+  MEZAN_TENANT_DB_SECRET: "d".repeat(64),
 };
 
 const SERVER_VARIABLE = /^(?:MEZAN_[A-Z0-9_]+|PORT|NODE_ENV)$/;

@@ -1,9 +1,11 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import { createHmac } from "node:crypto";
 import pg from "pg";
 import { declaredAddableColumns, numberedPlaceholders, SqlDialect, type RunResult, type SqlDb, type SqlValue } from "@mezan/persistence";
 import { translateDdl } from "./translate-ddl.js";
 
 const TENANT_SCHEMA_RE = /^t_[a-z0-9_]{1,61}$/;
+export const PLATFORM_SCHEMA = "platform";
 const TENANT_LOCK_CLASS = 7301;
 
 const PG_INT2 = 21;
@@ -53,7 +55,7 @@ export class UnsupportedCollationError extends Error {
 }
 
 export function assertSchemaName(schema: string): string {
-  if (!TENANT_SCHEMA_RE.test(schema)) throw new InvalidSchemaNameError(schema);
+  if (schema !== PLATFORM_SCHEMA && !TENANT_SCHEMA_RE.test(schema)) throw new InvalidSchemaNameError(schema);
   return schema;
 }
 
@@ -96,18 +98,27 @@ export async function assertCollation(admin: pg.Pool | pg.Client): Promise<void>
   if (row.datcollate !== "C" || row.datctype !== "C") throw new UnsupportedCollationError(row.datcollate, row.datctype);
 }
 
-// Run as the database owner. The tenant role is the schema's only grantee, so a
-// query that names another tenant's schema is refused by Postgres itself.
+// Run as the database owner; safe to repeat. The role is the schema's only
+// grantee, so a query that names another tenant's schema is refused by Postgres
+// itself. A repeat resets the role's password to the one given.
 export async function provisionTenantSchema(admin: pg.Pool | pg.Client, schema: string, password: string): Promise<void> {
   assertSchemaName(schema);
   await assertCollation(admin);
-  const { rows } = await admin.query<{ db: string }>("SELECT current_database() AS db");
-  const database = rows[0]!.db;
+  const { rows } = await admin.query<{ db: string; exists: boolean }>(
+    "SELECT current_database() AS db, EXISTS (SELECT 1 FROM pg_roles WHERE rolname = $1) AS exists",
+    [schema],
+  );
+  const { db: database, exists } = rows[0]!;
   await admin.query("REVOKE ALL ON SCHEMA public FROM PUBLIC");
   await admin.query(`REVOKE ALL ON DATABASE ${pg.escapeIdentifier(database)} FROM PUBLIC`);
-  await admin.query(`CREATE ROLE ${schema} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT PASSWORD ${pg.escapeLiteral(password)}`);
+  const verb = exists ? "ALTER" : "CREATE";
+  await admin.query(`${verb} ROLE ${schema} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT PASSWORD ${pg.escapeLiteral(password)}`);
   await admin.query(`GRANT CONNECT ON DATABASE ${pg.escapeIdentifier(database)} TO ${schema}`);
-  await admin.query(`CREATE SCHEMA ${schema} AUTHORIZATION ${schema}`);
+  await admin.query(`CREATE SCHEMA IF NOT EXISTS ${schema} AUTHORIZATION ${schema}`);
+}
+
+export function deriveRolePassword(secret: string, schema: string): string {
+  return createHmac("sha256", secret).update(`mezan-tenant-role:${assertSchemaName(schema)}`).digest("hex");
 }
 
 interface Level {

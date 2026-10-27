@@ -264,7 +264,7 @@ describe("fx-revaluation router — the run record and the entry are one fact", 
         exchangeRates: seeded.exchangeRates,
         differenceAccounts: async () => ({ gainAccountId: "4940", lossAccountId: "5940" }),
         now: () => "2026-08-31T10:00:00.000Z",
-        recordRun: (run) => runs.push(run),
+        recordRun: (run) => void runs.push(run),
       },
       createSessionAuthContextResolver(sessions),
     );

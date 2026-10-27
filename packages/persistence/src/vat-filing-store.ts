@@ -1,7 +1,9 @@
 import type Database from "better-sqlite3";
 import { Money, type VatFiling, type VatFilingRepository, type VatFilingStatus } from "@mezan/domain";
 import { calendarDay } from "@mezan/domain";
-import { insertingNew, prepareInsertOnly } from "./insert-new.js";
+import { insertNew } from "./insert-new.js";
+import type { SqlDb, SqlValue } from "./sql/sql-db.js";
+import { sqliteDb } from "./sql/sqlite-db.js";
 
 /**
  * Filed VAT returns (docs/archive/defect-register.md D29). One row per submission; an amended
@@ -28,7 +30,7 @@ interface FilingRow {
   id: string;
   period_from: string;
   period_to: string;
-  net_amount: number;
+  net_amount: bigint;
   reference_no: string | null;
   status: string;
   filed_at: string;
@@ -52,77 +54,68 @@ function toFiling(row: FilingRow): VatFiling {
   };
 }
 
-class SqliteVatFilingStore implements VatFilingRepository {
-  private readonly upsert: Database.Statement;
-  private readonly insertOnly: Database.Statement;
-  private readonly selectById: Database.Statement;
-  private readonly selectAll: Database.Statement;
-  private readonly selectCovering: Database.Statement;
+const UPSERT = `
+  INSERT INTO vat_filing
+    (id, period_from, period_to, net_amount, reference_no, status, filed_at, filed_by, amended_at, amendment_reason)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  ON CONFLICT(id) DO UPDATE SET
+    period_from = excluded.period_from, period_to = excluded.period_to,
+    net_amount = excluded.net_amount, reference_no = excluded.reference_no,
+    status = excluded.status, filed_at = excluded.filed_at, filed_by = excluded.filed_by,
+    amended_at = excluded.amended_at, amendment_reason = excluded.amendment_reason`;
 
-  constructor(sqlite: Database.Database) {
-    this.upsert = sqlite.prepare(`
-      INSERT INTO vat_filing
-        (id, period_from, period_to, net_amount, reference_no, status, filed_at, filed_by, amended_at, amendment_reason)
-      VALUES
-        (@id, @period_from, @period_to, @net_amount, @reference_no, @status, @filed_at, @filed_by, @amended_at, @amendment_reason)
-      ON CONFLICT(id) DO UPDATE SET
-        period_from = excluded.period_from, period_to = excluded.period_to,
-        net_amount = excluded.net_amount, reference_no = excluded.reference_no,
-        status = excluded.status, filed_at = excluded.filed_at, filed_by = excluded.filed_by,
-        amended_at = excluded.amended_at, amendment_reason = excluded.amendment_reason
-    `);
-    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
-    this.selectById = sqlite.prepare(`SELECT * FROM vat_filing WHERE id = ?`).safeIntegers(false);
-    this.selectAll = sqlite.prepare(`SELECT * FROM vat_filing ORDER BY period_from DESC`).safeIntegers(false);
-    this.selectCovering = sqlite
-      .prepare(`SELECT * FROM vat_filing WHERE period_from <= ? AND period_to >= ?`)
-      .safeIntegers(false);
-  }
+function params(filing: VatFiling): SqlValue[] {
+  return [
+    filing.id,
+    filing.periodFrom,
+    filing.periodTo,
+    filing.netAmount.scaled,
+    filing.referenceNo,
+    filing.status,
+    filing.filedAt,
+    filing.filedBy,
+    filing.amendedAt,
+    filing.amendmentReason,
+  ];
+}
+
+class SqlVatFilingStore implements VatFilingRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async findById(id: string): Promise<VatFiling | null> {
-    const row = this.selectById.get(id) as FilingRow | undefined;
+    const row = await this.db.get<FilingRow>(`SELECT * FROM vat_filing WHERE id = ?`, [id]);
     return row ? toFiling(row) : null;
   }
 
   async list(): Promise<readonly VatFiling[]> {
-    return (this.selectAll.all() as FilingRow[]).map(toFiling);
+    return (await this.db.all<FilingRow>(`SELECT * FROM vat_filing ORDER BY period_from DESC`)).map(toFiling);
   }
 
   async findCovering(date: string): Promise<readonly VatFiling[]> {
-    // The same day-versus-instant mismatch as `findByDate`, and here it failed
-    // OPEN: `period_to >= ?` did not match on the period's own last day, so a
-    // return that had already been FILED read as not covering that day and the
-    // control refusing a posting into a filed period silently let it through.
-    // A control that works on thirty days a month is not a control.
+    // Day versus instant: compared as an instant, `period_to >= ?` missed the
+    // period's last day and let a posting into a FILED period through.
     const day = calendarDay(date);
-    return (this.selectCovering.all(day, day) as FilingRow[]).map(toFiling);
+    return (await this.db.all<FilingRow>(`SELECT * FROM vat_filing WHERE period_from <= ? AND period_to >= ?`, [day, day])).map(toFiling);
   }
 
   async save(filing: VatFiling): Promise<void> {
-    this.write(filing);
+    await this.db.run(UPSERT, params(filing));
   }
 
   async insert(filing: VatFiling): Promise<void> {
-    insertingNew(filing.id, () => this.write(filing, this.insertOnly));
+    await insertNew(this.db, filing.id, UPSERT, params(filing));
   }
+}
 
-  private write(filing: VatFiling, statement: Database.Statement = this.upsert): void {
-    statement.run({
-      id: filing.id,
-      period_from: filing.periodFrom,
-      period_to: filing.periodTo,
-      net_amount: filing.netAmount.toScaledNumber(),
-      reference_no: filing.referenceNo,
-      status: filing.status,
-      filed_at: filing.filedAt,
-      filed_by: filing.filedBy,
-      amended_at: filing.amendedAt,
-      amendment_reason: filing.amendmentReason,
-    });
-  }
+export async function ensureVatFilingSchema(db: SqlDb): Promise<void> {
+  await db.applySchema(CREATE_TABLE);
+}
+
+export function createVatFilingStore(db: SqlDb): VatFilingRepository {
+  return new SqlVatFilingStore(db);
 }
 
 export function createSqliteVatFilingStore(sqlite: Database.Database): VatFilingRepository {
   sqlite.exec(CREATE_TABLE);
-  return new SqliteVatFilingStore(sqlite);
+  return createVatFilingStore(sqliteDb(sqlite));
 }

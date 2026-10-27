@@ -1,6 +1,7 @@
-import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
-import { insertingNew, prepareInsertOnly } from "./insert-new.js";
+import { insertNew } from "./insert-new.js";
+import type { SqlDb, SqlValue } from "./sql/sql-db.js";
+import { sqliteDb } from "./sql/sqlite-db.js";
 import {
   Money,
   Qty,
@@ -9,14 +10,6 @@ import {
   type WritedownRunRepository,
   type WritedownRunStatus,
 } from "@mezan/domain";
-
-/**
- * SQLite-backed store for Inventory Write-down Runs (docs/archive/phase-backlog.md Phase 4
- * "Aging-based inventory write-down batch"). Document-shaped, same modelling
- * as `fixed-assets-store.ts`'s `depreciation_run` table: per-position lines
- * serialized as a JSON text column, Money/Qty round-tripped as exact decimal
- * strings via `.toString()`/`Money.fromMajor`/`Qty.fromMajor` — never floats.
- */
 
 const CREATE_WRITEDOWN_RUN = `
 CREATE TABLE IF NOT EXISTS writedown_run (
@@ -33,13 +26,26 @@ CREATE TABLE IF NOT EXISTS writedown_run (
 CREATE INDEX IF NOT EXISTS idx_writedown_run_period ON writedown_run(period, warehouse_id);
 `;
 
+const UPSERT = `
+  INSERT INTO writedown_run (id, period, warehouse_id, status, lines, total_amount, journal_entry_id, created_at, posted_at)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  ON CONFLICT(id) DO UPDATE SET
+    period = excluded.period,
+    warehouse_id = excluded.warehouse_id,
+    status = excluded.status,
+    lines = excluded.lines,
+    total_amount = excluded.total_amount,
+    journal_entry_id = excluded.journal_entry_id,
+    created_at = excluded.created_at,
+    posted_at = excluded.posted_at`;
+
 interface WritedownRunRow {
   id: string;
   period: string;
   warehouse_id: string | null;
   status: string;
   lines: string;
-  total_amount: number;
+  total_amount: bigint;
   journal_entry_id: string | null;
   created_at: string;
   posted_at: string | null;
@@ -78,84 +84,51 @@ function toWritedownRun(row: WritedownRunRow): WritedownRun {
   };
 }
 
-class SqliteWritedownRunRepository implements WritedownRunRepository {
-  private readonly upsert: Database.Statement;
-  private readonly insertOnly: Database.Statement;
-  private readonly selectById: Database.Statement;
-  private readonly selectAll: Database.Statement;
-  private readonly selectByPeriodWarehouse: Database.Statement;
-  private readonly selectByPeriodNullWarehouse: Database.Statement;
+function params(run: WritedownRun): SqlValue[] {
+  const lines: SerializedLine[] = run.lines.map((l) => ({
+    itemId: l.itemId,
+    warehouseId: l.warehouseId,
+    onHandQty: l.onHandQty.toString(),
+    unitCost: l.unitCost.toString(),
+    agingDays: l.agingDays,
+    writedownRateBps: l.writedownRateBps,
+    amount: l.amount.toString(),
+  }));
+  return [run.id, run.period, run.warehouseId, run.status, JSON.stringify(lines), run.totalAmount.scaled, run.journalEntryId, run.createdAt, run.postedAt];
+}
 
-  constructor(sqlite: Database.Database) {
-    this.upsert = sqlite.prepare(`
-      INSERT INTO writedown_run (id, period, warehouse_id, status, lines, total_amount, journal_entry_id, created_at, posted_at)
-      VALUES (@id, @period, @warehouse_id, @status, @lines, @total_amount, @journal_entry_id, @created_at, @posted_at)
-      ON CONFLICT(id) DO UPDATE SET
-        period = excluded.period,
-        warehouse_id = excluded.warehouse_id,
-        status = excluded.status,
-        lines = excluded.lines,
-        total_amount = excluded.total_amount,
-        journal_entry_id = excluded.journal_entry_id,
-        created_at = excluded.created_at,
-        posted_at = excluded.posted_at
-    `);
-    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
-    this.selectById = sqlite.prepare(`SELECT * FROM writedown_run WHERE id = ?`);
-    this.selectAll = sqlite.prepare(`SELECT * FROM writedown_run`);
-    this.selectByPeriodWarehouse = sqlite.prepare(`SELECT * FROM writedown_run WHERE period = ? AND warehouse_id = ? ORDER BY (status = 'cancelled'), created_at DESC`);
-    this.selectByPeriodNullWarehouse = sqlite.prepare(
-      `SELECT * FROM writedown_run WHERE period = ? AND warehouse_id IS NULL ORDER BY (status = 'cancelled'), created_at DESC`,
-    );
-  }
+class SqlWritedownRunRepository implements WritedownRunRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async findById(id: string): Promise<WritedownRun | null> {
-    const row = this.selectById.get(id) as WritedownRunRow | undefined;
+    const row = await this.db.get<WritedownRunRow>(`SELECT * FROM writedown_run WHERE id = ?`, [id]);
     return row ? toWritedownRun(row) : null;
   }
 
   async findByPeriod(period: string, warehouseId: string | null): Promise<WritedownRun | null> {
-    const row = (
+    const row =
       warehouseId === null
-        ? this.selectByPeriodNullWarehouse.get(period)
-        : this.selectByPeriodWarehouse.get(period, warehouseId)
-    ) as WritedownRunRow | undefined;
+        ? await this.db.get<WritedownRunRow>(
+            `SELECT * FROM writedown_run WHERE period = ? AND warehouse_id IS NULL ORDER BY (status = 'cancelled'), created_at DESC`,
+            [period],
+          )
+        : await this.db.get<WritedownRunRow>(
+            `SELECT * FROM writedown_run WHERE period = ? AND warehouse_id = ? ORDER BY (status = 'cancelled'), created_at DESC`,
+            [period, warehouseId],
+          );
     return row ? toWritedownRun(row) : null;
   }
 
   async list(): Promise<WritedownRun[]> {
-    return (this.selectAll.all() as WritedownRunRow[]).map(toWritedownRun);
+    return (await this.db.all<WritedownRunRow>(`SELECT * FROM writedown_run`)).map(toWritedownRun);
   }
 
   async create(run: WritedownRun): Promise<void> {
-    insertingNew(run.id, () => this.write(run, this.insertOnly));
+    await insertNew(this.db, run.id, UPSERT, params(run));
   }
 
   async update(run: WritedownRun): Promise<void> {
-    this.write(run);
-  }
-
-  private write(run: WritedownRun, statement: Database.Statement = this.upsert): void {
-    const lines: SerializedLine[] = run.lines.map((l) => ({
-      itemId: l.itemId,
-      warehouseId: l.warehouseId,
-      onHandQty: l.onHandQty.toString(),
-      unitCost: l.unitCost.toString(),
-      agingDays: l.agingDays,
-      writedownRateBps: l.writedownRateBps,
-      amount: l.amount.toString(),
-    }));
-    statement.run({
-      id: run.id,
-      period: run.period,
-      warehouse_id: run.warehouseId,
-      status: run.status,
-      lines: JSON.stringify(lines),
-      total_amount: run.totalAmount.toScaledNumber(),
-      journal_entry_id: run.journalEntryId,
-      created_at: run.createdAt,
-      posted_at: run.postedAt,
-    });
+    await this.db.run(UPSERT, params(run));
   }
 }
 
@@ -163,12 +136,18 @@ export interface SqliteWritedownRunRepositoryHandle extends WritedownRunReposito
   close(): void;
 }
 
-/** Open a SQLite-backed WritedownRunRepository. ":memory:" for tests, a path for real. */
+export async function ensureWritedownRunSchema(db: SqlDb): Promise<void> {
+  await db.applySchema(CREATE_WRITEDOWN_RUN);
+}
+
+export function createWritedownRunRepository(db: SqlDb): WritedownRunRepository {
+  return new SqlWritedownRunRepository(db);
+}
+
 export function createSqliteWritedownRunRepository(
   path: SqliteConnectionInput = ":memory:",
 ): SqliteWritedownRunRepositoryHandle {
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.exec(CREATE_WRITEDOWN_RUN);
-  const repo = new SqliteWritedownRunRepository(sqlite);
-  return Object.assign(repo, { close: () => { if (owned) sqlite.close(); } }) as SqliteWritedownRunRepositoryHandle;
+  return Object.assign(createWritedownRunRepository(sqliteDb(sqlite)), { close: () => { if (owned) sqlite.close(); } }) as SqliteWritedownRunRepositoryHandle;
 }

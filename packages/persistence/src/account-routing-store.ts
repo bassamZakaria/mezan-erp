@@ -1,15 +1,13 @@
-import Database from "better-sqlite3";
+import type Database from "better-sqlite3";
 import {
   DEFAULT_ACCOUNT_ROUTING_OPTIONS,
   type AccountRouting,
   type AccountRoutingOptions,
   type AccountRoutingRepository,
 } from "@mezan/domain";
+import type { SqlDb } from "./sql/sql-db.js";
+import { sqliteDb } from "./sql/sqlite-db.js";
 
-/**
- * SQLite-backed account routing (R6.1). One row, because a tenant has one
- * routing table — the same single-row shape `settings` uses.
- */
 const CREATE_TABLE = `
 CREATE TABLE IF NOT EXISTS account_routing (
   id        INTEGER PRIMARY KEY CHECK (id = 1),
@@ -23,18 +21,14 @@ interface Row {
   options: string;
 }
 
-export function createSqliteAccountRoutingStore(sqlite: Database.Database): AccountRoutingRepository {
-  sqlite.exec(CREATE_TABLE);
-  const select = sqlite.prepare(`SELECT overrides, options FROM account_routing WHERE id = 1`);
-  const upsert = sqlite.prepare(`
-    INSERT INTO account_routing (id, overrides, options)
-    VALUES (1, @overrides, @options)
-    ON CONFLICT(id) DO UPDATE SET overrides = excluded.overrides, options = excluded.options
-  `);
+export async function ensureAccountRoutingSchema(db: SqlDb): Promise<void> {
+  await db.applySchema(CREATE_TABLE);
+}
 
+export function createAccountRoutingStore(db: SqlDb): AccountRoutingRepository {
   return {
     async get() {
-      const row = select.get() as Row | undefined;
+      const row = await db.get<Row>(`SELECT overrides, options FROM account_routing WHERE id = 1`);
       if (!row) return null;
       return {
         overrides: JSON.parse(row.overrides) as Record<string, string>,
@@ -42,7 +36,17 @@ export function createSqliteAccountRoutingStore(sqlite: Database.Database): Acco
       };
     },
     async save(routing: AccountRouting) {
-      upsert.run({ overrides: JSON.stringify(routing.overrides), options: JSON.stringify(routing.options) });
+      await db.run(
+        `INSERT INTO account_routing (id, overrides, options)
+         VALUES (1, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET overrides = excluded.overrides, options = excluded.options`,
+        [JSON.stringify(routing.overrides), JSON.stringify(routing.options)],
+      );
     },
   };
+}
+
+export function createSqliteAccountRoutingStore(sqlite: Database.Database): AccountRoutingRepository {
+  sqlite.exec(CREATE_TABLE);
+  return createAccountRoutingStore(sqliteDb(sqlite));
 }

@@ -1,5 +1,6 @@
-import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
+import type { SqlDb } from "./sql/sql-db.js";
+import { sqliteDb } from "./sql/sqlite-db.js";
 import {
   Money,
   Qty,
@@ -8,13 +9,6 @@ import {
   type HistoricalPurchaseArchiveRepository,
   type HistoricalPurchaseDocType,
 } from "@mezan/domain";
-
-/**
- * SQLite store for the historical purchase-document archive (docs/archive/catalog/02
- * §"استيراد فواتير سابقة" / §"استيراد مرتجعات سابقة") — one row per archived
- * document (lines as JSON, document-owned), following the same
- * standalone-store pattern as purchasing-stores.ts.
- */
 
 const CREATE_ARCHIVE = `
 CREATE TABLE IF NOT EXISTS historical_purchase_archive (
@@ -48,7 +42,7 @@ interface ArchiveRow {
   total: string;
   amount_paid: string;
   remaining_balance: string;
-  settled: number;
+  settled: bigint;
   import_batch_id: string;
   created_by: string;
   created_at: string;
@@ -74,70 +68,58 @@ function toDomain(row: ArchiveRow): HistoricalPurchaseArchive {
     total: Money.fromMajor(row.total),
     amountPaid: Money.fromMajor(row.amount_paid),
     remainingBalance: Money.fromMajor(row.remaining_balance),
-    settled: row.settled === 1,
+    settled: Number(row.settled) === 1,
     importBatchId: row.import_batch_id,
     createdBy: row.created_by,
     createdAt: row.created_at,
   };
 }
 
-class SqliteHistoricalPurchaseArchiveStore implements HistoricalPurchaseArchiveRepository {
-  private readonly insert: Database.Statement;
-  private readonly selectById: Database.Statement;
-  private readonly selectAll: Database.Statement;
-  private readonly selectByOriginal: Database.Statement;
-
-  constructor(sqlite: Database.Database) {
-    this.insert = sqlite.prepare(`
-      INSERT INTO historical_purchase_archive
-        (id, doc_type, original_number, supplier_id, date, due_date, lines, total, amount_paid, remaining_balance, settled, import_batch_id, created_by, created_at)
-      VALUES
-        (@id, @doc_type, @original_number, @supplier_id, @date, @due_date, @lines, @total, @amount_paid, @remaining_balance, @settled, @import_batch_id, @created_by, @created_at)
-    `);
-    this.selectById = sqlite.prepare(`SELECT * FROM historical_purchase_archive WHERE id = ?`);
-    this.selectAll = sqlite.prepare(`SELECT * FROM historical_purchase_archive`);
-    this.selectByOriginal = sqlite.prepare(
-      `SELECT * FROM historical_purchase_archive WHERE doc_type = ? AND original_number = ?`,
-    );
-  }
+class SqlHistoricalPurchaseArchiveStore implements HistoricalPurchaseArchiveRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async create(archive: HistoricalPurchaseArchive): Promise<void> {
-    this.insert.run({
-      id: archive.id,
-      doc_type: archive.docType,
-      original_number: archive.originalNumber,
-      supplier_id: archive.supplierId,
-      date: archive.date,
-      due_date: archive.dueDate,
-      lines: JSON.stringify(
-        archive.lines.map((l) => ({
-          itemId: l.itemId,
-          description: l.description,
-          qty: l.qty.toString(),
-          unitCost: l.unitCost.toString(),
-        })),
-      ),
-      total: archive.total.toString(),
-      amount_paid: archive.amountPaid.toString(),
-      remaining_balance: archive.remainingBalance.toString(),
-      settled: archive.settled ? 1 : 0,
-      import_batch_id: archive.importBatchId,
-      created_by: archive.createdBy,
-      created_at: archive.createdAt,
-    });
+    await this.db.run(
+      `INSERT INTO historical_purchase_archive
+         (id, doc_type, original_number, supplier_id, date, due_date, lines, total, amount_paid, remaining_balance, settled, import_batch_id, created_by, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        archive.id,
+        archive.docType,
+        archive.originalNumber,
+        archive.supplierId,
+        archive.date,
+        archive.dueDate,
+        JSON.stringify(
+          archive.lines.map((l) => ({
+            itemId: l.itemId,
+            description: l.description,
+            qty: l.qty.toString(),
+            unitCost: l.unitCost.toString(),
+          })),
+        ),
+        archive.total.toString(),
+        archive.amountPaid.toString(),
+        archive.remainingBalance.toString(),
+        archive.settled ? 1 : 0,
+        archive.importBatchId,
+        archive.createdBy,
+        archive.createdAt,
+      ],
+    );
   }
   async list(): Promise<HistoricalPurchaseArchive[]> {
-    return (this.selectAll.all() as ArchiveRow[]).map(toDomain);
+    return (await this.db.all<ArchiveRow>(`SELECT * FROM historical_purchase_archive`)).map(toDomain);
   }
   async findById(id: string): Promise<HistoricalPurchaseArchive | null> {
-    const row = this.selectById.get(id) as ArchiveRow | undefined;
+    const row = await this.db.get<ArchiveRow>(`SELECT * FROM historical_purchase_archive WHERE id = ?`, [id]);
     return row ? toDomain(row) : null;
   }
   async findByOriginalNumber(
     docType: HistoricalPurchaseDocType,
     originalNumber: string,
   ): Promise<HistoricalPurchaseArchive | null> {
-    const row = this.selectByOriginal.get(docType, originalNumber) as ArchiveRow | undefined;
+    const row = await this.db.get<ArchiveRow>(`SELECT * FROM historical_purchase_archive WHERE doc_type = ? AND original_number = ?`, [docType, originalNumber]);
     return row ? toDomain(row) : null;
   }
 }
@@ -146,11 +128,18 @@ export interface SqliteHistoricalPurchaseArchiveStoreHandle extends HistoricalPu
   close(): void;
 }
 
-/** Open a SQLite-backed HistoricalPurchaseArchiveRepository. ":memory:" for tests, a path for real. */
+export async function ensureHistoricalPurchaseArchiveSchema(db: SqlDb): Promise<void> {
+  await db.applySchema(CREATE_ARCHIVE);
+}
+
+export function createHistoricalPurchaseArchiveStore(db: SqlDb): HistoricalPurchaseArchiveRepository {
+  return new SqlHistoricalPurchaseArchiveStore(db);
+}
+
 export function createSqliteHistoricalPurchaseArchiveStore(
   path: SqliteConnectionInput = ":memory:",
 ): SqliteHistoricalPurchaseArchiveStoreHandle {
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.exec(CREATE_ARCHIVE);
-  return Object.assign(new SqliteHistoricalPurchaseArchiveStore(sqlite), { close: () => { if (owned) sqlite.close(); } });
+  return Object.assign(createHistoricalPurchaseArchiveStore(sqliteDb(sqlite)), { close: () => { if (owned) sqlite.close(); } });
 }

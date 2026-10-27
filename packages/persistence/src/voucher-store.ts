@@ -1,8 +1,10 @@
 import Database from "better-sqlite3";
-import { openSqliteConnection, withSqliteTransaction, type SqliteConnectionInput } from "./sqlite-connection.js";
-import { insertingNew } from "./insert-new.js";
-import { childRowsByParent } from "./list-query.js";
-import { columnsOf, FRAMEWORK_DOCUMENT_COLUMNS, writeRowColumnsWhere } from "./document-field-write.js";
+import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
+import { refuseUnlessInserted } from "./insert-new.js";
+import { childRowsByParentAsync } from "./list-query.js";
+import { columnsOf, FRAMEWORK_DOCUMENT_COLUMNS, writeRowColumnsWhereAsync } from "./document-field-write.js";
+import type { SqlDb, SqlValue } from "./sql/sql-db.js";
+import { sqliteDb } from "./sql/sqlite-db.js";
 import {
   Money,
   type AllocatableInvoice,
@@ -97,7 +99,8 @@ CREATE TABLE IF NOT EXISTS voucher_allocation (
   fx_entry_id TEXT,
   date        TEXT,
   reversed_on TEXT,
-  revaluation_share INTEGER
+  revaluation_share INTEGER,
+  money_revaluation_share INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_alloc_voucher ON voucher_allocation(voucher_id);
 CREATE INDEX IF NOT EXISTS idx_alloc_invoice ON voucher_allocation(invoice_id);
@@ -185,7 +188,7 @@ interface VoucherRow {
   cost_center_id: string | null;
   project_id: string | null;
   cost_category: string | null;
-  withholding_amount: number | null;
+  withholding_amount: bigint | null;
   withholding_rate_percent: number | null;
   withholding_gl_account_id: string | null;
   held_allocations: string | null;
@@ -280,7 +283,7 @@ function toDocument(row: VoucherRow): FrameworkDocument<VoucherLine> {
     projectId: row.project_id,
     costCategory: row.cost_category as CostCategory | null,
     withholdingAmount: row.withholding_amount === null ? null : Money.fromScaled(row.withholding_amount),
-    withholdingRatePercent: row.withholding_rate_percent,
+    withholdingRatePercent: row.withholding_rate_percent === null ? null : Number(row.withholding_rate_percent),
     withholdingGlAccountId: row.withholding_gl_account_id,
     heldAllocations: parseHeldAllocations(row.held_allocations),
     ...parseTreasuryFx(row.treasury_fx),
@@ -302,7 +305,7 @@ function toDocument(row: VoucherRow): FrameworkDocument<VoucherLine> {
   };
 }
 
-function docParams(doc: FrameworkDocument<VoucherLine>) {
+function docParams(doc: FrameworkDocument<VoucherLine>): Record<string, SqlValue> {
   const line = doc.lines[0];
   if (!line) throw new Error(`Voucher "${doc.id}" has no economic line.`);
   return {
@@ -314,7 +317,7 @@ function docParams(doc: FrameworkDocument<VoucherLine>) {
     status: doc.status,
     voucher_type: line.voucherType,
     direction: line.direction,
-    amount: line.amount.toScaledNumber(),
+    amount: line.amount.scaled,
     currency: line.currency,
     fx_rate: line.fxRate ?? null,
     branch_id: line.branchId,
@@ -330,7 +333,7 @@ function docParams(doc: FrameworkDocument<VoucherLine>) {
     cost_center_id: line.costCenterId ?? null,
     project_id: line.projectId ?? null,
     cost_category: line.costCategory ?? null,
-    withholding_amount: line.withholdingAmount ? line.withholdingAmount.toScaledNumber() : null,
+    withholding_amount: line.withholdingAmount ? line.withholdingAmount.scaled : null,
     withholding_rate_percent: line.withholdingRatePercent ?? null,
     withholding_gl_account_id: line.withholdingGlAccountId ?? null,
     held_allocations: line.heldAllocations?.length ? JSON.stringify(line.heldAllocations.map(toStoredHeldAllocation)) : null,
@@ -353,60 +356,47 @@ const VOUCHER_COLUMNS: Readonly<Record<DocumentField, readonly string[]>> = {
   ],
 };
 
-class SqliteVoucherRepository implements DocumentRepository<VoucherLine> {
-  private readonly insert: Database.Statement;
-  private readonly updateStmt: Database.Statement;
-  private readonly selectById: Database.Statement;
+const VOUCHER_INSERT_COLUMNS = [
+  "id", "doc_no", "doc_type", "date", "memo", "status", "voucher_type", "direction", "amount", "currency", "fx_rate",
+  "branch_id", "payment_method", "treasury_account_id", "treasury_gl_account_id",
+  "counterparty_gl_account_id", "counter_treasury_account_id", "counter_treasury_gl_account_id",
+  "customer_id", "supplier_id", "reference_no", "cost_center_id", "project_id", "cost_category",
+  "withholding_amount", "withholding_rate_percent", "withholding_gl_account_id", "held_allocations", "treasury_fx", "created_at", "confirmed_at",
+  "reverses_doc_id", "reversed_by_doc_id", "workflow_request_id", "journal_entry_id",
+] as const;
 
-  constructor(private readonly sqlite: Database.Database) {
-    this.insert = sqlite.prepare(`
-      INSERT INTO voucher (
-        id, doc_no, doc_type, date, memo, status, voucher_type, direction, amount, currency, fx_rate,
-        branch_id, payment_method, treasury_account_id, treasury_gl_account_id,
-        counterparty_gl_account_id, counter_treasury_account_id, counter_treasury_gl_account_id,
-        customer_id, supplier_id, reference_no, cost_center_id, project_id, cost_category,
-        withholding_amount, withholding_rate_percent, withholding_gl_account_id, held_allocations, treasury_fx, created_at, confirmed_at,
-        reverses_doc_id, reversed_by_doc_id, workflow_request_id, journal_entry_id
-      ) VALUES (
-        @id, @doc_no, @doc_type, @date, @memo, @status, @voucher_type, @direction, @amount, @currency, @fx_rate,
-        @branch_id, @payment_method, @treasury_account_id, @treasury_gl_account_id,
-        @counterparty_gl_account_id, @counter_treasury_account_id, @counter_treasury_gl_account_id,
-        @customer_id, @supplier_id, @reference_no, @cost_center_id, @project_id, @cost_category,
-        @withholding_amount, @withholding_rate_percent, @withholding_gl_account_id, @held_allocations, @treasury_fx, @created_at, @confirmed_at,
-        @reverses_doc_id, @reversed_by_doc_id, @workflow_request_id, @journal_entry_id
-      )
-    `);
-    this.updateStmt = sqlite.prepare(`
-      UPDATE voucher SET
-        doc_no = @doc_no, memo = @memo, status = @status, amount = @amount, fx_rate = @fx_rate,
-        counterparty_gl_account_id = @counterparty_gl_account_id,
-        counter_treasury_account_id = @counter_treasury_account_id,
-        counter_treasury_gl_account_id = @counter_treasury_gl_account_id,
-        customer_id = @customer_id, supplier_id = @supplier_id, reference_no = @reference_no,
-        cost_center_id = @cost_center_id, project_id = @project_id, cost_category = @cost_category,
-        withholding_amount = @withholding_amount,
-        withholding_rate_percent = @withholding_rate_percent,
-        withholding_gl_account_id = @withholding_gl_account_id,
-        held_allocations = @held_allocations,
-        treasury_fx = @treasury_fx,
-        confirmed_at = @confirmed_at, reverses_doc_id = @reverses_doc_id,
-        reversed_by_doc_id = @reversed_by_doc_id, workflow_request_id = @workflow_request_id,
-        journal_entry_id = @journal_entry_id
-      WHERE id = @id
-    `);
-    this.selectById = sqlite.prepare(`SELECT * FROM voucher WHERE id = ?`).safeIntegers();
-  }
+const VOUCHER_UPDATE_COLUMNS = [
+  "doc_no", "memo", "status", "amount", "fx_rate",
+  "counterparty_gl_account_id", "counter_treasury_account_id", "counter_treasury_gl_account_id",
+  "customer_id", "supplier_id", "reference_no", "cost_center_id", "project_id", "cost_category",
+  "withholding_amount", "withholding_rate_percent", "withholding_gl_account_id", "held_allocations", "treasury_fx",
+  "confirmed_at", "reverses_doc_id", "reversed_by_doc_id", "workflow_request_id", "journal_entry_id",
+] as const;
+
+function pick(row: Record<string, SqlValue>, columns: readonly string[]): SqlValue[] {
+  return columns.map((column) => row[column] ?? null);
+}
+
+class SqlVoucherRepository implements DocumentRepository<VoucherLine> {
+  constructor(private readonly db: SqlDb) {}
 
   async save(doc: FrameworkDocument<VoucherLine>): Promise<void> {
-    insertingNew(doc.id, () => this.insert.run(docParams(doc)));
+    const inserted = await this.db.run(
+      `INSERT INTO voucher (${VOUCHER_INSERT_COLUMNS.join(", ")}) VALUES (${VOUCHER_INSERT_COLUMNS.map(() => "?").join(", ")}) ON CONFLICT (id) DO NOTHING`,
+      pick(docParams(doc), VOUCHER_INSERT_COLUMNS),
+    );
+    refuseUnlessInserted(doc.id, inserted.changes);
   }
 
   async update(doc: FrameworkDocument<VoucherLine>): Promise<void> {
-    this.updateStmt.run(docParams(doc));
+    await this.db.run(
+      `UPDATE voucher SET ${VOUCHER_UPDATE_COLUMNS.map((column) => `${column} = ?`).join(", ")} WHERE id = ?`,
+      [...pick(docParams(doc), VOUCHER_UPDATE_COLUMNS), doc.id],
+    );
   }
 
   async writeFields(next: FrameworkDocument<VoucherLine>, fields: readonly DocumentField[], expected: DocumentWritePrecondition): Promise<boolean> {
-    return writeRowColumnsWhere(this.sqlite, {
+    return writeRowColumnsWhereAsync(this.db, {
       table: "voucher",
       row: docParams(next),
       columns: columnsOf(VOUCHER_COLUMNS, fields),
@@ -416,13 +406,13 @@ class SqliteVoucherRepository implements DocumentRepository<VoucherLine> {
   }
 
   async findById(id: string): Promise<FrameworkDocument<VoucherLine> | null> {
-    const row = this.selectById.get(id) as VoucherRow | undefined;
+    const row = await this.db.get<VoucherRow>(`SELECT * FROM voucher WHERE id = ?`, [id]);
     return row ? toDocument(row) : null;
   }
 
   async list(filter: DocumentListFilter = {}): Promise<readonly FrameworkDocument<VoucherLine>[]> {
     const clauses: string[] = [];
-    const params: unknown[] = [];
+    const params: SqlValue[] = [];
     if (filter.status) {
       clauses.push("status = ?");
       params.push(filter.status);
@@ -436,15 +426,11 @@ class SqliteVoucherRepository implements DocumentRepository<VoucherLine> {
       params.push(filter.toDate);
     }
     const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
-    const rows = this.sqlite
-      .prepare(`SELECT * FROM voucher ${where} ORDER BY date DESC, created_at DESC`)
-      .safeIntegers()
-      .all(...params) as VoucherRow[];
-    return rows.map(toDocument);
+    return (await this.db.all<VoucherRow>(`SELECT * FROM voucher ${where} ORDER BY date DESC, created_at DESC`, params)).map(toDocument);
   }
 
   async transaction<T>(fn: () => Promise<T>): Promise<T> {
-    return withSqliteTransaction(this.sqlite, fn, "BEGIN");
+    return this.db.transaction(fn);
   }
 }
 
@@ -482,56 +468,47 @@ function toAllocation(row: AllocationRow): VoucherAllocation {
   };
 }
 
-class SqliteAllocationRepository implements AllocationRepository {
-  private readonly upsert: Database.Statement;
-  private readonly selectById: Database.Statement;
-  private readonly selectByVoucher: Database.Statement;
-  private readonly selectByInvoice: Database.Statement;
+class SqlAllocationRepository implements AllocationRepository {
+  constructor(private readonly db: SqlDb) {}
 
-  constructor(sqlite: Database.Database) {
-    this.upsert = sqlite.prepare(`
-      INSERT INTO voucher_allocation (id, voucher_id, invoice_id, amount, status, created_at, reversed_at, invoice_amount, fx_entry_id, date, reversed_on, revaluation_share, money_revaluation_share)
-      VALUES (@id, @voucher_id, @invoice_id, @amount, @status, @created_at, @reversed_at, @invoice_amount, @fx_entry_id, @date, @reversed_on, @revaluation_share, @money_revaluation_share)
-      ON CONFLICT(id) DO UPDATE SET status = excluded.status, reversed_at = excluded.reversed_at, reversed_on = excluded.reversed_on
-    `);
-    this.selectById = sqlite.prepare(`SELECT * FROM voucher_allocation WHERE id = ?`).safeIntegers();
-    this.selectByVoucher = sqlite.prepare(`SELECT * FROM voucher_allocation WHERE voucher_id = ? ORDER BY created_at`).safeIntegers();
-    this.selectByInvoice = sqlite.prepare(`SELECT * FROM voucher_allocation WHERE invoice_id = ? ORDER BY created_at`).safeIntegers();
-  }
-
-  private write(alloc: VoucherAllocation): void {
-    this.upsert.run({
-      id: alloc.id,
-      voucher_id: alloc.voucherId,
-      invoice_id: alloc.invoiceId,
-      amount: alloc.amount.toScaledNumber(),
-      status: alloc.status,
-      created_at: alloc.createdAt,
-      reversed_at: alloc.reversedAt,
-      invoice_amount: alloc.invoiceAmount ? alloc.invoiceAmount.toScaledNumber() : null,
-      fx_entry_id: alloc.fxEntryId ?? null,
-      date: alloc.date ?? null,
-      reversed_on: alloc.reversedOn ?? null,
-      revaluation_share: alloc.revaluationShare ? alloc.revaluationShare.toScaledNumber() : null,
-      money_revaluation_share: alloc.moneyRevaluationShare ? alloc.moneyRevaluationShare.toScaledNumber() : null,
-    });
+  private async write(alloc: VoucherAllocation): Promise<void> {
+    await this.db.run(
+      `INSERT INTO voucher_allocation (id, voucher_id, invoice_id, amount, status, created_at, reversed_at, invoice_amount, fx_entry_id, date, reversed_on, revaluation_share, money_revaluation_share)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET status = excluded.status, reversed_at = excluded.reversed_at, reversed_on = excluded.reversed_on`,
+      [
+        alloc.id,
+        alloc.voucherId,
+        alloc.invoiceId,
+        alloc.amount.scaled,
+        alloc.status,
+        alloc.createdAt,
+        alloc.reversedAt,
+        alloc.invoiceAmount ? alloc.invoiceAmount.scaled : null,
+        alloc.fxEntryId ?? null,
+        alloc.date ?? null,
+        alloc.reversedOn ?? null,
+        alloc.revaluationShare ? alloc.revaluationShare.scaled : null,
+        alloc.moneyRevaluationShare ? alloc.moneyRevaluationShare.scaled : null,
+      ],
+    );
   }
 
   async save(alloc: VoucherAllocation): Promise<void> {
-    this.write(alloc);
+    await this.write(alloc);
   }
   async update(alloc: VoucherAllocation): Promise<void> {
-    this.write(alloc);
+    await this.write(alloc);
   }
   async findById(id: string): Promise<VoucherAllocation | null> {
-    const row = this.selectById.get(id) as AllocationRow | undefined;
+    const row = await this.db.get<AllocationRow>(`SELECT * FROM voucher_allocation WHERE id = ?`, [id]);
     return row ? toAllocation(row) : null;
   }
   async listByVoucher(voucherId: string): Promise<readonly VoucherAllocation[]> {
-    return (this.selectByVoucher.all(voucherId) as AllocationRow[]).map(toAllocation);
+    return (await this.db.all<AllocationRow>(`SELECT * FROM voucher_allocation WHERE voucher_id = ? ORDER BY created_at`, [voucherId])).map(toAllocation);
   }
   async listByInvoice(invoiceId: string): Promise<readonly VoucherAllocation[]> {
-    return (this.selectByInvoice.all(invoiceId) as AllocationRow[]).map(toAllocation);
+    return (await this.db.all<AllocationRow>(`SELECT * FROM voucher_allocation WHERE invoice_id = ? ORDER BY created_at`, [invoiceId])).map(toAllocation);
   }
 }
 
@@ -557,46 +534,32 @@ function toInvoice(row: InvoiceRow): AllocatableInvoice {
   };
 }
 
-class SqliteInvoiceRepository implements AllocatableInvoiceRepository {
-  private readonly upsert: Database.Statement;
-  private readonly selectById: Database.Statement;
-
-  constructor(private readonly sqlite: Database.Database) {
-    this.upsert = sqlite.prepare(`
-      INSERT INTO open_invoice (id, invoice_no, kind, party_id, date, total, allocated)
-      VALUES (@id, @invoice_no, @kind, @party_id, @date, @total, @allocated)
-      ON CONFLICT(id) DO UPDATE SET
-        invoice_no = excluded.invoice_no, kind = excluded.kind, party_id = excluded.party_id,
-        date = excluded.date, total = excluded.total, allocated = excluded.allocated
-    `);
-    this.selectById = sqlite.prepare(`SELECT * FROM open_invoice WHERE id = ?`).safeIntegers();
-  }
+class SqlInvoiceRepository implements AllocatableInvoiceRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async findById(id: string): Promise<AllocatableInvoice | null> {
-    const row = this.selectById.get(id) as InvoiceRow | undefined;
+    const row = await this.db.get<InvoiceRow>(`SELECT * FROM open_invoice WHERE id = ?`, [id]);
     return row ? toInvoice(row) : null;
   }
 
   async save(invoice: AllocatableInvoice): Promise<void> {
-    this.upsert.run({
-      id: invoice.id,
-      invoice_no: invoice.invoiceNo,
-      kind: invoice.kind,
-      party_id: invoice.partyId,
-      date: invoice.date,
-      total: invoice.total.toScaledNumber(),
-      allocated: invoice.allocated.toScaledNumber(),
-    });
+    await this.db.run(
+      `INSERT INTO open_invoice (id, invoice_no, kind, party_id, date, total, allocated)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         invoice_no = excluded.invoice_no, kind = excluded.kind, party_id = excluded.party_id,
+         date = excluded.date, total = excluded.total, allocated = excluded.allocated`,
+      [invoice.id, invoice.invoiceNo, invoice.kind, invoice.partyId, invoice.date, invoice.total.scaled, invoice.allocated.scaled],
+    );
   }
 
   async allocatedByIds(ids: readonly string[]): Promise<ReadonlyMap<string, Money>> {
-    const rowsById = childRowsByParent<InvoiceRow>(this.sqlite, {
+    const rowsById = await childRowsByParentAsync<InvoiceRow>(this.db, {
       table: "open_invoice",
       parentColumn: "id",
       parentIds: ids,
       orderBy: "id",
       columns: "id, allocated",
-      safeIntegers: true,
     });
     const out = new Map<string, Money>();
     for (const [id, rows] of rowsById) {
@@ -608,7 +571,7 @@ class SqliteInvoiceRepository implements AllocatableInvoiceRepository {
 
   async listOpen(filter: { kind?: AllocationInvoiceKind; partyId?: string }): Promise<readonly AllocatableInvoice[]> {
     const clauses: string[] = ["total > allocated"];
-    const params: unknown[] = [];
+    const params: SqlValue[] = [];
     if (filter.kind) {
       clauses.push("kind = ?");
       params.push(filter.kind);
@@ -617,11 +580,7 @@ class SqliteInvoiceRepository implements AllocatableInvoiceRepository {
       clauses.push("party_id = ?");
       params.push(filter.partyId);
     }
-    const rows = this.sqlite
-      .prepare(`SELECT * FROM open_invoice WHERE ${clauses.join(" AND ")} ORDER BY date`)
-      .safeIntegers()
-      .all(...params) as InvoiceRow[];
-    return rows.map(toInvoice);
+    return (await this.db.all<InvoiceRow>(`SELECT * FROM open_invoice WHERE ${clauses.join(" AND ")} ORDER BY date`, params)).map(toInvoice);
   }
 }
 
@@ -649,69 +608,64 @@ function toShare(row: ShareRow): FxRevaluationShareRecord {
   };
 }
 
-class SqliteRevaluationShareRepository implements FxRevaluationShareRepository {
-  private readonly insert: Database.Statement;
-  private readonly selectByItem: Database.Statement;
-  private readonly selectByEntry: Database.Statement;
-  private readonly selectItems: Database.Statement;
-
-  constructor(sqlite: Database.Database) {
-    this.selectItems = sqlite.prepare(`SELECT DISTINCT item_id, item_type FROM fx_revaluation_share ORDER BY item_id, item_type`);
-    this.insert = sqlite.prepare(`
-      INSERT INTO fx_revaluation_share (entry_id, item_id, account_id, kind, party_id, currency, amount, item_type)
-      VALUES (@entry_id, @item_id, @account_id, @kind, @party_id, @currency, @amount, @item_type)
-    `);
-    this.selectByItem = sqlite.prepare(`SELECT * FROM fx_revaluation_share WHERE item_id = ? AND item_type = ? ORDER BY entry_id`).safeIntegers();
-    this.selectByEntry = sqlite.prepare(`SELECT * FROM fx_revaluation_share WHERE entry_id = ? ORDER BY item_id`).safeIntegers();
-  }
+class SqlRevaluationShareRepository implements FxRevaluationShareRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async saveAll(shares: readonly FxRevaluationShareRecord[]): Promise<void> {
     for (const share of shares) {
-      this.insert.run({
-        entry_id: share.entryId,
-        item_id: share.itemId,
-        account_id: share.accountId,
-        kind: share.kind,
-        party_id: share.partyId,
-        currency: share.currency,
-        amount: share.amount.toScaledNumber(),
-        item_type: share.itemType,
-      });
+      await this.db.run(
+        `INSERT INTO fx_revaluation_share (entry_id, item_id, account_id, kind, party_id, currency, amount, item_type)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [share.entryId, share.itemId, share.accountId, share.kind, share.partyId, share.currency, share.amount.scaled, share.itemType],
+      );
     }
   }
   async listByItem(item: FxOpenItemRef): Promise<readonly FxRevaluationShareRecord[]> {
-    return (this.selectByItem.all(item.id, item.type) as ShareRow[]).map(toShare);
+    return (await this.db.all<ShareRow>(`SELECT * FROM fx_revaluation_share WHERE item_id = ? AND item_type = ? ORDER BY entry_id`, [item.id, item.type])).map(toShare);
   }
   async listByEntry(entryId: string): Promise<readonly FxRevaluationShareRecord[]> {
-    return (this.selectByEntry.all(entryId) as ShareRow[]).map(toShare);
+    return (await this.db.all<ShareRow>(`SELECT * FROM fx_revaluation_share WHERE entry_id = ? ORDER BY item_id`, [entryId])).map(toShare);
   }
   async listItems(): Promise<readonly FxOpenItemRef[]> {
-    return (this.selectItems.all() as { item_id: string; item_type: string }[]).map((row) => ({
+    const rows = await this.db.all<{ item_id: string; item_type: string }>(`SELECT DISTINCT item_id, item_type FROM fx_revaluation_share ORDER BY item_id, item_type`);
+    return rows.map((row) => ({
       id: row.item_id,
       type: row.item_type === FxOpenItemType.Money ? FxOpenItemType.Money : FxOpenItemType.Invoice,
     }));
   }
 }
 
-export interface SqliteVoucherStoreHandle {
+export interface VoucherStoreHandle {
   readonly documents: DocumentRepository<VoucherLine>;
   readonly allocations: AllocationRepository;
   readonly invoices: AllocatableInvoiceRepository;
   readonly revaluationShares: FxRevaluationShareRepository;
+}
+
+export interface SqliteVoucherStoreHandle extends VoucherStoreHandle {
   close(): void;
 }
 
-/** Open a SQLite-backed voucher store (documents + allocations + open invoices). ":memory:" for tests. */
+export async function ensureVoucherSchema(db: SqlDb): Promise<void> {
+  await db.applySchema(CREATE_TABLES);
+}
+
+export function createVoucherStore(db: SqlDb): VoucherStoreHandle {
+  return {
+    documents: new SqlVoucherRepository(db),
+    allocations: new SqlAllocationRepository(db),
+    invoices: new SqlInvoiceRepository(db),
+    revaluationShares: new SqlRevaluationShareRepository(db),
+  };
+}
+
 export function createSqliteVoucherStore(path: SqliteConnectionInput = ":memory:"): SqliteVoucherStoreHandle {
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_TABLES);
   addMissingColumns(sqlite);
   return {
-    documents: new SqliteVoucherRepository(sqlite),
-    allocations: new SqliteAllocationRepository(sqlite),
-    invoices: new SqliteInvoiceRepository(sqlite),
-    revaluationShares: new SqliteRevaluationShareRepository(sqlite),
+    ...createVoucherStore(sqliteDb(sqlite)),
     close: () => { if (owned) sqlite.close(); },
   };
 }

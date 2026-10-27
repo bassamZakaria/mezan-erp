@@ -59,17 +59,17 @@ export async function boot() {
     if (!raw || raw === "*") return ALL_SCOPE;
     return raw.split(",").map((s) => s.trim()).filter(Boolean);
   }
-  function tokenFor(
+  async function tokenFor(
     userId: string,
     permissions: string,
     roleCodes: string,
     branchGrant?: string,
     warehouseGrant?: string,
-  ): string {
+  ): Promise<string> {
     const key = `${userId}|${permissions}|${roleCodes}|${branchGrant ?? "*"}|${warehouseGrant ?? "*"}`;
     let token = tokens.get(key);
     if (!token) {
-      token = sessions.issue({
+      token = await sessions.issue({
         userId,
         permissions: permissions.split(",").map((s) => s.trim()).filter(Boolean),
         roleCode: roleCodes.split(",").map((s) => s.trim()).filter(Boolean)[0] ?? null,
@@ -85,7 +85,7 @@ export async function boot() {
   const failures: string[] = [];
   let current = "";
 
-  function headers(over: Record<string, string> = {}) {
+  async function headers(over: Record<string, string> = {}) {
     const {
       "x-user-id": userId = "USER-ADMIN",
       "x-permissions": permissions = "*",
@@ -97,7 +97,7 @@ export async function boot() {
     } = over;
     return {
       "content-type": "application/json",
-      authorization: `Bearer ${tokenFor(userId, permissions, roleCodes || legacyRole || "", branchGrant, warehouseGrant)}`,
+      authorization: `Bearer ${await tokenFor(userId, permissions, roleCodes || legacyRole || "", branchGrant, warehouseGrant)}`,
       "x-branch-scope": branchGrant ?? "*",
       "x-warehouse-scope": warehouseGrant ?? "*",
       ...rest,
@@ -108,7 +108,7 @@ export async function boot() {
     const res = await app.fetch(
       new Request(`http://scenario${path}`, {
         method,
-        headers: headers(over),
+        headers: await headers(over),
         body: body === undefined ? undefined : JSON.stringify(body),
       }),
     );

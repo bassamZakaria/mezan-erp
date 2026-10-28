@@ -441,7 +441,21 @@ export function createDataMigrationRoutes(
         };
       },
       async (item) => {
-        const account = await createTreasuryAccount(item, deps.treasuryAccounts, deps.accounts ? { accounts: deps.accounts, cashAndBankParentAccountId: deps.cashAndBankParentAccountId } : undefined);
+        const openedLeaf = async (leaf: Account) => {
+          await recordFieldChanges(audit, c, {
+            entity: { module: "accounting", entityType: "ACCOUNT", entityId: leaf.id },
+            action: AuditChangeAction.Create,
+            before: null,
+            after: leaf,
+            fields: AUDITED_ACCOUNT_FIELDS,
+            details: { ...MIGRATION_AUDIT_DETAILS, treasuryAccountId: item.id },
+          });
+        };
+        const account = await createTreasuryAccount(
+          item,
+          deps.treasuryAccounts,
+          deps.accounts ? { accounts: deps.accounts, cashAndBankParentAccountId: deps.cashAndBankParentAccountId, onOpened: openedLeaf } : undefined,
+        );
         await recordFieldChanges(audit, c, {
           entity: { module: "treasury", entityType: "TREASURY_ACCOUNT", entityId: account.id },
           action: AuditChangeAction.Create,

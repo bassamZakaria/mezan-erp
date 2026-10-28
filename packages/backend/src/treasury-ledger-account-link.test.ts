@@ -43,6 +43,7 @@ describe("#120 — a treasury account left without a ledger account gets one of 
     const glAccountId = created.body.glAccountId as string;
     expect(glAccountId).toMatch(/^1300-\d+$/);
     expect(ledgerAccount(glAccountId)).toMatchObject({ code: glAccountId, nameAr: "خزينة فرعية", type: "asset", parentId: "1300", isHeader: 0 });
+    expect(world.count("audit_event", `module = 'accounting' AND entity_type = 'ACCOUNT' AND entity_id = '${glAccountId}' AND action = 'CREATE' AND actor = 'admin'`)).toBe(1);
 
     const before = (await world.request("GET", "/treasury-accounts/stats")).body as { liveCash: string };
     const posted = await world.request("POST", "/gl/journal-entries", {
@@ -79,9 +80,42 @@ describe("#120 — a treasury account left without a ledger account gets one of 
     expect(linked.glAccountId).toMatch(/^1300-\d+$/);
     expect(ledgerAccount(linked.glAccountId!)).toMatchObject({ nameAr: linked.name, parentId: "1300", isHeader: 0 });
     expect(world.count("account")).toBe(accountsBefore + 1);
+    expect(world.count("audit_event", `entity_type = 'ACCOUNT' AND entity_id = '${linked.glAccountId}' AND action = 'CREATE' AND actor = 'system'`)).toBe(1);
+    expect(world.count("audit_event", `entity_type = 'TREASURY_ACCOUNT' AND entity_id = 'TR-DEMO-VAN' AND action = 'UPDATE' AND actor = 'system'`)).toBe(1);
 
     const again = await restart();
     expect(((await again("GET", "/treasury-accounts/TR-DEMO-VAN")).body as { glAccountId: string }).glAccountId).toBe(linked.glAccountId);
     expect(world.count("account")).toBe(accountsBefore + 1);
+  });
+
+  it("refuses clearing a linked account's ledger account with a 422 in Arabic, and opens no new leaf", async () => {
+    world = await seededWorld();
+    const created = await world.request("POST", "/treasury-accounts", { id: "TR-KEEP", code: "CASH-KEEP", name: "خزينة ثابتة", type: "cash", currency: "EGP", branchId: "BR-MAIN" });
+    expect(created.status, JSON.stringify(created.body)).toBe(201);
+    const accountsBefore = world.count("account");
+
+    const refused = await world.request("PATCH", "/treasury-accounts/TR-KEEP", { glAccountId: null });
+    expect(refused.status, JSON.stringify(refused.body)).toBe(422);
+    expect(refused.body.error).toBe("TREASURY_LEDGER_ACCOUNT_REQUIRED");
+    expect(refused.body.message).toMatch(/لا يمكن فك ربط حساب الخزينة/);
+    expect(world.count("account")).toBe(accountsBefore);
+    expect((await world.request("GET", "/treasury-accounts/TR-KEEP")).body.glAccountId).toBe(created.body.glAccountId);
+  });
+
+  it("links an unlinked account on its next save, audits the new leaf, and opens nothing when the save is refused", async () => {
+    world = await seededWorld();
+    world.sqlite.prepare(`UPDATE treasury_account SET gl_account_id = NULL WHERE id = 'TR-DEMO-VAN'`).run();
+    const accountsBefore = world.count("account");
+
+    const refused = await world.request("PATCH", "/treasury-accounts/TR-DEMO-VAN", { openingBalance: "-1.00" });
+    expect(refused.status).toBe(422);
+    expect(world.count("account")).toBe(accountsBefore);
+
+    const saved = await world.request("PATCH", "/treasury-accounts/TR-DEMO-VAN", { name: "خزينة الڤان" });
+    expect(saved.status, JSON.stringify(saved.body)).toBe(200);
+    const glAccountId = saved.body.glAccountId as string;
+    expect(glAccountId).toMatch(/^1300-\d+$/);
+    expect(world.count("account")).toBe(accountsBefore + 1);
+    expect(world.count("audit_event", `entity_type = 'ACCOUNT' AND entity_id = '${glAccountId}' AND action = 'CREATE'`)).toBe(1);
   });
 });

@@ -1,6 +1,6 @@
 import type { SecurityExceptionRowDTO, SecurityWatchlistEntryDTO, UnrecordedSecurityEventsDTO } from "@mezan/contracts";
 import type { ReportRunnerColumn, ReportRunnerParamField } from "@mezan/ui";
-import { SecurityReportScreen, securityCopy, type SecurityReportResult } from "./SecurityReportScreen";
+import { SecurityReportScreen, useUserFilterField, securityCopy, type SecurityReportResult } from "./SecurityReportScreen";
 import { useAppTranslation } from "../../i18n";
 import { useAuditLabels } from "../enh/audit-ledger/audit-changes";
 import { monthStartIso, todayIso } from "../../lib/dates";
@@ -21,9 +21,10 @@ export function ExceptionsReportScreen() {
   const labels = useAuditLabels();
   const today = todayIso();
 
+  const userFilter = useUserFilterField("actor", t("securityReports.actor"));
   const paramFields: ReportRunnerParamField[] = [
     { kind: "dateRange", fromKey: "from", toKey: "to", label: t("securityReports.period") },
-    { kind: "text", key: "actor", label: t("securityReports.actor") },
+    userFilter,
     { kind: "text", key: "action", label: t("securityReports.action") },
     {
       kind: "select",

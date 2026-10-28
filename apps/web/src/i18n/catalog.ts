@@ -7843,6 +7843,9 @@ export const webAr = {
   // books — audit 4.1 B-1..B-11 / C-10
   "journals.costCenter": "مركز التكلفة",
   "journals.costCenterLabel": "مركز التكلفة للسطر {n}",
+  "journals.branchLabel": "الفرع للسطر {n}",
+  "journals.projectLabel": "المشروع للسطر {n}",
+  "journals.costCategoryLabel": "فئة التكلفة للسطر {n}",
   "journals.noCostCenter": "بدون مركز تكلفة",
 
   // licence-ui — banner branches, the activation step, the support card, the
@@ -7979,6 +7982,7 @@ export const webAr = {
   "securityReports.sod.kindTitle": "المصدر",
   "securityReports.period": "الفترة",
   "securityReports.actor": "المستخدم",
+  "securityReports.anyUser": "كل المستخدمين",
   "securityReports.action": "الإجراء",
   "securityReports.severity": "الخطورة",
   "securityReports.anySeverity": "كل الدرجات",

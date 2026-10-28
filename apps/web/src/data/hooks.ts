@@ -1358,7 +1358,9 @@ export function useUpdateTreasuryAccount() {
       if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theAccountCouldNotBe2"), t));
       return res.json<TreasuryAccountDTO>();
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["treasury-accounts"] }),
+    onSuccess: async () => {
+      await Promise.all([queryClient.invalidateQueries({ queryKey: ["treasury-accounts"] }), queryClient.invalidateQueries({ queryKey: ["accounts"] })]);
+    },
   });
 }
 
@@ -3483,6 +3485,9 @@ export function useVoidSalesInvoice() {
         queryClient.invalidateQueries({ queryKey: [key] });
       }
     },
+    onError: (error) => {
+      if (error.status === 409) invalidateSalesInvoices(queryClient);
+    },
   });
 }
 
@@ -3496,10 +3501,16 @@ export function useCancelDraftSalesInvoice() {
         method: "POST",
         body: JSON.stringify(expectedVersion === undefined ? {} : { expectedVersion }),
       });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theInvoiceCouldNotBe2"), t));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("cancelDraft.failed"), t));
       return res.json<SalesInvoiceDTO>();
     },
-    onSuccess: () => invalidateSalesInvoices(queryClient),
+    onSuccess: () => {
+      invalidateSalesInvoices(queryClient);
+      queryClient.invalidateQueries({ queryKey: ["sales-quotes"] });
+    },
+    onError: (error) => {
+      if (error.status === 409) invalidateSalesInvoices(queryClient);
+    },
   });
 }
 
@@ -8006,7 +8017,13 @@ export function useDataMigrationCommit(step: DataMigrationMasterStep) {
       if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theImportCouldNotBe"), t));
       return res.json<DataMigrationStepResultDTO>();
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["data-migration", "status"] }),
+    onSuccess: () => {
+      if (step === "treasury-accounts") {
+        queryClient.invalidateQueries({ queryKey: ["treasury-accounts"] });
+        queryClient.invalidateQueries({ queryKey: ["accounts"] });
+      }
+      return queryClient.invalidateQueries({ queryKey: ["data-migration", "status"] });
+    },
   });
 }
 

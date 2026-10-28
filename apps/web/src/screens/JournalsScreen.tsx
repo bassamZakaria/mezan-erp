@@ -915,7 +915,7 @@ function CreateJournalView({
         </div>
       ) : null}
 
-      <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+      <div className="grid grid-cols-1 gap-5 2xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
         <div className="flex flex-col gap-[16px]">
           <Card className="grid grid-cols-1 gap-[14px] p-[18px] sm:grid-cols-2">
             <TextField label={t("journals.entryDate")} value={date} onChange={setDate} placeholder="YYYY-MM-DD" />
@@ -927,11 +927,11 @@ function CreateJournalView({
               <table className="w-full table-fixed border-collapse text-[13px] max-sm:min-w-[640px]">
                 <thead>
                   <tr>
-                    <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px] text-[11px] font-bold uppercase text-ink-muted w-[34%] text-start">{t("journals.account")}</th>
-                    <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px] text-[11px] font-bold uppercase text-ink-muted w-[28%] text-start">{t("journals.party")}</th>
-                    <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px] text-[11px] font-bold uppercase text-ink-muted w-[15%] text-end">{t("common.debit")}</th>
-                    <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px] text-[11px] font-bold uppercase text-ink-muted w-[15%] text-end">{t("common.credit")}</th>
-                    <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px] w-[8%]" />
+                    <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px] text-[11px] font-bold uppercase text-ink-muted w-[32%] text-start">{t("journals.account")}</th>
+                    <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px] text-[11px] font-bold uppercase text-ink-muted w-[22%] text-start">{t("journals.party")}</th>
+                    <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px] text-[11px] font-bold uppercase text-ink-muted w-[18%] text-end">{t("common.debit")}</th>
+                    <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px] text-[11px] font-bold uppercase text-ink-muted w-[18%] text-end">{t("common.credit")}</th>
+                    <th scope="col" className="border-b border-border bg-surface-2 px-[4px] py-[10px] w-[56px]" />
                   </tr>
                 </thead>
                 <tbody>
@@ -971,7 +971,7 @@ function CreateJournalView({
                             type="number"
                             size="sm"
                             numeric
-                            className="w-full text-end"
+                            className="w-full text-end [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                             aria-label={t("journals.debitLabel", { n: String(i + 1) })}
                             value={line.debit}
                             min={0}
@@ -983,14 +983,14 @@ function CreateJournalView({
                             type="number"
                             size="sm"
                             numeric
-                            className="w-full text-end"
+                            className="w-full text-end [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                             aria-label={t("journals.creditLabel", { n: String(i + 1) })}
                             value={line.credit}
                             min={0}
                             onChange={(e) => updateLine(i, { credit: e.target.value, debit: "" })}
                           />
                         </td>
-                        <td className="px-[12px] pt-[10px] pb-[4px] text-center">
+                        <td className="px-[4px] pt-[10px] pb-[4px] text-center">
                           <IconButton aria-label={t("journals.removeLineLabel", { n: String(i + 1) })} disabled={lines.length <= 2} onClick={() => removeLine(i)}>
                             ✕
                           </IconButton>
@@ -1025,6 +1025,7 @@ function CreateJournalView({
                             <span className="mb-[4px] block text-[11px] font-bold text-ink-muted">{t("common.branch")}</span>
                             <EntityPicker
                               className="w-full"
+                              ariaLabel={t("journals.branchLabel", { n: String(i + 1) })}
                               value={branchOptions.find((o) => o.id === line.branchId) ?? null}
                               onChange={(o) => updateLine(i, { branchId: o?.id ?? "" })}
                               options={branchOptions}
@@ -1035,6 +1036,7 @@ function CreateJournalView({
                             <span className="mb-[4px] block text-[11px] font-bold text-ink-muted">{t("common.project")}</span>
                             <EntityPicker
                               className="w-full"
+                              ariaLabel={t("journals.projectLabel", { n: String(i + 1) })}
                               value={projectOptions.find((o) => o.id === line.projectId) ?? null}
                               onChange={(o) => updateLine(i, { projectId: o?.id ?? "", costCategory: o ? line.costCategory : "" })}
                               options={projectOptions}
@@ -1046,7 +1048,7 @@ function CreateJournalView({
                             <Select
                               size="sm"
                               className="w-full"
-                              aria-label={t("common.costCategory")}
+                              aria-label={t("journals.costCategoryLabel", { n: String(i + 1) })}
                               disabled={!line.projectId}
                               value={line.costCategory}
                               onChange={(value) => updateLine(i, { costCategory: value as CostCategoryDTO | "" })}

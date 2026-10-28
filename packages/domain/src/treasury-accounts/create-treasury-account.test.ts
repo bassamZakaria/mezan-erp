@@ -3,7 +3,9 @@ import { InMemoryTreasuryAccountRepository } from "./test-helpers/in-memory-trea
 import { createTreasuryAccount, validateNewTreasuryAccount } from "./create-treasury-account.js";
 import { DuplicateTreasuryAccountCodeError, InvalidOpeningBalanceError, NegativeCashBalanceError } from "./errors.js";
 import { InMemoryAccountRepository } from "../accounts/test-helpers/in-memory-account-repository.js";
-import { InvalidParentAccountError } from "../accounts/errors.js";
+import { DuplicateAccountCodeError, InvalidParentAccountError } from "../accounts/errors.js";
+import { DuplicateRecordIdError } from "../records/duplicate-record-id.js";
+import type { Account } from "../accounts/account.js";
 
 describe("createTreasuryAccount", () => {
   it("creates a cash account with defaults (EGP, zero opening balance, active)", async () => {
@@ -106,5 +108,55 @@ describe("createTreasuryAccount — its own ledger account (#120)", () => {
       createTreasuryAccount({ id: "ta1", code: "CASH-9", name: "صندوق", branchId: "b1" }, repo, { accounts, cashAndBankParentAccountId: async () => "9999" }),
     ).rejects.toBeInstanceOf(InvalidParentAccountError);
     expect(await repo.findById("ta1")).toBeNull();
+  });
+
+  it("hands the opened leaf to onOpened once, so the caller can audit it", async () => {
+    const accounts = await chart();
+    const opened: Account[] = [];
+    const account = await createTreasuryAccount({ id: "ta1", code: "CASH-9", name: "صندوق", branchId: "b1" }, new InMemoryTreasuryAccountRepository(), {
+      accounts,
+      onOpened: async (leaf) => {
+        opened.push(leaf);
+      },
+    });
+    expect(opened.map((leaf) => leaf.id)).toEqual([account.glAccountId]);
+  });
+
+  it("refuses a taken treasury id before opening a leaf, so the refusal leaves no orphan", async () => {
+    const accounts = await chart();
+    const repo = new InMemoryTreasuryAccountRepository();
+    await createTreasuryAccount({ id: "ta1", code: "CASH-9", name: "صندوق", branchId: "b1", glAccountId: "1300-1" }, repo, { accounts });
+    await expect(createTreasuryAccount({ id: "ta1", code: "CASH-10", name: "صندوق ٢", branchId: "b1" }, repo, { accounts })).rejects.toBeInstanceOf(DuplicateRecordIdError);
+    expect(await accounts.list()).toHaveLength(2);
+  });
+
+  it("takes the next free code when another create took the same one first, and answers 409's error when that one is taken too", async () => {
+    const accounts = await chart();
+    const leaf = (id: string): Account => ({ id, code: id, nameAr: "سباق", nameEn: null, type: "asset", naturalBalance: "debit", parentId: "1300", isHeader: false, status: "active" });
+    let raced = 0;
+    const racing = {
+      findById: (id: string) => accounts.findById(id),
+      list: () => accounts.list(),
+      create: async (account: Account) => {
+        if (raced < 1) {
+          raced += 1;
+          await accounts.create(leaf(account.id));
+        }
+        await accounts.create(account);
+      },
+    };
+    const account = await createTreasuryAccount({ id: "ta1", code: "CASH-9", name: "صندوق", branchId: "b1" }, new InMemoryTreasuryAccountRepository(), { accounts: racing });
+    expect(account.glAccountId).toBe("1300-3");
+
+    const alwaysRaced = {
+      ...racing,
+      create: async (account: Account) => {
+        await accounts.create(leaf(account.id));
+        await accounts.create(account);
+      },
+    };
+    await expect(
+      createTreasuryAccount({ id: "ta2", code: "CASH-10", name: "صندوق ٢", branchId: "b1" }, new InMemoryTreasuryAccountRepository(), { accounts: alwaysRaced }),
+    ).rejects.toBeInstanceOf(DuplicateAccountCodeError);
   });
 });

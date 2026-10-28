@@ -30,6 +30,7 @@ export { updateTreasuryAccount, type UpdateTreasuryAccountCommand, type Treasury
 export {
   InvalidTreasuryLedgerAccountError,
   TreasuryLedgerAccountFault,
+  TreasuryLedgerAccountUnlinkError,
   assertTreasuryLedgerAccount,
   openTreasuryLedgerAccount,
   type TreasuryLedgerAccountDeps,

@@ -1,7 +1,7 @@
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
-import type { Account, AccountRepository, AccountStatus, AccountType, NaturalBalance } from "@mezan/domain";
+import { DuplicateAccountCodeError, type Account, type AccountRepository, type AccountStatus, type AccountType, type NaturalBalance } from "@mezan/domain";
 import { insertNew } from "./insert-new.js";
-import type { SqlDb, SqlValue } from "./sql/sql-db.js";
+import { isUniqueViolation, type SqlDb, type SqlValue } from "./sql/sql-db.js";
 import { sqliteDb } from "./sql/sqlite-db.js";
 
 const CREATE_TABLE = `
@@ -90,7 +90,12 @@ class SqlAccountRepository implements AccountRepository {
   }
 
   async create(account: Account): Promise<void> {
-    await insertNew(this.db, account.id, UPSERT, params(account));
+    try {
+      await insertNew(this.db, account.id, UPSERT, params(account));
+    } catch (error) {
+      if (isUniqueViolation(error)) throw new DuplicateAccountCodeError(account.code);
+      throw error;
+    }
   }
 
   async update(account: Account): Promise<void> {

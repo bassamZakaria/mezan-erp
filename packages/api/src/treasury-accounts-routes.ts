@@ -15,6 +15,7 @@ import {
   TreasuryAccountNotFoundError,
   TreasuryAccountHasMovementsError,
   TreasuryGlAccountCurrencyConflictError,
+  TreasuryLedgerAccountUnlinkError,
   AuditChangeAction,
   type AuditSink,
   type TreasuryAccount,
@@ -24,6 +25,7 @@ import {
 import { createTreasuryAccountSchema, updateTreasuryAccountSchema } from "@mezan/contracts";
 import { createPermissionGate, type AuthContextResolver, branchScopeOf, withinScope } from "./permission-gate.js";
 import { recordFieldChanges } from "./admin-audit.js";
+import { AUDITED_ACCOUNT_FIELDS } from "./accounts.js";
 import { duplicateIdRefusal } from "./duplicate-id.js";
 import { sharedFieldRefusal } from "./branch-policy.js";
 
@@ -78,6 +80,7 @@ function handleDomainError(c: Context, err: unknown) {
   if (
     err instanceof NegativeCashBalanceError ||
     err instanceof InvalidTreasuryLedgerAccountError ||
+    err instanceof TreasuryLedgerAccountUnlinkError ||
     err instanceof InvalidParentAccountError ||
     err instanceof InvalidGuaranteeFacilityLimitError ||
     err instanceof InvalidOpeningBalanceError ||
@@ -127,6 +130,23 @@ export function createTreasuryAccountsRoutes(
       warnOn: ["glAccountId", "openingBalance", "openingBalanceDate", "currency", "bankAccountNumber", "branchId", "guaranteeFacilityLimit", "status"],
       details: { code: account.code, name: account.name },
     });
+  }
+
+  function auditingOpenedLeaf(c: Context, treasuryAccountId: string): TreasuryLedgerAccountDeps | undefined {
+    if (!ledgerAccounts) return undefined;
+    return {
+      ...ledgerAccounts,
+      onOpened: async (leaf) => {
+        await recordFieldChanges(audit, c, {
+          entity: { module: "accounting", entityType: "ACCOUNT", entityId: leaf.id },
+          action: AuditChangeAction.Create,
+          before: null,
+          after: leaf,
+          fields: AUDITED_ACCOUNT_FIELDS,
+          details: { treasuryAccountId },
+        });
+      },
+    };
   }
 
   /**
@@ -275,7 +295,7 @@ export function createTreasuryAccountsRoutes(
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
     try {
-      const account = await createTreasuryAccount(parsed.data, repo, ledgerAccounts);
+      const account = await createTreasuryAccount(parsed.data, repo, auditingOpenedLeaf(c, parsed.data.id));
       await auditAccount(c, account, AuditChangeAction.Create);
       return c.json(serialize(account), 201);
     } catch (err) {
@@ -292,7 +312,7 @@ export function createTreasuryAccountsRoutes(
       const before = await repo.findById(c.req.param("id"));
       const restricted = before ? sharedFieldRefusal(c, TREASURY_ACCOUNTS_PREFIX, serialize(before), parsed.data) : null;
       if (restricted) return restricted;
-      const account = await updateTreasuryAccount(c.req.param("id"), parsed.data, repo, ledgerAccounts, {
+      const account = await updateTreasuryAccount(c.req.param("id"), parsed.data, repo, auditingOpenedLeaf(c, c.req.param("id")), {
         hasPostedLines: async (glAccountId) => ((await ledger?.listLines?.({ accountIds: [glAccountId] })) ?? []).length > 0,
       });
       await auditAccount(c, account, AuditChangeAction.Update, before);

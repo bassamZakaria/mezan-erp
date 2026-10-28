@@ -35,6 +35,7 @@ import {
   salesTaxRerating,
   type SalesItemTaxSource,
   type ReportsRoutesDeps,
+  AUDITED_ACCOUNT_FIELDS,
 } from "@mezan/api";
 import {
   withDerivedTreasuryFx,
@@ -252,6 +253,9 @@ import {
   RESTRICTED_CASH_ROUTING_KEY,
   cashAndBankLedgerAccountIds,
   openTreasuryLedgerAccount,
+  diffAuditFields,
+  AuditChangeAction,
+  recordSensitiveEvent,
   disposalProceedsAccounts,
   UserStatusCode,
   isErasedUser,
@@ -4623,20 +4627,40 @@ async function composeBackend(options: CreateBackendOptions, db: SqlDb, sqlite: 
    * its own leaf now, account and link in one transaction; a linked account is
    * never touched, so a second start does nothing.
    */
-  {
-    let linked = 0;
+  for (const { id } of (await treasuryAccounts.list()).filter((treasury) => treasury.glAccountId === null)) {
     try {
-      for (const treasury of await treasuryAccounts.list()) {
-        if (treasury.glAccountId !== null) continue;
-        await db.transaction(async () => {
-          const glAccountId = await openTreasuryLedgerAccount(treasury, { accounts, cashAndBankParentAccountId: resolveCashAndBankParentAccountId });
-          await treasuryAccounts.update({ ...treasury, glAccountId });
+      const glAccountId = await db.transaction(async () => {
+        const treasury = await treasuryAccounts.findById(id);
+        if (!treasury || treasury.glAccountId !== null) return null;
+        const leafId = await openTreasuryLedgerAccount(treasury, {
+          accounts,
+          cashAndBankParentAccountId: resolveCashAndBankParentAccountId,
+          onOpened: (leaf) =>
+            recordSensitiveEvent(auditSink, {
+              module: "accounting",
+              entityType: "ACCOUNT",
+              entityId: leaf.id,
+              action: AuditChangeAction.Create,
+              actor: "system",
+              severity: "INFO",
+              details: { treasuryAccountId: treasury.id, changes: diffAuditFields(null, leaf, AUDITED_ACCOUNT_FIELDS) },
+            }),
         });
-        linked += 1;
-      }
-      if (linked > 0) backendLog.info({ area: "treasury-accounts" }, `linked ${linked} treasury account(s) to a ledger account of their own`);
+        await treasuryAccounts.update({ ...treasury, glAccountId: leafId });
+        await recordSensitiveEvent(auditSink, {
+          module: "treasury",
+          entityType: "TREASURY_ACCOUNT",
+          entityId: treasury.id,
+          action: AuditChangeAction.Update,
+          actor: "system",
+          severity: "WARNING",
+          details: { code: treasury.code, name: treasury.name, changes: [{ field: "glAccountId", from: null, to: leafId }] },
+        });
+        return leafId;
+      });
+      if (glAccountId) backendLog.info({ area: "treasury-accounts", treasuryAccountId: id, glAccountId }, "linked a treasury account to a ledger account of its own");
     } catch (error) {
-      backendLog.error({ area: "treasury-accounts", err: error }, "linking treasury accounts to the ledger could not complete");
+      backendLog.error({ area: "treasury-accounts", treasuryAccountId: id, err: error }, "linking a treasury account to the ledger could not complete");
     }
   }
   const resolveCashAndBankAccountIds = async (): Promise<readonly string[]> => {

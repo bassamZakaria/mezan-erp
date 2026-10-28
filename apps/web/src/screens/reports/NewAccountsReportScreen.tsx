@@ -1,6 +1,6 @@
 import type { NewAccountRowDTO } from "@mezan/contracts";
 import type { ReportRunnerColumn, ReportRunnerParamField } from "@mezan/ui";
-import { SecurityReportScreen, securityCopy } from "./SecurityReportScreen";
+import { SecurityReportScreen, useUserFilterField, securityCopy } from "./SecurityReportScreen";
 import { useAppTranslation } from "../../i18n";
 
 /** حسابات أُنشئت حديثاً — `/security-reports/new-accounts` (P-4). */
@@ -10,9 +10,10 @@ const REPORT = "newAccounts" as const;
 export function NewAccountsReportScreen() {
   const { t } = useAppTranslation();
 
+  const userFilter = useUserFilterField("createdBy", t("securityReports.createdBy"));
   const paramFields: ReportRunnerParamField[] = [
     { kind: "text", key: "days", label: t("securityReports.lookbackDays") },
-    { kind: "text", key: "createdBy", label: t("securityReports.createdBy") },
+    userFilter,
   ];
 
   const columns: ReportRunnerColumn<NewAccountRowDTO>[] = [

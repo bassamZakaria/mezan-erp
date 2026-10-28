@@ -3,6 +3,8 @@ import { ReportRunner, type ReportRunnerColumn, type ReportRunnerParamField } fr
 import type { ReportCoverageDTO, ReportGapDTO, ReportPageDTO } from "@mezan/contracts";
 import { useReport } from "../../data/reports-hooks";
 import { useReportPaging } from "./useReportPaging";
+import { useUsers } from "../../data/hooks";
+import { useEntityName } from "../../lib/entity-names";
 import { useAppTranslation, type AppTranslationKey } from "../../i18n";
 import { tryReportLabel } from "../../report-labels";
 import { WEB_TRANSLATION_KEYS } from "../../i18n/catalog";
@@ -11,6 +13,19 @@ const SECURITY_REPORTS_ROOT = "/security-reports";
 
 /** One of the four exception reports this shell renders, keyed the way `securityReports.<report>.*` i18n keys are. */
 export type SecurityReportKey = "exceptions" | "postPosting" | "afterHours" | "newAccounts" | "sod";
+
+export function useUserFilterField(key: string, label: string): ReportRunnerParamField {
+  const { t } = useAppTranslation();
+  const entityName = useEntityName();
+  const users = useUsers().data;
+  if (!users || users.length === 0) return { kind: "text", key, label };
+  return {
+    kind: "select",
+    key,
+    label,
+    options: [{ value: "", label: t("securityReports.anyUser") }, ...users.map((u) => ({ value: u.id, label: entityName(u, u.email) }))],
+  };
+}
 
 /**
  * Overlays the server's raw `labelAr` (KPI, gap, gap-detail and column labels

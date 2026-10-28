@@ -389,6 +389,15 @@ export function createSecurityReportsRoutes(
     return (actor) => names.get(actor) || actor;
   }
 
+  async function actorFilterId(input: string | undefined): Promise<string | undefined> {
+    if (!input) return undefined;
+    const users = (await deps.users?.list()) ?? [];
+    if (users.some((user: User) => user.id === input)) return input;
+    const wanted = input.trim().toLowerCase();
+    const named = users.filter((user: User) => user.nameAr.trim().toLowerCase() === wanted || (user.nameEn ?? "").trim().toLowerCase() === wanted);
+    return named.length === 1 ? named[0]!.id : input;
+  }
+
   function queryParams(c: Context): Record<string, string> {
     const out: Record<string, string> = {};
     for (const [key, value] of new URL(c.req.url).searchParams) {
@@ -450,11 +459,12 @@ export function createSecurityReportsRoutes(
       return respondValidation(c, [{ field: "from", message: "تاريخ البداية يجب ألا يتجاوز تاريخ النهاية." }]);
     }
     const bounds = utcBounds(from, to);
+    const actorFilter = await actorFilterId(parsed.data.actor);
 
     const filter: AuditQueryFilter = {
       stream: "security",
       ...bounds,
-      ...(parsed.data.actor ? { actor: parsed.data.actor } : {}),
+      ...(actorFilter ? { actor: actorFilter } : {}),
       ...(parsed.data.action ? { action: parsed.data.action } : {}),
       ...(parsed.data.severity ? { severity: parsed.data.severity } : {}),
     };
@@ -650,6 +660,7 @@ export function createSecurityReportsRoutes(
       return respondValidation(c, [{ field: "from", message: "تاريخ البداية يجب ألا يتجاوز تاريخ النهاية." }]);
     }
     const bounds = utcBounds(from, to);
+    const actorFilter = await actorFilterId(parsed.data.actor);
 
     // One query per action rather than one unfiltered sweep: `AuditQueryFilter`
     // matches a single `action`, and reading the whole sensitive stream to throw
@@ -665,7 +676,7 @@ export function createSecurityReportsRoutes(
             stream: "sensitive",
             action,
             ...bounds,
-            ...(parsed.data.actor ? { actor: parsed.data.actor } : {}),
+            ...(actorFilter ? { actor: actorFilter } : {}),
             ...(parsed.data.entityType ? { entityType: parsed.data.entityType } : {}),
           }),
         ),
@@ -816,6 +827,7 @@ export function createSecurityReportsRoutes(
       return respondValidation(c, [{ field: "from", message: "تاريخ البداية يجب ألا يتجاوز تاريخ النهاية." }]);
     }
     const bounds = utcBounds(from, to);
+    const actorFilter = await actorFilterId(parsed.data.actor);
 
     const hours = await workingHours();
     const { formatter } = zoneFormatter(hours.timezone);
@@ -829,7 +841,7 @@ export function createSecurityReportsRoutes(
         collectEvents(deps.audit, {
           stream,
           ...bounds,
-          ...(parsed.data.actor ? { actor: parsed.data.actor } : {}),
+          ...(actorFilter ? { actor: actorFilter } : {}),
           ...(parsed.data.severity ? { severity: parsed.data.severity } : {}),
         }),
       ),
@@ -1094,7 +1106,7 @@ export function createSecurityReportsRoutes(
 
       if (parsed.data.createdBy) {
         const wanted = parsed.data.createdBy;
-        rows = rows.filter((row) => row.createdBy === wanted);
+        rows = rows.filter((row) => row.createdBy === wanted || row.createdByNameAr === wanted);
       }
 
       const byCreator = new Map<string, NewAccountRowDTO[]>();

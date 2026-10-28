@@ -7837,6 +7837,9 @@ export const webEn: Record<WebTranslationKey, string> = {
   // books — audit 4.1 B-1..B-11 / C-10
   "journals.costCenter": "Cost center",
   "journals.costCenterLabel": "Cost center for line {n}",
+  "journals.branchLabel": "Branch for line {n}",
+  "journals.projectLabel": "Project for line {n}",
+  "journals.costCategoryLabel": "Cost category for line {n}",
   "journals.noCostCenter": "No cost center",
 
   // licence-ui
@@ -7977,6 +7980,7 @@ export const webEn: Record<WebTranslationKey, string> = {
   "securityReports.sod.kindTitle": "Source",
   "securityReports.period": "Period",
   "securityReports.actor": "User",
+  "securityReports.anyUser": "All users",
   "securityReports.action": "Action",
   "securityReports.severity": "Severity",
   "securityReports.anySeverity": "Any severity",

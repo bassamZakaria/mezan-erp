@@ -39,7 +39,7 @@ services:
       timeout: 5s
       retries: 4
       start_period: 60s
-      start_interval: 2s
+      start_interval: 1s
     logging:
       driver: json-file
       options:

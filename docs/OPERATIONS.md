@@ -1,6 +1,6 @@
 # Operations: logs, alerts and health checks (cloud edition)
 
-The cloud server runs as one Docker container on the Contabo VPS (`Dockerfile`, entry `apps/server/src/cloud.ts`). It needs no external log or monitoring service: it writes structured logs to stdout, mails its own alerts, and answers two health endpoints an uptime monitor can poll.
+The cloud server runs as one Docker container on the Contabo VPS (`Dockerfile`, entry `apps/server/src/cloud.ts`, bundled by `apps/server/scripts/build.mjs` to `apps/server/dist/cloud.js`). It needs no external log or monitoring service: it writes structured logs to stdout, mails its own alerts, and answers two health endpoints an uptime monitor can poll.
 
 ## Logs
 

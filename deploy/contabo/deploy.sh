@@ -294,7 +294,7 @@ migrate_sqlite_books() {
   MEZAN_MIGRATE_OWNER_URL="$owner_url" MEZAN_IMAGE_TAG="$tag" timeout -k 30 "$MIGRATE_TIMEOUT_SECONDS" \
     docker compose --project-directory "$COMPOSE_DIR" -f "$COMPOSE_DIR/docker-compose.yml" run --rm --no-deps -T --name "$MIGRATE_CONTAINER" \
     -e MEZAN_MIGRATE_OWNER_URL -e TMPDIR=/data/.migrate-scratch -e MEZAN_LOG_STDERR=1 mezan \
-    node --import tsx apps/server/src/sqlite-to-postgres-cli.ts migrate --data /data > "$MIGRATION_REPORT" || code=$?
+    node --enable-source-maps apps/server/dist/sqlite-to-postgres-cli.js migrate --data /data > "$MIGRATION_REPORT" || code=$?
   # timeout stops the compose client, not the container.
   docker rm -f "$MIGRATE_CONTAINER" >/dev/null 2>&1 || true
   rm -rf "$MIGRATE_SCRATCH"

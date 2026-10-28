@@ -8,7 +8,7 @@ the database, and who can reach it.
 | dev | `localhost:5173` + `:3000` | vite dev server proxying `apps/server/src/index.ts` | `.data/dev-platform` | whatever you have checked out |
 | testing | `localhost:4101` | `apps/server/src/cloud.ts` | `.data/testing-platform` | `testing` |
 | staging | `localhost:4102` | `apps/server/src/cloud.ts` | `.data/staging-platform` | `main` |
-| production | Contabo VPS (EU, Germany), Caddy in front | `apps/server/src/cloud.ts` in Docker | `/srv/mezan/data` on the host, `/data` in the container | `production`, see [deploy/contabo/README.md](../deploy/contabo/README.md) |
+| production | Contabo VPS (EU, Germany), Caddy in front | `apps/server/src/cloud.ts`, bundled to `apps/server/dist/cloud.js`, in Docker | `/srv/mezan/data` on the host, `/data` in the container | `production`, see [deploy/contabo/README.md](../deploy/contabo/README.md) |
 
 Every environment now runs the same multi-tenant entrypoint (`createCloudApp`,
 `apps/server/src/cloud-app.ts`): a platform database at `<platform dir>/platform.db`
@@ -96,6 +96,8 @@ database that has a non-empty `-wal` file beside it:
 ```sh
 pnpm exec tsx apps/server/src/audit-anchor-cli.ts verify --db copy.db --scope <tenant id>
 ```
+
+Inside the cloud image the same CLI is `node --enable-source-maps apps/server/dist/audit-anchor-cli.js`.
 
 It exits 0 when the chain verifies and extends the latest anchor, 2 on a
 rollback (`ROLLED_BACK`), a rewrite (`REWRITTEN`), a broken chain or forged

@@ -106,6 +106,7 @@ import {
   voucherBaseAmount,
   voucherBaseWithholding,
   voucherBaseCommission,
+  allocationStoodOn,
   isStandingVoucher,
   voucherStandsAsOf,
   fxRevaluationNet,
@@ -2078,7 +2079,7 @@ export function createReportsRoutes(
             customerNameAr: (line.customerId && customerName.get(line.customerId)) || "—",
             gross: voucherBaseAmount(line),
             commission: voucherBaseCommission(line),
-            allocations: allocations.filter((a) => a.status === "active").map((a) => ({ invoiceId: a.invoiceId, amount: a.amount })),
+            allocations: allocations.filter((a) => allocationStoodOn(a, dateTo)).map((a) => ({ invoiceId: a.invoiceId, amount: a.amount })),
           };
         }),
     );

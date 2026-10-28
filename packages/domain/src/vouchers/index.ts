@@ -75,6 +75,7 @@ export {
   allocate,
   reverseAllocation,
 } from "./allocation.js";
+export { allocationStoodOn } from "./allocation.js";
 
 export {
   FX_REALISED_DOC_TYPE,

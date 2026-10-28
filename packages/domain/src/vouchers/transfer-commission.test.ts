@@ -4,6 +4,7 @@ import { buildTestService } from "./test-helpers/build-test-service.js";
 import type { AllocatableInvoice } from "./allocation.js";
 import type { CreateVoucherCommand } from "./voucher-service.js";
 import { voucherLine, voucherNetPaid } from "./voucher-document.js";
+import { allocationStoodOn } from "./allocation.js";
 
 const AR = "1100";
 const BANK = "1310";
@@ -86,5 +87,18 @@ describe("transfer commission on a customer collection (#115)", () => {
       })(),
     ).rejects.toThrow(message);
     expect(await h.ledger.findById("vc")).toBeNull();
+  });
+});
+
+describe("an allocation as it stood on a day (#117)", () => {
+  const made = { status: "active" as const, date: "2026-08-10", createdAt: "2026-08-10T09:00:00.000Z", reversedOn: null, reversedAt: null };
+  it("counts an allocation from the day it took effect", () => {
+    expect(allocationStoodOn(made, "2026-08-09")).toBe(false);
+    expect(allocationStoodOn(made, "2026-08-10")).toBe(true);
+  });
+  it("still counts one undone after the day, and not one undone by it", () => {
+    const undone = { ...made, status: "reversed" as const, reversedOn: "2026-09-05", reversedAt: "2026-09-05T10:00:00.000Z" };
+    expect(allocationStoodOn(undone, "2026-08-31")).toBe(true);
+    expect(allocationStoodOn(undone, "2026-09-05")).toBe(false);
   });
 });

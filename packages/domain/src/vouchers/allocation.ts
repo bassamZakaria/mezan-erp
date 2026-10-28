@@ -227,6 +227,14 @@ export interface FxShareRelief {
 }
 
 /** Persistence port for allocations. */
+export function allocationStoodOn(allocation: Pick<VoucherAllocation, "status" | "date" | "createdAt" | "reversedOn" | "reversedAt">, day: string): boolean {
+  const madeOn = (allocation.date ?? allocation.createdAt).slice(0, 10);
+  if (madeOn > day) return false;
+  if (allocation.status === "active") return true;
+  const undoneOn = (allocation.reversedOn ?? allocation.reversedAt ?? "").slice(0, 10);
+  return undoneOn > day;
+}
+
 export interface AllocationRepository {
   save(alloc: VoucherAllocation): Promise<void>;
   update(alloc: VoucherAllocation): Promise<void>;

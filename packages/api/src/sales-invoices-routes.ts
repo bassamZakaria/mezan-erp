@@ -792,7 +792,7 @@ export function createSalesInvoicesRoutes(
       );
       if (refusal) return quotaRefusalResponse(c, refusal);
       const invoice = value!;
-      return c.json(salesInvoiceSchema.parse(serialize(invoice, totalsFor(svc, invoice))), 201);
+      return c.json(salesInvoiceSchema.parse(serialize(invoice, totalsFor(svc, invoice), Money.zero(), maySeeCost(c))), 201);
     } catch (err) {
       return handleDomainError(c, err);
     }
@@ -1346,7 +1346,7 @@ export function createSalesInvoicesRoutes(
         }
       }
       return c.json({
-        ...serialize(result.invoice, totalsFor(svc, result.invoice), await creditFor(result.invoice.id)),
+        ...serialize(result.invoice, totalsFor(svc, result.invoice), await creditFor(result.invoice.id), maySeeCost(c)),
         etaReceipt,
         ...(etaReceiptError ? { etaReceiptError } : {}),
         held: result.held,
@@ -1390,7 +1390,7 @@ export function createSalesInvoicesRoutes(
         return cancelled;
       });
       await stampDocumentModifier(deps.versionGuard, invoice.id, getAuthContext(c)?.userId);
-      return c.json(serialize(invoice, totalsFor(svc, invoice)));
+      return c.json(serialize(invoice, totalsFor(svc, invoice), Money.zero(), maySeeCost(c)));
     } catch (err) {
       return handleDomainError(c, err);
     }

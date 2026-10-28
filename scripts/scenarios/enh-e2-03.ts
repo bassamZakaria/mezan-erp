@@ -7,7 +7,7 @@ const ITEM_RECOUNT = "SCN-CNT-Y";
 const ITEM_EXACT = "SCN-CNT-Z";
 const COUNT_VARIANCE_ACCOUNT = "5074";
 const ADJUSTMENT = "SCN-CNT-ADJ";
-const REVIEWER = { "x-user-id": "SCN-CNT-REVIEWER", "x-permissions": "inventory.count.review,inventory.count.approve,inventory.count.scan", "x-role-codes": "INVENTORY_MANAGER" };
+const REVIEWER = { "x-user-id": "SCN-CNT-REVIEWER", "x-permissions": "inventory.count.review,inventory.count.approve,inventory.count.scan,inventory.cost.view", "x-role-codes": "INVENTORY_MANAGER" };
 const COUNTER_PERMISSIONS = "inventory.count.scan,inventory.count.review,inventory.count.approve";
 
 /**

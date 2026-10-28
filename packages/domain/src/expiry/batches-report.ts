@@ -91,6 +91,7 @@ export function createInventoryBatchesReport(
       BRANCH_PARAM_FIELD,
     ],
     rowKey: (row) => row.key,
+    costRowKeys: ["valueExact"],
     group: { key: (row) => row.warehouseId, label: (row) => row.warehouseName },
     columns: [
       { key: "itemNameAr", header: "الصنف", format: "text", value: (row) => row.itemNameAr, entity: { kind: "item", id: (row) => row.itemId } },
@@ -100,14 +101,15 @@ export function createInventoryBatchesReport(
       { key: "statusLabel", header: "الحالة", format: "text", value: (row) => row.statusLabel },
       { key: "fefoRank", header: "ترتيب الصرف", format: "qty", align: "end", value: (row) => row.fefoRank },
       { key: "qty", header: "الكمية", format: "qty", align: "end", total: true, value: (row) => row.qty },
-      { key: "totalValue", header: "القيمة", format: "money", align: "end", total: true, value: (row) => row.totalValue },
+      { key: "totalValue", cost: true, header: "القيمة", format: "money", align: "end", total: true, value: (row) => row.totalValue },
       { key: "receivedOn", header: "أول استلام", format: "date", value: (row) => row.receivedOn },
     ],
     kpis: [
       { key: "batchCount", labelAr: "عدد التشغيلات", format: "qty", value: (rows) => rows.length },
-      { key: "totalValue", labelAr: "القيمة", format: "money", value: (rows) => sumRows(rows, (r) => r.totalValue) },
+      { key: "totalValue", cost: true, labelAr: "القيمة", format: "money", value: (rows) => sumRows(rows, (r) => r.totalValue) },
       {
         key: "expiredValue",
+        cost: true,
         labelAr: "قيمة المنتهية",
         format: "money",
         value: (rows) => sumRows(rows, (r) => (r.status === ExpiryStatus.Expired ? r.totalValue : 0)),
@@ -115,6 +117,7 @@ export function createInventoryBatchesReport(
       },
       {
         key: "nearValue",
+        cost: true,
         labelAr: "قيمة القريبة من الانتهاء",
         format: "money",
         value: (rows) => sumRows(rows, (r) => (r.status === ExpiryStatus.NearExpiry ? r.totalValue : 0)),

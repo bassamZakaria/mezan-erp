@@ -73,7 +73,7 @@ export const itemSchema = z.object({
   specifications: z.array(z.object({ code: z.string(), value: z.string() })),
   costingMethod: costingMethodSchema,
   salePrice: moneyString.nullable(),
-  costPrice: moneyString.nullable(),
+  costPrice: moneyString.nullable().optional(),
   taxRatePercent: z.number(),
   trackInventory: z.boolean(),
   trackBatches: z.boolean(),

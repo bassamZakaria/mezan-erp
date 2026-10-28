@@ -6,6 +6,7 @@ import {
   Money,
   Qty,
   createInventoryBatchesReport,
+  withoutCost,
   expiredWriteOffLines,
   extend,
   previewFefo,
@@ -34,8 +35,10 @@ import {
   createAnyPermissionGate,
   createPermissionGate,
   getAuthContext,
+  maySeeItemCost,
   warehouseScopeOf,
   withinScope,
+  withItemCost,
   type AuthContextResolver,
 } from "../permission-gate.js";
 import { recordFieldChanges } from "../admin-audit.js";
@@ -87,6 +90,8 @@ async function valueAtWac(snapshots: WacSnapshotRepository, warehouseId: string,
   if (snapshot.onHand.compare(line.qty) === 0) return snapshot.totalValue;
   return extend(line.qty, snapshot.averageCost);
 }
+
+const WRITE_OFF_COST_KEYS = ["value", "layerValue", "totalValue"];
 
 async function serializeWriteOffLines(
   snapshots: WacSnapshotRepository,
@@ -193,7 +198,7 @@ export function createExpiryRoutes(deps: ExpiryRoutesDeps, resolveAuthContext: A
     return c.json({
       asOf: today(),
       nearExpiryDays: settings.nearExpiryDays,
-      due: due.map((r) => ({
+      due: withItemCost(c, due.map((r) => ({
         itemId: r.itemId,
         warehouseId: r.warehouseId,
         batchNo: r.batchNo,
@@ -202,7 +207,7 @@ export function createExpiryRoutes(deps: ExpiryRoutesDeps, resolveAuthContext: A
         status: r.status,
         qty: r.qty.toString(),
         value: r.value.toString(),
-      })),
+      })), ["value"]),
       log: withinScope(log, scope, (a) => a.warehouseId),
     });
   });
@@ -219,12 +224,12 @@ export function createExpiryRoutes(deps: ExpiryRoutesDeps, resolveAuthContext: A
     const asOf = today();
     const lines = expiredWriteOffLines({ layers: await loadAllCostLayers(deps), warehouseId, asOf });
     const serialized = await serializeWriteOffLines(deps.snapshots, warehouseId, lines);
-    return c.json({
+    return c.json(withItemCost(c, {
       warehouseId,
       asOf,
       lines: serialized.lines,
       totalValue: serialized.total.toString(),
-    });
+    }, WRITE_OFF_COST_KEYS));
   });
 
   app.post("/write-off", gate("inventory.adjustment.create"), async (c) => {
@@ -275,13 +280,13 @@ export function createExpiryRoutes(deps: ExpiryRoutesDeps, resolveAuthContext: A
     if (!response.ok) return c.json(body, response.status as 400);
     const serialized = await serializeWriteOffLines(deps.snapshots, parsed.data.warehouseId, lines);
     return c.json(
-      {
+      withItemCost(c, {
         adjustmentId,
         docNo: body.docNo ?? null,
         status: body.status ?? "draft",
         lines: serialized.lines,
         totalValue: serialized.total.toString(),
-      },
+      }, WRITE_OFF_COST_KEYS),
       201,
     );
   });
@@ -356,7 +361,8 @@ export function createBatchesReportRoutes(
   app.get("/", gate("inventory.stock.view"), async (c) => {
     await deps.scan();
     const settings = await deps.store.getSettings();
-    const definition = createInventoryBatchesReport(today(), settings.nearExpiryDays);
+    const batches = createInventoryBatchesReport(today(), settings.nearExpiryDays);
+    const definition = maySeeItemCost(c) ? batches : withoutCost(batches);
     const [items, warehouses, allLayers] = await Promise.all([deps.items.list(), deps.warehouses.findAll(), loadAllCostLayers(deps)]);
     const layers = withinScope(allLayers, warehouseScopeOf(c), (l) => l.warehouseId);
     const outcome = runReport(definition, { ...definition.defaultParams, ...c.req.query() }, { items, warehouses, layers });

@@ -70,7 +70,7 @@ describe("inventory routes — permission gate", () => {
   it("403s rebuild without inventory.valuation.rebuild", async () => {
     const { app } = newApp();
     const res = await app.fetch(
-      req("/rebuild?itemId=I1&warehouseId=W1", { method: "POST", permissions: "inventory.valuation.view" }),
+      req("/rebuild?itemId=I1&warehouseId=W1", { method: "POST", permissions: "inventory.valuation.view,inventory.cost.view" }),
     );
     expect(res.status).toBe(403);
   });
@@ -97,7 +97,7 @@ describe("inventory routes — adjustments, balance, valuation, drift", () => {
     );
     expect(post.status).toBe(201);
 
-    const bal = await app.fetch(req("/balance?itemId=I1&warehouseId=W1", { permissions: "inventory.stock.view" }));
+    const bal = await app.fetch(req("/balance?itemId=I1&warehouseId=W1", { permissions: "inventory.stock.view,inventory.cost.view" }));
     expect(bal.status).toBe(200);
     expect((await bal.json()) as unknown).toMatchObject({
       onHand: "100.000000",
@@ -152,7 +152,7 @@ describe("inventory routes — adjustments, balance, valuation, drift", () => {
         body: JSON.stringify(openingBalance),
       }),
     );
-    const res = await app.fetch(req("/valuation", { permissions: "inventory.valuation.view" }));
+    const res = await app.fetch(req("/valuation", { permissions: "inventory.valuation.view,inventory.cost.view" }));
     expect(res.status).toBe(200);
     const body = (await res.json()) as { rows: unknown[]; totalValue: string };
     expect(body.totalValue).toBe("500000.000000");
@@ -169,7 +169,7 @@ describe("inventory routes — adjustments, balance, valuation, drift", () => {
       }),
     );
     const res = await app.fetch(
-      req("/drift?itemId=I1&warehouseId=W1", { permissions: "inventory.valuation.view" }),
+      req("/drift?itemId=I1&warehouseId=W1", { permissions: "inventory.valuation.view,inventory.cost.view" }),
     );
     expect(res.status).toBe(200);
     const body = (await res.json()) as { cacheDrift: string; withinTolerance: boolean };
@@ -207,7 +207,7 @@ describe("inventory routes — valuation-neutral transfers", () => {
     );
     expect(transfer.status).toBe(201);
 
-    const res = await app.fetch(req("/valuation", { permissions: "inventory.valuation.view" }));
+    const res = await app.fetch(req("/valuation", { permissions: "inventory.valuation.view,inventory.cost.view" }));
     const body = (await res.json()) as { totalValue: string };
     expect(body.totalValue).toBe("50.000000");
   });
@@ -228,13 +228,13 @@ describe("inventory routes — movements, item stock and stock-balance", () => {
         }),
       }),
     );
-    const res = await app.fetch(req("/movements?itemId=I1&warehouseId=W1", { permissions: "inventory.stock.view" }));
+    const res = await app.fetch(req("/movements?itemId=I1&warehouseId=W1", { permissions: "inventory.stock.view,inventory.cost.view" }));
     expect(res.status).toBe(200);
     const rows = (await res.json()) as { direction: string; qty: string; unitCost: string; sourceDocType: string }[];
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ direction: "IN", qty: "100.000000", unitCost: "5000.000000", sourceDocType: "ADJUSTMENT" });
 
-    const empty = await app.fetch(req("/movements?itemId=I2&warehouseId=W1", { permissions: "inventory.stock.view" }));
+    const empty = await app.fetch(req("/movements?itemId=I2&warehouseId=W1", { permissions: "inventory.stock.view,inventory.cost.view" }));
     expect(empty.status).toBe(200);
     expect(await empty.json()).toEqual([]);
   });
@@ -255,7 +255,7 @@ describe("inventory routes — movements, item stock and stock-balance", () => {
         }),
       }),
     );
-    const res = await app.fetch(req("/items/I1/stock", { permissions: "inventory.stock.view" }));
+    const res = await app.fetch(req("/items/I1/stock", { permissions: "inventory.stock.view,inventory.cost.view" }));
     expect(res.status).toBe(200);
     const out = (await res.json()) as {
       positions: { warehouseId: string; onHand: string; reserved: string; available: string; totalValue: string }[];
@@ -303,7 +303,7 @@ describe("inventory routes — movements, item stock and stock-balance", () => {
       }),
     );
 
-    const all = await app.fetch(req("/stock-balance", { permissions: "inventory.stock.view" }));
+    const all = await app.fetch(req("/stock-balance", { permissions: "inventory.stock.view,inventory.cost.view" }));
     const allBody = (await all.json()) as {
       rows: { itemId: string; onHand: string; reserved: string; available: string; warehouseCount: number }[];
     };
@@ -311,13 +311,13 @@ describe("inventory routes — movements, item stock and stock-balance", () => {
     // 10 (W1) + 4 (W2) = 14 on hand; 6 reserved (all in W1) → 8 available.
     expect(allBody.rows[0]).toMatchObject({ itemId: "I1", onHand: "14.000000", reserved: "6.000000", available: "8.000000", warehouseCount: 2 });
 
-    const filtered = await app.fetch(req("/stock-balance?warehouseId=W1", { permissions: "inventory.stock.view" }));
+    const filtered = await app.fetch(req("/stock-balance?warehouseId=W1", { permissions: "inventory.stock.view,inventory.cost.view" }));
     const filteredBody = (await filtered.json()) as { rows: { onHand: string; warehouseCount: number }[] };
     expect(filteredBody.rows).toHaveLength(1);
     expect(filteredBody.rows[0]).toMatchObject({ onHand: "10.000000", warehouseCount: 1 });
 
     // A warehouse filter that holds none of the item empties the list rather than falling back to "all".
-    const nothing = await app.fetch(req("/stock-balance?warehouseId=W-NONE", { permissions: "inventory.stock.view" }));
+    const nothing = await app.fetch(req("/stock-balance?warehouseId=W-NONE", { permissions: "inventory.stock.view,inventory.cost.view" }));
     expect(((await nothing.json()) as { rows: unknown[] }).rows).toEqual([]);
   });
 
@@ -330,12 +330,12 @@ describe("inventory routes — movements, item stock and stock-balance", () => {
     const items = { list: async () => [{ id: "I1", nameAr: "شاي", code: "TEA-1", reorderPoint: 5 }] } as unknown as Parameters<typeof createInventoryRoutes>[6];
     const labelled = newApp(undefined, undefined, undefined, items).app;
     await labelled.fetch(req("/adjustments", adjust));
-    const body = (await (await labelled.fetch(req("/stock-balance", { permissions: "inventory.stock.view" }))).json()) as { rows: Record<string, unknown>[] };
+    const body = (await (await labelled.fetch(req("/stock-balance", { permissions: "inventory.stock.view,inventory.cost.view" }))).json()) as { rows: Record<string, unknown>[] };
     expect(body.rows[0]).toMatchObject({ itemId: "I1", itemNameAr: "شاي", itemCode: "TEA-1", reorderPoint: 5 });
 
     const bare = newApp().app;
     await bare.fetch(req("/adjustments", adjust));
-    const bareBody = (await (await bare.fetch(req("/stock-balance", { permissions: "inventory.stock.view" }))).json()) as { rows: Record<string, unknown>[] };
+    const bareBody = (await (await bare.fetch(req("/stock-balance", { permissions: "inventory.stock.view,inventory.cost.view" }))).json()) as { rows: Record<string, unknown>[] };
     expect(bareBody.rows[0]).not.toHaveProperty("itemNameAr");
   });
 });
@@ -442,25 +442,25 @@ describe("inventory routes — adjustment and transfer history", () => {
     );
     await postTwoAdjustments(app);
 
-    const all = await app.fetch(req("/adjustments", { permissions: "inventory.adjustment.view" }));
+    const all = await app.fetch(req("/adjustments", { permissions: "inventory.adjustment.view,inventory.cost.view" }));
     expect(((await all.json()) as unknown[]).length).toBe(3);
 
-    const byWarehouse = await app.fetch(req("/adjustments?warehouseId=W2", { permissions: "inventory.adjustment.view" }));
+    const byWarehouse = await app.fetch(req("/adjustments?warehouseId=W2", { permissions: "inventory.adjustment.view,inventory.cost.view" }));
     const byWarehouseBody = (await byWarehouse.json()) as { id: string }[];
     expect(byWarehouseBody).toHaveLength(1);
     expect(byWarehouseBody[0]?.id).toBe("ADJ-COUNT");
 
-    const byReason = await app.fetch(req("/adjustments?reason=DAMAGE", { permissions: "inventory.adjustment.view" }));
+    const byReason = await app.fetch(req("/adjustments?reason=DAMAGE", { permissions: "inventory.adjustment.view,inventory.cost.view" }));
     expect(((await byReason.json()) as { id: string }[])[0]?.id).toBe("ADJ-DAMAGE");
 
-    const none = await app.fetch(req("/adjustments?warehouseId=W-NONE", { permissions: "inventory.adjustment.view" }));
+    const none = await app.fetch(req("/adjustments?warehouseId=W-NONE", { permissions: "inventory.adjustment.view,inventory.cost.view" }));
     expect(await none.json()).toEqual([]);
 
-    const found = await app.fetch(req("/adjustments/ADJ-DAMAGE", { permissions: "inventory.adjustment.view" }));
+    const found = await app.fetch(req("/adjustments/ADJ-DAMAGE", { permissions: "inventory.adjustment.view,inventory.cost.view" }));
     expect(found.status).toBe(200);
     expect(((await found.json()) as { docNo: string | null }).docNo).toBeNull();
 
-    const missing = await app.fetch(req("/adjustments/NOPE", { permissions: "inventory.adjustment.view" }));
+    const missing = await app.fetch(req("/adjustments/NOPE", { permissions: "inventory.adjustment.view,inventory.cost.view" }));
     expect(missing.status).toBe(404);
     expect(((await missing.json()) as { error: string }).error).toBe("STOCK_ADJUSTMENT_NOT_FOUND");
   });
@@ -487,28 +487,28 @@ describe("inventory routes — adjustment and transfer history", () => {
       }),
     );
 
-    const byFrom = await app.fetch(req("/transfers?fromWarehouseId=W1", { permissions: "inventory.transfer.view" }));
+    const byFrom = await app.fetch(req("/transfers?fromWarehouseId=W1", { permissions: "inventory.transfer.view,inventory.cost.view" }));
     expect(((await byFrom.json()) as unknown[])).toHaveLength(1);
-    const byToNone = await app.fetch(req("/transfers?toWarehouseId=W-NONE", { permissions: "inventory.transfer.view" }));
+    const byToNone = await app.fetch(req("/transfers?toWarehouseId=W-NONE", { permissions: "inventory.transfer.view,inventory.cost.view" }));
     expect(await byToNone.json()).toEqual([]);
 
     // Scoped to a warehouse the transfer does not touch — invisible from either end.
     const scopedOut = await app.fetch(
-      req("/transfers", { permissions: "inventory.transfer.view", headers: { "x-warehouse-scope": "W3" } }),
+      req("/transfers", { permissions: "inventory.transfer.view,inventory.cost.view", headers: { "x-warehouse-scope": "W3" } }),
     );
     expect(await scopedOut.json()).toEqual([]);
     // Scoped to the RECEIVING warehouse — still visible, since a transfer is
     // visible from either end (goods must not appear to come from nowhere).
     const scopedIn = await app.fetch(
-      req("/transfers", { permissions: "inventory.transfer.view", headers: { "x-warehouse-scope": "W2" } }),
+      req("/transfers", { permissions: "inventory.transfer.view,inventory.cost.view", headers: { "x-warehouse-scope": "W2" } }),
     );
     expect(((await scopedIn.json()) as unknown[])).toHaveLength(1);
 
-    const found = await app.fetch(req("/transfers/TRF1", { permissions: "inventory.transfer.view" }));
+    const found = await app.fetch(req("/transfers/TRF1", { permissions: "inventory.transfer.view,inventory.cost.view" }));
     expect(found.status).toBe(200);
     expect(((await found.json()) as { totalValue: string }).totalValue).toBe("3.000000");
 
-    const missing = await app.fetch(req("/transfers/NOPE", { permissions: "inventory.transfer.view" }));
+    const missing = await app.fetch(req("/transfers/NOPE", { permissions: "inventory.transfer.view,inventory.cost.view" }));
     expect(missing.status).toBe(404);
     expect(((await missing.json()) as { error: string }).error).toBe("STOCK_TRANSFER_NOT_FOUND");
   });
@@ -530,7 +530,7 @@ describe("inventory routes — rebuild", () => {
       }),
     );
     const res = await app.fetch(
-      req("/rebuild?itemId=I1&warehouseId=W1", { method: "POST", permissions: "inventory.valuation.rebuild" }),
+      req("/rebuild?itemId=I1&warehouseId=W1", { method: "POST", permissions: "inventory.valuation.rebuild,inventory.cost.view" }),
     );
     expect(res.status).toBe(200);
     const out = (await res.json()) as { onHand: string; averageCost: string; totalValue: string };
@@ -539,7 +539,7 @@ describe("inventory routes — rebuild", () => {
 
   it("400s a missing query parameter, naming it", async () => {
     const { app } = newApp();
-    const res = await app.fetch(req("/rebuild?itemId=I1", { method: "POST", permissions: "inventory.valuation.rebuild" }));
+    const res = await app.fetch(req("/rebuild?itemId=I1", { method: "POST", permissions: "inventory.valuation.rebuild,inventory.cost.view" }));
     expect(res.status).toBe(400);
     expect(((await res.json()) as { message: string }).message).toContain("warehouseId");
   });
@@ -575,7 +575,7 @@ describe("inventory routes — quantity/money boundary: exactly on hand vs. one 
       }),
     );
     expect(exact.status).toBe(201);
-    const afterExact = await app.fetch(req("/balance?itemId=I1&warehouseId=W1", { permissions: "inventory.stock.view" }));
+    const afterExact = await app.fetch(req("/balance?itemId=I1&warehouseId=W1", { permissions: "inventory.stock.view,inventory.cost.view" }));
     expect(((await afterExact.json()) as { onHand: string }).onHand).toBe("0.000000");
 
     // One micro-unit over what is on hand (zero): refused, balance stays zero.
@@ -596,11 +596,11 @@ describe("inventory routes — quantity/money boundary: exactly on hand vs. one 
     expect(overBody.error).toBe("NEGATIVE_STOCK");
     expect(overBody.onHand).toBe("0.000000");
     expect(overBody.requested).toBe("0.000001");
-    const afterOver = await app.fetch(req("/balance?itemId=I1&warehouseId=W1", { permissions: "inventory.stock.view" }));
+    const afterOver = await app.fetch(req("/balance?itemId=I1&warehouseId=W1", { permissions: "inventory.stock.view,inventory.cost.view" }));
     expect(((await afterOver.json()) as { onHand: string }).onHand).toBe("0.000000");
 
     // The refused adjustment never entered the history.
-    const history = await app.fetch(req("/adjustments/ADJ-OVER", { permissions: "inventory.adjustment.view" }));
+    const history = await app.fetch(req("/adjustments/ADJ-OVER", { permissions: "inventory.adjustment.view,inventory.cost.view" }));
     expect(history.status).toBe(404);
   });
 });
@@ -621,7 +621,7 @@ describe("inventory routes — every quantity move pairs with its money conseque
       }),
     );
     // Total value: 20 × 12.50 = 250.
-    const before = await app.fetch(req("/balance?itemId=I1&warehouseId=W1", { permissions: "inventory.stock.view" }));
+    const before = await app.fetch(req("/balance?itemId=I1&warehouseId=W1", { permissions: "inventory.stock.view,inventory.cost.view" }));
     expect(((await before.json()) as { totalValue: string }).totalValue).toBe("250.000000");
 
     const damage = await app.fetch(
@@ -638,7 +638,7 @@ describe("inventory routes — every quantity move pairs with its money conseque
     );
     expect(damage.status).toBe(201);
 
-    const after = await app.fetch(req("/balance?itemId=I1&warehouseId=W1", { permissions: "inventory.stock.view" }));
+    const after = await app.fetch(req("/balance?itemId=I1&warehouseId=W1", { permissions: "inventory.stock.view,inventory.cost.view" }));
     const afterBody = (await after.json()) as { onHand: string; totalValue: string; averageCost: string };
     // 6 units leave at the moving-average cost (12.50): value falls by 75, qty by 6.
     expect(afterBody.onHand).toBe("14.000000");

@@ -118,10 +118,10 @@ export const physicalCountStatusSchema = z.enum([
 export const physicalCountLineSchema = z.object({
   itemId: z.string().min(1),
   systemQty: decimalString.nullable(),
-  unitCost: decimalString.nullable(),
+  unitCost: decimalString.nullable().optional(),
   countedQty: decimalString.nullable(),
   varianceQty: decimalString.nullable(),
-  varianceValue: decimalString.nullable(),
+  varianceValue: decimalString.nullable().optional(),
   recount: z.boolean().optional(),
 });
 
@@ -136,10 +136,10 @@ export const physicalCountVarianceSummarySchema = z.object({
   overQty: decimalString,
   shortQty: decimalString,
   netQty: decimalString,
-  overValue: decimalString,
-  shortValue: decimalString,
-  netValue: decimalString,
-  absValue: decimalString,
+  overValue: decimalString.optional(),
+  shortValue: decimalString.optional(),
+  netValue: decimalString.optional(),
+  absValue: decimalString.optional(),
 });
 
 export const startPhysicalCountSchema = z.object({
@@ -187,8 +187,8 @@ export const physicalCountSchema = z.object({
 export const stockBalanceWarehouseRowSchema = z.object({
   warehouseId: z.string().min(1),
   onHand: decimalString,
-  totalValue: decimalString,
-  averageCost: decimalString,
+  totalValue: decimalString.optional(),
+  averageCost: decimalString.optional(),
   reserved: decimalString,
   available: decimalString,
 });
@@ -199,8 +199,8 @@ export const stockBalanceRowSchema = z.object({
   itemCode: z.string().optional(),
   reorderPoint: z.number().nullable().optional(),
   onHand: decimalString,
-  totalValue: decimalString,
-  averageCost: decimalString,
+  totalValue: decimalString.optional(),
+  averageCost: decimalString.optional(),
   warehouseCount: z.number().int().nonnegative(),
   /** Committed by an open document but not yet moved (R5.6). */
   reserved: decimalString,

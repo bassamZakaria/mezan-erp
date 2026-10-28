@@ -48,7 +48,7 @@ import {
   type ReorderSkippedLineDTO,
   type ReorderWorklistDTO,
 } from "@mezan/contracts";
-import { createPermissionGate, getAuthContext, warehouseScopeOf, withinScope, type AuthContextResolver } from "./permission-gate.js";
+import { createPermissionGate, getAuthContext, maySeeItemCost, warehouseScopeOf, withinScope, type AuthContextResolver } from "./permission-gate.js";
 import { recordAdminEvent } from "./admin-audit.js";
 import { tenantToday } from "./tenant-day.js";
 
@@ -170,6 +170,7 @@ export function createReorderRoutes(deps: ReorderRoutesDeps, resolveAuthContext:
     });
     const itemsById = new Map(items.map((item) => [item.id, item]));
     const prices = latestPrices(orders);
+    const withCost = maySeeItemCost(c);
     return {
       rows,
       itemsById,
@@ -177,6 +178,7 @@ export function createReorderRoutes(deps: ReorderRoutesDeps, resolveAuthContext:
       priceFor: (supplierId, itemId) => {
         const known = supplierId ? prices.get(rowKey(supplierId, itemId)) : undefined;
         if (known) return known;
+        if (!withCost) return null;
         const cost = itemsById.get(itemId)?.costPrice ?? null;
         return cost && cost.scaled > 0n ? cost : null;
       },

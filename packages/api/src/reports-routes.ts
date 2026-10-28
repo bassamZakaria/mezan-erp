@@ -143,7 +143,7 @@ import {
   branchOfWarehouse,
 } from "@mezan/domain";
 import { tenantToday } from "./tenant-day.js";
-import { branchScopeOf, createAnyPermissionGate, createPermissionGate, ITEM_COST_PERMISSION, maySeeItemCost, warehouseScopeOf, withinScope, type AuthContextResolver } from "./permission-gate.js";
+import { branchScopeOf, createAnyPermissionGate, createPermissionGate, CostPermission, maySeeItemCost, warehouseScopeOf, withinScope, type AuthContextResolver } from "./permission-gate.js";
 import { branchLineViewOf, isWholeLedgerView, lineInView, readableEntries, type BranchLineView } from "./branch-view.js";
 
 /**
@@ -1468,7 +1468,7 @@ export function createReportsRoutes(
     return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { movements, items, warehouses }));
   });
 
-  app.get("/inventory/valuation", gate("inventory.valuation.view"), gate(ITEM_COST_PERMISSION), async (c) => {
+  app.get("/inventory/valuation", gate("inventory.valuation.view"), gate(CostPermission.Item), async (c) => {
     const definition = createInventoryValuationReport();
     const params = { ...definition.defaultParams, ...queryParams(c) };
     const [items, allSnapshots, warehouses] = await Promise.all([deps.items.list(), deps.wacSnapshots.list(), deps.warehouses.findAll()]);
@@ -1516,7 +1516,7 @@ export function createReportsRoutes(
     return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { items, snapshots, invoices, warehouses }));
   });
 
-  app.get("/inventory/drift", gate("inventory.valuation.view"), gate(ITEM_COST_PERMISSION), async (c) => {
+  app.get("/inventory/drift", gate("inventory.valuation.view"), gate(CostPermission.Item), async (c) => {
     const definition = createInventoryDriftReport();
     const [allSnapshots, allMovements, items, warehouses] = await Promise.all([
       deps.wacSnapshots.list(),
@@ -1566,7 +1566,7 @@ export function createReportsRoutes(
 
   if (deps.boms) {
     const boms = deps.boms;
-    app.get("/manufacturing/make-vs-buy", gate("manufacturing.bom.view"), gate(ITEM_COST_PERMISSION), async (c) => {
+    app.get("/manufacturing/make-vs-buy", gate("manufacturing.bom.view"), gate(CostPermission.Item), async (c) => {
       const definition = createMakeVsBuyReport();
       const [items, bomList, invoices] = await Promise.all([
         deps.items.list(),

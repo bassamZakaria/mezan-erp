@@ -19,7 +19,7 @@ import {
 } from "@mezan/domain";
 import type { WacSnapshotRepository, StockLedgerRepository } from "@mezan/domain";
 import { ReversalPermission, createWritedownRunSchema } from "@mezan/contracts";
-import { createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
+import { createPermissionGate, getAuthContext, withItemCost, type AuthContextResolver } from "./permission-gate.js";
 import { readReversalRequest, reversalRefusalResponse, requireReversalReason } from "./document-reversal.js";
 import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
 import { duplicateIdRefusal } from "./duplicate-id.js";
@@ -52,6 +52,8 @@ export interface InventoryWritedownRoutesDeps {
    */
   readonly settings?: SettingsRepository;
 }
+
+const WRITEDOWN_COST_KEYS = ["unitCost", "amount", "totalAmount"];
 
 function serializeRun(run: WritedownRun) {
   return {
@@ -104,7 +106,7 @@ export function createInventoryWritedownRoutes(
 
   app.get("/", gate("inventory.writedown.view"), async (c) => {
     const runs = await deps.runs.list();
-    return c.json(runs.map(serializeRun));
+    return c.json(withItemCost(c, runs.map(serializeRun), WRITEDOWN_COST_KEYS));
   });
 
   app.post("/", gate("inventory.writedown.run"), async (c) => {
@@ -136,7 +138,7 @@ export function createInventoryWritedownRoutes(
         { id: idGen(), period, warehouseId: parsed.data.warehouseId ?? null, policy },
         { runs: deps.runs, wacSnapshots: deps.wacSnapshots, stockLedger: deps.stockLedger },
       );
-      return c.json(serializeRun(run), 201);
+      return c.json(withItemCost(c, serializeRun(run), WRITEDOWN_COST_KEYS), 201);
     } catch (err) {
       return handleDomainError(c, err);
     }
@@ -145,7 +147,7 @@ export function createInventoryWritedownRoutes(
   app.get("/:id", gate("inventory.writedown.view"), async (c) => {
     const run = await deps.runs.findById(c.req.param("id"));
     if (!run) return c.json({ error: "WRITEDOWN_RUN_NOT_FOUND" }, 404);
-    return c.json(serializeRun(run));
+    return c.json(withItemCost(c, serializeRun(run), WRITEDOWN_COST_KEYS));
   });
 
   app.post("/:id/post", gate("inventory.writedown.run"), async (c) => {
@@ -156,7 +158,7 @@ export function createInventoryWritedownRoutes(
         warehouses: deps.warehouses,
         accounts: deps.accounts,
       });
-      return c.json(serializeRun(run));
+      return c.json(withItemCost(c, serializeRun(run), WRITEDOWN_COST_KEYS));
     } catch (err) {
       return handleDomainError(c, err);
     }
@@ -170,7 +172,7 @@ export function createInventoryWritedownRoutes(
         { runs: deps.runs, gl: { ...deps.gl, actor: getAuthContext(c)?.userId ?? "system" } },
         { reversalId: idGen(), date, memo },
       );
-      return c.json(serializeRun(run));
+      return c.json(withItemCost(c, serializeRun(run), WRITEDOWN_COST_KEYS));
     } catch (err) {
       return handleDomainError(c, err);
     }

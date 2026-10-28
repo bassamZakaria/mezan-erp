@@ -183,6 +183,14 @@ describe("withoutCost — the stock-levels report for a caller without inventory
     expect(outcome.chartPoints).toBeNull();
   });
 
+  it("re-orders the rows by the report's cost-free order, so the row order cannot rank items by value", () => {
+    const definition = withoutCost({ ...createInventoryStockLevelsReport(), costlessOrder: (a, b) => b.sku.localeCompare(a.sku) });
+    const outcome = runReport(definition, { warehouseId: "", search: "" }, { items: [item({ id: "a", code: "A" }), item({ id: "b", code: "B" })], snapshots: [] });
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.rows.map((row) => row.sku)).toEqual(["B", "A"]);
+  });
+
   it("leaves a report with no cost column untouched", () => {
     const definition = createInventoryStockLevelsReport();
     const plain = { ...definition, columns: definition.columns.filter((column) => !column.cost) };

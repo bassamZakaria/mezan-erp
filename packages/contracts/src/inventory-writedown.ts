@@ -14,10 +14,10 @@ export const writedownRunLineSchema = z.object({
   itemId: z.string().min(1),
   warehouseId: z.string().min(1),
   onHandQty: quantityString,
-  unitCost: moneyString,
+  unitCost: moneyString.optional(),
   agingDays: z.number().int().nonnegative(),
   writedownRateBps: z.number().int().nonnegative(),
-  amount: moneyString,
+  amount: moneyString.optional(),
 });
 
 export const writedownRunSchema = z.object({
@@ -26,7 +26,7 @@ export const writedownRunSchema = z.object({
   warehouseId: z.string().nullable(),
   status: writedownRunStatusSchema,
   lines: z.array(writedownRunLineSchema),
-  totalAmount: moneyString,
+  totalAmount: moneyString.optional(),
   journalEntryId: z.string().nullable(),
   createdAt: z.string(),
   postedAt: z.string().nullable(),

@@ -72,6 +72,7 @@ export function createGoodsInTransitReport(): ReportDefinition<GoodsInTransitPar
       BRANCH_PARAM_FIELD,
     ],
     rowKey: (row) => row.key,
+    costlessOrder: (a, b) => a.itemNameAr.localeCompare(b.itemNameAr) || a.key.localeCompare(b.key),
     columns: [
       { key: "itemNameAr", header: "اسم الصنف", format: "text", value: (row) => row.itemNameAr, entity: { kind: "item", id: (row) => row.itemId } },
       { key: "sku", header: "الكود", format: "text", value: (row) => row.sku },

@@ -50,7 +50,6 @@ export interface ReportColumn<Row> {
    * panel goes back to the posted documents with it, and a label is not an id.
    */
   readonly entity?: ReportEntityRef<Row>;
-  /** An item-cost figure, shown only to a holder of `inventory.cost.view` (#119). See `withoutCost`. */
   readonly cost?: boolean;
 }
 
@@ -169,8 +168,9 @@ export interface ReportDefinition<TParams, Row, Ctx = unknown> {
   readonly kpis?: readonly ReportKpiSpec<Row, TParams>[];
   /** The chart above the table (A2). Omit it and the report renders none. */
   readonly chart?: ReportChartSpec;
-  /** Row fields carrying item cost that no column renders; `withoutCost` drops them with the cost columns. */
   readonly costRowKeys?: readonly string[];
+  /** SECURITY: a report whose `run` orders by a cost field must name a cost-free order here, or `withoutCost` leaves the order as a cost oracle. */
+  readonly costlessOrder?: (a: Row, b: Row) => number;
 }
 
 /**

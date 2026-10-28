@@ -102,6 +102,7 @@ export function createInventorySlowMovingReport(today: string): ReportDefinition
       BRANCH_PARAM_FIELD,
     ],
     rowKey: (row) => row.itemId,
+    costlessOrder: (a, b) => (b.daysSinceLastSale ?? Infinity) - (a.daysSinceLastSale ?? Infinity) || a.itemNameAr.localeCompare(b.itemNameAr),
     columns: [
       { key: "itemNameAr", header: "اسم الصنف", format: "text", value: (row) => row.itemNameAr, entity: { kind: "item", id: (row) => row.itemId } },
       { key: "onHand", header: "المخزون الحالي", format: "qty", align: "end", total: true, value: (row) => row.onHand },

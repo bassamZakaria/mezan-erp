@@ -69,7 +69,7 @@ export const AUDITED_ITEM_FIELDS = [
 const ITEMS_PREFIX = "/items";
 const ITEM_STATUS_CHIPS: ReadonlySet<string> = new Set(Object.values(ItemStatusCode));
 
-function serialize(item: Item, showCost = true) {
+function serialize(item: Item, showCost = false) {
   const cost = showCost ? { costPrice: item.costPrice?.toString() ?? null } : {};
   return {
     id: item.id,
@@ -173,8 +173,8 @@ export function createItemsRouter(
     return recordFieldChanges(audit, c, {
       entity: { module: "inventory", entityType: "ITEM", entityId: item.id },
       action,
-      before: before ? serialize(before) : null,
-      after: serialize(item),
+      before: before ? serialize(before, true) : null,
+      after: serialize(item, true),
       fields: AUDITED_ITEM_FIELDS,
       warnOn: ["salePrice", "costPrice", "taxRatePercent", "costingMethod", "revenueAccountId", "cogsAccountId", "inventoryAccountId", "status"],
       details: { code: item.code, nameAr: item.nameAr },
@@ -420,24 +420,26 @@ export function createItemsRouter(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
-    const restrictedOnCreate = sharedFieldRefusal(c, ITEMS_PREFIX, null, parsed.data);
+    const showCost = maySeeItemCost(c);
+    const data = showCost ? parsed.data : { ...parsed.data, costPrice: undefined };
+    const restrictedOnCreate = sharedFieldRefusal(c, ITEMS_PREFIX, null, data);
     if (restrictedOnCreate) return restrictedOnCreate;
     try {
       const tenant = settings ? ((await settings.get()) ?? createDefaultSettings()) : null;
       const item = await createItem(
         {
-          ...parsed.data,
+          ...data,
           awaitsPricing: isBranchRestrictedRequest(c),
-          alternateUnits: toAlternateUnits(parsed.data.alternateUnits),
-          salePrice: toMoney(parsed.data.salePrice),
-          costPrice: toMoney(parsed.data.costPrice),
+          alternateUnits: toAlternateUnits(data.alternateUnits),
+          salePrice: toMoney(data.salePrice),
+          costPrice: toMoney(data.costPrice),
           taxRatePercent:
-            parsed.data.taxRatePercent ?? (tenant ? (tenant.taxEnabled ? tenant.defaultTaxRate : 0) : undefined),
+            data.taxRatePercent ?? (tenant ? (tenant.taxEnabled ? tenant.defaultTaxRate : 0) : undefined),
         },
         repo,
       );
       await record(c, item, AuditChangeAction.Create);
-      return c.json(serialize(item, maySeeItemCost(c)), 201);
+      return c.json(serialize(item, showCost), 201);
     } catch (err) {
       return handleDomainError(c, err);
     }
@@ -448,22 +450,24 @@ export function createItemsRouter(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+    const showCost = maySeeItemCost(c);
+    const data = showCost ? parsed.data : { ...parsed.data, costPrice: undefined };
     try {
       const before = await repo.findById(c.req.param("id"));
-      const restricted = before ? sharedFieldRefusal(c, ITEMS_PREFIX, serialize(before), parsed.data) : null;
+      const restricted = before ? sharedFieldRefusal(c, ITEMS_PREFIX, serialize(before, true), data) : null;
       if (restricted) return restricted;
       const item = await updateItem(
         c.req.param("id"),
         {
-          ...parsed.data,
-          alternateUnits: toAlternateUnits(parsed.data.alternateUnits),
-          salePrice: toMoney(parsed.data.salePrice),
-          costPrice: maySeeItemCost(c) ? toMoney(parsed.data.costPrice) : undefined,
+          ...data,
+          alternateUnits: toAlternateUnits(data.alternateUnits),
+          salePrice: toMoney(data.salePrice),
+          costPrice: toMoney(data.costPrice),
         },
         repo,
       );
       await record(c, item, AuditChangeAction.Update, before ?? undefined);
-      return c.json(serialize(item, maySeeItemCost(c)));
+      return c.json(serialize(item, showCost));
     } catch (err) {
       return handleDomainError(c, err);
     }

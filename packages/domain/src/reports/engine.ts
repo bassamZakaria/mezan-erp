@@ -273,7 +273,10 @@ export function withoutCost<TParams, Row, Ctx>(definition: ReportDefinition<TPar
     columns: definition.columns.filter((column) => !column.cost),
     kpis: definition.kpis?.filter((kpi) => !kpi.cost),
     chart: definition.chart && costKeys.has(definition.chart.valueColumn) ? undefined : definition.chart,
-    run: (params, ctx) =>
-      definition.run(params, ctx).map((row) => Object.fromEntries(Object.entries(row as object).filter(([key]) => !costKeys.has(key))) as Row),
+    run: (params, ctx) => {
+      const rows = definition.run(params, ctx);
+      const ordered = definition.costlessOrder ? [...rows].sort(definition.costlessOrder) : rows;
+      return ordered.map((row) => Object.fromEntries(Object.entries(row as object).filter(([key]) => !costKeys.has(key))) as Row);
+    },
   };
 }

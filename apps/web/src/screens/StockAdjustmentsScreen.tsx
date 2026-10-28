@@ -65,6 +65,7 @@ import { useDomainLabels } from "../lib/domain-labels";
 import { todayIso } from "../lib/dates";
 import { EMPTY } from "../lib/empty";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
+import { useMaySeeItemCost } from "../data/item-cost";
 import { ResubmitErrorNotice, ResubmitFamily, ResubmitForApprovalAction, resubmitRowMenuItems, useResubmitForApproval } from "./ResubmitForApprovalAction";
 
 /** تسويات المخزون (Stock Adjustments) — docs/archive/catalog/03. List + detail + create, on the real document-framework API. */
@@ -569,6 +570,7 @@ export function StockAdjustmentsScreen() {
 
 function AdjustmentLinesTable({ doc, itemLabel }: { doc: StockAdjustmentDocumentDTO; itemLabel: (id: string) => string }) {
   const { t } = useAppTranslation();
+  const showCost = useMaySeeItemCost();
   return (
     <Card className="overflow-hidden">
       <div className="overflow-x-auto">
@@ -578,8 +580,8 @@ function AdjustmentLinesTable({ doc, itemLabel }: { doc: StockAdjustmentDocument
               <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">{t("common.item")}</th>
               <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">{t("stockAdj.direction")}</th>
               <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">{t("common.qty")}</th>
-              <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">{t("stockAdj.costPrice")}</th>
-              <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">{t("stockAdj.value")}</th>
+              {showCost ? <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">{t("stockAdj.costPrice")}</th> : null}
+              {showCost ? <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">{t("stockAdj.value")}</th> : null}
             </tr>
           </thead>
           <tbody>
@@ -592,8 +594,8 @@ function AdjustmentLinesTable({ doc, itemLabel }: { doc: StockAdjustmentDocument
                     <StatusPill label={l.direction === "IN" ? t("stockAdj.increase") : t("stockAdj.decrease")} tone={l.direction === "IN" ? "success" : "danger"} />
                   </td>
                   <td className="px-[15px] py-[11px] text-end mz-num">{l.qty}</td>
-                  <td className="px-[15px] py-[11px] text-end">{l.unitCost ? <MoneyDisplay value={Number(l.unitCost)} /> : "—"}</td>
-                  <td className="px-[15px] py-[11px] text-end">{value !== null ? <MoneyDisplay value={value} /> : t("stockAdj.calculatedAtTheCurrentAverage")}</td>
+                  {showCost ? <td className="px-[15px] py-[11px] text-end">{l.unitCost ? <MoneyDisplay value={Number(l.unitCost)} /> : "—"}</td> : null}
+                  {showCost ? <td className="px-[15px] py-[11px] text-end">{value !== null ? <MoneyDisplay value={value} /> : t("stockAdj.calculatedAtTheCurrentAverage")}</td> : null}
                 </tr>
               );
             })}

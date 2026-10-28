@@ -369,12 +369,14 @@ export function getAuthContext(c: Context): AuthContext | undefined {
   return c.get(AUTH_CONTEXT_KEY) as AuthContext | undefined;
 }
 
-export const ITEM_COST_PERMISSION = "inventory.cost.view";
+export enum CostPermission {
+  Item = "inventory.cost.view",
+}
 
 export function maySeeItemCost(c: Context): boolean {
-  if (moduleRefusalFor(c, ITEM_COST_PERMISSION)) return false;
+  if (moduleRefusalFor(c, CostPermission.Item)) return false;
   const ctx = getAuthContext(c);
-  return ctx ? can(ctx, ITEM_COST_PERMISSION) : false;
+  return ctx ? can(ctx, CostPermission.Item) : false;
 }
 
 function omitKeysDeep(value: unknown, keys: ReadonlySet<string>): unknown {

@@ -39,7 +39,7 @@ import {
   postedTransferListQuerySchema,
   itemStockSchema,
 } from "@mezan/contracts";
-import { createPermissionGate, getAuthContext, ITEM_COST_PERMISSION, sessionWarehouseScopeOf, warehouseScopeOf, withinScope, withItemCost, type AuthContextResolver } from "./permission-gate.js";
+import { createPermissionGate, getAuthContext, CostPermission, sessionWarehouseScopeOf, warehouseScopeOf, withinScope, withItemCost, type AuthContextResolver } from "./permission-gate.js";
 import { duplicateIdRefusal } from "./duplicate-id.js";
 import { DuplicateRecordIdError } from "@mezan/domain";
 import { readReversalRequest, recordDocumentReversal, reversalRefusalResponse, requireReversalReason } from "./document-reversal.js";
@@ -294,7 +294,7 @@ export function createInventoryRoutes(
     }
   });
 
-  app.get("/valuation", gate("inventory.valuation.view"), gate(ITEM_COST_PERMISSION), async (c) => {
+  app.get("/valuation", gate("inventory.valuation.view"), gate(CostPermission.Item), async (c) => {
     const { positions } = await service.getValuation();
     const scoped = withinScope(positions, warehouseScopeOf(c), (p) => p.warehouseId);
     return c.json({
@@ -373,7 +373,7 @@ export function createInventoryRoutes(
     }), [...POSITION_COST_KEYS, "unitCost"]));
   });
 
-  app.get("/drift", gate("inventory.valuation.view"), gate(ITEM_COST_PERMISSION), async (c) => {
+  app.get("/drift", gate("inventory.valuation.view"), gate(CostPermission.Item), async (c) => {
     try {
       const toleranceRaw = c.req.query("tolerance");
       const tolerance = toleranceRaw ? Money.fromMajor(toleranceRaw) : Money.zero();

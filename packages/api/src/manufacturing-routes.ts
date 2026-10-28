@@ -72,7 +72,7 @@ import {
 import {
   createPermissionGate,
   getAuthContext,
-  ITEM_COST_PERMISSION,
+  CostPermission,
   type AuthContextResolver,
   warehouseScopeOf,
   withinScope,
@@ -467,7 +467,7 @@ export function createManufacturingRoutes(
     return c.json(withItemCost(c, serializeBom(bom, bomCostEstimate(bom, (id) => map.get(id) ?? Money.zero())), BOM_COST_KEYS));
   });
 
-  app.get("/boms/:id/cost-estimate", gate("manufacturing.bom.view"), gate(ITEM_COST_PERMISSION), async (c) => {
+  app.get("/boms/:id/cost-estimate", gate("manufacturing.bom.view"), gate(CostPermission.Item), async (c) => {
     const bom = await deps.boms.findById(c.req.param("id"));
     if (!bom) return c.json({ error: "NOT_FOUND" }, 404);
     const map = await costMap(bom.lines.map((l) => l.itemId));

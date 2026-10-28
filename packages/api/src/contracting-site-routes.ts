@@ -37,7 +37,7 @@ import {
   issueCustodySchema,
   returnCustodySchema,
 } from "@mezan/contracts";
-import { callerUserId, createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
+import { callerUserId, createPermissionGate, withItemCost, type AuthContextResolver } from "./permission-gate.js";
 import { duplicateIdRefusal } from "./duplicate-id.js";
 import { DuplicateRecordIdError } from "@mezan/domain";
 
@@ -489,7 +489,7 @@ export function createContractingSiteRoutes(
     const projectId = c.req.query("projectId");
     if (!projectId) return c.json({ error: "VALIDATION_ERROR", message: "projectId مطلوب" }, 400);
     const rows = await service.consumptionByBoqLine(projectId);
-    return c.json(rows.map(serializeConsumptionByBoqLine));
+    return c.json(withItemCost(c, rows.map(serializeConsumptionByBoqLine), ["cost"]));
   });
 
   app.get("/equipment-hours", gate("projects.project.view"), async (c) => {

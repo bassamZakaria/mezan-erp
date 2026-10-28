@@ -21,6 +21,7 @@ import { ApiError, useWarehouses, useCreateWritedownRun, useWritedownRuns, usePo
 import { NumberField, SelectField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { EMPTY } from "../lib/empty";
+import { useMaySeeItemCost } from "../data/item-cost";
 import { useUrlNumber, useUrlParam } from "../lib/url-state";
 
 /**
@@ -66,6 +67,7 @@ function reversalTarget(run: WritedownRunDTO): ReversalTarget {
 }
 
 export function WritedownRunsScreen() {
+  const showCost = useMaySeeItemCost();
   const reversal = useReverseDocumentAction(ReversalDocumentType.WritedownRun);
   const { t } = useAppTranslation();
   const query = useWritedownRuns();
@@ -155,7 +157,7 @@ export function WritedownRunsScreen() {
     { key: "period", header: t("common.period"), render: (r) => <span className="mz-num font-semibold text-ink">{r.period}</span> },
     { key: "warehouse", header: t("common.warehouse"), render: (r) => warehouseName(r.warehouseId) },
     { key: "lines", header: t("writedown.lines"), align: "end", render: (r) => <span className="mz-num">{r.lines.length}</span> },
-    { key: "total", header: t("writedown.provisionValue"), align: "end", render: (r) => <MoneyDisplay value={toMajor(r.totalAmount)} /> },
+    ...(showCost ? [{ key: "total", header: t("writedown.provisionValue"), align: "end" as const, render: (r: WritedownRunDTO) => <MoneyDisplay value={toMajor(r.totalAmount ?? "0")} /> }] : []),
     { key: "status", header: t("common.status"), render: (r) => <StatusPill label={t(STATUS_KEY[r.status])} tone={STATUS_TONE[r.status]} /> },
   ];
 
@@ -265,8 +267,12 @@ export function WritedownRunsScreen() {
               </div>
             </Card>
             <Card className="p-[13px_15px]">
-              <div className="text-[11px] font-semibold text-ink-faint">{t("writedown.totalProvisionValue")}</div>
-              <MoneyDisplay value={toMajor(selected.totalAmount)} className="mt-[6px] text-[18px] font-bold" />
+              {showCost ? (
+                <>
+                  <div className="text-[11px] font-semibold text-ink-faint">{t("writedown.totalProvisionValue")}</div>
+                  <MoneyDisplay value={toMajor(selected.totalAmount ?? "0")} className="mt-[6px] text-[18px] font-bold" />
+                </>
+              ) : null}
               {selected.journalEntryId ? (
                 <div className="mz-num mt-[8px] text-[11.5px] text-ink-faint">{t("writedown.journalEntry")} {selected.journalEntryId}</div>
               ) : null}
@@ -280,7 +286,7 @@ export function WritedownRunsScreen() {
                       <th className="p-[9px_12px] text-start font-semibold">{t("common.item")}</th>
                       <th className="p-[9px_12px] text-end font-semibold">{t("writedown.ageDays")}</th>
                       <th className="p-[9px_12px] text-end font-semibold">{t("writedown.provision")}</th>
-                      <th className="p-[9px_12px] text-end font-semibold">{t("common.amount")}</th>
+                      {showCost ? <th className="p-[9px_12px] text-end font-semibold">{t("common.amount")}</th> : null}
                     </tr>
                   </thead>
                   <tbody>
@@ -289,9 +295,11 @@ export function WritedownRunsScreen() {
                         <td className="mz-num p-[9px_12px] text-ink">{line.itemId}</td>
                         <td className="mz-num p-[9px_12px] text-end">{line.agingDays}</td>
                         <td className="mz-num p-[9px_12px] text-end">{(line.writedownRateBps / 100).toFixed(1)}%</td>
-                        <td className="p-[9px_12px] text-end">
-                          <MoneyDisplay value={toMajor(line.amount)} />
-                        </td>
+                        {showCost ? (
+                          <td className="p-[9px_12px] text-end">
+                            <MoneyDisplay value={toMajor(line.amount ?? "0")} />
+                          </td>
+                        ) : null}
                       </tr>
                     ))}
                   </tbody>

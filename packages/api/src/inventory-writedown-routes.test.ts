@@ -110,7 +110,7 @@ describe("inventory-writedown router — full flow", () => {
     const h = await newApp();
     await seedSlowMovingPosition(h);
 
-    const createRes = await h.app.fetch(req("/", { method: "POST", permissions: "inventory.writedown.run", body: JSON.stringify({ period: "2026-03" }) }));
+    const createRes = await h.app.fetch(req("/", { method: "POST", permissions: "inventory.writedown.run,inventory.cost.view", body: JSON.stringify({ period: "2026-03" }) }));
     expect(createRes.status).toBe(201);
     const draft = (await createRes.json()) as { id: string; status: string; lines: unknown[]; totalAmount: string };
     expect(draft.status).toBe("draft");

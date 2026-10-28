@@ -7,8 +7,14 @@ enum Expect {
   Refuse = "refuse",
 }
 
+enum Method {
+  Get = "GET",
+  Post = "POST",
+  Patch = "PATCH",
+}
+
 interface Probe {
-  readonly method: "GET" | "POST" | "PATCH";
+  readonly method: Method;
   readonly path: string;
   readonly body?: unknown;
   readonly expect: Expect;
@@ -20,7 +26,6 @@ const VIEWER = [
   "inventory.item.create",
   "inventory.item.edit",
   "inventory.stock.view",
-  "inventory.valuation.view",
   "inventory.adjustment.view",
   "inventory.adjustment.create",
   "inventory.transfer.view",
@@ -32,6 +37,8 @@ const VIEWER = [
   "audit.logs.view",
   "inventory.expiry.view",
   "field.van_trip.view",
+  "inventory.writedown.view",
+  "projects.project.view",
 ];
 
 let world: SeededWorld;
@@ -86,51 +93,64 @@ beforeAll(async () => {
   const template = first<{ id: string }>(await list("/inventory/product-templates"));
   const configInstances = (await list("/manufacturing/config-instances")) as { id: string }[];
   const editable = first<{ id: string }>(await list("/items"));
+  const writedownRuns = (await list("/inventory/writedown-runs")) as unknown[];
+  let consumption: string | null = null;
+  for (const project of (await list("/projects")) as { id: string }[]) {
+    const rows = (await list(`/contracting/site/consumption-by-boq-line?projectId=${encodeURIComponent(project.id)}`)) as unknown[];
+    if (Array.isArray(rows) && rows.length > 0) {
+      consumption = project.id;
+      break;
+    }
+  }
 
   probes = [
-    { method: "GET", path: "/items", expect: Expect.Omit, costKeys: ["costPrice"] },
-    { method: "GET", path: `/items/${editable.id}`, expect: Expect.Omit, costKeys: ["costPrice", "totalValue"] },
-    { method: "GET", path: `/items/${itemId}`, expect: Expect.Omit, costKeys: ["costPrice", "totalValue"] },
-    { method: "PATCH", path: `/items/${editable.id}`, body: { description: "probe" }, expect: Expect.Omit, costKeys: ["costPrice"] },
-    { method: "GET", path: `/inventory/balance?${position}`, expect: Expect.Omit, costKeys: ["averageCost", "totalValue"] },
-    { method: "GET", path: `/inventory/movements?${position}`, expect: Expect.Omit, costKeys: ["unitCost"] },
-    { method: "GET", path: "/inventory/stock-balance", expect: Expect.Omit, costKeys: ["averageCost", "totalValue"] },
-    { method: "GET", path: `/inventory/items/${itemId}/stock`, expect: Expect.Omit, costKeys: ["averageCost", "totalValue", "unitCost"] },
-    { method: "GET", path: "/inventory/adjustments", expect: Expect.Omit, costKeys: ["unitCost", "value", "valueDelta"] },
-    { method: "GET", path: "/inventory/transfers", expect: Expect.Omit, costKeys: ["unitCost", "value", "totalValue"] },
-    { method: "GET", path: "/inventory/valuation", expect: Expect.Refuse, costKeys: [] },
-    { method: "GET", path: `/inventory/drift?${position}`, expect: Expect.Refuse, costKeys: [] },
-    { method: "GET", path: "/inventory/stock-adjustments", expect: Expect.Omit, costKeys: ["unitCost"] },
-    { method: "GET", path: `/inventory/stock-adjustments/${adjustment.id}`, expect: Expect.Omit, costKeys: ["unitCost"] },
-    { method: "GET", path: `/inventory/physical-counts/${count.id}`, expect: Expect.Omit, costKeys: ["unitCost", "varianceValue", "overValue", "shortValue", "netValue", "absValue"] },
-    { method: "GET", path: "/inventory/product-templates", expect: Expect.Omit, costKeys: ["defaultCost"] },
-    { method: "GET", path: `/inventory/product-templates/${template.id}`, expect: Expect.Omit, costKeys: ["defaultCost"] },
-    { method: "GET", path: "/reports/inventory/stock-levels", expect: Expect.Omit, costKeys: ["averageCost", "value"] },
-    { method: "GET", path: "/reports/inventory/stock-levels/summary", expect: Expect.Omit, costKeys: ["totalValue"] },
-    { method: "GET", path: "/reports/inventory/ledger", expect: Expect.Omit, costKeys: ["unitCost"] },
-    { method: "GET", path: "/reports/inventory/aging", expect: Expect.Omit, costKeys: ["totalValue", "over180Value", "over180Percent"] },
-    { method: "GET", path: "/reports/inventory/expiring", expect: Expect.Omit, costKeys: ["totalValue", "expiredValue", "within30Value"] },
-    { method: "GET", path: "/reports/inventory/slow-moving", expect: Expect.Omit, costKeys: ["value"] },
-    { method: "GET", path: "/reports/inventory/goods-in-transit", expect: Expect.Omit, costKeys: ["value"] },
-    { method: "GET", path: "/reports/inventory/valuation", expect: Expect.Refuse, costKeys: [] },
-    { method: "GET", path: "/reports/inventory/drift", expect: Expect.Refuse, costKeys: [] },
-    { method: "GET", path: "/reports/inventory/batches", expect: Expect.Omit, costKeys: ["value", "totalValue", "valueExact"] },
-    { method: "GET", path: "/reports/manufacturing/make-vs-buy", expect: Expect.Refuse, costKeys: [] },
-    { method: "GET", path: `/reports/drill-down/item/${itemId}`, expect: Expect.Omit, costKeys: ["value"] },
-    { method: "GET", path: "/manufacturing/boms", expect: Expect.Omit, costKeys: ["estimate", "laborCost", "overheadCost", "materialCost", "totalCost", "unitCost"] },
-    { method: "GET", path: `/manufacturing/boms/${bom.id}`, expect: Expect.Omit, costKeys: ["estimate", "laborCost", "overheadCost", "materialCost", "totalCost", "unitCost"] },
-    { method: "GET", path: `/manufacturing/boms/${bom.id}/cost-estimate`, expect: Expect.Refuse, costKeys: [] },
-    { method: "GET", path: "/manufacturing/work-orders", expect: Expect.Omit, costKeys: ["issuedUnitCost", "materialCost", "laborCost", "overheadCost", "extraCost", "wipTotal", "unitCost", "costLog", "normalCost", "abnormalCost"] },
-    { method: "GET", path: `/manufacturing/work-orders/${workOrder.id}`, expect: Expect.Omit, costKeys: ["issuedUnitCost", "materialCost", "laborCost", "overheadCost", "extraCost", "wipTotal", "unitCost", "costLog", "normalCost", "abnormalCost"] },
-    { method: "GET", path: "/manufacturing/dashboard", expect: Expect.Omit, costKeys: ["wipValue", "avgCostPerUnit"] },
+    { method: Method.Get, path: "/items", expect: Expect.Omit, costKeys: ["costPrice"] },
+    { method: Method.Get, path: `/items/${editable.id}`, expect: Expect.Omit, costKeys: ["costPrice", "totalValue"] },
+    { method: Method.Get, path: `/items/${itemId}`, expect: Expect.Omit, costKeys: ["costPrice", "totalValue"] },
+    { method: Method.Patch, path: `/items/${editable.id}`, body: { description: "probe" }, expect: Expect.Omit, costKeys: ["costPrice"] },
+    { method: Method.Get, path: `/inventory/balance?${position}`, expect: Expect.Omit, costKeys: ["averageCost", "totalValue"] },
+    { method: Method.Get, path: `/inventory/movements?${position}`, expect: Expect.Omit, costKeys: ["unitCost"] },
+    { method: Method.Get, path: "/inventory/stock-balance", expect: Expect.Omit, costKeys: ["averageCost", "totalValue"] },
+    { method: Method.Get, path: `/inventory/items/${itemId}/stock`, expect: Expect.Omit, costKeys: ["averageCost", "totalValue", "unitCost"] },
+    { method: Method.Get, path: "/inventory/adjustments", expect: Expect.Omit, costKeys: ["unitCost", "value", "valueDelta"] },
+    { method: Method.Get, path: "/inventory/transfers", expect: Expect.Omit, costKeys: ["unitCost", "value", "totalValue"] },
+    { method: Method.Get, path: "/inventory/valuation", expect: Expect.Refuse, costKeys: [] },
+    { method: Method.Get, path: `/inventory/drift?${position}`, expect: Expect.Refuse, costKeys: [] },
+    { method: Method.Get, path: "/inventory/stock-adjustments", expect: Expect.Omit, costKeys: ["unitCost"] },
+    { method: Method.Get, path: `/inventory/stock-adjustments/${adjustment.id}`, expect: Expect.Omit, costKeys: ["unitCost"] },
+    { method: Method.Get, path: `/inventory/physical-counts/${count.id}`, expect: Expect.Omit, costKeys: ["unitCost", "varianceValue", "overValue", "shortValue", "netValue", "absValue"] },
+    { method: Method.Get, path: "/inventory/product-templates", expect: Expect.Omit, costKeys: ["defaultCost"] },
+    { method: Method.Get, path: `/inventory/product-templates/${template.id}`, expect: Expect.Omit, costKeys: ["defaultCost"] },
+    { method: Method.Get, path: "/reports/inventory/stock-levels", expect: Expect.Omit, costKeys: ["averageCost", "value"] },
+    { method: Method.Get, path: "/reports/inventory/stock-levels/summary", expect: Expect.Omit, costKeys: ["totalValue"] },
+    { method: Method.Get, path: "/reports/inventory/ledger", expect: Expect.Omit, costKeys: ["unitCost"] },
+    { method: Method.Get, path: "/reports/inventory/aging", expect: Expect.Omit, costKeys: ["totalValue", "over180Value", "over180Percent"] },
+    { method: Method.Get, path: "/reports/inventory/expiring", expect: Expect.Omit, costKeys: ["totalValue", "expiredValue", "within30Value"] },
+    { method: Method.Get, path: "/reports/inventory/slow-moving", expect: Expect.Omit, costKeys: ["value"] },
+    { method: Method.Get, path: "/reports/inventory/goods-in-transit", expect: Expect.Omit, costKeys: ["value"] },
+    { method: Method.Get, path: "/reports/inventory/valuation", expect: Expect.Refuse, costKeys: [] },
+    { method: Method.Get, path: "/reports/inventory/drift", expect: Expect.Refuse, costKeys: [] },
+    { method: Method.Get, path: "/reports/inventory/batches", expect: Expect.Omit, costKeys: ["value", "totalValue", "valueExact"] },
+    { method: Method.Get, path: "/reports/manufacturing/make-vs-buy", expect: Expect.Refuse, costKeys: [] },
+    { method: Method.Get, path: `/reports/drill-down/item/${itemId}`, expect: Expect.Omit, costKeys: ["value"] },
+    { method: Method.Get, path: "/manufacturing/boms", expect: Expect.Omit, costKeys: ["estimate", "laborCost", "overheadCost", "materialCost", "totalCost", "unitCost"] },
+    { method: Method.Get, path: `/manufacturing/boms/${bom.id}`, expect: Expect.Omit, costKeys: ["estimate", "laborCost", "overheadCost", "materialCost", "totalCost", "unitCost"] },
+    { method: Method.Get, path: `/manufacturing/boms/${bom.id}/cost-estimate`, expect: Expect.Refuse, costKeys: [] },
+    { method: Method.Get, path: "/manufacturing/work-orders", expect: Expect.Omit, costKeys: ["issuedUnitCost", "materialCost", "laborCost", "overheadCost", "extraCost", "wipTotal", "unitCost", "costLog", "normalCost", "abnormalCost"] },
+    { method: Method.Get, path: `/manufacturing/work-orders/${workOrder.id}`, expect: Expect.Omit, costKeys: ["issuedUnitCost", "materialCost", "laborCost", "overheadCost", "extraCost", "wipTotal", "unitCost", "costLog", "normalCost", "abnormalCost"] },
+    { method: Method.Get, path: "/manufacturing/dashboard", expect: Expect.Omit, costKeys: ["wipValue", "avgCostPerUnit"] },
     ...(configInstances[0]
-      ? [{ method: "GET" as const, path: `/manufacturing/config-instances/${configInstances[0].id}`, expect: Expect.Omit, costKeys: ["lineCost", "materialCostPerUnit", "laborCostPerUnit", "overheadCostPerUnit", "estimatedUnitCost", "actualCost"] }]
+      ? [{ method: Method.Get, path: `/manufacturing/config-instances/${configInstances[0].id}`, expect: Expect.Omit, costKeys: ["lineCost", "materialCostPerUnit", "laborCostPerUnit", "overheadCostPerUnit", "estimatedUnitCost", "actualCost"] }]
       : []),
-    { method: "GET", path: "/inventory/expiry/alerts", expect: Expect.Omit, costKeys: ["value"] },
-    { method: "GET", path: `/inventory/expiry/write-off-proposal?warehouseId=${encodeURIComponent(warehouseId)}`, expect: Expect.Omit, costKeys: ["totalValue", "value", "layerValue"] },
-    { method: "GET", path: `/inventory/fefo-preview?${position}&qty=1`, expect: Expect.Omit, costKeys: [] },
-    { method: "GET", path: "/reorder/worklist", expect: Expect.Omit, costKeys: [] },
-    { method: "GET", path: "/field/van-trips", expect: Expect.Omit, costKeys: ["unitCost", "varianceValue"] },
+    { method: Method.Get, path: "/inventory/expiry/alerts", expect: Expect.Omit, costKeys: ["value"] },
+    { method: Method.Get, path: `/inventory/expiry/write-off-proposal?warehouseId=${encodeURIComponent(warehouseId)}`, expect: Expect.Omit, costKeys: ["totalValue", "value", "layerValue"] },
+    { method: Method.Get, path: `/inventory/fefo-preview?${position}&qty=1`, expect: Expect.Omit, costKeys: [] },
+    { method: Method.Get, path: "/reorder/worklist", expect: Expect.Omit, costKeys: [] },
+    { method: Method.Get, path: "/field/van-trips", expect: Expect.Omit, costKeys: ["unitCost", "varianceValue"] },
+    { method: Method.Get, path: "/inventory/writedown-runs", expect: Expect.Omit, costKeys: writedownRuns.length > 0 ? ["unitCost", "amount", "totalAmount"] : [] },
+    ...(consumption
+      ? [{ method: Method.Get, path: `/contracting/site/consumption-by-boq-line?projectId=${encodeURIComponent(consumption)}`, expect: Expect.Omit, costKeys: ["cost"] }]
+      : []),
   ];
 }, 900_000);
 
@@ -145,7 +165,7 @@ describe("item cost is visible only to a holder of inventory.cost.view (#119)", 
     const missing: string[] = [];
     for (const probe of probes) {
       const without = await as(VIEWER, probe);
-      const holder = await as([...VIEWER, "inventory.cost.view"], probe);
+      const holder = await as([...VIEWER, "inventory.cost.view", "inventory.valuation.view"], probe);
       const label = `${probe.method} ${probe.path}`;
       if (probe.expect === Expect.Refuse) {
         if (without.status !== 403) leaks.push(`${label} answered ${without.status} without the right`);
@@ -167,20 +187,20 @@ describe("item cost is visible only to a holder of inventory.cost.view (#119)", 
   }, 900_000);
 
   it("does not order the catalogue by cost for a session without the right", async () => {
-    const asc = await as(VIEWER, { method: "GET", path: "/items?sort=costPrice&sortDir=asc&pageSize=200", expect: Expect.Omit, costKeys: [] });
-    const plain = await as(VIEWER, { method: "GET", path: "/items?pageSize=200", expect: Expect.Omit, costKeys: [] });
+    const asc = await as(VIEWER, { method: Method.Get, path: "/items?sort=costPrice&sortDir=asc&pageSize=200", expect: Expect.Omit, costKeys: [] });
+    const plain = await as(VIEWER, { method: Method.Get, path: "/items?pageSize=200", expect: Expect.Omit, costKeys: [] });
     expect((asc.body as { id: string }[]).map((row) => row.id)).toEqual((plain.body as { id: string }[]).map((row) => row.id));
   });
 
   it("a PATCH without the right cannot overwrite the item's cost", async () => {
     const item = first<{ id: string; costPrice: string | null }>((await world.request("GET", "/items")).body, (row) => (row as { costPrice: string | null }).costPrice !== null);
-    await as(VIEWER, { method: "PATCH", path: `/items/${item.id}`, body: { costPrice: "0.01" }, expect: Expect.Omit, costKeys: [] });
+    await as(VIEWER, { method: Method.Patch, path: `/items/${item.id}`, body: { costPrice: "0.01" }, expect: Expect.Omit, costKeys: [] });
     const after = (await world.request("GET", `/items/${item.id}`)).body as { costPrice: string | null };
     expect(after.costPrice).toBe(item.costPrice);
   });
 
   it("prices a reorder line from the item's cost only for a holder", async () => {
-    const probe = { method: "GET" as const, path: "/reorder/worklist", expect: Expect.Omit, costKeys: [] };
+    const probe = { method: Method.Get, path: "/reorder/worklist", expect: Expect.Omit, costKeys: [] };
     type Row = { key: string; unitPrice: string | null };
     const without = ((await as(VIEWER, probe)).body as { rows: Row[] }).rows;
     const holder = new Map(((await as([...VIEWER, "inventory.cost.view"], probe)).body as { rows: Row[] }).rows.map((row) => [row.key, row.unitPrice]));
@@ -190,7 +210,43 @@ describe("item cost is visible only to a holder of inventory.cost.view (#119)", 
   });
 
   it("hides the audit trail of a cost field from a session without the right", async () => {
-    const filtered = await as(VIEWER, { method: "GET", path: "/audit?field=costPrice", expect: Expect.Omit, costKeys: [] });
+    const item = first<{ id: string }>((await world.request("GET", "/items")).body);
+    expect((await world.request("PATCH", `/items/${item.id}`, { costPrice: "77.50" })).status).toBe(200);
+    const filtered = await as(VIEWER, { method: Method.Get, path: "/audit?field=costPrice", expect: Expect.Omit, costKeys: [] });
     expect(JSON.stringify(filtered.body)).not.toMatch(/costPrice/);
+    type Change = { field: string; from: unknown; to: unknown; redacted?: boolean };
+    const changesOf = async (permissions: readonly string[]) =>
+      ((await as(permissions, { method: Method.Get, path: `/audit?entityType=ITEM&entityId=${encodeURIComponent(item.id)}`, expect: Expect.Omit, costKeys: [] })).body as { events: { details?: { changes?: Change[] } }[] }).events
+        .flatMap((event) => event.details?.changes ?? [])
+        .filter((change) => change.field === "costPrice");
+    const hidden = await changesOf(VIEWER);
+    expect(hidden.length).toBeGreaterThan(0);
+    expect(hidden.every((change) => change.from === null && change.to === null && change.redacted === true)).toBe(true);
+    expect((await changesOf([...VIEWER, "inventory.cost.view"])).some((change) => change.to !== null)).toBe(true);
+  });
+
+  it("a branch-restricted edit without the right cannot test a cost guess against the stored price", async () => {
+    const item = first<{ id: string; costPrice: string | null }>((await world.request("GET", "/items")).body, (row) => (row as { costPrice: string | null }).costPrice !== null);
+    const token = await world.backend.sessions.issue({ userId: "cost-branch", permissions: [...VIEWER], roleCode: null, branchScope: ["BR-ALEX"], warehouseScope: ALL_SCOPE });
+    const patch = async (costPrice: string) =>
+      (await world.backend.app.fetch(new Request(`http://local/items/${item.id}`, { method: Method.Patch, headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify({ costPrice }) }))).status;
+    expect(await patch("0.01")).toBe(await patch(item.costPrice!));
+    expect(((await world.request("GET", `/items/${item.id}`)).body as { costPrice: string | null }).costPrice).toBe(item.costPrice);
+  });
+
+  it("a create without the right neither stores nor echoes a cost price", async () => {
+    const body = (id: string) => ({ id, nameAr: "صنف اختبار التكلفة", type: "stock", baseUnitCode: "PCS", costPrice: "12.50" });
+    const without = await as(VIEWER, { method: Method.Post, path: "/items", body: body("COST-PROBE-1"), expect: Expect.Omit, costKeys: [] });
+    expect(without.status).toBe(201);
+    expect(without.body).not.toHaveProperty("costPrice");
+    expect(((await world.request("GET", "/items/COST-PROBE-1")).body as { costPrice: string | null }).costPrice).toBeNull();
+    const holder = await as([...VIEWER, "inventory.cost.view"], { method: Method.Post, path: "/items", body: body("COST-PROBE-2"), expect: Expect.Omit, costKeys: [] });
+    expect(holder.status).toBe(201);
+    expect((holder.body as { costPrice: string }).costPrice).toBe("12.500000");
+  });
+
+  it("a valuation viewer holds item cost, so the valuation report answers it", async () => {
+    const answer = await as(["inventory.valuation.view"], { method: Method.Get, path: "/reports/inventory/valuation", expect: Expect.Refuse, costKeys: [] });
+    expect(answer.status).toBe(200);
   });
 });

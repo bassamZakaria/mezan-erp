@@ -190,7 +190,7 @@ export const consumptionByBoqLineRowSchema = z.object({
   boqLineId: z.string().nullable(),
   itemId: z.string().min(1),
   qty: nonNegativeMoneyString,
-  cost: moneyString,
+  cost: moneyString.optional(),
 });
 
 export const equipmentHoursRowSchema = z.object({

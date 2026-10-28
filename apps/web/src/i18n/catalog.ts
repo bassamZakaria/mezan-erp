@@ -7000,6 +7000,7 @@ export const webAr = {
   "attachments.tooLarge": "حجم الملف يتجاوز الحد المسموح ({limit})",
   "attachments.emptyFileRejected": "لا يمكن إرفاق ملف فارغ",
   "attachments.couldNotBeLoaded": "تعذّر تحميل المرفقات",
+  "attachments.noViewPermission": "لا تملك صلاحية «عرض — المرفقات». اطلب من مدير النظام منحها لدورك.",
   "attachments.uploadFailed": "تعذّر رفع الملف",
   "attachments.downloadFailed": "تعذّر تنزيل الملف",
   "attachments.deleteFailed": "تعذّر حذف الملف",

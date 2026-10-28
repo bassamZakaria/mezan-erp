@@ -1,9 +1,10 @@
 import { useRef, useState, type ChangeEvent } from "react";
 import { Trash2 } from "lucide-react";
 import { Button, Card, IconButton, useFormat } from "@mezan/ui";
-import { ATTACHMENT_ENTITY_PERMISSIONS, ATTACHMENT_MAX_BYTES, can, createAuthContext } from "@mezan/domain";
+import { ATTACHMENT_ENTITY_PERMISSIONS, ATTACHMENT_MAX_BYTES, AttachmentPermission, SEPARATE_ATTACHMENT_PERMISSIONS_FEATURE, can, createAuthContext } from "@mezan/domain";
 import type { AttachmentEntityTypeDTO } from "@mezan/contracts";
 import { useApi } from "../data/ApiContext";
+import { useEntitlements } from "../data/hooks";
 import { useAttachments, useDeleteAttachment, useDownloadAttachment, useUploadAttachment } from "../data/attachment-hooks";
 import { useAppTranslation } from "../i18n";
 
@@ -64,7 +65,13 @@ export function AttachmentsTab({ entityType, entityId }: AttachmentsTabProps) {
     branchScope: "*",
     warehouseScope: "*",
   });
+  const entitlements = useEntitlements();
+  const separatePermissions = entitlements.data?.features[SEPARATE_ATTACHMENT_PERMISSIONS_FEATURE] === true;
+  const holdsAttachmentRight = (permission: AttachmentPermission) => !separatePermissions || can(authContext, permission);
   const mayManage = can(authContext, permissions.manage);
+  const mayView = holdsAttachmentRight(AttachmentPermission.View);
+  const mayUpload = mayManage && holdsAttachmentRight(AttachmentPermission.Upload);
+  const mayDelete = mayManage && holdsAttachmentRight(AttachmentPermission.Delete);
 
   const formatSize = (bytes: number): string => {
     if (bytes < 1024) return t("attachments.sizeBytes", { value: format.number(bytes) });
@@ -133,7 +140,7 @@ export function AttachmentsTab({ entityType, entityId }: AttachmentsTabProps) {
     <div className="flex flex-col gap-[14px]">
       <div className="flex flex-wrap items-center justify-between gap-[10px]">
         <div className="text-[12.5px] text-ink-muted">{t("attachments.storedFilesHint", { limit: formatSize(ATTACHMENT_MAX_BYTES) })}</div>
-        {mayManage ? (
+        {mayUpload ? (
           <>
             <input
               ref={fileInput}
@@ -155,7 +162,9 @@ export function AttachmentsTab({ entityType, entityId }: AttachmentsTabProps) {
         </div>
       ) : null}
 
-      {query.isLoading ? (
+      {!mayView ? (
+        <div className="rounded-md border border-border p-[18px] text-center text-[12.5px] text-ink-muted">{t("attachments.noViewPermission")}</div>
+      ) : query.isLoading ? (
         <div className="rounded-md border border-border p-[18px] text-center text-[12.5px] text-ink-muted">{t("common.loading")}</div>
       ) : query.isError ? (
         <div className="rounded-md border border-border p-[18px] text-center text-[12.5px] text-ink-muted">
@@ -193,7 +202,7 @@ export function AttachmentsTab({ entityType, entityId }: AttachmentsTabProps) {
                       <Button size="sm" disabled={pendingId === row.id} onClick={() => void onDownload(row.id, row.fileName, row.mimeType)}>
                         {t("attachments.download")}
                       </Button>
-                      {mayManage ? (
+                      {mayDelete ? (
                         <IconButton
                           aria-label={t("attachments.deleteFile", { name: row.fileName })}
                           disabled={pendingId === row.id}

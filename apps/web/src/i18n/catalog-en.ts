@@ -6994,6 +6994,7 @@ export const webEn: Record<WebTranslationKey, string> = {
   "attachments.tooLarge": "The file is over the {limit} limit",
   "attachments.emptyFileRejected": "An empty file cannot be attached",
   "attachments.couldNotBeLoaded": "Attachments could not be loaded",
+  "attachments.noViewPermission": "You do not hold «View — Attachments». Ask an administrator to grant it to your role.",
   "attachments.uploadFailed": "The file could not be uploaded",
   "attachments.downloadFailed": "The file could not be downloaded",
   "attachments.deleteFailed": "The file could not be deleted",

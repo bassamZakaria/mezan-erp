@@ -3,6 +3,9 @@ import { Hono, type Context, type MiddlewareHandler } from "hono";
 import {
   ATTACHMENT_ENTITY_PERMISSIONS,
   AttachmentNotFoundError,
+  AttachmentPermission,
+  SEPARATE_ATTACHMENT_PERMISSIONS_FEATURE,
+  hasFeature,
   InvalidAttachmentError,
   can,
   createAttachment,
@@ -24,11 +27,12 @@ import { DuplicateRecordIdError } from "@mezan/domain";
  * المرفقات — `/attachments`. Files hang off a document (invoice, voucher, work
  * order) or an entity (item, customer, supplier, employee).
  *
- * An attachment carries NO permission of its own: every route resolves the
- * permission from the entity it is attached to, so whoever may not read a
- * supplier may not read that supplier's files either. That is why these routes
- * cannot use a fixed `gate("…")` — the code is only known once the entity type
- * is in hand.
+ * Every route resolves the permission from the entity a file is attached to,
+ * so whoever may not read a supplier may not read that supplier's files
+ * either. That is why these routes cannot use a fixed `gate("…")` — the code
+ * is only known once the entity type is in hand. Where the plan carries
+ * `SEPARATE_ATTACHMENT_PERMISSIONS_FEATURE`, an `AttachmentPermission` is
+ * demanded on top: it narrows, never widens, what the entity already allows.
  */
 
 /**
@@ -99,6 +103,15 @@ function manageModuleRefusal(c: Context, entityType: AttachmentEntityType): Resp
 
 function denied(c: Context, permission: string) {
   return c.json(permissionDeniedBody(permission), 403);
+}
+
+function separatePermissionsApply(c: Context): boolean {
+  const entitlements = c.get("entitlements");
+  return entitlements !== undefined && hasFeature(entitlements, SEPARATE_ATTACHMENT_PERMISSIONS_FEATURE);
+}
+
+function lacksAttachmentPermission(c: Context, ctx: AuthContext, permission: AttachmentPermission): boolean {
+  return separatePermissionsApply(c) && !can(ctx, permission);
 }
 
 function serialize(attachment: Attachment) {
@@ -185,12 +198,14 @@ export function createAttachmentsRoutes(
       const moduleRefused = viewModuleRefusal(c, entityType);
       if (moduleRefused) return moduleRefused;
       if (!canView(ctx, entityType)) return denied(c, ATTACHMENT_ENTITY_PERMISSIONS[entityType].viewAny[0]!);
+      if (lacksAttachmentPermission(c, ctx, AttachmentPermission.View)) return denied(c, AttachmentPermission.View);
       const rows = entityId
         ? await deps.repo.list(entityType, entityId)
         : (await deps.repo.listAll()).filter((row) => row.entityType === entityType);
       return c.json((await withinGrant(c, rows)).map(serialize));
     }
 
+    if (lacksAttachmentPermission(c, ctx, AttachmentPermission.View)) return c.json([]);
     const all = await deps.repo.listAll();
     return c.json(
       (await withinGrant(c, all.filter((row) => canView(ctx, row.entityType) && viewModuleRefusal(c, row.entityType) === null))).map(serialize),
@@ -205,6 +220,7 @@ export function createAttachmentsRoutes(
     if (!canView(auth(c), found.entityType)) {
       return denied(c, ATTACHMENT_ENTITY_PERMISSIONS[found.entityType].viewAny[0]!);
     }
+    if (lacksAttachmentPermission(c, auth(c), AttachmentPermission.View)) return denied(c, AttachmentPermission.View);
     const outsideGrant = await entityOutsideGrant(c, found.entityType, found.entityId);
     if (outsideGrant) return outsideGrant;
     return c.json(serialize(found));
@@ -223,6 +239,7 @@ export function createAttachmentsRoutes(
     if (!canView(auth(c), content.attachment.entityType)) {
       return denied(c, ATTACHMENT_ENTITY_PERMISSIONS[content.attachment.entityType].viewAny[0]!);
     }
+    if (lacksAttachmentPermission(c, auth(c), AttachmentPermission.View)) return denied(c, AttachmentPermission.View);
     const outsideGrant = await entityOutsideGrant(c, content.attachment.entityType, content.attachment.entityId);
     if (outsideGrant) return outsideGrant;
     return c.json({
@@ -240,6 +257,7 @@ export function createAttachmentsRoutes(
     if (!canManage(ctx, parsed.data.entityType)) {
       return denied(c, ATTACHMENT_ENTITY_PERMISSIONS[parsed.data.entityType].manage);
     }
+    if (lacksAttachmentPermission(c, ctx, AttachmentPermission.Upload)) return denied(c, AttachmentPermission.Upload);
     const outsideGrant = await entityOutsideGrant(c, parsed.data.entityType, parsed.data.entityId);
     if (outsideGrant) return outsideGrant;
     try {
@@ -270,6 +288,7 @@ export function createAttachmentsRoutes(
     if (!canManage(auth(c), found.entityType)) {
       return denied(c, ATTACHMENT_ENTITY_PERMISSIONS[found.entityType].manage);
     }
+    if (lacksAttachmentPermission(c, auth(c), AttachmentPermission.Delete)) return denied(c, AttachmentPermission.Delete);
     const outsideGrant = await entityOutsideGrant(c, found.entityType, found.entityId);
     if (outsideGrant) return outsideGrant;
     try {

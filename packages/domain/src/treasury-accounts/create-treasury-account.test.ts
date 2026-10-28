@@ -2,6 +2,8 @@ import { describe, it, expect } from "vitest";
 import { InMemoryTreasuryAccountRepository } from "./test-helpers/in-memory-treasury-account-repository.js";
 import { createTreasuryAccount, validateNewTreasuryAccount } from "./create-treasury-account.js";
 import { DuplicateTreasuryAccountCodeError, InvalidOpeningBalanceError, NegativeCashBalanceError } from "./errors.js";
+import { InMemoryAccountRepository } from "../accounts/test-helpers/in-memory-account-repository.js";
+import { InvalidParentAccountError } from "../accounts/errors.js";
 
 describe("createTreasuryAccount", () => {
   it("creates a cash account with defaults (EGP, zero opening balance, active)", async () => {
@@ -68,5 +70,41 @@ describe("createTreasuryAccount", () => {
 
   it("validateNewTreasuryAccount is a pure pre-check that does not persist anything", () => {
     expect(() => validateNewTreasuryAccount({ id: "x", code: "NEW", name: "n", branchId: "b1" }, [])).not.toThrow();
+  });
+});
+
+describe("createTreasuryAccount — its own ledger account (#120)", () => {
+  async function chart() {
+    const accounts = new InMemoryAccountRepository();
+    await accounts.create({ id: "1300", code: "1300", nameAr: "النقدية", nameEn: "Cash", type: "asset", naturalBalance: "debit", parentId: null, isHeader: true, status: "active" });
+    await accounts.create({ id: "1300-1", code: "1300-1", nameAr: "صندوق", nameEn: null, type: "asset", naturalBalance: "debit", parentId: "1300", isHeader: false, status: "active" });
+    return accounts;
+  }
+
+  it("opens a leaf under the cash-and-bank header with the next free code and links it", async () => {
+    const accounts = await chart();
+    const repo = new InMemoryTreasuryAccountRepository();
+    const account = await createTreasuryAccount({ id: "ta1", code: "BANK-9", name: "بنك مصر", nameEn: "Banque Misr", type: "bank", branchId: "b1" }, repo, { accounts });
+    expect(account.glAccountId).toBe("1300-2");
+    expect(await accounts.findById("1300-2")).toMatchObject({ code: "1300-2", nameAr: "بنك مصر", nameEn: "Banque Misr", type: "asset", naturalBalance: "debit", parentId: "1300", isHeader: false, status: "active" });
+    const second = await createTreasuryAccount({ id: "ta2", code: "CASH-9", name: "صندوق ٢", branchId: "b1" }, repo, { accounts });
+    expect(second.glAccountId).toBe("1300-3");
+  });
+
+  it("keeps the ledger account the caller chose and opens none", async () => {
+    const accounts = await chart();
+    const repo = new InMemoryTreasuryAccountRepository();
+    const account = await createTreasuryAccount({ id: "ta1", code: "CASH-9", name: "صندوق", branchId: "b1", glAccountId: "1300-1" }, repo, { accounts });
+    expect(account.glAccountId).toBe("1300-1");
+    expect(await accounts.list()).toHaveLength(2);
+  });
+
+  it("opens under the routed header, and refuses in Arabic when there is none", async () => {
+    const accounts = await chart();
+    const repo = new InMemoryTreasuryAccountRepository();
+    await expect(
+      createTreasuryAccount({ id: "ta1", code: "CASH-9", name: "صندوق", branchId: "b1" }, repo, { accounts, cashAndBankParentAccountId: async () => "9999" }),
+    ).rejects.toBeInstanceOf(InvalidParentAccountError);
+    expect(await repo.findById("ta1")).toBeNull();
   });
 });

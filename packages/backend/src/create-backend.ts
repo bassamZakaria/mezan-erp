@@ -251,6 +251,7 @@ import {
   CASH_AND_BANK_ROUTING_KEY,
   RESTRICTED_CASH_ROUTING_KEY,
   cashAndBankLedgerAccountIds,
+  openTreasuryLedgerAccount,
   disposalProceedsAccounts,
   UserStatusCode,
   isErasedUser,
@@ -4615,6 +4616,29 @@ async function composeBackend(options: CreateBackendOptions, db: SqlDb, sqlite: 
   });
 
   const resolveCashAndBankParentAccountId = async () => routedAccountId(await accountRouting.get(), CASH_AND_BANK_ROUTING_KEY);
+
+  /**
+   * Treasury accounts created before #120 were saved with no ledger account,
+   * and every voucher, cheque and opening balance on them is refused. Each gets
+   * its own leaf now, account and link in one transaction; a linked account is
+   * never touched, so a second start does nothing.
+   */
+  {
+    let linked = 0;
+    try {
+      for (const treasury of await treasuryAccounts.list()) {
+        if (treasury.glAccountId !== null) continue;
+        await db.transaction(async () => {
+          const glAccountId = await openTreasuryLedgerAccount(treasury, { accounts, cashAndBankParentAccountId: resolveCashAndBankParentAccountId });
+          await treasuryAccounts.update({ ...treasury, glAccountId });
+        });
+        linked += 1;
+      }
+      if (linked > 0) backendLog.info({ area: "treasury-accounts" }, `linked ${linked} treasury account(s) to a ledger account of their own`);
+    } catch (error) {
+      backendLog.error({ area: "treasury-accounts", err: error }, "linking treasury accounts to the ledger could not complete");
+    }
+  }
   const resolveCashAndBankAccountIds = async (): Promise<readonly string[]> => {
     const [routing, chart, treasury] = await Promise.all([accountRouting.get(), accounts.list(), treasuryAccounts.list()]);
     return cashAndBankLedgerAccountIds(chart, {
@@ -5482,6 +5506,7 @@ async function composeBackend(options: CreateBackendOptions, db: SqlDb, sqlite: 
       // P-5 — the three steps that make a real go-live possible: the chart, the
       // opening trial balance, and the open AR/AP the shop is actually owed.
       accounts,
+      cashAndBankParentAccountId: resolveCashAndBankParentAccountId,
       fiscalPeriods,
       partyControlAccounts: resolvePartyControlAccounts,
       postOpeningEntry: async (entry) => {

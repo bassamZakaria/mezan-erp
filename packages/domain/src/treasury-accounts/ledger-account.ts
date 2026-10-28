@@ -1,5 +1,7 @@
 import type { Account, AccountRepository } from "../accounts/account.js";
 import { routedAccountId } from "../accounts/account-routing.js";
+import { createAccount } from "../accounts/create-account.js";
+import { InvalidParentAccountError } from "../accounts/errors.js";
 import { CASH_AND_BANK_ROUTING_KEY } from "./cash-and-bank-accounts.js";
 import type { TreasuryAccount } from "./treasury-account.js";
 
@@ -37,18 +39,55 @@ export class InvalidTreasuryLedgerAccountError extends Error {
   }
 }
 
-export interface TreasuryLedgerAccountDeps {
+interface TreasuryLedgerAccountLookup {
   readonly accounts: Pick<AccountRepository, "findById">;
   readonly cashAndBankParentAccountId?: () => Promise<string | null>;
 }
 
+export interface TreasuryLedgerAccountDeps extends TreasuryLedgerAccountLookup {
+  readonly accounts: Pick<AccountRepository, "findById" | "list" | "create">;
+}
+
+async function cashAndBankParentId(deps: TreasuryLedgerAccountLookup): Promise<string | null> {
+  return deps.cashAndBankParentAccountId ? await deps.cashAndBankParentAccountId() : routedAccountId(null, CASH_AND_BANK_ROUTING_KEY);
+}
+
+/**
+ * Opens the treasury account's own ledger leaf under the cash-and-bank header,
+ * coded `<header code>-<n>` with the lowest free n. One leaf per treasury
+ * account, never a shared one: a ledger account carries one currency and one
+ * drawer's balance.
+ */
+export async function openTreasuryLedgerAccount(
+  treasury: Pick<TreasuryAccount, "name" | "nameEn">,
+  deps: TreasuryLedgerAccountDeps,
+): Promise<string> {
+  const parentId = await cashAndBankParentId(deps);
+  const parent = parentId ? await deps.accounts.findById(parentId) : null;
+  if (!parent) {
+    throw new InvalidParentAccountError(
+      "لا يوجد حساب رئيسي للنقدية والبنوك في دليل الحسابات لفتح حساب الخزينة تحته — حدده في توجيه الحسابات أو اختر الحساب الدفتري يدوياً.",
+      "No cash-and-bank header exists in the chart of accounts to open the treasury account under — set it in account routing or choose the ledger account yourself.",
+    );
+  }
+  const taken = new Set((await deps.accounts.list()).flatMap((account) => [account.id, account.code]));
+  let n = 1;
+  while (taken.has(`${parent.code}-${n}`)) n += 1;
+  const code = `${parent.code}-${n}`;
+  await createAccount(
+    { id: code, code, nameAr: treasury.name, nameEn: treasury.nameEn, type: "asset", naturalBalance: "debit", parentId: parent.id, isHeader: false },
+    deps.accounts,
+  );
+  return code;
+}
+
 const MAX_CHART_DEPTH = 32;
 
-async function sitsUnderCashOrBank(account: Account, deps: TreasuryLedgerAccountDeps): Promise<boolean> {
-  const cashAndBankParentId = deps.cashAndBankParentAccountId ? await deps.cashAndBankParentAccountId() : routedAccountId(null, CASH_AND_BANK_ROUTING_KEY);
+async function sitsUnderCashOrBank(account: Account, deps: TreasuryLedgerAccountLookup): Promise<boolean> {
+  const headerId = await cashAndBankParentId(deps);
   let parentId = account.parentId;
   for (let depth = 0; parentId && depth < MAX_CHART_DEPTH; depth++) {
-    if (parentId === cashAndBankParentId) return true;
+    if (parentId === headerId) return true;
     parentId = (await deps.accounts.findById(parentId))?.parentId ?? null;
   }
   return false;
@@ -62,7 +101,7 @@ async function sitsUnderCashOrBank(account: Account, deps: TreasuryLedgerAccount
  */
 export async function assertTreasuryLedgerAccount(
   candidate: Pick<TreasuryAccount, "glAccountId">,
-  deps: TreasuryLedgerAccountDeps,
+  deps: TreasuryLedgerAccountLookup,
 ): Promise<void> {
   const glAccountId = candidate.glAccountId;
   if (glAccountId === null) return;

@@ -5,8 +5,10 @@ import {
   Money,
   createTreasuryAccount,
   updateTreasuryAccount,
+  DuplicateAccountCodeError,
   DuplicateTreasuryAccountCodeError,
   InvalidGuaranteeFacilityLimitError,
+  InvalidParentAccountError,
   InvalidOpeningBalanceError,
   InvalidTreasuryLedgerAccountError,
   NegativeCashBalanceError,
@@ -70,12 +72,13 @@ function handleDomainError(c: Context, err: unknown) {
   if (err instanceof TreasuryAccountNotFoundError) {
     return refuse(err, 404);
   }
-  if (err instanceof DuplicateTreasuryAccountCodeError) {
+  if (err instanceof DuplicateTreasuryAccountCodeError || err instanceof DuplicateAccountCodeError) {
     return refuse(err, 409);
   }
   if (
     err instanceof NegativeCashBalanceError ||
     err instanceof InvalidTreasuryLedgerAccountError ||
+    err instanceof InvalidParentAccountError ||
     err instanceof InvalidGuaranteeFacilityLimitError ||
     err instanceof InvalidOpeningBalanceError ||
     err instanceof TreasuryAccountHasMovementsError ||

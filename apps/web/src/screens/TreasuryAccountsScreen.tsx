@@ -479,7 +479,7 @@ export function TreasuryAccountsScreen() {
               </div>
               <div className="p-[13px_15px]">
                 <div className="text-[11px] font-semibold text-ink-faint">{t("treasuryAcc.ledgerAccount")}</div>
-                <div className="mt-[5px] text-[14px] font-bold text-ink">{selected.glAccountId ?? t("treasuryAcc.automaticByType")}</div>
+                <div className="mt-[5px] text-[14px] font-bold text-ink">{selected.glAccountId ?? t("treasuryAcc.notLinked")}</div>
               </div>
             </Card>
             <TreasuryAccountLedger account={selected} />

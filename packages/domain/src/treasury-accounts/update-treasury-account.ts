@@ -1,4 +1,4 @@
-import { assertTreasuryLedgerAccount, type TreasuryLedgerAccountDeps } from "./ledger-account.js";
+import { assertTreasuryLedgerAccount, openTreasuryLedgerAccount, type TreasuryLedgerAccountDeps } from "./ledger-account.js";
 import { Money } from "../money/index.js";
 import {
   MAX_GUARANTEE_FACILITY_LIMIT_SCALED,
@@ -104,16 +104,19 @@ export async function updateTreasuryAccount(
       : current.guaranteeFacilityLimit;
   assertFacilityLimit(accountId, nextFacilityLimit);
 
+  const nextName = command.name ?? current.name;
+  const nextNameEn = command.nameEn !== undefined ? command.nameEn : current.nameEn;
+  const nextGlAccountId = command.glAccountId !== undefined ? command.glAccountId : current.glAccountId;
   const updated: TreasuryAccount = {
     ...current,
-    name: command.name ?? current.name,
-    nameEn: command.nameEn !== undefined ? command.nameEn : current.nameEn,
+    name: nextName,
+    nameEn: nextNameEn,
     type: nextType,
     currency: command.currency ?? current.currency,
     bankAccountNumber:
       command.bankAccountNumber !== undefined ? (command.bankAccountNumber?.trim() || null) : current.bankAccountNumber,
     branchId: command.branchId === undefined ? current.branchId : command.branchId,
-    glAccountId: command.glAccountId !== undefined ? command.glAccountId : current.glAccountId,
+    glAccountId: nextGlAccountId || (ledgerAccounts ? await openTreasuryLedgerAccount({ name: nextName, nameEn: nextNameEn }, ledgerAccounts) : null),
     openingBalance: nextOpeningBalance,
     openingBalanceDate: command.openingBalanceDate !== undefined ? command.openingBalanceDate : current.openingBalanceDate,
     guaranteeFacilityLimit: nextFacilityLimit,

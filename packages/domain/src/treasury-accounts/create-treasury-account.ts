@@ -13,7 +13,7 @@ import {
   NegativeCashBalanceError,
   assertGlAccountHoldsOneCurrency,
 } from "./errors.js";
-import { assertTreasuryLedgerAccount, type TreasuryLedgerAccountDeps } from "./ledger-account.js";
+import { assertTreasuryLedgerAccount, openTreasuryLedgerAccount, type TreasuryLedgerAccountDeps } from "./ledger-account.js";
 
 export interface CreateTreasuryAccountCommand {
   readonly nameEn?: string | null;
@@ -86,9 +86,9 @@ export function validateNewTreasuryAccount(
 
 /**
  * Creates and persists a new treasury account. New accounts always start
- * `active`. Leaving `glAccountId` unset mirrors the mockup's "usually left
- * blank, the system auto-selects the matching account by type" behavior —
- * the auto-selection itself is a Phase 2 GL-wiring concern.
+ * `active`. Left without a ledger account, it gets its own leaf under the
+ * cash-and-bank header (`openTreasuryLedgerAccount`) — callers run this in one
+ * transaction so a refused create leaves no orphan leaf behind.
  */
 export async function createTreasuryAccount(
   command: CreateTreasuryAccountCommand,
@@ -113,7 +113,7 @@ export async function createTreasuryAccount(
     currency: command.currency ?? "EGP",
     bankAccountNumber: command.bankAccountNumber?.trim() || null,
     branchId: command.branchId,
-    glAccountId: command.glAccountId ?? null,
+    glAccountId: command.glAccountId || (ledgerAccounts ? await openTreasuryLedgerAccount({ name: command.name, nameEn: command.nameEn ?? null }, ledgerAccounts) : null),
     openingBalance,
     openingBalanceDate: command.openingBalanceDate ?? null,
     guaranteeFacilityLimit,

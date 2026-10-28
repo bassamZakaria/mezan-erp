@@ -226,6 +226,7 @@ export interface DataMigrationRoutesDeps {
    * not served rather than served empty.
    */
   readonly accounts?: AccountRepository;
+  readonly cashAndBankParentAccountId?: () => Promise<string | null>;
   /**
    * P-5 — ميزان المراجعة الافتتاحي. `postOpeningEntry` posts ONE balanced
    * `INITIAL_BALANCE` journal entry; `fiscalPeriods` decides the date it
@@ -440,7 +441,7 @@ export function createDataMigrationRoutes(
         };
       },
       async (item) => {
-        const account = await createTreasuryAccount(item, deps.treasuryAccounts, deps.accounts ? { accounts: deps.accounts } : undefined);
+        const account = await createTreasuryAccount(item, deps.treasuryAccounts, deps.accounts ? { accounts: deps.accounts, cashAndBankParentAccountId: deps.cashAndBankParentAccountId } : undefined);
         await recordFieldChanges(audit, c, {
           entity: { module: "treasury", entityType: "TREASURY_ACCOUNT", entityId: account.id },
           action: AuditChangeAction.Create,

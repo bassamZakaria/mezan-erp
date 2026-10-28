@@ -31,7 +31,6 @@ function impliedAttachmentPermissions(codes: Iterable<string>, direct: ReadonlyM
   return implied;
 }
 
-/** Keyed by every catalog code, not only the entity rights: a role holding a leaf such as `sales.invoice.confirm` holds the view it depends on, and so its attachment view. */
 export function attachmentPermissionSuccessors(): ReadonlyMap<string, readonly AttachmentPermission[]> {
   const direct = directAttachmentGrants();
   const successors = new Map<string, readonly AttachmentPermission[]>();

@@ -68,7 +68,6 @@ export enum LegacyDocumentPlaceholder {
 const STATEMENT_TOKENS: ReadonlySet<string> = new Set(Object.values(StatementPlaceholder));
 const LEGACY_TOKENS: ReadonlySet<string> = new Set(Object.values(LegacyDocumentPlaceholder));
 
-/** The document template that shipped before #129 was never rendered: one that names its fields, or names no statement field, would mail an empty statement. */
 export function isLegacyStatementTemplate(template: string): boolean {
   const tokens = [...template.matchAll(TOKEN)].map((match) => match[1] ?? "");
   return tokens.some((token) => LEGACY_TOKENS.has(token)) || !tokens.some((token) => STATEMENT_TOKENS.has(token));

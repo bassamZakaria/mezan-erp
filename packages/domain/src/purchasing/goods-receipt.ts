@@ -326,7 +326,7 @@ export function overReceiptAllowances(
   return allowances;
 }
 
-const NO_ALLOWANCE: OverReceiptAllowance = { ordered: Qty.zero(), received: Qty.zero(), allowedMax: Qty.zero(), remaining: Qty.zero() };
+export const NO_OVER_RECEIPT_ALLOWANCE: OverReceiptAllowance = { ordered: Qty.zero(), received: Qty.zero(), allowedMax: Qty.zero(), remaining: Qty.zero() };
 
 function assertWithinOverReceiptTolerance(
   order: PurchaseOrder,
@@ -339,7 +339,7 @@ function assertWithinOverReceiptTolerance(
   const wanted = new Map<string, Qty>();
   for (const l of lines) wanted.set(l.itemId, (wanted.get(l.itemId) ?? Qty.zero()).add(l.qty));
   for (const [itemId, qty] of wanted) {
-    const allowance = allowances.get(itemId) ?? NO_ALLOWANCE;
+    const allowance = allowances.get(itemId) ?? NO_OVER_RECEIPT_ALLOWANCE;
     if (allowance.received.add(qty).compare(allowance.allowedMax) > 0) {
       throw new OverReceiptError(itemId, qty, allowance.ordered, allowance.received, allowance.allowedMax, tolerancePercent);
     }

@@ -18,7 +18,7 @@ import {
   type RowMenuItem,
   Qty as QtyDisplay,
 } from "@mezan/ui";
-import { Qty, overReceiptAllowances, type OverReceiptAllowance } from "@mezan/domain";
+import { NO_OVER_RECEIPT_ALLOWANCE, Qty, overReceiptAllowances } from "@mezan/domain";
 import { GoodsReceiptInvoicingStatusDTO, type CostCategoryDTO, type GoodsReceiptDTO, type GoodsReceiptStatusDTO, type PurchaseOrderDTO } from "@mezan/contracts";
 import { useConfirmGoodsReceipt, useCreateGoodsReceipt, useSetGoodsReceiptLots, useGoodsReceiptCounts, useGoodsReceipts, useGoodsReceiptStats, useProjects, usePurchaseOrders, useTenantSettings, useSuppliers, useUsers, useBranches, useWarehouses, type GoodsReceiptListFilter } from "../data/hooks";
 import { useWorkingLocation } from "../data/hub-hooks";
@@ -84,8 +84,6 @@ interface FromOrderLine {
   costCategory: CostCategoryDTO | null;
   lot: LotValue;
 }
-
-const NO_ALLOWANCE: OverReceiptAllowance = { ordered: Qty.zero(), received: Qty.zero(), allowedMax: Qty.zero(), remaining: Qty.zero() };
 
 function qtyOfLine(line: FromOrderLine): Qty {
   return Qty.fromMajor(formQtyOf(line.qty));
@@ -482,7 +480,7 @@ export function GoodsReceiptsScreen() {
       ),
     [linesOrder, overReceiptTolerancePercent],
   );
-  const allowanceOf = (itemId: string) => allowances.get(itemId) ?? NO_ALLOWANCE;
+  const allowanceOf = (itemId: string) => allowances.get(itemId) ?? NO_OVER_RECEIPT_ALLOWANCE;
   const takenOf = (itemId: string, exceptKey?: string) =>
     Qty.sum(fromOrderLines.filter((l) => l.itemId === itemId && l.key !== exceptKey).map(qtyOfLine));
   const itemOverReceived = (itemId: string) => takenOf(itemId).compare(allowanceOf(itemId).remaining) > 0;

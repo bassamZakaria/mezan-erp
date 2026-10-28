@@ -93,6 +93,7 @@ export {
   goodsReceiptCancelEntryId,
   goodsReceiptTotalCost,
   overReceiptAllowances,
+  NO_OVER_RECEIPT_ALLOWANCE,
   type OverReceiptAllowance,
   type GoodsReceipt,
   type GoodsReceiptLine,

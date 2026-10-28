@@ -31,7 +31,7 @@ RUN pnpm --filter web build && pnpm --filter @mezan/server build
 RUN mkdir -p /runtime/node_modules \
   && cp -rL "$(dirname "$(node -p "require.resolve('better-sqlite3/package.json', { paths: ['packages/persistence'] })")")" /runtime/node_modules/better-sqlite3 \
   && cd /runtime/node_modules/better-sqlite3 \
-  && rm -rf deps src build binding.gyp prebuilds/darwin-* prebuilds/win32-* prebuilds/linuxmusl-*
+  && rm -rf deps src build node_modules binding.gyp prebuilds/darwin-* prebuilds/win32-* prebuilds/linuxmusl-*
 
 FROM node:22-bookworm-slim
 

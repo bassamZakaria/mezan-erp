@@ -1,5 +1,5 @@
 import { PlatformAuditUnavailableError, type PlatformHandle } from "@mezan/backend";
-import { withSqliteTransaction } from "@mezan/persistence";
+import { TransactionMode } from "@mezan/persistence";
 import {
   AuditSeverityCode,
   cancelSubscription,
@@ -26,8 +26,7 @@ export interface ReleaseTenantDeps {
 export async function releaseProvisioningTenant(deps: ReleaseTenantDeps, input: { readonly tenant: Tenant; readonly actorId: string }): Promise<Tenant> {
   const { platform } = deps;
   const at = deps.now().toISOString();
-  const { before, released } = await withSqliteTransaction(
-    platform.stores.sqlite,
+  const { before, released } = await platform.stores.db.transaction(
     async () => {
       const after = await releaseTenant({ id: input.tenant.id, now: at }, platform.stores.tenants);
       const live = await platform.stores.subscriptions.findLiveByTenant(after.id);
@@ -47,7 +46,7 @@ export async function releaseProvisioningTenant(deps: ReleaseTenantDeps, input: 
       });
       return { before: input.tenant, released: after };
     },
-    "BEGIN IMMEDIATE",
+    TransactionMode.Immediate,
   );
   await platform.outsideTheTurn(() => deps.router.evict(released.id));
   deps.router.invalidate(before.code);

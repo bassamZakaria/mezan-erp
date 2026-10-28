@@ -446,6 +446,7 @@ describe("auditBoundary", () => {
         },
         query: (stream, limit) => sink.query(stream, limit),
         atomic: (fn) => sink.atomic(fn),
+        turn: (fn, observer) => sink.turn(fn, observer),
       }),
     );
 

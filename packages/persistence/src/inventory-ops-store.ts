@@ -7,8 +7,19 @@ import {
   type StockMovementDirection,
   type StockTransferDocLine,
 } from "@mezan/domain";
-import { createSqliteFrameworkDocumentStore } from "./framework-document-store.js";
-import { createSqlitePhysicalCountStore, type SqlitePhysicalCountStoreHandle } from "./physical-count-store.js";
+import {
+  createFrameworkDocumentStore,
+  createSqliteFrameworkDocumentStore,
+  ensureFrameworkDocumentSchema,
+  type FrameworkDocumentStoreOptions,
+} from "./framework-document-store.js";
+import {
+  createPhysicalCountStore,
+  createSqlitePhysicalCountStore,
+  ensurePhysicalCountSchema,
+  type SqlitePhysicalCountStoreHandle,
+} from "./physical-count-store.js";
+import type { SqlDb } from "./sql/sql-db.js";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 
 /**
@@ -88,11 +99,42 @@ function transferLineFromWire(wire: unknown): StockTransferDocLine {
   };
 }
 
-export interface SqliteInventoryOpsStoreHandle {
+const ADJUSTMENTS: FrameworkDocumentStoreOptions<StockAdjustmentDocLine> = {
+  tableName: "stock_adjustment_document",
+  docType: "STOCK_ADJUSTMENT",
+  lineToWire: adjustmentLineToWire,
+  lineFromWire: adjustmentLineFromWire,
+};
+
+const TRANSFERS: FrameworkDocumentStoreOptions<StockTransferDocLine> = {
+  tableName: "stock_transfer_document",
+  docType: "STOCK_TRANSFER",
+  lineToWire: transferLineToWire,
+  lineFromWire: transferLineFromWire,
+};
+
+export interface InventoryOpsStoreHandle {
   readonly stockAdjustments: DocumentRepository<StockAdjustmentDocLine>;
   readonly stockTransfers: DocumentRepository<StockTransferDocLine>;
   readonly physicalCounts: SqlitePhysicalCountStoreHandle;
+}
+
+export interface SqliteInventoryOpsStoreHandle extends InventoryOpsStoreHandle {
   close(): void;
+}
+
+export async function ensureInventoryOpsSchema(db: SqlDb): Promise<void> {
+  await ensureFrameworkDocumentSchema(db, ADJUSTMENTS.tableName);
+  await ensureFrameworkDocumentSchema(db, TRANSFERS.tableName);
+  await ensurePhysicalCountSchema(db);
+}
+
+export function createInventoryOpsStore(db: SqlDb): InventoryOpsStoreHandle {
+  return {
+    stockAdjustments: createFrameworkDocumentStore(db, ADJUSTMENTS),
+    stockTransfers: createFrameworkDocumentStore(db, TRANSFERS),
+    physicalCounts: createPhysicalCountStore(db),
+  };
 }
 
 /**
@@ -105,19 +147,8 @@ export interface SqliteInventoryOpsStoreHandle {
 export function createSqliteInventoryOpsStore(path: SqliteConnectionInput = ":memory:"): SqliteInventoryOpsStoreHandle {
   const { sqlite, owned } = openSqliteConnection(path);
 
-  const stockAdjustments = createSqliteFrameworkDocumentStore<StockAdjustmentDocLine>(sqlite, {
-    tableName: "stock_adjustment_document",
-    docType: "STOCK_ADJUSTMENT",
-    lineToWire: adjustmentLineToWire,
-    lineFromWire: adjustmentLineFromWire,
-  });
-
-  const stockTransfers = createSqliteFrameworkDocumentStore<StockTransferDocLine>(sqlite, {
-    tableName: "stock_transfer_document",
-    docType: "STOCK_TRANSFER",
-    lineToWire: transferLineToWire,
-    lineFromWire: transferLineFromWire,
-  });
+  const stockAdjustments = createSqliteFrameworkDocumentStore(sqlite, ADJUSTMENTS);
+  const stockTransfers = createSqliteFrameworkDocumentStore(sqlite, TRANSFERS);
 
   const physicalCounts = createSqlitePhysicalCountStore(sqlite);
 

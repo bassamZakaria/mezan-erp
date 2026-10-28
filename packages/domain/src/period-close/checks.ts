@@ -394,6 +394,7 @@ export interface EvaluatePeriodCloseOptions {
   readonly now: string;
   readonly checks?: readonly PeriodCloseCheckDefinition[];
   readonly onCheckFailure?: PeriodCloseFailureReporter;
+  readonly isolate?: <T>(fn: () => Promise<T>) => Promise<T>;
 }
 
 export async function evaluatePeriodClose(
@@ -405,7 +406,7 @@ export async function evaluatePeriodClose(
   const results = await Promise.all(
     checks.map(async (check): Promise<PeriodCloseCheckResult> => {
       try {
-        const result = await check.evaluate(window, sources);
+        const result = await (options.isolate ? options.isolate(() => check.evaluate(window, sources)) : check.evaluate(window, sources));
         return { code: check.code, fix: check.fix, ...result };
       } catch (error) {
         options.onCheckFailure?.({ code: check.code, error });

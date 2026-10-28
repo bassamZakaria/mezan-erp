@@ -20,7 +20,7 @@ import {
   type WebhookDeliveryRecord,
   type WebhookRecord,
 } from "@mezan/domain";
-import type { SqliteIntegrationStore } from "@mezan/persistence";
+import type { IntegrationStore } from "@mezan/persistence";
 import type { Turn, UserGrant } from "./gateway.js";
 import { signWebhookPayload, type WebhookTransport } from "./webhook-transport.js";
 
@@ -33,7 +33,7 @@ enum SkipReason {
 }
 
 export interface WebhookDeliveryWorkerDeps {
-  readonly store: SqliteIntegrationStore;
+  readonly store: IntegrationStore;
   readonly transport: WebhookTransport;
   readonly turn: Turn;
   readonly grantOf: (userId: string) => Promise<UserGrant | null>;
@@ -64,11 +64,11 @@ export function startWebhookDeliveryWorker(deps: WebhookDeliveryWorkerDeps): Web
     const owner = await deps.grantOf(webhook.createdBy);
     const at = () => deps.now().toISOString();
     if (!owner || !holds(owner, MANAGE)) {
-      await deps.turn(async () => deps.store.deliveries.skipped(delivery.id, at(), SkipReason.OwnerCannotReceive));
+      await deps.turn(async () => await deps.store.deliveries.skipped(delivery.id, at(), SkipReason.OwnerCannotReceive));
       return;
     }
     if (!branchGrantCoversEvent(owner.branchScope, holds(owner, COMPANY_LEVEL_EVENT_PERMISSION), delivery.branchIds)) {
-      await deps.turn(async () => deps.store.deliveries.skipped(delivery.id, at(), SkipReason.OutsideOwnerBranches));
+      await deps.turn(async () => await deps.store.deliveries.skipped(delivery.id, at(), SkipReason.OutsideOwnerBranches));
       return;
     }
     const attempt = delivery.attempts + 1;
@@ -90,11 +90,11 @@ export function startWebhookDeliveryWorker(deps: WebhookDeliveryWorkerDeps): Web
     const finishedAt = deps.now();
     await deps.turn(async () => {
       if (outcome.statusCode !== null && outcome.statusCode >= 200 && outcome.statusCode < 300) {
-        deps.store.deliveries.delivered(delivery.id, finishedAt.toISOString(), outcome.statusCode);
+        await deps.store.deliveries.delivered(delivery.id, finishedAt.toISOString(), outcome.statusCode);
         return;
       }
       const status = deliveryOutcomeAfterFailure(attempt);
-      deps.store.deliveries.failed(delivery.id, {
+      await deps.store.deliveries.failed(delivery.id, {
         at: finishedAt.toISOString(),
         statusCode: outcome.statusCode,
         error: truncate(outcome.error ?? "فشل غير معروف"),
@@ -109,12 +109,12 @@ export function startWebhookDeliveryWorker(deps: WebhookDeliveryWorkerDeps): Web
     while (!stopped) {
       const now = deps.now();
       const leased = await deps.turn(async () => {
-        const due = deps.store.deliveries.due(now.toISOString(), WEBHOOK_DELIVERY_BATCH);
+        const due = await deps.store.deliveries.due(now.toISOString(), WEBHOOK_DELIVERY_BATCH);
         const until = new Date(now.getTime() + WEBHOOK_DELIVERY_LEASE_MS).toISOString();
         const mine: { delivery: WebhookDeliveryRecord; webhook: WebhookRecord }[] = [];
         for (const delivery of due) {
-          const webhook = deps.store.webhooks.findById(delivery.webhookId);
-          if (webhook && deps.store.deliveries.lease(delivery.id, delivery.nextAttemptAt, until)) mine.push({ delivery, webhook });
+          const webhook = await deps.store.webhooks.findById(delivery.webhookId);
+          if (webhook && await deps.store.deliveries.lease(delivery.id, delivery.nextAttemptAt, until)) mine.push({ delivery, webhook });
         }
         return mine;
       });

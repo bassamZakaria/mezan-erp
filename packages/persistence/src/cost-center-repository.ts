@@ -1,9 +1,8 @@
-import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 import type { CostCenter, CostCenterRepository, CostCenterStatus, CostCenterType } from "@mezan/domain";
-import { insertingNew, prepareInsertOnly } from "./insert-new.js";
-
-/** SQLite-backed CostCenterRepository (docs/archive/catalog/04 "مراكز التكلفة"). Standalone, mirroring `createSqliteAccountRepository`. */
+import { insertNew } from "./insert-new.js";
+import type { SqlDb, SqlValue } from "./sql/sql-db.js";
+import { sqliteDb } from "./sql/sqlite-db.js";
 
 const CREATE_TABLE = `
 CREATE TABLE IF NOT EXISTS cost_center (
@@ -20,6 +19,20 @@ CREATE TABLE IF NOT EXISTS cost_center (
 );
 CREATE INDEX IF NOT EXISTS idx_cost_center_parent ON cost_center(parent_id);
 `;
+
+const UPSERT = `
+  INSERT INTO cost_center (id, code, name_ar, name_en, type, department_id, branch_id, parent_id, notes, status)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  ON CONFLICT(id) DO UPDATE SET
+    code = excluded.code,
+    name_ar = excluded.name_ar,
+    name_en = excluded.name_en,
+    type = excluded.type,
+    department_id = excluded.department_id,
+    branch_id = excluded.branch_id,
+    parent_id = excluded.parent_id,
+    notes = excluded.notes,
+    status = excluded.status`;
 
 interface CostCenterRow {
   id: string;
@@ -49,70 +62,33 @@ function toCostCenter(row: CostCenterRow): CostCenter {
   };
 }
 
-class SqliteCostCenterRepository implements CostCenterRepository {
-  private readonly upsert: Database.Statement;
-  private readonly insertOnly: Database.Statement;
-  private readonly selectById: Database.Statement;
-  private readonly selectByCode: Database.Statement;
-  private readonly selectAll: Database.Statement;
+function params(c: CostCenter): SqlValue[] {
+  return [c.id, c.code, c.nameAr, c.nameEn, c.type, c.departmentId, c.branchId, c.parentId, c.notes, c.status];
+}
 
-  constructor(private readonly sqlite: Database.Database) {
-    this.upsert = sqlite.prepare(`
-      INSERT INTO cost_center (id, code, name_ar, name_en, type, department_id, branch_id, parent_id, notes, status)
-      VALUES (@id, @code, @name_ar, @name_en, @type, @department_id, @branch_id, @parent_id, @notes, @status)
-      ON CONFLICT(id) DO UPDATE SET
-        code = excluded.code,
-        name_ar = excluded.name_ar,
-        name_en = excluded.name_en,
-        type = excluded.type,
-        department_id = excluded.department_id,
-        branch_id = excluded.branch_id,
-        parent_id = excluded.parent_id,
-        notes = excluded.notes,
-        status = excluded.status
-    `);
-    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
-    this.selectById = sqlite.prepare(`SELECT * FROM cost_center WHERE id = ?`);
-    this.selectByCode = sqlite.prepare(`SELECT * FROM cost_center WHERE code = ?`);
-    this.selectAll = sqlite.prepare(`SELECT * FROM cost_center`);
-  }
+class SqlCostCenterRepository implements CostCenterRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async findById(id: string): Promise<CostCenter | null> {
-    const row = this.selectById.get(id) as CostCenterRow | undefined;
+    const row = await this.db.get<CostCenterRow>(`SELECT * FROM cost_center WHERE id = ?`, [id]);
     return row ? toCostCenter(row) : null;
   }
 
   async findByCode(code: string): Promise<CostCenter | null> {
-    const row = this.selectByCode.get(code) as CostCenterRow | undefined;
+    const row = await this.db.get<CostCenterRow>(`SELECT * FROM cost_center WHERE code = ?`, [code]);
     return row ? toCostCenter(row) : null;
   }
 
   async list(): Promise<CostCenter[]> {
-    const rows = this.selectAll.all() as CostCenterRow[];
-    return rows.map(toCostCenter);
+    return (await this.db.all<CostCenterRow>(`SELECT * FROM cost_center`)).map(toCostCenter);
   }
 
   async create(costCenter: CostCenter): Promise<void> {
-    insertingNew(costCenter.id, () => this.write(costCenter, this.insertOnly));
+    await insertNew(this.db, costCenter.id, UPSERT, params(costCenter));
   }
 
   async update(costCenter: CostCenter): Promise<void> {
-    this.write(costCenter);
-  }
-
-  private write(costCenter: CostCenter, statement: Database.Statement = this.upsert): void {
-    statement.run({
-      id: costCenter.id,
-      code: costCenter.code,
-      name_ar: costCenter.nameAr,
-      name_en: costCenter.nameEn,
-      type: costCenter.type,
-      department_id: costCenter.departmentId,
-      branch_id: costCenter.branchId,
-      parent_id: costCenter.parentId,
-      notes: costCenter.notes,
-      status: costCenter.status,
-    });
+    await this.db.run(UPSERT, params(costCenter));
   }
 }
 
@@ -120,13 +96,19 @@ export interface SqliteCostCenterRepositoryHandle extends CostCenterRepository {
   close(): void;
 }
 
-/** Open a SQLite-backed CostCenterRepository. ":memory:" for tests, a path for real. */
+export async function ensureCostCenterSchema(db: SqlDb): Promise<void> {
+  await db.applySchema(CREATE_TABLE);
+}
+
+export function createCostCenterRepository(db: SqlDb): CostCenterRepository {
+  return new SqlCostCenterRepository(db);
+}
+
 export function createSqliteCostCenterRepository(path: SqliteConnectionInput = ":memory:"): SqliteCostCenterRepositoryHandle {
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_TABLE);
-  const repo = new SqliteCostCenterRepository(sqlite);
-  return Object.assign(repo, {
+  return Object.assign(createCostCenterRepository(sqliteDb(sqlite)), {
     close: () => { if (owned) sqlite.close(); },
   }) as SqliteCostCenterRepositoryHandle;
 }

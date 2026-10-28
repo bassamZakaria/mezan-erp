@@ -347,6 +347,7 @@ export {
   type GeneralLedgerParams,
   type GeneralLedgerRow,
 } from "./general-ledger.js";
+export { createDayBookReport, type DayBookParams, type DayBookRow } from "./day-book.js";
 export {
   accountLedgerBranchCaveat,
   createAccountLedgerReport,

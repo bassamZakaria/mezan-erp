@@ -466,7 +466,7 @@ beforeAll(async () => {
     createEntitlements({ plan: "DEMO", activeModules: MODULE_CATALOG, features: { [LAN_MULTI_TILL_FEATURE]: true }, seats: 50, expiresAt: null });
   handle = await createBackend({ dbPath, seedDemoData: true, lan: { resolveEntitlements }, resolveEntitlements });
   sqlite = openSqliteConnection(dbPath).sqlite;
-  const token = handle.sessions.issue({ userId: "USER-ADMIN", permissions: ["*"], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
+  const token = await handle.sessions.issue({ userId: "USER-ADMIN", permissions: ["*"], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
   admin = async (method, path, body) => {
     const res = await handle.app.fetch(
       new Request(`http://local${path}`, {
@@ -600,7 +600,7 @@ describe("a refused create spends no document number", () => {
   const refusals: string[] = [];
 
   async function as(permissions: readonly string[], path: string, body: unknown): Promise<Res> {
-    const token = handle.sessions.issue({ userId: "USER-DUP-ID-NOBODY", permissions: [...permissions], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
+    const token = await handle.sessions.issue({ userId: "USER-DUP-ID-NOBODY", permissions: [...permissions], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
     const res = await handle.app.fetch(new Request(`http://local${path}`, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${token}` }, body: JSON.stringify(body) }));
     const text = await res.text();
     return { status: res.status, body: text ? JSON.parse(text) : null };

@@ -19,7 +19,7 @@ import {
   type SessionRegistry,
   tooManyAttempts,
 } from "@mezan/api";
-import { createSqliteAttemptStore, SignInAttemptScope } from "@mezan/persistence";
+import { createAttemptStore, SignInAttemptScope } from "@mezan/persistence";
 import type { PlatformHandle } from "./create-platform.js";
 
 declare module "hono" {
@@ -68,7 +68,7 @@ function lockedOut(c: Context, seconds: number) {
 
 export function createPlatformAuth(deps: PlatformAuthDeps): PlatformAuth {
   const { platform, sessions, now } = deps;
-  const throttle = deps.loginThrottle ?? createLoginThrottle(() => now().getTime(), createSqliteAttemptStore(platform.stores.sqlite, SignInAttemptScope.Ladder));
+  const throttle = deps.loginThrottle ?? createLoginThrottle(() => now().getTime(), createAttemptStore(platform.stores.db, SignInAttemptScope.Ladder));
   const sourceOf = deps.sourceOf ?? requestOrigin;
 
   function security(c: Context, action: string, severity: "CRITICAL" | "WARNING" | "INFO", details: Record<string, unknown>) {
@@ -90,7 +90,7 @@ export function createPlatformAuth(deps: PlatformAuthDeps): PlatformAuth {
     return null;
   }
 
-  const lookups = new WeakMap<Context, SessionLookup>();
+  const lookups = new WeakMap<Context, Promise<SessionLookup>>();
   const reported = new WeakSet<Context>();
 
   function deviceOf(c: Context): string | null {
@@ -99,7 +99,7 @@ export function createPlatformAuth(deps: PlatformAuthDeps): PlatformAuth {
 
   // ONE lookup per request: a refused device secret counts towards ending the
   // session, so asking twice in one request would end it twice as fast.
-  function lookUp(c: Context, token: string): SessionLookup {
+  function lookUp(c: Context, token: string): Promise<SessionLookup> {
     let lookup = lookups.get(c);
     if (!lookup) {
       lookup = sessions.inspect(token, sourceOf(c), deviceOf(c));
@@ -138,7 +138,7 @@ export function createPlatformAuth(deps: PlatformAuthDeps): PlatformAuth {
   async function signedIn(c: Context): Promise<{ readonly token: string; readonly userId: string; readonly role: PlatformRole } | null> {
     const token = readSessionToken(c);
     if (!token) return null;
-    const lookup = lookUp(c, token);
+    const lookup = await lookUp(c, token);
     await reportLookup(c, lookup);
     const role = lookup.grant ? roleOf(lookup.grant.roleCode) : null;
     return lookup.grant && role ? { token, userId: lookup.grant.userId, role } : null;
@@ -155,7 +155,7 @@ export function createPlatformAuth(deps: PlatformAuthDeps): PlatformAuth {
       // SECURITY: a console session that has changed address since its
       // password was entered may read, but changes nothing until the
       // password is entered again (POST /auth/step-up).
-      if (!READ_METHODS.has(c.req.method) && sessions.needsStepUp(caller.token)) {
+      if (!READ_METHODS.has(c.req.method) && (await sessions.needsStepUp(caller.token))) {
         await security(c, PlatformSecurityAction.StepUpRequired, "WARNING", { userId: caller.userId, method: c.req.method, path: new URL(c.req.url).pathname });
         return c.json({ error: STEP_UP_REQUIRED, message: "تغيّر عنوان اتصالك منذ تسجيل الدخول. أعد إدخال كلمة المرور لتأكيد هذا الإجراء." }, 403);
       }
@@ -172,14 +172,14 @@ export function createPlatformAuth(deps: PlatformAuthDeps): PlatformAuth {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
     const key = throttleKey(parsed.data.email, sourceOf(c));
-    const waitSeconds = throttle.retryAfter(key);
+    const waitSeconds = await throttle.retryAfter(key);
     if (waitSeconds > 0) {
       await security(c, "PLATFORM_LOGIN_BLOCKED", "WARNING", { email: parsed.data.email, retryAfterSeconds: waitSeconds });
       return lockedOut(c, waitSeconds);
     }
     const user = await verifyPlatformLogin(parsed.data, platform.stores.platformUsers, platform.hasher);
     if (!user) {
-      const lockedFor = throttle.fail(key);
+      const lockedFor = await throttle.fail(key);
       if (lockedFor > 0) {
         await security(c, "PLATFORM_ACCOUNT_LOCKED", "CRITICAL", { email: parsed.data.email, lockedForSeconds: lockedFor });
         return lockedOut(c, lockedFor);
@@ -187,9 +187,9 @@ export function createPlatformAuth(deps: PlatformAuthDeps): PlatformAuth {
       await security(c, "PLATFORM_LOGIN_FAILED", "WARNING", { email: parsed.data.email });
       return c.json({ error: "INVALID_CREDENTIALS", message: "بيانات الدخول غير صحيحة" }, 401);
     }
-    throttle.succeed(key);
+    await throttle.succeed(key);
     await security(c, "PLATFORM_LOGIN_SUCCEEDED", "INFO", { userId: user.id, email: user.email });
-    const { token, deviceSecret } = sessions.issueDeviceBound(
+    const { token, deviceSecret } = await sessions.issueDeviceBound(
       {
         userId: user.id,
         permissions: ["platform.*"],
@@ -208,20 +208,20 @@ export function createPlatformAuth(deps: PlatformAuthDeps): PlatformAuth {
     const user = caller ? await platform.stores.platformUsers.findById(caller.userId) : null;
     if (!caller || !user) return c.json({ error: "UNAUTHENTICATED" }, 401);
     const key = throttleKey(user.email, sourceOf(c));
-    const waitSeconds = throttle.retryAfter(key);
+    const waitSeconds = await throttle.retryAfter(key);
     if (waitSeconds > 0) return lockedOut(c, waitSeconds);
     const verified = await verifyPlatformLogin({ email: user.email, password }, platform.stores.platformUsers, platform.hasher);
     if (!verified || verified.id !== caller.userId) {
-      const lockedFor = throttle.fail(key);
+      const lockedFor = await throttle.fail(key);
       await security(c, PlatformSecurityAction.StepUpFailed, "WARNING", { userId: caller.userId, path: new URL(c.req.url).pathname });
       if (lockedFor > 0) {
-        sessions.revoke(caller.token);
+        await sessions.revoke(caller.token);
         return lockedOut(c, lockedFor);
       }
       return c.json({ error: CurrentSecretRefusal.IncorrectPassword, message: "كلمة المرور غير صحيحة", messageEn: "The password is not correct" }, 403);
     }
-    throttle.succeed(key);
-    sessions.confirmStepUp(caller.token);
+    await throttle.succeed(key);
+    await sessions.confirmStepUp(caller.token);
     await security(c, PlatformSecurityAction.StepUpConfirmed, "INFO", { userId: caller.userId, path: new URL(c.req.url).pathname });
     return null;
   }
@@ -235,7 +235,7 @@ export function createPlatformAuth(deps: PlatformAuthDeps): PlatformAuth {
   app.post("/logout", async (c) => {
     const caller = await signedIn(c);
     if (caller) {
-      sessions.revoke(caller.token);
+      await sessions.revoke(caller.token);
       await security(c, PlatformSecurityAction.LoggedOut, "INFO", { userId: caller.userId });
     }
     return c.json({ ok: true });

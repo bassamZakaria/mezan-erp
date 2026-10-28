@@ -1,7 +1,9 @@
 import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { randomUUID } from "node:crypto";
+import { afterEach, describe, expect, it, onTestFinished } from "vitest";
+import { TenantDatabases } from "@mezan/persistence-postgres";
 import type { Hono } from "hono";
 import { openSqliteConnection } from "@mezan/persistence";
 import { SubscriptionStatusCode, type PublicPlanDTO } from "@mezan/contracts";
@@ -13,7 +15,7 @@ import { createSignupRoutes } from "./signup-routes.js";
 import { platformBearer as bearerHeaders, reachable, rememberPlatformDevice } from "./cloud-harness.js";
 import { provisionTenant } from "./provision-tenant.js";
 import { createTenantRouter, TENANT_HEADER, type TenantRouter, type TenantRouterOptions } from "./tenant-router.js";
-import { COMPANY_NAME_MAX_LENGTH } from "@mezan/domain";
+import { COMPANY_NAME_MAX_LENGTH, tenantSchema } from "@mezan/domain";
 import { parseEnv } from "./env.js";
 
 function reachableRouter(options: TenantRouterOptions): TenantRouter {
@@ -23,6 +25,8 @@ function reachableRouter(options: TenantRouterOptions): TenantRouter {
 }
 
 const T = "2026-01-15T00:00:00.000Z";
+const PG_URL = process.env.MEZAN_TEST_PG_URL;
+if (process.env.CI && !PG_URL) throw new Error("MEZAN_TEST_PG_URL must be set in CI: the two-process signup test runs on Postgres.");
 
 const apps: CloudApp[] = [];
 const dirs: string[] = [];
@@ -742,15 +746,17 @@ interface SignupProcessOptions {
   readonly stores?: (stores: SignupStores, outsideTheTurn: PlatformHandle["outsideTheTurn"]) => Partial<SignupStores>;
   readonly provisionWaitMs?: number;
   readonly provisionHeartbeatMs?: number;
+  readonly postgres?: TenantRouterOptions["postgres"];
 }
 
 function signupProcess(platform: PlatformHandle, dataDir: string, options: SignupProcessOptions | SignupProcessOptions["saveSubscription"] = {}): SignupProcess {
-  const { saveSubscription, now = () => new Date(T), stores, provisionWaitMs, provisionHeartbeatMs } = typeof options === "function" ? { saveSubscription: options } : options;
+  const { saveSubscription, now = () => new Date(T), stores, provisionWaitMs, provisionHeartbeatMs, postgres } = typeof options === "function" ? { saveSubscription: options } : options;
   const router = reachableRouter({
     platform,
     dataDir,
     sweepEveryMs: 0,
     now,
+    ...(postgres ? { postgres } : {}),
     openBackend: async (_code, dbPath, resolvers) => {
       mkdirSync(path.dirname(dbPath), { recursive: true });
       return createBackend({
@@ -869,11 +875,29 @@ describe("signup verification when provisioning fails or is shared between proce
     expect((await tenantLogin(router, "retry", body.adminPin)).status).toBe(200);
   });
 
-  it("provisions a link once when two server processes on one platform database verify it at the same moment", async () => {
+  // Two SQLite connections in ONE event loop cannot model two processes: an async
+  // BEGIN IMMEDIATE on one blocks the thread the other needs to commit. The cloud
+  // shares its platform database across processes on Postgres, so this runs there.
+  it.skipIf(!PG_URL)("provisions a link once when two server processes on one platform database verify it at the same moment", async () => {
     const dataDir = platformDir();
-    const platform = await openPlatform(dataDir);
-    const one = signupProcess(platform, dataDir);
-    const two = signupProcess(await openPlatform(dataDir), dataDir);
+    const schema = `t_signup_${randomUUID().replaceAll("-", "")}`;
+    const processes = [new TenantDatabases({ connectionString: PG_URL!, secret: "d".repeat(64) }), new TenantDatabases({ connectionString: PG_URL!, secret: "d".repeat(64) })];
+    await processes[0]!.provision(schema);
+    const openPgPlatform = async (databases: TenantDatabases): Promise<PlatformHandle> => {
+      const opened = await createPlatform({ db: databases.get(schema).db, auditChainKey: "c".repeat(64), fallbackBase: path.join(dataDir, "platform"), now: () => new Date(T) });
+      platforms.push(opened);
+      await opened.stores.settings.set(PlatformSettingKey.SignupMode, SignupMode.Open, T);
+      return opened;
+    };
+    onTestFinished(async () => {
+      await processes[1]!.close();
+      for (const tenant of await platform.stores.tenants.list()) await processes[0]!.drop(tenantSchema(tenant.id));
+      await processes[0]!.drop(schema);
+      await processes[0]!.close();
+    });
+    const platform = await openPgPlatform(processes[0]!);
+    const one = signupProcess(platform, dataDir, { postgres: { databases: processes[0]!, auditChainKey: "c".repeat(64) } });
+    const two = signupProcess(await openPgPlatform(processes[1]!), dataDir, { postgres: { databases: processes[1]!, auditChainKey: "c".repeat(64) } });
     const token = await startOn(one.signup, "twice");
 
     const answers = await Promise.all([send(one.signup, "/verify", { token }), send(two.signup, "/verify", { token })]);

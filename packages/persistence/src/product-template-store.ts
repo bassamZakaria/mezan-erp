@@ -1,6 +1,7 @@
-import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
-import { insertingNew, prepareInsertOnly } from "./insert-new.js";
+import { insertNew } from "./insert-new.js";
+import type { SqlDb, SqlValue } from "./sql/sql-db.js";
+import { sqliteDb } from "./sql/sqlite-db.js";
 import {
   Money,
   type CostingMethod,
@@ -58,8 +59,8 @@ interface ProductTemplateRow {
   category_id: string | null;
   brand: string | null;
   costing_method: string;
-  default_sale_price: number | null;
-  default_cost: number | null;
+  default_sale_price: bigint | null;
+  default_cost: bigint | null;
   tax_rate_percent: number;
   attributes: string;
   status: string;
@@ -86,75 +87,63 @@ function toProductTemplate(row: ProductTemplateRow): ProductTemplate {
   };
 }
 
-class SqliteProductTemplateRepository implements ProductTemplateRepository {
-  private readonly upsert: Database.Statement;
-  private readonly insertOnly: Database.Statement;
-  private readonly selectById: Database.Statement;
-  private readonly selectByCode: Database.Statement;
-  private readonly selectAll: Database.Statement;
+const UPSERT_TEMPLATE = `INSERT INTO product_template (id, code, name_ar, name_en, base_unit_code, category_id, brand, costing_method, default_sale_price, default_cost, tax_rate_percent, attributes, status)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  ON CONFLICT(id) DO UPDATE SET
+    code = excluded.code,
+    name_ar = excluded.name_ar,
+    name_en = excluded.name_en,
+    base_unit_code = excluded.base_unit_code,
+    category_id = excluded.category_id,
+    brand = excluded.brand,
+    costing_method = excluded.costing_method,
+    default_sale_price = excluded.default_sale_price,
+    default_cost = excluded.default_cost,
+    tax_rate_percent = excluded.tax_rate_percent,
+    attributes = excluded.attributes,
+    status = excluded.status`;
 
-  constructor(private readonly sqlite: Database.Database) {
-    this.upsert = sqlite.prepare(`
-      INSERT INTO product_template (id, code, name_ar, name_en, base_unit_code, category_id, brand, costing_method, default_sale_price, default_cost, tax_rate_percent, attributes, status)
-      VALUES (@id, @code, @name_ar, @name_en, @base_unit_code, @category_id, @brand, @costing_method, @default_sale_price, @default_cost, @tax_rate_percent, @attributes, @status)
-      ON CONFLICT(id) DO UPDATE SET
-        code = excluded.code,
-        name_ar = excluded.name_ar,
-        name_en = excluded.name_en,
-        base_unit_code = excluded.base_unit_code,
-        category_id = excluded.category_id,
-        brand = excluded.brand,
-        costing_method = excluded.costing_method,
-        default_sale_price = excluded.default_sale_price,
-        default_cost = excluded.default_cost,
-        tax_rate_percent = excluded.tax_rate_percent,
-        attributes = excluded.attributes,
-        status = excluded.status
-    `);
-    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
-    this.selectById = sqlite.prepare(`SELECT * FROM product_template WHERE id = ?`);
-    this.selectByCode = sqlite.prepare(`SELECT * FROM product_template WHERE code = ?`);
-    this.selectAll = sqlite.prepare(`SELECT * FROM product_template`);
-  }
+function templateParams(template: ProductTemplate): SqlValue[] {
+  return [
+    template.id,
+    template.code,
+    template.nameAr,
+    template.nameEn,
+    template.baseUnitCode,
+    template.categoryId,
+    template.brandId,
+    template.costingMethod,
+    template.defaultSalePrice === null ? null : template.defaultSalePrice.scaled,
+    template.defaultCost === null ? null : template.defaultCost.scaled,
+    template.taxRatePercent,
+    JSON.stringify(template.attributes),
+    template.status,
+  ];
+}
+
+class SqlProductTemplateRepository implements ProductTemplateRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async findById(id: string): Promise<ProductTemplate | null> {
-    const row = this.selectById.get(id) as ProductTemplateRow | undefined;
+    const row = await this.db.get<ProductTemplateRow>(`SELECT * FROM product_template WHERE id = ?`, [id]);
     return row ? toProductTemplate(row) : null;
   }
 
   async findByCode(code: string): Promise<ProductTemplate | null> {
-    const row = this.selectByCode.get(code) as ProductTemplateRow | undefined;
+    const row = await this.db.get<ProductTemplateRow>(`SELECT * FROM product_template WHERE code = ?`, [code]);
     return row ? toProductTemplate(row) : null;
   }
 
   async list(): Promise<ProductTemplate[]> {
-    return (this.selectAll.all() as ProductTemplateRow[]).map(toProductTemplate);
+    return (await this.db.all<ProductTemplateRow>(`SELECT * FROM product_template`)).map(toProductTemplate);
   }
 
   async create(template: ProductTemplate): Promise<void> {
-    insertingNew(template.id, () => this.write(template, this.insertOnly));
+    await insertNew(this.db, template.id, UPSERT_TEMPLATE, templateParams(template));
   }
 
   async update(template: ProductTemplate): Promise<void> {
-    this.write(template);
-  }
-
-  private write(template: ProductTemplate, statement: Database.Statement = this.upsert): void {
-    statement.run({
-      id: template.id,
-      code: template.code,
-      name_ar: template.nameAr,
-      name_en: template.nameEn,
-      base_unit_code: template.baseUnitCode,
-      category_id: template.categoryId,
-      brand: template.brandId,
-      costing_method: template.costingMethod,
-      default_sale_price: template.defaultSalePrice === null ? null : template.defaultSalePrice.toScaledNumber(),
-      default_cost: template.defaultCost === null ? null : template.defaultCost.toScaledNumber(),
-      tax_rate_percent: template.taxRatePercent,
-      attributes: JSON.stringify(template.attributes),
-      status: template.status,
-    });
+    await this.db.run(UPSERT_TEMPLATE, templateParams(template));
   }
 }
 
@@ -178,38 +167,37 @@ function toVariant(row: ProductTemplateVariantRow): ProductTemplateVariant {
   };
 }
 
-class SqliteProductTemplateVariantRepository implements ProductTemplateVariantRepository {
-  private readonly insert: Database.Statement;
-  private readonly selectByTemplate: Database.Statement;
-
-  constructor(sqlite: Database.Database) {
-    this.insert = sqlite.prepare(`
-      INSERT INTO product_template_variant (id, template_id, item_id, item_code, values_json, created_at)
-      VALUES (@id, @template_id, @item_id, @item_code, @values_json, @created_at)
-    `);
-    this.selectByTemplate = sqlite.prepare(`SELECT * FROM product_template_variant WHERE template_id = ?`);
-  }
+class SqlProductTemplateVariantRepository implements ProductTemplateVariantRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async listByTemplate(templateId: string): Promise<readonly ProductTemplateVariant[]> {
-    return (this.selectByTemplate.all(templateId) as ProductTemplateVariantRow[]).map(toVariant);
+    return (await this.db.all<ProductTemplateVariantRow>(`SELECT * FROM product_template_variant WHERE template_id = ?`, [templateId])).map(toVariant);
   }
 
   async create(variant: ProductTemplateVariant): Promise<void> {
-    this.insert.run({
-      id: variant.id,
-      template_id: variant.templateId,
-      item_id: variant.itemId,
-      item_code: variant.itemCode,
-      values_json: JSON.stringify(variant.values),
-      created_at: variant.createdAt,
-    });
+    await this.db.run(
+      `INSERT INTO product_template_variant (id, template_id, item_id, item_code, values_json, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [variant.id, variant.templateId, variant.itemId, variant.itemCode, JSON.stringify(variant.values), variant.createdAt],
+    );
   }
 }
 
-export interface SqliteProductTemplateStoreHandle {
+export interface ProductTemplateStoreHandle {
   readonly templates: ProductTemplateRepository;
   readonly variants: ProductTemplateVariantRepository;
+}
+
+export interface SqliteProductTemplateStoreHandle extends ProductTemplateStoreHandle {
   close(): void;
+}
+
+export async function ensureProductTemplateSchema(db: SqlDb): Promise<void> {
+  await db.applySchema(CREATE_TABLES);
+}
+
+export function createProductTemplateStore(db: SqlDb): ProductTemplateStoreHandle {
+  return { templates: new SqlProductTemplateRepository(db), variants: new SqlProductTemplateVariantRepository(db) };
 }
 
 /** Open a SQLite-backed Product Template store. ":memory:" for tests, a path for real. */
@@ -217,8 +205,7 @@ export function createSqliteProductTemplateStore(path: SqliteConnectionInput = "
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.exec(CREATE_TABLES);
   return {
-    templates: new SqliteProductTemplateRepository(sqlite),
-    variants: new SqliteProductTemplateVariantRepository(sqlite),
+    ...createProductTemplateStore(sqliteDb(sqlite)),
     close: () => { if (owned) sqlite.close(); },
   };
 }

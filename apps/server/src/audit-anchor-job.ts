@@ -66,10 +66,10 @@ async function snapshotOf(audit: AuditSink, extraRow: number | null): Promise<Li
   if (!isAuditChainAnchorSource(audit) || audit.turn === undefined) return null;
   const source: AuditChainAnchorSource = audit;
   return audit.turn(async () => {
-    const head = source.chainHead();
+    const head = await source.chainHead();
     const hashes = new Map<number, string | null>();
-    if (head) hashes.set(head.rowId, source.chainRowHash(head.rowId));
-    if (extraRow !== null) hashes.set(extraRow, source.chainRowHash(extraRow));
+    if (head) hashes.set(head.rowId, await source.chainRowHash(head.rowId));
+    if (extraRow !== null) hashes.set(extraRow, await source.chainRowHash(extraRow));
     return { head, hashes };
   });
 }

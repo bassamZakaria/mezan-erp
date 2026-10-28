@@ -1,7 +1,9 @@
-import Database from "better-sqlite3";
+import type Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
-import { insertingNew } from "./insert-new.js";
-import { childRowsByParent } from "./list-query.js";
+import { refuseUnlessInserted } from "./insert-new.js";
+import { childRowsByParentAsync } from "./list-query.js";
+import type { SqlDb, SqlValue } from "./sql/sql-db.js";
+import { sqliteDb } from "./sql/sqlite-db.js";
 import { Money, Qty, type PriceList, type PriceListLine, type PriceListRepository } from "@mezan/domain";
 
 /**
@@ -27,6 +29,8 @@ CREATE TABLE IF NOT EXISTS price_list_line (
   line_no       INTEGER NOT NULL,
   item_id       TEXT NOT NULL,
   price         INTEGER NOT NULL,
+  min_qty       INTEGER NOT NULL DEFAULT 0,
+  unit_code     TEXT,
   PRIMARY KEY (price_list_id, line_no)
 );
 CREATE INDEX IF NOT EXISTS idx_price_list_line_price_list ON price_list_line(price_list_id);
@@ -53,8 +57,8 @@ interface PriceListRow {
   name_ar: string;
   name_en: string | null;
   description: string | null;
-  is_base: number;
-  active: number;
+  is_base: bigint;
+  active: bigint;
   created_at: string;
 }
 
@@ -74,118 +78,93 @@ function toPriceListLine(row: PriceListLineRow): PriceListLine {
   };
 }
 
-function priceListParams(priceList: PriceList) {
-  return {
-    id: priceList.id,
-    code: priceList.code,
-    name_ar: priceList.nameAr,
-    name_en: priceList.nameEn,
-    description: priceList.description,
-    is_base: priceList.isBase ? 1 : 0,
-    active: priceList.active ? 1 : 0,
-    created_at: priceList.createdAt,
-  };
+function priceListParams(priceList: PriceList): SqlValue[] {
+  return [
+    priceList.code,
+    priceList.nameAr,
+    priceList.nameEn,
+    priceList.description,
+    priceList.isBase ? 1 : 0,
+    priceList.active ? 1 : 0,
+    priceList.createdAt,
+    priceList.id,
+  ];
 }
 
-class SqlitePriceListRepository implements PriceListRepository {
-  private readonly insertPriceList: Database.Statement;
-  private readonly updatePriceList: Database.Statement;
-  private readonly deleteLines: Database.Statement;
-  private readonly insertLine: Database.Statement;
-  private readonly selectById: Database.Statement;
-  private readonly selectLines: Database.Statement;
-
-  constructor(private readonly sqlite: Database.Database) {
-    this.insertPriceList = sqlite.prepare(`
-      INSERT INTO price_list (id, code, name_ar, name_en, description, is_base, active, created_at)
-      VALUES (@id, @code, @name_ar, @name_en, @description, @is_base, @active, @created_at)
-    `);
-    this.updatePriceList = sqlite.prepare(`
-      UPDATE price_list SET
-        code = @code,
-        name_ar = @name_ar,
-        name_en = @name_en,
-        description = @description,
-        is_base = @is_base,
-        active = @active,
-        created_at = @created_at
-      WHERE id = @id
-    `);
-    this.deleteLines = sqlite.prepare(`DELETE FROM price_list_line WHERE price_list_id = ?`);
-    this.insertLine = sqlite.prepare(`
-      INSERT INTO price_list_line (price_list_id, line_no, item_id, price, min_qty, unit_code)
-      VALUES (@price_list_id, @line_no, @item_id, @price, @min_qty, @unit_code)
-    `);
-    this.selectById = sqlite.prepare(`SELECT * FROM price_list WHERE id = ?`);
-    // Cheapest tier last: `resolvePriceTier` picks by threshold, but a stable
-    // ascending order is what the price-list grid renders.
-    this.selectLines = sqlite
-      .prepare(
-        `SELECT item_id, price, min_qty, unit_code FROM price_list_line WHERE price_list_id = ? ORDER BY item_id, min_qty, line_no`,
-      )
-      .safeIntegers();
-  }
+class SqlPriceListRepository implements PriceListRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async save(priceList: PriceList): Promise<void> {
-    insertingNew(priceList.id, () => this.insertPriceList.run(priceListParams(priceList)));
-    this.insertLines(priceList);
+    const inserted = await this.db.run(
+      `INSERT INTO price_list (code, name_ar, name_en, description, is_base, active, created_at, id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT (id) DO NOTHING`,
+      priceListParams(priceList),
+    );
+    refuseUnlessInserted(priceList.id, inserted.changes);
+    await this.insertLines(priceList);
   }
 
   async update(priceList: PriceList): Promise<void> {
-    this.updatePriceList.run(priceListParams(priceList));
-    this.deleteLines.run(priceList.id);
-    this.insertLines(priceList);
+    await this.db.run(
+      `UPDATE price_list SET code = ?, name_ar = ?, name_en = ?, description = ?, is_base = ?, active = ?, created_at = ?
+        WHERE id = ?`,
+      priceListParams(priceList),
+    );
+    await this.db.run(`DELETE FROM price_list_line WHERE price_list_id = ?`, [priceList.id]);
+    await this.insertLines(priceList);
   }
 
   async findById(id: string): Promise<PriceList | null> {
-    const row = this.selectById.get(id) as PriceListRow | undefined;
+    const row = await this.db.get<PriceListRow>(`SELECT * FROM price_list WHERE id = ?`, [id]);
     return row ? this.hydrate(row) : null;
   }
 
   async list(filter: { active?: boolean } = {}): Promise<readonly PriceList[]> {
     const clauses: string[] = [];
-    const params: unknown[] = [];
+    const params: SqlValue[] = [];
     if (filter.active !== undefined) {
       clauses.push("active = ?");
       params.push(filter.active ? 1 : 0);
     }
     const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
-    const rows = this.sqlite.prepare(`SELECT * FROM price_list ${where} ORDER BY created_at`).all(...params) as PriceListRow[];
-    // One query for the whole page's children, not one per parent row.
-    const linesByList = childRowsByParent<PriceListLineRow & { price_list_id: string }>(this.sqlite, {
+    const rows = await this.db.all<PriceListRow>(`SELECT * FROM price_list ${where} ORDER BY created_at`, params);
+    const linesByList = await childRowsByParentAsync<PriceListLineRow & { price_list_id: string }>(this.db, {
       table: "price_list_line",
       parentColumn: "price_list_id",
       parentIds: rows.map((row) => row.id),
       orderBy: "price_list_id, item_id, min_qty, line_no",
       columns: "price_list_id, item_id, price, min_qty, unit_code",
-      safeIntegers: true,
     });
-    return rows.map((row) => this.hydrate(row, linesByList.get(row.id) ?? []));
+    return Promise.all(rows.map((row) => this.hydrate(row, linesByList.get(row.id) ?? [])));
   }
 
-  private insertLines(priceList: PriceList): void {
-    priceList.lines.forEach((line, index) => {
-      this.insertLine.run({
-        price_list_id: priceList.id,
-        line_no: index,
-        item_id: line.itemId,
-        price: line.price.toScaledNumber(),
-        min_qty: line.minQty.toScaledNumber(),
-        unit_code: line.unitCode,
-      });
-    });
+  private async insertLines(priceList: PriceList): Promise<void> {
+    for (const [index, line] of priceList.lines.entries()) {
+      await this.db.run(
+        `INSERT INTO price_list_line (price_list_id, line_no, item_id, price, min_qty, unit_code) VALUES (?, ?, ?, ?, ?, ?)`,
+        [priceList.id, index, line.itemId, line.price.scaled, line.minQty.scaled, line.unitCode],
+      );
+    }
   }
 
-  private hydrate(row: PriceListRow, preloadedLines?: readonly PriceListLineRow[]): PriceList {
-    const lineRows = preloadedLines ?? (this.selectLines.all(row.id) as PriceListLineRow[]);
+  private async hydrate(row: PriceListRow, preloadedLines?: readonly PriceListLineRow[]): Promise<PriceList> {
+    // Cheapest tier last: `resolvePriceTier` picks by threshold, but a stable
+    // ascending order is what the price-list grid renders.
+    const lineRows =
+      preloadedLines ??
+      (await this.db.all<PriceListLineRow>(
+        `SELECT item_id, price, min_qty, unit_code FROM price_list_line WHERE price_list_id = ? ORDER BY item_id, min_qty, line_no`,
+        [row.id],
+      ));
     return {
       id: row.id,
       code: row.code,
       nameAr: row.name_ar,
       nameEn: row.name_en,
       description: row.description,
-      isBase: row.is_base === 1,
-      active: row.active === 1,
+      isBase: Number(row.is_base) === 1,
+      active: Number(row.active) === 1,
       lines: lineRows.map(toPriceListLine),
       createdAt: row.created_at,
     };
@@ -196,14 +175,21 @@ export interface SqlitePriceListStoreHandle extends PriceListRepository {
   close(): void;
 }
 
+export async function ensurePriceListSchema(db: SqlDb): Promise<void> {
+  await db.applySchema(CREATE_TABLES);
+}
+
+export function createPriceListStore(db: SqlDb): PriceListRepository {
+  return new SqlPriceListRepository(db);
+}
+
 /** Open a SQLite-backed PriceListRepository. ":memory:" for tests, a path for real. */
 export function createSqlitePriceListStore(path: SqliteConnectionInput = ":memory:"): SqlitePriceListStoreHandle {
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_TABLES);
   addMissingColumns(sqlite);
-  const repo = new SqlitePriceListRepository(sqlite);
-  return Object.assign(repo, {
+  return Object.assign(createPriceListStore(sqliteDb(sqlite)), {
     close: () => { if (owned) sqlite.close(); },
-  }) as SqlitePriceListStoreHandle;
+  });
 }

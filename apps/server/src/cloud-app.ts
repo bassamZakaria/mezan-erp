@@ -15,9 +15,10 @@ import {
   type PlatformHandle,
   type RecordedActivation,
 } from "@mezan/backend";
-import { BodyLimitRefusal, LogEvent, createJobRegistry, createLogger, createSessionRegistry, requestLogging, type JobRegistry } from "@mezan/api";
-import { HealthLevel, SubscriptionStatusKind, TenantNotFoundError, jobLevel, type Tenant } from "@mezan/domain";
-import { createAesGcmSecretBox, createSqliteSessionStore, emptyBooksScratch } from "@mezan/persistence";
+import { AuditBoundaryRefusal, BodyLimitRefusal, LogEvent, createJobRegistry, createLogger, createSessionRegistry, requestLogging, type JobRegistry } from "@mezan/api";
+import { HealthLevel, SubscriptionStatusKind, TenantNotFoundError, TenantStatusCode, jobLevel, tenantSchema, type Tenant } from "@mezan/domain";
+import { createAesGcmSecretBox, createSessionStore, CURRENT_SCHEMA_VERSION, DatabaseBusyError, NulCharacterError, emptyBooksScratch, type SqlDb } from "@mezan/persistence";
+import { PLATFORM_SCHEMA, schemaKey, SchemaKeyPurpose, TenantDatabases } from "@mezan/persistence-postgres";
 import { HealthLevelDTO, PUBLIC_API_BASE_PATH, type CreateTenantRequestDTO, type OwnerPinResetResultDTO, type PlatformOperationsDTO, type ProvisionResultDTO, type ProvisionRetryRequestDTO } from "@mezan/contracts";
 import { booksScratchDir, createTenantRouter, requireOriginSecret, type TenantBooksScan, type TenantRouter } from "./tenant-router.js";
 import { answerTenantDbFileRefusal } from "./tenant-db-file.js";
@@ -25,7 +26,7 @@ import { platformActor, provisionResultDTOOf, provisionTenant, PlanRequiredError
 import { resetTenantOwnerPin } from "./owner-pin-reset.js";
 import { releaseProvisioningTenant } from "./release-tenant.js";
 import { callerSource, createSourceReporter, requireCloudSource } from "./client-source.js";
-import { addressKey, createMemoryRateWindowStore, createRateLimiter, requestCap, SESSION_CAP_MAX_RECORDS, sessionKey } from "./rate-limit.js";
+import { addressKey, createRequestLimiter, requestCap, SESSION_CAP_MAX_RECORDS, sessionKey } from "./rate-limit.js";
 import { createSignupRoutes, SIGNUP_BASE_PATH } from "./signup-routes.js";
 import { provisionDemoTenant } from "./demo-tenant.js";
 import { provisionReviewTenant } from "./review-tenant.js";
@@ -117,7 +118,7 @@ export interface CloudApp {
   readonly booksScanned: Promise<void>;
   readonly jobs: JobRegistry;
   readonly alerter: Alerter;
-  readiness(): Readiness;
+  readiness(): Promise<Readiness>;
   // REQUIRED ORDERING: call before the HTTP server stops, so no job starts while requests drain; close() calls it too.
   stopJobs(): Promise<void>;
   close(): Promise<void>;
@@ -183,6 +184,15 @@ function operationsOf(at: Date, verdict: Readiness, jobs: JobRegistry, alerter: 
   };
 }
 
+// Created here, not by the SQLite migrator: the first boot after the cutover stamps it.
+async function stampSchemaVersion(db: SqlDb): Promise<void> {
+  await db.applySchema("CREATE TABLE IF NOT EXISTS schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);");
+  await db.run(
+    "INSERT INTO schema_meta (key, value) VALUES ('schema_version', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+    [String(CURRENT_SCHEMA_VERSION)],
+  );
+}
+
 export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptions = {}): Promise<CloudApp> {
   const now = options.now ?? (() => new Date());
   mkdirSync(env.platformDir, { recursive: true });
@@ -192,18 +202,36 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
   const csrfKey = derivedKey(masterKey, CSRF_KEY_USE);
 
   const ownerPassword = env.platformOwnerEmail ? (env.platformOwnerPassword ?? generateOwnerPassword()) : undefined;
-  const platform = await createPlatform({
-    dbPath: path.join(env.platformDir, "platform.db"),
-    now,
-    owner: env.platformOwnerEmail && ownerPassword ? { email: env.platformOwnerEmail, password: ownerPassword } : undefined,
-    connection: { exclusive: env.sqliteExclusive },
-  });
+  const owner = env.platformOwnerEmail && ownerPassword ? { email: env.platformOwnerEmail, password: ownerPassword } : undefined;
+  const platformDbPath = path.join(env.platformDir, "platform.db");
+  const tenantDatabases = env.postgres ? new TenantDatabases({ connectionString: env.postgres.url, secret: env.postgres.tenantDbSecret, onPoolError: (err, schema) => log.error({ err, schema }, `a Postgres connection for ${schema} failed while idle`) }) : null;
+  let platform: PlatformHandle;
+  if (env.postgres && tenantDatabases) {
+    await tenantDatabases.assertCollation();
+    await tenantDatabases.provision(PLATFORM_SCHEMA);
+    platform = await createPlatform({
+      db: tenantDatabases.get(PLATFORM_SCHEMA).db,
+      auditChainKey: schemaKey(env.postgres.auditChainKey, SchemaKeyPurpose.Audit, PLATFORM_SCHEMA),
+      fallbackBase: platformDbPath,
+      now,
+      owner,
+    });
+    const served = (await platform.stores.tenants.list()).filter((tenant) => tenant.status !== TenantStatusCode.Archived && tenant.status !== TenantStatusCode.Provisioning);
+    const missing = await tenantDatabases.reprovisionExisting(served.map((tenant) => tenantSchema(tenant.id)));
+    if (missing.length > 0) log.error({ event: LogEvent.ConfigurationWarning, missing }, `${missing.length} served companies have no Postgres schema; their books cannot open until it is restored`);
+    log.warn(
+      { event: LogEvent.ConfigurationWarning },
+      "the books are on Postgres: the file backup scheduler and the audit-anchor job are off (deploy takes pg_dump; anchoring needs the SQLite audit turn)",
+    );
+  } else {
+    platform = await createPlatform({ dbPath: platformDbPath, now, owner, connection: { exclusive: env.sqliteExclusive } });
+  }
 
   if (platform.ownerSeeded && !env.platformOwnerPassword && ownerPassword) {
     storeGeneratedOwnerPassword(env.platformDir, ownerPassword);
   }
 
-  const sessions = createSessionRegistry(Date.now, PLATFORM_SESSION_LIMITS, createSqliteSessionStore(platform.stores.sqlite));
+  const sessions = createSessionRegistry(Date.now, PLATFORM_SESSION_LIMITS, createSessionStore(platform.stores.db));
   const auth = createPlatformAuth({ platform, sessions, now, sourceOf: callerSource });
   const sourceReporter = createSourceReporter();
   const sourceGate = requireCloudSource(env.clientSource, sourceReporter);
@@ -241,6 +269,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
     allowTenantHeader: true,
     now,
     connection: { exclusive: env.sqliteExclusive },
+    postgres: env.postgres && tenantDatabases ? { databases: tenantDatabases, auditChainKey: env.postgres.auditChainKey } : undefined,
   });
 
   if (env.seedDemo) {
@@ -300,7 +329,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
   const checkoutService = cardCheckout;
 
   const tenantBackups = createTenantBackups({ dir: env.platformDir, router, now });
-  const anchorService = createAuditAnchorService(env.auditAnchor, env.platformDir);
+  const anchorService = tenantDatabases ? null : createAuditAnchorService(env.auditAnchor, env.platformDir);
   const tenantPurge = createTenantPurge({
     platform,
     router,
@@ -309,6 +338,13 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
     localAnchorDir: anchorService ? anchorService.localDir : path.join(env.platformDir, "audit-anchors"),
     discardExports: (tenantId) => tenantBackups.discardExportsOf(tenantId),
     now,
+    dropDatabase: tenantDatabases
+      ? async (tenant) => {
+          const schema = tenantSchema(tenant.id);
+          await tenantDatabases.drop(schema);
+          return `postgres schema ${schema}`;
+        }
+      : undefined,
   });
 
   const platformApp = createPlatformRoutes({
@@ -339,7 +375,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
     handOverMailConfigured: mailer !== undefined,
     reconcileOwner: reconcileOwnerQuietly,
     reconcileOpenOwners: () => router.reconcileOpenOwners(),
-    operations: () => operationsOf(now(), readiness(), jobs, alerter),
+    operations: async () => operationsOf(now(), await readiness(), jobs, alerter),
     invalidateEntitlements: router.invalidate,
     auditAnchors: anchorService ? tenantAuditAnchorPort({ platform, router, anchors: anchorService, now }) : undefined,
     tenantRetention: tenantPurge,
@@ -407,7 +443,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
     onError: () => undefined,
   });
   let stopBackups: (() => void | Promise<void>) | undefined;
-  if (env.backupIntervalMinutes > 0) {
+  if (env.backupIntervalMinutes > 0 && !tenantDatabases) {
     stopBackups = backups.start();
   }
 
@@ -424,7 +460,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
     : null;
   const tenantPurgeTimer = startTenantPurgeTimer(tenantPurge, { intervalMs: TENANT_PURGE_INTERVAL_MS, job: jobs.track(PlatformJobKind.TenantPurge, TENANT_PURGE_INTERVAL_MS) });
   const productionCloud = process.env["NODE_ENV"] === "production" && !env.seedDemo;
-  if (!anchorService) {
+  if (!anchorService && !tenantDatabases) {
     const disabled = { event: "audit_anchor.disabled", reason: "MEZAN_AUDIT_ANCHOR_SIGNING_KEY is not set (or the interval is 0): the audit trail is not anchored outside the database" };
     if (productionCloud) {
       log.error(disabled, "audit anchoring is disabled on a production platform");
@@ -432,7 +468,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
     } else {
       log.warn(disabled, "audit anchoring is disabled");
     }
-  } else if (anchorService.sinkKind === AnchorSinkKind.LocalFile) {
+  } else if (anchorService?.sinkKind === AnchorSinkKind.LocalFile) {
     log.warn(
       { event: "audit_anchor.local_sink", reason: "anchors go to a local file, which is not external to this host; set MEZAN_AUDIT_ANCHOR_S3_BUCKET" },
       "audit anchors go to a local file",
@@ -440,18 +476,18 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
   }
 
   let closed = false;
-  const readiness = (): Readiness => {
+  const readiness = async (): Promise<Readiness> => {
     let platformDatabase = false;
     try {
-      platformDatabase = platform.stores.sqlite.prepare("SELECT 1 AS ok").get() !== undefined;
+      platformDatabase = (await platform.stores.db.get("SELECT 1 AS ok")) !== undefined;
     } catch {
       platformDatabase = false;
     }
     const checks = { [ReadinessCheck.PlatformDatabase]: platformDatabase, [ReadinessCheck.TenantRouter]: !closed };
     return { ready: platformDatabase && !closed, checks };
   };
-  const readinessWatch = setInterval(() => {
-    const verdict = readiness();
+  const readinessWatch = setInterval(async () => {
+    const verdict = await readiness();
     if (verdict.ready || closed) return;
     log.error({ event: LogEvent.ReadinessFailed, checks: verdict.checks }, "the server is not ready to serve");
     alerter.raise({ kind: AlertKind.NotReady, summary: "the readiness check is failing", facts: Object.fromEntries(Object.entries(verdict.checks).map(([check, ok]) => [check, ok ? "ok" : "failing"])) });
@@ -465,8 +501,8 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
   // before `authMiddleware`, or the uptime probe gets 401 the moment
   // MEZAN_DEMO_PASSWORD is set.
   root.get("/healthz", (c) => c.text("ok"));
-  root.get("/readyz", (c) => {
-    const verdict = readiness();
+  root.get("/readyz", async (c) => {
+    const verdict = await readiness();
     return c.json({ status: verdict.ready ? "ready" : "not_ready", checks: verdict.checks }, verdict.ready ? 200 : 503);
   });
 
@@ -516,7 +552,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
   // After the public API, which has its own per-key limit; after the source gate, so the key is the
   // caller's resolved address and never a header it wrote.
   // shortcut: counts live in this process, so N instances grant N times the cap; move to platformRateLimiter when scaling out.
-  root.use("/api/*", requestCap(createRateLimiter(env.apiRequestsPerAddressPerMinute, 60_000), addressKey));
+  root.use("/api/*", requestCap(createRequestLimiter(env.apiRequestsPerAddressPerMinute, 60_000), addressKey));
 
   // SECURITY: the cloud edition's browser sessions ride in HttpOnly cookies and
   // every state-changing request made with one must carry its CSRF token. The
@@ -532,7 +568,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
   root.use("/api/platform/*", cookieSessions.platform);
   root.use("/api/*", cookieSessions.tenant);
   // After the cookie sessions, which turn the browser's cookie into the bearer token keyed here.
-  root.use("/api/*", requestCap(createRateLimiter(env.apiRequestsPerSessionPerMinute, 60_000, Date.now, createMemoryRateWindowStore(), SESSION_CAP_MAX_RECORDS), sessionKey));
+  root.use("/api/*", requestCap(createRequestLimiter(env.apiRequestsPerSessionPerMinute, 60_000, Date.now, SESSION_CAP_MAX_RECORDS), sessionKey));
 
   // `/api/platform` before `/api`: the tenant router's own catch-all would
   // otherwise swallow the console's routes first.
@@ -553,6 +589,11 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
 
   root.onError((err, c) => {
     log.error({ event: LogEvent.UnhandledError, method: c.req.method, route: c.req.path, err }, "unhandled error");
+    if (err instanceof NulCharacterError) return c.json({ error: err.code, message: err.messageAr, messageEn: err.message }, 400);
+    if (err instanceof DatabaseBusyError) {
+      c.header("retry-after", "2");
+      return c.json({ error: AuditBoundaryRefusal.ConnectionBusy, message: "قاعدة البيانات مشغولة الآن، فلم يُحفظ أي تغيير. حاول مرة أخرى بعد قليل.", messageEn: "The database is busy, so nothing was saved. Try again shortly." }, 503);
+    }
     return answerTenantDbFileRefusal(c, err) ?? c.json({ error: "INTERNAL", message: "حدث خطأ غير متوقع" }, 500);
   });
 
@@ -594,6 +635,8 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
     root.notFound((c) => c.json({ error: "NOT_FOUND", message: "لا توجد حزمة واجهة مبنية" }, 404));
   }
 
+  if (tenantDatabases) await stampSchemaVersion(platform.stores.db);
+
   // REQUIRED ORDERING: started last and never awaited here. The server answers
   // its health check and its tenants while every company's books are read in
   // the background; a tenant asked for first is judged by its own open.
@@ -633,6 +676,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
       await router.close();
       await booksScanned;
       platform.close();
+      await tenantDatabases?.close();
     },
   };
 }

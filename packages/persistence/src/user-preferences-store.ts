@@ -1,16 +1,17 @@
-import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 import type { UserPreferences, UserPreferencesRepository } from "@mezan/domain";
+import type { SqlDb } from "./sql/sql-db.js";
+import { sqliteDb } from "./sql/sqlite-db.js";
 
 /**
- * SQLite-backed {@link UserPreferencesRepository} — one row per user.
+ * SQL-backed {@link UserPreferencesRepository} — one row per user.
  *
  * Same "spike pattern" as settings-store.ts / barcode-config-store.ts: the bag
  * itself is a single JSON-text column, because it always changes as a whole
  * through the domain's merge. `layout_name` and `numerals` are lifted OUT of
  * the JSON into real columns so the admin diagnosis surface can list who has
  * which named layout without parsing every row. There is no tenant column
- * anywhere in this schema — one database file is one tenant.
+ * anywhere in this schema — one database is one tenant.
  *
  * Adding a column later needs no migration file: `installSchemaSync` ALTERs an
  * existing table to match this CREATE TABLE (see ./schema-sync.ts).
@@ -37,6 +38,8 @@ interface PreferencesRow {
   updated_at: string;
 }
 
+const COLUMNS = "user_id, layout_name, numerals, data, created_at, updated_at";
+
 function toPreferences(row: PreferencesRow): UserPreferences {
   const bag = JSON.parse(row.data) as UserPreferences;
   // The columns win over the JSON copy: they are what a query filtered on.
@@ -50,54 +53,46 @@ function toPreferences(row: PreferencesRow): UserPreferences {
   };
 }
 
-class SqliteUserPreferencesStore implements UserPreferencesRepository {
-  private readonly upsert: Database.Statement;
-  private readonly select: Database.Statement;
-  private readonly selectAll: Database.Statement;
-  private readonly deleteOne: Database.Statement;
-
-  constructor(sqlite: Database.Database) {
-    this.upsert = sqlite.prepare(
-      `INSERT INTO user_preferences (user_id, layout_name, numerals, data, created_at, updated_at)
-       VALUES (@userId, @layoutName, @numerals, @data, @createdAt, @updatedAt)
-       ON CONFLICT(user_id) DO UPDATE SET
-         layout_name = @layoutName,
-         numerals    = @numerals,
-         data        = @data,
-         updated_at  = @updatedAt`,
-    );
-    this.select = sqlite.prepare(`SELECT * FROM user_preferences WHERE user_id = ?`);
-    this.selectAll = sqlite.prepare(`SELECT * FROM user_preferences ORDER BY updated_at DESC`);
-    this.deleteOne = sqlite.prepare(`DELETE FROM user_preferences WHERE user_id = ?`);
-  }
+class SqlUserPreferencesStore implements UserPreferencesRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async get(userId: string): Promise<UserPreferences | null> {
-    const row = this.select.get(userId) as PreferencesRow | undefined;
+    const row = await this.db.get<PreferencesRow>(`SELECT ${COLUMNS} FROM user_preferences WHERE user_id = ?`, [userId]);
     return row ? toPreferences(row) : null;
   }
 
   async save(preferences: UserPreferences): Promise<void> {
-    this.upsert.run({
-      userId: preferences.userId,
-      layoutName: preferences.layoutName,
-      numerals: preferences.numerals,
-      data: JSON.stringify(preferences),
-      createdAt: preferences.createdAt,
-      updatedAt: preferences.updatedAt,
-    });
+    await this.db.run(
+      `INSERT INTO user_preferences (${COLUMNS})
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(user_id) DO UPDATE SET
+         layout_name = excluded.layout_name,
+         numerals    = excluded.numerals,
+         data        = excluded.data,
+         updated_at  = excluded.updated_at`,
+      [preferences.userId, preferences.layoutName, preferences.numerals, JSON.stringify(preferences), preferences.createdAt, preferences.updatedAt],
+    );
   }
 
   async remove(userId: string): Promise<void> {
-    this.deleteOne.run(userId);
+    await this.db.run(`DELETE FROM user_preferences WHERE user_id = ?`, [userId]);
   }
 
   async list(): Promise<readonly UserPreferences[]> {
-    return (this.selectAll.all() as PreferencesRow[]).map(toPreferences);
+    return (await this.db.all<PreferencesRow>(`SELECT ${COLUMNS} FROM user_preferences ORDER BY updated_at DESC`)).map(toPreferences);
   }
 }
 
 export interface SqliteUserPreferencesStoreHandle extends UserPreferencesRepository {
   close(): void;
+}
+
+export async function ensureUserPreferencesSchema(db: SqlDb): Promise<void> {
+  await db.applySchema(CREATE_TABLE);
+}
+
+export function createUserPreferencesStore(db: SqlDb): UserPreferencesRepository {
+  return new SqlUserPreferencesStore(db);
 }
 
 /** Open a SQLite-backed UserPreferencesRepository. ":memory:" for tests, a path (or a shared connection) for real. */
@@ -106,8 +101,7 @@ export function createSqliteUserPreferencesStore(
 ): SqliteUserPreferencesStoreHandle {
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.exec(CREATE_TABLE);
-  const store = new SqliteUserPreferencesStore(sqlite);
-  return Object.assign(store, {
+  return Object.assign(createUserPreferencesStore(sqliteDb(sqlite)), {
     close: () => {
       if (owned) sqlite.close();
     },

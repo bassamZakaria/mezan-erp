@@ -44,7 +44,8 @@ describe("the four exception-report screens", () => {
           body: envelope(
             [
               {
-                actor: "أحمد",
+                actor: "u-ahmed",
+                actorNameAr: "أحمد",
                 action: "PERMISSION_REFUSED",
                 actionLabelAr: "رفض صلاحية",
                 module: "sales",
@@ -65,6 +66,7 @@ describe("the four exception-report screens", () => {
     renderWithProviders(<ExceptionsReportScreen />, { transport, initialSession: testAdminSession });
 
     await waitFor(() => expect(screen.getAllByText("أحمد").length).toBeGreaterThan(0));
+    expect(screen.queryByText("u-ahmed")).toBeNull();
     expect(path).toContain("/security-reports/exceptions");
     expect(path).toContain("from=");
     expect(path).toContain("to=");
@@ -78,7 +80,7 @@ describe("the four exception-report screens", () => {
         body: envelope([], {
           unrecorded: {
             count: 7,
-            recent: [{ at: "2026-09-03T08:00:00.000Z", module: "auth", action: "LOGIN_FAILED", severity: "WARNING", actor: "anonymous", entityId: null, reason: "database is locked" }],
+            recent: [{ at: "2026-09-03T08:00:00.000Z", module: "auth", action: "LOGIN_FAILED", severity: "WARNING", actor: "anonymous", actorNameAr: "anonymous", entityId: null, reason: "database is locked" }],
           },
         }),
       }),
@@ -100,6 +102,26 @@ describe("the four exception-report screens", () => {
 
     expect(await screen.findByText("لم يفُت سجلَّ التدقيق أيُّ حدث أمني")).toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("offers the users and «النظام» as the actor once the user list loads, and keeps a text box while it cannot", async () => {
+    const exceptions = () => ({ body: envelope([], { unrecorded: { count: 0, recent: [] } }) });
+    const loaded = stubTransport({
+      "GET /security-reports/exceptions": exceptions,
+      "GET /users": () => ({ body: [{ id: "u-mona", nameAr: "منى", nameEn: null, email: "mona@shop.test" }] }),
+    });
+    const { unmount } = renderWithProviders(<ExceptionsReportScreen />, { transport: loaded, initialSession: testAdminSession });
+    fireEvent.click(await screen.findByRole("combobox", { name: "المستخدم" }));
+    expect(await screen.findByRole("option", { name: "النظام" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "منى" })).toBeInTheDocument();
+    unmount();
+
+    renderWithProviders(<ExceptionsReportScreen />, {
+      transport: stubTransport({ "GET /security-reports/exceptions": exceptions, "GET /users": () => ({ status: 500, body: { error: "BOOM" } }) }),
+      initialSession: testAdminSession,
+    });
+    expect(await screen.findByRole("textbox", { name: "المستخدم" })).toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "المستخدم" })).not.toBeInTheDocument();
   });
 
   it("says out loud that the totals are a floor when the server truncated its scan", async () => {
@@ -142,7 +164,8 @@ describe("the four exception-report screens", () => {
             {
               rowKey: "k1",
               timestamp: "2026-09-02T19:00:00.000Z",
-              actor: "منى",
+              actor: "u-mona",
+              actorNameAr: "منى",
               module: "sales",
               entityType: "SALES_INVOICE",
               entityId: "inv-1",
@@ -162,6 +185,7 @@ describe("the four exception-report screens", () => {
     renderWithProviders(<PostPostingChangesReportScreen />, { transport, initialSession: testAdminSession });
 
     await waitFor(() => expect(screen.getAllByText("INV-000014").length).toBeGreaterThan(0));
+    expect(screen.getAllByText("منى").length).toBeGreaterThan(0);
     expect(path).toContain("/security-reports/post-posting-changes");
   });
 
@@ -216,7 +240,8 @@ describe("the four exception-report screens", () => {
               roleId: null,
               createdAt: "2026-08-20T10:00:00.000Z",
               lastLoginAt: null,
-              createdBy: "admin",
+              createdBy: "u-admin",
+              createdByNameAr: "مدير النظام",
               createdByEventAt: "2026-08-20T10:00:00.000Z",
               postedDocumentCount: 0,
               voidedDocumentCount: 0,
@@ -233,6 +258,7 @@ describe("the four exception-report screens", () => {
     await waitFor(() => expect(screen.getAllByText("سارة").length).toBeGreaterThan(0));
     expect(path).toContain("/security-reports/new-accounts");
     expect(path).toContain("days=90");
+    expect(screen.getAllByText("مدير النظام").length).toBeGreaterThan(0);
   });
 
   it("renders the shared empty state on zero rows", async () => {
@@ -251,7 +277,8 @@ describe("SecurityReportScreen — a paged report", () => {
     localTime: "22:00",
     weekday: 6,
     outsideReason: "after_hours",
-    actor: `مستخدم-${n}`,
+    actor: `u-${n}`,
+    actorNameAr: `مستخدم-${n}`,
     action: "LOGIN",
     entityType: "user",
     entityId: `u-${n}`,
@@ -289,7 +316,7 @@ describe("SecurityReportScreen — a paged report", () => {
     const { transport } = pagedTransport();
     let printed: string[] = [];
     const print = vi.spyOn(window, "print").mockImplementation(() => {
-      printed = allRows.map((row) => row.actor).filter((actor) => screen.queryByRole("cell", { name: actor }) !== null);
+      printed = allRows.map((row) => row.actorNameAr).filter((name) => screen.queryByRole("cell", { name }) !== null);
     });
     renderWithProviders(<AfterHoursReportScreen />, { transport, initialSession: testAdminSession });
     await screen.findByRole("cell", { name: "مستخدم-1" });
@@ -310,7 +337,7 @@ describe("SecurityReportScreen — a paged report", () => {
     fireEvent.click(screen.getByRole("button", { name: "تصدير CSV" }));
     await waitFor(() => expect(exported).not.toBeNull());
     const text = await (exported as unknown as Blob).text();
-    for (const row of allRows) expect(text).toContain(row.actor);
+    for (const row of allRows) expect(text).toContain(row.actorNameAr);
     click.mockRestore();
   });
 });

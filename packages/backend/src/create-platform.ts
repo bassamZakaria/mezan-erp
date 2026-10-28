@@ -2,8 +2,9 @@ import { randomUUID } from "node:crypto";
 import { createPlan, createPlatformUser, MODULE_CATALOG, Money, PlanKind, QuotaKind, type AuditSink, type CreatePlanCommand, type SecretHasher } from "@mezan/domain";
 import { reportTurnYield } from "@mezan/api";
 import {
-  createSqlitePlatformStores, createSqliteAuditSink, createScryptHasher,
-  type SqlitePlatformStoresHandle, type SqliteConnectionInput, type SqliteOpenOptions,
+  createSqlitePlatformStores, createSqliteAuditSink, createScryptHasher, createPlatformStores, createAuditSink, sqliteDb,
+  ensurePlatformSchema, ensureAuditSchema, ensureAttemptSchema, ensureSessionSchema, ensureRateWindowSchema, ensureTenantRetentionSchema,
+  type PlatformStoresHandle, type SqlitePlatformStoresHandle, type SqliteConnectionInput, type SqliteOpenOptions, type SqlDb,
   securityFallbackFor,
 } from "@mezan/persistence";
 
@@ -13,10 +14,24 @@ export interface CreatePlatformOptions {
   readonly owner?: { readonly email: string; readonly password: string };
   readonly hasher?: SecretHasher;
   readonly connection?: SqliteOpenOptions;
+  readonly db?: SqlDb;
+  readonly auditChainKey?: string;
+  readonly fallbackBase?: string;
+}
+
+export interface PlatformStores extends PlatformStoresHandle {
+  readonly db: SqlDb;
+  readonly sqlite?: SqlitePlatformStoresHandle["sqlite"];
+}
+
+export class PlatformBackupUnavailableError extends Error {
+  constructor() {
+    super("The platform database is on Postgres: it is backed up with pg_dump, not by the server.");
+  }
 }
 
 export interface PlatformHandle {
-  readonly stores: SqlitePlatformStoresHandle;
+  readonly stores: PlatformStores;
   readonly audit: AuditSink;
   readonly hasher: SecretHasher;
   readonly ownerSeeded: boolean;
@@ -59,14 +74,56 @@ export const PLATFORM_SEED_PLANS: readonly SeedPlan[] = [
   },
 ];
 
-export async function createPlatform(options: CreatePlatformOptions = {}): Promise<PlatformHandle> {
-  const stores = createSqlitePlatformStores(options.dbPath ?? ":memory:", options.connection);
-  const now = options.now ?? (() => new Date());
-  const audit = createSqliteAuditSink(stores.sqlite);
+// Every platform table, created empty: no plan and no owner is seeded here.
+export async function ensurePlatformTables(db: SqlDb): Promise<void> {
+  await ensurePlatformSchema(db);
+  await ensureAuditSchema(db);
+  await ensureAttemptSchema(db);
+  await ensureSessionSchema(db);
+  await ensureRateWindowSchema(db);
+  await ensureTenantRetentionSchema(db);
+}
+
+async function openPlatformStores(options: CreatePlatformOptions) {
+  if (options.db) {
+    const db = options.db;
+    await ensurePlatformTables(db);
+    const audit = createAuditSink(db, { chainKey: options.auditChainKey });
+    audit.unrecorded = securityFallbackFor(options.fallbackBase);
+    const stores: PlatformStores = { ...createPlatformStores(db), db };
+    return {
+      stores,
+      audit,
+      outsideTheTurn: <T>(work: () => Promise<T>): Promise<T> => work(),
+      inTheTurn: <T>(_label: string, work: () => Promise<T>): Promise<T> => work(),
+      backupTo: async (_destination: string): Promise<void> => { throw new PlatformBackupUnavailableError(); },
+      close: (): void => undefined,
+    };
+  }
+  const sqliteStores = createSqlitePlatformStores(options.dbPath ?? ":memory:", options.connection);
+  const audit = createSqliteAuditSink(sqliteStores.sqlite);
   audit.unrecorded = securityFallbackFor(options.dbPath);
-  const outsideTheTurn = <T>(work: () => Promise<T>): Promise<T> => audit.outsideTurn(work);
-  const inTheTurn = <T>(label: string, work: () => Promise<T>): Promise<T> =>
-    audit.turn(work, { onYield: () => reportTurnYield(`platform ${label}`) });
+  const stores: PlatformStores = { ...sqliteStores, db: sqliteDb(sqliteStores.sqlite) };
+  return {
+    stores,
+    audit,
+    outsideTheTurn: <T>(work: () => Promise<T>): Promise<T> => audit.outsideTurn(work),
+    inTheTurn: <T>(label: string, work: () => Promise<T>): Promise<T> =>
+      audit.turn(work, { onYield: () => reportTurnYield(`platform ${label}`) }),
+    backupTo: (destination: string): Promise<void> => sqliteStores.sqlite.backup(destination).then(() => undefined),
+    close: (): void => { sqliteStores.close(); audit.close(); },
+  };
+}
+
+export async function createPlatform(options: CreatePlatformOptions = {}): Promise<PlatformHandle> {
+  const { stores, audit, outsideTheTurn, inTheTurn, backupTo, close } = await openPlatformStores(options);
+  if (!options.db) {
+    await ensureAttemptSchema(stores.db);
+    await ensureSessionSchema(stores.db);
+    await ensureRateWindowSchema(stores.db);
+    await ensureTenantRetentionSchema(stores.db);
+  }
+  const now = options.now ?? (() => new Date());
   const slowHasher = options.hasher ?? createScryptHasher();
   const hasher: SecretHasher = {
     hash: (secret) => outsideTheTurn(() => slowHasher.hash(secret)),
@@ -102,7 +159,7 @@ export async function createPlatform(options: CreatePlatformOptions = {}): Promi
     inTheTurn,
     outsideTheTurn,
     seedPlansIfEmpty,
-    backupTo: (destination) => stores.sqlite.backup(destination).then(() => undefined),
-    close: () => { stores.close(); audit.close(); },
+    backupTo,
+    close,
   };
 }

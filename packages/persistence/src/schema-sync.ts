@@ -144,21 +144,43 @@ export function holdsExistingBooks(sqlite: Database.Database): boolean {
   return (row?.n ?? 0) > 0;
 }
 
-function addMissingColumns(sqlite: Database.Database, table: string, body: string): void {
-  const existing = new Set(
-    (sqlite.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((column) => column.name),
-  );
-  if (existing.size === 0) return;
-  for (const line of body.split("\n")) {
-    const definition = line.trim().replace(/,$/, "");
-    if (!definition || TABLE_CONSTRAINT_RE.test(definition)) continue;
-    const match = COLUMN_RE.exec(definition);
-    if (!match) continue;
-    const name = match[1] ?? "";
-    const rawType = match[2] ?? "";
-    if (!name || existing.has(name) || /PRIMARY KEY|UNIQUE/i.test(rawType)) continue;
-    const type = /DEFAULT/i.test(rawType) ? rawType : rawType.replace(/\s*NOT NULL/i, "");
+export interface AddableColumn {
+  readonly table: string;
+  readonly name: string;
+  readonly type: string;
+}
+
+// The columns each `CREATE TABLE IF NOT EXISTS` in `ddl` declares, in the form
+// an `ALTER TABLE … ADD COLUMN` can add to a table that already holds rows.
+export function declaredAddableColumns(ddl: string): AddableColumn[] {
+  const columns: AddableColumn[] = [];
+  for (const match of ddl.matchAll(CREATE_TABLE_RE)) {
+    const table = match[1] ?? "";
+    for (const line of (match[2] ?? "").split("\n")) {
+      const definition = line.trim().replace(/,$/, "");
+      if (!definition || TABLE_CONSTRAINT_RE.test(definition)) continue;
+      const column = COLUMN_RE.exec(definition);
+      if (!column) continue;
+      const name = column[1] ?? "";
+      const rawType = column[2] ?? "";
+      if (!name || /PRIMARY KEY|UNIQUE/i.test(rawType)) continue;
+      columns.push({ table, name, type: /DEFAULT/i.test(rawType) ? rawType : rawType.replace(/\s*NOT NULL/i, "") });
+    }
+  }
+  return columns;
+}
+
+function addMissingColumns(sqlite: Database.Database, ddl: string): void {
+  const existingByTable = new Map<string, Set<string>>();
+  for (const { table, name, type } of declaredAddableColumns(ddl)) {
+    let existing = existingByTable.get(table);
+    if (!existing) {
+      existing = new Set((sqlite.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((column) => column.name));
+      existingByTable.set(table, existing);
+    }
+    if (existing.size === 0 || existing.has(name)) continue;
     sqlite.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${type}`);
+    existing.add(name);
   }
 }
 
@@ -178,11 +200,7 @@ export function installSchemaSync(sqlite: Database.Database): void {
   hooked.add(sqlite);
   const exec = sqlite.exec.bind(sqlite);
   sqlite.exec = (sql: string) => {
-    if (/CREATE\s+TABLE/i.test(sql)) {
-      for (const match of sql.matchAll(CREATE_TABLE_RE)) {
-        addMissingColumns(sqlite, match[1] ?? "", match[2] ?? "");
-      }
-    }
+    if (/CREATE\s+TABLE/i.test(sql)) addMissingColumns(sqlite, sql);
     return exec(sql);
   };
 }

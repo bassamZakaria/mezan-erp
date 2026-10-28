@@ -1,0 +1,9 @@
+[Unit]
+Description=Mezan Postgres drill
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/mezan/backup/mezan-pg-backup.sh drill
+Nice=10
+IOSchedulingClass=idle

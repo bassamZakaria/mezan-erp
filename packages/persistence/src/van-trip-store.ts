@@ -1,6 +1,8 @@
-import Database from "better-sqlite3";
+import type Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
-import { insertingNew, prepareInsertOnly } from "./insert-new.js";
+import { insertNew } from "./insert-new.js";
+import { placeholders, type SqlDb, type SqlValue } from "./sql/sql-db.js";
+import { sqliteDb } from "./sql/sqlite-db.js";
 import {
   Money,
   Qty,
@@ -22,7 +24,7 @@ import {
 } from "@mezan/domain";
 
 /**
- * SQLite-backed VanTripRepository (docs/archive/catalog/07-mfg-projects-assets.md
+ * VanTripRepository (docs/archive/catalog/07-mfg-projects-assets.md
  * "رحلات المندوبين"). `VanTrip` is mostly a document-owned bag of nested
  * collections (crew, loadedStock, cashMovements, settlement) with no
  * independent query need, so — following purchasing-stores.ts's convention —
@@ -39,6 +41,7 @@ CREATE TABLE IF NOT EXISTS van_trip (
   trip_no                   TEXT,
   date                      TEXT NOT NULL,
   branch_id                 TEXT NOT NULL,
+  van_id                    TEXT,
   van_warehouse_id           TEXT NOT NULL,
   van_treasury_account_id    TEXT NOT NULL,
   source_warehouse_id        TEXT NOT NULL,
@@ -328,86 +331,59 @@ function toDomain(row: VanTripRow): VanTrip {
   };
 }
 
-class SqliteVanTripRepository implements VanTripRepository {
-  private readonly upsert: Database.Statement;
-  private readonly insertOnly: Database.Statement;
-  private readonly selectById: Database.Statement;
-  private readonly selectAll: Database.Statement;
+const VAN_TRIP_COLUMNS = [
+  "id", "trip_no", "date", "branch_id", "van_id", "van_warehouse_id", "van_treasury_account_id",
+  "source_warehouse_id", "source_treasury_account_id", "opening_cash_float",
+  "crew", "loaded_stock", "cash_movements", "status", "opened_at", "settled_at", "settlement", "notes",
+] as const;
 
-  constructor(sqlite: Database.Database) {
-    this.upsert = sqlite.prepare(`
-      INSERT INTO van_trip (
-        id, trip_no, date, branch_id, van_id, van_warehouse_id, van_treasury_account_id,
-        source_warehouse_id, source_treasury_account_id, opening_cash_float,
-        crew, loaded_stock, cash_movements, status, opened_at, settled_at, settlement, notes
-      )
-      VALUES (
-        @id, @trip_no, @date, @branch_id, @van_id, @van_warehouse_id, @van_treasury_account_id,
-        @source_warehouse_id, @source_treasury_account_id, @opening_cash_float,
-        @crew, @loaded_stock, @cash_movements, @status, @opened_at, @settled_at, @settlement, @notes
-      )
+const VAN_TRIP_UPSERT = `
+      INSERT INTO van_trip (${VAN_TRIP_COLUMNS.join(", ")})
+      VALUES (${placeholders(VAN_TRIP_COLUMNS.length)})
       ON CONFLICT(id) DO UPDATE SET
-        trip_no = excluded.trip_no,
-        date = excluded.date,
-        branch_id = excluded.branch_id,
-        van_id = excluded.van_id,
-        van_warehouse_id = excluded.van_warehouse_id,
-        van_treasury_account_id = excluded.van_treasury_account_id,
-        source_warehouse_id = excluded.source_warehouse_id,
-        source_treasury_account_id = excluded.source_treasury_account_id,
-        opening_cash_float = excluded.opening_cash_float,
-        crew = excluded.crew,
-        loaded_stock = excluded.loaded_stock,
-        cash_movements = excluded.cash_movements,
-        status = excluded.status,
-        opened_at = excluded.opened_at,
-        settled_at = excluded.settled_at,
-        settlement = excluded.settlement,
-        notes = excluded.notes
-    `);
-    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
-    this.selectById = sqlite.prepare(`SELECT * FROM van_trip WHERE id = ?`);
-    this.selectAll = sqlite.prepare(`SELECT * FROM van_trip`);
-  }
+        ${VAN_TRIP_COLUMNS.filter((c) => c !== "id").map((c) => `${c} = excluded.${c}`).join(",\n        ")}`;
+
+function vanTripParams(trip: VanTrip): SqlValue[] {
+  return [
+    trip.id,
+    trip.tripNo,
+    trip.date,
+    trip.branchId,
+    trip.vanId,
+    trip.vanWarehouseId,
+    trip.vanTreasuryAccountId,
+    trip.sourceWarehouseId,
+    trip.sourceTreasuryAccountId,
+    trip.openingCashFloat.toString(),
+    JSON.stringify(crewToJson(trip.crew)),
+    JSON.stringify(stockLinesToJson(trip.loadedStock)),
+    JSON.stringify(cashMovementsToJson(trip.cashMovements)),
+    trip.status,
+    trip.openedAt,
+    trip.settledAt,
+    trip.settlement ? JSON.stringify(settlementToJson(trip.settlement)) : null,
+    trip.notes,
+  ];
+}
+
+class SqlVanTripRepository implements VanTripRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async findById(id: string): Promise<VanTrip | null> {
-    const row = this.selectById.get(id) as VanTripRow | undefined;
+    const row = await this.db.get<VanTripRow>(`SELECT * FROM van_trip WHERE id = ?`, [id]);
     return row ? toDomain(row) : null;
   }
 
   async list(): Promise<VanTrip[]> {
-    return (this.selectAll.all() as VanTripRow[]).map(toDomain);
+    return (await this.db.all<VanTripRow>(`SELECT * FROM van_trip`)).map(toDomain);
   }
 
   async create(trip: VanTrip): Promise<void> {
-    insertingNew(trip.id, () => this.write(trip, this.insertOnly));
+    await insertNew(this.db, trip.id, VAN_TRIP_UPSERT, vanTripParams(trip));
   }
 
   async update(trip: VanTrip): Promise<void> {
-    this.write(trip);
-  }
-
-  private write(trip: VanTrip, statement: Database.Statement = this.upsert): void {
-    statement.run({
-      id: trip.id,
-      trip_no: trip.tripNo,
-      date: trip.date,
-      branch_id: trip.branchId,
-      van_id: trip.vanId,
-      van_warehouse_id: trip.vanWarehouseId,
-      van_treasury_account_id: trip.vanTreasuryAccountId,
-      source_warehouse_id: trip.sourceWarehouseId,
-      source_treasury_account_id: trip.sourceTreasuryAccountId,
-      opening_cash_float: trip.openingCashFloat.toString(),
-      crew: JSON.stringify(crewToJson(trip.crew)),
-      loaded_stock: JSON.stringify(stockLinesToJson(trip.loadedStock)),
-      cash_movements: JSON.stringify(cashMovementsToJson(trip.cashMovements)),
-      status: trip.status,
-      opened_at: trip.openedAt,
-      settled_at: trip.settledAt,
-      settlement: trip.settlement ? JSON.stringify(settlementToJson(trip.settlement)) : null,
-      notes: trip.notes,
-    });
+    await this.db.run(VAN_TRIP_UPSERT, vanTripParams(trip));
   }
 }
 
@@ -420,7 +396,7 @@ interface VanRow {
   branch_id: string;
   warehouse_id: string;
   treasury_account_id: string;
-  active: number;
+  active: bigint;
 }
 
 function vanToDomain(row: VanRow): Van {
@@ -433,20 +409,13 @@ function vanToDomain(row: VanRow): Van {
     branchId: row.branch_id,
     warehouseId: row.warehouse_id,
     treasuryAccountId: row.treasury_account_id,
-    active: row.active === 1,
+    active: Number(row.active) === 1,
   };
 }
 
-class SqliteVanRepository implements VanRepository {
-  private readonly upsert: Database.Statement;
-  private readonly insertOnly: Database.Statement;
-  private readonly selectById: Database.Statement;
-  private readonly selectAll: Database.Statement;
-
-  constructor(sqlite: Database.Database) {
-    this.upsert = sqlite.prepare(`
+const VAN_UPSERT = `
       INSERT INTO van (id, code, name_ar, name_en, plate_number, branch_id, warehouse_id, treasury_account_id, active)
-      VALUES (@id, @code, @name_ar, @name_en, @plate_number, @branch_id, @warehouse_id, @treasury_account_id, @active)
+      VALUES (${placeholders(9)})
       ON CONFLICT(id) DO UPDATE SET
         code = excluded.code,
         name_ar = excluded.name_ar,
@@ -455,49 +424,48 @@ class SqliteVanRepository implements VanRepository {
         branch_id = excluded.branch_id,
         warehouse_id = excluded.warehouse_id,
         treasury_account_id = excluded.treasury_account_id,
-        active = excluded.active
-    `);
-    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
-    this.selectById = sqlite.prepare(`SELECT * FROM van WHERE id = ?`);
-    this.selectAll = sqlite.prepare(`SELECT * FROM van ORDER BY code`);
-  }
+        active = excluded.active`;
+
+function vanParams(van: Van): SqlValue[] {
+  return [van.id, van.code, van.nameAr, van.nameEn, van.plateNumber, van.branchId, van.warehouseId, van.treasuryAccountId, van.active ? 1 : 0];
+}
+
+class SqlVanRepository implements VanRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async findById(id: string): Promise<Van | null> {
-    const row = this.selectById.get(id) as VanRow | undefined;
+    const row = await this.db.get<VanRow>(`SELECT * FROM van WHERE id = ?`, [id]);
     return row ? vanToDomain(row) : null;
   }
 
   async list(): Promise<readonly Van[]> {
-    return (this.selectAll.all() as VanRow[]).map(vanToDomain);
+    return (await this.db.all<VanRow>(`SELECT * FROM van ORDER BY code`)).map(vanToDomain);
   }
 
   async save(van: Van): Promise<void> {
-    this.write(van);
+    await this.db.run(VAN_UPSERT, vanParams(van));
   }
 
   async insert(van: Van): Promise<void> {
-    insertingNew(van.id, () => this.write(van, this.insertOnly));
-  }
-
-  private write(van: Van, statement: Database.Statement = this.upsert): void {
-    statement.run({
-      id: van.id,
-      code: van.code,
-      name_ar: van.nameAr,
-      name_en: van.nameEn,
-      plate_number: van.plateNumber,
-      branch_id: van.branchId,
-      warehouse_id: van.warehouseId,
-      treasury_account_id: van.treasuryAccountId,
-      active: van.active ? 1 : 0,
-    });
+    await insertNew(this.db, van.id, VAN_UPSERT, vanParams(van));
   }
 }
 
-export interface SqliteVanTripRepositoryHandle extends VanTripRepository {
-  /** The van registry lives in the same database file as the trips that reference it. */
+export interface VanTripRepositoryHandle extends VanTripRepository {
+  /** The van registry lives in the same database as the trips that reference it. */
   readonly vans: VanRepository;
+}
+
+export interface SqliteVanTripRepositoryHandle extends VanTripRepositoryHandle {
   close(): void;
+}
+
+export async function ensureVanTripSchema(db: SqlDb): Promise<void> {
+  await db.applySchema(CREATE_TABLE);
+}
+
+export function createVanTripRepository(db: SqlDb): VanTripRepositoryHandle {
+  return Object.assign(new SqlVanTripRepository(db), { vans: new SqlVanRepository(db) }) as VanTripRepositoryHandle;
 }
 
 /** Open a SQLite-backed VanTripRepository. ":memory:" for tests, a path for real. */
@@ -505,9 +473,7 @@ export function createSqliteVanTripRepository(path: SqliteConnectionInput = ":me
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.exec(CREATE_TABLE);
   addMissingColumns(sqlite);
-  const repo = new SqliteVanTripRepository(sqlite);
-  return Object.assign(repo, {
-    vans: new SqliteVanRepository(sqlite),
+  return Object.assign(createVanTripRepository(sqliteDb(sqlite)), {
     close: () => { if (owned) sqlite.close(); },
   }) as SqliteVanTripRepositoryHandle;
 }

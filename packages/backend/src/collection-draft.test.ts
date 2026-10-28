@@ -32,16 +32,16 @@ function sql<T = any>(query: string, ...params: unknown[]): T | undefined {
 beforeAll(async () => {
   dbPath = join(mkdtempSync(join(tmpdir(), "mezan-collection-draft-")), "books.db");
   handle = await createBackend({ dbPath });
-  const as = (userId: string, permissions: string[], roleCode: string | null): Caller => {
-    const token = handle.sessions.issue({ userId, permissions, roleCode, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
+  const as = async (userId: string, permissions: string[], roleCode: string | null): Promise<Caller> => {
+    const token = await handle.sessions.issue({ userId, permissions, roleCode, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
     return async (method, path, body) => {
       const res = await handle.app.fetch(new Request(`http://local${path}`, { method, headers: { "content-type": "application/json", authorization: `Bearer ${token}` }, body: body === undefined ? undefined : JSON.stringify(body) }));
       const text = await res.text();
       return { status: res.status, body: text ? JSON.parse(text) : null };
     };
   };
-  admin = as("USER-CD-ADMIN", ["*"], null);
-  cashier = as("USER-CD-CASHIER", ["treasury.cash_voucher.create", "treasury.cash_voucher.view"], "TREASURY_CASHIER");
+  admin = (await as("USER-CD-ADMIN", ["*"], null));
+  cashier = (await as("USER-CD-CASHIER", ["treasury.cash_voucher.create", "treasury.cash_voucher.view"], "TREASURY_CASHIER"));
   expect((await admin("POST", "/customers", { id: "CUST-CD", code: "CUST-CD", nameAr: "عميل التحصيل", type: "company" })).status).toBe(201);
   const drawer = await admin("POST", "/treasury-accounts", { id: "TR-CD", code: "TR-CD", name: "صندوق التحصيل", type: "cash", currency: "EGP", branchId: "BR-MAIN", glAccountId: "1300-1", openingBalance: "0" });
   expect(drawer.status, JSON.stringify(drawer.body)).toBe(201);

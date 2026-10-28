@@ -30,10 +30,10 @@ import { canonicalOrigin, createSessionRegistry } from "../../packages/api/src/s
  * the step-down did not lower the top of the ladder, which is where a sweeping
  * attacker actually lives.
  */
-function lockDurationAtCeiling(throttle: { fail(key: string): number }, _at: number): number {
+async function lockDurationAtCeiling(throttle: { fail(key: string): Promise<number> }, _at: number): Promise<number> {
   const key = "ceiling-probe@shop.example";
   let last = 0;
-  for (let i = 0; i < 25; i += 1) last = throttle.fail(key);
+  for (let i = 0; i < 25; i += 1) last = await throttle.fail(key);
   return last;
 }
 
@@ -142,13 +142,13 @@ export async function run(ctx: Ctx): Promise<void> {
     const throttle = createLoginThrottle(() => clock);
     const key = throttleKey("owner@shop.example", null);
 
-    for (let i = 0; i < 5; i += 1) check(`attempt ${i + 1} is free`, throttle.fail(key) === 0);
-    const first = throttle.fail(key);
+    for (let i = 0; i < 5; i += 1) check(`attempt ${i + 1} is free`, (await throttle.fail(key)) === 0);
+    const first = (await throttle.fail(key));
     check("the sixth attempt locks for 60s", first === 60, String(first));
-    check("and the lock is reported to the caller", throttle.retryAfter(key) === 60, String(throttle.retryAfter(key)));
-    check("the seventh doubles it", throttle.fail(key) === 120);
+    check("and the lock is reported to the caller", (await throttle.retryAfter(key)) === 60, String((await throttle.retryAfter(key))));
+    check("the seventh doubles it", (await throttle.fail(key)) === 120);
     let last = 0;
-    for (let i = 0; i < 10; i += 1) last = throttle.fail(key);
+    for (let i = 0; i < 10; i += 1) last = (await throttle.fail(key));
     check("and it ceilings at fifteen minutes", last === 900, String(last));
 
     // A SERVED LOCK STEPS THE LADDER DOWN ONE RUNG. Leaving the streak at its
@@ -157,9 +157,9 @@ export async function run(ctx: Ctx): Promise<void> {
     // served lock walks a six-digit keyspace in about four months — so the
     // ceiling has to stay where it is.
     clock += 901_000;
-    check("waiting the lock out clears it", throttle.retryAfter(key) === 0, String(throttle.retryAfter(key)));
-    check("but the next failure costs the SAME wait, not double", throttle.fail(key) === 900, String(throttle.fail(key)));
-    check("so the ceiling is unmoved — one guess per fifteen minutes", lockDurationAtCeiling(throttle, clock) === 900);
+    check("waiting the lock out clears it", (await throttle.retryAfter(key)) === 0, String((await throttle.retryAfter(key))));
+    check("but the next failure costs the SAME wait, not double", (await throttle.fail(key)) === 900, String((await throttle.fail(key))));
+    check("so the ceiling is unmoved — one guess per fifteen minutes", (await lockDurationAtCeiling(throttle, clock)) === 900);
 
     // The DoS shape: a remote attacker must not be able to lock the console at
     // the counter, because the two are counted under different keys.
@@ -167,38 +167,38 @@ export async function run(ctx: Ctx): Promise<void> {
     const fromWifi = throttleKey("owner@shop.example", "192.168.1.55");
     const atCounter = throttleKey("owner@shop.example", null);
     check("a remote source keys differently from the host", fromWifi !== atCounter, `${fromWifi} vs ${atCounter}`);
-    for (let i = 0; i < 8; i += 1) remote.fail(fromWifi);
-    check("the wifi attacker locks itself out", remote.retryAfter(fromWifi) > 0);
-    check("and the counter is unaffected", remote.retryAfter(atCounter) === 0, String(remote.retryAfter(atCounter)));
+    for (let i = 0; i < 8; i += 1) (await remote.fail(fromWifi));
+    check("the wifi attacker locks itself out", (await remote.retryAfter(fromWifi)) > 0);
+    check("and the counter is unaffected", (await remote.retryAfter(atCounter)) === 0, String((await remote.retryAfter(atCounter))));
 
     // An unlock means "this person can sign in now", so it must clear every
     // source the account was counted under, not just the one that locked it.
-    remote.unlock("owner@shop.example");
-    check("an admin unlock clears the remote streak too", remote.retryAfter(fromWifi) === 0);
+    (await remote.unlock("owner@shop.example"));
+    check("an admin unlock clears the remote streak too", (await remote.retryAfter(fromWifi)) === 0);
 
     // Unbounded growth: records are written BEFORE any account lookup, so an
     // unauthenticated caller could grow the map without limit.
     const flood = createLoginThrottle(() => clock);
-    for (let i = 0; i < 12_000; i += 1) flood.fail(`nobody-${i}@nowhere.example`);
-    check("the record map is capped", flood.size() <= 10_000, String(flood.size()));
+    for (let i = 0; i < 12_000; i += 1) (await flood.fail(`nobody-${i}@nowhere.example`));
+    check("the record map is capped", (await flood.size()) <= 10_000, String((await flood.size())));
   });
 
   await ctx.scenario("units — a session grant is revocable by user, not only by token", async () => {
     let clock = 5_000_000;
     const registry = createSessionRegistry(() => clock);
-    const a = registry.issue({ userId: "U1", permissions: ["sales.invoice.view"], roleCode: "CLERK", branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
-    const b = registry.issue({ userId: "U1", permissions: ["sales.invoice.view"], roleCode: "CLERK", branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
-    const other = registry.issue({ userId: "U2", permissions: [], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
+    const a = (await registry.issue({ userId: "U1", permissions: ["sales.invoice.view"], roleCode: "CLERK", branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE }));
+    const b = (await registry.issue({ userId: "U1", permissions: ["sales.invoice.view"], roleCode: "CLERK", branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE }));
+    const other = (await registry.issue({ userId: "U2", permissions: [], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE }));
 
-    check("both of a user's tabs resolve", !!registry.find(a) && !!registry.find(b));
-    registry.revokeUser("U1");
-    check("revoking the USER ends every one of their sessions", !registry.find(a) && !registry.find(b));
-    check("and leaves everyone else signed in", !!registry.find(other));
+    check("both of a user's tabs resolve", !!(await registry.find(a)) && !!(await registry.find(b)));
+    (await registry.revokeUser("U1"));
+    check("revoking the USER ends every one of their sessions", !(await registry.find(a)) && !(await registry.find(b)));
+    check("and leaves everyone else signed in", !!(await registry.find(other)));
 
     // The idle sweep, which is what made "deactivation takes twelve hours" the
     // status quo before `revokeUser` was actually called.
     clock += 13 * 60 * 60 * 1000;
-    check("an untouched session idles out", !registry.find(other));
+    check("an untouched session idles out", !(await registry.find(other)));
   });
 
   await ctx.scenario("units — one machine's many spellings are one origin, and null is not a wildcard", async () => {
@@ -248,19 +248,19 @@ export async function run(ctx: Ctx): Promise<void> {
     let clock = 9_000_000;
     const registry = createSessionRegistry(() => clock);
     const grant = { userId: "U9", permissions: ["sales.invoice.view"], roleCode: "CLERK", branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE };
-    const busy = registry.issue(grant, "192.168.7.21");
+    const busy = (await registry.issue(grant, "192.168.7.21"));
 
     let aliveAt = 0;
     for (let hour = 1; hour <= 24; hour += 1) {
       clock += 60 * 60 * 1000;
-      if (registry.find(busy, "192.168.7.21")) aliveAt = hour;
+      if ((await registry.find(busy, "192.168.7.21"))) aliveAt = hour;
     }
     check("a polled session dies at the absolute cap, not never", aliveAt === 16, `alive through hour ${aliveAt}`);
 
     // And the shorter idle timeout still governs the laptop nobody touched.
-    const idle = registry.issue(grant, "192.168.7.21");
+    const idle = (await registry.issue(grant, "192.168.7.21"));
     clock += 12 * 60 * 60 * 1000 + 1;
-    const refusal = registry.inspect(idle, "192.168.7.21").refusal;
+    const refusal = (await registry.inspect(idle, "192.168.7.21")).refusal;
     check("while an untouched one still goes idle first", refusal?.reason === "idle", String(refusal?.reason));
   });
 
@@ -272,19 +272,19 @@ export async function run(ctx: Ctx): Promise<void> {
     const registry = createSessionRegistry();
     const grant = { userId: "U7", permissions: ["sales.invoice.view"], roleCode: "CLERK", branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE };
 
-    const till = registry.issue(grant, "192.168.7.21");
-    check("the till's own token resolves", !!registry.find(till, "192.168.7.21"));
-    const moved = registry.inspect(till, "192.168.7.99").refusal;
+    const till = (await registry.issue(grant, "192.168.7.21"));
+    check("the till's own token resolves", !!(await registry.find(till, "192.168.7.21")));
+    const moved = (await registry.inspect(till, "192.168.7.99")).refusal;
     check("a second address is refused as a MOVE", moved?.reason === "moved", String(moved?.reason));
     check("naming where it was issued", moved?.issuedFrom === "192.168.7.21", String(moved?.issuedFrom));
     check("and where it turned up", moved?.presentedFrom === "192.168.7.99", String(moved?.presentedFrom));
-    check("the token is dead at home too", !registry.find(till, "192.168.7.21"));
+    check("the token is dead at home too", !(await registry.find(till, "192.168.7.21")));
 
     // The desktop shell's own session: no origin is ONE origin, not any origin.
-    const host = registry.issue(grant);
-    check("a host session works on the host", !!registry.find(host));
-    check("and nowhere on the wire", !registry.find(host, "192.168.7.21"));
-    const fromTill = registry.issue(grant, "192.168.7.21");
-    check("a till session does not work over the in-process mount", !registry.find(fromTill));
+    const host = (await registry.issue(grant));
+    check("a host session works on the host", !!(await registry.find(host)));
+    check("and nowhere on the wire", !(await registry.find(host, "192.168.7.21")));
+    const fromTill = (await registry.issue(grant, "192.168.7.21"));
+    check("a till session does not work over the in-process mount", !(await registry.find(fromTill)));
   });
 }

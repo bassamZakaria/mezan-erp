@@ -1,6 +1,7 @@
-import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
-import { insertingNew, prepareInsertOnly } from "./insert-new.js";
+import { insertNew, refuseUnlessInserted } from "./insert-new.js";
+import type { SqlDb, SqlValue } from "./sql/sql-db.js";
+import { sqliteDb } from "./sql/sqlite-db.js";
 import {
   Money,
   Qty,
@@ -79,61 +80,52 @@ function rfqToDomain(row: RfqRow): PurchaseRfq {
   };
 }
 
-class SqlitePurchaseRfqStore implements PurchaseRfqRepository {
-  private readonly upsert: Database.Statement;
-  private readonly insertOnly: Database.Statement;
-  private readonly selectById: Database.Statement;
-  private readonly selectAll: Database.Statement;
+const UPSERT_RFQ = `INSERT INTO purchase_rfq (id, number, date, required_by_date, branch_id, warehouse_id, notes, lines, status, purchase_order_id, created_by, created_at)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  ON CONFLICT(id) DO UPDATE SET
+    date = excluded.date, required_by_date = excluded.required_by_date, branch_id = excluded.branch_id,
+    warehouse_id = excluded.warehouse_id, notes = excluded.notes, lines = excluded.lines,
+    status = excluded.status, purchase_order_id = excluded.purchase_order_id`;
 
-  constructor(sqlite: Database.Database) {
-    this.upsert = sqlite.prepare(`
-      INSERT INTO purchase_rfq (id, number, date, required_by_date, branch_id, warehouse_id, notes, lines, status, purchase_order_id, created_by, created_at)
-      VALUES (@id, @number, @date, @required_by_date, @branch_id, @warehouse_id, @notes, @lines, @status, @purchase_order_id, @created_by, @created_at)
-      ON CONFLICT(id) DO UPDATE SET
-        date = excluded.date, required_by_date = excluded.required_by_date, branch_id = excluded.branch_id,
-        warehouse_id = excluded.warehouse_id, notes = excluded.notes, lines = excluded.lines,
-        status = excluded.status, purchase_order_id = excluded.purchase_order_id
-    `);
-    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
-    this.selectById = sqlite.prepare(`SELECT * FROM purchase_rfq WHERE id = ?`);
-    this.selectAll = sqlite.prepare(`SELECT * FROM purchase_rfq`);
-  }
+function rfqParams(r: PurchaseRfq): SqlValue[] {
+  return [
+    r.id,
+    r.number,
+    r.date,
+    r.requiredByDate,
+    r.branchId,
+    r.warehouseId,
+    r.notes,
+    JSON.stringify(
+      r.lines.map((l) => ({
+        itemId: l.itemId,
+        description: l.description,
+        qty: l.qty.toString(),
+        notes: l.notes,
+      })),
+    ),
+    r.status,
+    r.purchaseOrderId,
+    r.createdBy,
+    r.createdAt,
+  ];
+}
+
+class SqlPurchaseRfqStore implements PurchaseRfqRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async findById(id: string): Promise<PurchaseRfq | null> {
-    const row = this.selectById.get(id) as RfqRow | undefined;
+    const row = await this.db.get<RfqRow>(`SELECT * FROM purchase_rfq WHERE id = ?`, [id]);
     return row ? rfqToDomain(row) : null;
   }
   async list(): Promise<PurchaseRfq[]> {
-    return (this.selectAll.all() as RfqRow[]).map(rfqToDomain);
+    return (await this.db.all<RfqRow>(`SELECT * FROM purchase_rfq`)).map(rfqToDomain);
   }
   async create(rfq: PurchaseRfq): Promise<void> {
-    insertingNew(rfq.id, () => this.write(rfq, this.insertOnly));
+    await insertNew(this.db, rfq.id, UPSERT_RFQ, rfqParams(rfq));
   }
   async update(rfq: PurchaseRfq): Promise<void> {
-    this.write(rfq);
-  }
-  private write(r: PurchaseRfq, statement: Database.Statement = this.upsert): void {
-    statement.run({
-      id: r.id,
-      number: r.number,
-      date: r.date,
-      required_by_date: r.requiredByDate,
-      branch_id: r.branchId,
-      warehouse_id: r.warehouseId,
-      notes: r.notes,
-      lines: JSON.stringify(
-        r.lines.map((l) => ({
-          itemId: l.itemId,
-          description: l.description,
-          qty: l.qty.toString(),
-          notes: l.notes,
-        })),
-      ),
-      status: r.status,
-      purchase_order_id: r.purchaseOrderId,
-      created_by: r.createdBy,
-      created_at: r.createdAt,
-    });
+    await this.db.run(UPSERT_RFQ, rfqParams(rfq));
   }
 }
 
@@ -178,47 +170,52 @@ function quoteToDomain(row: RfqQuoteRow): RfqQuote {
   };
 }
 
-class SqliteRfqQuoteStore implements RfqQuoteRepository {
-  private readonly insert: Database.Statement;
-  private readonly selectById: Database.Statement;
-  private readonly selectByRfq: Database.Statement;
-
-  constructor(sqlite: Database.Database) {
-    this.insert = sqlite.prepare(`
-      INSERT INTO rfq_quote (id, rfq_id, supplier_id, lines, notes, submitted_at)
-      VALUES (@id, @rfq_id, @supplier_id, @lines, @notes, @submitted_at)
-    `);
-    this.selectById = sqlite.prepare(`SELECT * FROM rfq_quote WHERE id = ?`);
-    this.selectByRfq = sqlite.prepare(`SELECT * FROM rfq_quote WHERE rfq_id = ?`);
-  }
+class SqlRfqQuoteStore implements RfqQuoteRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async findById(id: string): Promise<RfqQuote | null> {
-    const row = this.selectById.get(id) as RfqQuoteRow | undefined;
+    const row = await this.db.get<RfqQuoteRow>(`SELECT * FROM rfq_quote WHERE id = ?`, [id]);
     return row ? quoteToDomain(row) : null;
   }
   async listByRfq(rfqId: string): Promise<RfqQuote[]> {
-    return (this.selectByRfq.all(rfqId) as RfqQuoteRow[]).map(quoteToDomain);
+    return (await this.db.all<RfqQuoteRow>(`SELECT * FROM rfq_quote WHERE rfq_id = ?`, [rfqId])).map(quoteToDomain);
   }
   async create(quote: RfqQuote): Promise<void> {
-    insertingNew(quote.id, () => this.insert.run({
-      id: quote.id,
-      rfq_id: quote.rfqId,
-      supplier_id: quote.supplierId,
-      lines: JSON.stringify(
-        quote.lines.map((l) => ({ itemId: l.itemId, unitPrice: l.unitPrice.toString(), notes: l.notes })),
-      ),
-      notes: quote.notes,
-      submitted_at: quote.submittedAt,
-    }));
+    const inserted = await this.db.run(
+      `INSERT INTO rfq_quote (id, rfq_id, supplier_id, lines, notes, submitted_at)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT (id) DO NOTHING`,
+      [
+        quote.id,
+        quote.rfqId,
+        quote.supplierId,
+        JSON.stringify(quote.lines.map((l) => ({ itemId: l.itemId, unitPrice: l.unitPrice.toString(), notes: l.notes }))),
+        quote.notes,
+        quote.submittedAt,
+      ],
+    );
+    refuseUnlessInserted(quote.id, inserted.changes);
   }
 }
 
 // --- Factory ---------------------------------------------------------------
 
-export interface SqliteRfqStores {
+export interface RfqStores {
   readonly rfqs: PurchaseRfqRepository;
   readonly quotes: RfqQuoteRepository;
+}
+
+export interface SqliteRfqStores extends RfqStores {
   close(): void;
+}
+
+export async function ensureRfqSchema(db: SqlDb): Promise<void> {
+  await db.applySchema(CREATE_RFQ);
+  await db.applySchema(CREATE_RFQ_QUOTE);
+}
+
+export function createRfqStores(db: SqlDb): RfqStores {
+  return { rfqs: new SqlPurchaseRfqStore(db), quotes: new SqlRfqQuoteStore(db) };
 }
 
 /** Open the RFQ + RFQ-quote stores on ONE shared connection. */
@@ -227,8 +224,7 @@ export function createSqliteRfqStores(path: SqliteConnectionInput = ":memory:"):
   sqlite.exec(CREATE_RFQ);
   sqlite.exec(CREATE_RFQ_QUOTE);
   return {
-    rfqs: new SqlitePurchaseRfqStore(sqlite),
-    quotes: new SqliteRfqQuoteStore(sqlite),
+    ...createRfqStores(sqliteDb(sqlite)),
     close: () => { if (owned) sqlite.close(); },
   };
 }

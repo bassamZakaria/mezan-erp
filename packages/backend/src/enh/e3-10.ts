@@ -1,6 +1,6 @@
 import { createClientErrorRoutes, createSystemHealthRoutes } from "@mezan/api";
 import { ClientErrorKindDTO, ClientErrorPlatformDTO } from "@mezan/contracts";
-import { createSqliteClientErrorStore, createSqliteSystemHealthStore } from "@mezan/persistence";
+import { createSqliteClientErrorStore, createSqliteSystemHealthStore, createClientErrorStore, createSystemHealthStore } from "@mezan/persistence";
 import type { BackendArea } from "../module-context.js";
 
 const PLATFORMS = new Set<string>(Object.values(ClientErrorPlatformDTO));
@@ -8,8 +8,8 @@ const KINDS = new Set<string>(Object.values(ClientErrorKindDTO));
 
 export const area: BackendArea = {
   mount(ctx) {
-    const store = createSqliteSystemHealthStore(ctx.sqlite);
-    const clientErrors = createSqliteClientErrorStore(ctx.sqlite);
+    const store = ctx.store((s) => createSqliteSystemHealthStore(s), (d) => createSystemHealthStore(d));
+    const clientErrors = ctx.store((s) => createSqliteClientErrorStore(s), (d) => createClientErrorStore(d));
     ctx.app.route("/client-errors", createClientErrorRoutes({ sink: clientErrors, resolveAuthContext: ctx.resolveAuthContext }));
     ctx.app.route(
       "/system/health",
@@ -25,10 +25,9 @@ export const area: BackendArea = {
           mailConfigured: ctx.customerMail.configured,
           resolveLicenseState: ctx.resolveLicenseState,
           cloudTenant: ctx.cloudTenant,
-          clientErrors: (sinceIso, limit) => ({
-            lastDay: clientErrors.countSince(sinceIso),
-            recent: clientErrors
-              .recent(limit)
+          clientErrors: async (sinceIso, limit) => ({
+            lastDay: await clientErrors.countSince(sinceIso),
+            recent: (await clientErrors.recent(limit))
               .filter((row) => PLATFORMS.has(row.platform) && KINDS.has(row.kind))
               .map((row) => ({ ...row, platform: row.platform as ClientErrorPlatformDTO, kind: row.kind as ClientErrorKindDTO })),
           }),

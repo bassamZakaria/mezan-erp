@@ -1,6 +1,8 @@
-import Database from "better-sqlite3";
+import type Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
-import { insertingNew, prepareInsertOnly } from "./insert-new.js";
+import { insertNew } from "./insert-new.js";
+import type { SqlDb, SqlValue } from "./sql/sql-db.js";
+import { sqliteDb } from "./sql/sqlite-db.js";
 import {
   Money,
   type AssetCategory,
@@ -55,14 +57,14 @@ interface AssetCategoryRow {
   name_ar: string;
   name_en: string | null;
   default_depreciation_method: string;
-  default_useful_life_months: number;
+  default_useful_life_months: bigint;
   default_salvage_percent: number;
   asset_account_id: string | null;
   depreciation_expense_account_id: string | null;
   accumulated_depreciation_account_id: string | null;
   gain_on_disposal_account_id: string | null;
   loss_on_disposal_account_id: string | null;
-  active: number;
+  active: bigint;
 }
 
 function toAssetCategory(row: AssetCategoryRow): AssetCategory {
@@ -72,35 +74,27 @@ function toAssetCategory(row: AssetCategoryRow): AssetCategory {
     nameAr: row.name_ar,
     nameEn: row.name_en,
     defaultDepreciationMethod: row.default_depreciation_method as DepreciationMethod,
-    defaultUsefulLifeMonths: row.default_useful_life_months,
+    defaultUsefulLifeMonths: Number(row.default_useful_life_months),
     defaultSalvagePercent: row.default_salvage_percent,
     assetAccountId: row.asset_account_id,
     depreciationExpenseAccountId: row.depreciation_expense_account_id,
     accumulatedDepreciationAccountId: row.accumulated_depreciation_account_id,
     gainOnDisposalAccountId: row.gain_on_disposal_account_id,
     lossOnDisposalAccountId: row.loss_on_disposal_account_id,
-    active: row.active === 1,
+    active: Number(row.active) === 1,
   };
 }
 
-class SqliteAssetCategoryRepository implements AssetCategoryRepository {
-  private readonly upsert: Database.Statement;
-  private readonly insertOnly: Database.Statement;
-  private readonly selectById: Database.Statement;
-  private readonly selectByCode: Database.Statement;
-  private readonly selectAll: Database.Statement;
-
-  constructor(sqlite: Database.Database) {
-    this.upsert = sqlite.prepare(`
+const UPSERT_ASSET_CATEGORY = `
       INSERT INTO asset_category (
         id, code, name_ar, name_en, default_depreciation_method, default_useful_life_months,
         default_salvage_percent, asset_account_id, depreciation_expense_account_id,
         accumulated_depreciation_account_id, gain_on_disposal_account_id, loss_on_disposal_account_id, active
       )
       VALUES (
-        @id, @code, @name_ar, @name_en, @default_depreciation_method, @default_useful_life_months,
-        @default_salvage_percent, @asset_account_id, @depreciation_expense_account_id,
-        @accumulated_depreciation_account_id, @gain_on_disposal_account_id, @loss_on_disposal_account_id, @active
+        ?, ?, ?, ?, ?, ?,
+        ?, ?, ?,
+        ?, ?, ?, ?
       )
       ON CONFLICT(id) DO UPDATE SET
         code = excluded.code,
@@ -115,52 +109,58 @@ class SqliteAssetCategoryRepository implements AssetCategoryRepository {
         gain_on_disposal_account_id = excluded.gain_on_disposal_account_id,
         loss_on_disposal_account_id = excluded.loss_on_disposal_account_id,
         active = excluded.active
-    `);
-    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
-    this.selectById = sqlite.prepare(`SELECT * FROM asset_category WHERE id = ?`);
-    this.selectByCode = sqlite.prepare(`SELECT * FROM asset_category WHERE code = ?`);
-    this.selectAll = sqlite.prepare(`SELECT * FROM asset_category`);
-  }
+    `;
+
+function assetCategoryParams(category: AssetCategory): SqlValue[] {
+  return [
+    category.id,
+    category.code,
+    category.nameAr,
+    category.nameEn,
+    category.defaultDepreciationMethod,
+    category.defaultUsefulLifeMonths,
+    category.defaultSalvagePercent,
+    category.assetAccountId,
+    category.depreciationExpenseAccountId,
+    category.accumulatedDepreciationAccountId,
+    category.gainOnDisposalAccountId,
+    category.lossOnDisposalAccountId,
+    category.active ? 1 : 0,
+  ];
+}
+
+class SqlAssetCategoryRepository implements AssetCategoryRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async findById(id: string): Promise<AssetCategory | null> {
-    const row = this.selectById.get(id) as AssetCategoryRow | undefined;
+    const row = await this.db.get<AssetCategoryRow>(`SELECT * FROM asset_category WHERE id = ?`, [id]);
     return row ? toAssetCategory(row) : null;
   }
 
   async findByCode(code: string): Promise<AssetCategory | null> {
-    const row = this.selectByCode.get(code) as AssetCategoryRow | undefined;
+    const row = await this.db.get<AssetCategoryRow>(`SELECT * FROM asset_category WHERE code = ?`, [code]);
     return row ? toAssetCategory(row) : null;
   }
 
   async list(): Promise<AssetCategory[]> {
-    return (this.selectAll.all() as AssetCategoryRow[]).map(toAssetCategory);
+    return (await this.db.all<AssetCategoryRow>(`SELECT * FROM asset_category`)).map(toAssetCategory);
   }
 
   async create(category: AssetCategory): Promise<void> {
-    insertingNew(category.id, () => this.write(category, this.insertOnly));
+    await insertNew(this.db, category.id, UPSERT_ASSET_CATEGORY, assetCategoryParams(category));
   }
 
   async update(category: AssetCategory): Promise<void> {
-    this.write(category);
+    await this.db.run(UPSERT_ASSET_CATEGORY, assetCategoryParams(category));
   }
+}
 
-  private write(category: AssetCategory, statement: Database.Statement = this.upsert): void {
-    statement.run({
-      id: category.id,
-      code: category.code,
-      name_ar: category.nameAr,
-      name_en: category.nameEn,
-      default_depreciation_method: category.defaultDepreciationMethod,
-      default_useful_life_months: category.defaultUsefulLifeMonths,
-      default_salvage_percent: category.defaultSalvagePercent,
-      asset_account_id: category.assetAccountId,
-      depreciation_expense_account_id: category.depreciationExpenseAccountId,
-      accumulated_depreciation_account_id: category.accumulatedDepreciationAccountId,
-      gain_on_disposal_account_id: category.gainOnDisposalAccountId,
-      loss_on_disposal_account_id: category.lossOnDisposalAccountId,
-      active: category.active ? 1 : 0,
-    });
-  }
+export async function ensureAssetCategorySchema(db: SqlDb): Promise<void> {
+  await db.applySchema(CREATE_ASSET_CATEGORY);
+}
+
+export function createAssetCategoryRepository(db: SqlDb): AssetCategoryRepository {
+  return new SqlAssetCategoryRepository(db);
 }
 
 export interface SqliteAssetCategoryRepositoryHandle extends AssetCategoryRepository {
@@ -171,7 +171,7 @@ export interface SqliteAssetCategoryRepositoryHandle extends AssetCategoryReposi
 export function createSqliteAssetCategoryRepository(path: SqliteConnectionInput = ":memory:"): SqliteAssetCategoryRepositoryHandle {
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.exec(CREATE_ASSET_CATEGORY);
-  const repo = new SqliteAssetCategoryRepository(sqlite);
+  const repo = createAssetCategoryRepository(sqliteDb(sqlite));
   return Object.assign(repo, { close: () => { if (owned) sqlite.close(); } }) as SqliteAssetCategoryRepositoryHandle;
 }
 
@@ -199,7 +199,8 @@ CREATE TABLE IF NOT EXISTS asset (
   depreciation_expense_account_id      TEXT,
   accumulated_depreciation_account_id  TEXT,
   notes                                TEXT,
-  internal_hourly_rate                 INTEGER
+  internal_hourly_rate                 INTEGER,
+  project_id                           TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_asset_category ON asset(category_id);
 `;
@@ -222,19 +223,19 @@ interface AssetRow {
   branch_id: string | null;
   warehouse_id: string | null;
   acquisition_date: string;
-  acquisition_cost: number;
+  acquisition_cost: bigint;
   depreciation_start_date: string;
   depreciation_method: string;
-  useful_life_months: number;
-  salvage_value: number;
-  accumulated_depreciation: number;
+  useful_life_months: bigint;
+  salvage_value: bigint;
+  accumulated_depreciation: bigint;
   status: string;
   asset_account_id: string | null;
   depreciation_expense_account_id: string | null;
   accumulated_depreciation_account_id: string | null;
   notes: string | null;
   project_id: string | null;
-  internal_hourly_rate: number | null;
+  internal_hourly_rate: bigint | null;
 }
 
 function toAsset(row: AssetRow): Asset {
@@ -251,7 +252,7 @@ function toAsset(row: AssetRow): Asset {
     acquisitionCost: Money.fromScaled(row.acquisition_cost),
     depreciationStartDate: row.depreciation_start_date,
     depreciationMethod: row.depreciation_method as DepreciationMethod,
-    usefulLifeMonths: row.useful_life_months,
+    usefulLifeMonths: Number(row.useful_life_months),
     salvageValue: Money.fromScaled(row.salvage_value),
     accumulatedDepreciation: Money.fromScaled(row.accumulated_depreciation),
     status: row.status as AssetStatus,
@@ -264,15 +265,7 @@ function toAsset(row: AssetRow): Asset {
   };
 }
 
-class SqliteAssetRepository implements AssetRepository {
-  private readonly upsert: Database.Statement;
-  private readonly insertOnly: Database.Statement;
-  private readonly selectById: Database.Statement;
-  private readonly selectByCode: Database.Statement;
-  private readonly selectAll: Database.Statement;
-
-  constructor(sqlite: Database.Database) {
-    this.upsert = sqlite.prepare(`
+const UPSERT_ASSET = `
       INSERT INTO asset (
         id, code, name_ar, name_en, category_id, scope, branch_id, warehouse_id, acquisition_date,
         acquisition_cost, depreciation_start_date, depreciation_method, useful_life_months, salvage_value,
@@ -280,10 +273,10 @@ class SqliteAssetRepository implements AssetRepository {
         accumulated_depreciation_account_id, notes, project_id, internal_hourly_rate
       )
       VALUES (
-        @id, @code, @name_ar, @name_en, @category_id, @scope, @branch_id, @warehouse_id, @acquisition_date,
-        @acquisition_cost, @depreciation_start_date, @depreciation_method, @useful_life_months, @salvage_value,
-        @accumulated_depreciation, @status, @asset_account_id, @depreciation_expense_account_id,
-        @accumulated_depreciation_account_id, @notes, @project_id, @internal_hourly_rate
+        ?, ?, ?, ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?,
+        ?, ?, ?, ?,
+        ?, ?, ?, ?
       )
       ON CONFLICT(id) DO UPDATE SET
         code = excluded.code,
@@ -307,61 +300,67 @@ class SqliteAssetRepository implements AssetRepository {
         notes = excluded.notes,
         project_id = excluded.project_id,
         internal_hourly_rate = excluded.internal_hourly_rate
-    `);
-    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
-    this.selectById = sqlite.prepare(`SELECT * FROM asset WHERE id = ?`);
-    this.selectByCode = sqlite.prepare(`SELECT * FROM asset WHERE code = ?`);
-    this.selectAll = sqlite.prepare(`SELECT * FROM asset`);
-  }
+    `;
+
+function assetParams(asset: Asset): SqlValue[] {
+  return [
+    asset.id,
+    asset.code,
+    asset.nameAr,
+    asset.nameEn,
+    asset.categoryId,
+    asset.scope,
+    asset.branchId,
+    asset.warehouseId,
+    asset.acquisitionDate,
+    asset.acquisitionCost.scaled,
+    asset.depreciationStartDate,
+    asset.depreciationMethod,
+    asset.usefulLifeMonths,
+    asset.salvageValue.scaled,
+    asset.accumulatedDepreciation.scaled,
+    asset.status,
+    asset.assetAccountId,
+    asset.depreciationExpenseAccountId,
+    asset.accumulatedDepreciationAccountId,
+    asset.notes,
+    asset.projectId,
+    asset.internalHourlyRate?.scaled ?? null,
+  ];
+}
+
+class SqlAssetRepository implements AssetRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async findById(id: string): Promise<Asset | null> {
-    const row = this.selectById.get(id) as AssetRow | undefined;
+    const row = await this.db.get<AssetRow>(`SELECT * FROM asset WHERE id = ?`, [id]);
     return row ? toAsset(row) : null;
   }
 
   async findByCode(code: string): Promise<Asset | null> {
-    const row = this.selectByCode.get(code) as AssetRow | undefined;
+    const row = await this.db.get<AssetRow>(`SELECT * FROM asset WHERE code = ?`, [code]);
     return row ? toAsset(row) : null;
   }
 
   async list(): Promise<Asset[]> {
-    return (this.selectAll.all() as AssetRow[]).map(toAsset);
+    return (await this.db.all<AssetRow>(`SELECT * FROM asset`)).map(toAsset);
   }
 
   async create(asset: Asset): Promise<void> {
-    insertingNew(asset.id, () => this.write(asset, this.insertOnly));
+    await insertNew(this.db, asset.id, UPSERT_ASSET, assetParams(asset));
   }
 
   async update(asset: Asset): Promise<void> {
-    this.write(asset);
+    await this.db.run(UPSERT_ASSET, assetParams(asset));
   }
+}
 
-  private write(asset: Asset, statement: Database.Statement = this.upsert): void {
-    statement.run({
-      id: asset.id,
-      code: asset.code,
-      name_ar: asset.nameAr,
-      name_en: asset.nameEn,
-      category_id: asset.categoryId,
-      scope: asset.scope,
-      branch_id: asset.branchId,
-      warehouse_id: asset.warehouseId,
-      acquisition_date: asset.acquisitionDate,
-      acquisition_cost: asset.acquisitionCost.toScaledNumber(),
-      depreciation_start_date: asset.depreciationStartDate,
-      depreciation_method: asset.depreciationMethod,
-      useful_life_months: asset.usefulLifeMonths,
-      salvage_value: asset.salvageValue.toScaledNumber(),
-      accumulated_depreciation: asset.accumulatedDepreciation.toScaledNumber(),
-      status: asset.status,
-      asset_account_id: asset.assetAccountId,
-      depreciation_expense_account_id: asset.depreciationExpenseAccountId,
-      accumulated_depreciation_account_id: asset.accumulatedDepreciationAccountId,
-      notes: asset.notes,
-      project_id: asset.projectId,
-      internal_hourly_rate: asset.internalHourlyRate?.toScaledNumber() ?? null,
-    });
-  }
+export async function ensureAssetSchema(db: SqlDb): Promise<void> {
+  await db.applySchema(CREATE_ASSET);
+}
+
+export function createAssetRepository(db: SqlDb): AssetRepository {
+  return new SqlAssetRepository(db);
 }
 
 export interface SqliteAssetRepositoryHandle extends AssetRepository {
@@ -373,7 +372,7 @@ export function createSqliteAssetRepository(path: SqliteConnectionInput = ":memo
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.exec(CREATE_ASSET);
   addAssetProjectColumnIfMissing(sqlite);
-  const repo = new SqliteAssetRepository(sqlite);
+  const repo = createAssetRepository(sqliteDb(sqlite));
   return Object.assign(repo, { close: () => { if (owned) sqlite.close(); } }) as SqliteAssetRepositoryHandle;
 }
 
@@ -394,7 +393,7 @@ CREATE INDEX IF NOT EXISTS idx_asset_internal_rate_history ON asset_internal_rat
 interface AssetInternalRateHistoryRow {
   asset_id: string;
   effective_from: string;
-  hourly_rate: number;
+  hourly_rate: bigint;
   set_by: string | null;
   set_at: string;
 }
@@ -409,45 +408,54 @@ function toRateRow(row: AssetInternalRateHistoryRow): AssetInternalRateRow {
   };
 }
 
-class SqliteAssetInternalRateHistoryRepository implements AssetInternalRateHistoryRepository {
-  private readonly upsert: Database.Statement;
-  private readonly selectByAsset: Database.Statement;
-  private readonly selectAll: Database.Statement;
-
-  constructor(sqlite: Database.Database) {
-    this.upsert = sqlite.prepare(`
+const UPSERT_RATE = `
       INSERT INTO asset_internal_rate_history (asset_id, effective_from, hourly_rate, set_by, set_at)
-      VALUES (@asset_id, @effective_from, @hourly_rate, @set_by, @set_at)
+      VALUES (?, ?, ?, ?, ?)
       ON CONFLICT(asset_id, effective_from) DO UPDATE SET
         hourly_rate = excluded.hourly_rate,
         set_by = excluded.set_by,
         set_at = excluded.set_at
-    `);
-    this.selectByAsset = sqlite.prepare(
-      `SELECT * FROM asset_internal_rate_history WHERE asset_id = ? ORDER BY effective_from, set_at`,
-    );
-    this.selectAll = sqlite.prepare(
-      `SELECT * FROM asset_internal_rate_history ORDER BY asset_id, effective_from, set_at`,
-    );
-  }
+    `;
+
+function rateParams(row: AssetInternalRateRow): SqlValue[] {
+  return [
+    row.assetId,
+    row.effectiveFrom,
+    row.hourlyRate.scaled,
+    row.setBy,
+    row.setAt,
+  ];
+}
+
+class SqlAssetInternalRateHistoryRepository implements AssetInternalRateHistoryRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async list(assetId: string): Promise<readonly AssetInternalRateRow[]> {
-    return (this.selectByAsset.all(assetId) as AssetInternalRateHistoryRow[]).map(toRateRow);
+    const rows = await this.db.all<AssetInternalRateHistoryRow>(
+      `SELECT * FROM asset_internal_rate_history WHERE asset_id = ? ORDER BY effective_from, set_at`,
+      [assetId],
+    );
+    return rows.map(toRateRow);
   }
 
   async listAll(): Promise<readonly AssetInternalRateRow[]> {
-    return (this.selectAll.all() as AssetInternalRateHistoryRow[]).map(toRateRow);
+    const rows = await this.db.all<AssetInternalRateHistoryRow>(
+      `SELECT * FROM asset_internal_rate_history ORDER BY asset_id, effective_from, set_at`,
+    );
+    return rows.map(toRateRow);
   }
 
   async append(row: AssetInternalRateRow): Promise<void> {
-    this.upsert.run({
-      asset_id: row.assetId,
-      effective_from: row.effectiveFrom,
-      hourly_rate: row.hourlyRate.toScaledNumber(),
-      set_by: row.setBy,
-      set_at: row.setAt,
-    });
+    await this.db.run(UPSERT_RATE, rateParams(row));
   }
+}
+
+export async function ensureAssetInternalRateHistorySchema(db: SqlDb): Promise<void> {
+  await db.applySchema(CREATE_ASSET_INTERNAL_RATE_HISTORY);
+}
+
+export function createAssetInternalRateHistoryRepository(db: SqlDb): AssetInternalRateHistoryRepository {
+  return new SqlAssetInternalRateHistoryRepository(db);
 }
 
 export interface SqliteAssetInternalRateHistoryRepositoryHandle extends AssetInternalRateHistoryRepository {
@@ -460,7 +468,7 @@ export function createSqliteAssetInternalRateHistoryRepository(
 ): SqliteAssetInternalRateHistoryRepositoryHandle {
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.exec(CREATE_ASSET_INTERNAL_RATE_HISTORY);
-  const repo = new SqliteAssetInternalRateHistoryRepository(sqlite);
+  const repo = createAssetInternalRateHistoryRepository(sqliteDb(sqlite));
   return Object.assign(repo, { close: () => { if (owned) sqlite.close(); } }) as SqliteAssetInternalRateHistoryRepositoryHandle;
 }
 
@@ -495,7 +503,7 @@ interface DepreciationRunRow {
   branch_id: string | null;
   status: string;
   lines: string;
-  total_amount: number;
+  total_amount: bigint;
   journal_entry_id: string | null;
   created_at: string;
   posted_at: string | null;
@@ -534,18 +542,9 @@ function toDepreciationRun(row: DepreciationRunRow): DepreciationRun {
   };
 }
 
-class SqliteDepreciationRunRepository implements DepreciationRunRepository {
-  private readonly upsert: Database.Statement;
-  private readonly insertOnly: Database.Statement;
-  private readonly selectById: Database.Statement;
-  private readonly selectAll: Database.Statement;
-  private readonly selectByPeriodBranch: Database.Statement;
-  private readonly selectByPeriodNullBranch: Database.Statement;
-
-  constructor(sqlite: Database.Database) {
-    this.upsert = sqlite.prepare(`
+const UPSERT_DEPRECIATION_RUN = `
       INSERT INTO depreciation_run (id, period, branch_id, status, lines, total_amount, journal_entry_id, created_at, posted_at, skipped_lines)
-      VALUES (@id, @period, @branch_id, @status, @lines, @total_amount, @journal_entry_id, @created_at, @posted_at, @skipped_lines)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         period = excluded.period,
         branch_id = excluded.branch_id,
@@ -556,49 +555,15 @@ class SqliteDepreciationRunRepository implements DepreciationRunRepository {
         created_at = excluded.created_at,
         posted_at = excluded.posted_at,
         skipped_lines = excluded.skipped_lines
-    `);
-    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
-    this.selectById = sqlite.prepare(`SELECT * FROM depreciation_run WHERE id = ?`);
-    this.selectAll = sqlite.prepare(`SELECT * FROM depreciation_run`);
-    this.selectByPeriodBranch = sqlite.prepare(`SELECT * FROM depreciation_run WHERE period = ? AND branch_id = ?`);
-    this.selectByPeriodNullBranch = sqlite.prepare(
-      `SELECT * FROM depreciation_run WHERE period = ? AND branch_id IS NULL`,
-    );
-  }
+    `;
 
-  async findById(id: string): Promise<DepreciationRun | null> {
-    const row = this.selectById.get(id) as DepreciationRunRow | undefined;
-    return row ? toDepreciationRun(row) : null;
-  }
-
-  async findByPeriod(period: string, branchId: string | null): Promise<DepreciationRun | null> {
-    const row = (
-      branchId === null
-        ? this.selectByPeriodNullBranch.get(period)
-        : this.selectByPeriodBranch.get(period, branchId)
-    ) as DepreciationRunRow | undefined;
-    return row ? toDepreciationRun(row) : null;
-  }
-
-  async list(): Promise<DepreciationRun[]> {
-    return (this.selectAll.all() as DepreciationRunRow[]).map(toDepreciationRun);
-  }
-
-  async create(run: DepreciationRun): Promise<void> {
-    insertingNew(run.id, () => this.write(run, this.insertOnly));
-  }
-
-  async update(run: DepreciationRun): Promise<void> {
-    this.write(run);
-  }
-
-  private write(run: DepreciationRun, statement: Database.Statement = this.upsert): void {
-    statement.run({
-      id: run.id,
-      period: run.period,
-      branch_id: run.branchId,
-      status: run.status,
-      lines: JSON.stringify(
+function depreciationRunParams(run: DepreciationRun): SqlValue[] {
+  return [
+    run.id,
+    run.period,
+    run.branchId,
+    run.status,
+    JSON.stringify(
         run.lines.map((l) => ({
           assetId: l.assetId,
           amount: l.amount.toString(),
@@ -606,13 +571,49 @@ class SqliteDepreciationRunRepository implements DepreciationRunRepository {
           costCategory: l.costCategory ?? null,
         })),
       ),
-      total_amount: run.totalAmount.toScaledNumber(),
-      journal_entry_id: run.journalEntryId,
-      created_at: run.createdAt,
-      posted_at: run.postedAt,
-      skipped_lines: JSON.stringify((run.skippedLines ?? []).map((l) => ({ assetId: l.assetId, assetCode: l.assetCode, amount: l.amount.toString() }))),
-    });
+    run.totalAmount.scaled,
+    run.journalEntryId,
+    run.createdAt,
+    run.postedAt,
+    JSON.stringify((run.skippedLines ?? []).map((l) => ({ assetId: l.assetId, assetCode: l.assetCode, amount: l.amount.toString() }))),
+  ];
+}
+
+class SqlDepreciationRunRepository implements DepreciationRunRepository {
+  constructor(private readonly db: SqlDb) {}
+
+  async findById(id: string): Promise<DepreciationRun | null> {
+    const row = await this.db.get<DepreciationRunRow>(`SELECT * FROM depreciation_run WHERE id = ?`, [id]);
+    return row ? toDepreciationRun(row) : null;
   }
+
+  async findByPeriod(period: string, branchId: string | null): Promise<DepreciationRun | null> {
+    const row =
+      branchId === null
+        ? await this.db.get<DepreciationRunRow>(`SELECT * FROM depreciation_run WHERE period = ? AND branch_id IS NULL`, [period])
+        : await this.db.get<DepreciationRunRow>(`SELECT * FROM depreciation_run WHERE period = ? AND branch_id = ?`, [period, branchId]);
+    return row ? toDepreciationRun(row) : null;
+  }
+
+  async list(): Promise<DepreciationRun[]> {
+    return (await this.db.all<DepreciationRunRow>(`SELECT * FROM depreciation_run`)).map(toDepreciationRun);
+  }
+
+  async create(run: DepreciationRun): Promise<void> {
+    await insertNew(this.db, run.id, UPSERT_DEPRECIATION_RUN, depreciationRunParams(run));
+  }
+
+  async update(run: DepreciationRun): Promise<void> {
+    await this.db.run(UPSERT_DEPRECIATION_RUN, depreciationRunParams(run));
+  }
+}
+
+export async function ensureDepreciationRunSchema(db: SqlDb): Promise<void> {
+  await db.applySchema(CREATE_DEPRECIATION_RUN);
+}
+
+export function createDepreciationRunRepository(db: SqlDb): DepreciationRunRepository {
+  return new SqlDepreciationRunRepository(db);
 }
 
 export interface SqliteDepreciationRunRepositoryHandle extends DepreciationRunRepository {
@@ -624,6 +625,6 @@ export function createSqliteDepreciationRunRepository(path: SqliteConnectionInpu
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.exec(CREATE_DEPRECIATION_RUN);
   addRunSkippedLinesColumnIfMissing(sqlite);
-  const repo = new SqliteDepreciationRunRepository(sqlite);
+  const repo = createDepreciationRunRepository(sqliteDb(sqlite));
   return Object.assign(repo, { close: () => { if (owned) sqlite.close(); } }) as SqliteDepreciationRunRepositoryHandle;
 }

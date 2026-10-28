@@ -85,7 +85,7 @@ import { duplicateIdRefusal } from "./duplicate-id.js";
 import { DuplicateRecordIdError } from "@mezan/domain";
 
 /** Stands in for the branch of a line the caller may not read; never a real id, so never inside a grant. */
-const UNREADABLE_BRANCH = "\u0000unattributed";
+const UNREADABLE_BRANCH = "\u001Funattributed";
 
 /** External dependencies the GL routes bind the posting engine to. */
 export interface GlRoutesDeps {

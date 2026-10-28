@@ -43,6 +43,8 @@ import {
 } from "@mezan/contracts";
 import { type AuthContextResolver, callerRoleCodes, createAnyPermissionGate, createPermissionGate, getAuthContext, permissionDeniedBody, roleCodesOf } from "./permission-gate.js";
 import { recordAdminEvent } from "./admin-audit.js";
+import { domainRefusalOf, INTERNAL_ERROR_MESSAGE_AR, INTERNAL_ERROR_MESSAGE_EN } from "./domain-refusal.js";
+import { createLogger, LogEvent } from "./observability/index.js";
 import { BranchRecordKind, recordInBranchGrant } from "./branch-policy.js";
 
 /**
@@ -156,6 +158,7 @@ function configErrorResponse(c: Context, err: unknown) {
  * permission set) bypasses every gate exactly as `gate.ts`'s `hasAdminRole` does.
  */
 const actorRoles = callerRoleCodes;
+const log = createLogger("workflow");
 
 /**
  * إعدادات الموافقات + الموافقات — the workflow-config chain-builder and the
@@ -436,12 +439,14 @@ export function createWorkflowRoutes(
           // The decision itself stands — it is already persisted. Report the
           // document-side failure instead of swallowing it, so an approval that
           // could not post its document never reads as a clean success.
+          const refusal = domainRefusalOf(err);
+          if (!refusal) log.error({ event: LogEvent.UnhandledError, requestId: record.id, documentId: docId, err }, "held document not resolved");
           return c.json(
             {
               error: "HELD_DOCUMENT_NOT_RESOLVED",
-              message: err instanceof Error ? err.message : String(err),
-              ...(err instanceof Error && "messageEn" in err && typeof err.messageEn === "string" ? { messageEn: err.messageEn } : {}),
-              ...(err instanceof Error && "code" in err && typeof err.code === "string" ? { reason: err.code } : {}),
+              ...(refusal
+                ? { message: refusal.message, ...(refusal.messageEn ? { messageEn: refusal.messageEn } : {}), reason: refusal.code }
+                : { message: INTERNAL_ERROR_MESSAGE_AR, messageEn: INTERNAL_ERROR_MESSAGE_EN }),
               request: await serializeRequest(deps, record),
             },
             409,

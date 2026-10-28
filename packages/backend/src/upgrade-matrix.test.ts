@@ -87,7 +87,7 @@ async function open(dbPath: string, tenantBinding?: string): Promise<BackendHand
 }
 
 async function read(backend: BackendHandle, path: string): Promise<{ status: number; body: any }> {
-  const token = backend.sessions.issue({ userId: "USER-ADMIN", permissions: ["*"], roleCode: "*", branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
+  const token = await backend.sessions.issue({ userId: "USER-ADMIN", permissions: ["*"], roleCode: "*", branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
   const res = await backend.app.fetch(new Request(`http://local${path}`, { headers: { authorization: `Bearer ${token}`, "x-branch-scope": "*", "x-warehouse-scope": "*" } }));
   const text = await res.text();
   return { status: res.status, body: text ? JSON.parse(text) : null };

@@ -226,13 +226,16 @@ export function auditBoundary(audit: AuditSink | undefined, options: AuditBounda
     await preloadBody(c);
 
     const state: BoundaryState = { failed: false, failure: undefined };
+    // The yield is a hazard only on a shared connection (SQLite, which has a turn): there
+    // another request's write would join this transaction. A pooled transaction owns its client.
+    const sharedConnection = audit?.turn !== undefined;
     let yielded = false;
     let committed = false;
     try {
       await atomic(async () => {
         openBoundaries.set(c.req.raw, state);
         const probe = setImmediate(() => {
-          yielded = true;
+          if (sharedConnection) yielded = true;
         });
         try {
           await next();

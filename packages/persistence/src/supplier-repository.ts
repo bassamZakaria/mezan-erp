@@ -1,7 +1,9 @@
-import Database from "better-sqlite3";
+import type Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 import { Money, type Supplier, type SupplierRepository } from "@mezan/domain";
-import { insertingNew, prepareInsertOnly } from "./insert-new.js";
+import { insertNew } from "./insert-new.js";
+import type { SqlDb, SqlValue } from "./sql/sql-db.js";
+import { sqliteDb } from "./sql/sqlite-db.js";
 
 /**
  * SQLite-backed SupplierRepository (docs/archive/catalog/02 "الموردون") — the mirror
@@ -59,10 +61,10 @@ interface SupplierRow {
   tax_number: string | null;
   category: string | null;
   notes: string | null;
-  payment_terms_days: number;
+  payment_terms_days: bigint;
   currency: string;
-  opening_balance: number;
-  active: number;
+  opening_balance: bigint;
+  active: bigint;
   branch_id: string | null;
   address_city: string | null;
   address_district: string | null;
@@ -82,10 +84,10 @@ function toSupplier(row: SupplierRow): Supplier {
     taxNumber: row.tax_number,
     category: row.category,
     notes: row.notes,
-    paymentTermsDays: row.payment_terms_days,
+    paymentTermsDays: Number(row.payment_terms_days),
     currency: row.currency,
     openingBalance: Money.fromScaled(row.opening_balance),
-    active: row.active === 1,
+    active: Number(row.active) === 1,
     branchId: row.branch_id ?? null,
     addressCity: row.address_city,
     addressDistrict: row.address_district,
@@ -94,79 +96,75 @@ function toSupplier(row: SupplierRow): Supplier {
   };
 }
 
-class SqliteSupplierRepository implements SupplierRepository {
-  private readonly upsert: Database.Statement;
-  private readonly insertOnly: Database.Statement;
-  private readonly selectAll: Database.Statement;
-  private readonly selectById: Database.Statement;
-  private readonly selectByCode: Database.Statement;
+const UPSERT_SUPPLIER = `INSERT INTO supplier (id, code, name_ar, name_en, phone, email, contact_person, tax_number, category, notes, payment_terms_days, currency, opening_balance, active, address_city, address_district, address_street, branch_id, bank_account)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  ON CONFLICT(id) DO UPDATE SET
+    code = excluded.code,
+    name_ar = excluded.name_ar,
+    name_en = excluded.name_en,
+    phone = excluded.phone,
+    email = excluded.email,
+    contact_person = excluded.contact_person,
+    tax_number = excluded.tax_number,
+    category = excluded.category,
+    notes = excluded.notes,
+    payment_terms_days = excluded.payment_terms_days,
+    currency = excluded.currency,
+    opening_balance = excluded.opening_balance,
+    active = excluded.active,
+    address_city = excluded.address_city,
+    address_district = excluded.address_district,
+    address_street = excluded.address_street,
+    branch_id = excluded.branch_id,
+    bank_account = excluded.bank_account`;
 
-  constructor(private readonly sqlite: Database.Database) {
-    this.upsert = sqlite.prepare(`
-      INSERT INTO supplier (
-        id, code, name_ar, name_en, phone, email, contact_person, tax_number, category, notes,
-        payment_terms_days, currency, opening_balance, active, address_city, address_district, address_street, branch_id, bank_account
-      ) VALUES (
-        @id, @code, @nameAr, @nameEn, @phone, @email, @contactPerson, @taxNumber, @category, @notes,
-        @paymentTermsDays, @currency, @openingBalance, @active, @addressCity, @addressDistrict, @addressStreet, @branchId, @bankAccount
-      )
-      ON CONFLICT(id) DO UPDATE SET
-        code = @code, name_ar = @nameAr, name_en = @nameEn, phone = @phone, email = @email,
-        contact_person = @contactPerson, tax_number = @taxNumber, category = @category, notes = @notes,
-        payment_terms_days = @paymentTermsDays, currency = @currency, opening_balance = @openingBalance,
-        active = @active, address_city = @addressCity, address_district = @addressDistrict,
-        address_street = @addressStreet, branch_id = @branchId, bank_account = @bankAccount
-    `);
-    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
-    this.selectAll = sqlite.prepare(`SELECT * FROM supplier ORDER BY code ASC`);
-    this.selectById = sqlite.prepare(`SELECT * FROM supplier WHERE id = ?`);
-    this.selectByCode = sqlite.prepare(`SELECT * FROM supplier WHERE code = ?`);
-  }
+function supplierParams(supplier: Supplier): SqlValue[] {
+  return [
+    supplier.id,
+    supplier.code,
+    supplier.nameAr,
+    supplier.nameEn,
+    supplier.phone,
+    supplier.email,
+    supplier.contactPerson,
+    supplier.taxNumber,
+    supplier.category,
+    supplier.notes,
+    supplier.paymentTermsDays,
+    supplier.currency,
+    supplier.openingBalance.scaled,
+    supplier.active ? 1 : 0,
+    supplier.addressCity,
+    supplier.addressDistrict,
+    supplier.addressStreet,
+    supplier.branchId,
+    supplier.bankAccount ?? null,
+  ];
+}
+
+class SqlSupplierRepository implements SupplierRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async findAll(): Promise<readonly Supplier[]> {
-    return (this.selectAll.all() as SupplierRow[]).map(toSupplier);
+    return (await this.db.all<SupplierRow>(`SELECT * FROM supplier ORDER BY code ASC`)).map(toSupplier);
   }
 
   async findById(id: string): Promise<Supplier | null> {
-    const row = this.selectById.get(id) as SupplierRow | undefined;
+    const row = await this.db.get<SupplierRow>(`SELECT * FROM supplier WHERE id = ?`, [id]);
     return row ? toSupplier(row) : null;
   }
 
   async findByCode(code: string): Promise<Supplier | null> {
-    const row = this.selectByCode.get(code) as SupplierRow | undefined;
+    const row = await this.db.get<SupplierRow>(`SELECT * FROM supplier WHERE code = ?`, [code]);
     return row ? toSupplier(row) : null;
   }
 
   async save(supplier: Supplier): Promise<void> {
-    this.write(supplier);
+    await this.db.run(UPSERT_SUPPLIER, supplierParams(supplier));
   }
 
   async insert(supplier: Supplier): Promise<void> {
-    insertingNew(supplier.id, () => this.write(supplier, this.insertOnly));
-  }
-
-  private write(supplier: Supplier, statement: Database.Statement = this.upsert): void {
-    statement.run({
-      id: supplier.id,
-      code: supplier.code,
-      nameAr: supplier.nameAr,
-      nameEn: supplier.nameEn,
-      phone: supplier.phone,
-      email: supplier.email,
-      contactPerson: supplier.contactPerson,
-      taxNumber: supplier.taxNumber,
-      category: supplier.category,
-      notes: supplier.notes,
-      paymentTermsDays: supplier.paymentTermsDays,
-      currency: supplier.currency,
-      openingBalance: supplier.openingBalance.toScaledNumber(),
-      active: supplier.active ? 1 : 0,
-      branchId: supplier.branchId,
-      addressCity: supplier.addressCity,
-      addressDistrict: supplier.addressDistrict,
-      addressStreet: supplier.addressStreet,
-      bankAccount: supplier.bankAccount ?? null,
-    });
+    await insertNew(this.db, supplier.id, UPSERT_SUPPLIER, supplierParams(supplier));
   }
 }
 
@@ -174,13 +172,20 @@ export interface SqliteSupplierRepositoryHandle extends SupplierRepository {
   close(): void;
 }
 
+export async function ensureSupplierSchema(db: SqlDb): Promise<void> {
+  await db.applySchema(CREATE_TABLE);
+}
+
+export function createSupplierRepository(db: SqlDb): SupplierRepository {
+  return new SqlSupplierRepository(db);
+}
+
 /** Open a SQLite-backed SupplierRepository. ":memory:" for tests, a path for real. */
 export function createSqliteSupplierRepository(path: SqliteConnectionInput = ":memory:"): SqliteSupplierRepositoryHandle {
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.exec(CREATE_TABLE);
   addMissingColumns(sqlite);
-  const repo = new SqliteSupplierRepository(sqlite);
-  return Object.assign(repo, {
+  return Object.assign(createSupplierRepository(sqliteDb(sqlite)), {
     close: () => { if (owned) sqlite.close(); },
-  }) as SqliteSupplierRepositoryHandle;
+  });
 }

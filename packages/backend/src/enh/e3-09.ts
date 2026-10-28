@@ -1,5 +1,5 @@
 import { createIntegrationsRoutes, enqueueWebhookDeliveries, INTEGRATIONS_MOUNT } from "@mezan/api";
-import { createSqliteIdempotentRequestStore, createSqliteIntegrationStore } from "@mezan/persistence";
+import { createSqliteIdempotentRequestStore, createSqliteIntegrationStore, createIdempotentRequestStore, createIntegrationStore } from "@mezan/persistence";
 import type { BackendArea, BackendModuleContext } from "../module-context.js";
 import { createIntegrationsGateway, currentUserGrant, type Turn } from "../integrations/gateway.js";
 import { startWebhookDeliveryWorker } from "../integrations/delivery-worker.js";
@@ -20,7 +20,7 @@ export const area: BackendArea = {
     const { tenantCode } = ctx.integrations;
     const now = () => new Date();
     const turn = turnOf(ctx);
-    const store = createSqliteIntegrationStore(ctx.sqlite, ctx.secrets);
+    const store = ctx.store((s) => createSqliteIntegrationStore(s, ctx.secrets), (d) => createIntegrationStore(d, ctx.secrets));
     const worker = startWebhookDeliveryWorker({
       store,
       transport: ctx.integrations.transport ?? createPinnedWebhookTransport(),
@@ -32,11 +32,13 @@ export const area: BackendArea = {
     ctx.addCloser({ close: () => worker.stop() });
 
     ctx.eventBus.subscribeAll((event) => {
-      void turn(async () => enqueueWebhookDeliveries(store, event, now().toISOString()))
-        .then((queued) => {
-          if (queued > 0) worker.kick();
-        })
-        .catch((error: unknown) => areaLog.error({ err: error }, `could not queue webhooks for "${event.code}"`));
+      ctx.db.afterCommit(() => {
+        void turn(async () => enqueueWebhookDeliveries(store, event, now().toISOString()))
+          .then((queued) => {
+            if (queued > 0) worker.kick();
+          })
+          .catch((error: unknown) => areaLog.error({ err: error }, `could not queue webhooks for "${event.code}"`));
+      });
     });
 
     ctx.app.route(
@@ -47,7 +49,7 @@ export const area: BackendArea = {
           tenantCode,
           audit: ctx.audit,
           userName: async (userId) => (await ctx.uow.users.findById(userId))?.nameAr ?? null,
-          onDeliveryQueued: () => worker.kick(),
+          onDeliveryQueued: () => ctx.db.afterCommit(() => worker.kick()),
         },
         ctx.resolveAuthContext,
       ),
@@ -56,7 +58,7 @@ export const area: BackendArea = {
     ctx.integrationsSlot.gateway = createIntegrationsGateway({
       tenantCode,
       store,
-      idempotency: createSqliteIdempotentRequestStore(ctx.sqlite),
+      idempotency: ctx.store((s) => createSqliteIdempotentRequestStore(s), (d) => createIdempotentRequestStore(d)),
       uow: ctx.uow,
       audit: ctx.audit,
       turn,

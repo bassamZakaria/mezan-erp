@@ -107,7 +107,7 @@ export function createRolesRoutes(
   async function endSessionsOfRoleHolders(roleId: string): Promise<void> {
     if (!sessions) return;
     for (const user of await uow.users.list()) {
-      if (user.roleId === roleId) sessions.revokeUser(user.id);
+      if (user.roleId === roleId) await sessions.revokeUser(user.id);
     }
   }
 

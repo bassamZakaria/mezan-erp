@@ -13,7 +13,9 @@ import {
   type CountZoneKind,
   type CountZoneStatus,
 } from "@mezan/domain";
-import { insertingNew } from "./insert-new.js";
+import { refuseUnlessInserted } from "./insert-new.js";
+import { SqlDialect, type SqlDb, type SqlValue } from "./sql/sql-db.js";
+import { sqliteDb } from "./sql/sqlite-db.js";
 
 const CREATE_TABLES = `
 CREATE TABLE IF NOT EXISTS physical_count_zone (
@@ -56,7 +58,9 @@ CREATE TABLE IF NOT EXISTS physical_count_scan (
 CREATE INDEX IF NOT EXISTS idx_physical_count_scan_item ON physical_count_scan(count_id, item_id);
 CREATE INDEX IF NOT EXISTS idx_physical_count_scan_zone ON physical_count_scan(count_id, zone_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_physical_count_scan_key ON physical_count_scan(count_id, client_key) WHERE client_key IS NOT NULL;
+`;
 
+const CREATE_TRIGGERS = `
 CREATE TRIGGER IF NOT EXISTS physical_count_scan_no_delete
 BEFORE DELETE ON physical_count_scan
 BEGIN
@@ -76,10 +80,42 @@ BEGIN
 END;
 `;
 
+const CREATE_TRIGGERS_POSTGRES = `
+CREATE OR REPLACE FUNCTION physical_count_scan_no_delete() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  RAISE EXCEPTION 'physical_count_scan is append-only';
+END;
+$$;
+CREATE OR REPLACE TRIGGER physical_count_scan_no_delete BEFORE DELETE ON physical_count_scan
+  FOR EACH ROW EXECUTE FUNCTION physical_count_scan_no_delete();
+CREATE OR REPLACE TRIGGER physical_count_scan_no_truncate BEFORE TRUNCATE ON physical_count_scan
+  FOR EACH STATEMENT EXECUTE FUNCTION physical_count_scan_no_delete();
+CREATE OR REPLACE FUNCTION physical_count_scan_void_only() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  RAISE EXCEPTION 'physical_count_scan is append-only: a scan can only be voided';
+END;
+$$;
+CREATE OR REPLACE TRIGGER physical_count_scan_void_only BEFORE UPDATE ON physical_count_scan
+  FOR EACH ROW
+  WHEN (OLD.voided_at IS NOT NULL
+    OR NEW.id IS DISTINCT FROM OLD.id OR NEW.count_id IS DISTINCT FROM OLD.count_id OR NEW.zone_id IS DISTINCT FROM OLD.zone_id
+    OR NEW.item_id IS DISTINCT FROM OLD.item_id OR NEW.barcode IS DISTINCT FROM OLD.barcode OR NEW.outcome IS DISTINCT FROM OLD.outcome
+    OR NEW.source IS DISTINCT FROM OLD.source OR NEW.qty IS DISTINCT FROM OLD.qty OR NEW.entered_qty IS DISTINCT FROM OLD.entered_qty
+    OR NEW.unit_code IS DISTINCT FROM OLD.unit_code OR NEW.user_id IS DISTINCT FROM OLD.user_id OR NEW.scanned_at IS DISTINCT FROM OLD.scanned_at
+    OR NEW.seq IS DISTINCT FROM OLD.seq OR NEW.client_key IS DISTINCT FROM OLD.client_key OR NEW.note IS DISTINCT FROM OLD.note)
+  EXECUTE FUNCTION physical_count_scan_void_only();
+`;
+
+function jsonArrayContains(db: SqlDb, column: string): string {
+  return db.dialect === SqlDialect.Postgres
+    ? `EXISTS (SELECT 1 FROM jsonb_array_elements_text(${column}::jsonb) AS element(value) WHERE element.value = ?)`
+    : `EXISTS (SELECT 1 FROM json_each(${column}) WHERE value = ?)`;
+}
+
 interface ZoneRow {
   id: string;
   count_id: string;
-  position: number;
+  position: bigint;
   name: string;
   kind: string;
   category_id: string | null;
@@ -105,7 +141,7 @@ interface ScanRow {
   unit_code: string | null;
   user_id: string;
   scanned_at: string;
-  seq: number;
+  seq: bigint;
   client_key: string | null;
   voided_at: string | null;
   voided_by: string | null;
@@ -152,136 +188,122 @@ function scanFromRow(row: ScanRow): CountScan {
   };
 }
 
-class SqliteCountModeStore implements CountModeRepository {
-  private readonly insertZone: Database.Statement;
-  private readonly updateZoneStmt: Database.Statement;
-  private readonly insertScan: Database.Statement;
-  private readonly voidStmt: Database.Statement;
-
-  constructor(private readonly sqlite: Database.Database) {
-    sqlite.exec(CREATE_TABLES);
-    this.insertZone = sqlite.prepare(`
-      INSERT INTO physical_count_zone
-        (id, count_id, position, name, kind, category_id, item_ids_json, counter_ids_json, status, submitted_at, submitted_by, approved_at, approved_by)
-      VALUES
-        (@id, @count_id, @position, @name, @kind, @category_id, @item_ids_json, @counter_ids_json, @status, @submitted_at, @submitted_by, @approved_at, @approved_by)
-    `);
-    this.updateZoneStmt = sqlite.prepare(`
-      UPDATE physical_count_zone SET
-        status = @status, submitted_at = @submitted_at, submitted_by = @submitted_by,
-        approved_at = @approved_at, approved_by = @approved_by
-      WHERE id = @id AND count_id = @count_id
-    `);
-    this.insertScan = sqlite.prepare(`
-      INSERT INTO physical_count_scan
-        (id, count_id, zone_id, item_id, barcode, outcome, source, qty, entered_qty, unit_code, user_id, scanned_at, seq, client_key, voided_at, voided_by, void_reason, note)
-      VALUES
-        (@id, @count_id, @zone_id, @item_id, @barcode, @outcome, @source, @qty, @entered_qty, @unit_code, @user_id, @scanned_at,
-         (SELECT COALESCE(MAX(seq), 0) + 1 FROM physical_count_scan WHERE count_id = @count_id),
-         @client_key, @voided_at, @voided_by, @void_reason, @note)
-    `);
-    this.voidStmt = sqlite.prepare(`
-      UPDATE physical_count_scan SET voided_at = ?, voided_by = ?, void_reason = ?
-      WHERE count_id = ? AND id = ? AND voided_at IS NULL
-    `);
-  }
+class SqlCountModeStore implements CountModeRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async saveZones(zones: readonly CountZone[]): Promise<void> {
-    zones.forEach((zone, position) => {
-      insertingNew(zone.id, () =>
-        this.insertZone.run({
-          id: zone.id,
-          count_id: zone.countId,
+    for (const [position, zone] of zones.entries()) {
+      const inserted = await this.db.run(
+        `INSERT INTO physical_count_zone
+           (id, count_id, position, name, kind, category_id, item_ids_json, counter_ids_json, status, submitted_at, submitted_by, approved_at, approved_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT (id) DO NOTHING`,
+        [
+          zone.id,
+          zone.countId,
           position,
-          name: zone.name,
-          kind: zone.kind,
-          category_id: zone.categoryId,
-          item_ids_json: JSON.stringify(zone.itemIds),
-          counter_ids_json: JSON.stringify(zone.counterUserIds),
-          status: zone.status,
-          submitted_at: zone.submittedAt,
-          submitted_by: zone.submittedBy,
-          approved_at: zone.approvedAt,
-          approved_by: zone.approvedBy,
-        }),
+          zone.name,
+          zone.kind,
+          zone.categoryId,
+          JSON.stringify(zone.itemIds),
+          JSON.stringify(zone.counterUserIds),
+          zone.status,
+          zone.submittedAt,
+          zone.submittedBy,
+          zone.approvedAt,
+          zone.approvedBy,
+        ],
       );
-    });
+      refuseUnlessInserted(zone.id, inserted.changes);
+    }
   }
 
   async updateZone(zone: CountZone): Promise<void> {
-    this.updateZoneStmt.run({
-      id: zone.id,
-      count_id: zone.countId,
-      status: zone.status,
-      submitted_at: zone.submittedAt,
-      submitted_by: zone.submittedBy,
-      approved_at: zone.approvedAt,
-      approved_by: zone.approvedBy,
-    });
+    await this.db.run(
+      `UPDATE physical_count_zone SET
+         status = ?, submitted_at = ?, submitted_by = ?,
+         approved_at = ?, approved_by = ?
+       WHERE id = ? AND count_id = ?`,
+      [zone.status, zone.submittedAt, zone.submittedBy, zone.approvedAt, zone.approvedBy, zone.id, zone.countId],
+    );
   }
 
   async listZones(countId: string): Promise<readonly CountZone[]> {
-    const rows = this.sqlite.prepare(`SELECT * FROM physical_count_zone WHERE count_id = ? ORDER BY position`).all(countId) as ZoneRow[];
+    const rows = await this.db.all<ZoneRow>(`SELECT * FROM physical_count_zone WHERE count_id = ? ORDER BY position`, [countId]);
     return rows.map(zoneFromRow);
   }
 
   async findZone(countId: string, zoneId: string): Promise<CountZone | null> {
-    const row = this.sqlite.prepare(`SELECT * FROM physical_count_zone WHERE count_id = ? AND id = ?`).get(countId, zoneId) as ZoneRow | undefined;
+    const row = await this.db.get<ZoneRow>(`SELECT * FROM physical_count_zone WHERE count_id = ? AND id = ?`, [countId, zoneId]);
     return row ? zoneFromRow(row) : null;
   }
 
   async zonesOfCounter(userId: string): Promise<readonly CountZone[]> {
-    const rows = this.sqlite
-      .prepare(
-        `SELECT z.* FROM physical_count_zone z
-         WHERE EXISTS (SELECT 1 FROM json_each(z.counter_ids_json) WHERE value = ?)
-         ORDER BY z.count_id, z.position`,
-      )
-      .all(userId) as ZoneRow[];
+    const rows = await this.db.all<ZoneRow>(
+      `SELECT z.* FROM physical_count_zone z
+       WHERE ${jsonArrayContains(this.db, "z.counter_ids_json")}
+       ORDER BY z.count_id, z.position`,
+      [userId],
+    );
     return rows.map(zoneFromRow);
   }
 
   async appendScan(scan: CountScan): Promise<void> {
-    insertingNew(scan.id, () =>
-      this.insertScan.run({
-        id: scan.id,
-        count_id: scan.countId,
-        zone_id: scan.zoneId,
-        item_id: scan.itemId,
-        barcode: scan.barcode,
-        outcome: scan.outcome,
-        source: scan.source,
-        qty: scan.qty.toString(),
-        entered_qty: scan.enteredQty ? scan.enteredQty.toString() : null,
-        unit_code: scan.unitCode,
-        user_id: scan.userId,
-        scanned_at: scan.scannedAt,
-        client_key: scan.clientKey,
-        voided_at: scan.voidedAt,
-        voided_by: scan.voidedBy,
-        void_reason: scan.voidReason,
-        note: scan.note,
-      }),
+    const inserted = await this.db.run(
+      `INSERT INTO physical_count_scan
+         (id, count_id, zone_id, item_id, barcode, outcome, source, qty, entered_qty, unit_code, user_id, scanned_at, seq, client_key, voided_at, voided_by, void_reason, note)
+       VALUES
+         (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+          (SELECT COALESCE(MAX(seq), 0) + 1 FROM physical_count_scan WHERE count_id = ?),
+          ?, ?, ?, ?, ?)
+       ON CONFLICT (id) DO NOTHING`,
+      [
+        scan.id,
+        scan.countId,
+        scan.zoneId,
+        scan.itemId,
+        scan.barcode,
+        scan.outcome,
+        scan.source,
+        scan.qty.toString(),
+        scan.enteredQty ? scan.enteredQty.toString() : null,
+        scan.unitCode,
+        scan.userId,
+        scan.scannedAt,
+        scan.countId,
+        scan.clientKey,
+        scan.voidedAt,
+        scan.voidedBy,
+        scan.voidReason,
+        scan.note,
+      ],
     );
+    refuseUnlessInserted(scan.id, inserted.changes);
   }
 
   async findScan(countId: string, scanId: string): Promise<CountScan | null> {
-    const row = this.sqlite.prepare(`SELECT * FROM physical_count_scan WHERE count_id = ? AND id = ?`).get(countId, scanId) as ScanRow | undefined;
+    const row = await this.db.get<ScanRow>(`SELECT * FROM physical_count_scan WHERE count_id = ? AND id = ?`, [countId, scanId]);
     return row ? scanFromRow(row) : null;
   }
 
   async findScanByClientKey(countId: string, clientKey: string): Promise<CountScan | null> {
-    const row = this.sqlite.prepare(`SELECT * FROM physical_count_scan WHERE count_id = ? AND client_key = ?`).get(countId, clientKey) as ScanRow | undefined;
+    const row = await this.db.get<ScanRow>(`SELECT * FROM physical_count_scan WHERE count_id = ? AND client_key = ?`, [countId, clientKey]);
     return row ? scanFromRow(row) : null;
   }
 
   async voidScans(countId: string, scanIds: readonly string[], by: string, reason: CountScanVoidReason, at: string): Promise<void> {
-    for (const id of scanIds) this.voidStmt.run(at, by, reason, countId, id);
+    for (const id of scanIds) {
+      await this.db.run(
+        `UPDATE physical_count_scan SET voided_at = ?, voided_by = ?, void_reason = ?
+         WHERE count_id = ? AND id = ? AND voided_at IS NULL`,
+        [at, by, reason, countId, id],
+      );
+    }
   }
 
   async listScans(countId: string, filter: { readonly zoneId?: string; readonly itemId?: string; readonly userId?: string } = {}): Promise<readonly CountScan[]> {
     const clauses = ["count_id = ?"];
-    const params: unknown[] = [countId];
+    const params: SqlValue[] = [countId];
     if (filter.zoneId) {
       clauses.push("zone_id = ?");
       params.push(filter.zoneId);
@@ -294,13 +316,24 @@ class SqliteCountModeStore implements CountModeRepository {
       clauses.push("user_id = ?");
       params.push(filter.userId);
     }
-    const rows = this.sqlite.prepare(`SELECT * FROM physical_count_scan WHERE ${clauses.join(" AND ")} ORDER BY seq`).all(...params) as ScanRow[];
+    const rows = await this.db.all<ScanRow>(`SELECT * FROM physical_count_scan WHERE ${clauses.join(" AND ")} ORDER BY seq`, params);
     return rows.map(scanFromRow);
   }
 }
 
+export async function ensureCountModeSchema(db: SqlDb): Promise<void> {
+  await db.applySchema(CREATE_TABLES);
+  if (db.dialect === SqlDialect.Postgres) await db.exec(CREATE_TRIGGERS_POSTGRES);
+}
+
+export function createCountModeStore(db: SqlDb): CountModeRepository {
+  return new SqlCountModeStore(db);
+}
+
 export function createSqliteCountModeStore(sqlite: Database.Database): CountModeRepository {
-  return new SqliteCountModeStore(sqlite);
+  sqlite.exec(CREATE_TABLES);
+  sqlite.exec(CREATE_TRIGGERS);
+  return createCountModeStore(sqliteDb(sqlite));
 }
 
 interface CountableItemRow {
@@ -331,26 +364,27 @@ function itemFromRow(row: CountableItemRow): CountableItem {
  * barcodes, then the item code (printed shelf labels encode it). Only
  * inventory-tracked items that are not inactive are countable.
  */
-export function createSqliteCountItemDirectory(sqlite: Database.Database): CountItemDirectory {
+export function createCountItemDirectory(db: SqlDb): CountItemDirectory {
   const columns = `id, code, base_unit_code, alternate_units, barcodes`;
   const countable = `track_inventory = 1 AND status <> '${ItemStatusCode.Inactive}'`;
   return {
     async findByBarcode(code) {
       const trimmed = code.trim();
       if (trimmed === "") return null;
-      const byBarcode = sqlite
-        .prepare(`SELECT ${columns} FROM item WHERE ${countable} AND EXISTS (SELECT 1 FROM json_each(item.barcodes) WHERE value = ?) LIMIT 1`)
-        .get(trimmed) as CountableItemRow | undefined;
+      const byBarcode = await db.get<CountableItemRow>(
+        `SELECT ${columns} FROM item WHERE ${countable} AND ${jsonArrayContains(db, "item.barcodes")} LIMIT 1`,
+        [trimmed],
+      );
       if (byBarcode) return itemFromRow(byBarcode);
-      const byCode = sqlite.prepare(`SELECT ${columns} FROM item WHERE ${countable} AND code = ? LIMIT 1`).get(trimmed) as CountableItemRow | undefined;
+      const byCode = await db.get<CountableItemRow>(`SELECT ${columns} FROM item WHERE ${countable} AND code = ? LIMIT 1`, [trimmed]);
       return byCode ? itemFromRow(byCode) : null;
     },
     async findById(id) {
-      const row = sqlite.prepare(`SELECT ${columns} FROM item WHERE id = ?`).get(id) as CountableItemRow | undefined;
+      const row = await db.get<CountableItemRow>(`SELECT ${columns} FROM item WHERE id = ?`, [id]);
       return row ? itemFromRow(row) : null;
     },
     async itemsInCategory(categoryId) {
-      const categories = sqlite.prepare(`SELECT id, parent_id FROM item_category`).all() as CategoryRow[];
+      const categories = await db.all<CategoryRow>(`SELECT id, parent_id FROM item_category`);
       const inTree = new Set<string>([categoryId]);
       let grew = true;
       while (grew) {
@@ -362,8 +396,17 @@ export function createSqliteCountItemDirectory(sqlite: Database.Database): Count
           }
         }
       }
-      const rows = sqlite.prepare(`SELECT id, category_id FROM item WHERE ${countable} ORDER BY code`).all() as { id: string; category_id: string | null }[];
+      const rows = await db.all<{ id: string; category_id: string | null }>(`SELECT id, category_id FROM item WHERE ${countable} ORDER BY code`);
       return rows.filter((r) => r.category_id !== null && inTree.has(r.category_id)).map((r) => r.id);
     },
   };
+}
+
+/**
+ * Barcode resolution for a count: an exact match on the item's stored
+ * barcodes, then the item code (printed shelf labels encode it). Only
+ * inventory-tracked items that are not inactive are countable.
+ */
+export function createSqliteCountItemDirectory(sqlite: Database.Database): CountItemDirectory {
+  return createCountItemDirectory(sqliteDb(sqlite));
 }

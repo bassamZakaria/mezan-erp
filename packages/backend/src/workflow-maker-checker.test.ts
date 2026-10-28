@@ -94,17 +94,17 @@ beforeAll(async () => {
     createEntitlements({ plan: "DEMO", activeModules: MODULE_CATALOG, features: { [LAN_MULTI_TILL_FEATURE]: true }, seats: 50, expiresAt: null });
   handle = await createBackend({ dbPath, seedDemoData: true, lan: { resolveEntitlements }, resolveEntitlements });
   sqlite = openSqliteConnection(dbPath).sqlite;
-  const session = (userId: string, permissions: readonly string[], roleCode: string | null, branchScope: typeof ALL_SCOPE | string[] = ALL_SCOPE) =>
-    callerFor(handle.sessions.issue({ userId, permissions, roleCode, branchScope, warehouseScope: ALL_SCOPE }));
+  const session = async (userId: string, permissions: readonly string[], roleCode: string | null, branchScope: typeof ALL_SCOPE | string[] = ALL_SCOPE) =>
+    callerFor(await handle.sessions.issue({ userId, permissions, roleCode, branchScope, warehouseScope: ALL_SCOPE }));
   const clerkPermissions = ["sales.invoice.create", "sales.invoice.confirm", "sales.invoice.view", "workflow.view"];
   const approverPermissions = ["sales.invoice.view", "sales.invoice.confirm", "workflow.view", "workflow.approve", "workflow.reject"];
-  admin = session("USER-ADMIN", ["*"], null);
+  admin = (await session("USER-ADMIN", ["*"], null));
   anonymous = callerFor(null);
-  clerk = session("USER-WF-CLERK", clerkPermissions, "CASHIER");
-  clerkWhoMayApprove = session("USER-WF-CLERK", [...clerkPermissions, "workflow.approve", "workflow.reject"], APPROVER_ROLE);
-  noPermissions = session("USER-WF-NOBODY", ["profile.view"], "CASHIER");
-  supervisor = session("USER-WF-SUPERVISOR", approverPermissions, APPROVER_ROLE);
-  alexSupervisor = session("USER-WF-ALEX-SUPERVISOR", approverPermissions, APPROVER_ROLE, ["BR-ALEX"]);
+  clerk = (await session("USER-WF-CLERK", clerkPermissions, "CASHIER"));
+  clerkWhoMayApprove = (await session("USER-WF-CLERK", [...clerkPermissions, "workflow.approve", "workflow.reject"], APPROVER_ROLE));
+  noPermissions = (await session("USER-WF-NOBODY", ["profile.view"], "CASHIER"));
+  supervisor = (await session("USER-WF-SUPERVISOR", approverPermissions, APPROVER_ROLE));
+  alexSupervisor = (await session("USER-WF-ALEX-SUPERVISOR", approverPermissions, APPROVER_ROLE, ["BR-ALEX"]));
   const steps = [{ role: APPROVER_ROLE }];
   const seeded = ((await admin("GET", "/workflow/configs")).body as { id: string; actionType: string }[]).find((config) => config.actionType === GATED_ACTION);
   const configured = seeded ? await admin("PUT", `/workflow/configs/${seeded.id}`, { steps }) : await admin("POST", "/workflow/configs", { actionType: GATED_ACTION, steps });

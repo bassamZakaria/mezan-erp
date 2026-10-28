@@ -5,14 +5,17 @@ import {
   Money,
   createTreasuryAccount,
   updateTreasuryAccount,
+  DuplicateAccountCodeError,
   DuplicateTreasuryAccountCodeError,
   InvalidGuaranteeFacilityLimitError,
+  InvalidParentAccountError,
   InvalidOpeningBalanceError,
   InvalidTreasuryLedgerAccountError,
   NegativeCashBalanceError,
   TreasuryAccountNotFoundError,
   TreasuryAccountHasMovementsError,
   TreasuryGlAccountCurrencyConflictError,
+  TreasuryLedgerAccountUnlinkError,
   AuditChangeAction,
   type AuditSink,
   type TreasuryAccount,
@@ -22,6 +25,7 @@ import {
 import { createTreasuryAccountSchema, updateTreasuryAccountSchema } from "@mezan/contracts";
 import { createPermissionGate, type AuthContextResolver, branchScopeOf, withinScope } from "./permission-gate.js";
 import { recordFieldChanges } from "./admin-audit.js";
+import { AUDITED_ACCOUNT_FIELDS } from "./accounts.js";
 import { duplicateIdRefusal } from "./duplicate-id.js";
 import { sharedFieldRefusal } from "./branch-policy.js";
 
@@ -70,12 +74,14 @@ function handleDomainError(c: Context, err: unknown) {
   if (err instanceof TreasuryAccountNotFoundError) {
     return refuse(err, 404);
   }
-  if (err instanceof DuplicateTreasuryAccountCodeError) {
+  if (err instanceof DuplicateTreasuryAccountCodeError || err instanceof DuplicateAccountCodeError) {
     return refuse(err, 409);
   }
   if (
     err instanceof NegativeCashBalanceError ||
     err instanceof InvalidTreasuryLedgerAccountError ||
+    err instanceof TreasuryLedgerAccountUnlinkError ||
+    err instanceof InvalidParentAccountError ||
     err instanceof InvalidGuaranteeFacilityLimitError ||
     err instanceof InvalidOpeningBalanceError ||
     err instanceof TreasuryAccountHasMovementsError ||
@@ -126,6 +132,23 @@ export function createTreasuryAccountsRoutes(
     });
   }
 
+  function auditingOpenedLeaf(c: Context, treasuryAccountId: string): TreasuryLedgerAccountDeps | undefined {
+    if (!ledgerAccounts) return undefined;
+    return {
+      ...ledgerAccounts,
+      onOpened: async (leaf) => {
+        await recordFieldChanges(audit, c, {
+          entity: { module: "accounting", entityType: "ACCOUNT", entityId: leaf.id },
+          action: AuditChangeAction.Create,
+          before: null,
+          after: leaf,
+          fields: AUDITED_ACCOUNT_FIELDS,
+          details: { treasuryAccountId },
+        });
+      },
+    };
+  }
+
   /**
    * The list's one chip axis mixes status with type — الكل / نشط / نقدية /
    * بنكية / غير نشط — so a single `status` parameter carries all five, and an
@@ -167,10 +190,16 @@ export function createTreasuryAccountsRoutes(
 
   async function withForeignBalance(accounts: readonly TreasuryAccount[]) {
     const rows = new Map(((await foreignBalances?.()) ?? []).map((row) => [row.treasuryAccountId, row]));
+    const linked = accounts.some((account) => account.glAccountId) ? ((await ledgerAccounts?.accounts.list()) ?? []) : [];
+    const chart = new Map(linked.map((account) => [account.id, account]));
     return accounts.map((account) => {
       const row = rows.get(account.id);
+      const ledgerAccount = account.glAccountId ? chart.get(account.glAccountId) : undefined;
       return {
         ...serialize(account),
+        glAccountCode: ledgerAccount?.code ?? null,
+        glAccountNameAr: ledgerAccount?.nameAr ?? null,
+        glAccountNameEn: ledgerAccount?.nameEn ?? null,
         foreignBalance: row ? row.foreignBalance.toString() : null,
         foreignBalanceBase: row ? row.baseBalance.toString() : null,
         foreignBalanceDerivedLines: row ? row.derivedLines : null,
@@ -272,7 +301,7 @@ export function createTreasuryAccountsRoutes(
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
     try {
-      const account = await createTreasuryAccount(parsed.data, repo, ledgerAccounts);
+      const account = await createTreasuryAccount(parsed.data, repo, auditingOpenedLeaf(c, parsed.data.id));
       await auditAccount(c, account, AuditChangeAction.Create);
       return c.json(serialize(account), 201);
     } catch (err) {
@@ -289,7 +318,7 @@ export function createTreasuryAccountsRoutes(
       const before = await repo.findById(c.req.param("id"));
       const restricted = before ? sharedFieldRefusal(c, TREASURY_ACCOUNTS_PREFIX, serialize(before), parsed.data) : null;
       if (restricted) return restricted;
-      const account = await updateTreasuryAccount(c.req.param("id"), parsed.data, repo, ledgerAccounts, {
+      const account = await updateTreasuryAccount(c.req.param("id"), parsed.data, repo, auditingOpenedLeaf(c, c.req.param("id")), {
         hasPostedLines: async (glAccountId) => ((await ledger?.listLines?.({ accountIds: [glAccountId] })) ?? []).length > 0,
       });
       await auditAccount(c, account, AuditChangeAction.Update, before);

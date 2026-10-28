@@ -1,9 +1,8 @@
-import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 import { Money, type Project, type ProjectRepository, type ProjectStatus } from "@mezan/domain";
-import { insertingNew, prepareInsertOnly } from "./insert-new.js";
-
-/** SQLite-backed ProjectRepository (docs/archive/catalog/07 "المشاريع والمقاولات"). Standalone, mirroring `createSqliteAccountRepository`. */
+import { insertNew } from "./insert-new.js";
+import type { SqlDb, SqlValue } from "./sql/sql-db.js";
+import { sqliteDb } from "./sql/sqlite-db.js";
 
 const CREATE_TABLE = `
 CREATE TABLE IF NOT EXISTS project (
@@ -23,6 +22,23 @@ CREATE TABLE IF NOT EXISTS project (
 );
 `;
 
+const UPSERT = `
+  INSERT INTO project (id, code, name_ar, name_en, status, customer_id, manager_id, start_date, end_date, budget, site_address, notes, cost_center_id)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  ON CONFLICT(id) DO UPDATE SET
+    code = excluded.code,
+    name_ar = excluded.name_ar,
+    name_en = excluded.name_en,
+    status = excluded.status,
+    customer_id = excluded.customer_id,
+    manager_id = excluded.manager_id,
+    start_date = excluded.start_date,
+    end_date = excluded.end_date,
+    budget = excluded.budget,
+    site_address = excluded.site_address,
+    notes = excluded.notes,
+    cost_center_id = excluded.cost_center_id`;
+
 interface ProjectRow {
   id: string;
   code: string;
@@ -33,7 +49,7 @@ interface ProjectRow {
   manager_id: string | null;
   start_date: string | null;
   end_date: string | null;
-  budget: number;
+  budget: bigint;
   site_address: string | null;
   notes: string | null;
   cost_center_id: string;
@@ -57,76 +73,33 @@ function toProject(row: ProjectRow): Project {
   };
 }
 
-class SqliteProjectRepository implements ProjectRepository {
-  private readonly upsert: Database.Statement;
-  private readonly insertOnly: Database.Statement;
-  private readonly selectById: Database.Statement;
-  private readonly selectByCode: Database.Statement;
-  private readonly selectAll: Database.Statement;
+function params(p: Project): SqlValue[] {
+  return [p.id, p.code, p.nameAr, p.nameEn, p.status, p.customerId, p.managerId, p.startDate, p.endDate, p.budget.scaled, p.siteAddress, p.notes, p.costCenterId];
+}
 
-  constructor(private readonly sqlite: Database.Database) {
-    this.upsert = sqlite.prepare(`
-      INSERT INTO project (id, code, name_ar, name_en, status, customer_id, manager_id, start_date, end_date, budget, site_address, notes, cost_center_id)
-      VALUES (@id, @code, @name_ar, @name_en, @status, @customer_id, @manager_id, @start_date, @end_date, @budget, @site_address, @notes, @cost_center_id)
-      ON CONFLICT(id) DO UPDATE SET
-        code = excluded.code,
-        name_ar = excluded.name_ar,
-        name_en = excluded.name_en,
-        status = excluded.status,
-        customer_id = excluded.customer_id,
-        manager_id = excluded.manager_id,
-        start_date = excluded.start_date,
-        end_date = excluded.end_date,
-        budget = excluded.budget,
-        site_address = excluded.site_address,
-        notes = excluded.notes,
-        cost_center_id = excluded.cost_center_id
-    `);
-    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
-    this.selectById = sqlite.prepare(`SELECT * FROM project WHERE id = ?`);
-    this.selectByCode = sqlite.prepare(`SELECT * FROM project WHERE code = ?`);
-    this.selectAll = sqlite.prepare(`SELECT * FROM project`);
-  }
+class SqlProjectRepository implements ProjectRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async findById(id: string): Promise<Project | null> {
-    const row = this.selectById.get(id) as ProjectRow | undefined;
+    const row = await this.db.get<ProjectRow>(`SELECT * FROM project WHERE id = ?`, [id]);
     return row ? toProject(row) : null;
   }
 
   async findByCode(code: string): Promise<Project | null> {
-    const row = this.selectByCode.get(code) as ProjectRow | undefined;
+    const row = await this.db.get<ProjectRow>(`SELECT * FROM project WHERE code = ?`, [code]);
     return row ? toProject(row) : null;
   }
 
   async list(): Promise<Project[]> {
-    const rows = this.selectAll.all() as ProjectRow[];
-    return rows.map(toProject);
+    return (await this.db.all<ProjectRow>(`SELECT * FROM project`)).map(toProject);
   }
 
   async create(project: Project): Promise<void> {
-    insertingNew(project.id, () => this.write(project, this.insertOnly));
+    await insertNew(this.db, project.id, UPSERT, params(project));
   }
 
   async update(project: Project): Promise<void> {
-    this.write(project);
-  }
-
-  private write(project: Project, statement: Database.Statement = this.upsert): void {
-    statement.run({
-      id: project.id,
-      code: project.code,
-      name_ar: project.nameAr,
-      name_en: project.nameEn,
-      status: project.status,
-      customer_id: project.customerId,
-      manager_id: project.managerId,
-      start_date: project.startDate,
-      end_date: project.endDate,
-      budget: project.budget.toScaledNumber(),
-      site_address: project.siteAddress,
-      notes: project.notes,
-      cost_center_id: project.costCenterId,
-    });
+    await this.db.run(UPSERT, params(project));
   }
 }
 
@@ -134,13 +107,19 @@ export interface SqliteProjectRepositoryHandle extends ProjectRepository {
   close(): void;
 }
 
-/** Open a SQLite-backed ProjectRepository. ":memory:" for tests, a path for real. */
+export async function ensureProjectSchema(db: SqlDb): Promise<void> {
+  await db.applySchema(CREATE_TABLE);
+}
+
+export function createProjectRepository(db: SqlDb): ProjectRepository {
+  return new SqlProjectRepository(db);
+}
+
 export function createSqliteProjectRepository(path: SqliteConnectionInput = ":memory:"): SqliteProjectRepositoryHandle {
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_TABLE);
-  const repo = new SqliteProjectRepository(sqlite);
-  return Object.assign(repo, {
+  return Object.assign(createProjectRepository(sqliteDb(sqlite)), {
     close: () => { if (owned) sqlite.close(); },
   }) as SqliteProjectRepositoryHandle;
 }

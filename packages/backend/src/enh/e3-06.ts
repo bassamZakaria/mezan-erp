@@ -30,6 +30,12 @@ import {
   createSqliteOpportunityRepository,
   createSqlitePipelineStageRepository,
   createSqliteSalesQuoteStore,
+  createActivityReminderLog,
+  createActivityRepository,
+  createNotificationStore,
+  createOpportunityRepository,
+  createPipelineStageRepository,
+  createSalesQuoteStore,
 } from "@mezan/persistence";
 import type { BackendArea, BackendModuleContext } from "../module-context.js";
 import { ScheduledJobKind, type ScheduledJob } from "../scheduled-jobs.js";
@@ -201,10 +207,10 @@ function inTheTurn(audit: AuditSink): <T>(work: () => Promise<T>) => Promise<T> 
 
 export function crmReminderServiceFor(ctx: BackendModuleContext): { run(): Promise<CrmReminderRun> } {
   return createCrmReminderService({
-    activities: createSqliteActivityRepository(ctx.sqlite),
-    opportunities: createSqliteOpportunityRepository(ctx.sqlite),
-    log: createSqliteActivityReminderLog(ctx.sqlite),
-    notifications: createSqliteNotificationStore(ctx.sqlite),
+    activities: ctx.store((s) => createSqliteActivityRepository(s), (d) => createActivityRepository(d)),
+    opportunities: ctx.store((s) => createSqliteOpportunityRepository(s), (d) => createOpportunityRepository(d)),
+    log: ctx.store((s) => createSqliteActivityReminderLog(s), (d) => createActivityReminderLog(d)),
+    notifications: ctx.store((s) => createSqliteNotificationStore(s), (d) => createNotificationStore(d)),
     users: ctx.uow.users,
     eventBus: ctx.eventBus,
     today: async () => tenantTodayIso((await ctx.stores.settings.get())?.timezone || DEFAULT_TIME_ZONE),
@@ -219,9 +225,9 @@ export function crmReminderServiceFor(ctx: BackendModuleContext): { run(): Promi
  */
 export const area: BackendArea = {
   mount(ctx) {
-    const opportunities = createSqliteOpportunityRepository(ctx.sqlite);
-    const pipelineStages = createSqlitePipelineStageRepository(ctx.sqlite);
-    const quotes = createSqliteSalesQuoteStore(ctx.sqlite);
+    const opportunities = ctx.store((s) => createSqliteOpportunityRepository(s), (d) => createOpportunityRepository(d));
+    const pipelineStages = ctx.store((s) => createSqlitePipelineStageRepository(s), (d) => createPipelineStageRepository(d));
+    const quotes = ctx.store((s) => createSqliteSalesQuoteStore(s), (d) => createSalesQuoteStore(d));
     const owners = createCrmOwnerDirectory(ctx.uow.users, ctx.uow.roles);
     ctx.app.route(
       "/crm-pipeline",

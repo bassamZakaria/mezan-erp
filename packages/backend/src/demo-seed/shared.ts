@@ -39,7 +39,7 @@ export type SeedSessionMinter = (grant: {
   permissions: readonly string[];
   roleCode: string | null;
   branchScope?: readonly string[];
-}) => string;
+}) => Promise<string>;
 
 let mintSeedSession: SeedSessionMinter | null = null;
 
@@ -49,22 +49,22 @@ export function setSeedSessionToken(token: string, minter: SeedSessionMinter): v
 }
 
 /** Headers that act as `userId`, with exactly the permissions and roles given. */
-export function seedActorHeaders(userId: string, permissions: readonly string[] = [], roleCode: string | null = null): Record<string, string> {
+export async function seedActorHeaders(userId: string, permissions: readonly string[] = [], roleCode: string | null = null): Promise<Record<string, string>> {
   if (!mintSeedSession) throw new Error("[demo-seed] no session minter — setSeedSessionToken was never called");
   return {
     "content-type": "application/json",
-    authorization: `Bearer ${mintSeedSession({ userId, permissions, roleCode })}`,
+    authorization: `Bearer ${await mintSeedSession({ userId, permissions, roleCode })}`,
     "x-branch-scope": "*",
     "x-warehouse-scope": "*",
   };
 }
 
 /** Headers that act as `userId` granted only `branchScope` — what a branch's own clerk holds. */
-export function seedBranchActorHeaders(userId: string, permissions: readonly string[], branchScope: readonly string[]): Record<string, string> {
+export async function seedBranchActorHeaders(userId: string, permissions: readonly string[], branchScope: readonly string[]): Promise<Record<string, string>> {
   if (!mintSeedSession) throw new Error("[demo-seed] no session minter — setSeedSessionToken was never called");
   return {
     "content-type": "application/json",
-    authorization: `Bearer ${mintSeedSession({ userId, permissions, roleCode: null, branchScope })}`,
+    authorization: `Bearer ${await mintSeedSession({ userId, permissions, roleCode: null, branchScope })}`,
   };
 }
 

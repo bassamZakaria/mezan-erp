@@ -48,6 +48,30 @@ function checkOf(evaluation: PeriodCloseEvaluation, code: PeriodCloseCheckCode) 
   return check;
 }
 
+describe("evaluatePeriodClose — isolate", () => {
+  it("runs every check through the isolation port, and a throwing check stays one unavailable check", async () => {
+    let isolated = 0;
+    const evaluation = await evaluatePeriodClose(
+      JUNE,
+      cleanSources({
+        trialBalance: async () => {
+          throw new Error("statement failed");
+        },
+      }),
+      {
+        now: NOW,
+        isolate: async (fn) => {
+          isolated += 1;
+          return fn();
+        },
+      },
+    );
+    expect(isolated).toBe(PERIOD_CLOSE_CHECKS.length);
+    expect(checkOf(evaluation, PeriodCloseCheckCode.TrialBalance).status).toBe(PeriodCloseCheckStatus.Unavailable);
+    expect(checkOf(evaluation, PeriodCloseCheckCode.Drafts).status).toBe(PeriodCloseCheckStatus.Pass);
+  });
+});
+
 describe("evaluatePeriodClose", () => {
   it("clears a period with nothing outstanding, and marks the checks that have nothing to judge as not applicable", async () => {
     const evaluation = await evaluate();

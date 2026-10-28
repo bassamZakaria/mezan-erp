@@ -7,6 +7,11 @@ on:
   push:
     branches: [staging, production]
   workflow_dispatch:
+    inputs:
+      skip_tests:
+        description: Build the image without running the tests first (never deploys automatically)
+        type: boolean
+        default: false
 
 concurrency:
   group: release-image-${{ github.ref }}
@@ -17,8 +22,16 @@ permissions:
   packages: write
 
 jobs:
+  test:
+    name: tests
+    if: ${{ !inputs.skip_tests }}
+    uses: ./.github/workflows/test.yml
+
   image:
     name: build · push (amd64)
+    # Untested only when someone dispatches with skip_tests; such a tag never deploys on its own.
+    needs: test
+    if: ${{ !cancelled() && (needs.test.result == 'success' || (inputs.skip_tests && needs.test.result == 'skipped')) }}
     runs-on: ubuntu-latest
     outputs:
       digest: ${{ steps.build.outputs.digest }}
@@ -63,7 +76,8 @@ jobs:
 
   deploy:
     name: deploy · contabo
-    needs: image
+    # Nothing reaches the VPS unless the tests passed on this commit.
+    needs: [test, image]
     # The contabo environment holds the DEPLOY_* secrets and admits only the staging branch.
     if: github.ref == 'refs/heads/staging'
     environment: contabo

@@ -23,13 +23,13 @@ const RETENTION_RELEASE = "contracting.retention.release";
  * Seeding all three from one admin would leave the rule untested in the one
  * place a person can see it.
  */
-function retentionActor(person: SeedPerson): Record<string, string> {
+function retentionActor(person: SeedPerson): Promise<Record<string, string>> {
   return seedActorHeaders(seededUserId(person), [RETENTION_VIEW, RETENTION_RELEASE], null);
 }
 
 async function stepAs(
   app: App,
-  headers: Record<string, string>,
+  headers: Record<string, string> | Promise<Record<string, string>>,
   method: string,
   path: string,
   body?: unknown,
@@ -37,7 +37,7 @@ async function stepAs(
   const res = await app.fetch(
     new Request(`http://demo-seed${path}`, {
       method,
-      headers,
+      headers: await headers,
       body: body === undefined ? undefined : JSON.stringify(body),
     }),
   );

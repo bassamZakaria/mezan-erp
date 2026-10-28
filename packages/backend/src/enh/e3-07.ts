@@ -1,5 +1,5 @@
 import { createSalesFunnelRoutes } from "@mezan/api";
-import { createSqliteOpportunityRepository, createSqlitePipelineStageRepository, createSqliteSalesQuoteStore } from "@mezan/persistence";
+import { createSqliteOpportunityRepository, createSqlitePipelineStageRepository, createSqliteSalesQuoteStore, createOpportunityRepository, createPipelineStageRepository, createSalesQuoteStore } from "@mezan/persistence";
 import type { BackendArea } from "../module-context.js";
 
 /**
@@ -8,15 +8,15 @@ import type { BackendArea } from "../module-context.js";
  */
 export const area: BackendArea = {
   mount(ctx) {
-    const opportunities = createSqliteOpportunityRepository(ctx.sqlite);
-    const quotes = createSqliteSalesQuoteStore(ctx.sqlite);
+    const opportunities = ctx.store((s) => createSqliteOpportunityRepository(s), (d) => createOpportunityRepository(d));
+    const quotes = ctx.store((s) => createSqliteSalesQuoteStore(s), (d) => createSalesQuoteStore(d));
     ctx.app.route(
       "/sales-funnel",
       createSalesFunnelRoutes(
         {
           opportunities,
           stageHistory: opportunities,
-          pipelineStages: createSqlitePipelineStageRepository(ctx.sqlite),
+          pipelineStages: ctx.store((s) => createSqlitePipelineStageRepository(s), (d) => createPipelineStageRepository(d)),
           quotes,
           salesInvoices: ctx.stores.salesInvoices,
           users: ctx.uow.users,

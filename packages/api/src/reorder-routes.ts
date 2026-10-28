@@ -94,7 +94,7 @@ function shiftDay(day: string, delta: number): string {
 }
 
 function rowKey(itemId: string, warehouseId: string): string {
-  return `${itemId}\u0000${warehouseId}`;
+  return `${itemId}\u001F${warehouseId}`;
 }
 
 function addTo(map: Map<string, Qty>, key: string, qty: Qty): void {

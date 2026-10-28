@@ -1,14 +1,8 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 import type { SequenceConfigStore, SequenceOverride } from "@mezan/domain";
-
-/**
- * SQLite-backed store for admin overrides of a sequence's prefix / pad length
- * / annual-reset flag (`/settings/sequences`). A row exists only for sequences
- * an admin has actually customized — everything else keeps reading its
- * compiled-in default from `SEQUENCE_DEFINITIONS`. Deliberately does NOT store
- * the counter value: that stays in `sequence_counter`, guarded separately.
- */
+import type { SqlDb } from "./sql/sql-db.js";
+import { sqliteDb } from "./sql/sqlite-db.js";
 
 const CREATE_TABLE = `
 CREATE TABLE IF NOT EXISTS sequence_config (
@@ -20,10 +14,6 @@ CREATE TABLE IF NOT EXISTS sequence_config (
 );
 `;
 
-/**
- * `branch_scoped` arrived after the table shipped; CREATE TABLE IF NOT EXISTS
- * will not widen an existing database, so add it in place.
- */
 function addMissingColumns(sqlite: Database.Database): void {
   const columns = sqlite.prepare(`PRAGMA table_info(sequence_config)`).all() as { name: string }[];
   if (!columns.some((c) => c.name === "branch_scoped")) {
@@ -34,77 +24,77 @@ function addMissingColumns(sqlite: Database.Database): void {
 interface ConfigRow {
   code: string;
   prefix: string | null;
-  pad_length: number | null;
-  annual_reset: number | null;
-  branch_scoped: number | null;
+  pad_length: bigint | null;
+  annual_reset: bigint | null;
+  branch_scoped: bigint | null;
 }
+
+const COLUMNS = "code, prefix, pad_length, annual_reset, branch_scoped";
 
 function rowToOverride(row: ConfigRow): SequenceOverride {
   const override: { -readonly [K in keyof SequenceOverride]?: SequenceOverride[K] } = {};
   if (row.prefix !== null) override.prefix = row.prefix;
-  if (row.pad_length !== null) override.padLength = row.pad_length;
-  if (row.annual_reset !== null) override.annualReset = row.annual_reset === 1;
-  if (row.branch_scoped !== null) override.branchScoped = row.branch_scoped === 1;
+  if (row.pad_length !== null) override.padLength = Number(row.pad_length);
+  if (row.annual_reset !== null) override.annualReset = Number(row.annual_reset) === 1;
+  if (row.branch_scoped !== null) override.branchScoped = Number(row.branch_scoped) === 1;
   return override;
 }
 
-class SqliteSequenceConfigStore implements SequenceConfigStore {
-  private readonly selectOne: Database.Statement;
-  private readonly selectAll: Database.Statement;
-  private readonly upsert: Database.Statement;
+function flag(value: boolean | undefined): number | null {
+  return value === undefined ? null : value ? 1 : 0;
+}
 
-  constructor(private readonly sqlite: Database.Database) {
-    this.selectOne = sqlite.prepare(
-      `SELECT code, prefix, pad_length, annual_reset, branch_scoped FROM sequence_config WHERE code = ?`,
-    );
-    this.selectAll = sqlite.prepare(`SELECT code, prefix, pad_length, annual_reset, branch_scoped FROM sequence_config`);
-    this.upsert = sqlite.prepare(`
-      INSERT INTO sequence_config (code, prefix, pad_length, annual_reset, branch_scoped)
-      VALUES (@code, @prefix, @padLength, @annualReset, @branchScoped)
-      ON CONFLICT(code) DO UPDATE SET
-        prefix = COALESCE(@prefix, prefix),
-        pad_length = COALESCE(@padLength, pad_length),
-        annual_reset = COALESCE(@annualReset, annual_reset),
-        branch_scoped = COALESCE(@branchScoped, branch_scoped)
-    `);
-  }
+class SqlSequenceConfigStore implements SequenceConfigStore {
+  constructor(private readonly db: SqlDb) {}
 
   async getOverride(code: string): Promise<SequenceOverride | null> {
-    const row = this.selectOne.get(code) as ConfigRow | undefined;
+    const row = await this.db.get<ConfigRow>(`SELECT ${COLUMNS} FROM sequence_config WHERE code = ?`, [code]);
     return row ? rowToOverride(row) : null;
   }
 
   async getAllOverrides(): Promise<ReadonlyMap<string, SequenceOverride>> {
-    const rows = this.selectAll.all() as ConfigRow[];
+    const rows = await this.db.all<ConfigRow>(`SELECT ${COLUMNS} FROM sequence_config`);
     return new Map(rows.map((r) => [r.code, rowToOverride(r)]));
   }
 
   async upsertOverride(code: string, patch: SequenceOverride): Promise<void> {
-    this.upsert.run({
-      code,
-      prefix: patch.prefix ?? null,
-      padLength: patch.padLength ?? null,
-      annualReset: patch.annualReset === undefined ? null : patch.annualReset ? 1 : 0,
-      branchScoped: patch.branchScoped === undefined ? null : patch.branchScoped ? 1 : 0,
-    });
+    await this.db.run(
+      `INSERT INTO sequence_config (code, prefix, pad_length, annual_reset, branch_scoped)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(code) DO UPDATE SET
+         prefix = COALESCE(excluded.prefix, sequence_config.prefix),
+         pad_length = COALESCE(excluded.pad_length, sequence_config.pad_length),
+         annual_reset = COALESCE(excluded.annual_reset, sequence_config.annual_reset),
+         branch_scoped = COALESCE(excluded.branch_scoped, sequence_config.branch_scoped)`,
+      [code, patch.prefix ?? null, patch.padLength ?? null, flag(patch.annualReset), flag(patch.branchScoped)],
+    );
   }
 }
 
-export interface SqliteSequenceConfigStoreHandle extends SequenceConfigStore {
-  close(): void;
+export interface SequenceConfigStoreHandle extends SequenceConfigStore {
   getAllOverrides(): Promise<ReadonlyMap<string, SequenceOverride>>;
   upsertOverride(code: string, patch: SequenceOverride): Promise<void>;
 }
 
-/** Open a SQLite-backed SequenceConfigStore. ":memory:" for tests, a path for real. */
+export interface SqliteSequenceConfigStoreHandle extends SequenceConfigStoreHandle {
+  close(): void;
+}
+
+export async function ensureSequenceConfigSchema(db: SqlDb): Promise<void> {
+  await db.applySchema(CREATE_TABLE);
+}
+
+export function createSequenceConfigStore(db: SqlDb): SequenceConfigStoreHandle {
+  return new SqlSequenceConfigStore(db);
+}
+
 export function createSqliteSequenceConfigStore(
   path: SqliteConnectionInput = ":memory:",
 ): SqliteSequenceConfigStoreHandle {
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.exec(CREATE_TABLE);
   addMissingColumns(sqlite);
-  const store = new SqliteSequenceConfigStore(sqlite);
-  return Object.assign(store, {
+  return Object.assign(createSequenceConfigStore(sqliteDb(sqlite)), {
     close: () => {
       if (owned) sqlite.close();
     },

@@ -47,11 +47,11 @@ describe("SqliteWorkflowConfigStore", () => {
     expect(await store.findById("cfg-1")).toBeNull();
   });
 
-  it("resolveSync returns the same shape findByActionType would resolve to", async () => {
+  it("resolve returns the same shape findByActionType would resolve to", async () => {
     store = createSqliteWorkflowConfigStore();
     await store.save(config());
-    const sync = store.resolveSync("SALES_INVOICE_CONFIRM");
-    expect(sync).toEqual({ actionType: "SALES_INVOICE_CONFIRM", steps: config().steps });
-    expect(store.resolveSync("PURCHASE_ORDER_CONFIRM")).toBeNull();
+    const resolved = await store.resolve("SALES_INVOICE_CONFIRM");
+    expect(resolved).toEqual({ actionType: "SALES_INVOICE_CONFIRM", steps: config().steps });
+    expect(await store.resolve("PURCHASE_ORDER_CONFIRM")).toBeNull();
   });
 });

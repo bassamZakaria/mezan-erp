@@ -1,6 +1,6 @@
 import { auditStreamSchema, type AfterHoursRowDTO, type WorkingHoursDTO } from "@mezan/contracts";
-import type { ReportRunnerColumn, ReportRunnerParamField } from "@mezan/ui";
-import { SecurityReportScreen, securityCopy, type SecurityReportResult } from "./SecurityReportScreen";
+import type { ReportRunnerColumn } from "@mezan/ui";
+import { SecurityReportScreen, useUserFilterField, type SecurityParamField, securityCopy, type SecurityReportResult } from "./SecurityReportScreen";
 import { useAppTranslation, type AppTranslationKey } from "../../i18n";
 import { useAuditLabels } from "../enh/audit-ledger/audit-changes";
 import { monthStartIso, todayIso } from "../../lib/dates";
@@ -20,9 +20,10 @@ export function AfterHoursReportScreen() {
   const { t } = useAppTranslation();
   const labels = useAuditLabels();
 
-  const paramFields: ReportRunnerParamField[] = [
+  const userFilter = useUserFilterField("actor", t("securityReports.actor"));
+  const paramFields: SecurityParamField[] = [
     { kind: "dateRange", fromKey: "from", toKey: "to", label: t("securityReports.period") },
-    { kind: "text", key: "actor", label: t("securityReports.actor") },
+    userFilter,
     {
       kind: "select",
       key: "stream",
@@ -52,7 +53,7 @@ export function AfterHoursReportScreen() {
       header: securityCopy(REPORT, "col", "outsideReasonLabelAr", "سبب الاستثناء", t),
       value: (r) => t(`securityReports.afterHours.reason.${r.outsideReason}` as AppTranslationKey),
     },
-    { key: "actor", header: securityCopy(REPORT, "col", "actor", "المستخدم", t), value: (r) => r.actor },
+    { key: "actor", header: securityCopy(REPORT, "col", "actor", "المستخدم", t), value: (r) => r.actorNameAr },
     { key: "action", header: securityCopy(REPORT, "col", "action", "الإجراء", t), value: (r) => labels.actionLabel(r.action) },
     { key: "entityType", header: securityCopy(REPORT, "col", "entityType", "النوع", t), value: (r) => labels.entityLabel(r.entityType) },
     { key: "entityId", header: securityCopy(REPORT, "col", "entityId", "المرجع", t), value: (r) => r.entityId },

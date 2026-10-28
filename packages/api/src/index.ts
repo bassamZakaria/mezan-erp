@@ -14,7 +14,7 @@ export {
   type LicenseStateResolver,
 } from "./license-gate.js";
 export { createLanRoutes, type LanRoutesOptions } from "./lan/routes.js";
-export { createAccountsRouter } from "./accounts.js";
+export { createAccountsRouter, AUDITED_ACCOUNT_FIELDS } from "./accounts.js";
 export {
   createAuthenticatedGate,
   createPermissionGate,
@@ -179,7 +179,7 @@ export {
 
 export * from "./pos/index.js";
 export * from "./enh/index.js";
-export { AUDITED_MOUNTS, MutatingMethod, connectionTurn, type AuditedMount, type BoundaryPreparation, type ConnectionTurnOptions } from "./audit-boundary.js";
+export { AUDITED_MOUNTS, AuditBoundaryRefusal, MutatingMethod, connectionTurn, type AuditedMount, type BoundaryPreparation, type ConnectionTurnOptions } from "./audit-boundary.js";
 export { BodyLimitBytes, BodyLimitRefusal, bodyLimitFor, requestBodyLimit } from "./body-limit.js";
 export { IDEMPOTENT_CREATES, IDEMPOTENT_REPLAY_HEADER, IdempotencyRefusal, idempotentCreate, type IdempotentRequests } from "./idempotent-create.js";
 

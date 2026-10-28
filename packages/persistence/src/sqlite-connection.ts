@@ -143,6 +143,17 @@ export function openSqliteConnection(
   return { sqlite, owned: true };
 }
 
+export async function backupSqliteFile(source: string, destination: string): Promise<void> {
+  const sqlite = new Database(source, { readonly: true, fileMustExist: true });
+  try {
+    // REQUIRED: backup() of a database another connection holds exclusively copies nothing and reports success; this read throws SQLITE_BUSY instead.
+    sqlite.prepare("SELECT count(*) FROM sqlite_master").get();
+    await sqlite.backup(destination);
+  } finally {
+    sqlite.close();
+  }
+}
+
 const watched = new WeakSet<Database.Database>();
 
 // A WRITE THAT LANDS INSIDE ANOTHER CHAIN'S OPEN TRANSACTION IS LOST IF THAT
@@ -223,6 +234,7 @@ interface ConnectionState {
   // it would otherwise wait for the turn its own outer section returns only
   // after it finishes.
   readonly handedBack: AsyncLocalStorage<TurnScope>;
+  readonly savepointLevel: AsyncLocalStorage<Lane>;
   transaction: Promise<void> | null;
 }
 
@@ -280,7 +292,7 @@ async function enter(lane: Lane): Promise<() => void> {
 function stateFor(sqlite: Database.Database): ConnectionState {
   let state = connectionStates.get(sqlite);
   if (!state) {
-    state = { nesting: new AsyncLocalStorage<true>(), queue: Promise.resolve(), turn: new AsyncLocalStorage<TurnScope>(), handedBack: new AsyncLocalStorage<TurnScope>(), transaction: null };
+    state = { nesting: new AsyncLocalStorage<true>(), queue: Promise.resolve(), turn: new AsyncLocalStorage<TurnScope>(), handedBack: new AsyncLocalStorage<TurnScope>(), savepointLevel: new AsyncLocalStorage<Lane>(), transaction: null };
     connectionStates.set(sqlite, state);
   }
   return state;
@@ -343,16 +355,26 @@ export async function withSqliteTransaction<T>(
   const state = stateFor(sqlite);
 
   if (state.nesting.getStore()) {
-    const savepoint = `sp_${++savepointCounter}`;
-    sqlite.exec(`SAVEPOINT ${savepoint}`);
+    // Sibling savepoints of one transaction run one after another: interleaved,
+    // a ROLLBACK TO one of them would also undo the other's work.
+    const parent = state.savepointLevel.getStore();
+    const release = parent ? await enter(parent) : () => undefined;
     try {
-      const result = await fn();
-      sqlite.exec(`RELEASE ${savepoint}`);
-      return result;
-    } catch (err) {
-      sqlite.exec(`ROLLBACK TO ${savepoint}`);
-      sqlite.exec(`RELEASE ${savepoint}`);
-      throw err;
+      return await state.savepointLevel.run({ queue: Promise.resolve() }, async () => {
+        const savepoint = `sp_${++savepointCounter}`;
+        sqlite.exec(`SAVEPOINT ${savepoint}`);
+        try {
+          const result = await fn();
+          sqlite.exec(`RELEASE ${savepoint}`);
+          return result;
+        } catch (err) {
+          sqlite.exec(`ROLLBACK TO ${savepoint}`);
+          sqlite.exec(`RELEASE ${savepoint}`);
+          throw err;
+        }
+      });
+    } finally {
+      release();
     }
   }
 
@@ -361,7 +383,7 @@ export async function withSqliteTransaction<T>(
   let ended!: () => void;
 
   try {
-    return await state.nesting.run(true, async () => {
+    return await state.nesting.run(true, () => state.savepointLevel.run({ queue: Promise.resolve() }, async () => {
       sqlite.exec(beginStatement);
       state.transaction = new Promise<void>((resolve) => {
         ended = resolve;
@@ -377,7 +399,7 @@ export async function withSqliteTransaction<T>(
         state.transaction = null;
         ended();
       }
-    });
+    }));
   } finally {
     release();
   }

@@ -18,8 +18,8 @@ function account(id: string, overrides: Partial<Account> = {}): Account {
   return { id, code: id, nameAr: id, nameEn: null, type: "asset", naturalBalance: "debit", parentId: null, isHeader: false, status: "active", ...overrides };
 }
 
-function grant(sessions: ReturnType<typeof createSessionRegistry>, permissions: string[]) {
-  const token = sessions.issue({ userId: "u1", permissions, roleCode: null, branchScope: "*", warehouseScope: "*" });
+async function grant(sessions: ReturnType<typeof createSessionRegistry>, permissions: string[]) {
+  const token = await sessions.issue({ userId: "u1", permissions, roleCode: null, branchScope: "*", warehouseScope: "*" });
   return { headers: { authorization: `Bearer ${token}` } };
 }
 
@@ -91,7 +91,7 @@ describe("fx-revaluation router — permission gate", () => {
   it("403s a caller without accounting.journal.post", async () => {
     const seeded = await seed();
     const { app, sessions } = newApp(seeded);
-    const auth = grant(sessions, ["accounting.reports.view"]);
+    const auth = (await grant(sessions, ["accounting.reports.view"]));
     const res = await app.fetch(req("/preview", { method: "POST", json: { date: "2026-08-31" }, headers: auth.headers }));
     expect(res.status).toBe(403);
     expect(((await res.json()) as { permission: string }).permission).toBe("accounting.journal.post");
@@ -102,7 +102,7 @@ describe("fx-revaluation router — validation", () => {
   it("400s a body missing the required date field", async () => {
     const seeded = await seed();
     const { app, sessions } = newApp(seeded);
-    const auth = grant(sessions, ["accounting.journal.post"]);
+    const auth = (await grant(sessions, ["accounting.journal.post"]));
     const res = await app.fetch(req("/preview", { method: "POST", json: {}, headers: auth.headers }));
     expect(res.status).toBe(400);
     const body = (await res.json()) as { details: { fieldErrors: Record<string, unknown> } };
@@ -114,7 +114,7 @@ describe("fx-revaluation router — POST /preview", () => {
   it("previews a gain from a rate increase without posting anything", async () => {
     const seeded = await seed();
     const { app, sessions } = newApp(seeded);
-    const auth = grant(sessions, ["accounting.journal.post"]);
+    const auth = (await grant(sessions, ["accounting.journal.post"]));
     const res = await app.fetch(req("/preview", { method: "POST", json: { date: "2026-08-31" }, headers: auth.headers }));
     expect(res.status).toBe(200);
     const body = (await res.json()) as { hasImpact: boolean; totalGain: string; reversalDate: string };
@@ -135,7 +135,7 @@ describe("fx-revaluation router — POST /preview", () => {
       { accountId: "4000", debit: Money.zero(), credit: Money.fromMajor("600") },
     ] }, postingDeps);
     const { app, sessions } = newApp(seeded);
-    const auth = grant(sessions, ["accounting.journal.post"]);
+    const auth = (await grant(sessions, ["accounting.journal.post"]));
     const res = await app.fetch(
       req("/preview", { method: "POST", json: { date: "2026-08-31", currencies: ["EUR"] }, headers: auth.headers }),
     );
@@ -148,7 +148,7 @@ describe("fx-revaluation router — POST /post", () => {
   it("posts the revaluation without auto-reverse: the AR sub-ledger balance and the FX-gain GL account both move, in agreement", async () => {
     const seeded = await seed();
     const { app, sessions } = newApp(seeded);
-    const auth = grant(sessions, ["accounting.journal.post"]);
+    const auth = (await grant(sessions, ["accounting.journal.post"]));
     const res = await app.fetch(
       req("/post", { method: "POST", json: { date: "2026-08-31", autoReverse: false }, headers: auth.headers }),
     );
@@ -168,7 +168,7 @@ describe("fx-revaluation router — POST /post", () => {
   it("posts the revaluation with its next-day auto-reversal: both the AR balance and the FX-gain account return to their pre-revaluation figures", async () => {
     const seeded = await seed();
     const { app, sessions } = newApp(seeded);
-    const auth = grant(sessions, ["accounting.journal.post"]);
+    const auth = (await grant(sessions, ["accounting.journal.post"]));
     const res = await app.fetch(
       req("/post", { method: "POST", json: { date: "2026-08-31", autoReverse: true }, headers: auth.headers }),
     );
@@ -187,7 +187,7 @@ describe("fx-revaluation router — POST /post", () => {
     const seeded = await seed();
     await seeded.exchangeRates.create({ id: "usd-same", currency: "USD", rate: "50", effectiveDate: "2026-08-20", rateType: "standard", source: "manual", status: "approved" });
     const { app, sessions } = newApp(seeded);
-    const auth = grant(sessions, ["accounting.journal.post"]);
+    const auth = (await grant(sessions, ["accounting.journal.post"]));
     const res = await app.fetch(
       req("/post", { method: "POST", json: { date: "2026-08-31" }, headers: auth.headers }),
     );
@@ -203,7 +203,7 @@ describe("fx-revaluation router — fiscal period gate", () => {
   it("refuses to post when the revaluation date falls in a closed period", async () => {
     const seeded = await seed("closed");
     const { app, sessions } = newApp(seeded);
-    const auth = grant(sessions, ["accounting.journal.post"]);
+    const auth = (await grant(sessions, ["accounting.journal.post"]));
     const res = await app.fetch(
       req("/post", { method: "POST", json: { date: "2026-08-31" }, headers: auth.headers }),
     );
@@ -216,7 +216,7 @@ describe("fx-revaluation router — fiscal period gate", () => {
   it("refuses to post when the revaluation date falls in a locked period", async () => {
     const seeded = await seed("locked");
     const { app, sessions } = newApp(seeded);
-    const auth = grant(sessions, ["accounting.journal.post"]);
+    const auth = (await grant(sessions, ["accounting.journal.post"]));
     const res = await app.fetch(
       req("/post", { method: "POST", json: { date: "2026-08-31" }, headers: auth.headers }),
     );
@@ -244,7 +244,7 @@ describe("fx-revaluation router — the run record and the entry are one fact", 
       },
       createSessionAuthContextResolver(sessions),
     );
-    const auth = grant(sessions, ["accounting.journal.post"]);
+    const auth = (await grant(sessions, ["accounting.journal.post"]));
     const res = await app.fetch(req("/post", { method: "POST", json: { date: "2026-08-31", autoReverse: false }, headers: auth.headers }));
     expect(res.status).toBe(500);
     expect((await seeded.ledger.list()).map((entry) => entry.id)).toEqual(["je1"]);
@@ -264,11 +264,11 @@ describe("fx-revaluation router — the run record and the entry are one fact", 
         exchangeRates: seeded.exchangeRates,
         differenceAccounts: async () => ({ gainAccountId: "4940", lossAccountId: "5940" }),
         now: () => "2026-08-31T10:00:00.000Z",
-        recordRun: (run) => runs.push(run),
+        recordRun: (run) => void runs.push(run),
       },
       createSessionAuthContextResolver(sessions),
     );
-    const auth = grant(sessions, ["accounting.journal.post"]);
+    const auth = (await grant(sessions, ["accounting.journal.post"]));
     const res = await app.fetch(req("/post", { method: "POST", json: { date: "2026-08-31", autoReverse: false }, headers: auth.headers }));
     const { entryId } = (await res.json()) as { entryId: string };
     expect(runs).toEqual([{ asOfDate: "2026-08-31", currencies: ["*"], entryId, ranBy: "u1", ranAt: "2026-08-31T10:00:00.000Z" }]);

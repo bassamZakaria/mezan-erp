@@ -17,7 +17,7 @@ interface Answer {
 async function open(options: Partial<CreateBackendOptions> = {}) {
   const handle = await createBackend({ dbPath: ":memory:", ...options });
   handles.push(handle);
-  const token = handle.sessions.issue({ userId: "admin", permissions: ["*"], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
+  const token = await handle.sessions.issue({ userId: "admin", permissions: ["*"], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
   const headers = { authorization: `Bearer ${token}`, "content-type": "application/json" };
   const call = async (method: string, path: string, body?: unknown): Promise<Answer> => {
     const res = await handle.app.fetch(new Request(`http://local${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) }));

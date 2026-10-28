@@ -1,6 +1,7 @@
-import Database from "better-sqlite3";
-import { openSqliteConnection, withSqliteTransaction, type SqliteConnectionInput } from "./sqlite-connection.js";
-import { insertingNew, prepareInsertOnly } from "./insert-new.js";
+import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
+import { insertNew } from "./insert-new.js";
+import { TransactionMode, type SqlDb, type SqlValue } from "./sql/sql-db.js";
+import { sqliteDb } from "./sql/sqlite-db.js";
 import {
   Money,
   type CostCategory,
@@ -79,30 +80,30 @@ interface RunRow {
   period_end: string;
   status: string;
   recognition_policy: string;
-  estimated_total_cost: number;
-  cost_to_date: number;
-  cost_to_complete: number;
+  estimated_total_cost: bigint;
+  cost_to_date: bigint;
+  cost_to_complete: bigint;
   percent_complete: string;
-  contract_value: number;
-  revenue_to_date: number;
-  revenue_recognised_previously: number;
-  period_revenue: number;
-  billed_in_period: number;
-  billed_to_date: number;
-  contract_asset: number;
-  contract_liability: number;
-  contract_position_movement: number;
-  foreseeable_loss: number;
-  provision_required: number;
-  provision_balance: number;
-  provision_movement: number;
-  wip_opening: number;
-  wip_incurred: number;
-  wip_relieved: number;
-  wip_closing: number;
+  contract_value: bigint;
+  revenue_to_date: bigint;
+  revenue_recognised_previously: bigint;
+  period_revenue: bigint;
+  billed_in_period: bigint;
+  billed_to_date: bigint;
+  contract_asset: bigint;
+  contract_liability: bigint;
+  contract_position_movement: bigint;
+  foreseeable_loss: bigint;
+  provision_required: bigint;
+  provision_balance: bigint;
+  provision_movement: bigint;
+  wip_opening: bigint;
+  wip_incurred: bigint;
+  wip_relieved: bigint;
+  wip_closing: bigint;
   wip_by_category: string;
-  advance_outstanding: number;
-  retention_held: number;
+  advance_outstanding: bigint;
+  retention_held: bigint;
   journal_entry_id: string | null;
   reversal_journal_entry_id: string | null;
   posted_at: string;
@@ -166,15 +167,7 @@ function toRun(row: RunRow): RevenueRecognitionRun {
   };
 }
 
-class SqliteRecognitionRunRepository implements RevenueRecognitionRunRepository {
-  private readonly upsert: Database.Statement;
-  private readonly insertOnly: Database.Statement;
-  private readonly selectById: Database.Statement;
-  private readonly selectByDocNo: Database.Statement;
-  private readonly selectAll: Database.Statement;
-
-  constructor(private readonly sqlite: Database.Database) {
-    this.upsert = sqlite.prepare(`
+const UPSERT = `
       INSERT INTO contracting_recognition_run (
         id, doc_no, contract_id, contract_doc_no, project_id, period_end, status,
         recognition_policy, estimated_total_cost, cost_to_date, cost_to_complete, percent_complete,
@@ -185,14 +178,14 @@ class SqliteRecognitionRunRepository implements RevenueRecognitionRunRepository 
         advance_outstanding, retention_held,
         journal_entry_id, reversal_journal_entry_id, posted_at, posted_by, reversed_at, reversed_by
       ) VALUES (
-        @id, @doc_no, @contract_id, @contract_doc_no, @project_id, @period_end, @status,
-        @recognition_policy, @estimated_total_cost, @cost_to_date, @cost_to_complete, @percent_complete,
-        @contract_value, @revenue_to_date, @revenue_recognised_previously, @period_revenue,
-        @billed_in_period, @billed_to_date, @contract_asset, @contract_liability, @contract_position_movement,
-        @foreseeable_loss, @provision_required, @provision_balance, @provision_movement,
-        @wip_opening, @wip_incurred, @wip_relieved, @wip_closing, @wip_by_category,
-        @advance_outstanding, @retention_held,
-        @journal_entry_id, @reversal_journal_entry_id, @posted_at, @posted_by, @reversed_at, @reversed_by
+        ?, ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?,
+        ?, ?, ?, ?,
+        ?, ?, ?, ?, ?,
+        ?, ?, ?, ?,
+        ?, ?, ?, ?, ?,
+        ?, ?,
+        ?, ?, ?, ?, ?, ?
       )
       ON CONFLICT(id) DO UPDATE SET
         status = excluded.status,
@@ -200,27 +193,69 @@ class SqliteRecognitionRunRepository implements RevenueRecognitionRunRepository 
         reversal_journal_entry_id = excluded.reversal_journal_entry_id,
         reversed_at = excluded.reversed_at,
         reversed_by = excluded.reversed_by
-    `);
-    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
-    this.selectById = sqlite.prepare(`SELECT * FROM contracting_recognition_run WHERE id = ?`);
-    this.selectByDocNo = sqlite.prepare(`SELECT * FROM contracting_recognition_run WHERE doc_no = ?`);
-    this.selectAll = sqlite.prepare(
-      `SELECT * FROM contracting_recognition_run ORDER BY period_end DESC, doc_no DESC`,
-    );
-  }
+    `;
+
+function runParams(run: RevenueRecognitionRun): SqlValue[] {
+  return [
+    run.id,
+    run.docNo,
+    run.contractId,
+    run.contractDocNo,
+    run.projectId,
+    run.periodEnd,
+    run.status,
+    run.recognitionPolicy,
+    run.estimatedTotalCost.scaled,
+    run.costToDate.scaled,
+    run.costToComplete.scaled,
+    run.percentComplete,
+    run.contractValue.scaled,
+    run.revenueToDate.scaled,
+    run.revenueRecognisedPreviously.scaled,
+    run.periodRevenue.scaled,
+    run.billedInPeriod.scaled,
+    run.billedToDate.scaled,
+    run.contractAsset.scaled,
+    run.contractLiability.scaled,
+    run.contractPositionMovement.scaled,
+    run.foreseeableLoss.scaled,
+    run.provisionRequired.scaled,
+    run.provisionBalance.scaled,
+    run.provisionMovement.scaled,
+    run.wipOpening.scaled,
+    run.wipIncurred.scaled,
+    run.wipRelieved.scaled,
+    run.wipClosing.scaled,
+    JSON.stringify(
+        run.wipByCategory.map((b) => ({ costCategory: b.costCategory, amount: b.amount.toScaledNumber() })),
+      ),
+    run.advanceOutstanding.scaled,
+    run.retentionHeld.scaled,
+    run.journalEntryId,
+    run.reversalJournalEntryId,
+    run.postedAt,
+    run.postedBy,
+    run.reversedAt,
+    run.reversedBy,
+  ];
+}
+
+class SqlRecognitionRunRepository implements RevenueRecognitionRunRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async findById(id: string): Promise<RevenueRecognitionRun | null> {
-    const row = this.selectById.get(id) as RunRow | undefined;
+    const row = await this.db.get<RunRow>(`SELECT * FROM contracting_recognition_run WHERE id = ?`, [id]);
     return row ? toRun(row) : null;
   }
 
   async findByDocNo(docNo: string): Promise<RevenueRecognitionRun | null> {
-    const row = this.selectByDocNo.get(docNo) as RunRow | undefined;
+    const row = await this.db.get<RunRow>(`SELECT * FROM contracting_recognition_run WHERE doc_no = ?`, [docNo]);
     return row ? toRun(row) : null;
   }
 
   async list(filter?: RecognitionRunFilter): Promise<RevenueRecognitionRun[]> {
-    return (this.selectAll.all() as RunRow[])
+    const rows = await this.db.all<RunRow>(`SELECT * FROM contracting_recognition_run ORDER BY period_end DESC, doc_no DESC`);
+    return rows
       .map(toRun)
       .filter(
         (r) =>
@@ -232,61 +267,24 @@ class SqliteRecognitionRunRepository implements RevenueRecognitionRunRepository 
   }
 
   async save(run: RevenueRecognitionRun): Promise<void> {
-    this.write(run);
+    await this.db.run(UPSERT, runParams(run));
   }
 
   async insert(run: RevenueRecognitionRun): Promise<void> {
-    insertingNew(run.id, () => this.write(run, this.insertOnly));
-  }
-
-  private write(run: RevenueRecognitionRun, statement: Database.Statement = this.upsert): void {
-    statement.run({
-      id: run.id,
-      doc_no: run.docNo,
-      contract_id: run.contractId,
-      contract_doc_no: run.contractDocNo,
-      project_id: run.projectId,
-      period_end: run.periodEnd,
-      status: run.status,
-      recognition_policy: run.recognitionPolicy,
-      estimated_total_cost: run.estimatedTotalCost.toScaledNumber(),
-      cost_to_date: run.costToDate.toScaledNumber(),
-      cost_to_complete: run.costToComplete.toScaledNumber(),
-      percent_complete: run.percentComplete,
-      contract_value: run.contractValue.toScaledNumber(),
-      revenue_to_date: run.revenueToDate.toScaledNumber(),
-      revenue_recognised_previously: run.revenueRecognisedPreviously.toScaledNumber(),
-      period_revenue: run.periodRevenue.toScaledNumber(),
-      billed_in_period: run.billedInPeriod.toScaledNumber(),
-      billed_to_date: run.billedToDate.toScaledNumber(),
-      contract_asset: run.contractAsset.toScaledNumber(),
-      contract_liability: run.contractLiability.toScaledNumber(),
-      contract_position_movement: run.contractPositionMovement.toScaledNumber(),
-      foreseeable_loss: run.foreseeableLoss.toScaledNumber(),
-      provision_required: run.provisionRequired.toScaledNumber(),
-      provision_balance: run.provisionBalance.toScaledNumber(),
-      provision_movement: run.provisionMovement.toScaledNumber(),
-      wip_opening: run.wipOpening.toScaledNumber(),
-      wip_incurred: run.wipIncurred.toScaledNumber(),
-      wip_relieved: run.wipRelieved.toScaledNumber(),
-      wip_closing: run.wipClosing.toScaledNumber(),
-      wip_by_category: JSON.stringify(
-        run.wipByCategory.map((b) => ({ costCategory: b.costCategory, amount: b.amount.toScaledNumber() })),
-      ),
-      advance_outstanding: run.advanceOutstanding.toScaledNumber(),
-      retention_held: run.retentionHeld.toScaledNumber(),
-      journal_entry_id: run.journalEntryId,
-      reversal_journal_entry_id: run.reversalJournalEntryId,
-      posted_at: run.postedAt,
-      posted_by: run.postedBy,
-      reversed_at: run.reversedAt,
-      reversed_by: run.reversedBy,
-    });
+    await insertNew(this.db, run.id, UPSERT, runParams(run));
   }
 
   async transaction<T>(fn: () => Promise<T>): Promise<T> {
-    return withSqliteTransaction(this.sqlite, fn, "BEGIN IMMEDIATE");
+    return this.db.transaction(fn, TransactionMode.Immediate);
   }
+}
+
+export async function ensureContractingRecognitionSchema(db: SqlDb): Promise<void> {
+  await db.applySchema(CREATE_TABLE);
+}
+
+export function createContractingRecognitionStore(db: SqlDb): RevenueRecognitionRunRepository {
+  return new SqlRecognitionRunRepository(db);
 }
 
 export interface SqliteRecognitionStoreHandle extends RevenueRecognitionRunRepository {
@@ -308,8 +306,7 @@ export function createSqliteContractingRecognitionStore(
       sqlite.exec(`ALTER TABLE contracting_recognition_run ADD COLUMN ${column} INTEGER NOT NULL DEFAULT 0`);
     }
   }
-  const repo = new SqliteRecognitionRunRepository(sqlite);
-  return Object.assign(repo, {
+  return Object.assign(createContractingRecognitionStore(sqliteDb(sqlite)), {
     close: () => {
       if (owned) sqlite.close();
     },

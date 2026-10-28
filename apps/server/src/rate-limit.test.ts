@@ -5,7 +5,7 @@ import { Hono, type Context } from "hono";
 import { afterEach, describe, expect, it } from "vitest";
 import { createSqliteRateWindowStore } from "@mezan/persistence";
 import { requireCloudSource } from "./client-source.js";
-import { addressKey, createMemoryRateWindowStore, createRateLimiter, RequestCapRefusal, requestCap, sessionKey } from "./rate-limit.js";
+import { addressKey, createMemoryWindows, createRateLimiter, createRequestLimiter, RequestCapRefusal, requestCap, sessionKey } from "./rate-limit.js";
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -21,41 +21,41 @@ function twoInstances(limit: number, windowMs: number, clock: () => number) {
 }
 
 describe("rate limiter shared through the platform database", () => {
-  it("counts attempts spread across two instances against ONE limit", () => {
+  it("counts attempts spread across two instances against ONE limit", async () => {
     let now = 1_000;
     const [a, b] = twoInstances(3, 60_000, () => now);
-    a.consume("owner@shop.test");
-    b.consume("owner@shop.test");
-    expect(a.retryAfter("owner@shop.test")).toBe(0);
-    a.consume("owner@shop.test");
-    expect(b.retryAfter("owner@shop.test")).toBe(60);
+    await a.consume("owner@shop.test");
+    await b.consume("owner@shop.test");
+    expect(await a.retryAfter("owner@shop.test")).toBe(0);
+    await a.consume("owner@shop.test");
+    expect(await b.retryAfter("owner@shop.test")).toBe(60);
     now += 60_000;
-    expect(a.retryAfter("owner@shop.test")).toBe(0);
+    expect(await a.retryAfter("owner@shop.test")).toBe(0);
   });
 
-  it("starts a fresh window after the old one lapsed, on either instance", () => {
+  it("starts a fresh window after the old one lapsed, on either instance", async () => {
     let now = 1_000;
     const [a, b] = twoInstances(1, 10_000, () => now);
-    a.consume("k");
-    expect(b.retryAfter("k")).toBe(10);
+    await a.consume("k");
+    expect(await b.retryAfter("k")).toBe(10);
     now += 10_000;
-    b.consume("k");
-    expect(a.retryAfter("k")).toBe(10);
+    await b.consume("k");
+    expect(await a.retryAfter("k")).toBe(10);
   });
 
-  it("keeps the in-process default working with no store", () => {
+  it("keeps the in-process default working with no store", async () => {
     let now = 0;
     const limiter = createRateLimiter(1, 1_000, () => now);
-    limiter.consume("k");
-    expect(limiter.retryAfter("k")).toBe(1);
+    await limiter.consume("k");
+    expect(await limiter.retryAfter("k")).toBe(1);
     now += 1_000;
-    expect(limiter.retryAfter("k")).toBe(0);
+    expect(await limiter.retryAfter("k")).toBe(0);
   });
 });
 
 describe("in-memory window store", () => {
   it("never holds more than the cap, dropping the oldest window first", () => {
-    const store = createMemoryRateWindowStore();
+    const store = createMemoryWindows();
     for (let i = 0; i < 5; i += 1) {
       store.hit(`k${i}`, i, 1_000);
       store.sweep(i, 3);
@@ -64,7 +64,7 @@ describe("in-memory window store", () => {
   });
 
   it("treats a restarted window as the newest, so eviction does not reset a live caller", () => {
-    const store = createMemoryRateWindowStore();
+    const store = createMemoryWindows();
     store.hit("old", 0, 10);
     store.hit("other", 5, 10);
     store.hit("old", 10, 10);
@@ -74,7 +74,7 @@ describe("in-memory window store", () => {
   });
 
   it("drops lapsed windows on sweep", () => {
-    const store = createMemoryRateWindowStore();
+    const store = createMemoryWindows();
     store.hit("a", 0, 10);
     store.hit("b", 5, 10);
     store.sweep(12, 100);
@@ -85,17 +85,17 @@ describe("in-memory window store", () => {
 
 describe("limiter capacity", () => {
   it("keeps live windows up to the capacity it was given, so junk keys cannot evict a counted caller below it", () => {
-    const limiter = createRateLimiter(1, 60_000, () => 0, createMemoryRateWindowStore(), 50_000);
-    limiter.consume("real-session");
-    for (let i = 0; i < 20_000; i += 1) limiter.consume(`junk-${i}`);
-    expect(limiter.retryAfter("real-session")).toBe(60);
+    const limiter = createRequestLimiter(1, 60_000, () => 0, 50_000);
+    limiter.admit("real-session");
+    for (let i = 0; i < 20_000; i += 1) limiter.admit(`junk-${i}`);
+    expect(limiter.admit("real-session")).toBe(60);
   });
 });
 
 describe("requestCap", () => {
   function capped(limit: number, clock: () => number, keyOf = (c: Context) => c.req.header("x-key") ?? null) {
     const app = new Hono();
-    app.use("*", requestCap(createRateLimiter(limit, 60_000, clock), keyOf));
+    app.use("*", requestCap(createRequestLimiter(limit, 60_000, clock), keyOf));
     app.get("/", (c) => c.text("ok"));
     return (key?: string) => app.request("/", { headers: key === undefined ? {} : { "x-key": key } });
   }

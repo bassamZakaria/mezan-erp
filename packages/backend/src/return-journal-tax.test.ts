@@ -14,7 +14,7 @@ let backend: BackendHandle;
 let admin = "";
 
 async function call(method: string, path: string, body?: unknown, permissions?: readonly string[], warehouseScope: readonly string[] | typeof ALL_SCOPE = ALL_SCOPE) {
-  const bearer = permissions ? backend.sessions.issue({ userId: "LIMITED", permissions, roleCode: null, branchScope: ALL_SCOPE, warehouseScope }) : admin;
+  const bearer = permissions ? await backend.sessions.issue({ userId: "LIMITED", permissions, roleCode: null, branchScope: ALL_SCOPE, warehouseScope }) : admin;
   const res = await backend.app.fetch(
     new Request(`http://local${path}`, {
       method,
@@ -64,7 +64,7 @@ beforeAll(async () => {
     seedDemoData: true,
     resolveEntitlements: () => createEntitlements({ plan: "DEMO", activeModules: MODULE_CATALOG, features: {}, seats: 50, expiresAt: null }),
   });
-  admin = backend.sessions.issue({ userId: "USER-ADMIN", permissions: ["*"], roleCode: "*", branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
+  admin = await backend.sessions.issue({ userId: "USER-ADMIN", permissions: ["*"], roleCode: "*", branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
 }, 120_000);
 
 afterAll(async () => {

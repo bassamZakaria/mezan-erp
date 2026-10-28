@@ -1,11 +1,7 @@
 import type { DataMigrationStepSpec } from "@mezan/ui";
 import type { AppTranslationKey } from "../i18n";
-import type {
-  DataMigrationMasterStep,
-  DataMigrationStatusDTO,
-  HistoricalImportDocType,
-  HistoricalImportKind,
-} from "../data/hooks";
+import { DataMigrationMasterStep } from "../data/data-migration-step";
+import type { DataMigrationStatusDTO, HistoricalImportDocType, HistoricalImportKind } from "../data/hooks";
 
 /**
  * The go-live wizard's per-step column contract (docs/archive/catalog/09 «نقل البيانات»).
@@ -54,7 +50,7 @@ export const HISTORICAL_COLUMNS: DataMigrationStepSpec["columns"] = [
 export const STEPS: StepDef[] = [
   {
     kind: "master",
-    id: "departments",
+    id: DataMigrationMasterStep.Departments,
     statusKey: "departments",
     title: "dm.step.departments.title",
     help: "dm.step.departments.help",
@@ -70,7 +66,7 @@ export const STEPS: StepDef[] = [
   },
   {
     kind: "master",
-    id: "employees",
+    id: DataMigrationMasterStep.Employees,
     statusKey: "employees",
     title: "dm.step.employees.title",
     help: "dm.step.employees.help",
@@ -90,7 +86,7 @@ export const STEPS: StepDef[] = [
   },
   {
     kind: "master",
-    id: "treasury-accounts",
+    id: DataMigrationMasterStep.TreasuryAccounts,
     statusKey: "treasuryAccounts",
     title: "dm.step.treasury-accounts.title",
     help: "dm.step.treasury-accounts.help",
@@ -109,7 +105,7 @@ export const STEPS: StepDef[] = [
   },
   {
     kind: "master",
-    id: "suppliers",
+    id: DataMigrationMasterStep.Suppliers,
     statusKey: "suppliers",
     title: "dm.step.suppliers.title",
     help: "dm.step.suppliers.help",
@@ -128,7 +124,7 @@ export const STEPS: StepDef[] = [
   },
   {
     kind: "master",
-    id: "customers",
+    id: DataMigrationMasterStep.Customers,
     statusKey: "customers",
     title: "dm.step.customers.title",
     help: "dm.step.customers.help",
@@ -148,7 +144,7 @@ export const STEPS: StepDef[] = [
   },
   {
     kind: "master",
-    id: "items",
+    id: DataMigrationMasterStep.Items,
     statusKey: "items",
     title: "dm.step.items.title",
     help: "dm.step.items.help",
@@ -168,7 +164,7 @@ export const STEPS: StepDef[] = [
   },
   {
     kind: "master",
-    id: "item-units",
+    id: DataMigrationMasterStep.ItemUnits,
     statusKey: "itemUnits",
     title: "dm.step.item-units.title",
     help: "dm.step.item-units.help",
@@ -185,7 +181,7 @@ export const STEPS: StepDef[] = [
   },
   {
     kind: "master",
-    id: "asset-categories",
+    id: DataMigrationMasterStep.AssetCategories,
     statusKey: "assetCategories",
     title: "dm.step.asset-categories.title",
     help: "dm.step.asset-categories.help",
@@ -202,7 +198,7 @@ export const STEPS: StepDef[] = [
   },
   {
     kind: "master",
-    id: "assets",
+    id: DataMigrationMasterStep.Assets,
     statusKey: "assets",
     title: "dm.step.assets.title",
     help: "dm.step.assets.help",
@@ -222,7 +218,7 @@ export const STEPS: StepDef[] = [
   // chart, the opening trial balance, and the open AR/AP.
   {
     kind: "master",
-    id: "chart-of-accounts",
+    id: DataMigrationMasterStep.ChartOfAccounts,
     statusKey: "accounts",
     title: "dm.step.chart-of-accounts.title",
     help: "dm.step.chart-of-accounts.help",
@@ -242,7 +238,7 @@ export const STEPS: StepDef[] = [
   },
   {
     kind: "master",
-    id: "opening-trial-balance",
+    id: DataMigrationMasterStep.OpeningTrialBalance,
     statusKey: "accounts",
     title: "dm.step.opening-trial-balance.title",
     help: "dm.step.opening-trial-balance.help",
@@ -258,7 +254,7 @@ export const STEPS: StepDef[] = [
   },
   {
     kind: "master",
-    id: "open-customer-invoices",
+    id: DataMigrationMasterStep.OpenCustomerInvoices,
     statusKey: "salesInvoices",
     title: "dm.step.open-customer-invoices.title",
     help: "dm.step.open-customer-invoices.help",
@@ -279,7 +275,7 @@ export const STEPS: StepDef[] = [
   },
   {
     kind: "master",
-    id: "open-supplier-invoices",
+    id: DataMigrationMasterStep.OpenSupplierInvoices,
     statusKey: "purchaseInvoices",
     title: "dm.step.open-supplier-invoices.title",
     help: "dm.step.open-supplier-invoices.help",

@@ -15,10 +15,12 @@ import {
 } from "./sqlite-connection.js";
 import { auditChangedFieldNames, AuditChainHeadReason, AuditStreamName, recordSecurityEventOrFallback } from "@mezan/domain";
 import { reportUntransactedAudit } from "./untransacted-audits.js";
+import { placeholders, SqlDialect, TransactionMode, type SqlDb, type SqlValue } from "./sql/sql-db.js";
+import { sqliteDb } from "./sql/sqlite-db.js";
 import type { AuditEvent, AuditQueryFilter, AuditQueryPort, AuditQueryResult, AuditSink, AuditStream, TurnObserver } from "@mezan/domain";
 
 /**
- * SQLite-backed AuditSink (docs/archive/plan.md §5.7).
+ * SQL-backed AuditSink (docs/archive/plan.md §5.7).
  *
  * Append-only is enforced at the storage layer: BEFORE UPDATE / BEFORE DELETE
  * triggers RAISE(ABORT), so even a stray SQL statement cannot mutate history.
@@ -58,6 +60,9 @@ CREATE TABLE IF NOT EXISTS audit_chain_head (
 );
 CREATE INDEX IF NOT EXISTS idx_audit_stream ON audit_event(stream, id);
 CREATE INDEX IF NOT EXISTS idx_audit_entity ON audit_event(entity_type, entity_id, id);
+`;
+
+const SQLITE_APPEND_ONLY_TRIGGERS = `
 CREATE TRIGGER IF NOT EXISTS audit_event_no_update
   BEFORE UPDATE ON audit_event
   BEGIN SELECT RAISE(ABORT, 'audit_event is append-only'); END;
@@ -66,13 +71,16 @@ CREATE TRIGGER IF NOT EXISTS audit_event_no_delete
   BEGIN SELECT RAISE(ABORT, 'audit_event is append-only'); END;
 `;
 
-const CREATE_FIELD_INDEX = `
+const FIELD_INDEX_TABLE = `
 CREATE TABLE IF NOT EXISTS audit_event_field (
   event_id INTEGER NOT NULL,
   field    TEXT NOT NULL,
   PRIMARY KEY (event_id, field)
 ) WITHOUT ROWID;
 CREATE INDEX IF NOT EXISTS idx_audit_event_field ON audit_event_field(field, event_id);
+`;
+
+const SQLITE_FIELD_INDEX_TRIGGERS = `
 CREATE TRIGGER IF NOT EXISTS audit_event_field_no_update
   BEFORE UPDATE ON audit_event_field
   BEGIN SELECT RAISE(ABORT, 'audit_event_field is append-only'); END;
@@ -80,6 +88,30 @@ CREATE TRIGGER IF NOT EXISTS audit_event_field_no_delete
   BEFORE DELETE ON audit_event_field
   BEGIN SELECT RAISE(ABORT, 'audit_event_field is append-only'); END;
 `;
+
+const CREATE_FIELD_INDEX = `${FIELD_INDEX_TABLE}${SQLITE_FIELD_INDEX_TRIGGERS}`;
+
+const LATER_INDEXES = `
+CREATE INDEX IF NOT EXISTS idx_audit_branch ON audit_event(branch_id, id);
+CREATE INDEX IF NOT EXISTS idx_audit_entity ON audit_event(entity_type, entity_id, id);
+`;
+
+// CONTRACT: the same message text as the SQLite RAISE(ABORT, ...) above — callers match on it.
+// TRUNCATE has no row trigger, so it is refused by a statement trigger of its own.
+const POSTGRES_APPEND_ONLY_TRIGGERS = ["audit_event", "audit_event_field"]
+  .map(
+    (table) => `
+CREATE OR REPLACE FUNCTION ${table}_append_only() RETURNS trigger LANGUAGE plpgsql AS $fn$
+BEGIN
+  RAISE EXCEPTION '${table} is append-only';
+END;
+$fn$;
+CREATE OR REPLACE TRIGGER ${table}_no_update BEFORE UPDATE ON ${table} FOR EACH ROW EXECUTE FUNCTION ${table}_append_only();
+CREATE OR REPLACE TRIGGER ${table}_no_delete BEFORE DELETE ON ${table} FOR EACH ROW EXECUTE FUNCTION ${table}_append_only();
+CREATE OR REPLACE TRIGGER ${table}_no_truncate BEFORE TRUNCATE ON ${table} FOR EACH STATEMENT EXECUTE FUNCTION ${table}_append_only();
+`,
+  )
+  .join("");
 
 function parseDetails(details: string | null): Record<string, unknown> | null {
   if (details === null) return null;
@@ -183,12 +215,12 @@ export interface AuditChainVerifyPort {
  * per-process key: nothing survives the process, so nothing can be forged
  * across one.
  */
-function resolveChainKey(sqlite: Database.Database, provided: string | undefined): Buffer {
-  const material =
-    provided ??
-    process.env["MEZAN_AUDIT_CHAIN_KEY"] ??
-    perInstallKey(sqlite);
+function chainKeyOf(material: string): Buffer {
   return createHash("sha256").update(`${CHAIN_VERSION}:key`, "utf8").update(material, "utf8").digest();
+}
+
+function resolveChainKey(sqlite: Database.Database, provided: string | undefined): Buffer {
+  return chainKeyOf(provided ?? process.env["MEZAN_AUDIT_CHAIN_KEY"] ?? perInstallKey(sqlite));
 }
 
 function perInstallKey(sqlite: Database.Database): string {
@@ -270,34 +302,46 @@ function chainFieldsOf(event: AuditEvent): AuditChainFields {
   };
 }
 
-class SqliteAuditSink implements AuditSink, AuditQueryPort, AuditChainVerifyPort {
-  private readonly insert: Database.Statement;
-  private readonly select: Database.Statement;
-  private readonly writeHead: Database.Statement;
-  private readonly insertField: Database.Statement;
-  private readonly appendNested: (row: AuditChainFields, fields: readonly string[]) => void;
+const AUDIT_ROW_COLUMNS = "stream, module, entity_type, entity_id, action, actor, branch_id, timestamp, severity, details";
+const INSERT_AUDIT_ROW = `INSERT INTO audit_event (${AUDIT_ROW_COLUMNS}, prev_hash, row_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+const INSERT_FIELD = `INSERT INTO audit_event_field (event_id, field) VALUES (?, ?) ON CONFLICT DO NOTHING`;
+const WRITE_HEAD = `INSERT INTO audit_chain_head (id, row_id, row_hash, mac) VALUES (1, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET row_id = excluded.row_id, row_hash = excluded.row_hash, mac = excluded.mac`;
+
+function rowParams(row: AuditChainFields, prevHash: string | null, rowHash: string): (string | null)[] {
+  return [row.stream, row.module, row.entity_type, row.entity_id, row.action, row.actor, row.branch_id, row.timestamp, row.severity, row.details, prevHash, rowHash];
+}
+
+/**
+ * How an append reaches the SQLite connection when its caller already holds a
+ * transaction there. Absent on Postgres, where every append goes through
+ * `db.transaction` and joins the caller's transaction as a savepoint.
+ */
+interface AuditSinkAmbient {
+  appendInsideCallerTransaction(row: AuditChainFields, fields: readonly string[]): boolean;
+  reportUntransacted(event: AuditEvent): void;
+}
+
+interface ChainRow extends AuditChainFields {
+  id: bigint;
+  prev_hash: string | null;
+  row_hash: string | null;
+}
+
+interface HeadRow {
+  row_id: bigint;
+  row_hash: string;
+  mac: string;
+}
+
+class SqlAuditSink implements AuditSink, AuditQueryPort, AuditChainVerifyPort {
   private readonly heldBack = new AsyncLocalStorage<{ open: boolean; readonly events: AuditEvent[] }>();
 
   constructor(
-    private readonly sqlite: Database.Database,
+    private readonly sql: SqlDb,
     private readonly chainKey: Buffer,
-  ) {
-    this.insert = sqlite.prepare(
-      `INSERT INTO audit_event
-         (stream, module, entity_type, entity_id, action, actor, branch_id, timestamp, severity, details, prev_hash, row_hash)
-       VALUES (@stream, @module, @entity_type, @entity_id, @action, @actor, @branch_id, @timestamp, @severity, @details, @prev_hash, @row_hash)`,
-    );
-    this.select = sqlite.prepare(
-      `SELECT stream, module, entity_type, entity_id, action, actor, branch_id, timestamp, severity, details
-         FROM audit_event WHERE stream = ? ORDER BY id DESC LIMIT ?`,
-    );
-    this.insertField = sqlite.prepare(`INSERT OR IGNORE INTO audit_event_field (event_id, field) VALUES (?, ?)`);
-    this.writeHead = sqlite.prepare(
-      `INSERT INTO audit_chain_head (id, row_id, row_hash, mac) VALUES (1, @row_id, @row_hash, @mac)
-         ON CONFLICT(id) DO UPDATE SET row_id = @row_id, row_hash = @row_hash, mac = @mac`,
-    );
-    this.appendNested = sqlite.transaction((row: AuditChainFields, fields: readonly string[]) => this.appendChained(row, fields));
-  }
+    private readonly ambient?: AuditSinkAmbient,
+  ) {}
 
   // ORDERING IS THE WHOLE CONTROL: the row and the head it advances have to
   // land together. A row appended without its head update reads as a
@@ -307,33 +351,24 @@ class SqliteAuditSink implements AuditSink, AuditQueryPort, AuditChainVerifyPort
   // The field index rides in the same transaction as the row: a row whose
   // index entries are missing is invisible to a field search, which is the
   // exact hiding place this index exists to close.
-  private appendChained(row: AuditChainFields, fields: readonly string[]): void {
-    const prevHash = this.currentHeadHash();
+  // REQUIRED: runs under `db.transaction(..., Immediate)` — the tenant's write
+  // lock — so two appends can never read the same head.
+  private async appendChained(row: AuditChainFields, fields: readonly string[]): Promise<void> {
+    const prevHash = (await this.sql.get<{ row_hash: string }>(`SELECT row_hash FROM audit_chain_head WHERE id = 1`))?.row_hash ?? GENESIS;
     const rowHash = hashRow(row, prevHash);
-    const info = this.insert.run({ ...row, prev_hash: prevHash, row_hash: rowHash });
-    const rowId = Number(info.lastInsertRowid);
-    for (const field of fields) this.insertField.run(rowId, field);
-    this.writeHead.run({ row_id: rowId, row_hash: rowHash, mac: macHead(this.chainKey, rowId, rowHash) });
+    const inserted = await this.sql.get<{ id: bigint }>(`${INSERT_AUDIT_ROW} RETURNING id`, rowParams(row, prevHash, rowHash));
+    const rowId = Number(inserted!.id);
+    for (const field of fields) await this.sql.run(INSERT_FIELD, [rowId, field]);
+    await this.sql.run(WRITE_HEAD, [rowId, rowHash, macHead(this.chainKey, rowId, rowHash)]);
   }
 
-  private currentHeadHash(): string {
-    const head = this.sqlite.prepare(`SELECT row_hash FROM audit_chain_head WHERE id = 1`).get() as
-      | { row_hash: string }
-      | undefined;
-    if (head) return head.row_hash;
-    // A database seeded before the chain existed: the chain starts at the next
-    // row appended, and everything before it is reported as `unchained`.
-    return GENESIS;
-  }
-
-  // A STAND-ALONE append must take the connection's turn through
-  // withSqliteTransaction, never better-sqlite3's own `transaction()`: that one
-  // keys off `sqlite.inTransaction`, which is true for the whole shared
-  // connection, so the row would nest as a SAVEPOINT inside whatever unrelated
+  // A STAND-ALONE append takes the tenant's write lock through `db.transaction`,
+  // never a driver-level transaction of its own: on the shared SQLite
+  // connection that would nest as a SAVEPOINT inside whatever unrelated
   // request has a BEGIN open and vanish if that request rolls back.
-  // An append made INSIDE its caller's transaction stays synchronous: its
-  // savepoint is released before this function returns, so a caller that does
-  // not await the append cannot commit ahead of it.
+  // On SQLite an append made INSIDE its caller's transaction stays synchronous
+  // (see `AuditSinkAmbient`): its savepoint is released before this function
+  // returns, so a caller that does not await the append cannot commit ahead of it.
   async append(event: AuditEvent): Promise<void> {
     const held = event.stream === AuditStreamName.Security ? this.heldBack.getStore() : undefined;
     if (held?.open) {
@@ -342,14 +377,9 @@ class SqliteAuditSink implements AuditSink, AuditQueryPort, AuditChainVerifyPort
     }
     const row = chainFieldsOf(event);
     const fields = auditChangedFieldNames(event.details);
-    if (insideSqliteTransaction(this.sqlite)) {
-      this.appendNested(row, fields);
-      return;
-    }
-    if (event.stream === AuditStreamName.Sensitive && holdsSqliteTurn(this.sqlite)) {
-      reportUntransactedAudit(`${event.module}/${event.entityType}/${event.action}`);
-    }
-    await withSqliteTransaction(this.sqlite, async () => this.appendChained(row, fields));
+    if (this.ambient?.appendInsideCallerTransaction(row, fields)) return;
+    this.ambient?.reportUntransacted(event);
+    await this.sql.transaction(() => this.appendChained(row, fields), TransactionMode.Immediate);
   }
 
   // SECURITY: a security event appended while `fn` runs is written only after
@@ -357,6 +387,9 @@ class SqliteAuditSink implements AuditSink, AuditQueryPort, AuditChainVerifyPort
   // record of a refused attempt with it; one that still cannot be written
   // goes to the unrecorded-events file. `appendSync` is not held back: its
   // callers need the row atomic with their own write.
+  // On Postgres the held events are written after `fn`'s transaction has
+  // ended, so they go out on a pool connection of their own — the same
+  // guarantee, by the same ordering.
   async securityEventsOutlive<T>(fn: () => Promise<T>): Promise<T> {
     const held = { open: true, events: [] as AuditEvent[] };
     try {
@@ -367,49 +400,31 @@ class SqliteAuditSink implements AuditSink, AuditQueryPort, AuditChainVerifyPort
     }
   }
 
-  // CONTRACT: for a caller already inside its own synchronous transaction on
-  // this connection; the row is a savepoint of that transaction.
-  appendSync(event: AuditEvent): void {
-    this.appendNested(chainFieldsOf(event), auditChangedFieldNames(event.details));
-  }
-
   atomic<T>(fn: () => Promise<T>): Promise<T> {
-    return withSqliteTransaction(this.sqlite, fn);
+    return this.sql.transaction(fn);
   }
 
-  insideTransaction(): boolean {
-    return insideSqliteTransaction(this.sqlite);
-  }
-
-  settled(): Promise<void> {
-    return sqliteTransactionsSettled(this.sqlite);
-  }
-
-  turn<T>(fn: () => Promise<T>, observer?: TurnObserver): Promise<T> {
-    return withSqliteTurn(this.sqlite, fn, observer);
-  }
-
-  outsideTurn<T>(fn: () => Promise<T>): Promise<T> {
-    return outsideSqliteTurn(this.sqlite, fn);
-  }
-
-  private findIndexFault(rows: readonly { id: number; details: string | null }[]): number | null {
+  private async findIndexFault(rows: readonly { id: bigint; details: string | null }[]): Promise<number | null> {
     const stored = new Map<number, string[]>();
-    for (const r of this.sqlite
-      .prepare(`SELECT event_id, field FROM audit_event_field ORDER BY event_id, field`)
-      .all() as { event_id: number; field: string }[]) {
-      const list = stored.get(r.event_id);
+    for (const r of await this.sql.all<{ event_id: bigint; field: string }>(`SELECT event_id, field FROM audit_event_field ORDER BY event_id, field`)) {
+      const eventId = Number(r.event_id);
+      const list = stored.get(eventId);
       if (list) list.push(r.field);
-      else stored.set(r.event_id, [r.field]);
+      else stored.set(eventId, [r.field]);
     }
     for (const row of rows) {
+      const id = Number(row.id);
       const expected = auditChangedFieldNames(parseDetails(row.details)).join("\u0000");
-      const actual = [...(stored.get(row.id) ?? [])].sort().join("\u0000");
-      stored.delete(row.id);
-      if (expected !== actual) return row.id;
+      const actual = [...(stored.get(id) ?? [])].sort().join("\u0000");
+      stored.delete(id);
+      if (expected !== actual) return id;
     }
     const orphan = stored.keys().next();
     return orphan.done ? null : orphan.value;
+  }
+
+  private head(): Promise<HeadRow | undefined> {
+    return this.sql.get<HeadRow>(`SELECT row_id, row_hash, mac FROM audit_chain_head WHERE id = 1`);
   }
 
   /**
@@ -421,93 +436,87 @@ class SqliteAuditSink implements AuditSink, AuditQueryPort, AuditChainVerifyPort
    * middle looks like (`CHAIN_BROKEN`), and a chain whose newest rows were cut
    * off, which only the head MAC can see (`TRUNCATED`/`HEAD_ALTERED`).
    */
+  // One transaction, so no append can land between reading the rows and reading the head.
   async verifyChain(): Promise<AuditChainVerification> {
-    const rows = this.sqlite
-      .prepare(
-        `SELECT id, stream, module, entity_type, entity_id, action, actor, branch_id, timestamp, severity, details, prev_hash, row_hash
-           FROM audit_event ORDER BY id ASC`,
-      )
-      .all() as (AuditChainFields & { id: number; prev_hash: string | null; row_hash: string | null })[];
+    return this.sql.transaction(async () => {
+      const rows = await this.sql.all<ChainRow>(`SELECT id, ${AUDIT_ROW_COLUMNS}, prev_hash, row_hash FROM audit_event ORDER BY id ASC`);
 
-    const unchained = rows.filter((r) => r.row_hash === null).length;
-    const chained = rows.filter((r) => r.row_hash !== null);
-    const head = this.sqlite.prepare(`SELECT row_id, row_hash, mac FROM audit_chain_head WHERE id = 1`).get() as
-      | { row_id: number; row_hash: string; mac: string }
-      | undefined;
+      const unchained = rows.filter((r) => r.row_hash === null).length;
+      const chained = rows.filter((r) => r.row_hash !== null);
+      const head = await this.head();
 
-    const indexFault = this.findIndexFault(rows);
-    const indexAltered: AuditChainVerification = {
-      ok: false,
-      checked: chained.length,
-      unchained,
-      brokenRowId: indexFault,
-      reason: "INDEX_ALTERED",
-    };
+      const indexFault = await this.findIndexFault(rows);
+      const indexAltered: AuditChainVerification = {
+        ok: false,
+        checked: chained.length,
+        unchained,
+        brokenRowId: indexFault,
+        reason: "INDEX_ALTERED",
+      };
 
-    let prevHash = GENESIS;
-    let checked = 0;
-    for (const row of chained) {
-      if ((row.prev_hash ?? GENESIS) !== prevHash) {
-        return { ok: false, checked, unchained, brokenRowId: row.id, reason: "CHAIN_BROKEN" };
+      let prevHash = GENESIS;
+      let checked = 0;
+      for (const row of chained) {
+        if ((row.prev_hash ?? GENESIS) !== prevHash) {
+          return { ok: false, checked, unchained, brokenRowId: Number(row.id), reason: "CHAIN_BROKEN" };
+        }
+        if (hashRow(row, row.prev_hash) !== row.row_hash) {
+          return { ok: false, checked, unchained, brokenRowId: Number(row.id), reason: "ROW_ALTERED" };
+        }
+        prevHash = row.row_hash as string;
+        checked += 1;
       }
-      if (hashRow(row, row.prev_hash) !== row.row_hash) {
-        return { ok: false, checked, unchained, brokenRowId: row.id, reason: "ROW_ALTERED" };
+
+      if (chained.length === 0) {
+        if (head === undefined && indexFault !== null) return indexAltered;
+        return { ok: head === undefined, checked, unchained, brokenRowId: null, reason: head === undefined ? "OK" : "TRUNCATED" };
       }
-      prevHash = row.row_hash as string;
-      checked += 1;
-    }
+      if (!head) return { ok: false, checked, unchained, brokenRowId: null, reason: "HEAD_MISSING" };
 
-    if (chained.length === 0) {
-      if (head === undefined && indexFault !== null) return indexAltered;
-      return { ok: head === undefined, checked, unchained, brokenRowId: null, reason: head === undefined ? "OK" : "TRUNCATED" };
-    }
-    if (!head) return { ok: false, checked, unchained, brokenRowId: null, reason: "HEAD_MISSING" };
-
-    const last = chained[chained.length - 1] as (typeof chained)[number];
-    if (!macMatches(head.mac, macHead(this.chainKey, head.row_id, head.row_hash))) {
-      return { ok: false, checked, unchained, brokenRowId: head.row_id, reason: "HEAD_ALTERED" };
-    }
-    // The head is authentic, so what it names is the true end of the chain. If
-    // the table stops earlier, rows were removed from the end — the one edit
-    // the per-row hashes cannot see, because every remaining row still links.
-    if (head.row_id !== last.id || head.row_hash !== last.row_hash) {
-      return { ok: false, checked, unchained, brokenRowId: last.id, reason: "TRUNCATED" };
-    }
-    if (indexFault !== null) return indexAltered;
-    return { ok: true, checked, unchained, brokenRowId: null, reason: "OK" };
+      const last = chained[chained.length - 1] as (typeof chained)[number];
+      const headRowId = Number(head.row_id);
+      if (!macMatches(head.mac, macHead(this.chainKey, headRowId, head.row_hash))) {
+        return { ok: false, checked, unchained, brokenRowId: headRowId, reason: "HEAD_ALTERED" };
+      }
+      // The head is authentic, so what it names is the true end of the chain. If
+      // the table stops earlier, rows were removed from the end — the one edit
+      // the per-row hashes cannot see, because every remaining row still links.
+      if (headRowId !== Number(last.id) || head.row_hash !== last.row_hash) {
+        return { ok: false, checked, unchained, brokenRowId: Number(last.id), reason: "TRUNCATED" };
+      }
+      if (indexFault !== null) return indexAltered;
+      return { ok: true, checked, unchained, brokenRowId: null, reason: "OK" };
+    });
   }
 
-  verifyHead(): { reason: AuditChainHeadReason; headRowId: number | null } {
-    const head = this.sqlite.prepare(`SELECT row_id, row_hash, mac FROM audit_chain_head WHERE id = 1`).get() as
-      | { row_id: number; row_hash: string; mac: string }
-      | undefined;
-    const last = this.sqlite
-      .prepare(`SELECT id, row_hash FROM audit_event WHERE row_hash IS NOT NULL ORDER BY id DESC LIMIT 1`)
-      .get() as { id: number; row_hash: string } | undefined;
+  async verifyHead(): Promise<{ reason: AuditChainHeadReason; headRowId: number | null }> {
+    const { head, last } = await this.sql.transaction(async () => ({
+      head: await this.head(),
+      last: await this.sql.get<{ id: bigint; row_hash: string }>(`SELECT id, row_hash FROM audit_event WHERE row_hash IS NOT NULL ORDER BY id DESC LIMIT 1`),
+    }));
     if (!head) return { reason: last ? AuditChainHeadReason.HeadMissing : AuditChainHeadReason.Empty, headRowId: null };
-    if (!macMatches(head.mac, macHead(this.chainKey, head.row_id, head.row_hash))) {
-      return { reason: AuditChainHeadReason.HeadAltered, headRowId: head.row_id };
+    const headRowId = Number(head.row_id);
+    if (!macMatches(head.mac, macHead(this.chainKey, headRowId, head.row_hash))) {
+      return { reason: AuditChainHeadReason.HeadAltered, headRowId };
     }
-    if (!last || last.id !== head.row_id || last.row_hash !== head.row_hash) {
-      return { reason: AuditChainHeadReason.Truncated, headRowId: head.row_id };
+    if (!last || Number(last.id) !== headRowId || last.row_hash !== head.row_hash) {
+      return { reason: AuditChainHeadReason.Truncated, headRowId };
     }
-    return { reason: AuditChainHeadReason.Ok, headRowId: head.row_id };
+    return { reason: AuditChainHeadReason.Ok, headRowId };
   }
 
-  chainHead(): AuditChainHeadReading | null {
-    const head = this.sqlite.prepare(`SELECT row_id, row_hash FROM audit_chain_head WHERE id = 1`).get() as
-      | { row_id: number; row_hash: string }
-      | undefined;
-    return head ? { rowId: head.row_id, rowHash: head.row_hash } : null;
+  async chainHead(): Promise<AuditChainHeadReading | null> {
+    const head = await this.sql.get<{ row_id: bigint; row_hash: string }>(`SELECT row_id, row_hash FROM audit_chain_head WHERE id = 1`);
+    return head ? { rowId: Number(head.row_id), rowHash: head.row_hash } : null;
   }
 
-  chainRowHash(rowId: number): string | null {
-    const row = this.sqlite.prepare(`SELECT row_hash FROM audit_event WHERE id = ?`).get(rowId) as { row_hash: string | null } | undefined;
+  async chainRowHash(rowId: number): Promise<string | null> {
+    const row = await this.sql.get<{ row_hash: string | null }>(`SELECT row_hash FROM audit_event WHERE id = ?`, [rowId]);
     return row?.row_hash ?? null;
   }
 
   async query(stream: AuditStream, limit = 100): Promise<readonly AuditEvent[]> {
-    const rows = this.select.all(stream, limit) as AuditRow[];
+    const rows = await this.sql.all<AuditRow>(`SELECT ${AUDIT_ROW_COLUMNS} FROM audit_event WHERE stream = ? ORDER BY id DESC LIMIT ?`, [stream, limit]);
     return rows.map(rowToEvent);
   }
 
@@ -518,60 +527,79 @@ class SqliteAuditSink implements AuditSink, AuditQueryPort, AuditChainVerifyPort
    */
   async queryEvents(filter: AuditQueryFilter): Promise<AuditQueryResult> {
     const conditions: string[] = [];
-    const params: Record<string, unknown> = {};
+    const params: SqlValue[] = [];
     for (const [key, column] of Object.entries(FILTER_COLUMNS)) {
       const value = (filter as Record<string, unknown>)[key];
       if (value !== undefined) {
-        conditions.push(`${column} = @${key}`);
-        params[key] = value;
+        conditions.push(`${column} = ?`);
+        params.push(value as SqlValue);
       }
     }
     if (filter.branchIds !== undefined) {
-      const names = filter.branchIds.map((id, index) => {
-        params[`branchIds${index}`] = id;
-        return `@branchIds${index}`;
-      });
-      conditions.push(names.length > 0 ? `branch_id IN (${names.join(", ")})` : "0 = 1");
+      conditions.push(filter.branchIds.length > 0 ? `branch_id IN (${placeholders(filter.branchIds.length)})` : "0 = 1");
+      params.push(...filter.branchIds);
     }
     if (filter.field !== undefined) {
-      conditions.push("EXISTS (SELECT 1 FROM audit_event_field f WHERE f.event_id = audit_event.id AND f.field = @field)");
-      params.field = filter.field;
+      conditions.push("EXISTS (SELECT 1 FROM audit_event_field f WHERE f.event_id = audit_event.id AND f.field = ?)");
+      params.push(filter.field);
     }
     if (filter.from !== undefined) {
-      conditions.push("timestamp >= @from");
-      params.from = filter.from;
+      conditions.push("timestamp >= ?");
+      params.push(filter.from);
     }
     if (filter.to !== undefined) {
-      conditions.push("timestamp <= @to");
-      params.to = filter.to;
+      conditions.push("timestamp <= ?");
+      params.push(filter.to);
     }
     const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
     const limit = Math.min(Math.max(filter.limit ?? 50, 1), 200);
     const offset = Math.max(filter.offset ?? 0, 0);
 
-    const total = (
-      this.sqlite.prepare(`SELECT COUNT(*) AS c FROM audit_event ${where}`).get(params) as { c: number }
-    ).c;
-    const rows = this.sqlite
-      .prepare(
-        `SELECT stream, module, entity_type, entity_id, action, actor, branch_id, timestamp, severity, details
-           FROM audit_event ${where} ORDER BY id DESC LIMIT @limit OFFSET @offset`,
-      )
-      .all({ ...params, limit, offset }) as AuditRow[];
+    const total = Number((await this.sql.get<{ c: bigint }>(`SELECT COUNT(*) AS c FROM audit_event ${where}`, params))!.c);
+    const rows = await this.sql.all<AuditRow>(
+      `SELECT ${AUDIT_ROW_COLUMNS} FROM audit_event ${where} ORDER BY id DESC LIMIT ? OFFSET ?`,
+      [...params, limit, offset],
+    );
 
     return { events: rows.map(rowToEvent), total };
   }
 }
 
-export interface SqliteAuditSinkHandle extends AuditSink, AuditQueryPort, AuditChainVerifyPort {
+export interface AuditSinkHandle extends AuditSink, AuditQueryPort, AuditChainVerifyPort, AuditChainAnchorSource {
   atomic<T>(fn: () => Promise<T>): Promise<T>;
+  verifyHead(): Promise<{ reason: AuditChainHeadReason; headRowId: number | null }>;
+  securityEventsOutlive<T>(fn: () => Promise<T>): Promise<T>;
+}
+
+export interface AuditSinkOptions {
+  /**
+   * Key material the chain HEAD is MAC'd under. Absent, `MEZAN_AUDIT_CHAIN_KEY`
+   * is used; with neither, the sink refuses to open — a per-process key would
+   * report every head written before a restart as altered.
+   */
+  readonly chainKey?: string;
+}
+
+export async function ensureAuditSchema(db: SqlDb): Promise<void> {
+  await db.applySchema(`${CREATE_TABLE}${FIELD_INDEX_TABLE}${LATER_INDEXES}`);
+  if (db.dialect === SqlDialect.Postgres) await db.exec(POSTGRES_APPEND_ONLY_TRIGGERS);
+  else await db.exec(`${SQLITE_APPEND_ONLY_TRIGGERS}${SQLITE_FIELD_INDEX_TRIGGERS}`);
+}
+
+export function createAuditSink(db: SqlDb, options: AuditSinkOptions = {}): AuditSinkHandle {
+  const material = options.chainKey ?? process.env["MEZAN_AUDIT_CHAIN_KEY"];
+  if (material === undefined) throw new AuditChainKeyMissingError("the tenant database");
+  return new SqlAuditSink(db, chainKeyOf(material));
+}
+
+export interface SqliteAuditSinkHandle extends AuditSinkHandle {
   insideTransaction(): boolean;
   settled(): Promise<void>;
   turn<T>(fn: () => Promise<T>, observer?: TurnObserver): Promise<T>;
   outsideTurn<T>(fn: () => Promise<T>): Promise<T>;
-  verifyHead(): { reason: AuditChainHeadReason; headRowId: number | null };
+  // CONTRACT: for a caller already inside its own synchronous transaction on
+  // this connection; the row is a savepoint of that transaction. SQLite only.
   appendSync(event: AuditEvent): void;
-  securityEventsOutlive<T>(fn: () => Promise<T>): Promise<T>;
   close(): void;
   /** The raw connection, for tests asserting the append-only triggers fire. */
   readonly db: Database.Database;
@@ -618,7 +646,7 @@ function createFieldIndex(sqlite: Database.Database): void {
   const rows = sqlite
     .prepare(`SELECT id, details FROM audit_event WHERE details LIKE '%"changes"%' ORDER BY id`)
     .all() as { id: number; details: string | null }[];
-  const insert = sqlite.prepare(`INSERT OR IGNORE INTO audit_event_field (event_id, field) VALUES (?, ?)`);
+  const insert = sqlite.prepare(INSERT_FIELD);
   sqlite.transaction(() => {
     for (const row of rows) {
       for (const field of auditChangedFieldNames(parseDetails(row.details))) insert.run(row.id, field);
@@ -643,15 +671,51 @@ export function createSqliteAuditSink(
 ): SqliteAuditSinkHandle {
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.exec(CREATE_TABLE);
+  sqlite.exec(SQLITE_APPEND_ONLY_TRIGGERS);
   addBranchColumnIfMissing(sqlite);
   createFieldIndex(sqlite);
-  sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_audit_branch ON audit_event(branch_id, id)`);
-  sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_audit_entity ON audit_event(entity_type, entity_id, id)`);
-  const sink = new SqliteAuditSink(sqlite, resolveChainKey(sqlite, options.chainKey));
+  sqlite.exec(LATER_INDEXES);
+  const chainKey = resolveChainKey(sqlite, options.chainKey);
+  const appendNested = sqliteNestedAppend(sqlite, chainKey);
+  const sink = new SqlAuditSink(sqliteDb(sqlite), chainKey, {
+    appendInsideCallerTransaction(row, fields) {
+      if (!insideSqliteTransaction(sqlite)) return false;
+      appendNested(row, fields);
+      return true;
+    },
+    reportUntransacted(event) {
+      if (event.stream === AuditStreamName.Sensitive && holdsSqliteTurn(sqlite)) {
+        reportUntransactedAudit(`${event.module}/${event.entityType}/${event.action}`);
+      }
+    },
+  });
   return Object.assign(sink, {
+    atomic: <T>(fn: () => Promise<T>): Promise<T> => withSqliteTransaction(sqlite, fn),
+    insideTransaction: () => insideSqliteTransaction(sqlite),
+    settled: () => sqliteTransactionsSettled(sqlite),
+    turn: <T>(fn: () => Promise<T>, observer?: TurnObserver): Promise<T> => withSqliteTurn(sqlite, fn, observer),
+    outsideTurn: <T>(fn: () => Promise<T>): Promise<T> => outsideSqliteTurn(sqlite, fn),
+    appendSync: (event: AuditEvent): void => appendNested(chainFieldsOf(event), auditChangedFieldNames(event.details)),
     close: () => { if (owned) sqlite.close(); },
     db: sqlite,
   }) as SqliteAuditSinkHandle;
+}
+
+// The synchronous append the SQLite connection needs for a caller inside its
+// own transaction: better-sqlite3's `transaction()` nests as a SAVEPOINT of it
+// and is released before this returns. Same statements as `appendChained`.
+function sqliteNestedAppend(sqlite: Database.Database, chainKey: Buffer): (row: AuditChainFields, fields: readonly string[]) => void {
+  const head = sqlite.prepare(`SELECT row_hash FROM audit_chain_head WHERE id = 1`);
+  const insert = sqlite.prepare(INSERT_AUDIT_ROW);
+  const insertField = sqlite.prepare(INSERT_FIELD);
+  const writeHead = sqlite.prepare(WRITE_HEAD);
+  return sqlite.transaction((row: AuditChainFields, fields: readonly string[]) => {
+    const prevHash = (head.get() as { row_hash: string } | undefined)?.row_hash ?? GENESIS;
+    const rowHash = hashRow(row, prevHash);
+    const rowId = Number(insert.run(...rowParams(row, prevHash, rowHash)).lastInsertRowid);
+    for (const field of fields) insertField.run(rowId, field);
+    writeHead.run(rowId, rowHash, macHead(chainKey, rowId, rowHash));
+  });
 }
 
 export interface AuditChainHeadReading {
@@ -661,8 +725,8 @@ export interface AuditChainHeadReading {
 
 /** What the anchor job reads from a live sink. Call it inside the sink's turn: the sink shares its connection with in-flight requests. */
 export interface AuditChainAnchorSource {
-  chainHead(): AuditChainHeadReading | null;
-  chainRowHash(rowId: number): string | null;
+  chainHead(): Promise<AuditChainHeadReading | null>;
+  chainRowHash(rowId: number): Promise<string | null>;
 }
 
 export function isAuditChainAnchorSource(sink: unknown): sink is AuditChainAnchorSource {
@@ -705,7 +769,7 @@ export function openAuditChainFile(file: string, options: SqliteAuditSinkOptions
   const sqlite = new Database(file, { readonly: true, fileMustExist: true });
   const hasTable = (name: string): boolean =>
     sqlite.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`).get(name) !== undefined;
-  let sink: SqliteAuditSink | null = null;
+  let sink: SqlAuditSink | null = null;
   return {
     head() {
       if (!hasTable("audit_chain_head")) return null;
@@ -721,10 +785,7 @@ export function openAuditChainFile(file: string, options: SqliteAuditSinkOptions
     },
     async verify() {
       if (!hasTable("audit_event")) return { ok: true, checked: 0, unchained: 0, brokenRowId: null, reason: "OK" };
-      sink ??= new SqliteAuditSink(
-        sqlite,
-        createHash("sha256").update(`${CHAIN_VERSION}:key`, "utf8").update(existingChainKeyMaterial(file, options.chainKey), "utf8").digest(),
-      );
+      sink ??= new SqlAuditSink(sqliteDb(sqlite), chainKeyOf(existingChainKeyMaterial(file, options.chainKey)));
       return sink.verifyChain();
     },
     close: () => sqlite.close(),

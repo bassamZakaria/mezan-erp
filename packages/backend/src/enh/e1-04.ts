@@ -40,6 +40,15 @@ import {
   createSqlitePeriodCloseStore,
   createSqliteRecurringJournalTemplateRepository,
   type PeriodCloseFxLineGroup,
+  type PeriodCloseStoreHandle,
+  type SqlDb,
+  createPeriodCloseStore,
+  createSqlPeriodCloseCommit,
+  TransactionMode,
+  createAssetRepository,
+  createContractRepository,
+  createDepreciationRunRepository,
+  createRecurringJournalTemplateRepository,
 } from "@mezan/persistence";
 import type { BackendArea, BackendModuleContext } from "../module-context.js";
 import { stockLedgerDateMismatches, type DatedJournalEntry, type DatedStockMovement, type StockLedgerDateMismatch } from "@mezan/domain";
@@ -115,27 +124,27 @@ function depreciationBranch(asset: Asset): string | null {
   return asset.scope === AssetScope.Branch ? asset.branchId : null;
 }
 
-export function readStockLedgerDateMismatches(sqlite: BackendModuleContext["sqlite"]): StockLedgerDateMismatch[] {
-  const movements = sqlite.prepare(`SELECT source_doc_type AS sourceDocType, source_doc_id AS sourceDocId, source_doc_number AS sourceDocNumber, occurred_at AS occurredAt FROM stock_movement`).all() as DatedStockMovement[];
-  const entries = sqlite.prepare(`SELECT id, date, source_doc_id AS sourceDocId, reverses_entry_id AS reversesEntryId FROM journal_entry WHERE status IN ('posted', 'reversed')`).all() as DatedJournalEntry[];
+export async function readStockLedgerDateMismatches(db: SqlDb): Promise<StockLedgerDateMismatch[]> {
+  const movements = await db.all<DatedStockMovement>(`SELECT source_doc_type AS "sourceDocType", source_doc_id AS "sourceDocId", source_doc_number AS "sourceDocNumber", occurred_at AS "occurredAt" FROM stock_movement`);
+  const entries = await db.all<DatedJournalEntry>(`SELECT id, date, source_doc_id AS "sourceDocId", reverses_entry_id AS "reversesEntryId" FROM journal_entry WHERE status IN ('posted', 'reversed')`);
   return stockLedgerDateMismatches(movements, entries);
 }
 
-function buildSources(ctx: BackendModuleContext, store: ReturnType<typeof createSqlitePeriodCloseStore>, closers: { close(): void }[]): PeriodCloseSources {
-  const { sqlite, stores } = ctx;
-  const templates = createSqliteRecurringJournalTemplateRepository(sqlite);
-  const assets = createSqliteAssetRepository(sqlite);
-  const depreciationRuns = createSqliteDepreciationRunRepository(sqlite);
-  const contracts = createSqliteContractRepository(sqlite);
+function buildSources(ctx: BackendModuleContext, store: PeriodCloseStoreHandle, closers: object[]): PeriodCloseSources {
+  const { stores } = ctx;
+  const templates = ctx.store((s) => createSqliteRecurringJournalTemplateRepository(s), (d) => createRecurringJournalTemplateRepository(d));
+  const assets = ctx.store((s) => createSqliteAssetRepository(s), (d) => createAssetRepository(d));
+  const depreciationRuns = ctx.store((s) => createSqliteDepreciationRunRepository(s), (d) => createDepreciationRunRepository(d));
+  const contracts = ctx.store((s) => createSqliteContractRepository(s), (d) => createContractRepository(d));
   closers.push(templates, assets, depreciationRuns, contracts);
   const { queries, fxRuns } = store;
   const accountBalances = ledgerBalances(stores.ledger);
 
   async function openForeignBalances(window: PeriodCloseWindow) {
-    const tagged = queries.openFxLineGroups(window.endDate).map((group) => asPostedLine(group, window.endDate));
+    const tagged = (await queries.openFxLineGroups(window.endDate)).map((group) => asPostedLine(group, window.endDate));
     const unreadable = new Set<string>();
     const derived: PostedLine[] = [];
-    for (const group of queries.untaggedTreasuryLineGroups(window.endDate)) {
+    for (const group of await queries.untaggedTreasuryLineGroups(window.endDate)) {
       const fxRate = await ctx.treasuryFx.rateOn(group.currency, group.date);
       if (fxRate) derived.push(asPostedLine({ accountId: group.accountId, currency: group.currency, fxRate, memo: null, debit: group.debit, credit: group.credit }, group.date));
       else if (group.debit.scaled !== group.credit.scaled) unreadable.add(group.currency);
@@ -183,7 +192,7 @@ function buildSources(ctx: BackendModuleContext, store: ReturnType<typeof create
     },
 
     async bankStatements(window) {
-      return queries.bankStatementsOverlapping(window).map((statement) => ({
+      return (await queries.bankStatementsOverlapping(window)).map((statement) => ({
         statementId: statement.statementId,
         treasuryAccountId: statement.treasuryAccountId,
         label: `${statement.treasuryAccountName ?? statement.statementId} — ${statement.statementNumber ?? statement.statementId}`,
@@ -196,11 +205,11 @@ function buildSources(ctx: BackendModuleContext, store: ReturnType<typeof create
     },
 
     bankAccountsWithMovement: async (window) =>
-      queries.bankAccountsWithMovement(window).map((account) => ({ treasuryAccountId: account.treasuryAccountId, label: account.name, firstMovementDate: account.firstMovementDate })),
+      (await queries.bankAccountsWithMovement(window)).map((account) => ({ treasuryAccountId: account.treasuryAccountId, label: account.name, firstMovementDate: account.firstMovementDate })),
     async payrollDue(window) {
       const period = { periodStart: window.startDate, periodEnd: window.endDate };
       const capabilities = payrollCapabilities(ctx.payrollBindings, BASE_CURRENCY);
-      const { paidEmployeeIds, hasUnpostedRun, partMonthTaxedPayslips } = queries.payrollRuns(window);
+      const { paidEmployeeIds, hasUnpostedRun, partMonthTaxedPayslips } = await queries.payrollRuns(window);
       const paid = new Set(paidEmployeeIds);
       let dueEmployees = 0;
       let uncoveredEmployees = 0;
@@ -217,13 +226,13 @@ function buildSources(ctx: BackendModuleContext, store: ReturnType<typeof create
     foreignResidues,
     async stockLedgerDates(window) {
       const within = (day: string) => day >= window.startDate && day <= window.endDate;
-      return readStockLedgerDateMismatches(sqlite).filter((row) => within(row.movedOn) || row.postedOn.some(within));
+      return (await readStockLedgerDateMismatches(ctx.db)).filter((row) => within(row.movedOn) || row.postedOn.some(within));
     },
     fxRevaluedCurrencies: async (window) => fxRuns.currenciesRevaluedAsOf(window.endDate),
 
     async recurringDue(window) {
-      const runStatus = new Map(queries.recurringRuns().map((run) => [pairKey(run.templateId, run.period), run.entryStatus]));
-      const skipped = new Set(queries.recurringSkips().map((skip) => pairKey(skip.templateId, skip.period)));
+      const runStatus = new Map((await queries.recurringRuns()).map((run) => [pairKey(run.templateId, run.period), run.entryStatus]));
+      const skipped = new Set((await queries.recurringSkips()).map((skip) => pairKey(skip.templateId, skip.period)));
       const due = [];
       for (const template of await templates.list()) {
         for (const periodKey of duePeriods(template, window.endDate)) {
@@ -245,7 +254,7 @@ function buildSources(ctx: BackendModuleContext, store: ReturnType<typeof create
       const covered = new Set(postedLines);
       const doubleCharged = new Set(postedLines.filter((assetId, index) => postedLines.indexOf(assetId) !== index));
       const hasDraftRun = periodRuns.some((run) => run.status === SourceStatus.Draft);
-      const disposedOn = new Map(queries.assetDisposalDates().map((disposal) => [disposal.assetId, disposal.date]));
+      const disposedOn = new Map((await queries.assetDisposalDates()).map((disposal) => [disposal.assetId, disposal.date]));
       const inServiceAtPeriodEnd = (asset: Asset): boolean =>
         DEPRECIABLE_ASSET_STATUSES.has(asset.status) || (asset.status === SourceStatus.Disposed && (disposedOn.get(asset.id) ?? "") > window.endDate);
       const groups = new Map<string | null, { dueAssets: number; uncoveredAssets: number; uncoveredAssetCodes: string[]; doubleChargedAssetCodes: string[] }>();
@@ -268,19 +277,21 @@ function buildSources(ctx: BackendModuleContext, store: ReturnType<typeof create
     },
 
     async sequenceGaps(window) {
-      return queries
-        .numberedDocuments(window)
+      return (await queries.numberedDocuments(window))
         .flatMap(({ kind, documents }) => findSequenceGapsInWindow(documents, window).map((gap) => ({ source: kind, series: gap.series, missing: gap.missing })));
     },
 
-    etaErrors: async (window) => queries.etaErrorIds(window).map((internalId) => ({ internalId })),
+    etaErrors: async (window) => (await queries.etaErrorIds(window)).map((internalId) => ({ internalId })),
   };
 }
 
 export const area: BackendArea = {
   mount(ctx: BackendModuleContext) {
-    const closers: { close(): void }[] = [];
-    const store = createSqlitePeriodCloseStore(ctx.sqlite);
+    const closers: object[] = [];
+    const sqliteStore = ctx.sqlite ? createSqlitePeriodCloseStore(ctx.sqlite) : null;
+    const store: PeriodCloseStoreHandle = sqliteStore ?? createPeriodCloseStore(ctx.db);
+    const critical = sqliteStore?.critical ?? null;
+    const sqlCommit = createSqlPeriodCloseCommit(ctx.db);
     closers.push(store);
     const sources = buildSources(ctx, store, closers);
     const accountBalances = ledgerBalances(ctx.stores.ledger);
@@ -324,18 +335,20 @@ export const area: BackendArea = {
         };
         return evaluatePeriodClose(window, scope.payrollEntitled ? sources : { ...sources, payrollDue: async () => NO_PAYROLL_DUE }, {
           now: new Date().toISOString(),
+          ...(critical ? {} : { isolate: <T>(fn: () => Promise<T>) => ctx.db.read(fn) }),
           onCheckFailure: ({ code, error }) => areaLog.error({ err: error }, `check "${code}" could not be evaluated for ${period.id}`),
         });
       },
       buildSummary,
-      lastClosedBy: async (periodId) => store.queries.lastAuditedCloser(periodId) ?? (await store.summaries.list({ periodId }))[0]?.closedBy ?? null,
+      lastClosedBy: async (periodId) => (await store.queries.lastAuditedCloser(periodId)) ?? (await store.summaries.list({ periodId }))[0]?.closedBy ?? null,
       singleOperatorMode: async () => ((await ctx.stores.settings.get()) ?? createDefaultSettings()).periodCloseSingleOperatorMode,
       async listSummaries(periodId) {
-        const audited = new Set(store.queries.auditedSeals(periodId));
+        const audited = new Set(await store.queries.auditedSeals(periodId));
         return (await store.summaries.list({ periodId })).map((summary) => ({ summary, sealValid: verifyPeriodCloseSeal(summary, audited) }));
       },
-      changeToken: store.critical.changeToken,
-      commit: appendAudit ? (request) => store.critical.commit({ ...request, appendAudit }) : null,
+      changeToken: critical ? critical.changeToken : () => 0,
+      commit: critical ? (appendAudit ? (request) => critical.commit({ ...request, appendAudit }) : null) : (request) => sqlCommit({ ...request, appendAudit: (event) => ctx.audit.append(event) }),
+      ...(critical ? {} : { serialize: <T>(fn: () => Promise<T>) => ctx.db.transaction(fn, TransactionMode.Immediate) }),
     });
 
     ctx.periodCloseGuard.register(guard);

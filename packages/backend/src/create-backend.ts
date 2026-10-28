@@ -35,6 +35,7 @@ import {
   salesTaxRerating,
   type SalesItemTaxSource,
   type ReportsRoutesDeps,
+  AUDITED_ACCOUNT_FIELDS,
 } from "@mezan/api";
 import {
   withDerivedTreasuryFx,
@@ -251,11 +252,16 @@ import {
   CASH_AND_BANK_ROUTING_KEY,
   RESTRICTED_CASH_ROUTING_KEY,
   cashAndBankLedgerAccountIds,
+  openTreasuryLedgerAccount,
+  diffAuditFields,
+  AuditChangeAction,
+  recordSensitiveEvent,
   disposalProceedsAccounts,
   UserStatusCode,
   isErasedUser,
   AuditSeverityCode,
   type OwnerRecordDue,
+  type SettingsRepository,
 } from "@mezan/domain";
 import {
   bindTenantDatabase,
@@ -268,6 +274,7 @@ import {
   type SqliteOpenOptions,
   createSqliteUnitOfWork,
   grantSuccessorPermissionsOnce,
+  sqliteDb,
   createSqliteAccountRepository,
   createSqliteSettingsStore,
   createSqliteVatFilingStore,
@@ -360,7 +367,13 @@ import {
   removeNotificationLinesMatching,
   createSqliteWorkflowConfigStore,
   createSqliteApprovalRequestStore,
-  createDataMigrationTransactor,
+  createAuditSink,
+  createSettingsStore,
+  ensureTenantSchema,
+  type AuditSinkHandle,
+  type DataMigrationTransactor,
+  TransactionMode,
+  type SqlDb,
   createSqliteBarcodeConfigStore,
   createSqliteUserPreferencesStore,
   createSqliteOwnerPinFence,
@@ -384,6 +397,110 @@ import {
   stampSchemaVersion,
   securityFallbackFor,
   type SecretBox,
+  createAccountLockStore,
+  createAccountRepository,
+  createAccountRoutingStore,
+  createActivityReminderLog,
+  createActivityRepository,
+  createApprovalRequestStore,
+  createAssetCategoryRepository,
+  createAssetInternalRateHistoryRepository,
+  createAssetRepository,
+  createAttachmentRepository,
+  createAttemptStore,
+  createAttendanceRepository,
+  createBankReconciliationStore,
+  createBarcodeConfigStore,
+  createBatchTrailStore,
+  createBranchStore,
+  createChequeRepository,
+  createClockCredentialRepository,
+  createCollectionsStore,
+  createContractRepository,
+  createContractingControlsStore,
+  createContractingRecognitionStore,
+  createContractingSiteStore,
+  createCostCenterRepository,
+  createCredentialResetMarks,
+  createCustomerRepository,
+  createDepartmentRepository,
+  createDepreciationRunRepository,
+  createEmployeeAdvanceRepository,
+  createEmployeeRepository,
+  createEtaStore,
+  createExchangeRateRepository,
+  createFiscalPeriodRepository,
+  createFollowUpStore,
+  createGarnishmentRepository,
+  createGoodsReceiptStore,
+  createGuaranteeStore,
+  createHistoricalPurchaseArchiveStore,
+  createHistoricalSalesArchiveStore,
+  createHolidayRepository,
+  createIdempotentRequestStore,
+  createInstallmentPlanStore,
+  createInventoryOpsStore,
+  createItemCatalogStores,
+  createItemSpecificationRepository,
+  createItemStore,
+  createJobTitleRepository,
+  createLabelLayoutStore,
+  createLandedCostStore,
+  createLeadRepository,
+  createLeaseStore,
+  createLeaveAccrualBatchRepository,
+  createLeaveBalanceRepository,
+  createLeavePolicyRepository,
+  createLeaveRequestRepository,
+  createLedgerStore,
+  createManufacturingStores,
+  createNotificationRuleStore,
+  createNotificationStore,
+  createOpportunityRepository,
+  createOwnerDigestStore,
+  createOwnerPinFence,
+  createPayrollComponentRepository,
+  createPayrollRunRepository,
+  createPayrollStatutoryFlagRepository,
+  createPayslipRepository,
+  createPeriodCloseStore,
+  createPipelineStageRepository,
+  createPriceListStore,
+  createPrintTemplateConfigStore,
+  createProductTemplateStore,
+  createProgressCertificateStore,
+  createProjectRepository,
+  createPromotionStore,
+  createPurchaseInvoiceStore,
+  createPurchaseOrderStore,
+  createPurchaseReturnStore,
+  createRfqStores,
+  createSalesInvoiceStore,
+  createSalesQuoteStore,
+  createSalesReturnStore,
+  createSequenceConfigStore,
+  createSequenceStore,
+  createSessionStore,
+  createSimplifiedRegimeStore,
+  createStatutoryOverrideRepository,
+  createStockLedgerStore,
+  createSubcontractStore,
+  createSupplierRepository,
+  createTaxGroupStore,
+  createTaxRateRepository,
+  createTaxRateUsage,
+  createTreasuryAccountRepository,
+  createUnitOfWork,
+  createUpgradeLedger,
+  createUserPreferencesStore,
+  createVanTripRepository,
+  createVatFilingStore,
+  createVoucherStore,
+  createWarehouseStore,
+  createWebauthnChallengeRepository,
+  createWorkflowConfigStore,
+  createWorksContractStore,
+  createWritedownRunRepository,
 } from "@mezan/persistence";
 import {
   EtaService,
@@ -429,8 +546,8 @@ import {
 import { createAuth, type AccountLockedEvent } from "./auth-routes.js";
 import { OutsideWork, OutsideWorkDeadlineError, withinDeadline } from "./outside-work.js";
 import { BranchAccess, BranchRecordKind, type BranchDirectory, type OwnerDigestBackupReading, type ScheduledDigestResult } from "@mezan/api";
-import { createSqliteBranchDirectory } from "./branch-directory.js";
-import { createWarehouseUse } from "./warehouse-use.js";
+import { createBranchDirectory, createSqliteBranchDirectory } from "./branch-directory.js";
+import { createPostgresWarehouseUse, createWarehouseUse } from "./warehouse-use.js";
 import { createDashboardRoutes } from "./dashboard-routes.js";
 import { createPreferencesRoutes } from "./preferences-routes.js";
 import { isEmptyTenant, SEED_ADMIN_USER_ID, seedIfEmpty, type SeedStores } from "./seed.js";
@@ -667,6 +784,7 @@ async function bridgedDocumentBranchIds(directory: BranchDirectory, docType: str
 
 function createDocumentEventBridge(
   eventBus: EventBus,
+  afterCommit: (fn: () => void) => void,
   directory: BranchDirectory,
   mapping: DocumentEventMapping,
   enrich?: (docId: string) => Promise<Record<string, unknown>>,
@@ -681,11 +799,13 @@ function createDocumentEventBridge(
       // lookup here just widens the payload before that dispatch runs — a
       // failed lookup logs and drops the event rather than ever throwing back
       // into the document's own confirm/cancel transaction.
-      void Promise.all([bridgedDocumentBranchIds(directory, event.docType, event.docId), enrich ? enrich(event.docId) : {}])
-        .then(([branchIds, extra]) => eventBus.publish(code, { ...basePayload, ...extra, [EVENT_BRANCH_IDS_KEY]: branchIds }, event.occurredAt))
-        .catch((error: unknown) => {
-          backendLog.error({ area: "notifications", err: error }, `event bridge lookup failed for ${event.docType}/${event.type}`);
-        });
+      afterCommit(() => {
+        void Promise.all([bridgedDocumentBranchIds(directory, event.docType, event.docId), enrich ? enrich(event.docId) : {}])
+          .then(([branchIds, extra]) => eventBus.publish(code, { ...basePayload, ...extra, [EVENT_BRANCH_IDS_KEY]: branchIds }, event.occurredAt))
+          .catch((error: unknown) => {
+            backendLog.error({ area: "notifications", err: error }, `event bridge lookup failed for ${event.docType}/${event.type}`);
+          });
+      });
     },
   };
 }
@@ -778,8 +898,8 @@ export interface BackendHandle {
    * backoff together; a reset that skips it hands out a PIN the account still
    * refuses.
    */
-  credentialsResetByAdministrator(account: string): void;
-  lockedAccounts(): readonly string[];
+  credentialsResetByAdministrator(account: string): Promise<void>;
+  lockedAccounts(): Promise<readonly string[]>;
   // SECURITY: not an HTTP route. Only code that holds the handle (the platform
   // console) can call it; it records the unlock in this tenant's own audit
   // trail in the transaction that clears the lock, and answers false for an
@@ -791,7 +911,7 @@ export interface BackendHandle {
    * backup reads through SQLite's own consistent snapshot rather than
    * pausing the connection.
    */
-  backupTo(destination: string): Promise<void>;
+  backupTo?(destination: string): Promise<void>;
   // SECURITY: not an HTTP route. Null unless the host built this backend with `integrations`.
   readonly integrations?: IntegrationsGateway | null;
   /** Runs one scheduler tick now; null when this backend was built with scheduled jobs off. */
@@ -970,6 +1090,11 @@ export interface CreateBackendOptions {
   readonly scheduledJobs?: boolean;
   /** What the host knows about its own backups; the backend cannot see them from inside the database. Absent, the owner digest says backup status is not reported. */
   readonly backupStatus?: () => Promise<OwnerDigestBackupReading | null>;
+  // The cloud edition: the tenant's own schema on Postgres. Exclusive with dbPath, connection and tenantBinding — the schema is the binding, and the caller owns the pool.
+  readonly db?: SqlDb;
+  // SECURITY: the audit chain head's MAC key on `db`. Absent, MEZAN_AUDIT_CHAIN_KEY; with neither the backend refuses to start.
+  readonly auditChainKey?: string;
+  readonly evidenceKey?: string;
 }
 
 /**
@@ -1001,7 +1126,14 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   if (options.seedAdminPin !== undefined && options.seedDemoData !== true) {
     throw new Error("createBackend: seedAdminPin is only accepted together with seedDemoData: true");
   }
+  if (options.db) {
+    if (options.dbPath !== undefined || options.connection !== undefined || options.tenantBinding !== undefined) {
+      throw new Error("createBackend: db is exclusive with dbPath, connection and tenantBinding");
+    }
+    return composeBackend(options, options.db, undefined, BackendPass.Serve);
+  }
   const { sqlite } = openSqliteConnection(options.dbPath ?? ":memory:", options.connection);
+  const db = sqliteDb(sqlite);
   try {
     // REQUIRED ORDERING: before the upgrade transaction — SQLite ignores this pragma inside one, and every store's own copy of it would then be a no-op.
     sqlite.pragma("foreign_keys = ON");
@@ -1019,7 +1151,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
           sqlite,
           async () => {
             bindToTenant();
-            (await composeBackend(options, sqlite, BackendPass.Upgrade)).close();
+            (await composeBackend(options, db, sqlite, BackendPass.Upgrade)).close();
             stampSchemaVersion(sqlite);
           },
           "BEGIN IMMEDIATE",
@@ -1029,7 +1161,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         throw new SchemaUpgradeFailedError(fileVersion, CURRENT_SCHEMA_VERSION, cause);
       }
     }
-    const handle = await composeBackend(options, sqlite, BackendPass.Serve);
+    const handle = await composeBackend(options, db, sqlite, BackendPass.Serve);
     if (readSchemaVersion(sqlite) < CURRENT_SCHEMA_VERSION) stampSchemaVersion(sqlite);
     return handle;
   } catch (err) {
@@ -1038,9 +1170,11 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   }
 }
 
-async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<typeof openSqliteConnection>["sqlite"], pass: BackendPass): Promise<BackendHandle> {
+async function composeBackend(options: CreateBackendOptions, db: SqlDb, sqlite: ReturnType<typeof openSqliteConnection>["sqlite"] | undefined, pass: BackendPass): Promise<BackendHandle> {
   const dbPath = options.dbPath ?? ":memory:";
   const seedWhenEmpty = options.seedWhenEmpty !== false;
+  const store = <T>(viaSqlite: (s: NonNullable<typeof sqlite>) => T, viaDb: (d: SqlDb) => T): T => (sqlite ? viaSqlite(sqlite) : viaDb(db));
+  if (!sqlite) await ensureTenantSchema(db);
 
   /*
    * DEC-17 removed the API-key and webhook back end. Their stores are gone, so
@@ -1050,61 +1184,65 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
    * every store builds its own schema on open, so there is no central runner to
    * put it in. Safe to remove once no deployed database predates this commit.
    */
-  for (const table of ["webhook_delivery", "webhook", "api_key"]) {
-    sqlite.exec(`DROP TABLE IF EXISTS ${table}`);
+  if (sqlite) {
+    for (const table of ["webhook_delivery", "webhook", "api_key"]) {
+      sqlite.exec(`DROP TABLE IF EXISTS ${table}`);
+    }
   }
 
-  const sequenceConfig = createSqliteSequenceConfigStore(sqlite);
-  const sequenceCounters = createSqliteSequenceStore(sqlite);
+  const sequenceConfig = store((s) => createSqliteSequenceConfigStore(s), (d) => createSequenceConfigStore(d));
+  const sequenceCounters = store((s) => createSqliteSequenceStore(s), (d) => createSequenceStore(d));
   // The ONE audit sink for the whole backend. Without it the `audit_event`
   // table is never written and `/audit` reports an empty log.
   // The chain head is MAC'd under a key derived from the DATABASE key, which
   // lives in the OS keychain and not in the file an attacker is holding. With
   // no encryption key (dev, apps/server) it falls back to a per-install 0600
   // file beside the database — see audit-sink.ts's resolveChainKey.
-  const auditSink = createSqliteAuditSink(sqlite, {
-    ...(options.connection?.key ? { chainKey: deriveAuditChainKey(options.connection.key) } : {}),
-  });
+  const auditSink: AuditSinkHandle = sqlite
+    ? createSqliteAuditSink(sqlite, {
+        ...(options.connection?.key ? { chainKey: deriveAuditChainKey(options.connection.key) } : {}),
+      })
+    : createAuditSink(db, { ...(options.auditChainKey !== undefined ? { chainKey: options.auditChainKey } : {}) });
   auditSink.unrecorded = securityFallbackFor(dbPath);
-  const barcodeConfig = createSqliteBarcodeConfigStore(sqlite);
-  const userPreferences = createSqliteUserPreferencesStore(sqlite);
-  const ownerPinFence = createSqliteOwnerPinFence(sqlite);
-  const credentialResets = createSqliteCredentialResetMarks(sqlite);
-  const dataMigrationTransactor = createDataMigrationTransactor(sqlite);
+  const barcodeConfig = store((s) => createSqliteBarcodeConfigStore(s), (d) => createBarcodeConfigStore(d));
+  const userPreferences = store((s) => createSqliteUserPreferencesStore(s), (d) => createUserPreferencesStore(d));
+  const ownerPinFence = store((s) => createSqliteOwnerPinFence(s), (d) => createOwnerPinFence(d));
+  const credentialResets = store((s) => createSqliteCredentialResetMarks(s), (d) => createCredentialResetMarks(d));
+  const dataMigrationTransactor: DataMigrationTransactor = { run: (fn) => db.transaction(fn) };
   // The boundary a route-level config write shares with its audit row (D298).
   // Same shared connection the audit sink writes on, so the append nests as a
   // SAVEPOINT rather than opening a second transaction.
-  const configTransactor: ConfigTransactor = { run: (fn) => withSqliteTransaction(sqlite, fn) };
-  const labelLayouts = createSqliteLabelLayoutStore(sqlite);
+  const configTransactor: ConfigTransactor = { run: (fn) => db.transaction(fn) };
+  const labelLayouts = store((s) => createSqliteLabelLayoutStore(s), (d) => createLabelLayoutStore(d));
 
-  const uow = createSqliteUnitOfWork(sqlite);
-  grantSuccessorPermissionsOnce(sqlite, REVERSAL_PERMISSIONS_GRANT, reversalPermissionSuccessors());
+  const uow = store((s) => createSqliteUnitOfWork(s), (d) => createUnitOfWork(d));
+  await grantSuccessorPermissionsOnce(db, REVERSAL_PERMISSIONS_GRANT, reversalPermissionSuccessors());
   // INVARIANT: a marker of its own — books that already hold the marker above were upgraded before the voucher route joined the registry and would never be given its permission.
-  grantSuccessorPermissionsOnce(sqlite, VOUCHER_REVERSAL_PERMISSION_GRANT, reversalPermissionSuccessors([ReversalDocumentType.Voucher]));
-  const settings = createSqliteSettingsStore(sqlite, options.secrets);
-  const vatFilings = createSqliteVatFilingStore(sqlite);
-  const simplifiedRegime = createSqliteSimplifiedRegimeStore(sqlite);
-  const branches = createSqliteBranchStore(sqlite);
-  const warehouses = createSqliteWarehouseStore(sqlite);
-  const accounts = createSqliteAccountRepository(sqlite);
-  const customers = createSqliteCustomerRepository(sqlite);
-  const suppliers = createSqliteSupplierRepository(sqlite);
-  const items = createSqliteItemStore(sqlite);
+  await grantSuccessorPermissionsOnce(db, VOUCHER_REVERSAL_PERMISSION_GRANT, reversalPermissionSuccessors([ReversalDocumentType.Voucher]));
+  const settings: SettingsRepository = sqlite ? createSqliteSettingsStore(sqlite, options.secrets) : await createSettingsStore(db, options.secrets);
+  const vatFilings = store((s) => createSqliteVatFilingStore(s), (d) => createVatFilingStore(d));
+  const simplifiedRegime = store((s) => createSqliteSimplifiedRegimeStore(s), (d) => createSimplifiedRegimeStore(d));
+  const branches = store((s) => createSqliteBranchStore(s), (d) => createBranchStore(d));
+  const warehouses = store((s) => createSqliteWarehouseStore(s), (d) => createWarehouseStore(d));
+  const accounts = store((s) => createSqliteAccountRepository(s), (d) => createAccountRepository(d));
+  const customers = store((s) => createSqliteCustomerRepository(s), (d) => createCustomerRepository(d));
+  const suppliers = store((s) => createSqliteSupplierRepository(s), (d) => createSupplierRepository(d));
+  const items = store((s) => createSqliteItemStore(s), (d) => createItemStore(d));
   const salesItemTax: SalesItemTaxSource = async (itemId) => {
     const item = await items.findById(itemId);
     return item ? { taxRatePercent: item.taxRatePercent } : null;
   };
   const salesInvoiceTaxRerating = salesTaxRerating(customerTaxProfileFrom(customers), salesItemTax);
-  const itemCatalog = createSqliteItemCatalogStores(sqlite);
-  const accountRouting = createSqliteAccountRoutingStore(sqlite);
-  const taxGroups = createSqliteTaxGroupStore(sqlite);
-  const itemSpecifications = createSqliteItemSpecificationRepository(sqlite);
-  const attachments = createSqliteAttachmentRepository(sqlite);
-  const taxRates = createSqliteTaxRateRepository(sqlite);
+  const itemCatalog = store((s) => createSqliteItemCatalogStores(s), (d) => createItemCatalogStores(d));
+  const accountRouting = store((s) => createSqliteAccountRoutingStore(s), (d) => createAccountRoutingStore(d));
+  const taxGroups = store((s) => createSqliteTaxGroupStore(s), (d) => createTaxGroupStore(d));
+  const itemSpecifications = store((s) => createSqliteItemSpecificationRepository(s), (d) => createItemSpecificationRepository(d));
+  const attachments = store((s) => createSqliteAttachmentRepository(s), (d) => createAttachmentRepository(d));
+  const taxRates = store((s) => createSqliteTaxRateRepository(s), (d) => createTaxRateRepository(d));
   // SECURITY: a served company's database that holds no books is left with no
   // row added, the system tax rate included: see `seedWhenEmpty`.
   if (options.seedWhenEmpty !== false || !(await isEmptyTenant({ accounts }))) await ensureSystemTaxRates(taxRates);
-  const costCenters = createSqliteCostCenterRepository(sqlite);
+  const costCenters = store((s) => createSqliteCostCenterRepository(s), (d) => createCostCenterRepository(d));
   const masterDataChecks: MasterDataChecks = {
     [MasterDataKind.Customer]: customers,
     [MasterDataKind.Supplier]: suppliers,
@@ -1112,16 +1250,16 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
     [MasterDataKind.Branch]: branches,
     [MasterDataKind.CostCenter]: costCenters,
   };
-  const treasuryAccounts = createSqliteTreasuryAccountRepository(sqlite);
-  const fiscalPeriods = createSqliteFiscalPeriodRepository(sqlite);
+  const treasuryAccounts = store((s) => createSqliteTreasuryAccountRepository(s), (d) => createTreasuryAccountRepository(d));
+  const fiscalPeriods = store((s) => createSqliteFiscalPeriodRepository(s), (d) => createFiscalPeriodRepository(d));
   const periodCloseGuard = createPeriodCloseGuardSlot();
-  const fxRevaluationRuns = createSqlitePeriodCloseStore(sqlite).fxRuns;
-  const ledger = createSqliteLedgerStore(sqlite, sequenceConfig);
-  const priceLists = createSqlitePriceListStore(sqlite);
-  const promotions = createSqlitePromotionStore(sqlite);
-  const salesQuotes = createSqliteSalesQuoteStore(sqlite);
-  const exchangeRates = createSqliteExchangeRateRepository(sqlite);
-  const etaStore = createSqliteEtaStore(sqlite, options.secrets);
+  const fxRevaluationRuns = store((s) => createSqlitePeriodCloseStore(s), (d) => createPeriodCloseStore(d)).fxRuns;
+  const ledger = store((s) => createSqliteLedgerStore(s, sequenceConfig), (d) => createLedgerStore(d, sequenceConfig));
+  const priceLists = store((s) => createSqlitePriceListStore(s), (d) => createPriceListStore(d));
+  const promotions = store((s) => createSqlitePromotionStore(s), (d) => createPromotionStore(d));
+  const salesQuotes = store((s) => createSqliteSalesQuoteStore(s), (d) => createSalesQuoteStore(d));
+  const exchangeRates = store((s) => createSqliteExchangeRateRepository(s), (d) => createExchangeRateRepository(d));
+  const etaStore = store((s) => createSqliteEtaStore(s, options.secrets), (d) => createEtaStore(d, options.secrets));
   /**
    * The real ETA leg (P-1). Offline-safe by construction: the transmit port
    * refuses with `EtaOfflineError` until a client id AND a stored secret exist,
@@ -1134,7 +1272,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
   // hash, the signing program, the authority's socket and the mail server are
   // awaited with the turn released, and the request takes it again to record
   // what they answered.
-  const outsideTheTurn = <T>(work: () => Promise<T>): Promise<T> => auditSink.outsideTurn(work);
+  const outsideTheTurn = <T>(work: () => Promise<T>): Promise<T> => (auditSink.outsideTurn ? auditSink.outsideTurn(work) : work());
   // WORK NO REQUEST IS WAITING ON TAKES THE TURN FOR ITS DATABASE WORK TOO: a
   // timer, an event subscriber, a task a confirm leaves running. Started inside
   // a request it shares that request's turn, which is then kept until it is
@@ -1144,7 +1282,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
   const inTheTurn =
     (label: string) =>
     <T>(work: () => Promise<T>): Promise<T> =>
-      auditSink.turn(work, { onYield: () => reportTurnYield(`background ${label}`) });
+      auditSink.turn ? auditSink.turn(work, { onYield: () => reportTurnYield(`background ${label}`) }) : work();
   const etaHttp = options.etaHttpClient ?? fetchEtaHttpClient();
   const etaSigningRunner = options.etaSigningRunner ?? runExternalSigningCommand;
   const etaTransmit = createEtaHttpTransmitPort({
@@ -1188,48 +1326,48 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
 
   // --- phase9/operational-reports — read-only repositories the /reports routes aggregate over,
   // shared with phase5/full-sales's sales-invoice GL/stock hooks below (same tables, one connection each). ---
-  const salesInvoices = createSqliteSalesInvoiceStore(sqlite);
-  const purchaseInvoices = createSqlitePurchaseInvoiceStore(sqlite);
-  const stockLedger = createSqliteStockLedgerStore(sqlite);
-  const installmentPlans = createStandaloneSqliteInstallmentPlanStore(sqlite);
+  const salesInvoices = store((s) => createSqliteSalesInvoiceStore(s), (d) => createSalesInvoiceStore(d));
+  const purchaseInvoices = store((s) => createSqlitePurchaseInvoiceStore(s), (d) => createPurchaseInvoiceStore(d));
+  const stockLedger = store((s) => createSqliteStockLedgerStore(s), (d) => createStockLedgerStore(d));
+  const installmentPlans = store((s) => createStandaloneSqliteInstallmentPlanStore(s), (d) => createInstallmentPlanStore(d));
 
   // --- sweep/real-data-screens — the purchase chain's order/receipt stores and the
   // treasury-voucher store; `purchaseInvoices` above is shared with the /reports wiring
   // so both routes see the same confirmed invoices. ---
-  const purchaseOrders = createSqlitePurchaseOrderStore(sqlite);
-  const goodsReceipts = createSqliteGoodsReceiptStore(sqlite);
-  const vouchers = createSqliteVoucherStore(sqlite);
+  const purchaseOrders = store((s) => createSqlitePurchaseOrderStore(s), (d) => createPurchaseOrderStore(d));
+  const goodsReceipts = store((s) => createSqliteGoodsReceiptStore(s), (d) => createGoodsReceiptStore(d));
+  const vouchers = store((s) => createSqliteVoucherStore(s), (d) => createVoucherStore(d));
 
   // --- phase7/treasury-completion — سجل الشيكات + تسوية كشوف البنك. The reconciliation
   // ledger reader resolves a treasury account's GL account and reads its posted movements,
   // so statement lines only ever link to entries the voucher/cheque engines already posted. ---
-  const cheques = createSqliteChequeRepository(sqlite);
+  const cheques = store((s) => createSqliteChequeRepository(s), (d) => createChequeRepository(d));
   const invoiceSettlement = {
     applySettled: async ({ invoiceId, kind, settled }: { invoiceId: string; kind: string; settled: Money }) => {
       if (kind !== "sales") return;
       await applyAllocatedSettlement(salesInvoices, invoiceId, settled);
     },
   };
-  const bankStatements = createSqliteBankReconciliationStore(sqlite);
+  const bankStatements = store((s) => createSqliteBankReconciliationStore(s), (d) => createBankReconciliationStore(d));
 
   // --- phase11/crm-projects-assets-field — CRM, Projects, Fixed Assets, Field/Van Sales. ---
-  const leads = createSqliteLeadRepository(sqlite);
-  const opportunities = createSqliteOpportunityRepository(sqlite);
-  const pipelineStages = createSqlitePipelineStageRepository(sqlite);
-  const activities = createSqliteActivityRepository(sqlite);
-  const projects = createSqliteProjectRepository(sqlite);
-  const worksContracts = createSqliteWorksContractStore(sqlite);
-  const contractingSiteStore = createSqliteContractingSiteStore(sqlite);
-  const guarantees = createSqliteGuaranteeStore(sqlite);
-  const progressCertificates = createSqliteProgressCertificateStore(sqlite);
-  const subcontracts = createSqliteSubcontractStore(sqlite);
-  const recognitionRuns = createSqliteContractingRecognitionStore(sqlite);
-  const retentionReleases = createSqliteContractingControlsStore(sqlite);
-  const assetCategories = createSqliteAssetCategoryRepository(sqlite);
-  const assets = createSqliteAssetRepository(sqlite);
-  const assetRateHistory = createSqliteAssetInternalRateHistoryRepository(sqlite);
-  const depreciationRuns = createSqliteDepreciationRunRepository(sqlite);
-  const vanTrips = createSqliteVanTripRepository(sqlite);
+  const leads = store((s) => createSqliteLeadRepository(s), (d) => createLeadRepository(d));
+  const opportunities = store((s) => createSqliteOpportunityRepository(s), (d) => createOpportunityRepository(d));
+  const pipelineStages = store((s) => createSqlitePipelineStageRepository(s), (d) => createPipelineStageRepository(d));
+  const activities = store((s) => createSqliteActivityRepository(s), (d) => createActivityRepository(d));
+  const projects = store((s) => createSqliteProjectRepository(s), (d) => createProjectRepository(d));
+  const worksContracts = store((s) => createSqliteWorksContractStore(s), (d) => createWorksContractStore(d));
+  const contractingSiteStore = store((s) => createSqliteContractingSiteStore(s), (d) => createContractingSiteStore(d));
+  const guarantees = store((s) => createSqliteGuaranteeStore(s), (d) => createGuaranteeStore(d));
+  const progressCertificates = store((s) => createSqliteProgressCertificateStore(s), (d) => createProgressCertificateStore(d));
+  const subcontracts = store((s) => createSqliteSubcontractStore(s), (d) => createSubcontractStore(d));
+  const recognitionRuns = store((s) => createSqliteContractingRecognitionStore(s), (d) => createContractingRecognitionStore(d));
+  const retentionReleases = store((s) => createSqliteContractingControlsStore(s), (d) => createContractingControlsStore(d));
+  const assetCategories = store((s) => createSqliteAssetCategoryRepository(s), (d) => createAssetCategoryRepository(d));
+  const assets = store((s) => createSqliteAssetRepository(s), (d) => createAssetRepository(d));
+  const assetRateHistory = store((s) => createSqliteAssetInternalRateHistoryRepository(s), (d) => createAssetInternalRateHistoryRepository(d));
+  const depreciationRuns = store((s) => createSqliteDepreciationRunRepository(s), (d) => createDepreciationRunRepository(d));
+  const vanTrips = store((s) => createSqliteVanTripRepository(s), (d) => createVanTripRepository(d));
 
   /**
    * Which branch each posted journal entry belongs to (P-7).
@@ -1272,30 +1410,30 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
   };
 
   // --- inv/labels-templates-writedown — the aging-based inventory write-down batch. ---
-  const writedownRuns = createSqliteWritedownRunRepository(sqlite);
+  const writedownRuns = store((s) => createSqliteWritedownRunRepository(s), (d) => createWritedownRunRepository(d));
 
   // --- inv/labels-templates-writedown — Product Templates (attribute CRUD + variant generator). ---
-  const productTemplateStore = createSqliteProductTemplateStore(sqlite);
+  const productTemplateStore = store((s) => createSqliteProductTemplateStore(s), (d) => createProductTemplateStore(d));
 
   // --- sweep/finish-and-mount — manufacturing (docs/archive/catalog/07: BOMs, work
   // orders, configurable products, custom manufacturing) and RFQ + historical
   // purchase import (docs/archive/catalog/02). ---
-  const manufacturing = createSqliteManufacturingStores(sqlite);
-  const rfqStores = createSqliteRfqStores(sqlite);
-  const historicalImportArchives = createSqliteHistoricalPurchaseArchiveStore(sqlite);
-  const salesHistoricalImportArchives = createSqliteHistoricalSalesArchiveStore(sqlite);
+  const manufacturing = store((s) => createSqliteManufacturingStores(s), (d) => createManufacturingStores(d));
+  const rfqStores = store((s) => createSqliteRfqStores(s), (d) => createRfqStores(d));
+  const historicalImportArchives = store((s) => createSqliteHistoricalPurchaseArchiveStore(s), (d) => createHistoricalPurchaseArchiveStore(d));
+  const salesHistoricalImportArchives = store((s) => createSqliteHistoricalSalesArchiveStore(s), (d) => createHistoricalSalesArchiveStore(d));
 
   // --- w8/print-migration — Print Template designer config (docs/archive/catalog/09
   // §"قوالب الطباعة"). The Data Migration wizard's department/employee steps
   // reuse hr/master-data's own `hrDepartments`/`hrEmployees` stores below. ---
-  const printTemplateConfig = createSqlitePrintTemplateConfigStore(sqlite);
+  const printTemplateConfig = store((s) => createSqlitePrintTemplateConfigStore(s), (d) => createPrintTemplateConfigStore(d));
 
   // --- sweep/finish-and-mount — مرتجعات المبيعات/المشتريات, التكاليف
   // الإضافية, خطط الأقساط + متابعة التحصيل (docs/archive/catalog/01, 02, 05). ---
-  const salesReturnStore = createStandaloneSqliteSalesReturnStore(sqlite);
-  const purchaseReturnStore = createStandaloneSqlitePurchaseReturnStore(sqlite);
-  const landedCostStore = createStandaloneSqliteLandedCostStore(sqlite);
-  const followUps = createStandaloneSqliteFollowUpStore(sqlite);
+  const salesReturnStore = store((s) => createStandaloneSqliteSalesReturnStore(s), (d) => createSalesReturnStore(d));
+  const purchaseReturnStore = store((s) => createStandaloneSqlitePurchaseReturnStore(s), (d) => createPurchaseReturnStore(d));
+  const landedCostStore = store((s) => createStandaloneSqliteLandedCostStore(s), (d) => createLandedCostStore(d));
+  const followUps = store((s) => createStandaloneSqliteFollowUpStore(s), (d) => createFollowUpStore(d));
   /** What confirmed returns took off each invoice, in base — the allocation sub-ledger nets it (D242). */
   const invoiceReturnCredits: InvoiceReturnCreditPort = {
     async returnedByIds(ids, kind) {
@@ -1310,46 +1448,45 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
   };
 
   // --- phase4/inventory-ops — Stock Adjustments, Stock Transfers, Physical
-  // Counts document layer (docs/archive/catalog/03), on the SAME shared connection
-  // (createSqliteInventoryOpsStore reuses `sqlite` here rather than opening
-  // its own — see packages/persistence/src/sqlite-connection.ts). ---
-  const inventoryOps = createSqliteInventoryOpsStore(sqlite);
+  // Counts document layer (docs/archive/catalog/03), on the SAME shared database
+  // every other store here uses. ---
+  const inventoryOps = store((s) => createSqliteInventoryOpsStore(s), (d) => createInventoryOpsStore(d));
 
   // --- hr/master-data — departments, job titles, employees, contracts, holidays, leave requests (docs/archive/catalog/06 §"الموارد البشرية"). ---
-  const hrDepartments = createSqliteDepartmentRepository(sqlite);
-  const hrJobTitles = createSqliteJobTitleRepository(sqlite);
-  const hrEmployees = createSqliteEmployeeRepository(sqlite);
-  const hrContracts = createSqliteContractRepository(sqlite);
-  const hrHolidays = createSqliteHolidayRepository(sqlite);
-  const hrLeaveRequests = createSqliteLeaveRequestRepository(sqlite);
-  const hrAttendance = createSqliteAttendanceRepository(sqlite);
-  const hrLeavePolicies = createSqliteLeavePolicyRepository(sqlite);
-  const hrLeaveBalances = createSqliteLeaveBalanceRepository(sqlite);
-  const hrLeaveAccrualBatches = createSqliteLeaveAccrualBatchRepository(sqlite);
-  const hrAdvances = createSqliteEmployeeAdvanceRepository(sqlite);
+  const hrDepartments = store((s) => createSqliteDepartmentRepository(s), (d) => createDepartmentRepository(d));
+  const hrJobTitles = store((s) => createSqliteJobTitleRepository(s), (d) => createJobTitleRepository(d));
+  const hrEmployees = store((s) => createSqliteEmployeeRepository(s), (d) => createEmployeeRepository(d));
+  const hrContracts = store((s) => createSqliteContractRepository(s), (d) => createContractRepository(d));
+  const hrHolidays = store((s) => createSqliteHolidayRepository(s), (d) => createHolidayRepository(d));
+  const hrLeaveRequests = store((s) => createSqliteLeaveRequestRepository(s), (d) => createLeaveRequestRepository(d));
+  const hrAttendance = store((s) => createSqliteAttendanceRepository(s), (d) => createAttendanceRepository(d));
+  const hrLeavePolicies = store((s) => createSqliteLeavePolicyRepository(s), (d) => createLeavePolicyRepository(d));
+  const hrLeaveBalances = store((s) => createSqliteLeaveBalanceRepository(s), (d) => createLeaveBalanceRepository(d));
+  const hrLeaveAccrualBatches = store((s) => createSqliteLeaveAccrualBatchRepository(s), (d) => createLeaveAccrualBatchRepository(d));
+  const hrAdvances = store((s) => createSqliteEmployeeAdvanceRepository(s), (d) => createEmployeeAdvanceRepository(d));
   const advanceVoucherUnwind: VoucherAdvanceUnwindPort = {
     onVoucherReversed: async (voucherId) =>
       (await unwindAdvanceVoucher(voucherId, { advances: hrAdvances })) || (await unwindPayrollDisbursementVoucher(voucherId, { runs: hrPayrollRuns })),
   };
-  const hrClockCredentials = createSqliteClockCredentialRepository(sqlite);
-  const hrChallenges = createSqliteWebauthnChallengeRepository(sqlite);
-  const hrLeases = createSqliteLeaseStore(sqlite);
-  const hrPayrollRuns = createSqlitePayrollRunRepository(sqlite);
-  const hrPayslips = createSqlitePayslipRepository(sqlite);
-  const hrPayrollComponents = createSqlitePayrollComponentRepository(sqlite);
-  const hrGarnishments = createSqliteGarnishmentRepository(sqlite);
-  const hrStatutoryOverrides = createSqliteStatutoryOverrideRepository(sqlite);
-  const hrStatutoryFlag = createSqlitePayrollStatutoryFlagRepository(sqlite);
+  const hrClockCredentials = store((s) => createSqliteClockCredentialRepository(s), (d) => createClockCredentialRepository(d));
+  const hrChallenges = store((s) => createSqliteWebauthnChallengeRepository(s), (d) => createWebauthnChallengeRepository(d));
+  const hrLeases = store((s) => createSqliteLeaseStore(s), (d) => createLeaseStore(d));
+  const hrPayrollRuns = store((s) => createSqlitePayrollRunRepository(s), (d) => createPayrollRunRepository(d));
+  const hrPayslips = store((s) => createSqlitePayslipRepository(s), (d) => createPayslipRepository(d));
+  const hrPayrollComponents = store((s) => createSqlitePayrollComponentRepository(s), (d) => createPayrollComponentRepository(d));
+  const hrGarnishments = store((s) => createSqliteGarnishmentRepository(s), (d) => createGarnishmentRepository(d));
+  const hrStatutoryOverrides = store((s) => createSqliteStatutoryOverrideRepository(s), (d) => createStatutoryOverrideRepository(d));
+  const hrStatutoryFlag = store((s) => createSqlitePayrollStatutoryFlagRepository(s), (d) => createPayrollStatutoryFlagRepository(d));
 
   // --- w8/notifications — قواعد الإشعارات rules engine. ONE EventBus for the
   // whole backend; the engine subscribes to every event and (per rule) writes
   // real, persisted in-app notifications. Document-confirm flows publish onto
   // it via `createDocumentEventBridge` below (see that function's docstring
   // for why a translation step is needed at all). ---
-  const notificationRules = createSqliteNotificationRuleStore(sqlite);
-  const notifications = createSqliteNotificationStore(sqlite);
-  const customerMail = createSqliteCollectionsStore(sqlite);
-  removeNotificationLinesMatching(sqlite, ACCOUNT_LOCKED_NOTICE, STORED_UNLOCK_SECRET);
+  const notificationRules = store((s) => createSqliteNotificationRuleStore(s), (d) => createNotificationRuleStore(d));
+  const notifications = store((s) => createSqliteNotificationStore(s), (d) => createNotificationStore(d));
+  const customerMail = store((s) => createSqliteCollectionsStore(s), (d) => createCollectionsStore(d));
+  await removeNotificationLinesMatching(db, ACCOUNT_LOCKED_NOTICE, STORED_UNLOCK_SECRET);
   const eventBus = new EventBus({
     onError: (error, event) => {
       backendLog.error({ area: "notifications", err: error }, `a subscriber failed handling "${event.code}"`);
@@ -1377,8 +1514,10 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
   });
   const notifyInTheTurn = inTheTurn("notification rules");
   eventBus.subscribeAll((event) => {
-    void notifyInTheTurn(() => notificationEngine.handle(event)).catch((error: unknown) => {
-      backendLog.error({ area: "notifications", err: error }, `engine failed handling "${event.code}"`);
+    db.afterCommit(() => {
+      void notifyInTheTurn(() => notificationEngine.handle(event)).catch((error: unknown) => {
+        backendLog.error({ area: "notifications", err: error }, `engine failed handling "${event.code}"`);
+      });
     });
   });
 
@@ -1391,8 +1530,8 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
   // configures a chain for e.g. SALES_RETURN_CONFIRM has that document type
   // actually held بانتظار الموافقة on confirm, not just a config the /workflow
   // screen has no effect on. ---
-  const workflowConfigs = createSqliteWorkflowConfigStore(sqlite);
-  const approvalRequests = createSqliteApprovalRequestStore(sqlite);
+  const workflowConfigs = store((s) => createSqliteWorkflowConfigStore(s), (d) => createWorkflowConfigStore(d));
+  const approvalRequests = store((s) => createSqliteApprovalRequestStore(s), (d) => createApprovalRequestStore(d));
 
   /**
    * The contracting control and contract-cost accounts, resolved through the
@@ -1453,13 +1592,13 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
     },
     transaction: <T>(fn: () => Promise<T>): Promise<T> => ledger.transaction(fn),
   };
-  const inventoryEventHandlers = new Set<(event: InventoryDomainEvent) => void>();
+  const inventoryEventHandlers = new Set<(event: InventoryDomainEvent) => Promise<void>>();
   const stockService = new StockLedgerService({
     events: {
-      publish: (event) => {
+      publish: async (event) => {
         for (const handler of inventoryEventHandlers) {
           try {
-            handler(event);
+            await stockLedger.transaction(() => handler(event));
           } catch (error) {
             backendLog.error({ area: "inventory", err: error }, "a stock-event subscriber failed");
           }
@@ -1493,7 +1632,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
     // zero and COGS was understated by the whole deficit (D101).
     fallbackUnitCost: async (itemId) => (await items.findById(itemId))?.costPrice ?? null,
     lotRequirement: lotRequirementFromItems(items),
-    batchTrail: createSqliteBatchTrailStore(sqlite),
+    batchTrail: store((s) => createSqliteBatchTrailStore(s), (d) => createBatchTrailStore(d)),
   });
   /**
    * The expense accounts a contract's التكلفة حتى تاريخه must NOT count:
@@ -1588,8 +1727,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
   const salesInvoiceEventMapping = {
     SALES_INVOICE: { DOCUMENT_CONFIRMED: "SALES_INVOICE_CONFIRMED", DOCUMENT_CANCELLED: "SALES_INVOICE_VOIDED" },
   } satisfies DocumentEventMapping;
-  const salesInvoiceEventBridge = createDocumentEventBridge(
-    eventBus,
+  const salesInvoiceEventBridge = createDocumentEventBridge(eventBus, (fn) => db.afterCommit(fn),
     deferredBranchDirectory,
     salesInvoiceEventMapping,
     async (docId) => {
@@ -2301,7 +2439,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
 
   const documentGl = createJournalGlHook(salesInvoiceGl, STOCK_VARIANCE_ACCOUNTS);
   const documentWorkflowGate = createDocumentWorkflowGate(
-    (actionType) => workflowConfigs.resolveSync(actionType),
+    (actionType) => workflowConfigs.resolve(actionType),
     approvalRequests,
   );
 
@@ -2313,7 +2451,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
     SALES_RETURN: { DOCUMENT_CONFIRMED: "SALES_RETURN_CONFIRMED" },
     PURCHASE_RETURN: { DOCUMENT_CONFIRMED: "PURCHASE_RETURN_CONFIRMED", DOCUMENT_CANCELLED: "PURCHASE_RETURN_VOIDED" },
   } satisfies DocumentEventMapping;
-  const returnsEventBridge = createDocumentEventBridge(eventBus, deferredBranchDirectory, returnsEventMapping);
+  const returnsEventBridge = createDocumentEventBridge(eventBus, (fn) => db.afterCommit(fn), deferredBranchDirectory, returnsEventMapping);
 
   /*
    * The purchase chain is not a `DocumentService`, so it never had a publisher
@@ -2329,7 +2467,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
     GOODS_RECEIPT: { DOCUMENT_CONFIRMED: "PURCHASE_RECEIPT_CONFIRMED", DOCUMENT_CANCELLED: "PURCHASE_RECEIPT_VOIDED" },
     PURCHASE_INVOICE: { DOCUMENT_CONFIRMED: "PURCHASE_INVOICE_CONFIRMED", DOCUMENT_CANCELLED: "PURCHASE_INVOICE_VOIDED" },
   } satisfies DocumentEventMapping;
-  const purchasesEventBridge = createDocumentEventBridge(eventBus, deferredBranchDirectory, purchasesEventMapping);
+  const purchasesEventBridge = createDocumentEventBridge(eventBus, (fn) => db.afterCommit(fn), deferredBranchDirectory, purchasesEventMapping);
 
   /*
    * `VoucherService` has declared an `events` port since it was written and
@@ -2339,7 +2477,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
   const voucherEventMapping = {
     [VOUCHER_DOC_TYPE]: { DOCUMENT_CONFIRMED: "CASH_VOUCHER_CONFIRMED" },
   } satisfies DocumentEventMapping;
-  const voucherEventBridge = createDocumentEventBridge(eventBus, deferredBranchDirectory, voucherEventMapping);
+  const voucherEventBridge = createDocumentEventBridge(eventBus, (fn) => db.afterCommit(fn), deferredBranchDirectory, voucherEventMapping);
 
   const salesReturnEvents = fanOutDocumentEvents(
     returnsEventBridge,
@@ -2665,9 +2803,9 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
     stockLedger: stockService,
     adjustments: stockAdjustments,
     numbering: { next: () => ledger.numbering.next("PHYSICAL_COUNT") },
-    completionGate: countModeCompletionGate(sqlite),
+    completionGate: countModeCompletionGate(db),
   });
-  registerCountModeCounts(sqlite, physicalCounts);
+  registerCountModeCounts(db, physicalCounts);
 
   /**
    * مطابقة الأرصدة — Balance Reconciliation's sub-ledger side (docs/archive/catalog/04):
@@ -3436,7 +3574,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
   if (seedWhenEmpty) await seedIfEmpty(seedStores, undefined, { adminPin: options.seedAdminPin });
   const leftEmpty = !seedWhenEmpty && (await isEmptyTenant(seedStores));
 
-  const upgradeLedger = createSqliteUpgradeLedger(sqlite);
+  const upgradeLedger = store((s) => createSqliteUpgradeLedger(s), (d) => createUpgradeLedger(d));
   const offerStandardRoles = async (): Promise<void> => {
     const licensed = options.standardRoles?.resolveEntitlements() ?? null;
     if (!licensed || licensed.activeModules.length === 0) return;
@@ -3445,7 +3583,6 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
       if (created.length > 0) backendLog.info({ area: "roles" }, `added the standard role(s) ${created.join(", ")}`);
     });
   };
-  const sequenceCountersRead = sqlite.prepare("SELECT code, period, value FROM sequence_counter ORDER BY code, period");
   // REQUIRED ORDERING: runs after `grantSuccessorPermissionsOnce` above, so a reversal right granted for an older one is moved with the duty it belongs to.
   const separateSeededDuties = async (split: SeededRoleSplit): Promise<void> => {
     const reversalSuccessors = reversalPermissionSuccessors();
@@ -3490,7 +3627,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
   await upgradeLedger.runOnce(UpgradeStepId.SeededRoleGoodsReceiving, () => separateSeededDuties(SeededRoleSplit.GoodsReceiving));
   await upgradeLedger.runOnce(UpgradeStepId.SeededRolePriceFloor, () => separateSeededDuties(SeededRoleSplit.PriceFloor));
   await upgradeLedger.runOnce(UpgradeStepId.ApprovalFingerprint, async () => {
-    const marked = markApprovalsNeedingReapproval(sqlite);
+    const marked = sqlite ? markApprovalsNeedingReapproval(sqlite) : [];
     if (marked.length > 0) backendLog.info({ area: "workflow" }, `${marked.length} approval(s) given before this version need re-approval: ${marked.join(", ")}`);
   });
 
@@ -3572,7 +3709,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
     allocations: vouchers.allocations,
     invoices: vouchers.invoices,
     settings,
-    resolveGateConfig: (actionType) => workflowConfigs.resolveSync(actionType),
+    resolveGateConfig: (actionType) => workflowConfigs.resolve(actionType),
     partyName: voucherPartyNameOf,
     audit: auditSink,
   });
@@ -3691,7 +3828,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
    * this app reads its caller from. Before this the routes fell back to the
    * header resolver, so a request declared its own permissions.
    */
-  const sessions = createSessionRegistry(Date.now, DEFAULT_SESSION_LIMITS, options.sessionsInDatabase ? createSqliteSessionStore(sqlite) : createMemorySessionStore());
+  const sessions = createSessionRegistry(Date.now, DEFAULT_SESSION_LIMITS, options.sessionsInDatabase ? store((s) => createSqliteSessionStore(s), (d) => createSessionStore(d)) : createMemorySessionStore());
   const resolveAuthContext = createSessionAuthContextResolver(sessions);
   /**
    * ONE throttle for the whole backend. `/auth/login` counts against it and
@@ -3699,19 +3836,19 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
    * object: a per-router throttle would let an admin "unlock" an account that
    * stays locked at the login route.
    */
-  const signInLadder = createLoginThrottle(options.signInClock, createSqliteAttemptStore(sqlite, SignInAttemptScope.Ladder));
-  const signInSources = createSourceThrottle(options.signInClock, undefined, createSqliteAttemptStore(sqlite, SignInAttemptScope.Source));
-  const accountLockStore = createSqliteAccountLockStore(sqlite, { now: options.signInClock, failureWindowMs: ACCOUNT_LOCK_WINDOW_MS });
+  const signInLadder = createLoginThrottle(options.signInClock, store((s) => createSqliteAttemptStore(s, SignInAttemptScope.Ladder), (d) => createAttemptStore(d, SignInAttemptScope.Ladder)));
+  const signInSources = createSourceThrottle(options.signInClock, undefined, store((s) => createSqliteAttemptStore(s, SignInAttemptScope.Source), (d) => createAttemptStore(d, SignInAttemptScope.Source)));
+  const accountLockStore = store((s) => createSqliteAccountLockStore(s, { now: options.signInClock, failureWindowMs: ACCOUNT_LOCK_WINDOW_MS }), (d) => createAccountLockStore(d, { now: options.signInClock, failureWindowMs: ACCOUNT_LOCK_WINDOW_MS }));
   const accountLocks = createAccountLocks({ known: accountLockStore, unknown: accountLockStore.unknownNames, now: options.signInClock });
   // REQUIRED: every unlock in the product — the Users screen, a PIN reset, an
   // email change — goes through this one object, and it must clear the
   // account lock as well as the backoff or the button unlocks nothing.
-  const credentialsResetByAdministrator = (account: string): void => {
-    accountLocks.clear(account);
-    signInLadder.unlock(account);
+  const credentialsResetByAdministrator = async (account: string): Promise<void> => {
+    await accountLocks.clear(account);
+    await signInLadder.unlock(account);
   };
   const loginThrottle: LoginThrottle = { ...signInLadder, unlock: credentialsResetByAdministrator };
-  const ownerDigestStore = createSqliteOwnerDigestStore(sqlite);
+  const ownerDigestStore = store((s) => createSqliteOwnerDigestStore(s), (d) => createOwnerDigestStore(d));
   const sendMail = options.sendMail ?? sendNotificationEmail;
   // SECURITY: a tenant-typed SMTP host is held to the edition policy; the platform relay from the deployment env is not.
   const tenantMail: SmtpSendOptions = { destinations: options.tenantMailDestinations ?? SmtpDestinationPolicy.AnyHost };
@@ -3743,7 +3880,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
       if (!recipientEmail) return { kind: "rejected", reason: "لا يوجد بريد إلكتروني مسجَّل لهذا المستخدم." };
       const body = notification.eventCode === ACCOUNT_LOCKED_NOTICE ? lockMailBodies.get(notification.id)?.body : notification.body;
       if (body === undefined) return { kind: "rejected", reason: "انتهت صلاحية رمز فكّ القفل قبل إرساله؛ يُرسل رمز جديد عند المحاولة التالية." };
-      const html = notification.eventCode === OWNER_DIGEST_EVENT ? ownerDigestStore.mailHtml(notification.id) : null;
+      const html = notification.eventCode === OWNER_DIGEST_EVENT ? await ownerDigestStore.mailHtml(notification.id) : null;
       try {
         const sent = await outsideTheTurn(() => withinDeadline(OutsideWork.Mail, () => sendMail(smtp, recipientEmail, { subject: notification.title, body, ...(html ? { html } : {}) }, sendOptions)));
         const outcome = dispatchOutcomeOf(sent);
@@ -4452,7 +4589,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
           userId,
           email,
           canAdminister: user !== null && user.isCompanyAdmin && user.status === UserStatusCode.Active,
-          credentialIsOwn: !credentialResets.has(userId),
+          credentialIsOwn: !(await credentialResets.has(userId)),
         };
         await outsideTheTurn(() => options.onUserSignedIn!(signedIn));
       }
@@ -4461,6 +4598,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
 
   const auth = createAuth({
     uow,
+    atomic: (fn) => db.transaction(fn, TransactionMode.Immediate),
     hasher,
     secrets,
     settings,
@@ -4482,6 +4620,49 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
   });
 
   const resolveCashAndBankParentAccountId = async () => routedAccountId(await accountRouting.get(), CASH_AND_BANK_ROUTING_KEY);
+
+  /**
+   * Treasury accounts created before #120 were saved with no ledger account,
+   * and every voucher, cheque and opening balance on them is refused. Each gets
+   * its own leaf now, account and link in one transaction; a linked account is
+   * never touched, so a second start does nothing.
+   */
+  for (const { id } of (await treasuryAccounts.list()).filter((treasury) => treasury.glAccountId === null)) {
+    try {
+      const glAccountId = await db.transaction(async () => {
+        const treasury = await treasuryAccounts.findById(id);
+        if (!treasury || treasury.glAccountId !== null) return null;
+        const leafId = await openTreasuryLedgerAccount(treasury, {
+          accounts,
+          cashAndBankParentAccountId: resolveCashAndBankParentAccountId,
+          onOpened: (leaf) =>
+            recordSensitiveEvent(auditSink, {
+              module: "accounting",
+              entityType: "ACCOUNT",
+              entityId: leaf.id,
+              action: AuditChangeAction.Create,
+              actor: "system",
+              severity: "INFO",
+              details: { treasuryAccountId: treasury.id, changes: diffAuditFields(null, leaf, AUDITED_ACCOUNT_FIELDS) },
+            }),
+        });
+        await treasuryAccounts.update({ ...treasury, glAccountId: leafId });
+        await recordSensitiveEvent(auditSink, {
+          module: "treasury",
+          entityType: "TREASURY_ACCOUNT",
+          entityId: treasury.id,
+          action: AuditChangeAction.Update,
+          actor: "system",
+          severity: "WARNING",
+          details: { code: treasury.code, name: treasury.name, changes: [{ field: "glAccountId", from: null, to: leafId }] },
+        });
+        return leafId;
+      });
+      if (glAccountId) backendLog.info({ area: "treasury-accounts", treasuryAccountId: id, glAccountId }, "linked a treasury account to a ledger account of its own");
+    } catch (error) {
+      backendLog.error({ area: "treasury-accounts", treasuryAccountId: id, err: error }, "linking a treasury account to the ledger could not complete");
+    }
+  }
   const resolveCashAndBankAccountIds = async (): Promise<readonly string[]> => {
     const [routing, chart, treasury] = await Promise.all([accountRouting.get(), accounts.list(), treasuryAccounts.list()]);
     return cashAndBankLedgerAccountIds(chart, {
@@ -4541,7 +4722,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
   const app = createApp(uow, {
     cashAndBankParentAccountId: resolveCashAndBankParentAccountId,
     connectionTurn: options.connectionTurn,
-    idempotentRequests: createSqliteIdempotentRequestStore(sqlite),
+    idempotentRequests: store((s) => createSqliteIdempotentRequestStore(s), (d) => createIdempotentRequestStore(d)),
     secrets,
     beforeTheTurn: auth.beforeTheTurn,
     hrLeases,
@@ -4556,8 +4737,8 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
     security: { sessions, loginThrottle },
     ...(options.onUserEmailChanged
       ? {
-          onUserEmailChanged: (change) => {
-            const announced = { ...change, actorCredentialIsOwn: !credentialResets.has(change.actorId) };
+          onUserEmailChanged: async (change) => {
+            const announced = { ...change, actorCredentialIsOwn: !(await credentialResets.has(change.actorId)) };
             return outsideTheTurn(() => options.onUserEmailChanged!(announced));
           },
         }
@@ -4566,8 +4747,8 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
       ? {
           companyOwner: {
             currentOwnerUserId: () => outsideTheTurn(() => options.companyOwner!.currentOwnerUserId()),
-            handOver: (input) => {
-              const handed = { ...input, actorCredentialIsOwn: !credentialResets.has(input.actorId) };
+            handOver: async (input) => {
+              const handed = { ...input, actorCredentialIsOwn: !(await credentialResets.has(input.actorId)) };
               return outsideTheTurn(() => options.companyOwner!.handOver(handed));
             },
           },
@@ -4590,13 +4771,13 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
     userPreferences,
     branchDirectory: deferredBranchDirectory,
     warehouseStore: warehouses,
-    warehouseUse: createWarehouseUse(sqlite),
+    warehouseUse: sqlite ? createWarehouseUse(sqlite) : createPostgresWarehouseUse(db),
     customerStore: customers,
     supplierStore: suppliers,
     customerOpeningBalances,
     supplierOpeningBalances,
     createTransactor: { run: (fn) => auditSink.securityEventsOutlive(() => configTransactor.run(fn)) },
-    numbersDrawn: () => JSON.stringify(sequenceCountersRead.all()),
+    numbersDrawn: async () => JSON.stringify(await db.all("SELECT code, period, value FROM sequence_counter ORDER BY code, period"), (_key, value: unknown) => (typeof value === "bigint" ? value.toString() : value)),
     accounts: { repo: accounts },
     items: { repo: items, snapshots: stockLedger.snapshots },
     accountRouting: { repo: accountRouting },
@@ -4618,7 +4799,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
     auditSink,
     barcodeConfigStore: barcodeConfig,
     taxRateRepo: taxRates,
-    taxRateUsage: createSqliteTaxRateUsage(sqlite),
+    taxRateUsage: store((s) => createSqliteTaxRateUsage(s), (d) => createTaxRateUsage(d)),
     costCenterRepo: costCenters,
     treasuryAccountRepo: treasuryAccounts,
     fiscalPeriodRepo: fiscalPeriods,
@@ -4682,7 +4863,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
       // A configured TREASURY_VOUCHER_CONFIRM chain used to be ignored
       // outright: without these two the gate resolved every config to null and
       // held requests were never persisted for the inbox.
-      resolveGateConfig: (actionType) => workflowConfigs.resolveSync(actionType),
+      resolveGateConfig: (actionType) => workflowConfigs.resolve(actionType),
     partyName: voucherPartyNameOf,
       approvalRequests,
       documents: vouchers.documents,
@@ -4840,7 +5021,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
       // Without this a configured SALES_INVOICE_CONFIRM chain had zero effect —
       // SalesInvoiceService.confirm skips its gate entirely when absent.
       workflow: documentWorkflowGate,
-      pricingGuard: pricingGuardPortFor(sqlite),
+      pricingGuard: pricingGuardPortFor(db),
       audit: auditSink,
       events: salesInvoiceEvents,
       // The tenant's real chart, so an invoice cannot name an account it does
@@ -4973,7 +5154,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
         settings,
         exchangeRates,
         baseCurrency: "EGP",
-        resolveGateConfig: (actionType) => workflowConfigs.resolveSync(actionType),
+        resolveGateConfig: (actionType) => workflowConfigs.resolve(actionType),
     partyName: voucherPartyNameOf,
         approvalRequests,
         audit: auditSink,
@@ -4988,7 +5169,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
       itemCheck: items,
       masterData: masterDataChecks,
       numbering: { next: (opts) => ledger.numbering.next("SALES_QUOTE", { branchId: opts?.branchId }) },
-      pricingGuard: pricingGuardPortFor(sqlite),
+      pricingGuard: pricingGuardPortFor(db),
       opportunities,
       events: eventBus,
     },
@@ -5046,7 +5227,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
         return issued;
       },
     },
-    reconciliation: { ledger, resolveControls: () => resolveReconciliationControls(), foreignResidues: () => foreignResidues(), stockLedgerDates: async () => readStockLedgerDateMismatches(sqlite), stockPositionFaults: async () => stockPositionFaults((await stockService.getValuation()).positions) , allocationsOnReversedVouchers },
+    reconciliation: { ledger, resolveControls: () => resolveReconciliationControls(), foreignResidues: () => foreignResidues(), stockLedgerDates: () => readStockLedgerDateMismatches(db), stockPositionFaults: async () => stockPositionFaults((await stockService.getValuation()).positions) , allocationsOnReversedVouchers },
     openingBalanceDuplicates: {
       resolveContext: resolveOpeningBalanceDuplicatesContext,
       repair: repairOpeningBalanceDuplicate,
@@ -5349,6 +5530,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
       // P-5 — the three steps that make a real go-live possible: the chart, the
       // opening trial balance, and the open AR/AP the shop is actually owed.
       accounts,
+      cashAndBankParentAccountId: resolveCashAndBankParentAccountId,
       fiscalPeriods,
       partyControlAccounts: resolvePartyControlAccounts,
       postOpeningEntry: async (entry) => {
@@ -5651,14 +5833,16 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
     ),
   );
 
-  const areaClosers: { close(): void }[] = [];
+  const areaClosers: object[] = [];
   const ownerDigestSlot: OwnerDigestSlot = {};
   const collectionsScheduleSlot: CollectionsScheduleSlot = {};
   const integrationsSlot: IntegrationsSlot = {};
   const scheduledJobsStatus: { read: () => readonly ScheduledJobStatus[] } = { read: () => [] };
   const areaContext: BackendModuleContext = {
     app,
-    sqlite,
+    db,
+    ...(sqlite ? { sqlite } : {}),
+    store,
     uow,
     resolveAuthContext,
     sessions,
@@ -5734,7 +5918,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
     integrationsSlot,
     addCloser: (closer) => areaClosers.push(closer),
     reports: reportsDeps,
-    ...(options.connection?.key ? { databaseKey: options.connection.key } : {}),
+    ...(options.connection?.key ? { databaseKey: options.connection.key } : options.evidenceKey ? { databaseKey: options.evidenceKey } : {}),
     ...(options.secrets ? { secrets: options.secrets } : {}),
   };
   await mountPos(areaContext);
@@ -5815,11 +5999,11 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
     labelLayouts,
   ];
 
-  branchDirectory = createSqliteBranchDirectory(sqlite);
+  branchDirectory = sqlite ? createSqliteBranchDirectory(sqlite) : await createBranchDirectory(db);
 
   if (options.seedDemoData) {
     await seedDemoTenant(app, {
-      token: sessions.issue({
+      token: await sessions.issue({
         userId: SEED_ADMIN_USER_ID,
         permissions: ["*"],
         roleCode: null,
@@ -5841,7 +6025,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
   // CONTRACT: idempotent on `eventId`. The platform asks again after a crash
   // until it has seen this succeed, so the same event must leave one row.
   async function recordOwnerAssigned(input: OwnerAssignedRecord): Promise<void> {
-    credentialResets.clear(input.userId);
+    await credentialResets.clear(input.userId);
     const { events } = await auditSink.queryEvents({ stream: "security", action: COMPANY_OWNER_ASSIGNED_AUDIT, entityId: input.userId, limit: OWNER_ASSIGNED_LOOKBACK });
     if (events.some((row) => (row.details as Record<string, unknown> | undefined)?.["eventId"] === input.eventId)) return;
     await recordSecurityEvent(auditSink, {
@@ -5872,8 +6056,8 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
     // handed out is the one that still signs in.
     const written = await uow.transaction(async (tx) => {
       if (cmd.fence !== undefined) {
-        if (cmd.fence < ownerPinFence.current()) return false;
-        ownerPinFence.raiseTo(cmd.fence);
+        if (cmd.fence < (await ownerPinFence.current())) return false;
+        await ownerPinFence.raiseTo(cmd.fence);
       }
       const current = await tx.users.findById(owner.id);
       if (!current) return OwnerPinResetOutcome.OwnerVanished;
@@ -5882,9 +6066,9 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
     });
     if (written === OwnerPinResetOutcome.OwnerVanished) return written;
     if (!written) return OwnerPinResetOutcome.Superseded;
-    if (!cmd.onlyIfNeverSignedIn) credentialResets.mark(owner.id, new Date().toISOString(), cmd.actor);
-    sessions.revokeUser(owner.id);
-    credentialsResetByAdministrator(owner.email);
+    if (!cmd.onlyIfNeverSignedIn) await credentialResets.mark(owner.id, new Date().toISOString(), cmd.actor);
+    await sessions.revokeUser(owner.id);
+    await credentialsResetByAdministrator(owner.email);
     await recordSecurityEvent(auditSink, {
       module: "auth",
       entityType: "USER",
@@ -5902,9 +6086,9 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
     const key = account.trim().toLowerCase();
     return platformUnlockInTheTurn(() =>
       auditSink.atomic(async () => {
-        if (!accountLockStore.lockedAccounts().includes(key)) return false;
+        if (!(await accountLockStore.lockedAccounts()).includes(key)) return false;
         const user = await uow.users.findByEmail(key);
-        credentialsResetByAdministrator(key);
+        await credentialsResetByAdministrator(key);
         await recordSecurityEvent(auditSink, {
           module: "auth",
           entityType: "AUTH_USER",
@@ -5919,7 +6103,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
     );
   };
 
-  const scheduledJobsEnabled = pass === BackendPass.Serve && (options.scheduledJobs ?? dbPath !== ":memory:");
+  const scheduledJobsEnabled = pass === BackendPass.Serve && (options.scheduledJobs ?? (sqlite ? dbPath !== ":memory:" : true));
   const scheduledJobs = scheduledJobsEnabled
     ? startScheduledJobs({
         jobs: [
@@ -5937,7 +6121,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
             createCrmReminderService({
               activities,
               opportunities,
-              log: createSqliteActivityReminderLog(sqlite),
+              log: store((s) => createSqliteActivityReminderLog(s), (d) => createActivityReminderLog(d)),
               notifications,
               users: uow.users,
               eventBus,
@@ -5964,7 +6148,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
     recordOwnerAssigned,
     resetOwnerPin,
     etaReceipts,
-    backupTo: (destination) => sqlite.backup(destination).then(() => undefined),
+    ...(sqlite ? { backupTo: (destination: string) => sqlite.backup(destination).then(() => undefined) } : {}),
     runScheduledJobs: () => scheduledJobs?.runNow() ?? null,
     runOwnerDigest: () => (ownerDigestSlot.run ? ownerDigestSlot.run() : Promise.resolve(null)),
     runScheduledCollections: () => (collectionsScheduleSlot.run ? collectionsScheduleSlot.run() : Promise.resolve(null)),
@@ -5998,7 +6182,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
       for (const h of closers) {
         (h as { close?: () => void }).close?.();
       }
-      if (pass === BackendPass.Serve) sqlite.close();
+      if (pass === BackendPass.Serve) sqlite?.close();
     },
   };
 }

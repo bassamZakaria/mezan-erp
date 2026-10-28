@@ -1,4 +1,7 @@
 import type Database from "better-sqlite3";
+import { ensureInsertionOrder, insertionOrder } from "./sql/insertion-order.js";
+import type { SqlDb } from "./sql/sql-db.js";
+import { sqliteDb } from "./sql/sqlite-db.js";
 
 const CREATE_TABLES = `
 CREATE TABLE IF NOT EXISTS client_error (
@@ -48,9 +51,9 @@ interface ClientErrorRow {
 }
 
 export interface ClientErrorStore {
-  record(error: ClientErrorRecord): void;
-  recent(limit: number): readonly ClientErrorRecord[];
-  countSince(isoTime: string): number;
+  record(error: ClientErrorRecord): Promise<void>;
+  recent(limit: number): Promise<readonly ClientErrorRecord[]>;
+  countSince(isoTime: string): Promise<number>;
 }
 
 function recordOf(row: ClientErrorRow): ClientErrorRecord {
@@ -69,29 +72,38 @@ function recordOf(row: ClientErrorRow): ClientErrorRecord {
   };
 }
 
+const COLUMNS = "id, received_at, platform, kind, message, stack, route, app_version, user_agent, request_id, user_id";
+
+export async function ensureClientErrorSchema(db: SqlDb): Promise<void> {
+  await db.applySchema(CREATE_TABLES);
+  await ensureInsertionOrder(db, "client_error");
+}
+
 /**
  * The errors a tenant's clients (web, desktop renderer, mobile) reported. A report can arrive
  * without a session, so the table is CAPPED: every insert prunes it back to the newest
  * {@link CLIENT_ERRORS_KEPT} rows, and nobody can fill the disk by posting errors.
  */
+export function createClientErrorStore(db: SqlDb): ClientErrorStore {
+  const order = insertionOrder(db);
+  return {
+    record: (error) =>
+      db.transaction(async () => {
+        await db.run(
+          `INSERT INTO client_error (${COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [error.id, error.receivedAt, error.platform, error.kind, error.message, error.stack, error.route, error.appVersion, error.userAgent, error.requestId, error.userId],
+        );
+        await db.run(
+          `DELETE FROM client_error WHERE ${order} <= (SELECT ${order} FROM client_error ORDER BY ${order} DESC LIMIT 1 OFFSET ${CLIENT_ERRORS_KEPT})`,
+        );
+      }),
+    recent: async (limit) =>
+      (await db.all<ClientErrorRow>(`SELECT ${COLUMNS} FROM client_error ORDER BY received_at DESC, ${order} DESC LIMIT ?`, [limit])).map(recordOf),
+    countSince: async (isoTime) => Number((await db.get<{ n: bigint }>("SELECT COUNT(*) AS n FROM client_error WHERE received_at >= ?", [isoTime]))!.n),
+  };
+}
+
 export function createSqliteClientErrorStore(sqlite: Database.Database): ClientErrorStore {
   sqlite.exec(CREATE_TABLES);
-  const insert = sqlite.prepare(
-    `INSERT INTO client_error (id, received_at, platform, kind, message, stack, route, app_version, user_agent, request_id, user_id)
-     VALUES (@id, @receivedAt, @platform, @kind, @message, @stack, @route, @appVersion, @userAgent, @requestId, @userId)`,
-  );
-  const prune = sqlite.prepare(
-    `DELETE FROM client_error WHERE rowid <= (SELECT rowid FROM client_error ORDER BY rowid DESC LIMIT 1 OFFSET ${CLIENT_ERRORS_KEPT})`,
-  );
-  const recent = sqlite.prepare("SELECT * FROM client_error ORDER BY received_at DESC, rowid DESC LIMIT ?");
-  const countSince = sqlite.prepare("SELECT COUNT(*) AS n FROM client_error WHERE received_at >= ?");
-  const recordAndPrune = sqlite.transaction((error: ClientErrorRecord) => {
-    insert.run(error);
-    prune.run();
-  });
-  return {
-    record: (error) => recordAndPrune(error),
-    recent: (limit) => (recent.all(limit) as ClientErrorRow[]).map(recordOf),
-    countSince: (isoTime) => (countSince.get(isoTime) as { n: number }).n,
-  };
+  return createClientErrorStore(sqliteDb(sqlite));
 }

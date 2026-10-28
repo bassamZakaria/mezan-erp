@@ -111,6 +111,7 @@ export const reportKpiSchema = z.object({
 /** One `(actor, action)` cell of تقرير الاستثناءات الأمنية. */
 export const securityExceptionRowSchema = z.object({
   actor: z.string().min(1),
+  actorNameAr: z.string().min(1),
   action: z.string().min(1),
   actionLabelAr: z.string().min(1),
   module: z.string(),
@@ -156,7 +157,7 @@ const unrecordedLossShape = {
 
 export const unrecordedSecurityEventsSchema = z.object({
   count: z.number().int().nonnegative(),
-  recent: z.array(unrecordedSecurityEventSchema),
+  recent: z.array(unrecordedSecurityEventSchema.extend({ actorNameAr: z.string().min(1) })),
   ...unrecordedLossShape,
 });
 
@@ -209,6 +210,7 @@ export const postPostingChangeRowSchema = z.object({
   rowKey: z.string().min(1),
   timestamp: z.string().min(1),
   actor: z.string().min(1),
+  actorNameAr: z.string().min(1),
   module: z.string().min(1),
   entityType: z.string().min(1),
   entityId: z.string().nullable(),
@@ -291,6 +293,7 @@ export const afterHoursRowSchema = z.object({
   outsideReason: z.enum(["WEEKEND", "BEFORE_HOURS", "AFTER_HOURS"]),
   outsideReasonLabelAr: z.string().min(1),
   actor: z.string().min(1),
+  actorNameAr: z.string().min(1),
   stream: auditStreamSchema,
   module: z.string().min(1),
   entityType: z.string().min(1),
@@ -359,6 +362,7 @@ export const newAccountRowSchema = z.object({
    * written) and the link genuinely cannot be made.
    */
   createdBy: z.string().nullable(),
+  createdByNameAr: z.string().nullable(),
   createdByEventAt: z.string().nullable(),
   /** Distinct documents this account CONFIRMED or POSTED, per the audit trail. */
   postedDocumentCount: z.number().int().nonnegative(),

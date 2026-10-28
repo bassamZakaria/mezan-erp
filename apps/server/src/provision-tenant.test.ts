@@ -154,7 +154,7 @@ describe("provisionTenant", () => {
 
     // Seeding already ran, through the in-process handle.
     const backend = await router.backendFor("old");
-    const token = backend.sessions.issue({ userId: "probe", permissions: [], roleCode: null, branchScope: "*", warehouseScope: "*" });
+    const token = await backend.sessions.issue({ userId: "probe", permissions: [], roleCode: null, branchScope: "*", warehouseScope: "*" });
     const statusRes = await backend.app.fetch(new Request("http://tenant.internal/bootstrap/status", { headers: { authorization: `Bearer ${token}` } }));
     const status = (await statusRes.json()) as Record<string, number | boolean>;
     expect(status["claimed"]).toBe(true);
@@ -262,7 +262,7 @@ describe("provisionTenant", () => {
       expect((await platform.stores.tenants.list()).map((tenant) => tenant.code)).not.toContain("fresh");
       expect(router.openTenants()).toEqual([]);
       expect(tenantFiles(dataDir)).toEqual([]);
-      expect(platform.stores.sqlite.prepare("SELECT COUNT(*) AS c FROM subscription").get()).toEqual({ c: 0 });
+      expect(platform.stores.sqlite!.prepare("SELECT COUNT(*) AS c FROM subscription").get()).toEqual({ c: 0 });
 
       const again = await provisionTenant(cmd, { platform, router, now: () => new Date(T), pinOf: () => "222222" });
       expect(again.tenant.status).toBe("active");

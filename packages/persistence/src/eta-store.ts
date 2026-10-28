@@ -1,7 +1,9 @@
-import Database from "better-sqlite3";
+import type Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 import { isSealedSecret, SecretUnsealError, type SecretBox } from "./secret-box.js";
-import { insertingNew, prepareInsertOnly } from "./insert-new.js";
+import { insertNew } from "./insert-new.js";
+import { TransactionMode, type SqlDb, type SqlValue } from "./sql/sql-db.js";
+import { sqliteDb } from "./sql/sqlite-db.js";
 import {
   DEFAULT_ETA_CONFIG,
   ETA_DEFAULT_ENDPOINTS,
@@ -29,7 +31,7 @@ import {
 } from "@mezan/domain";
 
 /**
- * SQLite-backed ETA config + submission-queue stores (docs/archive/catalog/04 "الفاتورة
+ * SQL-backed ETA config + submission-queue stores (docs/archive/catalog/04 "الفاتورة
  * الإلكترونية"). The client secret is held in its own column and NEVER returned
  * through the config port — the port surfaces only `hasClientSecret`.
  */
@@ -193,9 +195,9 @@ interface ConfigRow {
   tax_registration_number: string | null;
   activity_code: string | null;
   address: string | null;
-  buyer_data_threshold: number;
+  buyer_data_threshold: bigint;
   document_version: string;
-  auto_submit_on_confirm: number;
+  auto_submit_on_confirm: bigint;
   signing_method: string;
   client_id: string | null;
   client_secret_enc: string | null;
@@ -205,31 +207,16 @@ interface ConfigRow {
   production_api_url: string | null;
   signing_command: string | null;
   signing_command_args: string | null;
-  receipt_reporting_window_hours: number | null;
+  receipt_reporting_window_hours: bigint | null;
 }
 
-class SqliteEtaConfigRepository implements EtaConfigRepository {
-  private readonly read: Database.Statement;
-  private readonly upsert: Database.Statement;
-  private readonly setSecret: Database.Statement;
-  private readonly readSecret: Database.Statement;
-
-  constructor(
-    sqlite: Database.Database,
-    private readonly codec: EtaSecretCodec,
-  ) {
-    this.read = sqlite.prepare(`SELECT * FROM eta_config WHERE id = ?`);
-    this.upsert = sqlite.prepare(`
+const UPSERT_CONFIG = `
       INSERT INTO eta_config
         (id, environment, tax_registration_number, activity_code, address, buyer_data_threshold,
          document_version, auto_submit_on_confirm, signing_method, client_id,
          preproduction_identity_url, preproduction_api_url, production_identity_url, production_api_url,
          signing_command, signing_command_args, receipt_reporting_window_hours)
-      VALUES
-        (@id, @environment, @tax_registration_number, @activity_code, @address, @buyer_data_threshold,
-         @document_version, @auto_submit_on_confirm, @signing_method, @client_id,
-         @preproduction_identity_url, @preproduction_api_url, @production_identity_url, @production_api_url,
-         @signing_command, @signing_command_args, @receipt_reporting_window_hours)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         environment = excluded.environment,
         tax_registration_number = excluded.tax_registration_number,
@@ -246,14 +233,16 @@ class SqliteEtaConfigRepository implements EtaConfigRepository {
         production_api_url = excluded.production_api_url,
         signing_command = excluded.signing_command,
         signing_command_args = excluded.signing_command_args,
-        receipt_reporting_window_hours = excluded.receipt_reporting_window_hours
-    `);
-    this.setSecret = sqlite.prepare(`UPDATE eta_config SET client_secret_enc = ? WHERE id = ?`);
-    this.readSecret = sqlite.prepare(`SELECT client_secret_enc FROM eta_config WHERE id = ?`);
-  }
+        receipt_reporting_window_hours = excluded.receipt_reporting_window_hours`;
+
+class SqlEtaConfigRepository implements EtaConfigRepository {
+  constructor(
+    private readonly db: SqlDb,
+    private readonly codec: EtaSecretCodec,
+  ) {}
 
   async get(): Promise<EtaConfig> {
-    const row = this.read.get(SINGLETON) as ConfigRow | undefined;
+    const row = await this.db.get<ConfigRow>(`SELECT * FROM eta_config WHERE id = ?`, [SINGLETON]);
     if (!row) return DEFAULT_ETA_CONFIG;
     const secretState =
       row.client_secret_enc == null
@@ -267,9 +256,9 @@ class SqliteEtaConfigRepository implements EtaConfigRepository {
       taxRegistrationNumber: row.tax_registration_number,
       activityCode: row.activity_code,
       address,
-      buyerDataThreshold: row.buyer_data_threshold,
+      buyerDataThreshold: Number(row.buyer_data_threshold),
       documentVersion: row.document_version as EtaDocumentVersion,
-      autoSubmitOnConfirm: row.auto_submit_on_confirm === 1,
+      autoSubmitOnConfirm: Number(row.auto_submit_on_confirm) === 1,
       signingMethod: row.signing_method as EtaSigningMethod,
       clientId: row.client_id,
       hasClientSecret: secretState === StoredSecretState.Readable,
@@ -281,30 +270,30 @@ class SqliteEtaConfigRepository implements EtaConfigRepository {
       signingCommand: row.signing_command,
       signingCommandArgs: row.signing_command_args ? (JSON.parse(row.signing_command_args) as string[]) : [],
       receiptReportingWindowHours:
-        row.receipt_reporting_window_hours ?? DEFAULT_ETA_CONFIG.receiptReportingWindowHours,
+        row.receipt_reporting_window_hours === null ? DEFAULT_ETA_CONFIG.receiptReportingWindowHours : Number(row.receipt_reporting_window_hours),
     };
   }
 
   async save(config: EtaConfig): Promise<void> {
-    this.upsert.run({
-      id: SINGLETON,
-      environment: config.environment,
-      tax_registration_number: config.taxRegistrationNumber,
-      activity_code: config.activityCode,
-      address: config.address ? JSON.stringify(config.address) : null,
-      buyer_data_threshold: config.buyerDataThreshold,
-      document_version: config.documentVersion,
-      auto_submit_on_confirm: config.autoSubmitOnConfirm ? 1 : 0,
-      signing_method: config.signingMethod,
-      client_id: config.clientId,
-      preproduction_identity_url: config.preproductionIdentityUrl,
-      preproduction_api_url: config.preproductionApiUrl,
-      production_identity_url: config.productionIdentityUrl,
-      production_api_url: config.productionApiUrl,
-      signing_command: config.signingCommand,
-      signing_command_args: JSON.stringify(config.signingCommandArgs),
-      receipt_reporting_window_hours: config.receiptReportingWindowHours,
-    });
+    await this.db.run(UPSERT_CONFIG, [
+      SINGLETON,
+      config.environment,
+      config.taxRegistrationNumber,
+      config.activityCode,
+      config.address ? JSON.stringify(config.address) : null,
+      config.buyerDataThreshold,
+      config.documentVersion,
+      config.autoSubmitOnConfirm ? 1 : 0,
+      config.signingMethod,
+      config.clientId,
+      config.preproductionIdentityUrl,
+      config.preproductionApiUrl,
+      config.productionIdentityUrl,
+      config.productionApiUrl,
+      config.signingCommand,
+      JSON.stringify(config.signingCommandArgs),
+      config.receiptReportingWindowHours,
+    ]);
   }
 
   /**
@@ -313,16 +302,18 @@ class SqliteEtaConfigRepository implements EtaConfigRepository {
    * API response.
    */
   async getClientSecret(): Promise<string | null> {
-    const row = this.readSecret.get(SINGLETON) as { client_secret_enc: string | null } | undefined;
+    const row = await this.db.get<{ client_secret_enc: string | null }>(`SELECT client_secret_enc FROM eta_config WHERE id = ?`, [SINGLETON]);
     if (!row?.client_secret_enc) return null;
     return this.codec.open(row.client_secret_enc, CLIENT_SECRET_CONTEXT);
   }
 
   /** Store a new client secret (sealed). Ensures a config row exists first. */
   async setClientSecret(secret: string): Promise<void> {
-    const existing = this.read.get(SINGLETON);
-    if (!existing) await this.save(DEFAULT_ETA_CONFIG);
-    this.setSecret.run(this.codec.seal(secret, CLIENT_SECRET_CONTEXT), SINGLETON);
+    await this.db.transaction(async () => {
+      const existing = await this.db.get(`SELECT 1 AS present FROM eta_config WHERE id = ?`, [SINGLETON]);
+      if (!existing) await this.save(DEFAULT_ETA_CONFIG);
+      await this.db.run(`UPDATE eta_config SET client_secret_enc = ? WHERE id = ?`, [this.codec.seal(secret, CLIENT_SECRET_CONTEXT), SINGLETON]);
+    });
   }
 }
 
@@ -342,7 +333,7 @@ interface SubmissionRow {
   signature: string | null;
   transmit_log: string | null;
   receipt_serial: string | null;
-  receipt_seq: number | null;
+  receipt_seq: bigint | null;
   prevalidation: string | null;
   rejection_codes: string | null;
   transmit_started_at: string | null;
@@ -365,30 +356,18 @@ function toSubmission(row: SubmissionRow): EtaSubmission {
     signature: row.signature,
     transmitLog: row.transmit_log ? (JSON.parse(row.transmit_log) as EtaTransmitLogEntry[]) : [],
     receiptSerial: row.receipt_serial ?? null,
-    receiptSeq: row.receipt_seq ?? null,
+    receiptSeq: row.receipt_seq === null ? null : Number(row.receipt_seq),
     prevalidation: row.prevalidation ? (JSON.parse(row.prevalidation) as EtaPrevalidationFinding[]) : [],
     rejectionCodes: row.rejection_codes ? (JSON.parse(row.rejection_codes) as (string | null)[]) : [],
     transmitStartedAt: row.transmit_started_at ?? null,
   };
 }
 
-class SqliteEtaSubmissionRepository implements EtaSubmissionRepository {
-  private readonly upsert: Database.Statement;
-  private readonly insertOnly: Database.Statement;
-  private readonly selectById: Database.Statement;
-  private readonly selectByInternal: Database.Statement;
-  private readonly selectAll: Database.Statement;
-  private readonly selectByStatus: Database.Statement;
-  private readonly selectReceiptStatusByUuid: Database.Statement;
-
-  constructor(sqlite: Database.Database) {
-    this.upsert = sqlite.prepare(`
+const UPSERT_SUBMISSION = `
       INSERT INTO eta_submission
         (id, internal_id, document_type, status, eta_uuid, payload, errors, exclusion_reason, created_at, updated_at, submitted_at,
          gateway_submission_id, signature, transmit_log, receipt_serial, receipt_seq, prevalidation, rejection_codes, transmit_started_at)
-      VALUES
-        (@id, @internal_id, @document_type, @status, @eta_uuid, @payload, @errors, @exclusion_reason, @created_at, @updated_at, @submitted_at,
-         @gateway_submission_id, @signature, @transmit_log, @receipt_serial, @receipt_seq, @prevalidation, @rejection_codes, @transmit_started_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         status = excluded.status,
         eta_uuid = excluded.eta_uuid,
@@ -402,96 +381,90 @@ class SqliteEtaSubmissionRepository implements EtaSubmissionRepository {
         transmit_log = excluded.transmit_log,
         prevalidation = excluded.prevalidation,
         rejection_codes = excluded.rejection_codes,
-        transmit_started_at = excluded.transmit_started_at
-    `);
-    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
-    this.selectById = sqlite.prepare(`SELECT * FROM eta_submission WHERE id = ?`);
-    this.selectByInternal = sqlite.prepare(`SELECT * FROM eta_submission WHERE internal_id = ?`);
-    this.selectAll = sqlite.prepare(`SELECT * FROM eta_submission ORDER BY created_at DESC`);
-    this.selectByStatus = sqlite.prepare(`SELECT * FROM eta_submission WHERE status = ? ORDER BY created_at DESC`);
-    this.selectReceiptStatusByUuid = sqlite.prepare(`SELECT status FROM eta_submission WHERE eta_uuid = ? AND document_type = 'receipt'`);
-  }
+        transmit_started_at = excluded.transmit_started_at`;
+
+function submissionParams(s: EtaSubmission): SqlValue[] {
+  return [
+    s.id,
+    s.internalId,
+    s.documentType,
+    s.status,
+    s.etaUuid,
+    JSON.stringify(s.payload),
+    JSON.stringify(s.errors),
+    s.exclusionReason,
+    s.createdAt,
+    s.updatedAt,
+    s.submittedAt,
+    s.gatewaySubmissionId,
+    s.signature,
+    JSON.stringify(s.transmitLog),
+    s.receiptSerial ?? null,
+    s.receiptSeq ?? null,
+    JSON.stringify(s.prevalidation ?? []),
+    JSON.stringify(s.rejectionCodes ?? []),
+    s.transmitStartedAt ?? null,
+  ];
+}
+
+class SqlEtaSubmissionRepository implements EtaSubmissionRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async findById(id: string): Promise<EtaSubmission | null> {
-    const row = this.selectById.get(id) as SubmissionRow | undefined;
+    const row = await this.db.get<SubmissionRow>(`SELECT * FROM eta_submission WHERE id = ?`, [id]);
     return row ? toSubmission(row) : null;
   }
 
   async findByInternalId(internalId: string): Promise<EtaSubmission | null> {
-    const row = this.selectByInternal.get(internalId) as SubmissionRow | undefined;
+    const row = await this.db.get<SubmissionRow>(`SELECT * FROM eta_submission WHERE internal_id = ?`, [internalId]);
     return row ? toSubmission(row) : null;
   }
 
   async list(status?: EtaSubmissionStatus): Promise<EtaSubmission[]> {
-    const rows = (status ? this.selectByStatus.all(status) : this.selectAll.all()) as SubmissionRow[];
+    const rows = status
+      ? await this.db.all<SubmissionRow>(`SELECT * FROM eta_submission WHERE status = ? ORDER BY created_at DESC`, [status])
+      : await this.db.all<SubmissionRow>(`SELECT * FROM eta_submission ORDER BY created_at DESC`);
     return rows.map(toSubmission);
   }
 
   async statusByEtaUuid(etaUuid: string): Promise<EtaSubmissionStatus | null> {
-    const row = this.selectReceiptStatusByUuid.get(etaUuid) as { status: EtaSubmissionStatus } | undefined;
+    const row = await this.db.get<{ status: EtaSubmissionStatus }>(`SELECT status FROM eta_submission WHERE eta_uuid = ? AND document_type = 'receipt'`, [etaUuid]);
     return row?.status ?? null;
   }
 
   async create(submission: EtaSubmission): Promise<void> {
-    insertingNew(submission.id, () => this.write(submission, this.insertOnly));
+    await insertNew(this.db, submission.id, UPSERT_SUBMISSION, submissionParams(submission));
   }
 
   async update(submission: EtaSubmission): Promise<void> {
-    this.write(submission);
+    await this.write(submission);
   }
 
   /** Exposed for the chain's transaction; everything else goes through `create`/`update`. */
-  write(s: EtaSubmission, statement: Database.Statement = this.upsert): void {
-    statement.run({
-      id: s.id,
-      internal_id: s.internalId,
-      document_type: s.documentType,
-      status: s.status,
-      eta_uuid: s.etaUuid,
-      payload: JSON.stringify(s.payload),
-      errors: JSON.stringify(s.errors),
-      exclusion_reason: s.exclusionReason,
-      created_at: s.createdAt,
-      updated_at: s.updatedAt,
-      submitted_at: s.submittedAt,
-      gateway_submission_id: s.gatewaySubmissionId,
-      signature: s.signature,
-      transmit_log: JSON.stringify(s.transmitLog),
-      receipt_serial: s.receiptSerial ?? null,
-      receipt_seq: s.receiptSeq ?? null,
-      prevalidation: JSON.stringify(s.prevalidation ?? []),
-      rejection_codes: JSON.stringify(s.rejectionCodes ?? []),
-      transmit_started_at: s.transmitStartedAt ?? null,
-    });
+  async write(s: EtaSubmission): Promise<void> {
+    await this.db.run(UPSERT_SUBMISSION, submissionParams(s));
   }
 }
 
-class SqliteEtaReceiptGapRepository implements EtaReceiptGapRepository {
-  private readonly upsert: Database.Statement;
-  private readonly remove: Database.Statement;
-  private readonly selectAll: Database.Statement;
-
-  constructor(sqlite: Database.Database) {
-    this.upsert = sqlite.prepare(`
-      INSERT INTO eta_receipt_gap (internal_id, doc_type, doc_id, issued_at, code, reason, recorded_at)
-      VALUES (@internalId, @docType, @docId, @issuedAt, @code, @reason, @recordedAt)
-      ON CONFLICT(internal_id) DO UPDATE SET code = excluded.code, reason = excluded.reason, recorded_at = excluded.recorded_at
-    `);
-    this.remove = sqlite.prepare(`DELETE FROM eta_receipt_gap WHERE internal_id = ?`);
-    this.selectAll = sqlite.prepare(`SELECT * FROM eta_receipt_gap ORDER BY issued_at`);
-  }
+class SqlEtaReceiptGapRepository implements EtaReceiptGapRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async record(gap: EtaReceiptGap): Promise<void> {
-    this.upsert.run(gap);
+    await this.db.run(
+      `INSERT INTO eta_receipt_gap (internal_id, doc_type, doc_id, issued_at, code, reason, recorded_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(internal_id) DO UPDATE SET code = excluded.code, reason = excluded.reason, recorded_at = excluded.recorded_at`,
+      [gap.internalId, gap.docType, gap.docId, gap.issuedAt, gap.code, gap.reason, gap.recordedAt],
+    );
   }
 
   async clear(internalId: string): Promise<void> {
-    this.remove.run(internalId);
+    await this.db.run(`DELETE FROM eta_receipt_gap WHERE internal_id = ?`, [internalId]);
   }
 
   async list(): Promise<EtaReceiptGap[]> {
     return (
-      this.selectAll.all() as {
+      await this.db.all<{
         internal_id: string;
         doc_type: string;
         doc_id: string;
@@ -499,7 +472,7 @@ class SqliteEtaReceiptGapRepository implements EtaReceiptGapRepository {
         code: string;
         reason: string;
         recorded_at: string;
-      }[]
+      }>(`SELECT * FROM eta_receipt_gap ORDER BY issued_at`)
     ).map((r) => ({
       internalId: r.internal_id,
       docType: r.doc_type as EtaReceiptGap["docType"],
@@ -515,7 +488,7 @@ class SqliteEtaReceiptGapRepository implements EtaReceiptGapRepository {
 interface ChainRow {
   device_serial: string;
   last_uuid: string | null;
-  last_seq: number;
+  last_seq: bigint;
   last_receipt_number: string | null;
   updated_at: string | null;
 }
@@ -524,7 +497,7 @@ function toChainHead(row: ChainRow): EtaReceiptChainHead {
   return {
     serial: row.device_serial,
     lastUuid: row.last_uuid,
-    lastSeq: row.last_seq,
+    lastSeq: Number(row.last_seq),
     lastReceiptNumber: row.last_receipt_number,
     updatedAt: row.updated_at,
   };
@@ -532,62 +505,51 @@ function toChainHead(row: ChainRow): EtaReceiptChainHead {
 
 /**
  * The per-device receipt chain (DEC-25, D283). `append` inserts the receipt and
- * moves the head in ONE SQLite transaction, and only when the head is still the
- * one the receipt was built on — so a second writer, even another process on
- * the same file, can never chain a receipt onto a predecessor already taken.
+ * moves the head in ONE write-locked transaction, and only when the head is still
+ * the one the receipt was built on — so a second writer, even another server
+ * instance, can never chain a receipt onto a predecessor already taken.
  */
-class SqliteEtaReceiptChainRepository implements EtaReceiptChainRepository {
-  private readonly selectOne: Database.Statement;
-  private readonly selectAll: Database.Statement;
-  private readonly insertHead: Database.Statement;
-  private readonly advanceHead: Database.Statement;
-  private readonly appendTx: (entry: Parameters<EtaReceiptChainRepository["append"]>[0]) => boolean;
-
-  constructor(sqlite: Database.Database, submissions: SqliteEtaSubmissionRepository) {
-    this.selectOne = sqlite.prepare(`SELECT * FROM eta_receipt_chain WHERE device_serial = ?`);
-    this.selectAll = sqlite.prepare(`SELECT * FROM eta_receipt_chain ORDER BY device_serial`);
-    this.insertHead = sqlite.prepare(`
-      INSERT INTO eta_receipt_chain (device_serial, last_uuid, last_seq, last_receipt_number, updated_at)
-      VALUES (@serial, @uuid, @seq, @receipt_number, @at)
-      ON CONFLICT(device_serial) DO NOTHING
-    `);
-    this.advanceHead = sqlite.prepare(`
-      UPDATE eta_receipt_chain
-         SET last_uuid = @uuid, last_seq = @seq, last_receipt_number = @receipt_number, updated_at = @at
-       WHERE device_serial = @serial AND last_uuid IS @expected AND last_seq = @seq - 1
-    `);
-    this.appendTx = sqlite.transaction((entry: Parameters<EtaReceiptChainRepository["append"]>[0]): boolean => {
-      const { serial, expectedPreviousUuid, submission } = entry;
-      const seq = submission.receiptSeq ?? 1;
-      const params = {
-        serial,
-        uuid: submission.etaUuid,
-        seq,
-        receipt_number: submission.internalId,
-        at: submission.createdAt,
-        expected: expectedPreviousUuid,
-      };
-      const moved =
-        expectedPreviousUuid === null && seq === 1
-          ? this.insertHead.run(params).changes
-          : this.advanceHead.run(params).changes;
-      if (moved !== 1) return false;
-      submissions.write(submission);
-      return true;
-    });
-  }
+class SqlEtaReceiptChainRepository implements EtaReceiptChainRepository {
+  constructor(
+    private readonly db: SqlDb,
+    private readonly submissions: SqlEtaSubmissionRepository,
+  ) {}
 
   async head(serial: string): Promise<EtaReceiptChainHead | null> {
-    const row = this.selectOne.get(serial) as ChainRow | undefined;
+    const row = await this.db.get<ChainRow>(`SELECT * FROM eta_receipt_chain WHERE device_serial = ?`, [serial]);
     return row ? toChainHead(row) : null;
   }
 
   async list(): Promise<EtaReceiptChainHead[]> {
-    return (this.selectAll.all() as ChainRow[]).map(toChainHead);
+    return (await this.db.all<ChainRow>(`SELECT * FROM eta_receipt_chain ORDER BY device_serial`)).map(toChainHead);
   }
 
   async append(entry: Parameters<EtaReceiptChainRepository["append"]>[0]): Promise<boolean> {
-    return this.appendTx(entry);
+    return this.db.transaction(async () => {
+      const { serial, expectedPreviousUuid, submission } = entry;
+      const seq = submission.receiptSeq ?? 1;
+      const moved =
+        expectedPreviousUuid === null && seq === 1
+          ? (
+              await this.db.run(
+                `INSERT INTO eta_receipt_chain (device_serial, last_uuid, last_seq, last_receipt_number, updated_at)
+                 VALUES (?, ?, ?, ?, ?)
+                 ON CONFLICT(device_serial) DO NOTHING`,
+                [serial, submission.etaUuid, seq, submission.internalId, submission.createdAt],
+              )
+            ).changes
+          : (
+              await this.db.run(
+                `UPDATE eta_receipt_chain
+                    SET last_uuid = ?, last_seq = ?, last_receipt_number = ?, updated_at = ?
+                  WHERE device_serial = ? AND last_uuid IS NOT DISTINCT FROM ? AND last_seq = ?`,
+                [submission.etaUuid, seq, submission.internalId, submission.createdAt, serial, expectedPreviousUuid, seq - 1],
+              )
+            ).changes;
+      if (moved !== 1) return false;
+      await this.submissions.write(submission);
+      return true;
+    }, TransactionMode.Immediate);
   }
 }
 
@@ -602,37 +564,14 @@ interface BranchCodeRow {
   pos_preshared_key_enc: string | null;
 }
 
-class SqliteEtaBranchCodeRepository implements EtaBranchCodeRepository {
-  private readonly selectAll: Database.Statement;
-  private readonly upsert: Database.Statement;
-  private readonly setSecret: Database.Statement;
-  private readonly setPresharedKey: Database.Statement;
-  private readonly selectBySerial: Database.Statement;
-
+class SqlEtaBranchCodeRepository implements EtaBranchCodeRepository {
   constructor(
-    sqlite: Database.Database,
+    private readonly db: SqlDb,
     private readonly codec: EtaSecretCodec,
-  ) {
-    this.selectAll = sqlite.prepare(`SELECT * FROM eta_branch_code ORDER BY branch_id`);
-    this.upsert = sqlite.prepare(`
-      INSERT INTO eta_branch_code (branch_id, eta_branch_code, device_serial_number, pos_client_id, pos_os_version, pos_model_framework)
-      VALUES (?, ?, ?, ?, ?, ?)
-      ON CONFLICT(branch_id) DO UPDATE SET
-        eta_branch_code = excluded.eta_branch_code,
-        device_serial_number = excluded.device_serial_number,
-        pos_client_id = excluded.pos_client_id,
-        pos_os_version = excluded.pos_os_version,
-        pos_model_framework = excluded.pos_model_framework
-    `);
-    this.setSecret = sqlite.prepare(`UPDATE eta_branch_code SET pos_client_secret_enc = ? WHERE branch_id = ?`);
-    this.setPresharedKey = sqlite.prepare(`UPDATE eta_branch_code SET pos_preshared_key_enc = ? WHERE branch_id = ?`);
-    this.selectBySerial = sqlite.prepare(
-      `SELECT * FROM eta_branch_code WHERE device_serial_number = ? ORDER BY branch_id LIMIT 1`,
-    );
-  }
+  ) {}
 
   async list(): Promise<EtaBranchCode[]> {
-    const rows = this.selectAll.all() as BranchCodeRow[];
+    const rows = await this.db.all<BranchCodeRow>(`SELECT * FROM eta_branch_code ORDER BY branch_id`);
     return rows.map((r) => ({
       branchId: r.branch_id,
       etaBranchCode: r.eta_branch_code,
@@ -646,30 +585,33 @@ class SqliteEtaBranchCodeRepository implements EtaBranchCodeRepository {
   }
 
   async save(mapping: EtaBranchCode): Promise<void> {
-    this.upsert.run(
-      mapping.branchId,
-      mapping.etaBranchCode,
-      mapping.deviceSerialNumber,
-      mapping.posClientId,
-      mapping.posOsVersion ?? null,
-      mapping.posModelFramework ?? null,
+    await this.db.run(
+      `INSERT INTO eta_branch_code (branch_id, eta_branch_code, device_serial_number, pos_client_id, pos_os_version, pos_model_framework)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(branch_id) DO UPDATE SET
+         eta_branch_code = excluded.eta_branch_code,
+         device_serial_number = excluded.device_serial_number,
+         pos_client_id = excluded.pos_client_id,
+         pos_os_version = excluded.pos_os_version,
+         pos_model_framework = excluded.pos_model_framework`,
+      [mapping.branchId, mapping.etaBranchCode, mapping.deviceSerialNumber, mapping.posClientId, mapping.posOsVersion ?? null, mapping.posModelFramework ?? null],
     );
   }
 
   async setPosClientSecret(branchId: string, secret: string): Promise<void> {
-    this.setSecret.run(this.codec.seal(secret, posSecretContext(branchId)), branchId);
+    await this.db.run(`UPDATE eta_branch_code SET pos_client_secret_enc = ? WHERE branch_id = ?`, [this.codec.seal(secret, posSecretContext(branchId)), branchId]);
   }
 
   async setPosPresharedKey(branchId: string, key: string): Promise<void> {
-    this.setPresharedKey.run(this.codec.seal(key, posPresharedKeyContext(branchId)), branchId);
+    await this.db.run(`UPDATE eta_branch_code SET pos_preshared_key_enc = ? WHERE branch_id = ?`, [this.codec.seal(key, posPresharedKeyContext(branchId)), branchId]);
   }
 
   /**
    * SECURITY: the only reader of a device's sealed secret and pre-shared key,
    * for the receipt token request alone. Never route this into a response.
    */
-  posCredentialsForSerial(serial: string): EtaPosCredentials | null {
-    const row = this.selectBySerial.get(serial) as BranchCodeRow | undefined;
+  async posCredentialsForSerial(serial: string): Promise<EtaPosCredentials | null> {
+    const row = await this.db.get<BranchCodeRow>(`SELECT * FROM eta_branch_code WHERE device_serial_number = ? ORDER BY branch_id LIMIT 1`, [serial]);
     if (!row?.pos_client_id || !row.pos_client_secret_enc) return null;
     const clientSecret = this.codec.open(row.pos_client_secret_enc, posSecretContext(row.branch_id));
     if (clientSecret === null) return null;
@@ -684,25 +626,20 @@ class SqliteEtaBranchCodeRepository implements EtaBranchCodeRepository {
   }
 }
 
-class SqliteEtaUnitMappingRepository implements EtaUnitMappingRepository {
-  private readonly selectAll: Database.Statement;
-  private readonly upsert: Database.Statement;
-
-  constructor(sqlite: Database.Database) {
-    this.selectAll = sqlite.prepare(`SELECT * FROM eta_unit_mapping ORDER BY unit_code`);
-    this.upsert = sqlite.prepare(`
-      INSERT INTO eta_unit_mapping (unit_code, eta_unit_code) VALUES (?, ?)
-      ON CONFLICT(unit_code) DO UPDATE SET eta_unit_code = excluded.eta_unit_code
-    `);
-  }
+class SqlEtaUnitMappingRepository implements EtaUnitMappingRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async list(): Promise<EtaUnitMapping[]> {
-    const rows = this.selectAll.all() as { unit_code: string; eta_unit_code: string }[];
+    const rows = await this.db.all<{ unit_code: string; eta_unit_code: string }>(`SELECT * FROM eta_unit_mapping ORDER BY unit_code`);
     return rows.map((r) => ({ unitCode: r.unit_code, etaUnitCode: r.eta_unit_code }));
   }
 
   async save(mapping: EtaUnitMapping): Promise<void> {
-    this.upsert.run(mapping.unitCode, mapping.etaUnitCode);
+    await this.db.run(
+      `INSERT INTO eta_unit_mapping (unit_code, eta_unit_code) VALUES (?, ?)
+       ON CONFLICT(unit_code) DO UPDATE SET eta_unit_code = excluded.eta_unit_code`,
+      [mapping.unitCode, mapping.etaUnitCode],
+    );
   }
 }
 
@@ -713,7 +650,7 @@ export interface EtaConfigStore extends EtaConfigRepository {
   getClientSecret(): Promise<string | null>;
 }
 
-export interface SqliteEtaStoreHandle {
+export interface EtaStoreHandle {
   readonly config: EtaConfigStore;
   readonly submissions: EtaSubmissionRepository;
   readonly branchCodes: EtaBranchCodeRepository;
@@ -722,6 +659,9 @@ export interface SqliteEtaStoreHandle {
   /** SECURITY: for the receipt token request only. Never route this into a response. */
   posCredentialsForSerial(serial: string): Promise<EtaPosCredentials | null>;
   readonly unitMappings: EtaUnitMappingRepository;
+}
+
+export interface SqliteEtaStoreHandle extends EtaStoreHandle {
   close(): void;
 }
 
@@ -789,25 +729,34 @@ function seedReceiptChainFromSubmissions(sqlite: Database.Database): void {
   })();
 }
 
+export async function ensureEtaSchema(db: SqlDb): Promise<void> {
+  await db.applySchema(CREATE_TABLES);
+}
+
+export function createEtaStore(db: SqlDb, secrets?: SecretBox): EtaStoreHandle {
+  const codec = new EtaSecretCodec(secrets);
+  const submissions = new SqlEtaSubmissionRepository(db);
+  const branchCodes = new SqlEtaBranchCodeRepository(db, codec);
+  return {
+    config: new SqlEtaConfigRepository(db, codec),
+    submissions,
+    branchCodes,
+    receiptChain: new SqlEtaReceiptChainRepository(db, submissions),
+    receiptGaps: new SqlEtaReceiptGapRepository(db),
+    posCredentialsForSerial: (serial) => branchCodes.posCredentialsForSerial(serial),
+    unitMappings: new SqlEtaUnitMappingRepository(db),
+  };
+}
+
 /** Open the SQLite-backed ETA stores. ":memory:" for tests, a path for real. */
 export function createSqliteEtaStore(path: SqliteConnectionInput = ":memory:", secrets?: SecretBox): SqliteEtaStoreHandle {
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_TABLES);
   migrateEtaTables(sqlite);
-  const codec = new EtaSecretCodec(secrets);
-  sealStoredEtaSecrets(sqlite, codec);
-  const submissions = new SqliteEtaSubmissionRepository(sqlite);
-  const branchCodes = new SqliteEtaBranchCodeRepository(sqlite, codec);
+  sealStoredEtaSecrets(sqlite, new EtaSecretCodec(secrets));
   seedReceiptChainFromSubmissions(sqlite);
-  return {
-    config: new SqliteEtaConfigRepository(sqlite, codec),
-    submissions,
-    branchCodes,
-    receiptChain: new SqliteEtaReceiptChainRepository(sqlite, submissions),
-    receiptGaps: new SqliteEtaReceiptGapRepository(sqlite),
-    posCredentialsForSerial: async (serial) => branchCodes.posCredentialsForSerial(serial),
-    unitMappings: new SqliteEtaUnitMappingRepository(sqlite),
+  return Object.assign(createEtaStore(sqliteDb(sqlite), secrets), {
     close: () => { if (owned) sqlite.close(); },
-  };
+  });
 }

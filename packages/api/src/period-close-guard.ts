@@ -74,7 +74,8 @@ export interface PeriodCloseGuardDeps {
   readonly singleOperatorMode: () => Promise<boolean>;
   readonly listSummaries: (periodId: string) => Promise<readonly SealedPeriodCloseSummary[]>;
   readonly changeToken: () => number;
-  readonly commit: ((request: PeriodCloseCommitRequest) => PeriodCloseCommitOutcome) | null;
+  readonly commit: ((request: PeriodCloseCommitRequest) => PeriodCloseCommitOutcome | Promise<PeriodCloseCommitOutcome>) | null;
+  readonly serialize?: <T>(fn: () => Promise<T>) => Promise<T>;
 }
 
 function refusalFor(decision: PeriodCloseDecision, period: FiscalPeriod, blocking: readonly PeriodCloseCheckCode[]): PeriodCloseRefusal | null {
@@ -127,7 +128,7 @@ export function createPeriodCloseGuard(deps: PeriodCloseGuardDeps): PeriodCloseG
       sha256: summary?.sha256 ?? null,
       singleOperatorMode: lockedUnderSingleOperatorWaiver(decisionInput),
     });
-    const outcome = commit({ changeToken, periodId: period.id, fromStatus: period.status, toStatus: next.status, summary, auditEvent });
+    const outcome = await commit({ changeToken, periodId: period.id, fromStatus: period.status, toStatus: next.status, summary, auditEvent });
     return outcome === PeriodCloseCommitOutcome.Committed ? { kind: PeriodCloseAttemptKind.Done, period: next } : null;
   }
 
@@ -142,7 +143,7 @@ export function createPeriodCloseGuard(deps: PeriodCloseGuardDeps): PeriodCloseG
       if (!requested) throw new FiscalPeriodNotFoundError(attempt.periodId);
       if (!commit) throw new PeriodCloseUnauditableError(requested);
       for (let tries = 0; tries < MAX_ATTEMPTS; tries += 1) {
-        const result = await attemptOnce(attempt, commit);
+        const result = deps.serialize ? await deps.serialize(() => attemptOnce(attempt, commit)) : await attemptOnce(attempt, commit);
         if (result) return result;
       }
       throw new PeriodCloseContendedError(requested);

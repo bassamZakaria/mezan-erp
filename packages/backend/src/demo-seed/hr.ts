@@ -742,7 +742,7 @@ async function stepAs(app: App, userId: string, method: string, path: string, bo
   const res = await app.fetch(
     new Request(`http://demo-seed${path}`, {
       method,
-      headers: seedActorHeaders(userId, ["*"]),
+      headers: await seedActorHeaders(userId, ["*"]),
       body: body === undefined ? undefined : JSON.stringify(body),
     }),
   );

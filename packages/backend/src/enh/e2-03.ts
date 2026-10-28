@@ -1,4 +1,3 @@
-import type Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
 import { createCountModeRoutes } from "@mezan/api";
 import {
@@ -9,7 +8,8 @@ import {
   type PhysicalCountService,
   type Role,
 } from "@mezan/domain";
-import { createSqliteCountItemDirectory, createSqliteCountModeStore } from "@mezan/persistence";
+import { createSqliteCountItemDirectory, createSqliteCountModeStore, createCountItemDirectory, createCountModeStore } from "@mezan/persistence";
+import type { SqlDb } from "@mezan/persistence";
 import type { BackendArea, BackendModuleContext } from "../module-context.js";
 
 export const COUNT_MODE_SCAN_PERMISSION = "inventory.count.scan";
@@ -20,26 +20,26 @@ interface CountModeBinding {
   service?: CountModeService;
 }
 
-const bindings = new WeakMap<Database.Database, CountModeBinding>();
+const bindings = new WeakMap<SqlDb, CountModeBinding>();
 
-function bindingOf(sqlite: Database.Database): CountModeBinding {
-  const existing = bindings.get(sqlite);
+function bindingOf(db: SqlDb): CountModeBinding {
+  const existing = bindings.get(db);
   if (existing) return existing;
   const created: CountModeBinding = {};
-  bindings.set(sqlite, created);
+  bindings.set(db, created);
   return created;
 }
 
-export function countModeCompletionGate(sqlite: Database.Database): PhysicalCountCompletionGate {
+export function countModeCompletionGate(db: SqlDb): PhysicalCountCompletionGate {
   return {
     assertCompletable: async (count: PhysicalCount) => {
-      if (count.zoned) await bindingOf(sqlite).service?.assertCompletable(count);
+      if (count.zoned) await bindingOf(db).service?.assertCompletable(count);
     },
   };
 }
 
-export function registerCountModeCounts(sqlite: Database.Database, counts: PhysicalCountService): void {
-  bindingOf(sqlite).counts = counts;
+export function registerCountModeCounts(db: SqlDb, counts: PhysicalCountService): void {
+  bindingOf(db).counts = counts;
 }
 
 async function eligibleCounters(ctx: BackendModuleContext): Promise<{ userId: string; name: string }[]> {
@@ -60,12 +60,12 @@ async function eligibleCounters(ctx: BackendModuleContext): Promise<{ userId: st
 
 export const area: BackendArea = {
   mount(ctx) {
-    const binding = bindingOf(ctx.sqlite);
+    const binding = bindingOf(ctx.db);
     if (!binding.counts) return;
     const service = new CountModeService({
       counts: binding.counts,
-      repo: createSqliteCountModeStore(ctx.sqlite),
-      items: createSqliteCountItemDirectory(ctx.sqlite),
+      repo: ctx.store((s) => createSqliteCountModeStore(s), (d) => createCountModeStore(d)),
+      items: ctx.store((s) => createSqliteCountItemDirectory(s), (d) => createCountItemDirectory(d)),
     });
     binding.service = service;
     ctx.app.route(

@@ -42,7 +42,7 @@ import {
   type WebhookDTO,
   type WebhookDeliveryDTO,
 } from "@mezan/contracts";
-import type { SqliteIntegrationStore, WebhookDeliveryStats } from "@mezan/persistence";
+import type { IntegrationStore, WebhookDeliveryStats } from "@mezan/persistence";
 import { createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
 import { recordAdminEvent, recordSecurityAdminEvent } from "./admin-audit.js";
 
@@ -93,7 +93,7 @@ export function hashApiKeyToken(token: string): string {
 }
 
 export interface IntegrationsRoutesDeps {
-  readonly store: SqliteIntegrationStore;
+  readonly store: IntegrationStore;
   readonly tenantCode: string;
   readonly audit: AuditSink;
   readonly userName: (userId: string) => Promise<string | null>;
@@ -162,12 +162,12 @@ function newSigningSecret(): string {
 }
 
 /** Queues one delivery per active subscription to `event`. Synchronous: it runs on the bus. */
-export function enqueueWebhookDeliveries(store: SqliteIntegrationStore, event: DomainEvent, nowIso: string): number {
-  const subscribers = store.webhooks.subscribedTo(event.code);
+export async function enqueueWebhookDeliveries(store: IntegrationStore, event: DomainEvent, nowIso: string): Promise<number> {
+  const subscribers = await store.webhooks.subscribedTo(event.code);
   for (const webhook of subscribers) {
     const id = randomUUID();
     const envelope = webhookEnvelope({ deliveryId: id, webhookId: webhook.id, eventCode: event.code, occurredAt: event.occurredAt, payload: event.payload });
-    store.deliveries.insert({
+    await store.deliveries.insert({
       id,
       webhookId: webhook.id,
       eventCode: event.code,
@@ -223,7 +223,7 @@ export function createIntegrationsRoutes(deps: IntegrationsRoutesDeps, resolveAu
 
   app.get("/api-keys", gate(VIEW), async (c) => {
     const at = nowIso();
-    const keys = store.apiKeys.list();
+    const keys = await store.apiKeys.list();
     const names = await namesOf(keys.map((k) => k.createdBy));
     return c.json(keys.map((key) => keyDTO(key, deps.tenantCode, at, names)));
   });
@@ -237,10 +237,10 @@ export function createIntegrationsRoutes(deps: IntegrationsRoutesDeps, resolveAu
     if (beyond.length > 0) return refuse(c, IntegrationRefusal.ScopeExceedsGrant, 403, { scopes: beyond });
     const expiresAt = parsed.data.expiresAt ? new Date(parsed.data.expiresAt).toISOString() : null;
     if (expiresAt !== null && expiresAt <= at) return refuse(c, IntegrationRefusal.ValidationError, 400, { field: "expiresAt" });
-    if (store.apiKeys.countUnrevoked(at) >= MAX_ACTIVE_API_KEYS) return refuse(c, IntegrationRefusal.TooManyKeys, 409);
+    if (await store.apiKeys.countUnrevoked(at) >= MAX_ACTIVE_API_KEYS) return refuse(c, IntegrationRefusal.TooManyKeys, 409);
 
     let lookup = randomBytes(API_KEY_LOOKUP_LENGTH / 2).toString("hex");
-    while (store.apiKeys.findByLookup(lookup)) lookup = randomBytes(API_KEY_LOOKUP_LENGTH / 2).toString("hex");
+    while (await store.apiKeys.findByLookup(lookup)) lookup = randomBytes(API_KEY_LOOKUP_LENGTH / 2).toString("hex");
     const token = formatApiKeyToken({ tenantCode: deps.tenantCode, lookup, secret: randomBytes(API_SECRET_BYTES).toString("base64url") });
     const key: ApiKeyRecord = {
       id: randomUUID(),
@@ -255,7 +255,7 @@ export function createIntegrationsRoutes(deps: IntegrationsRoutesDeps, resolveAu
       revokedAt: null,
       revokedBy: null,
     };
-    store.apiKeys.insert(key);
+    await store.apiKeys.insert(key);
     await recordSecurityAdminEvent(deps.audit, c, {
       module: AUDIT_MODULE,
       entityType: IntegrationEntity.ApiKey,
@@ -269,10 +269,10 @@ export function createIntegrationsRoutes(deps: IntegrationsRoutesDeps, resolveAu
   });
 
   app.post("/api-keys/:id/revoke", gate(MANAGE), async (c) => {
-    const key = store.apiKeys.findById(c.req.param("id"));
+    const key = await store.apiKeys.findById(c.req.param("id"));
     if (!key) return refuse(c, IntegrationRefusal.NotFound, 404);
     const at = nowIso();
-    if (apiKeyStatus(key, at) === ApiKeyStatusDTO.Revoked || !store.apiKeys.revoke(key.id, at, actorOf(c))) {
+    if (apiKeyStatus(key, at) === ApiKeyStatusDTO.Revoked || !await store.apiKeys.revoke(key.id, at, actorOf(c))) {
       return refuse(c, IntegrationRefusal.KeyAlreadyRevoked, 409);
     }
     await recordSecurityAdminEvent(deps.audit, c, {
@@ -282,13 +282,13 @@ export function createIntegrationsRoutes(deps: IntegrationsRoutesDeps, resolveAu
       action: IntegrationAuditAction.KeyRevoked,
       details: { name: key.name, displayPrefix: apiKeyDisplayPrefix(deps.tenantCode, key.lookup) },
     });
-    const revoked = store.apiKeys.findById(key.id) ?? key;
+    const revoked = await store.apiKeys.findById(key.id) ?? key;
     return c.json(keyDTO(revoked, deps.tenantCode, at, await namesOf([revoked.createdBy])));
   });
 
-  app.get("/webhooks", gate(VIEW), (c) => {
-    const stats = store.webhooks.stats();
-    return c.json(store.webhooks.list().map((w) => webhookDTO(w, stats.get(w.id))));
+  app.get("/webhooks", gate(VIEW), async (c) => {
+    const stats = await store.webhooks.stats();
+    return c.json((await store.webhooks.list()).map((w) => webhookDTO(w, stats.get(w.id))));
   });
 
   app.post("/webhooks", gate(MANAGE), async (c) => {
@@ -299,7 +299,7 @@ export function createIntegrationsRoutes(deps: IntegrationsRoutesDeps, resolveAu
     const events = [...new Set(parsed.data.events)];
     const unknown = unknownWebhookEvents(events);
     if (unknown.length > 0) return refuse(c, IntegrationRefusal.UnknownEvent, 422, { events: unknown });
-    if (store.webhooks.list().length >= MAX_WEBHOOKS) return refuse(c, IntegrationRefusal.TooManyWebhooks, 409);
+    if ((await store.webhooks.list()).length >= MAX_WEBHOOKS) return refuse(c, IntegrationRefusal.TooManyWebhooks, 409);
     const at = nowIso();
     const signingSecret = newSigningSecret();
     const webhook: WebhookRecord = {
@@ -314,7 +314,7 @@ export function createIntegrationsRoutes(deps: IntegrationsRoutesDeps, resolveAu
       updatedAt: at,
       secretRotatedAt: at,
     };
-    store.webhooks.insert(webhook);
+    await store.webhooks.insert(webhook);
     await recordSecurityAdminEvent(deps.audit, c, {
       module: AUDIT_MODULE,
       entityType: IntegrationEntity.Webhook,
@@ -327,7 +327,7 @@ export function createIntegrationsRoutes(deps: IntegrationsRoutesDeps, resolveAu
   });
 
   app.patch("/webhooks/:id", gate(MANAGE), async (c) => {
-    const existing = store.webhooks.findById(c.req.param("id"));
+    const existing = await store.webhooks.findById(c.req.param("id"));
     if (!existing) return refuse(c, IntegrationRefusal.NotFound, 404);
     const parsed = updateWebhookSchema.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return refuse(c, IntegrationRefusal.ValidationError, 400, { details: parsed.error.flatten() });
@@ -346,7 +346,7 @@ export function createIntegrationsRoutes(deps: IntegrationsRoutesDeps, resolveAu
       active: parsed.data.active ?? existing.active,
       updatedAt: nowIso(),
     };
-    store.webhooks.save(updated);
+    await store.webhooks.save(updated);
     await recordSecurityAdminEvent(deps.audit, c, {
       module: AUDIT_MODULE,
       entityType: IntegrationEntity.Webhook,
@@ -358,16 +358,16 @@ export function createIntegrationsRoutes(deps: IntegrationsRoutesDeps, resolveAu
       },
     });
     if (updated.active && !existing.active) deps.onDeliveryQueued();
-    return c.json(webhookDTO(updated, store.webhooks.stats().get(updated.id)));
+    return c.json(webhookDTO(updated, (await store.webhooks.stats()).get(updated.id)));
   });
 
   app.post("/webhooks/:id/rotate-secret", gate(MANAGE), async (c) => {
-    const existing = store.webhooks.findById(c.req.param("id"));
+    const existing = await store.webhooks.findById(c.req.param("id"));
     if (!existing) return refuse(c, IntegrationRefusal.NotFound, 404);
     const at = nowIso();
     const signingSecret = newSigningSecret();
     const updated: WebhookRecord = { ...existing, signingSecret, secretRotatedAt: at, updatedAt: at };
-    store.webhooks.save(updated);
+    await store.webhooks.save(updated);
     await recordSecurityAdminEvent(deps.audit, c, {
       module: AUDIT_MODULE,
       entityType: IntegrationEntity.Webhook,
@@ -375,12 +375,12 @@ export function createIntegrationsRoutes(deps: IntegrationsRoutesDeps, resolveAu
       action: IntegrationAuditAction.WebhookSecretRotated,
       details: { name: updated.name },
     });
-    const body: WebhookCreatedDTO = { webhook: webhookDTO(updated, store.webhooks.stats().get(updated.id)), signingSecret };
+    const body: WebhookCreatedDTO = { webhook: webhookDTO(updated, (await store.webhooks.stats()).get(updated.id)), signingSecret };
     return c.json(body);
   });
 
   app.post("/webhooks/:id/test", gate(MANAGE), async (c) => {
-    const webhook = store.webhooks.findById(c.req.param("id"));
+    const webhook = await store.webhooks.findById(c.req.param("id"));
     if (!webhook) return refuse(c, IntegrationRefusal.NotFound, 404);
     if (!webhook.active) return refuse(c, IntegrationRefusal.WebhookInactive, 409);
     const at = nowIso();
@@ -402,7 +402,7 @@ export function createIntegrationsRoutes(deps: IntegrationsRoutesDeps, resolveAu
       deliveredAt: null,
       redeliveryOf: null,
     };
-    store.deliveries.insert(delivery);
+    await store.deliveries.insert(delivery);
     await recordAdminEvent(deps.audit, c, {
       module: AUDIT_MODULE,
       entityType: IntegrationEntity.Delivery,
@@ -414,18 +414,18 @@ export function createIntegrationsRoutes(deps: IntegrationsRoutesDeps, resolveAu
     return c.json(deliveryDTO(delivery, webhook.name), 201);
   });
 
-  app.get("/deliveries", gate(VIEW), (c) => {
+  app.get("/deliveries", gate(VIEW), async (c) => {
     const parsed = webhookDeliveryQuerySchema.safeParse(c.req.query());
     if (!parsed.success) return refuse(c, IntegrationRefusal.ValidationError, 400, { details: parsed.error.flatten() });
-    const names = new Map(store.webhooks.list().map((w) => [w.id, w.name]));
-    return c.json(store.deliveries.list(parsed.data).map((d) => deliveryDTO(d, names.get(d.webhookId) ?? null)));
+    const names = new Map((await store.webhooks.list()).map((w) => [w.id, w.name]));
+    return c.json((await store.deliveries.list(parsed.data)).map((d) => deliveryDTO(d, names.get(d.webhookId) ?? null)));
   });
 
   app.post("/deliveries/:id/redeliver", gate(MANAGE), async (c) => {
-    const original = store.deliveries.findById(c.req.param("id"));
+    const original = await store.deliveries.findById(c.req.param("id"));
     if (!original) return refuse(c, IntegrationRefusal.NotFound, 404);
     if (original.status === WebhookDeliveryStatusDTO.Pending) return refuse(c, IntegrationRefusal.DeliveryNotRedeliverable, 409);
-    const webhook = store.webhooks.findById(original.webhookId);
+    const webhook = await store.webhooks.findById(original.webhookId);
     if (!webhook) return refuse(c, IntegrationRefusal.NotFound, 404);
     if (!webhook.active) return refuse(c, IntegrationRefusal.WebhookInactive, 409);
     const at = nowIso();
@@ -442,7 +442,7 @@ export function createIntegrationsRoutes(deps: IntegrationsRoutesDeps, resolveAu
       deliveredAt: null,
       redeliveryOf: original.id,
     };
-    store.deliveries.insert(copy);
+    await store.deliveries.insert(copy);
     await recordAdminEvent(deps.audit, c, {
       module: AUDIT_MODULE,
       entityType: IntegrationEntity.Delivery,

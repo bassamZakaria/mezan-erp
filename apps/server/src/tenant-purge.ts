@@ -5,7 +5,7 @@ import { createLogger, type JobTracker } from "@mezan/api";
 import { PlatformAuditUnavailableError, type PlatformHandle, type PlatformTenantRetentionPort } from "@mezan/backend";
 import type { TenantPurgeResultDTO, TenantRetentionDTO } from "@mezan/contracts";
 import { AuditSeverityCode, recordSecurityEvent, TenantStatusCode, type Tenant } from "@mezan/domain";
-import { createTenantRetentionStore, withSqliteTransaction, type TenantRetentionStore } from "@mezan/persistence";
+import { createTenantRetentionStoreOn, TransactionMode, type TenantRetentionStore } from "@mezan/persistence";
 import { legacyBackupsOf, tenantBackupFolder } from "./backup-scheduler.js";
 import { platformActor } from "./provision-tenant.js";
 import { tenantDbPath, type TenantRouter } from "./tenant-router.js";
@@ -49,6 +49,8 @@ export interface TenantPurgeDeps {
   readonly discardExports: (tenantId: string) => void;
   readonly now: () => Date;
   readonly store?: TenantRetentionStore;
+  // Postgres: drops the tenant's schema and role, and names what it dropped.
+  readonly dropDatabase?: (tenant: Tenant) => Promise<string>;
 }
 
 export interface TenantPurgeService extends PlatformTenantRetentionPort {
@@ -100,11 +102,11 @@ const addDays = (iso: string, days: number): string => new Date(Date.parse(iso) 
 
 export function createTenantPurge(deps: TenantPurgeDeps): TenantPurgeService {
   const { platform, dataDir } = deps;
-  const store = deps.store ?? createTenantRetentionStore(platform.stores.sqlite);
+  const store = deps.store ?? createTenantRetentionStoreOn(platform.stores.db);
   const nowIso = () => deps.now().toISOString();
 
-  const view = (tenant: Tenant): TenantRetentionDTO => {
-    const record = tenant.status === TenantStatusCode.Archived ? store.find(tenant.id) : null;
+  const view = async (tenant: Tenant): Promise<TenantRetentionDTO> => {
+    const record = tenant.status === TenantStatusCode.Archived ? await store.find(tenant.id) : null;
     return {
       retentionDays: deps.retentionDays,
       retention: record ? { terminatedAt: record.terminatedAt, deleteAfter: record.deleteAfter, lastExtension: record.lastExtension } : null,
@@ -129,25 +131,27 @@ export function createTenantPurge(deps: TenantPurgeDeps): TenantPurgeService {
   }
 
   async function purgeOnce(tenant: Tenant, by: PurgeBy): Promise<TenantPurgeResultDTO> {
-    const buried = store.tombstoneOf(tenant.id);
+    const buried = await store.tombstoneOf(tenant.id);
     if (buried) return { tenantId: buried.id, code: buried.code, deletedAt: buried.deletedAt, removed: [] };
     // SECURITY: never an active, suspended or provisioning tenant — whatever schedule row says otherwise.
     if (tenant.status !== TenantStatusCode.Archived) throw new TenantNotTerminatedError(tenant.id);
     const planned = filesOf(tenant);
     purgeLog.warn({ event: TenantPurgeLogEvent.Planned, tenantId: tenant.id, code: tenant.code, trigger: by.trigger, files: planned }, `tenant "${tenant.code}" is about to be deleted`);
     const removed: string[] = [];
+    const dropped: string[] = [];
     await platform.outsideTheTurn(async () => {
       await deps.router.evict(tenant.id);
       deps.discardExports(tenant.id);
+      if (deps.dropDatabase) dropped.push(await deps.dropDatabase(tenant));
       for (const target of planned) await shredTree(target, removed);
     });
+    const removedNames = [...dropped, ...removed.map((file) => path.relative(dataDir, file))];
     const deletedAt = nowIso();
     // REQUIRED ORDERING: files first, rows last. A crash between them leaves the row, and the next pass finishes
     // the job; the other way round would orphan files nothing ever looks for again.
-    await withSqliteTransaction(
-      platform.stores.sqlite,
+    await platform.stores.db.transaction(
       async () => {
-        store.removeTenantRows(tenant, deletedAt);
+        await store.removeTenantRows(tenant, deletedAt);
         await recordSecurityEvent(platform.audit, {
           module: "platform",
           entityType: "PLATFORM",
@@ -156,23 +160,23 @@ export function createTenantPurge(deps: TenantPurgeDeps): TenantPurgeService {
           actor: by.actor,
           severity: AuditSeverityCode.Critical,
           timestamp: deletedAt,
-          details: { code: tenant.code, trigger: by.trigger, reason: by.reason, removed: removed.map((file) => path.relative(dataDir, file)), keptOffServer: ["restic snapshots", "off-server audit anchors"] },
+          details: { code: tenant.code, trigger: by.trigger, reason: by.reason, removed: removedNames, keptOffServer: ["restic snapshots", "off-server audit anchors"] },
         }).catch((cause: unknown) => {
           throw new PlatformAuditUnavailableError(cause);
         });
       },
-      "BEGIN IMMEDIATE",
+      TransactionMode.Immediate,
     );
     deps.router.invalidate(tenant.code);
     deps.router.forget(tenant.id);
-    purgeLog.warn({ event: TenantPurgeLogEvent.Purged, tenantId: tenant.id, code: tenant.code, trigger: by.trigger, removed: removed.length }, `tenant "${tenant.code}" was deleted`);
-    return { tenantId: tenant.id, code: tenant.code, deletedAt, removed: removed.map((file) => path.relative(dataDir, file)) };
+    purgeLog.warn({ event: TenantPurgeLogEvent.Purged, tenantId: tenant.id, code: tenant.code, trigger: by.trigger, removed: removedNames.length }, `tenant "${tenant.code}" was deleted`);
+    return { tenantId: tenant.id, code: tenant.code, deletedAt, removed: removedNames };
   }
 
   return {
     view,
-    scheduleOnArchive(tenant, at) {
-      store.schedule(tenant.id, at, addDays(at, deps.retentionDays));
+    async scheduleOnArchive(tenant, at) {
+      await store.schedule(tenant.id, at, addDays(at, deps.retentionDays));
     },
     extend({ tenant, deleteAfter, reason, actorId, at }) {
       return store.extend(tenant.id, deleteAfter, { actor: platformActor(actorId), at, reason });
@@ -185,13 +189,13 @@ export function createTenantPurge(deps: TenantPurgeDeps): TenantPurgeService {
       const counts = { scheduled: 0, purged: 0, failed: 0 };
       const at = nowIso();
       for (const tenant of await platform.stores.tenants.list()) {
-        if (tenant.status !== TenantStatusCode.Archived || store.find(tenant.id)) continue;
+        if (tenant.status !== TenantStatusCode.Archived || (await store.find(tenant.id))) continue;
         // Archived before this schedule existed: the clock starts the first time it is seen, never backdated.
-        const record = store.schedule(tenant.id, at, addDays(at, deps.retentionDays));
+        const record = await store.schedule(tenant.id, at, addDays(at, deps.retentionDays));
         counts.scheduled += 1;
         purgeLog.info({ event: TenantPurgeLogEvent.Scheduled, tenantId: tenant.id, code: tenant.code, deleteAfter: record.deleteAfter }, `tenant "${tenant.code}" is scheduled for deletion`);
       }
-      for (const due of store.due(at)) {
+      for (const due of await store.due(at)) {
         const tenant = await platform.stores.tenants.findById(due.tenantId);
         if (!tenant || tenant.status !== TenantStatusCode.Archived) continue;
         try {

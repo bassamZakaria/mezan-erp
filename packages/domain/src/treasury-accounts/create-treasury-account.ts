@@ -6,6 +6,7 @@ import {
   type TreasuryAccountRepository,
   type TreasuryAccountType,
 } from "./treasury-account.js";
+import { DuplicateRecordIdError } from "../records/duplicate-record-id.js";
 import {
   DuplicateTreasuryAccountCodeError,
   InvalidGuaranteeFacilityLimitError,
@@ -13,7 +14,7 @@ import {
   NegativeCashBalanceError,
   assertGlAccountHoldsOneCurrency,
 } from "./errors.js";
-import { assertTreasuryLedgerAccount, type TreasuryLedgerAccountDeps } from "./ledger-account.js";
+import { assertTreasuryLedgerAccount, openTreasuryLedgerAccount, type TreasuryLedgerAccountDeps } from "./ledger-account.js";
 
 export interface CreateTreasuryAccountCommand {
   readonly nameEn?: string | null;
@@ -84,12 +85,6 @@ export function validateNewTreasuryAccount(
   assertGlAccountHoldsOneCurrency({ id: command.id, glAccountId: command.glAccountId ?? null, currency: command.currency ?? "EGP" }, existing);
 }
 
-/**
- * Creates and persists a new treasury account. New accounts always start
- * `active`. Leaving `glAccountId` unset mirrors the mockup's "usually left
- * blank, the system auto-selects the matching account by type" behavior —
- * the auto-selection itself is a Phase 2 GL-wiring concern.
- */
 export async function createTreasuryAccount(
   command: CreateTreasuryAccountCommand,
   repo: TreasuryAccountRepository,
@@ -97,6 +92,7 @@ export async function createTreasuryAccount(
 ): Promise<TreasuryAccount> {
   const existing = await repo.list();
   validateNewTreasuryAccount(command, existing);
+  if (existing.some((a) => a.id === command.id)) throw new DuplicateRecordIdError(command.id);
 
   const type = command.type ?? "cash";
   const openingBalance = command.openingBalance ? Money.fromMajor(command.openingBalance) : Money.zero();
@@ -113,14 +109,15 @@ export async function createTreasuryAccount(
     currency: command.currency ?? "EGP",
     bankAccountNumber: command.bankAccountNumber?.trim() || null,
     branchId: command.branchId,
-    glAccountId: command.glAccountId ?? null,
+    glAccountId: command.glAccountId || null,
     openingBalance,
     openingBalanceDate: command.openingBalanceDate ?? null,
     guaranteeFacilityLimit,
     status: "active",
   };
   if (ledgerAccounts) await assertTreasuryLedgerAccount(account, ledgerAccounts);
-
-  await repo.create(account);
-  return account;
+  // ORDERING: every refusal runs before the leaf is opened — a 4xx still commits the audit boundary, so a later refusal would orphan it.
+  const linked = account.glAccountId || !ledgerAccounts ? account : { ...account, glAccountId: await openTreasuryLedgerAccount(account, ledgerAccounts) };
+  await repo.create(linked);
+  return linked;
 }

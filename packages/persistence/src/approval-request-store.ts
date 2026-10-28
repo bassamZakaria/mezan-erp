@@ -1,5 +1,7 @@
-import Database from "better-sqlite3";
+import type Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
+import type { SqlDb } from "./sql/sql-db.js";
+import { sqliteDb } from "./sql/sqlite-db.js";
 import type {
   ApprovalRequestRecord,
   ApprovalRequestRepository,
@@ -8,11 +10,11 @@ import type {
   GateableActionType,
   GateStep,
 } from "@mezan/domain";
-import { insertingNew } from "./insert-new.js";
+import { refuseUnlessInserted } from "./insert-new.js";
 import { ApprovalStatusCode } from "@mezan/domain";
 
 /**
- * SQLite-backed {@link ApprovalRequestRepository} (docs/archive/catalog/09 §الموافقات
+ * SQL-backed {@link ApprovalRequestRepository} (docs/archive/catalog/09 §الموافقات
  * inbox). Steps/decisions are small, per-request, and never queried by their
  * own fields directly — so, like `settings-store.ts`, they're stored as JSON
  * text and the domain never sees the column shape. `listPendingForRoles`
@@ -51,7 +53,7 @@ interface Row {
   action_type: string;
   submitted_by: string;
   steps_json: string;
-  current_step: number;
+  current_step: bigint;
   status: string;
   decisions_json: string;
   entity_label: string | null;
@@ -62,7 +64,11 @@ interface Row {
   document_fingerprint: string | null;
 }
 
-function toRow(record: ApprovalRequestRecord): Row {
+interface RowValues extends Omit<Row, "current_step"> {
+  current_step: number;
+}
+
+function toRow(record: ApprovalRequestRecord): RowValues {
   return {
     id: record.id,
     action_type: record.actionType,
@@ -86,7 +92,7 @@ function toRecord(row: Row): ApprovalRequestRecord {
     actionType: row.action_type as GateableActionType,
     submittedBy: row.submitted_by,
     steps: JSON.parse(row.steps_json) as GateStep[],
-    currentStep: row.current_step,
+    currentStep: Number(row.current_step),
     status: row.status as ApprovalStatus,
     decisions: JSON.parse(row.decisions_json) as DecisionRecord[],
     entityLabel: row.entity_label,
@@ -99,63 +105,49 @@ function toRecord(row: Row): ApprovalRequestRecord {
   };
 }
 
-const INSERT = `
-  INSERT INTO approval_request
-    (id, action_type, submitted_by, steps_json, current_step, status, decisions_json, entity_label, created_at, updated_at,
-     document_id, document_branch_id, document_fingerprint)
-  VALUES (@id, @action_type, @submitted_by, @steps_json, @current_step, @status, @decisions_json, @entity_label, @created_at, @updated_at,
-     @document_id, @document_branch_id, @document_fingerprint)
-`;
+const COLUMNS = "id, action_type, submitted_by, steps_json, current_step, status, decisions_json, entity_label, created_at, updated_at, document_id, document_branch_id, document_fingerprint";
 
-class SqliteApprovalRequestStore implements ApprovalRequestRepository {
-  private readonly insertOnly: Database.Statement;
-  private readonly transition: Database.Statement;
-  private readonly selectAll: Database.Statement;
-  private readonly selectById: Database.Statement;
-  private readonly selectPending: Database.Statement;
-  private readonly selectBySubmitter: Database.Statement;
-
-  constructor(sqlite: Database.Database) {
-    this.insertOnly = sqlite.prepare(INSERT);
-    this.transition = sqlite.prepare(`
-      UPDATE approval_request SET
-        submitted_by = @submitted_by,
-        steps_json = @steps_json,
-        current_step = @current_step,
-        status = @status,
-        decisions_json = @decisions_json,
-        entity_label = @entity_label,
-        updated_at = @updated_at,
-        document_branch_id = @document_branch_id,
-        document_fingerprint = @document_fingerprint
-      WHERE id = @id
-    `);
-    this.selectAll = sqlite.prepare(`SELECT * FROM approval_request ORDER BY created_at DESC`);
-    this.selectById = sqlite.prepare(`SELECT * FROM approval_request WHERE id = ?`);
-    this.selectPending = sqlite.prepare(`SELECT * FROM approval_request WHERE status = 'pending' ORDER BY created_at`);
-    this.selectBySubmitter = sqlite.prepare(`SELECT * FROM approval_request WHERE submitted_by = ? ORDER BY created_at DESC`);
-  }
+class SqlApprovalRequestStore implements ApprovalRequestRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async list(): Promise<readonly ApprovalRequestRecord[]> {
-    return (this.selectAll.all() as Row[]).map(toRecord);
+    return (await this.db.all<Row>(`SELECT ${COLUMNS} FROM approval_request ORDER BY created_at DESC`)).map(toRecord);
   }
 
   async findById(id: string): Promise<ApprovalRequestRecord | null> {
-    const row = this.selectById.get(id) as Row | undefined;
+    const row = await this.db.get<Row>(`SELECT ${COLUMNS} FROM approval_request WHERE id = ?`, [id]);
     return row ? toRecord(row) : null;
   }
 
   async insert(record: ApprovalRequestRecord): Promise<void> {
-    insertingNew(record.id, () => this.insertOnly.run(toRow(record)));
+    const r = toRow(record);
+    const inserted = await this.db.run(
+      `INSERT INTO approval_request (${COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO NOTHING`,
+      [r.id, r.action_type, r.submitted_by, r.steps_json, r.current_step, r.status, r.decisions_json, r.entity_label, r.created_at, r.updated_at, r.document_id, r.document_branch_id, r.document_fingerprint],
+    );
+    refuseUnlessInserted(record.id, inserted.changes);
   }
 
   async save(record: ApprovalRequestRecord): Promise<void> {
-    const { action_type: _actionType, created_at: _createdAt, document_id: _documentId, ...changes } = toRow(record);
-    this.transition.run(changes);
+    const r = toRow(record);
+    await this.db.run(
+      `UPDATE approval_request SET
+        submitted_by = ?,
+        steps_json = ?,
+        current_step = ?,
+        status = ?,
+        decisions_json = ?,
+        entity_label = ?,
+        updated_at = ?,
+        document_branch_id = ?,
+        document_fingerprint = ?
+      WHERE id = ?`,
+      [r.submitted_by, r.steps_json, r.current_step, r.status, r.decisions_json, r.entity_label, r.updated_at, r.document_branch_id, r.document_fingerprint, r.id],
+    );
   }
 
   async listPendingForRoles(roles: readonly string[]): Promise<readonly ApprovalRequestRecord[]> {
-    const pending = (this.selectPending.all() as Row[]).map(toRecord);
+    const pending = (await this.db.all<Row>(`SELECT ${COLUMNS} FROM approval_request WHERE status = 'pending' ORDER BY created_at`)).map(toRecord);
     if (roles.includes("*")) return pending;
     return pending.filter((r) => {
       const role = r.steps[r.currentStep]?.role;
@@ -164,8 +156,16 @@ class SqliteApprovalRequestStore implements ApprovalRequestRepository {
   }
 
   async listBySubmitter(submittedBy: string): Promise<readonly ApprovalRequestRecord[]> {
-    return (this.selectBySubmitter.all(submittedBy) as Row[]).map(toRecord);
+    return (await this.db.all<Row>(`SELECT ${COLUMNS} FROM approval_request WHERE submitted_by = ? ORDER BY created_at DESC`, [submittedBy])).map(toRecord);
   }
+}
+
+export async function ensureApprovalRequestSchema(db: SqlDb): Promise<void> {
+  await db.applySchema(CREATE_TABLE);
+}
+
+export function createApprovalRequestStore(db: SqlDb): ApprovalRequestRepository {
+  return new SqlApprovalRequestStore(db);
 }
 
 export interface SqliteApprovalRequestStoreHandle extends ApprovalRequestRepository {
@@ -180,8 +180,7 @@ export function createSqliteApprovalRequestStore(
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_TABLE);
   addDocumentColumns(sqlite);
-  const store = new SqliteApprovalRequestStore(sqlite);
-  return Object.assign(store, { close: () => { if (owned) sqlite.close(); } }) as SqliteApprovalRequestStoreHandle;
+  return Object.assign(createApprovalRequestStore(sqliteDb(sqlite)), { close: () => { if (owned) sqlite.close(); } }) as SqliteApprovalRequestStoreHandle;
 }
 
 const HELD_DOCUMENT_STATUS = "pending";

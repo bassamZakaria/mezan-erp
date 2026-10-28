@@ -83,7 +83,7 @@ describe("a tenant upgraded from before the duties were separated", () => {
 
   it("an administrator reads it in the notifications panel", async () => {
     const admin = administrators()[0]!;
-    const token = handle.sessions.issue({ userId: admin, permissions: ["*"], roleCode: null, branchScope: "*", warehouseScope: "*" });
+    const token = await handle.sessions.issue({ userId: admin, permissions: ["*"], roleCode: null, branchScope: "*", warehouseScope: "*" });
     const res = await handle.app.fetch(new Request("http://local/notifications", { headers: { authorization: `Bearer ${token}` } }));
     expect(res.status).toBe(200);
     const rows = (await res.json()) as { eventCode: string; body: string }[] | { rows: { eventCode: string; body: string }[] };

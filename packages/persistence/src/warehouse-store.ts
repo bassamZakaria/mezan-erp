@@ -1,7 +1,8 @@
-import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 import type { Warehouse, WarehouseRepository, WarehouseType } from "@mezan/domain";
-import { insertingNew, prepareInsertOnly } from "./insert-new.js";
+import { insertNew } from "./insert-new.js";
+import type { SqlDb, SqlValue } from "./sql/sql-db.js";
+import { sqliteDb } from "./sql/sqlite-db.js";
 
 /** SQLite-backed WarehouseRepository (docs/archive/catalog/09 §"إدارة المستودعات"). */
 
@@ -28,8 +29,8 @@ interface WarehouseRow {
   name_en: string | null;
   branch_id: string;
   type: string;
-  is_default: number;
-  active: number;
+  is_default: bigint;
+  active: bigint;
   project_id: string | null;
   custodian_user_id: string | null;
 }
@@ -42,69 +43,57 @@ function toWarehouse(row: WarehouseRow): Warehouse {
     nameEn: row.name_en,
     branchId: row.branch_id,
     type: row.type as WarehouseType,
-    isDefault: row.is_default === 1,
-    active: row.active === 1,
+    isDefault: Number(row.is_default) === 1,
+    active: Number(row.active) === 1,
     projectId: row.project_id ?? null,
     custodianUserId: row.custodian_user_id ?? null,
   };
 }
 
-class SqliteWarehouseStore implements WarehouseRepository {
-  private readonly upsert: Database.Statement;
-  private readonly insertOnly: Database.Statement;
-  private readonly selectAll: Database.Statement;
-  private readonly selectByBranch: Database.Statement;
-  private readonly selectById: Database.Statement;
-
-  constructor(private readonly sqlite: Database.Database) {
-    this.upsert = sqlite.prepare(
-      `INSERT INTO warehouse (id, code, name, name_en, branch_id, type, is_default, active, project_id, custodian_user_id)
-       VALUES (@id, @code, @name, @nameEn, @branchId, @type, @isDefault, @active, @projectId, @custodianUserId)
+const UPSERT_WAREHOUSE = `INSERT INTO warehouse (id, code, name, name_en, branch_id, type, is_default, active, project_id, custodian_user_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
-         code = @code, name = @name, name_en = @nameEn, branch_id = @branchId,
-         type = @type, is_default = @isDefault, active = @active,
-         project_id = @projectId, custodian_user_id = @custodianUserId`,
-    );
-    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
-    this.selectAll = sqlite.prepare(`SELECT * FROM warehouse ORDER BY code ASC`);
-    this.selectByBranch = sqlite.prepare(`SELECT * FROM warehouse WHERE branch_id = ? ORDER BY code ASC`);
-    this.selectById = sqlite.prepare(`SELECT * FROM warehouse WHERE id = ?`);
-  }
+         code = excluded.code, name = excluded.name, name_en = excluded.name_en, branch_id = excluded.branch_id,
+         type = excluded.type, is_default = excluded.is_default, active = excluded.active,
+         project_id = excluded.project_id, custodian_user_id = excluded.custodian_user_id`;
+
+function warehouseParams(warehouse: Warehouse): SqlValue[] {
+  return [
+    warehouse.id,
+    warehouse.code,
+    warehouse.name,
+    warehouse.nameEn ?? null,
+    warehouse.branchId,
+    warehouse.type,
+    warehouse.isDefault ? 1 : 0,
+    warehouse.active ? 1 : 0,
+    warehouse.projectId ?? null,
+    warehouse.custodianUserId ?? null,
+  ];
+}
+
+class SqlWarehouseStore implements WarehouseRepository {
+  constructor(private readonly db: SqlDb) {}
 
   async findAll(): Promise<readonly Warehouse[]> {
-    return (this.selectAll.all() as WarehouseRow[]).map(toWarehouse);
+    return (await this.db.all<WarehouseRow>(`SELECT * FROM warehouse ORDER BY code ASC`)).map(toWarehouse);
   }
 
   async findByBranch(branchId: string): Promise<readonly Warehouse[]> {
-    return (this.selectByBranch.all(branchId) as WarehouseRow[]).map(toWarehouse);
+    return (await this.db.all<WarehouseRow>(`SELECT * FROM warehouse WHERE branch_id = ? ORDER BY code ASC`, [branchId])).map(toWarehouse);
   }
 
   async findById(id: string): Promise<Warehouse | null> {
-    const row = this.selectById.get(id) as WarehouseRow | undefined;
+    const row = await this.db.get<WarehouseRow>(`SELECT * FROM warehouse WHERE id = ?`, [id]);
     return row ? toWarehouse(row) : null;
   }
 
   async save(warehouse: Warehouse): Promise<void> {
-    this.write(warehouse);
+    await this.db.run(UPSERT_WAREHOUSE, warehouseParams(warehouse));
   }
 
   async insert(warehouse: Warehouse): Promise<void> {
-    insertingNew(warehouse.id, () => this.write(warehouse, this.insertOnly));
-  }
-
-  private write(warehouse: Warehouse, statement: Database.Statement = this.upsert): void {
-    statement.run({
-      id: warehouse.id,
-      code: warehouse.code,
-      name: warehouse.name,
-      nameEn: warehouse.nameEn ?? null,
-      branchId: warehouse.branchId,
-      type: warehouse.type,
-      isDefault: warehouse.isDefault ? 1 : 0,
-      active: warehouse.active ? 1 : 0,
-      projectId: warehouse.projectId ?? null,
-      custodianUserId: warehouse.custodianUserId ?? null,
-    });
+    await insertNew(this.db, warehouse.id, UPSERT_WAREHOUSE, warehouseParams(warehouse));
   }
 }
 
@@ -112,12 +101,19 @@ export interface SqliteWarehouseStoreHandle extends WarehouseRepository {
   close(): void;
 }
 
+export async function ensureWarehouseSchema(db: SqlDb): Promise<void> {
+  await db.applySchema(CREATE_TABLE);
+}
+
+export function createWarehouseStore(db: SqlDb): WarehouseRepository {
+  return new SqlWarehouseStore(db);
+}
+
 /** Open a SQLite-backed WarehouseRepository. ":memory:" for tests, a path for real. */
 export function createSqliteWarehouseStore(path: SqliteConnectionInput = ":memory:"): SqliteWarehouseStoreHandle {
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.exec(CREATE_TABLE);
-  const store = new SqliteWarehouseStore(sqlite);
-  return Object.assign(store, {
+  return Object.assign(createWarehouseStore(sqliteDb(sqlite)), {
     close: () => { if (owned) sqlite.close(); },
-  }) as SqliteWarehouseStoreHandle;
+  });
 }

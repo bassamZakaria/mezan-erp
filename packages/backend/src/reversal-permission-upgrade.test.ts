@@ -43,7 +43,7 @@ function roleHolds(file: string, id: string): string[] {
 }
 
 async function reverseAs(handle: BackendHandle, permissions: readonly string[], type: ReversalDocumentType) {
-  const token = handle.sessions.issue({ userId: "someone", permissions: [...permissions], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
+  const token = await handle.sessions.issue({ userId: "someone", permissions: [...permissions], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
   const url = DOCUMENT_REVERSAL_PATHS[type].route.replace(/:\w+/g, "NO-SUCH-DOCUMENT");
   const res = await handle.app.fetch(new Request(`http://local${url}`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify({ memo: "سبب العكس" }) }));
   return { status: res.status, body: (await res.json().catch(() => ({}))) as { permission?: string; error?: string } };

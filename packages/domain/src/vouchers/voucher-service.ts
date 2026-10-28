@@ -214,7 +214,7 @@ export interface VoucherServiceDeps {
     applySettled(input: { invoiceId: string; kind: AllocationInvoiceKind; settled: Money }): Promise<void>;
   };
   /** Resolves the configured approval chain per action type (null = none → auto-grant). */
-  readonly resolveGateConfig?: (actionType: GateableActionType) => GateConfig | null;
+  readonly resolveGateConfig?: (actionType: GateableActionType) => GateConfig | null | Promise<GateConfig | null>;
   /**
    * Persists held approval requests so a gated voucher reaches the approvals
    * inbox. Without it a configured TREASURY_VOUCHER_CONFIRM chain holds the

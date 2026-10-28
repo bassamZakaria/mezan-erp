@@ -852,7 +852,7 @@ describe("card checkout — applying an unapplied payment by hand", () => {
   it("demands an explicit amount and override for a checkout that carries no collected amount", async () => {
     const r = await rig();
     const checkout = await unapplied(r);
-    r.platform.stores.sqlite.prepare("UPDATE card_checkout SET captured_amount = NULL WHERE id = ?").run(checkout.id);
+    r.platform.stores.sqlite!.prepare("UPDATE card_checkout SET captured_amount = NULL WHERE id = ?").run(checkout.id);
 
     await expect(apply(r, checkout)).rejects.toBeInstanceOf(CardPaymentNotApplicableError);
     await expect(apply(r, checkout, { amount: Money.fromMajor("1.00") })).rejects.toBeInstanceOf(CardPaymentNotApplicableError);

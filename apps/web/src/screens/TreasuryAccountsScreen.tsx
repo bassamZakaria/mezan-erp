@@ -203,6 +203,11 @@ export function TreasuryAccountsScreen() {
   const bankBalance = stats?.liveBank !== undefined ? Number(stats.liveBank) : accounts.filter((a) => a.type === "bank").reduce((sum, a) => sum + balanceOf(a.id), 0);
 
   const selected = selectedId ? accounts.find((a) => a.id === selectedId) ?? null : null;
+  const ledgerAccountLabel = !selected?.glAccountId
+    ? t("treasuryAcc.notLinked")
+    : selected.glAccountCode && selected.glAccountNameAr
+      ? `${selected.glAccountCode} — ${nameOf({ nameAr: selected.glAccountNameAr, nameEn: selected.glAccountNameEn ?? null })}`
+      : selected.glAccountId;
 
   function openCreateForm() {
     setEditingId(null);
@@ -479,7 +484,7 @@ export function TreasuryAccountsScreen() {
               </div>
               <div className="p-[13px_15px]">
                 <div className="text-[11px] font-semibold text-ink-faint">{t("treasuryAcc.ledgerAccount")}</div>
-                <div className="mt-[5px] text-[14px] font-bold text-ink">{selected.glAccountId ?? t("treasuryAcc.automaticByType")}</div>
+                <div className="mt-[5px] text-[14px] font-bold text-ink">{ledgerAccountLabel}</div>
               </div>
             </Card>
             <TreasuryAccountLedger account={selected} />

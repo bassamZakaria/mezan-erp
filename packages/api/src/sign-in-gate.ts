@@ -13,7 +13,7 @@ const RUNNING = 4;
 const WAITING = 12;
 const PER_SOURCE = 6;
 const RESERVED = 4;
-const HOST_CONSOLE = "\u0000host";
+const HOST_CONSOLE = "\u001Fhost";
 
 export function createSignInGate(options: SignInGateOptions = {}): SignInGate {
   const maxRunning = options.running ?? RUNNING;

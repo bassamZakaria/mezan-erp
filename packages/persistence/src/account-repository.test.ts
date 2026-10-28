@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { createAccount, seedStandardChartOfAccounts, buildAccountTree, STANDARD_COA_TEMPLATE } from "@mezan/domain";
+import { createAccount, seedStandardChartOfAccounts, buildAccountTree, STANDARD_COA_TEMPLATE, DuplicateAccountCodeError, DuplicateRecordIdError, type Account } from "@mezan/domain";
 import { createSqliteAccountRepository } from "./account-repository.js";
 
 describe("SqliteAccountRepository", () => {
@@ -69,6 +69,19 @@ describe("SqliteAccountRepository", () => {
       expect(all).toHaveLength(STANDARD_COA_TEMPLATE.length);
       const tree = buildAccountTree(all);
       expect(tree.map((n) => n.code)).toEqual(["1000", "2000", "3000", "4000", "5000", "9000"]);
+    } finally {
+      repo.close();
+    }
+  });
+
+  it("create() refuses a taken id or a taken code without raising a constraint error, and keeps the first row", async () => {
+    const repo = createSqliteAccountRepository();
+    const leaf = (id: string, code: string, nameAr: string): Account => ({ id, code, nameAr, nameEn: null, type: "asset", naturalBalance: "debit", parentId: null, isHeader: false, status: "active" });
+    try {
+      await repo.create(leaf("a1", "1300-1", "الأول"));
+      await expect(repo.create(leaf("a1", "1300-9", "مكرر"))).rejects.toBeInstanceOf(DuplicateRecordIdError);
+      await expect(repo.create(leaf("a2", "1300-1", "مكرر"))).rejects.toBeInstanceOf(DuplicateAccountCodeError);
+      expect(await repo.list()).toEqual([leaf("a1", "1300-1", "الأول")]);
     } finally {
       repo.close();
     }

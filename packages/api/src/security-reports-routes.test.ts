@@ -137,6 +137,41 @@ describe("تقرير الاستثناءات الأمنية", () => {
     expect(denied?.critical).toBe(2);
   });
 
+  it("names the actor from the user register and keeps the id as the filter key (#121)", async () => {
+    const app = createSecurityReportsRoutes(
+      { audit: fakePort(events), users: usersPort([user({ id: "u-clerk", nameAr: "كاتب المبيعات", createdAt: "2025-01-01T08:00:00.000Z" })]), now: NOW },
+      insecureHeaderAuthContextResolver,
+    );
+    const body = (await (await app.fetch(req("/exceptions?from=2026-03-01&to=2026-03-31"))).json()) as {
+      rows: { actor: string; actorNameAr: string }[];
+      groups: { key: string; labelAr: string }[];
+    };
+    const clerk = body.rows.find((r) => r.actor === "u-clerk");
+    expect(clerk?.actorNameAr).toBe("كاتب المبيعات");
+    expect(body.groups.find((g) => g.key === "u-clerk")?.labelAr).toBe("كاتب المبيعات");
+    expect(body.rows.find((r) => r.actor === "anonymous")?.actorNameAr).toBe("anonymous");
+  });
+
+  it("filters by a typed user name, and refuses in Arabic with 422 when two users share that name", async () => {
+    const twins = [
+      user({ id: "u-clerk", nameAr: "كاتب المبيعات", createdAt: "2025-01-01T08:00:00.000Z" }),
+      user({ id: "u-boss", nameAr: "المدير", createdAt: "2025-01-01T08:00:00.000Z" }),
+    ];
+    const named = createSecurityReportsRoutes({ audit: fakePort(events), users: usersPort(twins), now: NOW }, insecureHeaderAuthContextResolver);
+    const one = (await (await named.fetch(req(`/exceptions?from=2026-03-01&to=2026-03-31&actor=${encodeURIComponent("كاتب المبيعات")}`))).json()) as { rows: { actor: string }[] };
+    expect(new Set(one.rows.map((r) => r.actor))).toEqual(new Set(["u-clerk"]));
+
+    const ambiguous = createSecurityReportsRoutes(
+      { audit: fakePort(events), users: usersPort([...twins, user({ id: "u-clerk-2", nameAr: "كاتب المبيعات", createdAt: "2025-01-01T08:00:00.000Z" })]), now: NOW },
+      insecureHeaderAuthContextResolver,
+    );
+    for (const path of ["/exceptions", "/post-posting-changes", "/after-hours"]) {
+      const res = await ambiguous.fetch(req(`${path}?from=2026-03-01&to=2026-03-31&actor=${encodeURIComponent("كاتب المبيعات")}`));
+      expect(res.status, path).toBe(422);
+      expect(await res.json(), path).toEqual({ error: "VALIDATION_ERROR", errors: [{ field: "actor", message: "أكثر من مستخدم بهذا الاسم، اختر من القائمة" }] });
+    }
+  });
+
   it("reports every named control, at zero when it did not fire", async () => {
     const body = await run();
     const byAction = new Map(body.watchlist.map((w) => [w.action, w]));
@@ -203,7 +238,7 @@ describe("تقرير الاستثناءات الأمنية — أحداث لم �
     };
     expect(body.unrecorded.count).toBe(25);
     expect(body.unrecorded.recent).toHaveLength(20);
-    expect(body.unrecorded.recent[0]).toEqual({ at: "2026-03-05T10:00:25.000Z", module: "auth", action: "LOGIN_FAILED", severity: "WARNING", actor: "u-25", entityId: null, reason: "disk full" });
+    expect(body.unrecorded.recent[0]).toEqual({ at: "2026-03-05T10:00:25.000Z", module: "auth", action: "LOGIN_FAILED", severity: "WARNING", actor: "u-25", actorNameAr: "u-25", entityId: null, reason: "disk full" });
 
     const without = createSecurityReportsRoutes({ audit: fakePort([]), now: NOW }, insecureHeaderAuthContextResolver);
     expect(((await (await without.fetch(req("/exceptions?from=2026-03-01&to=2026-03-31"))).json()) as { unrecorded: unknown }).unrecorded).toEqual({ count: 0, recent: [], dropped: 0, corrupted: 0 });
@@ -387,6 +422,7 @@ describe("حسابات أُنشئت حديثاً", () => {
     const body = await run();
     const ghost = body.rows.find((r) => r.userId === "u-ghost");
     expect(ghost?.createdBy).toBe("u-boss");
+    expect((ghost as { createdByNameAr?: string | null } | undefined)?.createdByNameAr).toBe("u-boss");
     expect(body.groups.find((g) => g.key === "u-boss")?.totals.count).toBe(1);
   });
 
@@ -410,6 +446,19 @@ describe("حسابات أُنشئت حديثاً", () => {
     expect(body.params.days).toBe(365);
     expect(body.rows.some((r) => r.userId === "u-old")).toBe(false);
     expect(body.grandTotals.count).toBe(2);
+  });
+
+  it("filters by creator id or by the creator's unique name, and refuses an ambiguous name with 422", async () => {
+    const withBoss = [...users, user({ id: "u-boss", nameAr: "المدير", createdAt: "2020-01-01T08:00:00.000Z" })];
+    const app = (register: readonly User[]) => createSecurityReportsRoutes({ audit: fakePort(events), users: usersPort(register), now: NOW }, insecureHeaderAuthContextResolver);
+    for (const createdBy of ["u-boss", "المدير"]) {
+      const body = (await (await app(withBoss).fetch(req(`/new-accounts?createdBy=${encodeURIComponent(createdBy)}`))).json()) as { rows: { userId: string }[] };
+      expect(body.rows.map((r) => r.userId), createdBy).toEqual(["u-ghost"]);
+    }
+    const twin = user({ id: "u-boss-2", nameAr: "المدير", createdAt: "2020-01-01T08:00:00.000Z" });
+    const res = await app([...withBoss, twin]).fetch(req(`/new-accounts?createdBy=${encodeURIComponent("المدير")}`));
+    expect(res.status).toBe(422);
+    expect(((await res.json()) as { errors: { field: string }[] }).errors[0]?.field).toBe("createdBy");
   });
 
   it("is not mounted at all when no user register is wired", async () => {

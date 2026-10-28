@@ -1,4 +1,5 @@
 import { branchRefusalBefore, isBranchRestricted } from "../branch-restriction";
+import { DataMigrationMasterStep } from "./data-migration-step";
 import { useCallback, useRef, useSyncExternalStore } from "react";
 import { loadTenantCode, subscribeTenantCode } from "./session";
 import { DocumentReadPermission, sessionMayRead } from "./document-read-permissions";
@@ -1342,7 +1343,10 @@ export function useCreateTreasuryAccount() {
       if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theAccountCouldNotBe"), t));
       return res.json<TreasuryAccountDTO>();
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["treasury-accounts"] }),
+    onSuccess: async () => {
+      void queryClient.invalidateQueries({ queryKey: ["accounts"] });
+      await queryClient.invalidateQueries({ queryKey: ["treasury-accounts"] });
+    },
   });
 }
 
@@ -1356,7 +1360,10 @@ export function useUpdateTreasuryAccount() {
       if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theAccountCouldNotBe2"), t));
       return res.json<TreasuryAccountDTO>();
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["treasury-accounts"] }),
+    onSuccess: async () => {
+      void queryClient.invalidateQueries({ queryKey: ["accounts"] });
+      await queryClient.invalidateQueries({ queryKey: ["treasury-accounts"] });
+    },
   });
 }
 
@@ -3480,6 +3487,32 @@ export function useVoidSalesInvoice() {
       for (const key of ["journal-entries", "gl", "stock-balance", "eta-submissions", "eta", "dashboard", "financial-reports", "audit"]) {
         queryClient.invalidateQueries({ queryKey: [key] });
       }
+    },
+    onError: (error) => {
+      if (error.status === 409) invalidateSalesInvoices(queryClient);
+    },
+  });
+}
+
+export function useCancelDraftSalesInvoice() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<SalesInvoiceDTO, ApiError, { id: string; expectedVersion?: number }>({
+    mutationFn: async ({ id, expectedVersion }) => {
+      const res = await request(`/sales-invoices/${encodeURIComponent(id)}/cancel`, {
+        method: "POST",
+        body: JSON.stringify(expectedVersion === undefined ? {} : { expectedVersion }),
+      });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("cancelDraft.failed"), t));
+      return res.json<SalesInvoiceDTO>();
+    },
+    onSuccess: () => {
+      invalidateSalesInvoices(queryClient);
+      queryClient.invalidateQueries({ queryKey: ["sales-quotes"] });
+    },
+    onError: (error) => {
+      if (error.status === 409) invalidateSalesInvoices(queryClient);
     },
   });
 }
@@ -7929,26 +7962,6 @@ export interface DataMigrationStatusDTO {
   readonly purchaseReturns: number;
 }
 
-/**
- * The step ids `createDataMigrationRoutes` (packages/api) exposes preview/commit
- * for. The last four are P-5: the chart, the opening trial balance, and the
- * open AR/AP a migrating shop is actually owed and actually owes.
- */
-export type DataMigrationMasterStep =
-  | "departments"
-  | "employees"
-  | "treasury-accounts"
-  | "suppliers"
-  | "customers"
-  | "items"
-  | "item-units"
-  | "asset-categories"
-  | "assets"
-  | "chart-of-accounts"
-  | "opening-trial-balance"
-  | "open-customer-invoices"
-  | "open-supplier-invoices";
-
 export function useDataMigrationStatus(): UseQueryResult<DataMigrationStatusDTO, ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
@@ -7987,7 +8000,13 @@ export function useDataMigrationCommit(step: DataMigrationMasterStep) {
       if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theImportCouldNotBe"), t));
       return res.json<DataMigrationStepResultDTO>();
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["data-migration", "status"] }),
+    onSuccess: () => {
+      if (step === DataMigrationMasterStep.TreasuryAccounts) {
+        queryClient.invalidateQueries({ queryKey: ["treasury-accounts"] });
+        queryClient.invalidateQueries({ queryKey: ["accounts"] });
+      }
+      return queryClient.invalidateQueries({ queryKey: ["data-migration", "status"] });
+    },
   });
 }
 

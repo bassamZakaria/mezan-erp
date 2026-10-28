@@ -56,6 +56,7 @@ import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { ClassifyLineTaxAction } from "./ClassifyLineTaxAction";
 import { NameJournalLineTaxAction } from "./NameJournalLineTaxAction";
 import { DraftLineEditAction } from "./DraftLineEditAction";
+import { CancelDraftSalesInvoiceAction } from "./CancelDraftSalesInvoiceAction";
 import { ConfirmRecalculationNotice, confirmAcknowledgementOf, twoDecimals } from "./ConfirmRecalculationNotice";
 import { VoidReasonNotice, VoidSalesInvoiceAction } from "./VoidSalesInvoiceAction";
 import { UnnamedTaxNotice } from "./UnnamedTaxNotice";
@@ -1541,6 +1542,7 @@ function InvoiceDetailView({
               {t("salesInvoices.confirm")}
             </Button>
           ) : null}
+          <CancelDraftSalesInvoiceAction invoice={invoice} />
           <VoidSalesInvoiceAction invoice={invoice} />
           <Button onClick={onPrint}>{t("salesInvoices.share.print")}</Button>
         </>

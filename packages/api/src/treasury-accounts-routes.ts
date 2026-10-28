@@ -190,10 +190,15 @@ export function createTreasuryAccountsRoutes(
 
   async function withForeignBalance(accounts: readonly TreasuryAccount[]) {
     const rows = new Map(((await foreignBalances?.()) ?? []).map((row) => [row.treasuryAccountId, row]));
+    const linked = accounts.some((account) => account.glAccountId) ? ((await ledgerAccounts?.accounts.list()) ?? []) : [];
+    const chart = new Map(linked.map((account) => [account.id, account]));
     return accounts.map((account) => {
       const row = rows.get(account.id);
+      const ledgerAccount = account.glAccountId ? chart.get(account.glAccountId) : undefined;
       return {
         ...serialize(account),
+        glAccountCode: ledgerAccount?.code ?? null,
+        glAccountNameAr: ledgerAccount?.nameAr ?? null,
         foreignBalance: row ? row.foreignBalance.toString() : null,
         foreignBalanceBase: row ? row.baseBalance.toString() : null,
         foreignBalanceDerivedLines: row ? row.derivedLines : null,

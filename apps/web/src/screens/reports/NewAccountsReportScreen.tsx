@@ -1,6 +1,6 @@
 import type { NewAccountRowDTO } from "@mezan/contracts";
-import type { ReportRunnerColumn, ReportRunnerParamField } from "@mezan/ui";
-import { SecurityReportScreen, useUserFilterField, securityCopy } from "./SecurityReportScreen";
+import type { ReportRunnerColumn } from "@mezan/ui";
+import { SecurityReportScreen, useUserFilterField, type SecurityParamField, securityCopy } from "./SecurityReportScreen";
 import { useAppTranslation } from "../../i18n";
 
 /** حسابات أُنشئت حديثاً — `/security-reports/new-accounts` (P-4). */
@@ -11,7 +11,7 @@ export function NewAccountsReportScreen() {
   const { t } = useAppTranslation();
 
   const userFilter = useUserFilterField("createdBy", t("securityReports.createdBy"));
-  const paramFields: ReportRunnerParamField[] = [
+  const paramFields: SecurityParamField[] = [
     { kind: "text", key: "days", label: t("securityReports.lookbackDays") },
     userFilter,
   ];

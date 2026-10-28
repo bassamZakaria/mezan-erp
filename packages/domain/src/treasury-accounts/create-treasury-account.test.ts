@@ -159,4 +159,23 @@ describe("createTreasuryAccount — its own ledger account (#120)", () => {
       createTreasuryAccount({ id: "ta2", code: "CASH-10", name: "صندوق ٢", branchId: "b1" }, new InMemoryTreasuryAccountRepository(), { accounts: alwaysRaced }),
     ).rejects.toBeInstanceOf(DuplicateAccountCodeError);
   });
+
+  it("takes the next free code when another create took the code under a different id", async () => {
+    const accounts = await chart();
+    let raced = false;
+    const racing = {
+      findById: (id: string) => accounts.findById(id),
+      list: () => accounts.list(),
+      create: async (account: Account) => {
+        if (!raced) {
+          raced = true;
+          await accounts.create({ ...account, id: "other", nameAr: "سباق" });
+          throw new DuplicateAccountCodeError(account.code);
+        }
+        await accounts.create(account);
+      },
+    };
+    const account = await createTreasuryAccount({ id: "ta1", code: "CASH-9", name: "صندوق", branchId: "b1" }, new InMemoryTreasuryAccountRepository(), { accounts: racing });
+    expect(account.glAccountId).toBe("1300-2");
+  });
 });

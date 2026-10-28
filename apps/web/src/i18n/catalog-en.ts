@@ -7981,6 +7981,7 @@ export const webEn: Record<WebTranslationKey, string> = {
   "securityReports.period": "Period",
   "securityReports.actor": "User",
   "securityReports.anyUser": "All users",
+  "securityReports.systemActor": "System",
   "securityReports.action": "Action",
   "securityReports.severity": "Severity",
   "securityReports.anySeverity": "Any severity",

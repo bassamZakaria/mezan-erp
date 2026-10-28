@@ -32,6 +32,7 @@ export {
   TreasuryLedgerAccountFault,
   TreasuryLedgerAccountUnlinkError,
   assertTreasuryLedgerAccount,
+  cashAndBankHeader,
   openTreasuryLedgerAccount,
   type TreasuryLedgerAccountDeps,
 } from "./ledger-account.js";

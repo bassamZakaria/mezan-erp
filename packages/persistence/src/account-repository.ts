@@ -1,7 +1,6 @@
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
-import { DuplicateAccountCodeError, type Account, type AccountRepository, type AccountStatus, type AccountType, type NaturalBalance } from "@mezan/domain";
-import { insertNew } from "./insert-new.js";
-import { isUniqueViolation, type SqlDb, type SqlValue } from "./sql/sql-db.js";
+import { DuplicateAccountCodeError, DuplicateRecordIdError, type Account, type AccountRepository, type AccountStatus, type AccountType, type NaturalBalance } from "@mezan/domain";
+import type { SqlDb, SqlValue } from "./sql/sql-db.js";
 import { sqliteDb } from "./sql/sqlite-db.js";
 
 const CREATE_TABLE = `
@@ -31,6 +30,9 @@ const UPSERT = `
     parent_id = excluded.parent_id,
     is_header = excluded.is_header,
     status = excluded.status`;
+
+// A taken id or code must not raise on Postgres: one failed statement aborts the whole request transaction.
+const INSERT_NEW = `${UPSERT.slice(0, UPSERT.indexOf("ON CONFLICT"))}ON CONFLICT DO NOTHING`;
 
 interface AccountRow {
   id: string;
@@ -90,12 +92,9 @@ class SqlAccountRepository implements AccountRepository {
   }
 
   async create(account: Account): Promise<void> {
-    try {
-      await insertNew(this.db, account.id, UPSERT, params(account));
-    } catch (error) {
-      if (isUniqueViolation(error)) throw new DuplicateAccountCodeError(account.code);
-      throw error;
-    }
+    if ((await this.db.run(INSERT_NEW, params(account))).changes > 0) return;
+    if (await this.findById(account.id)) throw new DuplicateRecordIdError(account.id);
+    throw new DuplicateAccountCodeError(account.code);
   }
 
   async update(account: Account): Promise<void> {

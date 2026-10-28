@@ -7983,6 +7983,7 @@ export const webAr = {
   "securityReports.period": "الفترة",
   "securityReports.actor": "المستخدم",
   "securityReports.anyUser": "كل المستخدمين",
+  "securityReports.systemActor": "النظام",
   "securityReports.action": "الإجراء",
   "securityReports.severity": "الخطورة",
   "securityReports.anySeverity": "كل الدرجات",

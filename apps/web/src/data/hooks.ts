@@ -1,4 +1,5 @@
 import { branchRefusalBefore, isBranchRestricted } from "../branch-restriction";
+import { DataMigrationMasterStep } from "./data-migration-step";
 import { useCallback, useRef, useSyncExternalStore } from "react";
 import { loadTenantCode, subscribeTenantCode } from "./session";
 import { DocumentReadPermission, sessionMayRead } from "./document-read-permissions";
@@ -1343,7 +1344,8 @@ export function useCreateTreasuryAccount() {
       return res.json<TreasuryAccountDTO>();
     },
     onSuccess: async () => {
-      await Promise.all([queryClient.invalidateQueries({ queryKey: ["treasury-accounts"] }), queryClient.invalidateQueries({ queryKey: ["accounts"] })]);
+      void queryClient.invalidateQueries({ queryKey: ["accounts"] });
+      await queryClient.invalidateQueries({ queryKey: ["treasury-accounts"] });
     },
   });
 }
@@ -1359,7 +1361,8 @@ export function useUpdateTreasuryAccount() {
       return res.json<TreasuryAccountDTO>();
     },
     onSuccess: async () => {
-      await Promise.all([queryClient.invalidateQueries({ queryKey: ["treasury-accounts"] }), queryClient.invalidateQueries({ queryKey: ["accounts"] })]);
+      void queryClient.invalidateQueries({ queryKey: ["accounts"] });
+      await queryClient.invalidateQueries({ queryKey: ["treasury-accounts"] });
     },
   });
 }
@@ -7959,26 +7962,6 @@ export interface DataMigrationStatusDTO {
   readonly purchaseReturns: number;
 }
 
-/**
- * The step ids `createDataMigrationRoutes` (packages/api) exposes preview/commit
- * for. The last four are P-5: the chart, the opening trial balance, and the
- * open AR/AP a migrating shop is actually owed and actually owes.
- */
-export type DataMigrationMasterStep =
-  | "departments"
-  | "employees"
-  | "treasury-accounts"
-  | "suppliers"
-  | "customers"
-  | "items"
-  | "item-units"
-  | "asset-categories"
-  | "assets"
-  | "chart-of-accounts"
-  | "opening-trial-balance"
-  | "open-customer-invoices"
-  | "open-supplier-invoices";
-
 export function useDataMigrationStatus(): UseQueryResult<DataMigrationStatusDTO, ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
@@ -8018,7 +8001,7 @@ export function useDataMigrationCommit(step: DataMigrationMasterStep) {
       return res.json<DataMigrationStepResultDTO>();
     },
     onSuccess: () => {
-      if (step === "treasury-accounts") {
+      if (step === DataMigrationMasterStep.TreasuryAccounts) {
         queryClient.invalidateQueries({ queryKey: ["treasury-accounts"] });
         queryClient.invalidateQueries({ queryKey: ["accounts"] });
       }

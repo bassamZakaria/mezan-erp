@@ -14,16 +14,25 @@ const SECURITY_REPORTS_ROOT = "/security-reports";
 /** One of the four exception reports this shell renders, keyed the way `securityReports.<report>.*` i18n keys are. */
 export type SecurityReportKey = "exceptions" | "postPosting" | "afterHours" | "newAccounts" | "sod";
 
-export function useUserFilterField(key: string, label: string): ReportRunnerParamField {
+export enum ReservedActor {
+  System = "system",
+}
+
+export type SecurityParamField = ReportRunnerParamField | ((params: Readonly<Record<string, string>>) => ReportRunnerParamField);
+
+export function useUserFilterField(key: string, label: string): (params: Readonly<Record<string, string>>) => ReportRunnerParamField {
   const { t } = useAppTranslation();
   const entityName = useEntityName();
-  const users = useUsers().data;
-  if (!users || users.length === 0) return { kind: "text", key, label };
-  return {
-    kind: "select",
-    key,
-    label,
-    options: [{ value: "", label: t("securityReports.anyUser") }, ...users.map((u) => ({ value: u.id, label: entityName(u, u.email) }))],
+  const users = useUsers();
+  return (params) => {
+    if (!users.isSuccess) return { kind: "text", key, label };
+    const options = [
+      { value: "", label: t("securityReports.anyUser") },
+      { value: ReservedActor.System, label: t("securityReports.systemActor") },
+      ...users.data.map((u) => ({ value: u.id, label: entityName(u, u.email) })),
+    ];
+    const value = params[key] ?? "";
+    return options.some((option) => option.value === value) ? { kind: "select", key, label, options } : { kind: "text", key, label };
   };
 }
 
@@ -82,7 +91,7 @@ export interface SecurityReportScreenProps<Row> {
   readonly apiPath: string;
   readonly title: string;
   readonly description?: string;
-  readonly paramFields: readonly ReportRunnerParamField[];
+  readonly paramFields: readonly SecurityParamField[];
   readonly defaultParams: Record<string, string>;
   readonly columns: readonly ReportRunnerColumn<Row>[];
   readonly rowKey: (row: Row) => string;
@@ -140,7 +149,7 @@ export function SecurityReportScreen<Row>({
     <ReportRunner
       title={title}
       description={description}
-      paramFields={paramFields}
+      paramFields={paramFields.map((field) => (typeof field === "function" ? field(params) : field))}
       params={params}
       onParamsChange={setParams}
       fieldErrors={query.error?.fieldErrors}

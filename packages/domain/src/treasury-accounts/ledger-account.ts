@@ -64,11 +64,7 @@ async function cashAndBankParentId(deps: TreasuryLedgerAccountLookup): Promise<s
   return deps.cashAndBankParentAccountId ? await deps.cashAndBankParentAccountId() : routedAccountId(null, CASH_AND_BANK_ROUTING_KEY);
 }
 
-// INVARIANT: one leaf per treasury account, never a shared one — a ledger account carries one currency and one drawer's balance.
-export async function openTreasuryLedgerAccount(
-  treasury: Pick<TreasuryAccount, "name" | "nameEn">,
-  deps: TreasuryLedgerAccountDeps,
-): Promise<string> {
+export async function cashAndBankHeader(deps: TreasuryLedgerAccountLookup): Promise<Account> {
   const parentId = await cashAndBankParentId(deps);
   const parent = parentId ? await deps.accounts.findById(parentId) : null;
   if (!parent) {
@@ -77,6 +73,21 @@ export async function openTreasuryLedgerAccount(
       "No cash-and-bank header exists in the chart of accounts to open the treasury account under — set it in account routing or choose the ledger account yourself.",
     );
   }
+  if (!parent.isHeader) {
+    throw new InvalidParentAccountError(
+      `حساب النقدية والبنوك "${parent.code}" في توجيه الحسابات حساب تفصيلي لا يُفتح تحته حساب الخزينة — اجعله حساباً رئيسياً أو اختر الحساب الدفتري يدوياً.`,
+      `The cash-and-bank account "${parent.code}" in account routing is a detail account, so the treasury account cannot be opened under it — make it a header or choose the ledger account yourself.`,
+    );
+  }
+  return parent;
+}
+
+// INVARIANT: one leaf per treasury account, never a shared one — a ledger account carries one currency and one drawer's balance.
+export async function openTreasuryLedgerAccount(
+  treasury: Pick<TreasuryAccount, "name" | "nameEn">,
+  deps: TreasuryLedgerAccountDeps,
+): Promise<string> {
+  const parent = await cashAndBankHeader(deps);
   const open = async (): Promise<Account> => {
     const taken = new Set((await deps.accounts.list()).flatMap((account) => [account.id, account.code]));
     let n = 1;
@@ -87,11 +98,12 @@ export async function openTreasuryLedgerAccount(
       deps.accounts,
     );
   };
+  const clashed = (error: unknown): boolean => error instanceof DuplicateRecordIdError || error instanceof DuplicateAccountCodeError;
   let account: Account;
   try {
     account = await open();
   } catch (error) {
-    if (!(error instanceof DuplicateRecordIdError)) throw error;
+    if (!clashed(error)) throw error;
     try {
       account = await open();
     } catch (retryError) {

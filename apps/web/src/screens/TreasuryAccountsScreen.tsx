@@ -5,7 +5,7 @@ import { DocumentList, EmptyState, Money as MoneyDisplay, StatusPill, Chip, Card
 import { TREASURY_ACCOUNT_TYPE_DEFINITIONS } from "@mezan/domain";
 import { treasuryAccountTypeLabel } from "../domain-labels";
 import type { BranchDTO, ListCountsDTO, TreasuryAccountDTO, TreasuryAccountStatusDTO, TreasuryAccountTypeDTO } from "@mezan/contracts";
-import { ApiError, loaderError, useAccountLedger, useAccounts, useBranches, useCreateJournalEntry, useCreateTreasuryAccount, useTreasuryAccounts, useUpdateTreasuryAccount,
+import { ApiError, loaderError, useAccountLedger, useBranches, useCreateJournalEntry, useCreateTreasuryAccount, useTreasuryAccounts, useUpdateTreasuryAccount,
   useTreasuryAccountStats,
 } from "../data/hooks";
 import { useApi } from "../data/ApiContext";
@@ -139,7 +139,6 @@ export function TreasuryAccountsScreen() {
   const nameOf = useEntityName();
   const query = useTreasuryAccounts();
   const branchesQuery = useBranches();
-  const ledgerAccounts = useAccounts().data ?? EMPTY;
   const createTreasuryAccount = useCreateTreasuryAccount();
   const updateTreasuryAccount = useUpdateTreasuryAccount();
   const accounts = query.data ?? EMPTY;
@@ -204,11 +203,10 @@ export function TreasuryAccountsScreen() {
   const bankBalance = stats?.liveBank !== undefined ? Number(stats.liveBank) : accounts.filter((a) => a.type === "bank").reduce((sum, a) => sum + balanceOf(a.id), 0);
 
   const selected = selectedId ? accounts.find((a) => a.id === selectedId) ?? null : null;
-  const linkedLedger = selected?.glAccountId ? ledgerAccounts.find((a) => a.id === selected.glAccountId) : undefined;
   const ledgerAccountLabel = !selected?.glAccountId
     ? t("treasuryAcc.notLinked")
-    : linkedLedger
-      ? `${linkedLedger.code} — ${nameOf(linkedLedger)}`
+    : selected.glAccountCode && selected.glAccountNameAr
+      ? `${selected.glAccountCode} — ${selected.glAccountNameAr}`
       : selected.glAccountId;
 
   function openCreateForm() {

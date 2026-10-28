@@ -74,6 +74,12 @@ describe("TreasuryAccountsScreen", () => {
     expect(row).toHaveTextContent("1,100.00 USD");
   });
 
+  it("names the linked ledger account by the code and Arabic name the server sends, without loading the chart", async () => {
+    renderScreen([{ ...sampleAccounts[1]!, glAccountCode: "1300-1", glAccountNameAr: "صندوق الفرع الرئيسي" }]);
+    fireEvent.click(await screen.findByText("صندوق نقدي الفرع الرئيسي"));
+    expect(await screen.findByText("1300-1 — صندوق الفرع الرئيسي")).toBeInTheDocument();
+  });
+
   it("shows an empty state when there are no treasury accounts yet", async () => {
     renderScreen([]);
     expect(await screen.findByText("لا توجد حسابات خزينة مطابقة")).toBeInTheDocument();

@@ -1,6 +1,6 @@
 import type { PostPostingChangeRowDTO } from "@mezan/contracts";
-import { formatDateTime, type ReportRunnerColumn, type ReportRunnerParamField } from "@mezan/ui";
-import { SecurityReportScreen, useUserFilterField, securityCopy } from "./SecurityReportScreen";
+import { formatDateTime, type ReportRunnerColumn } from "@mezan/ui";
+import { SecurityReportScreen, useUserFilterField, type SecurityParamField, securityCopy } from "./SecurityReportScreen";
 import { useAppTranslation, type AppTranslationKey } from "../../i18n";
 import { useAuditLabels } from "../enh/audit-ledger/audit-changes";
 import { monthStartIso, todayIso } from "../../lib/dates";
@@ -16,7 +16,7 @@ export function PostPostingChangesReportScreen() {
   const labels = useAuditLabels();
 
   const userFilter = useUserFilterField("actor", t("securityReports.actor"));
-  const paramFields: ReportRunnerParamField[] = [
+  const paramFields: SecurityParamField[] = [
     { kind: "dateRange", fromKey: "from", toKey: "to", label: t("securityReports.period") },
     userFilter,
     { kind: "text", key: "entityType", label: t("securityReports.entityType") },

@@ -104,6 +104,26 @@ describe("the four exception-report screens", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
+  it("offers the users and «النظام» as the actor once the user list loads, and keeps a text box while it cannot", async () => {
+    const exceptions = () => ({ body: envelope([], { unrecorded: { count: 0, recent: [] } }) });
+    const loaded = stubTransport({
+      "GET /security-reports/exceptions": exceptions,
+      "GET /users": () => ({ body: [{ id: "u-mona", nameAr: "منى", nameEn: null, email: "mona@shop.test" }] }),
+    });
+    const { unmount } = renderWithProviders(<ExceptionsReportScreen />, { transport: loaded, initialSession: testAdminSession });
+    fireEvent.click(await screen.findByRole("combobox", { name: "المستخدم" }));
+    expect(await screen.findByRole("option", { name: "النظام" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "منى" })).toBeInTheDocument();
+    unmount();
+
+    renderWithProviders(<ExceptionsReportScreen />, {
+      transport: stubTransport({ "GET /security-reports/exceptions": exceptions, "GET /users": () => ({ status: 500, body: { error: "BOOM" } }) }),
+      initialSession: testAdminSession,
+    });
+    expect(await screen.findByRole("textbox", { name: "المستخدم" })).toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "المستخدم" })).not.toBeInTheDocument();
+  });
+
   it("says out loud that the totals are a floor when the server truncated its scan", async () => {
     const transport = stubTransport({
       "GET /security-reports/exceptions": () => ({

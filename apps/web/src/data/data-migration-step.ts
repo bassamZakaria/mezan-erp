@@ -1,0 +1,15 @@
+export enum DataMigrationMasterStep {
+  Departments = "departments",
+  Employees = "employees",
+  TreasuryAccounts = "treasury-accounts",
+  Suppliers = "suppliers",
+  Customers = "customers",
+  Items = "items",
+  ItemUnits = "item-units",
+  AssetCategories = "asset-categories",
+  Assets = "assets",
+  ChartOfAccounts = "chart-of-accounts",
+  OpeningTrialBalance = "opening-trial-balance",
+  OpenCustomerInvoices = "open-customer-invoices",
+  OpenSupplierInvoices = "open-supplier-invoices",
+}

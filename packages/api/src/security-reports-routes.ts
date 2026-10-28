@@ -345,6 +345,10 @@ function respondValidation(c: Context, errors: readonly { field: string; message
   return c.json({ error: "VALIDATION_ERROR", errors }, 400);
 }
 
+function refuseAmbiguousActor(c: Context, field: string): Response {
+  return c.json({ error: "VALIDATION_ERROR", errors: [{ field, message: "أكثر من مستخدم بهذا الاسم، اختر من القائمة" }] }, 422);
+}
+
 function flatten(issues: readonly { path: (string | number)[]; message: string }[]) {
   return issues.map((issue) => ({
     field: issue.path.length > 0 ? issue.path.join(".") : "_root",
@@ -389,13 +393,14 @@ export function createSecurityReportsRoutes(
     return (actor) => names.get(actor) || actor;
   }
 
-  async function actorFilterId(input: string | undefined): Promise<string | undefined> {
-    if (!input) return undefined;
+  async function actorFilterId(input: string | undefined): Promise<{ readonly id: string | undefined } | { readonly ambiguous: true }> {
+    if (!input) return { id: undefined };
     const users = (await deps.users?.list()) ?? [];
-    if (users.some((user: User) => user.id === input)) return input;
+    if (users.some((user: User) => user.id === input)) return { id: input };
     const wanted = input.trim().toLowerCase();
     const named = users.filter((user: User) => user.nameAr.trim().toLowerCase() === wanted || (user.nameEn ?? "").trim().toLowerCase() === wanted);
-    return named.length === 1 ? named[0]!.id : input;
+    if (named.length > 1) return { ambiguous: true };
+    return { id: named.length === 1 ? named[0]!.id : input };
   }
 
   function queryParams(c: Context): Record<string, string> {
@@ -459,7 +464,9 @@ export function createSecurityReportsRoutes(
       return respondValidation(c, [{ field: "from", message: "تاريخ البداية يجب ألا يتجاوز تاريخ النهاية." }]);
     }
     const bounds = utcBounds(from, to);
-    const actorFilter = await actorFilterId(parsed.data.actor);
+    const actor = await actorFilterId(parsed.data.actor);
+    if ("ambiguous" in actor) return refuseAmbiguousActor(c, "actor");
+    const actorFilter = actor.id;
 
     const filter: AuditQueryFilter = {
       stream: "security",
@@ -660,7 +667,9 @@ export function createSecurityReportsRoutes(
       return respondValidation(c, [{ field: "from", message: "تاريخ البداية يجب ألا يتجاوز تاريخ النهاية." }]);
     }
     const bounds = utcBounds(from, to);
-    const actorFilter = await actorFilterId(parsed.data.actor);
+    const actor = await actorFilterId(parsed.data.actor);
+    if ("ambiguous" in actor) return refuseAmbiguousActor(c, "actor");
+    const actorFilter = actor.id;
 
     // One query per action rather than one unfiltered sweep: `AuditQueryFilter`
     // matches a single `action`, and reading the whole sensitive stream to throw
@@ -827,7 +836,9 @@ export function createSecurityReportsRoutes(
       return respondValidation(c, [{ field: "from", message: "تاريخ البداية يجب ألا يتجاوز تاريخ النهاية." }]);
     }
     const bounds = utcBounds(from, to);
-    const actorFilter = await actorFilterId(parsed.data.actor);
+    const actor = await actorFilterId(parsed.data.actor);
+    if ("ambiguous" in actor) return refuseAmbiguousActor(c, "actor");
+    const actorFilter = actor.id;
 
     const hours = await workingHours();
     const { formatter } = zoneFormatter(hours.timezone);
@@ -1001,6 +1012,8 @@ export function createSecurityReportsRoutes(
     app.get("/new-accounts", gate("audit.logs.view"), companyWide, async (c) => {
       const parsed = newAccountsQuerySchema.safeParse(queryParams(c));
       if (!parsed.success) return respondValidation(c, flatten(parsed.error.issues));
+      const creator = await actorFilterId(parsed.data.createdBy);
+      if ("ambiguous" in creator) return refuseAmbiguousActor(c, "createdBy");
 
       // Recomputed server-side, always. The caller may ask for a window; what
       // it gets is a bounded one.
@@ -1104,9 +1117,9 @@ export function createSecurityReportsRoutes(
         } satisfies NewAccountRowDTO;
       });
 
-      if (parsed.data.createdBy) {
-        const wanted = parsed.data.createdBy;
-        rows = rows.filter((row) => row.createdBy === wanted || row.createdByNameAr === wanted);
+      if (creator.id) {
+        const wanted = creator.id;
+        rows = rows.filter((row) => row.createdBy === wanted);
       }
 
       const byCreator = new Map<string, NewAccountRowDTO[]>();

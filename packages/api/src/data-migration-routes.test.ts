@@ -225,6 +225,48 @@ describe("data-migration-routes — treasury accounts", () => {
     const list = await treasuryAccounts.list();
     expect(list[0]?.branchId).toBe("b1");
   });
+
+  async function withChart(cashAndBankParentAccountId: () => Promise<string | null>) {
+    const accounts = createSqliteAccountRepository();
+    handles.push(accounts as unknown as { close(): void });
+    await accounts.create({ id: "1300", code: "1300", nameAr: "النقدية والبنوك", nameEn: null, type: "asset", naturalBalance: "debit", parentId: null, isHeader: true, status: "active" });
+    await accounts.create({ id: "1399", code: "1399", nameAr: "صندوق تفصيلي", nameEn: null, type: "asset", naturalBalance: "debit", parentId: "1300", isHeader: false, status: "active" });
+    const base = await newApp();
+    const app = createDataMigrationRoutes(
+      { ...base.deps, departments: inMemoryDepartments(), employees: inMemoryEmployees(), accounts, cashAndBankParentAccountId },
+      insecureHeaderAuthContextResolver,
+    );
+    return { app, accounts, treasuryAccounts: base.treasuryAccounts };
+  }
+
+  it("previews a row with no ledger account as refused, in Arabic, when the routed cash-and-bank account is missing or a detail account", async () => {
+    for (const routed of ["9999", "1399"]) {
+      const { app } = await withChart(async () => routed);
+      const res = await app.fetch(req("/treasury-accounts/preview", [{ code: "CASH-1", name: "صندوق" }], "admin.settings.view"));
+      const body = (await res.json()) as { validCount: number; errors: { rowNumber: number; reasons: string[] }[] };
+      expect(res.status).toBe(200);
+      expect(body.validCount).toBe(0);
+      expect(body.errors.map((e) => e.rowNumber)).toEqual([1]);
+      expect(body.errors[0]?.reasons.join(" ")).toMatch(/النقدية والبنوك/);
+    }
+  });
+
+  it("previews a named ledger account that is not a cash or bank leaf as refused", async () => {
+    const { app } = await withChart(async () => "1300");
+    const res = await app.fetch(req("/treasury-accounts/preview", [{ code: "CASH-1", name: "صندوق", glAccountId: "1300" }], "admin.settings.view"));
+    const body = (await res.json()) as { errors: { reasons: string[] }[] };
+    expect(body.errors[0]?.reasons.join(" ")).toMatch(/حساب رئيسي/);
+  });
+
+  it("answers 422 with an Arabic reason, not a bare 500, when the cash-and-bank header vanishes between the check and the write", async () => {
+    let calls = 0;
+    const { app, treasuryAccounts } = await withChart(async () => (++calls === 1 ? "1300" : "9999"));
+    const res = await app.fetch(req("/treasury-accounts/commit", [{ code: "CASH-1", name: "صندوق" }]));
+    const body = (await res.json()) as { errors: { rowNumber: number; reasons: string[] }[] };
+    expect(res.status).toBe(422);
+    expect(body.errors).toEqual([{ rowNumber: 1, reasons: [expect.stringMatching(/النقدية والبنوك/)] }]);
+    expect(await treasuryAccounts.list()).toEqual([]);
+  });
 });
 
 describe("data-migration-routes — suppliers/customers/items/asset-categories/assets", () => {

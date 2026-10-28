@@ -1,3 +1,4 @@
+import { DEFAULT_STATEMENT_EMAIL_BODY, DEFAULT_STATEMENT_EMAIL_SUBJECT } from "../collections/statement.js";
 /**
  * Tenant Settings — the config bag documented in docs/archive/catalog/09 §"Settings —
  * عام (General settings hub)": the `/settings` tabbed screen (عام / بيانات
@@ -166,6 +167,9 @@ export interface TenantSettings {
   readonly emailTemplateBody: string;
 }
 
+/** SECURITY: these values become mail headers; a CR or LF would let them add a header of their own. */
+const HEADER_BREAK = /[\u0000-\u001f\u007f]/;
+
 export class InvalidSettingsError extends Error {
   readonly code = "INVALID_SETTINGS";
   constructor(reasons: readonly string[]) {
@@ -254,9 +258,8 @@ export const DEFAULT_SETTINGS: TenantSettings = {
   smtpPassword: "",
   smtpFromName: "",
   smtpFromEmail: "",
-  emailTemplateSubject: "{{documentType}} رقم {{documentNumber}} من {{companyName}}",
-  emailTemplateBody:
-    "السلام عليكم {{recipientName}}،\n\nمرفق {{documentType}} رقم {{documentNumber}} بتاريخ {{documentDate}} بإجمالي {{documentTotal}}.\n\nمع خالص الشكر،\n{{companyName}}",
+  emailTemplateSubject: DEFAULT_STATEMENT_EMAIL_SUBJECT,
+  emailTemplateBody: DEFAULT_STATEMENT_EMAIL_BODY,
 };
 
 function validate(settings: TenantSettings): string[] {
@@ -367,6 +370,9 @@ function validate(settings: TenantSettings): string[] {
   if (!Number.isInteger(settings.smtpPort) || settings.smtpPort < 1 || settings.smtpPort > 65535) {
     reasons.push("smtpPort must be an integer in 1..65535");
   }
+  if (HEADER_BREAK.test(settings.smtpFromName)) reasons.push("smtpFromName must not contain a line break or control character");
+  if (HEADER_BREAK.test(settings.smtpFromEmail)) reasons.push("smtpFromEmail must not contain a line break or control character");
+  if (HEADER_BREAK.test(settings.emailTemplateSubject)) reasons.push("emailTemplateSubject must not contain a line break or control character");
   if (settings.smtpEnabled) {
     if (settings.smtpHost.trim() === "") reasons.push("smtpEnabled needs an SMTP host");
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(settings.smtpFromEmail)) {

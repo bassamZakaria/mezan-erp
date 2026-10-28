@@ -1,5 +1,6 @@
 import { OWNER_DIGEST_EVENT, ReversalDocumentType, reversalPermissionSuccessors } from "@mezan/contracts";
 import { attachmentPermissionSuccessors } from "@mezan/domain";
+import { withStatementEmailTemplate } from "./statement-template-upgrade.js";
 import { createHash, randomUUID } from "node:crypto";
 import { OwnerPinResetOutcome } from "./owner-pin-reset-outcome.js";
 import { createLeaveAccrualJob, startScheduledJobs, type ScheduledJobResult, type ScheduledJobStatus } from "./scheduled-jobs.js";
@@ -3629,6 +3630,13 @@ async function composeBackend(options: CreateBackendOptions, db: SqlDb, sqlite: 
   await upgradeLedger.runOnce(UpgradeStepId.SeededRoleReconciliationSplit, () => separateSeededDuties(SeededRoleSplit.BankReconciliation));
   await upgradeLedger.runOnce(UpgradeStepId.SeededRoleGoodsReceiving, () => separateSeededDuties(SeededRoleSplit.GoodsReceiving));
   await upgradeLedger.runOnce(UpgradeStepId.SeededRolePriceFloor, () => separateSeededDuties(SeededRoleSplit.PriceFloor));
+  await upgradeLedger.runOnce(UpgradeStepId.StatementEmailTemplate, async () => {
+    const current = await settings.get();
+    if (current) {
+      const upgraded = withStatementEmailTemplate(current);
+      if (upgraded !== current) await settings.save(upgraded);
+    }
+  });
   await upgradeLedger.runOnce(UpgradeStepId.ApprovalFingerprint, async () => {
     const marked = sqlite ? markApprovalsNeedingReapproval(sqlite) : [];
     if (marked.length > 0) backendLog.info({ area: "workflow" }, `${marked.length} approval(s) given before this version need re-approval: ${marked.join(", ")}`);

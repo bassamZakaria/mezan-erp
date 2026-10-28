@@ -112,7 +112,7 @@ wait_ready() {
   while [ "$SECONDS" -lt "$deadline" ]; do
     status="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$container" 2>/dev/null || echo missing)"
     [ "$status" = "healthy" ] && return 0
-    sleep 3
+    sleep 1
   done
   return 1
 }

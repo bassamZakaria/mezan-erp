@@ -62,6 +62,10 @@ Webhook signing secrets and a tenant's SMTP password are sealed with AES-256-GCM
 
 - `MEZAN_SECRETS_KEY`: the 32-byte platform key as 64 hex characters. A secret; never commit it. Unset, the server generates one once into `<platform dir>/secrets.key` (mode 0600, outside every tenant directory) and logs that it did. Back the key up apart from the tenant backups: without it the stored secrets cannot be read, webhooks stop signing and the SMTP password must be typed again. Plaintext values written before sealing are sealed when a tenant's books are opened.
 
+## Moving the SQLite books to Postgres
+
+`apps/server/src/sqlite-to-postgres-cli.ts` (`check` / `migrate`, run by `deploy/contabo/deploy.sh --migrate-sqlite`; see deploy/contabo/README.md "Cutover to Postgres") reads `MEZAN_AUDIT_CHAIN_KEY`, `MEZAN_SECRETS_KEY`, and for `migrate` also `MEZAN_DATABASE_URL`, `MEZAN_TENANT_DB_SECRET` and `MEZAN_MIGRATE_OWNER_URL` (a superuser URL `deploy.sh` builds from `pg.env` and passes only to that one-off container). Keep after the cutover: `MEZAN_AUDIT_CHAIN_KEY` and any `audit-chain.key` file, `MEZAN_SECRETS_KEY` / `secrets.key`, each `tenants/<id>.db.evidence-signing.key`, and `audit-anchors/`.
+
 ## Audit trail anchors (tamper evidence from outside the database)
 
 The audit trail is hash-chained, but anyone with the files can re-chain it or

@@ -3,6 +3,10 @@
 #   deploy.sh <image tag>       deploy that tag (the commit SHA CI pushed)
 #   deploy.sh --rollback        run the tag that ran before the last deploy, on
 #                               the current books (README "Update and rollback")
+#   deploy.sh --migrate-sqlite <image tag>
+#                               the Postgres cutover WITH the SQLite books: the
+#                               new tag's migrator copies them into Postgres
+#                               before it starts (README "Cutover to Postgres")
 #
 # Every deploy stops the app first (Postgres keeps running) and takes a
 # consistent copy of the books: expect about a minute of downtime. A deploy that
@@ -26,11 +30,14 @@ CUTOVER_NAME=postgres-cutover-tag
 CUTOVER_FILE="$DATA_DIR/$CUTOVER_NAME"
 APP_ROLE_SQL="$COMPOSE_DIR/postgres-init/10-mezan-app.sql"
 TAG_FILE="$COMPOSE_DIR/.env"
+MIGRATE_SQLITE=0
+MIGRATION_REPORT="$DATA_DIR/sqlite-to-postgres-report.json"
 
 log() { printf '[deploy %s] %s\n' "$(date -u +%H:%M:%S)" "$*"; }
 die() { log "REFUSED: $*"; exit 1; }
 compose() { docker compose --project-directory "$COMPOSE_DIR" -f "$COMPOSE_DIR/docker-compose.yml" "$@"; }
 pg_user() { sed -n 's/^POSTGRES_USER=//p' "$PG_ENV" | tail -n 1; }
+pg_password() { sed -n 's/^POSTGRES_PASSWORD=//p' "$PG_ENV" | tail -n 1; }
 psql_in() { docker exec -i mezan-postgres psql -U "$(pg_user)" -d mezan -v ON_ERROR_STOP=1 -Atc "$1"; }
 
 book_schemas() { psql_in "SELECT nspname FROM pg_namespace WHERE nspname = 'platform' OR nspname ~ '^t_[a-z0-9_]+\$' ORDER BY 1"; }
@@ -256,11 +263,46 @@ restore_snapshot() {
   PHASE=tagged
 }
 
+# Runs the new tag's migrator in a one-off container, Postgres already up and the app stopped.
+# It refuses unless Postgres holds no books, and drops what it created when anything differs.
+migrate_sqlite_books() {
+  local tag="$1" owner_url
+  # SECURITY: the superuser's URL reaches the container through the environment, never a command line.
+  owner_url="$(pg_user | python3 -I -c 'import sys, urllib.parse; user = sys.stdin.read().strip(); password = open(sys.argv[1]).read().strip(); print("postgres://%s:%s@postgres:5432/mezan" % (urllib.parse.quote(user, safe=""), urllib.parse.quote(password, safe="")))' <(pg_password))"
+  log "migrating the SQLite books into Postgres with $tag (report: $MIGRATION_REPORT)"
+  MEZAN_MIGRATE_OWNER_URL="$owner_url" MEZAN_IMAGE_TAG="$tag" compose run --rm --no-deps -T -e MEZAN_MIGRATE_OWNER_URL mezan \
+    node --import tsx apps/server/src/sqlite-to-postgres-cli.ts migrate --data /data --report /data/sqlite-to-postgres-report.json >/dev/null
+}
+
+# Puts the pre-deploy copy and the old tag back after the new one failed.
+fall_back() {
+  local label="$1" new_tag="$2" old_tag="$3" old_previous="$4"
+  [ -n "$old_tag" ] || die "first deploy failed and there is no earlier tag to go back to"
+  # Always: the failed version may have changed any schema, and only the copy
+  # says what the old version expects.
+  # Not $new_tag: --rollback would then deploy the tag that just failed.
+  write_tags "$old_tag" "$old_previous"
+  restore_snapshot "$label" "$new_tag"
+  log "rolling back to $old_tag"
+  compose up -d --remove-orphans
+  if wait_ready; then
+    PHASE=served
+    log "rolled back to $old_tag on the pre-deploy copy; $new_tag needs fixing"
+    exit 2
+  fi
+  die "$old_tag is not ready either: the site is down. Read 'docker logs mezan' and README 'Restore'"
+}
+
 deploy() {
   local new_tag="$1" old_tag old_previous
   old_tag="$(tag_value MEZAN_IMAGE_TAG)"
   old_previous="$(tag_value MEZAN_PREVIOUS_IMAGE_TAG)"
   [ "$new_tag" != "$old_tag" ] || die "$new_tag is already the running tag"
+  if [ "$MIGRATE_SQLITE" = 1 ]; then
+    [ ! -s "$CUTOVER_FILE" ] || die "$CUTOVER_FILE exists: the books are already on Postgres, so there is nothing to migrate"
+    [ -f "$DATA_DIR/platform.db" ] || die "$DATA_DIR/platform.db does not exist: there are no SQLite books to migrate"
+    [ -n "$old_tag" ] || die "--migrate-sqlite needs the SQLite tag running, to fall back to if the migration fails"
+  fi
 
   if docker image inspect "${MEZAN_IMAGE:-ghcr.io/bassamzakaria/mezan-erp}:$new_tag" >/dev/null 2>&1; then
     log "$new_tag is already on this host"
@@ -281,6 +323,10 @@ deploy() {
   start_postgres
   local label="${old_tag:-initial}"
   if [ -n "$old_tag" ]; then snapshot_data "$label"; fi
+  if [ "$MIGRATE_SQLITE" = 1 ] && ! migrate_sqlite_books "$new_tag"; then
+    log "the migration failed or found a difference; read $MIGRATION_REPORT"
+    fall_back "$label" "$new_tag" "$old_tag" "$old_previous"
+  fi
 
   PHASE=tagged
   write_tags "$new_tag" "$old_tag"
@@ -299,21 +345,7 @@ deploy() {
 
   log "$new_tag did not become ready within ${READY_TIMEOUT_SECONDS} s; last log lines:"
   docker logs --tail 40 mezan 2>&1 || true
-  [ -n "$old_tag" ] || die "first deploy failed and there is no earlier tag to go back to"
-
-  # Always: the failed version may have changed any schema, and only the copy
-  # says what the old version expects.
-  # Not $new_tag: --rollback would then deploy the tag that just failed.
-  write_tags "$old_tag" "$old_previous"
-  restore_snapshot "$label" "$new_tag"
-  log "rolling back to $old_tag"
-  compose up -d --remove-orphans
-  if wait_ready; then
-    PHASE=served
-    log "rolled back to $old_tag on the pre-deploy copy; $new_tag needs fixing"
-    exit 2
-  fi
-  die "$old_tag is not ready either: the site is down. Read 'docker logs mezan' and README 'Restore'"
+  fall_back "$label" "$new_tag" "$old_tag" "$old_previous"
 }
 
 rollback() {
@@ -329,14 +361,18 @@ rollback() {
 }
 
 main() {
-  [ $# -eq 1 ] || { echo "usage: $0 <image tag> | --rollback" >&2; exit 64; }
+  if [ "${1:-}" = "--migrate-sqlite" ]; then
+    MIGRATE_SQLITE=1
+    shift
+  fi
+  [ $# -eq 1 ] || { echo "usage: $0 <image tag> | --rollback | --migrate-sqlite <image tag>" >&2; exit 64; }
   [ "$(id -u)" -eq 0 ] || die "run as root"
   exec 9>/run/mezan-deploy.lock
   flock -n 9 || die "another deploy is running"
   preflight
   case "$1" in
-    --rollback) rollback ;;
-    -*) echo "usage: $0 <image tag> | --rollback" >&2; exit 64 ;;
+    --rollback) [ "$MIGRATE_SQLITE" = 0 ] || { echo "usage: $0 <image tag> | --rollback | --migrate-sqlite <image tag>" >&2; exit 64; }; rollback ;;
+    -*) echo "usage: $0 <image tag> | --rollback | --migrate-sqlite <image tag>" >&2; exit 64 ;;
     *) [[ "$1" =~ ^[A-Za-z0-9_.-]{1,128}(@sha256:[0-9a-f]{64})?$ ]] || die "not an image tag: $1"; deploy "$1" ;;
   esac
 }

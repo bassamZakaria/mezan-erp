@@ -20,6 +20,7 @@ COPY packages/backend/package.json packages/backend/
 COPY packages/contracts/package.json packages/contracts/
 COPY packages/domain/package.json packages/domain/
 COPY packages/persistence/package.json packages/persistence/
+COPY packages/persistence-postgres/package.json packages/persistence-postgres/
 COPY packages/ui/package.json packages/ui/
 RUN pnpm install --frozen-lockfile
 

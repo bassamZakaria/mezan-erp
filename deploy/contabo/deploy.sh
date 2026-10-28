@@ -298,7 +298,7 @@ migrate_sqlite_books() {
   # timeout stops the compose client, not the container.
   docker rm -f "$MIGRATE_CONTAINER" >/dev/null 2>&1 || true
   rm -rf "$MIGRATE_SCRATCH"
-  [ "$code" -ne 124 ] || log "the migration ran past $MIGRATE_TIMEOUT_SECONDS s and was stopped"
+  case "$code" in 124 | 137) log "the migration ran past $MIGRATE_TIMEOUT_SECONDS s and was stopped" ;; esac
   return "$code"
 }
 

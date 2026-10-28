@@ -1,16 +1,14 @@
 name: Tests
 
 # Typecheck and the unit suite, with the Postgres half of the ledger suite
-# against the same major version the VPS runs. Release image calls this as the
-# gate in front of the staging deploy.
+# against the same major version the VPS runs. Never part of a deploy: the
+# staging release builds and deploys without it.
 on:
   pull_request:
   push:
-    branches: [staging, main, fixes-after-demo]
-  workflow_call:
+    branches: [main, fixes-after-demo]
 
 concurrency:
-  # github.workflow is the caller's name when called, so a gate run never cancels a push run.
   group: ${{ github.workflow }}-tests-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 

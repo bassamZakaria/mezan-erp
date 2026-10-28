@@ -22,10 +22,14 @@ export { BackupVerifyOutcome, VERIFY_LOG_FILE_NAME, type BackupVerifyRecord };
 
 const DEFAULT_KEEP = 12;
 
-// A literal filesystem path for `fork()`, not an ESM import specifier — the
-// `.ts` extension is deliberate (see the `execArgv` note below): unlike an
-// `import "./x.js"` this is never rewritten to the sibling `.ts` source.
-const VERIFY_WORKER_PATH = fileURLToPath(new URL("./backup-verify-worker.ts", import.meta.url));
+// REQUIRED: a literal filesystem path for `fork()`, not an ESM import specifier,
+// so it is never rewritten to a sibling. Under tsx this module is `.ts` and the
+// worker needs tsx's loader; in the image it is the esbuild bundle in
+// apps/server/dist (scripts/build.mjs), which ships `backup-verify-worker.js`
+// beside it as its own entry point.
+const OWN_EXTENSION = path.extname(fileURLToPath(import.meta.url));
+const VERIFY_WORKER_PATH = fileURLToPath(new URL(`./backup-verify-worker${OWN_EXTENSION}`, import.meta.url));
+const VERIFY_WORKER_EXEC_ARGV = OWN_EXTENSION === ".ts" ? ["--import", "tsx"] : process.execArgv;
 
 function failedRecord(backupPath: string, now: Date, report: string): BackupVerifyRecord {
   return { at: now.toISOString(), file: path.basename(backupPath), outcome: BackupVerifyOutcome.Failed, ms: 0, report };
@@ -43,11 +47,11 @@ function failedRecord(backupPath: string, now: Date, report: string): BackupVeri
  * register on the worker's OWN entry file but do not reliably extend to that
  * file's nested imports (confirmed by hand), so `verifyBackupFile`'s own
  * `@mezan/persistence` import failed to resolve inside a Worker while
- * resolving correctly inside a forked process. `execArgv` is explicit rather
- * than inherited from the parent — which may be `tsx` (`pnpm exec tsx`),
- * plain `node` (a future compiled build) or vitest's own worker pool — so
- * `--import tsx` boots the same loader `tsx`'s own CLI uses regardless of how
- * the server process itself was started.
+ * resolving correctly inside a forked process. Under tsx `execArgv` is explicit
+ * rather than inherited from the parent — which may be `tsx` (`pnpm exec tsx`)
+ * or vitest's own worker pool — so `--import tsx` boots the same loader `tsx`'s
+ * own CLI uses regardless of how the server process itself was started. The
+ * bundled build passes the parent's own flags (`--enable-source-maps`).
  *
  * A child that never reports back (crash, killed process) resolves to a
  * FAILED record rather than rejecting: `runBackups` must still see this
@@ -62,7 +66,7 @@ function runVerifyOffThread(backupPath: string, now: Date): Promise<BackupVerify
     let settled = false;
     let child: ChildProcess;
     try {
-      child = fork(VERIFY_WORKER_PATH, [], { execArgv: ["--import", "tsx"], stdio: ["ignore", "inherit", "inherit", "ipc"] });
+      child = fork(VERIFY_WORKER_PATH, [], { execArgv: VERIFY_WORKER_EXEC_ARGV, stdio: ["ignore", "inherit", "inherit", "ipc"] });
     } catch (err) {
       resolve(failedRecordAndLog(backupPath, now, err instanceof Error ? err.message : String(err)));
       return;
@@ -101,7 +105,7 @@ export function inspectBackupOffThread(backupPath: string): Promise<BackupInspec
     let settled = false;
     let child: ChildProcess;
     try {
-      child = fork(VERIFY_WORKER_PATH, [], { execArgv: ["--import", "tsx"], stdio: ["ignore", "inherit", "inherit", "ipc"] });
+      child = fork(VERIFY_WORKER_PATH, [], { execArgv: VERIFY_WORKER_EXEC_ARGV, stdio: ["ignore", "inherit", "inherit", "ipc"] });
     } catch (err) {
       resolve(failed(err instanceof Error ? err.message : String(err)));
       return;

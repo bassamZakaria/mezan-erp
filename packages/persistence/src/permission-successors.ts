@@ -2,6 +2,10 @@ import { SqlDialect, type SqlDb } from "./sql/sql-db.js";
 
 const MARKER_TABLE = `CREATE TABLE IF NOT EXISTS permission_grant_marker (name TEXT PRIMARY KEY, granted_at TEXT NOT NULL)`;
 
+export async function ensurePermissionGrantMarkerSchema(db: SqlDb): Promise<void> {
+  await db.applySchema(MARKER_TABLE);
+}
+
 async function hasRoleTable(db: SqlDb): Promise<boolean> {
   const sql =
     db.dialect === SqlDialect.Postgres
@@ -17,7 +21,7 @@ async function hasRoleTable(db: SqlDb): Promise<boolean> {
  * administrator later removes is never put back.
  */
 export async function grantSuccessorPermissionsOnce(db: SqlDb, marker: string, successors: ReadonlyMap<string, readonly string[]>): Promise<number> {
-  await db.applySchema(MARKER_TABLE);
+  await ensurePermissionGrantMarkerSchema(db);
   if (await db.get(`SELECT 1 AS granted FROM permission_grant_marker WHERE name = ?`, [marker])) return 0;
   return db.transaction(async (): Promise<number> => {
     let changed = 0;

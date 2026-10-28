@@ -57,6 +57,7 @@ import { ensureNotificationSchema } from "./notification-store.js";
 import { ensureOwnerDigestSchema } from "./owner-digest-store.js";
 import { ensureOwnerPinFenceSchema } from "./owner-pin-fence.js";
 import { ensurePeriodCloseSchema } from "./period-close-store.js";
+import { ensurePermissionGrantMarkerSchema } from "./permission-successors.js";
 import { ensurePosSessionSchema } from "./pos-session-store.js";
 import { ensurePosSchema } from "./pos-store.js";
 import { ensurePriceListSchema } from "./price-list-store.js";
@@ -116,6 +117,7 @@ export async function ensureTenantSchema(db: SqlDb): Promise<void> {
   await ensureIdempotentRequestSchema(db);
   await ensureLeaseSchema(db);
   await ensureAuditSchema(db);
+  await ensurePermissionGrantMarkerSchema(db);
 
   await ensureSequenceSchema(db);
   await ensureSequenceConfigSchema(db);

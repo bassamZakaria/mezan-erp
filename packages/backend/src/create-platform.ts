@@ -74,11 +74,20 @@ export const PLATFORM_SEED_PLANS: readonly SeedPlan[] = [
   },
 ];
 
+// Every platform table, created empty: no plan and no owner is seeded here.
+export async function ensurePlatformTables(db: SqlDb): Promise<void> {
+  await ensurePlatformSchema(db);
+  await ensureAuditSchema(db);
+  await ensureAttemptSchema(db);
+  await ensureSessionSchema(db);
+  await ensureRateWindowSchema(db);
+  await ensureTenantRetentionSchema(db);
+}
+
 async function openPlatformStores(options: CreatePlatformOptions) {
   if (options.db) {
     const db = options.db;
-    await ensurePlatformSchema(db);
-    await ensureAuditSchema(db);
+    await ensurePlatformTables(db);
     const audit = createAuditSink(db, { chainKey: options.auditChainKey });
     audit.unrecorded = securityFallbackFor(options.fallbackBase);
     const stores: PlatformStores = { ...createPlatformStores(db), db };
@@ -108,10 +117,12 @@ async function openPlatformStores(options: CreatePlatformOptions) {
 
 export async function createPlatform(options: CreatePlatformOptions = {}): Promise<PlatformHandle> {
   const { stores, audit, outsideTheTurn, inTheTurn, backupTo, close } = await openPlatformStores(options);
-  await ensureAttemptSchema(stores.db);
-  await ensureSessionSchema(stores.db);
-  await ensureRateWindowSchema(stores.db);
-  await ensureTenantRetentionSchema(stores.db);
+  if (!options.db) {
+    await ensureAttemptSchema(stores.db);
+    await ensureSessionSchema(stores.db);
+    await ensureRateWindowSchema(stores.db);
+    await ensureTenantRetentionSchema(stores.db);
+  }
   const now = options.now ?? (() => new Date());
   const slowHasher = options.hasher ?? createScryptHasher();
   const hasher: SecretHasher = {

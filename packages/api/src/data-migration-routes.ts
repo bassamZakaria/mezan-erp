@@ -13,6 +13,7 @@ import {
   DuplicateAccountCodeError,
   InvalidParentAccountError,
   InvalidTreasuryLedgerAccountError,
+  DuplicateTreasuryAccountCodeError,
   createSupplier,
   createCustomer,
   createItem,
@@ -498,7 +499,7 @@ export function createDataMigrationRoutes(
     try {
       result = commit && deps.transact ? await deps.transact.run(run) : await run();
     } catch (err) {
-      const conflict = err instanceof DuplicateAccountCodeError;
+      const conflict = err instanceof DuplicateAccountCodeError || err instanceof DuplicateTreasuryAccountCodeError;
       if (!conflict && !(err instanceof InvalidParentAccountError) && !(err instanceof InvalidTreasuryLedgerAccountError)) throw err;
       return c.json({ validCount: 0, errors: [{ rowNumber: persisting, reasons: [err.message] }] }, conflict ? 409 : 422);
     }

@@ -206,7 +206,7 @@ export function TreasuryAccountsScreen() {
   const ledgerAccountLabel = !selected?.glAccountId
     ? t("treasuryAcc.notLinked")
     : selected.glAccountCode && selected.glAccountNameAr
-      ? `${selected.glAccountCode} — ${selected.glAccountNameAr}`
+      ? `${selected.glAccountCode} — ${nameOf({ nameAr: selected.glAccountNameAr, nameEn: selected.glAccountNameEn ?? null })}`
       : selected.glAccountId;
 
   function openCreateForm() {

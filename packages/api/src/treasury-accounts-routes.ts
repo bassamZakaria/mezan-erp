@@ -199,6 +199,7 @@ export function createTreasuryAccountsRoutes(
         ...serialize(account),
         glAccountCode: ledgerAccount?.code ?? null,
         glAccountNameAr: ledgerAccount?.nameAr ?? null,
+        glAccountNameEn: ledgerAccount?.nameEn ?? null,
         foreignBalance: row ? row.foreignBalance.toString() : null,
         foreignBalanceBase: row ? row.baseBalance.toString() : null,
         foreignBalanceDerivedLines: row ? row.derivedLines : null,

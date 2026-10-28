@@ -24,6 +24,7 @@ export const treasuryAccountSchema = z.object({
   glAccountId: z.string().nullable(),
   glAccountCode: z.string().nullable().optional(),
   glAccountNameAr: z.string().nullable().optional(),
+  glAccountNameEn: z.string().nullable().optional(),
   foreignBalance: z.string().nullable().optional(),
   foreignBalanceBase: z.string().nullable().optional(),
   foreignBalanceDerivedLines: z.number().int().nullable().optional(),

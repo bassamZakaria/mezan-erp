@@ -84,8 +84,8 @@ const baseSettings: TenantSettingsDTO = {
   smtpPassword: "",
   smtpFromName: "",
   smtpFromEmail: "",
-  emailTemplateSubject: "{{documentType}} رقم {{documentNumber}}",
-  emailTemplateBody: "{{recipientName}}",
+  emailTemplateSubject: "كشف حساب حتى {{asOfDate}} — {{companyName}}",
+  emailTemplateBody: "السادة {{customerName}}،\n{{openItems}}\nالرصيد المستحق: {{balanceDue}}",
 };
 
 function renderScreen(initial: TenantSettingsDTO = baseSettings) {

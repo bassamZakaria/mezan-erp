@@ -56,19 +56,25 @@ describe("SqliteSettingsStore", () => {
     }
   });
 
-  it("#129 a row still holding the never-rendered document template reads the statement template, and a tenant's own wording is kept", async () => {
+  it("#129 a template naming the old document fields, or no statement field, reads the statement default; one using the statement fields is kept", async () => {
     const store = createSqliteSettingsStore();
     try {
-      const unrendered = createDefaultSettings({
-        emailTemplateSubject: "{{documentType}} رقم {{documentNumber}} من {{companyName}}",
-        emailTemplateBody:
-          "السلام عليكم {{recipientName}}،\n\nمرفق {{documentType}} رقم {{documentNumber}} بتاريخ {{documentDate}} بإجمالي {{documentTotal}}.\n\nمع خالص الشكر،\n{{companyName}}",
-      });
-      await store.save(unrendered);
+      const legacySubject = "{{documentType}} رقم {{documentNumber}} من {{companyName}}";
+      await store.save(
+        createDefaultSettings({
+          emailTemplateSubject: legacySubject,
+          emailTemplateBody:
+            "السلام عليكم {{recipientName}}،\n\nمرفق {{documentType}} رقم {{documentNumber}} بتاريخ {{documentDate}} بإجمالي {{documentTotal}}.\n\nمع خالص الشكر،\n{{companyName}}",
+        }),
+      );
       expect(await store.get()).toMatchObject({ emailTemplateSubject: DEFAULT_STATEMENT_EMAIL_SUBJECT, emailTemplateBody: DEFAULT_STATEMENT_EMAIL_BODY });
 
-      await store.save(createDefaultSettings({ emailTemplateSubject: unrendered.emailTemplateSubject, emailTemplateBody: "نصنا الخاص" }));
-      expect(await store.get()).toMatchObject({ emailTemplateSubject: DEFAULT_STATEMENT_EMAIL_SUBJECT, emailTemplateBody: "نصنا الخاص" });
+      await store.save(createDefaultSettings({ emailTemplateSubject: "عزيزنا {{recipientName}}", emailTemplateBody: "نصنا الخاص" }));
+      expect(await store.get()).toMatchObject({ emailTemplateSubject: DEFAULT_STATEMENT_EMAIL_SUBJECT, emailTemplateBody: DEFAULT_STATEMENT_EMAIL_BODY });
+
+      const custom = { emailTemplateSubject: "كشفكم حتى {{ asOfDate }}", emailTemplateBody: "السادة {{customerName}}\n{{openItems}}\nالمستحق {{balanceDue}}" };
+      await store.save(createDefaultSettings(custom));
+      expect(await store.get()).toMatchObject(custom);
     } finally {
       store.close();
     }
@@ -96,6 +102,23 @@ describe("SqliteSettingsStore", () => {
       const store = createSqliteSettingsStore(sqlite, box);
       expect(isSealedSecret(rawPassword(sqlite))).toBe(true);
       expect((await store.get())?.smtpPassword).toBe("legacy-pass");
+      sqlite.close();
+    });
+
+    it("keeps a sealed password it cannot open when the settings it read are saved back, and replaces it with a new one", async () => {
+      const sqlite = new Database(":memory:");
+      await createSqliteSettingsStore(sqlite, box).save(createDefaultSettings({ smtpPassword: "relay-pass" }));
+      const sealed = rawPassword(sqlite);
+      const otherKey = createSqliteSettingsStore(sqlite, createAesGcmSecretBox(randomBytes(32)));
+      const read = await otherKey.get();
+      expect(read?.smtpPassword).toBe("");
+      await otherKey.save(updateSettings(read!, { companyName: "شركة أخرى" }));
+      expect(rawPassword(sqlite)).toBe(sealed);
+      expect((await createSqliteSettingsStore(sqlite, box).get())?.smtpPassword).toBe("relay-pass");
+
+      await otherKey.save(updateSettings(read!, { smtpPassword: "new-pass" }));
+      expect(rawPassword(sqlite)).not.toBe(sealed);
+      expect((await otherKey.get())?.smtpPassword).toBe("new-pass");
       sqlite.close();
     });
 

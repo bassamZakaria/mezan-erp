@@ -57,6 +57,23 @@ export const DEFAULT_STATEMENT_EMAIL_BODY = [
 
 const TOKEN = /\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g;
 
+export enum LegacyDocumentPlaceholder {
+  DocumentType = "documentType",
+  DocumentNumber = "documentNumber",
+  DocumentDate = "documentDate",
+  DocumentTotal = "documentTotal",
+  RecipientName = "recipientName",
+}
+
+const STATEMENT_TOKENS: ReadonlySet<string> = new Set(Object.values(StatementPlaceholder));
+const LEGACY_TOKENS: ReadonlySet<string> = new Set(Object.values(LegacyDocumentPlaceholder));
+
+/** The document template that shipped before #129 was never rendered: one that names its fields, or names no statement field, would mail an empty statement. */
+export function isLegacyStatementTemplate(template: string): boolean {
+  const tokens = [...template.matchAll(TOKEN)].map((match) => match[1] ?? "");
+  return tokens.some((token) => LEGACY_TOKENS.has(token)) || !tokens.some((token) => STATEMENT_TOKENS.has(token));
+}
+
 function fill(template: string, values: Readonly<Record<StatementPlaceholder, string>>): string {
   return template.replace(TOKEN, (_match, key: string) => (Object.hasOwn(values, key) ? values[key as StatementPlaceholder] : ""));
 }

@@ -12,8 +12,8 @@ export interface StatementEmailPreviewProps {
 export function StatementEmailPreview({ subject, body, companyName, currency }: StatementEmailPreviewProps) {
   const { t } = useAppTranslation();
   const rendered = renderOpenItemStatement(
-    { customerName: t("settingsGeneral.emailPreviewCustomer"), companyName: String(companyName), asOfDate: todayIso(), currency: String(currency), items: [], balance: Money.zero() },
-    { subject: String(subject), body: String(body) },
+    { customerName: t("settingsGeneral.emailPreviewCustomer"), companyName, asOfDate: todayIso(), currency, items: [], balance: Money.zero() },
+    { subject, body },
   );
   return (
     <section aria-label={t("settingsGeneral.emailPreview")} className="flex flex-col gap-[6px] rounded-md border border-dashed border-border bg-surface-2 p-[12px]">

@@ -368,7 +368,7 @@ function SettingsForm({ initial }: { initial: TenantSettingsDTO }) {
                   value={draft.overReceiptTolerancePercent}
                   min={0}
                   max={100}
-                  step={0.5}
+                  step={0.01}
                   onChange={(v) => patch({ overReceiptTolerancePercent: v })}
                   hint={t("settingsGeneral.overReceiptToleranceHint")}
                 />
@@ -563,7 +563,7 @@ function SettingsForm({ initial }: { initial: TenantSettingsDTO }) {
                   <div className="flex items-center gap-[10px] self-end">
                     <Button
                       size="sm"
-                      disabled={testEmail.isPending || !draft.smtpEnabled || String(testRecipient).trim() === ""}
+                      disabled={testEmail.isPending || !draft.smtpEnabled || testRecipient.trim() === ""}
                       onClick={handleTestEmail}
                     >
                       {testEmail.isPending ? t("settingsGeneral.sendingTestEmail") : t("settingsGeneral.sendTestEmail")}

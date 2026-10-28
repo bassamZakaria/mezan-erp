@@ -7,6 +7,11 @@ on:
   push:
     branches: [staging, production]
   workflow_dispatch:
+    inputs:
+      skip_tests:
+        description: Build the image without running the tests first (never deploys automatically)
+        type: boolean
+        default: false
 
 concurrency:
   group: release-image-${{ github.ref }}
@@ -19,12 +24,14 @@ permissions:
 jobs:
   test:
     name: tests
+    if: ${{ !inputs.skip_tests }}
     uses: ./.github/workflows/test.yml
 
   image:
     name: build · push (amd64)
-    # An untested commit is never pushed to the registry, where a hand deploy could pick it up.
+    # Untested only when someone dispatches with skip_tests; such a tag never deploys on its own.
     needs: test
+    if: ${{ !cancelled() && (needs.test.result == 'success' || (inputs.skip_tests && needs.test.result == 'skipped')) }}
     runs-on: ubuntu-latest
     outputs:
       digest: ${{ steps.build.outputs.digest }}

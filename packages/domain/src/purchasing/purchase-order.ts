@@ -235,12 +235,7 @@ export async function cancelPurchaseOrder(
   });
 }
 
-/**
- * Apply received quantities to a PO (pure). Fills each item's lines in order up
- * to their ordered qty; whatever exceeds the item's total ordered qty (an
- * over-receipt allowed by the tolerance) lands on the item's last line, so
- * `receivedQty` is what really arrived. Recomputes the status.
- */
+/** INVARIANT: an over-receipt's excess lands on the item's last line; `revertReceiptFromOrder` walks lines in reverse so a cancel takes it back from there. */
 export function applyReceiptToOrder(
   order: PurchaseOrder,
   received: readonly { itemId: string; qty: Qty }[],

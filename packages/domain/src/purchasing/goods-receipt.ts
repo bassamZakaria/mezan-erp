@@ -291,8 +291,9 @@ export function buildReceiptLinesFromOrder(order: PurchaseOrder): GoodsReceiptLi
     .filter((line) => !line.qty.isZero());
 }
 
-function assertReceivable(order: PurchaseOrder): void {
-  if (order.status !== "sent" && order.status !== "partially_received") {
+function assertReceivable(order: PurchaseOrder, policy: PurchasePolicy): void {
+  const roomAboveOrdered = order.status === "fully_received" && policy.blockOverReceipt && (policy.overReceiptTolerancePercent ?? 0) > 0;
+  if (order.status !== "sent" && order.status !== "partially_received" && !roomAboveOrdered) {
     throw new PurchaseOrderNotReceivableError(order.id, order.status);
   }
 }
@@ -344,7 +345,7 @@ export async function createGoodsReceipt(
 
   const order = await deps.orders.findById(command.purchaseOrderId);
   if (!order) throw new PurchaseOrderNotFoundError(command.purchaseOrderId);
-  assertReceivable(order);
+  assertReceivable(order, policy);
 
   const lines: GoodsReceiptLine[] = (
     command.lines
@@ -542,7 +543,11 @@ export async function confirmGoodsReceipt(
   if (deps.gl && (!deps.accounts || !accrualAccountId)) throw new GoodsReceiptAccrualAccountMissingError(id);
   const order = receipt.purchaseOrderId ? await deps.orders.findById(receipt.purchaseOrderId) : null;
   if (receipt.purchaseOrderId && !order) throw new PurchaseOrderNotFoundError(receipt.purchaseOrderId);
-  if (order) assertWithinOverReceiptTolerance(order, receipt.lines, deps.policy ?? DEFAULT_PURCHASE_POLICY);
+  const policy = deps.policy ?? DEFAULT_PURCHASE_POLICY;
+  if (order) {
+    assertReceivable(order, policy);
+    assertWithinOverReceiptTolerance(order, receipt.lines, policy);
+  }
   const received = await deps.stock.postReceipt({
     receiptId: receipt.id,
     receiptNumber: receipt.number,

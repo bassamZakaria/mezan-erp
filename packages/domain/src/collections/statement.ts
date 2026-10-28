@@ -58,7 +58,7 @@ export const DEFAULT_STATEMENT_EMAIL_BODY = [
 const TOKEN = /\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g;
 
 function fill(template: string, values: Readonly<Record<StatementPlaceholder, string>>): string {
-  return template.replace(TOKEN, (_match, key: string) => values[key as StatementPlaceholder] ?? "");
+  return template.replace(TOKEN, (_match, key: string) => (Object.hasOwn(values, key) ? values[key as StatementPlaceholder] : ""));
 }
 
 /** SECURITY: the subject is a mail header — no value may carry a line break into it. */

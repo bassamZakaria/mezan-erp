@@ -715,7 +715,7 @@ export function GoodsReceiptsScreen() {
                         {t("goodsReceipts.error.overReceipt", {
                           ordered: String(line.orderedQty),
                           received: String(line.receivedQty),
-                          allowed: String(line.receivedQty + allowedQtyOf(line, overReceiptTolerancePercent)),
+                          allowed: String(Math.round((line.receivedQty + allowedQtyOf(line, overReceiptTolerancePercent)) * QTY_DECIMALS) / QTY_DECIMALS),
                         })}
                       </p>
                     ) : null}

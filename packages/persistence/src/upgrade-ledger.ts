@@ -9,7 +9,6 @@ export enum UpgradeStepId {
   SeededRoleGoodsReceiving = "seeded_role_goods_receiving",
   SeededRolePriceFloor = "seeded_role_price_floor",
   StandardRoles = "standard_roles",
-  StatementEmailTemplate = "statement_email_template",
 }
 
 export interface UpgradeLedger {

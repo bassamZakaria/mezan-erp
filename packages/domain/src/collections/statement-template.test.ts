@@ -107,6 +107,10 @@ describe("#129 the statement email follows the tenant's subject and body templat
     expect(rendered.body).toBe("{{balanceDue}}");
   });
 
+  it("a token naming no placeholder renders empty, even one the object prototype carries", () => {
+    expect(renderOpenItemStatement(input(), { subject: "x{{constructor}}{{toString}}{{unknown}}", body: "{{__proto__}}." }).body).toBe(".");
+  });
+
   it("a line break in a value cannot reach the subject line", () => {
     const rendered = renderOpenItemStatement(input({ customerName: "x\r\nBcc: victim@example.com" }), { subject: "كشف {{customerName}}", body: "{{customerName}}" });
     expect(rendered.subject).not.toMatch(/[\r\n]/);
@@ -137,6 +141,14 @@ describe("#129 sender and template settings refuse header injection", () => {
   it("refuses a CR or LF in the sender address and in the subject template", () => {
     expect(refused({ smtpFromEmail: "a@b.com\r\nBcc: x@example.com" })).not.toBeNull();
     expect(refused({ emailTemplateSubject: "كشف\r\nBcc: x@example.com" })).not.toBeNull();
+  });
+
+  it("#118 the over-receipt tolerance takes at most two decimals, inside 0..100", () => {
+    expect(refused({ overReceiptTolerancePercent: 12.5 })).toBeNull();
+    expect(refused({ overReceiptTolerancePercent: 0.25 })).toBeNull();
+    expect(refused({ overReceiptTolerancePercent: 0.004 })).not.toBeNull();
+    expect(refused({ overReceiptTolerancePercent: 100.5 })).not.toBeNull();
+    expect(refused({ overReceiptTolerancePercent: -1 })).not.toBeNull();
   });
 
   it("keeps line breaks in the body template", () => {

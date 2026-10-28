@@ -30,7 +30,7 @@ async function booksWrittenBeforeReversalPermissions(): Promise<string> {
   const { sqlite } = openSqliteConnection(file);
   const insert = sqlite.prepare(`INSERT INTO role (id, code, name, description, permissions, is_system, created_at) VALUES (?, ?, ?, '', ?, 0, '2026-01-01T00:00:00.000Z')`);
   for (const [id, permissions] of Object.entries(OLD_ROLES)) insert.run(id, id, id, JSON.stringify(permissions));
-  sqlite.exec(`DELETE FROM permission_grant_marker`);
+  sqlite.exec(`DELETE FROM permission_grant_marker WHERE name <> 'attachment_permissions'`);
   sqlite.close();
   return file;
 }

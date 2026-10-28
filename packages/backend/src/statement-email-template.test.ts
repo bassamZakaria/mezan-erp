@@ -1,8 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { DEFAULT_SETTINGS, DEFAULT_STATEMENT_EMAIL_BODY, DEFAULT_STATEMENT_EMAIL_SUBJECT } from "@mezan/domain";
 import { StatementChannelDTO } from "@mezan/contracts";
 import { seededWorld, type SeededWorld } from "./test-helpers/seeded-world.js";
-import { withStatementEmailTemplate } from "./statement-template-upgrade.js";
 
 interface Sent {
   readonly fromName: string;
@@ -57,27 +55,5 @@ describe("#129 the customer mail queue sends the tenant's sender and template", 
     const refused = await world.request("PUT", "/settings", { smtpFromName: "Mezan\r\nBcc: someone@example.com" });
     expect(refused.status).toBe(422);
     expect((await world.request("GET", "/settings")).body.smtpFromName).toBe("ميزان — الحسابات");
-  });
-});
-
-describe("#129 books holding the never-rendered document template move to the statement template", () => {
-  const unrendered = {
-    ...DEFAULT_SETTINGS,
-    emailTemplateSubject: "{{documentType}} رقم {{documentNumber}} من {{companyName}}",
-    emailTemplateBody:
-      "السلام عليكم {{recipientName}}،\n\nمرفق {{documentType}} رقم {{documentNumber}} بتاريخ {{documentDate}} بإجمالي {{documentTotal}}.\n\nمع خالص الشكر،\n{{companyName}}",
-  };
-
-  it("replaces the untouched old defaults", () => {
-    const upgraded = withStatementEmailTemplate(unrendered);
-    expect(upgraded.emailTemplateSubject).toBe(DEFAULT_STATEMENT_EMAIL_SUBJECT);
-    expect(upgraded.emailTemplateBody).toBe(DEFAULT_STATEMENT_EMAIL_BODY);
-  });
-
-  it("keeps a tenant's own wording", () => {
-    const own = { ...unrendered, emailTemplateBody: "نصنا الخاص" };
-    expect(withStatementEmailTemplate(own).emailTemplateBody).toBe("نصنا الخاص");
-    expect(withStatementEmailTemplate(own).emailTemplateSubject).toBe(DEFAULT_STATEMENT_EMAIL_SUBJECT);
-    expect(withStatementEmailTemplate(DEFAULT_SETTINGS)).toBe(DEFAULT_SETTINGS);
   });
 });

@@ -6183,7 +6183,7 @@ export const webAr = {
   "settingsGeneral.emailTemplate": "قالب الرسالة",
   "settingsGeneral.emailTemplateSubject": "الموضوع",
   "settingsGeneral.emailTemplateBody": "نص الرسالة",
-  "settingsGeneral.emailTemplateHint": "يُستخدم لكشف الحساب المرسل للعميل. المتغيرات المتاحة: {{customerName}}، {{companyName}}، {{asOfDate}}، {{openItems}}، {{openItemsEn}}، {{balanceDue}}، {{balanceDueEn}}، {{overdueAmount}}، {{overdueAmountEn}}. يُترك الحقل فارغاً لاستخدام النص الافتراضي.",
+  "settingsGeneral.emailTemplateHint": "يُستخدم لكشف الحساب المرسل للعميل بالبريد أو واتساب (الموضوع للبريد فقط). المتغيرات المتاحة: {{customerName}}، {{companyName}}، {{asOfDate}}، {{openItems}}، {{openItemsEn}}، {{balanceDue}}، {{balanceDueEn}}، {{overdueAmount}}، {{overdueAmountEn}}. يُترك الحقل فارغاً لاستخدام النص الافتراضي.",
   "settingsGeneral.emailPreview": "معاينة — بقيم توضيحية",
   "settingsGeneral.emailPreviewCustomer": "اسم العميل",
   "settingsGeneral.emailPreviewSubject": "الموضوع:",

@@ -147,7 +147,6 @@ export interface TenantSettings {
   readonly requirePoForGrn: boolean;
   readonly requireGrnForInvoice: boolean;
   readonly trackSoldPurchaseItems: boolean;
-  /** How far above the ordered qty a goods receipt may go, in percent of the PO line (0 = never above ordered). */
   readonly overReceiptTolerancePercent: number;
 
   // --- سياسة الخزينة (Treasury policy) ---
@@ -345,8 +344,13 @@ function validate(settings: TenantSettings): string[] {
   ) {
     reasons.push("agingWritedownMonths must be an integer in 1..60");
   }
-  if (!Number.isFinite(settings.overReceiptTolerancePercent) || settings.overReceiptTolerancePercent < 0 || settings.overReceiptTolerancePercent > 100) {
-    reasons.push("overReceiptTolerancePercent must be in 0..100");
+  if (
+    !Number.isFinite(settings.overReceiptTolerancePercent) ||
+    settings.overReceiptTolerancePercent < 0 ||
+    settings.overReceiptTolerancePercent > 100 ||
+    Math.abs(settings.overReceiptTolerancePercent * 100 - Math.round(settings.overReceiptTolerancePercent * 100)) > 1e-9
+  ) {
+    reasons.push("overReceiptTolerancePercent must be in 0..100 with at most two decimals");
   }
   if (settings.maxLineDiscountPercent < 0 || settings.maxLineDiscountPercent > 100) {
     reasons.push("maxLineDiscountPercent must be in 0..100");

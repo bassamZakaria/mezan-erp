@@ -6177,7 +6177,7 @@ export const webEn: Record<WebTranslationKey, string> = {
   "settingsGeneral.emailTemplate": "Message template",
   "settingsGeneral.emailTemplateSubject": "Subject",
   "settingsGeneral.emailTemplateBody": "Body",
-  "settingsGeneral.emailTemplateHint": "Used for the statement of account emailed to a customer. Placeholders: {{customerName}}, {{companyName}}, {{asOfDate}}, {{openItems}}, {{openItemsEn}}, {{balanceDue}}, {{balanceDueEn}}, {{overdueAmount}}, {{overdueAmountEn}}. Leave a field empty to use the default text.",
+  "settingsGeneral.emailTemplateHint": "Used for the statement of account sent to a customer by email or WhatsApp (the subject is for email only). Placeholders: {{customerName}}, {{companyName}}, {{asOfDate}}, {{openItems}}, {{openItemsEn}}, {{balanceDue}}, {{balanceDueEn}}, {{overdueAmount}}, {{overdueAmountEn}}. Leave a field empty to use the default text.",
   "settingsGeneral.emailPreview": "Preview — with example values",
   "settingsGeneral.emailPreviewCustomer": "Customer name",
   "settingsGeneral.emailPreviewSubject": "Subject:",

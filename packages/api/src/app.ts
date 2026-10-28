@@ -900,11 +900,6 @@ export interface CreateAppOptions {
   readonly resolveLicenseState?: LicenseStateResolver;
 }
 
-/**
- * Derive the purchase chain's strictness policy (docs/archive/catalog/09
- * §"التحكم في المشتريات") from the live tenant settings. Over-receipt is always
- * guarded; the tenant chooses only how far above the ordered qty it may go.
- */
 function mapSettingsToPurchasePolicy(settings: TenantSettings): PurchasePolicy {
   return {
     requirePoForGrn: settings.requirePoForGrn,

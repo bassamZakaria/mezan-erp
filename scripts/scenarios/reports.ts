@@ -57,6 +57,8 @@ const ALL_REPORTS: readonly string[] = [
   "/financial-reports/cash-flow?periodFrom=2026-01-01&periodTo=2026-12-31",
   "/financial-reports/vat-return?periodFrom=2026-01-01&periodTo=2026-12-31",
   "/reports/tax/withholding?fromDate=2026-01-01&toDate=2026-12-31",
+  "/reports/treasury/collections?dateFrom=2026-01-01&dateTo=2026-12-31",
+  "/reports/treasury/collections-monthly-by-rep?dateFrom=2026-01-01&dateTo=2026-12-31",
   "/financial-reports/general-ledger?periodFrom=2026-01-01&periodTo=2026-12-31",
 ];
 

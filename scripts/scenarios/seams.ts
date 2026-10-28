@@ -660,6 +660,50 @@ export async function run(ctx: Ctx): Promise<void> {
     }
   });
 
+  await scenario("#115 · a transfer commission closes the invoice on what arrived plus what the bank kept, and the collections report ties to it (#117)", async () => {
+    const INVOICE = "INV-DEMO-5";
+    const BANK = "1310";
+    const COMMISSION = "5910";
+    const before = await req("GET", `/sales-invoices/${INVOICE}`);
+    const remaining = n(before.body?.remainingBalance);
+    check("the seeded invoice still owes something", remaining > 100, `remaining ${remaining}`);
+    const arBefore = await gl(AR);
+    const bankBefore = await gl(BANK);
+    const commissionBefore = await gl(COMMISSION);
+
+    const refused = await req("POST", `/sales-invoices/${INVOICE}/payments`, {
+      amount: "50.00", commissionAmount: "5.00", treasuryAccountId: "TR-DEMO-BANK", paymentMethod: "bank", date: TODAY,
+    });
+    check("a commission with no expense account is refused, in Arabic", refused.status === 422 && /عمولة التحويل/.test(String(refused.body?.message)), `status ${refused.status} ${JSON.stringify(refused.body).slice(0, 200)}`);
+
+    const net = Math.round((remaining - 10) * 100) / 100;
+    const paid = await req("POST", `/sales-invoices/${INVOICE}/payments`, {
+      amount: net.toFixed(2), commissionAmount: "10.00", commissionGlAccountId: COMMISSION,
+      treasuryAccountId: "TR-DEMO-BANK", paymentMethod: "bank", date: TODAY, referenceNo: "SCN-TRF-1",
+    });
+    check("the collection with commission is accepted", paid.status === 200, `status ${paid.status} ${JSON.stringify(paid.body).slice(0, 250)}`);
+    checkEq("received plus commission settles the invoice in full", n(paid.body?.remainingBalance), 0);
+    check("so the invoice closes", paid.body?.status === "paid", `status ${paid.body?.status}`);
+    checkEq("the customer is relieved of the gross", (await gl(AR)) - arBefore, -(net + 10));
+    checkEq("only what arrived lands in the bank", (await gl(BANK)) - bankBefore, net);
+    checkEq("and the commission is an expense", (await gl(COMMISSION)) - commissionBefore, 10);
+
+    const report = await req("GET", `/reports/treasury/collections?dateFrom=${MONTH_START}&dateTo=${MONTH_END}&customerId=${CUSTOMER}`);
+    check("the collections report runs for one customer", report.status === 200, `status ${report.status}`);
+    const mine = rows(report.body).filter((r: any) => r.invoiceNo === before.body?.docNo);
+    check("and lists the collections that settled the invoice", mine.length >= 2, JSON.stringify(rows(report.body)).slice(0, 300));
+    checkEq("each share's gross is its net plus its commission", mine.reduce((s: number, r: any) => s + n(r.gross) - n(r.net) - n(r.commission), 0), 0);
+    checkEq("the commissions on this invoice are the seeded 25 and this 10", mine.reduce((s: number, r: any) => s + n(r.commission), 0), 35);
+    check("every row is a customer's", rows(report.body).every((r: any) => r.customerId === CUSTOMER));
+    check("its total ties to the collection vouchers it read", report.body?.reconciliation?.withinTolerance === true, JSON.stringify(report.body?.reconciliation));
+
+    const byRep = await req("GET", `/reports/treasury/collections?dateFrom=${MONTH_START}&dateTo=${MONTH_END}&repId=${before.body?.salespersonId}`);
+    check("filtered to the invoice's sales rep, every row is that rep's", byRep.status === 200 && rows(byRep.body).length > 0 && rows(byRep.body).every((r: any) => r.repId === before.body?.salespersonId), JSON.stringify(rows(byRep.body)).slice(0, 200));
+    const monthly = await req("GET", `/reports/treasury/collections-monthly-by-rep?dateFrom=${MONTH_START}&dateTo=${MONTH_END}`);
+    const allShares = await req("GET", `/reports/treasury/collections?dateFrom=${MONTH_START}&dateTo=${MONTH_END}`);
+    checkEq("the monthly report per rep adds up to the detail", rows(monthly.body).reduce((s: number, r: any) => s + n(r.gross), 0), rows(allShares.body).reduce((s: number, r: any) => s + n(r.gross), 0));
+  });
+
   // ---------------------------------------------------------------------------
   // X46 — VAT that is not "14% of everything"
   // ---------------------------------------------------------------------------

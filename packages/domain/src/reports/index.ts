@@ -337,6 +337,17 @@ export {
   type VatSide,
 } from "./vat-return.js";
 export {
+  createCollectionsReport,
+  createMonthlyCollectionsByRepReport,
+  UNASSIGNED_COLLECTION_KEY,
+  type CollectionsContext,
+  type CollectionsParams,
+  type CollectionShareRow,
+  type MonthlyCollectionRow,
+  type CollectionReportVoucher,
+  type CollectionFilterOptions,
+} from "./collections.js";
+export {
   createWithholdingTaxReport,
   type WithholdingTaxContext,
   type WithholdingTaxParams,

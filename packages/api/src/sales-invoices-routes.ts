@@ -54,6 +54,7 @@ import {
   type SalesInvoicePromotionHook,
   type CreateSalesInvoiceCommand,
   type EmployeeDirectory,
+  InvalidDocumentError,
   type DocumentNumberingHook,
   type DocumentGlHook,
   type DocumentWorkflowGate,
@@ -592,6 +593,9 @@ function handleDomainError(c: Context, err: unknown): Response {
   }
   if (err instanceof InvalidSalesInvoicePaymentError) {
     return c.json({ error: err.code, message: err.message }, 422);
+  }
+  if (err instanceof InvalidDocumentError) {
+    return c.json({ error: err.code, message: err.message, ...(err.messageEn ? { messageEn: err.messageEn } : {}) }, 422);
   }
   if (err instanceof CreditLimitExceededError) {
     return c.json({ error: err.code, message: err.message, customerId: err.customerId }, 422);

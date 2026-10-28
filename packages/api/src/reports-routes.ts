@@ -45,6 +45,9 @@ import {
   createCashFlowReport,
   createVatReturnReport,
   createWithholdingTaxReport,
+  createCollectionsReport,
+  createMonthlyCollectionsByRepReport,
+  type CollectionsContext,
   createGeneralLedgerReport,
   createAccountLedgerReport,
   OUTPUT_VAT_ACCOUNT_ID,
@@ -102,6 +105,7 @@ import {
   salesReturnCreditByInvoice,
   voucherBaseAmount,
   voucherBaseWithholding,
+  voucherBaseCommission,
   isStandingVoucher,
   voucherStandsAsOf,
   fxRevaluationNet,
@@ -2044,6 +2048,55 @@ export function createReportsRoutes(
   // The seven statements below all compute from the REAL posted GL (loadGlContext),
   // never a fixture ledger. Each recreates the SAME `ReportDefinition` the web
   // screen renders through, so params/columns/reconciliation can never drift.
+
+  /**
+   * التحصيلات (#117, #118): every standing customer collection in the window,
+   * split by the invoices it settled. Allocations are read only for the
+   * vouchers that fall in the window, one voucher at a time.
+   */
+  async function collectionsContext(c: Context, dateFrom: string, dateTo: string): Promise<CollectionsContext> {
+    const viewDeps = depsInViewOf(deps, c);
+    const [docs, customers, invoices] = await Promise.all([
+      viewDeps.voucherDocuments?.list({ status: "confirmed" }) ?? Promise.resolve([]),
+      deps.customers.findAll(),
+      deps.salesInvoices.list(),
+    ]);
+    const customerName = new Map(customers.map((customer) => [customer.id, customer.nameAr]));
+    const vouchers = await Promise.all(
+      docs
+        .filter((doc) => isStandingVoucher(doc) && doc.lines[0]?.voucherType === "customer_collection" && doc.date >= dateFrom && doc.date <= dateTo)
+        .map(async (doc) => {
+          const line = doc.lines[0]!;
+          const allocations = ((await deps.allocations?.listByVoucher(doc.id)) ?? []).filter((a) => a.status === "active");
+          return {
+            voucherId: doc.id,
+            voucherNo: doc.docNo,
+            date: doc.date,
+            branchId: line.branchId || null,
+            customerId: line.customerId,
+            customerNameAr: (line.customerId && customerName.get(line.customerId)) || "—",
+            gross: voucherBaseAmount(line),
+            commission: voucherBaseCommission(line),
+            allocations: allocations.map((a) => ({ invoiceId: a.invoiceId, amount: a.amount })),
+          };
+        }),
+    );
+    return { vouchers, invoices: new Map(invoices.map((invoice) => [invoice.id, invoice])) };
+  }
+
+  app.get("/treasury/collections", gate("accounting.reports.view"), async (c) => {
+    const today = await tenantToday(c, deps.today);
+    const definition = createCollectionsReport(firstOfMonth(today), today);
+    const params = { ...definition.defaultParams, ...queryParams(c) };
+    return respond(c, runReport(definition, params, await collectionsContext(c, String(params.dateFrom), String(params.dateTo))));
+  });
+
+  app.get("/treasury/collections-monthly-by-rep", gate("accounting.reports.view"), async (c) => {
+    const today = await tenantToday(c, deps.today);
+    const definition = createMonthlyCollectionsByRepReport(firstOfYear(today), today);
+    const params = { ...definition.defaultParams, ...queryParams(c) };
+    return respond(c, runReport(definition, params, await collectionsContext(c, String(params.dateFrom), String(params.dateTo))));
+  });
 
   app.get("/tax/withholding", gate("accounting.reports.view"), async (c) => {
     const today = await tenantToday(c, deps.today);

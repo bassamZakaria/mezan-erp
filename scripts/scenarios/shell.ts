@@ -32,6 +32,7 @@ const OPERATIONAL_REPORTS: readonly ReportCheck[] = [
   { id: "sales.by-item", path: "/reports/sales/by-item", totals: ["qty", "revenue"], invalid: { qs: "?dateFrom=not-a-date", field: "dateFrom" } },
   { id: "sales.by-customer", path: "/reports/sales/by-customer", totals: ["count", "total", "outstanding"], invalid: { qs: "?dateFrom=not-a-date", field: "dateFrom" } },
   { id: "sales.by-salesperson", path: "/reports/sales/by-salesperson", totals: ["count", "total", "promotionDiscount", "outstanding"], invalid: { qs: "?dateFrom=not-a-date", field: "dateFrom" } },
+  { id: "treasury.collections", path: "/reports/treasury/collections", totals: ["gross", "commission", "net"], invalid: { qs: "?dateFrom=not-a-date", field: "dateFrom" } },
   { id: "sales.top-products", path: "/reports/sales/top-products", totals: ["qty", "revenue"], invalid: { qs: "?limit=0", field: "limit" } },
   { id: "purchases.by-period", path: "/reports/purchases/by-period", totals: ["count", "gross", "tax", "net"], invalid: { qs: "?dateFrom=not-a-date", field: "dateFrom" } },
   { id: "purchases.by-supplier", path: "/reports/purchases/by-supplier", totals: ["count", "total", "outstanding"], invalid: { qs: "?dateFrom=not-a-date", field: "dateFrom" } },

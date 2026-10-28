@@ -298,6 +298,36 @@ function assertReceivable(order: PurchaseOrder, policy: PurchasePolicy): void {
   }
 }
 
+export interface OverReceiptAllowance {
+  readonly ordered: Qty;
+  readonly received: Qty;
+  readonly allowedMax: Qty;
+  readonly remaining: Qty;
+}
+
+export function overReceiptAllowances(
+  orderLines: readonly { itemId: string; qty: Qty; receivedQty: Qty }[],
+  tolerancePercent: number,
+): Map<string, OverReceiptAllowance> {
+  const basisPoints = BigInt(Math.round(tolerancePercent * 100));
+  const ordered = new Map<string, Qty>();
+  const received = new Map<string, Qty>();
+  for (const l of orderLines) {
+    ordered.set(l.itemId, (ordered.get(l.itemId) ?? Qty.zero()).add(l.qty));
+    received.set(l.itemId, (received.get(l.itemId) ?? Qty.zero()).add(l.receivedQty));
+  }
+  const allowances = new Map<string, OverReceiptAllowance>();
+  for (const [itemId, itemOrdered] of ordered) {
+    const itemReceived = received.get(itemId) ?? Qty.zero();
+    const allowedMax = Qty.fromScaled((itemOrdered.scaled * (10_000n + basisPoints)) / 10_000n);
+    const room = allowedMax.subtract(itemReceived);
+    allowances.set(itemId, { ordered: itemOrdered, received: itemReceived, allowedMax, remaining: room.isNegative() ? Qty.zero() : room });
+  }
+  return allowances;
+}
+
+const NO_ALLOWANCE: OverReceiptAllowance = { ordered: Qty.zero(), received: Qty.zero(), allowedMax: Qty.zero(), remaining: Qty.zero() };
+
 function assertWithinOverReceiptTolerance(
   order: PurchaseOrder,
   lines: readonly { itemId: string; qty: Qty }[],
@@ -305,21 +335,13 @@ function assertWithinOverReceiptTolerance(
 ): void {
   if (!policy.blockOverReceipt) return;
   const tolerancePercent = policy.overReceiptTolerancePercent ?? 0;
-  const basisPoints = BigInt(Math.round(tolerancePercent * 100));
-  const ordered = new Map<string, Qty>();
-  const received = new Map<string, Qty>();
-  for (const l of order.lines) {
-    ordered.set(l.itemId, (ordered.get(l.itemId) ?? Qty.zero()).add(l.qty));
-    received.set(l.itemId, (received.get(l.itemId) ?? Qty.zero()).add(l.receivedQty));
-  }
+  const allowances = overReceiptAllowances(order.lines, tolerancePercent);
   const wanted = new Map<string, Qty>();
   for (const l of lines) wanted.set(l.itemId, (wanted.get(l.itemId) ?? Qty.zero()).add(l.qty));
   for (const [itemId, qty] of wanted) {
-    const itemOrdered = ordered.get(itemId) ?? Qty.zero();
-    const itemReceived = received.get(itemId) ?? Qty.zero();
-    const allowedMax = Qty.fromScaled((itemOrdered.scaled * (10_000n + basisPoints)) / 10_000n);
-    if (itemReceived.add(qty).compare(allowedMax) > 0) {
-      throw new OverReceiptError(itemId, qty, itemOrdered, itemReceived, allowedMax, tolerancePercent);
+    const allowance = allowances.get(itemId) ?? NO_ALLOWANCE;
+    if (allowance.received.add(qty).compare(allowance.allowedMax) > 0) {
+      throw new OverReceiptError(itemId, qty, allowance.ordered, allowance.received, allowance.allowedMax, tolerancePercent);
     }
   }
 }

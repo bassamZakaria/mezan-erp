@@ -82,9 +82,9 @@ export class OverReceiptError extends Error {
   ) {
     const q = (v: Qty) => v.toString().replace(/\.?0+$/, "");
     super(
-      `لا يمكن استلام ${q(wanted)} من الصنف "${itemId}": الكمية المطلوبة في أمر الشراء ${q(ordered)}، والمستلم حتى الآن ${q(received)}، والحد الأقصى المسموح باستلامه ${q(allowedMax)} (نسبة السماح بالزيادة ${tolerancePercent}٪).`,
+      `لا يمكن استلام ${q(wanted)} من الصنف "${itemId}": الكمية المطلوبة في أمر الشراء ${q(ordered)}، والمستلم حتى الآن ${q(received)}، والحد الأقصى المسموح باستلامه ${q(allowedMax)} (نسبة السماح بالزيادة ${tolerancePercent}٪). يمكن ضبط نسبة التجاوز المسموح بها في الإعدادات ← المشتريات.`,
     );
-    this.messageEn = `Cannot receive ${q(wanted)} of item "${itemId}": the purchase order is for ${q(ordered)}, ${q(received)} has been received so far, and at most ${q(allowedMax)} may be received in all (over-receipt tolerance ${tolerancePercent}%).`;
+    this.messageEn = `Cannot receive ${q(wanted)} of item "${itemId}": the purchase order is for ${q(ordered)}, ${q(received)} has been received so far, and at most ${q(allowedMax)} may be received in all (over-receipt tolerance ${tolerancePercent}%). The allowed over-receipt percentage can be set in Settings → Purchases.`;
     this.name = "OverReceiptError";
   }
 }

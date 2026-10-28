@@ -77,6 +77,8 @@ describe("purchasing errors", () => {
     expect(err.message).toContain("item-A");
     expect(err.message).toContain("الحد الأقصى المسموح باستلامه 25");
     expect(err.messageEn).toContain("at most 25");
+    expect(err.message).toContain("يمكن ضبط نسبة التجاوز المسموح بها في الإعدادات ← المشتريات");
+    expect(err.messageEn).toContain("Settings → Purchases");
   });
 
   it("PurchaseOrderRequiredError's message is the exact Arabic sentence the API forwards to the UI", () => {

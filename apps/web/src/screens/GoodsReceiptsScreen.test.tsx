@@ -472,4 +472,36 @@ describe("GoodsReceiptsScreen — a partial receipt against a purchase order", (
     await waitFor(() => expect(posted).not.toBeNull());
     expect(posted).toMatchObject({ lines: [{ itemId: "item-cement", qty: "25" }] });
   });
+  it("#118 two order lines for the same item share one allowance, as the server sums them", async () => {
+    const order = purchaseOrder({
+      lines: [
+        { itemId: "item-cement", description: null, qty: "10.000000", unitPrice: "85.000000", receivedQty: "0.000000" },
+        { itemId: "item-cement", description: null, qty: "10.000000", unitPrice: "85.000000", receivedQty: "4.000000" },
+      ],
+    });
+    const transport = stubTransport({
+      ...baseHandlers,
+      "GET /settings/lookup": () => ({ body: { requirePoForGrn: true, overReceiptTolerancePercent: 12.5 } }),
+      "GET /purchases/receipts": () => ({ body: [] }),
+      "GET /purchases/orders": () => ({ body: [order] }),
+    });
+    renderScreen(transport);
+
+    await screen.findByText("لا توجد إيصالات استلام مطابقة");
+    fireEvent.click(screen.getAllByRole("button", { name: "إيصال استلام جديد" })[0]!);
+    fireEvent.click(screen.getByRole("button", { name: "متابعة" }));
+    await pickFromCombobox(document.body, "أمر الشراء *", order.number);
+
+    const qtyFields = await screen.findAllByLabelText("الكمية المستلمة");
+    expect(qtyFields).toHaveLength(2);
+    fireEvent.change(qtyFields[0]!, { target: { value: "12" } });
+    fireEvent.change(qtyFields[1]!, { target: { value: "7" } });
+    expect(screen.getAllByRole("alert")[0]).toHaveTextContent("المطلوب في أمر الشراء 20، والمستلم حتى الآن 4، والحد الأقصى المسموح باستلامه 22.5.");
+    expect(screen.getByRole("button", { name: "حفظ مسودة" })).toBeDisabled();
+
+    fireEvent.change(qtyFields[1]!, { target: { value: "6.5" } });
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "حفظ مسودة" })).toBeEnabled();
+    expect(qtyFields[0]).toHaveAttribute("max", "12");
+  });
 });

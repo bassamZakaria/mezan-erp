@@ -13,6 +13,7 @@ import {
   goodsReceiptInvoicingStatus,
   goodsReceiptUninvoicedCost,
   GoodsReceiptInvoicingStatus,
+  overReceiptAllowances,
 } from "./goods-receipt.js";
 import { createPurchaseOrder, confirmPurchaseOrder, cancelPurchaseOrder } from "./purchase-order.js";
 import {
@@ -190,6 +191,35 @@ describe("goods receipt — receiving lifecycle", () => {
     await expect(confirmGoodsReceipt("gr-2", { receipts, orders, stock, policy })).rejects.toThrow(OverReceiptError);
     expect((await receipts.findById("gr-2"))?.status).toBe("draft");
     expect((await stock.getBalanceDetail("item-A", WH)).onHand.toString()).toBe("8.000000");
+  });
+
+  it("#118 a draft made under a tolerance since lowered cannot confirm above the new limit", async () => {
+    const { orders, numbering } = await sentOrder();
+    const receipts = new InMemoryGoodsReceipts();
+    const stock = makeStockService();
+    const policy = { requirePoForGrn: false, requireReceiptForInvoice: false, blockOverReceipt: true, overReceiptTolerancePercent: 10, trackSoldPurchaseItems: true };
+    const line = [{ itemId: "item-A", qty: Qty.fromMajor("10.5"), unitCost: Money.fromMajor("25.00") }];
+    await createGoodsReceipt({ id: "gr-1", purchaseOrderId: "po-1", date: "2026-08-22", lines: line }, { receipts, orders, numbering, policy });
+    const refused = await confirmGoodsReceipt("gr-1", { receipts, orders, stock, policy: { ...policy, overReceiptTolerancePercent: 0 } }).catch((e: unknown) => e);
+    expect(refused).toBeInstanceOf(OverReceiptError);
+    expect((refused as OverReceiptError).message).toContain("الإعدادات ← المشتريات");
+    expect((refused as OverReceiptError).messageEn).toContain("Settings → Purchases");
+    expect((await receipts.findById("gr-1"))?.status).toBe("draft");
+    expect((await stock.getBalanceDetail("item-A", WH)).onHand.toString()).toBe("0.000000");
+  });
+
+  it("#118 the allowance is per item, summed over the order's lines, and never negative", () => {
+    const allowances = overReceiptAllowances(
+      [
+        { itemId: "item-A", qty: Qty.fromMajor("5"), receivedQty: Qty.fromMajor("5") },
+        { itemId: "item-A", qty: Qty.fromMajor("5"), receivedQty: Qty.fromMajor("1") },
+        { itemId: "item-B", qty: Qty.fromMajor("3"), receivedQty: Qty.fromMajor("4") },
+      ],
+      12.5,
+    );
+    expect(allowances.get("item-A")?.allowedMax.toString()).toBe("11.250000");
+    expect(allowances.get("item-A")?.remaining.toString()).toBe("5.250000");
+    expect(allowances.get("item-B")?.remaining.toString()).toBe("0.000000");
   });
 
   it("#118 a fully received order still takes a receipt within the tolerance, and no more", async () => {

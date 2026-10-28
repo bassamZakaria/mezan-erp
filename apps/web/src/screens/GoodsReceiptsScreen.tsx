@@ -18,6 +18,7 @@ import {
   type RowMenuItem,
   Qty as QtyDisplay,
 } from "@mezan/ui";
+import { Qty, overReceiptAllowances, type OverReceiptAllowance } from "@mezan/domain";
 import { GoodsReceiptInvoicingStatusDTO, type CostCategoryDTO, type GoodsReceiptDTO, type GoodsReceiptStatusDTO, type PurchaseOrderDTO } from "@mezan/contracts";
 import { useConfirmGoodsReceipt, useCreateGoodsReceipt, useSetGoodsReceiptLots, useGoodsReceiptCounts, useGoodsReceipts, useGoodsReceiptStats, useProjects, usePurchaseOrders, useTenantSettings, useSuppliers, useUsers, useBranches, useWarehouses, type GoodsReceiptListFilter } from "../data/hooks";
 import { useWorkingLocation } from "../data/hub-hooks";
@@ -32,6 +33,8 @@ import { AttachmentsTab } from "../attachments/AttachmentsTab";
 import { EMPTY } from "../lib/empty";
 import { EMPTY_LOT, LotFields, lotIsComplete, lotPayload, tracksLots, type LotTracking, type LotValue } from "./enh/expiry/LotFields";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
+import { formQtyOf } from "./return-source-lines";
+import { trimQty } from "./enh/count-mode/format";
 
 const INVOICING_KEY: Record<GoodsReceiptInvoicingStatusDTO, AppTranslationKey> = {
   [GoodsReceiptInvoicingStatusDTO.NotInvoiced]: "goodsReceipts.notInvoiced",
@@ -76,33 +79,27 @@ interface FromOrderLine {
   key: string;
   itemId: string;
   qty: number;
-  orderedQty: number;
-  receivedQty: number;
   outstandingQty: number;
   unitCost: number;
   costCategory: CostCategoryDTO | null;
   lot: LotValue;
 }
 
-const QTY_DECIMALS = 1_000_000;
+const NO_ALLOWANCE: OverReceiptAllowance = { ordered: Qty.zero(), received: Qty.zero(), allowedMax: Qty.zero(), remaining: Qty.zero() };
 
-function allowedQtyOf(line: FromOrderLine, overReceiptTolerancePercent: number): number {
-  const ceiling = Math.floor((line.orderedQty * (100 + overReceiptTolerancePercent) * QTY_DECIMALS) / 100) / QTY_DECIMALS;
-  return Math.max(ceiling - line.receivedQty, 0);
+function qtyOfLine(line: FromOrderLine): Qty {
+  return Qty.fromMajor(formQtyOf(line.qty));
 }
 
 function buildFromOrderLines(order: PurchaseOrderDTO): FromOrderLine[] {
   return order.lines
     .map((line, index) => {
-      const orderedQty = Number(line.qty);
-      const receivedQty = Number(line.receivedQty);
-      const outstandingQty = Math.max(orderedQty - receivedQty, 0);
+      const outstanding = Qty.fromMajor(line.qty).subtract(Qty.fromMajor(line.receivedQty));
+      const outstandingQty = outstanding.isNegative() ? 0 : Number(outstanding.toString());
       return {
         key: `${order.id}:${index}`,
         itemId: line.itemId,
         qty: outstandingQty,
-        orderedQty,
-        receivedQty,
         outstandingQty,
         unitCost: Number(line.unitPrice),
         costCategory: null,
@@ -476,6 +473,24 @@ export function GoodsReceiptsScreen() {
     setFromOrderLines(buildFromOrderLines(order));
   }, [pickedOrder, orders, linesOrderId]);
 
+  const linesOrder = linesOrderId === null ? undefined : orderById.get(linesOrderId);
+  const allowances = useMemo(
+    () =>
+      overReceiptAllowances(
+        (linesOrder?.lines ?? []).map((l) => ({ itemId: l.itemId, qty: Qty.fromMajor(l.qty), receivedQty: Qty.fromMajor(l.receivedQty) })),
+        overReceiptTolerancePercent,
+      ),
+    [linesOrder, overReceiptTolerancePercent],
+  );
+  const allowanceOf = (itemId: string) => allowances.get(itemId) ?? NO_ALLOWANCE;
+  const takenOf = (itemId: string, exceptKey?: string) =>
+    Qty.sum(fromOrderLines.filter((l) => l.itemId === itemId && l.key !== exceptKey).map(qtyOfLine));
+  const itemOverReceived = (itemId: string) => takenOf(itemId).compare(allowanceOf(itemId).remaining) > 0;
+  const lineMaxOf = (line: FromOrderLine) => {
+    const room = allowanceOf(line.itemId).remaining.subtract(takenOf(line.itemId, line.key));
+    return Number((room.isNegative() ? Qty.zero() : room).toString());
+  };
+
   const { itemOf, itemName, itemValue, remember } = useLineItems([...(selected?.lines ?? []), ...fromOrderLines, ...adHocLines].map((l) => l.itemId));
 
   const filtered = useMemo(() => [...receipts].sort((a, b) => b.number.localeCompare(a.number)), [receipts]);
@@ -541,7 +556,7 @@ export function GoodsReceiptsScreen() {
   // A line received at zero is simply not on the receipt; one above the PO's
   // outstanding quantity is an over-receipt the server would refuse anyway.
   const usableFromOrderLines = fromOrderLines.filter((l) => l.qty > 0);
-  const overReceiptLine = fromOrderLines.some((l) => l.qty > allowedQtyOf(l, overReceiptTolerancePercent));
+  const overReceiptLine = fromOrderLines.some((l) => itemOverReceived(l.itemId));
   const lotRuleOf = (itemId: string) => {
     const item = itemOf(itemId);
     return item ? { trackExpiry: item.trackExpiry } : undefined;
@@ -698,7 +713,7 @@ export function GoodsReceiptsScreen() {
                         label={t("goodsReceipts.col.receivedQty")}
                         value={line.qty}
                         min={0}
-                        max={allowedQtyOf(line, overReceiptTolerancePercent)}
+                        max={lineMaxOf(line)}
                         hint={`${t("goodsReceipts.line.outstanding")}: ${line.outstandingQty}`}
                         onChange={(v) =>
                           setFromOrderLines((prev) => prev.map((l) => (l.key === line.key ? { ...l, qty: v } : l)))
@@ -710,12 +725,12 @@ export function GoodsReceiptsScreen() {
                       value={line.lot}
                       onChange={(lot) => setFromOrderLines((prev) => prev.map((l) => (l.key === line.key ? { ...l, lot } : l)))}
                     />
-                    {line.qty > allowedQtyOf(line, overReceiptTolerancePercent) ? (
+                    {itemOverReceived(line.itemId) ? (
                       <p role="alert" className="mt-[8px] text-[12px] text-danger-ink">
                         {t("goodsReceipts.error.overReceipt", {
-                          ordered: String(line.orderedQty),
-                          received: String(line.receivedQty),
-                          allowed: String(Math.round((line.receivedQty + allowedQtyOf(line, overReceiptTolerancePercent)) * QTY_DECIMALS) / QTY_DECIMALS),
+                          ordered: trimQty(allowanceOf(line.itemId).ordered.toString()),
+                          received: trimQty(allowanceOf(line.itemId).received.toString()),
+                          allowed: trimQty(allowanceOf(line.itemId).allowedMax.toString()),
                         })}
                       </p>
                     ) : null}

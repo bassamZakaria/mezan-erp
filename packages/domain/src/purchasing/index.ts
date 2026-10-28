@@ -92,6 +92,8 @@ export {
   buildReceiptLinesFromOrder,
   goodsReceiptCancelEntryId,
   goodsReceiptTotalCost,
+  overReceiptAllowances,
+  type OverReceiptAllowance,
   type GoodsReceipt,
   type GoodsReceiptLine,
   type GoodsReceiptRepository,

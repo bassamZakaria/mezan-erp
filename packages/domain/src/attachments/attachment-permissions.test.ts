@@ -23,4 +23,9 @@ describe("#125 attachment permissions a role already had through its parent righ
       expect(successors.get(manage)).toEqual(expect.arrayContaining([AttachmentPermission.Upload, AttachmentPermission.Delete]));
     }
   });
+
+  it("a role holding only a leaf right gets the attachment rights of the parent right it depends on", () => {
+    expect(withAttachmentPermissions(["sales.invoice.confirm"])).toEqual(["sales.invoice.confirm", AttachmentPermission.View]);
+    expect(attachmentPermissionSuccessors().get("sales.invoice.confirm")).toEqual([AttachmentPermission.View]);
+  });
 });

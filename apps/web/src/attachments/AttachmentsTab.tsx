@@ -68,7 +68,7 @@ export function AttachmentsTab({ entityType, entityId }: AttachmentsTabProps) {
   const entitlements = useEntitlements();
   const separatePermissions = entitlements.data?.features[SEPARATE_ATTACHMENT_PERMISSIONS_FEATURE] === true;
   const holdsAttachmentRight = (permission: AttachmentPermission) => !separatePermissions || can(authContext, permission);
-  const mayManage = can(authContext, permissions.manage);
+  const mayManage = entitlements.data !== undefined && can(authContext, permissions.manage);
   const mayView = holdsAttachmentRight(AttachmentPermission.View);
   const mayUpload = mayManage && holdsAttachmentRight(AttachmentPermission.Upload);
   const mayDelete = mayManage && holdsAttachmentRight(AttachmentPermission.Delete);

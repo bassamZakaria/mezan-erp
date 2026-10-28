@@ -25,6 +25,7 @@ import { branchName } from "./branch-name";
 import { TextField, ToggleField, SectionCard, SelectField } from "./form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { EMPTY } from "../lib/empty";
+import { useMaySeeItemCost } from "../data/item-cost";
 import { useUrlSearch } from "../lib/url-state";
 
 /**
@@ -113,6 +114,7 @@ function Kpi({ label, value, sub }: { label: string; value: ReactNode; sub?: Rea
 /** مؤشرات الفرع — live counts and totals over every document that carries this `branchId`. */
 function BranchKpis({ branch }: { branch: BranchDTO }) {
   const { t } = useAppTranslation();
+  const showCost = useMaySeeItemCost();
   const warehousesQuery = useWarehouses();
   const treasuryQuery = useTreasuryAccounts();
   const salesQuery = useSalesInvoiceStats({ branchId: branch.id, status: SalesInvoiceDerivedFilter.Active });
@@ -131,7 +133,7 @@ function BranchKpis({ branch }: { branch: BranchDTO }) {
   const employees = (employeesQuery.data ?? []).filter((e) => e.branchId === branch.id);
   const assets = (assetsQuery.data ?? []).filter((a) => a.branchId === branch.id);
 
-  const stockValue = sumMoney((stockQuery.data ?? []).map((row) => row.totalValue));
+  const stockValue = sumMoney((stockQuery.data ?? []).map((row) => row.totalValue ?? "0"));
   const assetsCost = sumMoney(assets.map((a) => a.acquisitionCost));
 
   return (
@@ -151,17 +153,19 @@ function BranchKpis({ branch }: { branch: BranchDTO }) {
         value={<MoneyValue value={vouchersQuery.data?.net ?? "0"} showUnit={false} />}
         sub={<span className="mz-num">{vouchersQuery.data?.standing ?? 0} {t("branches.voucher")}</span>}
       />
-      <Kpi
-        label={t("branches.stockValue")}
-        value={
-          warehouseIds.length === 0 ? (
-            <span className="text-[12.5px] font-normal text-ink-muted">{t("branches.noWarehouses")}</span>
-          ) : (
-            <MoneyValue value={moneyToNumber(stockValue)} showUnit={false} />
-          )
-        }
-        sub={<span className="mz-num">{warehouseIds.length} {t("branches.warehouse")}</span>}
-      />
+      {showCost ? (
+        <Kpi
+          label={t("branches.stockValue")}
+          value={
+            warehouseIds.length === 0 ? (
+              <span className="text-[12.5px] font-normal text-ink-muted">{t("branches.noWarehouses")}</span>
+            ) : (
+              <MoneyValue value={moneyToNumber(stockValue)} showUnit={false} />
+            )
+          }
+          sub={<span className="mz-num">{warehouseIds.length} {t("branches.warehouse")}</span>}
+        />
+      ) : null}
       <Kpi
         label={t("branches.treasuryAccounts")}
         value={<span className="mz-num">{treasuryAccounts.length}</span>}
@@ -185,6 +189,7 @@ function BranchKpis({ branch }: { branch: BranchDTO }) {
 /** مخزون الفرع — the merged `/inventory/stock-balance` of every warehouse in the branch. */
 function BranchInventoryTab({ branch }: { branch: BranchDTO }) {
   const { t } = useAppTranslation();
+  const showCost = useMaySeeItemCost();
   const warehousesQuery = useWarehouses();
   const warehouses = (warehousesQuery.data ?? []).filter((w) => w.branchId === branch.id);
   const stockQuery = useBranchStockBalance(warehouses.map((w) => w.id));
@@ -206,8 +211,8 @@ function BranchInventoryTab({ branch }: { branch: BranchDTO }) {
   if (stockQuery.isLoading) return <p className="p-[18px] text-[12.5px] text-ink-muted">{t("branches.loadingStock")}</p>;
 
   const rows = [...(stockQuery.data ?? [])].sort((a, b) => {
-    const left = parseMoney(a.totalValue);
-    const right = parseMoney(b.totalValue);
+    const left = parseMoney(a.totalValue ?? "0");
+    const right = parseMoney(b.totalValue ?? "0");
     return right === left ? a.itemId.localeCompare(b.itemId) : right > left ? 1 : -1;
   });
   if (rows.length === 0) {
@@ -219,14 +224,14 @@ function BranchInventoryTab({ branch }: { branch: BranchDTO }) {
     );
   }
 
-  const totalValue = sumMoney(rows.map((row) => row.totalValue));
+  const totalValue = sumMoney(rows.map((row) => row.totalValue ?? "0"));
 
   return (
     <div className="flex flex-col gap-[16px]">
       <div className="grid grid-cols-2 gap-[12px] sm:grid-cols-3">
         <Kpi label={t("branches.items")} value={<span className="mz-num">{rows.length}</span>} />
         <Kpi label={t("branches.warehouses")} value={<span className="mz-num">{warehouses.length}</span>} />
-        <Kpi label={t("branches.totalStockValue")} value={<MoneyValue value={moneyToNumber(totalValue)} showUnit={false} />} />
+        {showCost ? <Kpi label={t("branches.totalStockValue")} value={<MoneyValue value={moneyToNumber(totalValue)} showUnit={false} />} /> : null}
       </div>
       <div className="overflow-x-auto rounded-lg border border-border bg-surface">
         <table className="w-full min-w-[640px] border-collapse text-[12.5px]">
@@ -235,8 +240,8 @@ function BranchInventoryTab({ branch }: { branch: BranchDTO }) {
               <th className="p-[10px] text-start font-semibold">{t("common.item")}</th>
               <th className="p-[10px] text-start font-semibold">{t("common.code")}</th>
               <th className="p-[10px] text-end font-semibold">{t("common.qty")}</th>
-              <th className="p-[10px] text-end font-semibold">{t("branches.averageCost")}</th>
-              <th className="p-[10px] text-end font-semibold">{t("branches.value")}</th>
+              {showCost ? <th className="p-[10px] text-end font-semibold">{t("branches.averageCost")}</th> : null}
+              {showCost ? <th className="p-[10px] text-end font-semibold">{t("branches.value")}</th> : null}
               <th className="p-[10px] text-end font-semibold">{t("branches.warehouses")}</th>
             </tr>
           </thead>
@@ -246,12 +251,16 @@ function BranchInventoryTab({ branch }: { branch: BranchDTO }) {
                 <td className="p-[10px] font-semibold text-ink">{itemName(row.itemId)}</td>
                 <td className="mz-num p-[10px] text-ink-muted">{itemCode(row.itemId)}</td>
                 <td className="mz-num p-[10px] text-end text-ink">{Number(row.onHand)}</td>
-                <td className="p-[10px] text-end text-ink-muted">
-                  <MoneyValue value={Number(row.averageCost)} showUnit={false} />
-                </td>
-                <td className="p-[10px] text-end font-semibold text-ink">
-                  <MoneyValue value={Number(row.totalValue)} showUnit={false} />
-                </td>
+                {showCost ? (
+                  <td className="p-[10px] text-end text-ink-muted">
+                    <MoneyValue value={Number(row.averageCost)} showUnit={false} />
+                  </td>
+                ) : null}
+                {showCost ? (
+                  <td className="p-[10px] text-end font-semibold text-ink">
+                    <MoneyValue value={Number(row.totalValue)} showUnit={false} />
+                  </td>
+                ) : null}
                 <td className="mz-num p-[10px] text-end text-ink-muted">{row.warehouseCount}</td>
               </tr>
             ))}

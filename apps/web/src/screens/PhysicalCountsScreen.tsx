@@ -42,6 +42,7 @@ import { useEntityName } from "../lib/entity-names";
 import { todayIso } from "../lib/dates";
 import { EMPTY } from "../lib/empty";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
+import { useMaySeeItemCost } from "../data/item-cost";
 
 /**
  * الجرد الفعلي (Physical Counts) — docs/archive/catalog/03: start → record counts →
@@ -98,6 +99,7 @@ function fromScaled(value: bigint): string {
 
 export function PhysicalCountsScreen() {
   const nameOf = useEntityName();
+  const showCost = useMaySeeItemCost();
   const { t } = useAppTranslation();
   const warehousesQuery = useWarehouses();
 
@@ -159,19 +161,23 @@ export function PhysicalCountsScreen() {
     { key: "warehouse", header: t("common.warehouse"), render: (c) => <span className="text-ink">{warehouseLabel(c.warehouseId)}</span> },
     { key: "date", header: t("common.date"), render: (c) => <span className="mz-num text-ink-muted">{c.date}</span> },
     { key: "lines", header: t("counts.items"), align: "end", render: (c) => <span className="mz-num">{c.lines.length}</span> },
-    {
-      key: "variance",
-      header: t("counts.netVarianceValue"),
-      align: "end",
-      render: (c) =>
-        c.variance ? (
-          <VarianceBeam value={Number(c.variance.netValue)} className="font-semibold">
-            <span className="mz-num">{signedDisplay(c.variance.netValue)}</span>
-          </VarianceBeam>
-        ) : (
-          <span className="text-[11.5px] text-ink-faint">{c.blind ? t("counts.blindCount") : "—"}</span>
-        ),
-    },
+    ...(showCost
+      ? [
+          {
+            key: "variance",
+            header: t("counts.netVarianceValue"),
+            align: "end" as const,
+            render: (c: PhysicalCountDTO) =>
+              c.variance ? (
+                <VarianceBeam value={Number(c.variance.netValue)} className="font-semibold">
+                  <span className="mz-num">{signedDisplay(c.variance.netValue ?? null)}</span>
+                </VarianceBeam>
+              ) : (
+                <span className="text-[11.5px] text-ink-faint">{c.blind ? t("counts.blindCount") : "—"}</span>
+              ),
+          },
+        ]
+      : []),
     { key: "status", header: t("common.status"), render: (c) => <StatusPill label={t(STATUS_KEY[c.status])} tone={STATUS_TONE[c.status]} /> },
   ];
 
@@ -553,6 +559,7 @@ function CountDetailView({
   onResume: () => void;
 }) {
   const { t } = useAppTranslation();
+  const showCost = useMaySeeItemCost();
   const generate = useGenerateAdjustmentFromCount();
   const [error, setError] = useState<string | null>(null);
 
@@ -594,22 +601,26 @@ function CountDetailView({
               </span>
             ),
           },
-          {
-            label: t("counts.valueOfOverages"),
-            value: <span className="mz-num text-success-ink">{count.variance ? trimMoneyString(count.variance.overValue) : "—"}</span>,
-          },
-          {
-            label: t("counts.valueOfShortages"),
-            value: <span className="mz-num text-danger-ink">{count.variance ? trimMoneyString(count.variance.shortValue) : "—"}</span>,
-          },
-          {
-            label: t("counts.netVarianceValue"),
-            value: (
-              <VarianceBeam value={Number(count.variance?.netValue ?? 0)} className="font-semibold">
-                <span className="mz-num">{signedDisplay(count.variance?.netValue ?? null)}</span>
-              </VarianceBeam>
-            ),
-          },
+          ...(showCost
+            ? [
+                {
+                  label: t("counts.valueOfOverages"),
+                  value: <span className="mz-num text-success-ink">{count.variance?.overValue ? trimMoneyString(count.variance.overValue) : "—"}</span>,
+                },
+                {
+                  label: t("counts.valueOfShortages"),
+                  value: <span className="mz-num text-danger-ink">{count.variance?.shortValue ? trimMoneyString(count.variance.shortValue) : "—"}</span>,
+                },
+                {
+                  label: t("counts.netVarianceValue"),
+                  value: (
+                    <VarianceBeam value={Number(count.variance?.netValue ?? 0)} className="font-semibold">
+                      <span className="mz-num">{signedDisplay(count.variance?.netValue ?? null)}</span>
+                    </VarianceBeam>
+                  ),
+                },
+              ]
+            : []),
           { label: t("counts.resultingAdjustment"), value: count.generatedAdjustmentId ? t("counts.created") : "—" },
         ]}
         tabs={[
@@ -631,8 +642,8 @@ function CountDetailView({
                         <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">{t("counts.system")}</th>
                         <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">{t("counts.counted")}</th>
                         <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">{t("counts.variance")}</th>
-                        <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">{t("counts.unitCost")}</th>
-                        <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">{t("counts.varianceValue")}</th>
+                        {showCost ? <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">{t("counts.unitCost")}</th> : null}
+                        {showCost ? <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">{t("counts.varianceValue")}</th> : null}
                       </tr>
                     </thead>
                     <tbody>
@@ -646,12 +657,14 @@ function CountDetailView({
                               <span className="mz-num">{signedDisplay(l.varianceQty)}</span>
                             </VarianceBeam>
                           </td>
-                          <td className="px-[15px] py-[11px] text-end mz-num text-ink-muted">{qtyDisplay(l.unitCost)}</td>
-                          <td className="px-[15px] py-[11px] text-end font-semibold">
-                            <VarianceBeam value={Number(l.varianceValue ?? 0)}>
-                              <span className="mz-num">{signedDisplay(l.varianceValue)}</span>
-                            </VarianceBeam>
-                          </td>
+                          {showCost ? <td className="px-[15px] py-[11px] text-end mz-num text-ink-muted">{qtyDisplay(l.unitCost ?? null)}</td> : null}
+                          {showCost ? (
+                            <td className="px-[15px] py-[11px] text-end font-semibold">
+                              <VarianceBeam value={Number(l.varianceValue ?? 0)}>
+                                <span className="mz-num">{signedDisplay(l.varianceValue ?? null)}</span>
+                              </VarianceBeam>
+                            </td>
+                          ) : null}
                         </tr>
                       ))}
                     </tbody>

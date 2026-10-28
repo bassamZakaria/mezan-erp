@@ -133,3 +133,30 @@ describe("StockBalanceScreen — cross-warehouse rollup", () => {
     expect(await screen.findByText("لا توجد أصناف مطابقة")).toBeInTheDocument();
   });
 });
+
+describe("StockBalanceScreen — a session without inventory.cost.view (#119)", () => {
+  it("renders no cost column, so the figures the server withholds never read as zero", async () => {
+    const withoutCost = rows.map(({ totalValue: _value, averageCost: _cost, ...row }) => row);
+    const transport = stubTransport({
+      "GET /inventory/stock-balance": () => ({ body: { rows: withoutCost } }),
+      "GET /items": () => ({ body: items }),
+    });
+    renderWithProviders(<StockBalanceScreen />, {
+      transport,
+      initialSession: { ...testAdminSession, isCompanyAdmin: false, permissions: ["inventory.stock.view", "inventory.item.view"] },
+    });
+    await waitFor(() => expect(screen.getByText("أرز أبيض مصري 5 كجم (ITM-000001)")).toBeInTheDocument());
+    expect(screen.queryByText("متوسط التكلفة")).not.toBeInTheDocument();
+    expect(screen.queryByText("القيمة الإجمالية")).not.toBeInTheDocument();
+    expect(screen.queryByText(/NaN/)).not.toBeInTheDocument();
+  });
+
+  it("keeps the cost columns for a holder", async () => {
+    renderWithProviders(<StockBalanceScreen />, {
+      transport: stubTransport({ "GET /inventory/stock-balance": () => ({ body: { rows } }), "GET /items": () => ({ body: items }) }),
+      initialSession: { ...testAdminSession, isCompanyAdmin: false, permissions: ["inventory.stock.view", "inventory.cost.view"] },
+    });
+    await waitFor(() => expect(screen.getByText("أرز أبيض مصري 5 كجم (ITM-000001)")).toBeInTheDocument());
+    expect(screen.getAllByText("متوسط التكلفة").length).toBeGreaterThan(0);
+  });
+});

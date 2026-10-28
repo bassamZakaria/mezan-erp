@@ -6,6 +6,7 @@ import { TextField } from "../../settings/form-controls";
 import { useNavigation } from "../../navigation";
 import type { ScreenKey } from "../../router/screens";
 import { useAppTranslation, type AppTranslationKey } from "../../i18n";
+import { useMaySeeItemCost } from "../../data/item-cost";
 
 /**
  * لوحة الإنتاج (docs/archive/catalog/07 §"لوحة الإنتاج") — the reference app's
@@ -154,6 +155,7 @@ export function ProductionDashboardScreen() {
   const { navigate } = useNavigation();
   const query = useManufacturingDashboard();
   const dashboard = query.data;
+  const showCost = useMaySeeItemCost();
 
   return (
     <div className="flex flex-col gap-[22px]">
@@ -186,10 +188,12 @@ export function ProductionDashboardScreen() {
           <div className="text-[11.5px] font-semibold text-ink-muted">{t("production.activeOrders")}</div>
           <div className="mt-2 mz-fit-figure font-display font-bold text-ink mz-num">{query.isLoading ? "—" : dashboard?.kpis.activeWorkOrders}</div>
         </div>
-        <div className="mz-fit min-w-0 rounded-lg border border-border bg-surface p-[16px_18px] shadow-1">
-          <div className="text-[11.5px] font-semibold text-ink-muted">{t("production.workInProgressValue")}</div>
-          <div className="mt-2 mz-fit-figure font-display font-bold text-ink"><Money value={num(dashboard?.kpis.wipValue)} /></div>
-        </div>
+        {showCost ? (
+          <div className="mz-fit min-w-0 rounded-lg border border-border bg-surface p-[16px_18px] shadow-1">
+            <div className="text-[11.5px] font-semibold text-ink-muted">{t("production.workInProgressValue")}</div>
+            <div className="mt-2 mz-fit-figure font-display font-bold text-ink"><Money value={num(dashboard?.kpis.wipValue)} /></div>
+          </div>
+        ) : null}
         <div className="mz-fit min-w-0 rounded-lg border border-border bg-surface p-[16px_18px] shadow-1">
           <div className="text-[11.5px] font-semibold text-ink-muted">{t("production.unitsProducedThisMonth")}</div>
           <div className="mt-2 mz-fit-figure font-display font-bold text-ink mz-num">{query.isLoading ? "—" : num(dashboard?.kpis.unitsProducedThisMonth)}</div>

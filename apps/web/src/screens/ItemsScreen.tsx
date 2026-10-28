@@ -27,6 +27,7 @@ import {
 } from "@mezan/ui";
 import { ItemStatusCode, type AlternateUnitDTO, type CostingMethodDTO, type CreateItemDTO, type EtaCodeTypeDTO, type ItemDTO, type ItemStatusDTO, type ItemTypeDTO } from "@mezan/contracts";
 import { ITEM_TYPES, itemTypeTracksStock } from "@mezan/domain";
+import { useMaySeeItemCost } from "../data/item-cost";
 import {
   useAccounts,
   useCreateItem,
@@ -210,7 +211,7 @@ function draftFromItem(item: ItemDTO): ItemDraft {
     specifications: [...(item.specifications ?? [])],
     costingMethod: item.costingMethod,
     salePrice: item.salePrice === null ? null : Number(item.salePrice),
-    costPrice: item.costPrice === null ? null : Number(item.costPrice),
+    costPrice: item.costPrice == null ? null : Number(item.costPrice),
     taxRatePercent: item.taxRatePercent,
     trackInventory: item.trackInventory,
     trackBatches: item.trackBatches || item.trackExpiry,
@@ -269,7 +270,7 @@ function validateDraft(
   return null;
 }
 
-function draftToItem(draft: ItemDraft, id: string): CreateItemDTO & { status: ItemStatusDTO } {
+function draftToItem(draft: ItemDraft, id: string, withCost: boolean): CreateItemDTO & { status: ItemStatusDTO } {
   return {
     id,
     // Blank (the normal case — the code field is disabled and never filled
@@ -296,7 +297,7 @@ function draftToItem(draft: ItemDraft, id: string): CreateItemDTO & { status: It
      */
     ...(draft.costingMethod === "WAC" ? { costingMethod: "WAC" as const } : {}),
     salePrice: draft.salePrice === null ? null : draft.salePrice.toFixed(2),
-    costPrice: draft.costPrice === null ? null : draft.costPrice.toFixed(2),
+    ...(withCost ? { costPrice: draft.costPrice === null ? null : draft.costPrice.toFixed(2) } : {}),
     taxRatePercent: draft.taxRatePercent,
     trackInventory: itemTypeTracksStock(draft.type) ? draft.trackInventory : false,
     trackBatches: itemTypeTracksStock(draft.type) && draft.trackInventory ? draft.trackBatches : false,
@@ -318,6 +319,7 @@ function draftToItem(draft: ItemDraft, id: string): CreateItemDTO & { status: It
 /** المخزون حسب المستودع — where this item's stock actually sits (D43). */
 function ItemStockTab({ itemId }: { itemId: string }) {
   const { t } = useAppTranslation();
+  const showCost = useMaySeeItemCost();
   const query = useItemStock(itemId);
   const warehouses = useWarehouses().data ?? [];
   const warehouseName = (id: string) => warehouses.find((w) => w.id === id)?.name ?? id;
@@ -331,7 +333,7 @@ function ItemStockTab({ itemId }: { itemId: string }) {
   const totalOnHand = sumMajor(positions.map((p) => p.onHand));
   const totalReserved = sumMajor(positions.map((p) => p.reserved));
   const totalAvailable = sumMajor(positions.map((p) => p.available));
-  const totalValue = sumMajor(positions.map((p) => p.totalValue));
+  const totalValue = sumMajor(positions.map((p) => p.totalValue ?? "0"));
 
   return (
     <Card className="overflow-hidden">
@@ -343,8 +345,8 @@ function ItemStockTab({ itemId }: { itemId: string }) {
               <th className="px-[15px] py-[9px] text-end">{t("items.stock.onHand")}</th>
               <th className="px-[15px] py-[9px] text-end">{t("items.stock.reserved")}</th>
               <th className="px-[15px] py-[9px] text-end">{t("items.stock.available")}</th>
-              <th className="px-[15px] py-[9px] text-end">{t("items.stock.averageCost")}</th>
-              <th className="px-[15px] py-[9px] text-end">{t("items.stock.value")}</th>
+              {showCost ? <th className="px-[15px] py-[9px] text-end">{t("items.stock.averageCost")}</th> : null}
+              {showCost ? <th className="px-[15px] py-[9px] text-end">{t("items.stock.value")}</th> : null}
             </tr>
           </thead>
           <tbody>
@@ -354,8 +356,8 @@ function ItemStockTab({ itemId }: { itemId: string }) {
                 <td className="mz-num px-[15px] py-[10px] text-end">{Number(position.onHand)}</td>
                 <td className="mz-num px-[15px] py-[10px] text-end text-ink-muted">{Number(position.reserved)}</td>
                 <td className="mz-num px-[15px] py-[10px] text-end font-semibold">{Number(position.available)}</td>
-                <td className="px-[15px] py-[10px] text-end"><Money value={Number(position.averageCost)} /></td>
-                <td className="px-[15px] py-[10px] text-end"><Money value={Number(position.totalValue)} /></td>
+                {showCost ? <td className="px-[15px] py-[10px] text-end"><Money value={Number(position.averageCost)} /></td> : null}
+                {showCost ? <td className="px-[15px] py-[10px] text-end"><Money value={Number(position.totalValue)} /></td> : null}
               </tr>
             ))}
           </tbody>
@@ -365,8 +367,8 @@ function ItemStockTab({ itemId }: { itemId: string }) {
               <td className="mz-num px-[15px] py-[10px] text-end">{totalOnHand}</td>
               <td className="mz-num px-[15px] py-[10px] text-end">{totalReserved}</td>
               <td className="mz-num px-[15px] py-[10px] text-end">{totalAvailable}</td>
-              <td />
-              <td className="px-[15px] py-[10px] text-end"><Money value={totalValue} /></td>
+              {showCost ? <td /> : null}
+              {showCost ? <td className="px-[15px] py-[10px] text-end"><Money value={totalValue} /></td> : null}
             </tr>
           </tfoot>
         </table>
@@ -580,6 +582,7 @@ function ItemSpecificationsTab({ item }: { item: ItemDTO }) {
 
 function ItemMovementsTab({ itemId }: { itemId: string }) {
   const { t } = useAppTranslation();
+  const showCost = useMaySeeItemCost();
   const stock = useItemStock(itemId);
   const warehouses = useWarehouses().data ?? [];
   const warehouseName = (id: string) => warehouses.find((w) => w.id === id)?.name ?? id;
@@ -600,7 +603,7 @@ function ItemMovementsTab({ itemId }: { itemId: string }) {
             <th className="px-[12px] py-[9px] text-start">{t("stockBalance.filter.warehouse")}</th>
             <th className="px-[12px] py-[9px] text-start">{t("items.movements.col.direction")}</th>
             <th className="px-[12px] py-[9px] text-end">{t("common.qty")}</th>
-            <th className="px-[12px] py-[9px] text-end">{t("items.costPrice")}</th>
+            {showCost ? <th className="px-[12px] py-[9px] text-end">{t("items.costPrice")}</th> : null}
           </tr>
         </thead>
         <tbody>
@@ -613,9 +616,11 @@ function ItemMovementsTab({ itemId }: { itemId: string }) {
                 {m.direction.toUpperCase() === "IN" ? t("items.movements.in") : t("items.movements.out")}
               </td>
               <td className="mz-num px-[12px] py-[10px] text-end">{m.qty}</td>
-              <td className="mz-num px-[12px] py-[10px] text-end">
-                <Money value={Number(m.unitCost)} />
-              </td>
+              {showCost ? (
+                <td className="mz-num px-[12px] py-[10px] text-end">
+                  <Money value={Number(m.unitCost)} />
+                </td>
+              ) : null}
             </tr>
           ))}
         </tbody>
@@ -685,6 +690,7 @@ function serverSortKey(key: string): (typeof SERVER_SORT_KEYS)[number] {
 }
 
 export function ItemsScreen() {
+  const showCost = useMaySeeItemCost();
   const { t } = useAppTranslation();
   const countPhrase = useCountPhrase();
   const nameOf = useEntityName();
@@ -869,10 +875,10 @@ export function ItemsScreen() {
     setFormError(null);
     try {
       if (editingId) {
-        const { id: _id, code: _code, ...patch } = draftToItem(draft, editingId);
+        const { id: _id, code: _code, ...patch } = draftToItem(draft, editingId, showCost);
         await updateItem.mutateAsync({ id: editingId, patch: locked.withoutLocked(patch) });
       } else {
-        const created = draftToItem(draft, crypto.randomUUID());
+        const created = draftToItem(draft, crypto.randomUUID(), showCost);
         const { id, nameAr, type, baseUnitCode } = created;
         await createItem.mutateAsync({ ...locked.withoutLocked(created), id, nameAr, type, baseUnitCode });
       }
@@ -927,7 +933,7 @@ export function ItemsScreen() {
         ),
     },
     { key: "salePrice", header: t("items.salePrice"), align: "end", sortable: true, render: (row) => <Money value={Number(row.salePrice ?? 0)} /> },
-    { key: "costPrice", header: t("items.costPrice"), align: "end", sortable: true, render: (row) => <Money value={Number(row.costPrice ?? 0)} /> },
+    ...(showCost ? [{ key: "costPrice", header: t("items.costPrice"), align: "end" as const, sortable: true, render: (row: ItemDTO) => <Money value={Number(row.costPrice ?? 0)} /> }] : []),
     { key: "status", header: t("common.status"), render: (row) => <StatusPill label={t(STATUS_KEY[row.status])} tone={STATUS_TONE[row.status]} /> },
     {
       key: "actions",
@@ -1304,10 +1310,12 @@ export function ItemsScreen() {
         <Field label={t("items.salePrice")}>
           <MoneyInput aria-label={t("items.salePrice")} value={draft.salePrice} onChange={(v) => setDraft((d) => ({ ...d, salePrice: v }))} />
         </Field>
-        <Field label={t("items.costPrice")}>
-          <MoneyInput aria-label={t("items.costPrice")} value={draft.costPrice} onChange={(v) => setDraft((d) => ({ ...d, costPrice: v }))} disabled={locked.isLocked("costPrice")} />
-          {locked.isLocked("costPrice") ? <p className="mt-[5px] text-[11.5px] text-ink-faint">{t("branchRestriction.fieldLocked")}</p> : null}
-        </Field>
+        {showCost ? (
+          <Field label={t("items.costPrice")}>
+            <MoneyInput aria-label={t("items.costPrice")} value={draft.costPrice} onChange={(v) => setDraft((d) => ({ ...d, costPrice: v }))} disabled={locked.isLocked("costPrice")} />
+            {locked.isLocked("costPrice") ? <p className="mt-[5px] text-[11.5px] text-ink-faint">{t("branchRestriction.fieldLocked")}</p> : null}
+          </Field>
+        ) : null}
         <NumberField label={t("items.taxRate")} value={draft.taxRatePercent} onChange={(v) => setDraft((d) => ({ ...d, taxRatePercent: v ?? 0 }))} min={0} />
 
         </SectionCard>
@@ -1483,12 +1491,14 @@ export function ItemsScreen() {
                 <Money value={Number(item.salePrice ?? 0)} />
               </div>
             </div>
-            <div className="p-[15px_17px]">
-              <div className="text-[11px] font-semibold text-ink-faint">{t("items.costPrice")}</div>
-              <div className="mt-[6px]">
-                <Money value={Number(item.costPrice ?? 0)} />
+            {showCost ? (
+              <div className="p-[15px_17px]">
+                <div className="text-[11px] font-semibold text-ink-faint">{t("items.costPrice")}</div>
+                <div className="mt-[6px]">
+                  <Money value={Number(item.costPrice ?? 0)} />
+                </div>
               </div>
-            </div>
+            ) : null}
           </Card>
         ),
       },
@@ -1533,11 +1543,15 @@ export function ItemsScreen() {
         label: t("items.stock"),
         content: <ItemStockTab itemId={item.id} />,
       },
-      {
-        key: "costLayers",
-        label: t("items.tab.costLayers"),
-        content: <ItemCostLayersTab itemId={item.id} />,
-      },
+      ...(showCost
+        ? [
+            {
+              key: "costLayers",
+              label: t("items.tab.costLayers"),
+              content: <ItemCostLayersTab itemId={item.id} />,
+            },
+          ]
+        : []),
       {
         key: "priceLists",
         label: t("items.tab.priceLists"),
@@ -1607,7 +1621,7 @@ export function ItemsScreen() {
             { label: t("common.unit"), value: unitLabel(item.baseUnitCode, itemUnits) },
             { label: t("items.costingMethod"), value: t(COSTING_KEY[item.costingMethod]) },
             { label: t("items.salePrice"), value: <Money value={Number(item.salePrice ?? 0)} /> },
-            { label: t("items.costPrice"), value: <Money value={Number(item.costPrice ?? 0)} /> },
+            ...(showCost ? [{ label: t("items.costPrice"), value: <Money value={Number(item.costPrice ?? 0)} /> }] : []),
           ]}
           tabs={tabs}
           activeTabKey={detailTab}

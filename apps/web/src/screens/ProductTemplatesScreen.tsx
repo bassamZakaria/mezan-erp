@@ -28,6 +28,7 @@ import { useItemSpecifications } from "../data/item-catalog-hooks";
 import { useAppTranslation } from "../i18n";
 import { EMPTY } from "../lib/empty";
 import { useUrlNumber } from "../lib/url-state";
+import { useMaySeeItemCost } from "../data/item-cost";
 
 /**
  * قوالب المنتجات (Product Templates) — docs/archive/catalog/03-inventory.md §"قوالب
@@ -70,6 +71,7 @@ const PAGE_SIZES = [10, 25, 50, 100] as const;
 
 export function ProductTemplatesScreen() {
   const { t } = useAppTranslation();
+  const showCost = useMaySeeItemCost();
   const query = useProductTemplates();
   const createTemplate = useCreateProductTemplate();
   const addAttribute = useAddTemplateAttribute();
@@ -255,7 +257,7 @@ export function ProductTemplatesScreen() {
             <TextField label={t("templates.code")} value={draft.code} onChange={(v) => setDraft((d) => ({ ...d, code: v }))} />
             <TextField label={t("templates.baseUnitOfMeasure")} value={draft.baseUnitCode} onChange={(v) => setDraft((d) => ({ ...d, baseUnitCode: v }))} />
             <TextField label={t("templates.defaultPrice")} value={draft.defaultSalePrice} onChange={(v) => setDraft((d) => ({ ...d, defaultSalePrice: v }))} placeholder="0.00" />
-            <TextField label={t("templates.defaultCost")} value={draft.defaultCost} onChange={(v) => setDraft((d) => ({ ...d, defaultCost: v }))} placeholder="0.00" />
+            {showCost ? <TextField label={t("templates.defaultCost")} value={draft.defaultCost} onChange={(v) => setDraft((d) => ({ ...d, defaultCost: v }))} placeholder="0.00" /> : null}
           </SectionCard>
           </FormColumns>
         </form>

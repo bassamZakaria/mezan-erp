@@ -1413,6 +1413,7 @@ function InvoiceDetailView({
   };
   const lineCost = (l: { unitCost?: string | null; qty: string }): Money | null =>
     l.unitCost ? extend(Qty.fromMajor(l.qty), Money.fromMajor(l.unitCost)) : null;
+  const marginKnown = invoice.lines.some((l) => "unitCost" in l);
   const margin = (() => {
     let cost = Money.zero();
     let net = Money.zero();
@@ -1692,18 +1693,22 @@ function InvoiceDetailView({
                       <td className="px-[15px] py-[11px]" colSpan={8}>{t("salesInvoices.grandTotal")}</td>
                       <td className="px-[15px] py-[11px] text-end"><MoneyDisplay currencyLabel={docCurrencyLabel} value={toMajor(invoice.totals.grandTotal)} /></td>
                     </tr>
-                    <tr className="text-ink-muted">
-                      <td className="px-[15px] py-[9px]" colSpan={8}>{t("salesInvoices.detail.totalCost")}</td>
-                      <td className="px-[15px] py-[9px] text-end"><MoneyDisplay currencyLabel={baseLabel} value={margin.cost} /></td>
-                    </tr>
-                    <tr className="text-ink-muted">
-                      <td className="px-[15px] py-[9px]" colSpan={8}>{t("salesInvoices.detail.totalProfit")}</td>
-                      <td className="px-[15px] py-[9px] text-end"><MoneyDisplay currencyLabel={baseLabel} value={margin.profit} /></td>
-                    </tr>
-                    <tr className="text-ink-muted">
-                      <td className="px-[15px] py-[9px]" colSpan={8}>{t("salesInvoices.detail.grossMargin")}</td>
-                      <td className="mz-num px-[15px] py-[9px] text-end">{format.number(Math.round(margin.marginPct * 10) / 10)}%</td>
-                    </tr>
+                    {marginKnown ? (
+                      <>
+                        <tr className="text-ink-muted">
+                          <td className="px-[15px] py-[9px]" colSpan={8}>{t("salesInvoices.detail.totalCost")}</td>
+                          <td className="px-[15px] py-[9px] text-end"><MoneyDisplay currencyLabel={baseLabel} value={margin.cost} /></td>
+                        </tr>
+                        <tr className="text-ink-muted">
+                          <td className="px-[15px] py-[9px]" colSpan={8}>{t("salesInvoices.detail.totalProfit")}</td>
+                          <td className="px-[15px] py-[9px] text-end"><MoneyDisplay currencyLabel={baseLabel} value={margin.profit} /></td>
+                        </tr>
+                        <tr className="text-ink-muted">
+                          <td className="px-[15px] py-[9px]" colSpan={8}>{t("salesInvoices.detail.grossMargin")}</td>
+                          <td className="mz-num px-[15px] py-[9px] text-end">{format.number(Math.round(margin.marginPct * 10) / 10)}%</td>
+                        </tr>
+                      </>
+                    ) : null}
                     {toMajor(invoice.returnedCredit) > 0 ? (
                       <>
                         <tr className="text-danger">

@@ -4,6 +4,7 @@ import { useManufacturingDashboard } from "../../data/hub-hooks";
 import { useNavigation } from "../../navigation";
 import type { ScreenKey } from "../../router/screens";
 import { useAppTranslation, type AppTranslationKey } from "../../i18n";
+import { useMaySeeItemCost } from "../../data/item-cost";
 
 /**
  * التصنيع hub — the manufacturing-domain landing page. Its KPI tiles reuse
@@ -39,6 +40,7 @@ export function ManufacturingHubScreen() {
   const { t } = useAppTranslation();
   const { navigate } = useNavigation();
   const dashboardQuery = useManufacturingDashboard();
+  const showCost = useMaySeeItemCost();
   const dashboard = dashboardQuery.data;
 
   const activeOrders = useMemo(() => dashboard?.activeOrders.slice(0, 5) ?? [], [dashboard]);
@@ -51,9 +53,9 @@ export function ManufacturingHubScreen() {
       error={dashboardQuery.isError ? t("manufacturingHub.loadFailed") : null}
       stats={[
         { key: "orders", label: t("manufacturingHub.stat.activeOrders"), value: dashboard?.kpis.activeWorkOrders ?? 0, sub: t("manufacturingHub.stat.activeOrdersSub") },
-        { key: "wip", label: t("manufacturingHub.stat.wip"), value: <Money value={num(dashboard?.kpis.wipValue)} />, sub: t("manufacturingHub.stat.wipSub") },
+        ...(showCost ? [{ key: "wip", label: t("manufacturingHub.stat.wip"), value: <Money value={num(dashboard?.kpis.wipValue)} />, sub: t("manufacturingHub.stat.wipSub") }] : []),
         { key: "produced", label: t("manufacturingHub.stat.produced"), value: num(dashboard?.kpis.unitsProducedThisMonth), sub: t("manufacturingHub.stat.producedSub") },
-        { key: "unitCost", label: t("manufacturingHub.stat.unitCost"), value: <Money value={num(dashboard?.kpis.avgCostPerUnit)} />, sub: t("manufacturingHub.stat.unitCostSub") },
+        ...(showCost ? [{ key: "unitCost", label: t("manufacturingHub.stat.unitCost"), value: <Money value={num(dashboard?.kpis.avgCostPerUnit)} />, sub: t("manufacturingHub.stat.unitCostSub") }] : []),
       ]}
       list={{
         title: t("manufacturingHub.activeHeading"),

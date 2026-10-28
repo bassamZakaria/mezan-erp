@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { DocumentList, EmptyState, Money as MoneyDisplay, Qty, Card, Button, StatusPill, type DocumentListColumn } from "@mezan/ui";
 import type { StockBalanceRowDTO } from "@mezan/contracts";
 import { useStockBalance, useWarehouses } from "../data/hooks";
+import { useMaySeeItemCost } from "../data/item-cost";
 import { SelectField, NumberField } from "../settings/form-controls";
 import { useAppTranslation } from "../i18n";
 import { useEntityName } from "../lib/entity-names";
@@ -36,6 +37,7 @@ function statusOf(row: StockBalanceRowDTO): StatusFilter {
 
 export function StockBalanceScreen() {
   const nameOf = useEntityName();
+  const showCost = useMaySeeItemCost();
   const { t } = useAppTranslation();
   const [warehouseFilter, setWarehouseFilter] = useUrlParam("warehouse");
   const [statusFilter, setStatusFilter] = useUrlParam("status", "all") as [
@@ -143,18 +145,22 @@ export function StockBalanceScreen() {
         return point === null ? <span className="text-ink-faint">—</span> : <span className="mz-num text-ink-muted">{point}</span>;
       },
     },
-    {
-      key: "averageCost",
-      header: t("stockBalance.col.averageCost"),
-      align: "end",
-      render: (r) => <MoneyDisplay value={Number(r.averageCost)} />,
-    },
-    {
-      key: "totalValue",
-      header: t("stockBalance.col.totalValue"),
-      align: "end",
-      render: (r) => <MoneyDisplay value={Number(r.totalValue)} />,
-    },
+    ...(showCost
+      ? [
+          {
+            key: "averageCost",
+            header: t("stockBalance.col.averageCost"),
+            align: "end" as const,
+            render: (r: StockBalanceRowDTO) => <MoneyDisplay value={Number(r.averageCost)} />,
+          },
+          {
+            key: "totalValue",
+            header: t("stockBalance.col.totalValue"),
+            align: "end" as const,
+            render: (r: StockBalanceRowDTO) => <MoneyDisplay value={Number(r.totalValue)} />,
+          },
+        ]
+      : []),
     {
       key: "warehouseCount",
       header: t("stockBalance.col.warehouses"),
@@ -256,8 +262,8 @@ export function StockBalanceScreen() {
                   <th className="px-[10px] py-[5px] text-end">{t("stockBalance.col.totalOnHand")}</th>
                   <th className="px-[10px] py-[5px] text-end">{t("stockBalance.col.reserved")}</th>
                   <th className="px-[10px] py-[5px] text-end">{t("stockBalance.col.available")}</th>
-                  <th className="px-[10px] py-[5px] text-end">{t("stockBalance.col.averageCost")}</th>
-                  <th className="px-[10px] py-[5px] text-end">{t("stockBalance.col.totalValue")}</th>
+                  {showCost ? <th className="px-[10px] py-[5px] text-end">{t("stockBalance.col.averageCost")}</th> : null}
+                  {showCost ? <th className="px-[10px] py-[5px] text-end">{t("stockBalance.col.totalValue")}</th> : null}
                 </tr>
               </thead>
               <tbody>
@@ -273,12 +279,16 @@ export function StockBalanceScreen() {
                     <td className="px-[10px] py-[6px] text-end">
                       <Qty value={w.available} className="font-semibold" />
                     </td>
-                    <td className="px-[10px] py-[6px] text-end">
-                      <MoneyDisplay value={Number(w.averageCost)} />
-                    </td>
-                    <td className="px-[10px] py-[6px] text-end">
-                      <MoneyDisplay value={Number(w.totalValue)} />
-                    </td>
+                    {showCost ? (
+                      <td className="px-[10px] py-[6px] text-end">
+                        <MoneyDisplay value={Number(w.averageCost)} />
+                      </td>
+                    ) : null}
+                    {showCost ? (
+                      <td className="px-[10px] py-[6px] text-end">
+                        <MoneyDisplay value={Number(w.totalValue)} />
+                      </td>
+                    ) : null}
                   </tr>
                 ))}
               </tbody>

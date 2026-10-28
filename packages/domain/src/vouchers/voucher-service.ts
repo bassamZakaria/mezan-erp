@@ -579,7 +579,7 @@ export class VoucherService {
     const baseMoved = voucherNetPaid(line);
     const statedMoved = voucherStatedNet(line);
     const movedOut = paysOut || line.direction === "transfer";
-    const sourceBaseMoved = paysOut ? baseMoved : voucherBaseAmount(line);
+    const sourceBaseMoved = line.direction === "transfer" ? voucherBaseAmount(line) : baseMoved;
     const stampedLeg = line.treasuryFx ?? (await legFx(line.treasuryAccountId, sourceBaseMoved, statedMoved));
     const treasuryFx = stampedLeg && movedOut ? await this.atCarrying(line.treasuryAccountId, stampedLeg, sourceBaseMoved, doc.date) : stampedLeg;
     const counterTreasuryFx = line.counterTreasuryFx ?? (await legFx(line.counterTreasuryAccountId, voucherBaseAmount(line), line.amount));

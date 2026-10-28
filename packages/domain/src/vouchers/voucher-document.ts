@@ -259,13 +259,11 @@ export function voucherBaseWithholding(line: VoucherLine): Money {
   return line.fxRate ? convertToBase(withheld, line.fxRate) : withheld;
 }
 
-/** The transfer commission, in base currency. */
 export function voucherBaseCommission(line: VoucherLine): Money {
   const commission = line.commissionAmount ?? Money.zero();
   return line.fxRate ? convertToBase(commission, line.fxRate) : commission;
 }
 
-/** What moves through the treasury, in the voucher's own currency. */
 export function voucherStatedNet(line: VoucherLine): Money {
   return Money.fromScaled(line.amount.scaled - (line.withholdingAmount?.scaled ?? 0n) - (line.commissionAmount?.scaled ?? 0n));
 }
@@ -417,6 +415,9 @@ export const voucherDocumentType: DocumentTypeDefinition<VoucherLine> = {
       }
       if (line.paymentMethod === "cheque") {
         throw new InvalidDocumentError(VOUCHER_DOC_TYPE, doc.id, "عمولة التحويل لا تُخصم من تحصيل بشيك؛ تُسجَّل عند تحصيل الشيك من البنك.", "A transfer commission cannot be taken from a cheque collection; record it when the bank collects the cheque.");
+      }
+      if (line.paymentMethod === "cash") {
+        throw new InvalidDocumentError(VOUCHER_DOC_TYPE, doc.id, "عمولة التحويل لا تُخصم من تحصيل نقدي؛ تُسجَّل على التحويل البنكي أو المحفظة أو البطاقة.", "A transfer commission cannot be taken from a cash collection; it belongs on a bank, wallet or card collection.");
       }
       if (commission < 0n || commission >= line.amount.scaled) {
         throw new InvalidDocumentError(VOUCHER_DOC_TYPE, doc.id, "عمولة التحويل يجب أن تكون أكبر من صفر وأقل من قيمة التحصيل.", "The transfer commission must be greater than zero and less than the collected amount.");

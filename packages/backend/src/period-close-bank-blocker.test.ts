@@ -60,8 +60,8 @@ describe("the bank statements the demo ships with", () => {
 
   it("August is blocked by a statement with lines nobody has matched yet, and the checklist says how many", async () => {
     const unmatched = (await linesOf(AUGUST)).filter((line) => line.status !== "matched");
-    expect(unmatched.length).toBe(11);
-    expect(await statementFinding(AUGUST)).toMatchObject({ kind: "bank_statement", state: "unreconciled", passed: false, count: 11 });
+    expect(unmatched.length).toBe(12);
+    expect(await statementFinding(AUGUST)).toMatchObject({ kind: "bank_statement", state: "unreconciled", passed: false, count: 12 });
     expect((await bankCheck("fp-2026-08")).status).toBe("fail");
   });
 

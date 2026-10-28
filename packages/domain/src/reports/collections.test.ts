@@ -38,6 +38,7 @@ function voucher(o: Partial<CollectionReportVoucher> & Pick<CollectionReportVouc
     commission: m("0"),
     allocations: [],
     ...o,
+    postedCredit: o.postedCredit ?? o.gross ?? m("0"),
   };
 }
 
@@ -82,6 +83,13 @@ describe("collections report (#117, #118)", () => {
     const byRep = runReport(report, { ...report.defaultParams, repId: "r2" }, ctx);
     expect(rowsOf(byRep).map((r) => [r.voucherId, r.gross])).toEqual([["v1", "666.670000"], ["v2", "200.000000"]]);
     if (byRep.ok) expect(byRep.reconciliation).toBeNull();
+  });
+
+  it("flags a collection whose posted credit to the customer differs from what the report counts", () => {
+    const off = { ...ctx, vouchers: [voucher({ voucherId: "v9", gross: m("100"), postedCredit: m("90") })] };
+    const outcome = runReport(report, report.defaultParams, off);
+    if (!outcome.ok) throw new Error("report refused its params");
+    expect(outcome.reconciliation).toMatchObject({ reportTotal: "100.000000", referenceTotal: "90.000000", withinTolerance: false });
   });
 
   it("attributes by the chosen role on the invoice", () => {

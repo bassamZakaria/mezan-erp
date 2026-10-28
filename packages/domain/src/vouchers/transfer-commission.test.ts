@@ -75,6 +75,7 @@ describe("transfer commission on a customer collection (#115)", () => {
     ["a commission with no expense account", { commissionGlAccountId: null }, "حساب مصروف عمولة التحويل مطلوب"],
     ["a commission on a supplier payment", { voucherType: "supplier_payment", counterpartyGlAccountId: "2100", customerId: null, supplierId: "sup-1" }, "سندات تحصيل العملاء"],
     ["a commission on a cheque collection", { paymentMethod: "cheque" }, "بشيك"],
+    ["a commission on a cash collection", { paymentMethod: "cash" }, "نقدي"],
     ["a commission posted to a liability", { commissionGlAccountId: "2100" }, "حساب مصروفات"],
   ] as const)("refuses %s", async (_label, override, message) => {
     const h = buildTestService();

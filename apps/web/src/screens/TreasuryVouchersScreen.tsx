@@ -1198,7 +1198,7 @@ function CreateVoucherView({
   const buildLine = useCallback((): VoucherLine | null => {
     if (!type || !def) return null;
     const received = draft.amount === "" ? Money.zero() : Money.fromMajor(draft.amount);
-    const commission = type === "customer_collection" && draft.commissionAmount !== "" ? Money.fromMajor(draft.commissionAmount) : Money.zero();
+    const commission = type === "customer_collection" && draft.paymentMethod !== "cash" && draft.paymentMethod !== "cheque" && draft.commissionAmount !== "" ? Money.fromMajor(draft.commissionAmount) : Money.zero();
     const amount = received.add(commission);
     return {
       voucherType: type,
@@ -1485,7 +1485,7 @@ function CreateVoucherView({
 
           <TextField label={t("vouchers.date")} value={draft.date} onChange={(v) => setDraft((d) => ({ ...d, date: v }))} placeholder="YYYY-MM-DD" />
           <TextField label={t("vouchers.referenceNumber")} value={draft.referenceNo} onChange={(v) => setDraft((d) => ({ ...d, referenceNo: v }))} />
-          {type === "customer_collection" ? (
+          {type === "customer_collection" && draft.paymentMethod !== "cash" && draft.paymentMethod !== "cheque" ? (
             <>
               <div>
                 <div className="mb-[6px] text-[12.5px] font-semibold text-ink">{t("vouchers.commission")}</div>

@@ -5239,7 +5239,7 @@ export const webEn: Record<WebTranslationKey, string> = {
   "salesInvoices.payments.treasury": "Received into",
   "salesInvoices.payments.treasuryPlaceholder": "Choose a treasury account",
   "salesInvoices.payments.method": "Payment method",
-  "salesInvoices.payments.commission": "Transfer commission (deducted and booked as an expense)",
+  "salesInvoices.payments.commission": "Transfer commission (what the bank kept; the customer is relieved of the amount received plus the commission)",
   "salesInvoices.payments.commissionAccount": "Commission expense account",
   "salesInvoices.payments.commissionAccountPlaceholder": "Choose the expense account…",
   "salesInvoices.error.commissionAccountRequired": "Choose the transfer commission expense account.",

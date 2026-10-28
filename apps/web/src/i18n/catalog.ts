@@ -5245,7 +5245,7 @@ export const webAr = {
   "salesInvoices.payments.treasury": "الخزينة المستلمة",
   "salesInvoices.payments.treasuryPlaceholder": "اختر الخزينة",
   "salesInvoices.payments.method": "طريقة الدفع",
-  "salesInvoices.payments.commission": "عمولة التحويل (تُخصم من المبلغ وتُسجَّل مصروفاً)",
+  "salesInvoices.payments.commission": "عمولة التحويل (ما خصمه البنك؛ يُخصم من رصيد العميل المبلغ المستلم مضافاً إليه العمولة)",
   "salesInvoices.payments.commissionAccount": "حساب مصروف العمولة",
   "salesInvoices.payments.commissionAccountPlaceholder": "اختر حساب المصروف...",
   "salesInvoices.error.commissionAccountRequired": "اختر حساب مصروف عمولة التحويل.",

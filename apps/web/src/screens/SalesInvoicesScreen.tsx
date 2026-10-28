@@ -1412,6 +1412,7 @@ function InvoiceDetailView({
   }, [treasuryQuery.data, paymentTreasuryId]);
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "bank" | "cheque" | "card" | "wallet">("cash");
   const [payBusy, setPayBusy] = useState(false);
+  const commissionAllowed = paymentMethod !== "cash" && paymentMethod !== "cheque";
 
   const remaining = toMajor(invoice.remainingBalance);
   const overdue = isOverdue(invoice, today);
@@ -1500,7 +1501,7 @@ function InvoiceDetailView({
         setPaymentError(t("salesInvoices.error.treasuryRequired"));
         return;
       }
-      const hasCommission = commissionAmount !== "" && Money.fromMajor(commissionAmount).scaled > 0n;
+      const hasCommission = commissionAllowed && commissionAmount !== "" && Money.fromMajor(commissionAmount).scaled > 0n;
       if (hasCommission && !commissionAccountId) {
         setPaymentError(t("salesInvoices.error.commissionAccountRequired"));
         return;
@@ -1514,6 +1515,7 @@ function InvoiceDetailView({
       });
       setPaymentAmount(null);
       setCommissionAmount("");
+      setCommissionAccountId("");
     } catch (err) {
       setPaymentError(err instanceof Error ? err.message : t("salesInvoices.error.paymentFailed"));
     } finally {
@@ -1898,11 +1900,13 @@ function InvoiceDetailView({
                         { value: "wallet", label: t("vouchers.method.wallet") },
                       ]}
                     />
+                    {commissionAllowed ? (
                     <div>
                       <span className="mb-[6px] block text-xs font-semibold text-ink-muted">{t("salesInvoices.payments.commission")}</span>
                       <MoneyStringInput aria-label={t("salesInvoices.payments.commission")} value={commissionAmount} onChange={setCommissionAmount} />
                     </div>
-                    {commissionAmount !== "" && Money.fromMajor(commissionAmount).scaled > 0n ? (
+                    ) : null}
+                    {commissionAllowed && commissionAmount !== "" && Money.fromMajor(commissionAmount).scaled > 0n ? (
                       <SelectField
                         label={t("salesInvoices.payments.commissionAccount")}
                         value={commissionAccountId}

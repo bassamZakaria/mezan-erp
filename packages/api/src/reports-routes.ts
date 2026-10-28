@@ -2049,26 +2049,27 @@ export function createReportsRoutes(
   // never a fixture ledger. Each recreates the SAME `ReportDefinition` the web
   // screen renders through, so params/columns/reconciliation can never drift.
 
-  /**
-   * التحصيلات (#117, #118): every standing customer collection in the window,
-   * split by the invoices it settled. Allocations are read only for the
-   * vouchers that fall in the window, one voucher at a time.
-   */
   async function collectionsContext(c: Context, dateFrom: string, dateTo: string): Promise<CollectionsContext> {
     const viewDeps = depsInViewOf(deps, c);
     const [docs, customers, invoices] = await Promise.all([
-      viewDeps.voucherDocuments?.list({ status: "confirmed" }) ?? Promise.resolve([]),
+      viewDeps.voucherDocuments?.list() ?? Promise.resolve([]),
       deps.customers.findAll(),
       deps.salesInvoices.list(),
     ]);
     const customerName = new Map(customers.map((customer) => [customer.id, customer.nameAr]));
+    const byId = new Map(docs.map((doc) => [doc.id, doc]));
     const vouchers = await Promise.all(
       docs
-        .filter((doc) => isStandingVoucher(doc) && doc.lines[0]?.voucherType === "customer_collection" && doc.date >= dateFrom && doc.date <= dateTo)
+        .filter((doc) => doc.lines[0]?.voucherType === "customer_collection" && doc.date >= dateFrom && doc.date <= dateTo && voucherStandsAsOf(doc, byId, dateTo))
         .map(async (doc) => {
           const line = doc.lines[0]!;
-          const allocations = ((await deps.allocations?.listByVoucher(doc.id)) ?? []).filter((a) => a.status === "active");
+          const [allocations, entry] = await Promise.all([
+            deps.allocations?.listByVoucher(doc.id) ?? Promise.resolve([]),
+            deps.ledger.findById(doc.journalEntryId ?? doc.id),
+          ]);
+          const postedCredit = Money.sum((entry?.lines ?? []).filter((l) => l.accountId === line.counterpartyGlAccountId).map((l) => Money.fromScaled(l.credit.scaled - l.debit.scaled)));
           return {
+            postedCredit,
             voucherId: doc.id,
             voucherNo: doc.docNo,
             date: doc.date,
@@ -2077,7 +2078,7 @@ export function createReportsRoutes(
             customerNameAr: (line.customerId && customerName.get(line.customerId)) || "—",
             gross: voucherBaseAmount(line),
             commission: voucherBaseCommission(line),
-            allocations: allocations.map((a) => ({ invoiceId: a.invoiceId, amount: a.amount })),
+            allocations: allocations.filter((a) => a.status === "active").map((a) => ({ invoiceId: a.invoiceId, amount: a.amount })),
           };
         }),
     );

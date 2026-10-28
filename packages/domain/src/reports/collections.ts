@@ -8,22 +8,6 @@ import { countDistinct, sumMoneyStrings } from "./kpi.js";
 import { periodBucketKey, withinDateRange } from "./period-bucket.js";
 import { BRANCH_PARAM_FIELD, branchIdParamSchema, matchesBranch } from "./branch-filter.js";
 
-/**
- * تقرير التحصيلات — collections, per rep and per customer (#117, #118).
- *
- * A collection is credited to a rep THROUGH the invoices it settled: each
- * allocation of a standing customer collection is one share, attributed to the
- * chosen rep of the invoice it relieved. What the voucher has not applied to
- * any invoice is its own «غير مخصص» share, so the gross of the rows always
- * equals the gross of the collections in the window — the figure credited to
- * the receivables control account.
- *
- * Gross is what relieved the customer, commission is the transfer commission
- * the bank kept (#115), and net is what reached the treasury. A voucher's
- * commission is split across its shares by largest remainder, so the parts of
- * every column add up to the voucher exactly.
- */
-
 export const UNASSIGNED_COLLECTION_KEY = "__unassigned__";
 const UNASSIGNED_LABEL_AR = "غير محدد";
 const UNALLOCATED_LABEL_AR = "غير مخصص على فاتورة";
@@ -40,12 +24,10 @@ export interface CollectionReportVoucher {
   readonly branchId: string | null;
   readonly customerId: string | null;
   readonly customerNameAr: string;
-  /** Base: what relieved the customer. */
   readonly gross: Money;
-  /** Base: the transfer commission kept. */
   readonly commission: Money;
-  /** The voucher's ACTIVE allocations onto sales invoices, in base. */
   readonly allocations: readonly { readonly invoiceId: string; readonly amount: Money }[];
+  readonly postedCredit: Money;
 }
 
 export interface CollectionsContext {
@@ -187,7 +169,7 @@ const reconciliation = {
       ? null
       : {
           report: Money.fromMajor(sumMoneyStrings(rows, (r) => [r.gross])),
-          reference: Money.sum(vouchersInWindow(params, ctx).map((v) => v.gross)),
+          reference: Money.sum(vouchersInWindow(params, ctx).map((v) => v.postedCredit)),
         },
 };
 

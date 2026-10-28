@@ -124,7 +124,6 @@ async function seedVouchers(app: App): Promise<void> {
   await step(app, "POST", "/vouchers/VCH-DEMO-1/confirm", {});
   await step(app, "POST", "/vouchers/VCH-DEMO-1/allocations", { invoiceId: "INV-DEMO-1", amount: collectionAmount });
 
-  // عمولة تحويل (#115): the bank kept 25.00 of a transfer, so the invoice is relieved of what arrived plus the commission.
   await step(app, "POST", "/sales-invoices/INV-DEMO-5/payments", {
     amount: fractionOf(await outstandingOf(app, "sales", "CUST-DEMO-1", "INV-DEMO-5"), 0.3),
     commissionAmount: "25.00",

@@ -246,7 +246,7 @@ describe("Goods Receipt", () => {
         numbering,
         policy: { requirePoForGrn: false, requireReceiptForInvoice: false, blockOverReceipt: true, trackSoldPurchaseItems: true },
       }),
-    ).rejects.toThrow(/تتجاوز المتبقي/);
+    ).rejects.toThrow(/الحد الأقصى المسموح باستلامه 10/);
     // default policy (gate off) allows it
     const gr = await createGoodsReceipt(over, { receipts, orders, numbering });
     expect(gr.status).toBe("draft");

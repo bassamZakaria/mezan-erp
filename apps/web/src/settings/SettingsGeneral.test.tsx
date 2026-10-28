@@ -73,6 +73,7 @@ const baseSettings: TenantSettingsDTO = {
   requirePoForGrn: false,
   requireGrnForInvoice: false,
   trackSoldPurchaseItems: true,
+  overReceiptTolerancePercent: 0,
   preventNegativeCashBalance: true,
   allowNegativeTreasury: true,
   smtpEnabled: false,

@@ -53,6 +53,8 @@ export interface PurchasePolicy {
   readonly requireReceiptForInvoice: boolean;
   /** Block a goods receipt from receiving more than the PO's outstanding qty. */
   readonly blockOverReceipt: boolean;
+  /** With `blockOverReceipt` on, how far above the ordered qty a PO line may be received, in percent (0 = never above ordered). */
+  readonly overReceiptTolerancePercent?: number;
   /**
    * Block cancelling a purchase invoice/receipt once any of its goods have
    * since been sold, transferred, or otherwise consumed (`trackSoldPurchaseItems`).

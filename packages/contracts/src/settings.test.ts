@@ -54,6 +54,7 @@ const baseSettings = {
   requirePoForGrn: false,
   requireGrnForInvoice: false,
   trackSoldPurchaseItems: false,
+  overReceiptTolerancePercent: 0,
   preventNegativeCashBalance: true,
   allowNegativeTreasury: false,
   smtpEnabled: false,

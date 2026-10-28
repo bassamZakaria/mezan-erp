@@ -371,6 +371,15 @@ function SettingsForm({ initial }: { initial: TenantSettingsDTO }) {
                   checked={draft.trackSoldPurchaseItems}
                   onChange={(v) => patch({ trackSoldPurchaseItems: v })}
                 />
+                <NumberField
+                  label={t("settingsGeneral.overReceiptTolerance")}
+                  value={draft.overReceiptTolerancePercent}
+                  min={0}
+                  max={100}
+                  step={0.5}
+                  onChange={(v) => patch({ overReceiptTolerancePercent: v })}
+                  hint={t("settingsGeneral.overReceiptToleranceHint")}
+                />
               </SectionCard>
 
               {/*

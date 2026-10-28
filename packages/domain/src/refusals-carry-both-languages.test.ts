@@ -17,7 +17,8 @@ import { EmployeeRefStatus } from "./hr-shared/employee-ref.js";
 import { EmployeeNotTerminatedError, InvalidEmployeeTransitionError, TerminationRecoveryAlreadyCollectedError } from "./hr/errors.js";
 import { withTerminationDate } from "./hr/transition-employee.js";
 import type { Employee } from "./hr/employee.js";
-import { GoodsReceiptAlreadyInvoicedError, GoodsReceiptInvoicedRefusal, InvoiceDoesNotMatchReceiptError, InvoiceExceedsReceiptError } from "./purchasing/errors.js";
+import { GoodsReceiptAlreadyInvoicedError, GoodsReceiptInvoicedRefusal, InvoiceDoesNotMatchReceiptError, InvoiceExceedsReceiptError, OverReceiptError } from "./purchasing/errors.js";
+import { Qty } from "./money/index.js";
 import { TreasuryAccountFixedField, TreasuryAccountHasMovementsError, TreasuryGlAccountCurrencyConflictError } from "./treasury-accounts/errors.js";
 
 const ARABIC = /[؀-ۿ]/;
@@ -48,6 +49,7 @@ describe("a refusal the user can meet says why in Arabic and in English", () => 
       new TreasuryAccountHasMovementsError("TR-1", [TreasuryAccountFixedField.Currency, TreasuryAccountFixedField.GlAccount]),
       new TreasuryGlAccountCurrencyConflictError("1310-USD", "EGP", { code: "BANK-USD", currency: "USD" }),
       new ChequeBankRateMissingError("GBP", "2026-09-05"),
+      new OverReceiptError("ITEM-1", Qty.fromMajor("6"), Qty.fromMajor("20"), Qty.fromMajor("20"), Qty.fromMajor("25"), 25),
       new EmployeeNotTerminatedError("EMP-1"),
       new TerminationRecoveryAlreadyCollectedError("EMP-1", "ADV-000007"),
       new InvalidEmployeeTransitionError(EmployeeRefStatus.Terminated, EmployeeRefStatus.Terminated),

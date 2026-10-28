@@ -201,6 +201,7 @@ export interface ConfirmGoodsReceiptDeps extends PurchaseAuditDeps {
   readonly gl?: PurchaseGlPostingPort;
   readonly accounts?: PurchaseGlAccounts;
   readonly now?: () => string;
+  readonly policy?: PurchasePolicy;
 }
 
 export interface CancelGoodsReceiptDeps extends PurchaseAuditDeps {
@@ -296,6 +297,32 @@ function assertReceivable(order: PurchaseOrder): void {
   }
 }
 
+function assertWithinOverReceiptTolerance(
+  order: PurchaseOrder,
+  lines: readonly { itemId: string; qty: Qty }[],
+  policy: PurchasePolicy,
+): void {
+  if (!policy.blockOverReceipt) return;
+  const tolerancePercent = policy.overReceiptTolerancePercent ?? 0;
+  const basisPoints = BigInt(Math.round(tolerancePercent * 100));
+  const ordered = new Map<string, Qty>();
+  const received = new Map<string, Qty>();
+  for (const l of order.lines) {
+    ordered.set(l.itemId, (ordered.get(l.itemId) ?? Qty.zero()).add(l.qty));
+    received.set(l.itemId, (received.get(l.itemId) ?? Qty.zero()).add(l.receivedQty));
+  }
+  const wanted = new Map<string, Qty>();
+  for (const l of lines) wanted.set(l.itemId, (wanted.get(l.itemId) ?? Qty.zero()).add(l.qty));
+  for (const [itemId, qty] of wanted) {
+    const itemOrdered = ordered.get(itemId) ?? Qty.zero();
+    const itemReceived = received.get(itemId) ?? Qty.zero();
+    const allowedMax = Qty.fromScaled((itemOrdered.scaled * (10_000n + basisPoints)) / 10_000n);
+    if (itemReceived.add(qty).compare(allowedMax) > 0) {
+      throw new OverReceiptError(itemId, qty, itemOrdered, itemReceived, allowedMax, tolerancePercent);
+    }
+  }
+}
+
 /**
  * Create a مسودة (draft) goods receipt — normally against a confirmed PO
  * (lines taken from the command, or auto-filled from the PO's outstanding
@@ -335,20 +362,7 @@ export async function createGoodsReceipt(
 
   validateLines(lines, command.projectId ?? null);
 
-  if (policy.blockOverReceipt) {
-    const outstanding = new Map<string, Qty>();
-    for (const l of order.lines) {
-      outstanding.set(l.itemId, (outstanding.get(l.itemId) ?? Qty.zero()).add(lineOutstandingQty(l)));
-    }
-    const wanted = new Map<string, Qty>();
-    for (const l of lines) {
-      wanted.set(l.itemId, (wanted.get(l.itemId) ?? Qty.zero()).add(l.qty));
-    }
-    for (const [itemId, qty] of wanted) {
-      const avail = outstanding.get(itemId) ?? Qty.zero();
-      if (qty.compare(avail) > 0) throw new OverReceiptError(itemId);
-    }
-  }
+  assertWithinOverReceiptTolerance(order, lines, policy);
 
   const number = await deps.numbering.next(GOODS_RECEIPT_SEQUENCE);
   const receipt: GoodsReceipt = {
@@ -526,6 +540,9 @@ export async function confirmGoodsReceipt(
   }
   const accrualAccountId = deps.accounts?.goodsReceivedNotInvoicedAccountId;
   if (deps.gl && (!deps.accounts || !accrualAccountId)) throw new GoodsReceiptAccrualAccountMissingError(id);
+  const order = receipt.purchaseOrderId ? await deps.orders.findById(receipt.purchaseOrderId) : null;
+  if (receipt.purchaseOrderId && !order) throw new PurchaseOrderNotFoundError(receipt.purchaseOrderId);
+  if (order) assertWithinOverReceiptTolerance(order, receipt.lines, deps.policy ?? DEFAULT_PURCHASE_POLICY);
   const received = await deps.stock.postReceipt({
     receiptId: receipt.id,
     receiptNumber: receipt.number,
@@ -559,9 +576,7 @@ export async function confirmGoodsReceipt(
     );
   }
 
-  if (receipt.purchaseOrderId) {
-    const order = await deps.orders.findById(receipt.purchaseOrderId);
-    if (!order) throw new PurchaseOrderNotFoundError(receipt.purchaseOrderId);
+  if (order) {
     const updatedOrder = applyReceiptToOrder(
       order,
       receipt.lines.map((l) => ({ itemId: l.itemId, qty: l.qty })),

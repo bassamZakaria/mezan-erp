@@ -6,6 +6,7 @@ import {
   createAccountLedgerReport,
   createBalanceSheetReport,
   createCashFlowReport,
+  createDayBookReport,
   createGeneralLedgerReport,
   createIncomeStatementReport,
   createTrialBalanceReport,
@@ -43,6 +44,7 @@ const cashFlow = createCashFlowReport({ periodFrom: YEAR_START, periodTo: TODAY 
 const vatReturn = createVatReturnReport({ periodFrom: YEAR_START, periodTo: TODAY });
 const withholdingTax = createWithholdingTaxReport(YEAR_START, TODAY);
 const generalLedger = createGeneralLedgerReport({ periodFrom: YEAR_START, periodTo: TODAY });
+const dayBook = createDayBookReport({ periodFrom: YEAR_START, periodTo: TODAY });
 
 function VatNetSummary({ rows }: { rows: readonly VatReturnRow[] }) {
   const { t } = useAppTranslation();
@@ -144,6 +146,11 @@ const TABS: readonly TabDef[] = [
     id: "general-ledger",
     labelKey: "finReports.generalLedger",
     render: () => <ReportScreen definition={generalLedger} apiPath="/general-ledger" apiRoot="/financial-reports" />,
+  },
+  {
+    id: "day-book",
+    labelKey: "finReports.dayBook",
+    render: () => <ReportScreen definition={dayBook} apiPath="/day-book" apiRoot="/financial-reports" />,
   },
   {
     id: "account-ledger",

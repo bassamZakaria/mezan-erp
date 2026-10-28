@@ -5,6 +5,7 @@ import {
   type BranchCaveat,
   createBalanceSheetReport,
   createCashFlowReport,
+  createDayBookReport,
   createGeneralLedgerReport,
   comparativeRange,
   createIncomeStatementReport,
@@ -276,6 +277,20 @@ export function createFinancialReportsRoutes(
   app.get("/general-ledger", gate("accounting.reports.view"), async (c) => {
     const today = await tenantToday(c, deps.today);
     const definition = createGeneralLedgerReport({ periodFrom: firstOfMonth(today), periodTo: today });
+    const params = mergeParams(c, definition.defaultParams);
+    const ctx = await loadGlContext(c, {
+      fromDate: isoDateOrUndefined(params.periodFrom),
+      toDate: isoDateOrUndefined(params.periodTo),
+    });
+    return respond(c, runReport(definition, params, ctx));
+  });
+
+  // --- دفتر اليومية --------------------------------------------------------
+  // The general ledger's row set in booking order, bounded by the same period.
+
+  app.get("/day-book", gate("accounting.reports.view"), async (c) => {
+    const today = await tenantToday(c, deps.today);
+    const definition = createDayBookReport({ periodFrom: firstOfMonth(today), periodTo: today });
     const params = mergeParams(c, definition.defaultParams);
     const ctx = await loadGlContext(c, {
       fromDate: isoDateOrUndefined(params.periodFrom),

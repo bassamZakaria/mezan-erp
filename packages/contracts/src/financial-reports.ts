@@ -138,6 +138,42 @@ export const generalLedgerRowSchema = z.object({
 });
 export const generalLedgerReportSchema = reportRunSchema(periodParamsSchema, generalLedgerRowSchema);
 
+// --- دفتر اليومية --------------------------------------------------------
+
+const exactMoneySchema = z.string().regex(/^-?\d+\.\d{6}$/);
+
+export const dayBookRowSchema = z.object({
+  rowId: z.string(),
+  entryId: z.string(),
+  date: z.string(),
+  entryNo: z.string(),
+  entryLabel: z.string(),
+  accountCode: z.string(),
+  accountNameAr: z.string(),
+  accountNameEn: z.string().nullable(),
+  memo: z.string(),
+  sourceRef: z.string(),
+  debit: exactMoneySchema,
+  credit: exactMoneySchema,
+});
+/** Totals are exact decimal strings; an empty period totals to the number 0. */
+const dayBookTotalsSchema = z.record(z.string(), z.union([exactMoneySchema, z.literal(0)]));
+export const dayBookReportSchema = z.object({
+  params: periodParamsSchema,
+  rows: z.array(dayBookRowSchema),
+  groups: z.array(z.object({ key: z.string(), label: z.string(), rows: z.array(dayBookRowSchema), totals: dayBookTotalsSchema })),
+  grandTotals: dayBookTotalsSchema,
+  reconciliation: z
+    .object({
+      labelAr: z.string(),
+      reportTotal: exactMoneySchema,
+      referenceTotal: exactMoneySchema,
+      diff: exactMoneySchema,
+      withinTolerance: z.boolean(),
+    })
+    .nullable(),
+});
+
 // --- دفتر حساب -----------------------------------------------------------
 
 export const accountLedgerRowSchema = z.object({
@@ -175,5 +211,7 @@ export type VatReturnRowDTO = z.infer<typeof vatReturnRowSchema>;
 export type VatReturnReportDTO = z.infer<typeof vatReturnReportSchema>;
 export type GeneralLedgerRowDTO = z.infer<typeof generalLedgerRowSchema>;
 export type GeneralLedgerReportDTO = z.infer<typeof generalLedgerReportSchema>;
+export type DayBookRowDTO = z.infer<typeof dayBookRowSchema>;
+export type DayBookReportDTO = z.infer<typeof dayBookReportSchema>;
 export type AccountLedgerRowDTO = z.infer<typeof accountLedgerRowSchema>;
 export type AccountLedgerReportDTO = z.infer<typeof accountLedgerReportSchema>;

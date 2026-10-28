@@ -1342,7 +1342,9 @@ export function useCreateTreasuryAccount() {
       if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theAccountCouldNotBe"), t));
       return res.json<TreasuryAccountDTO>();
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["treasury-accounts"] }),
+    onSuccess: async () => {
+      await Promise.all([queryClient.invalidateQueries({ queryKey: ["treasury-accounts"] }), queryClient.invalidateQueries({ queryKey: ["accounts"] })]);
+    },
   });
 }
 
@@ -3481,6 +3483,23 @@ export function useVoidSalesInvoice() {
         queryClient.invalidateQueries({ queryKey: [key] });
       }
     },
+  });
+}
+
+export function useCancelDraftSalesInvoice() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<SalesInvoiceDTO, ApiError, { id: string; expectedVersion?: number }>({
+    mutationFn: async ({ id, expectedVersion }) => {
+      const res = await request(`/sales-invoices/${encodeURIComponent(id)}/cancel`, {
+        method: "POST",
+        body: JSON.stringify(expectedVersion === undefined ? {} : { expectedVersion }),
+      });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theInvoiceCouldNotBe2"), t));
+      return res.json<SalesInvoiceDTO>();
+    },
+    onSuccess: () => invalidateSalesInvoices(queryClient),
   });
 }
 

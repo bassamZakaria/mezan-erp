@@ -1047,6 +1047,8 @@ export {
   vatReturnReportSchema,
   generalLedgerRowSchema,
   generalLedgerReportSchema,
+  dayBookRowSchema,
+  dayBookReportSchema,
   accountLedgerRowSchema,
   accountLedgerReportSchema,
   type ReportValidationErrorDTO,
@@ -1070,6 +1072,8 @@ export {
   type VatReturnReportDTO,
   type GeneralLedgerRowDTO,
   type GeneralLedgerReportDTO,
+  type DayBookRowDTO,
+  type DayBookReportDTO,
   type AccountLedgerRowDTO,
   type AccountLedgerReportDTO,
 } from "./financial-reports.js";

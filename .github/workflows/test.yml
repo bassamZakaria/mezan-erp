@@ -51,6 +51,9 @@ jobs:
         with:
           node-version: 22
 
+      - name: Secret scan
+        run: node scripts/check-secrets.mjs --self-test && node scripts/check-secrets.mjs --all
+
       - name: pnpm (packageManager in package.json)
         run: corepack enable
 

@@ -21,6 +21,7 @@ import {
   modKeyLabel,
   Money as MoneyDisplay,
   MoneyInput,
+  MoneyStringInput,
   type PillTone,
   Qty as QtyDisplay,
   QtyInput,
@@ -1387,6 +1388,11 @@ function InvoiceDetailView({
    */
 
   const [paymentAmount, setPaymentAmount] = useState<number | null>(null);
+  const [commissionAmount, setCommissionAmount] = useState("");
+  const [commissionAccountId, setCommissionAccountId] = useState("");
+  const commissionAccountOptions = accounts
+    .filter((a) => a.type === "expense" && !a.isHeader && a.status === "active")
+    .map((a) => ({ value: a.id, label: `${a.code} — ${a.nameAr}` }));
   const [paymentError, setPaymentError] = useState<string | null>(null);
   // A collection lands in a treasury account or it is not a collection: the
   // route creates a real voucher and this is where its money goes (D1).
@@ -1494,13 +1500,20 @@ function InvoiceDetailView({
         setPaymentError(t("salesInvoices.error.treasuryRequired"));
         return;
       }
+      const hasCommission = commissionAmount !== "" && Money.fromMajor(commissionAmount).scaled > 0n;
+      if (hasCommission && !commissionAccountId) {
+        setPaymentError(t("salesInvoices.error.commissionAccountRequired"));
+        return;
+      }
       await recordPayment.mutateAsync({
         id: invoice.id,
         amount: String(paymentAmount),
         treasuryAccountId: paymentTreasuryId,
         paymentMethod: paymentMethod,
+        ...(hasCommission ? { commissionAmount, commissionGlAccountId: commissionAccountId } : {}),
       });
       setPaymentAmount(null);
+      setCommissionAmount("");
     } catch (err) {
       setPaymentError(err instanceof Error ? err.message : t("salesInvoices.error.paymentFailed"));
     } finally {
@@ -1885,6 +1898,18 @@ function InvoiceDetailView({
                         { value: "wallet", label: t("vouchers.method.wallet") },
                       ]}
                     />
+                    <div>
+                      <span className="mb-[6px] block text-xs font-semibold text-ink-muted">{t("salesInvoices.payments.commission")}</span>
+                      <MoneyStringInput aria-label={t("salesInvoices.payments.commission")} value={commissionAmount} onChange={setCommissionAmount} />
+                    </div>
+                    {commissionAmount !== "" && Money.fromMajor(commissionAmount).scaled > 0n ? (
+                      <SelectField
+                        label={t("salesInvoices.payments.commissionAccount")}
+                        value={commissionAccountId}
+                        onChange={setCommissionAccountId}
+                        options={[{ value: "", label: t("salesInvoices.payments.commissionAccountPlaceholder") }, ...commissionAccountOptions]}
+                      />
+                    ) : null}
                     <p className="text-[11.5px] text-ink-muted">{t("salesInvoices.payments.hint")}</p>
                     <Button variant="primary" disabled={payBusy} onClick={handleRecordPayment}>
                       {t("salesInvoices.payments.submit")}

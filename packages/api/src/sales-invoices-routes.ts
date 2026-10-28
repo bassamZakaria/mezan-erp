@@ -226,6 +226,8 @@ export interface SalesInvoiceRoutesDeps {
     referenceNo?: string | null;
     memo?: string | null;
     actor?: string;
+    commissionAmount?: Money | null;
+    commissionGlAccountId?: string | null;
   }) => Promise<{ voucherId: string }>;
   /**
    * What `amount` of base money dated `date` would relieve a foreign invoice
@@ -1772,7 +1774,8 @@ export function createSalesInvoicesRoutes(
         503,
       );
     }
-    const amount = Money.fromMajor(parsed.data.amount);
+    const commission = parsed.data.commissionAmount ? Money.fromMajor(parsed.data.commissionAmount) : Money.zero();
+    const amount = Money.fromMajor(parsed.data.amount).add(commission);
     try {
       const id = target.id;
       const existing = await svc.findById(id);
@@ -1802,6 +1805,7 @@ export function createSalesInvoicesRoutes(
         referenceNo: parsed.data.referenceNo ?? null,
         memo: parsed.data.notes ?? `تحصيل على الفاتورة ${invoice.docNo ?? invoice.id}`,
         actor: getAuthContext(c)?.userId,
+        ...(commission.scaled === 0n ? {} : { commissionAmount: commission, commissionGlAccountId: parsed.data.commissionGlAccountId ?? null }),
       });
       // Re-read: the allocation wrote amountPaid back through the settlement port.
       const settled = (await svc.findById(invoice.id)) ?? invoice;

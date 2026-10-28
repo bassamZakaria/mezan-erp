@@ -89,7 +89,9 @@ export const voucherSchema = z.object({
   costCategory: costCategorySchema.nullable(),
   withholdingAmount: moneyString.nullable(),
   withholdingRatePercent: z.number().nullable(),
-  /** What actually leaves the treasury: amount − withholdingAmount. */
+  commissionAmount: moneyString.nullable().optional(),
+  commissionGlAccountId: z.string().nullable().optional(),
+  /** What actually moves through the treasury: amount − withholdingAmount − commissionAmount. */
   netPaidAmount: moneyString,
   journalEntryId: z.string().nullable(),
   workflowRequestId: z.string().nullable().optional(),
@@ -140,6 +142,9 @@ export const createVoucherSchema = z.object({
   withholdingAmount: moneyString.nullish(),
   withholdingRatePercent: z.number().min(0).max(100).nullish(),
   withholdingGlAccountId: z.string().nullish(),
+  /** عمولة تحويل kept from a customer collection; `amount` stays the gross that settles the invoices. */
+  commissionAmount: moneyString.nullish(),
+  commissionGlAccountId: z.string().nullish(),
   /** The invoices this draft is meant to settle; whoever confirms it applies them in the same act (D344). */
   allocations: z.array(requestedAllocationSchema).optional(),
 });
@@ -221,6 +226,8 @@ export const createCollectionSchema = z.object({
   withholdingAmount: moneyString.nullish(),
   withholdingRatePercent: z.number().min(0).max(100).nullish(),
   withholdingGlAccountId: z.string().nullish(),
+  commissionAmount: moneyString.nullish(),
+  commissionGlAccountId: z.string().nullish(),
   allocations: z.array(requestedAllocationSchema).default([]),
 });
 

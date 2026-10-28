@@ -290,6 +290,8 @@ export type InstallmentCollectPort = (input: {
   referenceNo?: string | null;
   memo?: string | null;
   actor?: string;
+  commissionAmount?: Money | null;
+  commissionGlAccountId?: string | null;
 }) => Promise<{ voucherId: string }>;
 
 export interface CreateAppOptions {

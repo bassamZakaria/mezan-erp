@@ -1,0 +1,89 @@
+import { describe, expect, it } from "vitest";
+import { Money } from "../money/index.js";
+import { buildTestService } from "./test-helpers/build-test-service.js";
+import type { AllocatableInvoice } from "./allocation.js";
+import type { CreateVoucherCommand } from "./voucher-service.js";
+import { voucherLine, voucherNetPaid } from "./voucher-document.js";
+
+const AR = "1100";
+const BANK = "1310";
+const COMMISSION = "5910";
+
+function invoice(id: string, total: string): AllocatableInvoice {
+  return { id, invoiceNo: id.toUpperCase(), kind: "sales", partyId: "cust-1", date: "2026-08-10", total: Money.fromMajor(total), allocated: Money.zero() };
+}
+
+function collection(o: Partial<CreateVoucherCommand> = {}): CreateVoucherCommand {
+  return {
+    id: "vc",
+    date: "2026-08-22",
+    voucherType: "customer_collection",
+    amount: Money.fromMajor("1000"),
+    branchId: "b1",
+    paymentMethod: "bank",
+    treasuryAccountId: "ta-bank1",
+    treasuryGlAccountId: BANK,
+    counterpartyGlAccountId: AR,
+    customerId: "cust-1",
+    commissionAmount: Money.fromMajor("15"),
+    commissionGlAccountId: COMMISSION,
+    ...o,
+  };
+}
+
+async function balance(h: ReturnType<typeof buildTestService>, accountId: string): Promise<string> {
+  return (await h.ledger.accountBalance(accountId)).balance.toString();
+}
+
+describe("transfer commission on a customer collection (#115)", () => {
+  it("posts Dr bank net + Dr commission = Cr AR gross, and the invoice closes on the gross", async () => {
+    const h = buildTestService({ invoices: [invoice("inv1", "1000")] });
+    await h.seedCashBalance(AR, "1000.00");
+    const result = await h.service.createConfirmAndAllocate(collection(), [{ allocationId: "al1", invoiceId: "inv1" }]);
+
+    const entry = await h.ledger.findById("vc");
+    expect(entry?.status).toBe("posted");
+    const lines = entry!.lines.map((l) => [l.accountId, l.debit.toString(), l.credit.toString()]);
+    expect(lines).toEqual([
+      [BANK, "985.000000", "0.000000"],
+      [COMMISSION, "15.000000", "0.000000"],
+      [AR, "0.000000", "1000.000000"],
+    ]);
+    const debits = entry!.lines.reduce((s, l) => s + l.debit.scaled, 0n);
+    const credits = entry!.lines.reduce((s, l) => s + l.credit.scaled, 0n);
+    expect(debits).toBe(credits);
+
+    expect(result.allocations.map((a) => a.amount.toString())).toEqual(["1000.000000"]);
+    expect((await h.invoices.findById("inv1"))!.allocated.toString()).toBe("1000.000000");
+    expect(await balance(h, AR)).toBe("0.000000");
+    expect(await balance(h, BANK)).toBe("985.000000");
+    expect(voucherNetPaid(voucherLine(result.document)).toString()).toBe("985.000000");
+  });
+
+  it("reversal mirrors the commission line and reopens the invoice", async () => {
+    const h = buildTestService({ invoices: [invoice("inv1", "1000")] });
+    await h.service.createConfirmAndAllocate(collection(), [{ allocationId: "al1", invoiceId: "inv1" }]);
+    await h.service.reverseVoucher("vc", { reversalId: "vc-rev" });
+
+    for (const account of [AR, BANK, COMMISSION]) expect(await balance(h, account)).toBe("0.000000");
+    expect((await h.invoices.findById("inv1"))!.allocated.toString()).toBe("0.000000");
+  });
+
+  it.each([
+    ["a commission as large as the collection", { commissionAmount: Money.fromMajor("1000") }, "أقل من قيمة التحصيل"],
+    ["a negative commission", { commissionAmount: Money.fromMajor("-1") }, "أكبر من صفر"],
+    ["a commission with no expense account", { commissionGlAccountId: null }, "حساب مصروف عمولة التحويل مطلوب"],
+    ["a commission on a supplier payment", { voucherType: "supplier_payment", counterpartyGlAccountId: "2100", customerId: null, supplierId: "sup-1" }, "سندات تحصيل العملاء"],
+    ["a commission on a cheque collection", { paymentMethod: "cheque" }, "بشيك"],
+    ["a commission posted to a liability", { commissionGlAccountId: "2100" }, "حساب مصروفات"],
+  ] as const)("refuses %s", async (_label, override, message) => {
+    const h = buildTestService();
+    await expect(
+      (async () => {
+        await h.service.createVoucher(collection(override as Partial<CreateVoucherCommand>));
+        await h.service.confirmVoucher("vc");
+      })(),
+    ).rejects.toThrow(message);
+    expect(await h.ledger.findById("vc")).toBeNull();
+  });
+});

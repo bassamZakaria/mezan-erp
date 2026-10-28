@@ -1075,6 +1075,8 @@ interface CreateDraft {
   projectId: string;
   costCategory: CostCategoryDTO | "";
   withholdingRatePercent: number | null;
+  commissionAmount: string;
+  commissionGlAccountId: string;
   memo: string;
 }
 
@@ -1136,6 +1138,8 @@ function CreateVoucherView({
     projectId: "",
     costCategory: "",
     withholdingRatePercent: null,
+    commissionAmount: "",
+    commissionGlAccountId: "",
     memo: "",
   });
   const [error, setError] = useState<string | null>(null);
@@ -1193,7 +1197,9 @@ function CreateVoucherView({
 
   const buildLine = useCallback((): VoucherLine | null => {
     if (!type || !def) return null;
-    const amount = draft.amount === "" ? Money.zero() : Money.fromMajor(draft.amount);
+    const received = draft.amount === "" ? Money.zero() : Money.fromMajor(draft.amount);
+    const commission = type === "customer_collection" && draft.commissionAmount !== "" ? Money.fromMajor(draft.commissionAmount) : Money.zero();
+    const amount = received.add(commission);
     return {
       voucherType: type,
       direction: def.direction,
@@ -1213,6 +1219,8 @@ function CreateVoucherView({
       projectId: draft.projectId || null,
       costCategory: draft.projectId && draft.costCategory ? draft.costCategory : null,
       ...withholdingOf(amount, draft.withholdingRatePercent, def.direction),
+      commissionAmount: commission.scaled === 0n ? null : commission,
+      commissionGlAccountId: commission.scaled === 0n ? null : draft.commissionGlAccountId || null,
     };
     // `workingLocation` and the branch list are real inputs: the line's branch
     // is resolved from them, and leaving them out let the effects preview keep
@@ -1261,6 +1269,8 @@ function CreateVoucherView({
           withholdingAmount: line.withholdingAmount ? line.withholdingAmount.toString() : null,
           withholdingRatePercent: line.withholdingRatePercent ?? null,
           withholdingGlAccountId: line.withholdingGlAccountId ?? null,
+          commissionAmount: line.commissionAmount ? line.commissionAmount.toString() : null,
+          commissionGlAccountId: line.commissionGlAccountId ?? null,
           allocations: [],
         });
         voucherId.renew();
@@ -1292,6 +1302,8 @@ function CreateVoucherView({
         withholdingAmount: line.withholdingAmount ? line.withholdingAmount.toString() : null,
         withholdingRatePercent: line.withholdingRatePercent ?? null,
         withholdingGlAccountId: line.withholdingGlAccountId ?? null,
+        commissionAmount: line.commissionAmount ? line.commissionAmount.toString() : null,
+        commissionGlAccountId: line.commissionGlAccountId ?? null,
       });
       if (!mayConfirm) {
         setDraftSaved(true);
@@ -1473,6 +1485,26 @@ function CreateVoucherView({
 
           <TextField label={t("vouchers.date")} value={draft.date} onChange={(v) => setDraft((d) => ({ ...d, date: v }))} placeholder="YYYY-MM-DD" />
           <TextField label={t("vouchers.referenceNumber")} value={draft.referenceNo} onChange={(v) => setDraft((d) => ({ ...d, referenceNo: v }))} />
+          {type === "customer_collection" ? (
+            <>
+              <div>
+                <div className="mb-[6px] text-[12.5px] font-semibold text-ink">{t("vouchers.commission")}</div>
+                <MoneyStringInput value={draft.commissionAmount} onChange={(v) => setDraft((d) => ({ ...d, commissionAmount: v }))} aria-label={t("vouchers.commission")} />
+                <p className="mt-[4px] text-[11.5px] text-ink-muted">{t("vouchers.commissionHint")}</p>
+              </div>
+              {draft.commissionAmount !== "" && Money.fromMajor(draft.commissionAmount).scaled > 0n ? (
+                <SelectField
+                  label={t("vouchers.commissionAccount")}
+                  value={draft.commissionGlAccountId}
+                  onChange={(v) => setDraft((d) => ({ ...d, commissionGlAccountId: v }))}
+                  options={[
+                    { value: "", label: t("salesInvoices.payments.commissionAccountPlaceholder") },
+                    ...accounts.filter((a) => a.type === "expense" && !a.isHeader && a.status === "active").map((a) => ({ value: a.id, label: `${a.code} — ${nameOf(a)}` })),
+                  ]}
+                />
+              ) : null}
+            </>
+          ) : null}
           {def.direction === "payment" ? (
             <NumberField
               label={t("vouchers.withholdingRate")}

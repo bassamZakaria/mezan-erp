@@ -167,6 +167,9 @@ export const salesInvoicePaymentSchema = z.object({
   date: isoDateOrInstant.optional(),
   referenceNo: z.string().nullish(),
   notes: z.string().nullish(),
+  /** عمولة تحويل kept by the bank; `amount` is what was received, and the invoice is relieved of both. */
+  commissionAmount: moneyString.nullish(),
+  commissionGlAccountId: z.string().nullish(),
 });
 
 /**

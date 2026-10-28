@@ -34,6 +34,8 @@ export {
   voucherNetPaid,
   voucherBaseAmount,
   voucherBaseWithholding,
+  voucherBaseCommission,
+  voucherStatedNet,
   COMPANY_LEVEL_VOUCHER_BRANCH,
 } from "./voucher-document.js";
 

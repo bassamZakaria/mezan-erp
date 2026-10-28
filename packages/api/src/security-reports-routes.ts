@@ -352,14 +352,23 @@ function flatten(issues: readonly { path: (string | number)[]; message: string }
   }));
 }
 
-function unrecordedOf(fallback: SecurityEventFallback | undefined): UnrecordedSecurityEventsDTO {
+function unrecordedOf(fallback: SecurityEventFallback | undefined, nameOf: (actor: string) => string): UnrecordedSecurityEventsDTO {
   if (!fallback) return { count: 0, recent: [], dropped: 0, corrupted: 0 };
   const { count, recent, dropped, corrupted } = fallback.summary();
   return {
     count,
     dropped,
     corrupted,
-    recent: recent.map(({ at, module, action, severity, actor, entityId, reason }) => ({ at, module, action, severity, actor, entityId, reason })),
+    recent: recent.map(({ at, module, action, severity, actor, entityId, reason }) => ({
+      at,
+      module,
+      action,
+      severity,
+      actor,
+      actorNameAr: nameOf(actor),
+      entityId,
+      reason,
+    })),
   };
 }
 
@@ -373,6 +382,12 @@ export function createSecurityReportsRoutes(
   const companyWide: MiddlewareHandler = async (c, next) => refuseBranchScopedCaller(c) ?? (await next());
 
   const now = () => deps.now?.() ?? new Date();
+
+  /** `actor` stays the id filters and drill-downs key on; system and deleted actors have no user row and show their id. */
+  async function actorNames(): Promise<(actor: string) => string> {
+    const names = new Map(((await deps.users?.list()) ?? []).map((user: User) => [user.id, user.nameAr]));
+    return (actor) => names.get(actor) || actor;
+  }
 
   function queryParams(c: Context): Record<string, string> {
     const out: Record<string, string> = {};
@@ -443,7 +458,7 @@ export function createSecurityReportsRoutes(
       ...(parsed.data.action ? { action: parsed.data.action } : {}),
       ...(parsed.data.severity ? { severity: parsed.data.severity } : {}),
     };
-    const { events, coverage } = await collectEvents(deps.audit, filter);
+    const [{ events, coverage }, nameOf] = await Promise.all([collectEvents(deps.audit, filter), actorNames()]);
 
     interface Cell {
       actor: string;
@@ -497,6 +512,7 @@ export function createSecurityReportsRoutes(
     const rows: SecurityExceptionRowDTO[] = [...cells.values()]
       .map((cell) => ({
         actor: cell.actor,
+        actorNameAr: nameOf(cell.actor),
         action: cell.action,
         actionLabelAr: securityActionLabel(cell.action),
         module: cell.module,
@@ -519,7 +535,7 @@ export function createSecurityReportsRoutes(
     const groups = [...byActor.entries()]
       .map(([actor, actorRows]) => ({
         key: actor,
-        labelAr: actor,
+        labelAr: nameOf(actor),
         rows: actorRows,
         totals: {
           count: actorRows.reduce((sum, row) => sum + row.count, 0),
@@ -569,7 +585,7 @@ export function createSecurityReportsRoutes(
     ];
 
     const columns: ReportColumnDTO[] = [
-      { key: "actor", labelAr: "المستخدم" },
+      { key: "actorNameAr", labelAr: "المستخدم" },
       { key: "actionLabelAr", labelAr: "الحدث" },
       { key: "count", labelAr: "العدد", format: "qty" },
       { key: "critical", labelAr: SEVERITY_LABELS_AR.CRITICAL, format: "qty" },
@@ -601,7 +617,7 @@ export function createSecurityReportsRoutes(
       recent: [...events]
         .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
         .slice(0, RECENT_LIMIT),
-      unrecorded: unrecordedOf(deps.unrecorded),
+      unrecorded: unrecordedOf(deps.unrecorded, nameOf),
       coverage,
       gaps: [
         {
@@ -655,6 +671,7 @@ export function createSecurityReportsRoutes(
         ),
     );
 
+    const nameOf = await actorNames();
     const events = collected.flatMap((result) => result.events);
     const coverage: ReportCoverageDTO = {
       matched: collected.reduce((sum, result) => sum + result.coverage.matched, 0),
@@ -670,6 +687,7 @@ export function createSecurityReportsRoutes(
           rowKey: rowKeyOf(event),
           timestamp: event.timestamp,
           actor: event.actor,
+          actorNameAr: nameOf(event.actor),
           module: event.module,
           entityType: event.entityType,
           entityId: event.entityId,
@@ -698,7 +716,7 @@ export function createSecurityReportsRoutes(
     const groups = [...byActor.entries()]
       .map(([actor, actorRows]) => ({
         key: actor,
-        labelAr: actor,
+        labelAr: nameOf(actor),
         rows: actorRows,
         totals: {
           count: actorRows.length,
@@ -734,7 +752,7 @@ export function createSecurityReportsRoutes(
 
     const columns: ReportColumnDTO[] = [
       { key: "timestamp", labelAr: "التاريخ والوقت", format: "datetime" },
-      { key: "actor", labelAr: "المستخدم" },
+      { key: "actorNameAr", labelAr: "المستخدم" },
       { key: "changeTypeLabelAr", labelAr: "نوع التعديل" },
       { key: "entityType", labelAr: "نوع المستند" },
       { key: "docNo", labelAr: "رقم المستند" },
@@ -816,6 +834,7 @@ export function createSecurityReportsRoutes(
         }),
       ),
     );
+    const nameOf = await actorNames();
     const events = collected.flatMap((result) => result.events);
 
     const rows: AfterHoursRowDTO[] = [];
@@ -852,6 +871,7 @@ export function createSecurityReportsRoutes(
               ? "قبل بدء الدوام"
               : "بعد انتهاء الدوام",
         actor: event.actor,
+        actorNameAr: nameOf(event.actor),
         stream: event.stream,
         module: event.module,
         entityType: event.entityType,
@@ -872,7 +892,7 @@ export function createSecurityReportsRoutes(
     const groups = [...byActor.entries()]
       .map(([actor, actorRows]) => ({
         key: actor,
-        labelAr: actor,
+        labelAr: nameOf(actor),
         rows: actorRows,
         totals: {
           count: actorRows.length,
@@ -900,7 +920,7 @@ export function createSecurityReportsRoutes(
       { key: "localTime", labelAr: "الوقت" },
       { key: "weekdayLabelAr", labelAr: "اليوم" },
       { key: "outsideReasonLabelAr", labelAr: "سبب الاستثناء" },
-      { key: "actor", labelAr: "المستخدم" },
+      { key: "actorNameAr", labelAr: "المستخدم" },
       { key: "action", labelAr: "الإجراء" },
       { key: "entityType", labelAr: "النوع" },
       { key: "entityId", labelAr: "المرجع" },
@@ -978,6 +998,7 @@ export function createSecurityReportsRoutes(
       const nowIso = now().toISOString();
 
       const all = await users.list();
+      const nameById = new Map(all.map((user: User) => [user.id, user.nameAr]));
       const recent = all
         .filter((user: User) => user.createdAt >= since)
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
@@ -1061,6 +1082,7 @@ export function createSecurityReportsRoutes(
           createdAt: user.createdAt,
           lastLoginAt: user.lastLoginAt,
           createdBy: creation?.actor ?? null,
+          createdByNameAr: creation ? nameById.get(creation.actor) || creation.actor : null,
           createdByEventAt: creation?.at ?? null,
           postedDocumentCount: posted,
           voidedDocumentCount: voided,
@@ -1088,7 +1110,7 @@ export function createSecurityReportsRoutes(
       const groups = [...byCreator.entries()]
         .map(([creator, creatorRows]) => ({
           key: creator === "" ? "__unknown__" : creator,
-          labelAr: creator === "" ? "منشئ غير مسجَّل" : creator,
+          labelAr: creator === "" ? "منشئ غير مسجَّل" : nameById.get(creator) || creator,
           rows: creatorRows,
           totals: {
             count: creatorRows.length,
@@ -1132,7 +1154,7 @@ export function createSecurityReportsRoutes(
         { key: "createdAt", labelAr: "تاريخ الإنشاء", format: "datetime" },
         { key: "nameAr", labelAr: "الاسم" },
         { key: "email", labelAr: "البريد/اسم الدخول" },
-        { key: "createdBy", labelAr: "أنشأه" },
+        { key: "createdByNameAr", labelAr: "أنشأه" },
         { key: "status", labelAr: "الحالة" },
         { key: "lastLoginAt", labelAr: "آخر دخول", format: "datetime" },
         { key: "postedDocumentCount", labelAr: "مستندات رحّلها", format: "qty" },

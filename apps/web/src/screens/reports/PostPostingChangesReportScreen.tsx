@@ -32,7 +32,7 @@ export function PostPostingChangesReportScreen() {
 
   const columns: ReportRunnerColumn<PostPostingChangeRowDTO>[] = [
     { key: "timestamp", header: securityCopy(REPORT, "col", "timestamp", "التاريخ والوقت", t), value: (r) => formatDateTime(new Date(r.timestamp), { locale }) },
-    { key: "actor", header: securityCopy(REPORT, "col", "actor", "المستخدم", t), value: (r) => r.actor },
+    { key: "actor", header: securityCopy(REPORT, "col", "actor", "المستخدم", t), value: (r) => r.actorNameAr },
     {
       key: "changeTypeLabelAr",
       header: securityCopy(REPORT, "col", "changeTypeLabelAr", "نوع التعديل", t),

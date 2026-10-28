@@ -52,7 +52,7 @@ export function AfterHoursReportScreen() {
       header: securityCopy(REPORT, "col", "outsideReasonLabelAr", "سبب الاستثناء", t),
       value: (r) => t(`securityReports.afterHours.reason.${r.outsideReason}` as AppTranslationKey),
     },
-    { key: "actor", header: securityCopy(REPORT, "col", "actor", "المستخدم", t), value: (r) => r.actor },
+    { key: "actor", header: securityCopy(REPORT, "col", "actor", "المستخدم", t), value: (r) => r.actorNameAr },
     { key: "action", header: securityCopy(REPORT, "col", "action", "الإجراء", t), value: (r) => labels.actionLabel(r.action) },
     { key: "entityType", header: securityCopy(REPORT, "col", "entityType", "النوع", t), value: (r) => labels.entityLabel(r.entityType) },
     { key: "entityId", header: securityCopy(REPORT, "col", "entityId", "المرجع", t), value: (r) => r.entityId },

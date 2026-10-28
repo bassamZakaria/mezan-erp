@@ -137,6 +137,21 @@ describe("تقرير الاستثناءات الأمنية", () => {
     expect(denied?.critical).toBe(2);
   });
 
+  it("names the actor from the user register and keeps the id as the filter key (#121)", async () => {
+    const app = createSecurityReportsRoutes(
+      { audit: fakePort(events), users: usersPort([user({ id: "u-clerk", nameAr: "كاتب المبيعات", createdAt: "2025-01-01T08:00:00.000Z" })]), now: NOW },
+      insecureHeaderAuthContextResolver,
+    );
+    const body = (await (await app.fetch(req("/exceptions?from=2026-03-01&to=2026-03-31"))).json()) as {
+      rows: { actor: string; actorNameAr: string }[];
+      groups: { key: string; labelAr: string }[];
+    };
+    const clerk = body.rows.find((r) => r.actor === "u-clerk");
+    expect(clerk?.actorNameAr).toBe("كاتب المبيعات");
+    expect(body.groups.find((g) => g.key === "u-clerk")?.labelAr).toBe("كاتب المبيعات");
+    expect(body.rows.find((r) => r.actor === "anonymous")?.actorNameAr).toBe("anonymous");
+  });
+
   it("reports every named control, at zero when it did not fire", async () => {
     const body = await run();
     const byAction = new Map(body.watchlist.map((w) => [w.action, w]));
@@ -203,7 +218,7 @@ describe("تقرير الاستثناءات الأمنية — أحداث لم �
     };
     expect(body.unrecorded.count).toBe(25);
     expect(body.unrecorded.recent).toHaveLength(20);
-    expect(body.unrecorded.recent[0]).toEqual({ at: "2026-03-05T10:00:25.000Z", module: "auth", action: "LOGIN_FAILED", severity: "WARNING", actor: "u-25", entityId: null, reason: "disk full" });
+    expect(body.unrecorded.recent[0]).toEqual({ at: "2026-03-05T10:00:25.000Z", module: "auth", action: "LOGIN_FAILED", severity: "WARNING", actor: "u-25", actorNameAr: "u-25", entityId: null, reason: "disk full" });
 
     const without = createSecurityReportsRoutes({ audit: fakePort([]), now: NOW }, insecureHeaderAuthContextResolver);
     expect(((await (await without.fetch(req("/exceptions?from=2026-03-01&to=2026-03-31"))).json()) as { unrecorded: unknown }).unrecorded).toEqual({ count: 0, recent: [], dropped: 0, corrupted: 0 });
@@ -387,6 +402,7 @@ describe("حسابات أُنشئت حديثاً", () => {
     const body = await run();
     const ghost = body.rows.find((r) => r.userId === "u-ghost");
     expect(ghost?.createdBy).toBe("u-boss");
+    expect((ghost as { createdByNameAr?: string | null } | undefined)?.createdByNameAr).toBe("u-boss");
     expect(body.groups.find((g) => g.key === "u-boss")?.totals.count).toBe(1);
   });
 

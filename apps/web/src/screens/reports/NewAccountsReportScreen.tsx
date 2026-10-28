@@ -19,7 +19,7 @@ export function NewAccountsReportScreen() {
     { key: "createdAt", header: securityCopy(REPORT, "col", "createdAt", "تاريخ الإنشاء", t), value: (r) => r.createdAt },
     { key: "nameAr", header: securityCopy(REPORT, "col", "nameAr", "الاسم", t), value: (r) => r.nameAr },
     { key: "email", header: securityCopy(REPORT, "col", "email", "البريد/اسم الدخول", t), value: (r) => r.email },
-    { key: "createdBy", header: securityCopy(REPORT, "col", "createdBy", "أنشأه", t), value: (r) => r.createdBy },
+    { key: "createdBy", header: securityCopy(REPORT, "col", "createdBy", "أنشأه", t), value: (r) => r.createdByNameAr },
     { key: "status", header: securityCopy(REPORT, "col", "status", "الحالة", t), value: (r) => r.status },
     { key: "lastLoginAt", header: securityCopy(REPORT, "col", "lastLoginAt", "آخر دخول", t), value: (r) => r.lastLoginAt },
     {

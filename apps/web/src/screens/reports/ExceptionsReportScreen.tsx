@@ -37,7 +37,7 @@ export function ExceptionsReportScreen() {
   ];
 
   const columns: ReportRunnerColumn<SecurityExceptionRowDTO>[] = [
-    { key: "actor", header: securityCopy(REPORT, "col", "actor", "المستخدم", t), value: (r) => r.actor },
+    { key: "actor", header: securityCopy(REPORT, "col", "actor", "المستخدم", t), value: (r) => r.actorNameAr },
     { key: "actionLabelAr", header: securityCopy(REPORT, "col", "actionLabelAr", "الحدث", t), value: (r) => knownActionLabel(labels, r.action, r.actionLabelAr) },
     {
       key: "count",
@@ -130,7 +130,7 @@ function Unrecorded({ result }: { result: SecurityReportResult<SecurityException
           <li key={`${entry.at}|${entry.action}|${entry.actor}`} className="flex flex-wrap items-baseline gap-x-[8px]">
             <span className="mz-num" dir="ltr">{entry.at}</span>
             <span className="font-semibold" dir="ltr">{entry.action}</span>
-            <span>{entry.actor}</span>
+            <span>{entry.actorNameAr}</span>
             <span dir="ltr">{entry.reason}</span>
           </li>
         ))}

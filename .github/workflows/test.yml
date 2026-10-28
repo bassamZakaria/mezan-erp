@@ -21,7 +21,7 @@ jobs:
   test:
     name: typecheck · vitest (postgres 17.6)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     services:
       postgres:
         image: postgres:17.6
@@ -37,6 +37,8 @@ jobs:
           --health-retries 20
     env:
       CI: "true"
+      # Private-repo runners have 7 GB; tsc on the whole repo needs more than the default heap.
+      NODE_OPTIONS: --max-old-space-size=5632
       # The app's login as on the VPS (deploy/contabo/postgres-init/10-mezan-app.sql),
       # so a statement only a superuser may run fails here first.
       MEZAN_TEST_PG_URL: postgres://mezan_app:mezan_app@127.0.0.1:5432/mezan_test

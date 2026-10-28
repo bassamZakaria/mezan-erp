@@ -9,8 +9,8 @@ export enum MigrationExit {
   Usage = 64,
 }
 
-const USAGE = `usage: node --import tsx apps/server/src/sqlite-to-postgres-cli.ts check --data <data dir> [--report <file>]
-       node --import tsx apps/server/src/sqlite-to-postgres-cli.ts migrate --data <data dir> [--report <file>]
+const USAGE = `usage: node apps/server/dist/sqlite-to-postgres-cli.js check --data <data dir> [--report <file>]
+       node apps/server/dist/sqlite-to-postgres-cli.js migrate --data <data dir> [--report <file>]
 
 check   works on scratch copies only: proves which audit chain key verifies each book, brings the copies to this
         build's shape, and refuses values Postgres would not take, broken foreign keys and tables with no twin.

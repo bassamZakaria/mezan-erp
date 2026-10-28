@@ -1,5 +1,5 @@
 import { AlreadySavedNotice, useAlreadySavedNotice, useDocumentId } from "../lib/document-id";
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import {
   RowActionOutcome,
   Button,
@@ -915,7 +915,7 @@ function CreateJournalView({
         </div>
       ) : null}
 
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+      <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
         <div className="flex flex-col gap-[16px]">
           <Card className="grid grid-cols-1 gap-[14px] p-[18px] sm:grid-cols-2">
             <TextField label={t("journals.entryDate")} value={date} onChange={setDate} placeholder="YYYY-MM-DD" />
@@ -924,131 +924,139 @@ function CreateJournalView({
 
           <Card className="overflow-hidden">
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[1220px] border-collapse text-[13px]">
+              <table className="w-full table-fixed border-collapse text-[13px] max-sm:min-w-[640px]">
                 <thead>
                   <tr>
-                    <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">{t("journals.account")}</th>
-                    <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">{t("journals.party")}</th>
-                    <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">{t("journals.description")}</th>
-                    <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">{t("journals.costCenter")}</th>
-                    <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">{t("common.branch")}</th>
-                    <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">{t("common.project")}</th>
-                    <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">{t("common.costCategory")}</th>
-                    <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">{t("common.debit")}</th>
-                    <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">{t("common.credit")}</th>
-                    <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px]" />
+                    <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px] text-[11px] font-bold uppercase text-ink-muted w-[34%] text-start">{t("journals.account")}</th>
+                    <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px] text-[11px] font-bold uppercase text-ink-muted w-[28%] text-start">{t("journals.party")}</th>
+                    <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px] text-[11px] font-bold uppercase text-ink-muted w-[15%] text-end">{t("common.debit")}</th>
+                    <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px] text-[11px] font-bold uppercase text-ink-muted w-[15%] text-end">{t("common.credit")}</th>
+                    <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px] w-[8%]" />
                   </tr>
                 </thead>
                 <tbody>
                   {lines.map((line, i) => (
-                    <tr key={line.key} className="border-b border-border last:border-b-0">
-                      <td className="px-[12px] py-[8px]">
-                        <Select
-                          size="sm"
-                          className="min-w-[160px]"
-                          aria-label={t("journals.lineAccount", { number: i + 1 })}
-                          value={line.accountId}
-                          onChange={(value) => updateLine(i, { accountId: value, partyId: "" })}
-                          options={options}
-                        />
-                      </td>
-                      <td className="px-[12px] py-[8px]">
-                        {partyKindOf.has(line.accountId) ? (
-                          <EntityPicker
-                            className="min-w-[170px]"
-                            ariaLabel={t("journals.partyLabel", { n: String(i + 1) })}
-                            value={
-                              (partyKindOf.get(line.accountId) === "customer" ? customerOptions : supplierOptions).find(
-                                (o) => o.id === line.partyId,
-                              ) ?? null
-                            }
-                            onChange={(o) => updateLine(i, { partyId: o?.id ?? "" })}
-                            options={partyKindOf.get(line.accountId) === "customer" ? customerOptions : supplierOptions}
-                            placeholder={t(partyKindOf.get(line.accountId) === "customer" ? "journals.chooseCustomer" : "journals.chooseSupplier")}
+                    <Fragment key={line.key}>
+                      <tr>
+                        <td className="px-[12px] pt-[10px] pb-[4px]">
+                          <Select
+                            size="sm"
+                            className="w-full"
+                            aria-label={t("journals.lineAccount", { number: i + 1 })}
+                            value={line.accountId}
+                            onChange={(value) => updateLine(i, { accountId: value, partyId: "" })}
+                            options={options}
                           />
-                        ) : (
-                          <span className="text-ink-faint">—</span>
-                        )}
-                      </td>
-                      <td className="px-[12px] py-[8px]">
-                        <TextInput
-                          size="sm"
-                          className="min-w-[120px]"
-                          aria-label={t("journals.memoLabel", { n: String(i + 1) })}
-                          value={line.memo}
-                          onChange={(e) => updateLine(i, { memo: e.target.value })}
-                          placeholder={t("journals.describeTheLine")}
-                        />
-                      </td>
-                      <td className="px-[12px] py-[8px]">
-                        <Select
-                          size="sm"
-                          className="min-w-[150px]"
-                          aria-label={t("journals.costCenterLabel", { n: String(i + 1) })}
-                          value={line.costCenterId}
-                          onChange={(value) => updateLine(i, { costCenterId: value })}
-                          options={centerOptions}
-                        />
-                      </td>
-                      <td className="px-[12px] py-[8px]">
-                        <EntityPicker
-                          className="min-w-[150px]"
-                          value={branchOptions.find((o) => o.id === line.branchId) ?? null}
-                          onChange={(o) => updateLine(i, { branchId: o?.id ?? "" })}
-                          options={branchOptions}
-                          placeholder={t("journals.unattributedBranch")}
-                        />
-                      </td>
-                      <td className="px-[12px] py-[8px]">
-                        <EntityPicker
-                          className="min-w-[160px]"
-                          value={projectOptions.find((o) => o.id === line.projectId) ?? null}
-                          onChange={(o) => updateLine(i, { projectId: o?.id ?? "", costCategory: o ? line.costCategory : "" })}
-                          options={projectOptions}
-                          placeholder={t("common.noProject")}
-                        />
-                      </td>
-                      <td className="px-[12px] py-[8px]">
-                        <Select
-                          size="sm"
-                          className="min-w-[130px]"
-                          aria-label={t("common.costCategory")}
-                          disabled={!line.projectId}
-                          value={line.costCategory}
-                          onChange={(value) => updateLine(i, { costCategory: value as CostCategoryDTO | "" })}
-                          options={costCategoryOptions}
-                        />
-                      </td>
-                      <td className="px-[12px] py-[8px]">
-                        <TextInput
-                          type="number"
-                          size="sm"
-                          numeric
-                          className="w-[110px] text-end"
-                          aria-label={t("journals.debitLabel", { n: String(i + 1) })}
-                          value={line.debit}
-                          min={0}
-                          onChange={(e) => updateLine(i, { debit: e.target.value, credit: "" })}
-                        />
-                      </td>
-                      <td className="px-[12px] py-[8px]">
-                        <TextInput
-                          type="number"
-                          size="sm"
-                          numeric
-                          className="w-[110px] text-end"
-                          aria-label={t("journals.creditLabel", { n: String(i + 1) })}
-                          value={line.credit}
-                          min={0}
-                          onChange={(e) => updateLine(i, { credit: e.target.value, debit: "" })}
-                        />
-                      </td>
-                      <td className="px-[12px] py-[8px] text-center">
-                        <IconButton aria-label={t("journals.removeLineLabel", { n: String(i + 1) })} disabled={lines.length <= 2} onClick={() => removeLine(i)}>
-                          ✕
-                        </IconButton>
-                      </td>
-                    </tr>
+                        </td>
+                        <td className="px-[12px] pt-[10px] pb-[4px]">
+                          {partyKindOf.has(line.accountId) ? (
+                            <EntityPicker
+                              className="w-full"
+                              ariaLabel={t("journals.partyLabel", { n: String(i + 1) })}
+                              value={
+                                (partyKindOf.get(line.accountId) === "customer" ? customerOptions : supplierOptions).find(
+                                  (o) => o.id === line.partyId,
+                                ) ?? null
+                              }
+                              onChange={(o) => updateLine(i, { partyId: o?.id ?? "" })}
+                              options={partyKindOf.get(line.accountId) === "customer" ? customerOptions : supplierOptions}
+                              placeholder={t(partyKindOf.get(line.accountId) === "customer" ? "journals.chooseCustomer" : "journals.chooseSupplier")}
+                            />
+                          ) : (
+                            <span className="text-ink-faint">—</span>
+                          )}
+                        </td>
+                        <td className="px-[12px] pt-[10px] pb-[4px]">
+                          <TextInput
+                            type="number"
+                            size="sm"
+                            numeric
+                            className="w-full text-end"
+                            aria-label={t("journals.debitLabel", { n: String(i + 1) })}
+                            value={line.debit}
+                            min={0}
+                            onChange={(e) => updateLine(i, { debit: e.target.value, credit: "" })}
+                          />
+                        </td>
+                        <td className="px-[12px] pt-[10px] pb-[4px]">
+                          <TextInput
+                            type="number"
+                            size="sm"
+                            numeric
+                            className="w-full text-end"
+                            aria-label={t("journals.creditLabel", { n: String(i + 1) })}
+                            value={line.credit}
+                            min={0}
+                            onChange={(e) => updateLine(i, { credit: e.target.value, debit: "" })}
+                          />
+                        </td>
+                        <td className="px-[12px] pt-[10px] pb-[4px] text-center">
+                          <IconButton aria-label={t("journals.removeLineLabel", { n: String(i + 1) })} disabled={lines.length <= 2} onClick={() => removeLine(i)}>
+                            ✕
+                          </IconButton>
+                        </td>
+                      </tr>
+                      <tr className="border-b border-border last:border-b-0">
+                        <td colSpan={5} className="px-[12px] pt-[4px] pb-[10px]">
+                          <div className="grid grid-cols-2 gap-[10px] lg:grid-cols-5">
+                          <div className="flex min-w-0 flex-col">
+                            <span className="mb-[4px] block text-[11px] font-bold text-ink-muted">{t("journals.description")}</span>
+                            <TextInput
+                              size="sm"
+                              className="w-full"
+                              aria-label={t("journals.memoLabel", { n: String(i + 1) })}
+                              value={line.memo}
+                              onChange={(e) => updateLine(i, { memo: e.target.value })}
+                              placeholder={t("journals.describeTheLine")}
+                            />
+                          </div>
+                          <div className="flex min-w-0 flex-col">
+                            <span className="mb-[4px] block text-[11px] font-bold text-ink-muted">{t("journals.costCenter")}</span>
+                            <Select
+                              size="sm"
+                              className="w-full"
+                              aria-label={t("journals.costCenterLabel", { n: String(i + 1) })}
+                              value={line.costCenterId}
+                              onChange={(value) => updateLine(i, { costCenterId: value })}
+                              options={centerOptions}
+                            />
+                          </div>
+                          <div className="flex min-w-0 flex-col">
+                            <span className="mb-[4px] block text-[11px] font-bold text-ink-muted">{t("common.branch")}</span>
+                            <EntityPicker
+                              className="w-full"
+                              value={branchOptions.find((o) => o.id === line.branchId) ?? null}
+                              onChange={(o) => updateLine(i, { branchId: o?.id ?? "" })}
+                              options={branchOptions}
+                              placeholder={t("journals.unattributedBranch")}
+                            />
+                          </div>
+                          <div className="flex min-w-0 flex-col">
+                            <span className="mb-[4px] block text-[11px] font-bold text-ink-muted">{t("common.project")}</span>
+                            <EntityPicker
+                              className="w-full"
+                              value={projectOptions.find((o) => o.id === line.projectId) ?? null}
+                              onChange={(o) => updateLine(i, { projectId: o?.id ?? "", costCategory: o ? line.costCategory : "" })}
+                              options={projectOptions}
+                              placeholder={t("common.noProject")}
+                            />
+                          </div>
+                          <div className="flex min-w-0 flex-col">
+                            <span className="mb-[4px] block text-[11px] font-bold text-ink-muted">{t("common.costCategory")}</span>
+                            <Select
+                              size="sm"
+                              className="w-full"
+                              aria-label={t("common.costCategory")}
+                              disabled={!line.projectId}
+                              value={line.costCategory}
+                              onChange={(value) => updateLine(i, { costCategory: value as CostCategoryDTO | "" })}
+                              options={costCategoryOptions}
+                            />
+                          </div>
+                          </div>
+                        </td>
+                      </tr>
+                    </Fragment>
                   ))}
                 </tbody>
               </table>

@@ -233,7 +233,7 @@ describe("field-sales router — full open -> cash movements -> settle flow", ()
 
     const settleBody = JSON.stringify({ countedCash: "690.00", stockCounts: [{ itemId: "item1", countedQty: "18" }, { itemId: "item2", countedQty: "10" }] });
     const settleRes = await app.fetch(
-      req(`/${trip.id}/settle`, { method: "POST", permissions: "field.van_trip.settle", headers: { "content-type": "application/json", "x-user-id": "rep-1" }, body: settleBody }),
+      req(`/${trip.id}/settle`, { method: "POST", permissions: "field.van_trip.settle,inventory.cost.view", headers: { "content-type": "application/json", "x-user-id": "rep-1" }, body: settleBody }),
     );
     expect(settleRes.status).toBe(200);
     const settled = (await settleRes.json()) as {

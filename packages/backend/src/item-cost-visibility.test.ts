@@ -31,6 +31,7 @@ const VIEWER = [
   "manufacturing.wo.view",
   "audit.logs.view",
   "inventory.expiry.view",
+  "field.van_trip.view",
 ];
 
 let world: SeededWorld;
@@ -129,13 +130,14 @@ beforeAll(async () => {
     { method: "GET", path: `/inventory/expiry/write-off-proposal?warehouseId=${encodeURIComponent(warehouseId)}`, expect: Expect.Omit, costKeys: ["totalValue", "value", "layerValue"] },
     { method: "GET", path: `/inventory/fefo-preview?${position}&qty=1`, expect: Expect.Omit, costKeys: [] },
     { method: "GET", path: "/reorder/worklist", expect: Expect.Omit, costKeys: [] },
+    { method: "GET", path: "/field/van-trips", expect: Expect.Omit, costKeys: ["unitCost", "varianceValue"] },
   ];
 }, 900_000);
 
 afterAll(() => world?.close());
 
 const COST_WORDS = /cost|value/i;
-const NOT_COST = new Set(["value", "values", "costingMethod", "costCategory", "costCenterId"]);
+const NOT_COST = new Set(["value", "values", "costingMethod", "costCategory", "costCenterId", "returnsValue"]);
 
 describe("item cost is visible only to a holder of inventory.cost.view (#119)", () => {
   it("omits every cost field, at any depth, from a session without it, and keeps them for a holder", async () => {

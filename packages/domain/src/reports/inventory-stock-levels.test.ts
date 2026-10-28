@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { StockLevelStatusDTO } from "@mezan/contracts";
 import { Money, Qty } from "../money/index.js";
-import { runReport } from "./engine.js";
+import { runReport, withoutCost } from "./engine.js";
 import { createInventoryStockLevelsReport, summarizeStockLevels, STOCK_LEVELS_ATTENTION_LIMIT } from "./inventory-stock-levels.js";
 import type { Item } from "../items/item.js";
 import type { WacSnapshot } from "../inventory/ports.js";
@@ -161,5 +161,31 @@ describe("summarizeStockLevels", () => {
     const small = JSON.stringify(summarizeStockLevels(params, ctx)).length;
     expect(small).toBeLessThan(2_000);
     expect(small * 200).toBeLessThan(full);
+  });
+});
+
+describe("withoutCost — the stock-levels report for a caller without inventory.cost.view (#119)", () => {
+  const ctx = { items: [item({ reorderPoint: 20 })], snapshots: [snapshot()] };
+
+  it("drops the cost columns, their row fields, the value KPI and the value chart, and keeps the quantities", () => {
+    const definition = withoutCost(createInventoryStockLevelsReport());
+    expect(definition.columns.map((column) => column.key)).toEqual(["itemNameAr", "sku", "warehouseCount", "onHand", "status"]);
+    expect(definition.chart).toBeUndefined();
+    const outcome = runReport(definition, { warehouseId: "", search: "" }, ctx);
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.rows[0]).not.toHaveProperty("averageCost");
+    expect(outcome.rows[0]).not.toHaveProperty("value");
+    expect(outcome.rows[0]?.onHand).toBe(10);
+    expect(outcome.grandTotals).not.toHaveProperty("value");
+    expect(outcome.grandTotals.onHand).toBe(10);
+    expect(outcome.kpis.map((kpi) => kpi.key)).toEqual(["onHand", "itemCount", "needsAttention"]);
+    expect(outcome.chartPoints).toBeNull();
+  });
+
+  it("leaves a report with no cost column untouched", () => {
+    const definition = createInventoryStockLevelsReport();
+    const plain = { ...definition, columns: definition.columns.filter((column) => !column.cost) };
+    expect(withoutCost(plain)).toBe(plain);
   });
 });

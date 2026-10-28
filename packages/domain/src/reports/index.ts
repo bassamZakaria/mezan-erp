@@ -19,7 +19,7 @@ export type {
   ReportChartPoint,
 } from "./types.js";
 export { ReportChartSlice, ReportChartSource, ReportParamKind } from "./types.js";
-export { computeReconciliation, computeReportGroups, pageReportGroups, readReportPage, runReport, validateReportParams } from "./engine.js";
+export { computeReconciliation, computeReportGroups, pageReportGroups, readReportPage, runReport, validateReportParams, withoutCost } from "./engine.js";
 export { reportChartPoints } from "./chart-points.js";
 export {
   createTrialBalanceReport,

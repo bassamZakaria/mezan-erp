@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { StatementEmailPreview } from "./StatementEmailPreview";
 import { ReadOnlyFields } from "../shell/ReadOnlyForm";
 import { DocumentDetail, Button, Card, StatusPill } from "@mezan/ui";
 import { COMPANY_NAME_MAX_LENGTH, type TenantSettingsDTO, type UpdateTenantSettingsDTO } from "@mezan/contracts";
@@ -51,15 +52,6 @@ const WEEKDAY_KEYS: { value: string; key: AppTranslationKey }[] = [
   { value: "5", key: "settingsGeneral.friday" },
   { value: "6", key: "settingsGeneral.saturday" },
 ];
-
-/**
- * The البريد الإلكتروني tab is hidden for now.
- *
- * Nothing about SMTP is removed — the settings still persist, the domain still
- * validates them, and `POST /settings/test-email` still exists. Only the tab
- * that edits them is off the screen, so this is one word to undo.
- */
-const SHOW_EMAIL_TAB = false;
 
 /** The document currencies the platform supports (R1.15), minus whichever is the base. */
 const DOCUMENT_CURRENCIES = ["EGP", "SAR", "AED", "QAR", "KWD", "BHD", "OMR", "JOD", "USD", "EUR", "GBP"];
@@ -371,6 +363,15 @@ function SettingsForm({ initial }: { initial: TenantSettingsDTO }) {
                   checked={draft.trackSoldPurchaseItems}
                   onChange={(v) => patch({ trackSoldPurchaseItems: v })}
                 />
+                <NumberField
+                  label={t("settingsGeneral.overReceiptTolerance")}
+                  value={draft.overReceiptTolerancePercent}
+                  min={0}
+                  max={100}
+                  step={0.5}
+                  onChange={(v) => patch({ overReceiptTolerancePercent: v })}
+                  hint={t("settingsGeneral.overReceiptToleranceHint")}
+                />
               </SectionCard>
 
               {/*
@@ -514,14 +515,6 @@ function SettingsForm({ initial }: { initial: TenantSettingsDTO }) {
             </div>
           ),
         },
-        /*
-         * البريد الإلكتروني — HIDDEN, not deleted. Flip SHOW_EMAIL_TAB to bring
-         * the tab back exactly as it was; the stored SMTP settings are
-         * untouched either way, and every field below still reads and writes
-         * the same draft keys.
-         */
-        ...(SHOW_EMAIL_TAB
-          ? [
           {
             key: SettingsTab.Email,
             label: t("settingsGeneral.email"),
@@ -570,7 +563,7 @@ function SettingsForm({ initial }: { initial: TenantSettingsDTO }) {
                   <div className="flex items-center gap-[10px] self-end">
                     <Button
                       size="sm"
-                      disabled={testEmail.isPending || !draft.smtpEnabled || testRecipient.trim() === ""}
+                      disabled={testEmail.isPending || !draft.smtpEnabled || String(testRecipient).trim() === ""}
                       onClick={handleTestEmail}
                     >
                       {testEmail.isPending ? t("settingsGeneral.sendingTestEmail") : t("settingsGeneral.sendTestEmail")}
@@ -591,12 +584,16 @@ function SettingsForm({ initial }: { initial: TenantSettingsDTO }) {
                     onChange={(v) => patch({ emailTemplateBody: v })}
                     rows={6}
                   />
+                  <StatementEmailPreview
+                    subject={draft.emailTemplateSubject}
+                    body={draft.emailTemplateBody}
+                    companyName={draft.companyName}
+                    currency={draft.currency}
+                  />
                 </SectionCard>
               </div>
             ),
           },
-            ]
-          : []),
       ]}
     />
   );

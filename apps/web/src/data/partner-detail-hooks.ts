@@ -198,15 +198,15 @@ export function useBranchStockBalance(warehouseIds: readonly string[]): UseQuery
 
       const merged = new Map<
         string,
-        { onHand: bigint; totalValue: bigint; reserved: bigint; warehouseCount: number; warehouses: StockBalanceWarehouseRowDTO[] }
+        { onHand: bigint; totalValue: bigint | null; reserved: bigint; warehouseCount: number; warehouses: StockBalanceWarehouseRowDTO[] }
       >();
       for (const rows of perWarehouse) {
         for (const row of rows) {
           const existing =
-            merged.get(row.itemId) ?? { onHand: 0n, totalValue: 0n, reserved: 0n, warehouseCount: 0, warehouses: [] };
+            merged.get(row.itemId) ?? { onHand: 0n, totalValue: row.totalValue === undefined ? null : 0n, reserved: 0n, warehouseCount: 0, warehouses: [] };
           merged.set(row.itemId, {
             onHand: existing.onHand + parseMoney(row.onHand),
-            totalValue: existing.totalValue + parseMoney(row.totalValue),
+            totalValue: existing.totalValue === null || row.totalValue === undefined ? null : existing.totalValue + parseMoney(row.totalValue),
             // Each per-warehouse call reports the item's reservation for that
             // warehouse only, so these add rather than double-count.
             reserved: existing.reserved + parseMoney(row.reserved),
@@ -219,8 +219,12 @@ export function useBranchStockBalance(warehouseIds: readonly string[]): UseQuery
       return [...merged.entries()].map(([itemId, agg]) => ({
         itemId,
         onHand: formatScaled(agg.onHand),
-        totalValue: formatScaled(agg.totalValue),
-        averageCost: agg.onHand === 0n ? formatScaled(0n) : formatScaled((agg.totalValue * MONEY_SCALE_FACTOR) / agg.onHand),
+        ...(agg.totalValue === null
+          ? {}
+          : {
+              totalValue: formatScaled(agg.totalValue),
+              averageCost: agg.onHand === 0n ? formatScaled(0n) : formatScaled((agg.totalValue * MONEY_SCALE_FACTOR) / agg.onHand),
+            }),
         warehouseCount: agg.warehouseCount,
         reserved: formatScaled(agg.reserved),
         available: formatScaled(agg.onHand - agg.reserved > 0n ? agg.onHand - agg.reserved : 0n),

@@ -5,6 +5,7 @@ import {
   Money,
   payrollCreditsByRunId,
   type AllocatableInvoiceRepository,
+  type ReportDefinition,
   runReport,
   pageReportGroups,
   readReportPage,
@@ -22,6 +23,7 @@ import {
   createInventoryStockLevelsReport,
   summarizeStockLevels,
   validateReportParams,
+  withoutCost,
   createGoodsInTransitReport,
   createInventoryMovementReport,
   createInventoryLedgerReport,
@@ -146,7 +148,7 @@ import {
   branchOfWarehouse,
 } from "@mezan/domain";
 import { tenantToday } from "./tenant-day.js";
-import { branchScopeOf, createAnyPermissionGate, createPermissionGate, warehouseScopeOf, withinScope, type AuthContextResolver } from "./permission-gate.js";
+import { branchScopeOf, createAnyPermissionGate, createPermissionGate, ITEM_COST_PERMISSION, maySeeItemCost, warehouseScopeOf, withinScope, type AuthContextResolver } from "./permission-gate.js";
 import { branchLineViewOf, isWholeLedgerView, lineInView, readableEntries, type BranchLineView } from "./branch-view.js";
 
 /**
@@ -491,6 +493,10 @@ function drillWindowFacts(window: DrillWindow) {
 
 function isoDateOrUndefined(value: unknown): string | undefined {
   return typeof value === "string" && ISO_DATE.test(value) ? value : undefined;
+}
+
+function costed<TParams, Row, Ctx>(c: Context, definition: ReportDefinition<TParams, Row, Ctx>): ReportDefinition<TParams, Row, Ctx> {
+  return maySeeItemCost(c) ? definition : withoutCost(definition);
 }
 
 function respond(c: Context, outcome: RunReportOutcome<unknown, unknown>): Response {
@@ -1434,18 +1440,19 @@ export function createReportsRoutes(
     if (!validated.ok) return c.json({ error: "VALIDATION_ERROR", errors: validated.errors }, 400);
     const [items, allSnapshots, warehouses] = await Promise.all([deps.items.list(), deps.wacSnapshots.list(), deps.warehouses.findAll()]);
     const snapshots = withinScope(allSnapshots, await stockScopeOf(c), (s) => s.warehouseId);
-    return c.json(summarizeStockLevels(validated.params, { items, snapshots, warehouses }));
+    const { totalValue, ...summary } = summarizeStockLevels(validated.params, { items, snapshots, warehouses });
+    return c.json(maySeeItemCost(c) ? { totalValue, ...summary } : summary);
   });
 
   app.get("/inventory/stock-levels", gate("inventory.stock.view"), async (c) => {
-    const definition = createInventoryStockLevelsReport();
+    const definition = costed(c, createInventoryStockLevelsReport());
     const [items, allSnapshots, warehouses] = await Promise.all([deps.items.list(), deps.wacSnapshots.list(), deps.warehouses.findAll()]);
     const snapshots = withinScope(allSnapshots, await stockScopeOf(c), (s) => s.warehouseId);
     return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { items, snapshots, warehouses }));
   });
 
   app.get("/inventory/goods-in-transit", gate("inventory.stock.view"), async (c) => {
-    const definition = createGoodsInTransitReport();
+    const definition = costed(c, createGoodsInTransitReport());
     const [items, allSnapshots, warehouses] = await Promise.all([deps.items.list(), deps.wacSnapshots.list(), deps.warehouses.findAll()]);
     const snapshots = withinScope(allSnapshots, await stockScopeOf(c), (s) => s.warehouseId);
     return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { items, snapshots, warehouses }));
@@ -1460,13 +1467,13 @@ export function createReportsRoutes(
   });
 
   app.get("/inventory/ledger", gate("inventory.stock.view"), async (c) => {
-    const definition = createInventoryLedgerReport();
+    const definition = costed(c, createInventoryLedgerReport());
     const [allMovements, items, warehouses] = await Promise.all([loadAllMovements(deps), deps.items.list(), deps.warehouses.findAll()]);
     const movements = withinScope(allMovements, await stockScopeOf(c), (m) => m.warehouseId);
     return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { movements, items, warehouses }));
   });
 
-  app.get("/inventory/valuation", gate("inventory.valuation.view"), async (c) => {
+  app.get("/inventory/valuation", gate("inventory.valuation.view"), gate(ITEM_COST_PERMISSION), async (c) => {
     const definition = createInventoryValuationReport();
     const params = { ...definition.defaultParams, ...queryParams(c) };
     const [items, allSnapshots, warehouses] = await Promise.all([deps.items.list(), deps.wacSnapshots.list(), deps.warehouses.findAll()]);
@@ -1489,21 +1496,21 @@ export function createReportsRoutes(
   });
 
   app.get("/inventory/aging", gate("inventory.stock.view"), async (c) => {
-    const definition = createInventoryAgingReport(await tenantToday(c, deps.today));
+    const definition = costed(c, createInventoryAgingReport(await tenantToday(c, deps.today)));
     const [items, warehouses, allLayers] = await Promise.all([deps.items.list(), deps.warehouses.findAll(), loadAllLayers(deps)]);
     const layers = withinScope(allLayers, await stockScopeOf(c), (layer) => layer.warehouseId);
     return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { items, warehouses, layers }));
   });
 
   app.get("/inventory/expiring", gate("inventory.stock.view"), async (c) => {
-    const definition = createInventoryExpiringReport(await tenantToday(c, deps.today));
+    const definition = costed(c, createInventoryExpiringReport(await tenantToday(c, deps.today)));
     const [items, warehouses, allLayers] = await Promise.all([deps.items.list(), deps.warehouses.findAll(), loadAllLayers(deps)]);
     const layers = withinScope(allLayers, await stockScopeOf(c), (layer) => layer.warehouseId);
     return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { items, warehouses, layers }));
   });
 
   app.get("/inventory/slow-moving", gate("inventory.stock.view"), async (c) => {
-    const definition = createInventorySlowMovingReport(await tenantToday(c, deps.today));
+    const definition = costed(c, createInventorySlowMovingReport(await tenantToday(c, deps.today)));
     const [items, allSnapshots, invoices, warehouses] = await Promise.all([
       deps.items.list(),
       deps.wacSnapshots.list(),
@@ -1514,7 +1521,7 @@ export function createReportsRoutes(
     return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { items, snapshots, invoices, warehouses }));
   });
 
-  app.get("/inventory/drift", gate("inventory.valuation.view"), async (c) => {
+  app.get("/inventory/drift", gate("inventory.valuation.view"), gate(ITEM_COST_PERMISSION), async (c) => {
     const definition = createInventoryDriftReport();
     const [allSnapshots, allMovements, items, warehouses] = await Promise.all([
       deps.wacSnapshots.list(),
@@ -1564,7 +1571,7 @@ export function createReportsRoutes(
 
   if (deps.boms) {
     const boms = deps.boms;
-    app.get("/manufacturing/make-vs-buy", gate("manufacturing.bom.view"), async (c) => {
+    app.get("/manufacturing/make-vs-buy", gate("manufacturing.bom.view"), gate(ITEM_COST_PERMISSION), async (c) => {
       const definition = createMakeVsBuyReport();
       const [items, bomList, invoices] = await Promise.all([
         deps.items.list(),
@@ -2313,7 +2320,7 @@ export function createReportsRoutes(
         { key: "unit", labelAr: "الوحدة", value: item.baseUnitCode },
         ...drillWindowFacts(parsed.window),
         { key: "onHand", labelAr: "المخزون الحالي", value: qtyText(onHand), format: "qty" },
-        { key: "value", labelAr: "قيمة المخزون", value: twoPlaces(value), format: "money" },
+        ...(maySeeItemCost(c) ? [{ key: "value", labelAr: "قيمة المخزون", value: twoPlaces(value), format: "money" as const }] : []),
         { key: "warehouseCount", labelAr: "عدد المستودعات", value: String(positions.length), format: "qty" },
       ],
       documents: movements.slice(0, DRILL_DOWN_LIMIT).map((movement) => ({

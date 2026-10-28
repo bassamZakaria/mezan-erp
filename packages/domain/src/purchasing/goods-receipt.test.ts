@@ -137,6 +137,119 @@ describe("goods receipt — receiving lifecycle", () => {
     expect(gr.status).toBe("draft");
   });
 
+  it("#118 a tolerance lets a receipt exceed the ordered qty up to the allowed max, and the PO records what really arrived", async () => {
+    const { orders, numbering } = await sentOrder();
+    const receipts = new InMemoryGoodsReceipts();
+    const stock = makeStockService();
+    const policy = { requirePoForGrn: false, requireReceiptForInvoice: false, blockOverReceipt: true, overReceiptTolerancePercent: 25, trackSoldPurchaseItems: true };
+    await createGoodsReceipt(
+      { id: "gr-1", purchaseOrderId: "po-1", date: "2026-08-22", lines: [{ itemId: "item-A", qty: Qty.fromMajor("12.5"), unitCost: Money.fromMajor("25.00") }] },
+      { receipts, orders, numbering, policy },
+    );
+    await confirmGoodsReceipt("gr-1", { receipts, orders, stock, policy });
+    const po = await orders.findById("po-1");
+    expect(po?.lines[0]?.receivedQty.toString()).toBe("12.500000");
+    expect(po?.status).toBe("partially_received");
+    expect((await stock.getBalanceDetail("item-A", WH)).onHand.toString()).toBe("12.500000");
+  });
+
+  it("#118 a receipt above the tolerance is refused naming ordered, received so far and the allowed max", async () => {
+    const { orders, numbering } = await sentOrder();
+    const receipts = new InMemoryGoodsReceipts();
+    const stock = makeStockService();
+    const policy = { requirePoForGrn: false, requireReceiptForInvoice: false, blockOverReceipt: true, overReceiptTolerancePercent: 25, trackSoldPurchaseItems: true };
+    await createGoodsReceipt(
+      { id: "gr-1", purchaseOrderId: "po-1", date: "2026-08-22", lines: [{ itemId: "item-A", qty: Qty.fromMajor("4"), unitCost: Money.fromMajor("25.00") }] },
+      { receipts, orders, numbering, policy },
+    );
+    await confirmGoodsReceipt("gr-1", { receipts, orders, stock, policy });
+    const refused = await createGoodsReceipt(
+      { id: "gr-2", purchaseOrderId: "po-1", date: "2026-08-23", lines: [{ itemId: "item-A", qty: Qty.fromMajor("8.500001"), unitCost: Money.fromMajor("25.00") }] },
+      { receipts, orders, numbering, policy },
+    ).catch((e: unknown) => e);
+    expect(refused).toBeInstanceOf(OverReceiptError);
+    const err = refused as OverReceiptError;
+    expect(err.ordered.toString()).toBe("10.000000");
+    expect(err.received.toString()).toBe("4.000000");
+    expect(err.allowedMax.toString()).toBe("12.500000");
+    expect(err.message).toContain("10");
+    expect(err.message).toContain("4");
+    expect(err.message).toContain("12.5");
+    expect(err.messageEn).toContain("12.5");
+  });
+
+  it("#118 the allowed max is re-checked at confirm, so two drafts that each fit cannot both confirm", async () => {
+    const { orders, numbering } = await sentOrder();
+    const receipts = new InMemoryGoodsReceipts();
+    const stock = makeStockService();
+    const policy = { requirePoForGrn: false, requireReceiptForInvoice: false, blockOverReceipt: true, overReceiptTolerancePercent: 10, trackSoldPurchaseItems: true };
+    const line = [{ itemId: "item-A", qty: Qty.fromMajor("8"), unitCost: Money.fromMajor("25.00") }];
+    await createGoodsReceipt({ id: "gr-1", purchaseOrderId: "po-1", date: "2026-08-22", lines: line }, { receipts, orders, numbering, policy });
+    await createGoodsReceipt({ id: "gr-2", purchaseOrderId: "po-1", date: "2026-08-22", lines: line }, { receipts, orders, numbering, policy });
+    await confirmGoodsReceipt("gr-1", { receipts, orders, stock, policy });
+    await expect(confirmGoodsReceipt("gr-2", { receipts, orders, stock, policy })).rejects.toThrow(OverReceiptError);
+    expect((await receipts.findById("gr-2"))?.status).toBe("draft");
+    expect((await stock.getBalanceDetail("item-A", WH)).onHand.toString()).toBe("8.000000");
+  });
+
+  it("#118 a fully received order still takes a receipt within the tolerance, and no more", async () => {
+    const { orders, numbering } = await sentOrder();
+    const receipts = new InMemoryGoodsReceipts();
+    const stock = makeStockService();
+    const policy = { requirePoForGrn: false, requireReceiptForInvoice: false, blockOverReceipt: true, overReceiptTolerancePercent: 10, trackSoldPurchaseItems: true };
+    await createGoodsReceipt({ id: "gr-1", purchaseOrderId: "po-1", date: "2026-08-22" }, { receipts, orders, numbering, policy });
+    await confirmGoodsReceipt("gr-1", { receipts, orders, stock, policy });
+    expect((await orders.findById("po-1"))?.status).toBe("fully_received");
+    const one = [{ itemId: "item-A", qty: Qty.fromMajor("1"), unitCost: Money.fromMajor("25.00") }];
+    await createGoodsReceipt({ id: "gr-2", purchaseOrderId: "po-1", date: "2026-08-23", lines: one }, { receipts, orders, numbering, policy });
+    await confirmGoodsReceipt("gr-2", { receipts, orders, stock, policy });
+    expect((await orders.findById("po-1"))?.lines[0]?.receivedQty.toString()).toBe("11.000000");
+    await expect(
+      createGoodsReceipt({ id: "gr-3", purchaseOrderId: "po-1", date: "2026-08-23", lines: [{ itemId: "item-A", qty: Qty.fromMajor("0.000001"), unitCost: Money.fromMajor("25.00") }] }, { receipts, orders, numbering, policy }),
+    ).rejects.toThrow(OverReceiptError);
+    await expect(
+      createGoodsReceipt({ id: "gr-4", purchaseOrderId: "po-1", date: "2026-08-23", lines: one }, { receipts, orders, numbering, policy: { ...policy, overReceiptTolerancePercent: 0 } }),
+    ).rejects.toThrow(PurchaseOrderNotReceivableError);
+  });
+
+  it("#118 a draft against an order cancelled since cannot confirm and revive it", async () => {
+    const { orders, numbering } = await sentOrder();
+    const receipts = new InMemoryGoodsReceipts();
+    const stock = makeStockService();
+    const policy = { requirePoForGrn: false, requireReceiptForInvoice: false, blockOverReceipt: true, overReceiptTolerancePercent: 0, trackSoldPurchaseItems: true };
+    await createGoodsReceipt({ id: "gr-1", purchaseOrderId: "po-1", date: "2026-08-22" }, { receipts, orders, numbering, policy });
+    await cancelPurchaseOrder("po-1", { orders });
+    await expect(confirmGoodsReceipt("gr-1", { receipts, orders, stock, policy })).rejects.toThrow(PurchaseOrderNotReceivableError);
+    expect((await orders.findById("po-1"))?.status).toBe("cancelled");
+  });
+
+  it("#118 the tolerance is summed per item across the order's lines of that item", async () => {
+    const orders = new InMemoryPurchaseOrders();
+    const numbering = makeNumbering();
+    const receipts = new InMemoryGoodsReceipts();
+    await createPurchaseOrder(
+      { ...poBase(), lines: [{ itemId: "item-A", qty: Qty.fromMajor("5"), unitPrice: Money.fromMajor("25.00") }, { itemId: "item-A", qty: Qty.fromMajor("5"), unitPrice: Money.fromMajor("25.00") }] },
+      { orders, numbering, now },
+    );
+    await confirmPurchaseOrder("po-1", { orders });
+    const policy = { requirePoForGrn: false, requireReceiptForInvoice: false, blockOverReceipt: true, overReceiptTolerancePercent: 20, trackSoldPurchaseItems: true };
+    const at = (id: string, qty: string) => createGoodsReceipt({ id, purchaseOrderId: "po-1", date: "2026-08-22", lines: [{ itemId: "item-A", qty: Qty.fromMajor(qty), unitCost: Money.fromMajor("25.00") }] }, { receipts, orders, numbering, policy });
+    await expect(at("gr-over", "12.000001")).rejects.toThrow(OverReceiptError);
+    expect((await at("gr-ok", "12")).status).toBe("draft");
+  });
+
+  it("#118 with a zero tolerance the ordered qty is the ceiling", async () => {
+    const { orders, numbering } = await sentOrder();
+    const receipts = new InMemoryGoodsReceipts();
+    const policy = { requirePoForGrn: false, requireReceiptForInvoice: false, blockOverReceipt: true, overReceiptTolerancePercent: 0, trackSoldPurchaseItems: true };
+    await expect(
+      createGoodsReceipt(
+        { id: "gr-1", purchaseOrderId: "po-1", date: "2026-08-22", lines: [{ itemId: "item-A", qty: Qty.fromMajor("10.000001"), unitCost: Money.fromMajor("25.00") }] },
+        { receipts, orders, numbering, policy },
+      ),
+    ).rejects.toThrow(OverReceiptError);
+  });
+
   it("receiving against a closed (fully received) order is refused", async () => {
     const { orders, numbering } = await sentOrder();
     const receipts = new InMemoryGoodsReceipts();

@@ -9,7 +9,7 @@ import { brokenLabelField } from "./support/broken-label";
  *
  * The tabs were reduced from eight to five and reordered/renamed —
  * بيانات المنشأة (company identity, now the DEFAULT tab) / الإقليمية والعملة
- * (regional & currency) / الضريبة / السياسات / a hidden البريد الإلكتروني.
+ * (regional & currency) / الضريبة / السياسات / البريد الإلكتروني.
  * There is no more plain "عام" tab.
  *
  * The e2e backend starts with exactly ONE seeded branch (الفرع الرئيسي), but

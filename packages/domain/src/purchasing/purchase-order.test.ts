@@ -245,6 +245,23 @@ describe("applyReceiptToOrder / revertReceiptFromOrder", () => {
     expect(updated.status).toBe("partially_received");
   });
 
+  it("#118 records a receipt above the ordered qty on the item's last line instead of dropping it, and a cancel takes it back", () => {
+    const twoLines = order({
+      status: "sent",
+      lines: [
+        line({ itemId: "item-A", qty: Qty.fromMajor("5") }),
+        line({ itemId: "item-A", qty: Qty.fromMajor("5") }),
+      ],
+    });
+    const updated = applyReceiptToOrder(twoLines, [{ itemId: "item-A", qty: Qty.fromMajor("12") }]);
+    expect(updated.lines[0]?.receivedQty.toString()).toBe("5.000000");
+    expect(updated.lines[1]?.receivedQty.toString()).toBe("7.000000");
+    expect(updated.status).toBe("fully_received");
+    const reverted = revertReceiptFromOrder(updated, [{ itemId: "item-A", qty: Qty.fromMajor("3") }]);
+    expect(reverted.lines.map((l) => l.receivedQty.toString())).toEqual(["5.000000", "4.000000"]);
+    expect(reverted.status).toBe("partially_received");
+  });
+
   it("ignores received quantities for items not on the order", () => {
     const single = order({ lines: [line({ itemId: "item-A" })] });
     const updated = applyReceiptToOrder(single, [{ itemId: "item-Z", qty: Qty.fromMajor("1") }]);

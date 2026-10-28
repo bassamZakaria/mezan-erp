@@ -10,7 +10,9 @@ import {
   createInventoryExpiringReport,
   createInventorySlowMovingReport,
   createInventoryDriftReport,
+  withoutCost,
   type InventoryDriftRow,
+  type ReportDefinition,
 } from "@mezan/domain";
 import { ReportScreen } from "./ReportScreen";
 import { ScreenTabs } from "../ScreenTabs";
@@ -19,6 +21,7 @@ import { useAppTranslation } from "../../i18n";
 import { useNavigation } from "../../navigation";
 import { ExpiryTab, EXPIRY_SCREEN_KEY } from "../enh/expiry/expiry-routes";
 import { monthStartIso, todayIso } from "../../lib/dates";
+import { useMaySeeItemCost } from "../../data/item-cost";
 
 /**
  * المخزون — Inventory reports (docs/archive/catalog/08-reports.md), each a thin
@@ -37,12 +40,16 @@ import { monthStartIso, todayIso } from "../../lib/dates";
 const TODAY = todayIso();
 const MONTH_START = monthStartIso();
 
+function useCosted<TParams, Row, Ctx>(definition: ReportDefinition<TParams, Row, Ctx>): ReportDefinition<TParams, Row, Ctx> {
+  return useMaySeeItemCost() ? definition : withoutCost(definition);
+}
+
 export function InventoryStockLevelsReportScreen() {
-  return <ReportScreen definition={createInventoryStockLevelsReport()} apiPath="/inventory/stock-levels" />;
+  return <ReportScreen definition={useCosted(createInventoryStockLevelsReport())} apiPath="/inventory/stock-levels" />;
 }
 
 export function GoodsInTransitReportScreen() {
-  return <ReportScreen definition={createGoodsInTransitReport()} apiPath="/inventory/goods-in-transit" />;
+  return <ReportScreen definition={useCosted(createGoodsInTransitReport())} apiPath="/inventory/goods-in-transit" />;
 }
 
 /*
@@ -68,13 +75,21 @@ export function InventoryExpiringReportScreen() {
       <div className="flex justify-end">
         <Button onClick={() => openScreenAt(EXPIRY_SCREEN_KEY, [ExpiryTab.WriteOff])}>{t("expiry.writeOff.fromReport")}</Button>
       </div>
-      <ReportScreen definition={createInventoryExpiringReport(TODAY)} apiPath="/inventory/expiring" />
+      <ReportScreen definition={useCosted(createInventoryExpiringReport(TODAY))} apiPath="/inventory/expiring" />
     </div>
   );
 }
 
 export function InventorySlowMovingReportScreen() {
-  return <ReportScreen definition={createInventorySlowMovingReport(TODAY)} apiPath="/inventory/slow-moving" />;
+  return <ReportScreen definition={useCosted(createInventorySlowMovingReport(TODAY))} apiPath="/inventory/slow-moving" />;
+}
+
+function InventoryLedgerView() {
+  return <ReportScreen definition={useCosted(createInventoryLedgerReport())} apiPath="/inventory/ledger" />;
+}
+
+function InventoryAgingView() {
+  return <ReportScreen definition={useCosted(createInventoryAgingReport(TODAY))} apiPath="/inventory/aging" />;
 }
 
 /** السجل والحركة — the running-balance ledger, and the same rows as a flat in/out list. */
@@ -87,7 +102,7 @@ export function InventoryLedgerReportScreen() {
         {
           key: "ledger",
           label: t("inventoryReports.view.ledger"),
-          render: () => <ReportScreen definition={createInventoryLedgerReport()} apiPath="/inventory/ledger" />,
+          render: () => <InventoryLedgerView />,
         },
         {
           key: "movement",
@@ -157,7 +172,7 @@ export function InventoryAgingReportScreen() {
         {
           key: "aging",
           label: t("inventoryReports.view.aging"),
-          render: () => <ReportScreen definition={createInventoryAgingReport(TODAY)} apiPath="/inventory/aging" />,
+          render: () => <InventoryAgingView />,
         },
         {
           key: "expiring",

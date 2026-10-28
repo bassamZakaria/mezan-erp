@@ -50,6 +50,7 @@ import { useEntityName } from "../lib/entity-names";
 import { useNavigation } from "../navigation";
 import { todayIso } from "../lib/dates";
 import { EMPTY } from "../lib/empty";
+import { useMaySeeItemCost } from "../data/item-cost";
 import { EMPTY_LOT, LotFields, lotIsComplete, lotPayload, tracksLots, type LotValue } from "./enh/expiry/LotFields";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 
@@ -121,6 +122,7 @@ const stepperKey = (stage: WorkOrderStageRecord) => (stage === "not_started" ? "
  */
 function ShopFloorPanel({ order, itemName }: { order: WorkOrderRecord; itemName: (id: string) => string }) {
   const { t } = useAppTranslation();
+  const showCost = useMaySeeItemCost();
   const extraIssue = useExtraIssueWorkOrderMaterials();
   const returnMaterials = useReturnWorkOrderMaterials();
   const logWaste = useLogWorkOrderWaste();
@@ -230,13 +232,23 @@ function ShopFloorPanel({ order, itemName }: { order: WorkOrderRecord; itemName:
                 {w.stockMoved ? (
                   <span className="flex flex-wrap items-baseline gap-[10px] text-[11.5px]">
                     <span className="text-ink-muted">
-                      {t("workOrders.wasteLog.normal")} <span className="mz-num">{w.normalQty}</span> ·{" "}
-                      <MoneyValue value={Number(w.normalCost)} />
+                      {t("workOrders.wasteLog.normal")} <span className="mz-num">{w.normalQty}</span>
+                      {showCost ? (
+                        <>
+                          {" · "}
+                          <MoneyValue value={Number(w.normalCost)} />
+                        </>
+                      ) : null}
                     </span>
                     {Number(w.abnormalQty) > 0 ? (
                       <span className="text-danger-ink">
-                        {t("workOrders.wasteLog.abnormal")} <span className="mz-num">{w.abnormalQty}</span> ·{" "}
-                        <MoneyValue value={Number(w.abnormalCost)} />
+                        {t("workOrders.wasteLog.abnormal")} <span className="mz-num">{w.abnormalQty}</span>
+                        {showCost ? (
+                          <>
+                            {" · "}
+                            <MoneyValue value={Number(w.abnormalCost)} />
+                          </>
+                        ) : null}
                       </span>
                     ) : null}
                   </span>
@@ -330,6 +342,7 @@ function WorkOrderDetail({
   advancing: boolean;
 }) {
   const { t } = useAppTranslation();
+  const showCost = useMaySeeItemCost();
   const action = STAGE_ACTION[order.stage];
   const activity = useWorkOrderActivity(order.id).data;
   const dirLabel = (d: string) => (d.toUpperCase() === "IN" ? t("workOrders.direction.in") : t("workOrders.direction.out"));
@@ -358,7 +371,7 @@ function WorkOrderDetail({
         { label: t("workOrders.finishedGoodsWarehouse"), value: warehouseName(order.destinationWarehouseId) },
         { label: t("workOrders.priority"), value: priorityLabel(order.priority, t) },
         { label: t("common.project"), value: projectName(order.projectId) },
-        { label: t("workOrders.workInProgressValue"), value: <MoneyValue value={num(order.wipTotal)} /> },
+        ...(showCost ? [{ label: t("workOrders.workInProgressValue"), value: <MoneyValue value={num(order.wipTotal)} /> }] : []),
       ]}
       effects={[
         t("workOrders.issuingMaterialsMovesRawStockToWip"),
@@ -427,18 +440,22 @@ function WorkOrderDetail({
           label: t("workOrders.shopFloor"),
           content: <ShopFloorPanel order={order} itemName={itemName} />,
         },
-        {
-          key: "costs",
-          label: t("workOrders.costs"),
-          content: (
-            <dl className="grid grid-cols-2 gap-[12px] text-[13px]">
-              <div><dt className="text-ink-muted">{t("workOrders.materialCost")}</dt><dd className="mz-num"><MoneyValue value={num(order.materialCost)} /></dd></div>
-              <div><dt className="text-ink-muted">{t("workOrders.labour")}</dt><dd className="mz-num"><MoneyValue value={num(order.laborCost)} /></dd></div>
-              <div><dt className="text-ink-muted">{t("workOrders.overhead")}</dt><dd className="mz-num"><MoneyValue value={num(order.overheadCost)} /></dd></div>
-              <div><dt className="text-ink-muted">{t("workOrders.totalWorkInProgress")}</dt><dd className="mz-num"><MoneyValue value={num(order.wipTotal)} /></dd></div>
-            </dl>
-          ),
-        },
+        ...(showCost
+          ? [
+              {
+                key: "costs",
+                label: t("workOrders.costs"),
+                content: (
+                  <dl className="grid grid-cols-2 gap-[12px] text-[13px]">
+                    <div><dt className="text-ink-muted">{t("workOrders.materialCost")}</dt><dd className="mz-num"><MoneyValue value={num(order.materialCost)} /></dd></div>
+                    <div><dt className="text-ink-muted">{t("workOrders.labour")}</dt><dd className="mz-num"><MoneyValue value={num(order.laborCost)} /></dd></div>
+                    <div><dt className="text-ink-muted">{t("workOrders.overhead")}</dt><dd className="mz-num"><MoneyValue value={num(order.overheadCost)} /></dd></div>
+                    <div><dt className="text-ink-muted">{t("workOrders.totalWorkInProgress")}</dt><dd className="mz-num"><MoneyValue value={num(order.wipTotal)} /></dd></div>
+                  </dl>
+                ),
+              },
+            ]
+          : []),
         {
           key: "movements",
           label: t("workOrders.tab.movements"),
@@ -452,7 +469,7 @@ function WorkOrderDetail({
                 t("common.warehouse"),
                 t("workOrders.direction.in"),
                 t("common.qty"),
-                t("workOrders.materialCost"),
+                ...(showCost ? [t("workOrders.materialCost")] : []),
                 t("workOrders.station"),
                 t("workOrders.operator"),
               ]}
@@ -461,7 +478,7 @@ function WorkOrderDetail({
                 warehouseName(m.warehouseId),
                 dirLabel(m.direction),
                 m.qty,
-                <MoneyValue value={num(m.unitCost)} />,
+                ...(showCost ? [<MoneyValue value={num(m.unitCost)} />] : []),
                 m.stationName ?? "—",
                 m.operatorName ?? "—",
               ])}
@@ -478,7 +495,7 @@ function WorkOrderDetail({
                 t("common.item"),
                 t("common.warehouse"),
                 t("common.qty"),
-                t("workOrders.materialCost"),
+                ...(showCost ? [t("workOrders.materialCost")] : []),
                 t("workOrders.station"),
                 t("workOrders.operator"),
               ]}
@@ -486,7 +503,7 @@ function WorkOrderDetail({
                 itemName(m.itemId),
                 warehouseName(m.warehouseId),
                 m.qty,
-                <MoneyValue value={num(m.unitCost)} />,
+                ...(showCost ? [<MoneyValue value={num(m.unitCost)} />] : []),
                 m.stationName ?? "—",
                 m.operatorName ?? "—",
               ])}
@@ -499,12 +516,11 @@ function WorkOrderDetail({
           label: t("workOrders.tab.journal"),
           content: (
             <ActivityTable
-              head={[t("common.date"), t("workOrders.tab.journal"), t("common.debit"), t("common.credit")]}
+              head={[t("common.date"), t("workOrders.tab.journal"), ...(showCost ? [t("common.debit"), t("common.credit")] : [])]}
               rows={(activity?.journalEntries ?? []).map((e) => [
                 e.date,
                 e.entryNo ?? e.id,
-                <MoneyValue value={num(e.totalDebit)} />,
-                <MoneyValue value={num(e.totalCredit)} />,
+                ...(showCost ? [<MoneyValue value={num(e.totalDebit)} />, <MoneyValue value={num(e.totalCredit)} />] : []),
               ])}
               empty={t("workOrders.noJournal")}
             />

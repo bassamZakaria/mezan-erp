@@ -1,8 +1,8 @@
 import { Hono } from "hono";
-import { can, type AuditEvent, type AuditQueryPort } from "@mezan/domain";
+import type { AuditEvent, AuditQueryPort } from "@mezan/domain";
 import type { AuditChainVerifyPort } from "@mezan/persistence";
 import { auditQuerySchema } from "@mezan/contracts";
-import { branchGrantOf, createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
+import { branchGrantOf, createPermissionGate, getAuthContext, maySeeItemCost, type AuthContextResolver } from "./permission-gate.js";
 
 const COST_FIELDS: ReadonlySet<string> = new Set(["costPrice"]);
 
@@ -79,13 +79,15 @@ export function createAuditRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+    const seeCost = maySeeItemCost(c);
+    if (!seeCost && parsed.data.field && COST_FIELDS.has(parsed.data.field)) return c.json({ events: [], total: 0 });
     const ctx = getAuthContext(c);
     // SECURITY: a branch-granted reader is held to rows stamped with its own
     // branches. A row with no branch is not shown to it — most were written by
     // an all-branches caller about some other branch's document (D30).
     const grant = ctx ? branchGrantOf(c) : undefined;
     const result = await store.queryEvents(grant ? { ...parsed.data, branchIds: grant } : parsed.data);
-    if (ctx && can(ctx, "sales.invoice.view_cost")) return c.json(result);
+    if (seeCost) return c.json(result);
     return c.json({ ...result, events: result.events.map(redactCost) });
   });
 

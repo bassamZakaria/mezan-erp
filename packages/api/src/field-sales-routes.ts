@@ -49,6 +49,7 @@ import {
   createPermissionGate,
   getAuthContext,
   warehouseScopeOf,
+  withItemCost,
   type AuthContextResolver,
 } from "./permission-gate.js";
 import { can } from "@mezan/domain";
@@ -100,6 +101,8 @@ export interface FieldSalesRoutesDeps {
   readonly postings?: VanReconciliationPostingPort;
   readonly audit?: AuditSink;
 }
+
+const VAN_TRIP_COST_KEYS = ["unitCost", "varianceValue"];
 
 function serialize(trip: VanTrip) {
   return {
@@ -355,7 +358,7 @@ export function createFieldSalesRoutes(
 
   app.get("/", gateAny("field.van_trip.view", "field.van_trip.view_own"), async (c) => {
     const trips = await deps.trips.list();
-    return c.json(visibleTrips(c, trips).map(serialize));
+    return c.json(withItemCost(c, visibleTrips(c, trips).map(serialize), VAN_TRIP_COST_KEYS));
   });
 
   app.post("/", gate("field.van_trip.open"), async (c) => {
@@ -426,7 +429,7 @@ export function createFieldSalesRoutes(
           numbering: deps.numbering,
         },
       );
-      return c.json(serialize(trip), 201);
+      return c.json(withItemCost(c, serialize(trip), VAN_TRIP_COST_KEYS), 201);
     } catch (err) {
       return handleDomainError(c, err);
     }
@@ -438,7 +441,7 @@ export function createFieldSalesRoutes(
     // 404, not 403: whether a trip the caller may not see exists at all is
     // itself information.
     if (visibleTrips(c, [trip]).length === 0) return c.json({ error: "VAN_TRIP_NOT_FOUND" }, 404);
-    return c.json(serialize(trip));
+    return c.json(withItemCost(c, serialize(trip), VAN_TRIP_COST_KEYS));
   });
 
   app.post("/:id/cash-movements", gate("field.van_trip.open"), async (c) => {
@@ -474,7 +477,7 @@ export function createFieldSalesRoutes(
         });
       }
       await deps.trips.update(updated);
-      return c.json(serialize(updated));
+      return c.json(withItemCost(c, serialize(updated), VAN_TRIP_COST_KEYS));
     } catch (err) {
       return handleDomainError(c, err);
     }
@@ -497,7 +500,7 @@ export function createFieldSalesRoutes(
     if (!trip) return c.json({ error: "VAN_TRIP_NOT_FOUND" }, 404);
     const asOf = await tenantToday(c);
     const expectation = buildVanTripExpectation(trip, await deps.activity.read(trip, asOf, []));
-    return c.json({
+    return c.json(withItemCost(c, {
       tripId: trip.id,
       asOf,
       expectedCash: expectation.expectedCash.toString(),
@@ -513,7 +516,7 @@ export function createFieldSalesRoutes(
       })),
       invoicedSales: expectation.invoicedSales.toString(),
       returnsValue: expectation.returnsValue.toString(),
-    });
+    }, VAN_TRIP_COST_KEYS));
   });
 
   app.post("/:id/settle", gate("field.van_trip.settle"), async (c) => {
@@ -554,7 +557,7 @@ export function createFieldSalesRoutes(
             .map((l) => ({ itemId: l.itemId, varianceQty: l.varianceQty.toString(), varianceValue: l.varianceValue.toString() })),
         },
       });
-      return c.json(serialize(trip));
+      return c.json(withItemCost(c, serialize(trip), VAN_TRIP_COST_KEYS));
     } catch (err) {
       return handleDomainError(c, err);
     }
@@ -593,7 +596,7 @@ export function createFieldSalesRoutes(
           })),
         },
       });
-      return c.json({ trip: serialize(result.trip), held: result.held });
+      return c.json({ trip: withItemCost(c, serialize(result.trip), VAN_TRIP_COST_KEYS), held: result.held });
     } catch (err) {
       return handleDomainError(c, err);
     }

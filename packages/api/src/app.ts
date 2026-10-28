@@ -903,17 +903,12 @@ export interface CreateAppOptions {
   readonly resolveLicenseState?: LicenseStateResolver;
 }
 
-/**
- * Derive the purchase chain's 3-gate strictness policy (docs/archive/catalog/09
- * §"التحكم في المشتريات") from the live tenant settings — the settings UI's
- * three toggles map 1:1 onto `PurchasePolicy`'s fields (aside from the
- * over-receipt guard, which isn't part of that settings tab).
- */
 function mapSettingsToPurchasePolicy(settings: TenantSettings): PurchasePolicy {
   return {
     requirePoForGrn: settings.requirePoForGrn,
     requireReceiptForInvoice: settings.requireGrnForInvoice,
-    blockOverReceipt: false,
+    blockOverReceipt: true,
+    overReceiptTolerancePercent: settings.overReceiptTolerancePercent,
     trackSoldPurchaseItems: settings.trackSoldPurchaseItems,
   };
 }

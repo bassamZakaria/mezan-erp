@@ -67,6 +67,7 @@ export const tenantSettingsSchema = z.object({
   requirePoForGrn: z.boolean(),
   requireGrnForInvoice: z.boolean(),
   trackSoldPurchaseItems: z.boolean(),
+  overReceiptTolerancePercent: z.number().min(0).max(100).default(0),
 
   preventNegativeCashBalance: z.boolean(),
   allowNegativeTreasury: z.boolean(),
@@ -150,6 +151,7 @@ export const TENANT_SETTINGS_LOOKUP_KEYS = [
   "defaultTaxRate",
   "taxCalculation",
   "requirePoForGrn",
+  "overReceiptTolerancePercent",
 ] as const satisfies readonly (keyof z.infer<typeof tenantSettingsSchema>)[];
 
 export type TenantSettingsLookupKey = (typeof TENANT_SETTINGS_LOOKUP_KEYS)[number];

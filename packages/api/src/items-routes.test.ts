@@ -454,11 +454,11 @@ describe("items router — the cost price is a separate grant (D94)", () => {
     expect(rows[0]?.salePrice).toBe("70.000000");
   });
 
-  it("serves costPrice to a caller who also holds sales.invoice.view_cost", async () => {
+  it("serves costPrice to a caller who also holds inventory.cost.view", async () => {
     const { app } = newApp();
     await seed(app);
     const rows = (await (
-      await app.fetch(req("/", { permissions: "inventory.item.view,sales.invoice.view_cost" }))
+      await app.fetch(req("/", { permissions: "inventory.item.view,inventory.cost.view" }))
     ).json()) as Record<string, unknown>[];
     expect(rows[0]?.costPrice).toBe("42.500000");
   });
@@ -472,7 +472,7 @@ describe("items router — the cost price is a separate grant (D94)", () => {
     >;
     expect(hidden).not.toHaveProperty("costPrice");
     const shown = (await (
-      await app.fetch(req("/itm-1", { permissions: "inventory.item.view,sales.invoice.view_cost" }))
+      await app.fetch(req("/itm-1", { permissions: "inventory.item.view,inventory.cost.view" }))
     ).json()) as Record<string, unknown>;
     expect(shown.costPrice).toBe("42.500000");
   });

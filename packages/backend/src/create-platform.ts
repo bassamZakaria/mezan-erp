@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { createPlan, createPlatformUser, MODULE_CATALOG, Money, PlanKind, QuotaKind, type AuditSink, type CreatePlanCommand, type SecretHasher } from "@mezan/domain";
+import { SEPARATE_ATTACHMENT_PERMISSIONS_FEATURE, createPlan, createPlatformUser, MODULE_CATALOG, Money, PlanKind, QuotaKind, type AuditSink, type CreatePlanCommand, type SecretHasher } from "@mezan/domain";
 import { reportTurnYield } from "@mezan/api";
 import {
   createSqlitePlatformStores, createSqliteAuditSink, createScryptHasher, createPlatformStores, createAuditSink, sqliteDb,
@@ -70,6 +70,7 @@ export const PLATFORM_SEED_PLANS: readonly SeedPlan[] = [
   {
     id: "PLAN-ENTERPRISE", code: "enterprise", nameAr: "المؤسسات", nameEn: "Enterprise", modules: MODULE_CATALOG.filter((id) => id !== "pos"),
     seatsIncluded: 25, branchesIncluded: 10, warehousesIncluded: 10,
+    features: { [SEPARATE_ATTACHMENT_PERMISSIONS_FEATURE]: true },
     priceMonthly: Money.fromMajor("1960"), priceYearly: Money.fromMajor("19600"), trialDays: 14, isPublic: true, sortOrder: 3,
   },
 ];

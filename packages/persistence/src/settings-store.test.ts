@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { createDefaultSettings, updateSettings } from "@mezan/domain";
+import { DEFAULT_STATEMENT_EMAIL_BODY, DEFAULT_STATEMENT_EMAIL_SUBJECT, createDefaultSettings, updateSettings } from "@mezan/domain";
 import { randomBytes } from "node:crypto";
 import Database from "better-sqlite3";
 import { createSqliteSettingsStore } from "./settings-store.js";
@@ -51,6 +51,24 @@ describe("SqliteSettingsStore", () => {
 
       await store.save(createDefaultSettings({ contractingSingleOperatorMode: true, periodCloseSingleOperatorMode: false }));
       expect(await store.get()).toMatchObject({ contractingSingleOperatorMode: true, periodCloseSingleOperatorMode: false });
+    } finally {
+      store.close();
+    }
+  });
+
+  it("#129 a row still holding the never-rendered document template reads the statement template, and a tenant's own wording is kept", async () => {
+    const store = createSqliteSettingsStore();
+    try {
+      const unrendered = createDefaultSettings({
+        emailTemplateSubject: "{{documentType}} رقم {{documentNumber}} من {{companyName}}",
+        emailTemplateBody:
+          "السلام عليكم {{recipientName}}،\n\nمرفق {{documentType}} رقم {{documentNumber}} بتاريخ {{documentDate}} بإجمالي {{documentTotal}}.\n\nمع خالص الشكر،\n{{companyName}}",
+      });
+      await store.save(unrendered);
+      expect(await store.get()).toMatchObject({ emailTemplateSubject: DEFAULT_STATEMENT_EMAIL_SUBJECT, emailTemplateBody: DEFAULT_STATEMENT_EMAIL_BODY });
+
+      await store.save(createDefaultSettings({ emailTemplateSubject: unrendered.emailTemplateSubject, emailTemplateBody: "نصنا الخاص" }));
+      expect(await store.get()).toMatchObject({ emailTemplateSubject: DEFAULT_STATEMENT_EMAIL_SUBJECT, emailTemplateBody: "نصنا الخاص" });
     } finally {
       store.close();
     }

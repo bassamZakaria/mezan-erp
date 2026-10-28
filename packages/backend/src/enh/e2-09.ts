@@ -25,7 +25,11 @@ export const area: BackendArea = {
       store: ctx.customerMail.store,
       company: async () => {
         const settings = (await ctx.stores.settings.get()) ?? createDefaultSettings();
-        return { companyName: settings.companyName, currency: settings.currency };
+        return {
+          companyName: settings.companyName,
+          currency: settings.currency,
+          statementTemplate: { subject: settings.emailTemplateSubject, body: settings.emailTemplateBody },
+        };
       },
       drain: ctx.customerMail.drain,
       mailConfigured: ctx.customerMail.configured,

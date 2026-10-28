@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { Hono } from "hono";
 import { createSqliteAttachmentStore, type SqliteAttachmentStoreHandle } from "@mezan/persistence";
-import { ATTACHMENT_MAX_BYTES, createEntitlements } from "@mezan/domain";
+import { ATTACHMENT_MAX_BYTES, AttachmentPermission, SEPARATE_ATTACHMENT_PERMISSIONS_FEATURE, createEntitlements } from "@mezan/domain";
 import { createAttachmentsRoutes } from "./attachments-routes.js";
 import { entitlementsBinding } from "./module-gate.js";
 
@@ -340,5 +340,66 @@ describe("module gate — the entity's module, not just its permission", () => {
     const { app } = newBoundApp(["hr"]);
     const res = await app.fetch(req("/?entityType=employee&entityId=EMP-1", { permissions: "*" }));
     expect(res.status).toBe(200);
+  });
+});
+
+describe("#125 separate attachment permissions — only where the plan carries the feature", () => {
+  function editionApp(features: Record<string, boolean>) {
+    const store = createSqliteAttachmentStore();
+    handles.push(store);
+    const entitlements = createEntitlements({ plan: "enterprise", activeModules: ["sales", "admin"], features, seats: 1, expiresAt: null });
+    const wrapper = new Hono();
+    wrapper.use("*", entitlementsBinding(() => entitlements));
+    wrapper.route("/", createAttachmentsRoutes({ repo: store.attachments }, insecureHeaderAuthContextResolver));
+    return { app: wrapper, repo: store.attachments };
+  }
+  const topEdition = { [SEPARATE_ATTACHMENT_PERMISSIONS_FEATURE]: true };
+  const upload = (app: Hono, permissions: string) =>
+    app.fetch(req("/", { method: "POST", permissions, body: JSON.stringify(customerUpload()) }));
+
+  it("below the top edition the parent entity alone governs, exactly as before", async () => {
+    const { app } = editionApp({});
+    expect((await upload(app, CUSTOMER_MANAGE)).status).toBe(201);
+    expect((await app.fetch(req("/?entityType=customer&entityId=CUST-1", { permissions: CUSTOMER_VIEW }))).status).toBe(200);
+    expect((await app.fetch(req("/ATT-C1/content", { permissions: CUSTOMER_VIEW }))).status).toBe(200);
+    expect((await app.fetch(req("/ATT-C1", { method: "DELETE", permissions: CUSTOMER_MANAGE }))).status).toBe(204);
+  });
+
+  it("in the top edition an upload also needs admin.attachment.upload", async () => {
+    const { app, repo } = editionApp(topEdition);
+    const refused = await upload(app, CUSTOMER_MANAGE);
+    expect(refused.status).toBe(403);
+    expect(await json(refused)).toMatchObject({ permission: AttachmentPermission.Upload });
+    expect(await repo.listAll()).toHaveLength(0);
+    expect((await upload(app, `${CUSTOMER_MANAGE},${AttachmentPermission.Upload}`)).status).toBe(201);
+  });
+
+  it("in the top edition the attachment permission never stands in for the parent's", async () => {
+    const { app } = editionApp(topEdition);
+    expect((await upload(app, `${CUSTOMER_VIEW},${AttachmentPermission.Upload}`)).status).toBe(403);
+  });
+
+  it("in the top edition reading a file needs admin.attachment.view on top of the parent's view", async () => {
+    const { app } = editionApp(topEdition);
+    expect((await upload(app, `${CUSTOMER_MANAGE},${AttachmentPermission.Upload}`)).status).toBe(201);
+    const scoped = await app.fetch(req("/?entityType=customer&entityId=CUST-1", { permissions: CUSTOMER_VIEW }));
+    expect(scoped.status).toBe(403);
+    expect(await json(scoped)).toMatchObject({ permission: AttachmentPermission.View });
+    expect((await app.fetch(req("/ATT-C1", { permissions: CUSTOMER_VIEW }))).status).toBe(403);
+    expect((await app.fetch(req("/ATT-C1/content", { permissions: CUSTOMER_VIEW }))).status).toBe(403);
+    expect(await json(await app.fetch(req("/", { permissions: CUSTOMER_VIEW })))).toEqual([]);
+    const granted = `${CUSTOMER_VIEW},${AttachmentPermission.View}`;
+    expect((await app.fetch(req("/ATT-C1/content", { permissions: granted }))).status).toBe(200);
+    expect(await json(await app.fetch(req("/", { permissions: granted })))).toHaveLength(1);
+  });
+
+  it("in the top edition deleting needs admin.attachment.delete, which upload does not imply", async () => {
+    const { app, repo } = editionApp(topEdition);
+    expect((await upload(app, `${CUSTOMER_MANAGE},${AttachmentPermission.Upload}`)).status).toBe(201);
+    const refused = await app.fetch(req("/ATT-C1", { method: "DELETE", permissions: `${CUSTOMER_MANAGE},${AttachmentPermission.Upload}` }));
+    expect(refused.status).toBe(403);
+    expect(await json(refused)).toMatchObject({ permission: AttachmentPermission.Delete });
+    expect(await repo.listAll()).toHaveLength(1);
+    expect((await app.fetch(req("/ATT-C1", { method: "DELETE", permissions: `${CUSTOMER_MANAGE},${AttachmentPermission.Delete}` }))).status).toBe(204);
   });
 });

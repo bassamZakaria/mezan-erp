@@ -37,7 +37,7 @@ import {
   type CountModeSessionDTO,
   type CountModeZoneSummaryDTO,
 } from "@mezan/contracts";
-import { createAnyPermissionGate, createPermissionGate, getAuthContext, sessionWarehouseScopeOf, warehouseScopeOf, withinScope, type AuthContextResolver } from "./permission-gate.js";
+import { createAnyPermissionGate, createPermissionGate, getAuthContext, maySeeItemCost, sessionWarehouseScopeOf, warehouseScopeOf, withinScope, type AuthContextResolver } from "./permission-gate.js";
 import { branchesOfWarehouses, storedBranchesById, withinBranchGrant } from "./stored-branches.js";
 import { recordAdminEvent } from "./admin-audit.js";
 import { duplicateIdRefusal } from "./duplicate-id.js";
@@ -154,7 +154,7 @@ function factsOf(item: Item): ItemFacts {
   };
 }
 
-function zoneSummary(zone: CountZone, count: PhysicalCount, viewer: Viewer, reveal: boolean): CountModeZoneSummaryDTO {
+function zoneSummary(zone: CountZone, count: PhysicalCount, viewer: Viewer, reveal: boolean, showCost: boolean): CountModeZoneSummaryDTO {
   const progress = zoneProgressOf(zone, count);
   const variance = reveal && viewer.seesAll ? zoneVarianceOf(zone, count) : null;
   return {
@@ -172,12 +172,12 @@ function zoneSummary(zone: CountZone, count: PhysicalCount, viewer: Viewer, reve
     approvedAt: zone.approvedAt,
     approvedBy: zone.approvedBy,
     assignedToMe: isCounterOf(zone, viewer.userId),
-    netValue: variance ? variance.netValue.toString() : null,
-    absValue: variance ? variance.absValue.toString() : null,
+    netValue: variance && showCost ? variance.netValue.toString() : null,
+    absValue: variance && showCost ? variance.absValue.toString() : null,
   };
 }
 
-function itemRow(line: PhysicalCountLine, zoneId: string, facts: ItemFacts | undefined, reveal: boolean): CountModeItemDTO {
+function itemRow(line: PhysicalCountLine, zoneId: string, facts: ItemFacts | undefined, reveal: boolean, showCost: boolean): CountModeItemDTO {
   const variance = reveal ? lineVarianceOf(line) : null;
   return {
     itemId: line.itemId,
@@ -191,7 +191,7 @@ function itemRow(line: PhysicalCountLine, zoneId: string, facts: ItemFacts | und
     recount: line.recount,
     systemQty: variance ? variance.systemQty.toString() : null,
     varianceQty: variance?.varianceQty ? variance.varianceQty.toString() : null,
-    varianceValue: variance?.varianceValue ? variance.varianceValue.toString() : null,
+    varianceValue: showCost && variance?.varianceValue ? variance.varianceValue.toString() : null,
   };
 }
 
@@ -250,13 +250,13 @@ export function createCountModeRoutes(deps: CountModeRoutesDeps, resolveAuthCont
       status: count.status,
       blind: count.blind,
       generatedAdjustmentId: count.generatedAdjustmentId,
-      zones: visible.map((z) => zoneSummary(z, count, viewer, reveal)),
-      items: lines.map((l) => itemRow(l, zoneOf.get(l.itemId) as string, facts.get(l.itemId), reveal)),
+      zones: visible.map((z) => zoneSummary(z, count, viewer, reveal, maySeeItemCost(c))),
+      items: lines.map((l) => itemRow(l, zoneOf.get(l.itemId) as string, facts.get(l.itemId), reveal, maySeeItemCost(c))),
       counters: [...names].map(([userId, name]) => ({ userId, name })),
       revealsVariance: reveal,
       canReview: viewer.canReview,
-      netValue: summary ? summary.netValue.toString() : null,
-      absValue: summary ? summary.absValue.toString() : null,
+      netValue: summary && maySeeItemCost(c) ? summary.netValue.toString() : null,
+      absValue: summary && maySeeItemCost(c) ? summary.absValue.toString() : null,
     };
   }
 
@@ -293,7 +293,7 @@ export function createCountModeRoutes(deps: CountModeRoutesDeps, resolveAuthCont
         date: count.date,
         blind: count.blind,
         status: count.status,
-        zones: visible.map((z) => zoneSummary(z, count, viewer, reveal)),
+        zones: visible.map((z) => zoneSummary(z, count, viewer, reveal, maySeeItemCost(c))),
       });
     }
     return c.json(entries);
@@ -394,9 +394,9 @@ export function createCountModeRoutes(deps: CountModeRoutesDeps, resolveAuthCont
         outcome: result.outcome as unknown as CountModeScanResultDTO["outcome"],
         replayed: result.replayed,
         scan: scanRecord(result.scan, new Map([[viewer.userId, viewer.userId]])),
-        item: line && result.itemId ? itemRow(line, result.zone.id, facts.get(result.itemId), reveal) : null,
+        item: line && result.itemId ? itemRow(line, result.zone.id, facts.get(result.itemId), reveal, maySeeItemCost(c)) : null,
         addedQty: result.outcome === CountScanOutcome.Counted ? result.scan.qty.toString() : null,
-        zone: zoneSummary(result.zone, fresh, viewer, reveal),
+        zone: zoneSummary(result.zone, fresh, viewer, reveal, maySeeItemCost(c)),
       };
       return c.json(body, result.replayed ? 200 : 201);
     } catch (err) {

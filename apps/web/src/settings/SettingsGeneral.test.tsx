@@ -73,6 +73,7 @@ const baseSettings: TenantSettingsDTO = {
   requirePoForGrn: false,
   requireGrnForInvoice: false,
   trackSoldPurchaseItems: true,
+  overReceiptTolerancePercent: 0,
   preventNegativeCashBalance: true,
   allowNegativeTreasury: true,
   smtpEnabled: false,
@@ -208,7 +209,7 @@ describe("SettingsGeneral", () => {
     fireEvent.change(textboxByLabel("الرقم الضريبي"), { target: { value: "300999999900003" } });
     fireEvent.change(textboxByLabel("السجل التجاري"), { target: { value: "12345" } });
     fireEvent.change(textboxByLabel("الهاتف"), { target: { value: "0298765432" } });
-    fireEvent.change(textboxByLabel("البريد الإلكتروني"), { target: { value: "new@cyag.example" } });
+    fireEvent.change(textboxByLabel("البريد الإلكتروني", screen.getByRole("tabpanel")), { target: { value: "new@cyag.example" } });
     fireEvent.change(textboxByLabel("العنوان"), { target: { value: "مدينة نصر، القاهرة" } });
 
     fireEvent.click(screen.getByRole("tab", { name: "الضريبة" }));
@@ -479,5 +480,16 @@ describe("SettingsGeneral", () => {
     await waitFor(() => expect(putCalls).toBe(1));
     fireEvent.click(screen.getByRole("tab", { name: "الضريبة" }));
     expect(textboxByLabel("نسبة الضريبة الافتراضية (%)")).toHaveValue(15);
+  });
+
+  it("#129 previews the statement email from the template as it is typed, with placeholders filled and values printed literally", async () => {
+    renderScreen();
+    await screen.findByRole("heading", { name: "الإعدادات" });
+    fireEvent.click(screen.getByRole("tab", { name: "البريد الإلكتروني" }));
+    fireEvent.change(textboxByLabel("الموضوع"), { target: { value: "كشف {{customerName}} من {{companyName}}" } });
+    fireEvent.change(textboxByLabel("نص الرسالة"), { target: { value: "الرصيد {{balanceDue}}" } });
+    const preview = screen.getByRole("region", { name: "معاينة — بقيم توضيحية" });
+    expect(preview).toHaveTextContent(`كشف اسم العميل من ${baseSettings.companyName}`);
+    expect(preview).toHaveTextContent("الرصيد 0.00");
   });
 });

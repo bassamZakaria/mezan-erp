@@ -76,20 +76,33 @@ interface FromOrderLine {
   key: string;
   itemId: string;
   qty: number;
+  orderedQty: number;
+  receivedQty: number;
   outstandingQty: number;
   unitCost: number;
   costCategory: CostCategoryDTO | null;
   lot: LotValue;
 }
 
+const QTY_DECIMALS = 1_000_000;
+
+function allowedQtyOf(line: FromOrderLine, overReceiptTolerancePercent: number): number {
+  const ceiling = Math.floor((line.orderedQty * (100 + overReceiptTolerancePercent) * QTY_DECIMALS) / 100) / QTY_DECIMALS;
+  return Math.max(ceiling - line.receivedQty, 0);
+}
+
 function buildFromOrderLines(order: PurchaseOrderDTO): FromOrderLine[] {
   return order.lines
     .map((line, index) => {
-      const outstandingQty = Number(line.qty) - Number(line.receivedQty);
+      const orderedQty = Number(line.qty);
+      const receivedQty = Number(line.receivedQty);
+      const outstandingQty = Math.max(orderedQty - receivedQty, 0);
       return {
         key: `${order.id}:${index}`,
         itemId: line.itemId,
         qty: outstandingQty,
+        orderedQty,
+        receivedQty,
         outstandingQty,
         unitCost: Number(line.unitPrice),
         costCategory: null,
@@ -424,6 +437,7 @@ export function GoodsReceiptsScreen() {
    */
   const settingsQuery = useTenantSettings();
   const requirePoForGrn = settingsQuery.data?.requirePoForGrn ?? true;
+  const overReceiptTolerancePercent = settingsQuery.data?.overReceiptTolerancePercent ?? 0;
   const policyKnown = settingsQuery.data !== undefined;
 
   const [method, setMethod] = useState<"from-order" | "ad-hoc">("from-order");
@@ -527,7 +541,7 @@ export function GoodsReceiptsScreen() {
   // A line received at zero is simply not on the receipt; one above the PO's
   // outstanding quantity is an over-receipt the server would refuse anyway.
   const usableFromOrderLines = fromOrderLines.filter((l) => l.qty > 0);
-  const overReceiptLine = fromOrderLines.some((l) => l.qty > l.outstandingQty);
+  const overReceiptLine = fromOrderLines.some((l) => l.qty > allowedQtyOf(l, overReceiptTolerancePercent));
   const lotRuleOf = (itemId: string) => {
     const item = itemOf(itemId);
     return item ? { trackExpiry: item.trackExpiry } : undefined;
@@ -684,7 +698,7 @@ export function GoodsReceiptsScreen() {
                         label={t("goodsReceipts.col.receivedQty")}
                         value={line.qty}
                         min={0}
-                        max={line.outstandingQty}
+                        max={allowedQtyOf(line, overReceiptTolerancePercent)}
                         hint={`${t("goodsReceipts.line.outstanding")}: ${line.outstandingQty}`}
                         onChange={(v) =>
                           setFromOrderLines((prev) => prev.map((l) => (l.key === line.key ? { ...l, qty: v } : l)))
@@ -696,9 +710,13 @@ export function GoodsReceiptsScreen() {
                       value={line.lot}
                       onChange={(lot) => setFromOrderLines((prev) => prev.map((l) => (l.key === line.key ? { ...l, lot } : l)))}
                     />
-                    {line.qty > line.outstandingQty ? (
+                    {line.qty > allowedQtyOf(line, overReceiptTolerancePercent) ? (
                       <p role="alert" className="mt-[8px] text-[12px] text-danger-ink">
-                        {t("goodsReceipts.error.overReceipt", { outstanding: String(line.outstandingQty) })}
+                        {t("goodsReceipts.error.overReceipt", {
+                          ordered: String(line.orderedQty),
+                          received: String(line.receivedQty),
+                          allowed: String(Math.round((line.receivedQty + allowedQtyOf(line, overReceiptTolerancePercent)) * QTY_DECIMALS) / QTY_DECIMALS),
+                        })}
                       </p>
                     ) : null}
                     <div className="mt-[10px]">

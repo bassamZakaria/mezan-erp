@@ -130,6 +130,8 @@ describe("the permission catalogue against the routes that check it", () => {
     //   - a right that widens what every GL read returns rather than opening a
     //     route of its own, checked in `branch-view.ts`:
     //     `accounting.reports.view_unattributed` (D111).
+    //   - the attachment rights, checked inline once the plan's feature is
+    //     known (#125): `admin.attachment.view`, `.upload`, `.delete`;
     //   - the period lock's override, an inline `can()` beside the route's own
     //     gate: `accounting.period.override_close`; and the till's discount
     //     ceiling, the same shape: `pos.discount.approve`; and the price-floor
@@ -142,6 +144,9 @@ describe("the permission catalogue against the routes that check it", () => {
     expect([...UNGATED].sort()).toEqual([
       "accounting.period.override_close",
       "accounting.reports.view_unattributed",
+      "admin.attachment.delete",
+      "admin.attachment.upload",
+      "admin.attachment.view",
       "admin.backup.restore",
       "admin.backup.view",
       "admin.tenant.settings.edit",

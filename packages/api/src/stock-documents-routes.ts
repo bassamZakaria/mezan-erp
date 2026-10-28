@@ -38,7 +38,7 @@ import {
   generateAdjustmentFromCountSchema,
 } from "@mezan/contracts";
 import type { DocumentApprovalDTO } from "@mezan/contracts";
-import { callerRoleCodes, callerUserId, createPermissionGate, sessionWarehouseScopeOf, warehouseScopeOf, withinScope, type AuthContextResolver } from "./permission-gate.js";
+import { callerRoleCodes, callerUserId, createPermissionGate, sessionWarehouseScopeOf, warehouseScopeOf, withinScope, withItemCost, type AuthContextResolver } from "./permission-gate.js";
 import { branchesOfWarehouses, storedBranchesById, withinBranchGrant } from "./stored-branches.js";
 import { approvalOf, approvalReader, mountResubmitRoute } from "./document-resubmit.js";
 import { readReversalRequest, requireReversalReason, reversalRefusalResponse } from "./document-reversal.js";
@@ -56,6 +56,8 @@ import { handleDocumentError as handleFrameworkDocumentError } from "./document-
  * `/inventory/stock-transfers`, `/inventory/physical-counts`) so the two
  * layers never collide.
  */
+
+const STOCK_DOCUMENT_COST_KEYS = ["unitCost", "varianceValue", "overValue", "shortValue", "netValue", "absValue"];
 
 function serializeAdjustment(doc: FrameworkDocument<StockAdjustmentDocLine>, approval: DocumentApprovalDTO | null = null) {
   return {
@@ -297,7 +299,7 @@ export function createStockAdjustmentsRoutes(
           costCategory: parsed.data.costCategory ?? null,
         })),
       });
-      return c.json(serializeAdjustment(doc), 201);
+      return c.json(withItemCost(c, serializeAdjustment(doc), STOCK_DOCUMENT_COST_KEYS), 201);
     } catch (err) {
       return handleDocumentError(c, err);
     }
@@ -313,7 +315,7 @@ export function createStockAdjustmentsRoutes(
         if (refusal) return refusal;
       }
       const { document, held } = await service.confirm(c.req.param("id"), { actor: callerUserId(c), actorRoles: callerRoleCodes(c) });
-      return c.json({ document: serializeAdjustment(document, await approvalOf(service, document)), held });
+      return c.json(withItemCost(c, { document: serializeAdjustment(document, await approvalOf(service, document)), held }, STOCK_DOCUMENT_COST_KEYS));
     } catch (err) {
       return handleDocumentError(c, err);
     }
@@ -326,7 +328,7 @@ export function createStockAdjustmentsRoutes(
       return doc ? warehouseScopeRefusal(c, doc.lines.map((l) => l.warehouseId)) : undefined;
     },
     resubmit: (c, id) => service.resubmit(id, { actor: callerUserId(c), actorRoles: callerRoleCodes(c) }),
-    serialize: async (_c, doc) => serializeAdjustment(doc, await approvalOf(service, doc)),
+    serialize: async (c, doc) => withItemCost(c, serializeAdjustment(doc, await approvalOf(service, doc)), STOCK_DOCUMENT_COST_KEYS),
     onError: handleDocumentError,
   });
 
@@ -341,7 +343,7 @@ export function createStockAdjustmentsRoutes(
       const { date, memo } = await readReversalRequest(c);
       await noteReversalOriginalDay(c, existing?.date);
       const { original, reversal } = await service.reverse(id, { reversalId: `${id}:REVERSAL`, date, memo, reason: memo, actor: callerUserId(c), mintedBySystem: true });
-      return c.json({ original: serializeAdjustment(original), reversal: serializeAdjustment(reversal) }, 201);
+      return c.json(withItemCost(c, { original: serializeAdjustment(original), reversal: serializeAdjustment(reversal) }, STOCK_DOCUMENT_COST_KEYS), 201);
     } catch (err) {
       return handleDocumentError(c, err);
     }
@@ -393,7 +395,7 @@ export function createStockAdjustmentsRoutes(
   app.get("/", gate("inventory.adjustment.view"), async (c) => {
     const docs = await listFilteredAdjustments(c, parseAdjustmentQuery(c));
     const approval = await approvalReader(service, docs);
-    return c.json(docs.map((doc) => serializeAdjustment(doc, approval(doc))));
+    return c.json(withItemCost(c, docs.map((doc) => serializeAdjustment(doc, approval(doc))), STOCK_DOCUMENT_COST_KEYS));
   });
 
   /**
@@ -425,7 +427,7 @@ export function createStockAdjustmentsRoutes(
   app.get("/:id", gate("inventory.adjustment.view"), async (c) => {
     const doc = await service.findById(c.req.param("id"));
     if (!doc) return c.json({ error: "DOCUMENT_NOT_FOUND" }, 404);
-    return c.json(serializeAdjustment(doc, await approvalOf(service, doc)));
+    return c.json(withItemCost(c, serializeAdjustment(doc, await approvalOf(service, doc)), STOCK_DOCUMENT_COST_KEYS));
   });
 
   return app;
@@ -599,7 +601,7 @@ export function createPhysicalCountsRoutes(
     if (refusal) return refusal;
     try {
       const count = await service.start(parsed.data);
-      return c.json(serializeCount(count), 201);
+      return c.json(withItemCost(c, serializeCount(count), STOCK_DOCUMENT_COST_KEYS), 201);
     } catch (err) {
       return handleDocumentError(c, err);
     }
@@ -620,7 +622,7 @@ export function createPhysicalCountsRoutes(
         c.req.param("id"),
         parsed.data.entries.map((e) => ({ itemId: e.itemId, countedQty: Qty.fromMajor(e.countedQty) })),
       );
-      return c.json(serializeCount(count));
+      return c.json(withItemCost(c, serializeCount(count), STOCK_DOCUMENT_COST_KEYS));
     } catch (err) {
       return handleDocumentError(c, err);
     }
@@ -631,7 +633,7 @@ export function createPhysicalCountsRoutes(
     if (refusal) return refusal;
     try {
       const count = await service.complete(c.req.param("id"));
-      return c.json(serializeCount(count));
+      return c.json(withItemCost(c, serializeCount(count), STOCK_DOCUMENT_COST_KEYS));
     } catch (err) {
       return handleDocumentError(c, err);
     }
@@ -642,7 +644,7 @@ export function createPhysicalCountsRoutes(
     if (refusal) return refusal;
     try {
       const count = await service.cancel(c.req.param("id"));
-      return c.json(serializeCount(count));
+      return c.json(withItemCost(c, serializeCount(count), STOCK_DOCUMENT_COST_KEYS));
     } catch (err) {
       return handleDocumentError(c, err);
     }
@@ -662,10 +664,10 @@ export function createPhysicalCountsRoutes(
         adjustmentId: parsed.data.adjustmentId,
         actor: callerUserId(c),
       });
-      return c.json({
+      return c.json(withItemCost(c, {
         count: serializeCount(result.count),
         adjustment: result.adjustment ? serializeAdjustment(result.adjustment) : null,
-      });
+      }, STOCK_DOCUMENT_COST_KEYS));
     } catch (err) {
       return handleDocumentError(c, err);
     }
@@ -703,7 +705,7 @@ export function createPhysicalCountsRoutes(
 
   app.get("/", gate("inventory.count.view"), async (c) => {
     const rows = await listFilteredCounts(c, parseCountListQuery(c));
-    return c.json(rows.map(serializeCount));
+    return c.json(withItemCost(c, rows.map(serializeCount), STOCK_DOCUMENT_COST_KEYS));
   });
 
   /**
@@ -734,7 +736,7 @@ export function createPhysicalCountsRoutes(
   app.get("/:id", gate("inventory.count.view"), async (c) => {
     const count = await service.findById(c.req.param("id"));
     if (!count) return c.json({ error: "PHYSICAL_COUNT_NOT_FOUND" }, 404);
-    return c.json(serializeCount(count));
+    return c.json(withItemCost(c, serializeCount(count), STOCK_DOCUMENT_COST_KEYS));
   });
 
   return app;

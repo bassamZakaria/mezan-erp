@@ -23,6 +23,7 @@ import { useSubPage } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { Money, Qty, grossUpForWaste, roundMoney } from "@mezan/domain";
 import { EMPTY } from "../lib/empty";
+import { useMaySeeItemCost } from "../data/item-cost";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 
 
@@ -56,6 +57,7 @@ function BomDetail({
   onDeactivate: () => void;
   deactivating: boolean;
 }) {
+  const showCost = useMaySeeItemCost();
   const { t } = useAppTranslation();
   return (
     <DocumentDetail
@@ -78,9 +80,13 @@ function BomDetail({
         { label: t("boms.version"), value: <span className="mz-num">{bom.version}</span> },
         { label: t("boms.standardQuantity"), value: <span className="mz-num">{bom.standardQty}</span> },
         { label: t("boms.lines"), value: <span className="mz-num">{bom.lines.length}</span> },
-        { label: t("boms.materialCost"), value: <MoneyValue value={bom.estimate?.materialCost ?? 0} /> },
-        { label: t("boms.totalCost"), value: <MoneyValue value={bom.estimate?.totalCost ?? 0} /> },
-        { label: t("boms.unitCost"), value: <MoneyValue value={bom.estimate?.unitCost ?? 0} /> },
+        ...(showCost
+          ? [
+              { label: t("boms.materialCost"), value: <MoneyValue value={bom.estimate?.materialCost ?? 0} /> },
+              { label: t("boms.totalCost"), value: <MoneyValue value={bom.estimate?.totalCost ?? 0} /> },
+              { label: t("boms.unitCost"), value: <MoneyValue value={bom.estimate?.unitCost ?? 0} /> },
+            ]
+          : []),
       ]}
       effects={[
         t("boms.aBillOfMaterialsIs"),
@@ -100,7 +106,7 @@ function BomDetail({
                     <th className="px-[12px] py-[9px] text-end">{t("common.qty")}</th>
                     <th className="px-[12px] py-[9px] text-end">{t("boms.scrapRate")}</th>
                     <th className="px-[12px] py-[9px] text-end">{t("boms.quantityAfterScrap")}</th>
-                    <th className="px-[12px] py-[9px] text-end">{t("boms.unitCost")}</th>
+                    {showCost ? <th className="px-[12px] py-[9px] text-end">{t("boms.unitCost")}</th> : null}
                   </tr>
                 </thead>
                 <tbody>
@@ -110,9 +116,11 @@ function BomDetail({
                       <td className="mz-num px-[12px] py-[10px] text-end">{l.qty}</td>
                       <td className="mz-num px-[12px] py-[10px] text-end">{l.wastePercent}%</td>
                       <td className="mz-num px-[12px] py-[10px] text-end">{effectiveQty(l.qty, l.wastePercent)}</td>
-                      <td className="px-[12px] py-[10px] text-end">
-                        <MoneyValue value={itemUnitCost(l.itemId)} showUnit={false} />
-                      </td>
+                      {showCost ? (
+                        <td className="px-[12px] py-[10px] text-end">
+                          <MoneyValue value={itemUnitCost(l.itemId)} showUnit={false} />
+                        </td>
+                      ) : null}
                     </tr>
                   ))}
                 </tbody>
@@ -127,6 +135,7 @@ function BomDetail({
 
 export function BomsScreen() {
   const { t } = useAppTranslation();
+  const showCost = useMaySeeItemCost();
   const query = useBoms();
   const createBom = useCreateBom();
   const deactivateBom = useDeactivateBom();
@@ -189,12 +198,16 @@ export function BomsScreen() {
     { key: "product", header: t("boms.finishedProduct"), render: (b) => itemName(b.productItemId) },
     { key: "version", header: t("boms.version"), render: (b) => <span className="mz-num">v{b.version}</span> },
     { key: "lines", header: t("boms.lines"), align: "end", render: (b) => <span className="mz-num">{b.lines.length}</span> },
-    {
-      key: "cost",
-      header: t("boms.estimatedCost"),
-      align: "end",
-      render: (b) => <MoneyValue value={b.estimate?.totalCost ?? 0} />,
-    },
+    ...(showCost
+      ? [
+          {
+            key: "cost",
+            header: t("boms.estimatedCost"),
+            align: "end" as const,
+            render: (b: BomRecord) => <MoneyValue value={b.estimate?.totalCost ?? 0} />,
+          },
+        ]
+      : []),
     { key: "status", header: t("common.status"), render: (b) => <StatusPill label={t(STATUS_KEY[b.status])} tone={STATUS_TONE[b.status]} /> },
   ];
 

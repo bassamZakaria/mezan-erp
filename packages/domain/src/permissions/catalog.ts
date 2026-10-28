@@ -60,7 +60,7 @@ export const CATALOG_VERSION = 3 as const;
 const CORE_MODULES: readonly ModuleDef[] = [
   { id: "sales", labelAr: "المبيعات", count: 29 },
   { id: "purchases", labelAr: "المشتريات", count: 33 },
-  { id: "inventory", labelAr: "المخزون", count: 22 },
+  { id: "inventory", labelAr: "المخزون", count: 23 },
   { id: "field", labelAr: "المبيعات الميدانية", count: 4 },
   { id: "accounting", labelAr: "المحاسبة", count: 19 },
   { id: "treasury", labelAr: "الخزينة", count: 20 },
@@ -71,7 +71,7 @@ const CORE_MODULES: readonly ModuleDef[] = [
   { id: "cheques", labelAr: "الأوراق المالية", count: 6 },
   { id: "manufacturing", labelAr: "التصنيع", count: 5 },
   { id: "assets", labelAr: "الأصول", count: 8 },
-  { id: "admin", labelAr: "الإدارة", count: 24 },
+  { id: "admin", labelAr: "الإدارة", count: 27 },
   { id: "notifications", labelAr: "الإشعارات", count: 2 },
   { id: "audit", labelAr: "المراجعة", count: 1 },
   // --- phase11/crm-projects-assets-field — Projects & Contracting isn't part of
@@ -97,7 +97,7 @@ const ROWS: readonly Row[] = [
   ["sales.invoice.view"],
   ["sales.invoice.view_own"],
   ["sales.invoice.view_all", "sales.invoice.view"],
-  ["sales.invoice.view_cost", "sales.invoice.view", "s"],
+  ["sales.invoice.view_cost", "sales.invoice.view,inventory.cost.view", "s"],
   ["sales.invoice.create", "sales.invoice.view_own,accounting.tax.view"],
   ["sales.invoice.edit", "sales.invoice.view_own"],
   ["sales.invoice.confirm", "sales.invoice.view_own"],
@@ -179,6 +179,7 @@ const ROWS: readonly Row[] = [
   ["inventory.adjustment.create", "inventory.adjustment.view"],
   ["inventory.adjustment.confirm", "inventory.adjustment.view"],
   ["inventory.adjustment.reverse", "inventory.adjustment.view", "s"],
+  ["inventory.cost.view", "inventory.item.view", "s"],
   ["inventory.valuation.view", "inventory.stock.view"],
   ["inventory.valuation.rebuild", "inventory.valuation.view"],
   ["inventory.count.view"],
@@ -390,6 +391,9 @@ const ROWS: readonly Row[] = [
   // every tenant setting.
   ["admin.backup.view"],
   ["admin.backup.restore", "admin.backup.view"],
+  ["admin.attachment.view"],
+  ["admin.attachment.upload", "admin.attachment.view"],
+  ["admin.attachment.delete", "admin.attachment.view"],
 
   // 16. notifications — 2
   ["notifications.rule.view"],

@@ -8,6 +8,10 @@ import { isSealedSecret, SecretUnsealError, type SecretBox } from "./secret-box.
 
 const SMTP_PASSWORD_CONTEXT = "tenant_settings:smtp_password";
 
+const UNRENDERED_EMAIL_TEMPLATE_SUBJECT = "{{documentType}} رقم {{documentNumber}} من {{companyName}}";
+const UNRENDERED_EMAIL_TEMPLATE_BODY =
+  "السلام عليكم {{recipientName}}،\n\nمرفق {{documentType}} رقم {{documentNumber}} بتاريخ {{documentDate}} بإجمالي {{documentTotal}}.\n\nمع خالص الشكر،\n{{companyName}}";
+
 /**
  * SQL-backed SettingsRepository.
  *
@@ -49,7 +53,10 @@ class SqlSettingsStore implements SettingsRepository {
     const stored = JSON.parse(data) as Partial<TenantSettings>;
     // The period-close control used to read the contracting switch: a row saved before it had a setting of its own keeps the behaviour it had.
     const periodCloseSingleOperatorMode = stored.periodCloseSingleOperatorMode ?? stored.contractingSingleOperatorMode ?? DEFAULT_SETTINGS.periodCloseSingleOperatorMode;
-    return { ...DEFAULT_SETTINGS, ...stored, periodCloseSingleOperatorMode, smtpPassword: this.openPassword(stored.smtpPassword) } as TenantSettings;
+    // The template defaults shipped before #129 named fields no mail supplies and nothing rendered them: a row still holding them untouched reads the statement default.
+    const emailTemplateSubject = stored.emailTemplateSubject === UNRENDERED_EMAIL_TEMPLATE_SUBJECT ? DEFAULT_SETTINGS.emailTemplateSubject : stored.emailTemplateSubject ?? DEFAULT_SETTINGS.emailTemplateSubject;
+    const emailTemplateBody = stored.emailTemplateBody === UNRENDERED_EMAIL_TEMPLATE_BODY ? DEFAULT_SETTINGS.emailTemplateBody : stored.emailTemplateBody ?? DEFAULT_SETTINGS.emailTemplateBody;
+    return { ...DEFAULT_SETTINGS, ...stored, periodCloseSingleOperatorMode, emailTemplateSubject, emailTemplateBody, smtpPassword: this.openPassword(stored.smtpPassword) } as TenantSettings;
   }
 
   // SECURITY: a password this process cannot open — sealed on the cloud and carried to a desktop, or

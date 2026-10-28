@@ -37,6 +37,7 @@ import {
   receivableForecastItems,
   renderDunningMessage,
   renderOpenItemStatement,
+  type StatementEmailTemplate,
   whatsAppLink,
   withinBranchScope,
   type AllocationRepository,
@@ -103,7 +104,7 @@ export interface CollectionsRoutesDeps {
   readonly customers: Pick<CustomerRepository, "findAll" | "findById">;
   readonly allocations: Pick<AllocationRepository, "listByInvoice">;
   readonly store: CollectionsStore;
-  readonly company: () => Promise<{ readonly companyName: string; readonly currency: string }>;
+  readonly company: () => Promise<{ readonly companyName: string; readonly currency: string; readonly statementTemplate?: StatementEmailTemplate }>;
   readonly drain?: () => Promise<DrainResult>;
   readonly mailConfigured?: () => Promise<boolean>;
   readonly audit?: AuditSink;
@@ -979,7 +980,7 @@ export function createCollectionsRoutes(deps: CollectionsRoutesDeps, resolveAuth
         currency: company.currency,
         items: open,
         balance: Money.sum(open.map((item) => item.amount)),
-      });
+      }, company.statementTemplate);
       let link: string | null = null;
       let queuedMessageId: string | null = null;
       if (parsed.data.channel === StatementChannelDTO.Email) {

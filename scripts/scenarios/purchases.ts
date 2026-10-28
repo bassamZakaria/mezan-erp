@@ -418,10 +418,10 @@ export async function run(ctx: Ctx): Promise<void> {
     },
   );
 
-  // --- 5. Policy: over-receiving is accepted (blockOverReceipt defaults off), ---
-  // --- and the PO's own receivedQty tracking silently caps at the ordered qty ---
+  // --- 5. Policy: over-receiving is refused unless the tenant sets a tolerance (#118); ---
+  // --- within it the PO records what really arrived ---
   await scenario(
-    "purchases: receiving more than ordered is accepted (blockOverReceipt is off by default) and the PO under-reports what actually arrived",
+    "purchases: receiving more than ordered is refused at a 0% tolerance, accepted within the tenant's tolerance, and the PO records the full quantity",
     async () => {
       const po = await req("POST", "/purchases/orders", {
         id: "SCN-PO-OVER",
@@ -435,30 +435,46 @@ export async function run(ctx: Ctx): Promise<void> {
       const poConfirm = await req("POST", "/purchases/orders/SCN-PO-OVER/confirm", {});
       check("over-receipt PO confirmed (sent)", poConfirm.status === 200, poConfirm.status.toString());
 
-      const grn = await req("POST", "/purchases/receipts", {
-        id: "SCN-GRN-OVER",
+      const settings = (await req("GET", "/settings")).body;
+      check("the over-receipt tolerance ships at 0%", settings?.overReceiptTolerancePercent === 0, JSON.stringify(settings?.overReceiptTolerancePercent));
+      const refused = await req("POST", "/purchases/receipts", {
+        id: "SCN-GRN-OVER-0",
         purchaseOrderId: "SCN-PO-OVER",
         date: "2026-08-24",
         lines: [{ itemId: "ITEM-DEMO-4", qty: "15", unitCost: "210" }],
       });
       check(
-        "receiving 15 against an order for 10 is ACCEPTED at create (default policy has blockOverReceipt: false, docs/archive/catalog/09)",
-        grn.status === 201,
-        `status ${grn.status}: ${JSON.stringify(grn.body).slice(0, 150)}`,
+        "#118: at 0% tolerance receiving 15 against an order for 10 is refused server-side, naming ordered, received so far and the allowed max",
+        refused.status === 422 &&
+          refused.body?.error === "PURCHASE_OVER_RECEIPT" &&
+          String(refused.body?.message).includes("الكمية المطلوبة في أمر الشراء 10") &&
+          String(refused.body?.message).includes("المستلم حتى الآن 0") &&
+          String(refused.body?.message).includes("الحد الأقصى المسموح باستلامه 10"),
+        `status ${refused.status}: ${JSON.stringify(refused.body).slice(0, 300)}`,
       );
 
-      const grnConfirm = await req("POST", "/purchases/receipts/SCN-GRN-OVER/confirm", {});
-      check("the over-receipt confirms without error", grnConfirm.status === 200 && grnConfirm.body?.status === "confirmed", grnConfirm.status.toString());
+      const setTolerance = await req("PUT", "/settings", { overReceiptTolerancePercent: 50 });
+      check("an admin can set a 50% over-receipt tolerance", setTolerance.ok && setTolerance.body?.overReceiptTolerancePercent === 50, `status ${setTolerance.status}`);
+      try {
+        const grn = await req("POST", "/purchases/receipts", {
+          id: "SCN-GRN-OVER",
+          purchaseOrderId: "SCN-PO-OVER",
+          date: "2026-08-24",
+          lines: [{ itemId: "ITEM-DEMO-4", qty: "15", unitCost: "210" }],
+        });
+        check("within a 50% tolerance receiving 15 against an order for 10 is accepted", grn.status === 201, `status ${grn.status}: ${JSON.stringify(grn.body).slice(0, 150)}`);
+        const grnConfirm = await req("POST", "/purchases/receipts/SCN-GRN-OVER/confirm", {});
+        check("the over-receipt confirms without error", grnConfirm.status === 200 && grnConfirm.body?.status === "confirmed", grnConfirm.status.toString());
+      } finally {
+        const restore = await req("PUT", "/settings", { overReceiptTolerancePercent: 0 });
+        check("scenario tolerance restored to 0%", restore.ok && restore.body?.overReceiptTolerancePercent === 0, `status ${restore.status}`);
+      }
 
       const poAfter = await req("GET", "/purchases/orders/SCN-PO-OVER");
       const receiptAfter = await req("GET", "/purchases/receipts/SCN-GRN-OVER");
-      checkEq("the RECEIPT genuinely recorded all 15 units (source of truth for what physically arrived)", n(receiptAfter.body.lines[0].qty), 15);
-      checkEq(
-        "FINDING: the PO's own receivedQty tracking silently caps at the ordered 10 — the extra 5 units are invisible on the PO line even though they truly entered stock and will post real GL value once invoiced",
-        n(poAfter.body.lines[0].receivedQty),
-        10,
-      );
-      check("PO status still reads fully_received (its own tracking thinks the order is complete, hiding the over-receipt)", poAfter.body.status === "fully_received", poAfter.body.status);
+      checkEq("the RECEIPT recorded all 15 units", n(receiptAfter.body.lines[0].qty), 15);
+      checkEq("#118 (was FINDING: capped at 10): the PO line's receivedQty is the 15 that really arrived", n(poAfter.body.lines[0].receivedQty), 15);
+      check("PO status reads fully_received", poAfter.body.status === "fully_received", poAfter.body.status);
 
       // Close the chain so the run's books stay balanced going forward.
       const invoice = await req("POST", "/purchases/invoices", {

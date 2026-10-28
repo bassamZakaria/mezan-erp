@@ -1,6 +1,6 @@
 import { withReversalPermissions } from "@mezan/contracts";
 import type { App } from "@mezan/api";
-import { GOODS_RECEIVING_PERMISSIONS } from "@mezan/domain";
+import { GOODS_RECEIVING_PERMISSIONS, withAttachmentPermissions } from "@mezan/domain";
 import { FORMER_SALES_REP_EMPLOYEE_ID, SALES_REP_EMPLOYEE_ID, loadSeededUsers, step } from "./shared.js";
 import type { SeedPerson } from "./fragments.js";
 import { fragmentGrantsFor, fragmentPeople, fragmentRoles, seedLicensing, type SeedLicensing } from "./fragment-registry.js";
@@ -661,7 +661,7 @@ export async function seedAccess(app: App): Promise<void> {
       code: role.code,
       name: role.name,
       description: role.description,
-      permissions: role.permissions,
+      permissions: withAttachmentPermissions(role.permissions),
     })) as SeededRole;
     roleIdByCode.set(role.code, created.id);
   }

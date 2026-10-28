@@ -38,6 +38,36 @@ export enum SalesInvoiceStatusCode {
 
 export type SalesInvoiceStatus = `${SalesInvoiceStatusCode}`;
 
+export enum InvoiceRepRole {
+  SalesRep = "sales_rep",
+  SalesManager = "sales_manager",
+  PromotionRep = "promotion_rep",
+  PromotionManager = "promotion_manager",
+}
+
+export const INVOICE_REP_ROLE_LABELS_AR: Readonly<Record<InvoiceRepRole, string>> = {
+  [InvoiceRepRole.SalesRep]: "مندوب البيع",
+  [InvoiceRepRole.SalesManager]: "مدير مندوب البيع",
+  [InvoiceRepRole.PromotionRep]: "مندوب الدعاية",
+  [InvoiceRepRole.PromotionManager]: "مدير مندوب الدعاية",
+};
+
+export function invoiceRepOf(
+  invoice: Pick<SalesInvoice, "salespersonId" | "salespersonNameAr" | "salesManagerId" | "salesManagerNameAr" | "promotionRepId" | "promotionRepNameAr" | "promotionManagerId" | "promotionManagerNameAr">,
+  role: InvoiceRepRole,
+): { readonly id: string | null; readonly nameAr: string | null } {
+  switch (role) {
+    case InvoiceRepRole.SalesRep:
+      return { id: invoice.salespersonId, nameAr: invoice.salespersonNameAr };
+    case InvoiceRepRole.SalesManager:
+      return { id: invoice.salesManagerId ?? null, nameAr: invoice.salesManagerNameAr ?? null };
+    case InvoiceRepRole.PromotionRep:
+      return { id: invoice.promotionRepId ?? null, nameAr: invoice.promotionRepNameAr ?? null };
+    case InvoiceRepRole.PromotionManager:
+      return { id: invoice.promotionManagerId ?? null, nameAr: invoice.promotionManagerNameAr ?? null };
+  }
+}
+
 /** Statuses in which the invoice is live in the ledger / AR sub-ledger. */
 export const SALES_INVOICE_ACTIVE_STATUSES: ReadonlySet<SalesInvoiceStatus> = new Set([
   "confirmed",
@@ -173,6 +203,12 @@ export interface SalesInvoice {
   readonly salespersonId: string | null;
   /** Name snapshot at draft time, like `customerNameAr` — print/history must not re-resolve it. */
   readonly salespersonNameAr: string | null;
+  readonly salesManagerId?: string | null;
+  readonly salesManagerNameAr?: string | null;
+  readonly promotionRepId?: string | null;
+  readonly promotionRepNameAr?: string | null;
+  readonly promotionManagerId?: string | null;
+  readonly promotionManagerNameAr?: string | null;
   /** بُعد المشروع — the contracting project this invoice's revenue and COGS belong to; null when unattributed. */
   readonly projectId: string | null;
   readonly currency: string;

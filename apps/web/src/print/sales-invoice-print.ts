@@ -29,6 +29,7 @@ export interface SalesInvoicePrintContext {
   readonly settings: DisplaySettingsDTO | null;
   readonly branchName?: string;
   readonly warehouseName?: string;
+  readonly repLabels?: { readonly salesperson: string; readonly salesManager: string; readonly promotionRep: string; readonly promotionManager: string };
   readonly customerTaxNumber?: string;
   readonly customerAddress?: string;
   readonly customerPhone?: string;
@@ -135,6 +136,14 @@ export function salesInvoicePrintModel(ctx: SalesInvoicePrintContext): PrintDocu
     },
     branchName: ctx.branchName,
     warehouseName: ctx.warehouseName,
+    headerFacts: ctx.repLabels
+      ? [
+          { key: "salesperson", label: ctx.repLabels.salesperson, value: invoice.salespersonNameAr },
+          { key: "salesManager", label: ctx.repLabels.salesManager, value: invoice.salesManagerNameAr },
+          { key: "promotionRep", label: ctx.repLabels.promotionRep, value: invoice.promotionRepNameAr },
+          { key: "promotionManager", label: ctx.repLabels.promotionManager, value: invoice.promotionManagerNameAr },
+        ].flatMap((fact) => (fact.value ? [{ ...fact, value: fact.value }] : []))
+      : undefined,
     party: {
       roleLabel: ctx.customerRoleLabel,
       name: invoice.customerNameAr,

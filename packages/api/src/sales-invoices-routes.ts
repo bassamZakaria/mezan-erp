@@ -53,6 +53,7 @@ import {
   type SalesInvoiceCreditControlDeps,
   type SalesInvoicePromotionHook,
   type CreateSalesInvoiceCommand,
+  type EmployeeDirectory,
   type DocumentNumberingHook,
   type DocumentGlHook,
   type DocumentWorkflowGate,
@@ -277,6 +278,7 @@ export interface SalesInvoiceRoutesDeps {
    * all rather than the whole tenant.
    */
   readonly users?: Pick<UserRepository, "findById">;
+  readonly employees?: Pick<EmployeeDirectory, "findById">;
   readonly events?: DocumentEventPublisher;
   readonly now?: () => string;
   /** Generates an invoice id when the request omits one. Defaults to a UUID. */
@@ -289,6 +291,59 @@ export interface SalesInvoicePrintContext {
   readonly customer: { readonly code: string; readonly taxNumber: string | null; readonly address: string | null; readonly phone: string | null } | null;
   readonly etaUuid: string | null;
   readonly etaQrValue: string | null;
+}
+
+interface InvoiceRepsRequest {
+  readonly salespersonId: string | null;
+  readonly salespersonNameAr: string | null;
+  readonly salesManagerId: string | null;
+  readonly promotionRepId: string | null;
+  readonly promotionManagerId: string | null;
+}
+
+type InvoiceReps = Pick<
+  CreateSalesInvoiceCommand,
+  "salespersonId" | "salespersonNameAr" | "salesManagerId" | "salesManagerNameAr" | "promotionRepId" | "promotionRepNameAr" | "promotionManagerId" | "promotionManagerNameAr"
+>;
+
+async function resolveInvoiceReps(
+  employees: Pick<EmployeeDirectory, "findById"> | undefined,
+  req: InvoiceRepsRequest,
+): Promise<{ ok: true; value: InvoiceReps } | { ok: false; refusal: { error: string; employeeIds: string[]; message: string; messageEn: string } }> {
+  const ids = [req.salespersonId, req.salesManagerId, req.promotionRepId, req.promotionManagerId];
+  if (!employees) {
+    return {
+      ok: true,
+      value: { salespersonId: req.salespersonId, salespersonNameAr: req.salespersonNameAr, salesManagerId: req.salesManagerId, salesManagerNameAr: null, promotionRepId: req.promotionRepId, promotionRepNameAr: null, promotionManagerId: req.promotionManagerId, promotionManagerNameAr: null },
+    };
+  }
+  const found = await Promise.all(ids.map((id) => (id ? employees.findById(id) : Promise.resolve(null))));
+  const unknown = ids.filter((id, i): id is string => Boolean(id) && !found[i]);
+  if (unknown.length > 0) {
+    return {
+      ok: false,
+      refusal: {
+        error: "EMPLOYEE_NOT_FOUND",
+        employeeIds: [...new Set(unknown)],
+        message: `موظفون غير موجودين في سجل الموظفين: ${[...new Set(unknown)].join("، ")}. اختر المندوب والمدير من قائمة الموظفين.`,
+        messageEn: `Employees that are not in the employee register: ${[...new Set(unknown)].join(", ")}. Pick the rep and the manager from the employee list.`,
+      },
+    };
+  }
+  const nameOf = (i: number) => found[i]?.fullNameAr ?? null;
+  return {
+    ok: true,
+    value: {
+      salespersonId: req.salespersonId,
+      salespersonNameAr: req.salespersonId ? nameOf(0) : null,
+      salesManagerId: req.salesManagerId,
+      salesManagerNameAr: nameOf(1),
+      promotionRepId: req.promotionRepId,
+      promotionRepNameAr: nameOf(2),
+      promotionManagerId: req.promotionManagerId,
+      promotionManagerNameAr: nameOf(3),
+    },
+  };
 }
 
 function discountToDomain(dto: SalesInvoiceDiscountDTO | undefined): SalesInvoiceDiscount | undefined {
@@ -401,6 +456,12 @@ function serialize(
     branchId: invoice.branchId,
     salespersonId: invoice.salespersonId,
     salespersonNameAr: invoice.salespersonNameAr,
+    salesManagerId: invoice.salesManagerId ?? null,
+    salesManagerNameAr: invoice.salesManagerNameAr ?? null,
+    promotionRepId: invoice.promotionRepId ?? null,
+    promotionRepNameAr: invoice.promotionRepNameAr ?? null,
+    promotionManagerId: invoice.promotionManagerId ?? null,
+    promotionManagerNameAr: invoice.promotionManagerNameAr ?? null,
     projectId: invoice.projectId,
     currency: invoice.currency,
     fxRate: invoice.fxRate ?? null,
@@ -723,6 +784,14 @@ export function createSalesInvoicesRoutes(
     const currencyRefusal = await deps.currencyCheck?.(d.currency);
     if (currencyRefusal) return c.json({ error: "CURRENCY_NOT_ALLOWED", message: currencyRefusal }, 422);
     const ownEmployeeId = !d.salespersonId && ownVisibilityOnly(c) ? await ownSalespersonIdOf(c) : NO_SUCH_ACTOR;
+    const reps = await resolveInvoiceReps(deps.employees, {
+      salespersonId: d.salespersonId ?? (ownEmployeeId === NO_SUCH_ACTOR ? null : ownEmployeeId),
+      salespersonNameAr: d.salespersonNameAr ?? null,
+      salesManagerId: d.salesManagerId ?? null,
+      promotionRepId: d.promotionRepId ?? null,
+      promotionManagerId: d.promotionManagerId ?? null,
+    });
+    if (!reps.ok) return c.json(reps.refusal, 422);
     const customerTax = await customerTaxProfileOf(deps.customerTax, d.customerId);
     const cmd: CreateSalesInvoiceCommand = {
       id: d.id ?? idGen(),
@@ -734,8 +803,7 @@ export function createSalesInvoicesRoutes(
       customerTaxExemptionRateId: customerTax.taxExemptionRateId,
       warehouseId: d.warehouseId,
       branchId: d.branchId,
-      salespersonId: d.salespersonId ?? (ownEmployeeId === NO_SUCH_ACTOR ? null : ownEmployeeId),
-      salespersonNameAr: d.salespersonNameAr ?? null,
+      ...reps.value,
       projectId: d.projectId ?? null,
       couponCode: d.couponCode ?? null,
       currency: d.currency,

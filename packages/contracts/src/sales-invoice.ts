@@ -100,6 +100,9 @@ export const createSalesInvoiceSchema = z.object({
   /** HR employee id (`/hr/employees`) credited with the sale. */
   salespersonId: z.string().min(1).nullish(),
   salespersonNameAr: z.string().min(1).nullish(),
+  salesManagerId: z.string().min(1).nullish(),
+  promotionRepId: z.string().min(1).nullish(),
+  promotionManagerId: z.string().min(1).nullish(),
   /** بُعد المشروع — the contracting project this invoice's revenue and COGS belong to. */
   projectId: z.string().min(1).nullish(),
   /** Coupon presented by the customer; the server evaluates promotions with it at confirm. */
@@ -341,6 +344,12 @@ export const salesInvoiceSchema = z.object({
   branchId: z.string().min(1),
   salespersonId: z.string().nullable(),
   salespersonNameAr: z.string().nullable(),
+  salesManagerId: z.string().nullable().optional(),
+  salesManagerNameAr: z.string().nullable().optional(),
+  promotionRepId: z.string().nullable().optional(),
+  promotionRepNameAr: z.string().nullable().optional(),
+  promotionManagerId: z.string().nullable().optional(),
+  promotionManagerNameAr: z.string().nullable().optional(),
   projectId: z.string().nullable(),
   currency: z.string().min(1),
   /** The rate the invoice confirmed at; null for a base-currency or unconfirmed invoice. */

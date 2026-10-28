@@ -107,6 +107,7 @@ import {
   type GateableActionType,
   MODULE_CATALOG,
   isCloudOnlyModule,
+  createEmployeeDirectory,
 } from "@mezan/domain";
 import { createScryptHasher } from "@mezan/persistence";
 import { createLanRoutes } from "./lan/routes.js";
@@ -2071,6 +2072,7 @@ function wireSalesInvoices(options: CreateAppOptions, uow: UnitOfWork): SalesInv
     promotions,
     quota: salesInvoices.quota ?? createSalesInvoiceQuota(salesInvoices.repo, (fn) => uow.transaction(fn)),
     users: salesInvoices.users ?? uow.users,
+    employees: salesInvoices.employees ?? (options.hr ? createEmployeeDirectory(options.hr.employees) : undefined),
     customers: salesInvoices.customers ?? customerStore,
     returns: salesInvoices.returns ?? options.salesReturns?.service,
     currencyCheck: salesInvoices.currencyCheck ?? (settingsStore ? createCurrencyCheck(settingsStore) : undefined),

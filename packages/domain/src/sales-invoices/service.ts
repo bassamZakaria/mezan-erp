@@ -301,6 +301,12 @@ export interface CreateSalesInvoiceCommand {
   readonly branchId: string;
   readonly salespersonId?: string | null;
   readonly salespersonNameAr?: string | null;
+  readonly salesManagerId?: string | null;
+  readonly salesManagerNameAr?: string | null;
+  readonly promotionRepId?: string | null;
+  readonly promotionRepNameAr?: string | null;
+  readonly promotionManagerId?: string | null;
+  readonly promotionManagerNameAr?: string | null;
   readonly projectId?: string | null;
   readonly couponCode?: string | null;
   readonly currency?: string;
@@ -1178,6 +1184,12 @@ export class SalesInvoiceService {
       branchId: cmd.branchId,
       salespersonId: cmd.salespersonId ?? null,
       salespersonNameAr: cmd.salespersonNameAr ?? null,
+      salesManagerId: cmd.salesManagerId ?? null,
+      salesManagerNameAr: cmd.salesManagerNameAr ?? null,
+      promotionRepId: cmd.promotionRepId ?? null,
+      promotionRepNameAr: cmd.promotionRepNameAr ?? null,
+      promotionManagerId: cmd.promotionManagerId ?? null,
+      promotionManagerNameAr: cmd.promotionManagerNameAr ?? null,
       projectId: cmd.projectId ?? null,
       sourceQuoteId: cmd.sourceQuoteId ?? null,
       currency: cmd.currency ?? "EGP",

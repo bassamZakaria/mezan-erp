@@ -225,9 +225,13 @@ const PERISHABLE_ITEMS = [
  * concept a van trip's crew references — so the reps المبيعات حسب المندوب
  * groups by are real employee records, created through `/hr/employees`.
  */
+const SALES_MANAGER_ID = "EMP-DEMO-3";
+const PROMOTION_REP_ID = "EMP-DEMO-4";
 const SALESPEOPLE = [
-  { id: "EMP-DEMO-1", firstName: "Kareem", lastName: "Adel", firstNameAr: "كريم", lastNameAr: "عادل", hireDate: "2024-03-01" },
-  { id: "EMP-DEMO-2", firstName: "Salma", lastName: "Fouad", firstNameAr: "سلمى", lastNameAr: "فؤاد", hireDate: "2025-01-15" },
+  { id: SALES_MANAGER_ID, firstName: "Hesham", lastName: "Mansour", firstNameAr: "هشام", lastNameAr: "منصور", hireDate: "2023-06-01" },
+  { id: "EMP-DEMO-1", firstName: "Kareem", lastName: "Adel", firstNameAr: "كريم", lastNameAr: "عادل", hireDate: "2024-03-01", managerId: SALES_MANAGER_ID },
+  { id: "EMP-DEMO-2", firstName: "Salma", lastName: "Fouad", firstNameAr: "سلمى", lastNameAr: "فؤاد", hireDate: "2025-01-15", managerId: SALES_MANAGER_ID },
+  { id: PROMOTION_REP_ID, firstName: "Noha", lastName: "Samir", firstNameAr: "نهى", lastNameAr: "سمير", hireDate: "2025-04-01", managerId: SALES_MANAGER_ID },
 ];
 
 /**
@@ -391,6 +395,7 @@ const SALES_INVOICES = [
     id: "INV-DEMO-1",
     customerId: "CUST-DEMO-1",
     salespersonId: "EMP-DEMO-1",
+    promotionRepId: PROMOTION_REP_ID,
     date: "2026-08-04",
     dueDate: "2026-09-03",
     lines: [
@@ -410,6 +415,7 @@ const SALES_INVOICES = [
     id: "INV-DEMO-3",
     customerId: "CUST-DEMO-3",
     salespersonId: "EMP-DEMO-2",
+    promotionRepId: PROMOTION_REP_ID,
     date: "2026-08-18",
     dueDate: "2026-09-02",
     lines: [
@@ -770,6 +776,9 @@ export async function seedDemoTenant(
       branchId: BRANCH_ID,
       salespersonId: invoice.salespersonId,
       salespersonNameAr: salespersonNameOf(invoice.salespersonId),
+      salesManagerId: invoice.salespersonId ? SALES_MANAGER_ID : null,
+      promotionRepId: "promotionRepId" in invoice ? invoice.promotionRepId : null,
+      promotionManagerId: "promotionRepId" in invoice ? SALES_MANAGER_ID : null,
       currency: "EGP",
       arAccountId: ACCOUNTS.receivable,
       taxAccountId: ACCOUNTS.outputVat,

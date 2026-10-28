@@ -47,6 +47,12 @@ CREATE TABLE IF NOT EXISTS sales_invoice (
   branch_id              TEXT NOT NULL,
   salesperson_id         TEXT,
   salesperson_name_ar    TEXT,
+  sales_manager_id       TEXT,
+  sales_manager_name_ar  TEXT,
+  promotion_rep_id       TEXT,
+  promotion_rep_name_ar  TEXT,
+  promotion_manager_id   TEXT,
+  promotion_manager_name_ar TEXT,
   project_id             TEXT,
   coupon_code            TEXT,
   promotion_id           TEXT,
@@ -145,6 +151,12 @@ const ADDED_COLUMNS: readonly (readonly [string, string])[] = [
   ["document_kind", `TEXT NOT NULL DEFAULT '${InvoiceDocumentKind.Standard}'`],
   ["void_reason", "TEXT"],
   ["source_quote_id", "TEXT"],
+  ["sales_manager_id", "TEXT"],
+  ["sales_manager_name_ar", "TEXT"],
+  ["promotion_rep_id", "TEXT"],
+  ["promotion_rep_name_ar", "TEXT"],
+  ["promotion_manager_id", "TEXT"],
+  ["promotion_manager_name_ar", "TEXT"],
 ];
 
 /** Line columns added after the table shipped — see {@link ADDED_COLUMNS}. */
@@ -196,6 +208,12 @@ interface InvoiceRow {
   branch_id: string;
   salesperson_id: string | null;
   salesperson_name_ar: string | null;
+  sales_manager_id: string | null;
+  sales_manager_name_ar: string | null;
+  promotion_rep_id: string | null;
+  promotion_rep_name_ar: string | null;
+  promotion_manager_id: string | null;
+  promotion_manager_name_ar: string | null;
   project_id: string | null;
   coupon_code: string | null;
   promotion_id: string | null;
@@ -329,6 +347,12 @@ function invoiceRecord(invoice: SalesInvoice): Record<(typeof INVOICE_COLUMNS)[n
     branch_id: invoice.branchId,
     salesperson_id: invoice.salespersonId,
     salesperson_name_ar: invoice.salespersonNameAr,
+    sales_manager_id: invoice.salesManagerId ?? null,
+    sales_manager_name_ar: invoice.salesManagerNameAr ?? null,
+    promotion_rep_id: invoice.promotionRepId ?? null,
+    promotion_rep_name_ar: invoice.promotionRepNameAr ?? null,
+    promotion_manager_id: invoice.promotionManagerId ?? null,
+    promotion_manager_name_ar: invoice.promotionManagerNameAr ?? null,
     project_id: invoice.projectId,
     coupon_code: invoice.couponCode,
     promotion_id: promotion?.promotionId ?? null,
@@ -370,6 +394,7 @@ function invoiceRecord(invoice: SalesInvoice): Record<(typeof INVOICE_COLUMNS)[n
 const INVOICE_COLUMNS = [
   "doc_type", "doc_no", "status", "date", "due_date", "customer_id", "customer_name_ar",
   "customer_tax_exempt", "tax_inclusive", "warehouse_id", "branch_id", "salesperson_id", "salesperson_name_ar",
+  "sales_manager_id", "sales_manager_name_ar", "promotion_rep_id", "promotion_rep_name_ar", "promotion_manager_id", "promotion_manager_name_ar",
   "project_id",
   "coupon_code", "promotion_id", "promotion_code", "promotion_name_ar", "promotion_coupon_code",
   "promotion_discount_total", "promotion_line_discounts_json", "promotion_applied_at",
@@ -618,6 +643,12 @@ class SqlSalesInvoiceRepository implements SalesInvoiceRepository {
       branchId: row.branch_id,
       salespersonId: row.salesperson_id,
       salespersonNameAr: row.salesperson_name_ar,
+      salesManagerId: row.sales_manager_id ?? null,
+      salesManagerNameAr: row.sales_manager_name_ar ?? null,
+      promotionRepId: row.promotion_rep_id ?? null,
+      promotionRepNameAr: row.promotion_rep_name_ar ?? null,
+      promotionManagerId: row.promotion_manager_id ?? null,
+      promotionManagerNameAr: row.promotion_manager_name_ar ?? null,
       projectId: row.project_id,
       currency: row.currency,
       fxRate: row.fx_rate,

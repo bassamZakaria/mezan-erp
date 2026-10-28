@@ -102,6 +102,14 @@ export interface VoucherLine {
   readonly withholdingRatePercent?: number | null;
   readonly withholdingGlAccountId?: string | null;
   /**
+   * عمولة تحويل — what the bank or wallet kept from a customer collection.
+   * `amount` stays the GROSS that relieves the receivable and settles the
+   * invoices; only `amount − commissionAmount` lands in the treasury and the
+   * rest is an expense on `commissionGlAccountId`.
+   */
+  readonly commissionAmount?: Money | null;
+  readonly commissionGlAccountId?: string | null;
+  /**
    * The invoice allocations a collection asked for while the workflow held its
    * confirm. They are applied in the same transaction as the approved confirm
    * and cleared once applied (D344).
@@ -251,6 +259,15 @@ export function voucherBaseWithholding(line: VoucherLine): Money {
   return line.fxRate ? convertToBase(withheld, line.fxRate) : withheld;
 }
 
+export function voucherBaseCommission(line: VoucherLine): Money {
+  const commission = line.commissionAmount ?? Money.zero();
+  return line.fxRate ? convertToBase(commission, line.fxRate) : commission;
+}
+
+export function voucherStatedNet(line: VoucherLine): Money {
+  return Money.fromScaled(line.amount.scaled - (line.withholdingAmount?.scaled ?? 0n) - (line.commissionAmount?.scaled ?? 0n));
+}
+
 function buildVoucherLines(line: VoucherLine): DocumentGlPosting["lines"] {
   const { treasuryGlAccountId } = line;
   const treasuryAccountId = line.treasuryAccountId;
@@ -281,6 +298,16 @@ function buildVoucherLines(line: VoucherLine): DocumentGlPosting["lines"] {
   const counter = line.counterpartyGlAccountId;
   if (!counter) throw new Error("voucher missing counterparty GL account");
   if (line.direction === "receipt") {
+    const commission = voucherBaseCommission(line);
+    if (commission.scaled > 0n) {
+      const commissionAccount = line.commissionGlAccountId;
+      if (!commissionAccount) throw new Error("a commission voucher needs a commission expense GL account");
+      return [
+        { accountId: treasuryGlAccountId, debit: Money.fromScaled(amount.scaled - commission.scaled), credit: zero, memo: null, projectId, treasuryAccountId, ...treasuryFx },
+        { accountId: commissionAccount, debit: commission, credit: zero, memo: null, costCenterId: cc, projectId },
+        { accountId: counter, debit: zero, credit: amount, memo: null, costCenterId: cc, projectId, costCategory, ...fx },
+      ];
+    }
     return [
       { accountId: treasuryGlAccountId, debit: amount, credit: zero, memo: null, projectId, treasuryAccountId, ...treasuryFx },
       { accountId: counter, debit: zero, credit: amount, memo: null, costCenterId: cc, projectId, costCategory, ...fx },
@@ -305,9 +332,9 @@ function buildVoucherLines(line: VoucherLine): DocumentGlPosting["lines"] {
   ];
 }
 
-/** What actually leaves the treasury, in BASE currency: the settling amount less any tax withheld. */
+/** What actually moves through the treasury, in BASE currency: the settling amount less any tax withheld or commission kept. */
 export function voucherNetPaid(line: VoucherLine): Money {
-  return Money.fromScaled(voucherBaseAmount(line).scaled - voucherBaseWithholding(line).scaled);
+  return Money.fromScaled(voucherBaseAmount(line).scaled - voucherBaseWithholding(line).scaled - voucherBaseCommission(line).scaled);
 }
 
 function twoDecimals(amount: Money): string {
@@ -324,6 +351,17 @@ function realisedFxEffect(line: VoucherLine): { kind: "gl"; description: string 
     {
       kind: "gl",
       description: `فروق عملة محققة: ${gain ? "ربح" : "خسارة"} ${amount} — خرج ${twoDecimals(leg.foreignAmount)} ${leg.currency} من الحساب بقيمته الدفترية ${twoDecimals(leg.carryingBase)} وسعر السند ${leg.fxRate}`,
+    },
+  ];
+}
+
+function commissionEffect(line: VoucherLine): { kind: "gl"; description: string }[] {
+  const commission = line.commissionAmount;
+  if (!commission || commission.scaled <= 0n) return [];
+  return [
+    {
+      kind: "gl",
+      description: `عمولة تحويل ${twoDecimals(commission)} ${line.currency} تُسجَّل مصروفاً؛ يصل الخزينة ${twoDecimals(voucherStatedNet(line))} ويُخصم من رصيد العميل ${twoDecimals(line.amount)}`,
     },
   ];
 }
@@ -368,6 +406,24 @@ export const voucherDocumentType: DocumentTypeDefinition<VoucherLine> = {
       }
       if (!line.withholdingGlAccountId) {
         throw new InvalidDocumentError(VOUCHER_DOC_TYPE, doc.id, "حساب ضريبة الخصم مطلوب.", "A withholding tax account is required.");
+      }
+    }
+    const commission = line.commissionAmount?.scaled ?? 0n;
+    if (commission !== 0n) {
+      if (line.voucherType !== "customer_collection") {
+        throw new InvalidDocumentError(VOUCHER_DOC_TYPE, doc.id, "عمولة التحويل لا تُطبَّق إلا على سندات تحصيل العملاء.", "A transfer commission applies to customer collections only.");
+      }
+      if (line.paymentMethod === "cheque") {
+        throw new InvalidDocumentError(VOUCHER_DOC_TYPE, doc.id, "عمولة التحويل لا تُخصم من تحصيل بشيك؛ تُسجَّل عند تحصيل الشيك من البنك.", "A transfer commission cannot be taken from a cheque collection; record it when the bank collects the cheque.");
+      }
+      if (line.paymentMethod === "cash") {
+        throw new InvalidDocumentError(VOUCHER_DOC_TYPE, doc.id, "عمولة التحويل لا تُخصم من تحصيل نقدي؛ تُسجَّل على التحويل البنكي أو المحفظة أو البطاقة.", "A transfer commission cannot be taken from a cash collection; it belongs on a bank, wallet or card collection.");
+      }
+      if (commission < 0n || commission >= line.amount.scaled) {
+        throw new InvalidDocumentError(VOUCHER_DOC_TYPE, doc.id, "عمولة التحويل يجب أن تكون أكبر من صفر وأقل من قيمة التحصيل.", "The transfer commission must be greater than zero and less than the collected amount.");
+      }
+      if (!line.commissionGlAccountId) {
+        throw new InvalidDocumentError(VOUCHER_DOC_TYPE, doc.id, "حساب مصروف عمولة التحويل مطلوب.", "A commission expense account is required.");
       }
     }
     if (def.requiresCustomer && !line.customerId) {
@@ -416,6 +472,7 @@ export const voucherDocumentType: DocumentTypeDefinition<VoucherLine> = {
         { kind: "balance", description: a },
         { kind: def.allocatable ? "info" : "gl", description: b },
         ...realisedFxEffect(line),
+        ...commissionEffect(line),
         {
           kind: "gl",
           description: `يُنشئ قيداً محاسبياً متوازناً بقيمة ${twoDecimals(line.amount)} ${line.currency} (${def.labelAr})`,

@@ -4574,6 +4574,8 @@ async function composeBackend(options: CreateBackendOptions, db: SqlDb, sqlite: 
         counterpartyGlAccountId: "1105",
         customerId: input.customerId,
         referenceNo: input.referenceNo ?? null,
+        commissionAmount: input.commissionAmount ?? null,
+        commissionGlAccountId: input.commissionGlAccountId ?? null,
       },
       [{ allocationId: `${voucherId}:A1`, invoiceId: input.invoiceId, amount: input.amount }],
     );

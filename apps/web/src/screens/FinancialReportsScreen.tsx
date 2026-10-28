@@ -12,13 +12,18 @@ import {
   createTrialBalanceReport,
   createVatReturnReport,
   createWithholdingTaxReport,
+  createCollectionsReport,
+  createMonthlyCollectionsByRepReport,
+  ShellRequest,
+  type CollectionFilterOptions,
   vatNetPayable,
   type Account,
   type VatReturnRow,
 } from "@mezan/domain";
 import { ReportScreen } from "./reports/ReportScreen";
 import { VatFilingAction, VatFilingsList } from "./VatFilingPanel";
-import { useAccounts } from "../data/hooks";
+import { useAccounts, useCustomers, useEmployees, useEntitlements } from "../data/hooks";
+import { planServesRequest } from "../data/plan-modules";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { todayIso, yearStartIso } from "../lib/dates";
 
@@ -85,6 +90,35 @@ function AccountLedgerTab() {
   return <ReportScreen definition={definition} apiPath="/account-ledger" apiRoot="/financial-reports" />;
 }
 
+const MONTH_START = `${TODAY.slice(0, 7)}-01`;
+
+function useCollectionFilterOptions(): CollectionFilterOptions {
+  const customersQuery = useCustomers();
+  const employeesQuery = useEmployees(planServesRequest(useEntitlements(), ShellRequest.Employees));
+  return useMemo(
+    () => ({
+      customers: (customersQuery.data ?? []).map((c) => ({ value: c.id, label: c.nameAr })),
+      reps: (employeesQuery.data ?? []).map((e) => ({
+        value: e.id,
+        label: [e.firstNameAr, e.lastNameAr].filter(Boolean).join(" ") || `${e.firstName} ${e.lastName}`,
+      })),
+    }),
+    [customersQuery.data, employeesQuery.data],
+  );
+}
+
+function CollectionsTab() {
+  const options = useCollectionFilterOptions();
+  const definition = useMemo(() => createCollectionsReport(MONTH_START, TODAY, options), [options]);
+  return <ReportScreen definition={definition} apiPath="/treasury/collections" />;
+}
+
+function MonthlyCollectionsTab() {
+  const options = useCollectionFilterOptions();
+  const definition = useMemo(() => createMonthlyCollectionsByRepReport(YEAR_START, TODAY, options), [options]);
+  return <ReportScreen definition={definition} apiPath="/treasury/collections-monthly-by-rep" />;
+}
+
 interface TabDef {
   readonly id: string;
   readonly labelKey: AppTranslationKey;
@@ -141,6 +175,16 @@ const TABS: readonly TabDef[] = [
     id: "withholding-tax",
     labelKey: "finReports.withholdingTax",
     render: () => <ReportScreen definition={withholdingTax} apiPath="/tax/withholding" />,
+  },
+  {
+    id: "collections",
+    labelKey: "finReports.collections",
+    render: () => <CollectionsTab />,
+  },
+  {
+    id: "collections-monthly",
+    labelKey: "finReports.collectionsMonthlyByRep",
+    render: () => <MonthlyCollectionsTab />,
   },
   {
     id: "general-ledger",

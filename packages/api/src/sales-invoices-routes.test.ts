@@ -102,6 +102,7 @@ async function harness(
     now?: string;
     workflow?: DocumentWorkflowGate;
     customers?: SalesInvoiceRoutesDeps["customers"];
+    employees?: SalesInvoiceRoutesDeps["employees"];
   } = {},
 ) {
   const accounts = {
@@ -164,6 +165,7 @@ async function harness(
     stock: createSalesInvoiceStockHook(stockService),
     ...(opts.workflow ? { workflow: opts.workflow } : {}),
     ...(opts.customers ? { customers: opts.customers } : {}),
+    ...(opts.employees ? { employees: opts.employees } : {}),
     ...(opts.withoutStockRestore ? {} : { stockRestore: createInventoryStockHook(stockService) }),
     ...(opts.etaDocumentOf ? { etaDocumentOf: opts.etaDocumentOf } : {}),
     ...(opts.withdrawUnsentEtaSubmission ? { withdrawUnsentEtaSubmission: opts.withdrawUnsentEtaSubmission } : {}),
@@ -1084,5 +1086,57 @@ describe("sales invoice routes — optimistic concurrency (N-9)", () => {
     );
     expect(res.status).toBe(409);
     expect((await repo.findById(id))!.status).toBe("draft");
+  });
+});
+
+describe("sales-invoices routes — reps and managers are real employees (#114)", () => {
+  const people: Record<string, string> = { "emp-u1": "أحمد سامي", "emp-mgr": "هشام منصور", "emp-promo": "نهى سمير" };
+  const employees = { findById: async (id: string) => (people[id] ? ({ id, fullNameAr: people[id] } as Awaited<ReturnType<NonNullable<SalesInvoiceRoutesDeps["employees"]>["findById"]>>) : null) };
+  const create = (app: Awaited<ReturnType<typeof harness>>["app"], body: unknown) =>
+    app.fetch(req("/", { method: "POST", body: JSON.stringify(body), permissions: "sales.invoice.create" }));
+
+  it("refuses an id no employee holds, naming it, in Arabic", async () => {
+    const { app, repo } = await harness({ employees });
+    const res = await create(app, { ...draftBody, salesManagerId: "emp-mgr", promotionRepId: "ghost-rep" });
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as { error: string; employeeIds: string[]; message: string };
+    expect(body.error).toBe("EMPLOYEE_NOT_FOUND");
+    expect(body.employeeIds).toEqual(["ghost-rep"]);
+    expect(body.message).toContain("ghost-rep");
+    expect(await repo.list({})).toHaveLength(0);
+  });
+
+  it("stores all four ids and takes every name from the employee register, not the request", async () => {
+    const { app, repo } = await harness({ employees });
+    const res = await create(app, {
+      ...draftBody,
+      salespersonNameAr: "اسم مكتوب باليد",
+      salesManagerId: "emp-mgr",
+      promotionRepId: "emp-promo",
+      promotionManagerId: "emp-mgr",
+    });
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as Record<string, string | null> & { id: string };
+    expect(body).toMatchObject({
+      salespersonId: "emp-u1",
+      salespersonNameAr: "أحمد سامي",
+      salesManagerId: "emp-mgr",
+      salesManagerNameAr: "هشام منصور",
+      promotionRepId: "emp-promo",
+      promotionRepNameAr: "نهى سمير",
+      promotionManagerId: "emp-mgr",
+      promotionManagerNameAr: "هشام منصور",
+    });
+    const stored = await repo.findById(body.id);
+    expect(stored?.promotionRepId).toBe("emp-promo");
+  });
+
+  it("leaves every rep empty when none is named", async () => {
+    const { app } = await harness({ employees });
+    const { salespersonId: _rep, ...unnamed } = draftBody;
+    const res = await create(app, unnamed);
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as Record<string, string | null>;
+    expect([body.salesManagerId, body.promotionRepId, body.promotionManagerId]).toEqual([null, null, null]);
   });
 });

@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { Money, Qty } from "../money/index.js";
 import { runReport } from "./engine.js";
 import { createSalesBySalespersonReport, UNASSIGNED_SALESPERSON_KEY } from "./sales-by-salesperson.js";
-import type { SalesInvoice, SalesInvoiceLine } from "../sales-invoices/sales-invoice.js";
+import { InvoiceRepRole, type SalesInvoice, type SalesInvoiceLine } from "../sales-invoices/sales-invoice.js";
 
 function line(overrides: Partial<SalesInvoiceLine> = {}): SalesInvoiceLine {
   return {
@@ -243,5 +243,24 @@ describe("createSalesBySalespersonReport — a foreign invoice (D201)", () => {
     const row = outcome.rows.find((r) => r.salespersonId === "sp-1");
     expect(row?.total).toBe(6840);
     expect(row?.outstanding).toBe(3840);
+  });
+});
+
+describe("sales by salesperson — grouped by any of the invoice's four reps (#114)", () => {
+  it("groups by the promotion rep, with the invoices that name none in the unassigned row", () => {
+    const report = createSalesBySalespersonReport("2026-08-01", "2026-08-31");
+    const invoices = [
+      invoice({ id: "a", salespersonId: "s1", salespersonNameAr: "بائع", promotionRepId: "p1", promotionRepNameAr: "دعاية" }),
+      invoice({ id: "b", salespersonId: "s1", salespersonNameAr: "بائع", promotionRepId: "p1", promotionRepNameAr: "دعاية" }),
+      invoice({ id: "c", salespersonId: "s1", salespersonNameAr: "بائع" }),
+    ];
+    const byPromotion = runReport(report, { ...report.defaultParams, repRole: InvoiceRepRole.PromotionRep }, { invoices });
+    const bySales = runReport(report, report.defaultParams, { invoices });
+    if (!byPromotion.ok || !bySales.ok) throw new Error("report refused its params");
+    expect(byPromotion.rows.map((r) => [r.salespersonId, r.salespersonNameAr, r.count])).toEqual([
+      ["p1", "دعاية", 2],
+      [UNASSIGNED_SALESPERSON_KEY, "غير محدد", 1],
+    ]);
+    expect(bySales.rows.map((r) => [r.salespersonId, r.count])).toEqual([["s1", 3]]);
   });
 });

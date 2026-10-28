@@ -34,6 +34,8 @@ export {
   voucherNetPaid,
   voucherBaseAmount,
   voucherBaseWithholding,
+  voucherBaseCommission,
+  voucherStatedNet,
   COMPANY_LEVEL_VOUCHER_BRANCH,
 } from "./voucher-document.js";
 
@@ -73,6 +75,7 @@ export {
   allocate,
   reverseAllocation,
 } from "./allocation.js";
+export { allocationStoodOn } from "./allocation.js";
 
 export {
   FX_REALISED_DOC_TYPE,

@@ -109,7 +109,7 @@ export interface ReportReconciliationSpec<Row, Ctx, TParams = unknown> {
    * THESE, as exact decimal strings, and the two number totals are not read;
    * a mismatch is then never a float artefact (D345).
    */
-  readonly computeExactTotals?: (rows: readonly Row[], ctx: Ctx, params: TParams) => { readonly report: Money; readonly reference: Money };
+  readonly computeExactTotals?: (rows: readonly Row[], ctx: Ctx, params: TParams) => { readonly report: Money; readonly reference: Money } | null;
   /**
    * Whether the reference figure is actually available in this context.
    * Returns false and the banner is not shown at all.

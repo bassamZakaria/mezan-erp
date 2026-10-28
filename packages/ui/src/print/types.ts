@@ -292,6 +292,7 @@ export interface PrintDocumentModel {
   company: PrintCompanyInfo;
   branchName?: string;
   warehouseName?: string;
+  headerFacts?: readonly { readonly key: string; readonly label: string; readonly value: string }[];
   party?: PrintPartyInfo;
   paymentTerms?: string;
   notes?: string;

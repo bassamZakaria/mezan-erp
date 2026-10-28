@@ -35,6 +35,8 @@ import {
   isStandingVoucher,
   voucherTakesAllocations,
   voucherNetPaid,
+  voucherStatedNet,
+  VOUCHER_DOC_TYPE,
   type TreasuryLegFx,
   voucherDocumentType,
   voucherLine,
@@ -277,6 +279,8 @@ export interface CreateVoucherCommand {
   readonly withholdingAmount?: import("../money/money.js").Money | null;
   readonly withholdingRatePercent?: number | null;
   readonly withholdingGlAccountId?: string | null;
+  readonly commissionAmount?: import("../money/money.js").Money | null;
+  readonly commissionGlAccountId?: string | null;
 }
 
 export interface CollectionAllocationRequest {
@@ -345,6 +349,18 @@ export class VoucherService {
     return this.service.effectsOf(doc);
   }
 
+  private async refuseUnusableCommissionAccount(id: string, line: VoucherLine): Promise<void> {
+    if (!line.commissionAmount || line.commissionAmount.scaled === 0n || !line.commissionGlAccountId) return;
+    const account = await this.deps.accounts.findById(line.commissionGlAccountId);
+    if (account && !account.isHeader && account.status === "active" && account.type === "expense") return;
+    throw new InvalidDocumentError(
+      VOUCHER_DOC_TYPE,
+      id,
+      `حساب عمولة التحويل «${line.commissionGlAccountId}» يجب أن يكون حساب مصروفات فرعياً نشطاً في دليل الحسابات.`,
+      `The commission account "${line.commissionGlAccountId}" must be an active, postable expense account.`,
+    );
+  }
+
   /** Open a new مسودة (draft) voucher. */
   async createVoucher(cmd: CreateVoucherCommand): Promise<VoucherDocument> {
     const def = getVoucherTypeDefinition(cmd.voucherType);
@@ -393,7 +409,10 @@ export class VoucherService {
       withholdingAmount: cmd.withholdingAmount ?? null,
       withholdingRatePercent: cmd.withholdingRatePercent ?? null,
       withholdingGlAccountId: cmd.withholdingGlAccountId ?? null,
+      commissionAmount: cmd.commissionAmount ?? null,
+      commissionGlAccountId: cmd.commissionGlAccountId ?? null,
     };
+    await this.refuseUnusableCommissionAccount(cmd.id, line);
     return this.service.createDraft({
       id: cmd.id,
       date: cmd.date,
@@ -557,10 +576,10 @@ export class VoucherService {
       return { currency: account.currency, fxRate: rate, foreignAmount: convertFromBase(baseMoved, rate) };
     };
     const paysOut = line.direction === "payment";
-    const baseMoved = paysOut ? voucherNetPaid(line) : voucherBaseAmount(line);
-    const statedMoved = paysOut ? Money.fromScaled(line.amount.scaled - (line.withholdingAmount?.scaled ?? 0n)) : line.amount;
+    const baseMoved = voucherNetPaid(line);
+    const statedMoved = voucherStatedNet(line);
     const movedOut = paysOut || line.direction === "transfer";
-    const sourceBaseMoved = paysOut ? baseMoved : voucherBaseAmount(line);
+    const sourceBaseMoved = line.direction === "transfer" ? voucherBaseAmount(line) : baseMoved;
     const stampedLeg = line.treasuryFx ?? (await legFx(line.treasuryAccountId, sourceBaseMoved, statedMoved));
     const treasuryFx = stampedLeg && movedOut ? await this.atCarrying(line.treasuryAccountId, stampedLeg, sourceBaseMoved, doc.date) : stampedLeg;
     const counterTreasuryFx = line.counterTreasuryFx ?? (await legFx(line.counterTreasuryAccountId, voucherBaseAmount(line), line.amount));

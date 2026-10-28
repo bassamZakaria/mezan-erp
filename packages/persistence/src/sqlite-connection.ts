@@ -143,6 +143,17 @@ export function openSqliteConnection(
   return { sqlite, owned: true };
 }
 
+export async function backupSqliteFile(source: string, destination: string): Promise<void> {
+  const sqlite = new Database(source, { readonly: true, fileMustExist: true });
+  try {
+    // REQUIRED: backup() of a database another connection holds exclusively copies nothing and reports success; this read throws SQLITE_BUSY instead.
+    sqlite.prepare("SELECT count(*) FROM sqlite_master").get();
+    await sqlite.backup(destination);
+  } finally {
+    sqlite.close();
+  }
+}
+
 const watched = new WeakSet<Database.Database>();
 
 // A WRITE THAT LANDS INSIDE ANOTHER CHAIN'S OPEN TRANSACTION IS LOST IF THAT

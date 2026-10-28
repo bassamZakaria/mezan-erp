@@ -6,7 +6,7 @@ import type Database from "better-sqlite3";
 import pg from "pg";
 import { AuditSeverityCode, AuditStreamName, DocumentStatusCode, TenantStatusCode, tenantSchema, type AuditEvent } from "@mezan/domain";
 import { createBackend, createPlatform, ensurePlatformTables } from "@mezan/backend";
-import { createAuditSink, ensureTenantSchema, openAuditChainFile, openSqliteConnection, SqlDialect, sqliteDb, type AuditChainVerification, type SqlDb } from "@mezan/persistence";
+import { backupSqliteFile, createAuditSink, ensureTenantSchema, openAuditChainFile, openSqliteConnection, SqlDialect, sqliteDb, type AuditChainVerification, type SqlDb } from "@mezan/persistence";
 import { assertCollation, dropTenantSchema, PLATFORM_SCHEMA, schemaKey, SchemaKeyPurpose, TenantDatabases } from "@mezan/persistence-postgres";
 import { SECRETS_KEY_FILE, loadSecretBox } from "./secrets-key.js";
 
@@ -50,6 +50,20 @@ const ACCEPTED_TYPES: Record<ColumnKind, readonly SqliteType[]> = {
   [ColumnKind.Other]: [SqliteType.Null],
 };
 
+enum SqliteLockCode {
+  Busy = "SQLITE_BUSY",
+  Locked = "SQLITE_LOCKED",
+}
+
+export enum LegacySeparatorColumn {
+  IdempotentRequestScope = "idempotent_request.scope",
+  SignInAttemptKey = "sign_in_attempt.attempt_key",
+}
+
+const LEGACY_SEPARATOR = "\u0000";
+const KEY_SEPARATOR = "\u001F";
+const LEGACY_SEPARATOR_COLUMNS = new Set<string>(Object.values(LegacySeparatorColumn));
+
 // Tables a SQLite book holds that have no Postgres twin by design.
 const SQLITE_ONLY_TABLES: Record<BookKind, readonly string[]> = {
   [BookKind.Platform]: ["schema_meta"],
@@ -57,7 +71,6 @@ const SQLITE_ONLY_TABLES: Record<BookKind, readonly string[]> = {
 };
 
 const LEDGER_STATUSES = [DocumentStatusCode.Posted, DocumentStatusCode.Reversed];
-const SERVED_ELSEWHERE = new Set<string>([TenantStatusCode.Archived, TenantStatusCode.Provisioning]);
 const CHAIN_KEY_FILE = "audit-chain.key";
 const KEY_HEX = /^[0-9a-f]{64}$/;
 const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
@@ -70,6 +83,7 @@ interface ColumnShape {
   readonly name: string;
   readonly kind: ColumnKind;
   readonly identity: boolean;
+  readonly primaryKey: boolean;
 }
 
 interface TableShape {
@@ -124,6 +138,7 @@ export interface BookReport {
   readonly sourceChain: AuditChainVerification & { readonly headRowId: number | null; readonly headHash: string | null };
   readonly tables: TableReport[];
   readonly droppedColumns: string[];
+  readonly translatedSeparators: Partial<Record<LegacySeparatorColumn, number>>;
   targetOnlyTables?: string[];
   readonly accounts: AccountTotals | null;
   targetAudit?: AuditChainVerification;
@@ -139,6 +154,7 @@ export interface MigrationReport {
   readonly books: BookReport[];
   readonly skippedTenants: { id: string; code: string; status: string }[];
   error?: string;
+  cleanupFailures?: string[];
 }
 
 interface PreparedBook {
@@ -194,7 +210,7 @@ function sqliteShape(sqlite: Database.Database): Shape {
     const columns = new Map<string, ColumnShape>();
     for (const column of info) {
       const kind = kindOfDeclared(column.type);
-      columns.set(column.name.toLowerCase(), { name: column.name, kind, identity: singlePk && column.pk === 1 && kind === ColumnKind.Integer });
+      columns.set(column.name.toLowerCase(), { name: column.name, kind, identity: singlePk && column.pk === 1 && kind === ColumnKind.Integer, primaryKey: column.pk > 0 });
     }
     shape.set(table.toLowerCase(), { name: table, columns });
   }
@@ -222,15 +238,33 @@ async function postgresShape(owner: pg.Pool, schema: string): Promise<Shape> {
   for (const row of rows) {
     let table = shape.get(row.table_name);
     if (!table) shape.set(row.table_name, (table = { name: row.table_name, columns: new Map() }));
-    table.columns.set(row.column_name, { name: row.column_name, kind: kindOfPostgres(row.data_type), identity: row.is_identity === "YES" });
+    table.columns.set(row.column_name, { name: row.column_name, kind: kindOfPostgres(row.data_type), identity: row.is_identity === "YES", primaryKey: false });
   }
   return shape;
+}
+
+interface PairedColumn {
+  readonly source: string;
+  readonly target: ColumnShape;
+  readonly primaryKey: boolean;
+  readonly legacySeparator: LegacySeparatorColumn | null;
 }
 
 interface TablePair {
   readonly source: string;
   readonly target: TableShape;
-  readonly columns: readonly { readonly source: string; readonly target: ColumnShape }[];
+  readonly rowid: boolean;
+  readonly columns: readonly PairedColumn[];
+}
+
+function legacySeparatorOf(table: string, column: string): LegacySeparatorColumn | null {
+  const name = `${table}.${column}`.toLowerCase();
+  return LEGACY_SEPARATOR_COLUMNS.has(name) ? (name as LegacySeparatorColumn) : null;
+}
+
+function hasRowid(sqlite: Database.Database, table: string): boolean {
+  const row = sqlite.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?").get(table) as { sql: string | null } | undefined;
+  return !/WITHOUT\s+ROWID/i.test(row?.sql ?? "");
 }
 
 function pairTables(sqlite: Database.Database, kind: BookKind, target: Shape, report: BookReport): TablePair[] {
@@ -244,16 +278,17 @@ function pairTables(sqlite: Database.Database, kind: BookKind, target: Shape, re
       missing.push(table.name);
       continue;
     }
-    const columns: TablePair["columns"][number][] = [];
+    const columns: PairedColumn[] = [];
     for (const column of table.columns.values()) {
       const targetColumn = twin.columns.get(column.name.toLowerCase());
-      if (targetColumn) columns.push({ source: column.name, target: targetColumn });
+      if (targetColumn) columns.push({ source: column.name, target: targetColumn, primaryKey: column.primaryKey, legacySeparator: legacySeparatorOf(table.name, column.name) });
       else {
         const held = (sqlite.prepare(`SELECT count(*) AS n FROM ${ident(table.name)} WHERE ${ident(column.name)} IS NOT NULL`).get() as { n: number }).n;
-        report.droppedColumns.push(`${table.name}.${column.name} (${held} non-null)`);
+        if (held > 0) report.problems.push(`${table.name}.${column.name} has no Postgres column and holds ${held} non-null values`);
+        else report.droppedColumns.push(`${table.name}.${column.name}`);
       }
     }
-    pairs.push({ source: table.name, target: twin, columns });
+    pairs.push({ source: table.name, target: twin, rowid: hasRowid(sqlite, table.name), columns });
   }
   if (missing.length > 0) report.problems.push(`tables with no Postgres twin: ${missing.join(", ")}`);
   return pairs;
@@ -267,16 +302,34 @@ function preCheck(sqlite: Database.Database, pairs: readonly TablePair[], report
     report.problems.push(`${orphans.length} rows break a foreign key, e.g. ${orphans.slice(0, 5).map((o) => `${o.table} rowid ${o.rowid} -> ${o.parent}`).join(", ")}`);
   }
   for (const pair of pairs) {
-    for (const { source, target } of pair.columns) {
+    for (const { source, target, legacySeparator } of pair.columns) {
       const accepted = ACCEPTED_TYPES[target.kind];
       const list = accepted.map((type) => `'${type}'`).join(", ");
       const wrong = (sqlite.prepare(`SELECT count(*) AS n FROM ${ident(pair.source)} WHERE typeof(${ident(source)}) NOT IN (${list})`).get() as { n: number }).n;
       if (wrong > 0) report.problems.push(`${pair.source}.${source}: ${wrong} values are not ${target.kind}`);
       if (target.kind !== ColumnKind.Text) continue;
       const nul = (sqlite.prepare(`SELECT count(*) AS n FROM ${ident(pair.source)} WHERE instr(${ident(source)}, char(0)) > 0 OR ${ident(source)} LIKE '%\\u0000%'`).get() as { n: number }).n;
-      if (nul > 0) report.problems.push(`${pair.source}.${source}: ${nul} values hold a NUL character`);
+      if (nul === 0) continue;
+      if (legacySeparator) report.translatedSeparators[legacySeparator] = nul;
+      else report.problems.push(`${pair.source}.${source}: ${nul} values hold a NUL character`);
     }
+    if (!pair.columns.some((column) => column.legacySeparator)) continue;
+    const keys = pair.columns.filter((column) => column.primaryKey);
+    if (keys.length === 0) continue;
+    const seen = new Set<string>();
+    let clashes = 0;
+    const select = sqlite.prepare(`SELECT ${keys.map((column) => ident(column.source)).join(", ")} FROM ${ident(pair.source)}`).safeIntegers(true).raw(true);
+    for (const row of select.iterate() as IterableIterator<unknown[]>) {
+      const key = JSON.stringify(row.map((value, at) => `${typeof value}:${String(translated(value, keys[at]!))}`));
+      if (seen.has(key)) clashes += 1;
+      else seen.add(key);
+    }
+    if (clashes > 0) report.problems.push(`${pair.source}: ${clashes} rows collide with another key once the legacy NUL separator becomes U+001F; remove the stale rows first`);
   }
+}
+
+function translated(value: unknown, column: { readonly legacySeparator: LegacySeparatorColumn | null }): unknown {
+  return column.legacySeparator && typeof value === "string" ? value.replaceAll(LEGACY_SEPARATOR, KEY_SEPARATOR) : value;
 }
 
 function normalized(value: unknown, kind: ColumnKind): unknown {
@@ -293,10 +346,16 @@ function normalized(value: unknown, kind: ColumnKind): unknown {
   }
 }
 
-async function tableDigest(db: SqlDb, table: string, columns: readonly { name: string; kind: ColumnKind }[]): Promise<{ rows: number; hash: string }> {
+interface DigestColumn {
+  readonly name: string;
+  readonly kind: ColumnKind;
+  readonly legacySeparator: LegacySeparatorColumn | null;
+}
+
+async function tableDigest(db: SqlDb, table: string, columns: readonly DigestColumn[]): Promise<{ rows: number; hash: string }> {
   const rows = await db.all<Record<string, unknown>>(`SELECT ${columns.map((c) => ident(c.name)).join(", ")} FROM ${ident(table)}`);
   const rowHashes = rows
-    .map((row) => createHash("sha256").update(JSON.stringify(columns.map((c) => normalized(row[c.name], c.kind)))).digest("hex"))
+    .map((row) => createHash("sha256").update(JSON.stringify(columns.map((c) => normalized(translated(row[c.name], c), c.kind)))).digest("hex"))
     .sort();
   return { rows: rows.length, hash: createHash("sha256").update(rowHashes.join("\n")).digest("hex") };
 }
@@ -326,14 +385,16 @@ function totalsOf(map: Map<string, { debit: bigint; credit: bigint }>): AccountT
   return { accounts: map.size, totalDebit: debit.toString(), totalCredit: credit.toString() };
 }
 
-function copyBookFiles(original: string, scratchFile: string): void {
+async function copyBook(original: string, scratchFile: string): Promise<void> {
   mkdirSync(path.dirname(scratchFile), { recursive: true });
-  for (const suffix of ["", "-wal", "-shm"]) if (existsSync(`${original}${suffix}`)) copyFileSync(`${original}${suffix}`, `${scratchFile}${suffix}`);
-  const sqlite = openSqliteConnection(scratchFile, { fileMustExist: true }).sqlite;
   try {
-    sqlite.pragma("wal_checkpoint(TRUNCATE)");
-  } finally {
-    sqlite.close();
+    await backupSqliteFile(original, scratchFile);
+  } catch (error) {
+    const code = (error as { code?: string }).code ?? "";
+    if (code.startsWith(SqliteLockCode.Busy) || code.startsWith(SqliteLockCode.Locked)) {
+      throw new MigrationRefusedError(`${original} is locked by a running app: stop it, or point --data at a copy made while it was stopped`);
+    }
+    throw error;
   }
 }
 
@@ -395,7 +456,7 @@ interface PrepareInput {
 }
 
 async function prepareBook(input: PrepareInput): Promise<PreparedBook> {
-  copyBookFiles(input.original, input.copy);
+  await copyBook(input.original, input.copy);
   const sourceSha256 = sha256File(input.copy);
   const key = await proveChainKey(input.original, input.copy, input.env);
   // REQUIRED ORDERING: the copy is brought to this build's shape under the proven old key, so an upgrade step that appends to the chain keeps it verifiable.
@@ -411,6 +472,7 @@ async function prepareBook(input: PrepareInput): Promise<PreparedBook> {
     sourceChain: { ...after.verification, headRowId: after.head?.rowId ?? null, headHash: after.head?.rowHash ?? null },
     tables: [],
     droppedColumns: [],
+    translatedSeparators: {},
     accounts: null,
     problems: [],
   };
@@ -421,7 +483,7 @@ async function prepareBook(input: PrepareInput): Promise<PreparedBook> {
     preCheck(sqlite, pairs, report);
     const db = sqliteDb(sqlite);
     for (const pair of pairs) {
-      const digest = await tableDigest(db, pair.source, pair.columns.map((c) => ({ name: c.source, kind: c.target.kind })));
+      const digest = await tableDigest(db, pair.source, pair.columns.map((c) => ({ name: c.source, kind: c.target.kind, legacySeparator: c.legacySeparator })));
       report.tables.push({ table: pair.source, sourceRows: digest.rows, sourceHash: digest.hash });
     }
     const totals = await accountTotals(db);
@@ -441,9 +503,15 @@ function tenantsOf(platformCopy: string, report: MigrationReport): ServedTenant[
   const sqlite = openSqliteConnection(platformCopy, { fileMustExist: true }).sqlite;
   try {
     const rows = sqlite.prepare("SELECT id, code, status, db_file FROM tenant ORDER BY id").all() as { id: string; code: string; status: string; db_file: string }[];
+    const provisioning = rows.filter((row) => row.status === TenantStatusCode.Provisioning);
+    if (provisioning.length > 0) {
+      throw new MigrationRefusedError(
+        `companies still provisioning: ${provisioning.map((row) => `"${row.code}" (${row.id})`).join(", ")}; let each finish or remove it before migrating`,
+      );
+    }
     const served: ServedTenant[] = [];
     for (const row of rows) {
-      if (SERVED_ELSEWHERE.has(row.status)) report.skippedTenants.push({ id: row.id, code: row.code, status: row.status });
+      if (row.status === TenantStatusCode.Archived) report.skippedTenants.push({ id: row.id, code: row.code, status: row.status });
       else served.push({ id: row.id, code: row.code, dbFile: row.db_file });
     }
     return served;
@@ -452,11 +520,18 @@ function tenantsOf(platformCopy: string, report: MigrationReport): ServedTenant[
   }
 }
 
-async function prepareAll(dataDir: string, scratch: string, env: MigrationEnv, report: MigrationReport): Promise<PreparedBook[]> {
+type Progress = (line: string) => void;
+
+async function prepareAll(dataDir: string, scratch: string, env: MigrationEnv, report: MigrationReport, progress: Progress): Promise<PreparedBook[]> {
   const platformFile = path.join(dataDir, "platform.db");
   if (!existsSync(platformFile)) throw new MigrationRefusedError(`${platformFile} does not exist`);
-  if (existsSync(path.join(dataDir, SECRETS_KEY_FILE))) copyFileSync(path.join(dataDir, SECRETS_KEY_FILE), path.join(scratch, SECRETS_KEY_FILE));
+  const secretsFile = path.join(dataDir, SECRETS_KEY_FILE);
+  if (!env.secretsKey && !existsSync(secretsFile)) {
+    throw new MigrationRefusedError(`set MEZAN_SECRETS_KEY or keep ${SECRETS_KEY_FILE} in ${dataDir}: a new key would seal stored SMTP and webhook secrets with a key nobody keeps`);
+  }
+  if (existsSync(secretsFile)) copyFileSync(secretsFile, path.join(scratch, SECRETS_KEY_FILE));
   const secrets = loadSecretBox(env.secretsKey, scratch);
+  progress(`preparing ${PLATFORM_SCHEMA}`);
   const platformCopy = path.join(scratch, "platform.db");
   const platform = await prepareBook({
     kind: BookKind.Platform,
@@ -469,6 +544,7 @@ async function prepareAll(dataDir: string, scratch: string, env: MigrationEnv, r
   });
   const books: PreparedBook[] = [];
   for (const tenant of tenantsOf(platformCopy, report)) {
+    progress(`preparing "${tenant.code}" (${tenant.id})`);
     const original = path.join(dataDir, tenant.dbFile);
     if (!existsSync(original)) throw new MigrationRefusedError(`company "${tenant.code}" (${tenant.id}) is served but ${original} does not exist`);
     const copy = path.join(scratch, "tenants", `${tenant.id}.db`);
@@ -507,10 +583,11 @@ async function copyRows(client: pg.PoolClient, schema: string, sqlite: Database.
     const values = batch.map((row) => `(${row.map(() => `$${++n}`).join(", ")})`).join(", ");
     await client.query(`INSERT INTO ${target} (${columns}) VALUES ${values}`, batch.flat());
   };
-  const select = sqlite.prepare(`SELECT ${pair.columns.map((c) => ident(c.source)).join(", ")} FROM ${ident(pair.source)}`).safeIntegers(true).raw(true);
+  const order = pair.rowid ? " ORDER BY rowid" : "";
+  const select = sqlite.prepare(`SELECT ${pair.columns.map((c) => ident(c.source)).join(", ")} FROM ${ident(pair.source)}${order}`).safeIntegers(true).raw(true);
   let batch: unknown[][] = [];
   for (const row of select.iterate() as IterableIterator<unknown[]>) {
-    batch.push(row);
+    batch.push(row.map((value, at) => translated(value, pair.columns[at]!)));
     if (batch.length >= perBatch) {
       await flush(batch);
       batch = [];
@@ -550,6 +627,8 @@ interface PostgresContext {
 
 async function migrateBook(book: PreparedBook, ctx: PostgresContext): Promise<void> {
   const { report, schema } = book;
+  const { rows: present } = await ctx.owner.query("SELECT 1 FROM pg_namespace WHERE nspname = $1", [schema]);
+  if (present.length > 0) throw new MigrationRefusedError(`${schema} appeared in Postgres during the migration; something else is writing books`);
   ctx.created.push(schema);
   await ctx.databases.provision(schema);
   const target = ctx.databases.get(schema).db;
@@ -558,9 +637,11 @@ async function migrateBook(book: PreparedBook, ctx: PostgresContext): Promise<vo
   const pgShape = await postgresShape(ctx.owner, schema);
   const sqlite = openSqliteConnection(book.copy, { fileMustExist: true }).sqlite;
   try {
-    const checked: BookReport = { ...report, tables: [], droppedColumns: [], problems: [] };
+    const checked: BookReport = { ...report, tables: [], droppedColumns: [], translatedSeparators: {}, problems: [] };
     const pairs = pairTables(sqlite, book.kind, pgShape, checked);
     preCheck(sqlite, pairs, checked);
+    report.droppedColumns.length = 0;
+    report.droppedColumns.push(...checked.droppedColumns);
     if (checked.problems.length > 0) {
       report.problems.push(...checked.problems);
       throw new MigrationRefusedError(`${schema}: ${checked.problems.join("; ")}`);
@@ -583,7 +664,7 @@ async function migrateBook(book: PreparedBook, ctx: PostgresContext): Promise<vo
       client.release();
     }
     for (const pair of pairs) {
-      const digest = await tableDigest(target, pair.target.name, pair.columns.map((c) => ({ name: c.target.name, kind: c.target.kind })));
+      const digest = await tableDigest(target, pair.target.name, pair.columns.map((c) => ({ name: c.target.name, kind: c.target.kind, legacySeparator: null })));
       const row = report.tables.find((t) => t.table === pair.source);
       if (!row) {
         report.problems.push(`${pair.source}: no source digest`);
@@ -656,8 +737,25 @@ function requireEnv(env: MigrationEnv): Required<Pick<MigrationEnv, "databaseUrl
   return { databaseUrl: env.databaseUrl!, ownerUrl: env.ownerUrl!, tenantDbSecret: env.tenantDbSecret!, auditChainKey: env.auditChainKey! };
 }
 
-export async function runMigration(command: MigrationCommand, dataDir: string, env: MigrationEnv): Promise<MigrationReport> {
+function manualCleanupSql(schema: string): string {
+  return `DROP OWNED BY ${schema} CASCADE; SET ROLE mezan_app; REVOKE ALL ON DATABASE mezan FROM ${schema}; RESET ROLE; DROP SCHEMA IF EXISTS ${schema} CASCADE; DROP ROLE IF EXISTS ${schema};`;
+}
+
+async function dropCreated(ctx: PostgresContext, report: MigrationReport): Promise<void> {
+  const failures: string[] = [];
+  for (const schema of ctx.created) {
+    try {
+      await dropTenantSchema(ctx.appAdmin, schema);
+    } catch (error) {
+      failures.push(`${schema}: ${error instanceof Error ? error.message : String(error)}; drop it as the superuser with: ${manualCleanupSql(schema)}`);
+    }
+  }
+  if (failures.length > 0) report.cleanupFailures = failures;
+}
+
+export async function runMigration(command: MigrationCommand, dataDir: string, env: MigrationEnv, progress: Progress = () => undefined): Promise<MigrationReport> {
   const report: MigrationReport = { command, dataDir, startedAt: new Date().toISOString(), ok: false, books: [], skippedTenants: [] };
+  mkdirSync(tmpdir(), { recursive: true });
   const scratch = mkdtempSync(path.join(tmpdir(), "mezan-sqlite-to-pg-"));
   let pgContext: PostgresContext | null = null;
   try {
@@ -677,17 +775,21 @@ export async function runMigration(command: MigrationCommand, dataDir: string, e
       const existing = await existingBookSchemas(owner);
       if (existing.length > 0) throw new MigrationRefusedError(`Postgres already holds books (${existing.join(", ")}); the migration runs only on an empty database`);
     }
-    const books = await prepareAll(dataDir, scratch, env, report);
+    const books = await prepareAll(dataDir, scratch, env, report, progress);
     report.books.push(...books.map((book) => book.report));
     const problems = books.flatMap((book) => book.report.problems.map((problem) => `${book.schema}: ${problem}`));
     if (problems.length > 0) throw new MigrationRefusedError(problems.join("\n"));
     if (pgContext) {
       try {
         // REQUIRED ORDERING: platform last; it is the directory of the companies the boot opens.
-        for (const book of books) await migrateBook(book, pgContext);
+        for (const book of books) {
+          progress(`copying "${book.label}" into ${book.schema}`);
+          await migrateBook(book, pgContext);
+        }
       } catch (error) {
+        progress("dropping every schema this run created");
         await pgContext.databases.close().catch(() => undefined);
-        for (const schema of pgContext.created) await dropTenantSchema(pgContext.appAdmin, schema);
+        await dropCreated(pgContext, report);
         throw error;
       }
     }

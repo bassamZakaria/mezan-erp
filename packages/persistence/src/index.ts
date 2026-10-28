@@ -16,6 +16,7 @@ export {
 } from "./schema-sync.js";
 export {
   openSqliteConnection,
+  backupSqliteFile,
   sqliteTransactionsSettled,
   withSqliteRead,
   withSqliteTransaction,

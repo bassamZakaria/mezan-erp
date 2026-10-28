@@ -9,7 +9,9 @@
 #                               before it starts (README "Cutover to Postgres")
 #
 # Every deploy stops the app first (Postgres keeps running) and takes a
-# consistent copy of the books: expect about a minute of downtime. A deploy that
+# consistent copy of the books: expect about a minute of downtime. With
+# --migrate-sqlite add the migration itself, at least as long as the `check`
+# run took (README "Cutover to Postgres"), killed after 30 minutes. A deploy that
 # never gets ready restores that copy and goes back to the old tag.
 set -Eeuo pipefail
 
@@ -31,7 +33,10 @@ CUTOVER_FILE="$DATA_DIR/$CUTOVER_NAME"
 APP_ROLE_SQL="$COMPOSE_DIR/postgres-init/10-mezan-app.sql"
 TAG_FILE="$COMPOSE_DIR/.env"
 MIGRATE_SQLITE=0
-MIGRATION_REPORT="$DATA_DIR/sqlite-to-postgres-report.json"
+MIGRATION_REPORT=""
+MIGRATE_TIMEOUT_SECONDS=1800
+MIGRATE_CONTAINER=mezan-sqlite-migrate
+MIGRATE_SCRATCH="$DATA_DIR/.migrate-scratch"
 
 log() { printf '[deploy %s] %s\n' "$(date -u +%H:%M:%S)" "$*"; }
 die() { log "REFUSED: $*"; exit 1; }
@@ -67,7 +72,7 @@ write_tags() {
 
 preflight() {
   local tool
-  for tool in docker rsync flock python3; do command -v "$tool" >/dev/null || die "$tool is not installed"; done
+  for tool in docker rsync flock python3 timeout; do command -v "$tool" >/dev/null || die "$tool is not installed"; done
   for file in "$APP_ENV" "$SHARED_ENV" "$PG_ENV"; do
     [ -f "$file" ] || die "$file is missing"
     [ "$(stat -c '%a' "$file")" = "600" ] || die "$file must be mode 0600"
@@ -75,6 +80,7 @@ preflight() {
   grep -Eq '^MEZAN_ORIGIN_SECRET=[A-Za-z0-9_-]{32,}$' "$SHARED_ENV" || die "MEZAN_ORIGIN_SECRET in $SHARED_ENV must be at least 32 letters, digits, - or _ (it is substituted into the Caddyfile)"
   grep -Eq '^MEZAN_AUDIT_CHAIN_KEY=[0-9a-f]{64}$' "$APP_ENV" || die "MEZAN_AUDIT_CHAIN_KEY in $APP_ENV must be 64 lower-case hex characters (openssl rand -hex 32); the Postgres server refuses to start without it"
   if grep -q '^MEZAN_ORIGIN_SECRET=' "$APP_ENV"; then die "MEZAN_ORIGIN_SECRET belongs in $SHARED_ENV only; remove it from $APP_ENV"; fi
+  if grep -q '^MEZAN_MIGRATE_OWNER_URL=' "$APP_ENV" "$SHARED_ENV"; then die "MEZAN_MIGRATE_OWNER_URL is the Postgres superuser and only deploy.sh --migrate-sqlite builds it; remove it from $APP_ENV and $SHARED_ENV"; fi
   [ "$(stat -c '%u' "$DATA_DIR")" = "1000" ] || die "$DATA_DIR must be owned by uid 1000 (the image's node user)"
   local key
   for key in POSTGRES_USER POSTGRES_PASSWORD; do
@@ -135,6 +141,13 @@ check_disk() {
   free_kb="$(df -Pk "$PREDEPLOY_ROOT" | awk 'NR==2 {print $4}')"
   # Twice: the pre-deploy copy, and on a failed deploy the copy of what the failed version wrote.
   [ "$free_kb" -gt $(( (files_kb + pg_kb) * 2 )) ] || die "not enough free disk for the pre-deploy copy ($((files_kb + pg_kb)) KB of files and books needed twice over, ${free_kb} KB free); the app was not stopped"
+  [ "$MIGRATE_SQLITE" = 1 ] || return 0
+  # The pre-deploy copy, the migrator's scratch copy, the Postgres books and their WAL, and a failed-… copy.
+  local dir
+  for dir in "$PREDEPLOY_ROOT" "$DATA_DIR"; do
+    free_kb="$(df -Pk "$dir" | awk 'NR==2 {print $4}')"
+    [ "$free_kb" -gt $(( files_kb * 5 )) ] || die "not enough free disk on $dir to migrate: $files_kb KB of SQLite books needed five times over, ${free_kb} KB free (old $PREDEPLOY_ROOT/failed-* copies can go once read); the app was not stopped"
+  done
 }
 
 # One file, and one transaction, per schema (as mezan-pg-backup.sh): a single
@@ -161,7 +174,7 @@ snapshot_data() {
   dump_books "$target/pg-dump"
   chmod 700 "$target"
   # A failed-… copy holds the only record of writes made while a failed tag ran; it is never counted or pruned here.
-  # shellcheck disable=SC2010
+  # shellcheck disable=SC2010,SC2012
   ls -1dt "$PREDEPLOY_ROOT"/*/ 2>/dev/null | { grep -v '/failed-' || true; } | tail -n +$((KEEP_PREDEPLOY_COPIES + 1)) | xargs -r rm -rf
 }
 
@@ -265,13 +278,27 @@ restore_snapshot() {
 
 # Runs the new tag's migrator in a one-off container, Postgres already up and the app stopped.
 # It refuses unless Postgres holds no books, and drops what it created when anything differs.
+# The report lands beside the pre-deploy copies, which fall_back never touches and the prune never counts (it removes directories only).
 migrate_sqlite_books() {
-  local tag="$1" owner_url
+  local tag="$1" owner_url code=0
   # SECURITY: the superuser's URL reaches the container through the environment, never a command line.
   owner_url="$(pg_user | python3 -I -c 'import sys, urllib.parse; user = sys.stdin.read().strip(); password = open(sys.argv[1]).read().strip(); print("postgres://%s:%s@postgres:5432/mezan" % (urllib.parse.quote(user, safe=""), urllib.parse.quote(password, safe="")))' <(pg_password))"
-  log "migrating the SQLite books into Postgres with $tag (report: $MIGRATION_REPORT)"
-  MEZAN_MIGRATE_OWNER_URL="$owner_url" MEZAN_IMAGE_TAG="$tag" compose run --rm --no-deps -T -e MEZAN_MIGRATE_OWNER_URL mezan \
-    node --import tsx apps/server/src/sqlite-to-postgres-cli.ts migrate --data /data --report /data/sqlite-to-postgres-report.json >/dev/null
+  MIGRATION_REPORT="$PREDEPLOY_ROOT/sqlite-to-postgres-report-$(date -u +%Y%m%dT%H%M%SZ).json"
+  install -m 600 /dev/null "$MIGRATION_REPORT"
+  # The scratch copies go on the data disk: the container's /tmp is a 1 GB tmpfs.
+  rm -rf "$MIGRATE_SCRATCH"
+  install -d -o 1000 -g 1000 -m 700 "$MIGRATE_SCRATCH"
+  docker rm -f "$MIGRATE_CONTAINER" >/dev/null 2>&1 || true
+  log "migrating the SQLite books into Postgres with $tag (progress below, report: $MIGRATION_REPORT, stopped after $MIGRATE_TIMEOUT_SECONDS s)"
+  MEZAN_MIGRATE_OWNER_URL="$owner_url" MEZAN_IMAGE_TAG="$tag" timeout "$MIGRATE_TIMEOUT_SECONDS" \
+    docker compose --project-directory "$COMPOSE_DIR" -f "$COMPOSE_DIR/docker-compose.yml" run --rm --no-deps -T --name "$MIGRATE_CONTAINER" \
+    -e MEZAN_MIGRATE_OWNER_URL -e TMPDIR=/data/.migrate-scratch mezan \
+    node --import tsx apps/server/src/sqlite-to-postgres-cli.ts migrate --data /data > "$MIGRATION_REPORT" || code=$?
+  # timeout stops the compose client, not the container.
+  docker rm -f "$MIGRATE_CONTAINER" >/dev/null 2>&1 || true
+  rm -rf "$MIGRATE_SCRATCH"
+  [ "$code" -ne 124 ] || log "the migration ran past $MIGRATE_TIMEOUT_SECONDS s and was stopped"
+  return "$code"
 }
 
 # Puts the pre-deploy copy and the old tag back after the new one failed.

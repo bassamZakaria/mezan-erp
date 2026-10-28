@@ -184,8 +184,7 @@ function operationsOf(at: Date, verdict: Readiness, jobs: JobRegistry, alerter: 
   };
 }
 
-// CONTRACT: deploy.sh reads platform.schema_meta('schema_version') to tell
-// which build last wrote the Postgres books.
+// Created here, not by the SQLite migrator: the first boot after the cutover stamps it.
 async function stampSchemaVersion(db: SqlDb): Promise<void> {
   await db.applySchema("CREATE TABLE IF NOT EXISTS schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);");
   await db.run(

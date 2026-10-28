@@ -53,6 +53,7 @@ on_exit() {
   [ "$code" -ne 0 ] || return 0
   case "$PHASE" in
     stopped)
+      docker rm -f "$MIGRATE_CONTAINER" >/dev/null 2>&1 || true
       log "starting the old version again (nothing was switched)"
       compose start mezan || log "could not start it: run 'docker compose start mezan' in $COMPOSE_DIR" ;;
     tagged) log "the site may be down on tag $(tag_value MEZAN_IMAGE_TAG): see README 'Restore'" ;;
@@ -290,9 +291,9 @@ migrate_sqlite_books() {
   install -d -o 1000 -g 1000 -m 700 "$MIGRATE_SCRATCH"
   docker rm -f "$MIGRATE_CONTAINER" >/dev/null 2>&1 || true
   log "migrating the SQLite books into Postgres with $tag (progress below, report: $MIGRATION_REPORT, stopped after $MIGRATE_TIMEOUT_SECONDS s)"
-  MEZAN_MIGRATE_OWNER_URL="$owner_url" MEZAN_IMAGE_TAG="$tag" timeout "$MIGRATE_TIMEOUT_SECONDS" \
+  MEZAN_MIGRATE_OWNER_URL="$owner_url" MEZAN_IMAGE_TAG="$tag" timeout -k 30 "$MIGRATE_TIMEOUT_SECONDS" \
     docker compose --project-directory "$COMPOSE_DIR" -f "$COMPOSE_DIR/docker-compose.yml" run --rm --no-deps -T --name "$MIGRATE_CONTAINER" \
-    -e MEZAN_MIGRATE_OWNER_URL -e TMPDIR=/data/.migrate-scratch mezan \
+    -e MEZAN_MIGRATE_OWNER_URL -e TMPDIR=/data/.migrate-scratch -e MEZAN_LOG_STDERR=1 mezan \
     node --import tsx apps/server/src/sqlite-to-postgres-cli.ts migrate --data /data > "$MIGRATION_REPORT" || code=$?
   # timeout stops the compose client, not the container.
   docker rm -f "$MIGRATE_CONTAINER" >/dev/null 2>&1 || true
@@ -344,6 +345,8 @@ deploy() {
     docker tag "${MEZAN_IMAGE:-ghcr.io/bassamzakaria/mezan-erp}@${new_tag#*@}" "${MEZAN_IMAGE:-ghcr.io/bassamzakaria/mezan-erp}:${new_tag%%@*}"
   fi
 
+  # A scratch folder left by an interrupted check must not be measured, snapshotted or restored.
+  if [ "$MIGRATE_SQLITE" = 1 ]; then rm -rf "$MIGRATE_SCRATCH"; fi
   if [ -n "$old_tag" ]; then check_disk; fi
   stop_cleanly
   PHASE=stopped

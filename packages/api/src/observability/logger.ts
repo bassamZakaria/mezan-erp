@@ -134,7 +134,7 @@ function consoleDestination(): DestinationStream {
 
 function destination(): DestinationStream {
   if (process.env["VITEST"]) return consoleDestination();
-  return pino.destination({ dest: 1, sync: true });
+  return pino.destination({ dest: process.env["MEZAN_LOG_STDERR"] === "1" ? 2 : 1, sync: true });
 }
 
 function levelFromEnv(): string {

@@ -143,6 +143,7 @@ const ROUTES: readonly (readonly [string, string])[] = [
   ["/cash-flow", "periodFrom=2026-08-01&periodTo=2026-08-31"],
   ["/vat-return", "periodFrom=2026-08-01&periodTo=2026-08-31&outputVatAccountId=2200&inputVatAccountId=1400"],
   ["/general-ledger", "periodFrom=2026-08-01&periodTo=2026-08-31"],
+  ["/day-book", "periodFrom=2026-08-01&periodTo=2026-08-31"],
   ["/account-ledger", "accountId=1100&periodFrom=2026-08-01&periodTo=2026-08-31"],
 ];
 
@@ -463,6 +464,43 @@ describe("GET /general-ledger", () => {
     expect(body.reconciliation.referenceTotal).toBe(0);
     expect(body.reconciliation.diff).toBe(0);
     expect(body.reconciliation.withinTolerance).toBe(true);
+  });
+});
+
+describe("GET /day-book (#126)", () => {
+  it("lists the period's posted entries in booking order, each with its lines, and balances exactly", async () => {
+    const { ledger, accounts } = await seed();
+    const app = makeApp({ ledger, accounts });
+    const res = await app.fetch(req("/day-book?periodFrom=2026-08-01&periodTo=2026-08-31", "accounting.reports.view"));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      rows: { entryId: string; accountCode: string; accountNameAr: string; debit: string; credit: string }[];
+      groups: { key: string; totals: { debit: string; credit: string } }[];
+      grandTotals: { debit: string; credit: string };
+      reconciliation: { diff: string; withinTolerance: boolean };
+    };
+    expect(body.groups.map((g) => g.key)).toEqual(["je-sale1", "je-expense1", "je-cogs1", "je-sale2"]);
+    expect(body.rows).toHaveLength(10);
+    expect(body.rows[0]).toMatchObject({ entryId: "je-sale1", accountCode: "1200", accountNameAr: "العملاء", debit: "1140.000000" });
+    for (const group of body.groups) expect(group.totals.debit).toBe(group.totals.credit);
+    expect(body.grandTotals).toEqual({ debit: "2410.000000", credit: "2410.000000" });
+    expect(body.reconciliation.withinTolerance).toBe(true);
+  });
+
+  it("answers an empty range with zero rows, not NaN", async () => {
+    const { ledger, accounts } = await seed();
+    const app = makeApp({ ledger, accounts });
+    const res = await app.fetch(req("/day-book?periodFrom=2030-01-01&periodTo=2030-01-31", "accounting.reports.view"));
+    const text = await res.text();
+    expect(text).not.toContain("NaN");
+    expect((JSON.parse(text) as { rows: unknown[] }).rows).toEqual([]);
+  });
+
+  it("refuses an inverted range", async () => {
+    const { ledger, accounts } = await seed();
+    const app = makeApp({ ledger, accounts });
+    const res = await app.fetch(req("/day-book?periodFrom=2026-08-31&periodTo=2026-08-01", "accounting.reports.view"));
+    expect(res.status).toBe(400);
   });
 });
 

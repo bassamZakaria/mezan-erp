@@ -43,7 +43,7 @@ export function validateNewAccount(command: CreateAccountCommand, existing: read
  * Creates and persists a new account. New accounts always start `active`
  * (docs/archive/catalog/04 — status is toggled later via edit, never at creation).
  */
-export async function createAccount(command: CreateAccountCommand, repo: AccountRepository): Promise<Account> {
+export async function createAccount(command: CreateAccountCommand, repo: Pick<AccountRepository, "list" | "create">): Promise<Account> {
   const existing = await repo.list();
   validateNewAccount(command, existing);
 

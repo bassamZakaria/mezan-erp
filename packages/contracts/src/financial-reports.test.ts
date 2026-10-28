@@ -19,6 +19,8 @@ import {
   vatSideSchema,
   vatReturnRowSchema,
   generalLedgerRowSchema,
+  dayBookRowSchema,
+  dayBookReportSchema,
   accountLedgerRowSchema,
   accountLedgerReportSchema,
 } from "./financial-reports.js";
@@ -251,6 +253,39 @@ describe("generalLedgerRowSchema", () => {
     const { entryNo, ...rest } = row;
     const result = generalLedgerRowSchema.safeParse(rest);
     expect(result.success).toBe(false);
+  });
+});
+
+describe("dayBookRowSchema / dayBookReportSchema (#126)", () => {
+  const row = {
+    rowId: "je-1:0",
+    entryId: "je-1",
+    date: "2026-08-30",
+    entryNo: "JE-000001",
+    entryLabel: "JE-000001 — 2026-08-30",
+    accountCode: "1100",
+    accountNameAr: "النقدية",
+    accountNameEn: null,
+    memo: "بيع",
+    sourceRef: "INV-000014",
+    debit: "1250.500000",
+    credit: "0.000000",
+  };
+
+  it("accepts a row whose money is an exact decimal string", () => {
+    expect(dayBookRowSchema.safeParse(row).success).toBe(true);
+  });
+
+  it("rejects money sent as a float", () => {
+    expect(dayBookRowSchema.safeParse({ ...row, debit: 1250.5 }).success).toBe(false);
+  });
+
+  it("accepts a balanced envelope and an empty period totalling zero", () => {
+    const totals = { debit: "1250.500000", credit: "1250.500000" };
+    const reconciliation = { labelAr: "إجمالي المدين = إجمالي الدائن", reportTotal: "1250.500000", referenceTotal: "1250.500000", diff: "0.000000", withinTolerance: true };
+    const params = { periodFrom: "2026-08-01", periodTo: "2026-08-31" };
+    expect(dayBookReportSchema.safeParse({ params, rows: [row], groups: [{ key: "je-1", label: row.entryLabel, rows: [row], totals }], grandTotals: totals, reconciliation }).success).toBe(true);
+    expect(dayBookReportSchema.safeParse({ params, rows: [], groups: [], grandTotals: { debit: 0, credit: 0 }, reconciliation: { ...reconciliation, reportTotal: "0.000000", referenceTotal: "0.000000" } }).success).toBe(true);
   });
 });
 

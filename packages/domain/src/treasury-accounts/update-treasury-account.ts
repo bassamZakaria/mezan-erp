@@ -1,4 +1,4 @@
-import { assertTreasuryLedgerAccount, type TreasuryLedgerAccountDeps } from "./ledger-account.js";
+import { TreasuryLedgerAccountUnlinkError, assertTreasuryLedgerAccount, openTreasuryLedgerAccount, type TreasuryLedgerAccountDeps } from "./ledger-account.js";
 import { Money } from "../money/index.js";
 import {
   MAX_GUARANTEE_FACILITY_LIMIT_SCALED,
@@ -80,6 +80,8 @@ export async function updateTreasuryAccount(
   const current = await repo.findById(accountId);
   if (!current) throw new TreasuryAccountNotFoundError(accountId);
 
+  if (command.glAccountId !== undefined && !command.glAccountId && current.glAccountId) throw new TreasuryLedgerAccountUnlinkError(accountId);
+
   const changed: TreasuryAccountFixedField[] = [];
   if (command.currency !== undefined && command.currency !== current.currency) changed.push(TreasuryAccountFixedField.Currency);
   if (command.glAccountId !== undefined && command.glAccountId !== current.glAccountId) changed.push(TreasuryAccountFixedField.GlAccount);
@@ -113,7 +115,7 @@ export async function updateTreasuryAccount(
     bankAccountNumber:
       command.bankAccountNumber !== undefined ? (command.bankAccountNumber?.trim() || null) : current.bankAccountNumber,
     branchId: command.branchId === undefined ? current.branchId : command.branchId,
-    glAccountId: command.glAccountId !== undefined ? command.glAccountId : current.glAccountId,
+    glAccountId: (command.glAccountId !== undefined ? command.glAccountId : current.glAccountId) || null,
     openingBalance: nextOpeningBalance,
     openingBalanceDate: command.openingBalanceDate !== undefined ? command.openingBalanceDate : current.openingBalanceDate,
     guaranteeFacilityLimit: nextFacilityLimit,
@@ -121,7 +123,9 @@ export async function updateTreasuryAccount(
   };
 
   if (ledgerAccounts) await assertTreasuryLedgerAccount(updated, ledgerAccounts);
+  // ORDERING: every refusal runs before the leaf is opened — a 4xx still commits the audit boundary, so a later refusal would orphan it.
+  const linked = updated.glAccountId || !ledgerAccounts ? updated : { ...updated, glAccountId: await openTreasuryLedgerAccount(updated, ledgerAccounts) };
 
-  await repo.update(updated);
-  return updated;
+  await repo.update(linked);
+  return linked;
 }

@@ -32,6 +32,8 @@ function reportBody(overrides: Partial<Record<string, unknown>> = {}) {
   };
 }
 
+const DAY_ROW = { rowId: "je-1:0", entryId: "je-1", date: "2026-03-01", entryNo: "JE-000001", entryLabel: "JE-000001 — 2026-03-01", accountCode: "1100", accountNameAr: "النقدية", accountNameEn: null, memo: "بيع نقدي", sourceRef: "INV-000014", debit: "100.000000", credit: "0.000000" };
+
 function fullTransport(capture?: { paths: string[] }) {
   const record = (path: string) => {
     capture?.paths.push(path);
@@ -72,6 +74,16 @@ function fullTransport(capture?: { paths: string[] }) {
       }
     ),
     "GET /financial-reports/general-ledger": (_i, p) => (record(p), { body: reportBody() }),
+    "GET /financial-reports/day-book": (_i, p) => (
+      record(p),
+      {
+        body: reportBody({
+          rows: [DAY_ROW],
+          groups: [{ key: "je-1", label: "JE-000001 — 2026-03-01", rows: [DAY_ROW], totals: { debit: "100.000000", credit: "0.000000" } }],
+          grandTotals: { debit: "100.000000", credit: "0.000000" },
+        }),
+      }
+    ),
     "GET /financial-reports/account-ledger": (_i, p) => (record(p), { body: reportBody({ reconciliation: null }) }),
   });
 }
@@ -122,6 +134,19 @@ describe("FinancialReportsScreen (real GL API wiring)", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "عرض التقرير" }));
     await waitFor(() => expect(capture.paths.some((p) => p.includes("/financial-reports/general-ledger"))).toBe(true));
+  });
+
+  it("runs the day book on demand against /financial-reports/day-book and renders the entry's lines (#126)", async () => {
+    const capture = { paths: [] as string[] };
+    renderWithProviders(<FinancialReportsScreen />, { transport: fullTransport(capture), initialSession: testAdminSession });
+    fireEvent.click(screen.getByRole("tab", { name: "دفتر اليومية" }));
+    expect(await screen.findByText(/اضغط .عرض التقرير./)).toBeInTheDocument();
+    expect(capture.paths.some((p) => p.includes("/financial-reports/day-book"))).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: "عرض التقرير" }));
+    await waitFor(() => expect(capture.paths.some((p) => p.includes("/financial-reports/day-book"))).toBe(true));
+    expect((await screen.findAllByText("INV-000014")).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("بيع نقدي").length).toBeGreaterThan(0);
   });
 
   it("keeps an Excel export control available on the auto-run trial balance tab", async () => {

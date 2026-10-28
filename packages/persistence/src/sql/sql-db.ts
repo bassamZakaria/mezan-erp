@@ -96,6 +96,12 @@ export function escapeLike(term: string): string {
 
 const SQLITE_PRIMARY_KEY_VIOLATION = "SQLITE_CONSTRAINT_PRIMARYKEY";
 const PG_UNIQUE_VIOLATION = "23505";
+const SQLITE_UNIQUE_VIOLATION = "SQLITE_CONSTRAINT_UNIQUE";
+
+export function isUniqueViolation(error: unknown): boolean {
+  const { code } = (error ?? {}) as { code?: string };
+  return code === SQLITE_UNIQUE_VIOLATION || code === PG_UNIQUE_VIOLATION;
+}
 
 export function isPrimaryKeyViolation(error: unknown): boolean {
   const { code, constraint } = (error ?? {}) as { code?: string; constraint?: string };

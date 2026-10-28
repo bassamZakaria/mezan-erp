@@ -30,7 +30,10 @@ export { updateTreasuryAccount, type UpdateTreasuryAccountCommand, type Treasury
 export {
   InvalidTreasuryLedgerAccountError,
   TreasuryLedgerAccountFault,
+  TreasuryLedgerAccountUnlinkError,
   assertTreasuryLedgerAccount,
+  cashAndBankHeader,
+  openTreasuryLedgerAccount,
   type TreasuryLedgerAccountDeps,
 } from "./ledger-account.js";
 export { CASH_AND_BANK_ROUTING_KEY, RESTRICTED_CASH_ROUTING_KEY, cashAndBankLedgerAccountIds, sitsUnderAccount, type CashAndBankSources } from "./cash-and-bank-accounts.js";

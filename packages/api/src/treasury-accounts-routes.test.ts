@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { createSqliteTreasuryAccountRepository, type SqliteTreasuryAccountRepositoryHandle } from "@mezan/persistence";
+import { createSqliteAccountRepository, createSqliteTreasuryAccountRepository, type SqliteTreasuryAccountRepositoryHandle } from "@mezan/persistence";
 import { createTreasuryAccountsRoutes } from "./treasury-accounts-routes.js";
 
 import { insecureHeaderAuthContextResolver } from "./permission-gate.js";
@@ -143,5 +143,28 @@ describe("treasury-accounts router — CRUD", () => {
       req("/nope", { method: "PATCH", permissions: "treasury.account.manage", headers: { "content-type": "application/json" }, body: JSON.stringify({ status: "inactive" }) }),
     );
     expect(res.status).toBe(404);
+  });
+});
+
+describe("treasury-accounts router — the linked ledger account", () => {
+  it("names the linked ledger account's code and Arabic name on the list and on one account, from one chart read", async () => {
+    const repo = createSqliteTreasuryAccountRepository();
+    const accounts = createSqliteAccountRepository();
+    handles.push(repo, accounts as unknown as SqliteTreasuryAccountRepositoryHandle);
+    await accounts.create({ id: "1300", code: "1300", nameAr: "النقدية والبنوك", nameEn: null, type: "asset", naturalBalance: "debit", parentId: null, isHeader: true, status: "active" });
+    await accounts.create({ id: "acc-cash", code: "1300-7", nameAr: "صندوق الفرع", nameEn: null, type: "asset", naturalBalance: "debit", parentId: "1300", isHeader: false, status: "active" });
+    let listed = 0;
+    const countingAccounts = { findById: accounts.findById.bind(accounts), create: accounts.create.bind(accounts), list: () => { listed += 1; return accounts.list(); } };
+    const app = createTreasuryAccountsRoutes(repo, insecureHeaderAuthContextResolver, undefined, undefined, { accounts: countingAccounts, cashAndBankParentAccountId: async () => "1300" });
+    const created = await app.fetch(
+      req("/", { method: "POST", permissions: "treasury.account.manage", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...payload, glAccountId: "acc-cash" }) }),
+    );
+    expect(created.status).toBe(201);
+    listed = 0;
+    const one = (await (await app.fetch(req("/ta1", { permissions: "treasury.account.view" }))).json()) as { glAccountCode: string | null; glAccountNameAr: string | null };
+    expect(one).toMatchObject({ glAccountCode: "1300-7", glAccountNameAr: "صندوق الفرع" });
+    const list = (await (await app.fetch(req("/", { permissions: "treasury.account.view" }))).json()) as { glAccountCode: string | null }[];
+    expect(list.map((row) => row.glAccountCode)).toEqual(["1300-7"]);
+    expect(listed).toBe(2);
   });
 });

@@ -345,6 +345,10 @@ function respondValidation(c: Context, errors: readonly { field: string; message
   return c.json({ error: "VALIDATION_ERROR", errors }, 400);
 }
 
+function refuseAmbiguousActor(c: Context, field: string): Response {
+  return c.json({ error: "VALIDATION_ERROR", errors: [{ field, message: "أكثر من مستخدم بهذا الاسم، اختر من القائمة" }] }, 422);
+}
+
 function flatten(issues: readonly { path: (string | number)[]; message: string }[]) {
   return issues.map((issue) => ({
     field: issue.path.length > 0 ? issue.path.join(".") : "_root",
@@ -352,14 +356,23 @@ function flatten(issues: readonly { path: (string | number)[]; message: string }
   }));
 }
 
-function unrecordedOf(fallback: SecurityEventFallback | undefined): UnrecordedSecurityEventsDTO {
+function unrecordedOf(fallback: SecurityEventFallback | undefined, nameOf: (actor: string) => string): UnrecordedSecurityEventsDTO {
   if (!fallback) return { count: 0, recent: [], dropped: 0, corrupted: 0 };
   const { count, recent, dropped, corrupted } = fallback.summary();
   return {
     count,
     dropped,
     corrupted,
-    recent: recent.map(({ at, module, action, severity, actor, entityId, reason }) => ({ at, module, action, severity, actor, entityId, reason })),
+    recent: recent.map(({ at, module, action, severity, actor, entityId, reason }) => ({
+      at,
+      module,
+      action,
+      severity,
+      actor,
+      actorNameAr: nameOf(actor),
+      entityId,
+      reason,
+    })),
   };
 }
 
@@ -373,6 +386,22 @@ export function createSecurityReportsRoutes(
   const companyWide: MiddlewareHandler = async (c, next) => refuseBranchScopedCaller(c) ?? (await next());
 
   const now = () => deps.now?.() ?? new Date();
+
+  /** `actor` stays the id filters and drill-downs key on; system and deleted actors have no user row and show their id. */
+  async function actorNames(): Promise<(actor: string) => string> {
+    const names = new Map(((await deps.users?.list()) ?? []).map((user: User) => [user.id, user.nameAr]));
+    return (actor) => names.get(actor) || actor;
+  }
+
+  async function actorFilterId(input: string | undefined): Promise<{ readonly id: string | undefined } | { readonly ambiguous: true }> {
+    if (!input) return { id: undefined };
+    const users = (await deps.users?.list()) ?? [];
+    if (users.some((user: User) => user.id === input)) return { id: input };
+    const wanted = input.trim().toLowerCase();
+    const named = users.filter((user: User) => user.nameAr.trim().toLowerCase() === wanted || (user.nameEn ?? "").trim().toLowerCase() === wanted);
+    if (named.length > 1) return { ambiguous: true };
+    return { id: named.length === 1 ? named[0]!.id : input };
+  }
 
   function queryParams(c: Context): Record<string, string> {
     const out: Record<string, string> = {};
@@ -435,15 +464,18 @@ export function createSecurityReportsRoutes(
       return respondValidation(c, [{ field: "from", message: "تاريخ البداية يجب ألا يتجاوز تاريخ النهاية." }]);
     }
     const bounds = utcBounds(from, to);
+    const actor = await actorFilterId(parsed.data.actor);
+    if ("ambiguous" in actor) return refuseAmbiguousActor(c, "actor");
+    const actorFilter = actor.id;
 
     const filter: AuditQueryFilter = {
       stream: "security",
       ...bounds,
-      ...(parsed.data.actor ? { actor: parsed.data.actor } : {}),
+      ...(actorFilter ? { actor: actorFilter } : {}),
       ...(parsed.data.action ? { action: parsed.data.action } : {}),
       ...(parsed.data.severity ? { severity: parsed.data.severity } : {}),
     };
-    const { events, coverage } = await collectEvents(deps.audit, filter);
+    const [{ events, coverage }, nameOf] = await Promise.all([collectEvents(deps.audit, filter), actorNames()]);
 
     interface Cell {
       actor: string;
@@ -497,6 +529,7 @@ export function createSecurityReportsRoutes(
     const rows: SecurityExceptionRowDTO[] = [...cells.values()]
       .map((cell) => ({
         actor: cell.actor,
+        actorNameAr: nameOf(cell.actor),
         action: cell.action,
         actionLabelAr: securityActionLabel(cell.action),
         module: cell.module,
@@ -519,7 +552,7 @@ export function createSecurityReportsRoutes(
     const groups = [...byActor.entries()]
       .map(([actor, actorRows]) => ({
         key: actor,
-        labelAr: actor,
+        labelAr: nameOf(actor),
         rows: actorRows,
         totals: {
           count: actorRows.reduce((sum, row) => sum + row.count, 0),
@@ -569,7 +602,7 @@ export function createSecurityReportsRoutes(
     ];
 
     const columns: ReportColumnDTO[] = [
-      { key: "actor", labelAr: "المستخدم" },
+      { key: "actorNameAr", labelAr: "المستخدم" },
       { key: "actionLabelAr", labelAr: "الحدث" },
       { key: "count", labelAr: "العدد", format: "qty" },
       { key: "critical", labelAr: SEVERITY_LABELS_AR.CRITICAL, format: "qty" },
@@ -601,7 +634,7 @@ export function createSecurityReportsRoutes(
       recent: [...events]
         .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
         .slice(0, RECENT_LIMIT),
-      unrecorded: unrecordedOf(deps.unrecorded),
+      unrecorded: unrecordedOf(deps.unrecorded, nameOf),
       coverage,
       gaps: [
         {
@@ -634,6 +667,9 @@ export function createSecurityReportsRoutes(
       return respondValidation(c, [{ field: "from", message: "تاريخ البداية يجب ألا يتجاوز تاريخ النهاية." }]);
     }
     const bounds = utcBounds(from, to);
+    const actor = await actorFilterId(parsed.data.actor);
+    if ("ambiguous" in actor) return refuseAmbiguousActor(c, "actor");
+    const actorFilter = actor.id;
 
     // One query per action rather than one unfiltered sweep: `AuditQueryFilter`
     // matches a single `action`, and reading the whole sensitive stream to throw
@@ -649,12 +685,13 @@ export function createSecurityReportsRoutes(
             stream: "sensitive",
             action,
             ...bounds,
-            ...(parsed.data.actor ? { actor: parsed.data.actor } : {}),
+            ...(actorFilter ? { actor: actorFilter } : {}),
             ...(parsed.data.entityType ? { entityType: parsed.data.entityType } : {}),
           }),
         ),
     );
 
+    const nameOf = await actorNames();
     const events = collected.flatMap((result) => result.events);
     const coverage: ReportCoverageDTO = {
       matched: collected.reduce((sum, result) => sum + result.coverage.matched, 0),
@@ -670,6 +707,7 @@ export function createSecurityReportsRoutes(
           rowKey: rowKeyOf(event),
           timestamp: event.timestamp,
           actor: event.actor,
+          actorNameAr: nameOf(event.actor),
           module: event.module,
           entityType: event.entityType,
           entityId: event.entityId,
@@ -698,7 +736,7 @@ export function createSecurityReportsRoutes(
     const groups = [...byActor.entries()]
       .map(([actor, actorRows]) => ({
         key: actor,
-        labelAr: actor,
+        labelAr: nameOf(actor),
         rows: actorRows,
         totals: {
           count: actorRows.length,
@@ -734,7 +772,7 @@ export function createSecurityReportsRoutes(
 
     const columns: ReportColumnDTO[] = [
       { key: "timestamp", labelAr: "التاريخ والوقت", format: "datetime" },
-      { key: "actor", labelAr: "المستخدم" },
+      { key: "actorNameAr", labelAr: "المستخدم" },
       { key: "changeTypeLabelAr", labelAr: "نوع التعديل" },
       { key: "entityType", labelAr: "نوع المستند" },
       { key: "docNo", labelAr: "رقم المستند" },
@@ -798,6 +836,9 @@ export function createSecurityReportsRoutes(
       return respondValidation(c, [{ field: "from", message: "تاريخ البداية يجب ألا يتجاوز تاريخ النهاية." }]);
     }
     const bounds = utcBounds(from, to);
+    const actor = await actorFilterId(parsed.data.actor);
+    if ("ambiguous" in actor) return refuseAmbiguousActor(c, "actor");
+    const actorFilter = actor.id;
 
     const hours = await workingHours();
     const { formatter } = zoneFormatter(hours.timezone);
@@ -811,11 +852,12 @@ export function createSecurityReportsRoutes(
         collectEvents(deps.audit, {
           stream,
           ...bounds,
-          ...(parsed.data.actor ? { actor: parsed.data.actor } : {}),
+          ...(actorFilter ? { actor: actorFilter } : {}),
           ...(parsed.data.severity ? { severity: parsed.data.severity } : {}),
         }),
       ),
     );
+    const nameOf = await actorNames();
     const events = collected.flatMap((result) => result.events);
 
     const rows: AfterHoursRowDTO[] = [];
@@ -852,6 +894,7 @@ export function createSecurityReportsRoutes(
               ? "قبل بدء الدوام"
               : "بعد انتهاء الدوام",
         actor: event.actor,
+        actorNameAr: nameOf(event.actor),
         stream: event.stream,
         module: event.module,
         entityType: event.entityType,
@@ -872,7 +915,7 @@ export function createSecurityReportsRoutes(
     const groups = [...byActor.entries()]
       .map(([actor, actorRows]) => ({
         key: actor,
-        labelAr: actor,
+        labelAr: nameOf(actor),
         rows: actorRows,
         totals: {
           count: actorRows.length,
@@ -900,7 +943,7 @@ export function createSecurityReportsRoutes(
       { key: "localTime", labelAr: "الوقت" },
       { key: "weekdayLabelAr", labelAr: "اليوم" },
       { key: "outsideReasonLabelAr", labelAr: "سبب الاستثناء" },
-      { key: "actor", labelAr: "المستخدم" },
+      { key: "actorNameAr", labelAr: "المستخدم" },
       { key: "action", labelAr: "الإجراء" },
       { key: "entityType", labelAr: "النوع" },
       { key: "entityId", labelAr: "المرجع" },
@@ -969,6 +1012,8 @@ export function createSecurityReportsRoutes(
     app.get("/new-accounts", gate("audit.logs.view"), companyWide, async (c) => {
       const parsed = newAccountsQuerySchema.safeParse(queryParams(c));
       if (!parsed.success) return respondValidation(c, flatten(parsed.error.issues));
+      const creator = await actorFilterId(parsed.data.createdBy);
+      if ("ambiguous" in creator) return refuseAmbiguousActor(c, "createdBy");
 
       // Recomputed server-side, always. The caller may ask for a window; what
       // it gets is a bounded one.
@@ -978,6 +1023,7 @@ export function createSecurityReportsRoutes(
       const nowIso = now().toISOString();
 
       const all = await users.list();
+      const nameById = new Map(all.map((user: User) => [user.id, user.nameAr]));
       const recent = all
         .filter((user: User) => user.createdAt >= since)
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
@@ -1061,6 +1107,7 @@ export function createSecurityReportsRoutes(
           createdAt: user.createdAt,
           lastLoginAt: user.lastLoginAt,
           createdBy: creation?.actor ?? null,
+          createdByNameAr: creation ? nameById.get(creation.actor) || creation.actor : null,
           createdByEventAt: creation?.at ?? null,
           postedDocumentCount: posted,
           voidedDocumentCount: voided,
@@ -1070,8 +1117,8 @@ export function createSecurityReportsRoutes(
         } satisfies NewAccountRowDTO;
       });
 
-      if (parsed.data.createdBy) {
-        const wanted = parsed.data.createdBy;
+      if (creator.id) {
+        const wanted = creator.id;
         rows = rows.filter((row) => row.createdBy === wanted);
       }
 
@@ -1088,7 +1135,7 @@ export function createSecurityReportsRoutes(
       const groups = [...byCreator.entries()]
         .map(([creator, creatorRows]) => ({
           key: creator === "" ? "__unknown__" : creator,
-          labelAr: creator === "" ? "منشئ غير مسجَّل" : creator,
+          labelAr: creator === "" ? "منشئ غير مسجَّل" : nameById.get(creator) || creator,
           rows: creatorRows,
           totals: {
             count: creatorRows.length,
@@ -1132,7 +1179,7 @@ export function createSecurityReportsRoutes(
         { key: "createdAt", labelAr: "تاريخ الإنشاء", format: "datetime" },
         { key: "nameAr", labelAr: "الاسم" },
         { key: "email", labelAr: "البريد/اسم الدخول" },
-        { key: "createdBy", labelAr: "أنشأه" },
+        { key: "createdByNameAr", labelAr: "أنشأه" },
         { key: "status", labelAr: "الحالة" },
         { key: "lastLoginAt", labelAr: "آخر دخول", format: "datetime" },
         { key: "postedDocumentCount", labelAr: "مستندات رحّلها", format: "qty" },

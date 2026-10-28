@@ -282,7 +282,8 @@ describe("treasury accounts", () => {
     await waitFor(() => expect(update.current.isSuccess).toBe(true));
 
     expect(spy).toHaveBeenCalledWith({ queryKey: ["treasury-accounts"] });
-    expect(spy).toHaveBeenCalledTimes(2);
+    expect(spy).toHaveBeenCalledWith({ queryKey: ["accounts"] });
+    expect(spy).toHaveBeenCalledTimes(4);
   });
 });
 

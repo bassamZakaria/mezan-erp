@@ -1,6 +1,6 @@
 import type { SecurityExceptionRowDTO, SecurityWatchlistEntryDTO, UnrecordedSecurityEventsDTO } from "@mezan/contracts";
-import type { ReportRunnerColumn, ReportRunnerParamField } from "@mezan/ui";
-import { SecurityReportScreen, securityCopy, type SecurityReportResult } from "./SecurityReportScreen";
+import type { ReportRunnerColumn } from "@mezan/ui";
+import { SecurityReportScreen, useUserFilterField, type SecurityParamField, securityCopy, type SecurityReportResult } from "./SecurityReportScreen";
 import { useAppTranslation } from "../../i18n";
 import { useAuditLabels } from "../enh/audit-ledger/audit-changes";
 import { monthStartIso, todayIso } from "../../lib/dates";
@@ -21,9 +21,10 @@ export function ExceptionsReportScreen() {
   const labels = useAuditLabels();
   const today = todayIso();
 
-  const paramFields: ReportRunnerParamField[] = [
+  const userFilter = useUserFilterField("actor", t("securityReports.actor"));
+  const paramFields: SecurityParamField[] = [
     { kind: "dateRange", fromKey: "from", toKey: "to", label: t("securityReports.period") },
-    { kind: "text", key: "actor", label: t("securityReports.actor") },
+    userFilter,
     { kind: "text", key: "action", label: t("securityReports.action") },
     {
       kind: "select",
@@ -37,7 +38,7 @@ export function ExceptionsReportScreen() {
   ];
 
   const columns: ReportRunnerColumn<SecurityExceptionRowDTO>[] = [
-    { key: "actor", header: securityCopy(REPORT, "col", "actor", "المستخدم", t), value: (r) => r.actor },
+    { key: "actor", header: securityCopy(REPORT, "col", "actor", "المستخدم", t), value: (r) => r.actorNameAr },
     { key: "actionLabelAr", header: securityCopy(REPORT, "col", "actionLabelAr", "الحدث", t), value: (r) => knownActionLabel(labels, r.action, r.actionLabelAr) },
     {
       key: "count",
@@ -130,7 +131,7 @@ function Unrecorded({ result }: { result: SecurityReportResult<SecurityException
           <li key={`${entry.at}|${entry.action}|${entry.actor}`} className="flex flex-wrap items-baseline gap-x-[8px]">
             <span className="mz-num" dir="ltr">{entry.at}</span>
             <span className="font-semibold" dir="ltr">{entry.action}</span>
-            <span>{entry.actor}</span>
+            <span>{entry.actorNameAr}</span>
             <span dir="ltr">{entry.reason}</span>
           </li>
         ))}

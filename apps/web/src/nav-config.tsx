@@ -644,6 +644,7 @@ const COMMAND_KEYWORDS: Readonly<Record<string, readonly string[]>> = {
     "finReports.vatReturn",
     "finReports.withholdingTax",
     "finReports.generalLedger",
+    "finReports.dayBook",
     "finReports.financialStatements",
   ],
   "trial-balance-report": ["finReports.trialBalance"],

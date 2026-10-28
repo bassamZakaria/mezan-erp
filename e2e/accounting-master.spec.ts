@@ -329,10 +329,10 @@ test.describe("Treasury accounts", () => {
     await page.getByRole("button", { name: "إغلاق اللوحة" }).click();
     await expect(panel).toBeHidden();
 
-    // An account with no explicit GL override falls back to "auto by type".
+    // #120: an account created with the ledger field blank is linked to a leaf of its own under 1300.
     await row(page, "صندوق تجريبي").click(); // created by the previous (serial) test
     const testPanel = page.getByRole("dialog", { name: "كشف حساب — صندوق تجريبي" });
-    await expect(testPanel.getByText("تلقائي حسب النوع")).toBeVisible();
+    await expect(testPanel.getByText(/^1300-\d+$/)).toBeVisible();
   });
 });
 

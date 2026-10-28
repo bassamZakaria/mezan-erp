@@ -40,6 +40,7 @@ describe("reports/index barrel", () => {
       reports.createVatReturnReport,
       reports.createWithholdingTaxReport,
       reports.createGeneralLedgerReport,
+      reports.createDayBookReport,
       reports.createAccountLedgerReport,
     ];
     for (const factory of factories) expect(typeof factory).toBe("function");

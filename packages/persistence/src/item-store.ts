@@ -1,7 +1,7 @@
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 import { DuplicateItemCodeError, Money, type AlternateUnit, type CostingMethod, type EtaCodeType, type Item, type ItemRepository, type ItemStatus, type ItemType, type ItemSpecificationValue } from "@mezan/domain";
 import { insertNew } from "./insert-new.js";
-import type { SqlDb, SqlValue } from "./sql/sql-db.js";
+import { isUniqueViolation, type SqlDb, type SqlValue } from "./sql/sql-db.js";
 import { sqliteDb } from "./sql/sqlite-db.js";
 
 /**
@@ -250,11 +250,6 @@ class SqlItemStore implements ItemRepository {
       throw error;
     }
   }
-}
-
-function isUniqueViolation(error: unknown): boolean {
-  const { code } = (error ?? {}) as { code?: string };
-  return code === "SQLITE_CONSTRAINT_UNIQUE" || code === "23505";
 }
 
 export interface SqliteItemStoreHandle extends ItemRepository {

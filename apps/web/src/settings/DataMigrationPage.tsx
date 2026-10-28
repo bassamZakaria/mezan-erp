@@ -6,7 +6,6 @@ import {
   useDataMigrationCommit,
   useHistoricalImportPreview,
   useHistoricalImportCommit,
-  type DataMigrationMasterStep,
   type DataMigrationStatusDTO,
   type DataMigrationStepResultDTO,
   type HistoricalImportKind,

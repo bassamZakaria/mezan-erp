@@ -14,7 +14,7 @@ export {
   type LicenseStateResolver,
 } from "./license-gate.js";
 export { createLanRoutes, type LanRoutesOptions } from "./lan/routes.js";
-export { createAccountsRouter } from "./accounts.js";
+export { createAccountsRouter, AUDITED_ACCOUNT_FIELDS } from "./accounts.js";
 export {
   createAuthenticatedGate,
   createPermissionGate,

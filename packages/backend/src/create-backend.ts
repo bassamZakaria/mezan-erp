@@ -35,6 +35,7 @@ import {
   salesTaxRerating,
   type SalesItemTaxSource,
   type ReportsRoutesDeps,
+  AUDITED_ACCOUNT_FIELDS,
 } from "@mezan/api";
 import {
   withDerivedTreasuryFx,
@@ -251,6 +252,10 @@ import {
   CASH_AND_BANK_ROUTING_KEY,
   RESTRICTED_CASH_ROUTING_KEY,
   cashAndBankLedgerAccountIds,
+  openTreasuryLedgerAccount,
+  diffAuditFields,
+  AuditChangeAction,
+  recordSensitiveEvent,
   disposalProceedsAccounts,
   UserStatusCode,
   isErasedUser,
@@ -4615,6 +4620,49 @@ async function composeBackend(options: CreateBackendOptions, db: SqlDb, sqlite: 
   });
 
   const resolveCashAndBankParentAccountId = async () => routedAccountId(await accountRouting.get(), CASH_AND_BANK_ROUTING_KEY);
+
+  /**
+   * Treasury accounts created before #120 were saved with no ledger account,
+   * and every voucher, cheque and opening balance on them is refused. Each gets
+   * its own leaf now, account and link in one transaction; a linked account is
+   * never touched, so a second start does nothing.
+   */
+  for (const { id } of (await treasuryAccounts.list()).filter((treasury) => treasury.glAccountId === null)) {
+    try {
+      const glAccountId = await db.transaction(async () => {
+        const treasury = await treasuryAccounts.findById(id);
+        if (!treasury || treasury.glAccountId !== null) return null;
+        const leafId = await openTreasuryLedgerAccount(treasury, {
+          accounts,
+          cashAndBankParentAccountId: resolveCashAndBankParentAccountId,
+          onOpened: (leaf) =>
+            recordSensitiveEvent(auditSink, {
+              module: "accounting",
+              entityType: "ACCOUNT",
+              entityId: leaf.id,
+              action: AuditChangeAction.Create,
+              actor: "system",
+              severity: "INFO",
+              details: { treasuryAccountId: treasury.id, changes: diffAuditFields(null, leaf, AUDITED_ACCOUNT_FIELDS) },
+            }),
+        });
+        await treasuryAccounts.update({ ...treasury, glAccountId: leafId });
+        await recordSensitiveEvent(auditSink, {
+          module: "treasury",
+          entityType: "TREASURY_ACCOUNT",
+          entityId: treasury.id,
+          action: AuditChangeAction.Update,
+          actor: "system",
+          severity: "WARNING",
+          details: { code: treasury.code, name: treasury.name, changes: [{ field: "glAccountId", from: null, to: leafId }] },
+        });
+        return leafId;
+      });
+      if (glAccountId) backendLog.info({ area: "treasury-accounts", treasuryAccountId: id, glAccountId }, "linked a treasury account to a ledger account of its own");
+    } catch (error) {
+      backendLog.error({ area: "treasury-accounts", treasuryAccountId: id, err: error }, "linking a treasury account to the ledger could not complete");
+    }
+  }
   const resolveCashAndBankAccountIds = async (): Promise<readonly string[]> => {
     const [routing, chart, treasury] = await Promise.all([accountRouting.get(), accounts.list(), treasuryAccounts.list()]);
     return cashAndBankLedgerAccountIds(chart, {
@@ -5482,6 +5530,7 @@ async function composeBackend(options: CreateBackendOptions, db: SqlDb, sqlite: 
       // P-5 — the three steps that make a real go-live possible: the chart, the
       // opening trial balance, and the open AR/AP the shop is actually owed.
       accounts,
+      cashAndBankParentAccountId: resolveCashAndBankParentAccountId,
       fiscalPeriods,
       partyControlAccounts: resolvePartyControlAccounts,
       postOpeningEntry: async (entry) => {

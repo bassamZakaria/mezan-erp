@@ -1,6 +1,6 @@
 import type { PostPostingChangeRowDTO } from "@mezan/contracts";
-import { formatDateTime, type ReportRunnerColumn, type ReportRunnerParamField } from "@mezan/ui";
-import { SecurityReportScreen, securityCopy } from "./SecurityReportScreen";
+import { formatDateTime, type ReportRunnerColumn } from "@mezan/ui";
+import { SecurityReportScreen, useUserFilterField, type SecurityParamField, securityCopy } from "./SecurityReportScreen";
 import { useAppTranslation, type AppTranslationKey } from "../../i18n";
 import { useAuditLabels } from "../enh/audit-ledger/audit-changes";
 import { monthStartIso, todayIso } from "../../lib/dates";
@@ -15,9 +15,10 @@ export function PostPostingChangesReportScreen() {
   const { t, locale } = useAppTranslation();
   const labels = useAuditLabels();
 
-  const paramFields: ReportRunnerParamField[] = [
+  const userFilter = useUserFilterField("actor", t("securityReports.actor"));
+  const paramFields: SecurityParamField[] = [
     { kind: "dateRange", fromKey: "from", toKey: "to", label: t("securityReports.period") },
-    { kind: "text", key: "actor", label: t("securityReports.actor") },
+    userFilter,
     { kind: "text", key: "entityType", label: t("securityReports.entityType") },
     {
       kind: "select",
@@ -32,7 +33,7 @@ export function PostPostingChangesReportScreen() {
 
   const columns: ReportRunnerColumn<PostPostingChangeRowDTO>[] = [
     { key: "timestamp", header: securityCopy(REPORT, "col", "timestamp", "التاريخ والوقت", t), value: (r) => formatDateTime(new Date(r.timestamp), { locale }) },
-    { key: "actor", header: securityCopy(REPORT, "col", "actor", "المستخدم", t), value: (r) => r.actor },
+    { key: "actor", header: securityCopy(REPORT, "col", "actor", "المستخدم", t), value: (r) => r.actorNameAr },
     {
       key: "changeTypeLabelAr",
       header: securityCopy(REPORT, "col", "changeTypeLabelAr", "نوع التعديل", t),

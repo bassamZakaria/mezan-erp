@@ -8,6 +8,12 @@ import {
   createDepartment,
   createEmployee,
   createTreasuryAccount,
+  assertTreasuryLedgerAccount,
+  cashAndBankHeader,
+  DuplicateAccountCodeError,
+  InvalidParentAccountError,
+  InvalidTreasuryLedgerAccountError,
+  DuplicateTreasuryAccountCodeError,
   createSupplier,
   createCustomer,
   createItem,
@@ -226,6 +232,7 @@ export interface DataMigrationRoutesDeps {
    * not served rather than served empty.
    */
   readonly accounts?: AccountRepository;
+  readonly cashAndBankParentAccountId?: () => Promise<string | null>;
   /**
    * P-5 — ميزان المراجعة الافتتاحي. `postOpeningEntry` posts ONE balanced
    * `INITIAL_BALANCE` journal entry; `fiscalPeriods` decides the date it
@@ -400,7 +407,18 @@ export function createDataMigrationRoutes(
     const rows = rowsOf(await readBody(c));
     const existing = await deps.treasuryAccounts.list();
     const existingCodes = new Set(existing.map((a) => a.code));
-    const result = await runStep<Record<string, unknown>, CreateTreasuryAccountCommand>(
+    const ledgerAccounts = deps.accounts ? { accounts: deps.accounts, cashAndBankParentAccountId: deps.cashAndBankParentAccountId } : null;
+    let leafHeaderRefusal: string | null = null;
+    if (ledgerAccounts && rows.some((row) => !optStr(row, "glAccountId"))) {
+      try {
+        await cashAndBankHeader(ledgerAccounts);
+      } catch (err) {
+        if (!(err instanceof InvalidParentAccountError)) throw err;
+        leafHeaderRefusal = err.message;
+      }
+    }
+    let persisting = 0;
+    const run = () => runStep<Record<string, unknown>, CreateTreasuryAccountCommand>(
       rows,
       async (row, rowNumber, seenCodes) => {
         const code = str(row, "code");
@@ -424,6 +442,16 @@ export function createDataMigrationRoutes(
             reasons.push("الرصيد الافتتاحي رقم غير صالح");
           }
         }
+        const glAccountId = optStr(row, "glAccountId");
+        if (!glAccountId && leafHeaderRefusal) reasons.push(leafHeaderRefusal);
+        if (glAccountId && ledgerAccounts) {
+          try {
+            await assertTreasuryLedgerAccount({ glAccountId }, ledgerAccounts);
+          } catch (err) {
+            if (!(err instanceof InvalidTreasuryLedgerAccountError)) throw err;
+            reasons.push(err.message);
+          }
+        }
         if (reasons.length > 0) return { rowNumber, reasons };
         const id = randomId();
         return {
@@ -435,12 +463,27 @@ export function createDataMigrationRoutes(
             type,
             branchId: branchId!,
             openingBalance: openingBalanceStr,
-            glAccountId: optStr(row, "glAccountId") ?? undefined,
+            glAccountId,
           },
         };
       },
       async (item) => {
-        const account = await createTreasuryAccount(item, deps.treasuryAccounts, deps.accounts ? { accounts: deps.accounts } : undefined);
+        persisting += 1;
+        const openedLeaf = async (leaf: Account) => {
+          await recordFieldChanges(audit, c, {
+            entity: { module: "accounting", entityType: "ACCOUNT", entityId: leaf.id },
+            action: AuditChangeAction.Create,
+            before: null,
+            after: leaf,
+            fields: AUDITED_ACCOUNT_FIELDS,
+            details: { ...MIGRATION_AUDIT_DETAILS, treasuryAccountId: item.id },
+          });
+        };
+        const account = await createTreasuryAccount(
+          item,
+          deps.treasuryAccounts,
+          deps.accounts ? { accounts: deps.accounts, cashAndBankParentAccountId: deps.cashAndBankParentAccountId, onOpened: openedLeaf } : undefined,
+        );
         await recordFieldChanges(audit, c, {
           entity: { module: "treasury", entityType: "TREASURY_ACCOUNT", entityId: account.id },
           action: AuditChangeAction.Create,
@@ -452,6 +495,14 @@ export function createDataMigrationRoutes(
       },
       commit,
     );
+    let result: DataMigrationStepResult;
+    try {
+      result = commit && deps.transact ? await deps.transact.run(run) : await run();
+    } catch (err) {
+      const conflict = err instanceof DuplicateAccountCodeError || err instanceof DuplicateTreasuryAccountCodeError;
+      if (!conflict && !(err instanceof InvalidParentAccountError) && !(err instanceof InvalidTreasuryLedgerAccountError)) throw err;
+      return c.json({ validCount: 0, errors: [{ rowNumber: persisting, reasons: [err.message] }] }, conflict ? 409 : 422);
+    }
     return c.json(result, commit && result.errors.length === 0 ? 201 : 200);
   }
   app.post("/treasury-accounts/preview", gate("admin.settings.view"), (c) => treasuryStep(c, false));

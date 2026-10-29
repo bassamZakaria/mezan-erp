@@ -257,6 +257,17 @@ describe("item cost is visible only to a holder of inventory.cost.view (#119)", 
     expect((holder.body as { costPrice: string }).costPrice).toBe("12.500000");
   });
 
+  it("an item import without the right drops the sheet's cost price, and a holder's import keeps it", async () => {
+    const importer = [...VIEWER, "admin.settings.edit"];
+    const importRow = (permissions: readonly string[], code: string) =>
+      as(permissions, { method: Method.Post, path: "/data-migration/items/commit", body: { rows: [{ code, nameAr: "صنف استيراد التكلفة", baseUnitCode: "PCS", type: "stock", costPrice: "12.50" }] }, expect: Expect.Omit, costKeys: [] });
+    const costOf = async (code: string) => first<{ code: string; costPrice: string | null }>((await world.request("GET", "/items")).body, (row) => (row as { code: string }).code === code).costPrice;
+    expect((await importRow(importer, "COST-IMPORT-1")).status).toBe(201);
+    expect((await importRow([...importer, CostPermission.Item], "COST-IMPORT-2")).status).toBe(201);
+    expect(await costOf("COST-IMPORT-1")).toBeNull();
+    expect(await costOf("COST-IMPORT-2")).toBe("12.500000");
+  });
+
   it("a valuation viewer holds item cost, so the valuation report answers it", async () => {
     const answer = await as(["inventory.valuation.view"], { method: Method.Get, path: "/reports/inventory/valuation", expect: Expect.Refuse, costKeys: [] });
     expect(answer.status).toBe(200);

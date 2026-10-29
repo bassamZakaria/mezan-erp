@@ -359,7 +359,8 @@ export function createFieldSalesRoutes(
 
   app.get("/", gateAny("field.van_trip.view", "field.van_trip.view_own"), async (c) => {
     const trips = await deps.trips.list();
-    return c.json(withItemCost(c, visibleTrips(c, trips).map((trip) => serialize(trip, maySeeItemCost(c))), VAN_TRIP_COST_KEYS));
+    const showCost = maySeeItemCost(c);
+    return c.json(withItemCost(c, visibleTrips(c, trips).map((trip) => serialize(trip, showCost)), VAN_TRIP_COST_KEYS));
   });
 
   app.post("/", gate("field.van_trip.open"), async (c) => {

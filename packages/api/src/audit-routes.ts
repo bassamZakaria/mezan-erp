@@ -2,21 +2,44 @@ import { Hono } from "hono";
 import type { AuditEvent, AuditQueryPort } from "@mezan/domain";
 import type { AuditChainVerifyPort } from "@mezan/persistence";
 import { auditQuerySchema } from "@mezan/contracts";
-import { branchGrantOf, createPermissionGate, getAuthContext, maySeeItemCost, type AuthContextResolver } from "./permission-gate.js";
+import { branchGrantOf, createPermissionGate, getAuthContext, maySeeItemCost, omitUnless, type AuthContextResolver } from "./permission-gate.js";
 
-const COST_FIELDS: ReadonlySet<string> = new Set(["costPrice"]);
+const COST_FIELDS: ReadonlySet<string> = new Set(["costPrice", "defaultCost"]);
+
+enum CostBearingAuditEntity {
+  MaterialConsumption = "MATERIAL_CONSUMPTION",
+  WritedownRun = "WRITEDOWN_RUN",
+  VanTrip = "VAN_TRIP",
+}
+
+/** SECURITY: detail keys written at item cost; a new audit write that records item cost must be listed here (#119). */
+const COST_DETAIL_KEYS: Readonly<Record<CostBearingAuditEntity, readonly string[]>> = {
+  [CostBearingAuditEntity.MaterialConsumption]: ["totalCost"],
+  [CostBearingAuditEntity.WritedownRun]: ["totalAmount"],
+  [CostBearingAuditEntity.VanTrip]: ["varianceValue"],
+};
+
+function costDetailKeysOf(entityType: string): readonly string[] {
+  return (Object.values(CostBearingAuditEntity) as string[]).includes(entityType) ? COST_DETAIL_KEYS[entityType as CostBearingAuditEntity] : [];
+}
+
+function redactChanges(details: Readonly<Record<string, unknown>>): Readonly<Record<string, unknown>> {
+  const changes = details["changes"];
+  if (!Array.isArray(changes)) return details;
+  return {
+    ...details,
+    changes: changes.map((change: unknown) => {
+      const field = (change as { field?: unknown } | null)?.field;
+      if (typeof field !== "string" || !COST_FIELDS.has(field)) return change;
+      return { ...(change as object), from: null, to: null, redacted: true };
+    }),
+  };
+}
 
 export function redactCost(event: AuditEvent): AuditEvent {
-  const changes = event.details?.["changes"];
-  if (!Array.isArray(changes)) return event;
-  let touched = false;
-  const redacted = changes.map((change: unknown) => {
-    const field = (change as { field?: unknown } | null)?.field;
-    if (typeof field !== "string" || !COST_FIELDS.has(field)) return change;
-    touched = true;
-    return { ...(change as object), from: null, to: null, redacted: true };
-  });
-  return touched ? { ...event, details: { ...event.details, changes: redacted } } : event;
+  if (!event.details) return event;
+  const details = omitUnless(false, redactChanges(event.details), costDetailKeysOf(event.entityType));
+  return { ...event, details };
 }
 
 /**

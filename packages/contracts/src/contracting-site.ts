@@ -93,8 +93,8 @@ export const materialConsumptionSchema = z.object({
   notes: z.string().nullable(),
   status: sitePostedDocumentStatusSchema,
   lines: z.array(materialConsumptionLineSchema),
-  /** The value the stock ledger moved on confirm — "0.000000" while a draft. */
-  totalCost: moneyString,
+  /** The value the stock ledger moved on confirm — "0.000000" while a draft; absent without inventory.cost.view (#119). */
+  totalCost: moneyString.optional(),
   journalEntryId: z.string().nullable(),
   createdAt: z.string(),
   confirmedAt: z.string().nullable(),

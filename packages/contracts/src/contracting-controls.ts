@@ -89,7 +89,8 @@ export const consumptionVarianceRowSchema = z.object({
   certifiedCumulativeQty: moneyString,
   theoreticalQty: moneyString,
   consumedQty: moneyString,
-  consumedCost: moneyString,
+  /** Absent without inventory.cost.view (#119). */
+  consumedCost: moneyString.optional(),
   varianceQty: moneyString,
   /** Null when the theoretical quantity is zero — a percentage of nothing is undefined, not infinite. */
   variancePercent: z.string().nullable(),

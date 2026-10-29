@@ -84,7 +84,7 @@ const MIGRATION_AUDIT_DETAILS = { source: "data-migration" } as const;
 export interface DataMigrationTransactor {
   run<T>(fn: () => Promise<T>): Promise<T>;
 }
-import { callerUserId, createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
+import { callerUserId, createPermissionGate, getAuthContext, maySeeItemCost, type AuthContextResolver } from "./permission-gate.js";
 
 /**
  * نقل البيانات (Data Migration wizard) — docs/archive/catalog/09 §"نقل البيانات":
@@ -641,7 +641,7 @@ export function createDataMigrationRoutes(
         if (reasons.length > 0) return { rowNumber, reasons };
         const id = randomId();
         const salePriceStr = optStr(row, "salePrice");
-        const costPriceStr = optStr(row, "costPrice");
+        const costPriceStr = maySeeItemCost(c) ? optStr(row, "costPrice") : undefined;
         try {
           return {
             id,

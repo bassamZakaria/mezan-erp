@@ -10,7 +10,7 @@ import {
   type StockLedgerDateMismatch,
   type StockPositionFaultRow,
 } from "@mezan/domain";
-import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
+import { createPermissionGate, maySeeItemCost, type AuthContextResolver } from "./permission-gate.js";
 import { refuseBranchScopedCaller } from "./branch-scope-refusal.js";
 
 /** One sub-ledger↔GL control-account pairing to reconcile. */
@@ -111,7 +111,7 @@ export function createReconciliationRoutes(
       allocationsOnReversedVouchers: { count: onReversed.length, rows: onReversed },
       stockPositions: {
         count: faultyPositions.length,
-        rows: faultyPositions.map((row) => ({ itemId: row.itemId, warehouseId: row.warehouseId, onHand: row.onHand.toString(), totalValue: row.totalValue.toString(), fault: row.fault })),
+        rows: faultyPositions.map((row) => ({ itemId: row.itemId, warehouseId: row.warehouseId, onHand: row.onHand.toString(), ...(maySeeItemCost(c) ? { totalValue: row.totalValue.toString() } : {}), fault: row.fault })),
       },
       unlinked: unlinked.map((u) => ({
         entryId: u.entryId,

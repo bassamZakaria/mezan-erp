@@ -54,6 +54,7 @@ import {
   type WorkStation,
   type WorkStationRepository,
   LotDetailsRequiredError,
+  CostPermission,
 } from "@mezan/domain";
 import {
   createBomSchema,
@@ -72,7 +73,6 @@ import {
 import {
   createPermissionGate,
   getAuthContext,
-  CostPermission,
   type AuthContextResolver,
   warehouseScopeOf,
   withinScope,

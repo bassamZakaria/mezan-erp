@@ -146,9 +146,10 @@ import {
   type VoucherLine,
   matchesBranch,
   branchOfWarehouse,
+  CostPermission,
 } from "@mezan/domain";
 import { tenantToday } from "./tenant-day.js";
-import { branchScopeOf, createAnyPermissionGate, createPermissionGate, CostPermission, maySeeItemCost, warehouseScopeOf, withinScope, type AuthContextResolver } from "./permission-gate.js";
+import { branchScopeOf, createAnyPermissionGate, createPermissionGate, maySeeItemCost, warehouseScopeOf, withinScope, type AuthContextResolver } from "./permission-gate.js";
 import { branchLineViewOf, isWholeLedgerView, lineInView, readableEntries, type BranchLineView } from "./branch-view.js";
 
 /**
@@ -2045,7 +2046,7 @@ export function createReportsRoutes(
     });
     app.get("/field/rep-daily", gate("field.van_trip.view"), async (c) => {
       const today = await tenantToday(c, deps.today);
-      const definition = createRepDailyReport(firstOfMonth(today), today);
+      const definition = costed(c, createRepDailyReport(firstOfMonth(today), today));
       const [allTrips, employees] = await Promise.all([vanTrips.list(), deps.employees?.list() ?? []]);
       const trips = withinScope(allTrips, branchScopeOf(c), (trip) => trip.branchId);
       return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { trips, employees }));

@@ -36,7 +36,7 @@ import {
   addAttributeValueSchema,
   generateVariantsSchema,
 } from "@mezan/contracts";
-import { createPermissionGate, withItemCost, type AuthContextResolver } from "./permission-gate.js";
+import { createPermissionGate, maySeeItemCost, withItemCost, type AuthContextResolver } from "./permission-gate.js";
 import { duplicateIdRefusal } from "./duplicate-id.js";
 import { DuplicateRecordIdError } from "@mezan/domain";
 
@@ -152,7 +152,7 @@ export function createProductTemplatesRoutes(
           id: idGen(),
           ...parsed.data,
           defaultSalePrice: parsed.data.defaultSalePrice != null ? Money.fromMajor(parsed.data.defaultSalePrice) : null,
-          defaultCost: parsed.data.defaultCost != null ? Money.fromMajor(parsed.data.defaultCost) : null,
+          defaultCost: parsed.data.defaultCost != null && maySeeItemCost(c) ? Money.fromMajor(parsed.data.defaultCost) : null,
         },
         deps.templates,
       );

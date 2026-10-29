@@ -2,6 +2,7 @@ import type { Context, MiddlewareHandler } from "hono";
 import {
   ALL_SCOPE,
   can,
+  CostPermission,
   createAuthContext,
   entitlementModuleOf,
   getPermission,
@@ -367,10 +368,6 @@ export function createAnyPermissionGate(resolveAuthContext: AuthContextResolver,
 /** Reads the {@link AuthContext} a `createPermissionGate` middleware stashed on the request. */
 export function getAuthContext(c: Context): AuthContext | undefined {
   return c.get(AUTH_CONTEXT_KEY) as AuthContext | undefined;
-}
-
-export enum CostPermission {
-  Item = "inventory.cost.view",
 }
 
 export function maySeeItemCost(c: Context): boolean {

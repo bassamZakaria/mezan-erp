@@ -51,6 +51,7 @@ import { todayIso } from "../lib/dates";
 import { EMPTY } from "../lib/empty";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 import { PurchaseInvoicePicker } from "./InvoicePickers";
+import { useMaySeeItemCost } from "../data/item-cost";
 import { ResubmitErrorNotice, ResubmitFamily, ResubmitForApprovalAction, resubmitRowMenuItems, useResubmitForApproval } from "./ResubmitForApprovalAction";
 
 /** التكاليف الإضافية (Landed Costs) — docs/archive/catalog/02. Distributes freight/customs/etc across a confirmed purchase invoice's item costs, by value or by quantity. */
@@ -116,6 +117,7 @@ function blankTarget(itemId: string, qty: number, unitCost: number): TargetDraft
 
 export function LandedCostsScreen() {
   const { t } = useAppTranslation();
+  const showCost = useMaySeeItemCost();
   const query = useLandedCosts();
   const invoicesQuery = usePurchaseInvoices({ ...FUNDING_INVOICES, page: 1, pageSize: 1 });
   const warehousesQuery = useWarehouses();
@@ -703,7 +705,7 @@ export function LandedCostsScreen() {
                       <tr key={i} className="border-b border-border last:border-b-0">
                         <td className="py-[7px]">{itemName(p.itemId)}</td>
                         <td className="mz-num py-[7px] text-end">+<MoneyDisplay value={Number(p.allocatedAmount.toString())} showUnit={false} /></td>
-                        <td className="mz-num py-[7px] text-end"><MoneyDisplay value={Number(p.newUnitCost.toString())} showUnit={false} /></td>
+                        {showCost ? <td className="mz-num py-[7px] text-end"><MoneyDisplay value={Number(p.newUnitCost.toString())} showUnit={false} /></td> : null}
                       </tr>
                     ))}
                   </tbody>
@@ -764,7 +766,8 @@ export function LandedCostsScreen() {
                     ) : null}
                   </span>
                   <span className="mz-num text-ink-muted">
-                    +<MoneyDisplay value={num(l.allocatedAmount)} /> → {t("landedCosts.newUnitCost")} <MoneyDisplay value={num(l.newUnitCost)} />
+                    +<MoneyDisplay value={num(l.allocatedAmount)} />
+                    {showCost && l.newUnitCost !== undefined ? <> → {t("landedCosts.newUnitCost")} <MoneyDisplay value={num(l.newUnitCost)} /></> : null}
                   </span>
                 </div>
               ))}

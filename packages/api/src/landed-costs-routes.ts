@@ -15,7 +15,7 @@ import {
   branchOfPostingWarehouse,
 } from "@mezan/domain";
 import { ReversalPermission, clientSuppliedId, createLandedCostSchema } from "@mezan/contracts";
-import { type AuthContextResolver, callerRoleCodes, callerUserId, createPermissionGate } from "./permission-gate.js";
+import { type AuthContextResolver, callerRoleCodes, callerUserId, createPermissionGate, withItemCost } from "./permission-gate.js";
 import { documentBranches, storedBranchesById, withinBranchGrant } from "./stored-branches.js";
 import { handleDocumentError } from "./document-error-handling.js";
 import { refuseOutOfScopeBranches } from "./branch-scope-refusal.js";
@@ -48,7 +48,13 @@ function serializeLine(l: LandedCostLine) {
   };
 }
 
-function serialize(doc: FrameworkDocument<LandedCostLine>, approval: DocumentApprovalDTO | null = null) {
+const LANDED_COST_ITEM_COST_KEYS = ["newUnitCost"] as const;
+
+function serialize(c: Context, doc: FrameworkDocument<LandedCostLine>, approval: DocumentApprovalDTO | null = null) {
+  return withItemCost(c, serializeDocument(doc, approval), LANDED_COST_ITEM_COST_KEYS);
+}
+
+function serializeDocument(doc: FrameworkDocument<LandedCostLine>, approval: DocumentApprovalDTO | null = null) {
   return {
     approval,
     id: doc.id,
@@ -95,13 +101,13 @@ export function createLandedCostsRoutes(
     const inWarehouseScope = (await documents.list({ status: status as never })).filter((doc) => inScope(c, doc));
     const list = await withinBranchGrant(c, inWarehouseScope, (doc) => branchesOf(c, doc));
     const approval = await approvalReader(documents, list);
-    return c.json(list.map((doc) => serialize(doc, approval(doc))));
+    return c.json(list.map((doc) => serialize(c, doc, approval(doc))));
   });
 
   app.get("/:id", gate("purchases.landed_cost.view"), async (c) => {
     const doc = await visibleLandedCost(c, MirrorAccess.Reachable);
     if (!doc) return c.json(DOCUMENT_NOT_FOUND, 404);
-    return c.json(serialize(doc, await approvalOf(documents, doc)));
+    return c.json(serialize(c, doc, await approvalOf(documents, doc)));
   });
 
   app.post("/", gate("purchases.landed_cost.create"), async (c) => {
@@ -141,7 +147,7 @@ export function createLandedCostsRoutes(
         distributionMethod: parsed.data.distributionMethod,
       }));
       const doc = await documents.createDraft({ id: parsed.data.id, date: await tenantDay(c, parsed.data.date), memo: parsed.data.memo, lines });
-      return c.json(serialize(doc), 201);
+      return c.json(serialize(c, doc), 201);
     } catch (err) {
       if (err instanceof EmptyLandedCostTargetsError || err instanceof ZeroLandedCostWeightError) {
         return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 422);
@@ -157,7 +163,7 @@ export function createLandedCostsRoutes(
       const absorptionDate = typeof body?.absorptionDate === "string" && body.absorptionDate !== "" ? await tenantDay(c, body.absorptionDate) : undefined;
       const result = await landedCostService.confirm(c.req.param("id"), { actor: callerUserId(c), actorRoles: callerRoleCodes(c), today: await tenantToday(c), absorptionDate });
       return c.json({
-        document: serialize(result.document, await approvalOf(documents, result.document)),
+        document: serialize(c, result.document, await approvalOf(documents, result.document)),
         held: result.held,
         // A landed cost that arrives after the goods were sold cannot raise the
         // basis of stock that is gone. That part is reclassified out of
@@ -184,7 +190,7 @@ export function createLandedCostsRoutes(
     permission: gate("purchases.landed_cost.confirm"),
     refuse: async (c) => ((await visibleLandedCost(c)) ? undefined : c.json(DOCUMENT_NOT_FOUND, 404)),
     resubmit: (c, id) => documents.resubmit(id, { actor: callerUserId(c), actorRoles: callerRoleCodes(c) }),
-    serialize: async (_c, doc) => serialize(doc, await approvalOf(documents, doc)),
+    serialize: async (c, doc) => serialize(c, doc, await approvalOf(documents, doc)),
     onError: handleDocumentError,
   });
 
@@ -192,7 +198,7 @@ export function createLandedCostsRoutes(
     if (!(await visibleLandedCost(c))) return c.json(DOCUMENT_NOT_FOUND, 404);
     try {
       const doc = await documents.cancel(c.req.param("id"), { actor: callerUserId(c) });
-      return c.json(serialize(doc));
+      return c.json(serialize(c, doc));
     } catch (err) {
       return handleDocumentError(c, err);
     }
@@ -214,7 +220,7 @@ export function createLandedCostsRoutes(
         reversalId: reversalId.data ?? randomUUID(),
         date,
       });
-      return c.json({ original: serialize(result.original), reversal: serialize(result.reversal) }, 201);
+      return c.json({ original: serialize(c, result.original), reversal: serialize(c, result.reversal) }, 201);
     } catch (err) {
       return handleDocumentError(c, err);
     }

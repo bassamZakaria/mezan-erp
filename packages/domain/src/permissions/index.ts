@@ -6,6 +6,7 @@ export {
   PERMISSIONS,
   ALL_PERMISSION_CODES,
   WILDCARD_PERMISSION,
+  CostPermission,
   getPermission,
   isKnownPermission,
   isSensitive,

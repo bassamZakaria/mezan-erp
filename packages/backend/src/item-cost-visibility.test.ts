@@ -19,6 +19,7 @@ interface Probe {
   readonly body?: unknown;
   readonly expect: Expect;
   readonly costKeys: readonly string[];
+  readonly notCost?: readonly string[];
 }
 
 const VIEWER = [
@@ -39,6 +40,9 @@ const VIEWER = [
   "field.van_trip.view",
   "inventory.writedown.view",
   "projects.project.view",
+  "purchases.landed_cost.view",
+  "accounting.reports.view",
+  "contracting.certificate.view",
 ];
 
 let world: SeededWorld;
@@ -103,6 +107,9 @@ beforeAll(async () => {
     }
   }
 
+  const reconciliation = (await list("/reconciliation")) as { stockPositions: { rows: unknown[] } };
+  const sitePositions = reconciliation.stockPositions.rows.length > 0;
+
   probes = [
     { method: Method.Get, path: "/items", expect: Expect.Omit, costKeys: ["costPrice"] },
     { method: Method.Get, path: `/items/${editable.id}`, expect: Expect.Omit, costKeys: ["costPrice", "totalValue"] },
@@ -151,6 +158,11 @@ beforeAll(async () => {
     ...(consumption
       ? [{ method: Method.Get, path: `/contracting/site/consumption-by-boq-line?projectId=${encodeURIComponent(consumption)}`, expect: Expect.Omit, costKeys: ["cost"] }]
       : []),
+    { method: Method.Get, path: "/contracting/site/consumptions", expect: Expect.Omit, costKeys: ["totalCost"] },
+    { method: Method.Get, path: "/contracting/reports/consumption-variance", expect: Expect.Omit, costKeys: ["consumedCost"] },
+    { method: Method.Get, path: "/reports/field/rep-daily", expect: Expect.Omit, costKeys: ["shortageValue", "overageValue"] },
+    { method: Method.Get, path: "/landed-costs", expect: Expect.Omit, costKeys: ["newUnitCost"], notCost: ["unitCost", "costItems", "costType"] },
+    { method: Method.Get, path: "/reconciliation", expect: Expect.Omit, costKeys: sitePositions ? ["totalValue"] : [] },
   ];
 }, 900_000);
 
@@ -178,7 +190,7 @@ describe("item cost is visible only to a holder of inventory.cost.view (#119)", 
       }
       const seen = keysIn(without.body);
       for (const key of probe.costKeys) if (seen.has(key)) leaks.push(`${label} sent ${key}`);
-      for (const key of seen) if (COST_WORDS.test(key) && !NOT_COST.has(key) && !probe.costKeys.includes(key)) leaks.push(`${label} sent unlisted ${key}`);
+      for (const key of seen) if (COST_WORDS.test(key) && !NOT_COST.has(key) && !probe.costKeys.includes(key) && !probe.notCost?.includes(key)) leaks.push(`${label} sent unlisted ${key}`);
       const held = keysIn(holder.body);
       if (!probe.costKeys.some((key) => held.has(key)) && probe.costKeys.length > 0) missing.push(`${label} sent none of ${probe.costKeys.join(",")} to a holder`);
     }
@@ -248,5 +260,21 @@ describe("item cost is visible only to a holder of inventory.cost.view (#119)", 
   it("a valuation viewer holds item cost, so the valuation report answers it", async () => {
     const answer = await as(["inventory.valuation.view"], { method: Method.Get, path: "/reports/inventory/valuation", expect: Expect.Refuse, costKeys: [] });
     expect(answer.status).toBe(200);
+  });
+
+  it("a template write without the right neither stores a default cost nor hands one to the variants it generates", async () => {
+    const writer = [...VIEWER, "inventory.template.manage", "inventory.template.generate"];
+    const write = (method: Method, path: string, body: unknown) => as(writer, { method, path, body, expect: Expect.Omit, costKeys: [] });
+    const created = await write(Method.Post, "/inventory/product-templates", { code: "COSTTPL", nameAr: "قالب اختبار التكلفة", baseUnitCode: "PCS", defaultSalePrice: "50.00", defaultCost: "33.00" });
+    expect(created.status).toBe(201);
+    const templateId = (created.body as { id: string }).id;
+    expect(((await world.request("GET", `/inventory/product-templates/${templateId}`)).body as { defaultCost: string | null }).defaultCost).toBeNull();
+    const withAttribute = await write(Method.Post, `/inventory/product-templates/${templateId}/attributes`, { nameAr: "اللون", values: ["أحمر"] });
+    expect(withAttribute.status).toBe(201);
+    const attributeId = (withAttribute.body as { attributes: { id: string }[] }).attributes[0]!.id;
+    const generated = await write(Method.Post, `/inventory/product-templates/${templateId}/variants/generate`, { selections: [{ values: { [attributeId]: "أحمر" } }] });
+    expect(generated.status).toBe(201);
+    const itemId = (generated.body as { created: { itemId: string }[] }).created[0]!.itemId;
+    expect(((await world.request("GET", `/items/${itemId}`)).body as { costPrice: string | null }).costPrice).toBeNull();
   });
 });

@@ -61,7 +61,8 @@ export const landedCostLineSchema = z.object({
   unitCost: positiveDecimalString,
   weight: positiveDecimalString,
   allocatedAmount: positiveDecimalString,
-  newUnitCost: positiveDecimalString,
+  /** Absent without inventory.cost.view (#119). */
+  newUnitCost: positiveDecimalString.optional(),
   distributionMethod: landedCostDistributionMethodSchema,
   costItems: z.array(landedCostItemEntrySchema),
   /** بُعد المشروع — every line of a confirmed landed-cost document carries the same document-wide value (D-01). */

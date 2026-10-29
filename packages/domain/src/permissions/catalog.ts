@@ -464,6 +464,10 @@ const BY_CODE: ReadonlyMap<string, PermissionDef> = new Map(
 /** Wildcard grant held by tenant admins — bypasses every gate (recon §4). */
 export const WILDCARD_PERMISSION = "*" as const;
 
+export enum CostPermission {
+  Item = "inventory.cost.view",
+}
+
 export function getPermission(code: string): PermissionDef | undefined {
   return BY_CODE.get(code);
 }

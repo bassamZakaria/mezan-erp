@@ -30,6 +30,7 @@ import {
   LotDetailsRequiredError,
   ExpiryWriteOffExceedsExpiredError,
   type ItemRepository,
+  CostPermission,
 } from "@mezan/domain";
 import {
   ReversalPermission,
@@ -39,7 +40,7 @@ import {
   postedTransferListQuerySchema,
   itemStockSchema,
 } from "@mezan/contracts";
-import { createPermissionGate, getAuthContext, CostPermission, sessionWarehouseScopeOf, warehouseScopeOf, withinScope, withItemCost, type AuthContextResolver } from "./permission-gate.js";
+import { createPermissionGate, getAuthContext, sessionWarehouseScopeOf, warehouseScopeOf, withinScope, withItemCost, type AuthContextResolver } from "./permission-gate.js";
 import { duplicateIdRefusal } from "./duplicate-id.js";
 import { DuplicateRecordIdError } from "@mezan/domain";
 import { readReversalRequest, recordDocumentReversal, reversalRefusalResponse, requireReversalReason } from "./document-reversal.js";

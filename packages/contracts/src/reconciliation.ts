@@ -46,7 +46,7 @@ export const reconciliationReportSchema = z.object({
   stockPositions: z
     .object({
       count: z.number().int().nonnegative(),
-      rows: z.array(z.object({ itemId: z.string(), warehouseId: z.string(), onHand: z.string(), totalValue: z.string(), fault: z.nativeEnum(StockPositionFaultCode) })),
+      rows: z.array(z.object({ itemId: z.string(), warehouseId: z.string(), onHand: z.string(), totalValue: z.string().optional(), fault: z.nativeEnum(StockPositionFaultCode) })),
     })
     .optional(),
 });

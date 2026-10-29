@@ -2777,10 +2777,8 @@ async function composeBackend(options: CreateBackendOptions, db: SqlDb, sqlite: 
   );
   const stockAdjustments = new DocumentService<StockAdjustmentDocLine>(stockAdjustmentDocumentType, {
     repo: inventoryOps.stockAdjustments,
-    approvalLabel: async (doc) => {
-      const stated = doc.lines.every((line) => line.unitCost) ? Money.sum(doc.lines.map((line) => extendQtyByPrice(line.qty, line.unitCost as Money))) : null;
-      return approvalLabel({ type: "تسوية مخزون", amount: stated, party: await warehouseNameOf(doc.lines[0]?.warehouseId) });
-    },
+    // SECURITY: the inbox label is read without inventory.cost.view, so it never carries the adjustment's value at item cost (#119).
+    approvalLabel: async (doc) => approvalLabel({ type: "تسوية مخزون", party: await warehouseNameOf(doc.lines[0]?.warehouseId) }),
     numbering: { next: (opts) => ledger.numbering.next("STOCK_ADJUSTMENT", { branchId: opts?.branchId }) },
     stock: inventoryOpsStockHook,
     workflow: documentWorkflowGate,

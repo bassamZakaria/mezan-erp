@@ -97,14 +97,15 @@ export function createRepDailyReport(
       { key: "fieldCashSales", header: "مبيعات نقدية ميدانية", format: "money", align: "end", total: true, value: (row) => row.fieldCashSales },
       { key: "collections", header: "التحصيلات", format: "money", align: "end", total: true, value: (row) => row.collections },
       { key: "cashVariance", header: "فرق النقدية", format: "money", align: "end", total: true, value: (row) => row.cashVariance },
-      { key: "shortageValue", header: "قيمة العجز", format: "money", align: "end", total: true, value: (row) => row.shortageValue },
-      { key: "overageValue", header: "قيمة الزيادة", format: "money", align: "end", total: true, value: (row) => row.overageValue },
+      { key: "shortageValue", cost: true, header: "قيمة العجز", format: "money", align: "end", total: true, value: (row) => row.shortageValue },
+      { key: "overageValue", cost: true, header: "قيمة الزيادة", format: "money", align: "end", total: true, value: (row) => row.overageValue },
     ],
     kpis: [
       { key: "netSales", labelAr: "صافي المبيعات", format: "money", value: (rows) => sumRows(rows, (r) => r.netSales) },
       { key: "collections", labelAr: "التحصيلات", format: "money", value: (rows) => sumRows(rows, (r) => r.collections) },
       {
         key: "shortageValue",
+        cost: true,
         labelAr: "قيمة العجز",
         hintAr: "عجز البضاعة بمتوسط التكلفة عند التسوية",
         format: "money",

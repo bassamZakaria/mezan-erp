@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { ALL_SCOPE } from "@mezan/domain";
+import { ALL_SCOPE, CostPermission, VAN_STOCK_STEP_KINDS, type VanReconciliationStepKind } from "@mezan/domain";
 import { seededWorld, type SeededWorld } from "./test-helpers/seeded-world.js";
 
 enum Expect {
@@ -260,6 +260,17 @@ describe("item cost is visible only to a holder of inventory.cost.view (#119)", 
   it("a valuation viewer holds item cost, so the valuation report answers it", async () => {
     const answer = await as(["inventory.valuation.view"], { method: Method.Get, path: "/reports/inventory/valuation", expect: Expect.Refuse, costKeys: [] });
     expect(answer.status).toBe(200);
+  });
+
+  it("a van trip's stock reconciliation steps carry no value without the right, and its cash steps keep theirs", async () => {
+    type Trips = { settlement: { reconciliation: { steps: { kind: VanReconciliationStepKind; value: string | null }[] } | null } | null }[];
+    const stepsOf = (body: unknown) => (body as Trips).flatMap((trip) => trip.settlement?.reconciliation?.steps ?? []);
+    const probe = { method: Method.Get, path: "/field/van-trips", expect: Expect.Omit, costKeys: [] };
+    const without = stepsOf((await as(VIEWER, probe)).body);
+    const held = stepsOf((await as([...VIEWER, CostPermission.Item], probe)).body);
+    expect(held.some((step) => VAN_STOCK_STEP_KINDS.has(step.kind) && step.value !== null)).toBe(true);
+    expect(without.filter((step) => VAN_STOCK_STEP_KINDS.has(step.kind) && step.value !== null)).toEqual([]);
+    expect(without.filter((step) => !VAN_STOCK_STEP_KINDS.has(step.kind))).toEqual(held.filter((step) => !VAN_STOCK_STEP_KINDS.has(step.kind)));
   });
 
   it("a template write without the right neither stores a default cost nor hands one to the variants it generates", async () => {

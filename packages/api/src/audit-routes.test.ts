@@ -112,7 +112,7 @@ describe("GET /audit — item cost written into an event's details (#119)", () =
     const store = sink();
     await store.append(costEvent("MATERIAL_CONSUMPTION", { docNo: "MC-1", totalCost: "120.000000" }));
     await store.append(costEvent("WRITEDOWN_RUN", { runId: "R-1", totalAmount: "40.000000" }));
-    await store.append(costEvent("VAN_TRIP", { cashVariance: "5.000000", stockVariances: [{ itemId: "I-1", varianceQty: "-2", varianceValue: "-30.000000" }] }));
+    await store.append(costEvent("VAN_TRIP", { cashVariance: "5.000000", stockVariances: [{ itemId: "I-1", varianceQty: "-2", varianceValue: "-30.000000" }], steps: [{ kind: "cash_variance", value: "5.000000" }, { kind: "shortage_adjustment", value: "30.000000" }] }));
     const res = await createAuditRoutes(store, insecureHeaderAuthContextResolver).fetch(req("/", permissions));
     const body = (await res.json()) as { events: { entityType: string; details: Record<string, unknown> }[] };
     return new Map(body.events.map((e) => [e.entityType, e.details]));
@@ -122,7 +122,11 @@ describe("GET /audit — item cost written into an event's details (#119)", () =
     const seen = await detailsSeenBy(VIEW);
     expect(seen.get("MATERIAL_CONSUMPTION")).toEqual({ docNo: "MC-1" });
     expect(seen.get("WRITEDOWN_RUN")).toEqual({ runId: "R-1" });
-    expect(seen.get("VAN_TRIP")).toEqual({ cashVariance: "5.000000", stockVariances: [{ itemId: "I-1", varianceQty: "-2" }] });
+    expect(seen.get("VAN_TRIP")).toEqual({
+      cashVariance: "5.000000",
+      stockVariances: [{ itemId: "I-1", varianceQty: "-2" }],
+      steps: [{ kind: "cash_variance", value: "5.000000" }, { kind: "shortage_adjustment", value: null }],
+    });
   });
 
   it("keeps them for a holder", async () => {
@@ -130,5 +134,6 @@ describe("GET /audit — item cost written into an event's details (#119)", () =
     expect(seen.get("MATERIAL_CONSUMPTION")?.totalCost).toBe("120.000000");
     expect(seen.get("WRITEDOWN_RUN")?.totalAmount).toBe("40.000000");
     expect(JSON.stringify(seen.get("VAN_TRIP"))).toContain("varianceValue");
+    expect(JSON.stringify(seen.get("VAN_TRIP"))).toContain("30.000000");
   });
 });

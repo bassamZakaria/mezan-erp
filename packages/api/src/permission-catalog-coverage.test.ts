@@ -35,7 +35,7 @@ function gatedCodes(): ReadonlySet<string> {
   };
   for (const root of roots) walk(root);
   const shared = new Map<string, string>();
-  for (const source of sources) {
+  for (const source of [...sources, readFileSync(join(__dirname, "..", "..", "domain", "src", "permissions", "catalog.ts"), "utf8")]) {
     for (const match of source.matchAll(/\bexport\s+const\s+([A-Z][A-Z0-9_]*)\s*=\s*"([a-z_.]+)"/g)) shared.set(match[1] as string, match[2] as string);
     for (const body of source.matchAll(/\benum\s+([A-Z][A-Za-z0-9]*)\s*\{([^}]*)\}/g)) {
       for (const member of (body[2] as string).matchAll(/\b([A-Z][A-Za-z0-9]*)\s*=\s*"([a-z_]+\.[a-z_.]+)"/g)) shared.set(`${body[1]}.${member[1]}`, member[2] as string);

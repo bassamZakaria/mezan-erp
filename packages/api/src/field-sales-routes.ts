@@ -48,11 +48,12 @@ import {
   createAnyPermissionGate,
   createPermissionGate,
   getAuthContext,
+  maySeeItemCost,
   warehouseScopeOf,
   withItemCost,
   type AuthContextResolver,
 } from "./permission-gate.js";
-import { can } from "@mezan/domain";
+import { can, VAN_STOCK_STEP_KINDS } from "@mezan/domain";
 import { tenantDay, tenantToday } from "./tenant-day.js";
 import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
 import { duplicateIdRefusal } from "./duplicate-id.js";
@@ -104,7 +105,7 @@ export interface FieldSalesRoutesDeps {
 
 const VAN_TRIP_COST_KEYS = ["unitCost", "varianceValue"];
 
-function serialize(trip: VanTrip) {
+function serialize(trip: VanTrip, showCost: boolean) {
   return {
     id: trip.id,
     tripNo: trip.tripNo,
@@ -160,7 +161,7 @@ function serialize(trip: VanTrip) {
                   kind: step.kind,
                   documentId: step.documentId,
                   state: step.state,
-                  value: step.value?.toString() ?? null,
+                  value: !showCost && VAN_STOCK_STEP_KINDS.has(step.kind) ? null : (step.value?.toString() ?? null),
                 })),
               }
             : null,
@@ -358,7 +359,7 @@ export function createFieldSalesRoutes(
 
   app.get("/", gateAny("field.van_trip.view", "field.van_trip.view_own"), async (c) => {
     const trips = await deps.trips.list();
-    return c.json(withItemCost(c, visibleTrips(c, trips).map(serialize), VAN_TRIP_COST_KEYS));
+    return c.json(withItemCost(c, visibleTrips(c, trips).map((trip) => serialize(trip, maySeeItemCost(c))), VAN_TRIP_COST_KEYS));
   });
 
   app.post("/", gate("field.van_trip.open"), async (c) => {
@@ -429,7 +430,7 @@ export function createFieldSalesRoutes(
           numbering: deps.numbering,
         },
       );
-      return c.json(withItemCost(c, serialize(trip), VAN_TRIP_COST_KEYS), 201);
+      return c.json(withItemCost(c, serialize(trip, maySeeItemCost(c)), VAN_TRIP_COST_KEYS), 201);
     } catch (err) {
       return handleDomainError(c, err);
     }
@@ -441,7 +442,7 @@ export function createFieldSalesRoutes(
     // 404, not 403: whether a trip the caller may not see exists at all is
     // itself information.
     if (visibleTrips(c, [trip]).length === 0) return c.json({ error: "VAN_TRIP_NOT_FOUND" }, 404);
-    return c.json(withItemCost(c, serialize(trip), VAN_TRIP_COST_KEYS));
+    return c.json(withItemCost(c, serialize(trip, maySeeItemCost(c)), VAN_TRIP_COST_KEYS));
   });
 
   app.post("/:id/cash-movements", gate("field.van_trip.open"), async (c) => {
@@ -477,7 +478,7 @@ export function createFieldSalesRoutes(
         });
       }
       await deps.trips.update(updated);
-      return c.json(withItemCost(c, serialize(updated), VAN_TRIP_COST_KEYS));
+      return c.json(withItemCost(c, serialize(updated, maySeeItemCost(c)), VAN_TRIP_COST_KEYS));
     } catch (err) {
       return handleDomainError(c, err);
     }
@@ -557,7 +558,7 @@ export function createFieldSalesRoutes(
             .map((l) => ({ itemId: l.itemId, varianceQty: l.varianceQty.toString(), varianceValue: l.varianceValue.toString() })),
         },
       });
-      return c.json(withItemCost(c, serialize(trip), VAN_TRIP_COST_KEYS));
+      return c.json(withItemCost(c, serialize(trip, maySeeItemCost(c)), VAN_TRIP_COST_KEYS));
     } catch (err) {
       return handleDomainError(c, err);
     }
@@ -596,7 +597,7 @@ export function createFieldSalesRoutes(
           })),
         },
       });
-      return c.json({ trip: withItemCost(c, serialize(result.trip), VAN_TRIP_COST_KEYS), held: result.held });
+      return c.json({ trip: withItemCost(c, serialize(result.trip, maySeeItemCost(c)), VAN_TRIP_COST_KEYS), held: result.held });
     } catch (err) {
       return handleDomainError(c, err);
     }

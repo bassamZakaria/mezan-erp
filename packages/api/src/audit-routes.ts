@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import type { AuditEvent, AuditQueryPort } from "@mezan/domain";
+import { VAN_STOCK_STEP_KINDS, type AuditEvent, type AuditQueryPort, type VanReconciliationStepKind } from "@mezan/domain";
 import type { AuditChainVerifyPort } from "@mezan/persistence";
 import { auditQuerySchema } from "@mezan/contracts";
 import { branchGrantOf, createPermissionGate, getAuthContext, maySeeItemCost, omitUnless, type AuthContextResolver } from "./permission-gate.js";
@@ -36,9 +36,22 @@ function redactChanges(details: Readonly<Record<string, unknown>>): Readonly<Rec
   };
 }
 
+function redactStockSteps(details: Readonly<Record<string, unknown>>): Readonly<Record<string, unknown>> {
+  const steps = details["steps"];
+  if (!Array.isArray(steps)) return details;
+  return {
+    ...details,
+    steps: steps.map((step: unknown) => {
+      const kind = (step as { kind?: unknown } | null)?.kind;
+      return VAN_STOCK_STEP_KINDS.has(kind as VanReconciliationStepKind) ? { ...(step as object), value: null } : step;
+    }),
+  };
+}
+
 export function redactCost(event: AuditEvent): AuditEvent {
   if (!event.details) return event;
-  const details = omitUnless(false, redactChanges(event.details), costDetailKeysOf(event.entityType));
+  const withoutSteps = event.entityType === CostBearingAuditEntity.VanTrip ? redactStockSteps(event.details) : event.details;
+  const details = omitUnless(false, redactChanges(withoutSteps), costDetailKeysOf(event.entityType));
   return { ...event, details };
 }
 

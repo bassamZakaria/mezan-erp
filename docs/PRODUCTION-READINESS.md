@@ -54,10 +54,14 @@ Contabo deployment lane. Each item says who acts: **code** (we build it), **owne
 - Paymob live keys and one real paid renewal end to end. **owner**
 - Public status page + support hours. **owner**
 - Retention/purge schedule for terminated tenants; sub-processor list in the DPA (the privacy policy now lists them); font OFL licence + third-party notices file. **code + lawyer/accountant**
+- CI "Unit tests" is cancelled on every `main` run (seen 2026-10-29 on `6fa6343f`…`3ff9ff09`; typecheck and the secret scan pass): likely the 60-minute `timeout-minutes` in `.github/workflows/test.yml`. Shard vitest or raise the limit, so CI proves something again. **code**
+- Audit the live side for stored sensitive data: env files and permissions on the Contabo VPS, the restic repo and the Google Drive backup copies, container logs. The 2026-10-28 repo audit covered code and git only. **code + owner**
+- Web login keeps the last 3 users' names and emails in `localStorage` (`apps/web/src/login/device-users.ts`) for "sign in as". That is personal data on a shared PC: keep it, add a "forget me" option, or remove it. **owner decides**
 - Docs out of date: TEST-DEBT misses most waves C–F lanes; ROADMAP §1 still says enhancements "none started"; `.claude/stakeholders/context.md` says cloud is descoped. **code + owner decides which governs**
 
 ## Later
 - Leave-Mezan export in open formats (CSV/XLSX); tenant self-service export on cloud.
 - Save logs from the login screen.
 - Validate email addresses (CR/LF) everywhere they reach SMTP (in progress); constant-time demo password compare (in progress).
+- Secret scan (`scripts/check-secrets.mjs`, pre-commit + CI) checks only the current files: a secret committed with `--no-verify` and deleted later in the same PR stays in history, and values with symbols (`!@#`) or JWTs are not matched. Add a history scan in CI (gitleaks, `fetch-depth: 0`) if this matters.
 - Optional cut list until tested: integration API, glance, funnel, digest scheduled send, automatic dunning, desktop evidence pack — none posts to the ledger.

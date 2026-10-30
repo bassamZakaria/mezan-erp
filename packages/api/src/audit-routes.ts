@@ -19,10 +19,6 @@ const COST_DETAIL_KEYS: Readonly<Record<CostBearingAuditEntity, readonly string[
   [CostBearingAuditEntity.VanTrip]: ["varianceValue"],
 };
 
-function costDetailKeysOf(entityType: string): readonly string[] {
-  return (Object.values(CostBearingAuditEntity) as string[]).includes(entityType) ? COST_DETAIL_KEYS[entityType as CostBearingAuditEntity] : [];
-}
-
 function redactChanges(details: Readonly<Record<string, unknown>>): Readonly<Record<string, unknown>> {
   const changes = details["changes"];
   if (!Array.isArray(changes)) return details;
@@ -51,7 +47,7 @@ function redactStockSteps(details: Readonly<Record<string, unknown>>): Readonly<
 export function redactCost(event: AuditEvent): AuditEvent {
   if (!event.details) return event;
   const withoutSteps = event.entityType === CostBearingAuditEntity.VanTrip ? redactStockSteps(event.details) : event.details;
-  const details = omitUnless(false, redactChanges(withoutSteps), costDetailKeysOf(event.entityType));
+  const details = omitUnless(false, redactChanges(withoutSteps), (COST_DETAIL_KEYS as Readonly<Record<string, readonly string[]>>)[event.entityType] ?? []);
   return { ...event, details };
 }
 

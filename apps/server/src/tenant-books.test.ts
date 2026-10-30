@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, w
 import { createRequire } from "node:module";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createBackend, createPlatform, SEED_ADMIN_EMAIL, SEED_ADMIN_PIN, SEED_ADMIN_USER_ID } from "@mezan/backend";
+import { createBackend, createPlatform, SEED_ADMIN_EMAIL, SEED_ADMIN_PASSWORD, SEED_ADMIN_USER_ID } from "@mezan/backend";
 import { PlatformRefusalCode, REFUSED_TENANT_BOOKS, TenantBooksStanding } from "@mezan/contracts";
 import { createTenant, tenantDbFile, TenantBooksReview, TenantDbFileRefusal, TenantStatusCode, UserStatusCode, type Tenant } from "@mezan/domain";
 import { bindTenantDatabase, openSqliteConnection, type SqliteDriver, type TenantBooksIdentity, type TenantBooksUser } from "@mezan/persistence";
@@ -46,7 +46,7 @@ interface Company {
   readonly code: string;
   readonly tenantId: string;
   readonly email: string;
-  readonly pin: string;
+  readonly password: string;
 }
 
 const NOT_IN_PLACE = {
@@ -77,13 +77,13 @@ function fileOf(env: CloudEnv, company: Company): string {
 async function provisioned(on: Booted, code: string, ownerEmail = `owner@${code}.example`): Promise<Company> {
   const created = await on.console("POST", "/tenants", { code, nameAr: `شركة ${code}`, ownerEmail, ownerNameAr: "المالك", planId: "PLAN-CORE", billingCycle: "monthly", trial: true });
   expect(created.status).toBe(201);
-  const company = { code, tenantId: String((created.json?.["tenant"] as Record<string, unknown>)["id"]), email: ownerEmail, pin: String(created.json?.["adminPin"]) };
+  const company = { code, tenantId: String((created.json?.["tenant"] as Record<string, unknown>)["id"]), email: ownerEmail, password: String(created.json?.["adminPassword"]) };
   expect((await signIn(on, company)).status).toBe(200);
   return company;
 }
 
 const signIn = (on: Booted, company: Company, as: { email?: string; under?: string } = {}) =>
-  on.send("/api/auth/login", { method: "POST", tenant: as.under ?? company.code, body: JSON.stringify({ username: as.email ?? company.email, pin: company.pin }) });
+  on.send("/api/auth/login", { method: "POST", tenant: as.under ?? company.code, body: JSON.stringify({ username: as.email ?? company.email, password: company.password }) });
 
 // The shape `main` left behind: the books under the company's code with no
 // tenant binding in them, and a platform row with none of this lane's columns.
@@ -225,7 +225,7 @@ describe("the companies a deploy finds, written before databases were bound", ()
     await servedAsBefore(env, [nile!]);
   });
 
-  it("serves a company whose owner changed their login e-mail, and the console assigns its owner and resets the PIN without the books being confirmed", async () => {
+  it("serves a company whose owner changed their login e-mail, and the console assigns its owner and resets the password without the books being confirmed", async () => {
     const env = harnessEnv({}, {}, harnessDirs);
     const [nile] = await legacy(env, [["nile"]], (company) => `UPDATE user SET email = 'moved@nile.example' WHERE email = '${company.email}';`);
 
@@ -234,14 +234,14 @@ describe("the companies a deploy finds, written before databases were bound", ()
     const newAddress = await signIn(second, nile!, { email: "moved@nile.example" });
     const [admin] = adminsIn(env, nile!);
     const assigned = await second.console("POST", `/tenants/${nile!.tenantId}/owner`, { userId: admin!.id });
-    const reset = await second.console("POST", `/tenants/${nile!.tenantId}/owner-pin/reset`);
-    const withNewPin = await second.send("/api/auth/login", { method: "POST", tenant: "nile", body: JSON.stringify({ username: "moved@nile.example", pin: reset.json?.["adminPin"] }) });
+    const reset = await second.console("POST", `/tenants/${nile!.tenantId}/owner-password/reset`);
+    const withNewPassword = await second.send("/api/auth/login", { method: "POST", tenant: "nile", body: JSON.stringify({ username: "moved@nile.example", password: reset.json?.["adminPassword"] }) });
     await second.app.close();
 
     expect([oldAddress.status, newAddress.status]).toEqual([401, 200]);
     expect(assigned.status).toBe(200);
     expect(reset.status).toBe(200);
-    expect(withNewPin.status).toBe(200);
+    expect(withNewPassword.status).toBe(200);
     expect(rowOf(env, nile!)).toMatchObject({ owner_user_id: admin!.id, owner_email: "moved@nile.example" });
     await servedAsBefore(env, [nile!]);
   });
@@ -262,17 +262,17 @@ describe("the companies a deploy finds, written before databases were bound", ()
     await servedAsBefore(env, [nile!]);
   });
 
-  it("assigns an owner and resets the owner's PIN on a company nobody has opened since the deploy", async () => {
+  it("assigns an owner and resets the owner's password on a company nobody has opened since the deploy", async () => {
     const env = harnessEnv({}, {}, harnessDirs);
     const [nile, delta] = await legacy(env, [["nile"], ["delta"]]);
 
     const second = await boot(env);
     const assigned = await second.console("POST", `/tenants/${nile!.tenantId}/owner`, { userId: adminsIn(env, nile!)[0]!.id });
-    const reset = await second.console("POST", `/tenants/${delta!.tenantId}/owner-pin/reset`);
-    const withNewPin = await second.send("/api/auth/login", { method: "POST", tenant: "delta", body: JSON.stringify({ username: delta!.email, pin: reset.json?.["adminPin"] }) });
+    const reset = await second.console("POST", `/tenants/${delta!.tenantId}/owner-password/reset`);
+    const withNewPassword = await second.send("/api/auth/login", { method: "POST", tenant: "delta", body: JSON.stringify({ username: delta!.email, password: reset.json?.["adminPassword"] }) });
     await second.app.close();
 
-    expect([assigned.status, reset.status, withNewPin.status]).toEqual([200, 200, 200]);
+    expect([assigned.status, reset.status, withNewPassword.status]).toEqual([200, 200, 200]);
     await servedAsBefore(env, [nile!, delta!]);
   });
 
@@ -355,7 +355,7 @@ describe("the companies a deploy finds, written before databases were bound", ()
       const platform = await createPlatform({ dbPath: platformDb(env) });
       const tenant = await createTenant({ id: "t-new", code: "newco", nameAr: "شركة جديدة", ownerEmail: "owner@newco.example", now: new Date().toISOString() }, platform.stores.tenants);
       platform.close();
-      const company = { code: "newco", tenantId: tenant.id, email: "owner@newco.example", pin: "" };
+      const company = { code: "newco", tenantId: tenant.id, email: "owner@newco.example", password: "" };
       mkdirSync(path.dirname(idFile(env, company)), { recursive: true });
       await books(idFile(env, company));
       const on = await boot(env);
@@ -490,13 +490,13 @@ describe("the companies a deploy finds, written before databases were bound", ()
   });
 
   it("serves the demo company and a reviewer company that share the seed admin's address, each from its own books, unbound", async () => {
-    const REVIEW_PIN = "654321";
-    const env = harnessEnv({ MEZAN_SEED_DEMO: "1" }, { reviewTenant: { code: "review", pin: REVIEW_PIN } }, harnessDirs);
+    const REVIEW_PASSWORD = "pw-654321";
+    const env = harnessEnv({ MEZAN_SEED_DEMO: "1" }, { reviewTenant: { code: "review", password: REVIEW_PASSWORD } }, harnessDirs);
     const first = await boot(env);
     const list = (await first.send("/api/platform/tenants", { token: first.platformToken })).json as unknown as { tenant: { id: string; code: string } }[];
-    const seeded = (code: string, pin: string): Company => ({ code, tenantId: list.find((summary) => summary.tenant.code === code)!.tenant.id, email: SEED_ADMIN_EMAIL, pin });
-    const demo = seeded("demo", SEED_ADMIN_PIN);
-    const review = seeded("review", REVIEW_PIN);
+    const seeded = (code: string, password: string): Company => ({ code, tenantId: list.find((summary) => summary.tenant.code === code)!.tenant.id, email: SEED_ADMIN_EMAIL, password });
+    const demo = seeded("demo", SEED_ADMIN_PASSWORD);
+    const review = seeded("review", REVIEW_PASSWORD);
     await first.app.close();
     const boundWhenSeeded = boundTo(env, demo);
     asWrittenBeforeBinding(env, [demo, review]);
@@ -781,7 +781,7 @@ describe("what the server says about every company's books when it starts", () =
     });
     const health = await app.root.fetch(new Request("http://cloud.internal/healthz"));
     const scannedAtHealth = scanned;
-    const login = await app.root.fetch(proxiedRequest("/api/auth/login", { method: "POST", tenant: "nile", body: JSON.stringify({ username: nile!.email, pin: nile!.pin }) }));
+    const login = await app.root.fetch(proxiedRequest("/api/auth/login", { method: "POST", tenant: "nile", body: JSON.stringify({ username: nile!.email, password: nile!.password }) }));
     await app.booksScanned;
 
     expect(health.status).toBe(200);
@@ -901,12 +901,12 @@ describe("a database bound to the wrong company by mistake", () => {
   it("is unbound by the platform owner who types the company's code, is not served afterwards, and the act is on the record", async () => {
     const env = harnessEnv({}, {}, harnessDirs);
     const { on, nile, delta } = await wronglyBound(env);
-    const servedWrongly = await on.send("/api/auth/login", { method: "POST", tenant: "nile", body: JSON.stringify({ username: delta.email, pin: delta.pin }) });
+    const servedWrongly = await on.send("/api/auth/login", { method: "POST", tenant: "nile", body: JSON.stringify({ username: delta.email, password: delta.password }) });
 
     const mistyped = await on.console("POST", `/tenants/${nile.tenantId}/books/unbind`, { code: "delta" });
     const stillBound = boundTo(env, nile);
     const unbound = await on.console("POST", `/tenants/${nile.tenantId}/books/unbind`, { code: "nile" });
-    const refused = await on.send("/api/auth/login", { method: "POST", tenant: "nile", body: JSON.stringify({ username: delta.email, pin: delta.pin }) });
+    const refused = await on.send("/api/auth/login", { method: "POST", tenant: "nile", body: JSON.stringify({ username: delta.email, password: delta.password }) });
     await on.app.close();
 
     expect(servedWrongly.status).toBe(200);
@@ -1007,7 +1007,7 @@ describe("every door to a company whose books are refused", () => {
       ownerCandidates: await second.console("GET", `/tenants/${nile.tenantId}/owner/candidates`),
       ownerAssign: await second.console("POST", `/tenants/${nile.tenantId}/owner`, { userId: "anyone" }),
       ownerConfirmPending: await second.console("POST", `/tenants/${nile.tenantId}/owner/confirm`),
-      ownerPinReset: await second.console("POST", `/tenants/${nile.tenantId}/owner-pin/reset`),
+      ownerPasswordReset: await second.console("POST", `/tenants/${nile.tenantId}/owner-password/reset`),
     };
     const reading = {
       detail: await second.console("GET", `/tenants/${nile.tenantId}`),
@@ -1211,7 +1211,7 @@ describe("a company's books a writer was killed over, its log still beside them"
       const second = await boot(env);
       await second.app.booksScanned;
       const login = await signIn(second, nile!);
-      const reset = await second.console("POST", `/tenants/${nile!.tenantId}/owner-pin/reset`);
+      const reset = await second.console("POST", `/tenants/${nile!.tenantId}/owner-password/reset`);
       await second.app.close();
 
       expect(Object.keys(before)).toEqual(["nile.db", "nile.db-shm", "nile.db-wal"]);

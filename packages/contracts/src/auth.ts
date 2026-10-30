@@ -60,6 +60,15 @@ export const unlockAccountRequestSchema = z.object({
 });
 export type UnlockAccountRequestDTO = z.infer<typeof unlockAccountRequestSchema>;
 
+export const forgotPasswordRequestSchema = z.object({ username: z.string().min(1).max(254) });
+export type ForgotPasswordRequestDTO = z.infer<typeof forgotPasswordRequestSchema>;
+
+export const resetPasswordRequestSchema = z.object({
+  token: z.string().min(20).max(128),
+  password: z.string().min(8, "Password must be at least 8 characters").max(256),
+});
+export type ResetPasswordRequestDTO = z.infer<typeof resetPasswordRequestSchema>;
+
 export const unlockAccountByLinkRequestSchema = z.object({ token: z.string().min(20).max(128) });
 export type UnlockAccountByLinkRequestDTO = z.infer<typeof unlockAccountByLinkRequestSchema>;
 

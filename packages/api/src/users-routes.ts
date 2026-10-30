@@ -613,7 +613,7 @@ export function createUsersRoutes(
       {
         error: "OWNER_ACCOUNT_PROTECTED",
         message:
-          "هذا حساب مالك المنشأة. لا يغيّر بريده أو رمزه السري أو كلمة مروره أو حالته أو صلاحية المدير إلا المالك نفسه. لاستعادة الحساب تواصل مع دعم المنصة.",
+          "هذا حساب مالك المنشأة. لا يغيّر بريده أو كلمة مروره أو حالته أو صلاحية المدير إلا المالك نفسه. لاستعادة الحساب تواصل مع دعم المنصة.",
         messageEn:
           "This is the company owner's account. Only the owner can change its email, PIN, password, status or admin access. To recover the account, contact platform support.",
       },

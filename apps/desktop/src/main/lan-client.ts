@@ -35,7 +35,7 @@ import type { ClientConfig } from "./client-config.js";
  * is the only assertion that can tell the two implementations apart — a test
  * that merely checked for a thrown error passes on both.
  *
- * Every request this transport carries has either a PIN in its body
+ * Every request this transport carries has either a password in its body
  * (`/auth/login`) or a bearer token in its headers, so "sent it, then decided
  * it was the wrong machine" is indistinguishable from having no pin at all.
  *
@@ -598,12 +598,17 @@ export function withSeatClaim(forward: LanForward, config: ClientConfig): LanFor
     const response = await forward(pathAndQuery, init);
 
     if (pathname === LOGIN_PATH && response.status === 200) {
-      let token: string | undefined;
+      let login: { token?: string; mustChangePassword?: boolean } = {};
       try {
-        token = (JSON.parse(response.body) as { token?: string }).token;
+        login = JSON.parse(response.body) as typeof login;
       } catch {
-        token = undefined;
+        login = {};
       }
+      // A temporary-password session is refused a seat by the host until the
+      // password is changed; the change itself is public over LAN (lan-host.ts),
+      // and the first request after it claims the seat through the 404 path below.
+      if (login.mustChangePassword === true) return response;
+      const token = login.token;
       if (token && !(await claimSeat(token))) {
         // The seat refusal IS the login result. See the note above: "logged in
         // but seatless" is a state with no screen and no recovery.

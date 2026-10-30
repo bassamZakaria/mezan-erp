@@ -87,7 +87,7 @@ async function boot(env: Record<string, string>): Promise<{ port: number; stop: 
 }
 
 /**
- * guards S-1 — the public demo shipped a published admin PIN behind basic auth
+ * guards S-1 — the public demo shipped a published admin password behind basic auth
  * that was applied only if an undeclared variable happened to be set, i.e. a
  * writable admin session on the open internet.
  */
@@ -105,13 +105,13 @@ describe("cloud demo entry point", () => {
     expect(output).toContain("REFUSING TO START");
   }, 30_000);
 
-  it("refuses a literal fallback-admin PIN on a public deploy", async () => {
+  it("refuses a literal fallback-admin password on a public deploy", async () => {
     const { code, output } = await run({
       MEZAN_DEMO_PASSWORD: "a-long-enough-demo-password",
-      MEZAN_SEED_ADMIN_PIN: "123456",
+      MEZAN_SEED_ADMIN_PASSWORD: "Cyag@2026",
     });
     expect(code).toBe(1);
-    expect(output).toContain("MEZAN_SEED_ADMIN_PIN");
+    expect(output).toContain("MEZAN_SEED_ADMIN_PASSWORD");
   }, 30_000);
 
   it("boots without MEZAN_DEMO_PASSWORD and mounts no basic auth when no demo is seeded", async () => {

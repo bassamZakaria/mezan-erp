@@ -112,7 +112,7 @@ export const PRIVACY: Record<LegalLanguage, LegalDocument> = {
         heading: "ما نجمعه في النسخة السحابية ولماذا",
         paragraphs: ["تُحفظ البيانات التالية في قاعدة بيانات شركتك على خوادمنا، لتشغيل الخدمة:"],
         bullets: [
-          "بيانات الدخول: كود المنشأة وبريدك الإلكتروني والرقم السري المكوّن من ستة أرقام أو كلمة المرور. لا نخزّن الرقم السري ولا كلمة المرور نفسيهما، بل بصمة مشفّرة (hash) لا يمكن استرجاعهما منها.",
+          "بيانات الدخول: كود المنشأة وبريدك الإلكتروني وكلمة المرور. لا نخزّن كلمة المرور نفسها، بل بصمة مشفّرة (hash) لا يمكن استرجاعها منها.",
           "ملفك في الحساب: اسمك وبريدك ودورك وصلاحياتك والفروع والمستودعات المسموح لك بها، كما يسجلها مسؤول النظام في شركتك.",
           "بيانات الموارد البشرية التي تسجلها شركتك: اسم الموظف وبيانات الاتصال وتاريخ الميلاد والرقم القومي والعنوان وجهة الاتصال في الطوارئ والحساب البنكي للراتب.",
           "صورة تسجيل الحضور: إن كانت شركتك تشترط صورة عند تسجيل الحضور أو الانصراف، يلتقط التطبيق صورة بالكاميرا الأمامية حين تضغط زر الالتقاط فقط، ويرسلها مع وقت التسجيل. تُحفظ ضمن سجل الحضور لدى شركتك دليلاً على الحضور.",
@@ -122,7 +122,7 @@ export const PRIVACY: Record<LegalLanguage, LegalDocument> = {
           "بيانات الفوترة والدفع: اسم مسؤول الفوترة وبريده والباقة والمبلغ. يتم الدفع بالبطاقة على صفحة الدفع المستضافة لدى Paymob، ولا يرى ميزان رقم البطاقة كاملاً ولا يخزّنه.",
           "تقارير الأعطال: إن تعطّل تطبيق الويب أو تطبيق الهاتف، يرسل إلى خادم ميزان الخاص بشركتك نص الخطأ وجزءاً من مسار تتبّعه (stack) والشاشة ورقم إصدار التطبيق، ونوع المتصفح في تطبيق الويب، ورقم المستخدم إن كان مسجّلاً دخوله. لا يتضمن التقرير ما كُتب في النماذج ولا البيانات المحفوظة على الجهاز.",
           "سجلات الأمان والتدقيق: تسجيل الدخول الناجح والفاشل والإجراءات الحساسة مع الحساب والوقت، وسجل تدقيق لكل عملية كتابة.",
-          "سجلات تشغيل الخادم: نوع الطلب ومساره ونتيجته ومدته ورقمه ورقم الشركة والمستخدم. لا تتضمن عنوان IP، وتُحجب فيها تلقائياً كلمات المرور والأرقام السرية ورموز الدخول وأرقام الحسابات البنكية (IBAN) وعناوين البريد الإلكتروني. ويُستخدم عنوان IP للحد من المحاولات المتكررة (مثل تسجيل الدخول وطلبات الحذف) ولا يُحتفظ به إلا مدة نافذة الحد.",
+          "سجلات تشغيل الخادم: نوع الطلب ومساره ونتيجته ومدته ورقمه ورقم الشركة والمستخدم. لا تتضمن عنوان IP، وتُحجب فيها تلقائياً كلمات المرور ورموز الدخول وأرقام الحسابات البنكية (IBAN) وعناوين البريد الإلكتروني. ويُستخدم عنوان IP للحد من المحاولات المتكررة (مثل تسجيل الدخول وطلبات الحذف) ولا يُحتفظ به إلا مدة نافذة الحد.",
         ],
       },
       {
@@ -198,7 +198,7 @@ export const PRIVACY: Record<LegalLanguage, LegalDocument> = {
           "النسخ الاحتياطية خارج الخادم تُشفَّر على الخادم قبل رفعها (restic)، ثم تُحفظ في Contabo Object Storage في الاتحاد الأوروبي.",
           "قرص الخادم نفسه غير مشفّر حالياً، وهو في مركز بيانات تديره Contabo. [[TODO: إن فُعّل تشفير القرص (LUKS) فاستبدل هذه الجملة بـ «قرص الخادم مشفّر»]]",
           "الوصول داخل شركتك محكوم بالأدوار والصلاحيات، ولكل عملية كتابة سجل تدقيق يمكن التحقق من سلامته.",
-          "سجلات التشغيل تحجب تلقائياً كلمات المرور والأرقام السرية ورموز الدخول وأرقام الحسابات البنكية وعناوين البريد.",
+          "سجلات التشغيل تحجب تلقائياً كلمات المرور ورموز الدخول وأرقام الحسابات البنكية وعناوين البريد.",
         ],
       },
       {
@@ -208,7 +208,7 @@ export const PRIVACY: Record<LegalLanguage, LegalDocument> = {
           "بيانات شركتك: نحتفظ بها ما دامت الخدمة قائمة. بعد إنهاء الخدمة وأرشفة حساب شركتك نحتفظ بها 90 يوماً [[TODO: تأكيد المدة قانونياً — تُضبط على الخادم بالمتغير MEZAN_TENANT_RETENTION_DAYS]] تستطيع شركتك خلالها طلب نسخة كاملة من دفاترها، ثم تُحذف تلقائياً قاعدة بياناتها ونسخها الاحتياطية على الخادم وملفات التصدير وجلسات الدخول. ويبقى سجل يثبت الحذف (معرّف الحساب ورمزه وتاريخ الحذف) دون أي بيانات تجارية.",
           "النسخ الاحتياطية المشفّرة خارج الخادم لا تُحذف فوراً: تنتهي وحدها وفق مدة الاحتفاظ بها، وأقصاها 12 شهراً [[TODO: تأكيد المدة مع إعداد restic على الخادم]]. وتبقى سجلاتنا للفواتير والمدفوعات وسجل التدقيق الخاص بالمنصة لأنها سجلاتنا نحن.",
           "الالتزامات القانونية بالاحتفاظ بالدفاتر والمستندات، ومنها ما يفرضه قانون الضرائب والقانون التجاري في مصر، تقع على شركتك. لذلك احرص على تنزيل نسختك قبل نهاية المهلة.",
-          "حذف مستخدم: عند محو بيانات مستخدم تُزال بياناته الشخصية (الاسم والبريد والهاتف والرقم السري والصورة والرقم القومي والعنوان والحساب البنكي وصور الحضور ومواقعه ومفاتيح البصمة)، ويبقى حسابه باسم «مستخدم محذوف» لأن المستندات المحاسبية التي أنشأها لا تُعدَّل.",
+          "حذف مستخدم: عند محو بيانات مستخدم تُزال بياناته الشخصية (الاسم والبريد والهاتف وكلمة المرور والصورة والرقم القومي والعنوان والحساب البنكي وصور الحضور ومواقعه ومفاتيح البصمة)، ويبقى حسابه باسم «مستخدم محذوف» لأن المستندات المحاسبية التي أنشأها لا تُعدَّل.",
           "سجلات التشغيل: تُدوَّر حسب الحجم (خمسة ملفات بحد أقصى 20 ميجابايت لكل منها)، فيُكتب الجديد فوق الأقدم. [[TODO: قِس المدة الفعلية التي تغطيها السجلات على الخادم واذكرها بالأيام]]",
           "تقارير الأعطال: يُحتفظ بأحدث 500 تقرير لكل شركة، ويُحذف الأقدم تلقائياً.",
           "النسخ الاحتياطية: على الخادم آخر 12 نسخة لكل شركة. وخارج الخادم نحتفظ بنسخ كل ساعة لمدة 48 ساعة، ويومية لمدة 30 يوماً، وأسبوعية لمدة 12 أسبوعاً، وشهرية لمدة 12 شهراً. لذلك قد تبقى البيانات المحذوفة في النسخ الاحتياطية حتى 12 شهراً، ثم تُحذف.",
@@ -278,7 +278,7 @@ export const PRIVACY: Record<LegalLanguage, LegalDocument> = {
         heading: "What we collect in the cloud edition, and why",
         paragraphs: ["The following data is kept in your company's database on our servers, to run the service:"],
         bullets: [
-          "Sign-in details: the company code, your email address and your six-digit PIN or password. We never store the PIN or the password itself, only a one-way hash it cannot be recovered from.",
+          "Sign-in details: the company code, your email address and your password. We never store the password itself, only a one-way hash it cannot be recovered from.",
           "Your account profile: your name, email, role, permissions, and the branches and warehouses you may use, as your company's administrator records them.",
           "HR data your company records: the employee's name, contact details, date of birth, national ID number, address, emergency contact and salary bank account.",
           "Clock-in photo: if your company requires a photo when you clock in or out, the app takes one with the front camera only when you tap the capture button, and sends it with the time of the punch. It is kept in your company's attendance records as evidence of attendance.",
@@ -288,7 +288,7 @@ export const PRIVACY: Record<LegalLanguage, LegalDocument> = {
           "Billing and payment data: the billing contact's name and email, the plan and the amount. Card payments are made on Paymob's hosted checkout page; Mezan never sees or stores the full card number.",
           "Error reports: if the web app or the phone app crashes, it sends your company's own Mezan server the error message, part of its stack trace, the screen, the app version, the browser type (web app only), and your user number if you are signed in. A report never includes what was typed into forms or data stored on the device.",
           "Security and audit records: successful and failed sign-ins and sensitive actions, with the account and the time, and an audit record of every change.",
-          "Server logs: each request's type, path, result, duration and number, and the company and user number. They do not include the IP address, and the logger itself masks passwords, PINs, sign-in tokens, bank account numbers (IBANs) and email addresses. The IP address is used to limit repeated attempts (such as sign-ins and deletion requests) and is kept only for the length of that limit.",
+          "Server logs: each request's type, path, result, duration and number, and the company and user number. They do not include the IP address, and the logger itself masks passwords, sign-in tokens, bank account numbers (IBANs) and email addresses. The IP address is used to limit repeated attempts (such as sign-ins and deletion requests) and is kept only for the length of that limit.",
         ],
       },
       {
@@ -364,7 +364,7 @@ export const PRIVACY: Record<LegalLanguage, LegalDocument> = {
           "Backups that leave the server are encrypted on the server before upload (restic), then kept in Contabo Object Storage in the European Union.",
           "The server's own disk is not encrypted at present; it sits in a data centre run by Contabo. [[TODO: if disk encryption (LUKS) is turned on, replace this sentence with \"The server's disk is encrypted.\"]]",
           "Access inside your company is limited by roles and permissions, and every change has an audit record whose integrity can be checked.",
-          "Server logs mask passwords, PINs, sign-in tokens, bank account numbers and email addresses automatically.",
+          "Server logs mask passwords, sign-in tokens, bank account numbers and email addresses automatically.",
         ],
       },
       {
@@ -374,7 +374,7 @@ export const PRIVACY: Record<LegalLanguage, LegalDocument> = {
           "Your company's data: kept for as long as the service runs. Once the service ends and your company's account is archived we keep it for 90 days [[TODO: legal to confirm the period — set on the server by MEZAN_TENANT_RETENTION_DAYS]], during which your company can ask for a full copy of its books; then its database, its backups on the server, export files and sign-in sessions are deleted automatically. A record proving the deletion (the account's id, its code and the deletion date) remains, with no business data.",
           "Encrypted backups kept off the server are not deleted at once: they expire on their own under their retention period, at most 12 months [[TODO: confirm the period against the server's restic settings]]. Our own records of invoices, payments and the platform's audit trail are kept, because they are ours.",
           "Any legal duty to keep books and documents, including under Egyptian tax and commercial law, is your company's. Download your copy before that period ends.",
-          "Erasing a user: their personal data is removed (name, email, phone, PIN, photo, national ID number, address, bank account, clock-in photos and locations, and biometric check keys). The account stays, named \"Deleted user\", because the accounting documents it created cannot be changed.",
+          "Erasing a user: their personal data is removed (name, email, phone, password, photo, national ID number, address, bank account, clock-in photos and locations, and biometric check keys). The account stays, named \"Deleted user\", because the accounting documents it created cannot be changed.",
           "Server logs: rotated by size (five files of at most 20 MB each), so the newest entries overwrite the oldest. [[TODO: measure how many days the logs actually cover on the server and state it]]",
           "Error reports: the newest 500 per company are kept; older ones are deleted automatically.",
           "Backups: the server keeps the last 12 copies of each company's data. Off the server we keep hourly copies for 48 hours, daily copies for 30 days, weekly copies for 12 weeks and monthly copies for 12 months. Deleted data can therefore remain in backups for up to 12 months before it is gone.",
@@ -434,7 +434,7 @@ export const ACCOUNT_DELETION: Record<LegalLanguage, LegalDocument> = {
         heading: "ما يُحذف",
         paragraphs: [],
         bullets: [
-          "اسمك وبريدك الإلكتروني ورقم هاتفك والرقم السري وصورة الملف الشخصي، وبياناتك كموظف مثل الرقم القومي والعنوان والحساب البنكي.",
+          "اسمك وبريدك الإلكتروني ورقم هاتفك وكلمة المرور وصورة الملف الشخصي، وبياناتك كموظف مثل الرقم القومي والعنوان والحساب البنكي.",
           "صور تسجيل الحضور ومواقعه ومفاتيح التحقق البيومتري المرتبطة بحسابك.",
         ],
       },
@@ -466,7 +466,7 @@ export const ACCOUNT_DELETION: Record<LegalLanguage, LegalDocument> = {
         heading: "What is deleted",
         paragraphs: [],
         bullets: [
-          "Your name, email address, phone number, PIN and profile photo, and your employee details such as national ID number, address and bank account.",
+          "Your name, email address, phone number, password and profile photo, and your employee details such as national ID number, address and bank account.",
           "The clock-in photos, clock-in locations and biometric check keys linked to your account.",
         ],
       },

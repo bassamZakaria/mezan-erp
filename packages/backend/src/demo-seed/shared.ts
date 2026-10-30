@@ -42,10 +42,17 @@ export type SeedSessionMinter = (grant: {
 }) => Promise<string>;
 
 let mintSeedSession: SeedSessionMinter | null = null;
+let personaPassword = "";
 
-export function setSeedSessionToken(token: string, minter: SeedSessionMinter): void {
+export function setSeedSessionToken(token: string, minter: SeedSessionMinter, password: string): void {
   ADMIN_HEADERS.authorization = `Bearer ${token}`;
   mintSeedSession = minter;
+  personaPassword = password;
+}
+
+/** The one password every seeded persona signs in with. */
+export function seedPersonaPassword(): string {
+  return personaPassword;
 }
 
 /** Headers that act as `userId`, with exactly the permissions and roles given. */
@@ -187,7 +194,7 @@ export async function stepIfMounted(app: App, method: string, path: string, body
  *
  * A production process passes only with `MEZAN_SEED_DEMO=1` in its own
  * environment: apps/server/src/cloud.ts runs in production (so every real
- * tenant gets a generated admin PIN) and seeds the demo tenant, a database of
+ * tenant gets a generated admin password) and seeds the demo tenant, a database of
  * its own, in the same process. Refusing production outright made every demo
  * deploy crash on boot.
  *
@@ -196,8 +203,8 @@ export async function stepIfMounted(app: App, method: string, path: string, body
  */
 export function assertLocalOrTest(): void {
   const env = process.env.NODE_ENV;
-  // A reviewer tenant (MEZAN_REVIEW_TENANT_CODE + MEZAN_REVIEW_PIN) is the same explicit opt-in; it re-PINs every seeded user.
-  const optedIn = process.env.MEZAN_SEED_DEMO === "1" || (!!process.env.MEZAN_REVIEW_TENANT_CODE && !!process.env.MEZAN_REVIEW_PIN);
+  // A reviewer tenant (MEZAN_REVIEW_TENANT_CODE + MEZAN_REVIEW_PASSWORD) is the same explicit opt-in; every seeded user gets its private password.
+  const optedIn = process.env.MEZAN_SEED_DEMO === "1" || (!!process.env.MEZAN_REVIEW_TENANT_CODE && !!process.env.MEZAN_REVIEW_PASSWORD);
   if (env === "production" && !optedIn) {
     throw new Error(
       "[demo-seed] refusing to seed: NODE_ENV=production with MEZAN_SEED_DEMO unset. This profile is for local development, tests and the hosted demo tenant only.",

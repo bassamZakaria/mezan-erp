@@ -31,6 +31,7 @@ const validSession: Session = {
   nameAr: "سارة",
   nameEn: null,
   email: "sara@example.com",
+  mustChangePassword: false,
   isCompanyAdmin: false,
   permissions: ["items.view"],
   roleCode: "SALES",

@@ -46,9 +46,9 @@ COPY --from=build /app/apps/web/dist apps/web/dist
 RUN mkdir -p /data && chown node:node /data
 
 # NODE_ENV=production so @mezan/backend's resolveSeedAdminSecrets randomises the
-# fallback admin PIN of every real tenant (audit S-1); cloud.ts refuses to start
-# if MEZAN_SEED_ADMIN_PIN pins it process-wide. Only the demo tenant keeps the
-# published `123456`, pinned in apps/server/src/demo-tenant.ts.
+# fallback admin password of every real tenant (audit S-1); cloud.ts refuses to start
+# if MEZAN_SEED_ADMIN_PASSWORD pins it process-wide. Only the demo tenant keeps the
+# published `Cyag@2026`, pinned in apps/server/src/demo-tenant.ts.
 ENV NODE_ENV=production
 ARG MEZAN_VERSION=dev
 ENV MEZAN_VERSION=$MEZAN_VERSION

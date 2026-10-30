@@ -399,7 +399,7 @@ describe("TenantsPage", () => {
     expect(await screen.findByText("لا توجد منشآت بعد.")).toBeInTheDocument();
   });
 
-  it("opens the create dialog, submits, and shows the one-time admin PIN with a copy button", async () => {
+  it("opens the create dialog, submits, and shows the one-time admin temporary password with a copy button", async () => {
     let posted: unknown = null;
     const transport = stubPlatformTransport({
       ...baseHandlers(),
@@ -410,7 +410,7 @@ describe("TenantsPage", () => {
           body: {
             tenant: { ...tenantSummary.tenant, id: "tenant-2", code: "newco", status: "active" },
             adminEmail: "owner@newco.test",
-            adminPin: "482910",
+            adminPassword: "Tmp-4829-10ef",
           },
         };
       },
@@ -429,14 +429,14 @@ describe("TenantsPage", () => {
     fireEvent.mouseDown(screen.getByRole("option", { name: "باقة النمو — growth" }));
     fireEvent.click(within(dialog).getByRole("button", { name: "إنشاء المنشأة" }));
 
-    expect(await within(dialog).findByText("482910")).toBeInTheDocument();
+    expect(await within(dialog).findByText("Tmp-4829-10ef")).toBeInTheDocument();
     expect(within(dialog).getByText("newco")).toBeInTheDocument();
     expect(within(dialog).getByText("owner@newco.test")).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: "نسخ" })).toBeInTheDocument();
     expect(posted).toMatchObject({ code: "newco", nameAr: "شركة جديدة", planId: "plan-1", ownerEmail: "owner@newco.test" });
   });
 
-  it("the one-time PIN is unreachable after the result panel is closed", async () => {
+  it("the one-time temporary password is unreachable after the result panel is closed", async () => {
     const transport = stubPlatformTransport({
       ...baseHandlers(),
       "POST /tenants": () => ({
@@ -444,7 +444,7 @@ describe("TenantsPage", () => {
         body: {
           tenant: { ...tenantSummary.tenant, id: "tenant-2", code: "newco", status: "active" },
           adminEmail: "owner@newco.test",
-          adminPin: "482910",
+          adminPassword: "Tmp-4829-10ef",
         },
       }),
     });
@@ -460,10 +460,10 @@ describe("TenantsPage", () => {
     fireEvent.mouseDown(screen.getByRole("option", { name: "باقة النمو — growth" }));
     fireEvent.click(within(dialog).getByRole("button", { name: "إنشاء المنشأة" }));
 
-    expect(await within(dialog).findByText("482910")).toBeInTheDocument();
+    expect(await within(dialog).findByText("Tmp-4829-10ef")).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole("button", { name: "إغلاق" }));
 
-    expect(screen.queryByText("482910")).not.toBeInTheDocument();
+    expect(screen.queryByText("Tmp-4829-10ef")).not.toBeInTheDocument();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 

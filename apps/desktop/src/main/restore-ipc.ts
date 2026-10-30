@@ -184,19 +184,20 @@ export interface RestoreIpcDeps {
    */
   readonly recoveryKeyStore?: RecoveryKeyStore;
   /**
-   * Proves the caller's CURRENT PIN through the backend's own step-up route, so
-   * a wrong PIN is counted on the same sign-in ladder as a wrong sign-in.
+   * Proves the caller's CURRENT password through the backend's own step-up
+   * route, so a wrong password is counted on the same sign-in ladder as a
+   * wrong sign-in.
    */
-  readonly verifyPin?: (sessionToken: string, pin: string) => Promise<PinCheck>;
+  readonly verifyPassword?: (sessionToken: string, password: string) => Promise<PasswordCheck>;
 }
 
-export enum PinCheckOutcome {
+export enum PasswordCheckOutcome {
   Confirmed = "confirmed",
   Refused = "refused",
 }
 
-export interface PinCheck {
-  readonly outcome: PinCheckOutcome;
+export interface PasswordCheck {
+  readonly outcome: PasswordCheckOutcome;
   /** Arabic, from the backend, when refused. */
   readonly message: string | null;
 }
@@ -790,7 +791,7 @@ export function registerRestoreOverIpc(deps: RestoreIpcDeps): void {
 
   /**
    * «حماية النسخ الاحتياطية». Setting the secret the first time needs only the
-   * restore grant; REPLACING one needs the caller's current PIN as well,
+   * restore grant; REPLACING one needs the caller's current password as well,
    * proven by the backend, because whoever changes it decides who can open
    * every copy that leaves the machine from now on.
    */
@@ -831,16 +832,16 @@ export function registerRestoreOverIpc(deps: RestoreIpcDeps): void {
 
       const previous = await readRecoveryStatus(deps.backupsDir);
       if (previous.mode !== null) {
-        const pin = body["pin"];
-        if (typeof pin !== "string" || pin === "") {
-          return failure("PIN_REQUIRED", "اكتب رمز PIN الخاص بك لتأكيد تغيير حماية النسخ.");
+        const password = body["password"];
+        if (typeof password !== "string" || password === "") {
+          return failure("PASSWORD_REQUIRED", "اكتب كلمة المرور الخاصة بك لتأكيد تغيير حماية النسخ.");
         }
-        if (!deps.verifyPin) return failure("UNAVAILABLE", "تعذّر التحقق من رمز PIN على هذا الجهاز.");
-        const check = await deps.verifyPin(sessionToken as string, pin).catch(
-          (): PinCheck => ({ outcome: PinCheckOutcome.Refused, message: null }),
+        if (!deps.verifyPassword) return failure("UNAVAILABLE", "تعذّر التحقق من كلمة المرور على هذا الجهاز.");
+        const check = await deps.verifyPassword(sessionToken as string, password).catch(
+          (): PasswordCheck => ({ outcome: PasswordCheckOutcome.Refused, message: null }),
         );
-        if (check.outcome !== PinCheckOutcome.Confirmed) {
-          return failure("WRONG_PIN", check.message ?? "رمز PIN غير صحيح.");
+        if (check.outcome !== PasswordCheckOutcome.Confirmed) {
+          return failure("WRONG_PASSWORD", check.message ?? "كلمة المرور غير صحيحة.");
         }
       }
 

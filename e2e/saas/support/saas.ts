@@ -8,6 +8,7 @@ import {
   HttpMethod,
   ItemType,
   Locale,
+  PASSWORD_LABEL,
   PLATFORM_OWNER_EMAIL,
   PLATFORM_OWNER_PASSWORD,
   PlanId,
@@ -22,7 +23,7 @@ export interface TenantLogin {
   readonly id: string;
   readonly code: string;
   readonly adminEmail: string;
-  readonly adminPin: string;
+  readonly adminPassword: string;
 }
 
 export interface NewTenantInput {
@@ -76,8 +77,8 @@ export async function createTenantInConsole(page: Page, input: NewTenantInput): 
   await dialog.getByRole("button", { name: "إنشاء المنشأة" }).click();
   const response = await created;
   expect(response.status()).toBe(201);
-  const body = (await response.json()) as { tenant: { id: string }; adminEmail: string; adminPin: string };
-  return { id: body.tenant.id, code: input.code, adminEmail: body.adminEmail, adminPin: body.adminPin };
+  const body = (await response.json()) as { tenant: { id: string }; adminEmail: string; adminPassword: string };
+  return { id: body.tenant.id, code: input.code, adminEmail: body.adminEmail, adminPassword: body.adminPassword };
 }
 
 export async function openTenantDetail(page: Page, code: string): Promise<void> {
@@ -87,10 +88,10 @@ export async function openTenantDetail(page: Page, code: string): Promise<void> 
   await expect(page.getByRole("button", { name: "تسجيل دفعة" })).toBeVisible();
 }
 
-export async function fillPin(page: Page, pin: string): Promise<void> {
-  for (const [index, digit] of [...pin].entries()) {
-    await page.getByLabel(`رمز PIN رقم ${index + 1}`).fill(digit);
-  }
+export async function fillPassword(page: Page, password: string): Promise<void> {
+  const field = page.getByLabel(PASSWORD_LABEL, { exact: true });
+  await field.fill(password);
+  await field.press("Enter");
 }
 
 export async function enterTenantCode(page: Page, code: string): Promise<void> {
@@ -103,17 +104,17 @@ export async function enterTenantCode(page: Page, code: string): Promise<void> {
   await expect(page.getByRole("button", { name: "تغيير المنشأة" })).toBeVisible();
 }
 
-export async function enterCredentials(page: Page, email: string, pin: string): Promise<void> {
+export async function enterCredentials(page: Page, email: string, password: string): Promise<void> {
   const field = page.getByRole("textbox", { name: "البريد الإلكتروني" });
   if (!(await field.isVisible())) await page.getByRole("button", { name: "آخر", exact: true }).click();
   await field.fill(email);
-  await fillPin(page, pin);
+  await fillPassword(page, password);
 }
 
 export async function tenantSignIn(page: Page, tenant: TenantLogin, baseUrl = ""): Promise<void> {
   await page.goto(`${baseUrl}/`);
   await enterTenantCode(page, tenant.code);
-  await enterCredentials(page, tenant.adminEmail, tenant.adminPin);
+  await enterCredentials(page, tenant.adminEmail, tenant.adminPassword);
   await expect(page.locator("main").first()).toBeVisible();
   await expect(page.getByRole("button", { name: "تسجيل الخروج" })).toBeVisible();
 }
@@ -150,7 +151,7 @@ export async function addCustomer(page: Page, name: string, baseUrl = ""): Promi
 
 export async function tenantSignOut(page: Page): Promise<void> {
   await page.getByRole("button", { name: "تسجيل الخروج" }).click();
-  await expect(page.getByLabel("رمز PIN رقم 1")).toBeVisible();
+  await expect(page.getByLabel(PASSWORD_LABEL, { exact: true })).toBeVisible();
 }
 
 const platformDevices = new Map<string, string>();
@@ -189,8 +190,8 @@ export async function provisionTenant(
     },
   });
   expect(response.status(), await response.text()).toBe(201);
-  const body = (await response.json()) as { tenant: { id: string }; adminEmail: string; adminPin: string };
-  return { id: body.tenant.id, code: input.code, adminEmail: body.adminEmail, adminPin: body.adminPin };
+  const body = (await response.json()) as { tenant: { id: string }; adminEmail: string; adminPassword: string };
+  return { id: body.tenant.id, code: input.code, adminEmail: body.adminEmail, adminPassword: body.adminPassword };
 }
 
 export async function tenantApiLogin(
@@ -200,7 +201,7 @@ export async function tenantApiLogin(
 ): Promise<TenantApi> {
   const response = await request.post(`${apiUrl}/api/auth/login`, {
     headers: { [TENANT_HEADER]: tenant.code },
-    data: { username: tenant.adminEmail, pin: tenant.adminPin },
+    data: { username: tenant.adminEmail, password: tenant.adminPassword },
   });
   expect(response.status(), await response.text()).toBe(200);
   return { code: tenant.code, token: ((await response.json()) as { token: string }).token };

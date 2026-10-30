@@ -11,7 +11,6 @@ import {
 
 // EXTERNAL CONTRACT: the main process refuses anything shorter (apps/desktop/src/backup/portable-export.ts MIN_PASSPHRASE_LENGTH).
 export const RECOVERY_PASSPHRASE_MIN_LENGTH = 10;
-const PIN_LENGTH = 6;
 
 export enum PassphraseStrength {
   TooShort = "tooShort",
@@ -55,7 +54,7 @@ interface BackupProtectionPanelProps {
 /**
  * «حماية النسخ الاحتياطية» — the one form the first-run step, the backup
  * screen and the dashboard's one-click flow all render. Setting the secret the
- * first time needs no PIN; replacing it does, and the main process proves it.
+ * first time needs no password; replacing it needs the user's current one, and the main process proves it.
  */
 export function BackupProtectionPanel({ sessionToken, recovery, onSaved }: BackupProtectionPanelProps) {
   const { t } = useAppTranslation();
@@ -69,7 +68,7 @@ export function BackupProtectionPanel({ sessionToken, recovery, onSaved }: Backu
   const [understood, setUnderstood] = useState(false);
   const [keyCardPath, setKeyCardPath] = useState<string | null>(null);
   const [keyCardStored, setKeyCardStored] = useState(false);
-  const [pin, setPin] = useState("");
+  const [password, setPassword] = useState("");
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -86,8 +85,8 @@ export function BackupProtectionPanel({ sessionToken, recovery, onSaved }: Backu
   const passphraseReady =
     strength !== PassphraseStrength.TooShort && passphrase === confirmation && understood;
   const keyCardReady = keyCardPath !== null && keyCardStored;
-  const pinReady = !changing || pin.length === PIN_LENGTH;
-  const ready = pinReady && (mode === RecoveryMode.Passphrase ? passphraseReady : keyCardReady);
+  const passwordReady = !changing || password !== "";
+  const ready = passwordReady && (mode === RecoveryMode.Passphrase ? passphraseReady : keyCardReady);
 
   async function handleSaveKeyCard() {
     if (running || !saveKeyCard) return;
@@ -114,17 +113,17 @@ export function BackupProtectionPanel({ sessionToken, recovery, onSaved }: Backu
       const result = await setRecovery(sessionToken, {
         mode,
         ...(mode === RecoveryMode.Passphrase ? { passphrase } : {}),
-        ...(changing ? { pin } : {}),
+        ...(changing ? { password } : {}),
       });
       if (isBackupFailure(result)) {
         setError(result.message);
-        if (result.code === BackupFailureCode.WrongPin) setPin("");
+        if (result.code === BackupFailureCode.WrongPassword) setPassword("");
         if (result.code === BackupFailureCode.KeyCardNotSaved) setKeyCardPath(null);
         return;
       }
       setPassphrase("");
       setConfirmation("");
-      setPin("");
+      setPassword("");
       setUnderstood(false);
       setKeyCardPath(null);
       setKeyCardStored(false);
@@ -247,19 +246,16 @@ export function BackupProtectionPanel({ sessionToken, recovery, onSaved }: Backu
           )}
 
           {changing ? (
-            <label className="flex max-w-[200px] flex-col gap-[6px]">
-              <span className="text-[12.5px] font-semibold text-ink">{t("backupProtection.pin")}</span>
+            <label className="flex max-w-[360px] flex-col gap-[6px]">
+              <span className="text-[12.5px] font-semibold text-ink">{t("backupProtection.password")}</span>
               <TextInput
                 type="password"
-                numeric
-                inputMode="numeric"
-                autoComplete="off"
+                autoComplete="current-password"
                 dir="ltr"
-                maxLength={PIN_LENGTH}
-                value={pin}
-                onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
               />
-              <span className="text-[11px] text-ink-faint">{t("backupProtection.pinHint")}</span>
+              <span className="text-[11px] text-ink-faint">{t("backupProtection.passwordHint")}</span>
             </label>
           ) : null}
 

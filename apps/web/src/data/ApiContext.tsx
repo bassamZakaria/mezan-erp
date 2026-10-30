@@ -9,12 +9,13 @@ import {
   persistScopeSelection,
   persistSession,
   SignInNotice,
+  TENANT_HEADER,
   type ScopeSelection,
   type Session,
 } from "./session";
 import { resolveDefaultTransport, SessionEndedReason, type Transport, type TransportResponse } from "./transport";
 import { publishLoaderApi } from "./api-bridge";
-import { DEVICE_BINDING_HEADER, DeviceBinding } from "@mezan/contracts";
+import { DEVICE_BINDING_HEADER, DeviceBinding, PasswordChangeRefusal } from "@mezan/contracts";
 import { StepUpDialog, type StepUpPrompt } from "./StepUpDialog";
 
 const SIGN_IN_PATH = "/auth/login";
@@ -130,13 +131,17 @@ export function ApiProvider({ children, transport, initialSession }: ApiProvider
       const text = await refused.text();
       const replayed = replayable(refused, text);
       const body = parsed(text);
+      if (body?.error === PasswordChangeRefusal.Required) {
+        setSessionState((current) => (current === null || current.mustChangePassword ? current : { ...current, mustChangePassword: true }));
+        return replayed;
+      }
       if (body?.error !== STEP_UP_REQUIRED) return replayed;
       const confirmed = await new Promise<boolean>((resolve) => {
         setStepUp({
           message: body.message ?? "",
           cancel: () => resolve(false),
-          confirm: async (pin) => {
-            const answer = await resolvedTransport(STEP_UP_PATH, { method: "POST", headers, body: JSON.stringify({ pin }) });
+          confirm: async (password) => {
+            const answer = await resolvedTransport(STEP_UP_PATH, { method: "POST", headers, body: JSON.stringify({ password }) });
             if (answer.ok) {
               resolve(true);
               return null;
@@ -167,7 +172,10 @@ export function ApiProvider({ children, transport, initialSession }: ApiProvider
         // either way, so omitting it can never widen anything.
         const method = (init?.method ?? "GET").toUpperCase();
         const narrowing = method === "GET" || method === "HEAD" ? scopeSelection : undefined;
+        const namedTenant = headers.get(TENANT_HEADER);
         for (const [k, v] of Object.entries(authHeaders(session, narrowing))) headers.set(k, v);
+        // A reset link names its own company; the code left in storage must not redirect it to another one.
+        if (namedTenant !== null && session === null) headers.set(TENANT_HEADER, namedTenant);
         if (init?.body && !headers.has("content-type")) headers.set("content-type", "application/json");
         if (SESSION_ISSUING_PATHS.has(path)) headers.set(DEVICE_BINDING_HEADER, DeviceBinding.Cookie);
         const refusedByBranchPolicy = isBranchRestricted(session) ? branchRefusalBefore(path, method) : null;
@@ -189,11 +197,11 @@ export function ApiProvider({ children, transport, initialSession }: ApiProvider
          * meeting a permission they do not hold, and signing them out would be
          * a worse answer than the refusal they should see.
          *
-         * The login POST is excluded — a wrong PIN is a 401 the login screen
-         * reports itself, not a session that expired.
+         * The login POST is excluded — a wrong password is a 401 the login
+         * screen reports itself, not a session that expired.
          *
-         * CONTRACT: a wrong CURRENT password or PIN from a signed-in caller
-         * (password/PIN/email change, step-up) is a 403 with a
+         * CONTRACT: a wrong CURRENT password from a signed-in caller
+         * (password/email change, step-up) is a 403 with a
          * CurrentSecretRefusal code, so it never lands here.
          */
         if (response.status === 401 && session !== null && !path.startsWith("/auth/login")) {

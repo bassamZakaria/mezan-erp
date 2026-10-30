@@ -54,7 +54,7 @@ async function seedUser(uow: ReturnType<typeof newApp>["uow"], overrides: Record
     email: "mohamed@cyag.test",
     phone: "+201000000000",
     passwordHash: await hasher.hash(CURRENT_PASSWORD),
-    pinHash: null,
+    mustChangePassword: false,
     roleId: null,
     isCompanyAdmin: false,
     employeeId: null,
@@ -74,7 +74,6 @@ describe("profile router — authentication", () => {
     expect((await app.fetch(req("/"))).status).toBe(401);
     expect((await app.fetch(req("/", { method: "PUT", body: "{}" }))).status).toBe(401);
     expect((await app.fetch(req("/change-password", { method: "POST", body: "{}" }))).status).toBe(401);
-    expect((await app.fetch(req("/change-pin", { method: "POST", body: "{}" }))).status).toBe(401);
     expect((await app.fetch(req("/activity"))).status).toBe(401);
   });
 
@@ -86,15 +85,15 @@ describe("profile router — authentication", () => {
 });
 
 describe("profile router — GET /", () => {
-  it("serializes the profile WITHOUT leaking the password or pin hash", async () => {
+  it("serializes the profile WITHOUT leaking the password hash, and with no PIN field left", async () => {
     const { app, uow } = newApp();
-    await seedUser(uow, { pinHash: await hasher.hash("123456") });
+    await seedUser(uow);
     const res = await app.fetch(req("/", { userId: "u1" }));
     expect(res.status).toBe(200);
     const body = (await json(res)) as Record<string, unknown>;
     expect(body.passwordHash).toBeUndefined();
-    expect(body.pinHash).toBeUndefined();
-    expect(body.hasPin).toBe(true);
+    expect(body).not.toHaveProperty("pinHash");
+    expect(body).not.toHaveProperty("hasPin");
     expect(body.nameAr).toBe("محمد الشهابي");
     expect(body.isCompanyAdmin).toBe(false);
   });
@@ -308,53 +307,25 @@ describe("profile router — change-password", () => {
   });
 });
 
-describe("profile router — change-pin", () => {
-  it("sets a new PIN once the current password verifies, and it round-trips through hasPin", async () => {
+describe("profile router — replacing a temporary password", () => {
+  it("clears the temporary-password flag once the user sets their own", async () => {
     const { app, uow } = newApp();
-    await seedUser(uow);
+    await seedUser(uow, { mustChangePassword: true });
     const res = await app.fetch(
-      req("/change-pin", { method: "POST", userId: "u1", body: JSON.stringify({ currentPassword: CURRENT_PASSWORD, newPin: "654321" }) }),
+      req("/change-password", { method: "POST", userId: "u1", body: JSON.stringify({ currentPassword: CURRENT_PASSWORD, newPassword: "BrandNewPass1" }) }),
     );
     expect(res.status).toBe(204);
-    const updated = await uow.users.findById("u1");
-    expect(await hasher.verify("654321", updated!.pinHash!)).toBe(true);
-
-    const getRes = await app.fetch(req("/", { userId: "u1" }));
-    expect(((await json(getRes)) as { hasPin: boolean }).hasPin).toBe(true);
+    expect((await uow.users.findById("u1"))?.mustChangePassword).toBe(false);
   });
 
-  it("clears the PIN when newPin is null, and audits PIN_CLEARED (not PIN_CHANGED)", async () => {
-    const { app, uow, audit } = newApp();
-    await seedUser(uow, { pinHash: await hasher.hash("111111") });
-    const res = await app.fetch(
-      req("/change-pin", { method: "POST", userId: "u1", body: JSON.stringify({ currentPassword: CURRENT_PASSWORD, newPin: null }) }),
-    );
-    expect(res.status).toBe(204);
-    expect((await uow.users.findById("u1"))?.pinHash).toBeNull();
-    expect(audit!.events[0]).toMatchObject({ action: "PIN_CLEARED" });
-  });
-
-  it("rejects a PIN outside 4-6 digits at the contract level with 400, and leaves the stored PIN unchanged", async () => {
+  it("refuses to keep the temporary password as the new one, and the flag stays", async () => {
     const { app, uow } = newApp();
-    await seedUser(uow, { pinHash: await hasher.hash("111111") });
+    await seedUser(uow, { mustChangePassword: true });
     const res = await app.fetch(
-      req("/change-pin", { method: "POST", userId: "u1", body: JSON.stringify({ currentPassword: CURRENT_PASSWORD, newPin: "123" }) }),
+      req("/change-password", { method: "POST", userId: "u1", body: JSON.stringify({ currentPassword: CURRENT_PASSWORD, newPassword: CURRENT_PASSWORD }) }),
     );
     expect(res.status).toBe(400);
-    const untouched = await uow.users.findById("u1");
-    expect(await hasher.verify("111111", untouched!.pinHash!)).toBe(true);
-  });
-
-  it("rejects the wrong current password with 403 before ever looking at the new PIN", async () => {
-    const { app, uow } = newApp();
-    await seedUser(uow, { pinHash: await hasher.hash("111111") });
-    const res = await app.fetch(
-      req("/change-pin", { method: "POST", userId: "u1", body: JSON.stringify({ currentPassword: "WrongPass1", newPin: "222222" }) }),
-    );
-    expect(res.status).toBe(403);
-    expect(((await json(res)) as { error: string }).error).toBe(CurrentSecretRefusal.IncorrectPassword);
-    const untouched = await uow.users.findById("u1");
-    expect(await hasher.verify("111111", untouched!.pinHash!)).toBe(true);
+    expect((await uow.users.findById("u1"))?.mustChangePassword).toBe(true);
   });
 });
 
@@ -365,14 +336,14 @@ describe("profile router — GET /activity", () => {
     await seedUser(uow, { id: "u2", email: "u2@cyag.test" });
     await audit!.append({ stream: "security", module: "profile", entityType: "USER", entityId: "u1", action: "PASSWORD_CHANGED", actor: "u1", branchId: null, timestamp: "2026-08-01T00:00:00.000Z", severity: "WARNING", details: null });
     await audit!.append({ stream: "security", module: "profile", entityType: "USER", entityId: "u2", action: "PASSWORD_CHANGED", actor: "u2", branchId: null, timestamp: "2026-08-02T00:00:00.000Z", severity: "WARNING", details: null });
-    await audit!.append({ stream: "sensitive", module: "profile", entityType: "USER", entityId: "u1", action: "PIN_CHANGED", actor: "u1", branchId: null, timestamp: "2026-08-03T00:00:00.000Z", severity: "WARNING", details: null });
+    await audit!.append({ stream: "sensitive", module: "profile", entityType: "USER", entityId: "u1", action: "PASSWORD_CHANGED", actor: "u1", branchId: null, timestamp: "2026-08-03T00:00:00.000Z", severity: "WARNING", details: null });
 
     const res = await app.fetch(req("/activity", { userId: "u1" }));
     expect(res.status).toBe(200);
     const events = (await json(res)) as Array<{ actor: string; action: string }>;
     expect(events).toHaveLength(2);
     expect(events.every((e) => e.actor === "u1")).toBe(true);
-    expect(events[0]!.action).toBe("PIN_CHANGED"); // newest first
+    expect(events[0]!.action).toBe("PASSWORD_CHANGED"); // newest first
   });
 
   it("respects the ?limit= query, capped at 200", async () => {
@@ -427,22 +398,6 @@ describe("profile router — the audit row rides in the credential change's tran
     expect((await uow.users.findById("u1"))!.passwordHash).toBe(before);
     expect(await hasher.verify(CURRENT_PASSWORD, (await uow.users.findById("u1"))!.passwordHash)).toBe(true);
   });
-
-  it("a PIN change whose audit append fails leaves no PIN set", async () => {
-    const { app, uow } = failingAuditApp();
-    await seedUser(uow);
-
-    const res = await app.fetch(
-      req("/change-pin", {
-        method: "POST",
-        userId: "u1",
-        body: JSON.stringify({ currentPassword: CURRENT_PASSWORD, newPin: "4321" }),
-      }),
-    );
-
-    expect(res.status).toBe(500);
-    expect((await uow.users.findById("u1"))!.pinHash).toBeNull();
-  });
 });
 
 describe("profile router — a credential change never gives the event loop away inside its transaction", () => {
@@ -467,8 +422,6 @@ describe("profile router — a credential change never gives the event loop away
 
   it.each([
     ["/change-password", { currentPassword: CURRENT_PASSWORD, newPassword: "BrandNewPass1" }, 204],
-    ["/change-pin", { currentPassword: CURRENT_PASSWORD, newPin: "482913" }, 204],
-    ["/change-pin", { currentPassword: CURRENT_PASSWORD, newPin: null }, 204],
     ["/change-password", { currentPassword: "WrongPass1", newPassword: "BrandNewPass1" }, 403],
   ])("POST %s %j", async (path, body, status) => {
     const { app, uow } = newApp();

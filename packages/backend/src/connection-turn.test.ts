@@ -42,7 +42,7 @@ async function open(options: Partial<CreateBackendOptions> = {}) {
     return { status: res.status, reason: res.headers.get("x-busy-reason"), replayed: res.headers.get("idempotent-replay"), body: parsed };
   };
   const signIn = (index: number) =>
-    call("POST", "/auth/login", { username: `nobody${index}@example.eg`, pin: "123456" }, { "content-type": "application/json" });
+    call("POST", "/auth/login", { username: `nobody${index}@example.eg`, password: "Cyag@2026" }, { "content-type": "application/json" });
   let brands = 0;
   const addBrand = () => {
     brands += 1;
@@ -273,14 +273,14 @@ describe("how much of a request the server will hold", () => {
   it("refuses an anonymous body over 64 KiB before anything reads it, in Arabic", async () => {
     const t = await open();
 
-    const refused = await t.call("POST", "/auth/login", { username: "nobody@example.eg", pin: "123456", padding: "x".repeat(70 * 1024) }, { "content-type": "application/json" });
+    const refused = await t.call("POST", "/auth/login", { username: "nobody@example.eg", password: "Cyag@2026", padding: "x".repeat(70 * 1024) }, { "content-type": "application/json" });
 
     expect(refused).toMatchObject({ status: 413, body: { error: "PAYLOAD_TOO_LARGE", message: expect.stringContaining("أكبر من المسموح") } });
   });
 
   it("refuses an oversized sign-in that carries a session token which has ended as too large, exactly as it refuses one that carries none", async () => {
     const t = await open();
-    const oversized = { username: "nobody@example.eg", pin: "123456", padding: "x".repeat(70 * 1024) };
+    const oversized = { username: "nobody@example.eg", password: "Cyag@2026", padding: "x".repeat(70 * 1024) };
 
     const stale = await t.call("POST", "/auth/login", oversized, { "content-type": "application/json", authorization: "Bearer a-session-that-has-ended" });
 

@@ -15,7 +15,7 @@ export interface SignInInput {
   readonly baseUrl: string;
   readonly tenantCode: string | null;
   readonly email: string;
-  readonly pin: string;
+  readonly password: string;
 }
 
 export interface UnlockAccountInput {
@@ -57,7 +57,7 @@ function scopeHeader(scope: SessionDTO["branchScope"]): string {
 }
 
 const STEP_UP_PATH = "/auth/step-up";
-const STEP_UP_FAILED = "رمز PIN غير صحيح.";
+const STEP_UP_FAILED = "كلمة المرور غير صحيحة.";
 
 export function SessionProvider({ children }: { children: ReactNode }): ReactNode {
   const [ready, setReady] = useState(false);
@@ -114,7 +114,7 @@ export function SessionProvider({ children }: { children: ReactNode }): ReactNod
     return () => subscription.remove();
   }, []);
 
-  const [stepUp, setStepUp] = useState<{ message: string; cancel: () => void; confirm: (pin: string) => Promise<string | null> } | null>(null);
+  const [stepUp, setStepUp] = useState<{ message: string; cancel: () => void; confirm: (password: string) => Promise<string | null> } | null>(null);
 
   const unlock = useCallback(async (promptMessage: string, cancelLabel: string) => {
     const confirmed = await confirmDeviceOwner(promptMessage, cancelLabel);
@@ -157,9 +157,9 @@ export function SessionProvider({ children }: { children: ReactNode }): ReactNod
               setStepUp({
                 message,
                 cancel: () => resolve(false),
-                confirm: async (pin) => {
+                confirm: async (password) => {
                   try {
-                    await apiRequest(credentials, STEP_UP_PATH, { method: HttpMethod.Post, body: { pin } });
+                    await apiRequest(credentials, STEP_UP_PATH, { method: HttpMethod.Post, body: { password } });
                     resolve(true);
                     return null;
                   } catch (failure) {
@@ -195,7 +195,7 @@ export function SessionProvider({ children }: { children: ReactNode }): ReactNod
         warehouseScope: ScopeAll.Every,
       },
       "/auth/login",
-      { method: HttpMethod.Post, body: { username: input.email, pin: input.pin }, schema: loginResponseSchema },
+      { method: HttpMethod.Post, body: { username: input.email, password: input.password }, schema: loginResponseSchema },
     );
     await saveConnection(next);
     await saveSession(signedIn);

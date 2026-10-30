@@ -14,11 +14,12 @@ import {
   TENANT_HEADER,
   UNDISCLOSED_TENANT_NAME,
   uniqueCode,
+  PASSWORD_LABEL,
 } from "./support/env";
 import {
   enterCredentials,
   enterTenantCode,
-  fillPin,
+  fillPassword,
   provisionTenant,
   storedSession,
   tenantSignIn,
@@ -105,7 +106,7 @@ test.describe("PLT-SAAS-08 — resolving a tenant reveals nothing before sign-in
 
     const signedIn = await request.post(`${SAAS_API_URL}/api/auth/login`, {
       headers: byCode,
-      data: { username: renamed.adminEmail, pin: renamed.adminPin },
+      data: { username: renamed.adminEmail, password: renamed.adminPassword },
     });
     expect(((await signedIn.json()) as { tenantName: string }).tenantName).toBe(NAME_AFTER_RENAME);
   });
@@ -144,7 +145,7 @@ test.describe("PLT-SAAS-08 — resolving a tenant reveals nothing before sign-in
     });
 
     await page.goto("/");
-    await expect(page.getByLabel("رمز PIN رقم 1")).toBeEnabled();
+    await expect(page.getByLabel(PASSWORD_LABEL, { exact: true })).toBeEnabled();
     await expect(page.getByRole("textbox", { name: "رمز المنشأة" })).toBeVisible();
     await expect(page.getByRole("button", { name: "إعادة المحاولة" })).toHaveCount(0);
     await expect(page.getByRole("alert")).toHaveCount(0);
@@ -153,7 +154,7 @@ test.describe("PLT-SAAS-08 — resolving a tenant reveals nothing before sign-in
     expect(beyondTheLookup).toEqual([]);
 
     await enterTenantCode(page, tenant.code);
-    await enterCredentials(page, tenant.adminEmail, tenant.adminPin);
+    await enterCredentials(page, tenant.adminEmail, tenant.adminPassword);
     await expect(page.getByRole("button", { name: "تسجيل الخروج" })).toBeVisible();
     expect((await storedSession(page))?.tenantName).toBe(TENANT_NAME);
   });
@@ -169,11 +170,11 @@ test.describe("PLT-SAAS-08 — resolving a tenant reveals nothing before sign-in
     await expect(page.getByRole("textbox", { name: "رمز المنشأة" })).toHaveCount(0);
     failing = true;
     await page.reload();
-    await expect(page.getByLabel("رمز PIN رقم 1")).toBeEnabled();
+    await expect(page.getByLabel(PASSWORD_LABEL, { exact: true })).toBeEnabled();
     await expect(page.getByRole("textbox", { name: "رمز المنشأة" })).toHaveCount(0);
 
     await page.getByRole("textbox", { name: "البريد الإلكتروني" }).fill(second.adminEmail);
-    await fillPin(page, second.adminPin);
+    await fillPassword(page, second.adminPassword);
     await expect(page.getByRole("button", { name: "تسجيل الخروج" })).toBeVisible();
     expect((await storedSession(page))?.tenantName).toBe(SECOND_NAME);
   });
@@ -184,7 +185,7 @@ test.describe("PLT-SAAS-08 — resolving a tenant reveals nothing before sign-in
     const resolved = page.waitForResponse((r) => new URL(r.url()).pathname === "/api/platform/resolve");
     await page.goto(`${origin}/`);
     expect(await (await resolved).json()).toEqual({ mode: ResolveMode.Subdomain, exists: true });
-    await expect(page.getByLabel("رمز PIN رقم 1")).toBeVisible();
+    await expect(page.getByLabel(PASSWORD_LABEL, { exact: true })).toBeVisible();
     await expect(page.getByRole("textbox", { name: "رمز المنشأة" })).toHaveCount(0);
     await page.waitForLoadState("networkidle");
     await expect(page.locator("body")).not.toContainText(TENANT_NAME);
@@ -193,7 +194,7 @@ test.describe("PLT-SAAS-08 — resolving a tenant reveals nothing before sign-in
     expect(beforeSignIn.filter((body) => body.includes(TENANT_NAME))).toEqual([]);
 
     await page.getByRole("textbox", { name: "البريد الإلكتروني" }).fill(tenant.adminEmail);
-    await fillPin(page, tenant.adminPin);
+    await fillPassword(page, tenant.adminPassword);
     await expect(page.getByRole("heading", { level: 1 })).toContainText("وليد");
     expect(await page.evaluate((key) => window.localStorage.getItem(key), StorageKey.TenantCode)).toBeNull();
     expect((await storedSession(page))?.tenantName).toBe(TENANT_NAME);
@@ -207,7 +208,7 @@ test.describe("PLT-SAAS-08 — resolving a tenant reveals nothing before sign-in
     await page.goto(`${origin}/`);
     await page.getByRole("textbox", { name: "البريد الإلكتروني" }).fill(second.adminEmail);
     const refused = page.waitForResponse((r) => new URL(r.url()).pathname === "/api/auth/login");
-    await fillPin(page, second.adminPin);
+    await fillPassword(page, second.adminPassword);
     expect((await refused).status()).toBe(401);
     await expect(page.getByRole("alert")).toHaveText(INVALID_CREDENTIALS_SENTENCE);
     expect(await storedSession(page)).toBeNull();
@@ -226,12 +227,12 @@ test.describe("PLT-SAAS-08 — resolving a tenant reveals nothing before sign-in
     await tenantSignOut(page);
     await page.getByRole("button", { name: "تغيير المنشأة" }).click();
     await enterTenantCode(page, second.code);
-    await enterCredentials(page, second.adminEmail, second.adminPin);
+    await enterCredentials(page, second.adminEmail, second.adminPassword);
     await expect(page.getByRole("heading", { level: 1 })).toContainText("دينا");
     await tenantSignOut(page);
 
     await page.reload();
-    await expect(page.getByLabel("رمز PIN رقم 1")).toBeVisible();
+    await expect(page.getByLabel(PASSWORD_LABEL, { exact: true })).toBeVisible();
     await expect(page.getByRole("textbox", { name: "رمز المنشأة" })).toHaveValue("");
     await expect(page.getByRole("radiogroup")).toHaveCount(0);
     await expect(page.locator("body")).not.toContainText("دينا الدلتا");
@@ -241,7 +242,7 @@ test.describe("PLT-SAAS-08 — resolving a tenant reveals nothing before sign-in
     await field.fill(tenant.adminEmail);
     await field.blur();
     await expect(page.getByRole("textbox", { name: "رمز المنشأة" })).toHaveValue(tenant.code);
-    await fillPin(page, tenant.adminPin);
+    await fillPassword(page, tenant.adminPassword);
     await expect(page.getByRole("heading", { level: 1 })).toContainText("وليد");
   });
 
@@ -250,7 +251,7 @@ test.describe("PLT-SAAS-08 — resolving a tenant reveals nothing before sign-in
     await tenantSignOut(page);
     await page.getByRole("button", { name: "تغيير المنشأة" }).click();
     await enterTenantCode(page, second.code);
-    await enterCredentials(page, second.adminEmail, second.adminPin);
+    await enterCredentials(page, second.adminEmail, second.adminPassword);
     await expect(page.getByRole("heading", { level: 1 })).toContainText("دينا");
     await tenantSignOut(page);
     await page.reload();
@@ -264,7 +265,7 @@ test.describe("PLT-SAAS-08 — resolving a tenant reveals nothing before sign-in
     await expect(page.getByRole("heading", { name: "أنشئ حساب ميزان" })).toBeVisible();
     await page.goBack();
 
-    await expect(page.getByLabel("رمز PIN رقم 1")).toBeVisible();
+    await expect(page.getByLabel(PASSWORD_LABEL, { exact: true })).toBeVisible();
     await expect(page.getByText(`الرمز: ${tenant.code}`)).toBeVisible();
     expect(await page.evaluate((key) => window.localStorage.getItem(key), StorageKey.TenantCode)).toBe(tenant.code);
 
@@ -273,7 +274,7 @@ test.describe("PLT-SAAS-08 — resolving a tenant reveals nothing before sign-in
     await expect(page.getByRole("radiogroup")).toHaveCount(0);
 
     await enterTenantCode(page, tenant.code);
-    await enterCredentials(page, tenant.adminEmail, tenant.adminPin);
+    await enterCredentials(page, tenant.adminEmail, tenant.adminPassword);
     await expect(page.getByRole("heading", { level: 1 })).toContainText("وليد");
   });
 });

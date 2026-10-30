@@ -195,7 +195,7 @@ Two logins, both seeded automatically by `scripts/env.mjs`:
 | --- | --- | --- |
 | Browser basic auth | every page, before anything loads | `demo` / `local-demo-password` |
 | Platform owner | `/platform/login` | `owner@mezan.local` / `owner-password-123` |
-| Demo tenant | company code `demo`, then the login screen | `admin@cyag.example` with PIN `123456` |
+| Demo tenant | company code `demo`, then the login screen | `admin@cyag.example` with password `Cyag@2026` |
 
 Both sit behind basic auth because they seed the demo tenant: `cloud.ts` refuses
 to start with `MEZAN_SEED_DEMO=1` unless `MEZAN_DEMO_PASSWORD` holds at least 12

@@ -16,7 +16,7 @@ import type { ClientConfig } from "./client-config.js";
  *
  * The case that matters most is the second one: a client pointed at the wrong
  * machine must send NOTHING. Every request this transport carries has either a
- * PIN in its body (`/auth/login`) or a bearer token in its headers, so a pin
+ * password in its body (`/auth/login`) or a bearer token in its headers, so a pin
  * check that ran after the write would hand the shop's credentials to whoever
  * answered before deciding it was the wrong machine.
  */
@@ -99,12 +99,12 @@ describe("the client only talks to the machine it was paired with", () => {
     const failure = await forward("/auth/login", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ username: "owner@shop.example", pin: "481923" }),
+      body: JSON.stringify({ username: "owner@shop.example", password: "Owner-Pass-1" }),
     }).catch((err: unknown) => err);
 
     expect(failure).toBeInstanceOf(LanClientError);
     expect((failure as LanClientError).code).toBe("PIN_MISMATCH");
-    // THE ASSERTION THIS FILE EXISTS FOR: the owner's PIN never left the machine.
+    // THE ASSERTION THIS FILE EXISTS FOR: the owner's password never left the machine.
     expect(seen.bodies).toEqual([]);
     expect(seen.paths).toEqual([]);
   });
@@ -179,7 +179,7 @@ describe("the client only talks to the machine it was paired with", () => {
     const port = (server.address() as { port: number }).port;
 
     const forward = createLanClient({ config: configFor(port, tls.fingerprintSha256) });
-    const res = await forward("/auth/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ username: "a@b.eg", pin: "123456" }) });
+    const res = await forward("/auth/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ username: "a@b.eg", password: "Cyag@2026" }) });
 
     expect(res.status).toBe(status);
     expect(JSON.parse(res.body)).toEqual(body);

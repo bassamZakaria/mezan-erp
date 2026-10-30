@@ -63,6 +63,7 @@ export const testAdminSession: Session = {
   nameAr: "محمد الشهابي",
   nameEn: null,
   email: "admin@cyag.example",
+  mustChangePassword: false,
   isCompanyAdmin: true,
   permissions: ["*"],
   roleCode: null,

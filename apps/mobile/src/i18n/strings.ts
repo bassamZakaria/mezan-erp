@@ -25,7 +25,7 @@ export interface Strings {
     readonly tenantLabel: string;
     readonly tenantHint: string;
     readonly emailLabel: string;
-    readonly pinLabel: string;
+    readonly passwordLabel: string;
     readonly submit: string;
     readonly submitting: string;
     readonly throttledFor: string;
@@ -41,7 +41,7 @@ export interface Strings {
     readonly unlockPrompt: string;
     readonly unlockTitle: string;
     readonly unlockExplainer: string;
-    readonly unlockWithPin: string;
+    readonly unlockWithPassword: string;
     readonly unlockFailed: string;
   };
   readonly legal: {
@@ -212,7 +212,7 @@ export interface Strings {
   };
   readonly stepUp: {
     readonly title: string;
-    readonly pin: string;
+    readonly password: string;
     readonly confirm: string;
   };
   readonly common: {
@@ -251,7 +251,7 @@ const AR: Strings = {
     tenantLabel: "كود المنشأة",
     tenantHint: "الكود الذي تفتح به المنشأة على النسخة السحابية",
     emailLabel: "البريد الإلكتروني",
-    pinLabel: "الرقم السري (٦ أرقام)",
+    passwordLabel: "كلمة المرور",
     submit: "دخول",
     submitting: "جارٍ الدخول…",
     throttledFor: "حاول بعد",
@@ -265,14 +265,14 @@ const AR: Strings = {
     sessionExpired: "انتهت الجلسة. سجّل الدخول من جديد.",
     unlockCodeLabel: "رمز فكّ القفل",
     unlockSubmit: "فكّ القفل",
-    unlockDone: "تم فكّ قفل الحساب. أدخل الرقم السري للدخول.",
+    unlockDone: "تم فكّ قفل الحساب. أدخل كلمة المرور للدخول.",
     unlockWithBiometrics: "الدخول ببصمة الجهاز",
     unlockPrompt: "أكّد هويتك لفتح ميزان",
     unlockTitle: "ميزان مقفل",
     unlockExplainer:
       "البصمة هنا تفتح الجلسة المحفوظة على هذا الهاتف فقط. لا يتحقق منها الخادم، ولا تُعد بصمة حضور.",
-    unlockWithPin: "الدخول بالرقم السري بدلًا من ذلك",
-    unlockFailed: "لم يتم التأكيد. حاول مرة أخرى، أو ادخل بالرقم السري.",
+    unlockWithPassword: "الدخول بكلمة المرور بدلًا من ذلك",
+    unlockFailed: "لم يتم التأكيد. حاول مرة أخرى، أو ادخل بكلمة المرور.",
   },
   legal: {
     privacy: "سياسة الخصوصية",
@@ -441,7 +441,7 @@ const AR: Strings = {
     approvals: "الموافقات",
     approvalsSubtitle: "الطلبات بانتظار اعتمادك",
   },
-  stepUp: { title: "تأكيد رمز PIN", pin: "رمز PIN", confirm: "تأكيد" },
+  stepUp: { title: "تأكيد كلمة المرور", password: "كلمة المرور", confirm: "تأكيد" },
   common: {
     retry: "إعادة المحاولة",
     signOut: "تسجيل الخروج",
@@ -478,7 +478,7 @@ const EN: Strings = {
     tenantLabel: "Company code",
     tenantHint: "The code your company opens with on the cloud edition",
     emailLabel: "Email",
-    pinLabel: "PIN (6 digits)",
+    passwordLabel: "Password",
     submit: "Sign in",
     submitting: "Signing in…",
     throttledFor: "Try again in",
@@ -492,14 +492,14 @@ const EN: Strings = {
     sessionExpired: "The session ended. Sign in again.",
     unlockCodeLabel: "Unlock code",
     unlockSubmit: "Unlock",
-    unlockDone: "The account is unlocked. Enter your PIN to sign in.",
+    unlockDone: "The account is unlocked. Enter your password to sign in.",
     unlockWithBiometrics: "Unlock with the device",
     unlockPrompt: "Confirm it is you to open Mezan",
     unlockTitle: "Mezan is locked",
     unlockExplainer:
       "This unlocks the session saved on this phone only. The server does not verify it, and it is not an attendance biometric.",
-    unlockWithPin: "Sign in with the PIN instead",
-    unlockFailed: "Not confirmed. Try again, or sign in with the PIN.",
+    unlockWithPassword: "Sign in with the password instead",
+    unlockFailed: "Not confirmed. Try again, or sign in with the password.",
   },
   legal: {
     privacy: "Privacy policy",
@@ -668,7 +668,7 @@ const EN: Strings = {
     approvals: "Approvals",
     approvalsSubtitle: "The requests waiting on you",
   },
-  stepUp: { title: "Confirm your PIN", pin: "PIN", confirm: "Confirm" },
+  stepUp: { title: "Confirm your password", password: "Password", confirm: "Confirm" },
   common: {
     retry: "Try again",
     signOut: "Sign out",

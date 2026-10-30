@@ -195,7 +195,7 @@ describe("what ends a lock", () => {
     expect((await r.guard.check(OWNER, "196.221.5.5", true)).verdict).toBe(SignInVerdict.Locked);
   });
 
-  it("is not a correct PIN from somewhere else: a success clears only that address's own backoff", async () => {
+  it("is not a correct password from somewhere else: a success clears only that address's own backoff", async () => {
     const r = rig();
     for (let i = 0; i < ACCOUNT_LOCK_FAILURES - 1; i += 1) await r.guess(OWNER, `10.1.${i}.1`);
     await r.guard.succeeded(OWNER, "196.221.5.5");

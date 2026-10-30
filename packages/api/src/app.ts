@@ -401,6 +401,7 @@ export interface CreateAppOptions {
   readonly onUserEmailChanged?: UsersRoutesOptions["onEmailChanged"];
   readonly companyOwner?: UsersRoutesOptions["owner"];
   readonly onUserCredentialSetByOther?: UsersRoutesOptions["onCredentialSetByOther"];
+  readonly onUserCreated?: UsersRoutesOptions["onUserCreated"];
   /** Mounts `/audit` — the read-only audit query surface — when present. */
   readonly audit?: { readonly store: AuditQueryPort; readonly unrecorded?: SecurityEventFallback; readonly resolveAuthContext?: AuthContextResolver };
   /** Mounts `/label-layouts` when present — the sticker-sheet geometries the label screen renders. */
@@ -1903,6 +1904,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
       onEmailChanged: options.onUserEmailChanged,
       owner: options.companyOwner,
       onCredentialSetByOther: options.onUserCredentialSetByOther,
+      onUserCreated: options.onUserCreated,
       sessions: options.security?.sessions,
       loginThrottle: options.security?.loginThrottle,
       provisioning: { branches: options.branchStore, warehouses: options.warehouseStore, preferences: options.userPreferences },

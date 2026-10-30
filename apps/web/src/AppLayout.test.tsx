@@ -169,7 +169,7 @@ describe("AppLayout — users", () => {
       nameEn: null,
       email: "m@cyag.test",
       phone: null,
-      hasPin: false,
+      mustChangePassword: false,
       roleId: null,
       isCompanyAdmin: true,
       employeeId: null,
@@ -819,7 +819,7 @@ describe("AppLayout — nothing tenant-scoped is asked before a company is known
       const requests = signedOut(() => (failing ? { status, body: { error: "UPSTREAM" } } : { body: { mode: "subdomain", exists: true } }));
       await act(async () => { await vi.advanceTimersByTimeAsync(0); });
 
-      expect(screen.getByLabelText("رمز PIN رقم 1")).toBeEnabled();
+      expect(screen.getByLabelText(/^كلمة المرور/)).toBeEnabled();
       expect(screen.queryByRole("button", { name: "إعادة المحاولة" })).not.toBeInTheDocument();
       expect(screen.queryByRole("alert")).not.toBeInTheDocument();
       expect(requests.filter((path) => path === "/bootstrap/status" || path === "/entitlements" || path === "/tenant")).toEqual([]);
@@ -918,7 +918,7 @@ describe("AppLayout — first-run wizard", () => {
     renderLayout((path, init) => (asked.push(path), answer(path, init)), ["/dashboard"], null);
 
     await waitFor(() => expect(asked).toContain("/bootstrap/status"));
-    await screen.findByLabelText("رمز PIN رقم 1");
+    await screen.findByLabelText(/^كلمة المرور/);
     expect(screen.queryByRole("button", { name: "الإعداد الأولي" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "معالج الإعداد الأولي" })).not.toBeInTheDocument();
   });
@@ -946,8 +946,8 @@ describe("AppLayout — first-run wizard", () => {
     fireEvent.change(await screen.findByLabelText("اسم المنشأة", { exact: false }), { target: { value: "متجر الاختبار" } });
     fireEvent.change(screen.getByLabelText("الاسم الكامل"), { target: { value: "مدير النظام" } });
     fireEvent.change(screen.getByLabelText("البريد الإلكتروني", { exact: false }), { target: { value: "admin@cyag.example" } });
-    fireEvent.change(screen.getByLabelText("الرمز السرّي (٦ أرقام)"), { target: { value: "123456" } });
-    fireEvent.change(screen.getByLabelText("تأكيد رمز PIN"), { target: { value: "123456" } });
+    fireEvent.change(screen.getByLabelText("كلمة المرور"), { target: { value: "Cyag@2026" } });
+    fireEvent.change(screen.getByLabelText("تأكيد كلمة المرور"), { target: { value: "Cyag@2026" } });
     fireEvent.click(screen.getByRole("button", { name: "التالي" }));
 
     // Step 3 — seed core data.
@@ -984,8 +984,8 @@ describe("AppLayout — first-run wizard", () => {
     fireEvent.change(await screen.findByLabelText("اسم المنشأة", { exact: false }), { target: { value: "متجر الاختبار" } });
     fireEvent.change(screen.getByLabelText("الاسم الكامل"), { target: { value: "مدير النظام" } });
     fireEvent.change(screen.getByLabelText("البريد الإلكتروني", { exact: false }), { target: { value: "owner@cyag.example" } });
-    fireEvent.change(screen.getByLabelText("الرمز السرّي (٦ أرقام)"), { target: { value: "123456" } });
-    fireEvent.change(screen.getByLabelText("تأكيد رمز PIN"), { target: { value: "123456" } });
+    fireEvent.change(screen.getByLabelText("كلمة المرور"), { target: { value: "Cyag@2026" } });
+    fireEvent.change(screen.getByLabelText("تأكيد كلمة المرور"), { target: { value: "Cyag@2026" } });
     fireEvent.click(screen.getByRole("button", { name: "التالي" }));
 
     let visited = 2;

@@ -137,6 +137,10 @@ export const userErasureResultSchema = z.object({
 });
 
 export type UserDTO = z.infer<typeof userSchema>;
+
+/** `POST /users` answer: `temporaryPassword` is present exactly when the server generated it, and is never shown again. */
+export const createdUserSchema = userSchema.extend({ temporaryPassword: z.string().min(8).optional() });
+export type CreatedUserDTO = z.infer<typeof createdUserSchema>;
 export type EraseUserDTO = z.infer<typeof eraseUserSchema>;
 export type UserErasureResultDTO = z.infer<typeof userErasureResultSchema>;
 export type UserStatusDTO = z.infer<typeof userStatusSchema>;

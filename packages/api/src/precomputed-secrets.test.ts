@@ -51,10 +51,10 @@ describe("createPrecomputingHasher", () => {
   it("hands each precomputed hash out once, then hashes for real again", async () => {
     const { inner, calls } = countingHasher();
     const secrets = createPrecomputingHasher(inner);
-    await secrets.precompute({ hash: ["pin"] });
+    await secrets.precompute({ hash: ["secret"] });
 
-    const first = await secrets.hasher.hash("pin");
-    const second = await secrets.hasher.hash("pin");
+    const first = await secrets.hasher.hash("secret");
+    const second = await secrets.hasher.hash("secret");
 
     expect(first).not.toBe(second);
     expect(calls.hash).toBe(2);

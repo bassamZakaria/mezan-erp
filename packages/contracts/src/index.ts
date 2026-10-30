@@ -285,6 +285,8 @@ export {
 
 export {
   userSchema,
+  createdUserSchema,
+  type CreatedUserDTO,
   userStatusSchema,
   createUserSchema,
   updateUserSchema,
@@ -958,6 +960,10 @@ export {
   loginRequestSchema,
   unlockAccountRequestSchema,
   unlockAccountByLinkRequestSchema,
+  forgotPasswordRequestSchema,
+  resetPasswordRequestSchema,
+  type ForgotPasswordRequestDTO,
+  type ResetPasswordRequestDTO,
   stepUpRequestSchema,
   DEVICE_BINDING_HEADER,
   DEVICE_SECRET_HEADER,

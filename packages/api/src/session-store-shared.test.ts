@@ -120,7 +120,7 @@ describe("sessions held in the database two server instances share", () => {
     expect((await a.sessions.find(again.token, PHONE, again.deviceSecret))?.userId).toBe("u-1");
   });
 
-  it("asks for the PIN again on the other instance after a move, and stops asking once one instance has it", async () => {
+  it("asks for the password again on the other instance after a move, and stops asking once one instance has it", async () => {
     const file = databaseFile();
     const clock = { at: 1_000_000 };
     const a = instance(file, clock);
@@ -132,6 +132,18 @@ describe("sessions held in the database two server instances share", () => {
     await b.sessions.confirmStepUp(token);
     expect(await a.sessions.needsStepUp(token)).toBe(false);
     expect((await a.sessions.inspect(token, "102.44.7.1", deviceSecret)).addressChange ?? null).toBeNull();
+  });
+
+  it("carries a temporary-password session's flag to the other instance, and leaves an ordinary one unflagged", async () => {
+    const file = databaseFile();
+    const clock = { at: 1_000_000 };
+    const a = instance(file, clock);
+    const b = instance(file, clock);
+    const temporary = await a.sessions.issue({ ...grantOf("u-1"), mustChangePassword: true }, TILL);
+    const ordinary = await a.sessions.issue(grantOf("u-2"), TILL);
+
+    expect((await b.sessions.find(temporary, TILL))?.mustChangePassword).toBe(true);
+    expect((await b.sessions.find(ordinary, TILL))?.mustChangePassword).toBe(false);
   });
 
   it("keeps a session across a restart of the server", async () => {

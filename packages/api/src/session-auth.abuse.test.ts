@@ -4,6 +4,7 @@ import { ALL_SCOPE, type AuthContext } from "@mezan/domain";
 import {
   createSessionAuthContextResolver,
   createSessionRegistry,
+  passwordChangeGate,
   readSessionToken,
   tokensMatch,
   DEVICE_MISMATCH_LIMIT,
@@ -13,6 +14,7 @@ import {
   SessionRefusalKind,
 } from "./session-auth.js";
 import { createPermissionGate } from "./permission-gate.js";
+import { PasswordChangeRefusal } from "@mezan/contracts";
 
 const IDLE_TIMEOUT_MS = 12 * 60 * 60 * 1000;
 
@@ -439,5 +441,55 @@ describe("how long a device-bound session and its secret live", () => {
     expect(second.deviceSecret).not.toBe(first.deviceSecret);
     expect((await sessions.inspect(second.token, "41.33.10.10", first.deviceSecret)).grant).toBeNull();
     expect((await sessions.inspect(second.token, "41.33.10.10", second.deviceSecret)).grant?.userId).toBe("u-1");
+  });
+});
+
+describe("a session issued while the user still holds a temporary password", () => {
+  function gatedApp(sessions: ReturnType<typeof createSessionRegistry>) {
+    const app = new Hono();
+    app.use("*", passwordChangeGate(sessions));
+    app.all("*", (c) => c.json({ reached: c.req.path }));
+    return app;
+  }
+
+  async function call(app: Hono, token: string, method: string, path: string) {
+    return app.fetch(new Request(`http://local${path}`, { method, headers: { authorization: `Bearer ${token}` } }));
+  }
+
+  it("is refused with PASSWORD_CHANGE_REQUIRED on an ordinary route", async () => {
+    const sessions = createSessionRegistry();
+    const token = await sessions.issue({ ...clerkGrant, mustChangePassword: true });
+    const app = gatedApp(sessions);
+    for (const [method, path] of [["GET", "/sales/invoices"], ["POST", "/users"], ["GET", "/api/accounts"]] as const) {
+      const res = await call(app, token, method, path);
+      expect(res.status).toBe(403);
+      expect(((await res.json()) as { error: string }).error).toBe(PasswordChangeRefusal.Required);
+    }
+  });
+
+  it("still reaches the password change, its own profile and sign-out", async () => {
+    const sessions = createSessionRegistry();
+    const token = await sessions.issue({ ...clerkGrant, mustChangePassword: true });
+    const app = gatedApp(sessions);
+    for (const [method, path] of [["POST", "/profile/change-password"], ["GET", "/profile"], ["POST", "/auth/logout"], ["POST", "/api/profile/change-password"]] as const) {
+      expect((await call(app, token, method, path)).status).toBe(200);
+    }
+  });
+
+  it("never touches an unflagged session or a request with no token", async () => {
+    const sessions = createSessionRegistry();
+    const token = await sessions.issue(clerkGrant);
+    const app = gatedApp(sessions);
+    expect((await call(app, token, "POST", "/users")).status).toBe(200);
+    expect((await app.fetch(new Request("http://local/users", { method: "POST" }))).status).toBe(200);
+  });
+
+  it("cannot edit its own profile or reach a route that merely ends in an allowed name", async () => {
+    const sessions = createSessionRegistry();
+    const token = await sessions.issue({ ...clerkGrant, mustChangePassword: true });
+    const app = gatedApp(sessions);
+    for (const [method, path] of [["PUT", "/profile"], ["GET", "/hr/self/profile"]] as const) {
+      expect((await call(app, token, method, path)).status).toBe(403);
+    }
   });
 });

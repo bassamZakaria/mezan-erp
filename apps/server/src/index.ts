@@ -27,10 +27,10 @@ const envSettings = createEnvSettings(
 const { root } = await createCloudApp(env, { envSettings });
 
 /**
- * A generated seed PIN is PRINTED, once, on the run that generated it.
+ * A generated seed password is PRINTED, once, on the run that generated it.
  *
- * On `NODE_ENV=production` the fallback admin gets a random PIN rather than the
- * published `123456`, which is right — every install sharing one working
+ * On `NODE_ENV=production` the fallback admin gets a random password rather than the
+ * published one, which is right — every install sharing one working
  * company-admin login was the defect that change closed. But the secret was
  * then printed nowhere, so a headless deployment seeded an admin nobody could
  * ever sign in as, with none of the desktop first-run wizard to recover
@@ -40,9 +40,9 @@ const { root } = await createCloudApp(env, { envSettings });
 const seeded = takeSeededAdminSecrets();
 if (seeded?.generated) {
   console.log("[server] ------------------------------------------------------------");
-  console.log("[server] A fallback admin was seeded with a GENERATED PIN. It is shown");
+  console.log("[server] A fallback admin was seeded with a GENERATED password. It is shown");
   console.log("[server] once, here, and is not recoverable from the database.");
-  console.log(`[server]   admin PIN: ${seeded.pin}`);
+  console.log(`[server]   admin password: ${seeded.password}`);
   console.log("[server] Sign in, create your own admin, and disable this account.");
   console.log("[server] ------------------------------------------------------------");
 }

@@ -4,7 +4,7 @@ import { QueryClientContext } from "@tanstack/react-query";
 import { createHttpTransport, type Transport, type TransportResponse } from "../data/transport";
 import type { AppTranslationKey } from "../i18n";
 import { sessionCredential } from "../data/session";
-import { StepUpDialog, StepUpSecret, type StepUpPrompt } from "../data/StepUpDialog";
+import { StepUpDialog, type StepUpPrompt } from "../data/StepUpDialog";
 import { loadPersistedPlatformSession, persistPlatformSession, type PlatformSession } from "./session";
 
 const SIGN_IN_PATH = "/auth/login";
@@ -113,7 +113,6 @@ export function PlatformApiProvider({ children, transport, initialSession }: Pla
       const confirmed = await new Promise<boolean>((resolve) => {
         setStepUp({
           message: body.message ?? "",
-          secret: StepUpSecret.Password,
           cancel: () => resolve(false),
           confirm: async (password) => {
             const answer = await resolvedTransport(STEP_UP_PATH, credentialed(STEP_UP_PATH, { method: "POST", body: JSON.stringify({ password }) }));

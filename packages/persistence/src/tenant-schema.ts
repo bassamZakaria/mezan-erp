@@ -21,6 +21,7 @@ import { ensureSubcontractSchema } from "./contracting-subcontracts-store.js";
 import { ensureCostCenterSchema } from "./cost-center-repository.js";
 import { ensureCountModeSchema } from "./count-mode-store.js";
 import { ensureCredentialResetMarksSchema } from "./credential-reset-marks.js";
+import { ensurePasswordResetTokensSchema } from "./password-reset-tokens.js";
 import { ensureCrmSchema } from "./crm-store.js";
 import { ensureCustomerSchema } from "./customer-repository.js";
 import { ensureDocumentSchema } from "./document-store.js";
@@ -111,6 +112,7 @@ export async function ensureTenantSchema(db: SqlDb): Promise<void> {
   await ensureAttemptSchema(db);
   await ensureAccountLockSchema(db);
   await ensureCredentialResetMarksSchema(db);
+  await ensurePasswordResetTokensSchema(db);
   await ensureOwnerPinFenceSchema(db);
   await ensureWebauthnChallengeSchema(db);
   await ensureUserPreferencesSchema(db);

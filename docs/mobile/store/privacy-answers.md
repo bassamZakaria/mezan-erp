@@ -12,7 +12,7 @@ the owner has had it signed off.
 
 | Data | Leaves the phone? | Where in the code |
 |---|---|---|
-| Company code, email, PIN | Yes, at sign-in | `apps/mobile/src/session/SessionProvider.tsx` (`POST /auth/login`) |
+| Company code, email, password | Yes, at sign-in | `apps/mobile/src/session/SessionProvider.tsx` (`POST /auth/login`) |
 | Name, role, permissions, scopes | Received from the server, shown, kept on device | `apps/mobile/src/session/storage.ts` |
 | Clock-in photo | Yes, only when the user taps capture and the company requires it | `apps/mobile/src/screens/clock/index.tsx` (`takePictureAsync`, `POST /hr/self/clock`) |
 | Business records (invoices, quotes, vouchers, approvals, look-ups) | Yes | `apps/mobile/src/api/queries.ts` |
@@ -33,7 +33,7 @@ across other apps or websites, and no sale of your data."
 | Apple data type | Collected | Linked to the user | Tracking | Purposes | Policy sentence |
 |---|---|---|---|---|---|
 | Contact Info → Name | Yes | Yes | No | App Functionality | "Your account profile: your name, email, role, permissions…" |
-| Contact Info → Email Address | Yes | Yes | No | App Functionality | "Sign-in details: the company code, your email address and your six-digit PIN, to sign you in." |
+| Contact Info → Email Address | Yes | Yes | No | App Functionality | "Sign-in details: the company code, your email address and your password, to sign you in." |
 | User Content → Photos or Videos | Yes | Yes | No | App Functionality | "Clock-in photo: … It is kept in your company's attendance records as evidence of attendance." |
 | User Content → Other User Content | Yes | Yes | No | App Functionality | "Business records you enter: sales invoices, quotations, collection vouchers, approval decisions, and customer and item look-ups." |
 | Identifiers → User ID | Yes | Yes | No | App Functionality | "the server records successful and failed sign-ins and sensitive actions, with the account and the time" |

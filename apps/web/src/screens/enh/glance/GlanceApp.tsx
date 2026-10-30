@@ -4,6 +4,7 @@ import { Button, EmptyState } from "@mezan/ui";
 import { useApi } from "../../../data/ApiContext";
 import { sessionHolds } from "../../../data/session";
 import { LoginScreen } from "../../../login/LoginScreen";
+import { ChangeTemporaryPasswordScreen } from "../../../login/ChangeTemporaryPasswordScreen";
 import { useAppTranslation } from "../../../i18n";
 import { GlanceView } from "./GlanceScreen";
 import { GLANCE_PERMISSION } from "./permission";
@@ -18,6 +19,8 @@ function GlanceShell() {
     setSession(null);
     queryClient.clear();
   }, [request, setSession, queryClient]);
+
+  if (session?.mustChangePassword) return <ChangeTemporaryPasswordScreen onSignOut={signOut} />;
 
   return (
     <div className="min-h-dvh bg-bg text-ink">

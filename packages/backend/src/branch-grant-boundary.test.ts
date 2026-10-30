@@ -1357,7 +1357,7 @@ describe("D111 round 3 · a branch-restricted administrator cannot administer it
     password: "correct-horse-battery",
     ...extra,
   });
-  const stored = (id: string) => one<any>("SELECT is_company_admin, branch_scope, warehouse_scope, pin_hash, password_hash, status, role_id FROM user WHERE id = ?", id);
+  const stored = (id: string) => one<any>("SELECT is_company_admin, branch_scope, warehouse_scope, must_change_password, password_hash, status, role_id FROM user WHERE id = ?", id);
 
   beforeAll(async () => {
     roleId = one<{ id: string }>("SELECT role_id AS id FROM user WHERE role_id IS NOT NULL AND status = 'active' LIMIT 1")!.id;
@@ -1399,10 +1399,9 @@ describe("D111 round 3 · a branch-restricted administrator cannot administer it
     expect(res.body?.message).toMatch(ARABIC);
   };
 
-  it("cannot set the PIN or password of an account that reaches further than it does: that account is not there for it", async () => {
+  it("cannot set the password of an account that reaches further than it does: that account is not there for it", async () => {
     const before = stored(HQ_ACCOUNTANT);
     const edit = account("r3-hq-accountant@cyag.example", { roleId, branchScope: ALL_SCOPE, password: undefined });
-    expectNotThere(await branchAdmin("PUT", `/users/${HQ_ACCOUNTANT}`, { ...edit, pin: "432100" }));
     expectNotThere(await branchAdmin("PUT", `/users/${HQ_ACCOUNTANT}`, { ...edit, password: "an-attackers-password" }));
     expect(stored(HQ_ACCOUNTANT)).toEqual(before);
   });
@@ -1431,7 +1430,7 @@ describe("D111 round 3 · a branch-restricted administrator cannot administer it
 
   it("is refused the same way when it is a non-admin holding every permission", async () => {
     const before = stored(HQ_ACCOUNTANT);
-    expectNotThere(await alex("PUT", `/users/${HQ_ACCOUNTANT}`, account("r3-hq-accountant@cyag.example", { roleId, branchScope: ALL_SCOPE, password: undefined, pin: "432100" })));
+    expectNotThere(await alex("PUT", `/users/${HQ_ACCOUNTANT}`, account("r3-hq-accountant@cyag.example", { roleId, branchScope: ALL_SCOPE, password: "an-attackers-password" })));
     expectEscalationRefused(await alex("POST", "/users", account("r3-alex-minted@cyag.example", { roleId, branchScope: ALL_SCOPE })));
     expect(stored(HQ_ACCOUNTANT)).toEqual(before);
   });
@@ -1446,9 +1445,9 @@ describe("D111 round 3 · a branch-restricted administrator cannot administer it
   });
 
   it("leaves an unrestricted administrator free to do all of it", async () => {
-    const res = await admin("PUT", `/users/${HQ_ACCOUNTANT}`, account("r3-hq-accountant@cyag.example", { roleId, branchScope: ALL_SCOPE, password: undefined, pin: "987600" }));
+    const res = await admin("PUT", `/users/${HQ_ACCOUNTANT}`, account("r3-hq-accountant@cyag.example", { roleId, branchScope: ALL_SCOPE, password: "pw-987600-reset" }));
     expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
-    expect(stored(HQ_ACCOUNTANT).pin_hash).toBeTruthy();
+    expect(stored(HQ_ACCOUNTANT).must_change_password).toBe(1);
   });
 });
 

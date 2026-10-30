@@ -8,7 +8,6 @@ import { TestNavigation, renderWithProviders, stubTransport, testAdminSession } 
 
 afterEach(cleanup);
 
-const PIN = "482913";
 const PASSWORD = "Zq7mKd4WxP2c";
 const CSV = "name_ar,email,role,branches,warehouses\nسلمى,salma@x.test,CASH,MAIN,WH-1";
 
@@ -48,7 +47,7 @@ function renderScreen(handlers: { dry?: UserImportReportDTO; committed?: UserImp
     "GET /roles/templates": () => ({ body: [TEMPLATE] }),
     "GET /users": () => ({
       body: [
-        { id: "u1", nameAr: "كريم", nameEn: null, email: "karim@x.test", phone: null, roleId: "r1", isCompanyAdmin: false, employeeId: null, branchScope: "*", warehouseScope: "*", status: "active", hasPin: true, photoUrl: null, lastLoginAt: null, createdAt: "2026-10-01" },
+        { id: "u1", nameAr: "كريم", nameEn: null, email: "karim@x.test", phone: null, roleId: "r1", isCompanyAdmin: false, employeeId: null, branchScope: "*", warehouseScope: "*", status: "active", mustChangePassword: false, photoUrl: null, lastLoginAt: null, createdAt: "2026-10-01" },
       ],
     }),
     "POST /roles/from-template": (init) => {
@@ -66,7 +65,7 @@ function renderScreen(handlers: { dry?: UserImportReportDTO; committed?: UserImp
             report({
               dryRun: false,
               created: 1,
-              credentials: [{ rowNumber: 2, userId: "u-new", email: "salma@x.test", nameAr: "سلمى", pin: PIN, password: PASSWORD }],
+              credentials: [{ rowNumber: 2, userId: "u-new", email: "salma@x.test", nameAr: "سلمى", password: PASSWORD }],
             }),
         };
       }
@@ -152,7 +151,6 @@ describe("ProvisioningScreen", () => {
     expect(heading).toBeInTheDocument();
     expect(calls.imports[1]).toMatchObject({ dryRun: false, digest: "d".repeat(64) });
     const sheet = screen.getByRole("region", { name: "كشف بيانات الدخول — يُعرض مرة واحدة" });
-    expect(within(sheet).getByText(PIN)).toBeInTheDocument();
     expect(within(sheet).getByText(PASSWORD)).toBeInTheDocument();
 
     const close = screen.getByRole("button", { name: "إغلاق الكشف" });
@@ -160,7 +158,7 @@ describe("ProvisioningScreen", () => {
     fireEvent.click(screen.getByLabelText("طبعتُ الكشف أو حفظته في مكان آمن"));
     fireEvent.click(close);
 
-    await waitFor(() => expect(screen.queryByText(PIN)).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByText(PASSWORD)).not.toBeInTheDocument());
     expect(document.body.textContent).not.toContain(PASSWORD);
     expect(screen.getByText("تم استيراد 1 مستخدم.")).toBeInTheDocument();
   });

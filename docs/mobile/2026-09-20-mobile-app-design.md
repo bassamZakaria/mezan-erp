@@ -111,7 +111,7 @@ the cloud edition — that is the honest sentence, and it goes on the sales shee
 
 | Area | Screens | Writes? |
 |---|---|---|
-| **Sign in** | tenant code → email + 6-digit PIN → session; biometric unlock on return | — |
+| **Sign in** | tenant code → email + password → session; biometric unlock on return | — |
 | **Owner home** | cash on hand and at bank, today's sales, receivables ladder, approvals waiting | no |
 | **Customers** | list, search, 360 (balance, aging, last documents) | no |
 | **Sell** | quote → invoice, item picker over the real catalogue, price list and credit limit honoured by the server | **yes** |

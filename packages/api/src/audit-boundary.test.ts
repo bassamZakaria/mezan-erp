@@ -164,9 +164,9 @@ describe("an audited write and its event are one transaction", () => {
     expect(await h.branches.findById("B-OVERLAP")).not.toBeNull();
   });
 
-  it("creates a user without giving the event loop away inside the transaction", async () => {
+  it("creates a user with a generated temporary password without giving the event loop away inside the transaction", async () => {
     const h = harness();
-    const res = await send(h.app, "POST", "/users", { ...newUser, pin: "482913" });
+    const res = await send(h.app, "POST", "/users", { ...newUser, password: undefined });
 
     expect(res.status).toBe(201);
     expect(await h.users.list()).toHaveLength(1);

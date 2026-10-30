@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createPlatform, SEED_ADMIN_EMAIL, type PlatformHandle } from "@mezan/backend";
+import { createPlatform, SEED_ADMIN_EMAIL, SEED_ADMIN_PASSWORD, type PlatformHandle } from "@mezan/backend";
 import { createTenantRouter, TENANT_HEADER, type TenantRouter } from "./tenant-router.js";
 import { reachable } from "./cloud-harness.js";
 import { provisionDemoTenant, DEMO_TENANT_CODE } from "./demo-tenant.js";
@@ -14,7 +14,7 @@ const T = "2026-01-15T00:00:00.000Z";
  * stock in a module-level `onHand` map that is never reset between calls, so
  * a second `seedDemoData: true` run in the SAME process double-counts and
  * throws NEGATIVE_STOCK — a pre-existing property of that fixture script, not
- * of `provisionDemoTenant`. `demo-tenant-pin.test.ts` carries the one
+ * of `provisionDemoTenant`. `demo-tenant-password.test.ts` carries the one
  * assertion that genuinely needs its own seed, in its own file/process.
  */
 describe("provisionDemoTenant", () => {
@@ -56,7 +56,7 @@ describe("provisionDemoTenant", () => {
       new Request("http://ignored/auth/login", {
         method: "POST",
         headers: { "content-type": "application/json", [TENANT_HEADER]: DEMO_TENANT_CODE },
-        body: JSON.stringify({ username: SEED_ADMIN_EMAIL, pin: "123456" }),
+        body: JSON.stringify({ username: SEED_ADMIN_EMAIL, password: SEED_ADMIN_PASSWORD }),
       }),
     );
     expect(loginRes.status).toBe(200);
@@ -79,7 +79,7 @@ describe("provisionDemoTenant", () => {
       new Request("http://ignored/auth/login", {
         method: "POST",
         headers: { "content-type": "application/json", [TENANT_HEADER]: DEMO_TENANT_CODE },
-        body: JSON.stringify({ username: SEED_ADMIN_EMAIL, pin: "123456" }),
+        body: JSON.stringify({ username: SEED_ADMIN_EMAIL, password: SEED_ADMIN_PASSWORD }),
       }),
     );
     const session = (await loginRes.json()) as { token: string };

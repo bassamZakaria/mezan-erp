@@ -3,7 +3,6 @@ import type {
   ProfileDTO,
   UpdateProfileDTO,
   ChangePasswordDTO,
-  ChangePinDTO,
   AuditEventDTO,
 } from "@mezan/contracts";
 import { useApi } from "./ApiContext";
@@ -73,17 +72,6 @@ export function useChangePassword() {
     mutationFn: async (body) => {
       const res = await request("/profile/change-password", { method: "POST", body: JSON.stringify(body) });
       if (!res.ok) throw new ApiError(res.status, await readError(res, t("profile.couldNotChangeThePassword"), t));
-    },
-  });
-}
-
-export function useChangePin() {
-  const { t } = useAppTranslation();
-  const { request } = useApi();
-  return useMutation<void, ApiError, ChangePinDTO>({
-    mutationFn: async (body) => {
-      const res = await request("/profile/change-pin", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("profile.couldNotChangeThePin"), t));
     },
   });
 }

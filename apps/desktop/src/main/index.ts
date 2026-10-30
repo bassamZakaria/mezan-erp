@@ -6,7 +6,7 @@ import { startBackendProcess, type BackendProcessHandle } from "./backend-proces
 import { registerFetchToFileOverIpc, registerFetchToFileUnsupportedOverIpc, registerHonoOverIpc, registerHonoOverLanClient, registerPrintToPdfOverIpc, registerSavePdfOverIpc } from "./ipc.js";
 import { readClientConfig, readPairingRequest, writeClientConfig, type ClientConfig } from "./client-config.js";
 import { createLanClient, withSeatClaim } from "./lan-client.js";
-import { PinCheckOutcome, registerClientBackupRefusalsOverIpc, registerRestoreOverIpc } from "./restore-ipc.js";
+import { PasswordCheckOutcome, registerClientBackupRefusalsOverIpc, registerRestoreOverIpc } from "./restore-ipc.js";
 import { createWindow, hardenWebContents } from "./window.js";
 import { startTillWakeLock, type TillWakeLock } from "./till-wake-lock.js";
 import { registerAutoUpdater } from "./updater.js";
@@ -37,10 +37,11 @@ import { registerPairingOverIpc } from "./pairing-ipc.js";
 import { registerClientMaintenanceRefusalsOverIpc } from "./client-refusals.js";
 import { loadOrCreateLanTlsIdentity } from "./lan-tls.js";
 import {
-  clearRecoveryPinIfClaimed,
-  resetSeedAdminPin,
+  clearRecoveryPasswordIfClaimed,
+  RecoveryReason,
+  resetSeedAdminPassword,
   wantsAdminReset,
-  writeRecoveryPin,
+  writeRecoveryPassword,
 } from "./recovery.js";
 import {
   electronSafeStorageKeyStore,
@@ -227,7 +228,7 @@ registerCrashLogging(mainLog);
 app.whenReady().then(async () => {
   const dbPath = isDev() ? ":memory:" : defaultDbPath();
   // Tells the seed whether this is a real install: a packaged build must not
-  // create its fallback admin with the published demo PIN (see seed.ts).
+  // create its fallback admin with the published demo password (see seed.ts).
   process.env["MEZAN_PACKAGED"] = app.isPackaged ? "1" : "0";
   // EXTERNAL CONTRACT, and it is read on BOTH sides of the LAN: `GET /health`
   // reports these two (packages/backend/src/create-backend.ts) and a client
@@ -472,7 +473,7 @@ app.whenReady().then(async () => {
    *
    * Authorised by filesystem access to the database directory PLUS this
    * machine's sealed key, since the file itself is now encrypted. What it buys
-   * is the install that would otherwise be lost — a random packaged PIN nobody
+   * is the install that would otherwise be lost — a random packaged password nobody
    * wrote down, or a backup restored onto replacement hardware by somebody who
    * never knew the old one.
    */
@@ -484,24 +485,24 @@ app.whenReady().then(async () => {
       );
       return;
     }
-    // Through the keyed connection, not the path: `resetSeedAdminPin` would
+    // Through the keyed connection, not the path: `resetSeedAdminPassword` would
     // otherwise open the encrypted file with the plain driver and report "no
     // seeded administrator account found" on an install that has one.
     const resetConn = cipher ? openTenantConnection(dbPath, cipher) : undefined;
-    const reset = await resetSeedAdminPin(dbPath, resetConn ?? dbPath).catch((err: unknown) => {
+    const reset = await resetSeedAdminPassword(dbPath, resetConn ?? dbPath).catch((err: unknown) => {
       log(`[recovery] --reset-admin failed: ${err instanceof Error ? err.message : String(err)}`);
       return null;
     });
     resetConn?.close();
     if (!reset) {
       fatal(
-        "لم يُعثر على حساب مدير مُهيّأ في قاعدة البيانات على هذا الجهاز، فلم يتغيّر أي رمز دخول.",
+        "لم يُعثر على حساب مدير مُهيّأ في قاعدة البيانات على هذا الجهاز، فلم تتغيّر أي كلمة مرور.",
         `[recovery] no seeded administrator account found in ${dbPath}.`,
       );
       return;
     }
     console.log(
-      `\nرمز الدخول الجديد لحساب المدير / New administrator PIN: ${reset.pin}\n` +
+      `\nكلمة المرور المؤقتة الجديدة لحساب المدير / New temporary administrator password: ${reset.password}\n` +
         `${reset.reactivated ? "أُعيد تفعيل الحساب. / The account was reactivated.\n" : ""}` +
         `كُتب أيضاً في / Also written to: ${reset.recoveryFile}\n`,
     );
@@ -819,17 +820,17 @@ app.whenReady().then(async () => {
       return body.claimed !== false;
     },
     recoveryKeyStore: electronSafeStorageKeyStore(safeStorage),
-    verifyPin: async (token, pin) => {
+    verifyPassword: async (token, password) => {
       const res = await backend!.app.fetch(
         new Request("http://mezan.local/auth/step-up", {
           method: "POST",
           headers: { "content-type": "application/json", "x-session-token": token },
-          body: JSON.stringify({ pin }),
+          body: JSON.stringify({ password }),
         }),
       );
-      if (res.ok) return { outcome: PinCheckOutcome.Confirmed, message: null };
+      if (res.ok) return { outcome: PasswordCheckOutcome.Confirmed, message: null };
       const body = (await res.json().catch(() => ({}))) as { message?: unknown };
-      return { outcome: PinCheckOutcome.Refused, message: typeof body.message === "string" ? body.message : null };
+      return { outcome: PasswordCheckOutcome.Refused, message: typeof body.message === "string" ? body.message : null };
     },
   });
   // Registered before the socket is opened, and reading `lanHost` through a
@@ -1000,17 +1001,17 @@ app.whenReady().then(async () => {
      * The seeded admin's credentials, printed exactly once, where a human can
      * read them.
      *
-     * A packaged build's seed PIN is random (seed.ts), and it used to go
-     * nowhere: the owner met a login screen asking for a PIN that had never
-     * been shown to anybody, on an install with no other account and no reset
-     * route. `takeSeededAdminSecrets()` is a one-shot read INSIDE THE WORKER —
-     * the seed runs there now — so the PIN travels on the `ready` message and
+     * A packaged build's seed password is random and temporary (seed.ts), and
+     * it used to go nowhere: the owner met a login screen asking for a
+     * credential never shown to anybody, on an install with no other account
+     * and no reset route. `takeSeededAdminSecrets()` is a one-shot read INSIDE
+     * THE WORKER — the seed runs there now — so the password travels on the `ready` message and
      * is read here once. Without that it would be read by nobody, and the owner
      * would meet a login screen asking for a code never shown to anybody.
      */
     const seeded = backendProcess.seededAdmin();
     if (seeded?.generated) {
-      const target = await writeRecoveryPin(dbPath, seeded.pin, "first-run").catch(
+      const target = await writeRecoveryPassword(dbPath, seeded.password, RecoveryReason.FirstRun).catch(
         (err: unknown) => {
           log(
             `[recovery] could not write the recovery file: ${err instanceof Error ? err.message : String(err)}`,
@@ -1018,17 +1019,17 @@ app.whenReady().then(async () => {
           return null;
         },
       );
-      // The PIN also goes to stdout, because the recovery file is unreachable
+      // The password also goes to stdout, because the recovery file is unreachable
       // on the failure that matters most — a first launch that cannot write to
       // its own data directory.
       console.log(
-        `[recovery] first-run administrator PIN: ${seeded.pin}` +
+        `[recovery] first-run temporary administrator password: ${seeded.password}` +
           (target ? ` (also written to ${target})` : " (recovery file NOT written)"),
       );
     } else {
       // Cheap, and it runs on every launch: the file is a live credential and
       // stops being needed the moment the owner has an account of their own.
-      await clearRecoveryPinIfClaimed(dbPath, backupConn ?? dbPath).catch((err: unknown) => {
+      await clearRecoveryPasswordIfClaimed(dbPath, backupConn ?? dbPath).catch((err: unknown) => {
         console.warn("[recovery] could not clear the recovery file", err);
         return false;
       });

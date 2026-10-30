@@ -2,24 +2,24 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createPlatform, SEED_ADMIN_EMAIL, SEED_ADMIN_PIN, type PlatformHandle } from "@mezan/backend";
+import { createPlatform, SEED_ADMIN_EMAIL, SEED_ADMIN_PASSWORD, type PlatformHandle } from "@mezan/backend";
 import { createTenantRouter, TENANT_HEADER, type TenantRouter } from "./tenant-router.js";
 import { reachable } from "./cloud-harness.js";
 import { provisionReviewTenant } from "./review-tenant.js";
 
-const REVIEW = { code: "review", pin: "482913" };
+const REVIEW = { code: "review", password: "pw-482913" };
 
 function pick(user: Record<string, unknown>): Record<string, unknown> {
   const keys = ["nameAr", "nameEn", "email", "phone", "roleId", "isCompanyAdmin", "employeeId", "branchScope", "warehouseScope", "status", "photoUrl"];
   return Object.fromEntries(keys.map((k) => [k, user[k]]));
 }
 
-async function login(router: TenantRouter, username: string, pin: string): Promise<Response> {
+async function login(router: TenantRouter, username: string, password: string): Promise<Response> {
   return router.app.fetch(
     new Request("http://ignored/auth/login", {
       method: "POST",
       headers: { "content-type": "application/json", [TENANT_HEADER]: REVIEW.code },
-      body: JSON.stringify({ username, pin }),
+      body: JSON.stringify({ username, password }),
     }),
   );
 }
@@ -53,14 +53,16 @@ describe("provisionReviewTenant", () => {
     expect(tenant?.status).toBe("active");
   });
 
-  it("signs the admin and a linked employee in with the reviewer PIN, and the published PIN opens nothing", async () => {
-    expect((await login(router, SEED_ADMIN_EMAIL, REVIEW.pin)).status).toBe(200);
-    expect((await login(router, "ahmed.shennawy@cyag.example", REVIEW.pin)).status).toBe(200);
-    expect((await login(router, "karim.fouad@cyag.example", SEED_ADMIN_PIN)).status).toBe(401);
+  it("signs the admin and a linked employee in with the reviewer password, not to be changed, and the published password opens nothing", async () => {
+    expect((await login(router, SEED_ADMIN_EMAIL, REVIEW.password)).status).toBe(200);
+    const employee = await login(router, "ahmed.shennawy@cyag.example", REVIEW.password);
+    expect(employee.status).toBe(200);
+    expect(((await employee.json()) as { mustChangePassword: boolean }).mustChangePassword).toBe(false);
+    expect((await login(router, "karim.fouad@cyag.example", SEED_ADMIN_PASSWORD)).status).toBe(401);
   });
 
   it("serves the seeded dashboard to the reviewer", async () => {
-    const session = (await (await login(router, SEED_ADMIN_EMAIL, REVIEW.pin)).json()) as { token: string };
+    const session = (await (await login(router, SEED_ADMIN_EMAIL, REVIEW.password)).json()) as { token: string };
     const summary = await router.app.fetch(
       new Request("http://ignored/dashboard/summary", {
         headers: { authorization: `Bearer ${session.token}`, [TENANT_HEADER]: REVIEW.code },
@@ -69,22 +71,22 @@ describe("provisionReviewTenant", () => {
     expect(summary.status).toBe(200);
   });
 
-  it("does not re-seed on a second start, and moves a user left on the published PIN back to the reviewer PIN", async () => {
-    const session = (await (await login(router, SEED_ADMIN_EMAIL, REVIEW.pin)).json()) as { token: string };
+  it("does not re-seed on a second start, and leaves a password changed since in place", async () => {
+    const session = (await (await login(router, SEED_ADMIN_EMAIL, REVIEW.password)).json()) as { token: string };
     const headers = { "content-type": "application/json", authorization: `Bearer ${session.token}`, [TENANT_HEADER]: REVIEW.code, "x-branch-scope": "*", "x-warehouse-scope": "*" };
     const users = (await (await router.app.fetch(new Request("http://ignored/users", { headers }))).json()) as Array<Record<string, unknown>>;
     const karim = users.find((u) => u["email"] === "karim.fouad@cyag.example");
     expect(karim).toBeDefined();
     const { id, ...rest } = karim!;
     const reset = await router.app.fetch(
-      new Request(`http://ignored/users/${encodeURIComponent(String(id))}`, { method: "PUT", headers, body: JSON.stringify({ ...pick(rest), pin: SEED_ADMIN_PIN }) }),
+      new Request(`http://ignored/users/${encodeURIComponent(String(id))}`, { method: "PUT", headers, body: JSON.stringify({ ...pick(rest), password: "pw-777777" }) }),
     );
     expect(reset.status).toBe(200);
-    expect((await login(router, "karim.fouad@cyag.example", SEED_ADMIN_PIN)).status).toBe(200);
+    expect((await login(router, "karim.fouad@cyag.example", "pw-777777")).status).toBe(200);
 
     const created = await provisionReviewTenant({ platform, router, env: { platformDir: dataDir, sqliteExclusive: false } }, REVIEW);
     expect(created).toBe(false);
-    expect((await login(router, "karim.fouad@cyag.example", SEED_ADMIN_PIN)).status).toBe(401);
-    expect((await login(router, "karim.fouad@cyag.example", REVIEW.pin)).status).toBe(200);
+    expect((await login(router, "karim.fouad@cyag.example", "pw-777777")).status).toBe(200);
+    expect((await login(router, "karim.fouad@cyag.example", REVIEW.password)).status).toBe(401);
   });
 });

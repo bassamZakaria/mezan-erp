@@ -5,7 +5,7 @@ import { loginAsDemoUser } from "./support/auth";
 import { horizontalOverflow, offendingElements, OVERFLOW_TOLERANCE } from "./support/overflow";
 import { apiGet } from "./support/ledger";
 import { ADDRESSED_SCREENS, ADDRESS_PLACEHOLDER, AddressSource, ScreenDoor, loadScreenCatalog, type AddressedScreen, type ScreenEntry } from "./support/screen-catalog";
-import { PLATFORM_OWNER_EMAIL, PLATFORM_OWNER_PASSWORD } from "./saas/support/env";
+import { PASSWORD_LABEL, PLATFORM_OWNER_EMAIL, PLATFORM_OWNER_PASSWORD } from "./saas/support/env";
 
 const SCREENS = loadScreenCatalog();
 const FINDINGS_FILE = path.resolve("e2e-results/every-screen-findings.jsonl");
@@ -104,7 +104,7 @@ async function settle(page: Page): Promise<boolean> {
 }
 
 async function onLoginScreen(page: Page): Promise<boolean> {
-  return page.getByLabel("رمز PIN رقم 1").isVisible().catch(() => false);
+  return page.getByLabel(PASSWORD_LABEL, { exact: true }).isVisible().catch(() => false);
 }
 
 async function openScreen(page: Page, target: string): Promise<boolean> {

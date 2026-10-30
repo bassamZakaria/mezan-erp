@@ -192,7 +192,7 @@ export async function isEmptyTenant(stores: Pick<SeedStores, "accounts">): Promi
  * Seeds an EMPTY database with the minimum a tenant needs to operate:
  * a standard Chart of Accounts, the 14% VAT rate, the current fiscal year's
  * periods, one main branch + its main warehouse, tenant settings, one system
- * role, and one fallback company-admin user (admin@cyag.example; PIN 123456 in
+ * role, and one fallback company-admin user (admin@cyag.example; password Cyag@2026 in
  * development, random and unprinted in a packaged build — see
  * `resolveSeedAdminSecrets`). Numbering
  * sequences are initialised lazily by the NextNumber service on first use, so

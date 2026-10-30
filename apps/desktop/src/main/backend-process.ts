@@ -113,12 +113,12 @@ export interface BackendProcessHandle {
   readonly ready: Promise<void>;
   bootRefusal(): BackendBootRefusal | null;
   /**
-   * The seeded administrator's first-run PIN, once — `takeSeededAdminSecrets()`
+   * The seeded administrator's first-run temporary password, once — `takeSeededAdminSecrets()`
    * is a one-shot read inside @mezan/backend and the seed now runs in the
-   * worker, so without this the PIN would be read by nobody and the owner would
-   * meet a login screen asking for a code never shown to anybody.
+   * worker, so without this the password would be read by nobody and the owner would
+   * meet a login screen asking for a password never shown to anybody.
    */
-  seededAdmin(): { readonly pin: string; readonly generated: boolean } | null;
+  seededAdmin(): { readonly password: string; readonly generated: boolean } | null;
   /** `SessionRegistry.find`, across the port. */
   findSession(token: string): Promise<SessionGrant | null>;
   /** The LAN gate: a live session for this origin whose user still holds a seat. */
@@ -211,7 +211,7 @@ export function startBackendProcess(options: BackendProcessOptions): BackendProc
   // `catch` here is that the worker may have died since that guard ran.
   const statusNow = (): BackendStatus => status;
   let restarts = 0;
-  let seededAdmin: { pin: string; generated: boolean } | null = null;
+  let seededAdmin: { password: string; generated: boolean } | null = null;
   let closing = false;
   let bootRefusal: BackendBootRefusal | null = null;
   let nextId = 1;

@@ -384,9 +384,11 @@ export function forgetTenantCodeForEmail(email: string): void {
  * assign an approver ROLE (see `/workflow` routes' `actorRoles`), not a
  * permission code, so it isn't folded into the resolved permission set.
  */
+export const TENANT_HEADER = "x-mezan-tenant";
+
 export function authHeaders(session: Session | null, selection?: ScopeSelection): Record<string, string> {
   const tenantCode = loadTenantCode();
-  const tenantHeaders: Record<string, string> = tenantCode ? { "x-mezan-tenant": tenantCode } : {};
+  const tenantHeaders: Record<string, string> = tenantCode ? { [TENANT_HEADER]: tenantCode } : {};
   if (!session) return tenantHeaders;
   const scope = (s: SessionDTO["branchScope"]): string => (s === "*" ? "*" : s.join(","));
   const inScope = (s: SessionDTO["branchScope"], id: string): boolean => s === "*" || s.includes(id);

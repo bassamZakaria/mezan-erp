@@ -208,7 +208,7 @@ function VerbatimFact({
  * The fingerprint is here for a harder reason. That socket now serves TLS, but
  * with a self-signed certificate no chain validates (there is no CA a shop LAN
  * can reach), so encryption alone still lets any laptop that answers first on
- * `192.168.1.7:4173` present its own key and collect the PIN. What closes that
+ * `192.168.1.7:4173` present its own key and collect the password. What closes that
  * is the till PINNING this exact SHA-256 — and the only place a human can read
  * it is the host's own screen, which is this one.
  *

@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 if [ $# -ne 5 ]; then
-  echo "usage: SERVER=http://10.0.2.2:PORT/api TENANT=… EMAIL=… PIN=… $0 <emulator-serial> <ar|en> <light|dark> <portrait|landscape> <out-dir>" >&2
+  echo "usage: SERVER=http://10.0.2.2:PORT/api TENANT=… EMAIL=… PASSWORD=… $0 <emulator-serial> <ar|en> <light|dark> <portrait|landscape> <out-dir>" >&2
   exit 2
 fi
 SERIAL=$1 LANG_CODE=$2 THEME=$3 ROTATION=$4 OUT=$5
 HERE=$(cd "$(dirname "$0")" && pwd)
-: "${SERVER:?}" "${TENANT:?}" "${EMAIL:?}" "${PIN:?}"
+: "${SERVER:?}" "${TENANT:?}" "${EMAIL:?}" "${PASSWORD:?}"
 
 case "$LANG_CODE" in
   ar) SYSTEM_LOCALE=ar-EG ;;
@@ -92,5 +92,5 @@ if [ -n "${COLLECT_INVOICE:-}" ]; then
 fi
 for flow in "${flows[@]}"; do
   maestro --device "$SERIAL" test --test-output-dir "$OUT" "${args[@]}" \
-    -e "SERVER=$SERVER" -e "TENANT=$TENANT" -e "EMAIL=$EMAIL" -e "PIN=$PIN" -e "ORIENTATION=$ORIENTATION" "$flow"
+    -e "SERVER=$SERVER" -e "TENANT=$TENANT" -e "EMAIL=$EMAIL" -e "PASSWORD=$PASSWORD" -e "ORIENTATION=$ORIENTATION" "$flow"
 done

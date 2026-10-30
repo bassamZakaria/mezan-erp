@@ -32,7 +32,7 @@ function fakeUser(overrides: Partial<User> = {}): User {
     email: "test@example.com",
     phone: null,
     passwordHash: "x",
-    pinHash: null,
+    mustChangePassword: false,
     roleId: null,
     isCompanyAdmin: false,
     employeeId: null,

@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Button, Card } from "@mezan/ui";
 import { SignupRefusalCode, type VerifySignupResultDTO } from "@mezan/contracts";
 import { handOffSignIn } from "../data/session";
+import { TemporaryPasswordField } from "../login/TemporaryPasswordField";
 import { useAppTranslation } from "../i18n";
 import { SignupLayout } from "./SignupLayout";
 import { SignupApiError, SignupErrorCode, verifySignup } from "./signup-api";
@@ -30,14 +31,9 @@ function VerifiedPanel({ result }: { result: VerifySignupResultDTO }) {
       <div className="flex flex-col gap-[10px] rounded-md border border-border bg-surface-2 p-[14px]">
         <ResultRow label={t("signup.verify.code")} value={result.tenant.code} />
         <ResultRow label={t("signup.verify.adminEmail")} value={result.adminEmail} />
-        <div>
-          <span className="mb-[6px] block text-xs font-semibold text-ink-muted">{t("signup.verify.adminPin")}</span>
-          <code dir="ltr" className="mz-num select-all break-all rounded-[6px] bg-surface px-[10px] py-[6px] text-[16px] font-bold text-ink">
-            {result.adminPin ?? t("signup.verify.pinKept")}
-          </code>
-        </div>
+        <TemporaryPasswordField label={t("signup.verify.adminPassword")} password={result.adminPassword} fallback={t("signup.verify.passwordKept")} />
       </div>
-      {result.adminPin ? (
+      {result.adminPassword ? (
         <p role="alert" className="text-[11.5px] font-semibold text-warning-ink">
           {t("signup.verify.oneTime")}
         </p>

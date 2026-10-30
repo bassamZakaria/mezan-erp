@@ -81,14 +81,21 @@ async function provisionAndLogin(app: CloudApp, owner: string, code: string): Pr
     }),
   });
   expect(res.status).toBe(201);
-  const provisioned = (await res.json()) as { tenant: { id: string }; adminEmail: string; adminPin: string };
+  const provisioned = (await res.json()) as { tenant: { id: string }; adminEmail: string; adminPassword: string };
   const login = await send(app, "/api/auth/login", {
     method: "POST",
     tenant: code,
-    body: JSON.stringify({ username: provisioned.adminEmail, pin: provisioned.adminPin }),
+    body: JSON.stringify({ username: provisioned.adminEmail, password: provisioned.adminPassword }),
   });
   expect(login.status).toBe(200);
-  return { id: provisioned.tenant.id, code, token: ((await login.json()) as { token: string }).token };
+  return { id: provisioned.tenant.id, code, token: await ownPassword(app, code, provisioned.adminEmail, provisioned.adminPassword, ((await login.json()) as { token: string }).token) };
+}
+
+async function ownPassword(app: CloudApp, tenant: string, username: string, temporary: string, token: string): Promise<string> {
+  const changed = await send(app, "/api/profile/change-password", { method: "POST", token, tenant, body: JSON.stringify({ currentPassword: temporary, newPassword: "owner-own-password" }) });
+  expect(changed.status).toBe(204);
+  const login = await send(app, "/api/auth/login", { method: "POST", tenant, body: JSON.stringify({ username, password: "owner-own-password" }) });
+  return ((await login.json()) as { token: string }).token;
 }
 
 describe("tenant billing routes — whose subscription a session may touch", () => {
@@ -117,9 +124,9 @@ describe("tenant billing routes — whose subscription a session may touch", () 
     });
     expect(started.status).toBe(201);
     const token = new URL(((await started.json()) as { devVerifyUrl: string }).devVerifyUrl).searchParams.get("token");
-    const verified = (await (await send(app, "/api/signup/verify", { method: "POST", body: JSON.stringify({ token }) })).json()) as { adminEmail: string; adminPin: string };
-    const login = await send(app, "/api/auth/login", { method: "POST", tenant: "nile", body: JSON.stringify({ username: verified.adminEmail, pin: verified.adminPin }) });
-    const session = ((await login.json()) as { token: string }).token;
+    const verified = (await (await send(app, "/api/signup/verify", { method: "POST", body: JSON.stringify({ token }) })).json()) as { adminEmail: string; adminPassword: string };
+    const login = await send(app, "/api/auth/login", { method: "POST", tenant: "nile", body: JSON.stringify({ username: verified.adminEmail, password: verified.adminPassword }) });
+    const session = await ownPassword(app, "nile", verified.adminEmail, verified.adminPassword, ((await login.json()) as { token: string }).token);
 
     const billing = (await (await send(app, "/api/billing/subscription", { token: session, tenant: "nile" })).json()) as {
       subscription: { status: string; planNameEn: string };

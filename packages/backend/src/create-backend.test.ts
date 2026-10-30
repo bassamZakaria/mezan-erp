@@ -69,9 +69,9 @@ function post(app: App, path: string, body: unknown, headers: Record<string, str
 }
 
 describe("createBackend — seeded app", () => {
-  it("seeds an empty DB and logs the admin in with the real PIN", async () => {
+  it("seeds an empty DB and logs the admin in with the real password", async () => {
     const app = await newBackend();
-    const res = await post(app, "/auth/login", { username: "admin@cyag.example", pin: "123456" });
+    const res = await post(app, "/auth/login", { username: "admin@cyag.example", password: "Cyag@2026" });
     expect(res.status).toBe(200);
     const session = (await res.json()) as SessionDTO;
     expect(session.isCompanyAdmin).toBe(true);
@@ -95,9 +95,9 @@ describe("createBackend — seeded app", () => {
     expect(body.schemaVersion).toBeGreaterThan(0);
   });
 
-  it("rejects a wrong PIN", async () => {
+  it("rejects a wrong password", async () => {
     const app = await newBackend();
-    const res = await post(app, "/auth/login", { username: "admin@cyag.example", pin: "000000" });
+    const res = await post(app, "/auth/login", { username: "admin@cyag.example", password: "pw-000000" });
     expect(res.status).toBe(401);
   });
 
@@ -4459,7 +4459,7 @@ describe("createBackend — seedDemoData wires a real session and seeds through 
       new Request("http://local/bootstrap/admin", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ nameAr: "دخيل", email: "second@demo.example", pin: "135791", companyName: "شركة أخرى" }),
+        body: JSON.stringify({ nameAr: "دخيل", email: "second@demo.example", password: "pw-135791", companyName: "شركة أخرى" }),
       }),
     );
     expect(claim.status).toBe(409);

@@ -506,13 +506,13 @@ async function alreadySeeded(app: App): Promise<boolean> {
 
 export async function seedDemoTenant(
   app: App,
-  session: { token: string; mint: SeedSessionMinter; audit: AuditSink },
-): Promise<void> {
+  session: { token: string; mint: SeedSessionMinter; audit: AuditSink; password: string },
+): Promise<boolean> {
   assertLocalOrTest();
   // Every module below calls the real routes, and those routes now resolve
   // their caller from the server's session registry rather than from headers.
-  setSeedSessionToken(session.token, session.mint);
-  if (await alreadySeeded(app)) return;
+  setSeedSessionToken(session.token, session.mint, session.password);
+  if (await alreadySeeded(app)) return false;
 
   // The demo tenant imports in USD and EUR and holds rates for both, so it is a
   // tenant that has switched تعدد العملات on. A brand-new tenant still starts
@@ -854,6 +854,7 @@ export async function seedDemoTenant(
   // INVARIANT: after every seed that posts to the bank before August, the guided close's July bank charge included — the statement opens on the book balance of 31 July, and a posting dated earlier that lands after it leaves a difference no matching can explain.
   await seedBankStatement(app);
   await registerEveryUnmappedItem(app);
+  return true;
 }
 
 /**

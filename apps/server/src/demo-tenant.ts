@@ -4,7 +4,7 @@ import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { createTenant, activateTenant, startModuleTrial, startSubscription, tenantSchema } from "@mezan/domain";
 import { SmtpDestinationPolicy } from "@mezan/api";
-import { createBackend, SEED_ADMIN_PIN, type BackendHandle, type PlatformHandle } from "@mezan/backend";
+import { createBackend, SEED_ADMIN_PASSWORD, type PlatformHandle } from "@mezan/backend";
 import { createTenantResolvers } from "./tenant-entitlements.js";
 import { tenantDbPath, type TenantRouter } from "./tenant-router.js";
 import type { CloudEnv } from "./env.js";
@@ -35,13 +35,13 @@ export interface ProvisionDemoTenantDeps {
  * subscription are created first so the resolvers this backend opens with
  * already see the enterprise plan's full entitlements.
  *
- * The admin's PIN is pinned HERE, to the published `123456`, for this tenant
- * only — never through the process-wide `MEZAN_SEED_ADMIN_PIN`, which would
- * reach every tenant the platform console provisions (cloud.ts refuses it).
- * A generated PIN is unusable on the demo: the free instance re-seeds from
- * scratch on every wake, so it would change each time; and the ~20 demo
- * personas in `demo-seed/access.ts`, a second company admin among them, all
- * share `123456` anyway. The real gate in front of this tenant is the
+ * The password is fixed HERE, to the published `SEED_ADMIN_PASSWORD`, for
+ * this tenant only — never through the process-wide `MEZAN_SEED_ADMIN_PASSWORD`,
+ * which would reach every tenant the platform console provisions (cloud.ts
+ * refuses it). A generated password is unusable on the demo: the free instance
+ * re-seeds from scratch on every wake, so it would change each time; and the
+ * ~20 demo personas in `demo-seed/access.ts`, a second company admin among
+ * them, all share it. The real gate in front of this tenant is the
  * `MEZAN_DEMO_PASSWORD` basic auth that cloud.ts requires whenever the demo is
  * seeded.
  */
@@ -49,7 +49,7 @@ export async function provisionDemoTenant(deps: ProvisionDemoTenantDeps): Promis
   const created = await provisionSeededTenant(deps, {
     code: DEMO_TENANT_CODE,
     nameAr: DEMO_NAME_AR,
-    adminPin: SEED_ADMIN_PIN,
+    adminPassword: SEED_ADMIN_PASSWORD,
     // DEC-31 — the billing screen's module section has to show something real.
     // POS is the one module the enterprise plan leaves out, so a live trial on it
     // is the only way the demo can show «تجربة جارية» without inventing data.
@@ -80,10 +80,9 @@ export async function provisionDemoTenant(deps: ProvisionDemoTenantDeps): Promis
 export interface SeededTenantSpec {
   readonly code: string;
   readonly nameAr: string;
-  readonly adminPin: string;
+  readonly adminPassword: string;
   /** Runs once the tenant is active and before its backend opens, so the seed sees whatever it grants. */
   readonly beforeSeed?: (tenantId: string) => Promise<void>;
-  readonly afterSeed?: (backend: BackendHandle) => Promise<void>;
 }
 
 /** Returns false when a tenant with `spec.code` already exists and nothing was done. */
@@ -138,7 +137,7 @@ export async function provisionSeededTenant(deps: ProvisionDemoTenantDeps, spec:
     scheduledJobs: false,
     tenantMailDestinations: SmtpDestinationPolicy.PublicOnly,
     seedDemoData: true,
-    seedAdminPin: spec.adminPin,
+    seedAdminPassword: spec.adminPassword,
     resolveEntitlements: () => resolvers.resolveEntitlements(),
     resolveLicenseState: () => resolvers.resolveLicenseState(),
   });
@@ -148,8 +147,6 @@ export async function provisionSeededTenant(deps: ProvisionDemoTenantDeps, spec:
   // connection is not open", in a database this process then hands to the
   // router.
   try {
-    await backend.drain();
-    await spec.afterSeed?.(backend);
     await backend.drain();
   } finally {
     backend.close();

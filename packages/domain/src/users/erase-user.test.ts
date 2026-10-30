@@ -25,7 +25,7 @@ function user(over: Partial<User> = {}): User {
     email: "mohamed@cyag.test",
     phone: "+201000000000",
     passwordHash: "hash",
-    pinHash: "pin",
+    mustChangePassword: false,
     roleId: "role-1",
     isCompanyAdmin: false,
     employeeId: null,
@@ -86,7 +86,6 @@ describe("erasedUser", () => {
     expect(erased.email).toBe(erasedUserEmail("u-1"));
     expect(erased.phone).toBeNull();
     expect(erased.photoUrl).toBeNull();
-    expect(erased.pinHash).toBeNull();
     expect(erased.passwordHash).toBe("unusable");
     expect(erased.lastLoginAt).toBeNull();
     expect(erased.status).toBe("inactive");

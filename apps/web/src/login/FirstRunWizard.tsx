@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   BrandMark,
@@ -23,6 +23,7 @@ import { BackupProtectionPanel } from "../settings/BackupProtectionPanel";
 import { backupBridge } from "../settings/backup-bridge";
 import { useBackupRecovery, useRefreshBackupRecovery } from "../settings/useBackupRecovery";
 import { useApi } from "../data/ApiContext";
+import { MIN_PASSWORD_LENGTH, PasswordInput } from "./PasswordInput";
 
 /**
  * The base data one idempotent `POST /bootstrap/seed` creates. Each row's
@@ -148,8 +149,10 @@ export function FirstRunWizard({ onFinish, onCancel, onOwnerSubmitted }: FirstRu
   const [companyName, setCompanyName] = useState("");
   const [adminName, setAdminName] = useState("");
   const [adminEmail, setAdminEmail] = useState("");
-  const [adminPin, setAdminPin] = useState("");
-  const [adminPinConfirm, setAdminPinConfirm] = useState("");
+  const [adminPassword, setAdminPassword] = useState("");
+  const [adminPasswordConfirm, setAdminPasswordConfirm] = useState("");
+  const adminPasswordId = useId();
+  const adminPasswordConfirmId = useId();
   const [adminError, setAdminError] = useState<string | null>(null);
   /**
    * True when the server said this install already belongs to somebody.
@@ -178,12 +181,12 @@ export function FirstRunWizard({ onFinish, onCancel, onOwnerSubmitted }: FirstRu
       setAdminError(t("firstRun.theFullNameAndThe"));
       return;
     }
-    if (!/^\d{6}$/.test(adminPin)) {
-      setAdminError(t("firstRun.thePinMustBe4"));
+    if (adminPassword.length < MIN_PASSWORD_LENGTH) {
+      setAdminError(t("login.password.tooShort"));
       return;
     }
-    if (adminPin !== adminPinConfirm) {
-      setAdminError(t("firstRun.thePinAndItsConfirmation"));
+    if (adminPassword !== adminPasswordConfirm) {
+      setAdminError(t("profile.theNewPasswordAndIts"));
       return;
     }
     setAdminError(null);
@@ -194,7 +197,7 @@ export function FirstRunWizard({ onFinish, onCancel, onOwnerSubmitted }: FirstRu
     onOwnerSubmitted?.();
     // Persist the admin for real and establish their session, then advance.
     createAdmin.mutate(
-      { nameAr: adminName.trim(), nameEn: null, email: adminEmail.trim().toLowerCase(), pin: adminPin, companyName: companyName.trim() },
+      { nameAr: adminName.trim(), nameEn: null, email: adminEmail.trim().toLowerCase(), password: adminPassword, companyName: companyName.trim() },
       {
         onSuccess: () => {
           setAdminCreated(true);
@@ -345,28 +348,15 @@ export function FirstRunWizard({ onFinish, onCancel, onOwnerSubmitted }: FirstRu
                 />
                 <span className="text-[11px] text-ink-faint">{t("firstRun.emailIsTheLoginHint")}</span>
               </label>
-              <label className="flex flex-col gap-[6px]">
-                <span className="text-[12.5px] font-semibold text-ink">{t("firstRun.pin4Digits")}</span>
-                <TextInput
-                  type="password"
-                  numeric
-                  inputMode="numeric"
-                  maxLength={6}
-                  value={adminPin}
-                  onChange={(e) => setAdminPin(e.target.value.replace(/\D/g, ""))}
-                />
-              </label>
-              <label className="flex flex-col gap-[6px]">
-                <span className="text-[12.5px] font-semibold text-ink">{t("firstRun.confirmThePin")}</span>
-                <TextInput
-                  type="password"
-                  numeric
-                  inputMode="numeric"
-                  maxLength={6}
-                  value={adminPinConfirm}
-                  onChange={(e) => setAdminPinConfirm(e.target.value.replace(/\D/g, ""))}
-                />
-              </label>
+              <div className="flex flex-col gap-[6px]">
+                <label htmlFor={adminPasswordId} className="text-[12.5px] font-semibold text-ink">{t("firstRun.password")}</label>
+                <PasswordInput id={adminPasswordId} autoComplete="new-password" value={adminPassword} onChange={(e) => setAdminPassword(e.target.value)} />
+                <span className="text-[11px] text-ink-faint">{t("profile.atLeast8Characters")}</span>
+              </div>
+              <div className="flex flex-col gap-[6px]">
+                <label htmlFor={adminPasswordConfirmId} className="text-[12.5px] font-semibold text-ink">{t("firstRun.confirmPassword")}</label>
+                <PasswordInput id={adminPasswordConfirmId} autoComplete="new-password" value={adminPasswordConfirm} onChange={(e) => setAdminPasswordConfirm(e.target.value)} />
+              </div>
             </div>
             {adminError ? (
               <p role="alert" className="mt-[10px] text-[12px] font-semibold text-danger-ink">

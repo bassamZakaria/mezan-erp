@@ -8,7 +8,7 @@ import { ApiProvider, useApi } from "./ApiContext";
 import { AppI18nProvider } from "../i18n";
 import { createQueryClient } from "./queryClient";
 import { stubTransport, testAdminSession } from "./test-support";
-import { SessionRefusal } from "@mezan/contracts";
+import { PasswordChangeRefusal, SessionRefusal } from "@mezan/contracts";
 import { SignInNotice, pendingSignInNotice, sessionExpiredPending, type Session } from "./session";
 
 const STORAGE_KEY = "mezan.session";
@@ -179,7 +179,7 @@ describe("ApiProvider request() — 401 session expiry", () => {
     expect(clearSpy).not.toHaveBeenCalled();
   });
 
-  it("a 401 from the login endpoint itself does not sign anyone out — it is the login screen's own wrong-PIN refusal, not an expired session", async () => {
+  it("a 401 from the login endpoint itself does not sign anyone out — it is the login screen's own wrong-password refusal, not an expired session", async () => {
     const transport = stubTransport({ "GET /auth/login": () => ({ status: 401, body: { message: "رمز خاطئ" } }) });
     const { queryClient } = renderRequestProbe("/auth/login", transport);
     const clearSpy = vi.spyOn(queryClient, "clear");
@@ -271,57 +271,94 @@ describe("ApiProvider request() — the topbar narrowing rides on reads only", (
   });
 });
 
-describe("ApiProvider request() — the PIN asked for again after the session's address moved", () => {
+describe("ApiProvider request() — a temporary password the server says must be changed", () => {
   beforeEach(() => {
     localStorage.clear();
     sessionStorage.clear();
   });
 
-  const STEP_UP = { status: 403, body: { error: "STEP_UP_REQUIRED", message: "تغيّر عنوان اتصالك منذ تسجيل الدخول. أعد إدخال رمز PIN لتأكيد هذا الإجراء." } };
+  it("flags the session as needing a password change on PASSWORD_CHANGE_REQUIRED, keeps it signed in, and hands the 403 back", async () => {
+    let status = 0;
+    const transport = stubTransport({
+      "GET /items": () => ({ status: 403, body: { error: PasswordChangeRefusal.Required, message: "يجب تغيير كلمة المرور المؤقتة قبل المتابعة." } }),
+    });
+    function Probe() {
+      const { session, request } = useApi();
+      return (
+        <div>
+          <span data-testid="must-change">{String(session?.mustChangePassword)}</span>
+          <button onClick={() => void request("/items").then((res) => (status = res.status))}>call</button>
+        </div>
+      );
+    }
+    render(
+      <AppI18nProvider>
+        <QueryClientProvider client={createQueryClient()}>
+          <ApiProvider transport={transport} initialSession={testAdminSession}>
+            <Probe />
+          </ApiProvider>
+        </QueryClientProvider>
+      </AppI18nProvider>,
+    );
+    expect(screen.getByTestId("must-change")).toHaveTextContent("false");
+    fireEvent.click(screen.getByText("call"));
+    await waitFor(() => expect(screen.getByTestId("must-change")).toHaveTextContent("true"));
+    await waitFor(() => expect(status).toBe(403));
+    expect(sessionExpiredPending()).toBe(false);
+  });
+});
 
-  it("asks for the PIN in a dialog, confirms it with the server, and sends the original request once more", async () => {
+describe("ApiProvider request() — the password asked for again after the session's address moved", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    sessionStorage.clear();
+  });
+
+  const STEP_UP = { status: 403, body: { error: "STEP_UP_REQUIRED", message: "تغيّر عنوان اتصالك منذ تسجيل الدخول. أعد إدخال كلمة المرور لتأكيد هذا الإجراء." } };
+
+  it("asks for the password in a dialog, confirms it with the server, and sends the original request once more", async () => {
     let calls = 0;
-    let confirmedPin: unknown = null;
+    let confirmedPassword: unknown = null;
     const transport = stubTransport({
       "GET /items": () => {
         calls += 1;
         return calls === 1 ? STEP_UP : { body: [] };
       },
       "POST /auth/step-up": (init) => {
-        confirmedPin = JSON.parse((init?.body as string) ?? "{}");
+        confirmedPassword = JSON.parse((init?.body as string) ?? "{}");
         return { body: { ok: true } };
       },
     });
     renderRequestProbe("/items", transport);
     fireEvent.click(screen.getByText("call"));
 
-    const dialog = await screen.findByRole("dialog", { name: "تأكيد رمز PIN" });
+    const dialog = await screen.findByRole("dialog", { name: "تأكيد كلمة المرور" });
     expect(dialog).toHaveTextContent("تغيّر عنوان اتصالك");
-    fireEvent.change(screen.getByLabelText("رمز PIN"), { target: { value: "135790" } });
+    fireEvent.change(screen.getByLabelText("كلمة المرور"), { target: { value: "Cyag@2026" } });
     fireEvent.click(screen.getByRole("button", { name: "تأكيد" }));
 
     await waitFor(() => expect(calls).toBe(2));
-    expect(confirmedPin).toEqual({ pin: "135790" });
+    expect(confirmedPassword).toEqual({ password: "Cyag@2026" });
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(screen.getByTestId("session-id")).toHaveTextContent("USER-ADMIN");
   });
 
-  it("shows the server's refusal for a wrong PIN and keeps the dialog open; cancelling hands the 403 back to the screen", async () => {
+  it("shows the server's refusal for a wrong password and keeps the dialog open; cancelling hands the 403 back to the screen", async () => {
     let calls = 0;
     const transport = stubTransport({
       "GET /items": () => {
         calls += 1;
         return STEP_UP;
       },
-      "POST /auth/step-up": () => ({ status: 401, body: { error: "INVALID_CREDENTIALS", message: "رمز PIN غير صحيح." } }),
+      "POST /auth/step-up": () => ({ status: 401, body: { error: "INVALID_CREDENTIALS", message: "كلمة المرور غير صحيحة." } }),
     });
     renderRequestProbe("/items", transport);
     fireEvent.click(screen.getByText("call"));
 
-    await screen.findByRole("dialog", { name: "تأكيد رمز PIN" });
-    fireEvent.change(screen.getByLabelText("رمز PIN"), { target: { value: "000000" } });
+    await screen.findByRole("dialog", { name: "تأكيد كلمة المرور" });
+    fireEvent.change(screen.getByLabelText("كلمة المرور"), { target: { value: "wrong-password" } });
     fireEvent.click(screen.getByRole("button", { name: "تأكيد" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("رمز PIN غير صحيح.");
+    expect(await screen.findByRole("alert")).toHaveTextContent("كلمة المرور غير صحيحة.");
 
     fireEvent.click(screen.getByRole("button", { name: "إلغاء" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());

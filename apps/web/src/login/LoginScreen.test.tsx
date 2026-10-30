@@ -39,11 +39,21 @@ function typeEmailWhenNoneIsOffered() {
   if (email && email.value === "") fireEvent.change(email, { target: { value: TYPED_EMAIL } });
 }
 
-function fillPin(pin: string) {
+const PASSWORD_LABEL = /^كلمة المرور/;
+
+function passwordField(): HTMLInputElement {
+  return screen.getByLabelText<HTMLInputElement>(PASSWORD_LABEL);
+}
+
+function typePassword(password: string) {
   typeEmailWhenNoneIsOffered();
-  pin.split("").forEach((digit, index) => {
-    fireEvent.change(screen.getByLabelText(`رمز PIN رقم ${index + 1}`), { target: { value: digit } });
-  });
+  fireEvent.change(passwordField(), { target: { value: password } });
+}
+
+/** Types the password and presses Enter, which submits the form exactly as the button does. */
+function signIn(password: string) {
+  typePassword(password);
+  fireEvent.submit(passwordField().closest("form")!);
 }
 
 /** `renderWithProviders` always mounts at the persisted-or-default (Arabic) locale; this test file's one English-UI case builds its own provider tree to force `en`. */
@@ -79,7 +89,7 @@ const okTransport = () => stubTransport({ ...preAuth, "POST /auth/login": () => 
 const denyTransport = () =>
   stubTransport({
     ...preAuth,
-    "POST /auth/login": () => ({ status: 401, body: { error: "INVALID_CREDENTIALS", message: "اسم المستخدم أو رمز PIN غير صحيح." } }),
+    "POST /auth/login": () => ({ status: 401, body: { error: "INVALID_CREDENTIALS", message: "البريد الإلكتروني أو كلمة المرور غير صحيحة." } }),
   });
 
 describe.each(["light", "dark"] as const)("LoginScreen (%s theme)", (theme) => {
@@ -147,42 +157,66 @@ describe.each(["light", "dark"] as const)("LoginScreen (%s theme)", (theme) => {
     renderWithProviders(<LoginScreen onStartWizard={() => {}} />, { transport: okTransport() });
     expect(screen.getByRole("heading", { name: "مَن يعمل الآن؟" })).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: "اختر محمد الشهابي" })).toHaveAttribute("aria-checked", "true");
-    expect(screen.getByText("الرمز السرّي لـ محمد الشهابي")).toBeInTheDocument();
+    expect(screen.getByLabelText("كلمة المرور لـ محمد الشهابي")).toBeInTheDocument();
   });
 
-  it("keeps دخول disabled until all 6 PIN digits are filled, then submits automatically", async () => {
+  it("keeps دخول disabled until a password is typed, never submits on typing alone, and signs in on the button", async () => {
+    let attempts: unknown[] = [];
+    const transport = stubTransport({
+      ...preAuth,
+      "POST /auth/login": (init) => {
+        attempts = [...attempts, JSON.parse((init?.body as string) ?? "{}")];
+        return { body: testAdminSession };
+      },
+    });
+    renderWithProviders(<LoginScreen onStartWizard={() => {}} />, { transport });
+    expect(screen.getByRole("button", { name: "دخول" })).toBeDisabled();
+    typePassword("Cyag@2026");
+    expect(passwordField()).toHaveAttribute("type", "password");
+    expect(passwordField()).toHaveAttribute("autocomplete", "current-password");
+    await act(async () => {});
+    expect(attempts).toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: "دخول" }));
+    await vi.waitFor(() => expect(attempts).toEqual([{ username: TYPED_EMAIL, password: "Cyag@2026" }]));
+  });
+
+  it("shows the typed password on «إظهار كلمة المرور» and hides it again", () => {
     renderWithProviders(<LoginScreen onStartWizard={() => {}} />, { transport: okTransport() });
-    expect(screen.getByRole("button", { name: "دخول" })).toBeDisabled();
-    fillPin("123");
-    expect(screen.getByRole("button", { name: "دخول" })).toBeDisabled();
-    fillPin("123456");
-    // The 6th digit auto-submits (see LoginScreen's `submitRef` effect), so the
-    // button goes straight from disabled-while-incomplete to disabled-while-pending
-    // before re-enabling once the sign-in call resolves.
-    await vi.waitFor(() => expect(screen.getByRole("button", { name: "دخول" })).toBeEnabled());
+    typePassword("Cyag@2026");
+    fireEvent.click(screen.getByRole("button", { name: "إظهار كلمة المرور" }));
+    expect(passwordField()).toHaveAttribute("type", "text");
+    fireEvent.click(screen.getByRole("button", { name: "إخفاء كلمة المرور" }));
+    expect(passwordField()).toHaveAttribute("type", "password");
+  });
+
+  it("clears the password after a refused sign-in so the next attempt starts empty", async () => {
+    renderWithProviders(<LoginScreen onStartWizard={() => {}} />, { transport: denyTransport() });
+    signIn("wrong-password");
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    expect(passwordField()).toHaveValue("");
   });
 
   it("shows an inline error when the backend rejects the credentials", async () => {
     renderWithProviders(<LoginScreen onStartWizard={() => {}} />, { transport: denyTransport() });
-    fillPin("000000");
-    expect(await screen.findByRole("alert")).toHaveTextContent("اسم المستخدم أو رمز PIN غير صحيح.");
+    signIn("wrong-password");
+    expect(await screen.findByRole("alert")).toHaveTextContent("البريد الإلكتروني أو كلمة المرور غير صحيحة.");
   });
 
-  it("sends a second sign-in and shows the error again when the same rejected email and PIN are retried", async () => {
+  it("sends a second sign-in and shows the error again when the same rejected email and password are retried", async () => {
     let attempts = 0;
     const transport = stubTransport({
       ...preAuth,
       "POST /auth/login": () => {
         attempts += 1;
-        return { status: 401, body: { error: "INVALID_CREDENTIALS", message: "اسم المستخدم أو رمز PIN غير صحيح." } };
+        return { status: 401, body: { error: "INVALID_CREDENTIALS", message: "البريد الإلكتروني أو كلمة المرور غير صحيحة." } };
       },
     });
     renderWithProviders(<LoginScreen onStartWizard={() => {}} />, { transport });
-    fillPin("000000");
+    signIn("wrong-password");
     expect(await screen.findByRole("alert")).toBeInTheDocument();
-    fillPin("000000");
+    signIn("wrong-password");
     await vi.waitFor(() => expect(attempts).toBe(2));
-    expect(await screen.findByRole("alert")).toHaveTextContent("اسم المستخدم أو رمز PIN غير صحيح.");
+    expect(await screen.findByRole("alert")).toHaveTextContent("البريد الإلكتروني أو كلمة المرور غير صحيحة.");
   });
 
   it("establishes the ApiContext session after a successful real sign-in", async () => {
@@ -195,7 +229,7 @@ describe.each(["light", "dark"] as const)("LoginScreen (%s theme)", (theme) => {
     );
     expect(screen.getByTestId("session")).toHaveTextContent("none");
 
-    fillPin("123456");
+    signIn("Cyag@2026");
     fireEvent.click(screen.getByRole("button", { name: "دخول" }));
 
     await vi.waitFor(() => expect(screen.getByTestId("session")).toHaveTextContent(testAdminSession.nameAr));
@@ -213,11 +247,11 @@ describe.each(["light", "dark"] as const)("LoginScreen (%s theme)", (theme) => {
     expect(sessionExpiredPending()).toBe(true);
   });
 
-  it("drops the session-ended notice once the person starts typing a PIN, and does not bring it back on the next visit", () => {
+  it("drops the session-ended notice once the person starts typing a password, and does not bring it back on the next visit", () => {
     markSessionExpired();
     const first = renderWithProviders(<LoginScreen onStartWizard={() => {}} />, { transport: okTransport() });
 
-    fireEvent.change(screen.getByLabelText("رمز PIN رقم 1"), { target: { value: "1" } });
+    fireEvent.change(passwordField(), { target: { value: "1" } });
 
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
     expect(sessionExpiredPending()).toBe(false);
@@ -236,7 +270,7 @@ describe.each(["light", "dark"] as const)("LoginScreen (%s theme)", (theme) => {
       { transport: okTransport() },
     );
 
-    fillPin("123456");
+    signIn("Cyag@2026");
 
     await waitFor(() => expect(screen.getByTestId("session")).toHaveTextContent(testAdminSession.nameAr));
     expect(sessionExpiredPending()).toBe(false);
@@ -254,7 +288,7 @@ describe.each(["light", "dark"] as const)("LoginScreen (%s theme)", (theme) => {
     first.unmount();
 
     renderWithProviders(<LoginScreen onStartWizard={() => {}} />, { transport: okTransport() });
-    fireEvent.change(screen.getByLabelText("رمز PIN رقم 1"), { target: { value: "1" } });
+    fireEvent.change(passwordField(), { target: { value: "1" } });
 
     expect(screen.getByText(notice)).toBeInTheDocument();
     expect(pendingOwnerHandOver()).toBe(outcome);
@@ -285,7 +319,7 @@ describe.each(["light", "dark"] as const)("LoginScreen (%s theme)", (theme) => {
       { transport: okTransport() },
     );
 
-    fillPin("123456");
+    signIn("Cyag@2026");
 
     await waitFor(() => expect(screen.getByTestId("session")).toHaveTextContent(testAdminSession.nameAr));
     expect(pendingOwnerHandOver()).toBeNull();
@@ -334,7 +368,7 @@ describe.each(["light", "dark"] as const)("LoginScreen (%s theme)", (theme) => {
       renderWithProviders(<LoginScreen onStartWizard={() => {}} />, { transport: (path, init) => (asked.push(path), base(path, init)) });
 
       await waitFor(() => expect(asked).toContain("/bootstrap/status"));
-      await screen.findByLabelText("رمز PIN رقم 1");
+      await screen.findByLabelText(PASSWORD_LABEL);
       expect(screen.queryByRole("button", { name: FIRST_RUN })).not.toBeInTheDocument();
       expect(screen.queryByRole("link", { name: SIGN_UP })).not.toBeInTheDocument();
     });
@@ -349,7 +383,7 @@ describe.each(["light", "dark"] as const)("LoginScreen (%s theme)", (theme) => {
 
       expect(await screen.findByRole("link", { name: SIGN_UP })).toHaveAttribute("href", "/signup");
       await waitFor(() => expect(asked).toContain(lastAsked));
-      await screen.findByLabelText("رمز PIN رقم 1");
+      await screen.findByLabelText(PASSWORD_LABEL);
       expect(asked).not.toContain("/bootstrap/status");
       expect(screen.queryByRole("button", { name: FIRST_RUN })).not.toBeInTheDocument();
     });
@@ -365,7 +399,7 @@ describe.each(["light", "dark"] as const)("LoginScreen (%s theme)", (theme) => {
   it("confirms in Arabic that the account was unlocked when the person arrives from a mailed link", () => {
     markSignInNotice(SignInNotice.AccountUnlocked);
     renderWithProviders(<LoginScreen onStartWizard={() => {}} />, { transport: okTransport() });
-    expect(screen.getByRole("status")).toHaveTextContent("تم فكّ قفل الحساب. أدخل رمز PIN للدخول.");
+    expect(screen.getByRole("status")).toHaveTextContent("تم فكّ قفل الحساب. أدخل كلمة المرور للدخول.");
   });
 });
 
@@ -415,7 +449,7 @@ describe("LoginScreen — SaaS company code", () => {
     const input = await screen.findByLabelText("رمز المنشأة");
     fireEvent.change(input, { target: { value: "a" } });
     expect(await screen.findByRole("alert")).toHaveTextContent("رمز المنشأة غير صالح");
-    fillPin("123456");
+    signIn("Cyag@2026");
     expect(screen.getByRole("button", { name: "دخول" })).toBeDisabled();
   });
 
@@ -499,7 +533,7 @@ describe("LoginScreen — SaaS company code", () => {
       }),
     });
     await screen.findByLabelText("رمز المنشأة");
-    fillPin("123456");
+    signIn("Cyag@2026");
     expect(await screen.findByRole("alert")).toHaveTextContent("حدّد رمز المنشأة");
     expect(loginCalled).toBe(false);
   });
@@ -514,7 +548,7 @@ describe("LoginScreen — SaaS company code", () => {
     });
     const input = await screen.findByLabelText("رمز المنشأة");
     fireEvent.change(input, { target: { value: "ghost" } });
-    fillPin("123456");
+    signIn("Cyag@2026");
     expect(await screen.findByRole("alert")).toHaveTextContent("المنشأة غير موجودة");
   });
 
@@ -523,13 +557,13 @@ describe("LoginScreen — SaaS company code", () => {
       transport: stubTransport({
         ...preAuth,
         "GET /platform/resolve": () => ({ body: { mode: "code", exists: true } }),
-        "POST /auth/login": () => ({ status: 401, body: { error: "INVALID_CREDENTIALS", message: "اسم المستخدم أو رمز PIN غير صحيح." } }),
+        "POST /auth/login": () => ({ status: 401, body: { error: "INVALID_CREDENTIALS", message: "البريد الإلكتروني أو كلمة المرور غير صحيحة." } }),
       }),
     });
     const input = await screen.findByLabelText("رمز المنشأة");
     fireEvent.change(input, { target: { value: "cyag" } });
-    fillPin("000000");
-    expect(await screen.findByRole("alert")).toHaveTextContent("اسم المستخدم أو رمز PIN غير صحيح.");
+    signIn("wrong-password");
+    expect(await screen.findByRole("alert")).toHaveTextContent("البريد الإلكتروني أو كلمة المرور غير صحيحة.");
   });
 
   it("says the server is busy and holds the button for the seconds it was told to wait", async () => {
@@ -544,9 +578,9 @@ describe("LoginScreen — SaaS company code", () => {
       }),
     });
     fireEvent.change(await screen.findByLabelText("رمز المنشأة"), { target: { value: "cyag" } });
-    fillPin("123456");
+    signIn("Cyag@2026");
     expect(await screen.findByRole("alert")).toHaveTextContent("الخادم مشغول الآن");
-    fillPin("123456");
+    signIn("Cyag@2026");
     expect(screen.getByRole("button", { name: /الحساب مقفل|انتظر|بعد/ })).toBeDisabled();
   });
 
@@ -562,7 +596,7 @@ describe("LoginScreen — SaaS company code", () => {
       }),
     });
     fireEvent.change(await screen.findByLabelText("رمز المنشأة"), { target: { value: "cyag" } });
-    fillPin("123456");
+    signIn("Cyag@2026");
 
     expect(await screen.findByRole("alert")).toHaveTextContent(said);
     expect(screen.getByRole("button", { name: held })).toBeDisabled();
@@ -577,7 +611,7 @@ describe("LoginScreen — SaaS company code", () => {
       }),
     });
     fireEvent.change(await screen.findByLabelText("رمز المنشأة"), { target: { value: "cyag" } });
-    fillPin("123456");
+    signIn("Cyag@2026");
 
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent(/^محاولات دخول كثيرة\.$/);
@@ -589,7 +623,7 @@ describe("LoginScreen — SaaS company code", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
-  it("says the audit log could not record the sign-in, in the server's own words, without calling it a lock or a wrong PIN", async () => {
+  it("says the audit log could not record the sign-in, in the server's own words, without calling it a lock or a wrong password", async () => {
     renderWithProviders(<LoginScreen onStartWizard={() => {}} />, {
       transport: stubTransport({
         ...preAuth,
@@ -601,7 +635,7 @@ describe("LoginScreen — SaaS company code", () => {
       }),
     });
     fireEvent.change(await screen.findByLabelText("رمز المنشأة"), { target: { value: "cyag" } });
-    fillPin("123456");
+    signIn("Cyag@2026");
 
     expect(await screen.findByRole("alert")).toHaveTextContent("تعذّر تسجيل العملية في سجل التدقيق، فلم يُحفظ أي تغيير. حاول مرة أخرى.");
     expect(screen.getByRole("button", { name: "دخول" })).toBeInTheDocument();
@@ -625,7 +659,7 @@ describe("LoginScreen — SaaS company code", () => {
       }),
     });
     fireEvent.change(await screen.findByLabelText("رمز المنشأة"), { target: { value: "cyag" } });
-    fillPin("000000");
+    signIn("wrong-password");
     expect(await screen.findByRole("alert")).toHaveTextContent("تم قفل هذا الحساب");
 
     fireEvent.change(screen.getByLabelText("رمز فكّ القفل"), { target: { value: "ABCDEFGHIJKLMNOP" } });
@@ -648,7 +682,7 @@ describe("LoginScreen — SaaS company code", () => {
       }),
     });
     fireEvent.change(await screen.findByLabelText("رمز المنشأة"), { target: { value: "cyag" } });
-    fillPin("000000");
+    signIn("wrong-password");
     expect(await screen.findByRole("alert")).toHaveTextContent("اطلب من مدير النظام فكّ القفل");
     expect(screen.queryByLabelText("رمز فكّ القفل")).not.toBeInTheDocument();
   });
@@ -669,7 +703,7 @@ describe("LoginScreen — SaaS company code", () => {
     fireEvent.change(input, { target: { value: "cyag" } });
     fireEvent.blur(input);
     await screen.findByText("الرمز: cyag");
-    fillPin("123456");
+    signIn("Cyag@2026");
     await vi.waitFor(() => expect(seenTenantHeader).toBe("cyag"));
   });
 
@@ -855,7 +889,7 @@ describe("LoginScreen — SaaS company code", () => {
     await screen.findByText("الرمز: acme");
     const email = await screen.findByLabelText("البريد الإلكتروني");
     fireEvent.change(email, { target: { value: "a@acme.example" } });
-    fillPin("123456");
+    signIn("Cyag@2026");
     await vi.waitFor(() => expect(screen.getByTestId("session")).toHaveTextContent(testAdminSession.nameAr));
 
     first.unmount();
@@ -896,7 +930,7 @@ describe("LoginScreen — SaaS company code", () => {
 
     const email = screen.getByLabelText("البريد الإلكتروني");
     fireEvent.change(email, { target: { value: testAdminSession.email } });
-    fillPin("123456");
+    signIn("Cyag@2026");
 
     await vi.waitFor(() => expect(localStorage.getItem("mezan.tenantCodeByEmail")).not.toBeNull());
     const map = JSON.parse(localStorage.getItem("mezan.tenantCodeByEmail")!);
@@ -927,7 +961,7 @@ describe("LoginScreen — SaaS company code", () => {
     );
     await vi.waitFor(() => expect(screen.queryByText("جارٍ التحقق من المنشأة…")).not.toBeInTheDocument());
     expect(screen.queryByText("تعذّر الوصول إلى الخادم")).not.toBeInTheDocument();
-    fillPin("123456");
+    signIn("Cyag@2026");
     fireEvent.click(screen.getByRole("button", { name: "دخول" }));
     await vi.waitFor(() => expect(screen.getByTestId("session")).toHaveTextContent(testAdminSession.nameAr));
   });
@@ -943,7 +977,7 @@ describe("LoginScreen — SaaS company code", () => {
       </>,
       { transport },
     );
-    fillPin("123456");
+    signIn("Cyag@2026");
     fireEvent.click(screen.getByRole("button", { name: "دخول" }));
     await vi.waitFor(() => expect(screen.getByTestId("session")).toHaveTextContent(testAdminSession.nameAr));
   });
@@ -994,7 +1028,7 @@ describe("LoginScreen — SaaS company code", () => {
 
       await vi.waitFor(() => expect(state.lookups).toBeGreaterThan(0));
       await vi.waitFor(() => expect(screen.queryByText("جارٍ التحقق من المنشأة…")).not.toBeInTheDocument());
-      expect(screen.getByLabelText("رمز PIN رقم 1")).toBeEnabled();
+      expect(passwordField()).toBeEnabled();
       expect(screen.queryByRole("textbox", { name: "رمز المنشأة" })).not.toBeInTheDocument();
     });
 
@@ -1011,7 +1045,7 @@ describe("LoginScreen — SaaS company code", () => {
 
       await vi.waitFor(() => expect(again.state.lookups).toBeGreaterThan(0));
       await vi.waitFor(() => expect(screen.queryByText("جارٍ التحقق من المنشأة…")).not.toBeInTheDocument());
-      expect(screen.getByLabelText("رمز PIN رقم 1")).toBeEnabled();
+      expect(passwordField()).toBeEnabled();
       expect(screen.queryByRole("textbox", { name: "رمز المنشأة" })).not.toBeInTheDocument();
     });
 
@@ -1024,7 +1058,7 @@ describe("LoginScreen — SaaS company code", () => {
       await act(async () => { await vi.advanceTimersByTimeAsync(PLATFORM_LOOKUP_MAX_RETRY_MS * 10); });
 
       expect(state.lookups).toBe(1);
-      expect(screen.getByLabelText("رمز PIN رقم 1")).toBeEnabled();
+      expect(passwordField()).toBeEnabled();
     });
 
     it("spreads its retries by up to a fifth either way, so a fleet of tills does not look again in the same instant", () => {
@@ -1051,7 +1085,7 @@ describe("LoginScreen — SaaS company code", () => {
       renderWithProviders(<LoginScreen onStartWizard={() => {}} />, { transport });
 
       expect(await screen.findByRole("textbox", { name: "رمز المنشأة" })).toBeInTheDocument();
-      expect(screen.getByLabelText("رمز PIN رقم 1")).toBeEnabled();
+      expect(passwordField()).toBeEnabled();
       expect(screen.queryByRole("button", { name: "إعادة المحاولة" })).not.toBeInTheDocument();
       expect(screen.queryByRole("alert")).not.toBeInTheDocument();
       expect(screen.queryByText("جارٍ التحقق من المنشأة…")).not.toBeInTheDocument();
@@ -1068,7 +1102,7 @@ describe("LoginScreen — SaaS company code", () => {
       );
       await screen.findByRole("textbox", { name: "رمز المنشأة" });
 
-      fillPin("123456");
+      signIn("Cyag@2026");
 
       await vi.waitFor(() => expect(screen.getByTestId("session")).toHaveTextContent(testAdminSession.nameAr));
       expect(state.requests.filter((path) => !path.startsWith("/platform/resolve") && path !== "/auth/login")).toEqual([]);
@@ -1088,7 +1122,7 @@ describe("LoginScreen — SaaS company code", () => {
       fireEvent.blur(code);
       expect(screen.queryByText("تعذّر التأكد من رمز المنشأة الآن. سنحاول تسجيل الدخول به كما هو.")).not.toBeInTheDocument();
 
-      fillPin("123456");
+      signIn("Cyag@2026");
 
       expect(await screen.findByText("تعذّر التأكد من رمز المنشأة الآن. سنحاول تسجيل الدخول به كما هو.")).toHaveAttribute("role", "status");
       await vi.waitFor(() => expect(screen.getByTestId("session")).toHaveTextContent(testAdminSession.nameAr));
@@ -1152,7 +1186,7 @@ describe("LoginScreen — SaaS company code", () => {
       renderWithProviders(<LoginScreen onStartWizard={() => {}} />, { transport });
 
       expect(await screen.findByText(body.message)).toHaveAttribute("role", "status");
-      expect(screen.getByLabelText("رمز PIN رقم 1")).toBeEnabled();
+      expect(passwordField()).toBeEnabled();
       expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     });
   });
@@ -1165,7 +1199,7 @@ describe("LoginScreen — SaaS company code", () => {
       </>,
       { transport: stubTransport({ ...preAuth, "POST /auth/login": () => ({ body: testAdminSession }) }) },
     );
-    fillPin("123456");
+    signIn("Cyag@2026");
     fireEvent.click(screen.getByRole("button", { name: "دخول" }));
     await vi.waitFor(() => expect(screen.getByTestId("session")).toHaveTextContent(testAdminSession.nameAr));
   });
@@ -1181,5 +1215,84 @@ describe("LoginScreen — SaaS company code", () => {
     await vi.waitFor(() => expect(screen.queryByText("Checking your company…")).not.toBeInTheDocument());
     expect(screen.queryByText("Cyag")).not.toBeInTheDocument();
     expect(screen.queryByText("سياج")).not.toBeInTheDocument();
+  });
+});
+
+describe("LoginScreen — the cloud card and a forgotten password", () => {
+  const desktop = globalThis as { mezan?: unknown };
+  beforeEach(() => {
+    localStorage.clear();
+    sessionStorage.clear();
+  });
+  afterEach(() => {
+    delete desktop.mezan;
+  });
+
+  it("on the cloud, links the logo back to the site, offers the language toggle, and shows no branch hint or version", () => {
+    renderWithProviders(<LoginScreen onStartWizard={() => {}} />, { transport: okTransport() });
+    expect(screen.getByRole("link", { name: /ميزان/ })).toHaveAttribute("href", "/");
+    expect(screen.getByRole("button", { name: "English" })).toBeInTheDocument();
+    expect(screen.queryByText("الفرع الرئيسي")).not.toBeInTheDocument();
+    expect(screen.queryByText(/^Mezan (?!·)/)).not.toBeInTheDocument();
+  });
+
+  it("on a desktop host, keeps the branch hint and the version on the card", () => {
+    desktop.mezan = { licence: { status: async () => ({}) } };
+    renderWithProviders(<LoginScreen onStartWizard={() => {}} />, { transport: okTransport() });
+    expect(screen.getByText("الفرع الرئيسي")).toBeInTheDocument();
+    expect(screen.getByText(/^Mezan (?!·)/)).toBeInTheDocument();
+  });
+
+  it("sends the typed email to /auth/forgot-password and answers with the same neutral sentence whether or not it exists", async () => {
+    const asked: unknown[] = [];
+    const transport = stubTransport({
+      ...preAuth,
+      "POST /auth/forgot-password": (init) => {
+        asked.push(JSON.parse((init?.body as string) ?? "{}"));
+        return { status: 202, body: { ok: true } };
+      },
+    });
+    renderWithProviders(<LoginScreen onStartWizard={() => {}} />, { transport });
+    fireEvent.change(screen.getByLabelText("البريد الإلكتروني"), { target: { value: TYPED_EMAIL } });
+    fireEvent.click(screen.getByRole("button", { name: "نسيت كلمة المرور؟" }));
+
+    expect(screen.getByLabelText("البريد الإلكتروني")).toHaveValue(TYPED_EMAIL);
+    fireEvent.click(screen.getByRole("button", { name: "إرسال الرابط" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent("إن كان هذا البريد مسجّلًا، ستصلك رسالة فيها رابط لتعيين كلمة مرور جديدة.");
+    expect(asked).toEqual([{ username: TYPED_EMAIL }]);
+    fireEvent.click(screen.getByRole("button", { name: "العودة إلى تسجيل الدخول" }));
+    expect(screen.getByRole("button", { name: "دخول" })).toBeInTheDocument();
+  });
+
+  it("shows the server's throttle message when forgot-password is refused", async () => {
+    const transport = stubTransport({
+      ...preAuth,
+      "POST /auth/forgot-password": () => ({ status: 429, body: { error: "TOO_MANY_REQUESTS", message: "طلبات كثيرة. انتظر قليلاً." }, retryAfterSeconds: 60 }),
+    });
+    renderWithProviders(<LoginScreen onStartWizard={() => {}} />, { transport });
+    fireEvent.click(screen.getByRole("button", { name: "نسيت كلمة المرور؟" }));
+    fireEvent.change(screen.getByLabelText("البريد الإلكتروني"), { target: { value: TYPED_EMAIL } });
+    fireEvent.click(screen.getByRole("button", { name: "إرسال الرابط" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("طلبات كثيرة. انتظر قليلاً.");
+  });
+
+  it("on a desktop host, which sends no mail, points to the administrator instead of offering the form", () => {
+    desktop.mezan = { licence: { status: async () => ({}) } };
+    const asked: string[] = [];
+    const base = okTransport();
+    renderWithProviders(<LoginScreen onStartWizard={() => {}} />, { transport: (path, init) => (asked.push(path), base(path, init)) });
+    fireEvent.click(screen.getByRole("button", { name: "نسيت كلمة المرور؟" }));
+    expect(screen.getByText("اطلب من مدير النظام إعادة تعيين كلمة المرور.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "إرسال الرابط" })).not.toBeInTheDocument();
+    expect(asked).not.toContain("/auth/forgot-password");
+  });
+
+  it("asks a remembered face for that person's own password", () => {
+    rememberDeviceUser(testAdminSession);
+    rememberDeviceUser({ ...testAdminSession, userId: "USER-2", nameAr: "سارة حسن", email: "sara@cyag.example" });
+    renderWithProviders(<LoginScreen onStartWizard={() => {}} />, { transport: okTransport() });
+    fireEvent.click(screen.getByRole("radio", { name: "اختر محمد الشهابي" }));
+    expect(screen.getByLabelText("كلمة المرور لـ محمد الشهابي")).toHaveValue("");
   });
 });

@@ -524,18 +524,18 @@ describe("TenantDetailPage", () => {
     const transport = stubPlatformTransport({
       "GET /tenants/tenant-1": () => ({ body: makeSummary({ ownerContactVerified: false }) }),
       "GET /plans": () => ({ body: [plan, plan2] }),
-      "POST /tenants/tenant-1/owner-pin/reset": () => ({
-        body: { adminEmail: "owner@acme.test", signInEmail: "inbox@elsewhere.test", adminPin: "305917" },
+      "POST /tenants/tenant-1/owner-password/reset": () => ({
+        body: { adminEmail: "owner@acme.test", signInEmail: "inbox@elsewhere.test", adminPassword: "Tmp-3059-17ab" },
       }),
     });
     renderDetail({ transport, session: testPlatformSession });
 
     expect(await screen.findByText("بريد المالك غير مؤكَّد")).toBeInTheDocument();
     expect(screen.getByText(/بريد دخول حساب المالك يختلف عن البريد المسجَّل هنا/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "إعادة تعيين رمز المالك" }));
-    fireEvent.click(within(await screen.findByRole("dialog", { name: "إعادة تعيين رمز المالك؟" })).getByRole("button", { name: "إعادة التعيين" }));
+    fireEvent.click(screen.getByRole("button", { name: "إعادة تعيين كلمة مرور المالك" }));
+    fireEvent.click(within(await screen.findByRole("dialog", { name: "إعادة تعيين كلمة مرور المالك؟" })).getByRole("button", { name: "إعادة التعيين" }));
 
-    expect(await screen.findByText("305917")).toBeInTheDocument();
+    expect(await screen.findByText("Tmp-3059-17ab")).toBeInTheDocument();
     expect(screen.getByText("بريد الدخول الحالي للمالك")).toBeInTheDocument();
     expect(screen.getByText("inbox@elsewhere.test")).toBeInTheDocument();
   });
@@ -544,49 +544,49 @@ describe("TenantDetailPage", () => {
     const transport = stubPlatformTransport({
       "GET /tenants/tenant-1": () => ({ body: makeSummary() }),
       "GET /plans": () => ({ body: [plan, plan2] }),
-      "POST /tenants/tenant-1/owner-pin/reset": () => ({ body: { adminEmail: "owner@acme.test", signInEmail: "owner@acme.test", adminPin: "305917" } }),
+      "POST /tenants/tenant-1/owner-password/reset": () => ({ body: { adminEmail: "owner@acme.test", signInEmail: "owner@acme.test", adminPassword: "Tmp-3059-17ab" } }),
     });
     renderDetail({ transport, session: testPlatformSession });
 
-    fireEvent.click(await screen.findByRole("button", { name: "إعادة تعيين رمز المالك" }));
-    fireEvent.click(within(await screen.findByRole("dialog", { name: "إعادة تعيين رمز المالك؟" })).getByRole("button", { name: "إعادة التعيين" }));
+    fireEvent.click(await screen.findByRole("button", { name: "إعادة تعيين كلمة مرور المالك" }));
+    fireEvent.click(within(await screen.findByRole("dialog", { name: "إعادة تعيين كلمة مرور المالك؟" })).getByRole("button", { name: "إعادة التعيين" }));
 
-    expect(await screen.findByText("305917")).toBeInTheDocument();
+    expect(await screen.findByText("Tmp-3059-17ab")).toBeInTheDocument();
     expect(screen.queryByText("بريد المالك غير مؤكَّد")).not.toBeInTheDocument();
     expect(screen.queryByText("بريد الدخول الحالي للمالك")).not.toBeInTheDocument();
   });
 
-  it("resetting the owner's PIN asks first, then shows the new PIN once with the owner's email", async () => {
+  it("resetting the owner's password asks first, then shows the new temporary password once with the owner's email", async () => {
     let resets = 0;
     const summary = makeSummary();
     const transport = stubPlatformTransport({
       "GET /tenants/tenant-1": () => ({ body: summary }),
       "GET /plans": () => ({ body: [plan, plan2] }),
-      "POST /tenants/tenant-1/owner-pin/reset": () => {
+      "POST /tenants/tenant-1/owner-password/reset": () => {
         resets += 1;
-        return { body: { adminEmail: "owner@acme.test", signInEmail: "owner@acme.test", adminPin: "305917" } };
+        return { body: { adminEmail: "owner@acme.test", signInEmail: "owner@acme.test", adminPassword: "Tmp-3059-17ab" } };
       },
     });
     renderDetail({ transport, session: testPlatformSession });
 
-    fireEvent.click(await screen.findByRole("button", { name: "إعادة تعيين رمز المالك" }));
-    const dialog = await screen.findByRole("dialog", { name: "إعادة تعيين رمز المالك؟" });
+    fireEvent.click(await screen.findByRole("button", { name: "إعادة تعيين كلمة مرور المالك" }));
+    const dialog = await screen.findByRole("dialog", { name: "إعادة تعيين كلمة مرور المالك؟" });
     expect(resets).toBe(0);
     fireEvent.click(within(dialog).getByRole("button", { name: "رجوع" }));
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "إعادة تعيين رمز المالك؟" })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "إعادة تعيين كلمة مرور المالك؟" })).not.toBeInTheDocument());
     expect(resets).toBe(0);
-    expect(screen.queryByText("305917")).not.toBeInTheDocument();
+    expect(screen.queryByText("Tmp-3059-17ab")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "إعادة تعيين رمز المالك" }));
-    fireEvent.click(within(await screen.findByRole("dialog", { name: "إعادة تعيين رمز المالك؟" })).getByRole("button", { name: "إعادة التعيين" }));
+    fireEvent.click(screen.getByRole("button", { name: "إعادة تعيين كلمة مرور المالك" }));
+    fireEvent.click(within(await screen.findByRole("dialog", { name: "إعادة تعيين كلمة مرور المالك؟" })).getByRole("button", { name: "إعادة التعيين" }));
 
-    expect(await screen.findByText("305917")).toBeInTheDocument();
+    expect(await screen.findByText("Tmp-3059-17ab")).toBeInTheDocument();
     expect(screen.getByText("owner@acme.test")).toBeInTheDocument();
-    expect(screen.getByText(/لن يظهر .* مرة أخرى/)).toBeInTheDocument();
+    expect(screen.getByText(/لن تظهر .* مرة أخرى/)).toBeInTheDocument();
     expect(resets).toBe(1);
 
-    fireEvent.click(screen.getByRole("button", { name: "إخفاء الرمز" }));
-    await waitFor(() => expect(screen.queryByText("305917")).not.toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "إخفاء كلمة المرور" }));
+    await waitFor(() => expect(screen.queryByText("Tmp-3059-17ab")).not.toBeInTheDocument());
   });
 
   function renderConsole(transport: Transport) {
@@ -608,13 +608,13 @@ describe("TenantDetailPage", () => {
   }
 
   async function askForReset() {
-    fireEvent.click(await screen.findByRole("button", { name: "إعادة تعيين رمز المالك" }));
-    fireEvent.click(within(await screen.findByRole("dialog", { name: "إعادة تعيين رمز المالك؟" })).getByRole("button", { name: "إعادة التعيين" }));
+    fireEvent.click(await screen.findByRole("button", { name: "إعادة تعيين كلمة مرور المالك" }));
+    fireEvent.click(within(await screen.findByRole("dialog", { name: "إعادة تعيين كلمة مرور المالك؟" })).getByRole("button", { name: "إعادة التعيين" }));
   }
 
-  const LEAVE_DIALOG = "مغادرة الصفحة قبل تسليم الرمز؟";
+  const LEAVE_DIALOG = "مغادرة الصفحة قبل تسليم كلمة المرور؟";
 
-  it("still shows the new PIN when the reset answers after the operator has left the page and come back, and never on another tenant's page", async () => {
+  it("still shows the new temporary password when the reset answers after the operator has left the page and come back, and never on another tenant's page", async () => {
     let answer: (response: TransportResponse) => void = () => undefined;
     const base = stubPlatformTransport({
       "GET /tenants/tenant-1": () => ({ body: makeSummary() }),
@@ -622,7 +622,7 @@ describe("TenantDetailPage", () => {
       "GET /plans": () => ({ body: [plan, plan2] }),
     });
     const transport: Transport = (path, init) =>
-      path === "/tenants/tenant-1/owner-pin/reset" ? new Promise<TransportResponse>((resolve) => (answer = resolve)) : base(path, init);
+      path === "/tenants/tenant-1/owner-password/reset" ? new Promise<TransportResponse>((resolve) => (answer = resolve)) : base(path, init);
     renderConsole(transport);
     await askForReset();
 
@@ -632,68 +632,68 @@ describe("TenantDetailPage", () => {
     fireEvent.click(within(leaving).getByRole("button", { name: "غادر على أي حال" }));
     await screen.findByRole("navigation", { name: "قائمة الاختبار" });
 
-    const body = { adminEmail: "owner@acme.test", signInEmail: "owner@acme.test", adminPin: "305917" };
+    const body = { adminEmail: "owner@acme.test", signInEmail: "owner@acme.test", adminPassword: "Tmp-3059-17ab" };
     await act(async () => {
       answer({ status: 200, ok: true, json: <T,>() => Promise.resolve(body as T), text: () => Promise.resolve(JSON.stringify(body)) });
     });
     fireEvent.click(screen.getByRole("link", { name: "افتح أكمي" }));
 
-    expect(await screen.findByText("305917")).toBeInTheDocument();
+    expect(await screen.findByText("Tmp-3059-17ab")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("link", { name: /المنشآت/ }));
     fireEvent.click(within(await screen.findByRole("dialog", { name: LEAVE_DIALOG })).getByRole("button", { name: "غادر على أي حال" }));
     fireEvent.click(await screen.findByRole("link", { name: "افتح الثانية" }));
     await screen.findByRole("heading", { name: "منشأة ثانية", level: 1 });
-    expect(screen.queryByText("305917")).not.toBeInTheDocument();
-    expect(screen.queryByText(/لن يظهر .* مرة أخرى/)).not.toBeInTheDocument();
+    expect(screen.queryByText("Tmp-3059-17ab")).not.toBeInTheDocument();
+    expect(screen.queryByText(/لن تظهر .* مرة أخرى/)).not.toBeInTheDocument();
   });
 
-  it("asks before leaving while the new PIN has not been acknowledged, keeps it on staying, and lets go once it is hidden", async () => {
+  it("asks before leaving while the new temporary password has not been acknowledged, keeps it on staying, and lets go once it is hidden", async () => {
     const transport = stubPlatformTransport({
       "GET /tenants/tenant-1": () => ({ body: makeSummary() }),
       "GET /plans": () => ({ body: [plan, plan2] }),
-      "POST /tenants/tenant-1/owner-pin/reset": () => ({ body: { adminEmail: "owner@acme.test", signInEmail: "owner@acme.test", adminPin: "305917" } }),
+      "POST /tenants/tenant-1/owner-password/reset": () => ({ body: { adminEmail: "owner@acme.test", signInEmail: "owner@acme.test", adminPassword: "Tmp-3059-17ab" } }),
     });
     renderConsole(transport);
     await askForReset();
-    await screen.findByText("305917");
+    await screen.findByText("Tmp-3059-17ab");
 
     fireEvent.click(screen.getByRole("link", { name: /المنشآت/ }));
     fireEvent.click(within(await screen.findByRole("dialog", { name: LEAVE_DIALOG })).getByRole("button", { name: "ابقَ في الصفحة" }));
 
     await waitFor(() => expect(screen.queryByRole("dialog", { name: LEAVE_DIALOG })).not.toBeInTheDocument());
-    expect(screen.getByText("305917")).toBeInTheDocument();
+    expect(screen.getByText("Tmp-3059-17ab")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "إخفاء الرمز" }));
-    await waitFor(() => expect(screen.queryByText("305917")).not.toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "إخفاء كلمة المرور" }));
+    await waitFor(() => expect(screen.queryByText("Tmp-3059-17ab")).not.toBeInTheDocument());
     fireEvent.click(screen.getByRole("link", { name: /المنشآت/ }));
 
     await screen.findByRole("navigation", { name: "قائمة الاختبار" });
     expect(screen.queryByRole("dialog", { name: LEAVE_DIALOG })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("link", { name: "افتح أكمي" }));
     await screen.findByRole("heading", { name: "شركة أكمي", level: 1 });
-    expect(screen.queryByText("305917")).not.toBeInTheDocument();
+    expect(screen.queryByText("Tmp-3059-17ab")).not.toBeInTheDocument();
   });
 
-  it("shows the server's refusal when the owner's PIN cannot be reset, and no PIN", async () => {
+  it("shows the server's refusal when the owner's password cannot be reset, and no password", async () => {
     const summary = makeSummary();
     const transport = stubPlatformTransport({
       "GET /tenants/tenant-1": () => ({ body: summary }),
       "GET /plans": () => ({ body: [plan, plan2] }),
-      "POST /tenants/tenant-1/owner-pin/reset": () => ({
+      "POST /tenants/tenant-1/owner-password/reset": () => ({
         status: 409,
         body: { error: "TENANT_OWNER_ACCOUNT_NOT_FOUND", message: "لا يوجد في المنشأة حساب مدير نشط ببريد مالكها." },
       }),
     });
     renderDetail({ transport, session: testPlatformSession });
 
-    fireEvent.click(await screen.findByRole("button", { name: "إعادة تعيين رمز المالك" }));
-    fireEvent.click(within(await screen.findByRole("dialog", { name: "إعادة تعيين رمز المالك؟" })).getByRole("button", { name: "إعادة التعيين" }));
+    fireEvent.click(await screen.findByRole("button", { name: "إعادة تعيين كلمة مرور المالك" }));
+    fireEvent.click(within(await screen.findByRole("dialog", { name: "إعادة تعيين كلمة مرور المالك؟" })).getByRole("button", { name: "إعادة التعيين" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("لا يوجد في المنشأة حساب مدير نشط ببريد مالكها.");
   });
 
-  it("does not offer the PIN reset to a support operator", async () => {
+  it("does not offer the password reset to a support operator", async () => {
     const transport = stubPlatformTransport({
       "GET /tenants/tenant-1": () => ({ body: makeSummary() }),
       "GET /plans": () => ({ body: [plan, plan2] }),
@@ -701,7 +701,7 @@ describe("TenantDetailPage", () => {
     renderDetail({ transport, session: supportSession });
 
     await screen.findByText("باقة النمو — growth");
-    expect(screen.queryByRole("button", { name: "إعادة تعيين رمز المالك" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "إعادة تعيين كلمة مرور المالك" })).not.toBeInTheDocument();
   });
 
   it("archiving asks for confirmation, and confirming posts the archive", async () => {
@@ -1610,7 +1610,7 @@ describe("TenantDetailPage", () => {
       renderDetail({ transport, session: testPlatformSession });
 
       expect(
-        await screen.findByText("بريد دخول حساب المالك يختلف عن البريد المسجَّل هنا، ولم يثبت بعد أن المالك نفسه هو من غيّره. يبقى البريد المسجَّل كما هو حتى يسجّل المالك دخوله برمزه الخاص، أو تؤكّد أنت مالك المنشأة من هنا."),
+        await screen.findByText("بريد دخول حساب المالك يختلف عن البريد المسجَّل هنا، ولم يثبت بعد أن المالك نفسه هو من غيّره. يبقى البريد المسجَّل كما هو حتى يسجّل المالك دخوله بكلمة مروره، أو تؤكّد أنت مالك المنشأة من هنا."),
       ).toBeInTheDocument();
     });
   });
@@ -1723,15 +1723,15 @@ describe("TenantDetailPage", () => {
       expect(screen.queryByText(/دفاتر/)).not.toBeInTheDocument();
     });
 
-    const REASON = "دفاتر هذه المنشأة لا تُفتح الآن، فلا يُعيَّن لها مالك ولا يُعاد تعيين رمزه حتى تعود دفاترها إلى مكانها.";
+    const REASON = "دفاتر هذه المنشأة لا تُفتح الآن، فلا يُعيَّن لها مالك ولا تُعاد تعيين كلمة مروره حتى تعود دفاترها إلى مكانها.";
 
     it.each([TenantBooksStanding.Disowned, TenantBooksStanding.Foreign, TenantBooksStanding.Missing, TenantBooksStanding.Unreadable])(
-      "does not offer to assign an owner or reset the owner's PIN while the books are %s, and says why in Arabic",
+      "does not offer to assign an owner or reset the owner's password while the books are %s, and says why in Arabic",
       async (standing) => {
         renderDetail({ transport: booksTransport(standing), session: testPlatformSession });
 
         const assign = await screen.findByRole("button", { name: "تعيين مالك" });
-        const reset = screen.getByRole("button", { name: "إعادة تعيين رمز المالك" });
+        const reset = screen.getByRole("button", { name: "إعادة تعيين كلمة مرور المالك" });
         expect(assign).toBeDisabled();
         expect(reset).toBeDisabled();
         expect(assign).toHaveAccessibleDescription(REASON);
@@ -1773,11 +1773,11 @@ describe("TenantDetailPage", () => {
       await waitFor(() => expect(lockedAsked).toEqual([TenantBooksStanding.Unbound]));
     });
 
-    it.each([TenantBooksStanding.Unbound, TenantBooksStanding.Bound])("offers to assign an owner and to reset the owner's PIN while the books are %s", async (standing) => {
+    it.each([TenantBooksStanding.Unbound, TenantBooksStanding.Bound])("offers to assign an owner and to reset the owner's password while the books are %s", async (standing) => {
       renderDetail({ transport: booksTransport(standing), session: testPlatformSession });
 
       expect(await screen.findByRole("button", { name: "تعيين مالك" })).toBeEnabled();
-      expect(screen.getByRole("button", { name: "إعادة تعيين رمز المالك" })).toBeEnabled();
+      expect(screen.getByRole("button", { name: "إعادة تعيين كلمة مرور المالك" })).toBeEnabled();
       expect(screen.queryByText(REASON)).not.toBeInTheDocument();
     });
 

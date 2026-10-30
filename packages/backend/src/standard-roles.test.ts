@@ -6,7 +6,7 @@ import { createEntitlements, getPermission, isModuleLicensed, type Entitlements 
 import { createBackend, type BackendHandle } from "./create-backend.js";
 
 const CORE = createEntitlements({ plan: "core", activeModules: ["sales", "purchases", "inventory", "accounting", "treasury"], features: {}, seats: 5, expiresAt: null });
-const OWNER = { nameAr: "صاحب المنشأة", nameEn: null, email: "owner@shop.example", pin: "246810", companyName: "متجر الاختبار" };
+const OWNER = { nameAr: "صاحب المنشأة", nameEn: null, email: "owner@shop.example", password: "pw-246810", companyName: "متجر الاختبار" };
 
 const dirs: string[] = [];
 afterAll(() => {
@@ -91,7 +91,6 @@ describe("a fresh on-premises install is given the standard roles, and nothing e
       warehouseScope: "*",
       status: "active",
       password: "Mezan-cashier-1",
-      pin: "135790",
     });
 
     expect(created.body?.error).toBeUndefined();
@@ -109,14 +108,14 @@ describe("a fresh on-premises install is given the standard roles, and nothing e
 
     licence = CORE;
     const second = await open(dbPath, () => licence);
-    const signedIn = (await call(second, "POST", "/auth/login", undefined, { username: OWNER.email, pin: OWNER.pin })).body.token as string;
+    const signedIn = (await call(second, "POST", "/auth/login", undefined, { username: OWNER.email, password: OWNER.password })).body.token as string;
     const offered = (await call(second, "GET", "/roles", signedIn)).body as { id: string; isSystem: boolean }[];
     expect(offered.length).toBeGreaterThan(5);
     for (const role of offered.filter((entry) => !entry.isSystem)) expect((await call(second, "DELETE", `/roles/${role.id}`, signedIn)).status).toBeLessThan(300);
     second.close();
 
     const third = await open(dbPath, () => licence);
-    const again = (await call(third, "POST", "/auth/login", undefined, { username: OWNER.email, pin: OWNER.pin })).body.token as string;
+    const again = (await call(third, "POST", "/auth/login", undefined, { username: OWNER.email, password: OWNER.password })).body.token as string;
     expect(((await call(third, "GET", "/roles", again)).body as unknown[]).length).toBe(1);
     third.close();
   }, 120_000);

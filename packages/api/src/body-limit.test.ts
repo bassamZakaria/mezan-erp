@@ -27,7 +27,7 @@ describe("how large a body each route may send", () => {
     },
   );
 
-  it.each(["/users", "/users/u-1", "/profile", "/profile/change-pin", "/settings", "/pos/settings", "/label-layouts", "/print-templates", "/print-templates/sales_invoice", "/sales-invoices", "/vouchers"])(
+  it.each(["/users", "/users/u-1", "/profile", "/profile/change-password", "/settings", "/pos/settings", "/label-layouts", "/print-templates", "/print-templates/sales_invoice", "/sales-invoices", "/vouchers"])(
     "holds a signed-in caller to a document's size on %s",
     (path) => {
       expect(bodyLimitFor(path, true)).toBe(BodyLimitBytes.Document);

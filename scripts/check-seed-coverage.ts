@@ -1,5 +1,5 @@
 import { createBackend } from "../packages/backend/src/create-backend.js";
-import { SEED_ADMIN_EMAIL, SEED_ADMIN_PIN } from "../packages/backend/src/seed.js";
+import { SEED_ADMIN_EMAIL, SEED_ADMIN_PASSWORD } from "../packages/backend/src/seed.js";
 import { createEntitlements, MODULE_CATALOG } from "../packages/domain/src/index.js";
 import { openSqliteConnection } from "../packages/persistence/src/index.js";
 import { danglingSeedReferences } from "./seed-reference-guard.js";
@@ -33,7 +33,7 @@ async function signIn(app: { fetch: (r: Request) => Promise<Response> }): Promis
     new Request("http://coverage/auth/login", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ username: SEED_ADMIN_EMAIL, pin: SEED_ADMIN_PIN }),
+      body: JSON.stringify({ username: SEED_ADMIN_EMAIL, password: SEED_ADMIN_PASSWORD }),
     }),
   );
   if (!res.ok) throw new Error(`coverage could not sign in: ${res.status} ${(await res.text()).slice(0, 200)}`);

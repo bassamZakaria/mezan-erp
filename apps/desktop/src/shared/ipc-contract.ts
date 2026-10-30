@@ -163,8 +163,8 @@ export type BackupFailureCode =
   | "CANCELLED"
   | "BUSY"
   | "WEAK_PASSPHRASE"
-  | "WRONG_PIN"
-  | "PIN_REQUIRED"
+  | "WRONG_PASSWORD"
+  | "PASSWORD_REQUIRED"
   | "KEY_CARD_NOT_SAVED"
   | "FAILED";
 
@@ -307,8 +307,8 @@ export interface BackupRecoverySetRequest {
   readonly mode: RecoveryMode;
   /** Required for `RecoveryMode.Passphrase`; the key card's secret is supplied by the main process. */
   readonly passphrase?: string;
-  /** The signed-in user's current PIN. Required once a recovery secret exists. */
-  readonly pin?: string;
+  /** The signed-in user's current password. Required once a recovery secret exists. */
+  readonly password?: string;
 }
 
 export type BackupRecoveryResult = { readonly ok: true; readonly recovery: RecoveryStatusDTO } | BackupFailure;
@@ -458,7 +458,7 @@ export interface LanAddressDTO {
    * unknown instead.
    *
    * `https`, not `http`: the socket serves TLS only (main/lan-tls.ts), because
-   * plain HTTP put every till's PIN and its 12-hour bearer token on the shop
+   * plain HTTP put every till's password and its 12-hour bearer token on the shop
    * wifi in clear text.
    */
   readonly url: string | null;

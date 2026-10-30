@@ -113,7 +113,7 @@ export function createHttpTransport(baseUrl = "/api"): Transport {
  * What that looked like: sign in, get a 200 and a valid token, and then watch
  * every single request come back 401 — which the renderer reads as an expired
  * session, so it clears it and bounces straight back to the login screen with
- * «انتهت الجلسة». The PIN was never the problem, and no amount of retyping it
+ * «انتهت الجلسة». The password was never the problem, and no amount of retyping it
  * could have been.
  */
 function plainHeaders(headers: HeadersInit | undefined): Record<string, string> | undefined {

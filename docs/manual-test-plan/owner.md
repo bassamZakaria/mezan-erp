@@ -10,9 +10,9 @@ repository as of this pass; file references are given so a scenario can be
 re-verified against the code, not just the running app. Screens/journeys with
 no backing route are listed in **Gaps**, not written as scenarios.
 
-**Standard login**: محمد الشهابي (company admin, `isCompanyAdmin`), PIN
-`123456` (`packages/backend/src/seed.ts:38-41`). Staff accounts share PIN
-`123456` (`packages/backend/src/demo-seed/access.ts:537`); relevant ones are
+**Standard login**: محمد الشهابي (company admin, `isCompanyAdmin`), password
+`Cyag@2026` (`packages/backend/src/seed.ts`). Staff accounts share password
+`Cyag@2026` (`packages/backend/src/demo-seed/access.ts:537`); relevant ones are
 named per scenario. All scenarios assume `MEZAN_SEED_DEMO=1` on a **fresh**
 database unless noted — a previous run's postings change every figure below.
 
@@ -27,15 +27,15 @@ database unless noted — a previous run's postings change every figure below.
   1. Open the app.
   2. Read the login screen top to bottom.
 - **Expected:** the login screen shows the brand mark, the RTL prompt «مَن يعمل الآن؟», an «آخر» option to type a different account, and a copyright line (`apps/web/src/login/LoginScreen.tsx`, `Copyright` from `@mezan/ui`). Arabic renders right-to-left with no mirrored digits or clipped glyphs.
-- **False pass:** the screen "looks fine" in a screenshot but the RTL PIN boxes actually fill left-to-right — check digit order lands in the boxes in reading order, not just that six boxes exist.
+- **False pass:** the screen "looks fine" in a screenshot but the password field renders its caret on the wrong side in RTL — check typing starts at the right edge of the field and the Latin password stays readable.
 
 ### MTP-OWN-02 — Owner signs in
 - **Persona / permission:** owner
 - **Preconditions:** seeded demo tenant
 - **Steps:**
   1. Choose «آخر» (or the remembered face if already listed) and enter email `admin@cyag.example`.
-  2. Type PIN `123456` into the six boxes.
-- **Expected:** the PIN auto-submits on the sixth digit (`LoginScreen.tsx` docblock) and lands on `/dashboard` (`apps/web/src/router/routes.tsx` — index redirects to `/dashboard`). The greeting reads «مرحباً، محمد · طاب يومك» (first name only, `dashboard.greeting`, `DashboardScreen.tsx:120,305`).
+  2. Type password `Cyag@2026` into «كلمة المرور» and press Enter.
+- **Expected:** Enter submits the form and the sign-in lands on `/dashboard` (`apps/web/src/router/routes.tsx` — index redirects to `/dashboard`). The greeting reads «مرحباً، محمد · طاب يومك» (first name only, `dashboard.greeting`, `DashboardScreen.tsx:120,305`).
 - **False pass:** login "succeeds" but the dashboard silently shows an error card instead of figures (see MTP-OWN-39) — a green login does not mean a working home screen.
 
 ### MTP-OWN-03 — Ten-second read: does the front page answer the four questions
@@ -316,7 +316,7 @@ database unless noted — a previous run's postings change every figure below.
 ## Part 7 — Control: who did what, and can staff be stopped
 
 ### MTP-OWN-34 — Cost price hidden on an invoice, but NOT on the item screen
-- **Persona / permission:** سيد جمال (أمين مخزن / WAREHOUSE_KEEPER — permissions `inventory.item.view`, `inventory.stock.view`, no `sales.*` at all), PIN `123456`
+- **Persona / permission:** سيد جمال (أمين مخزن / WAREHOUSE_KEEPER — permissions `inventory.item.view`, `inventory.stock.view`, no `sales.*` at all), password `Cyag@2026`
 - **Preconditions:** seeded tenant, at least one item with a non-zero cost price
 - **Steps:**
   1. Sign in as سيد جمال.
@@ -324,7 +324,7 @@ database unless noted — a previous run's postings change every figure below.
 - **Expected/False pass:** it is fully visible. `sales.invoice.view_cost` only gates the unit-cost FIELD on a sales invoice line (field omitted, not nulled, when absent — `packages/api/src/sales-invoices-routes.ts:264,349,639`); `GET /items` returns `costPrice` unconditionally to anyone who can open the list at all (`packages/api/src/items-routes.ts:43`), and `ItemsScreen.tsx` renders it with no permission check anywhere in the file. An owner who believes "staff can't see cost" because invoices hide it is wrong the moment that same staff member has any items-viewing role — this is a real, exploitable control gap, not a missing test.
 
 ### MTP-OWN-35 — Cost price DOES hide on a sales invoice for a rep without `view_cost`
-- **Persona / permission:** كريم فؤاد (مندوب مبيعات / SALES_REP — has `sales.invoice.view_own`, `sales.invoice.create`, no `view_cost`), PIN `123456`
+- **Persona / permission:** كريم فؤاد (مندوب مبيعات / SALES_REP — has `sales.invoice.view_own`, `sales.invoice.create`, no `view_cost`), password `Cyag@2026`
 - **Preconditions:** an invoice كريم created or can view
 - **Steps:** open one of his own invoices, look for a cost/margin column.
 - **Expected:** the cost field is absent from the line data entirely (not shown as blank/zero) — contrast with MTP-OWN-34 where the same fact leaks through a different screen.
@@ -356,7 +356,7 @@ database unless noted — a previous run's postings change every figure below.
 - **False pass:** seeing SOME rows and assuming today's actions are among them without actually locating the two specific events just performed — a log that is populated but stale looks identical to a working one at a glance.
 
 ### MTP-OWN-39 — A role without dashboard access lands where, exactly
-- **Persona / permission:** كريم فؤاد (SALES_REP — permission list: `dashboard.view`, `sales.quote.view_own`, `sales.quote.create`, `sales.invoice.view_own`, `sales.invoice.create`, `sales.customer.view`, `inventory.stock.view`; note NO `accounting.journal.view`), PIN `123456`
+- **Persona / permission:** كريم فؤاد (SALES_REP — permission list: `dashboard.view`, `sales.quote.view_own`, `sales.quote.create`, `sales.invoice.view_own`, `sales.invoice.create`, `sales.customer.view`, `inventory.stock.view`; note NO `accounting.journal.view`), password `Cyag@2026`
 - **Preconditions:** seeded tenant
 - **Steps:** sign in as كريم فؤاد; observe what happens on the forced `/dashboard` landing.
 - **Expected/False pass:** `GET /dashboard/summary` is gated on `accounting.journal.view` (`packages/backend/src/dashboard-routes.ts:95`), which SALES_REP does not hold — `dashboard.view` is a DIFFERENT permission string that this route never checks. Since every login is redirected to `/dashboard` (`routes.tsx` index route), a sales rep should hit the dashboard's own error card («تعذّر تحميل...» + «إعادة المحاولة», `DashboardScreen.tsx:330-337`) as their first screen after login, not a working home page. Confirm this is really what happens — a "successful login into a screen showing only an error card" is easy to mistake for a working app if the reviewer doesn't read the panel text.

@@ -337,7 +337,7 @@ export function createSignupRoutes(options: SignupRoutesOptions): Hono {
   }
 
   function alreadyVerifiedAnswer(tenant: Tenant, request: SignupRequest): VerifySignupResultDTO {
-    return { tenant: tenantDTOOf(tenant), adminEmail: request.ownerEmail, adminPin: null, alreadyVerified: true };
+    return { tenant: tenantDTOOf(tenant), adminEmail: request.ownerEmail, adminPassword: null, alreadyVerified: true };
   }
 
   async function settleVerification(request: SignupRequest, stillOurs: () => Promise<boolean>, fence: number): Promise<VerifySignupResultDTO> {
@@ -360,7 +360,7 @@ export function createSignupRoutes(options: SignupRoutesOptions): Hono {
         { platform, router, now, stillOurs, fence },
       );
       router.invalidate(provisioned.tenant.code);
-      return { ...provisionResultDTOOf(provisioned), alreadyVerified: provisioned.adminPin === null };
+      return { ...provisionResultDTOOf(provisioned), alreadyVerified: provisioned.adminPassword === null };
     } catch (err) {
       if (err instanceof ProvisioningSupersededError) throw err;
       const settledMeanwhile = await tenantSettledBy(request).catch(() => null);

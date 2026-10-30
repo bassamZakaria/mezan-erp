@@ -193,7 +193,7 @@ function ApprovePanel({ request, onClose }: { request: SignupRequestDTO | null; 
   const [result, setResult] = useState<ProvisionResultDTO | null>(null);
 
   function close() {
-    // The one-time PIN arrives only in the answer to this request; closing now would drop it on the floor.
+    // The one-time password arrives only in the answer to this request; closing now would drop it on the floor.
     if (approve.isPending) return;
     setPlanId(null);
     setBillingCycle(null);

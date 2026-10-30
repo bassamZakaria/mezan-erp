@@ -15,7 +15,6 @@ const baseProfile: ProfileDTO = {
   phone: null,
   isCompanyAdmin: true,
   roleId: null,
-  hasPin: true,
   photoUrl: null,
   lastLoginAt: "2026-03-01T08:00:00.000Z",
   createdAt: "2025-01-01T00:00:00.000Z",
@@ -39,7 +38,6 @@ function renderPage(overrides: Partial<ProfileDTO> = {}) {
       }
       return { body: {} };
     },
-    "POST /profile/change-pin": () => ({ body: {} }),
   });
   const result = renderWithProviders(<ProfilePage />, { transport, initialSession: testAdminSession });
   return { ...result, getSeenBody: () => seenBody };
@@ -115,10 +113,7 @@ describe("ProfilePage — security tab", () => {
     await screen.findByRole("heading", { name: "محمد الشهابي" });
     fireEvent.click(screen.getByRole("tab", { name: "الأمان" }));
 
-    // TextField's label isn't programmatically associated with its input, so
-    // the password section's three fields are addressed by position: current,
-    // new, confirm (the PIN section's own two fields follow after).
-    const [current, next, confirm] = screen.getAllByRole("textbox");
+    const [current, next, confirm] = Array.from(document.querySelectorAll<HTMLInputElement>('input[type="password"]'));
     fireEvent.change(current!, { target: { value: "correct-pass" } });
     fireEvent.change(next!, { target: { value: "new-strong-pass" } });
     fireEvent.change(confirm!, { target: { value: "new-strong-pass" } });
@@ -141,7 +136,7 @@ describe("ProfilePage — security tab", () => {
     await screen.findByRole("heading", { name: "محمد الشهابي" });
     fireEvent.click(screen.getByRole("tab", { name: "الأمان" }));
 
-    const [current1, next1, confirm1] = screen.getAllByRole("textbox");
+    const [current1, next1, confirm1] = Array.from(document.querySelectorAll<HTMLInputElement>('input[type="password"]'));
     fireEvent.change(current1!, { target: { value: "x" } });
     fireEvent.change(next1!, { target: { value: "aaaaaaaa" } });
     fireEvent.change(confirm1!, { target: { value: "bbbbbbbb" } });
@@ -156,7 +151,7 @@ describe("ProfilePage — security tab", () => {
     await screen.findByRole("heading", { name: "محمد الشهابي" });
     fireEvent.click(screen.getByRole("tab", { name: "الأمان" }));
 
-    const [current2, next2, confirm2] = screen.getAllByRole("textbox");
+    const [current2, next2, confirm2] = Array.from(document.querySelectorAll<HTMLInputElement>('input[type="password"]'));
     fireEvent.change(current2!, { target: { value: "wrong" } });
     fireEvent.change(next2!, { target: { value: "aaaaaaaa" } });
     fireEvent.change(confirm2!, { target: { value: "aaaaaaaa" } });

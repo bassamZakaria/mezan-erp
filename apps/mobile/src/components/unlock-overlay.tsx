@@ -20,7 +20,7 @@ export function UnlockOverlay() {
   const confirm = useCallback(async () => {
     setBusy(true);
     setFailed(false);
-    const confirmed = await unlock(strings.signIn.unlockPrompt, strings.signIn.unlockWithPin);
+    const confirmed = await unlock(strings.signIn.unlockPrompt, strings.signIn.unlockWithPassword);
     setBusy(false);
     if (!confirmed) setFailed(true);
   }, [strings, unlock]);
@@ -47,7 +47,7 @@ export function UnlockOverlay() {
       />
       <Button
         disabled={busy}
-        label={strings.signIn.unlockWithPin}
+        label={strings.signIn.unlockWithPassword}
         onPress={() => {
           void signOut().then(() => router.replace("/sign-in"));
         }}

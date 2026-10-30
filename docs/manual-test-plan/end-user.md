@@ -6,7 +6,7 @@ scenario below is grounded in code actually present under `apps/web/src` and
 `packages/{api,domain,backend}/src` — file:line references are given so a
 retest starts from the same evidence, not a re-guess.
 
-## Cast (from `packages/backend/src/demo-seed/access.ts`, PIN `123456` for all)
+## Cast (from `packages/backend/src/demo-seed/access.ts`, password `Cyag@2026` for all)
 
 | Person | Login | Role | Why this test plan uses them |
 |---|---|---|---|
@@ -25,17 +25,17 @@ Arabic locale, RTL, light theme, `window.confirm/alert/prompt` un-stubbed
 
 ---
 
-## Login and the PIN pad
+## Login and the password field
 
 ### MTP-USR-01 — First sign-in of the day, remembered face
 - **Persona / permission:** none yet — device has no remembered user
 - **Preconditions:** fresh browser profile (`localStorage` empty), seeded tenant
 - **Steps:**
-  1. Open the app. Screen shows «تسجيل الدخول» with an email field (no remembered faces yet — `apps/web/src/login/LoginScreen.tsx:47` renders the email input when `remembered.length === 0`).
+  1. Open the app. Screen shows «تسجيل الدخول» with an email field (no remembered faces yet — `apps/web/src/login/LoginScreen.tsx` renders the email input when `remembered.length === 0`).
   2. Type `admin@cyag.example` into «البريد الإلكتروني».
-  3. Click into the first of the six PIN boxes and type `1`, `2`, `3`, `4`, `5`, `6` on the keyboard, no mouse.
-- **Expected:** each digit auto-advances to the next box (`apps/web/src/login/LoginScreen.tsx:121-125`); on the 6th digit the form **auto-submits** — no click on «دخول» needed. Total input: 6 keystrokes, zero clicks after the email field.
-- **False pass:** the boxes visually fill but the request never fires — confirm a network call to `/auth/login` actually left the browser, not just that the UI looks complete.
+  3. Tab to «كلمة المرور», type `Cyag@2026`, and press Enter.
+- **Expected:** the form submits on Enter or on «دخول» and lands on the dashboard. Total input: email, Tab, password, Enter.
+- **False pass:** the form looks complete but the request never fires — confirm a network call to `/auth/login` actually left the browser.
 
 ### MTP-USR-02 — Second sign-in, face row instead of typing
 - **Persona / permission:** محمد الشهابي, having signed in once already on this device
@@ -44,29 +44,29 @@ Arabic locale, RTL, light theme, `window.confirm/alert/prompt` un-stubbed
   1. Reload the app.
   2. Observe the screen shows «مَن يعمل الآن؟» with a face chip for محمد الشهابي and an «آخر» tile — **no email field**.
   3. Click the face chip (or Tab to it and press Space/Enter — it is `role="radio"`).
-  4. Type the 6-digit PIN.
-- **Expected:** zero typing beyond the PIN. This is a genuinely fast repeat login — the common case (~60 logins/month per the code's own comment at `LoginScreen.tsx:29-34`) costs one click + 6 keystrokes.
+  4. Type the password and press Enter.
+- **Expected:** zero typing beyond the password: one click, the password, Enter.
 - **False pass:** none — this one is simply good; record it as a positive.
 
-### MTP-USR-03 — Wrong PIN
+### MTP-USR-03 — Wrong password
 - **Persona / permission:** محمد الشهابي
-- **Steps:** enter PIN `000000` (or any 6 digits that are not `123456`).
-- **Expected:** Arabic refusal «اسم المستخدم أو رمز PIN غير صحيح.» (`packages/backend/src/auth-routes.ts:92`), the PIN boxes clear, focus returns to box 1 (`LoginScreen.tsx:80-82`).
-- **False pass:** the message reads correctly but the boxes are left full of the wrong digits — re-typing over a stale digit is a documented failure mode of this same input (see MTP-USR-04); confirm the clear actually happened.
+- **Steps:** enter any password that is not `Cyag@2026`.
+- **Expected:** Arabic refusal «البريد الإلكتروني أو كلمة المرور غير صحيحة.», the password field clears and keeps focus.
+- **False pass:** the message reads correctly but the field is left holding the wrong password — confirm the clear actually happened.
 
-### MTP-USR-04 — Paste a 6-digit PIN
+### MTP-USR-04 — Show/hide and paste
 - **Persona / permission:** any
-- **Steps:** click box 1, paste (Ctrl+V) a clipboard containing `123456` as one string.
-- **Expected:** all six boxes fill left-to-right and the form auto-submits (`LoginScreen.tsx:104-126` explicitly handles the pasted-whole-string case — the code comment there documents that this used to silently lose the pasted PIN).
-- **False pass:** only the first digit lands and the rest vanish — this exact regression is called out in the source; re-verify it does not still happen after any future edit to that handler.
+- **Steps:** paste (Ctrl+V) `Cyag@2026` into the password field, press Enter.
+- **Expected:** the whole pasted string lands in the field (no per-character truncation) and the sign-in succeeds. The field is masked by default.
+- **False pass:** a trailing space or newline from the clipboard is silently kept and the sign-in fails with the wrong-password message.
 
 ### MTP-USR-05 — Deactivated account
 - **Persona / permission:** هالة مصطفى (`hala.mostafa@cyag.example`, `status: inactive`)
 - **Steps:**
   1. From the login screen, click «آخر» (she is not a remembered face on a fresh device).
-  2. Type her email, then the PIN `123456`.
-- **Expected:** refused with the **same** Arabic message as a wrong PIN («اسم المستخدم أو رمز PIN غير صحيح.») — `auth-routes.ts:91` treats `status !== "active"` identically to a bad hash.
-- **False pass / note for the admin:** this is a deliberate non-disclosure (don't tell an attacker the account exists), but it also means an admin troubleshooting "Hala can't log in" gets no signal that the account is disabled rather than her PIN being wrong. Worth knowing before filing it as a bug.
+  2. Type her email, then the password `Cyag@2026`.
+- **Expected:** refused with the **same** Arabic message as a wrong password («البريد الإلكتروني أو كلمة المرور غير صحيحة.») — `auth-routes.ts:91` treats `status !== "active"` identically to a bad hash.
+- **False pass / note for the admin:** this is a deliberate non-disclosure (don't tell an attacker the account exists), but it also means an admin troubleshooting "Hala can't log in" gets no signal that the account is disabled rather than her password being wrong. Worth knowing before filing it as a bug.
 
 ### MTP-USR-06 — Session-expired banner
 - **Persona / permission:** any
@@ -205,7 +205,7 @@ Run these back to back and read the exact text of each. Three genuinely wrong, f
 4. **Arabic (correct):** zero-price line → «سعر صفري أو خصم كامل يحتاج صلاحية تعديل السعر.» (MTP-USR-14).
 5. **Arabic (correct):** discount over ceiling → «الخصم يتجاوز الحد المسموح (…٪) ويحتاج اعتماداً.» (MTP-USR-15).
 6. **Arabic (correct):** collect payment with no treasury chosen → «اختر الخزينة التي استُلم فيها المبلغ» (MTP-USR-23).
-7. **Arabic (correct):** wrong PIN → «اسم المستخدم أو رمز PIN غير صحيح.» (MTP-USR-03).
+7. **Arabic (correct):** wrong password → «البريد الإلكتروني أو كلمة المرور غير صحيحة.» (MTP-USR-03).
 
 - **Expected:** all seven should read as accounting Arabic a محاسب would say out loud.
 - **Actual:** three of seven read as raw JavaScript-error English inside an otherwise fully Arabic screen — and all three share one root: `packages/api/src/permission-gate.ts` and `packages/domain/src/fiscal-periods/errors.ts` were never given an Arabic message table the way `sales-invoices-routes.ts`'s own hand-written refusals were. Because `errorMessage()` (`apps/web/src/lib/error-message.ts`) shows any `ApiError.message` verbatim by design, **every** route that surfaces a permission-gate or fiscal-period-transition failure inherits the same English leak — this is not one bug, it is the shape of a whole class of refusals across sales invoices, purchase invoices, journals, vouchers, cheques, GL posting and payroll (each of those routes imports `PeriodNotOpenForPostingError`).

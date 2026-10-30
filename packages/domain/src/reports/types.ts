@@ -50,6 +50,7 @@ export interface ReportColumn<Row> {
    * panel goes back to the posted documents with it, and a label is not an id.
    */
   readonly entity?: ReportEntityRef<Row>;
+  readonly cost?: boolean;
 }
 
 export type ReportEntityKind = "customer" | "supplier" | "item" | "account" | "rep" | "funnel-stage" | "pipeline-stage";
@@ -109,7 +110,7 @@ export interface ReportReconciliationSpec<Row, Ctx, TParams = unknown> {
    * THESE, as exact decimal strings, and the two number totals are not read;
    * a mismatch is then never a float artefact (D345).
    */
-  readonly computeExactTotals?: (rows: readonly Row[], ctx: Ctx, params: TParams) => { readonly report: Money; readonly reference: Money };
+  readonly computeExactTotals?: (rows: readonly Row[], ctx: Ctx, params: TParams) => { readonly report: Money; readonly reference: Money } | null;
   /**
    * Whether the reference figure is actually available in this context.
    * Returns false and the banner is not shown at all.
@@ -167,6 +168,9 @@ export interface ReportDefinition<TParams, Row, Ctx = unknown> {
   readonly kpis?: readonly ReportKpiSpec<Row, TParams>[];
   /** The chart above the table (A2). Omit it and the report renders none. */
   readonly chart?: ReportChartSpec;
+  readonly costRowKeys?: readonly string[];
+  /** SECURITY: a report whose `run` orders by a cost field must name a cost-free order here, or `withoutCost` leaves the order as a cost oracle. */
+  readonly costlessOrder?: (a: Row, b: Row) => number;
 }
 
 /**
@@ -185,6 +189,7 @@ export interface ReportKpiSpec<Row, TParams> {
   readonly value: (rows: readonly Row[], params: TParams) => ReportFigure;
   /** Handed a string figure's SIGN (-1, 0 or 1), never a float of it. */
   readonly tone?: (value: number) => "default" | "success" | "danger";
+  readonly cost?: boolean;
 }
 
 export interface ReportKpiResult {

@@ -262,3 +262,21 @@ export function pageReportGroups<G extends { readonly rows: readonly unknown[] }
   }
   return { groups: pagedGroups, rows, page: { page: window.page, pageSize: window.pageSize, totalRows: cursor } };
 }
+
+/** SECURITY: the server runs this before the report, so the cost figures never reach the wire; the client applies it only to render (#119). */
+export function withoutCost<TParams, Row, Ctx>(definition: ReportDefinition<TParams, Row, Ctx>): ReportDefinition<TParams, Row, Ctx> {
+  const costKeys = new Set([...definition.columns.filter((column) => column.cost).map((column) => column.key), ...(definition.costRowKeys ?? [])]);
+  if (costKeys.size === 0) return definition;
+  const { reconciliation: _reconciliation, ...rest } = definition;
+  return {
+    ...rest,
+    columns: definition.columns.filter((column) => !column.cost),
+    kpis: definition.kpis?.filter((kpi) => !kpi.cost),
+    chart: definition.chart && costKeys.has(definition.chart.valueColumn) ? undefined : definition.chart,
+    run: (params, ctx) => {
+      const rows = definition.run(params, ctx);
+      const ordered = definition.costlessOrder ? [...rows].sort(definition.costlessOrder) : rows;
+      return ordered.map((row) => Object.fromEntries(Object.entries(row as object).filter(([key]) => !costKeys.has(key))) as Row);
+    },
+  };
+}

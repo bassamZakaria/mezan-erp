@@ -1,22 +1,54 @@
 import { Hono } from "hono";
-import { can, type AuditEvent, type AuditQueryPort } from "@mezan/domain";
+import { VAN_STOCK_STEP_KINDS, type AuditEvent, type AuditQueryPort, type VanReconciliationStepKind } from "@mezan/domain";
 import type { AuditChainVerifyPort } from "@mezan/persistence";
 import { auditQuerySchema } from "@mezan/contracts";
-import { branchGrantOf, createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
+import { branchGrantOf, createPermissionGate, getAuthContext, maySeeItemCost, omitUnless, type AuthContextResolver } from "./permission-gate.js";
 
-const COST_FIELDS: ReadonlySet<string> = new Set(["costPrice"]);
+const COST_FIELDS: ReadonlySet<string> = new Set(["costPrice", "defaultCost"]);
+
+enum CostBearingAuditEntity {
+  MaterialConsumption = "MATERIAL_CONSUMPTION",
+  WritedownRun = "WRITEDOWN_RUN",
+  VanTrip = "VAN_TRIP",
+}
+
+/** SECURITY: detail keys written at item cost; a new audit write that records item cost must be listed here (#119). */
+const COST_DETAIL_KEYS: Readonly<Record<CostBearingAuditEntity, readonly string[]>> = {
+  [CostBearingAuditEntity.MaterialConsumption]: ["totalCost"],
+  [CostBearingAuditEntity.WritedownRun]: ["totalAmount"],
+  [CostBearingAuditEntity.VanTrip]: ["varianceValue"],
+};
+
+function redactChanges(details: Readonly<Record<string, unknown>>): Readonly<Record<string, unknown>> {
+  const changes = details["changes"];
+  if (!Array.isArray(changes)) return details;
+  return {
+    ...details,
+    changes: changes.map((change: unknown) => {
+      const field = (change as { field?: unknown } | null)?.field;
+      if (typeof field !== "string" || !COST_FIELDS.has(field)) return change;
+      return { ...(change as object), from: null, to: null, redacted: true };
+    }),
+  };
+}
+
+function redactStockSteps(details: Readonly<Record<string, unknown>>): Readonly<Record<string, unknown>> {
+  const steps = details["steps"];
+  if (!Array.isArray(steps)) return details;
+  return {
+    ...details,
+    steps: steps.map((step: unknown) => {
+      const kind = (step as { kind?: unknown } | null)?.kind;
+      return VAN_STOCK_STEP_KINDS.has(kind as VanReconciliationStepKind) ? { ...(step as object), value: null } : step;
+    }),
+  };
+}
 
 export function redactCost(event: AuditEvent): AuditEvent {
-  const changes = event.details?.["changes"];
-  if (!Array.isArray(changes)) return event;
-  let touched = false;
-  const redacted = changes.map((change: unknown) => {
-    const field = (change as { field?: unknown } | null)?.field;
-    if (typeof field !== "string" || !COST_FIELDS.has(field)) return change;
-    touched = true;
-    return { ...(change as object), from: null, to: null, redacted: true };
-  });
-  return touched ? { ...event, details: { ...event.details, changes: redacted } } : event;
+  if (!event.details) return event;
+  const withoutSteps = event.entityType === CostBearingAuditEntity.VanTrip ? redactStockSteps(event.details) : event.details;
+  const details = omitUnless(false, redactChanges(withoutSteps), (COST_DETAIL_KEYS as Readonly<Record<string, readonly string[]>>)[event.entityType] ?? []);
+  return { ...event, details };
 }
 
 /**
@@ -79,13 +111,15 @@ export function createAuditRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+    const seeCost = maySeeItemCost(c);
+    if (!seeCost && parsed.data.field && COST_FIELDS.has(parsed.data.field)) return c.json({ events: [], total: 0 });
     const ctx = getAuthContext(c);
     // SECURITY: a branch-granted reader is held to rows stamped with its own
     // branches. A row with no branch is not shown to it — most were written by
     // an all-branches caller about some other branch's document (D30).
     const grant = ctx ? branchGrantOf(c) : undefined;
     const result = await store.queryEvents(grant ? { ...parsed.data, branchIds: grant } : parsed.data);
-    if (ctx && can(ctx, "sales.invoice.view_cost")) return c.json(result);
+    if (seeCost) return c.json(result);
     return c.json({ ...result, events: result.events.map(redactCost) });
   });
 

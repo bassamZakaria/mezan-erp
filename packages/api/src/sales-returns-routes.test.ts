@@ -279,7 +279,7 @@ describe("what the caller may claim on a return (D102)", () => {
     const res = await app.fetch(
       req("/", {
         method: "POST",
-        permissions: "sales.return.create,sales.invoice.view",
+        permissions: "sales.return.create,sales.invoice.view,sales.invoice.view_cost",
         body: JSON.stringify({
           ...payload,
           id: "SR-COST",
@@ -732,7 +732,7 @@ describe("POST /sales-returns/from-invoice", () => {
       },
     });
     const res = await app.fetch(
-      req("/from-invoice", { method: "POST", permissions: "sales.return.create,sales.invoice.view", body: JSON.stringify(fromInvoiceBody()) }),
+      req("/from-invoice", { method: "POST", permissions: "sales.return.create,sales.invoice.view,sales.invoice.view_cost", body: JSON.stringify(fromInvoiceBody()) }),
     );
     expect(res.status).toBe(201);
     const body = (await res.json()) as {

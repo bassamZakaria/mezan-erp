@@ -52,9 +52,9 @@ export interface ProductionDashboardDTO {
   readonly overdueCount: number;
   readonly kpis: {
     readonly activeWorkOrders: number;
-    readonly wipValue: string;
+    readonly wipValue?: string;
     readonly unitsProducedThisMonth: string;
-    readonly avgCostPerUnit: string;
+    readonly avgCostPerUnit?: string;
   };
   readonly buckets: {
     readonly notStarted: readonly ProductionBucketOrderDTO[];

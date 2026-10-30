@@ -1,3 +1,4 @@
+import { Qty } from "../money/index.js";
 import { describe, it, expect } from "vitest";
 import {
   PurchaseOrderNotFoundError,
@@ -70,10 +71,14 @@ describe("purchasing errors", () => {
   });
 
   it("OverReceiptError names the offending item", () => {
-    const err = new OverReceiptError("item-A");
+    const err = new OverReceiptError("item-A", Qty.fromMajor("6"), Qty.fromMajor("20"), Qty.fromMajor("20"), Qty.fromMajor("25"), 25);
     expect(err.code).toBe("PURCHASE_OVER_RECEIPT");
     expect(err.itemId).toBe("item-A");
     expect(err.message).toContain("item-A");
+    expect(err.message).toContain("الحد الأقصى المسموح باستلامه 25");
+    expect(err.messageEn).toContain("at most 25");
+    expect(err.message).toContain("يمكن ضبط نسبة التجاوز المسموح بها في الإعدادات ← المشتريات");
+    expect(err.messageEn).toContain("Settings → Purchases");
   });
 
   it("PurchaseOrderRequiredError's message is the exact Arabic sentence the API forwards to the UI", () => {

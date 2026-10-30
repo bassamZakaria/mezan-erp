@@ -102,10 +102,11 @@ export function createInventorySlowMovingReport(today: string): ReportDefinition
       BRANCH_PARAM_FIELD,
     ],
     rowKey: (row) => row.itemId,
+    costlessOrder: (a, b) => (b.daysSinceLastSale ?? Infinity) - (a.daysSinceLastSale ?? Infinity) || a.itemNameAr.localeCompare(b.itemNameAr),
     columns: [
       { key: "itemNameAr", header: "اسم الصنف", format: "text", value: (row) => row.itemNameAr, entity: { kind: "item", id: (row) => row.itemId } },
       { key: "onHand", header: "المخزون الحالي", format: "qty", align: "end", total: true, value: (row) => row.onHand },
-      { key: "value", header: "قيمة المخزون", format: "money", align: "end", total: true, value: (row) => row.value },
+      { key: "value", cost: true, header: "قيمة المخزون", format: "money", align: "end", total: true, value: (row) => row.value },
       { key: "daysSinceLastSale", header: "أيام منذ آخر بيع", format: "qty", align: "end", value: (row) => row.daysSinceLastSale },
       { key: "lastSaleDate", header: "تاريخ آخر بيع", format: "date", value: (row) => row.lastSaleDate },
       { key: "severityLabel", header: "مستوى الخطورة", format: "text", value: (row) => row.severityLabel },
@@ -117,7 +118,7 @@ export function createInventorySlowMovingReport(today: string): ReportDefinition
       captionAr: "الأصناف الراكدة مرتبة حسب الكمية المتبقية.",
     },
     kpis: [
-      { key: "value", labelAr: "رأس المال المجمد", format: "money", value: (rows) => sumRows(rows, (r) => r.value), tone: (value) => (value > 0 ? "danger" : "success") },
+      { key: "value", cost: true, labelAr: "رأس المال المجمد", format: "money", value: (rows) => sumRows(rows, (r) => r.value), tone: (value) => (value > 0 ? "danger" : "success") },
       { key: "itemCount", labelAr: "عدد الأصناف الراكدة", format: "qty", value: (rows) => rows.length },
       { key: "criticalCount", labelAr: "أصناف حرجة", format: "qty", value: (rows) => countRows(rows, (r) => r.severityLabel === SEVERITY_LABELS.critical), tone: (value) => (value > 0 ? "danger" : "success") },
       { key: "maxDays", labelAr: "أطول فترة بلا بيع (يوم)", format: "qty", value: (rows) => maxOf(rows, (r) => r.daysSinceLastSale) },

@@ -2,7 +2,7 @@ import { z } from "zod";
 import { isoDateParamSchema } from "./iso-date.js";
 import { Money } from "../money/index.js";
 import { salesInvoiceBaseTotals, salesInvoiceTotals } from "../sales-invoices/totals.js";
-import { SALES_INVOICE_ACTIVE_STATUSES, type SalesInvoice } from "../sales-invoices/sales-invoice.js";
+import { INVOICE_REP_ROLE_LABELS_AR, InvoiceRepRole, SALES_INVOICE_ACTIVE_STATUSES, invoiceRepOf, type SalesInvoice } from "../sales-invoices/sales-invoice.js";
 import type { ReportDefinition } from "./types.js";
 import { sumRows } from "./kpi.js";
 import { withinDateRange } from "./period-bucket.js";
@@ -39,6 +39,7 @@ export interface SalesBySalespersonParams {
   readonly dateTo: string;
   readonly taxMode: "inc" | "exc";
   readonly branchId: string;
+  readonly repRole: InvoiceRepRole;
 }
 
 export interface SalesBySalespersonRow {
@@ -56,6 +57,7 @@ const paramsSchema = z.object({
   dateTo: isoDateParamSchema,
   taxMode: z.enum(["inc", "exc"]),
   branchId: branchIdParamSchema,
+  repRole: z.nativeEnum(InvoiceRepRole).default(InvoiceRepRole.SalesRep),
 });
 
 export function createSalesBySalespersonReport(
@@ -68,7 +70,7 @@ export function createSalesBySalespersonReport(
     descriptionAr:
       "أداء مندوبي المبيعات في الفترة: عدد الفواتير، الإجمالي المُفوتر، خصومات العروض الممنوحة، والمتبقي على العملاء. الفواتير غير المنسوبة لمندوب تظهر في صف «غير محدد» حتى يساوي إجمالي التقرير إجمالي مبيعات الفترة.",
     paramsSchema,
-    defaultParams: { dateFrom: defaultDateFrom, dateTo: defaultDateTo, taxMode: "inc", branchId: "" },
+    defaultParams: { dateFrom: defaultDateFrom, dateTo: defaultDateTo, taxMode: "inc", branchId: "", repRole: InvoiceRepRole.SalesRep },
     paramFields: [
       { kind: ReportParamKind.DateRange, fromKey: "dateFrom", toKey: "dateTo", label: "الفترة" },
       {
@@ -79,6 +81,12 @@ export function createSalesBySalespersonReport(
           { value: "inc", label: "شامل الضريبة" },
           { value: "exc", label: "غير شامل الضريبة" },
         ],
+      },
+      {
+        kind: ReportParamKind.Select,
+        key: "repRole",
+        label: "التجميع حسب",
+        options: Object.values(InvoiceRepRole).map((role) => ({ value: role, label: INVOICE_REP_ROLE_LABELS_AR[role] })),
       },
       BRANCH_PARAM_FIELD,
     ],
@@ -117,9 +125,9 @@ export function createSalesBySalespersonReport(
         const revenue = params.taxMode === "inc" ? base.grandTotal : base.taxableTotal;
         const returned = ctx.returnsByInvoiceId?.get(invoice.id) ?? Money.zero();
         const outstanding = Money.fromScaled(base.grandTotal.scaled - invoice.amountPaid.scaled - returned.scaled);
-        const key = invoice.salespersonId ?? UNASSIGNED_SALESPERSON_KEY;
-        const nameAr =
-          invoice.salespersonId === null ? "غير محدد" : (invoice.salespersonNameAr ?? invoice.salespersonId);
+        const rep = invoiceRepOf(invoice, params.repRole);
+        const key = rep.id ?? UNASSIGNED_SALESPERSON_KEY;
+        const nameAr = rep.id === null ? "غير محدد" : (rep.nameAr ?? rep.id);
         const existing = byRep.get(key) ?? {
           nameAr,
           count: 0,

@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
+import { AttachmentPermission, attachmentPermissionSuccessors } from "@mezan/domain";
 import { grantSuccessorPermissionsOnce } from "./permission-successors.js";
 import { sqliteDb } from "./sql/sqlite-db.js";
 
@@ -57,5 +58,18 @@ describe("a role that held the permission a reversal used to ride on is given th
     sqlite.prepare(`INSERT INTO role VALUES ('later', 'later', 'later', '', ?, 0, '2026-01-01T00:00:00.000Z')`).run(JSON.stringify(["cheques.bounce"]));
     expect((await grantSuccessorPermissionsOnce(sqliteDb(sqlite), "reversal_permissions", SUCCESSORS))).toBe(0);
     expect(held(sqlite, "later")).toEqual(["cheques.bounce"]);
+  });
+});
+
+describe("#125 the attachment grant reads a role's resolved rights", () => {
+  it("a role holding only a leaf right is given the attachment view its parent right carries", async () => {
+    const sqlite = oldBooks({
+      "custom-confirmer": JSON.stringify(["sales.invoice.confirm"]),
+      "custom-ledger": JSON.stringify(["accounting.coa.view"]),
+    });
+    expect(await grantSuccessorPermissionsOnce(sqliteDb(sqlite), "attachment_permissions", attachmentPermissionSuccessors())).toBe(1);
+    expect(held(sqlite, "custom-confirmer")).toEqual(["sales.invoice.confirm", AttachmentPermission.View]);
+    expect(held(sqlite, "custom-ledger")).toEqual(["accounting.coa.view"]);
+    sqlite.close();
   });
 });

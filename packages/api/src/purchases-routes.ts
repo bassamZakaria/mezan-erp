@@ -889,6 +889,7 @@ export function createPurchasesRoutes(
         audit: audit(c),
         actor: actor(c),
         now: deps.now,
+        policy: await resolvePolicy(),
       });
       emit("DOCUMENT_CONFIRMED", "GOODS_RECEIPT", receipt.id, receipt.number);
       return c.json(serializeReceipt(receipt));

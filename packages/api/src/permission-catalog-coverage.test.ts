@@ -35,7 +35,7 @@ function gatedCodes(): ReadonlySet<string> {
   };
   for (const root of roots) walk(root);
   const shared = new Map<string, string>();
-  for (const source of sources) {
+  for (const source of [...sources, ...readdirSync(join(__dirname, "..", "..", "domain", "src", "permissions")).filter((file) => file.endsWith(".ts") && !file.endsWith(".test.ts")).map((file) => readFileSync(join(__dirname, "..", "..", "domain", "src", "permissions", file), "utf8"))]) {
     for (const match of source.matchAll(/\bexport\s+const\s+([A-Z][A-Z0-9_]*)\s*=\s*"([a-z_.]+)"/g)) shared.set(match[1] as string, match[2] as string);
     for (const body of source.matchAll(/\benum\s+([A-Z][A-Za-z0-9]*)\s*\{([^}]*)\}/g)) {
       for (const member of (body[2] as string).matchAll(/\b([A-Z][A-Za-z0-9]*)\s*=\s*"([a-z_]+\.[a-z_.]+)"/g)) shared.set(`${body[1]}.${member[1]}`, member[2] as string);
@@ -130,6 +130,8 @@ describe("the permission catalogue against the routes that check it", () => {
     //   - a right that widens what every GL read returns rather than opening a
     //     route of its own, checked in `branch-view.ts`:
     //     `accounting.reports.view_unattributed` (D111).
+    //   - the attachment rights, checked inline once the plan's feature is
+    //     known (#125): `admin.attachment.view`, `.upload`, `.delete`;
     //   - the period lock's override, an inline `can()` beside the route's own
     //     gate: `accounting.period.override_close`; and the till's discount
     //     ceiling, the same shape: `pos.discount.approve`; and the price-floor
@@ -142,6 +144,9 @@ describe("the permission catalogue against the routes that check it", () => {
     expect([...UNGATED].sort()).toEqual([
       "accounting.period.override_close",
       "accounting.reports.view_unattributed",
+      "admin.attachment.delete",
+      "admin.attachment.upload",
+      "admin.attachment.view",
       "admin.backup.restore",
       "admin.backup.view",
       "admin.tenant.settings.edit",

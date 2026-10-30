@@ -235,12 +235,7 @@ export async function cancelPurchaseOrder(
   });
 }
 
-/**
- * Apply received quantities to a PO (pure). Distributes each item's received qty
- * across that item's lines in order, capping at each line's ordered qty, then
- * recomputes the status (partially/fully received). Used by goods-receipt
- * confirmation.
- */
+/** INVARIANT: an over-receipt's excess lands on the item's last line; `revertReceiptFromOrder` walks lines in reverse so a cancel takes it back from there. */
 export function applyReceiptToOrder(
   order: PurchaseOrder,
   received: readonly { itemId: string; qty: Qty }[],
@@ -249,11 +244,13 @@ export function applyReceiptToOrder(
   for (const r of received) {
     remainingByItem.set(r.itemId, (remainingByItem.get(r.itemId) ?? Qty.zero()).add(r.qty));
   }
-  const lines = order.lines.map((line) => {
+  const lastLineOfItem = new Map<string, number>();
+  order.lines.forEach((line, index) => lastLineOfItem.set(line.itemId, index));
+  const lines = order.lines.map((line, index) => {
     const remaining = remainingByItem.get(line.itemId);
     if (!remaining || remaining.isZero() || remaining.isNegative()) return line;
     const outstanding = lineOutstandingQty(line);
-    const take = remaining.compare(outstanding) <= 0 ? remaining : outstanding;
+    const take = lastLineOfItem.get(line.itemId) === index || remaining.compare(outstanding) <= 0 ? remaining : outstanding;
     remainingByItem.set(line.itemId, remaining.subtract(take));
     return { ...line, receivedQty: line.receivedQty.add(take) };
   });
@@ -275,13 +272,13 @@ export function revertReceiptFromOrder(
   for (const r of received) {
     remainingByItem.set(r.itemId, (remainingByItem.get(r.itemId) ?? Qty.zero()).add(r.qty));
   }
-  const lines = order.lines.map((line) => {
+  const lines = [...order.lines].reverse().map((line) => {
     const remaining = remainingByItem.get(line.itemId);
     if (!remaining || remaining.isZero() || remaining.isNegative()) return line;
     const take = remaining.compare(line.receivedQty) <= 0 ? remaining : line.receivedQty;
     remainingByItem.set(line.itemId, remaining.subtract(take));
     return { ...line, receivedQty: line.receivedQty.subtract(take) };
-  });
+  }).reverse();
   const status =
     order.status === "partially_received" || order.status === "fully_received"
       ? deriveReceivedStatus(lines)

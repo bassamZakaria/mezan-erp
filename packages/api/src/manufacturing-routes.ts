@@ -54,6 +54,7 @@ import {
   type WorkStation,
   type WorkStationRepository,
   LotDetailsRequiredError,
+  CostPermission,
 } from "@mezan/domain";
 import {
   createBomSchema,
@@ -75,6 +76,7 @@ import {
   type AuthContextResolver,
   warehouseScopeOf,
   withinScope,
+  withItemCost,
 } from "./permission-gate.js";
 import { branchesOfWarehouses, withinBranchGrant } from "./stored-branches.js";
 import { tenantDay } from "./tenant-day.js";
@@ -169,6 +171,10 @@ export interface ManufacturingRoutesDeps {
 }
 
 const num = (m: { toString(): string }) => m.toString();
+
+const BOM_COST_KEYS = ["estimate", "laborCost", "overheadCost"];
+const WORK_ORDER_COST_KEYS = ["issuedUnitCost", "materialCost", "laborCost", "overheadCost", "extraCost", "wipTotal", "unitCost", "costLog", "normalCost", "abnormalCost"];
+const CONFIG_INSTANCE_COST_KEYS = ["lineCost", "materialCostPerUnit", "laborCostPerUnit", "overheadCostPerUnit", "estimatedUnitCost", "actualCost"];
 
 // --- serialization ----------------------------------------------------------
 
@@ -451,17 +457,17 @@ export function createManufacturingRoutes(
       const map = await costMap(b.lines.map((l) => l.itemId));
       out.push(serializeBom(b, bomCostEstimate(b, (id) => map.get(id) ?? Money.zero())));
     }
-    return c.json(out);
+    return c.json(withItemCost(c, out, BOM_COST_KEYS));
   });
 
   app.get("/boms/:id", gate("manufacturing.bom.view"), async (c) => {
     const bom = await deps.boms.findById(c.req.param("id"));
     if (!bom) return c.json({ error: "NOT_FOUND" }, 404);
     const map = await costMap(bom.lines.map((l) => l.itemId));
-    return c.json(serializeBom(bom, bomCostEstimate(bom, (id) => map.get(id) ?? Money.zero())));
+    return c.json(withItemCost(c, serializeBom(bom, bomCostEstimate(bom, (id) => map.get(id) ?? Money.zero())), BOM_COST_KEYS));
   });
 
-  app.get("/boms/:id/cost-estimate", gate("manufacturing.bom.view"), async (c) => {
+  app.get("/boms/:id/cost-estimate", gate("manufacturing.bom.view"), gate(CostPermission.Item), async (c) => {
     const bom = await deps.boms.findById(c.req.param("id"));
     if (!bom) return c.json({ error: "NOT_FOUND" }, 404);
     const map = await costMap(bom.lines.map((l) => l.itemId));
@@ -499,7 +505,7 @@ export function createManufacturingRoutes(
         },
         bomDeps,
       );
-      return c.json(serializeBom(bom), 201);
+      return c.json(withItemCost(c, serializeBom(bom), BOM_COST_KEYS), 201);
     } catch (err) {
       return handleDomainError(c, err);
     }
@@ -529,7 +535,7 @@ export function createManufacturingRoutes(
         },
         bomDeps,
       );
-      return c.json(serializeBom(bom), 201);
+      return c.json(withItemCost(c, serializeBom(bom), BOM_COST_KEYS), 201);
     } catch (err) {
       return handleDomainError(c, err);
     }
@@ -537,7 +543,7 @@ export function createManufacturingRoutes(
 
   app.post("/boms/:id/deactivate", gate("manufacturing.bom.manage"), async (c) => {
     try {
-      return c.json(serializeBom(await deactivateBom(c.req.param("id"), { boms: deps.boms })));
+      return c.json(withItemCost(c, serializeBom(await deactivateBom(c.req.param("id"), { boms: deps.boms })), BOM_COST_KEYS));
     } catch (err) {
       return handleDomainError(c, err);
     }
@@ -658,7 +664,7 @@ export function createManufacturingRoutes(
   app.get("/work-orders", gate("manufacturing.wo.view"), async (c) => {
     const onHand = await onHandByPosition();
     const orders = await listFilteredWorkOrders(c, parseWorkOrderListQuery(c));
-    return c.json(orders.map((order) => serializeWorkOrder(order, onHand)));
+    return c.json(withItemCost(c, orders.map((order) => serializeWorkOrder(order, onHand)), WORK_ORDER_COST_KEYS));
   });
 
   /**
@@ -703,7 +709,7 @@ export function createManufacturingRoutes(
     // page — the only screen that renders the materials tab — reported every
     // available, shortage and on-the-floor cell as "—" while the list behind
     // it had the real numbers.
-    return c.json(serializeWorkOrder(order, await onHandByPosition()));
+    return c.json(withItemCost(c, serializeWorkOrder(order, await onHandByPosition()), WORK_ORDER_COST_KEYS));
   });
 
   /**
@@ -750,7 +756,7 @@ export function createManufacturingRoutes(
     };
     const decorated = await Promise.all(movements.map(withAttribution));
 
-    return c.json({
+    return c.json(withItemCost(c, {
       movements: decorated.filter((m) => !isReceipt(m)),
       receipts: decorated.filter(isReceipt),
       shopFloorLog: order.shopFloorLog.map((e) => ({
@@ -759,7 +765,7 @@ export function createManufacturingRoutes(
       })),
       journalEntries: deps.journalEntriesOfDocument ? await deps.journalEntriesOfDocument(order.id) : [],
       auditEvents: deps.auditOfDocument ? await deps.auditOfDocument(order.id) : [],
-    });
+    }, ["unitCost", "totalDebit", "totalCredit"]));
   });
 
   app.post("/work-orders", gate("manufacturing.wo.create"), async (c) => {
@@ -789,7 +795,7 @@ export function createManufacturingRoutes(
         },
         { workOrders: deps.workOrders, boms: deps.boms, numbering: deps.numbering, now: deps.now },
       );
-      return c.json(serializeWorkOrder(order), 201);
+      return c.json(withItemCost(c, serializeWorkOrder(order), WORK_ORDER_COST_KEYS), 201);
     } catch (err) {
       return handleDomainError(c, err);
     }
@@ -802,7 +808,7 @@ export function createManufacturingRoutes(
 
   app.post("/work-orders/:id/start", gate("manufacturing.wo.execute"), async (c) => {
     try {
-      return c.json(serializeWorkOrder(await startWorkOrder(c.req.param("id"), { workOrders: deps.workOrders, now: deps.now })));
+      return c.json(withItemCost(c, serializeWorkOrder(await startWorkOrder(c.req.param("id"), { workOrders: deps.workOrders, now: deps.now })), WORK_ORDER_COST_KEYS));
     } catch (err) {
       return handleDomainError(c, err);
     }
@@ -813,7 +819,7 @@ export function createManufacturingRoutes(
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     try {
       const attribution = await resolveAttribution(parsed.data);
-      return c.json(serializeWorkOrder(await issueWorkOrderMaterials(c.req.param("id"), (await stockDeps(c)), attribution)));
+      return c.json(withItemCost(c, serializeWorkOrder(await issueWorkOrderMaterials(c.req.param("id"), (await stockDeps(c)), attribution)), WORK_ORDER_COST_KEYS));
     } catch (err) {
       return handleDomainError(c, err);
     }
@@ -829,7 +835,7 @@ export function createManufacturingRoutes(
         (await stockDeps(c)),
         await resolveAttribution(parsed.data),
       );
-      return c.json(serializeWorkOrder(order));
+      return c.json(withItemCost(c, serializeWorkOrder(order), WORK_ORDER_COST_KEYS));
     } catch (err) {
       return handleDomainError(c, err);
     }
@@ -845,7 +851,7 @@ export function createManufacturingRoutes(
         (await stockDeps(c)),
         await resolveAttribution(parsed.data),
       );
-      return c.json(serializeWorkOrder(order));
+      return c.json(withItemCost(c, serializeWorkOrder(order), WORK_ORDER_COST_KEYS));
     } catch (err) {
       return handleDomainError(c, err);
     }
@@ -861,7 +867,7 @@ export function createManufacturingRoutes(
         (await stockGlDeps(c)),
         await resolveAttribution(parsed.data),
       );
-      return c.json(serializeWorkOrder(order));
+      return c.json(withItemCost(c, serializeWorkOrder(order), WORK_ORDER_COST_KEYS));
     } catch (err) {
       return handleDomainError(c, err);
     }
@@ -876,7 +882,7 @@ export function createManufacturingRoutes(
         { kind: parsed.data.kind, amount: Money.fromMajor(parsed.data.amount), notes: parsed.data.notes },
         { workOrders: deps.workOrders, now: deps.now },
       );
-      return c.json(serializeWorkOrder(order));
+      return c.json(withItemCost(c, serializeWorkOrder(order), WORK_ORDER_COST_KEYS));
     } catch (err) {
       return handleDomainError(c, err);
     }
@@ -893,7 +899,7 @@ export function createManufacturingRoutes(
         await resolveAttribution(parsed.data),
         { batchNo: parsed.data.batchNo ?? null, expiryDate: parsed.data.expiryDate ?? null },
       );
-      return c.json(serializeWorkOrder(order));
+      return c.json(withItemCost(c, serializeWorkOrder(order), WORK_ORDER_COST_KEYS));
     } catch (err) {
       return handleDomainError(c, err);
     }
@@ -908,7 +914,7 @@ export function createManufacturingRoutes(
         now: deps.now,
         postingDay: await postingDay(c),
       });
-      return c.json(serializeWorkOrder(order));
+      return c.json(withItemCost(c, serializeWorkOrder(order), WORK_ORDER_COST_KEYS));
     } catch (err) {
       return handleDomainError(c, err);
     }
@@ -916,7 +922,7 @@ export function createManufacturingRoutes(
 
   app.post("/work-orders/:id/cancel", gate("manufacturing.wo.execute"), async (c) => {
     try {
-      return c.json(serializeWorkOrder(await cancelWorkOrder(c.req.param("id"), { workOrders: deps.workOrders })));
+      return c.json(withItemCost(c, serializeWorkOrder(await cancelWorkOrder(c.req.param("id"), { workOrders: deps.workOrders })), WORK_ORDER_COST_KEYS));
     } catch (err) {
       return handleDomainError(c, err);
     }
@@ -967,13 +973,13 @@ export function createManufacturingRoutes(
   // --- Config Instances (Custom Manufacturing) -----------------------------
 
   app.get("/config-instances", gate("manufacturing.wo.view"), async (c) => {
-    return c.json((await deps.configInstances.list()).map(serializeConfigInstance));
+    return c.json(withItemCost(c, (await deps.configInstances.list()).map(serializeConfigInstance), CONFIG_INSTANCE_COST_KEYS));
   });
 
   app.get("/config-instances/:id", gate("manufacturing.wo.view"), async (c) => {
     const i = await deps.configInstances.findById(c.req.param("id"));
     if (!i) return c.json({ error: "NOT_FOUND" }, 404);
-    return c.json(serializeConfigInstance(i));
+    return c.json(withItemCost(c, serializeConfigInstance(i), CONFIG_INSTANCE_COST_KEYS));
   });
 
   app.post("/config-instances/preview", gate("manufacturing.wo.view"), async (c) => {
@@ -984,7 +990,7 @@ export function createManufacturingRoutes(
       if (!product) throw new ConfigurableProductNotFoundError(parsed.data.configurableProductId);
       const map = await costMap(product.materials.map((m) => m.itemId));
       const r = evaluateConfigurableProduct(product, parsed.data.spec, (id) => map.get(id) ?? Money.zero());
-      return c.json({
+      return c.json(withItemCost(c, {
         materials: r.materials.map((m) => ({
           itemId: m.itemId,
           qtyPerUnit: num(m.qtyPerUnit),
@@ -997,7 +1003,7 @@ export function createManufacturingRoutes(
         laborCostPerUnit: num(r.laborCostPerUnit),
         overheadCostPerUnit: num(r.overheadCostPerUnit),
         unitPrice: r.unitPrice === null ? null : num(r.unitPrice),
-      });
+      }, ["unitCost", ...CONFIG_INSTANCE_COST_KEYS]));
     } catch (err) {
       return handleDomainError(c, err);
     }
@@ -1046,7 +1052,7 @@ export function createManufacturingRoutes(
           now: deps.now,
         },
       );
-      return c.json(serializeConfigInstance(instance), 201);
+      return c.json(withItemCost(c, serializeConfigInstance(instance), CONFIG_INSTANCE_COST_KEYS), 201);
     } catch (err) {
       return handleDomainError(c, err);
     }
@@ -1054,7 +1060,7 @@ export function createManufacturingRoutes(
 
   app.post("/config-instances/:id/close", gate("manufacturing.wo.execute"), async (c) => {
     try {
-      return c.json(serializeConfigInstance(await closeConfigInstance(c.req.param("id"), { instances: deps.configInstances, workOrders: deps.workOrders })));
+      return c.json(withItemCost(c, serializeConfigInstance(await closeConfigInstance(c.req.param("id"), { instances: deps.configInstances, workOrders: deps.workOrders })), CONFIG_INSTANCE_COST_KEYS));
     } catch (err) {
       return handleDomainError(c, err);
     }
@@ -1062,7 +1068,7 @@ export function createManufacturingRoutes(
 
   app.post("/config-instances/:id/cancel", gate("manufacturing.wo.execute"), async (c) => {
     try {
-      return c.json(serializeConfigInstance(await cancelConfigInstance(c.req.param("id"), { instances: deps.configInstances })));
+      return c.json(withItemCost(c, serializeConfigInstance(await cancelConfigInstance(c.req.param("id"), { instances: deps.configInstances })), CONFIG_INSTANCE_COST_KEYS));
     } catch (err) {
       return handleDomainError(c, err);
     }
@@ -1122,7 +1128,7 @@ export function createManufacturingRoutes(
           overdue: isOverdue(o),
         }));
 
-    return c.json({
+    return c.json(withItemCost(c, {
       overdueCount: active.filter(isOverdue).length,
       kpis: {
         activeWorkOrders: active.filter((o) => o.status === "in_progress").length,
@@ -1152,7 +1158,7 @@ export function createManufacturingRoutes(
         stage: o.stage,
         nextAction: nextActionFor(o.stage),
       })),
-    });
+    }, ["wipValue", "avgCostPerUnit"]));
   });
 
   return app;

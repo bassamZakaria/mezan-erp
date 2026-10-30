@@ -123,7 +123,8 @@ export function ReconciliationScreen() {
                 {" — "}
                 {t(STOCK_POSITION_FAULT_KEY[row.fault])}
                 {" — "}
-                <QtyDisplay value={row.onHand} /> {" / "} <MoneyValue value={row.totalValue} />
+                <QtyDisplay value={row.onHand} />
+                {row.totalValue !== undefined ? <>{" / "} <MoneyValue value={row.totalValue} /></> : null}
               </li>
             ))}
           </ul>

@@ -149,6 +149,8 @@ function serialize(doc: VoucherDocument, approval: DocumentApprovalDTO | null = 
     costCategory: line.costCategory ?? null,
     withholdingAmount: line.withholdingAmount ? line.withholdingAmount.toString() : null,
     withholdingRatePercent: line.withholdingRatePercent ?? null,
+    commissionAmount: line.commissionAmount ? line.commissionAmount.toString() : null,
+    commissionGlAccountId: line.commissionGlAccountId ?? null,
     netPaidAmount: voucherNetPaid(line).toString(),
     journalEntryId: doc.journalEntryId,
     confirmedAt: doc.confirmedAt,
@@ -672,6 +674,8 @@ export function createVouchersRoutes(
         withholdingAmount: d.withholdingAmount ? Money.fromMajor(d.withholdingAmount) : null,
         withholdingRatePercent: d.withholdingRatePercent ?? null,
         withholdingGlAccountId: d.withholdingGlAccountId ?? null,
+        commissionAmount: d.commissionAmount ? Money.fromMajor(d.commissionAmount) : null,
+        commissionGlAccountId: d.commissionGlAccountId ?? null,
       }, requestedAllocations(id, intended));
       return c.json(serialize(doc), 201);
     } catch (err) {
@@ -743,6 +747,8 @@ export function createVouchersRoutes(
           withholdingAmount: d.withholdingAmount ? Money.fromMajor(d.withholdingAmount) : null,
           withholdingRatePercent: d.withholdingRatePercent ?? null,
           withholdingGlAccountId: d.withholdingGlAccountId ?? null,
+          commissionAmount: d.commissionAmount ? Money.fromMajor(d.commissionAmount) : null,
+          commissionGlAccountId: d.commissionGlAccountId ?? null,
         },
         requestedAllocations(id, d.allocations),
         { actor: ctx?.userId, actorRoles: gateActorRoles(c) },

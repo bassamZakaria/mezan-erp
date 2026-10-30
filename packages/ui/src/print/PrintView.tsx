@@ -168,6 +168,11 @@ export function PrintView({ config, document, showToolbar = true, orientation = 
                 ) : null}
                 {content.showBranchName && document.branchName ? <span>{t("print.doc.branch", { value: document.branchName })}</span> : null}
                 {content.showWarehouseName && document.warehouseName ? <span>{t("print.doc.warehouse", { value: document.warehouseName })}</span> : null}
+                {document.headerFacts?.map((fact) => (
+                  <span key={fact.key}>
+                    {fact.label}: {fact.value}
+                  </span>
+                ))}
               </div>
             </div>
             {document.statusLabel ? (

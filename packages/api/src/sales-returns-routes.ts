@@ -51,7 +51,7 @@ function lineNotOnInvoice(unmatched: readonly { readonly itemId: string; readonl
   };
 }
 
-function serializeLine(l: SalesReturnLine) {
+function serializeLine(l: SalesReturnLine, withCost: boolean) {
   return {
     itemId: l.itemId,
     warehouseId: l.warehouseId,
@@ -63,7 +63,7 @@ function serializeLine(l: SalesReturnLine) {
     availableQty: l.availableQty.toString(),
     qty: l.qty.toString(),
     unitPrice: l.unitPrice.toString(),
-    unitCost: l.unitCost.toString(),
+    ...(withCost ? { unitCost: l.unitCost.toString() } : {}),
     taxAmount: l.taxAmount.toString(),
     taxRatePercent: l.taxRatePercent ?? null,
     taxRateId: l.taxRateId ?? null,
@@ -80,6 +80,7 @@ function serialize(
   refunds: readonly SalesReturnRefund[] = [],
   voidReason: string | null = null,
   approval: DocumentApprovalDTO | null = null,
+  withCost = false,
 ) {
   return {
     voidReason,
@@ -90,7 +91,7 @@ function serialize(
     date: doc.date,
     memo: doc.memo,
     status: doc.status,
-    lines: doc.lines.map(serializeLine),
+    lines: doc.lines.map((line) => serializeLine(line, withCost)),
     grandTotal: salesReturnGrandTotal(doc).toString(),
     createdAt: doc.createdAt,
     confirmedAt: doc.confirmedAt,
@@ -137,6 +138,10 @@ export function createSalesReturnsRoutes(
   customers?: PartyDirectory,
 ) {
   const app = new Hono();
+  const maySeeCost = (c: Context) => {
+    const ctx = getAuthContext(c);
+    return ctx ? can(ctx, "sales.invoice.view_cost") : false;
+  };
   const storedBranches = storedBranchesById(
     (id) => service.findById(id),
     (doc, c) => returnBranches(c, BranchRecordKind.SalesReturn, doc),
@@ -362,7 +367,7 @@ export function createSalesReturnsRoutes(
     const { rows, refunds } = await listFilteredReturns(c, parseListQuery(c));
     const approval = await approvalReader(service, rows);
     const voidReasons = await voidReasonsOf(service, rows);
-    return c.json(rows.map((doc) => serialize(doc, refunds.get(doc.id) ?? [], voidReasons.get(doc.id) ?? null, approval(doc))));
+    return c.json(rows.map((doc) => serialize(doc, refunds.get(doc.id) ?? [], voidReasons.get(doc.id) ?? null, approval(doc), maySeeCost(c))));
   });
 
   /**
@@ -446,7 +451,7 @@ export function createSalesReturnsRoutes(
   app.get("/:id", gateAny("sales.return.view", "sales.return.view_own"), async (c) => {
     const doc = await visibleReturn(c, MirrorAccess.Reachable);
     if (!doc) return c.json(DOCUMENT_NOT_FOUND, 404);
-    return c.json(serialize(doc, await refundsOf(doc.id), await voidReasonOf(service, doc), await approvalOf(service, doc)));
+    return c.json(serialize(doc, await refundsOf(doc.id), await voidReasonOf(service, doc), await approvalOf(service, doc), maySeeCost(c)));
   });
 
   app.post("/", gate("sales.return.create"), async (c) => {
@@ -470,7 +475,7 @@ export function createSalesReturnsRoutes(
         memo: parsed.data.memo,
         lines: derived.lines,
       });
-      return c.json(serialize(doc), 201);
+      return c.json(serialize(doc, [], null, null, maySeeCost(c)), 201);
     } catch (err) {
       return handleDocumentError(c, err);
     }
@@ -514,7 +519,7 @@ export function createSalesReturnsRoutes(
         memo: parsed.data.memo,
         lines,
       });
-      return c.json(serialize(doc), 201);
+      return c.json(serialize(doc, [], null, null, maySeeCost(c)), 201);
     } catch (err) {
       return handleDocumentError(c, err);
     }
@@ -529,7 +534,7 @@ export function createSalesReturnsRoutes(
         actorRoles: callerRoleCodes(c),
       });
       return c.json({
-        document: serialize(result.document, await refundsOf(result.document.id), null, await approvalOf(service, result.document)),
+        document: serialize(result.document, await refundsOf(result.document.id), null, await approvalOf(service, result.document), maySeeCost(c)),
         held: result.held,
       });
     } catch (err) {
@@ -541,7 +546,7 @@ export function createSalesReturnsRoutes(
     permission: gate("sales.return.confirm"),
     refuse: async (c) => ((await visibleReturn(c)) ? undefined : c.json(DOCUMENT_NOT_FOUND, 404)),
     resubmit: (c, id) => service.resubmit(id, { actor: callerUserId(c), actorRoles: callerRoleCodes(c) }),
-    serialize: async (_c, doc) => serialize(doc, await refundsOf(doc.id), null, await approvalOf(service, doc)),
+    serialize: async (c, doc) => serialize(doc, await refundsOf(doc.id), null, await approvalOf(service, doc), maySeeCost(c)),
     onError: handleDocumentError,
   });
 
@@ -550,7 +555,7 @@ export function createSalesReturnsRoutes(
     if (!visible) return c.json(DOCUMENT_NOT_FOUND, 404);
     try {
       const doc = await service.cancel(visible.id, { actor: callerUserId(c) });
-      return c.json(serialize(doc, await refundsOf(doc.id)));
+      return c.json(serialize(doc, await refundsOf(doc.id), null, null, maySeeCost(c)));
     } catch (err) {
       return handleDocumentError(c, err);
     }
@@ -570,7 +575,7 @@ export function createSalesReturnsRoutes(
       const voided = await voidReturn(c, service, id);
       if (!voided) return c.json(VOID_REASON_REQUIRED, 400);
       return c.json({
-        ...serialize(voided.original, await refundsOf(id), voided.reason),
+        ...serialize(voided.original, await refundsOf(id), voided.reason, null, maySeeCost(c)),
         reversalJournalEntryId: voided.reversal.journalEntryId,
       });
     } catch (err) {
@@ -622,7 +627,7 @@ export function createSalesReturnsRoutes(
       });
       const settled = (await service.findById(id)) ?? doc;
       return c.json({
-        ...serialize(settled, await refundsOf(id)),
+        ...serialize(settled, await refundsOf(id), null, null, maySeeCost(c)),
         voucherId: posted.voucherId,
         voucherNo: posted.voucherNo,
       });

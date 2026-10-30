@@ -174,7 +174,7 @@ describe("POST /sales-returns/from-invoice — the lines come off the invoice", 
   it("carries the invoice price, the invoice COST and the proportional tax share", async () => {
     const { app } = await harness();
     const res = await app.fetch(
-      req("/from-invoice", { method: "POST", permissions: "sales.return.create,sales.invoice.view", body: JSON.stringify(fromInvoice("SR-1", "4")) }),
+      req("/from-invoice", { method: "POST", permissions: "sales.return.create,sales.invoice.view,sales.invoice.view_cost", body: JSON.stringify(fromInvoice("SR-1", "4")) }),
     );
 
     expect(res.status).toBe(201);

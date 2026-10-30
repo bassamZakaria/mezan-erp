@@ -26,6 +26,7 @@ import { useConfirmPurchaseInvoice, useCreatePurchaseInvoice, useGoodsReceipts, 
 import { Money, Qty, purchaseInvoiceLineBase, purchaseInvoiceLineTax } from "@mezan/domain";
 import { useDebounced } from "../lib/use-debounced";
 import { useWorkingLocation } from "../data/hub-hooks";
+import { useMaySeeItemCost } from "../data/item-cost";
 import { SelectField, TextField, NumberField, DecimalField } from "../settings/form-controls";
 import { PurchaseInvoicePrintPage } from "../print/documents";
 import { useNavigation, useScreenIntent, useSubPage } from "../navigation";
@@ -143,6 +144,7 @@ function InvoiceDetail({
 }) {
   const nameOf = useEntityName();
   const { t } = useAppTranslation();
+  const showCost = useMaySeeItemCost();
   const fulfilmentQuery = usePurchaseInvoiceFulfilment(invoice.id);
   const detailTaxRates = useTaxRates().data ?? NO_TAX_RATES;
   const landedCostsQuery = useLandedCosts();
@@ -377,7 +379,7 @@ function InvoiceDetail({
                       <th className="p-[10px] text-start font-semibold">{t("purchaseInvoices.landed.col.basis")}</th>
                       <th className="p-[10px] text-end font-semibold">{t("purchaseInvoices.landed.col.allocated")}</th>
                       <th className="p-[10px] text-end font-semibold">{t("purchaseInvoices.landed.col.oldUnitCost")}</th>
-                      <th className="p-[10px] text-end font-semibold">{t("purchaseInvoices.landed.col.newUnitCost")}</th>
+                      {showCost ? <th className="p-[10px] text-end font-semibold">{t("purchaseInvoices.landed.col.newUnitCost")}</th> : null}
                       <th className="p-[10px] text-start font-semibold">{t("common.status")}</th>
                     </tr>
                   </thead>
@@ -393,7 +395,7 @@ function InvoiceDetail({
                           <td className="p-[10px] text-ink-muted">{t(LANDED_COST_BASIS_KEY[l.distributionMethod])}</td>
                           <td className="p-[10px] text-end font-semibold text-ink"><MoneyValue value={l.allocatedAmount} showUnit={false} /></td>
                           <td className="p-[10px] text-end text-ink-muted"><MoneyValue value={l.unitCost} showUnit={false} storedPrecision /></td>
-                          <td className="p-[10px] text-end text-ink"><MoneyValue value={l.newUnitCost} showUnit={false} /></td>
+                          {showCost ? <td className="p-[10px] text-end text-ink">{l.newUnitCost !== undefined ? <MoneyValue value={l.newUnitCost} showUnit={false} /> : "—"}</td> : null}
                           <td className="p-[10px]">
                             <StatusPill
                               label={row.doc.status === "confirmed" ? t("purchaseInvoices.status.confirmed") : t("purchaseInvoices.status.draft")}

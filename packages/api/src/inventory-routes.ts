@@ -30,6 +30,7 @@ import {
   LotDetailsRequiredError,
   ExpiryWriteOffExceedsExpiredError,
   type ItemRepository,
+  CostPermission,
 } from "@mezan/domain";
 import {
   ReversalPermission,
@@ -39,7 +40,7 @@ import {
   postedTransferListQuerySchema,
   itemStockSchema,
 } from "@mezan/contracts";
-import { createPermissionGate, getAuthContext, sessionWarehouseScopeOf, warehouseScopeOf, withinScope, type AuthContextResolver } from "./permission-gate.js";
+import { createPermissionGate, getAuthContext, sessionWarehouseScopeOf, warehouseScopeOf, withinScope, withItemCost, type AuthContextResolver } from "./permission-gate.js";
 import { duplicateIdRefusal } from "./duplicate-id.js";
 import { DuplicateRecordIdError } from "@mezan/domain";
 import { readReversalRequest, recordDocumentReversal, reversalRefusalResponse, requireReversalReason } from "./document-reversal.js";
@@ -52,6 +53,9 @@ import { StockAdjustmentAlreadyReversedError, StockAdjustmentNotFoundError, type
  * `inventory.transfer.create`, `inventory.valuation.view`,
  * `inventory.valuation.rebuild`. Money/Qty serialize as exact decimal strings.
  */
+
+const POSITION_COST_KEYS = ["averageCost", "totalValue"];
+const POSTED_DOCUMENT_COST_KEYS = ["unitCost", "value", "valueDelta", "totalValue"];
 
 function serializeMovement(m: StockMovement) {
   return {
@@ -273,7 +277,7 @@ export function createInventoryRoutes(
   app.get("/balance", gate("inventory.stock.view"), async (c) => {
     try {
       const detail = await service.getBalanceDetail(requireQuery(c, "itemId"), requireQuery(c, "warehouseId"));
-      return c.json(serializeBalance(detail));
+      return c.json(withItemCost(c, serializeBalance(detail), POSITION_COST_KEYS));
     } catch (err) {
       return handleDomainError(c, err);
     }
@@ -285,13 +289,13 @@ export function createInventoryRoutes(
         requireQuery(c, "itemId"),
         requireQuery(c, "warehouseId"),
       );
-      return c.json(movements.map(serializeMovement));
+      return c.json(withItemCost(c, movements.map(serializeMovement), ["unitCost"]));
     } catch (err) {
       return handleDomainError(c, err);
     }
   });
 
-  app.get("/valuation", gate("inventory.valuation.view"), async (c) => {
+  app.get("/valuation", gate("inventory.valuation.view"), gate(CostPermission.Item), async (c) => {
     const { positions } = await service.getValuation();
     const scoped = withinScope(positions, warehouseScopeOf(c), (p) => p.warehouseId);
     return c.json({
@@ -310,7 +314,7 @@ export function createInventoryRoutes(
     const rows = rollupStockBalance(scoped, { warehouseId });
     const reserved = await currentReservations();
     const itemById = new Map((items ? await items.list() : []).map((item) => [item.id, item]));
-    return c.json({
+    return c.json(withItemCost(c, {
       rows: rows.map((row) => {
         const held = reserved.forItem(row.itemId);
         const serialized = serializeBalanceRow(row);
@@ -330,7 +334,7 @@ export function createInventoryRoutes(
           }),
         };
       }),
-    });
+    }, POSITION_COST_KEYS));
   });
 
   /**
@@ -343,7 +347,7 @@ export function createInventoryRoutes(
     const positions = withinScope(await service.getItemPositions(itemId), warehouseScopeOf(c), (p) => p.warehouseId);
     const layers = withinScope(await service.getItemCostLayers(itemId), warehouseScopeOf(c), (l) => l.warehouseId);
     const reserved = await currentReservations();
-    return c.json(itemStockSchema.parse({
+    return c.json(withItemCost(c, itemStockSchema.parse({
       positions: positions.map((p) => {
         const held = reserved.forPosition(itemId, p.warehouseId);
         return {
@@ -367,10 +371,10 @@ export function createInventoryRoutes(
         sourceDocNumber: l.sourceDocNumber,
         createdAt: l.createdAt,
       })),
-    }));
+    }), [...POSITION_COST_KEYS, "unitCost"]));
   });
 
-  app.get("/drift", gate("inventory.valuation.view"), async (c) => {
+  app.get("/drift", gate("inventory.valuation.view"), gate(CostPermission.Item), async (c) => {
     try {
       const toleranceRaw = c.req.query("tolerance");
       const tolerance = toleranceRaw ? Money.fromMajor(toleranceRaw) : Money.zero();
@@ -388,13 +392,13 @@ export function createInventoryRoutes(
   app.post("/rebuild", gate("inventory.valuation.rebuild"), async (c) => {
     try {
       const position = await service.rebuild(requireQuery(c, "itemId"), requireQuery(c, "warehouseId"));
-      return c.json({
+      return c.json(withItemCost(c, {
         itemId: position.itemId,
         warehouseId: position.warehouseId,
         onHand: position.onHand.toString(),
         averageCost: position.averageCost.toString(),
         totalValue: position.totalValue.toString(),
-      });
+      }, POSITION_COST_KEYS));
     } catch (err) {
       return handleDomainError(c, err);
     }
@@ -489,13 +493,13 @@ export function createInventoryRoutes(
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
     const adjustments = await service.listPostedAdjustments(parsed.data);
-    return c.json(withinScope(adjustments, warehouseScopeOf(c), (a) => a.warehouseId).map(serializePostedAdjustment));
+    return c.json(withItemCost(c, withinScope(adjustments, warehouseScopeOf(c), (a) => a.warehouseId).map(serializePostedAdjustment), POSTED_DOCUMENT_COST_KEYS));
   });
 
   app.get("/adjustments/:id", gate("inventory.adjustment.view"), async (c) => {
     const adjustment = await service.getPostedAdjustment(c.req.param("id"));
     if (!adjustment) return c.json({ error: "STOCK_ADJUSTMENT_NOT_FOUND" }, 404);
-    return c.json(serializePostedAdjustment(adjustment));
+    return c.json(withItemCost(c, serializePostedAdjustment(adjustment), POSTED_DOCUMENT_COST_KEYS));
   });
 
   app.get("/transfers", gate("inventory.transfer.view"), async (c) => {
@@ -510,13 +514,13 @@ export function createInventoryRoutes(
     const visible = !scope
       ? transfers
       : transfers.filter((t) => scope.includes(t.fromWarehouseId) || scope.includes(t.toWarehouseId));
-    return c.json(visible.map(serializePostedTransfer));
+    return c.json(withItemCost(c, visible.map(serializePostedTransfer), POSTED_DOCUMENT_COST_KEYS));
   });
 
   app.get("/transfers/:id", gate("inventory.transfer.view"), async (c) => {
     const transfer = await service.getPostedTransfer(c.req.param("id"));
     if (!transfer) return c.json({ error: "STOCK_TRANSFER_NOT_FOUND" }, 404);
-    return c.json(serializePostedTransfer(transfer));
+    return c.json(withItemCost(c, serializePostedTransfer(transfer), POSTED_DOCUMENT_COST_KEYS));
   });
 
   app.post("/transfers", gate("inventory.transfer.create"), async (c) => {

@@ -1782,7 +1782,7 @@ describe("D111 round 3 · shared master data carries no other branch's money or 
 
   it("the stock-levels summary is the same figures as the stock-levels list the caller can see", async () => {
     const warehouseOnly = callerFor(
-      await handle.sessions.issue({ userId: "USER-D111-WH-ALEX", permissions: ["inventory.stock.view"], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: [ALEX_WAREHOUSE] }),
+      await handle.sessions.issue({ userId: "USER-D111-WH-ALEX", permissions: ["inventory.stock.view", "inventory.cost.view"], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: [ALEX_WAREHOUSE] }),
     );
     const figures = async (caller: Caller) => {
       const summary = await caller("GET", "/reports/inventory/stock-levels/summary");

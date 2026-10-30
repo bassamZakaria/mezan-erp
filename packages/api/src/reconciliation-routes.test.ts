@@ -1,8 +1,9 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { Money, postJournalEntry, type Account, type JournalPostingDeps } from "@mezan/domain";
+import { CostPermission, Money, Qty, StockPositionFault, postJournalEntry, type Account, type JournalPostingDeps, type LedgerRepository } from "@mezan/domain";
 import { createSqliteLedgerStore, createSqliteAccountRepository, createSqliteFiscalPeriodRepository } from "@mezan/persistence";
 import { createSessionRegistry, createSessionAuthContextResolver } from "./session-auth.js";
 import { createReconciliationRoutes, type ReconciliationControl } from "./reconciliation-routes.js";
+import { insecureHeaderAuthContextResolver } from "./permission-gate.js";
 
 const closers: Array<{ close(): void }> = [];
 afterEach(() => {
@@ -123,5 +124,30 @@ describe("reconciliation router — GET /", () => {
     const body = (await res.json()) as { rows: unknown[]; allMatched: boolean };
     expect(body.rows).toEqual([]);
     expect(body.allMatched).toBe(true);
+  });
+});
+
+describe("GET /reconciliation — a faulty stock position's value is item cost (#119)", () => {
+  const app = createReconciliationRoutes(
+    {
+      ledger: {} as LedgerRepository,
+      resolveControls: async () => [],
+      stockPositionFaults: async () => [{ itemId: "I-1", warehouseId: "WH-1", onHand: Qty.fromMajor("0"), totalValue: Money.fromMajor("12.50"), fault: StockPositionFault.ValueWithoutQuantity }],
+    },
+    insecureHeaderAuthContextResolver,
+  );
+
+  async function positionsSeenBy(permissions: string) {
+    const res = await app.fetch(new Request("http://local/", { headers: { "x-permissions": permissions } }));
+    expect(res.status).toBe(200);
+    return ((await res.json()) as { stockPositions: { rows: Record<string, unknown>[] } }).stockPositions.rows;
+  }
+
+  it("leaves totalValue out without inventory.cost.view and keeps the quantity", async () => {
+    expect(await positionsSeenBy("accounting.reports.view")).toEqual([{ itemId: "I-1", warehouseId: "WH-1", onHand: "0.000000", fault: StockPositionFault.ValueWithoutQuantity }]);
+  });
+
+  it("sends it to a holder", async () => {
+    expect((await positionsSeenBy(`accounting.reports.view,${CostPermission.Item}`))[0]?.totalValue).toBe("12.500000");
   });
 });

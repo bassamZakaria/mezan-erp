@@ -632,6 +632,40 @@ describe("SalesInvoicesScreen — payments", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
+  it("#115: a bank collection sends what arrived, the commission the bank kept and its expense account; cash offers no commission", async () => {
+    const paymentRequests: Record<string, unknown>[] = [];
+    const transport = stubTransport({
+      ...baseHandlers(seededInvoices),
+      "GET /accounts": () => ({
+        body: [...accounts, { id: "5910", code: "5910", nameAr: "مصروفات أخرى", nameEn: null, type: "expense", naturalBalance: "debit", parentId: null, isHeader: false, status: "active" }],
+      }),
+      "POST /sales-invoices/inv-1/payments": (init) => {
+        paymentRequests.push(JSON.parse((init?.body as string) ?? "{}"));
+        return { body: seededInvoices[0]! };
+      },
+    });
+    renderWithProviders(<TestNavigation><SalesInvoicesScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
+    fireEvent.click(await screen.findByText("INV-000001"));
+    await screen.findByRole("heading", { name: "INV-000001" });
+    fireEvent.click(screen.getByRole("tab", { name: "المدفوعات" }));
+    const commissionLabel = "عمولة التحويل (ما خصمه البنك؛ يُخصم من رصيد العميل المبلغ المستلم مضافاً إليه العمولة)";
+    expect(screen.queryByLabelText(commissionLabel)).not.toBeInTheDocument();
+
+    selectOption("طريقة الدفع", "بنكي");
+    typeMoney(screen.getByLabelText("قيمة الدفعة"), "85");
+    typeMoney(screen.getByLabelText(commissionLabel), "15");
+    fireEvent.click(screen.getByRole("button", { name: "تحصيل دفعة" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("اختر حساب مصروف عمولة التحويل.");
+    expect(paymentRequests).toHaveLength(0);
+
+    selectOption("حساب مصروف العمولة", "5910 — مصروفات أخرى");
+    fireEvent.click(screen.getByRole("button", { name: "تحصيل دفعة" }));
+    await waitFor(() => expect(paymentRequests).toHaveLength(1));
+    expect(paymentRequests[0]).toMatchObject({ paymentMethod: "bank", commissionGlAccountId: "5910" });
+    expect(String(paymentRequests[0]?.amount)).toMatch(/^85(\.0+)?$/);
+    expect(String(paymentRequests[0]?.commissionAmount)).toMatch(/^15(\.0+)?$/);
+  });
+
   it("D93: a tenant with no treasury account at all still refuses, and still fires nothing", async () => {
     const paymentRequests: unknown[] = [];
     const transport = stubTransport({

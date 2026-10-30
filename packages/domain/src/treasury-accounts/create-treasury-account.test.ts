@@ -176,6 +176,7 @@ describe("createTreasuryAccount — its own ledger account (#120)", () => {
       },
     };
     const account = await createTreasuryAccount({ id: "ta1", code: "CASH-9", name: "صندوق", branchId: "b1" }, new InMemoryTreasuryAccountRepository(), { accounts: racing });
-    expect(account.glAccountId).toBe("1300-2");
+    expect(account.glAccountId).toBe("1300-3");
+    expect((await accounts.findById("other"))?.code).toBe("1300-2");
   });
 });

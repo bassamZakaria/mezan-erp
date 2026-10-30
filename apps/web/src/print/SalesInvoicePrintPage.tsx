@@ -36,6 +36,12 @@ export function SalesInvoicePrintPage({ invoice }: { invoice: SalesInvoiceDTO })
         settings,
         branchName: context?.branchName ?? undefined,
         warehouseName: context?.warehouseName ?? undefined,
+        repLabels: {
+          salesperson: t("salesInvoices.field.salesperson"),
+          salesManager: t("salesInvoices.field.salesManager"),
+          promotionRep: t("salesInvoices.field.promotionRep"),
+          promotionManager: t("salesInvoices.field.promotionManager"),
+        },
         customerCode: context?.customer?.code,
         customerTaxNumber: context?.customer?.taxNumber ?? undefined,
         customerAddress: context?.customer?.address ?? undefined,

@@ -6,7 +6,6 @@ import {
   type TreasuryAccountRepository,
   type TreasuryAccountType,
 } from "./treasury-account.js";
-import { DuplicateRecordIdError } from "../records/duplicate-record-id.js";
 import {
   DuplicateTreasuryAccountCodeError,
   InvalidGuaranteeFacilityLimitError,
@@ -92,7 +91,7 @@ export async function createTreasuryAccount(
 ): Promise<TreasuryAccount> {
   const existing = await repo.list();
   validateNewTreasuryAccount(command, existing);
-  if (existing.some((a) => a.id === command.id)) throw new DuplicateRecordIdError(command.id);
+  const idTaken = existing.some((a) => a.id === command.id);
 
   const type = command.type ?? "cash";
   const openingBalance = command.openingBalance ? Money.fromMajor(command.openingBalance) : Money.zero();
@@ -117,7 +116,7 @@ export async function createTreasuryAccount(
   };
   if (ledgerAccounts) await assertTreasuryLedgerAccount(account, ledgerAccounts);
   // ORDERING: every refusal runs before the leaf is opened — a 4xx still commits the audit boundary, so a later refusal would orphan it.
-  const linked = account.glAccountId || !ledgerAccounts ? account : { ...account, glAccountId: await openTreasuryLedgerAccount(account, ledgerAccounts) };
+  const linked = account.glAccountId || !ledgerAccounts || idTaken ? account : { ...account, glAccountId: await openTreasuryLedgerAccount(account, ledgerAccounts) };
   await repo.create(linked);
   return linked;
 }

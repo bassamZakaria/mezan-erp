@@ -10,6 +10,8 @@ export interface PermissionLabel {
 
 export const PERMISSION_ACTION_LABELS = {
   view: { ar: "عرض", en: "View" },
+  upload: { ar: "رفع", en: "Upload" },
+  delete: { ar: "حذف", en: "Delete" },
   post: { ar: "ترحيل", en: "Post" },
   reset: { ar: "إعادة ضبط", en: "Reset" },
   process: { ar: "معالجة", en: "Process" },
@@ -125,6 +127,8 @@ export const PERMISSION_ENTITY_LABELS = {
   installments: { ar: "أقساط", en: "Installments" },
   invoice: { ar: "فاتورة", en: "Invoice" },
   item: { ar: "صنف", en: "Item" },
+  cost: { ar: "تكلفة الأصناف", en: "Item cost" },
+  attachment: { ar: "المرفقات", en: "Attachments" },
   job_title: { ar: "مسمى وظيفي", en: "Job title" },
   journal: { ar: "قيد يومية", en: "Journal entry" },
   landed_cost: { ar: "التكلفة المستوردة", en: "Landed cost" },

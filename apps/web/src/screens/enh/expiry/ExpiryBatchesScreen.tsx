@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Button, Card, EmptyState, Money as MoneyValue, StatusPill, formatQty, type EntityPickerOption } from "@mezan/ui";
-import { ArabicCase, CountedNoun, ExpiryStatus, can, createAuthContext, createInventoryBatchesReport, DEFAULT_NEAR_EXPIRY_DAYS, type InventoryBatchesRow } from "@mezan/domain";
+import { ArabicCase, CountedNoun, ExpiryStatus, can, createAuthContext, createInventoryBatchesReport, DEFAULT_NEAR_EXPIRY_DAYS, withoutCost, type InventoryBatchesRow } from "@mezan/domain";
 import type { BatchTrailEntryDTO, ExpiryWriteOffResultDTO } from "@mezan/contracts";
 import { useApi } from "../../../data/ApiContext";
 import { useCountPhrase } from "../../../lib/count-phrase";
@@ -21,6 +21,7 @@ import { errorMessage } from "../../../lib/error-message";
 import { majorOf } from "../../../lib/money";
 import { todayIso } from "../../../lib/dates";
 import { EMPTY } from "../../../lib/empty";
+import { useMaySeeItemCost } from "../../../data/item-cost";
 import { ScreenTabs } from "../../ScreenTabs";
 import { ReportScreen } from "../../reports/ReportScreen";
 import { FefoPreviewPanel } from "./FefoPreviewPanel";
@@ -86,14 +87,16 @@ function BatchesTab() {
   const countPhrase = useCountPhrase();
   const settings = useExpirySettings();
   const days = settings.data?.nearExpiryDays ?? DEFAULT_NEAR_EXPIRY_DAYS;
+  const showCost = useMaySeeItemCost();
   const definition = useMemo(() => {
-    const report = createInventoryBatchesReport(todayIso(), days);
+    const full = createInventoryBatchesReport(todayIso(), days);
+    const report = showCost ? full : withoutCost(full);
     return {
       ...report,
       descriptionAr: t("expiry.batches.description", { days: countPhrase(days, CountedNoun.Day, ArabicCase.Oblique) }),
       columns: report.columns.map((column) => (column.key === STATUS_LABEL_COLUMN ? { ...column, value: (row: InventoryBatchesRow) => t(STATUS_KEY[row.status] ?? "expiry.status.noExpiry") } : column)),
     };
-  }, [days, t, countPhrase]);
+  }, [days, t, countPhrase, showCost]);
   if (settings.isLoading) return null;
   return <ReportScreen key={days} definition={definition} apiPath="/inventory/batches" nested />;
 }
@@ -103,6 +106,7 @@ function WriteOffTab() {
   const { openScreenAt } = useNavigation();
   const mayWriteOff = usePermission("inventory.adjustment.create");
   const mayConfirm = usePermission("inventory.adjustment.confirm");
+  const showCost = useMaySeeItemCost();
   const [warehouseId, setWarehouseId] = useState("");
   const [memo, setMemo] = useState("");
   const [result, setResult] = useState<ExpiryWriteOffResultDTO | null>(null);
@@ -167,9 +171,11 @@ function WriteOffTab() {
                 ? t("expiry.writeOff.held")
                 : t("expiry.writeOff.draftCreated")}
           </p>
-          <p className="text-[12.5px] text-ink-muted">
-            {t("expiry.writeOff.totalAtWac")} <MoneyValue value={majorOf(result.totalValue)} />
-          </p>
+          {showCost ? (
+            <p className="text-[12.5px] text-ink-muted">
+              {t("expiry.writeOff.totalAtWac")} <MoneyValue value={majorOf(result.totalValue)} />
+            </p>
+          ) : null}
           <div className="flex flex-wrap gap-[9px]">
             {confirmed === null && mayConfirm ? (
               <Button variant="primary" disabled={confirm.isPending} onClick={() => void confirmDraft()}>
@@ -195,7 +201,7 @@ function WriteOffTab() {
                   <th scope="col" className={TH}>{t("expiry.lot.batchNo")}</th>
                   <th scope="col" className={TH}>{t("expiry.lot.expiryDate")}</th>
                   <th scope="col" className={TH_END}>{t("common.qty")}</th>
-                  <th scope="col" className={TH_END}>{t("expiry.writeOff.layerCost")}</th>
+                  {showCost ? <th scope="col" className={TH_END}>{t("expiry.writeOff.layerCost")}</th> : null}
                 </tr>
               </thead>
               <tbody>
@@ -206,9 +212,11 @@ function WriteOffTab() {
                       <td className={TD}>{batch.batchNo ?? t("expiry.lot.noBatch")}</td>
                       <td className={`${TD} mz-num`}>{batch.expiryDate}</td>
                       <td className={TD_END}>{formatQty(majorOf(batch.qty))}</td>
-                      <td className={TD_END}>
-                        <MoneyValue value={majorOf(batch.value)} showUnit={false} />
-                      </td>
+                      {showCost ? (
+                        <td className={TD_END}>
+                          <MoneyValue value={majorOf(batch.value)} showUnit={false} />
+                        </td>
+                      ) : null}
                     </tr>
                   )),
                 )}
@@ -216,10 +224,12 @@ function WriteOffTab() {
             </table>
           </div>
           <div className="flex flex-wrap items-center justify-between gap-[12px] border-t border-border p-[12px]">
-            <div className="text-[12.5px] text-ink">
-              {t("expiry.writeOff.totalAtWac")} <strong><MoneyValue value={majorOf(proposal.data?.totalValue)} /></strong>
-              <span className="block text-[11.5px] text-ink-muted">{t("expiry.writeOff.wacNote")}</span>
-            </div>
+            {showCost ? (
+              <div className="text-[12.5px] text-ink">
+                {t("expiry.writeOff.totalAtWac")} <strong><MoneyValue value={majorOf(proposal.data?.totalValue)} /></strong>
+                <span className="block text-[11.5px] text-ink-muted">{t("expiry.writeOff.wacNote")}</span>
+              </div>
+            ) : <div />}
             {mayWriteOff ? (
               <Button variant="primary" disabled={create.isPending || result !== null} onClick={() => void createDraft()}>
                 {t("expiry.writeOff.createDraft")}

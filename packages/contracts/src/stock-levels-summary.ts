@@ -17,7 +17,7 @@ export const stockLevelsAttentionRowSchema = z.object({
 });
 
 export const stockLevelsSummarySchema = z.object({
-  totalValue: moneyString,
+  totalValue: moneyString.optional(),
   needsAttentionCount: z.number().int().nonnegative(),
   lowCount: z.number().int().nonnegative(),
   attention: z.array(stockLevelsAttentionRowSchema),

@@ -5,6 +5,7 @@ import {
   stockSourceDocTypeSchema,
   stockMovementSchema,
   stockBalanceSchema,
+  itemStockSchema,
   valuationReportSchema,
   driftReportSchema,
   postedAdjustmentLineSchema,
@@ -288,5 +289,20 @@ describe("postTransferSchema", () => {
     const result = postTransferSchema.safeParse(rest);
     expect(result.success).toBe(false);
     if (!result.success) expect(result.error.flatten().fieldErrors).toHaveProperty("toWarehouseId");
+  });
+});
+
+describe("cost fields a session without inventory.cost.view does not receive (#119)", () => {
+  it("parses a stock position, layer, movement and balance that carry no cost", () => {
+    expect(
+      itemStockSchema.safeParse({
+        positions: [{ warehouseId: "W1", onHand: "5", reserved: "0", available: "5" }],
+        layers: [{ id: "L1", warehouseId: "W1", originalQty: "5", remainingQty: "5", sourceDocType: "PURCHASE_RECEIPT", sourceDocNumber: null, createdAt: "2026-01-01T00:00:00.000Z" }],
+      }).success,
+    ).toBe(true);
+    expect(stockBalanceSchema.safeParse({ itemId: "I1", warehouseId: "W1", onHand: "5" }).success).toBe(true);
+    expect(
+      stockMovementSchema.safeParse({ id: "M1", itemId: "I1", warehouseId: "W1", direction: "IN", qty: "5", sourceDocType: "PURCHASE_RECEIPT", sourceDocId: "D1", sourceDocNumber: null, reason: null, occurredAt: "2026-01-01T00:00:00.000Z" }).success,
+    ).toBe(true);
   });
 });

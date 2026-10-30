@@ -1,3 +1,5 @@
+import type { Qty } from "../money/index.js";
+
 /** Typed errors for the purchase chain (docs/archive/catalog/02). Each carries a stable
  *  machine `code` the API maps to an HTTP status. */
 
@@ -69,10 +71,20 @@ export class ReceiptRequiredError extends Error {
 
 export class OverReceiptError extends Error {
   readonly code = "PURCHASE_OVER_RECEIPT";
-  constructor(readonly itemId: string) {
+  readonly messageEn: string;
+  constructor(
+    readonly itemId: string,
+    readonly wanted: Qty,
+    readonly ordered: Qty,
+    readonly received: Qty,
+    readonly allowedMax: Qty,
+    readonly tolerancePercent: number,
+  ) {
+    const q = (v: Qty) => v.toString().replace(/\.?0+$/, "");
     super(
-      `الكمية المستلمة للصنف "${itemId}" تتجاوز المتبقي على أمر الشراء، وسياسة منع الاستلام الزائد مفعّلة.`,
+      `لا يمكن استلام ${q(wanted)} من الصنف "${itemId}": الكمية المطلوبة في أمر الشراء ${q(ordered)}، والمستلم حتى الآن ${q(received)}، والحد الأقصى المسموح باستلامه ${q(allowedMax)} (نسبة السماح بالزيادة ${tolerancePercent}٪). يمكن ضبط نسبة التجاوز المسموح بها في الإعدادات ← المشتريات.`,
     );
+    this.messageEn = `Cannot receive ${q(wanted)} of item "${itemId}": the purchase order is for ${q(ordered)}, ${q(received)} has been received so far, and at most ${q(allowedMax)} may be received in all (over-receipt tolerance ${tolerancePercent}%). The allowed over-receipt percentage can be set in Settings → Purchases.`;
     this.name = "OverReceiptError";
   }
 }

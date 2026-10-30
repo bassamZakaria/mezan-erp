@@ -72,15 +72,16 @@ export function createGoodsInTransitReport(): ReportDefinition<GoodsInTransitPar
       BRANCH_PARAM_FIELD,
     ],
     rowKey: (row) => row.key,
+    costlessOrder: (a, b) => a.itemNameAr.localeCompare(b.itemNameAr) || a.key.localeCompare(b.key),
     columns: [
       { key: "itemNameAr", header: "اسم الصنف", format: "text", value: (row) => row.itemNameAr, entity: { kind: "item", id: (row) => row.itemId } },
       { key: "sku", header: "الكود", format: "text", value: (row) => row.sku },
       { key: "warehouseName", header: "المستودع الوسيط", format: "text", value: (row) => row.warehouseName },
       { key: "onHand", header: "الكمية", format: "qty", align: "end", total: true, value: (row) => row.onHand },
-      { key: "value", header: "القيمة", format: "money", align: "end", total: true, value: (row) => row.value },
+      { key: "value", cost: true, header: "القيمة", format: "money", align: "end", total: true, value: (row) => row.value },
     ],
     kpis: [
-      { key: "value", labelAr: "قيمة البضاعة قيد التحويل", format: "money", value: (rows) => sumRows(rows, (r) => r.value), tone: (value) => (value > 0 ? "danger" : "success") },
+      { key: "value", cost: true, labelAr: "قيمة البضاعة قيد التحويل", format: "money", value: (rows) => sumRows(rows, (r) => r.value), tone: (value) => (value > 0 ? "danger" : "success") },
       { key: "onHand", labelAr: "إجمالي الكميات", format: "qty", value: (rows) => sumRows(rows, (r) => r.onHand) },
       { key: "lineCount", labelAr: "عدد المراكز", format: "qty", value: (rows) => rows.length },
     ],

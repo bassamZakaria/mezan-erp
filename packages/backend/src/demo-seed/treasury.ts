@@ -40,6 +40,8 @@ function money(cents: number): string {
   return `${sign}${Math.floor(abs / 100)}.${String(abs % 100).padStart(2, "0")}`;
 }
 
+const TRANSFER_COMMISSION_ACCOUNT = "5910";
+
 function fractionOf(decimal: string, fraction: number): string {
   return money(Math.floor(toCents(decimal) * fraction));
 }
@@ -121,6 +123,16 @@ async function seedVouchers(app: App): Promise<void> {
   });
   await step(app, "POST", "/vouchers/VCH-DEMO-1/confirm", {});
   await step(app, "POST", "/vouchers/VCH-DEMO-1/allocations", { invoiceId: "INV-DEMO-1", amount: collectionAmount });
+
+  await step(app, "POST", "/sales-invoices/INV-DEMO-5/payments", {
+    amount: fractionOf(await outstandingOf(app, "sales", "CUST-DEMO-1", "INV-DEMO-5"), 0.3),
+    commissionAmount: "25.00",
+    commissionGlAccountId: TRANSFER_COMMISSION_ACCOUNT,
+    treasuryAccountId: BANK_TREASURY_ID,
+    paymentMethod: "bank",
+    date: "2026-08-24",
+    referenceNo: "TRF-DEMO-1",
+  });
 
   await step(app, "POST", "/vouchers", {
     id: "VCH-DEMO-2",

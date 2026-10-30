@@ -12,6 +12,7 @@ import { ApiError } from "../../../data/hooks";
 import { useAppTranslation, type AppTranslationKey } from "../../../i18n";
 import { majorOf, scaledOf, toMajorNumber } from "../../../lib/money";
 import { useApproveVanTrip, useVanTripExpectation } from "./hooks";
+import { useMaySeeItemCost } from "../../../data/item-cost";
 
 const STEP_KEY: Record<VanReconciliationStepKindDTO, AppTranslationKey> = {
   [VanReconciliationStepKindDTO.CashVariance]: "vanRecon.step.cash_variance",
@@ -219,6 +220,7 @@ interface ReconciliationCardProps {
 export function VanTripReconciliationCard({ trip, itemName, userName, mayApprove, currentUserId }: ReconciliationCardProps) {
   const { t } = useAppTranslation();
   const approve = useApproveVanTrip();
+  const showCost = useMaySeeItemCost();
   const [message, setMessage] = useState<{ tone: "danger" | "warning"; text: string } | null>(null);
   const settlement = trip.settlement;
   if (!settlement) return null;
@@ -272,7 +274,7 @@ export function VanTripReconciliationCard({ trip, itemName, userName, mayApprove
                 <th className="p-[6px] text-end">{t("vanTrips.expected")}</th>
                 <th className="p-[6px] text-end">{t("vanTrips.counted")}</th>
                 <th className="p-[6px] text-end">{t("vanTrips.difference")}</th>
-                <th className="p-[6px] text-end">{t("vanRecon.valueAtCost")}</th>
+                {showCost ? <th className="p-[6px] text-end">{t("vanRecon.valueAtCost")}</th> : null}
               </tr>
             </thead>
             <tbody>
@@ -286,9 +288,11 @@ export function VanTripReconciliationCard({ trip, itemName, userName, mayApprove
                       <span className="mz-num">{majorOf(line.varianceQty)}</span>
                     </VarianceBeam>
                   </td>
-                  <td className="p-[6px] text-end">
-                    <MoneyDisplay value={line.varianceValue} />
-                  </td>
+                  {showCost ? (
+                    <td className="p-[6px] text-end">
+                      <MoneyDisplay value={line.varianceValue} />
+                    </td>
+                  ) : null}
                 </tr>
               ))}
             </tbody>
@@ -296,10 +300,12 @@ export function VanTripReconciliationCard({ trip, itemName, userName, mayApprove
         </div>
       ) : null}
 
-      <div className="mt-[12px] grid grid-cols-2 gap-[10px]">
-        <Figure label={t("vanRecon.shortageValue")} value={decimalOf(shortage)} />
-        <Figure label={t("vanRecon.overageValue")} value={decimalOf(overage)} />
-      </div>
+      {showCost ? (
+        <div className="mt-[12px] grid grid-cols-2 gap-[10px]">
+          <Figure label={t("vanRecon.shortageValue")} value={decimalOf(shortage)} />
+          <Figure label={t("vanRecon.overageValue")} value={decimalOf(overage)} />
+        </div>
+      ) : null}
 
       {reconciliation && reconciliation.steps.length > 0 ? (
         <div className="mt-[12px]">

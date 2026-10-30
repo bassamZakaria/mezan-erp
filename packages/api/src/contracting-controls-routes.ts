@@ -27,7 +27,7 @@ import {
   setTheoreticalQuantitiesSchema,
   updateRetentionReleaseSchema,
 } from "@mezan/contracts";
-import { callerUserId, createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
+import { callerUserId, createPermissionGate, getAuthContext, withItemCost, type AuthContextResolver } from "./permission-gate.js";
 import { duplicateIdRefusal } from "./duplicate-id.js";
 import { DuplicateRecordIdError } from "@mezan/domain";
 
@@ -287,7 +287,7 @@ export function createContractingReportsRoutes(
 
   app.get("/consumption-variance", gate(VIEW), async (c) => {
     const report = await service.consumptionVariances(paramsOf(c));
-    return c.json(
+    return c.json(withItemCost(c,
       serializeReport(report, (row) => ({
         contractId: row.contractId,
         contractDocNo: row.contractDocNo,
@@ -303,7 +303,7 @@ export function createContractingReportsRoutes(
         consumedCost: row.consumedCost.toString(),
         varianceQty: row.varianceQty.toString(),
         variancePercent: row.variancePercent,
-      })),
+      })), ["consumedCost"]),
     );
   });
 

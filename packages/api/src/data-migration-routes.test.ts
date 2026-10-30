@@ -247,7 +247,7 @@ describe("data-migration-routes — treasury accounts", () => {
       expect(res.status).toBe(200);
       expect(body.validCount).toBe(0);
       expect(body.errors.map((e) => e.rowNumber)).toEqual([1]);
-      expect(body.errors[0]?.reasons.join(" ")).toMatch(/النقدية والبنوك/);
+      expect(body.errors[0]?.reasons.join(" ")).toMatch(/نقدية والبنوك/);
     }
   });
 
@@ -264,7 +264,7 @@ describe("data-migration-routes — treasury accounts", () => {
     const res = await app.fetch(req("/treasury-accounts/commit", [{ code: "CASH-1", name: "صندوق" }]));
     const body = (await res.json()) as { errors: { rowNumber: number; reasons: string[] }[] };
     expect(res.status).toBe(422);
-    expect(body.errors).toEqual([{ rowNumber: 1, reasons: [expect.stringMatching(/النقدية والبنوك/)] }]);
+    expect(body.errors).toEqual([{ rowNumber: 1, reasons: [expect.stringMatching(/نقدية والبنوك/)] }]);
     expect(await treasuryAccounts.list()).toEqual([]);
   });
 });

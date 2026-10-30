@@ -84,7 +84,7 @@ describe("upgrade — a tenant older than the reversal permissions and the duty 
     const upgraded = stored(dbPath);
 
     expect(upgraded["MY_TREASURER"]).toEqual(["cheques.view", "cheques.bounce", "accounting.journal.post", "accounting.revaluation.reverse", "cheques.reverse"]);
-    expect(upgraded["TREASURY_CASHIER"]).toEqual(["treasury.cash_voucher.view", "treasury.cash_voucher.create", "cheques.view", "cheques.bounce", "cheques.reverse", "dashboard.view"]);
+    expect(upgraded["TREASURY_CASHIER"]).toEqual(["treasury.cash_voucher.view", "treasury.cash_voucher.create", "cheques.view", "cheques.bounce", "cheques.reverse", "admin.attachment.view", "admin.attachment.upload", "admin.attachment.delete", "dashboard.view"]);
     expect(upgraded["FINANCE_MANAGER"]).toEqual(["accounting.journal.view", "accounting.period.view", "accounting.period.close", "accounting.period.reopen", "accounting.year_end_close.reverse", "dashboard.view"]);
     expect(upgraded["ACCOUNTANT"]).toEqual([
       "accounting.journal.view",

@@ -201,6 +201,7 @@ export interface ConfirmGoodsReceiptDeps extends PurchaseAuditDeps {
   readonly gl?: PurchaseGlPostingPort;
   readonly accounts?: PurchaseGlAccounts;
   readonly now?: () => string;
+  readonly policy?: PurchasePolicy;
 }
 
 export interface CancelGoodsReceiptDeps extends PurchaseAuditDeps {
@@ -290,9 +291,58 @@ export function buildReceiptLinesFromOrder(order: PurchaseOrder): GoodsReceiptLi
     .filter((line) => !line.qty.isZero());
 }
 
-function assertReceivable(order: PurchaseOrder): void {
-  if (order.status !== "sent" && order.status !== "partially_received") {
+function assertReceivable(order: PurchaseOrder, policy: PurchasePolicy): void {
+  const roomAboveOrdered = order.status === "fully_received" && policy.blockOverReceipt && (policy.overReceiptTolerancePercent ?? 0) > 0;
+  if (order.status !== "sent" && order.status !== "partially_received" && !roomAboveOrdered) {
     throw new PurchaseOrderNotReceivableError(order.id, order.status);
+  }
+}
+
+export interface OverReceiptAllowance {
+  readonly ordered: Qty;
+  readonly received: Qty;
+  readonly allowedMax: Qty;
+  readonly remaining: Qty;
+}
+
+export function overReceiptAllowances(
+  orderLines: readonly { itemId: string; qty: Qty; receivedQty: Qty }[],
+  tolerancePercent: number,
+): Map<string, OverReceiptAllowance> {
+  const basisPoints = BigInt(Math.round(tolerancePercent * 100));
+  const ordered = new Map<string, Qty>();
+  const received = new Map<string, Qty>();
+  for (const l of orderLines) {
+    ordered.set(l.itemId, (ordered.get(l.itemId) ?? Qty.zero()).add(l.qty));
+    received.set(l.itemId, (received.get(l.itemId) ?? Qty.zero()).add(l.receivedQty));
+  }
+  const allowances = new Map<string, OverReceiptAllowance>();
+  for (const [itemId, itemOrdered] of ordered) {
+    const itemReceived = received.get(itemId) ?? Qty.zero();
+    const allowedMax = Qty.fromScaled((itemOrdered.scaled * (10_000n + basisPoints)) / 10_000n);
+    const room = allowedMax.subtract(itemReceived);
+    allowances.set(itemId, { ordered: itemOrdered, received: itemReceived, allowedMax, remaining: room.isNegative() ? Qty.zero() : room });
+  }
+  return allowances;
+}
+
+export const NO_OVER_RECEIPT_ALLOWANCE: OverReceiptAllowance = { ordered: Qty.zero(), received: Qty.zero(), allowedMax: Qty.zero(), remaining: Qty.zero() };
+
+function assertWithinOverReceiptTolerance(
+  order: PurchaseOrder,
+  lines: readonly { itemId: string; qty: Qty }[],
+  policy: PurchasePolicy,
+): void {
+  if (!policy.blockOverReceipt) return;
+  const tolerancePercent = policy.overReceiptTolerancePercent ?? 0;
+  const allowances = overReceiptAllowances(order.lines, tolerancePercent);
+  const wanted = new Map<string, Qty>();
+  for (const l of lines) wanted.set(l.itemId, (wanted.get(l.itemId) ?? Qty.zero()).add(l.qty));
+  for (const [itemId, qty] of wanted) {
+    const allowance = allowances.get(itemId) ?? NO_OVER_RECEIPT_ALLOWANCE;
+    if (allowance.received.add(qty).compare(allowance.allowedMax) > 0) {
+      throw new OverReceiptError(itemId, qty, allowance.ordered, allowance.received, allowance.allowedMax, tolerancePercent);
+    }
   }
 }
 
@@ -317,7 +367,7 @@ export async function createGoodsReceipt(
 
   const order = await deps.orders.findById(command.purchaseOrderId);
   if (!order) throw new PurchaseOrderNotFoundError(command.purchaseOrderId);
-  assertReceivable(order);
+  assertReceivable(order, policy);
 
   const lines: GoodsReceiptLine[] = (
     command.lines
@@ -335,20 +385,7 @@ export async function createGoodsReceipt(
 
   validateLines(lines, command.projectId ?? null);
 
-  if (policy.blockOverReceipt) {
-    const outstanding = new Map<string, Qty>();
-    for (const l of order.lines) {
-      outstanding.set(l.itemId, (outstanding.get(l.itemId) ?? Qty.zero()).add(lineOutstandingQty(l)));
-    }
-    const wanted = new Map<string, Qty>();
-    for (const l of lines) {
-      wanted.set(l.itemId, (wanted.get(l.itemId) ?? Qty.zero()).add(l.qty));
-    }
-    for (const [itemId, qty] of wanted) {
-      const avail = outstanding.get(itemId) ?? Qty.zero();
-      if (qty.compare(avail) > 0) throw new OverReceiptError(itemId);
-    }
-  }
+  assertWithinOverReceiptTolerance(order, lines, policy);
 
   const number = await deps.numbering.next(GOODS_RECEIPT_SEQUENCE);
   const receipt: GoodsReceipt = {
@@ -526,6 +563,13 @@ export async function confirmGoodsReceipt(
   }
   const accrualAccountId = deps.accounts?.goodsReceivedNotInvoicedAccountId;
   if (deps.gl && (!deps.accounts || !accrualAccountId)) throw new GoodsReceiptAccrualAccountMissingError(id);
+  const order = receipt.purchaseOrderId ? await deps.orders.findById(receipt.purchaseOrderId) : null;
+  if (receipt.purchaseOrderId && !order) throw new PurchaseOrderNotFoundError(receipt.purchaseOrderId);
+  const policy = deps.policy ?? DEFAULT_PURCHASE_POLICY;
+  if (order) {
+    assertReceivable(order, policy);
+    assertWithinOverReceiptTolerance(order, receipt.lines, policy);
+  }
   const received = await deps.stock.postReceipt({
     receiptId: receipt.id,
     receiptNumber: receipt.number,
@@ -559,9 +603,7 @@ export async function confirmGoodsReceipt(
     );
   }
 
-  if (receipt.purchaseOrderId) {
-    const order = await deps.orders.findById(receipt.purchaseOrderId);
-    if (!order) throw new PurchaseOrderNotFoundError(receipt.purchaseOrderId);
+  if (order) {
     const updatedOrder = applyReceiptToOrder(
       order,
       receipt.lines.map((l) => ({ itemId: l.itemId, qty: l.qty })),

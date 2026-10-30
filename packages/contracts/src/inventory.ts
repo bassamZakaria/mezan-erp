@@ -47,7 +47,7 @@ export const stockMovementSchema = z.object({
   warehouseId: z.string().min(1),
   direction: stockMovementDirectionSchema,
   qty: decimalString,
-  unitCost: decimalString,
+  unitCost: decimalString.optional(),
   sourceDocType: stockSourceDocTypeSchema,
   sourceDocId: z.string().min(1),
   sourceDocNumber: z.string().nullable(),
@@ -59,8 +59,8 @@ export const stockBalanceSchema = z.object({
   itemId: z.string().min(1),
   warehouseId: z.string().min(1),
   onHand: decimalString,
-  averageCost: decimalString,
-  totalValue: decimalString,
+  averageCost: decimalString.optional(),
+  totalValue: decimalString.optional(),
 });
 
 export const valuationRowSchema = stockBalanceSchema;
@@ -92,8 +92,8 @@ export const postedAdjustmentLineSchema = z.object({
   itemId: z.string().min(1),
   direction: stockMovementDirectionSchema,
   qty: decimalString,
-  unitCost: decimalString,
-  value: decimalString,
+  unitCost: decimalString.optional(),
+  value: decimalString.optional(),
 });
 
 export const postedAdjustmentSchema = z.object({
@@ -103,14 +103,14 @@ export const postedAdjustmentSchema = z.object({
   reason: adjustmentReasonSchema.nullable(),
   occurredAt: z.string().min(1),
   lines: z.array(postedAdjustmentLineSchema),
-  valueDelta: decimalString,
+  valueDelta: decimalString.optional(),
 });
 
 export const postedTransferLineSchema = z.object({
   itemId: z.string().min(1),
   qty: decimalString,
-  unitCost: decimalString,
-  value: decimalString,
+  unitCost: decimalString.optional(),
+  value: decimalString.optional(),
 });
 
 export const postedTransferSchema = z.object({
@@ -120,7 +120,7 @@ export const postedTransferSchema = z.object({
   toWarehouseId: z.string().min(1),
   occurredAt: z.string().min(1),
   lines: z.array(postedTransferLineSchema),
-  totalValue: decimalString,
+  totalValue: decimalString.optional(),
 });
 
 export const postedAdjustmentListQuerySchema = z.object({
@@ -192,15 +192,15 @@ export const itemStockPositionSchema = z.object({
   onHand: decimalString,
   reserved: decimalString,
   available: decimalString,
-  totalValue: decimalString,
-  averageCost: decimalString,
+  totalValue: decimalString.optional(),
+  averageCost: decimalString.optional(),
 });
 
 /** One immutable WAC cost layer behind that holding. */
 export const itemStockLayerSchema = z.object({
   id: z.string().min(1),
   warehouseId: z.string().min(1),
-  unitCost: decimalString,
+  unitCost: decimalString.optional(),
   originalQty: decimalString,
   remainingQty: decimalString,
   sourceDocType: stockSourceDocTypeSchema,

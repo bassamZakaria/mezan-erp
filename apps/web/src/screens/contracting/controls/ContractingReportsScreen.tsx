@@ -25,6 +25,7 @@ import {
 } from "../../../data/contracting-controls-hooks";
 import { useAppTranslation, type AppTranslationKey } from "../../../i18n";
 import { majorOf } from "../../../lib/money";
+import { useMaySeeItemCost } from "../../../data/item-cost";
 
 /**
  * تقارير المقاولات — the seven exception reports (design §06).
@@ -68,6 +69,7 @@ function num(value: string | null | undefined): number {
 
 export function ContractingReportsScreen() {
   const { t } = useAppTranslation();
+  const showCost = useMaySeeItemCost();
   const { session } = useApi();
   const [tab, setTab] = useState<ContractingExceptionKeyDTO>("boq-overrun");
   const [params, setParams] = useState<Record<string, string>>(() => ({
@@ -238,7 +240,7 @@ export function ContractingReportsScreen() {
               { key: "consumedQty", header: t("contractingReports.col.consumedQty"), format: "qty", align: "end", total: true, value: (r) => num(r.consumedQty) },
               { key: "varianceQty", header: t("contractingReports.col.varianceQty"), format: "qty", align: "end", total: true, value: (r) => num(r.varianceQty) },
               { key: "variancePercent", header: t("contractingReports.col.variancePercent"), align: "end", value: (r) => (r.variancePercent === null ? t("contractingReports.noBasis") : `${r.variancePercent}%`) },
-              { key: "consumedCost", header: t("contractingReports.col.consumedCost"), format: "money", align: "end", total: true, value: (r) => majorOf(r.consumedCost) },
+              ...(showCost ? [{ key: "consumedCost", header: t("contractingReports.col.consumedCost"), format: "money", align: "end", total: true, value: (r: NonNullable<typeof consumption.data>["rows"][number]) => majorOf(r.consumedCost ?? "0") }] : []),
             ] as ReportRunnerColumn<NonNullable<typeof consumption.data>["rows"][number]>[]
           }
           rowKey={(r) => `${r.boqLineId}-${r.itemId}`}

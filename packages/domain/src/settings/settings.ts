@@ -1,3 +1,4 @@
+import { DEFAULT_STATEMENT_EMAIL_BODY, DEFAULT_STATEMENT_EMAIL_SUBJECT } from "../collections/statement.js";
 /**
  * Tenant Settings — the config bag documented in docs/archive/catalog/09 §"Settings —
  * عام (General settings hub)": the `/settings` tabbed screen (عام / بيانات
@@ -146,6 +147,7 @@ export interface TenantSettings {
   readonly requirePoForGrn: boolean;
   readonly requireGrnForInvoice: boolean;
   readonly trackSoldPurchaseItems: boolean;
+  readonly overReceiptTolerancePercent: number;
 
   // --- سياسة الخزينة (Treasury policy) ---
   readonly preventNegativeCashBalance: boolean;
@@ -163,6 +165,9 @@ export interface TenantSettings {
   readonly emailTemplateSubject: string;
   readonly emailTemplateBody: string;
 }
+
+/** SECURITY: these values become mail headers; a CR or LF would let them add a header of their own. */
+const HEADER_BREAK = /[\u0000-\u001f\u007f]/;
 
 export class InvalidSettingsError extends Error {
   readonly code = "INVALID_SETTINGS";
@@ -239,6 +244,7 @@ export const DEFAULT_SETTINGS: TenantSettings = {
   requirePoForGrn: false,
   requireGrnForInvoice: false,
   trackSoldPurchaseItems: true,
+  overReceiptTolerancePercent: 0,
 
   preventNegativeCashBalance: true,
   allowNegativeTreasury: true,
@@ -251,9 +257,8 @@ export const DEFAULT_SETTINGS: TenantSettings = {
   smtpPassword: "",
   smtpFromName: "",
   smtpFromEmail: "",
-  emailTemplateSubject: "{{documentType}} رقم {{documentNumber}} من {{companyName}}",
-  emailTemplateBody:
-    "السلام عليكم {{recipientName}}،\n\nمرفق {{documentType}} رقم {{documentNumber}} بتاريخ {{documentDate}} بإجمالي {{documentTotal}}.\n\nمع خالص الشكر،\n{{companyName}}",
+  emailTemplateSubject: DEFAULT_STATEMENT_EMAIL_SUBJECT,
+  emailTemplateBody: DEFAULT_STATEMENT_EMAIL_BODY,
 };
 
 function validate(settings: TenantSettings): string[] {
@@ -339,6 +344,14 @@ function validate(settings: TenantSettings): string[] {
   ) {
     reasons.push("agingWritedownMonths must be an integer in 1..60");
   }
+  if (
+    !Number.isFinite(settings.overReceiptTolerancePercent) ||
+    settings.overReceiptTolerancePercent < 0 ||
+    settings.overReceiptTolerancePercent > 100 ||
+    Math.abs(settings.overReceiptTolerancePercent * 100 - Math.round(settings.overReceiptTolerancePercent * 100)) > 1e-9
+  ) {
+    reasons.push("overReceiptTolerancePercent must be in 0..100 with at most two decimals");
+  }
   if (settings.maxLineDiscountPercent < 0 || settings.maxLineDiscountPercent > 100) {
     reasons.push("maxLineDiscountPercent must be in 0..100");
   }
@@ -361,6 +374,9 @@ function validate(settings: TenantSettings): string[] {
   if (!Number.isInteger(settings.smtpPort) || settings.smtpPort < 1 || settings.smtpPort > 65535) {
     reasons.push("smtpPort must be an integer in 1..65535");
   }
+  if (HEADER_BREAK.test(settings.smtpFromName)) reasons.push("smtpFromName must not contain a line break or control character");
+  if (HEADER_BREAK.test(settings.smtpFromEmail)) reasons.push("smtpFromEmail must not contain a line break or control character");
+  if (HEADER_BREAK.test(settings.emailTemplateSubject)) reasons.push("emailTemplateSubject must not contain a line break or control character");
   if (settings.smtpEnabled) {
     if (settings.smtpHost.trim() === "") reasons.push("smtpEnabled needs an SMTP host");
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(settings.smtpFromEmail)) {

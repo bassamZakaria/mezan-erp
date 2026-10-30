@@ -64,3 +64,22 @@ crash.log
 *.tfvars.local
 
 test-results/
+
+# Secrets: real env files, keys and certificates never enter the repo.
+.env
+.env.*
+*.env
+*.env.*
+*.env~
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+id_rsa*
+id_ed25519*
+!.env.example
+!*.env.example
+!apps/mobile/maestro/*.env
+!test-fixtures/upgrade-matrix/*.audit-chain.key

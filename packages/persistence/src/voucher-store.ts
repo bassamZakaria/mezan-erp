@@ -73,6 +73,8 @@ CREATE TABLE IF NOT EXISTS voucher (
   withholding_amount             INTEGER,
   withholding_rate_percent       REAL,
   withholding_gl_account_id      TEXT,
+  commission_amount              INTEGER,
+  commission_gl_account_id       TEXT,
   held_allocations               TEXT,
   treasury_fx                    TEXT,
   created_at                     TEXT NOT NULL,
@@ -138,6 +140,8 @@ const ADDED_VOUCHER_COLUMNS: readonly [string, string][] = [
   ["cost_category", "TEXT"],
   ["held_allocations", "TEXT"],
   ["treasury_fx", "TEXT"],
+  ["commission_amount", "INTEGER"],
+  ["commission_gl_account_id", "TEXT"],
 ];
 
 /** Allocation columns added after the table shipped (D221: a foreign invoice relieved at its booked rate). */
@@ -191,6 +195,8 @@ interface VoucherRow {
   withholding_amount: bigint | null;
   withholding_rate_percent: number | null;
   withholding_gl_account_id: string | null;
+  commission_amount: bigint | null;
+  commission_gl_account_id: string | null;
   held_allocations: string | null;
   treasury_fx: string | null;
   created_at: string;
@@ -285,6 +291,8 @@ function toDocument(row: VoucherRow): FrameworkDocument<VoucherLine> {
     withholdingAmount: row.withholding_amount === null ? null : Money.fromScaled(row.withholding_amount),
     withholdingRatePercent: row.withholding_rate_percent === null ? null : Number(row.withholding_rate_percent),
     withholdingGlAccountId: row.withholding_gl_account_id,
+    commissionAmount: row.commission_amount === null || row.commission_amount === undefined ? null : Money.fromScaled(row.commission_amount),
+    commissionGlAccountId: row.commission_gl_account_id ?? null,
     heldAllocations: parseHeldAllocations(row.held_allocations),
     ...parseTreasuryFx(row.treasury_fx),
   };
@@ -336,6 +344,8 @@ function docParams(doc: FrameworkDocument<VoucherLine>): Record<string, SqlValue
     withholding_amount: line.withholdingAmount ? line.withholdingAmount.scaled : null,
     withholding_rate_percent: line.withholdingRatePercent ?? null,
     withholding_gl_account_id: line.withholdingGlAccountId ?? null,
+    commission_amount: line.commissionAmount ? line.commissionAmount.scaled : null,
+    commission_gl_account_id: line.commissionGlAccountId ?? null,
     held_allocations: line.heldAllocations?.length ? JSON.stringify(line.heldAllocations.map(toStoredHeldAllocation)) : null,
     treasury_fx: storedTreasuryFx(line),
     created_at: doc.createdAt,
@@ -352,7 +362,7 @@ const VOUCHER_COLUMNS: Readonly<Record<DocumentField, readonly string[]>> = {
   [DocumentField.Lines]: [
     "amount", "fx_rate", "counterparty_gl_account_id", "counter_treasury_account_id", "counter_treasury_gl_account_id",
     "customer_id", "supplier_id", "reference_no", "cost_center_id", "project_id", "cost_category",
-    "withholding_amount", "withholding_rate_percent", "withholding_gl_account_id", "held_allocations", "treasury_fx",
+    "withholding_amount", "withholding_rate_percent", "withholding_gl_account_id", "commission_amount", "commission_gl_account_id", "held_allocations", "treasury_fx",
   ],
 };
 
@@ -361,7 +371,7 @@ const VOUCHER_INSERT_COLUMNS = [
   "branch_id", "payment_method", "treasury_account_id", "treasury_gl_account_id",
   "counterparty_gl_account_id", "counter_treasury_account_id", "counter_treasury_gl_account_id",
   "customer_id", "supplier_id", "reference_no", "cost_center_id", "project_id", "cost_category",
-  "withholding_amount", "withholding_rate_percent", "withholding_gl_account_id", "held_allocations", "treasury_fx", "created_at", "confirmed_at",
+  "withholding_amount", "withholding_rate_percent", "withholding_gl_account_id", "commission_amount", "commission_gl_account_id", "held_allocations", "treasury_fx", "created_at", "confirmed_at",
   "reverses_doc_id", "reversed_by_doc_id", "workflow_request_id", "journal_entry_id",
 ] as const;
 
@@ -369,7 +379,7 @@ const VOUCHER_UPDATE_COLUMNS = [
   "doc_no", "memo", "status", "amount", "fx_rate",
   "counterparty_gl_account_id", "counter_treasury_account_id", "counter_treasury_gl_account_id",
   "customer_id", "supplier_id", "reference_no", "cost_center_id", "project_id", "cost_category",
-  "withholding_amount", "withholding_rate_percent", "withholding_gl_account_id", "held_allocations", "treasury_fx",
+  "withholding_amount", "withholding_rate_percent", "withholding_gl_account_id", "commission_amount", "commission_gl_account_id", "held_allocations", "treasury_fx",
   "confirmed_at", "reverses_doc_id", "reversed_by_doc_id", "workflow_request_id", "journal_entry_id",
 ] as const;
 

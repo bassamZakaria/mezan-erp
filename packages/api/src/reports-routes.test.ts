@@ -316,11 +316,11 @@ const REPORTS: readonly (readonly [string, string])[] = [
   ["/inventory/stock-levels", "inventory.stock.view"],
   ["/inventory/movement", "inventory.stock.view"],
   ["/inventory/ledger", "inventory.stock.view"],
-  ["/inventory/valuation", "inventory.valuation.view"],
+  ["/inventory/valuation", "inventory.valuation.view,inventory.cost.view"],
   ["/inventory/aging", "inventory.stock.view"],
   ["/inventory/expiring", "inventory.stock.view"],
   ["/inventory/slow-moving", "inventory.stock.view"],
-  ["/inventory/drift", "inventory.valuation.view"],
+  ["/inventory/drift", "inventory.valuation.view,inventory.cost.view"],
   ["/aging/customers", "sales.invoice.view"],
   ["/aging/suppliers", "purchases.invoice.view"],
   ["/installments/overview", "installments.plan.view"],
@@ -1190,10 +1190,10 @@ describe("reports routes — D111: the actor's branch scope, and the branchId pa
     }
 
     // 40 × 25.00 in br-1's warehouse, 20 × 25.00 in br-2's.
-    expect(await value(scopedReq("/inventory/valuation", "inventory.valuation.view"))).toBe(1500);
-    expect(await value(scopedReq("/inventory/valuation", "inventory.valuation.view", "br-1"))).toBe(1000);
-    expect(await value(scopedReq("/inventory/valuation?branchId=br-2", "inventory.valuation.view"))).toBe(500);
-    expect(await value(scopedReq("/inventory/valuation?branchId=br-2", "inventory.valuation.view", "br-1"))).toBe(0);
+    expect(await value(scopedReq("/inventory/valuation", "inventory.valuation.view,inventory.cost.view"))).toBe(1500);
+    expect(await value(scopedReq("/inventory/valuation", "inventory.valuation.view,inventory.cost.view", "br-1"))).toBe(1000);
+    expect(await value(scopedReq("/inventory/valuation?branchId=br-2", "inventory.valuation.view,inventory.cost.view"))).toBe(500);
+    expect(await value(scopedReq("/inventory/valuation?branchId=br-2", "inventory.valuation.view,inventory.cost.view", "br-1"))).toBe(0);
   });
 
   it("/inventory/stock-levels and /inventory/movement narrow to the branch's warehouses too", async () => {
@@ -1343,7 +1343,7 @@ describe("reports routes — D112: the reconciliation banner renders in the runn
       ],
     });
 
-    const agreed = (await (await app.fetch(req("/inventory/valuation", "inventory.valuation.view"))).json()) as {
+    const agreed = (await (await app.fetch(req("/inventory/valuation", "inventory.valuation.view,inventory.cost.view"))).json()) as {
       reconciliation: { reportTotal: number; referenceTotal: number; diff: number; withinTolerance: boolean } | null;
     };
     expect(agreed.reconciliation).not.toBeNull();
@@ -1365,7 +1365,7 @@ describe("reports routes — D112: the reconciliation banner renders in the runn
         { accountId: "1200", debit: Money.zero(), credit: Money.fromMajor("250.00") },
       ],
     });
-    const diverged = (await (await app.fetch(req("/inventory/valuation", "inventory.valuation.view"))).json()) as {
+    const diverged = (await (await app.fetch(req("/inventory/valuation", "inventory.valuation.view,inventory.cost.view"))).json()) as {
       reconciliation: { reportTotal: number; referenceTotal: number; diff: number; withinTolerance: boolean };
     };
     expect(diverged.reconciliation.referenceTotal).toBe(750);
@@ -1499,7 +1499,7 @@ describe("reports routes — manufacturing/make-vs-buy", () => {
     );
 
     const app = createReportsRoutes({ ...deps, boms: fakeBomRepository([makeBom()]) }, insecureHeaderAuthContextResolver);
-    const res = await app.fetch(req("/manufacturing/make-vs-buy", "manufacturing.bom.view"));
+    const res = await app.fetch(req("/manufacturing/make-vs-buy", "manufacturing.bom.view,inventory.cost.view"));
     expect(res.status).toBe(200);
     const body = (await res.json()) as { rows: { itemId: string; makeCost: number; buyCost: number; diff: number; verdict: string }[] };
     expect(body.rows).toHaveLength(1);
@@ -1513,7 +1513,7 @@ describe("reports routes — manufacturing/make-vs-buy", () => {
 
   it("is not mounted at all when no boms port is wired", async () => {
     const { app } = await newApp();
-    const res = await app.fetch(req("/manufacturing/make-vs-buy", "manufacturing.bom.view"));
+    const res = await app.fetch(req("/manufacturing/make-vs-buy", "manufacturing.bom.view,inventory.cost.view"));
     expect(res.status).toBe(404);
   });
 });
@@ -2019,7 +2019,7 @@ describe("reports routes — drill-down/item/:id", () => {
       lines: [{ itemId: "item-dd", qty: Qty.fromMajor("40"), unitCost: Money.fromMajor("25.00") }],
     });
 
-    const res = await app.fetch(req("/drill-down/item/item-dd", "inventory.item.view"));
+    const res = await app.fetch(req("/drill-down/item/item-dd", "inventory.item.view,inventory.cost.view"));
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       titleAr: string;
@@ -2195,19 +2195,19 @@ describe("a customer, supplier or item drill-down reconciles to the row it opene
         lines: [{ itemId: "item-286", qty: Qty.fromMajor(qty), unitCost: Money.fromMajor("25.00") }],
       });
     }
-    const row = await rowOf(app, "/inventory/valuation?warehouseId=wh-1&search=&branchId=", "inventory.valuation.view", "itemId", "item-286");
-    const panel = await json(await app.fetch(req("/drill-down/item/item-286?warehouseId=wh-1", "inventory.item.view")));
+    const row = await rowOf(app, "/inventory/valuation?warehouseId=wh-1&search=&branchId=", "inventory.valuation.view,inventory.cost.view", "itemId", "item-286");
+    const panel = await json(await app.fetch(req("/drill-down/item/item-286?warehouseId=wh-1", "inventory.item.view,inventory.cost.view")));
     expect(Number(row?.totalValue).toFixed(2)).toBe("1000.00");
     expect(fact(panel, "value")).toBe("1000.00");
     expect(fact(panel, "onHand")).toBe("40");
     expect(fact(panel, "warehouseCount")).toBe("1");
     expect(panel.documentCount).toBe(1);
-    const both = await json(await app.fetch(req("/drill-down/item/item-286", "inventory.item.view")));
+    const both = await json(await app.fetch(req("/drill-down/item/item-286", "inventory.item.view,inventory.cost.view")));
     expect(fact(both, "value")).toBe("1250.00");
     const scoped = await json(
       await app.fetch(
         new Request("http://local/drill-down/item/item-286", {
-          headers: { "x-permissions": "inventory.item.view", "x-warehouse-scope": "wh-2" },
+          headers: { "x-permissions": "inventory.item.view,inventory.cost.view", "x-warehouse-scope": "wh-2" },
         }),
       ),
     );
@@ -2219,7 +2219,7 @@ describe("a customer, supplier or item drill-down reconciles to the row it opene
     for (const [path, permission] of [
       ["/drill-down/customer/cust-286", "sales.customer.view"],
       ["/drill-down/supplier/sup-286", "purchases.supplier.view"],
-      ["/drill-down/item/item-286", "inventory.item.view"],
+      ["/drill-down/item/item-286", "inventory.item.view,inventory.cost.view"],
     ] as const) {
       expect((await app.fetch(req(`${path}?asOfDate=22-08-2026`, permission))).status).toBe(400);
       expect((await app.fetch(req(`${path}?fromDate=2026-08-22&asOfDate=2026-08-01`, permission))).status).toBe(400);
@@ -2541,21 +2541,21 @@ describe("reports routes — /inventory/stock-levels/summary", () => {
   }
 
   it("agrees with the full report for an unscoped caller", async () => {
-    const { full, summary } = await both(() => req("/", "inventory.stock.view"));
+    const { full, summary } = await both(() => req("/", "inventory.stock.view,inventory.cost.view"));
     expectAgreement(full, summary);
     expect(summary).toMatchObject({ totalValue: "1500.000000", needsAttentionCount: 1, lowCount: 0, firstLow: null });
     expect(summary.attention.map((r) => r.itemId)).toEqual(["item-out"]);
   });
 
   it("narrows to the caller's branch exactly as the report does", async () => {
-    const { full, summary } = await both(() => scopedReq("/", "inventory.stock.view", "br-1"));
+    const { full, summary } = await both(() => scopedReq("/", "inventory.stock.view,inventory.cost.view", "br-1"));
     expectAgreement(full, summary);
     expect(summary).toMatchObject({ totalValue: "1000.000000", needsAttentionCount: 2, lowCount: 1 });
     expect(summary.firstLow).toMatchObject({ itemId: "item-1", itemNameEn: "Branch item", onHand: "40.000000" });
   });
 
   it("honours the report's own parameters", async () => {
-    const { full, summary } = await both(() => req("/", "inventory.stock.view"), "?warehouseId=wh-2");
+    const { full, summary } = await both(() => req("/", "inventory.stock.view,inventory.cost.view"), "?warehouseId=wh-2");
     expectAgreement(full, summary);
     expect(summary.totalValue).toBe("500.000000");
   });
@@ -2587,8 +2587,8 @@ describe("reports routes — paging (pageSize/page)", () => {
 
   it("cuts only the rows; totals, KPIs and the chart stay over the whole result", async () => {
     const { app } = await sevenItems();
-    const full = (await (await app.fetch(req("/inventory/stock-levels", "inventory.stock.view"))).json()) as Body;
-    const res = await app.fetch(req("/inventory/stock-levels?page=2&pageSize=3", "inventory.stock.view"));
+    const full = (await (await app.fetch(req("/inventory/stock-levels", "inventory.stock.view,inventory.cost.view"))).json()) as Body;
+    const res = await app.fetch(req("/inventory/stock-levels?page=2&pageSize=3", "inventory.stock.view,inventory.cost.view"));
     expect(res.status).toBe(200);
     const paged = (await res.json()) as Body;
 

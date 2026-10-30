@@ -60,7 +60,7 @@ beforeAll(async () => {
     callerFor(
       await handle.sessions.issue({
         userId,
-        permissions: ["inventory.item.view", "inventory.item.create", "inventory.item.edit", "sales.invoice.create", "sales.invoice.confirm", "sales.invoice.view", "sales.quote.create", "sales.quote.view", "sales.customer.create", "sales.customer.view"],
+        permissions: ["inventory.item.view", "inventory.cost.view", "inventory.item.create", "inventory.item.edit", "sales.invoice.create", "sales.invoice.confirm", "sales.invoice.view", "sales.quote.create", "sales.quote.view", "sales.customer.create", "sales.customer.view"],
         roleCode: null,
         branchScope,
         warehouseScope: ALL_SCOPE,

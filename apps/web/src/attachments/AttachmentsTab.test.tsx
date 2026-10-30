@@ -6,6 +6,7 @@ import type { AttachmentDTO } from "@mezan/contracts";
 import { AttachmentsTab } from "./AttachmentsTab";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
 import type { Session } from "../data/session";
+import type { Transport } from "../data/transport";
 
 const readOnlySession: Session = {
   ...testAdminSession,
@@ -37,10 +38,13 @@ function renderTab(
     onDelete?: (id: string) => { status?: number; body: unknown } | undefined;
     deleteRequests?: string[];
     onDownload?: (id: string) => { status?: number; body: unknown };
+    features?: Record<string, boolean>;
+    entitlementsPending?: boolean;
   } = {},
 ) {
   let current = [...rows];
-  const transport = stubTransport({
+  const stubbed = stubTransport({
+    "GET /entitlements": () => ({ body: { plan: "enterprise", activeModules: ["inventory"], features: opts.features ?? {}, seats: 25, expiresAt: null } }),
     "GET /attachments": () => ({ body: current }),
     "POST /attachments": (init) => {
       const body = JSON.parse((init?.body as string) ?? "{}");
@@ -72,6 +76,8 @@ function renderTab(
       return { body: { ...row, contentBase64: btoa("hello world") } };
     },
   });
+  const transport: Transport = (path, init) =>
+    opts.entitlementsPending && path.startsWith("/entitlements") ? new Promise(() => undefined) : stubbed(path, init);
   const result = renderWithProviders(<AttachmentsTab entityType="item" entityId="ITEM-1" />, {
     transport,
     initialSession: opts.session ?? testAdminSession,
@@ -254,5 +260,46 @@ describe("AttachmentsTab", () => {
     fireEvent.click(screen.getByRole("button", { name: "إعادة المحاولة" }));
     await screen.findByText("لا توجد مرفقات");
     expect(calls).toBeGreaterThan(callsBeforeRetry);
+  });
+});
+
+describe("AttachmentsTab — #125 separate attachment permissions in the top edition", () => {
+  const SEPARATE = { "attachments.separate_permissions": true };
+  const editor = (permissions: string[]): Session => ({ ...readOnlySession, permissions });
+
+  it("below the top edition the item's edit right still offers upload and delete", async () => {
+    renderTab([attachment()], { session: editor(["inventory.item.view", "inventory.item.edit"]) });
+    expect(await screen.findByText("invoice-scan.pdf")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "إرفاق ملف" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /حذف/ })).toBeInTheDocument();
+  });
+
+  it("offers neither upload nor delete until the edition is known, so the top edition never flashes them", async () => {
+    renderTab([attachment()], { session: editor(["inventory.item.view", "inventory.item.edit"]), entitlementsPending: true });
+    expect(await screen.findByText("invoice-scan.pdf")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "إرفاق ملف" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /حذف/ })).not.toBeInTheDocument();
+  });
+
+  it("in the top edition the edit right alone offers neither upload nor delete", async () => {
+    renderTab([attachment()], { session: editor(["inventory.item.view", "inventory.item.edit", "admin.attachment.view"]), features: SEPARATE });
+    expect(await screen.findByText("invoice-scan.pdf")).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole("button", { name: "إرفاق ملف" })).not.toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: /حذف/ })).not.toBeInTheDocument();
+  });
+
+  it("in the top edition upload and delete follow their own rights", async () => {
+    renderTab([attachment()], {
+      session: editor(["inventory.item.view", "inventory.item.edit", "admin.attachment.view", "admin.attachment.upload"]),
+      features: SEPARATE,
+    });
+    expect(await screen.findByText("invoice-scan.pdf")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "إرفاق ملف" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /حذف/ })).not.toBeInTheDocument();
+  });
+
+  it("in the top edition a user without the view right is told so, not shown a load error", async () => {
+    renderTab([attachment()], { session: editor(["inventory.item.view"]), features: SEPARATE });
+    expect(await screen.findByText(/لا تملك صلاحية «عرض — المرفقات»/)).toBeInTheDocument();
   });
 });

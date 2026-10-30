@@ -2,6 +2,7 @@ import type { Context, MiddlewareHandler } from "hono";
 import {
   ALL_SCOPE,
   can,
+  CostPermission,
   createAuthContext,
   entitlementModuleOf,
   getPermission,
@@ -367,6 +368,31 @@ export function createAnyPermissionGate(resolveAuthContext: AuthContextResolver,
 /** Reads the {@link AuthContext} a `createPermissionGate` middleware stashed on the request. */
 export function getAuthContext(c: Context): AuthContext | undefined {
   return c.get(AUTH_CONTEXT_KEY) as AuthContext | undefined;
+}
+
+export function maySeeItemCost(c: Context): boolean {
+  if (moduleRefusalFor(c, CostPermission.Item)) return false;
+  const ctx = getAuthContext(c);
+  return ctx ? can(ctx, CostPermission.Item) : false;
+}
+
+function omitKeysDeep(value: unknown, keys: ReadonlySet<string>): unknown {
+  if (Array.isArray(value)) return value.map((entry) => omitKeysDeep(entry, keys));
+  if (value === null || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([key]) => !keys.has(key))
+      .map(([key, entry]) => [key, omitKeysDeep(entry, keys)]),
+  );
+}
+
+/** `keys` must name only cost fields of THIS payload: a key is removed at every depth. */
+export function omitUnless<T>(allowed: boolean, payload: T, keys: readonly string[]): T {
+  return allowed ? payload : (omitKeysDeep(payload, new Set(keys)) as T);
+}
+
+export function withItemCost<T>(c: Context, payload: T, keys: readonly string[]): T {
+  return omitUnless(maySeeItemCost(c), payload, keys);
 }
 
 /**

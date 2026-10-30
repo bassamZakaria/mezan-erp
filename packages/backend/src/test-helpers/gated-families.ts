@@ -107,7 +107,7 @@ export function gatedFamilies(kitOf: () => BackendKit): readonly GatedFamily[] {
     },
     {
       actionType: "INVENTORY_ADJUSTMENT_CONFIRM",
-      inboxLabel: /^تسوية مخزون بقيمة 210\.00 ج\.م — \S/,
+      inboxLabel: /^تسوية مخزون — \S/,
       mount: "/inventory/stock-adjustments",
       auditEntity: "STOCK_ADJUSTMENT",
       submitter: ["inventory.adjustment.create", "inventory.adjustment.confirm", "inventory.adjustment.view"],

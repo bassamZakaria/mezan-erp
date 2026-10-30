@@ -74,7 +74,7 @@ export function createInventoryLedgerReport(): ReportDefinition<
       { key: "itemNameAr", header: "الصنف", format: "text", value: (row) => row.itemNameAr },
       { key: "warehouseName", header: "المستودع", format: "text", value: (row) => row.warehouseName },
       { key: "movementQty", header: "الحركة", format: "qty", align: "end", value: (row) => row.movementQty },
-      { key: "unitCost", header: "التكلفة", format: "money", align: "end", value: (row) => row.unitCost },
+      { key: "unitCost", cost: true, header: "التكلفة", format: "money", align: "end", value: (row) => row.unitCost },
       { key: "balance", header: "الرصيد", format: "qty", align: "end", value: (row) => row.balance },
     ],
     kpis: [

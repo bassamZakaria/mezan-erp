@@ -33,6 +33,7 @@ import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useEntityName } from "../lib/entity-names";
 import { todayIso } from "../lib/dates";
 import { EMPTY } from "../lib/empty";
+import { useMaySeeItemCost } from "../data/item-cost";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 
 type Status = ConfigInstanceRecord["status"];
@@ -86,6 +87,7 @@ function InstanceDetail({
   cancelling: boolean;
 }) {
   const { t } = useAppTranslation();
+  const showCost = useMaySeeItemCost();
   const canAct = canActOn(instance.status);
   const actualCost = instance.actualCost !== null ? num(instance.actualCost) : num(instance.estimatedUnitCost) * num(instance.qty);
   const profitMargin = num(instance.sellTotal) - actualCost;
@@ -117,7 +119,7 @@ function InstanceDetail({
         { label: t("common.qty"), value: <span className="mz-num">{instance.qty}</span> },
         { label: t("customOrders.specification"), value: specLabel(instance.spec) },
         { label: t("customOrders.totalSale"), value: <MoneyValue value={num(instance.sellTotal)} /> },
-        { label: t("customOrders.margin"), value: <MoneyValue value={profitMargin} />, valueTone: profitMargin < 0 ? "danger" : "success" },
+        ...(showCost ? [{ label: t("customOrders.margin"), value: <MoneyValue value={profitMargin} />, valueTone: profitMargin < 0 ? ("danger" as const) : ("success" as const) }] : []),
       ]}
       effects={[
         t("customOrders.aLinkedWorkOrderIs"),
@@ -135,7 +137,7 @@ function InstanceDetail({
                     <th className="px-[12px] py-[9px] text-start">{t("common.item")}</th>
                     <th className="px-[12px] py-[9px] text-end">{t("customOrders.quantityPerUnit")}</th>
                     <th className="px-[12px] py-[9px] text-end">{t("customOrders.scrapRate")}</th>
-                    <th className="px-[12px] py-[9px] text-end">{t("common.total")}</th>
+                    {showCost ? <th className="px-[12px] py-[9px] text-end">{t("common.total")}</th> : null}
                   </tr>
                 </thead>
                 <tbody>
@@ -144,7 +146,7 @@ function InstanceDetail({
                       <td className="px-[12px] py-[10px]">{itemName(m.itemId)}</td>
                       <td className="mz-num px-[12px] py-[10px] text-end">{m.qtyPerUnit}</td>
                       <td className="mz-num px-[12px] py-[10px] text-end">{m.wastePercent}%</td>
-                      <td className="px-[12px] py-[10px] text-end"><MoneyValue value={num(m.lineCost)} showUnit={false} /></td>
+                      {showCost ? <td className="px-[12px] py-[10px] text-end"><MoneyValue value={num(m.lineCost)} showUnit={false} /></td> : null}
                     </tr>
                   ))}
                 </tbody>
@@ -152,7 +154,7 @@ function InstanceDetail({
             </div>
           ),
         },
-        {
+        ...(showCost ? [{
           key: "cost",
           label: t("customOrders.actualCost"),
           content: (
@@ -168,7 +170,7 @@ function InstanceDetail({
               <div><dt className="text-ink-muted">{t("customOrders.workOrder")}</dt><dd className="mz-num">{instance.workOrderId}</dd></div>
             </dl>
           ),
-        },
+        }] : []),
       ]}
     />
   );
@@ -176,6 +178,7 @@ function InstanceDetail({
 
 export function ConfigInstancesScreen() {
   const nameOf = useEntityName();
+  const showCost = useMaySeeItemCost();
   const { t } = useAppTranslation();
   const query = useConfigInstances();
   const productsQuery = useConfigurableProducts();
@@ -465,14 +468,22 @@ export function ConfigInstancesScreen() {
                 <div key={i} className="flex items-center justify-between">
                   <span>{itemName(m.itemId)}</span>
                   <span className="mz-num text-ink-muted">
-                    {m.effectiveQtyPerUnit} × <MoneyValue value={num(m.unitCost)} showUnit={false} /> = <MoneyValue value={num(m.lineCost)} showUnit={false} />
+                    {m.effectiveQtyPerUnit}
+                    {showCost ? (
+                      <>
+                        {" × "}
+                        <MoneyValue value={num(m.unitCost)} showUnit={false} /> = <MoneyValue value={num(m.lineCost)} showUnit={false} />
+                      </>
+                    ) : null}
                   </span>
                 </div>
               ))}
-              <div className="flex items-center justify-between border-t border-border pt-[8px] font-semibold">
-                <span>{t("customOrders.unitCost")}</span>
-                <MoneyValue value={num(preview.data.materialCostPerUnit) + num(preview.data.laborCostPerUnit) + num(preview.data.overheadCostPerUnit)} />
-              </div>
+              {showCost ? (
+                <div className="flex items-center justify-between border-t border-border pt-[8px] font-semibold">
+                  <span>{t("customOrders.unitCost")}</span>
+                  <MoneyValue value={num(preview.data.materialCostPerUnit) + num(preview.data.laborCostPerUnit) + num(preview.data.overheadCostPerUnit)} />
+                </div>
+              ) : null}
               {preview.data.unitPrice !== null ? (
                 <div className="flex items-center justify-between font-semibold text-brand">
                   <span>{t("customOrders.suggestedPricePerUnit")}</span>

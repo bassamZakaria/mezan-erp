@@ -18,11 +18,10 @@ import {
   type WacSnapshotRepository,
   ITEM_TYPES,
   itemTypeTracksStock,
-  can,
   matchesSearch } from "@mezan/domain";
 import { createItemSchema, updateItemSchema, pageQuerySchema, DEFAULT_PAGE_SIZE } from "@mezan/contracts";
 import { grantedWarehouseIdsOf, isBranchRestrictedRequest, sharedFieldRefusal } from "./branch-policy.js";
-import { createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
+import { createPermissionGate, maySeeItemCost, type AuthContextResolver } from "./permission-gate.js";
 import { recordFieldChanges } from "./admin-audit.js";
 import { duplicateIdRefusal } from "./duplicate-id.js";
 import { DuplicateRecordIdError, ItemPriceRequiredError, ItemStatusCode, ItemStatusNotSettableError } from "@mezan/domain";
@@ -63,14 +62,14 @@ export const AUDITED_ITEM_FIELDS = [
 /** Wire representation of an item — money as decimal strings, byte-stable. */
 /**
  * The cost price is the one field on an item that the owner asks to be able to
- * hide from staff, so it is gated on `sales.invoice.view_cost` rather than on
+ * hide from staff, so it is gated on `inventory.cost.view` rather than on
  * the item-list permission every clerk holds (D94). It is omitted from the
  * payload, not nulled: a null reads as "this item has no cost".
  */
 const ITEMS_PREFIX = "/items";
 const ITEM_STATUS_CHIPS: ReadonlySet<string> = new Set(Object.values(ItemStatusCode));
 
-function serialize(item: Item, showCost = true) {
+function serialize(item: Item, showCost = false) {
   const cost = showCost ? { costPrice: item.costPrice?.toString() ?? null } : {};
   return {
     id: item.id,
@@ -174,8 +173,8 @@ export function createItemsRouter(
     return recordFieldChanges(audit, c, {
       entity: { module: "inventory", entityType: "ITEM", entityId: item.id },
       action,
-      before: before ? serialize(before) : null,
-      after: serialize(item),
+      before: before ? serialize(before, true) : null,
+      after: serialize(item, true),
       fields: AUDITED_ITEM_FIELDS,
       warnOn: ["salePrice", "costPrice", "taxRatePercent", "costingMethod", "revenueAccountId", "cogsAccountId", "inventoryAccountId", "status"],
       details: { code: item.code, nameAr: item.nameAr },
@@ -321,11 +320,6 @@ export function createItemsRouter(
     return rows;
   }
 
-  const maySeeCost = (c: Context) => {
-    const ctx = getAuthContext(c);
-    return ctx ? can(ctx, "sales.invoice.view_cost") : false;
-  };
-
   function serializeRow(row: ItemRow, showCost: boolean) {
     return {
       ...serialize(row.item, showCost),
@@ -337,13 +331,13 @@ export function createItemsRouter(
   app.get("/", gate("inventory.item.view"), async (c) => {
     const filter = parseItemListQuery(c);
     const rows = await listFilteredItems(c, filter);
-    const showCost = maySeeCost(c);
+    const showCost = maySeeItemCost(c);
     // The chip states (low_stock/out_of_stock) are computed from the stock
     // snapshot, not stored, so the page is cut after them. The counts route
     // still reports the whole filtered set.
     const offset = (filter.page - 1) * filter.pageSize;
     return c.json(
-      orderRows(rows, filter)
+      orderRows(rows, showCost || filter.sort !== "costPrice" ? filter : { ...filter, sort: "code" })
         .slice(offset, offset + filter.pageSize)
         .map((row) => serializeRow(row, showCost)),
     );
@@ -405,7 +399,7 @@ export function createItemsRouter(
     // The catalogue addresses an item by its code (`/items/items/ITM-000054`).
     const item = (await repo.findById(key)) ?? (await repo.list()).find((row) => row.code === key) ?? null;
     if (!item) return c.json({ error: "NOT_FOUND" }, 404);
-    const showCost = maySeeCost(c);
+    const showCost = maySeeItemCost(c);
     if (!snapshots) return c.json({ ...serialize(item, showCost), stock: null });
     const positions = (await snapshots.list()).filter((s) => s.itemId === item.id);
     return c.json({
@@ -415,7 +409,7 @@ export function createItemsRouter(
         byWarehouse: positions.map((p) => ({
           warehouseId: p.warehouseId,
           onHand: p.onHand.toString(),
-          totalValue: p.totalValue.toString(),
+          ...(showCost ? { totalValue: p.totalValue.toString() } : {}),
         })),
       },
     });
@@ -426,24 +420,26 @@ export function createItemsRouter(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
-    const restrictedOnCreate = sharedFieldRefusal(c, ITEMS_PREFIX, null, parsed.data);
+    const showCost = maySeeItemCost(c);
+    const data = showCost ? parsed.data : { ...parsed.data, costPrice: undefined };
+    const restrictedOnCreate = sharedFieldRefusal(c, ITEMS_PREFIX, null, data);
     if (restrictedOnCreate) return restrictedOnCreate;
     try {
       const tenant = settings ? ((await settings.get()) ?? createDefaultSettings()) : null;
       const item = await createItem(
         {
-          ...parsed.data,
+          ...data,
           awaitsPricing: isBranchRestrictedRequest(c),
-          alternateUnits: toAlternateUnits(parsed.data.alternateUnits),
-          salePrice: toMoney(parsed.data.salePrice),
-          costPrice: toMoney(parsed.data.costPrice),
+          alternateUnits: toAlternateUnits(data.alternateUnits),
+          salePrice: toMoney(data.salePrice),
+          costPrice: toMoney(data.costPrice),
           taxRatePercent:
-            parsed.data.taxRatePercent ?? (tenant ? (tenant.taxEnabled ? tenant.defaultTaxRate : 0) : undefined),
+            data.taxRatePercent ?? (tenant ? (tenant.taxEnabled ? tenant.defaultTaxRate : 0) : undefined),
         },
         repo,
       );
       await record(c, item, AuditChangeAction.Create);
-      return c.json(serialize(item), 201);
+      return c.json(serialize(item, showCost), 201);
     } catch (err) {
       return handleDomainError(c, err);
     }
@@ -454,22 +450,24 @@ export function createItemsRouter(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+    const showCost = maySeeItemCost(c);
+    const data = showCost ? parsed.data : { ...parsed.data, costPrice: undefined };
     try {
       const before = await repo.findById(c.req.param("id"));
-      const restricted = before ? sharedFieldRefusal(c, ITEMS_PREFIX, serialize(before), parsed.data) : null;
+      const restricted = before ? sharedFieldRefusal(c, ITEMS_PREFIX, serialize(before, true), data) : null;
       if (restricted) return restricted;
       const item = await updateItem(
         c.req.param("id"),
         {
-          ...parsed.data,
-          alternateUnits: toAlternateUnits(parsed.data.alternateUnits),
-          salePrice: toMoney(parsed.data.salePrice),
-          costPrice: toMoney(parsed.data.costPrice),
+          ...data,
+          alternateUnits: toAlternateUnits(data.alternateUnits),
+          salePrice: toMoney(data.salePrice),
+          costPrice: toMoney(data.costPrice),
         },
         repo,
       );
       await record(c, item, AuditChangeAction.Update, before ?? undefined);
-      return c.json(serialize(item));
+      return c.json(serialize(item, showCost));
     } catch (err) {
       return handleDomainError(c, err);
     }

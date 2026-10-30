@@ -37,7 +37,7 @@ import {
   issueCustodySchema,
   returnCustodySchema,
 } from "@mezan/contracts";
-import { callerUserId, createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
+import { callerUserId, createPermissionGate, withItemCost, type AuthContextResolver } from "./permission-gate.js";
 import { duplicateIdRefusal } from "./duplicate-id.js";
 import { DuplicateRecordIdError } from "@mezan/domain";
 
@@ -103,6 +103,12 @@ function serializeConsumption(consumption: MaterialConsumption) {
     createdAt: consumption.createdAt,
     confirmedAt: consumption.confirmedAt,
   };
+}
+
+const CONSUMPTION_COST_KEYS = ["totalCost"] as const;
+
+function consumptionView(c: Context, consumption: MaterialConsumption) {
+  return withItemCost(c, serializeConsumption(consumption), CONSUMPTION_COST_KEYS);
 }
 
 function serializeCustody(item: CustodyItem) {
@@ -333,13 +339,13 @@ export function createContractingSiteRoutes(
       ...(warehouseId ? { warehouseId } : {}),
       ...(subcontractId ? { subcontractId } : {}),
     });
-    return c.json(consumptions.map(serializeConsumption));
+    return c.json(consumptions.map((consumption) => consumptionView(c, consumption)));
   });
 
   app.get("/consumptions/:id", gate("inventory.adjustment.view"), async (c) => {
     const consumption = await service.getConsumption(c.req.param("id"));
     if (!consumption) return c.json({ error: "NOT_FOUND" }, 404);
-    return c.json(serializeConsumption(consumption));
+    return c.json(consumptionView(c, consumption));
   });
 
   app.post("/consumptions", gate("inventory.adjustment.create"), async (c) => {
@@ -355,7 +361,7 @@ export function createContractingSiteRoutes(
         notes: parsed.data.notes ?? null,
         lines: parsed.data.lines.map((l) => ({ itemId: l.itemId, qty: Qty.fromMajor(l.qty) })),
       });
-      return c.json(serializeConsumption(consumption), 201);
+      return c.json(consumptionView(c, consumption), 201);
     } catch (err) {
       return handleDomainError(c, err);
     }
@@ -363,7 +369,7 @@ export function createContractingSiteRoutes(
 
   app.post("/consumptions/:id/confirm", gate("inventory.adjustment.confirm"), async (c) => {
     try {
-      return c.json(serializeConsumption(await service.confirmConsumption(c.req.param("id"), callerUserId(c))));
+      return c.json(consumptionView(c, await service.confirmConsumption(c.req.param("id"), callerUserId(c))));
     } catch (err) {
       return handleDomainError(c, err);
     }
@@ -376,7 +382,7 @@ export function createContractingSiteRoutes(
       const { date, memo } = await readReversalRequest(c);
       await noteReversalOriginalDay(c, (await service.getConsumption(c.req.param("id")))?.date);
       const consumption = await service.reverseConsumption(c.req.param("id"), { reversalId: randomUUID(), date, memo, actor: callerUserId(c) ?? null });
-      return c.json(serializeConsumption(consumption));
+      return c.json(consumptionView(c, consumption));
     } catch (err) {
       return handleDomainError(c, err);
     }
@@ -489,7 +495,7 @@ export function createContractingSiteRoutes(
     const projectId = c.req.query("projectId");
     if (!projectId) return c.json({ error: "VALIDATION_ERROR", message: "projectId مطلوب" }, 400);
     const rows = await service.consumptionByBoqLine(projectId);
-    return c.json(rows.map(serializeConsumptionByBoqLine));
+    return c.json(withItemCost(c, rows.map(serializeConsumptionByBoqLine), ["cost"]));
   });
 
   app.get("/equipment-hours", gate("projects.project.view"), async (c) => {

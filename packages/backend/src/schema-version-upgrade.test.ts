@@ -50,7 +50,7 @@ describe("upgrade — books written at an earlier schema version", () => {
     expect(columnsOf(dbPath, "journal_line")).toContain("treasury_account_id");
     expect(columnsOf(dbPath, "approval_request")).toEqual(expect.arrayContaining(["document_id", "document_branch_id", "document_fingerprint"]));
     expect(rowsOf(dbPath, "SELECT id AS v FROM upgrade_step")).toEqual([UpgradeStepId.ApprovalFingerprint, UpgradeStepId.SeededRoleDutySplit, UpgradeStepId.SeededRoleGoodsReceiving, UpgradeStepId.SeededRolePriceFloor, UpgradeStepId.SeededRoleReconciliationSplit].sort());
-    expect(rowsOf(dbPath, "SELECT name AS v FROM permission_grant_marker")).toEqual(["reversal_permissions", "voucher_reversal_permission"]);
+    expect(rowsOf(dbPath, "SELECT name AS v FROM permission_grant_marker")).toEqual(["attachment_permissions", "reversal_permissions", "voucher_reversal_permission"]);
     const reopened = openSqliteConnection(dbPath).sqlite;
     expect(readSchemaVersion(reopened)).toBe(CURRENT_SCHEMA_VERSION);
     reopened.close();

@@ -18,6 +18,7 @@ export {
   VanTripCrewRole,
   VanTripCashMovementKind,
   VanReconciliationStepKind,
+  VAN_STOCK_STEP_KINDS,
   VanReconciliationStepState,
 } from "./van-trip.js";
 

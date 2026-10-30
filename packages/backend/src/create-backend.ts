@@ -1,4 +1,5 @@
 import { OWNER_DIGEST_EVENT, ReversalDocumentType, reversalPermissionSuccessors } from "@mezan/contracts";
+import { attachmentPermissionSuccessors } from "@mezan/domain";
 import { createHash, randomUUID } from "node:crypto";
 import { OwnerPinResetOutcome } from "./owner-pin-reset-outcome.js";
 import { createLeaveAccrualJob, startScheduledJobs, type ScheduledJobResult, type ScheduledJobStatus } from "./scheduled-jobs.js";
@@ -1115,6 +1116,7 @@ export interface CreateBackendOptions {
 const CERTIFICATE_AR_ACCOUNT_ID = "1105";
 
 const REVERSAL_PERMISSIONS_GRANT = "reversal_permissions";
+const ATTACHMENT_PERMISSIONS_GRANT = "attachment_permissions";
 const VOUCHER_REVERSAL_PERMISSION_GRANT = "voucher_reversal_permission";
 
 enum BackendPass {
@@ -1219,6 +1221,7 @@ async function composeBackend(options: CreateBackendOptions, db: SqlDb, sqlite: 
   await grantSuccessorPermissionsOnce(db, REVERSAL_PERMISSIONS_GRANT, reversalPermissionSuccessors());
   // INVARIANT: a marker of its own — books that already hold the marker above were upgraded before the voucher route joined the registry and would never be given its permission.
   await grantSuccessorPermissionsOnce(db, VOUCHER_REVERSAL_PERMISSION_GRANT, reversalPermissionSuccessors([ReversalDocumentType.Voucher]));
+  await grantSuccessorPermissionsOnce(db, ATTACHMENT_PERMISSIONS_GRANT, attachmentPermissionSuccessors());
   const settings: SettingsRepository = sqlite ? createSqliteSettingsStore(sqlite, options.secrets) : await createSettingsStore(db, options.secrets);
   const vatFilings = store((s) => createSqliteVatFilingStore(s), (d) => createVatFilingStore(d));
   const simplifiedRegime = store((s) => createSqliteSimplifiedRegimeStore(s), (d) => createSimplifiedRegimeStore(d));
@@ -2774,10 +2777,8 @@ async function composeBackend(options: CreateBackendOptions, db: SqlDb, sqlite: 
   );
   const stockAdjustments = new DocumentService<StockAdjustmentDocLine>(stockAdjustmentDocumentType, {
     repo: inventoryOps.stockAdjustments,
-    approvalLabel: async (doc) => {
-      const stated = doc.lines.every((line) => line.unitCost) ? Money.sum(doc.lines.map((line) => extendQtyByPrice(line.qty, line.unitCost as Money))) : null;
-      return approvalLabel({ type: "تسوية مخزون", amount: stated, party: await warehouseNameOf(doc.lines[0]?.warehouseId) });
-    },
+    // SECURITY: the inbox label is read without inventory.cost.view, so it never carries the adjustment's value at item cost (#119).
+    approvalLabel: async (doc) => approvalLabel({ type: "تسوية مخزون", party: await warehouseNameOf(doc.lines[0]?.warehouseId) }),
     numbering: { next: (opts) => ledger.numbering.next("STOCK_ADJUSTMENT", { branchId: opts?.branchId }) },
     stock: inventoryOpsStockHook,
     workflow: documentWorkflowGate,
@@ -4574,6 +4575,8 @@ async function composeBackend(options: CreateBackendOptions, db: SqlDb, sqlite: 
         counterpartyGlAccountId: "1105",
         customerId: input.customerId,
         referenceNo: input.referenceNo ?? null,
+        commissionAmount: input.commissionAmount ?? null,
+        commissionGlAccountId: input.commissionGlAccountId ?? null,
       },
       [{ allocationId: `${voucherId}:A1`, invoiceId: input.invoiceId, amount: input.amount }],
     );

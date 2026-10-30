@@ -366,6 +366,7 @@ export function VoucherPrintPage({ voucher, partyName }: { voucher: VoucherDTO; 
     const receipt = voucher.direction === "receipt";
     const amount = scaledOf(voucher.amount);
     const withheld = scaledOf(voucher.withholdingAmount);
+    const commission = scaledOf(voucher.commissionAmount ?? null);
     const rows: LedgerPrintRowInput[] = [
       {
         key: "amount",
@@ -386,6 +387,16 @@ export function VoucherPrintPage({ voucher, partyName }: { voucher: VoucherDTO; 
         label: t("print.ledger.netMovement"),
         debit: receipt ? 0n : withheld,
         credit: receipt ? withheld : 0n,
+      });
+    }
+    if (commission > 0n) {
+      rows.push({
+        key: "commission",
+        date: voucher.date,
+        reference: "",
+        label: t("vouchers.commission"),
+        debit: 0n,
+        credit: commission,
       });
     }
     return ledgerPrintModel({

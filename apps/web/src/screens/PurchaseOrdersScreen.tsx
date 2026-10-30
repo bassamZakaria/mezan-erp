@@ -51,7 +51,7 @@ const STATUS_TONE: Record<PurchaseOrderStatusDTO, PillTone> = {
 
 const num = (v: string) => Number(v);
 const lineTotal = (l: PurchaseOrderLineDTO) => Number(l.qty) * Number(l.unitPrice);
-const outstandingQty = (l: PurchaseOrderLineDTO) => Number(l.qty) - Number(l.receivedQty);
+const outstandingQty = (l: PurchaseOrderLineDTO) => Math.max(Number(l.qty) - Number(l.receivedQty), 0);
 
 interface DraftLine {
   itemId: string;

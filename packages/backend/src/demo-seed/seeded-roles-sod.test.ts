@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { correctedSeededRolePermissions, detectSodConflicts, getPermission, resolvePermissions, SEEDED_ROLE_CODES, SeededRoleSplit, WILDCARD_PERMISSION } from "@mezan/domain";
+import { correctedSeededRolePermissions, CostPermission, detectSodConflicts, getPermission, resolvePermissions, SEEDED_ROLE_CODES, SeededRoleSplit, WILDCARD_PERMISSION } from "@mezan/domain";
 import { seededRoles } from "./access.js";
 import type { SeedLicensing } from "./fragment-registry.js";
 
@@ -64,5 +64,17 @@ describe("seeded roles — the upgrade correction and the seed agree", () => {
   it.each(roles.map((role) => [role.code, role.permissions] as const))("%s is a known seeded code the correction leaves as the seed writes it", (code, permissions) => {
     expect(SEEDED_ROLE_CODES).toContain(code);
     for (const split of Object.values(SeededRoleSplit)) expect(correctedSeededRolePermissions(code, permissions, undefined, split), split).toBeNull();
+  });
+});
+
+describe("seeded roles — item cost (#119)", () => {
+  const COST_HOLDERS = ["FINANCE_MANAGER", "AUDITOR"];
+
+  it.each(roles.map((role) => [role.code] as const))("%s holds inventory.cost.view only if it is a finance manager or an auditor", (code) => {
+    expect(grantsOf(code).has(CostPermission.Item)).toBe(COST_HOLDERS.includes(code));
+  });
+
+  it("names roles the seed still carries", () => {
+    expect(roles.map((role) => role.code)).toEqual(expect.arrayContaining(COST_HOLDERS));
   });
 });

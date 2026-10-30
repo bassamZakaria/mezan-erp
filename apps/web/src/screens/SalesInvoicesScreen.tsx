@@ -21,6 +21,7 @@ import {
   modKeyLabel,
   Money as MoneyDisplay,
   MoneyInput,
+  MoneyStringInput,
   type PillTone,
   Qty as QtyDisplay,
   QtyInput,
@@ -33,15 +34,16 @@ import {
   useFormat,
   ConfirmDialog,
 } from "@mezan/ui";
-import { Money, Qty, computeInvoiceTotals, resolveUnitFactor, toBaseQty, SALES_INVOICE_STATUS_LABELS_AR, ETA_RECEIPT_PAYMENT_METHODS, type EtaReceiptPaymentMethod, type SalesInvoiceLine, type SalesInvoiceDiscount, type SalesInvoiceDiscountType, type SalesInvoiceLineDiscountType, findCurrency, convertToBase, extend, SALES_INVOICE_ACTIVE_STATUSES, ArabicCase, CountedNoun, ScreenRequest } from "@mezan/domain";
+import { Money, Qty, computeInvoiceTotals, resolveUnitFactor, toBaseQty, SALES_INVOICE_STATUS_LABELS_AR, ETA_RECEIPT_PAYMENT_METHODS, type EtaReceiptPaymentMethod, type SalesInvoiceLine, type SalesInvoiceDiscount, type SalesInvoiceDiscountType, type SalesInvoiceLineDiscountType, findCurrency, convertToBase, extend, SALES_INVOICE_ACTIVE_STATUSES, ArabicCase, CountedNoun, ScreenRequest, ShellRequest } from "@mezan/domain";
 import { IdempotencyRefusal, PricingGuardDiscountTypeDTO, PricingGuardDocTypeDTO, type PricingGuardEvaluateRequestDTO } from "@mezan/contracts";
 import { usePricingGuardPreview } from "./enh/pricing-guard/pricing-guard-hooks";
 import { PricingGuardLineStatus, PricingGuardSummary } from "./enh/pricing-guard/PricingGuardLineStatus";
 import type { ItemDTO, ProjectDTO, SalesInvoiceListQueryDTO, SalesInvoiceStatusDTO, TaxRateDTO } from "@mezan/contracts";
 import { SalesInvoicePrintPage } from "../print/SalesInvoicePrintPage";
-import { useAccounts, useBranches, useConfirmSalesInvoice, SalesTaxRecalculationPendingError, useCreateSalesInvoice, useCustomers, useEmployees, useItemsByIds, useProjects, useTenantSettings, useTaxRates, useItemAvailability, useConvertSalesQuoteToInvoice, useEtaSubmissions, useJournalEntry, usePriceLists, useSalesQuotes, useRecordSalesInvoicePayment, useInstallmentPlans, useSalesInvoice, useSalesInvoices, useSalesInvoiceCounts, useSalesInvoiceStats, useVoucherStats, useMayAskScreen, useSalesReturns, useWarehouses, type SalesInvoiceDTO, useTreasuryAccounts, useAllowedCurrencies, ApiError, ClassifiableDocument } from "../data/hooks";
+import { useAccounts, useBranches, useConfirmSalesInvoice, SalesTaxRecalculationPendingError, useCreateSalesInvoice, useCustomers, useEmployees, useEntitlements, useItemsByIds, useProjects, useTenantSettings, useTaxRates, useItemAvailability, useConvertSalesQuoteToInvoice, useEtaSubmissions, useJournalEntry, usePriceLists, useSalesQuotes, useRecordSalesInvoicePayment, useInstallmentPlans, useSalesInvoice, useSalesInvoices, useSalesInvoiceCounts, useSalesInvoiceStats, useVoucherStats, useMayAskScreen, useSalesReturns, useWarehouses, type SalesInvoiceDTO, useTreasuryAccounts, useAllowedCurrencies, ApiError, ClassifiableDocument } from "../data/hooks";
 import { ItemPicker, itemOption, SELLABLE_ITEMS } from "./ItemPicker";
 import { useWorkingLocation } from "../data/hub-hooks";
+import { planServesRequest } from "../data/plan-modules";
 import { useAuditLog } from "../data/platform-hooks";
 import { useEntityName } from "../lib/entity-names";
 import { useUnitLabel } from "../lib/item-labels";
@@ -343,7 +345,8 @@ function CreateInvoicePage({
   const { t, locale } = useAppTranslation();
   const format = useFormat();
   const customersQuery = useCustomers();
-  const employeesQuery = useEmployees();
+  const hrServed = planServesRequest(useEntitlements(), ShellRequest.Employees);
+  const employeesQuery = useEmployees(hrServed);
   const projectsQuery = useProjects();
   const warehousesQuery = useWarehouses();
   const branchesQuery = useBranches();
@@ -419,6 +422,9 @@ function CreateInvoicePage({
   const [methodChosen, setMethodChosen] = useState(false);
   const [sourceQuoteId, setSourceQuoteId] = useState("");
   const [salesperson, setSalesperson] = useState<EntityPickerOption | null>(null);
+  const [salesManager, setSalesManager] = useState<EntityPickerOption | null>(null);
+  const [promotionRep, setPromotionRep] = useState<EntityPickerOption | null>(null);
+  const [promotionManager, setPromotionManager] = useState<EntityPickerOption | null>(null);
   const [project, setProject] = useState<EntityPickerOption | null>(null);
   const [couponCode, setCouponCode] = useState("");
   const [discountType, setDiscountType] = useState<SalesInvoiceDiscountType>("amount");
@@ -442,6 +448,9 @@ function CreateInvoicePage({
     setInternalNotes("");
     setDueDateTouched(false);
     setSalesperson(null);
+    setSalesManager(null);
+    setPromotionRep(null);
+    setPromotionManager(null);
     setProject(null);
     setCouponCode("");
     setDiscountType("amount");
@@ -541,6 +550,10 @@ function CreateInvoicePage({
         })),
     [employees],
   );
+  const managerOptionOf = (rep: EntityPickerOption | null): EntityPickerOption | null => {
+    const managerId = rep ? employees.find((e) => e.id === rep.id)?.managerId : null;
+    return managerId ? (salespersonOptions.find((o) => o.id === managerId) ?? null) : null;
+  };
   const projectOptions = useMemo<EntityPickerOption[]>(
     () =>
       projects
@@ -691,6 +704,9 @@ function CreateInvoicePage({
         branchId: branchId || workingLocation.branchId || "",
         salespersonId: salesperson?.id ?? null,
         salespersonNameAr: salesperson?.label ?? null,
+        salesManagerId: salesManager?.id ?? null,
+        promotionRepId: promotionRep?.id ?? null,
+        promotionManagerId: promotionManager?.id ?? null,
         projectId: project?.id ?? null,
         couponCode: couponCode.trim() === "" ? null : couponCode.trim(),
         currency,
@@ -878,14 +894,48 @@ function CreateInvoicePage({
           />
         </div>
 
-        <EntityPicker
-          id="invoice-salesperson-picker"
-          label={t("salesInvoices.field.salesperson")}
-          value={salesperson}
-          onChange={setSalesperson}
-          options={salespersonOptions}
-          placeholder={t("salesInvoices.field.salespersonPlaceholder")}
-        />
+        {hrServed ? (
+          <>
+            <EntityPicker
+              id="invoice-salesperson-picker"
+              label={t("salesInvoices.field.salesperson")}
+              value={salesperson}
+              onChange={(option) => {
+                setSalesperson(option);
+                setSalesManager(managerOptionOf(option));
+              }}
+              options={salespersonOptions}
+              placeholder={t("salesInvoices.field.salespersonPlaceholder")}
+            />
+            <EntityPicker
+              id="invoice-sales-manager-picker"
+              label={t("salesInvoices.field.salesManager")}
+              value={salesManager}
+              onChange={setSalesManager}
+              options={salespersonOptions}
+              placeholder={t("salesInvoices.field.managerPlaceholder")}
+            />
+            <EntityPicker
+              id="invoice-promotion-rep-picker"
+              label={t("salesInvoices.field.promotionRep")}
+              value={promotionRep}
+              onChange={(option) => {
+                setPromotionRep(option);
+                setPromotionManager(managerOptionOf(option));
+              }}
+              options={salespersonOptions}
+              placeholder={t("salesInvoices.field.salespersonPlaceholder")}
+            />
+            <EntityPicker
+              id="invoice-promotion-manager-picker"
+              label={t("salesInvoices.field.promotionManager")}
+              value={promotionManager}
+              onChange={setPromotionManager}
+              options={salespersonOptions}
+              placeholder={t("salesInvoices.field.managerPlaceholder")}
+            />
+          </>
+        ) : null}
 
         <EntityPicker
           id="invoice-project-picker"
@@ -1338,6 +1388,11 @@ function InvoiceDetailView({
    */
 
   const [paymentAmount, setPaymentAmount] = useState<number | null>(null);
+  const [commissionAmount, setCommissionAmount] = useState("");
+  const [commissionAccountId, setCommissionAccountId] = useState("");
+  const commissionAccountOptions = accounts
+    .filter((a) => a.type === "expense" && !a.isHeader && a.status === "active")
+    .map((a) => ({ value: a.id, label: `${a.code} — ${a.nameAr}` }));
   const [paymentError, setPaymentError] = useState<string | null>(null);
   // A collection lands in a treasury account or it is not a collection: the
   // route creates a real voucher and this is where its money goes (D1).
@@ -1357,6 +1412,7 @@ function InvoiceDetailView({
   }, [treasuryQuery.data, paymentTreasuryId]);
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "bank" | "cheque" | "card" | "wallet">("cash");
   const [payBusy, setPayBusy] = useState(false);
+  const commissionAllowed = paymentMethod !== "cash" && paymentMethod !== "cheque";
 
   const remaining = toMajor(invoice.remainingBalance);
   const overdue = isOverdue(invoice, today);
@@ -1413,6 +1469,7 @@ function InvoiceDetailView({
   };
   const lineCost = (l: { unitCost?: string | null; qty: string }): Money | null =>
     l.unitCost ? extend(Qty.fromMajor(l.qty), Money.fromMajor(l.unitCost)) : null;
+  const marginKnown = invoice.lines.some((l) => "unitCost" in l);
   const margin = (() => {
     let cost = Money.zero();
     let net = Money.zero();
@@ -1445,13 +1502,21 @@ function InvoiceDetailView({
         setPaymentError(t("salesInvoices.error.treasuryRequired"));
         return;
       }
+      const hasCommission = commissionAllowed && commissionAmount !== "" && Money.fromMajor(commissionAmount).scaled > 0n;
+      if (hasCommission && !commissionAccountId) {
+        setPaymentError(t("salesInvoices.error.commissionAccountRequired"));
+        return;
+      }
       await recordPayment.mutateAsync({
         id: invoice.id,
         amount: String(paymentAmount),
         treasuryAccountId: paymentTreasuryId,
         paymentMethod: paymentMethod,
+        ...(hasCommission ? { commissionAmount, commissionGlAccountId: commissionAccountId } : {}),
       });
       setPaymentAmount(null);
+      setCommissionAmount("");
+      setCommissionAccountId("");
     } catch (err) {
       setPaymentError(err instanceof Error ? err.message : t("salesInvoices.error.paymentFailed"));
     } finally {
@@ -1554,6 +1619,9 @@ function InvoiceDetailView({
         { label: t("common.warehouse"), value: warehouses.find((w) => w.id === invoice.warehouseId)?.name ?? invoice.warehouseId },
         { label: t("salesInvoices.detail.branch"), value: branches.find((b) => b.id === invoice.branchId)?.name ?? invoice.branchId },
         { label: t("salesInvoices.detail.salesperson"), value: invoice.salespersonNameAr ?? t("salesInvoices.detail.unassigned") },
+        ...(invoice.salesManagerId ? [{ label: t("salesInvoices.field.salesManager"), value: invoice.salesManagerNameAr ?? invoice.salesManagerId }] : []),
+        ...(invoice.promotionRepId ? [{ label: t("salesInvoices.field.promotionRep"), value: invoice.promotionRepNameAr ?? invoice.promotionRepId }] : []),
+        ...(invoice.promotionManagerId ? [{ label: t("salesInvoices.field.promotionManager"), value: invoice.promotionManagerNameAr ?? invoice.promotionManagerId }] : []),
         ...(invoice.projectId
           ? [{ label: t("common.project"), value: project ? `${project.code} — ${nameOf(project)}` : invoice.projectId }]
           : []),
@@ -1692,18 +1760,22 @@ function InvoiceDetailView({
                       <td className="px-[15px] py-[11px]" colSpan={8}>{t("salesInvoices.grandTotal")}</td>
                       <td className="px-[15px] py-[11px] text-end"><MoneyDisplay currencyLabel={docCurrencyLabel} value={toMajor(invoice.totals.grandTotal)} /></td>
                     </tr>
-                    <tr className="text-ink-muted">
-                      <td className="px-[15px] py-[9px]" colSpan={8}>{t("salesInvoices.detail.totalCost")}</td>
-                      <td className="px-[15px] py-[9px] text-end"><MoneyDisplay currencyLabel={baseLabel} value={margin.cost} /></td>
-                    </tr>
-                    <tr className="text-ink-muted">
-                      <td className="px-[15px] py-[9px]" colSpan={8}>{t("salesInvoices.detail.totalProfit")}</td>
-                      <td className="px-[15px] py-[9px] text-end"><MoneyDisplay currencyLabel={baseLabel} value={margin.profit} /></td>
-                    </tr>
-                    <tr className="text-ink-muted">
-                      <td className="px-[15px] py-[9px]" colSpan={8}>{t("salesInvoices.detail.grossMargin")}</td>
-                      <td className="mz-num px-[15px] py-[9px] text-end">{format.number(Math.round(margin.marginPct * 10) / 10)}%</td>
-                    </tr>
+                    {marginKnown ? (
+                      <>
+                        <tr className="text-ink-muted">
+                          <td className="px-[15px] py-[9px]" colSpan={8}>{t("salesInvoices.detail.totalCost")}</td>
+                          <td className="px-[15px] py-[9px] text-end"><MoneyDisplay currencyLabel={baseLabel} value={margin.cost} /></td>
+                        </tr>
+                        <tr className="text-ink-muted">
+                          <td className="px-[15px] py-[9px]" colSpan={8}>{t("salesInvoices.detail.totalProfit")}</td>
+                          <td className="px-[15px] py-[9px] text-end"><MoneyDisplay currencyLabel={baseLabel} value={margin.profit} /></td>
+                        </tr>
+                        <tr className="text-ink-muted">
+                          <td className="px-[15px] py-[9px]" colSpan={8}>{t("salesInvoices.detail.grossMargin")}</td>
+                          <td className="mz-num px-[15px] py-[9px] text-end">{format.number(Math.round(margin.marginPct * 10) / 10)}%</td>
+                        </tr>
+                      </>
+                    ) : null}
                     {toMajor(invoice.returnedCredit) > 0 ? (
                       <>
                         <tr className="text-danger">
@@ -1833,6 +1905,20 @@ function InvoiceDetailView({
                         { value: "wallet", label: t("vouchers.method.wallet") },
                       ]}
                     />
+                    {commissionAllowed ? (
+                    <div>
+                      <span className="mb-[6px] block text-xs font-semibold text-ink-muted">{t("salesInvoices.payments.commission")}</span>
+                      <MoneyStringInput aria-label={t("salesInvoices.payments.commission")} value={commissionAmount} onChange={setCommissionAmount} />
+                    </div>
+                    ) : null}
+                    {commissionAllowed && commissionAmount !== "" && Money.fromMajor(commissionAmount).scaled > 0n ? (
+                      <SelectField
+                        label={t("salesInvoices.payments.commissionAccount")}
+                        value={commissionAccountId}
+                        onChange={setCommissionAccountId}
+                        options={[{ value: "", label: t("salesInvoices.payments.commissionAccountPlaceholder") }, ...commissionAccountOptions]}
+                      />
+                    ) : null}
                     <p className="text-[11.5px] text-ink-muted">{t("salesInvoices.payments.hint")}</p>
                     <Button variant="primary" disabled={payBusy} onClick={handleRecordPayment}>
                       {t("salesInvoices.payments.submit")}

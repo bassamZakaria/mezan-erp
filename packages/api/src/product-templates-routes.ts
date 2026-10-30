@@ -36,7 +36,7 @@ import {
   addAttributeValueSchema,
   generateVariantsSchema,
 } from "@mezan/contracts";
-import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
+import { createPermissionGate, maySeeItemCost, withItemCost, type AuthContextResolver } from "./permission-gate.js";
 import { duplicateIdRefusal } from "./duplicate-id.js";
 import { DuplicateRecordIdError } from "@mezan/domain";
 
@@ -60,6 +60,8 @@ export interface ProductTemplatesRoutesDeps {
   /** Generates ids when the request omits them. Defaults to `randomUUID`. */
   readonly idGen?: () => string;
 }
+
+const TEMPLATE_COST_KEYS = ["defaultCost"];
 
 function serializeTemplate(template: ProductTemplate) {
   return {
@@ -138,7 +140,7 @@ export function createProductTemplatesRoutes(
 
   app.get("/", gate("inventory.template.view"), async (c) => {
     const templates = await deps.templates.list();
-    return c.json(templates.map(serializeTemplate));
+    return c.json(withItemCost(c, templates.map(serializeTemplate), TEMPLATE_COST_KEYS));
   });
 
   app.post("/", gate("inventory.template.manage"), async (c) => {
@@ -150,11 +152,11 @@ export function createProductTemplatesRoutes(
           id: idGen(),
           ...parsed.data,
           defaultSalePrice: parsed.data.defaultSalePrice != null ? Money.fromMajor(parsed.data.defaultSalePrice) : null,
-          defaultCost: parsed.data.defaultCost != null ? Money.fromMajor(parsed.data.defaultCost) : null,
+          defaultCost: parsed.data.defaultCost != null && maySeeItemCost(c) ? Money.fromMajor(parsed.data.defaultCost) : null,
         },
         deps.templates,
       );
-      return c.json(serializeTemplate(template), 201);
+      return c.json(withItemCost(c, serializeTemplate(template), TEMPLATE_COST_KEYS), 201);
     } catch (err) {
       return handleDomainError(c, err);
     }
@@ -163,7 +165,7 @@ export function createProductTemplatesRoutes(
   app.get("/:id", gate("inventory.template.view"), async (c) => {
     const template = await deps.templates.findById(c.req.param("id"));
     if (!template) return c.json({ error: "PRODUCT_TEMPLATE_NOT_FOUND" }, 404);
-    return c.json(serializeTemplate(template));
+    return c.json(withItemCost(c, serializeTemplate(template), TEMPLATE_COST_KEYS));
   });
 
   app.post("/:id/attributes", gate("inventory.template.manage"), async (c) => {
@@ -192,7 +194,7 @@ export function createProductTemplatesRoutes(
         },
         { templates: deps.templates, variants: deps.variants },
       );
-      return c.json(serializeTemplate(template), 201);
+      return c.json(withItemCost(c, serializeTemplate(template), TEMPLATE_COST_KEYS), 201);
     } catch (err) {
       return handleDomainError(c, err);
     }
@@ -204,7 +206,7 @@ export function createProductTemplatesRoutes(
         { templateId: c.req.param("id"), attributeId: c.req.param("attributeId") },
         { templates: deps.templates, variants: deps.variants },
       );
-      return c.json(serializeTemplate(template));
+      return c.json(withItemCost(c, serializeTemplate(template), TEMPLATE_COST_KEYS));
     } catch (err) {
       return handleDomainError(c, err);
     }
@@ -218,7 +220,7 @@ export function createProductTemplatesRoutes(
         { templateId: c.req.param("id"), attributeId: c.req.param("attributeId"), value: parsed.data.value },
         { templates: deps.templates, variants: deps.variants },
       );
-      return c.json(serializeTemplate(template), 201);
+      return c.json(withItemCost(c, serializeTemplate(template), TEMPLATE_COST_KEYS), 201);
     } catch (err) {
       return handleDomainError(c, err);
     }
@@ -230,7 +232,7 @@ export function createProductTemplatesRoutes(
         { templateId: c.req.param("id"), attributeId: c.req.param("attributeId"), value: decodeURIComponent(c.req.param("value")) },
         { templates: deps.templates, variants: deps.variants },
       );
-      return c.json(serializeTemplate(template));
+      return c.json(withItemCost(c, serializeTemplate(template), TEMPLATE_COST_KEYS));
     } catch (err) {
       return handleDomainError(c, err);
     }

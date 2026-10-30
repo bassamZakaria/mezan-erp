@@ -26,6 +26,7 @@ import {
   type VanTripActivityPort,
   type VanTripStockActivity,
   type VoucherDocument,
+  voucherStatedNet,
 } from "@mezan/domain";
 
 const SOLD_DOC_TYPES: ReadonlySet<StockMovement["sourceDocType"]> = new Set(["SALES_INVOICE", "POS_SALE"]);
@@ -82,7 +83,7 @@ export function createVanTripActivityPort(deps: VanActivityDeps): VanTripActivit
       for (const v of vouchers) {
         const line = v.lines[0];
         if (!line || line.treasuryAccountId !== trip.vanTreasuryAccountId || v.reversedByDocId) continue;
-        if (COLLECTION_VOUCHER_TYPES.has(line.voucherType)) voucherCollections = voucherCollections.add(line.amount);
+        if (COLLECTION_VOUCHER_TYPES.has(line.voucherType)) voucherCollections = voucherCollections.add(voucherStatedNet(line));
         if (REFUND_VOUCHER_TYPES.has(line.voucherType)) voucherCollections = voucherCollections.add(line.amount.negate());
       }
 

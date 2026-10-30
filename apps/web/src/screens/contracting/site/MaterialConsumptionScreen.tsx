@@ -36,6 +36,7 @@ import { errorMessage } from "../../../lib/error-message";
 import { todayIso } from "../../../lib/dates";
 import { EMPTY } from "../../../lib/empty";
 import { useUrlParam } from "../../../lib/url-state";
+import { useMaySeeItemCost } from "../../../data/item-cost";
 import { LinesTable, trimDecimal } from "./site-common";
 import { ItemPicker, STOCKED_ITEMS } from "../../ItemPicker";
 
@@ -63,6 +64,7 @@ export function MaterialConsumptionScreen() {
   const reversal = useReverseDocumentAction(ReversalDocumentType.MaterialConsumption);
   const { t } = useAppTranslation();
   const { money } = useFormat();
+  const showCost = useMaySeeItemCost();
   const nameOf = useEntityName();
   const subPage = useSubPage();
   const [firstSegment] = subPage.segments;
@@ -125,12 +127,16 @@ export function MaterialConsumptionScreen() {
         </span>
       ),
     },
-    {
-      key: "cost",
-      header: t("site.consumption.cost"),
-      align: "end",
-      render: (d) => <span className="mz-num">{d.status === "confirmed" ? money(Number(d.totalCost)) : "—"}</span>,
-    },
+    ...(showCost
+      ? [
+          {
+            key: "cost",
+            header: t("site.consumption.cost"),
+            align: "end" as const,
+            render: (d: MaterialConsumptionDTO) => <span className="mz-num">{d.status === "confirmed" && d.totalCost !== undefined ? money(Number(d.totalCost)) : "—"}</span>,
+          },
+        ]
+      : []),
     {
       key: "status",
       header: t("common.status"),

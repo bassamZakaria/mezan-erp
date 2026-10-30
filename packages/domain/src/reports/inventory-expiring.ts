@@ -115,14 +115,14 @@ export function createInventoryExpiringReport(today: string): ReportDefinition<
       { key: "daysToExpiry", header: "الأيام المتبقية", format: "qty", align: "end", value: (row) => row.daysToExpiry },
       { key: "statusLabel", header: "الحالة", format: "text", value: (row) => row.statusLabel },
       { key: "qty", header: "الكمية المتاحة", format: "qty", align: "end", total: true, value: (row) => row.qty },
-      { key: "totalValue", header: "القيمة", format: "money", align: "end", total: true, value: (row) => row.totalValue },
+      { key: "totalValue", cost: true, header: "القيمة", format: "money", align: "end", total: true, value: (row) => row.totalValue },
       { key: "receivedOn", header: "تاريخ الاستلام", format: "date", value: (row) => row.receivedOn },
       { key: "sourceDocNumber", header: "مستند الاستلام", format: "text", value: (row) => row.sourceDocNumber },
     ],
     kpis: [
-      { key: "totalValue", labelAr: "القيمة المعرضة", format: "money", value: (rows) => sumRows(rows, (r) => r.totalValue) },
-      { key: "expiredValue", labelAr: "قيمة المنتهية", format: "money", value: (rows) => sumRows(rows, (r) => (r.daysToExpiry < 0 ? r.totalValue : 0)), tone: (value) => (value > 0 ? "danger" : "success") },
-      { key: "within30Value", labelAr: "تنتهي خلال 30 يوم", format: "money", value: (rows) => sumRows(rows, (r) => (r.daysToExpiry >= 0 && r.daysToExpiry <= 30 ? r.totalValue : 0)) },
+      { key: "totalValue", cost: true, labelAr: "القيمة المعرضة", format: "money", value: (rows) => sumRows(rows, (r) => r.totalValue) },
+      { key: "expiredValue", cost: true, labelAr: "قيمة المنتهية", format: "money", value: (rows) => sumRows(rows, (r) => (r.daysToExpiry < 0 ? r.totalValue : 0)), tone: (value) => (value > 0 ? "danger" : "success") },
+      { key: "within30Value", cost: true, labelAr: "تنتهي خلال 30 يوم", format: "money", value: (rows) => sumRows(rows, (r) => (r.daysToExpiry >= 0 && r.daysToExpiry <= 30 ? r.totalValue : 0)) },
       { key: "batchCount", labelAr: "عدد الدفعات", format: "qty", value: (rows) => rows.length },
     ],
     chart: {

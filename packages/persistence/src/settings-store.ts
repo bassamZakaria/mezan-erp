@@ -2,7 +2,7 @@ import type Database from "better-sqlite3";
 import type { SqlDb } from "./sql/sql-db.js";
 import { sqliteDb } from "./sql/sqlite-db.js";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
-import { DEFAULT_SETTINGS } from "@mezan/domain";
+import { DEFAULT_SETTINGS, isLegacyStatementTemplate } from "@mezan/domain";
 import type { SettingsRepository, TenantSettings } from "@mezan/domain";
 import { isSealedSecret, SecretUnsealError, type SecretBox } from "./secret-box.js";
 
@@ -21,6 +21,10 @@ const SMTP_PASSWORD_CONTEXT = "tenant_settings:smtp_password";
  */
 
 export const SETTINGS_ROW_ID = "default";
+
+function statementTemplateOr(stored: string | undefined, fallback: string): string {
+  return stored === undefined || isLegacyStatementTemplate(stored) ? fallback : stored;
+}
 
 const CREATE_TABLE = `
 CREATE TABLE IF NOT EXISTS tenant_settings (
@@ -49,7 +53,9 @@ class SqlSettingsStore implements SettingsRepository {
     const stored = JSON.parse(data) as Partial<TenantSettings>;
     // The period-close control used to read the contracting switch: a row saved before it had a setting of its own keeps the behaviour it had.
     const periodCloseSingleOperatorMode = stored.periodCloseSingleOperatorMode ?? stored.contractingSingleOperatorMode ?? DEFAULT_SETTINGS.periodCloseSingleOperatorMode;
-    return { ...DEFAULT_SETTINGS, ...stored, periodCloseSingleOperatorMode, smtpPassword: this.openPassword(stored.smtpPassword) } as TenantSettings;
+    const emailTemplateSubject = statementTemplateOr(stored.emailTemplateSubject, DEFAULT_SETTINGS.emailTemplateSubject);
+    const emailTemplateBody = statementTemplateOr(stored.emailTemplateBody, DEFAULT_SETTINGS.emailTemplateBody);
+    return { ...DEFAULT_SETTINGS, ...stored, periodCloseSingleOperatorMode, emailTemplateSubject, emailTemplateBody, smtpPassword: this.openPassword(stored.smtpPassword) } as TenantSettings;
   }
 
   // SECURITY: a password this process cannot open — sealed on the cloud and carried to a desktop, or
@@ -90,8 +96,18 @@ class SqlSettingsStore implements SettingsRepository {
     await this.db.run(
       `INSERT INTO tenant_settings (id, data, updated_at) VALUES (?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at`,
-      [SETTINGS_ROW_ID, JSON.stringify({ ...settings, smtpPassword: this.sealPassword(settings.smtpPassword) }), new Date().toISOString()],
+      [SETTINGS_ROW_ID, JSON.stringify({ ...settings, smtpPassword: await this.passwordToStore(settings.smtpPassword) }), new Date().toISOString()],
     );
+  }
+
+  // SECURITY: an unopenable sealed password reads back as "", so a save of what was read must not overwrite the ciphertext with nothing.
+  private async passwordToStore(incoming: string): Promise<string> {
+    if (incoming === "") {
+      const data = await this.storedData();
+      const stored = data === undefined ? undefined : (JSON.parse(data) as Partial<TenantSettings>).smtpPassword;
+      if (stored !== undefined && isSealedSecret(stored)) return stored;
+    }
+    return this.sealPassword(incoming);
   }
 }
 

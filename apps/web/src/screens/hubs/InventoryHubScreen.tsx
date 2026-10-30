@@ -7,6 +7,7 @@ import { useStockLevelsSummary } from "../../data/reports-hooks";
 import type { ScreenKey } from "../../router/screens";
 import { useAppTranslation, type AppTranslationKey } from "../../i18n";
 import { EMPTY } from "../../lib/empty";
+import { useMaySeeItemCost } from "../../data/item-cost";
 
 /**
  * NO QUICK ACTIONS. Every destination this overview used to repeat is a chip
@@ -22,6 +23,7 @@ export function InventoryHubScreen() {
   const readsItems = sessionMayRead(session, DocumentReadPermission.Items);
   const itemCountsQuery = useItemCounts({}, { enabled: readsItems });
   const stockLevelsQuery = useStockLevelsSummary();
+  const showCost = useMaySeeItemCost();
 
   const itemCounts = itemCountsQuery.data ?? {};
   const inventoryValue = stockLevelsQuery.data?.totalValue ?? "0";
@@ -44,7 +46,7 @@ export function InventoryHubScreen() {
               { key: "active", label: t("inventoryHub.stat.active"), value: itemCounts.active ?? 0, sub: t("inventoryHub.stat.activeSub") },
             ]
           : []),
-        { key: "value", label: t("inventoryHub.stat.value"), value: <Money value={inventoryValue} />, sub: t("inventoryHub.stat.valueSub") },
+        ...(showCost ? [{ key: "value", label: t("inventoryHub.stat.value"), value: <Money value={inventoryValue} />, sub: t("inventoryHub.stat.valueSub") }] : []),
         {
           key: "attention",
           label: t("inventoryHub.stat.attention"),

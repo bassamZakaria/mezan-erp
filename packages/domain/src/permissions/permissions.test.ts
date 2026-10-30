@@ -82,13 +82,15 @@ describe("permission catalog", () => {
     //
     // 300 → 301. `sales.pricing_guard.approve` (sensitive) — approving a sale below the price floor is its own grant, so the rule writer (`.manage`) can be kept from approving under their own rules (SoD `pricing_guard_manage_approve`).
     //
+    // 301 → 305. `inventory.cost.view` (sensitive; issue #119 — item cost is hidden without it, and `sales.invoice.view_cost` implies it) and `admin.attachment.view`, `.upload`, `.delete` (issue #125 — enforced only where the plan carries the separate-attachments feature).
+    //
     // Pinned deliberately. A code added without a route to check it, or a route
     // deleted while its code stays, moves one of these numbers — which is the
     // whole point of asserting them.
-    expect(PERMISSIONS).toHaveLength(301);
+    expect(PERMISSIONS).toHaveLength(305);
     expect(MODULES).toHaveLength(20);
     const summed = MODULES.reduce((n, m) => n + m.count, 0);
-    expect(summed).toBe(301);
+    expect(summed).toBe(305);
   });
 
   it("carries a `pos` module again, and the INVOICE discount ceiling still lives under sales", () => {
@@ -148,7 +150,9 @@ describe("permission catalog", () => {
     expect(isSensitive("field.van_trip.approve")).toBe(true);
     // 38 → 39: approving a sale below the price floor overrides a pricing control.
     expect(isSensitive("sales.pricing_guard.approve")).toBe(true);
-    expect(sensitiveCount).toBe(39);
+    // 39 → 40: item cost (#119).
+    expect(isSensitive("inventory.cost.view")).toBe(true);
+    expect(sensitiveCount).toBe(40);
   });
 
   it("marks the one platform-admin-only permission", () => {

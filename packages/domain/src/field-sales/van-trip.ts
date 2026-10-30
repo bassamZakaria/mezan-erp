@@ -91,6 +91,13 @@ export enum VanReconciliationStepKind {
   ShortageAdjustment = "shortage_adjustment",
 }
 
+/** SECURITY: these steps move stock, so their value is at item cost and hidden without inventory.cost.view (#119). */
+export const VAN_STOCK_STEP_KINDS: ReadonlySet<VanReconciliationStepKind> = new Set([
+  VanReconciliationStepKind.OverageAdjustment,
+  VanReconciliationStepKind.StockReturn,
+  VanReconciliationStepKind.ShortageAdjustment,
+]);
+
 export enum VanReconciliationStepState {
   Posted = "posted",
   Held = "held",

@@ -434,7 +434,7 @@ describe("items router — the cost price is a separate grant (D94)", () => {
     const res = await app.fetch(
       req("/", {
         method: "POST",
-        permissions: "inventory.item.create",
+        permissions: "inventory.item.create,inventory.cost.view",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(withCost),
       }),
@@ -454,13 +454,30 @@ describe("items router — the cost price is a separate grant (D94)", () => {
     expect(rows[0]?.salePrice).toBe("70.000000");
   });
 
-  it("serves costPrice to a caller who also holds sales.invoice.view_cost", async () => {
+  it("serves costPrice to a caller who also holds inventory.cost.view", async () => {
     const { app } = newApp();
     await seed(app);
     const rows = (await (
-      await app.fetch(req("/", { permissions: "inventory.item.view,sales.invoice.view_cost" }))
+      await app.fetch(req("/", { permissions: "inventory.item.view,inventory.cost.view" }))
     ).json()) as Record<string, unknown>[];
     expect(rows[0]?.costPrice).toBe("42.500000");
+  });
+
+  it("ignores a cost price a caller without inventory.cost.view sends", async () => {
+    const { app } = newApp();
+    await seed(app);
+    const res = await app.fetch(
+      req("/itm-1", {
+        method: "PATCH",
+        permissions: "inventory.item.edit",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ costPrice: "1.00" }),
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).not.toHaveProperty("costPrice");
+    const shown = (await (await app.fetch(req("/itm-1", { permissions: "inventory.item.view,inventory.cost.view" }))).json()) as Record<string, unknown>;
+    expect(shown.costPrice).toBe("42.500000");
   });
 
   it("omits it on the detail route too, so the id is not a way round the list", async () => {
@@ -472,7 +489,7 @@ describe("items router — the cost price is a separate grant (D94)", () => {
     >;
     expect(hidden).not.toHaveProperty("costPrice");
     const shown = (await (
-      await app.fetch(req("/itm-1", { permissions: "inventory.item.view,sales.invoice.view_cost" }))
+      await app.fetch(req("/itm-1", { permissions: "inventory.item.view,inventory.cost.view" }))
     ).json()) as Record<string, unknown>;
     expect(shown.costPrice).toBe("42.500000");
   });

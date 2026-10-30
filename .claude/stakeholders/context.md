@@ -167,3 +167,9 @@ Add a reading here only after driving it in the running app, and date it.
   e-invoicing claim (DEC-10), e-receipt may be claimed; "offline" only for the desktop edition; no
   data-in-Egypt claim; no named-competitor comparison; copy in plain MSA reusing the app's strings.
   Daftra's 489.5/977.58/1,960 are its annual-billed rates (monthly 733/1,225/2,448).
+- 2026-10-30 (owner, superseding the 2026-10-29 provider choices): **no external auth provider** (Supabase,
+  Cognito, Firebase, Google all dropped). **Email + password is the only sign-in on every edition — web,
+  desktop, LAN tills; the PIN is removed completely.** Sensitive actions re-ask the password. Admin-created
+  users get a random temporary password and must change it at first sign-in (emailed on web, shown once on
+  desktop). Existing test users and the demo seed use `Cyag@2026`, not forced to change. No 2FA for now.
+  Mobile moves to password in a later lane (mobile sign-in is broken until then).

@@ -21,7 +21,8 @@ CREATE TABLE IF NOT EXISTS auth_session (
   device_mismatches TEXT NOT NULL,
   idle_ms           INTEGER NOT NULL CHECK (idle_ms > 0),
   max_ms            INTEGER NOT NULL CHECK (max_ms > 0),
-  access_expires_at INTEGER
+  access_expires_at INTEGER,
+  must_change_password INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_auth_session_user ON auth_session(user_id);
 CREATE INDEX IF NOT EXISTS idx_auth_session_device ON auth_session(device_hash) WHERE device_hash IS NOT NULL;
@@ -57,6 +58,7 @@ export interface PersistedSession {
   readonly idleMs: number;
   readonly maxMs: number;
   readonly accessExpiresAt?: number | null;
+  readonly mustChangePassword?: boolean;
 }
 
 export interface PersistedDisplacedSession {
@@ -96,6 +98,7 @@ interface SessionRow {
   idle_ms: bigint;
   max_ms: bigint;
   access_expires_at: bigint | null;
+  must_change_password: bigint | number;
 }
 
 interface DisplacedRow {
@@ -146,11 +149,12 @@ function toSession(row: SessionRow): PersistedSession {
     idleMs: Number(row.idle_ms),
     maxMs: Number(row.max_ms),
     accessExpiresAt: row.access_expires_at === null ? null : Number(row.access_expires_at),
+    mustChangePassword: Number(row.must_change_password) === 1,
   };
 }
 
 const SESSION_COLUMNS = `token_hash, user_id, permissions, role_code, branch_scope, warehouse_scope, issued_at, issued_from, device_hash,
-       last_origin, moved_since_pin, last_seen_at, device_mismatches, idle_ms, max_ms, access_expires_at`;
+       last_origin, moved_since_pin, last_seen_at, device_mismatches, idle_ms, max_ms, access_expires_at, must_change_password`;
 
 export async function ensureSessionSchema(db: SqlDb): Promise<void> {
   await db.applySchema(CREATE_TABLES);
@@ -177,7 +181,7 @@ export function createSessionStore(db: SqlDb): SqliteSessionStore {
     async put(key, session) {
       await db.run(
         `INSERT INTO auth_session (${SESSION_COLUMNS})
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT (token_hash) DO UPDATE SET
            last_origin = excluded.last_origin, moved_since_pin = excluded.moved_since_pin,
            last_seen_at = excluded.last_seen_at, device_mismatches = excluded.device_mismatches`,
@@ -198,6 +202,7 @@ export function createSessionStore(db: SqlDb): SqliteSessionStore {
           session.idleMs,
           session.maxMs,
           session.accessExpiresAt ?? null,
+          session.mustChangePassword ? 1 : 0,
         ],
       );
     },

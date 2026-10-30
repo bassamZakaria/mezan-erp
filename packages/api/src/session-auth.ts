@@ -10,7 +10,7 @@ import {
   type AuthContext,
   type ScopeSelection,
 } from "@mezan/domain";
-import { DEVICE_BINDING_HEADER, DEVICE_SECRET_HEADER } from "@mezan/contracts";
+import { DEVICE_BINDING_HEADER, DEVICE_SECRET_HEADER, PasswordChangeRefusal } from "@mezan/contracts";
 import type { AuthContextResolver } from "./permission-gate.js";
 import { requestOrigin } from "./request-origin.js";
 import { markSessionDisplaced } from "./session-ended.js";
@@ -76,6 +76,8 @@ export interface SessionGrant {
   readonly warehouseScope: ScopeSelection;
   // SECURITY: epoch ms the user's access ends (User.accessExpiresAt), resolved at sign-in. The session dies at that instant however fresh it is.
   readonly accessExpiresAt?: number | null;
+  // SECURITY: issued while the user still holds a temporary password; passwordChangeGate refuses every route but the change itself.
+  readonly mustChangePassword?: boolean;
 }
 
 export interface StoredSession extends SessionGrant {
@@ -377,6 +379,7 @@ export function createSessionRegistry(
       branchScope: grant.branchScope,
       warehouseScope: grant.warehouseScope,
       accessExpiresAt: grant.accessExpiresAt ?? null,
+      mustChangePassword: grant.mustChangePassword === true,
       issuedAt: at,
       issuedFrom: from,
       deviceHash,
@@ -756,13 +759,33 @@ export const STEP_UP_REQUIRED = "STEP_UP_REQUIRED";
 // address has moved since the PIN was entered waits until it is entered again
 // (`POST /auth/step-up`). A token and its device secret lifted together from
 // one phone can then read, but cannot re-shape who may do what.
+// Every route a session holding a temporary password may still reach: sign-in and sign-out, the pre-sign-in reads, its own profile and the change itself.
+const PASSWORD_CHANGE_ROUTES = /\/(?:auth\/[a-z-]+|bootstrap\/[a-z-]+|tenant|platform\/resolve|profile|profile\/change-password)$/;
+
+export function passwordChangeGate(sessions: SessionRegistry): MiddlewareHandler {
+  return async function requirePasswordChange(c, next) {
+    const token = readSessionToken(c);
+    if (!token) return next();
+    const { grant } = await sessionLookup(sessions, c, token);
+    if (!grant?.mustChangePassword || PASSWORD_CHANGE_ROUTES.test(c.req.path)) return next();
+    return c.json(
+      {
+        error: PasswordChangeRefusal.Required,
+        message: "يجب تغيير كلمة المرور المؤقتة قبل المتابعة.",
+        messageEn: "Change your temporary password before continuing.",
+      },
+      403,
+    );
+  };
+}
+
 export function stepUpGate(sessions: SessionRegistry): MiddlewareHandler {
   return async function requireRecentPin(c, next) {
     if (c.req.method === "GET" || c.req.method === "HEAD") return next();
     const token = readSessionToken(c);
     if (!token || !(await sessions.needsStepUp(token))) return next();
     return c.json(
-      { error: STEP_UP_REQUIRED, message: "تغيّر عنوان اتصالك منذ تسجيل الدخول. أعد إدخال رمز PIN لتأكيد هذا الإجراء." },
+      { error: STEP_UP_REQUIRED, message: "تغيّر عنوان اتصالك منذ تسجيل الدخول. أعد إدخال كلمة المرور لتأكيد هذا الإجراء." },
       403,
     );
   };

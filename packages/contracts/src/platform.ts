@@ -276,8 +276,8 @@ export const provisionRetryRequestSchema = z.object({
 export const provisionResultSchema = z.object({
   tenant: tenantSchema,
   adminEmail: z.string().min(1),
-  /** Null on a resumed provision — the admin already exists from an earlier call, and its PIN is not re-issued. */
-  adminPin: z.string().regex(/^\d{6}$/, "must be exactly 6 digits").nullable(),
+  /** The owner's temporary password, changed at first sign-in. Null on a resumed provision — the admin already exists from an earlier call, and its password is not re-issued. */
+  adminPassword: z.string().min(8).nullable(),
 });
 
 /** Mirrors `MAX_EXTRA_CAPACITY` / `MAX_GRACE_DAYS` in `packages/domain/src/platform/subscription.ts`; `@mezan/contracts` may not import `@mezan/domain`. */
@@ -322,10 +322,10 @@ export enum PlatformPaymentRefusal {
   IdempotencyConflict = "PAYMENT_IDEMPOTENCY_CONFLICT",
 }
 
-export const ownerPinResetResultSchema = z.object({
+export const ownerPasswordResetResultSchema = z.object({
   adminEmail: z.string().min(1),
   signInEmail: z.string().min(1),
-  adminPin: z.string().regex(/^\d{6}$/, "must be exactly 6 digits"),
+  adminPassword: z.string().min(8),
 });
 
 export enum SubscriptionStatusCode {
@@ -643,7 +643,7 @@ export type BillingCycleDTO = z.infer<typeof billingCycleSchema>;
 export type CreateTenantRequestDTO = z.infer<typeof createTenantRequestSchema>;
 export type ProvisionRetryRequestDTO = z.infer<typeof provisionRetryRequestSchema>;
 export type ProvisionResultDTO = z.infer<typeof provisionResultSchema>;
-export type OwnerPinResetResultDTO = z.infer<typeof ownerPinResetResultSchema>;
+export type OwnerPasswordResetResultDTO = z.infer<typeof ownerPasswordResetResultSchema>;
 export type OwnerCandidateDTO = z.infer<typeof ownerCandidateSchema>;
 export type AssignOwnerRequestDTO = z.infer<typeof assignOwnerRequestSchema>;
 export type UnlockTenantAccountRequestDTO = z.infer<typeof unlockTenantAccountRequestSchema>;

@@ -47,6 +47,7 @@ import type { SessionRegistry } from "./session-auth.js";
 import { throttleKey, tooManyAttempts, type LoginThrottle } from "./login-throttle.js";
 import { requestOrigin } from "./request-origin.js";
 import { createUserProvisioningRoutes, type ProvisioningPorts } from "./users-provisioning.js";
+import { CLONE_SECRETS_KEY, generateOneTimeSecrets, takeProvisionedSecrets } from "./provisioning-secrets.js";
 import { createLogger } from "./observability/index.js";
 
 const log = createLogger("users");
@@ -58,7 +59,6 @@ export enum UsersRefusal {
 export enum OwnCredentialAction {
   EmailChanged = "EMAIL_CHANGED",
   PasswordChanged = "PASSWORD_CHANGED",
-  PinChanged = "PIN_CHANGED",
 }
 
 function serializeUser(user: User) {
@@ -74,7 +74,7 @@ function serializeUser(user: User) {
     branchScope: user.branchScope,
     warehouseScope: user.warehouseScope,
     status: user.status,
-    hasPin: user.pinHash !== null,
+    mustChangePassword: user.mustChangePassword,
     photoUrl: user.photoUrl,
     lastLoginAt: user.lastLoginAt,
     createdAt: user.createdAt,
@@ -152,6 +152,8 @@ export interface UsersRoutesOptions {
   readonly onEmailChanged?: (change: UserEmailChange) => Promise<void>;
   readonly owner?: CompanyOwnerPort;
   readonly onCredentialSetByOther?: (userId: string, actorId: string) => void | Promise<void>;
+  // CONTRACT: called once per created user with the plaintext temporary password, so the cloud host can email the invitation; never logged or stored.
+  readonly onUserCreated?: (created: { readonly user: User; readonly temporaryPassword: string }) => Promise<void>;
   /**
    * The tenant's allowed email domains, read per request rather than captured
    * at mount: an admin who adds a domain in الإعدادات must not have to restart
@@ -208,7 +210,7 @@ export function createUsersRoutes(
   resolveAuthContext: AuthContextResolver,
   options: UsersRoutesOptions = {},
 ) {
-  const { readAllowedEmailDomains, audit, sessions, loginThrottle, erasure, onEmailChanged, owner, onCredentialSetByOther, provisioning } = options;
+  const { readAllowedEmailDomains, audit, sessions, loginThrottle, erasure, onEmailChanged, owner, onCredentialSetByOther, onUserCreated, provisioning } = options;
   const gate = createPermissionGate(resolveAuthContext);
   const app = new Hono();
 
@@ -238,7 +240,6 @@ export function createUsersRoutes(
         branchScope: user.branchScope,
         warehouseScope: user.warehouseScope,
         accessExpiresAt: user.accessExpiresAt ?? null,
-        ...(credentials?.pinChanged ? { pinChanged: true } : {}),
         ...(credentials?.passwordChanged ? { passwordChanged: true } : {}),
         ...(before
           ? {
@@ -255,12 +256,11 @@ export function createUsersRoutes(
   }
 
   interface CredentialChange {
-    readonly pinChanged: boolean;
     readonly passwordChanged: boolean;
   }
 
-  function credentialChange(body: { pin?: string | null; password?: string }): CredentialChange {
-    return { pinChanged: body.pin !== undefined, passwordChanged: body.password !== undefined };
+  function credentialChange(body: { password?: string }): CredentialChange {
+    return { passwordChanged: body.password !== undefined };
   }
 
   /**
@@ -271,7 +271,7 @@ export function createUsersRoutes(
    * later document attributable to the wrong person.
    */
   function auditCredentialReset(c: Context, user: User, change: CredentialChange) {
-    if (!change.pinChanged && !change.passwordChanged) return Promise.resolve();
+    if (!change.passwordChanged) return Promise.resolve();
     return recordSecurityAdminEvent(audit, c, {
       module: "admin",
       entityType: "USER",
@@ -280,7 +280,6 @@ export function createUsersRoutes(
       severity: "CRITICAL",
       details: {
         email: user.email,
-        pinChanged: change.pinChanged,
         passwordChanged: change.passwordChanged,
       },
     });
@@ -558,47 +557,41 @@ export function createUsersRoutes(
   // stolen session holding admin.users.edit could take the account over. The
   // PIN is accepted because a console-provisioned owner has no password they
   // know; wrong answers count on the sign-in ladder like a wrong step-up PIN.
-  async function refuseOwnCredentialChange(c: Context, user: User, presented: { currentPin?: string; currentPassword?: string }): Promise<Response | null> {
+  async function refuseOwnCredentialChange(c: Context, user: User, presented: { currentPassword?: string }): Promise<Response | null> {
     const key = throttleKey(user.email, requestOrigin(c));
     const waitSeconds = (await loginThrottle?.retryAfter(key)) ?? 0;
     if (waitSeconds > 0) {
       c.header("retry-after", String(waitSeconds));
       return c.json(tooManyAttempts(waitSeconds), 429);
     }
-    if (presented.currentPin === undefined && presented.currentPassword === undefined) {
+    if (presented.currentPassword === undefined) {
       return c.json(
         {
           error: UsersRefusal.CurrentSecretRequired,
-          message: "أدخل رمز PIN الحالي أو كلمة المرور الحالية لتغيير بريدك أو رمزك أو كلمة مرورك.",
-          messageEn: "Enter your current PIN or password to change your own email, PIN or password.",
+          message: "أدخل كلمة المرور الحالية لتغيير بريدك أو كلمة مرورك.",
+          messageEn: "Enter your current password to change your own email or password.",
         },
         400,
       );
     }
-    const held =
-      presented.currentPin !== undefined
-        ? user.pinHash !== null && (await hasher.verify(presented.currentPin, user.pinHash))
-        : await hasher.verify(presented.currentPassword ?? "", user.passwordHash);
+    const held = await hasher.verify(presented.currentPassword, user.passwordHash);
     if (held) {
       await loginThrottle?.succeed(key);
       return null;
     }
     const lockedFor = (await loginThrottle?.fail(key)) ?? 0;
-    await auditRefusal(c, user.id, { reason: presented.currentPin !== undefined ? CurrentSecretRefusal.IncorrectPin : CurrentSecretRefusal.IncorrectPassword });
+    await auditRefusal(c, user.id, { reason: CurrentSecretRefusal.IncorrectPassword });
     if (lockedFor > 0) {
       c.header("retry-after", String(lockedFor));
       return c.json(tooManyAttempts(lockedFor), 429);
     }
-    return presented.currentPin !== undefined
-      ? c.json({ error: CurrentSecretRefusal.IncorrectPin, message: "رمز PIN الحالي غير صحيح." }, 403)
-      : c.json({ error: CurrentSecretRefusal.IncorrectPassword, message: "كلمة المرور الحالية غير صحيحة." }, 403);
+    return c.json({ error: CurrentSecretRefusal.IncorrectPassword, message: "كلمة المرور الحالية غير صحيحة." }, 403);
   }
 
   function auditOwnCredentialChange(c: Context, before: User, after: User, change: CredentialChange) {
     const actions = [
       ...(before.email !== after.email ? [OwnCredentialAction.EmailChanged] : []),
       ...(change.passwordChanged ? [OwnCredentialAction.PasswordChanged] : []),
-      ...(change.pinChanged ? [OwnCredentialAction.PinChanged] : []),
     ];
     return Promise.all(
       actions.map((action) =>
@@ -710,16 +703,22 @@ export function createUsersRoutes(
     }
     const overCap = await refuseIfOverSeatCap(c);
     if (overCap) return overCap;
+    const generated = parsed.data.password ? null : (takeProvisionedSecrets(c)?.get(CLONE_SECRETS_KEY) ?? generateOneTimeSecrets()).password;
+    const password = parsed.data.password ?? generated ?? "";
     try {
       const user = await saveUser(
-        { id: crypto.randomUUID(), ...parsed.data, createdAt: new Date().toISOString() },
+        { id: crypto.randomUUID(), ...parsed.data, password, createdAt: new Date().toISOString() },
         uow,
         hasher,
         await saveOptions(),
       );
-      await auditUser(c, user, "CREATE", null, credentialChange(parsed.data));
+      await auditUser(c, user, "CREATE", null, { passwordChanged: true });
       if (conflicts.length > 0) await auditSodOverride(c, user, conflicts, parsed.data.reason ?? "");
-      return c.json(serializeUser(user), 201);
+      await onUserCreated?.({ user, temporaryPassword: password }).catch((err: unknown) =>
+        log.error({ errName: err instanceof Error ? err.name : typeof err }, "the user was created, but sending the invitation failed"),
+      );
+      if (generated) c.header("cache-control", "no-store");
+      return c.json(generated ? { ...serializeUser(user), temporaryPassword: generated } : serializeUser(user), 201);
     } catch (err) {
       return userErrorResponse(c, err);
     }
@@ -742,19 +741,18 @@ export function createUsersRoutes(
     if (outranked) return outranked;
     const escalation = await refuseIfEscalating(c, parsed.data, id);
     if (escalation) return escalation;
-    const { newOwnerUserId, currentPin, currentPassword, ...fields } = parsed.data;
+    const { newOwnerUserId, currentPassword, ...fields } = parsed.data;
     const change = credentialChange(fields);
     const actorId = getAuthContext(c)?.userId;
-    const ownCredentials = actorId === id && (normalizeEmail(fields.email) !== before.email || change.pinChanged || change.passwordChanged);
+    const ownCredentials = actorId === id && (normalizeEmail(fields.email) !== before.email || change.passwordChanged);
     if (ownCredentials) {
-      const unproven = await refuseOwnCredentialChange(c, before, { currentPin, currentPassword });
+      const unproven = await refuseOwnCredentialChange(c, before, { currentPassword });
       if (unproven) return unproven;
     }
     let successor: User | null = null;
     if (await isCompanyOwner(id)) {
       const identityChanged =
         normalizeEmail(fields.email) !== before.email ||
-        change.pinChanged ||
         change.passwordChanged ||
         fields.status !== before.status ||
         fields.isCompanyAdmin !== before.isCompanyAdmin;
@@ -798,7 +796,7 @@ export function createUsersRoutes(
         const saved = await saveUser(
           // The account keeps the date it was created on; stamping `now` here
           // reset it on every edit.
-          { id, ...fields, createdAt: current.createdAt },
+          { id, ...fields, passwordIsTemporary: actorId !== id, createdAt: current.createdAt },
           tx,
           hasher,
           await saveOptions(),
@@ -817,7 +815,7 @@ export function createUsersRoutes(
       await auditUser(c, user, "UPDATE", before, change);
       if (actorId === id) await auditOwnCredentialChange(c, before, user, change);
       else await auditCredentialReset(c, user, change);
-      if (onCredentialSetByOther && actorId && actorId !== id && (change.pinChanged || change.passwordChanged)) await onCredentialSetByOther(id, actorId);
+      if (onCredentialSetByOther && actorId && actorId !== id && change.passwordChanged) await onCredentialSetByOther(id, actorId);
       if (conflicts.length > 0) await auditSodOverride(c, user, conflicts, parsed.data.reason ?? "");
       // A grant is snapshotted into the session at login. Anything that changes
       // what this account is worth — its role, its admin flag, its scope, its
@@ -825,8 +823,7 @@ export function createUsersRoutes(
       // incident-response action the product offers is advisory for half a day.
       if (
         sessions &&
-        (change.pinChanged ||
-          change.passwordChanged ||
+        (change.passwordChanged ||
           before.roleId !== user.roleId ||
           before.isCompanyAdmin !== user.isCompanyAdmin ||
           JSON.stringify(before.branchScope) !== JSON.stringify(user.branchScope) ||
@@ -836,7 +833,7 @@ export function createUsersRoutes(
       ) {
         await sessions.revokeUser(user.id);
       }
-      if (change.pinChanged) await loginThrottle?.unlock(user.email);
+      if (change.passwordChanged) await loginThrottle?.unlock(user.email);
       if (before.email !== user.email) await loginThrottle?.unlock(before.email);
       return await answeredAfterHandOver(c, user, successor);
     } catch (err) {

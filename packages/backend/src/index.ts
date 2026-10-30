@@ -8,7 +8,7 @@ export {
   SEED_TENANT_NAME,
   SEED_ADMIN_NAME,
   SEED_ADMIN_EMAIL,
-  SEED_ADMIN_PIN,
+  SEED_ADMIN_PASSWORD,
   // The desktop shell needs both: the id to reset the fallback admin's PIN from
   // `--reset-admin`, and the one-shot handover to write a freshly-generated PIN
   // to the recovery file. A packaged build's PIN is random and was printed

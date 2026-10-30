@@ -985,7 +985,7 @@ export interface CreateBackendOptions {
    * published PIN anyway. Refused without `seedDemoData: true` so a real tenant
    * can never be opened with a known admin PIN.
    */
-  readonly seedAdminPin?: string;
+  readonly seedAdminPassword?: string;
   /** Outbound HTTP for the ETA gateway. Tests inject a fake server; nothing else should. */
   readonly etaHttpClient?: EtaHttpClient;
   readonly securityMail?: SmtpConfig;
@@ -1125,8 +1125,8 @@ enum BackendPass {
 }
 
 export async function createBackend(options: CreateBackendOptions = {}): Promise<BackendHandle> {
-  if (options.seedAdminPin !== undefined && options.seedDemoData !== true) {
-    throw new Error("createBackend: seedAdminPin is only accepted together with seedDemoData: true");
+  if (options.seedAdminPassword !== undefined && options.seedDemoData !== true) {
+    throw new Error("createBackend: seedAdminPassword is only accepted together with seedDemoData: true");
   }
   if (options.db) {
     if (options.dbPath !== undefined || options.connection !== undefined || options.tenantBinding !== undefined) {
@@ -3572,7 +3572,7 @@ async function composeBackend(options: CreateBackendOptions, db: SqlDb, sqlite: 
     itemCatalog,
     labelLayouts,
   };
-  if (seedWhenEmpty) await seedIfEmpty(seedStores, undefined, { adminPin: options.seedAdminPin });
+  if (seedWhenEmpty) await seedIfEmpty(seedStores, undefined, { adminPassword: options.seedAdminPassword });
   const leftEmpty = !seedWhenEmpty && (await isEmptyTenant(seedStores));
 
   const upgradeLedger = store((s) => createSqliteUpgradeLedger(s), (d) => createUpgradeLedger(d));

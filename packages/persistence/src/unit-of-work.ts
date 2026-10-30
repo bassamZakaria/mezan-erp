@@ -49,7 +49,7 @@ CREATE TABLE IF NOT EXISTS user (
   email             TEXT NOT NULL,
   phone             TEXT,
   password_hash     TEXT NOT NULL,
-  pin_hash          TEXT,
+  must_change_password INTEGER NOT NULL DEFAULT 0,
   role_id           TEXT REFERENCES role(id),
   is_company_admin  INTEGER NOT NULL,
   employee_id       TEXT,
@@ -109,6 +109,13 @@ function migrateUserLogin(sqlite: Database.Database): void {
       sqlite.exec(`UPDATE user SET name_ar = full_name WHERE name_ar IS NULL OR trim(name_ar) = ''`);
       sqlite.exec(`ALTER TABLE user DROP COLUMN full_name`);
     }
+  }
+  // CONTRACT: the PIN was retired for password sign-in. A PIN hash is a valid
+  // password hash, so it becomes a one-time password the user must replace —
+  // nobody is locked out by the upgrade and no shared password is published.
+  if (has("pin_hash")) {
+    sqlite.exec(`UPDATE user SET password_hash = pin_hash, must_change_password = 1 WHERE pin_hash IS NOT NULL`);
+    sqlite.exec(`ALTER TABLE user DROP COLUMN pin_hash`);
   }
   if (!has("name_en") && !columns.some((c) => c.name === "name_en")) {
     const after = sqlite.prepare(`PRAGMA table_info(user)`).all() as { name: string }[];
@@ -192,7 +199,7 @@ interface UserRow {
   email: string;
   phone: string | null;
   password_hash: string;
-  pin_hash: string | null;
+  must_change_password: bigint | number;
   role_id: string | null;
   is_company_admin: bigint;
   employee_id: string | null;
@@ -207,7 +214,7 @@ interface UserRow {
 }
 
 const USER_COLUMNS =
-  "id, name_ar, name_en, email, phone, password_hash, pin_hash, role_id, is_company_admin, employee_id, branch_scope, warehouse_scope, status, photo_url, last_login_at, created_at, erased_at, access_expires_at";
+  "id, name_ar, name_en, email, phone, password_hash, must_change_password, role_id, is_company_admin, employee_id, branch_scope, warehouse_scope, status, photo_url, last_login_at, created_at, erased_at, access_expires_at";
 
 class SqlUserRepository implements UserRepository {
   constructor(private readonly db: SqlDb) {}
@@ -220,7 +227,7 @@ class SqlUserRepository implements UserRepository {
       u.email,
       u.phone,
       u.passwordHash,
-      u.pinHash,
+      u.mustChangePassword ? 1 : 0,
       u.roleId,
       u.isCompanyAdmin ? 1 : 0,
       u.employeeId,
@@ -242,7 +249,7 @@ class SqlUserRepository implements UserRepository {
          email = excluded.email,
          phone = excluded.phone,
          password_hash = excluded.password_hash,
-         pin_hash = excluded.pin_hash,
+         must_change_password = excluded.must_change_password,
          role_id = excluded.role_id,
          is_company_admin = excluded.is_company_admin,
          employee_id = excluded.employee_id,
@@ -280,7 +287,7 @@ function rowToUser(row: UserRow): User {
     email: row.email,
     phone: row.phone,
     passwordHash: row.password_hash,
-    pinHash: row.pin_hash,
+    mustChangePassword: Number(row.must_change_password) === 1,
     roleId: row.role_id,
     isCompanyAdmin: Number(row.is_company_admin) === 1,
     employeeId: row.employee_id,
@@ -359,6 +366,19 @@ export interface SqliteUnitOfWorkHandle extends UnitOfWork {
 export async function ensureUnitOfWorkSchema(db: SqlDb): Promise<void> {
   const ddl = db.dialect === SqlDialect.Postgres ? CREATE_TABLES.replace(/\buser\b(?=\s*\()/g, '"user"') : CREATE_TABLES;
   await db.applySchema(ddl);
+  await retirePinColumn(db);
+}
+
+async function retirePinColumn(db: SqlDb): Promise<void> {
+  const present =
+    db.dialect === SqlDialect.Postgres
+      ? await db.get(`SELECT 1 AS x FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'user' AND column_name = 'pin_hash'`)
+      : await db.get(`SELECT 1 AS x FROM pragma_table_info('user') WHERE name = 'pin_hash'`);
+  if (!present) return;
+  await db.transaction(async () => {
+    await db.run(`UPDATE "user" SET password_hash = pin_hash, must_change_password = 1 WHERE pin_hash IS NOT NULL`);
+    await db.exec(`ALTER TABLE "user" DROP COLUMN pin_hash`);
+  });
 }
 
 export function createUnitOfWork(db: SqlDb): UnitOfWork {

@@ -140,6 +140,7 @@ async function toSession(user: User, deps: AuthRoutesDeps, origin: string | null
     nameEn: user.nameEn,
     email: user.email,
     isCompanyAdmin: user.isCompanyAdmin,
+    mustChangePassword: user.mustChangePassword,
     permissions,
     roleCode,
     photoUrl: user.photoUrl,
@@ -152,7 +153,7 @@ async function toSession(user: User, deps: AuthRoutesDeps, origin: string | null
     // never from what comes back.
     ...(await issueSession(
       deps.sessions,
-      { userId: user.id, permissions, roleCode, branchScope: user.branchScope, warehouseScope: user.warehouseScope, accessExpiresAt: accessExpiresAtMs(user) },
+      { userId: user.id, permissions, roleCode, branchScope: user.branchScope, warehouseScope: user.warehouseScope, accessExpiresAt: accessExpiresAtMs(user), mustChangePassword: user.mustChangePassword },
       origin,
       device,
     )),
@@ -173,7 +174,7 @@ function deviceBindingOf(c: Context): DeviceBinding | null {
 
 /**
  * Real auth + first-run bootstrap routes (docs/archive/plan.md — desktop username+PIN):
- *   POST /auth/login          verify user + PIN, return the resolved session
+ *   POST /auth/login          verify user + password, return the resolved session
  *   POST /bootstrap/seed      idempotently seed an empty DB (wizard seed step)
  *   POST /bootstrap/admin     create the first-run admin, return their session
  *
@@ -211,7 +212,7 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
     return lockedOut(c, held.retryAfterSeconds);
   }
 
-  const verifyPinBeforeTheTurn: BoundaryPreparation = async (c) => {
+  const verifyPasswordBeforeTheTurn: BoundaryPreparation = async (c) => {
     const secrets = deps.secrets;
     if (!secrets) return;
     const parsed = loginRequestSchema.safeParse(await c.req.json().catch(() => null));
@@ -227,15 +228,13 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
     const checked = gate.admit(throttleSource(origin), async () => {
       await deps.audit?.settled?.();
       const user = await deps.uow.users.findByEmail(needle);
-      const hash = user && user.status === UserStatusCode.Active && user.pinHash ? user.pinHash : await decoyHash();
-      return secrets.precompute({ verify: [[parsed.data.pin, hash]] });
+      const hash = user && user.status === UserStatusCode.Active ? user.passwordHash : await decoyHash();
+      return secrets.precompute({ verify: [[parsed.data.password, hash]] });
     });
     if (checked !== null) return checked;
     c.header("retry-after", String(SIGN_IN_BUSY_RETRY_SECONDS));
     return c.json(signInBusy(SIGN_IN_BUSY_RETRY_SECONDS), SIGN_IN_BUSY_STATUS);
   };
-
-  const claimPasswords = new WeakMap<Request, string>();
 
   // Hashed before the request queues for the connection, and only while nobody
   // has claimed the tenant: the handler then checks the claim and inserts the
@@ -247,9 +246,7 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
     if (!parsed.success) return;
     await deps.audit?.settled?.();
     if (await tenantIsClaimed()) return;
-    const password = `pw-${crypto.randomUUID()}`;
-    claimPasswords.set(c.req.raw, password);
-    return secrets.precompute({ hash: [password, parsed.data.pin] });
+    return secrets.precompute({ hash: [parsed.data.password] });
   };
 
   /**
@@ -379,7 +376,7 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
-    const { username, pin } = parsed.data;
+    const { username, password } = parsed.data;
     const needle = username.trim().toLowerCase();
     // Remote callers are counted per (account, source); the host's own console
     // is counted per account. See login-throttle.ts — this is what stops one
@@ -405,17 +402,17 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
     // response time answered "does this account exist" for free. Verify against
     // a throwaway hash instead, and spend the same scrypt either way.
     const verified =
-      user && user.status === UserStatusCode.Active && user.pinHash
-        ? await deps.hasher.verify(pin, user.pinHash)
-        : (await deps.hasher.verify(pin, await decoyHash()), false);
+      user && user.status === UserStatusCode.Active
+        ? await deps.hasher.verify(password, user.passwordHash)
+        : (await deps.hasher.verify(password, await decoyHash()), false);
     // The check may have handed the connection back. The verdict holds only for
-    // the account as it stands now: still active, still on the PIN it was
+    // the account as it stands now: still active, still on the password it was
     // checked against.
     const current = verified && user ? await deps.uow.users.findById(user.id) : null;
-    const signedIn = current !== null && current.status === UserStatusCode.Active && current.pinHash === user?.pinHash ? current : null;
+    const signedIn = current !== null && current.status === UserStatusCode.Active && current.passwordHash === user?.passwordHash ? current : null;
     if (verified && signedIn === null) {
       await security(c, "LOGIN_FAILED", AuditSeverityCode.Warning, { username: needle, accountChangedDuringCheck: true });
-      return c.json({ error: "INVALID_CREDENTIALS", message: "اسم المستخدم أو رمز PIN غير صحيح." }, 401);
+      return c.json({ error: "INVALID_CREDENTIALS", message: "البريد الإلكتروني أو كلمة المرور غير صحيحة." }, 401);
     }
     if (signedIn === null) {
       const { failure, unlock } = await atomically(async () => {
@@ -435,7 +432,7 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
         return lockedOut(c, failure.retryAfterSeconds);
       }
       await security(c, "LOGIN_FAILED", AuditSeverityCode.Warning, { username: needle });
-      return c.json({ error: "INVALID_CREDENTIALS", message: "اسم المستخدم أو رمز PIN غير صحيح." }, 401);
+      return c.json({ error: "INVALID_CREDENTIALS", message: "البريد الإلكتروني أو كلمة المرور غير صحيحة." }, 401);
     }
     /**
      * OVER THE SEAT COUNT — the reverse trial's drop to Free can leave a tenant
@@ -474,7 +471,7 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
     const at = new Date().toISOString();
     await recordSuccessfulLogin(signedIn.id, at, deps.uow);
     await security(c, "LOGIN_SUCCEEDED", AuditSeverityCode.Info, { userId: signedIn.id, username: needle });
-    // SECURITY: announced only here, after this request's own PIN check. A
+    // SECURITY: announced only here, after this request's own password check. A
     // session answered without one proves nothing about who holds the credential.
     await deps.onSignedIn?.({ userId: signedIn.id, email: signedIn.email }).catch((err: unknown) =>
       authLog.error({ err: err }, "the sign-in succeeded, but announcing it failed"),
@@ -491,16 +488,16 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
     const origin = requestOrigin(c);
     const grant = token ? await deps.sessions.find(token, origin, c.req.header(DEVICE_SECRET_HEADER) ?? null) : null;
     const user = grant ? await deps.uow.users.findById(grant.userId) : null;
-    if (!token || !user || user.status !== UserStatusCode.Active || !user.pinHash) {
+    if (!token || !user || user.status !== UserStatusCode.Active) {
       return c.json({ error: "UNAUTHENTICATED", message: "انتهت الجلسة، سجّل الدخول مرة أخرى." }, 401);
     }
     const held = await guard.check(user.email, origin, true);
     if (held.verdict !== SignInVerdict.Proceed) return refused(c, held);
-    if (!(await deps.hasher.verify(parsed.data.pin, user.pinHash))) {
+    if (!(await deps.hasher.verify(parsed.data.password, user.passwordHash))) {
       const failure = await atomically(() => guard.failed(user.email, origin, true));
       await security(c, "STEP_UP_FAILED", AuditSeverityCode.Warning, { userId: user.id });
       if (failure.verdict === SignInVerdict.Locked || failure.verdict === SignInVerdict.Wait) return refused(c, failure);
-      return c.json({ error: CurrentSecretRefusal.IncorrectPin, message: "رمز PIN غير صحيح." }, 403);
+      return c.json({ error: CurrentSecretRefusal.IncorrectPassword, message: "كلمة المرور غير صحيحة." }, 403);
     }
     await deps.sessions.confirmStepUp(token);
     await security(c, "STEP_UP_CONFIRMED", AuditSeverityCode.Info, { userId: user.id });
@@ -671,8 +668,8 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
             nameEn: parsed.data.nameEn,
             email: parsed.data.email,
             phone: null,
-            password: claimPasswords.get(c.req.raw) ?? `pw-${crypto.randomUUID()}`,
-            pin: parsed.data.pin,
+            password: parsed.data.password,
+            passwordIsTemporary: false,
             roleId: null,
             isCompanyAdmin: true,
             employeeId: null,
@@ -722,5 +719,5 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
     }
   });
 
-  return { routes: app, beforeTheTurn: { "/auth/login": verifyPinBeforeTheTurn, "/bootstrap/admin": hashClaimSecretsBeforeTheTurn } };
+  return { routes: app, beforeTheTurn: { "/auth/login": verifyPasswordBeforeTheTurn, "/bootstrap/admin": hashClaimSecretsBeforeTheTurn } };
 }

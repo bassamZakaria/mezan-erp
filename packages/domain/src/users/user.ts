@@ -36,7 +36,8 @@ export interface User {
   readonly phone: string | null;
   /** Opaque hash produced by a `SecretHasher` — the domain never sees plaintext. */
   readonly passwordHash: string;
-  readonly pinHash: string | null;
+  // SECURITY: while true, session-auth refuses every route but the password change — an admin-issued temporary password is never a working one.
+  readonly mustChangePassword: boolean;
   /** Null exactly when `isCompanyAdmin` is true. */
   readonly roleId: string | null;
   readonly isCompanyAdmin: boolean;

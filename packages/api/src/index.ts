@@ -88,6 +88,7 @@ export {
   sessionOriginReporting,
   canonicalOrigin,
   stepUpGate,
+  passwordChangeGate,
   STEP_UP_REQUIRED,
   tokensMatch,
   DEVICE_SECRET_HEADER,

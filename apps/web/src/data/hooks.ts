@@ -728,8 +728,8 @@ export function useMayAskScreen(request: ScreenRequest): boolean {
 export function useHoldsScreenRequest(request: ScreenRequest): boolean {
   const { session } = useApi();
   const entitlements = useEntitlements();
-  // Wait for the plan's first answer, then ask only for what it licenses — a module or HR part it lacks is a 403.
-  if (entitlements.isLoading && entitlements.failureCount === 0) return false;
+  // Once the plan is known (the shell loads it first), ask only for what it licenses — a module or HR part it lacks
+  // answers 403. Until then ask as before, so a screen keeps its loading state rather than waiting on the plan.
   return sessionMayAskScreen(session, entitlements.data ?? null, request);
 }
 

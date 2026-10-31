@@ -339,12 +339,15 @@ describe("EmployeesScreen on a plan that holds only the free staff list", () => 
 });
 
 describe("EmployeesScreen asks only for the HR parts the plan holds", () => {
-  it("never asks for an employee's contracts or payslips on the free staff list", async () => {
+  it("never asks for an employee's contracts, payslips, leave or attendance on the free staff list once the plan is known", async () => {
     const seen: string[] = [];
     renderScreen(sampleEmployees, { activeModules: ["sales"], seen });
-    fireEvent.click(await screen.findByText("أحمد محمود"));
-    expect(await screen.findByRole("heading", { name: "أحمد محمود" })).toBeInTheDocument();
     await waitFor(() => expect(seen).toContain("/entitlements"));
-    expect(seen.filter((path) => /\/hr\/(employees\/[^/]+\/contracts|payroll|contracts|attendance|leave|advances)/.test(path))).toEqual([]);
+    await screen.findByText("أحمد محمود");
+    const before = seen.length;
+    fireEvent.click(screen.getByText("أحمد محمود"));
+    expect(await screen.findByRole("heading", { name: "أحمد محمود" })).toBeInTheDocument();
+    const asked = seen.slice(before);
+    expect(asked.filter((path) => /emp-1|\/hr\/(payroll|contracts|attendance|leave|advances)/.test(path) && !/^\/hr\/employees\/emp-1$/.test(path))).toEqual([]);
   });
 });

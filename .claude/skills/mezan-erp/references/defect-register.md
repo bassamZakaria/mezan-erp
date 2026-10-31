@@ -126,6 +126,15 @@ Silence and stale claims:
 - Accessibility defects hid behind empty screens: 11 unnamed form fields, a page with
   no `h1`, and a note field found only once the approvals inbox had a row.
 
+Licensing:
+
+- **A module's shared master data was locked behind the module** (D390): the HR staff
+  list fed sales reps, work orders and van trips, yet a plan without `hr` refused
+  `/hr/employees`. Fixed by licensing HR by part with the staff list free. Twin to
+  look for whenever a module is split: a route under the free part that reads or
+  writes a paid part's data (D391 — salary bank details and the attendance clock sat
+  under staff-list permissions).
+
 ## Not a defect — measurement traps
 
 Kept so nobody rediscovers them:

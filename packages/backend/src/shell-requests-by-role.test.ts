@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { ALL_SCOPE, MODULE_CATALOG, SCREEN_REQUESTS, SHELL_REQUESTS, ScreenRequest, ShellRequest, createAuthContext, createEntitlements, holdsShellRequest, mayAskScreenRequest } from "@mezan/domain";
+import { ALL_SCOPE, MODULE_CATALOG, SCREEN_REQUESTS, SHELL_REQUESTS, ScreenRequest, ShellRequest, createAuthContext, createEntitlements, FREE_SUB_MODULES, getPermission, holdsShellRequest, mayAskScreenRequest } from "@mezan/domain";
 import { seededWorld, type SeededWorld } from "./test-helpers/seeded-world.js";
 
 interface SeededRole {
@@ -91,6 +91,8 @@ describe("what a document screen asks for beside its own document is what the se
     const bare = createEntitlements({ plan: "BARE", activeModules: ["dashboard"], features: {}, seats: 1, expiresAt: null });
 
     expect(mayAskScreenRequest(auth, licensed, request)).toBe(true);
-    expect(mayAskScreenRequest(auth, bare, request)).toBe(false);
+    // A permission on a free part (the HR staff list) is served by every licence.
+    const part = getPermission(SCREEN_REQUESTS[request].permission)?.subModule ?? null;
+    expect(mayAskScreenRequest(auth, bare, request)).toBe(part !== null && FREE_SUB_MODULES.has(part));
   });
 });

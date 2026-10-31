@@ -69,10 +69,17 @@ function renderScreen(
     onTransition?: (id: string, status: string) => { status?: number; body: unknown } | undefined;
     onTerminate?: (id: string, body: unknown) => { status?: number; body: unknown } | undefined;
     onRehire?: (id: string, hireDate: string) => { status?: number; body: unknown } | undefined;
+    /** The plan's modules; omitted, no `/entitlements` answer is stubbed and every part shows. */
+    activeModules?: string[];
+    /** Every path the screen asks for, in order. */
+    seen?: string[];
   } = {},
 ) {
   let current = [...employees];
-  const transport = stubTransport({
+  const answer = stubTransport({
+    ...(opts.activeModules
+      ? { "GET /entitlements": () => ({ body: { plan: "P", activeModules: opts.activeModules, features: {}, seats: 5, expiresAt: null } }) }
+      : {}),
     "GET /hr/employees": () => ({ body: current }),
     "GET /hr/departments": () => ({ body: [] }),
     "GET /hr/job-titles": () => ({ body: [] }),
@@ -115,6 +122,10 @@ function renderScreen(
       return { body: updated };
     },
   });
+  const transport: typeof answer = (path, init) => {
+    opts.seen?.push(path);
+    return answer(path, init);
+  };
   return renderWithProviders(
     <RoutedScreen>
       <EmployeesScreen />
@@ -292,5 +303,51 @@ describe("EmployeesScreen", () => {
       expect(screen.queryByText("أحمد محمود")).not.toBeInTheDocument();
       expect(screen.getByText("سارة علي")).toBeInTheDocument();
     });
+  });
+});
+
+describe("EmployeesScreen on a plan that holds only the free staff list", () => {
+  const PAID_TABS = ["العقود", "الإجازات", "كشوف الرواتب", "السلف", "الحضور"];
+
+  it("shows the employee's page without the tabs of HR parts the plan lacks", async () => {
+    renderScreen(sampleEmployees, { activeModules: ["sales"] });
+    fireEvent.click(await screen.findByText("أحمد محمود"));
+    expect(await screen.findByRole("heading", { name: "أحمد محمود" })).toBeInTheDocument();
+    const tabs = screen.getAllByRole("tab").map((tab) => tab.textContent ?? "");
+    for (const label of PAID_TABS) expect(tabs.some((tab) => tab.includes(label)), label).toBe(false);
+    expect(screen.queryByText("يستحق معاشاً عن مدة الخدمة")).not.toBeInTheDocument();
+    expect(screen.queryByText("شارة/كود جهاز البصمة")).not.toBeInTheDocument();
+  });
+
+  it("keeps clock, overtime, pension and tax fields off the new-employee form", async () => {
+    renderScreen(sampleEmployees, { activeModules: ["sales"] });
+    await screen.findByText("أحمد محمود");
+    fireEvent.click(screen.getByRole("button", { name: "إضافة موظف" }));
+    expect(await screen.findByRole("heading", { name: "موظف جديد" })).toBeInTheDocument();
+    for (const label of ["شارة/كود جهاز البصمة", "يستحق معاشاً عن مدة الخدمة", "إعفاء ضريبي لذوي الإعاقة", "احتساب العمل الإضافي", "ساعات العمل القياسية", "طلب صورة شخصية عند تسجيل الحضور"]) {
+      expect(screen.queryByText(label), label).not.toBeInTheDocument();
+    }
+  });
+
+  it("shows every part on a plan with all of HR", async () => {
+    renderScreen(sampleEmployees, { activeModules: ["sales", "hr"] });
+    fireEvent.click(await screen.findByText("أحمد محمود"));
+    expect(await screen.findByRole("heading", { name: "أحمد محمود" })).toBeInTheDocument();
+    const tabs = screen.getAllByRole("tab").map((tab) => tab.textContent ?? "");
+    for (const label of PAID_TABS) expect(tabs.some((tab) => tab.includes(label)), label).toBe(true);
+  });
+});
+
+describe("EmployeesScreen asks only for the HR parts the plan holds", () => {
+  it("never asks for an employee's contracts, payslips, leave or attendance on the free staff list once the plan is known", async () => {
+    const seen: string[] = [];
+    renderScreen(sampleEmployees, { activeModules: ["sales"], seen });
+    await waitFor(() => expect(seen).toContain("/entitlements"));
+    await screen.findByText("أحمد محمود");
+    const before = seen.length;
+    fireEvent.click(screen.getByText("أحمد محمود"));
+    expect(await screen.findByRole("heading", { name: "أحمد محمود" })).toBeInTheDocument();
+    const asked = seen.slice(before);
+    expect(asked.filter((path) => /emp-1|\/hr\/(payroll|contracts|attendance|leave|advances)/.test(path) && !/^\/hr\/employees\/emp-1$/.test(path))).toEqual([]);
   });
 });

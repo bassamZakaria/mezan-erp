@@ -1,6 +1,6 @@
 import type { Entitlements } from "../entitlements/entitlements.js";
 import { getPermission, isKnownPermission, WILDCARD_PERMISSION } from "../permissions/catalog.js";
-import { isModuleLicensed } from "../permissions/module-licensing.js";
+import { isModuleLicensed, isPermissionLicensed } from "../permissions/module-licensing.js";
 import { detectSodConflicts, type SodConflictMatch } from "../permissions/sod.js";
 
 export enum RoleTemplateId {
@@ -294,8 +294,7 @@ export function licensedTemplatePermissions(
   const granted: string[] = [];
   const omitted: string[] = [];
   for (const code of template.permissions) {
-    const module = getPermission(code)?.module;
-    (module !== undefined && isModuleLicensed(module, entitlements) ? granted : omitted).push(code);
+    (isPermissionLicensed(code, entitlements) ? granted : omitted).push(code);
   }
   return { granted, omitted };
 }

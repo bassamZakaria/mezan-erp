@@ -525,10 +525,12 @@ export const hrDashboardSummarySchema = z.object({
   onLeave: z.number(),
   hiresThisMonth: z.number(),
   terminationsThisMonth: z.number(),
-  contractsExpiringSoon: z.number(),
+  /** Null when the plan lacks the contracts part (hr.contracts). */
+  contractsExpiringSoon: z.number().nullable(),
   probationEndingSoon: z.number(),
   byDepartment: z.array(z.object({ departmentId: z.string(), departmentName: z.string(), departmentNameAr: z.string().nullable(), count: z.number() })),
   byBranch: z.array(z.object({ branchId: z.string(), count: z.number() })),
+  /** Null when the plan lacks the time-and-leave part (hr.time). */
   leaveConsumption: z.array(
     z.object({
       leaveType: leaveTypeSchema,
@@ -538,9 +540,10 @@ export const hrDashboardSummarySchema = z.object({
       pending: z.number(),
       usedPercent: z.number().nullable(),
     }),
-  ),
+  ).nullable(),
   /** Hires and leavers per month over the trailing 12 months, oldest first. */
   headcountTrend: z.array(z.object({ month: z.string(), hires: z.number(), leavers: z.number() })),
+  /** Null when the plan lacks the time-and-leave part (hr.time). */
   attendance: z.object({
     from: z.string(),
     to: z.string(),
@@ -552,7 +555,7 @@ export const hrDashboardSummarySchema = z.object({
     daysOnLeave: z.number(),
     absenceRatePercent: z.number(),
     lateArrivalRatePercent: z.number(),
-  }),
+  }).nullable(),
 });
 
 export type DepartmentDTO = z.infer<typeof departmentSchema>;

@@ -220,12 +220,16 @@ export async function run(ctx: Ctx): Promise<void> {
     // ------------------------------------------------------------------
     // 4 · A module that left the plan is READ-ONLY, not forbidden.
     // ------------------------------------------------------------------
-    const hrRead = await api("GET", "/hr/departments");
+    // Sub-modules: departments are the free HR staff list, so they stay writable;
+    // a paid HR part (holidays → time and leave) is what goes read-only.
+    const freeWrite = await api("POST", "/hr/departments", { id: "DEPT-2", code: "D2", name: "Second", nameAr: "قسم ٢" });
+    check("the free HR staff list still takes a write after the drop", freeWrite.status === 201, `status ${freeWrite.status}`);
+    const hrRead = await api("GET", "/hr/holidays");
     check("HR still answers a read after the drop", hrRead.status === 200, `status ${hrRead.status}`);
-    const hrWrite = await api("POST", "/hr/departments", { id: "DEPT-2", code: "D2", name: "Second", nameAr: "قسم ٢" });
+    const hrWrite = await api("POST", "/hr/holidays", { date: "2026-10-06", nameEn: "Armed Forces Day" });
     check("and refuses a write", hrWrite.status === 403, `status ${hrWrite.status}`);
     check("naming the reason, not a bare 403", hrWrite.body?.error === "MODULE_READ_ONLY", JSON.stringify(hrWrite.body).slice(0, 200));
-    check("in Arabic", typeof hrWrite.body?.message === "string" && /وحدة/.test(hrWrite.body.message), String(hrWrite.body?.message));
+    check("in Arabic", typeof hrWrite.body?.message === "string" && /الموارد البشرية/.test(hrWrite.body.message), String(hrWrite.body?.message));
     check("and in English", typeof hrWrite.body?.messageEn === "string" && hrWrite.body.messageEn.includes("read-only"), String(hrWrite.body?.messageEn));
 
     // ------------------------------------------------------------------
@@ -233,7 +237,7 @@ export async function run(ctx: Ctx): Promise<void> {
     // ------------------------------------------------------------------
     const tried = await api("POST", "/billing/module-trials", { module: "hr" });
     check("a module trial can be started from the billing screen", tried.status === 201, `status ${tried.status} ${JSON.stringify(tried.body).slice(0, 200)}`);
-    const hrWriteOnModuleTrial = await api("POST", "/hr/departments", { id: "DEPT-3", code: "D3", name: "Third", nameAr: "قسم ٣" });
+    const hrWriteOnModuleTrial = await api("POST", "/hr/holidays", { date: "2026-10-07", nameEn: "Trial Holiday" });
     check("which makes HR writable again", hrWriteOnModuleTrial.status === 201, `status ${hrWriteOnModuleTrial.status}`);
 
     const again = await api("POST", "/billing/module-trials", { module: "hr" });
@@ -246,14 +250,14 @@ export async function run(ctx: Ctx): Promise<void> {
     // 6 · The module trial ends; the module goes read-only, nothing is lost.
     // ------------------------------------------------------------------
     moveClockTo("2026-10-31");
-    const afterModuleTrial = await api("GET", "/hr/departments");
+    const afterModuleTrial = await api("GET", "/hr/holidays");
     check("after the module trial HR still reads", afterModuleTrial.status === 200, `status ${afterModuleTrial.status}`);
     check(
-      "and every department recorded during it is still there",
-      ctx.rows(afterModuleTrial.body).length >= 2,
+      "and the holiday recorded during it is still there",
+      ctx.rows(afterModuleTrial.body).some((h: { date?: string }) => h.date === "2026-10-07"),
       String(ctx.rows(afterModuleTrial.body).length),
     );
-    const hrWriteAfter = await api("POST", "/hr/departments", { id: "DEPT-4", code: "D4", name: "Fourth", nameAr: "قسم ٤" });
+    const hrWriteAfter = await api("POST", "/hr/holidays", { date: "2026-10-08", nameEn: "After Trial" });
     check("while writes are refused again", hrWriteAfter.status === 403 && hrWriteAfter.body?.error === "MODULE_READ_ONLY", `status ${hrWriteAfter.status} ${JSON.stringify(hrWriteAfter.body).slice(0, 160)}`);
 
     // ------------------------------------------------------------------

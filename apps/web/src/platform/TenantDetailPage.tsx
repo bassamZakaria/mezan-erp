@@ -1,4 +1,5 @@
 import { useEffect, useId, useState } from "react";
+import { licensableLabel } from "./module-options";
 import { Link, useBlocker, useParams, useSearchParams } from "react-router";
 import { Button, Card, ConfirmDialog, Money, Select, StatusPill, TextInput, useFormat } from "@mezan/ui";
 import { CardCheckoutFailureReason, CardCheckoutStatus, RENEWABLE_SUBSCRIPTION_STATES } from "@mezan/domain";
@@ -631,7 +632,7 @@ export function TenantDetailPage() {
               <span className="mb-[6px] block text-xs font-semibold text-ink-muted">{t("platform.tenantDetail.entitlementsModules")}</span>
               <div className="flex flex-wrap gap-[6px]">
                 {entitlements.activeModules.map((id) => (
-                  <StatusPill key={id} label={entitlementModuleLabel(id, t)} tone="neutral" />
+                  <StatusPill key={id} label={licensableLabel(id, t)} tone="neutral" />
                 ))}
               </div>
             </div>

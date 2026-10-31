@@ -114,31 +114,6 @@ describe("tenant billing routes — whose subscription a session may touch", () 
     expect(await checkout.json()).toMatchObject({ tenantId: acme.id, status: "pending" });
   });
 
-  it("trials a self-serve signup on the top plan and suggests the plan the customer picked (DEC-31)", async () => {
-    const app = await boot();
-    const opened = await send(app, "/api/platform/settings/signup-mode", { method: "PUT", token: await platformToken(app), body: JSON.stringify({ mode: "open" }) });
-    expect(opened.status).toBe(200);
-    const started = await send(app, "/api/signup", {
-      method: "POST",
-      body: JSON.stringify({ code: "nile", nameAr: "منشأة النيل", ownerEmail: "owner@nile.example", ownerNameAr: "سارة", planId: "PLAN-CORE", billingCycle: "monthly" }),
-    });
-    expect(started.status).toBe(201);
-    const token = new URL(((await started.json()) as { devVerifyUrl: string }).devVerifyUrl).searchParams.get("token");
-    const verified = (await (await send(app, "/api/signup/verify", { method: "POST", body: JSON.stringify({ token }) })).json()) as { adminEmail: string; adminPassword: string };
-    const login = await send(app, "/api/auth/login", { method: "POST", tenant: "nile", body: JSON.stringify({ username: verified.adminEmail, password: verified.adminPassword }) });
-    const session = await ownPassword(app, "nile", verified.adminEmail, verified.adminPassword, ((await login.json()) as { token: string }).token);
-
-    const billing = (await (await send(app, "/api/billing/subscription", { token: session, tenant: "nile" })).json()) as {
-      subscription: { status: string; planNameEn: string };
-      intendedPlan: { id: string } | null;
-      plans: { id: string; suggested: boolean; current: boolean }[];
-    };
-
-    expect(billing.subscription).toMatchObject({ status: "trialing", planNameEn: "Enterprise" });
-    expect(billing.intendedPlan).toMatchObject({ id: "PLAN-CORE" });
-    expect(billing.plans.filter((p) => p.suggested).map((p) => p.id)).toEqual(["PLAN-CORE"]);
-  });
-
   it("refuses tenant A's token presented with tenant B's header, on every billing route", async () => {
     const app = await boot();
     const owner = await platformToken(app);

@@ -5,13 +5,13 @@ import { installClockOverride, FAKE_TODAY_ENV } from "../../packages/backend/src
 import { SEED_ADMIN_PASSWORD } from "../../packages/backend/src/seed.js";
 import { createCloudApp } from "../../apps/server/src/cloud-app.ts";
 import { PaymobMode, type CloudEnv } from "../../apps/server/src/env.ts";
-import { DEVICE_SECRET_HEADER, SignupModeCode } from "../../packages/contracts/src/index.js";
+import { DEVICE_SECRET_HEADER } from "../../packages/contracts/src/index.js";
 import type { Ctx } from "./harness.js";
 
 /**
  * DEC-31 end to end — the walk §3.6 names, against the REAL cloud app.
  *
- * sign-up → day 1 on the top plan → day 15 on Free → a module trial → refused a
+ * console-created trial → day 1 on the top plan → day 15 on Free → a module trial → refused a
  * second time → the module trial ends and the module goes read-only → 100
  * invoices and the 101st refused → a return and a collection still accepted at
  * the quota.
@@ -19,7 +19,7 @@ import type { Ctx } from "./harness.js";
  * It builds its own cloud app rather than borrowing the harness's tenant
  * backend, because the things under test — the subscription, the plan, the drop
  * to Free — live in the PLATFORM database, and half the point is that a tenant
- * signed up through the real `/api/signup` flow lands on the right plan.
+ * created through the real console route lands on the right plan.
  *
  * The clock is moved by re-installing `MEZAN_FAKE_TODAY` between steps.
  * `installClockOverride` derives its offset from whatever `Date` is current, so
@@ -96,49 +96,37 @@ export async function run(ctx: Ctx): Promise<void> {
     check("with 2 seats, 1 branch and 1 warehouse", free?.seatsIncluded === 2 && free?.branchesIncluded === 1 && free?.warehousesIncluded === 1, JSON.stringify(free));
 
     const owner = await call("POST", "/api/platform/auth/login", { email: env.platformOwnerEmail, password: env.platformOwnerPassword });
-    const opened = await call(
-      "PUT",
-      "/api/platform/settings/signup-mode",
-      { mode: SignupModeCode.Open },
+    const top = (plans.body as any[]).find((p) => p.code === "enterprise");
+
+    // ------------------------------------------------------------------
+    // 2 · The console starts the tenant on a 14-day trial of the TOP public plan.
+    // ------------------------------------------------------------------
+    const provisioned = await call(
+      "POST",
+      "/api/platform/tenants",
+      { code: TENANT, nameAr: "منشأة تجربة الفريميوم", ownerEmail: OWNER_EMAIL, ownerNameAr: "مالك التجربة", planId: top?.id, billingCycle: "monthly", trial: true },
       { authorization: `Bearer ${owner.body?.token}`, [DEVICE_SECRET_HEADER]: String(owner.body?.deviceSecret ?? "") },
     );
-    check("the platform owner opens self-serve sign-up", opened.status === 200, `status ${opened.status} ${JSON.stringify(opened.body).slice(0, 160)}`);
-
-    // ------------------------------------------------------------------
-    // 2 · Sign-up starts 14 days on the TOP public plan, whatever was asked for.
-    // ------------------------------------------------------------------
-    const cheapest = (plans.body as any[]).find((p) => p.code === "core");
-    const started = await call("POST", "/api/signup", {
-      code: TENANT,
-      nameAr: "منشأة تجربة الفريميوم",
-      ownerEmail: OWNER_EMAIL,
-      ownerNameAr: "مالك التجربة",
-      planId: cheapest?.id,
-      billingCycle: "monthly",
-    });
-    check("sign-up is accepted", started.status === 201, `status ${started.status} ${JSON.stringify(started.body).slice(0, 200)}`);
-    const verifyUrl = String(started.body?.devVerifyUrl ?? "");
-    const token = new URL(verifyUrl || "http://x/?token=").searchParams.get("token") ?? "";
-    check("and hands back a verification link in dev mode", token !== "", verifyUrl);
-
-    const verified = await call("POST", "/api/signup/verify", { token });
-    check("verifying provisions the tenant", verified.status === 200, `status ${verified.status} ${JSON.stringify(verified.body).slice(0, 200)}`);
-    let adminPassword = String(verified.body?.adminPassword ?? "");
-    const adminEmail = String(verified.body?.adminEmail ?? OWNER_EMAIL);
+    check("the console provisions the tenant", provisioned.status === 201, `status ${provisioned.status} ${JSON.stringify(provisioned.body).slice(0, 200)}`);
+    let adminPassword = String(provisioned.body?.adminPassword ?? "");
+    const adminEmail = String(provisioned.body?.adminEmail ?? OWNER_EMAIL);
 
     const login = await call("POST", "/api/auth/login", { username: adminEmail, password: adminPassword });
     check("the owner can sign in", login.status === 200, `status ${login.status} ${JSON.stringify(login.body).slice(0, 200)}`);
     session = String(login.body?.token ?? "");
     if (login.body?.mustChangePassword === true) {
       const changed = await call("POST", "/api/profile/change-password", { currentPassword: adminPassword, newPassword: SEED_ADMIN_PASSWORD }, auth());
-      check("a temporary owner password is replaced at first sign-in", changed.status === 200, `status ${changed.status}`);
+      check("a temporary owner password is replaced at first sign-in", changed.status === 204, `status ${changed.status}`);
       adminPassword = SEED_ADMIN_PASSWORD;
+      const again = await call("POST", "/api/auth/login", { username: adminEmail, password: adminPassword });
+      check("and the owner signs in again with it", again.status === 200 && again.body?.mustChangePassword !== true, `status ${again.status}`);
+      session = String(again.body?.token ?? "");
     }
 
     const dayOne = await api("GET", "/billing/subscription");
     check("day 1 is a trial", dayOne.body?.subscription?.status === "trialing", JSON.stringify(dayOne.body?.subscription));
     check(
-      "on the TOP public plan, not the one the form named",
+      "on the TOP public plan",
       dayOne.body?.subscription?.planNameEn === "Enterprise",
       String(dayOne.body?.subscription?.planNameEn),
     );

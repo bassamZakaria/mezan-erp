@@ -1,4 +1,4 @@
-import { type RouteObject } from "react-router";
+import { redirect, type RouteObject } from "react-router";
 import { AppLayout } from "../AppLayout";
 import { LanHostGate } from "../lan/LanHostGate";
 import { RouteErrorBoundary } from "./RouteErrorBoundary";
@@ -93,6 +93,10 @@ export const routes: RouteObject[] = [
     path: "/signup/owner-handover",
     lazy: async () => ({ Component: (await import("../signup/OwnerHandOverScreen")).OwnerHandOverScreen }),
     ErrorBoundary: RouteErrorBoundary,
+  },
+  {
+    path: "/signup/*",
+    loader: () => redirect("/"),
   },
   {
     path: "/unlock",

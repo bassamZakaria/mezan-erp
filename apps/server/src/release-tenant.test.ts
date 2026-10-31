@@ -174,7 +174,7 @@ describe("releasing a tenant stuck in provisioning", () => {
     parked.open();
 
     expect(released.status).toBe(TenantStatusCode.Archived);
-    expect(await provisioning).not.toBe("provisioned");
+    expect(await provisioning).toBe("TenantProvisioningError");
     expect(await platform.stores.subscriptions.listByTenant(tenant.id)).toEqual([]);
     expect(await platform.stores.tenants.findById(tenant.id)).toMatchObject({ status: TenantStatusCode.Archived, code: `released-${tenant.id}` });
     expect(databasesIn(dataDir)).toEqual(before);

@@ -25,7 +25,7 @@ RUN pnpm install --frozen-lockfile --filter "@mezan/server..." --filter "web..."
 
 COPY . .
 # REQUIRED: the filtered install above is the whole install; pnpm's pre-run
-# check would otherwise install every other workspace (mobile, Electron) here.
+# check would otherwise install every other workspace (Electron) here.
 ENV pnpm_config_verify_deps_before_run=false
 RUN pnpm --filter web build && pnpm --filter @mezan/server build
 

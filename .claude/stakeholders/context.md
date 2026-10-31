@@ -17,8 +17,9 @@ Electron desktop app and (later) a multi-tenant cloud web app.
   several tills on a shop's local network).
 - **Descoped for now:** the POS module including the net-new `/pos/sell` selling
   screen. (The cloud/SaaS edition is no longer descoped: it is live at
-  https://mezan.cyag.net since 2026-10-21 with self-serve `/signup` and the
-  DEC-31 reverse trial.) **HR is only partly
+  https://mezan.cyag.net since 2026-10-21. Self-serve `/signup` and the mobile
+  app were removed on 2026-10-31 and kept on branch `archive/signup-and-mobile`;
+  accounts are created from the platform console only.) **HR is only partly
   descoped** — employees, contracts, attendance, leave, payroll runs, payslips
   and advances are built and routable; what is deliberately absent is *statutory
   payroll computation* (social insurance, income-tax brackets, end-of-service).

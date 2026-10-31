@@ -12,7 +12,7 @@ export {
   type CreateTenantCommand, type TenantTransitionCommand,
 } from "./tenant.js";
 export {
-  createPlan, updatePlan, retirePlan, dedupeModules,
+  createPlan, updatePlan, retirePlan, dedupeModules, normaliseModules,
   type Plan, type PlanStatus, type PlanRepository,
   type CreatePlanCommand, type UpdatePlanCommand,
 } from "./plan.js";

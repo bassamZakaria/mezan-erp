@@ -60,11 +60,6 @@ import {
   isReservedTenantCode,
   RESERVED_TENANT_CODE_MESSAGE,
   AuditSeverityCode,
-  PlatformSettingKey,
-  SignupDecision,
-  SignupRequestStatus,
-  signupModeOf,
-  type SignupRequest,
   OwnerEmailInAnotherCompanyError,
 } from "@mezan/domain";
 import {
@@ -125,12 +120,6 @@ import {
   purgeTenantNowRequestSchema,
   type TenantPurgeResultDTO,
   type TenantRetentionDTO,
-  approveSignupRequestSchema,
-  setSignupModeRequestSchema,
-  signupModeSchema,
-  type SignupRequestDTO,
-  SignupRefusalCode,
-  type SignupModeResponseDTO,
   EnvSettingsRefusal,
   restartServerRequestSchema,
   updateEnvSettingsRequestSchema,
@@ -490,31 +479,8 @@ function asCodeProvisioning(err: unknown): { readonly message: string; readonly 
   return { message: err.message, messageEn: typeof messageEn === "string" ? messageEn : "This tenant code is being provisioned by another request right now." };
 }
 
-function serializeSignupRequest(r: SignupRequest): SignupRequestDTO {
-  return {
-    id: r.id, code: r.code, nameAr: r.nameAr, nameEn: r.nameEn, ownerEmail: r.ownerEmail, ownerNameAr: r.ownerNameAr,
-    intendedPlanId: r.intendedPlanId ?? null, billingCycle: r.billingCycle, createdAt: r.createdAt, verifiedAt: r.verifiedAt,
-  };
-}
-
-const SIGNUP_ALREADY_DECIDED = { error: SignupRefusalCode.AlreadyDecided, message: "سبق البتّ في هذا الطلب" } as const;
-
-class SignupAlreadyDecidedError extends Error {
-  constructor() {
-    super(SIGNUP_ALREADY_DECIDED.message);
-  }
-}
-
 export enum ProvisioningRefusalCode {
   Superseded = "PROVISIONING_SUPERSEDED",
-}
-
-const decidedElsewhere = (err: unknown): boolean =>
-  err instanceof SignupAlreadyDecidedError || (err instanceof Error && (err as { code?: unknown }).code === ProvisioningRefusalCode.Superseded);
-
-/** Provisioning wraps what it does not know in its own error and keeps the original as `cause`. */
-function lostTheDecision(err: unknown): boolean {
-  return decidedElsewhere(err) || (err instanceof Error && decidedElsewhere((err as { cause?: unknown }).cause));
 }
 
 function extrasOf(s: Pick<Subscription, "addOnModules" | "extraSeats" | "extraBranches" | "extraWarehouses" | "graceDays">) {
@@ -736,102 +702,6 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
       invalidateEntitlements(result.tenant.code);
       c.header("cache-control", "no-store");
       return c.json(result, 201);
-    } catch (err) {
-      return domainErrorResponse(c, err);
-    }
-  });
-
-  const signupRequests = platform.stores.signupRequests;
-
-  /** A company an approval started for a request that was then decided otherwise must not linger holding the code. */
-  async function releaseHalfProvisioned(request: SignupRequest, actorId: string): Promise<void> {
-    const tenant = await platform.stores.tenants.findByCode(request.code);
-    if (releaseTenant && tenant?.status === TenantStatusCode.Provisioning && tenant.ownerEmail === request.ownerEmail) await releaseTenant({ tenant, actorId });
-  }
-
-  async function awaitingRequest(id: string): Promise<SignupRequest | null> {
-    return (await signupRequests.listAwaitingDecision(nowIso())).find((r) => r.id === id) ?? null;
-  }
-
-  app.get("/signup-requests", requireAny, async (c) => c.json((await signupRequests.listAwaitingDecision(nowIso())).map(serializeSignupRequest)));
-
-  app.post("/signup-requests/:id/approve", requireOwner, async (c) => {
-    const parsed = approveSignupRequestSchema.safeParse(await c.req.json().catch(() => null));
-    if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
-    const request = await awaitingRequest(c.req.param("id"));
-    if (!request) return c.json(SIGNUP_ALREADY_DECIDED, 409);
-    const platformUser = c.get("platformUser")!;
-    try {
-      // The decision is written in the same audited transaction that activates the company, so an approval never exists without its company.
-      const result = await provisionTenant(
-        {
-          code: request.code,
-          nameAr: request.nameAr,
-          nameEn: request.nameEn,
-          ownerEmail: request.ownerEmail,
-          ownerNameAr: request.ownerNameAr,
-          intendedPlanId: request.intendedPlanId ?? null,
-          ...parsed.data,
-          actorId: platformUser.id,
-        },
-        (activate) =>
-          recordedWith(c, async () => {
-            const tenant = await activate();
-            if (!(await signupRequests.tryDecide(request.id, SignupDecision.Approved, platformUser.id, nowIso()))) throw new SignupAlreadyDecidedError();
-            const live = await platform.stores.subscriptions.findLiveByTenant(tenant.id);
-            const applied = live ? { planId: live.planId, billingCycle: live.billingCycle, trialEndsAt: live.trialEndsAt } : null;
-            return { value: tenant, action: PlatformAuditAction.SignupApproved, entityId: tenant.id, details: { code: tenant.code, requestId: request.id, requested: parsed.data, applied } };
-          }),
-      );
-      invalidateEntitlements(result.tenant.code);
-      c.header("cache-control", "no-store");
-      return c.json(result, 201);
-    } catch (err) {
-      if (lostTheDecision(err)) {
-        // Only a rejection makes the half-made company unwanted; a sign-up link that won the race is still finishing it.
-        if ((await signupRequests.findById(request.id))?.decision === SignupDecision.Rejected) await releaseHalfProvisioned(request, platformUser.id);
-        return c.json(SIGNUP_ALREADY_DECIDED, 409);
-      }
-      return domainErrorResponse(c, err);
-    }
-  });
-
-  app.post("/signup-requests/:id/reject", requireOwner, async (c) => {
-    const request = await awaitingRequest(c.req.param("id"));
-    if (!request) return c.json(SIGNUP_ALREADY_DECIDED, 409);
-    const platformUser = c.get("platformUser")!;
-    try {
-      await recordedWith(c, async () => {
-        if (!(await signupRequests.tryDecide(request.id, SignupDecision.Rejected, platformUser.id, nowIso()))) throw new SignupAlreadyDecidedError();
-        await signupRequests.releaseByCode(request.code);
-        return { value: null, action: PlatformAuditAction.SignupRejected, entityId: request.id, details: { code: request.code, ownerEmail: request.ownerEmail } };
-      });
-      await releaseHalfProvisioned(request, platformUser.id);
-      return c.json({ rejected: true });
-    } catch (err) {
-      if (err instanceof SignupAlreadyDecidedError) return c.json(SIGNUP_ALREADY_DECIDED, 409);
-      return domainErrorResponse(c, err);
-    }
-  });
-
-  const signupMode = async () => signupModeOf(await platform.stores.settings.get(PlatformSettingKey.SignupMode));
-
-  app.get("/settings/signup-mode", requireAny, async (c) => {
-    const body: SignupModeResponseDTO = { mode: signupModeSchema.parse(await signupMode()) };
-    return c.json(body);
-  });
-
-  app.put("/settings/signup-mode", requireOwner, async (c) => {
-    const parsed = setSignupModeRequestSchema.safeParse(await c.req.json().catch(() => null));
-    if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
-    try {
-      await recordedWith(c, async () => {
-        const before = await signupMode();
-        await platform.stores.settings.set(PlatformSettingKey.SignupMode, parsed.data.mode, nowIso());
-        return { value: null, action: PlatformAuditAction.SignupModeSet, entityId: PlatformSettingKey.SignupMode, details: { before, after: parsed.data.mode }, severity: AuditSeverityCode.Warning };
-      });
-      const body: SignupModeResponseDTO = { mode: parsed.data.mode };
-      return c.json(body);
     } catch (err) {
       return domainErrorResponse(c, err);
     }

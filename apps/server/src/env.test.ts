@@ -268,11 +268,11 @@ describe("platform mail and the origin its links are built on", () => {
 
   it.each([
     ["nothing else", {}],
-    ["a tenant domain, which names no address the signup page itself is served on", { MEZAN_TENANT_DOMAIN: "mezan.test" }],
+    ["a tenant domain, which names no address the platform itself is served on", { MEZAN_TENANT_DOMAIN: "mezan.test" }],
     ["the card test double, which has no public address of its own", { MEZAN_PAYMOB_TEST_MODE: "1" }],
   ])("refuses to start with mail configured and %s, and names the variable to set", (_label, vars) => {
     expect(() => parseEnv({ ...MAIL, ...vars })).toThrow(
-      "MEZAN_PUBLIC_URL is required once MEZAN_SMTP_HOST is set: every mailed link (signup verification, owner hand-over) is built on it, and without it no signup can be completed",
+      "MEZAN_PUBLIC_URL is required once MEZAN_SMTP_HOST is set: every mailed link (owner hand-over, unlock) is built on it",
     );
   });
 

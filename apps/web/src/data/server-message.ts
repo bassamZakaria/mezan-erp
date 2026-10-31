@@ -19,3 +19,9 @@ export async function readServerMessage(res: { json<T>(): Promise<T> }, fallback
   const body = (await res.json<ServerErrorBody>().catch(() => ({}))) as ServerErrorBody;
   return serverMessage(body) ?? fallback;
 }
+
+export async function readServerReasons(res: { json<T>(): Promise<T> }, fallback: string): Promise<string> {
+  const body = (await res.json<ServerErrorBody & { reasons?: string[] }>().catch(() => ({}))) as ServerErrorBody & { reasons?: string[] };
+  if (body.reasons && body.reasons.length > 0) return body.reasons.join(" — ");
+  return serverMessage(body) ?? fallback;
+}

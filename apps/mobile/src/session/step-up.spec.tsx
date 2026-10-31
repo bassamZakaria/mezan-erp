@@ -6,8 +6,8 @@ import { STEP_UP_REQUIRED, withStepUp } from "./step-up";
 
 const refusal = () => new ApiError(ApiFailure.Forbidden, 403, "تغيّر عنوان اتصالك منذ تسجيل الدخول.", null, STEP_UP_REQUIRED);
 
-describe("a request the server answers by asking for the PIN again", () => {
-  it("is sent once more after the PIN is confirmed, and its answer handed back", async () => {
+describe("a request the server answers by asking for the password again", () => {
+  it("is sent once more after the password is confirmed, and its answer handed back", async () => {
     let sends = 0;
     const send = async () => {
       sends += 1;
@@ -51,24 +51,24 @@ describe("a request the server answers by asking for the PIN again", () => {
   });
 });
 
-describe("the PIN prompt", () => {
-  it("confirms six digits with the server, shows its refusal, and closes only when the PIN is accepted", async () => {
-    const pins: string[] = [];
-    const confirm = jest.fn(async (pin: string) => {
-      pins.push(pin);
-      return pins.length === 1 ? "رمز PIN غير صحيح." : null;
+describe("the password prompt", () => {
+  it("confirms the password with the server, shows its refusal, and closes only when the password is accepted", async () => {
+    const passwords: string[] = [];
+    const confirm = jest.fn(async (password: string) => {
+      passwords.push(password);
+      return passwords.length === 1 ? "كلمة المرور غير صحيحة." : null;
     });
     const cancel = jest.fn();
     await render(<StepUpOverlay message="تغيّر عنوان اتصالك منذ تسجيل الدخول." onConfirm={confirm} onCancel={cancel} />);
 
     expect(screen.getByText("تغيّر عنوان اتصالك منذ تسجيل الدخول.")).toBeTruthy();
-    await act(async () => fireEvent.changeText(screen.getByTestId("step-up-pin"), "000000"));
+    await act(async () => fireEvent.changeText(screen.getByTestId("step-up-password"), "wrong-password"));
     await act(async () => fireEvent.press(screen.getByTestId("step-up-confirm")));
-    expect(screen.getByText("رمز PIN غير صحيح.")).toBeTruthy();
+    expect(screen.getByText("كلمة المرور غير صحيحة.")).toBeTruthy();
 
-    await act(async () => fireEvent.changeText(screen.getByTestId("step-up-pin"), "135790"));
+    await act(async () => fireEvent.changeText(screen.getByTestId("step-up-password"), "Cyag@2026"));
     await act(async () => fireEvent.press(screen.getByTestId("step-up-confirm")));
-    expect(pins).toEqual(["000000", "135790"]);
+    expect(passwords).toEqual(["wrong-password", "Cyag@2026"]);
 
     await act(async () => fireEvent.press(screen.getByTestId("step-up-cancel")));
     expect(cancel).toHaveBeenCalledTimes(1);

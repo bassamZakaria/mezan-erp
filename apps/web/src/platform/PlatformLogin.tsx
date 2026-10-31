@@ -7,10 +7,10 @@ import { useAppTranslation } from "../i18n";
 import { PlatformApiError, usePlatformApi } from "./api";
 
 /**
- * The platform console's own door — email + password, not the desktop's
- * device-PIN flow (`LoginScreen`). An operator signs into ONE shared
+ * The platform console's own door — email + password, apart from a
+ * company's sign-in (`LoginScreen`). An operator signs into ONE shared
  * dashboard from wherever they are, not into a specific till, so there is no
- * remembered-face row and no PIN to auto-submit.
+ * remembered-face row.
  */
 export function PlatformLogin() {
   const { t } = useAppTranslation();

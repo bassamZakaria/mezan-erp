@@ -59,6 +59,8 @@ export interface TenantRouterOptions {
   readonly dataDir: string;
   readonly tenantDomain?: string;
   readonly unlockLinkFor?: (tenantCode: string) => ((token: string) => string) | undefined;
+  readonly passwordResetLinkFor?: (tenantCode: string) => ((token: string) => string) | undefined;
+  readonly signInLinkFor?: (tenantCode: string) => string | undefined;
   readonly trustForwardedHost?: boolean;
   readonly clientSource?: ClientSourceOptions;
   readonly sourceReporter?: SourceReporter;
@@ -122,6 +124,9 @@ export function booksScratchDir(dataDir: string): string {
 
 export interface TenantMail {
   readonly unlockLink?: (token: string) => string;
+  readonly passwordResetLink?: (token: string) => string;
+  readonly signInLink?: string;
+  readonly companyCode?: string;
 }
 
 function safeEqual(provided: string, secret: string): boolean {
@@ -264,6 +269,9 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
     seedWhenEmpty: books.provisioning,
     securityMail: options.securityMail,
     unlockLink: mail.unlockLink,
+    passwordResetLink: mail.passwordResetLink,
+    signInLink: mail.signInLink,
+    signInCompanyCode: mail.companyCode,
     platformOperatorUnlocks: true,
     sessionsInDatabase: true,
     tenantMailDestinations: SmtpDestinationPolicy.PublicOnly,
@@ -296,7 +304,7 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
     const schema = tenantSchema(tenantId);
     if (provisioning) await pgOptions.databases.provision(schema);
     const entry = pgOptions.databases.get(schema);
-    const mail: TenantMail = { unlockLink: options.unlockLinkFor?.(code) };
+    const mail: TenantMail = { unlockLink: options.unlockLinkFor?.(code), passwordResetLink: options.passwordResetLinkFor?.(code), signInLink: options.signInLinkFor?.(code), companyCode: code };
     const backend = await createBackend({
       ...backendOptions(code, resolversFor(code), hooksFor(tenantId, code), mail, { tenantId, provisioning, bind: true }),
       db: entry.db,
@@ -349,7 +357,7 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
       const provisioning = tenant.status === TenantStatusCode.Provisioning;
       const connection: SqliteOpenOptions = { ...options.connection, fileMustExist: !provisioning };
       const bind = verdict.standing !== TenantBooksStanding.Unbound;
-      const mail: TenantMail = { unlockLink: options.unlockLinkFor?.(code) };
+      const mail: TenantMail = { unlockLink: options.unlockLinkFor?.(code), passwordResetLink: options.passwordResetLinkFor?.(code), signInLink: options.signInLinkFor?.(code), companyCode: code };
       const backend = await openBackend(code, tenantDbPath(options.dataDir, tenant.dbFile), resolversFor(code), hooksFor(tenantId, code), connection, mail, { tenantId, provisioning, bind }).catch((err: unknown) => {
         if (isUnreadableSqliteError(err)) throw new TenantDbFileUnreadableError(tenantId, tenant.dbFile, err);
         if (err instanceof TenantBindingMismatchError) throw new TenantDbFileForeignError(tenantId, tenant.dbFile, err.boundTenantId);

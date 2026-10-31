@@ -5,30 +5,28 @@ import { TextField } from "@/components/text-field";
 import { useStrings } from "@/i18n";
 import { RADIUS, SPACE, TYPE, useTheme } from "@/theme";
 
-const PIN_LENGTH = 6;
-
 interface StepUpOverlayProps {
   readonly message: string;
-  readonly onConfirm: (pin: string) => Promise<string | null>;
+  readonly onConfirm: (password: string) => Promise<string | null>;
   readonly onCancel: () => void;
 }
 
 export function StepUpOverlay({ message, onConfirm, onCancel }: StepUpOverlayProps) {
   const strings = useStrings();
   const theme = useTheme();
-  const [pin, setPin] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const confirm = async (): Promise<void> => {
-    if (busy || pin.length !== PIN_LENGTH) return;
+    if (busy || password === "") return;
     setBusy(true);
     setError(null);
-    const refusal = await onConfirm(pin);
+    const refusal = await onConfirm(password);
     setBusy(false);
     if (refusal !== null) {
       setError(refusal);
-      setPin("");
+      setPassword("");
     }
   };
 
@@ -38,16 +36,14 @@ export function StepUpOverlay({ message, onConfirm, onCancel }: StepUpOverlayPro
         <Text style={[styles.title, { color: theme.text }]}>{strings.stepUp.title}</Text>
         <Text style={[styles.message, { color: theme.textMuted }]}>{message}</Text>
         <TextField
-          keyboardType="number-pad"
-          label={strings.stepUp.pin}
-          maxLength={PIN_LENGTH}
-          onChangeText={(value) => setPin(value.replace(/\D/g, ""))}
+          label={strings.stepUp.password}
+          onChangeText={setPassword}
           secureTextEntry
-          testID="step-up-pin"
-          value={pin}
+          testID="step-up-password"
+          value={password}
         />
         {error ? <Text style={[styles.error, { color: theme.negative }]}>{error}</Text> : null}
-        <Button busy={busy} disabled={pin.length !== PIN_LENGTH} label={strings.stepUp.confirm} onPress={() => void confirm()} testID="step-up-confirm" />
+        <Button busy={busy} disabled={password === ""} label={strings.stepUp.confirm} onPress={() => void confirm()} testID="step-up-confirm" />
         <Button disabled={busy} label={strings.common.cancel} onPress={onCancel} testID="step-up-cancel" tone={ButtonTone.Quiet} />
       </View>
     </View>

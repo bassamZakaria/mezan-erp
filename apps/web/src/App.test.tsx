@@ -33,9 +33,7 @@ function appTransport() {
 
 function login() {
   fireEvent.change(screen.getByLabelText("البريد الإلكتروني"), { target: { value: "admin@cyag.example" } });
-  "123456".split("").forEach((digit, index) => {
-    fireEvent.change(screen.getByLabelText(`رمز PIN رقم ${index + 1}`), { target: { value: digit } });
-  });
+  fireEvent.change(screen.getByLabelText("كلمة المرور"), { target: { value: "Cyag@2026" } });
   fireEvent.click(screen.getByRole("button", { name: "دخول" }));
 }
 

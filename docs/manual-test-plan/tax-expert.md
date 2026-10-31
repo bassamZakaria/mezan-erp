@@ -10,7 +10,7 @@ rather than written as scenarios.
 **Preconditions common to all scenarios**, unless a scenario states otherwise:
 - Backend seeded with `MEZAN_SEED_DEMO=1` (`pnpm --filter @mezan/backend
   demo-seed` or the app's own seed-on-first-run path).
-- Signed in as the seeded company-admin, `admin@cyag.example`, PIN `123456` —
+- Signed in as the seeded company-admin, `admin@cyag.example`, password `Cyag@2026` —
   holds every permission, including `accounting.eta.view` /
   `accounting.eta.submit` / `accounting.eta.cancel`.
 - Tenant VAT rate `VAT14` (14%, `ضريبة القيمة المضافة`) is the only tax rate

@@ -11,7 +11,7 @@ function held() {
 
 const tick = () => new Promise<void>((resolve) => setImmediate(resolve));
 
-describe("how many PIN checks a tenant runs at once", () => {
+describe("how many password checks a tenant runs at once", () => {
   it("runs as many as it was given, queues a few more, and refuses the rest at once", async () => {
     const gate = createSignInGate({ running: 2, waiting: 1, perSource: 10, reserved: 0 });
     const started: number[] = [];

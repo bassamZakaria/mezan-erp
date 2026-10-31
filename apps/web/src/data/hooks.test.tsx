@@ -581,19 +581,19 @@ describe("auth / bootstrap", () => {
     }
     const { result } = renderHook(() => useCombined(), { wrapper: Wrapper });
     expect(result.current.api.session).toBeNull();
-    result.current.login.mutate({ username: "x", pin: "1234" } as never);
+    result.current.login.mutate({ username: "x", password: "Cyag@2026" });
     await waitFor(() => expect(result.current.login.isSuccess).toBe(true));
     expect(result.current.api.session).toEqual(returnedSession);
   });
 
   it("useLogin surfaces the server's own refusal message, not a generic one", async () => {
     const transport = stubTransport({
-      "POST /auth/login": () => ({ status: 401, body: { message: "الرقم السري غير صحيح" } }),
+      "POST /auth/login": () => ({ status: 401, body: { message: "البريد الإلكتروني أو كلمة المرور غير صحيحة." } }),
     });
     const { result } = renderHook(() => useLogin(), { wrapper: makeWrapper(transport, null).Wrapper });
-    result.current.mutate({ username: "x", pin: "0000" } as never);
+    result.current.mutate({ username: "x", password: "wrong-password" });
     await waitFor(() => expect(result.current.isError).toBe(true));
-    expect(result.current.error?.message).toBe("الرقم السري غير صحيح");
+    expect(result.current.error?.message).toBe("البريد الإلكتروني أو كلمة المرور غير صحيحة.");
   });
 
   it("useBootstrapSeed writes the returned counts straight into ['bootstrap','status'], so the wizard checklist updates without a refetch", async () => {

@@ -32,8 +32,8 @@ export enum BackupFailureCode {
   Cancelled = "CANCELLED",
   NotFound = "NOT_FOUND",
   WeakPassphrase = "WEAK_PASSPHRASE",
-  WrongPin = "WRONG_PIN",
-  PinRequired = "PIN_REQUIRED",
+  WrongPassword = "WRONG_PASSWORD",
+  PasswordRequired = "PASSWORD_REQUIRED",
   KeyCardNotSaved = "KEY_CARD_NOT_SAVED",
 }
 
@@ -44,7 +44,7 @@ export type RecoveryStatus = {
   keyStoreAvailable: boolean;
 };
 
-export type RecoverySetRequest = { mode: RecoveryMode; passphrase?: string; pin?: string };
+export type RecoverySetRequest = { mode: RecoveryMode; passphrase?: string; password?: string };
 export type RecoveryResult = { ok: true; recovery: RecoveryStatus } | BackupFailure;
 export type KeyCardSaveResult = { ok: true; filePath: string } | BackupFailure;
 

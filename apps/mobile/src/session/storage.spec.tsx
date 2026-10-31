@@ -21,7 +21,7 @@ jest.mock("@react-native-async-storage/async-storage", () => ({
 }));
 
 const SESSION: SessionDTO = {
-  userId: "u-1", nameAr: "المالك", nameEn: null, email: "owner@shop.eg", isCompanyAdmin: true, permissions: ["*"], roleCode: null,
+  userId: "u-1", nameAr: "المالك", nameEn: null, email: "owner@shop.eg", isCompanyAdmin: true, permissions: ["*"], roleCode: null, mustChangePassword: false,
   photoUrl: null, branchScope: "*", warehouseScope: "*", tenantName: "المنشأة", token: "the-session-token", deviceSecret: "the-device-secret",
 };
 

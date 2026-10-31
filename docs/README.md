@@ -50,7 +50,7 @@ Three documents, two directories. That is all of it.
   keeping it out of `ROADMAP.md` is why a rollout's day-to-day churn — a new client, a new
   machine, a recovered install — never has to touch the file that records what is built and
   broken. Before this file existed, a consultant with no install guide had two bad options:
-  try the published dev PIN `123456` (works in dev, fails silently on a packaged build with
+  try the published dev password `Cyag@2026` (works in dev, fails silently on a packaged build with
   a bare `INVALID_CREDENTIALS`) or reverse-engineer the source — which is the defect that
   justified the third document, not a preference for tidiness. Do not propose a fourth
   document for a fourth kind of reader; propose folding it into one of these three first, and

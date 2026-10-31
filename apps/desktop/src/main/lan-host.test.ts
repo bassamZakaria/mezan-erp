@@ -145,7 +145,7 @@ describe("startLanHost", () => {
 /**
  * THE WIRE ITSELF.
  *
- * The socket served plain HTTP, so `POST /auth/login`'s PIN and the bearer
+ * The socket served plain HTTP, so `POST /auth/login`'s password and the bearer
  * token it answers with crossed a WPA2-PSK shop network in clear text — a key
  * the staff, the delivery drivers and the customers all hold. The token is
  * bound to no device, no address and no seat and lives twelve hours
@@ -204,7 +204,7 @@ describe("the LAN socket is TLS, and it is the certificate the screen names", ()
       fetch(`http://127.0.0.1:${port}/auth/login`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ username: SEED_ADMIN_EMAIL, pin: "000001" }),
+        body: JSON.stringify({ username: SEED_ADMIN_EMAIL, password: "wrong-password" }),
       }),
     ).rejects.toThrow();
 
@@ -558,7 +558,7 @@ describe("what the LAN socket exposes to a stranger (D109)", () => {
     const login = await lanFetch(port, "/auth/login", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ username: SEED_ADMIN_EMAIL, pin: "000001" }),
+      body: JSON.stringify({ username: SEED_ADMIN_EMAIL, password: "wrong-password" }),
     });
     expect(login.status).toBe(401);
 
@@ -566,6 +566,12 @@ describe("what the LAN socket exposes to a stranger (D109)", () => {
     expect((await lanFetch(port, "/health")).status).toBe(200);
     expect((await lanFetch(port, "/tenant")).status).toBe(200);
     expect((await lanFetch(port, "/lan/status")).status).toBe(401);
+    // A temporary-password till holds no seat until it changes the password,
+    // so the change must reach the app (401 without a token), not the socket's 404.
+    expect((await lanFetch(port, "/profile")).status).toBe(401);
+    expect(
+      (await lanFetch(port, "/profile/change-password", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).status,
+    ).toBe(401);
 
     // The takeover chain's second half, on the composition that actually
     // mounts it: unreachable, and indistinguishable from a route that is not
@@ -573,7 +579,7 @@ describe("what the LAN socket exposes to a stranger (D109)", () => {
     const takeover = await lanFetch(port, "/bootstrap/admin", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ nameAr: "دخيل", nameEn: null, email: "x@y.com", pin: "123456", companyName: "متجر الاختبار" }),
+      body: JSON.stringify({ nameAr: "دخيل", nameEn: null, email: "x@y.com", password: "Intruder-123", companyName: "متجر الاختبار" }),
     });
     expect(takeover.status).toBe(404);
     expect((await backend.app.fetch(new Request("http://ipc/bootstrap/status"))).status).toBe(200);

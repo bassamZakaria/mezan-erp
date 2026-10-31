@@ -167,7 +167,11 @@ interface LanRoute {
  * bricks every till — and `/lan/*` is the seat protocol itself. `GET /tenant`
  * returns the shop's own name and nothing else; the till's login screen renders
  * its header from it, and the name is on the sign outside. `GET /health` is how
- * a till tells "host is off" from "host refused me".
+ * a till tells "host is off" from "host refused me". `GET /profile` and
+ * `POST /profile/change-password` are here because a user signing in with a
+ * temporary password is refused a seat until it is changed (the backend's
+ * password-change gate), so without them that till could never get past its
+ * first sign-in; both still demand the caller's own session token.
  *
  * EVERY OTHER ROUTE is reached the other way — see `authorizeClientRequest` and
  * `LAN_NEVER_ROUTES` below. This list stayed the WHOLE surface for as long as
@@ -180,6 +184,8 @@ const LAN_PUBLIC_ROUTES: readonly LanRoute[] = [
   { method: "POST", path: "/auth/login" },
   { method: "POST", path: "/auth/logout" },
   { method: "POST", path: "/auth/unlock" },
+  { method: "GET", path: "/profile" },
+  { method: "POST", path: "/profile/change-password" },
   { method: "GET", path: "/tenant" },
   { method: "GET", path: "/health" },
   { method: null, path: "/lan", subtree: true },
@@ -323,7 +329,7 @@ function resolveBindAddress(): string {
  * LAN then reach the exact app the host itself uses in-process, including
  * `/lan/sessions` seat enforcement (§2.6, §6.3.3).
  *
- * THE SOCKET IS TLS-ONLY. It served plain HTTP, which put the PIN in every
+ * THE SOCKET IS TLS-ONLY. It served plain HTTP, which put the password in every
  * `POST /auth/login` body and the bearer token in every response on a WPA2-PSK
  * network the whole neighbourhood is associated to; sessions are bound to no
  * device and no address and last twelve hours (api/session-auth.ts), so one
@@ -554,7 +560,7 @@ export function startLanHost(options: LanHostOptions): LanHostHandle {
       // same routes in clear text — is invisible for the life of the install.
       console.error(
         "[lan] multi-till is LICENSED but STAYED CLOSED: the host's TLS identity could not be " +
-          "read or created, and this socket has no plain-HTTP fallback by design (PINs and " +
+          "read or created, and this socket has no plain-HTTP fallback by design (passwords and " +
           "12-hour bearer tokens would cross the shop wifi in clear text).",
         err,
       );

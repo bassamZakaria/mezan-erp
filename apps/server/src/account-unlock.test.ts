@@ -18,20 +18,20 @@ async function lockedOwner() {
     body: JSON.stringify({ code: "acme", nameAr: "منشأة أكمي", ownerEmail: "owner@acme.example", ownerNameAr: "المالك", planId: "PLAN-CORE", billingCycle: "monthly", trial: false }),
   });
   expect(created.status).toBe(201);
-  const { tenant, adminPin } = (await created.json()) as { tenant: { id: string }; adminPin: string };
-  const signIn = (pin: string, client: string) =>
-    harness.send("/api/auth/login", { method: "POST", tenant: "acme", client, body: JSON.stringify({ username: "owner@acme.example", pin }) });
+  const { tenant, adminPassword } = (await created.json()) as { tenant: { id: string }; adminPassword: string };
+  const signIn = (password: string, client: string) =>
+    harness.send("/api/auth/login", { method: "POST", tenant: "acme", client, body: JSON.stringify({ username: "owner@acme.example", password }) });
   const statuses: number[] = [];
-  for (let i = 0; i < 20; i += 1) statuses.push((await signIn(String(100000 + i), `41.33.${i}.10`)).status);
+  for (let i = 0; i < 20; i += 1) statuses.push((await signIn(`wrong-password-${i}`, `41.33.${i}.10`)).status);
   expect(statuses[19]).toBe(423);
-  return { harness, operator, tenantId: tenant.id, adminPin, signIn };
+  return { harness, operator, tenantId: tenant.id, adminPassword, signIn };
 }
 
 describe("a tenant's only administrator locked out on the cloud, with no mail server", () => {
   it("is told to reach platform support, is listed in the console, and signs in again once the operator unlocks the account", async () => {
-    const { harness, operator, tenantId, adminPin, signIn } = await lockedOwner();
+    const { harness, operator, tenantId, adminPassword, signIn } = await lockedOwner();
 
-    const refused = await signIn(adminPin, "196.221.5.5");
+    const refused = await signIn(adminPassword, "196.221.5.5");
     expect(refused.status).toBe(423);
     const told = (await refused.json()) as { message: string; unlockByCode: boolean };
     expect(told.unlockByCode).toBe(false);
@@ -45,21 +45,25 @@ describe("a tenant's only administrator locked out on the cloud, with no mail se
     expect(unlocked.status).toBe(200);
     expect(await unlocked.json()).toEqual({ accounts: [] });
 
-    const back = await signIn(adminPin, "196.221.5.5");
+    const back = await signIn(adminPassword, "196.221.5.5");
     expect(back.status).toBe(200);
-    const session = (await back.json()) as { token: string };
+    const issued = (await back.json()) as { token: string; mustChangePassword: boolean };
+    expect(issued.mustChangePassword).toBe(true);
+    const changed = await harness.send("/api/profile/change-password", { method: "POST", token: issued.token, tenant: "acme", client: "196.221.5.5", body: JSON.stringify({ currentPassword: adminPassword, newPassword: "owner-own-password" }) });
+    expect(changed.status).toBe(204);
+    const session = (await (await signIn("owner-own-password", "196.221.5.5")).json()) as { token: string };
     const trail = await harness.send("/api/audit?stream=security&action=ACCOUNT_UNLOCKED_BY_PLATFORM", { token: session.token, tenant: "acme", client: "196.221.5.5" });
     expect((await trail.text()).match(/ACCOUNT_UNLOCKED_BY_PLATFORM/g)).toHaveLength(1);
   }, 120_000);
 
-  it("is opened by the console's owner PIN reset as well: the PIN it hands out signs in", async () => {
+  it("is opened by the console's owner password reset as well: the password it hands out signs in", async () => {
     const { harness, operator, tenantId, signIn } = await lockedOwner();
 
-    const reset = await harness.send(`/api/platform/tenants/${tenantId}/owner-pin/reset`, { method: "POST", token: operator });
+    const reset = await harness.send(`/api/platform/tenants/${tenantId}/owner-password/reset`, { method: "POST", token: operator });
     expect(reset.status).toBe(200);
-    const { adminPin } = (await reset.json()) as { adminPin: string };
+    const { adminPassword } = (await reset.json()) as { adminPassword: string };
 
-    expect((await signIn(adminPin, "196.221.5.5")).status).toBe(200);
+    expect((await signIn(adminPassword, "196.221.5.5")).status).toBe(200);
     const listed = await harness.send(`/api/platform/tenants/${tenantId}/locked-accounts`, { token: operator });
     expect(await listed.json()).toEqual({ accounts: [] });
   }, 120_000);

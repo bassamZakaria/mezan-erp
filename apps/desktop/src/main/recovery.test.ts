@@ -7,17 +7,18 @@ import { DEFAULT_SETTINGS } from "@mezan/domain";
 import { SEED_ADMIN_EMAIL, SEED_ADMIN_USER_ID } from "@mezan/backend";
 import { createScryptHasher, createSqliteSettingsStore, createSqliteUnitOfWork } from "@mezan/persistence";
 import {
-  clearRecoveryPinIfClaimed,
+  clearRecoveryPasswordIfClaimed,
   recoveryFilePath,
-  resetSeedAdminPin,
+  RecoveryReason,
+  resetSeedAdminPassword,
   wantsAdminReset,
-  writeRecoveryPin,
+  writeRecoveryPassword,
 } from "./recovery.js";
 
 /**
  * The install this file exists to save: a packaged build seeds its admin with a
- * RANDOM PIN and there is no reset route, no admin unlock and no second
- * account, so a PIN nobody wrote down did not degrade the install — it ended
+ * RANDOM temporary password and there is no reset route, no admin unlock and no
+ * second account, so a password nobody wrote down did not degrade the install — it ended
  * it. These are the two doors back in, and both are authorised by filesystem
  * access to the database directory, which already holds every price and every
  * customer in an unencrypted file.
@@ -45,7 +46,7 @@ async function seedAdmin(status: "active" | "inactive" = "active"): Promise<void
       email: SEED_ADMIN_EMAIL,
       phone: null,
       passwordHash: await createScryptHasher().hash("the-owner-still-knows-this"),
-      pinHash: await createScryptHasher().hash("111111"),
+      mustChangePassword: false,
       roleId: null,
       isCompanyAdmin: true,
       employeeId: null,
@@ -62,17 +63,18 @@ async function seedAdmin(status: "active" | "inactive" = "active"): Promise<void
 }
 
 describe("the first-run recovery file", () => {
-  it("writes the PIN owner-readable only, with both languages and the email to sign in with", async () => {
-    const target = await writeRecoveryPin(dbPath, "482913", "first-run");
+  it("writes the temporary password owner-readable only, with both languages and the email to sign in with", async () => {
+    const target = await writeRecoveryPassword(dbPath, "Tmp-482913xy", RecoveryReason.FirstRun);
     expect(target).toBe(recoveryFilePath(dbPath));
 
     const body = await readFile(target, "utf8");
-    expect(body).toContain("482913");
+    expect(body).toContain("Tmp-482913xy");
     expect(body).toContain(SEED_ADMIN_EMAIL);
     // Arabic first, and an English half — the owner may not be the person who
     // installs it, and neither may be the person who finds this file later.
-    expect(body).toContain("رمز الدخول");
-    expect(body).toContain("administrator PIN");
+    expect(body).toContain("كلمة المرور المؤقتة");
+    expect(body).toContain("administrator password");
+    expect(path.basename(target)).toBe("recovery-password.txt");
 
     // 0600. The file is a live company-admin credential until the wizard runs;
     // a world-readable one on a shared shop machine is the credential itself.
@@ -87,7 +89,7 @@ describe("the first-run recovery file", () => {
     const target = recoveryFilePath(dbPath);
     await writeFile(target, "stale", { encoding: "utf8", mode: 0o644 });
 
-    await writeRecoveryPin(dbPath, "111222", "reset");
+    await writeRecoveryPassword(dbPath, "Tmp-111222xy", RecoveryReason.Reset);
     if (process.platform !== "win32") {
       expect(statSync(target).mode & 0o777).toBe(0o600);
     }
@@ -106,18 +108,22 @@ describe("clearing the recovery file", () => {
 
   it("keeps the file while nobody has claimed the tenant", async () => {
     await saveSettings(null);
-    const target = await writeRecoveryPin(dbPath, "482913", "first-run");
+    const target = await writeRecoveryPassword(dbPath, "Tmp-482913xy", RecoveryReason.FirstRun);
 
-    expect(await clearRecoveryPinIfClaimed(dbPath)).toBe(false);
-    expect(await readFile(target, "utf8")).toContain("482913");
+    expect(await clearRecoveryPasswordIfClaimed(dbPath)).toBe(false);
+    expect(await readFile(target, "utf8")).toContain("Tmp-482913xy");
   });
 
   it("removes it once the tenant is claimed", async () => {
     await saveSettings("2026-08-30T09:00:00.000Z");
-    const target = await writeRecoveryPin(dbPath, "482913", "first-run");
+    const target = await writeRecoveryPassword(dbPath, "Tmp-482913xy", RecoveryReason.FirstRun);
 
-    expect(await clearRecoveryPinIfClaimed(dbPath)).toBe(true);
+    const legacy = path.join(dir, "recovery-pin.txt");
+    await writeFile(legacy, "old PIN, now a live temporary password", "utf8");
+
+    expect(await clearRecoveryPasswordIfClaimed(dbPath)).toBe(true);
     await expect(readFile(target, "utf8")).rejects.toThrow();
+    await expect(readFile(legacy, "utf8")).rejects.toThrow();
   });
 });
 
@@ -128,10 +134,10 @@ describe("--reset-admin", () => {
   });
 
   it("says so rather than claiming success when there is no seeded admin", async () => {
-    expect(await resetSeedAdminPin(dbPath)).toBeNull();
+    expect(await resetSeedAdminPassword(dbPath)).toBeNull();
   });
 
-  it("mints a PIN that actually signs in, and leaves the password alone", async () => {
+  it("mints a temporary password that actually signs in and must be changed at the next sign-in", async () => {
     await seedAdmin();
     const before = await (async () => {
       const uow = createSqliteUnitOfWork(dbPath);
@@ -142,25 +148,23 @@ describe("--reset-admin", () => {
       }
     })();
 
-    const reset = await resetSeedAdminPin(dbPath);
+    const reset = await resetSeedAdminPassword(dbPath);
     expect(reset).not.toBeNull();
-    expect(reset!.pin).toMatch(/^\d{6}$/);
+    expect(reset!.password.length).toBeGreaterThanOrEqual(12);
 
     const uow = createSqliteUnitOfWork(dbPath);
     try {
       const after = await uow.users.findById(SEED_ADMIN_USER_ID);
       const hasher = createScryptHasher();
-      expect(await hasher.verify(reset!.pin, after!.pinHash!)).toBe(true);
-      expect(await hasher.verify("111111", after!.pinHash!)).toBe(false);
-      // The owner may still know the password. `saveUser` would have taken a
-      // plaintext password and reset it too, which is why this writes the row.
-      expect(after!.passwordHash).toBe(before!.passwordHash);
+      expect(await hasher.verify(reset!.password, after!.passwordHash!)).toBe(true);
+      expect(await hasher.verify("the-owner-still-knows-this", after!.passwordHash!)).toBe(false);
+      expect(after!.mustChangePassword).toBe(true);
       expect(after!.email).toBe(before!.email);
     } finally {
       uow.close();
     }
 
-    expect(await readFile(reset!.recoveryFile, "utf8")).toContain(reset!.pin);
+    expect(await readFile(reset!.recoveryFile, "utf8")).toContain(reset!.password);
   });
 
   it("reactivates a deactivated seed admin, and reports that it did", async () => {
@@ -168,7 +172,7 @@ describe("--reset-admin", () => {
     // company admin, so an install can reach "no account anybody can sign into"
     // with nobody meaning to. A reset that leaves the door locked is not one.
     await seedAdmin("inactive");
-    const reset = await resetSeedAdminPin(dbPath);
+    const reset = await resetSeedAdminPassword(dbPath);
     expect(reset?.reactivated).toBe(true);
 
     const uow = createSqliteUnitOfWork(dbPath);

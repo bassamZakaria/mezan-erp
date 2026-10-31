@@ -285,6 +285,8 @@ export {
 
 export {
   userSchema,
+  createdUserSchema,
+  type CreatedUserDTO,
   userStatusSchema,
   createUserSchema,
   updateUserSchema,
@@ -958,6 +960,10 @@ export {
   loginRequestSchema,
   unlockAccountRequestSchema,
   unlockAccountByLinkRequestSchema,
+  forgotPasswordRequestSchema,
+  resetPasswordRequestSchema,
+  type ForgotPasswordRequestDTO,
+  type ResetPasswordRequestDTO,
   stepUpRequestSchema,
   DEVICE_BINDING_HEADER,
   DEVICE_SECRET_HEADER,
@@ -966,6 +972,8 @@ export {
   CsrfCookie,
   CurrentSecretRefusal,
   SessionRefusal,
+  PasswordChangeRefusal,
+  signInPasswordSchema,
   type StepUpRequestDTO,
   type UnlockAccountRequestDTO,
   type UnlockAccountByLinkRequestDTO,
@@ -1715,11 +1723,9 @@ export {
   profileSchema,
   updateProfileSchema,
   changePasswordSchema,
-  changePinSchema,
   type ProfileDTO,
   type UpdateProfileDTO,
   type ChangePasswordDTO,
-  type ChangePinDTO,
 } from "./profile.js";
 
 export {
@@ -1864,8 +1870,8 @@ export {
   recordPaymentRequestSchema,
   PlatformPaymentRefusal,
   subscriptionStatusSchema,
-  ownerPinResetResultSchema,
-  type OwnerPinResetResultDTO,
+  ownerPasswordResetResultSchema,
+  type OwnerPasswordResetResultDTO,
   ownerCandidateSchema,
   assignOwnerRequestSchema,
   unlockTenantAccountRequestSchema,

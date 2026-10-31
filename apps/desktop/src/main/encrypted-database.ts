@@ -13,7 +13,7 @@ import type { SqliteDriver } from "@mezan/persistence";
  * salary, every posted journal entry. A stolen laptop, a copied file, a
  * borrowed USB stick with the backups folder on it — each of those was the
  * whole set of books in readable form, with no credential of any kind in the
- * way. The login PIN guards the application; it never guarded the file.
+ * way. The login password guards the application; it never guarded the file.
  *
  * The database is now encrypted by SQLite3MultipleCiphers (chacha20-poly1305)
  * under a 32-byte random key sealed to the OS user account by Electron's
@@ -227,7 +227,7 @@ export async function loadOrCreateTenantKey(params: {
  * backup restored onto replacement hardware").
  *
  * So the key is written once, in the clear, where a human can copy it down —
- * the same trade main/recovery.ts makes for the first-run admin PIN, with the
+ * the same trade main/recovery.ts makes for the first-run admin password, with the
  * same owner-only permissions and the same instruction to move it off the
  * machine and delete it. Callers warn on every launch while the card is still
  * there. `--export-database-key` writes it again for an owner who lost it.

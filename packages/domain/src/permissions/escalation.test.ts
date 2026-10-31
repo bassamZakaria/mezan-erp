@@ -109,12 +109,12 @@ describe("ungrantablePermissions — a caller may not hand out what they do not 
 
 describe("targetOutranksCaller — a caller may not write to an account above them", () => {
   it("says the company admin outranks a clerk, which is what stops S4", () => {
-    // A helpdesk-tier `admin.users.edit` could reset the owner's PIN and sign
+    // A helpdesk-tier `admin.users.edit` could reset the owner's password and sign
     // in as them. This is the check that refuses it.
     expect(targetOutranksCaller(clerk, { isCompanyAdmin: true, permissions: [] })).toBe(true);
   });
 
-  it("says a PEER does not outrank — resetting a colleague's PIN is the job, not the attack", () => {
+  it("says a PEER does not outrank — resetting a colleague's password is the job, not the attack", () => {
     // The negative control. A guard that refuses this has broken the product
     // rather than secured it.
     expect(

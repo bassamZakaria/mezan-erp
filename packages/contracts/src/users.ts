@@ -7,14 +7,6 @@ export const userStatusSchema = z.enum(["active", "inactive"]);
 /** ~180KB of base64 — a 256px avatar with room to spare, and far below a raw camera JPEG. */
 export const PHOTO_MAX_CHARS = 250_000;
 
-/**
- * SIX digits, exactly. A four-digit PIN is 10,000 combinations guarding a
- * ledger — and on this login the PIN is the whole credential, because the
- * device supplies the identity. Six is the shortest code the reviewers would
- * sign off on beside a lockout.
- */
-const pinSchema = z.string().regex(/^\d{6}$/, "PIN must be exactly 6 digits");
-
 /** The login identifier. Normalised on the wire so the client cannot create a case variant. */
 const loginEmailSchema = z.string().trim().toLowerCase().email();
 
@@ -44,7 +36,8 @@ export const userSchema = z.object({
   branchScope: scopeSelectionSchema,
   warehouseScope: scopeSelectionSchema,
   status: userStatusSchema,
-  hasPin: z.boolean(),
+  /** True until the user replaces an admin-issued temporary password. */
+  mustChangePassword: z.boolean(),
   /** Profile photo as a stored data URL, or null when the user has none. */
   photoUrl: z.string().nullable(),
   lastLoginAt: z.string().nullable(),
@@ -81,8 +74,8 @@ const userBaseFields = {
 export const createUserSchema = z
   .object({
     ...userBaseFields,
-    password: z.string().min(8, "Password must be at least 8 characters"),
-    pin: pinSchema.nullable().optional(),
+    /** Omit to have the server generate a random temporary password, returned once in the response. */
+    password: z.string().min(8, "Password must be at least 8 characters").optional(),
     ...sodAcknowledgeFields,
   })
   .refine((v) => v.isCompanyAdmin !== (v.roleId !== null), {
@@ -94,10 +87,7 @@ export const updateUserSchema = z
   .object({
     ...userBaseFields,
     password: z.string().min(8, "Password must be at least 8 characters").optional(),
-    pin: pinSchema.nullable().optional(),
-    // CONTRACT: required, one or the other, when the caller changes their OWN
-    // email, PIN or password here.
-    currentPin: pinSchema.optional(),
+    // CONTRACT: required when the caller changes their OWN email or password here.
     currentPassword: z.string().min(1).optional(),
     newOwnerUserId: z.string().trim().min(1).optional(),
     ...sodAcknowledgeFields,
@@ -147,6 +137,10 @@ export const userErasureResultSchema = z.object({
 });
 
 export type UserDTO = z.infer<typeof userSchema>;
+
+/** `POST /users` answer: `temporaryPassword` is present exactly when the server generated it, and is never shown again. */
+export const createdUserSchema = userSchema.extend({ temporaryPassword: z.string().min(8).optional() });
+export type CreatedUserDTO = z.infer<typeof createdUserSchema>;
 export type EraseUserDTO = z.infer<typeof eraseUserSchema>;
 export type UserErasureResultDTO = z.infer<typeof userErasureResultSchema>;
 export type UserStatusDTO = z.infer<typeof userStatusSchema>;

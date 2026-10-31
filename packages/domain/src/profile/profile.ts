@@ -75,32 +75,10 @@ export async function changeOwnPassword(
   if (cmd.newPassword.length < 8) {
     throw new InvalidUserError("يجب ألا تقل كلمة المرور الجديدة عن 8 أحرف.");
   }
-  const passwordHash = await hasher.hash(cmd.newPassword);
-  await uow.users.save({ ...user, passwordHash });
-}
-
-const PIN_PATTERN = /^\d{4,6}$/;
-
-export interface ChangeOwnPinCommand {
-  readonly currentPassword: string;
-  /** `null` clears the PIN (falls back to password-only login). */
-  readonly newPin: string | null;
-}
-
-/** Sets/clears the caller's PIN. Requires the current password to verify identity first. */
-export async function changeOwnPin(
-  userId: string,
-  cmd: ChangeOwnPinCommand,
-  uow: UnitOfWork,
-  hasher: SecretHasher,
-): Promise<void> {
-  const user = await uow.users.findById(userId);
-  if (!user) throw new UserNotFoundError(userId);
-  const valid = await hasher.verify(cmd.currentPassword, user.passwordHash);
-  if (!valid) throw new IncorrectPasswordError();
-  if (cmd.newPin !== null && !PIN_PATTERN.test(cmd.newPin)) {
-    throw new InvalidUserError("يجب أن يتكون الرقم السري من 4 إلى 6 أرقام.");
+  if (cmd.newPassword === cmd.currentPassword) {
+    throw new InvalidUserError("اختر كلمة مرور جديدة تختلف عن الحالية.");
   }
-  const pinHash = cmd.newPin === null ? null : await hasher.hash(cmd.newPin);
-  await uow.users.save({ ...user, pinHash });
+  const passwordHash = await hasher.hash(cmd.newPassword);
+  await uow.users.save({ ...user, passwordHash, mustChangePassword: false });
 }
+

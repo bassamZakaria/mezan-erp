@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Button,
   Card,
@@ -13,15 +13,19 @@ import {
   type DocumentListStatusChip,
   type EntityPickerOption,
   type PillTone,
+  useFocusTrap,
 } from "@mezan/ui";
 import { ALL_SCOPE, detectSodConflicts, UserStatusCode, WILDCARD_PERMISSION, type ScopeSelection, type SodConflictMatch } from "@mezan/domain";
-import { ErasureRetention, type OwnerHandOverOutcome, type EraseUserDTO, type RoleDTO, type ScopeSelectionDTO, type UserDTO, type UserErasureResultDTO, type UserStatusDTO } from "@mezan/contracts";
+import { ErasureRetention, type OwnerHandOverOutcome, type EraseUserDTO, type RoleDTO, type ScopeSelectionDTO, type UserDTO, type CreatedUserDTO, type UserErasureResultDTO, type UserStatusDTO } from "@mezan/contracts";
 import { OWNER_HAND_OVER_NOTICE_KEYS } from "../data/owner-hand-over-notice";
 import { markOwnerHandOver } from "../data/session";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useNavigation } from "../navigation";
 import { CLONE_SEGMENT } from "../screens/enh/provisioning/segments";
 import { useUrlParam } from "../lib/url-state";
+import { TemporaryPasswordField } from "../login/TemporaryPasswordField";
+
+export type SavedUser = CreatedUserDTO;
 
 export interface StoreResult<T> {
   ok: boolean;
@@ -35,8 +39,8 @@ export interface UsersPageProps {
   branches: { id: string; name: string }[];
   warehouses: { id: string; name: string; branchId: string }[];
   employees: { id: string; name: string; position: string }[];
-  onSave: (draft: UserFormDraft, editingId: string | null) => Promise<StoreResult<UserDTO>>;
-  /** The signed-in user: changing their own email, PIN or password here asks for their current PIN. */
+  onSave: (draft: UserFormDraft, editingId: string | null) => Promise<StoreResult<SavedUser>>;
+  /** The signed-in user: changing their own email or password here asks for their current password. */
   currentUserId?: string | null;
   onToggleStatus: (userId: string, status: UserStatusCode, newOwnerUserId?: string) => Promise<StoreResult<UserDTO>>;
   /**
@@ -63,9 +67,8 @@ export interface UserFormDraft {
   email: string;
   phone: string;
   password: string;
-  pin: string;
-  /** Asked for, and sent, only when the signed-in user changes their own email, PIN or password. */
-  currentPin?: string;
+  /** Asked for, and sent, only when the signed-in user changes their own email or password. */
+  currentPassword?: string;
   roleId: string | null;
   isCompanyAdmin: boolean;
   employeeId: string | null;
@@ -104,7 +107,6 @@ function emptyDraft(): UserFormDraft {
     email: "",
     phone: "",
     password: "",
-    pin: "",
     roleId: null,
     isCompanyAdmin: false,
     employeeId: null,
@@ -125,7 +127,6 @@ function userToDraft(user: UserDTO, allBranchIds: string[], allWarehouseIds: str
     email: user.email,
     phone: user.phone ?? "",
     password: "",
-    pin: "",
     roleId: user.roleId,
     isCompanyAdmin: user.isCompanyAdmin,
     employeeId: user.employeeId,
@@ -179,6 +180,7 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
   const [eraseReason, setEraseReason] = useState("");
   const [eraseError, setEraseError] = useState<string | null>(null);
   const [eraseNotice, setEraseNotice] = useState<string | null>(null);
+  const [issuedPassword, setIssuedPassword] = useState<{ readonly name: string; readonly password: string } | null>(null);
   const [erasingId, setErasingId] = useState<string | null>(null);
   const [stepDownTarget, setStepDownTarget] = useState<UserDTO | null>(null);
   const [stepDownSuccessorId, setStepDownSuccessorId] = useState("");
@@ -306,6 +308,7 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
     if (result.ok) {
       setPanelOpen(false);
       announceHandOver(result.value?.ownerHandOver);
+      if (result.value?.temporaryPassword) setIssuedPassword({ name: result.value.nameAr, password: result.value.temporaryPassword });
     } else {
       setFormError(result.error ?? t("users.couldNotSaveTheUser"));
     }
@@ -361,6 +364,7 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
               <span className="font-semibold text-ink">{row.nameAr}</span>
               {row.erasedAt ? <StatusPill label={t("users.erased")} tone="danger" /> : null}
               {row.isCompanyOwner ? <StatusPill label={t("users.owner.badge")} tone="info" /> : null}
+              {row.mustChangePassword && !row.erasedAt ? <StatusPill label={t("users.mustChangePassword")} tone="warning" /> : null}
             </div>
             {row.nameEn ? <div className="mz-lat text-[11.5px] text-ink-faint">{row.nameEn}</div> : null}
             <div className="mz-lat text-[11px] text-ink-faint">{row.email}</div>
@@ -534,10 +538,11 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
             <TextField
               label={editingId ? t("users.newPasswordLeaveEmptyTo") : t("users.temporaryPasswordAtLeast8")}
               type="password"
+              autoComplete="new-password"
               value={draft.password}
               onChange={(v) => setDraft((d) => ({ ...d, password: v }))}
+              hint={editingId ? (editingSelf ? undefined : t("users.resetPasswordHint")) : t("users.passwordOptionalHint")}
             />
-            <TextField label={t("users.pinOptional46Digits")} value={draft.pin} onChange={(v) => setDraft((d) => ({ ...d, pin: v }))} placeholder="123456" />
             {draft.isCompanyAdmin ? null : (
               <TextField
                 label={t("users.accessExpiresAt")}
@@ -549,11 +554,12 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
             )}
             {editingSelf ? (
               <TextField
-                label={t("users.currentPin")}
+                label={t("users.currentPassword")}
                 type="password"
-                value={draft.currentPin ?? ""}
-                onChange={(v) => setDraft((d) => ({ ...d, currentPin: v.replace(/\D/g, "").slice(0, 6) }))}
-                hint={t("users.currentPinHint")}
+                autoComplete="current-password"
+                value={draft.currentPassword ?? ""}
+                onChange={(v) => setDraft((d) => ({ ...d, currentPassword: v }))}
+                hint={t("users.currentPasswordHint")}
               />
             ) : null}
           </FormSection>
@@ -728,6 +734,8 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
         </div>
       ) : null}
 
+      {issuedPassword ? <IssuedPasswordDialog name={issuedPassword.name} password={issuedPassword.password} onDone={() => setIssuedPassword(null)} /> : null}
+
       {eraseNotice ? (
         <div className="fixed bottom-[18px] start-[18px] z-50 flex items-center gap-[10px] rounded-md border border-border bg-surface px-[14px] py-[10px] text-[12.5px] text-ink shadow-lg">
           <span>{eraseNotice}</span>
@@ -737,6 +745,35 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
         </div>
       ) : null}
     </>
+  );
+}
+
+function IssuedPasswordDialog({ name, password, onDone }: { name: string; password: string; onDone: () => void }) {
+  const { t } = useAppTranslation();
+  const titleId = useId();
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const doneRef = useRef<HTMLButtonElement>(null);
+  useLayoutEffect(() => {
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    doneRef.current?.focus();
+    return () => previous?.focus();
+  }, []);
+  useFocusTrap({ active: true, containerRef: dialogRef, onEscape: onDone, preventEscapeDefault: true });
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-scrim p-4">
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby={titleId} className="flex w-full max-w-[420px] flex-col gap-[12px] rounded-lg border border-warning bg-surface p-[18px] shadow-2">
+        <h2 id={titleId} className="text-[14px] font-bold text-ink">
+          {t("users.created.title", { name })}
+        </h2>
+        <p className="text-[12.5px] text-ink-muted">{t("users.created.body")}</p>
+        <TemporaryPasswordField label={t("users.created.label")} password={password} />
+        <div className="flex justify-end">
+          <Button ref={doneRef} variant="primary" onClick={onDone}>
+            {t("users.created.done")}
+          </Button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -761,6 +798,7 @@ function TextField({
   type = "text",
   placeholder,
   hint,
+  autoComplete,
 }: {
   label: string;
   value: string;
@@ -768,11 +806,12 @@ function TextField({
   type?: string;
   placeholder?: string;
   hint?: string;
+  autoComplete?: string;
 }) {
   return (
     <label className="block">
       <span className="mb-[6px] block text-xs font-semibold text-ink-muted">{label}</span>
-      <TextInput type={type} value={value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} />
+      <TextInput type={type} value={value} placeholder={placeholder} autoComplete={autoComplete} onChange={(e) => onChange(e.target.value)} />
       {hint ? <span className="mt-[5px] block text-[11px] leading-[1.8] text-ink-faint">{hint}</span> : null}
     </label>
   );

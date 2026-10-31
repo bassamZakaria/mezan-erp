@@ -9,7 +9,7 @@ rules under `packages/domain/src/`.
 
 **Standard preconditions for every scenario unless stated otherwise:**
 - Fresh seeded backend: `MEZAN_SEED_DEMO=1` against an empty database file.
-- Signed in as `محمد الشهابي`, PIN `1234` (the seeded accountant-capable user).
+- Signed in as `محمد الشهابي`, password `Cyag@2026` (the seeded accountant-capable user).
 - One browser tab, one backend, one database — a second tester sharing the
   session invalidates every observation in this plan.
 - Arabic/RTL locale unless a scenario calls out English.

@@ -10,8 +10,8 @@ import { loadTenantCode } from "../data/session";
  * an ERP that prints every employee's name and role to whoever opens the lid
  * has leaked something for nothing. A fresh install shows one face, or none.
  *
- * `pinHash` is never stored. This is a list of names to click, not a
- * credential store: the server still verifies the PIN on every sign-in.
+ * No secret is ever stored. This is a list of names to click, not a
+ * credential store: the server still verifies the password on every sign-in.
  */
 const KEY = "mezan.deviceUsers";
 const LIMIT = 3;

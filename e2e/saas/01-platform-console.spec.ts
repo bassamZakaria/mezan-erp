@@ -15,9 +15,12 @@ import {
   TENANT_HEADER,
   tenantCodeTakenSentence,
   uniqueCode,
+  PASSWORD_LABEL,
 } from "./support/env";
 import {
   addCustomer,
+  currentPassword,
+  forgetChangedPassword,
   createTenantInConsole,
   enterCredentials,
   errorOf,
@@ -41,8 +44,8 @@ const CUSTOMER_NAME = `عميل ${TENANT_CODE}`;
 const HR_REFUSAL = "وحدة الموارد البشرية ليست ضمن باقة «الأعمال». يمكنكم إضافتها بترقية الباقة من صفحة الاشتراك.";
 const READ_ONLY_BANNER = "الترخيص غير فعّال — وضع القراءة فقط";
 const SUSPEND_QUESTION = "إيقاف المنشأة؟";
-const RESET_OWNER_PIN = "إعادة تعيين رمز المالك";
-const RESET_OWNER_PIN_QUESTION = "إعادة تعيين رمز المالك؟";
+const RESET_OWNER_PASSWORD = "إعادة تعيين كلمة مرور المالك";
+const RESET_OWNER_PASSWORD_QUESTION = "إعادة تعيين كلمة مرور المالك؟";
 const FIRST_PERIOD_END = "2027-02-28";
 const RENEWED_PERIOD_END = "2027-03-31";
 
@@ -111,7 +114,7 @@ test.describe("PLT-SAAS-01..06 — the platform console and the tenant it create
     expect(await page.evaluate((key) => window.localStorage.getItem(key), StorageKey.PlatformSession)).toBeNull();
   });
 
-  test("PLT-SAAS-02 creates a tenant on the business plan with a trial and shows the PIN once", async ({ page }) => {
+  test("PLT-SAAS-02 creates a tenant on the business plan with a trial and shows the password once", async ({ page }) => {
     await platformSignIn(page);
     tenant = await createTenantInConsole(page, {
       code: TENANT_CODE,
@@ -120,12 +123,12 @@ test.describe("PLT-SAAS-01..06 — the platform console and the tenant it create
       planId: PlanId.Business,
       trial: true,
     });
-    expect(tenant.adminPin).toMatch(/^\d{6}$/);
+    expect(tenant.adminPassword).toMatch(/^.{8,}$/);
     const dialog = page.getByRole("dialog", { name: "منشأة جديدة" });
-    await expect(dialog.getByText(tenant.adminPin, { exact: true })).toBeVisible();
+    await expect(dialog.getByText(tenant.adminPassword, { exact: true })).toBeVisible();
     await expect(dialog.getByText(tenant.adminEmail, { exact: true })).toBeVisible();
     await expect(dialog.getByText(TENANT_CODE, { exact: true })).toBeVisible();
-    await expect(dialog.getByText(/لن يظهر رقم التعريف الشخصي مرة أخرى/).first()).toBeVisible();
+    await expect(dialog.getByText(/لن تظهر كلمة المرور المؤقتة مرة أخرى/).first()).toBeVisible();
     await dialog.getByRole("button", { name: "إغلاق", exact: true }).click();
 
     const row = page.getByRole("row").filter({ hasText: TENANT_CODE });
@@ -134,7 +137,7 @@ test.describe("PLT-SAAS-01..06 — the platform console and the tenant it create
 
     await page.reload();
     await expect(page.getByRole("row").filter({ hasText: TENANT_CODE })).toBeVisible();
-    await expect(page.getByText(tenant.adminPin, { exact: true })).toHaveCount(0);
+    await expect(page.getByText(tenant.adminPassword, { exact: true })).toHaveCount(0);
 
     await openTenantDetail(page, TENANT_CODE);
     await expect(page.getByRole("heading", { name: TENANT_NAME, level: 1 })).toBeVisible();
@@ -174,7 +177,7 @@ test.describe("PLT-SAAS-01..06 — the platform console and the tenant it create
     await expect(page.getByText("منشأة مكررة")).toHaveCount(0);
   });
 
-  test("PLT-SAAS-03 the tenant owner signs in with company code, email and the one-time PIN", async ({ page }) => {
+  test("PLT-SAAS-03 the tenant owner signs in with company code, email and the one-time password", async ({ page }) => {
     await tenantSignIn(page, tenant);
     await expect(page.getByRole("heading", { level: 1 })).toContainText("أحمد");
 
@@ -187,7 +190,7 @@ test.describe("PLT-SAAS-01..06 — the platform console and the tenant it create
     expect(await page.evaluate((key) => window.localStorage.getItem(key), StorageKey.TenantCode)).toBe(TENANT_CODE);
   });
 
-  test("PLT-SAAS-03 the one-time PIN of one tenant does not open another", async ({ page }) => {
+  test("PLT-SAAS-03 the one-time password of one tenant does not open another", async ({ page }) => {
     await tenantSignIn(page, tenant);
     await page.getByRole("button", { name: "تسجيل الخروج" }).click();
     await page.getByRole("button", { name: "تغيير المنشأة" }).click();
@@ -196,10 +199,10 @@ test.describe("PLT-SAAS-01..06 — the platform console and the tenant it create
     await field.blur();
     await expect(page.getByRole("button", { name: "تغيير المنشأة" })).toBeVisible();
     const refused = page.waitForResponse((r) => new URL(r.url()).pathname === "/api/auth/login");
-    await enterCredentials(page, tenant.adminEmail, tenant.adminPin);
+    await enterCredentials(page, tenant.adminEmail, tenant.adminPassword);
     expect((await refused).status()).toBe(401);
     await expect(page.getByRole("alert")).toHaveText(INVALID_CREDENTIALS_SENTENCE);
-    await expect(page.getByLabel("رمز PIN رقم 1")).toBeVisible();
+    await expect(page.getByLabel(PASSWORD_LABEL, { exact: true })).toBeVisible();
     expect(await page.evaluate((key) => window.localStorage.getItem(key), StorageKey.Session)).toBeNull();
   });
 
@@ -337,39 +340,40 @@ test.describe("PLT-SAAS-01..06 — the platform console and the tenant it create
     await tenantContext.close();
   });
 
-  test("the platform owner resets a tenant owner's PIN: asked first, shown once, the old PIN stops and the new one signs in", async ({ page, request }) => {
+  test("the platform owner resets a tenant owner's password: asked first, shown once, the old password stops and the new one signs in", async ({ page, request }) => {
     await platformSignIn(page);
     await openTenantDetail(page, paying.code);
 
-    await page.getByRole("button", { name: RESET_OWNER_PIN }).click();
-    const question = page.getByRole("dialog", { name: RESET_OWNER_PIN_QUESTION });
+    await page.getByRole("button", { name: RESET_OWNER_PASSWORD }).click();
+    const question = page.getByRole("dialog", { name: RESET_OWNER_PASSWORD_QUESTION });
     await expect(question).toContainText(paying.adminEmail);
     await question.getByRole("button", { name: "رجوع" }).click();
     await expect(question).toBeHidden();
     await tenantApiLogin(request, paying);
 
-    await page.getByRole("button", { name: RESET_OWNER_PIN }).click();
-    const answered = page.waitForResponse((r) => new URL(r.url()).pathname === `/api/platform/tenants/${paying.id}/owner-pin/reset`);
-    await page.getByRole("dialog", { name: RESET_OWNER_PIN_QUESTION }).getByRole("button", { name: "إعادة التعيين" }).click();
+    await page.getByRole("button", { name: RESET_OWNER_PASSWORD }).click();
+    const answered = page.waitForResponse((r) => new URL(r.url()).pathname === `/api/platform/tenants/${paying.id}/owner-password/reset`);
+    await page.getByRole("dialog", { name: RESET_OWNER_PASSWORD_QUESTION }).getByRole("button", { name: "إعادة التعيين" }).click();
     const response = await answered;
     expect(response.status()).toBe(200);
-    const fresh = (await response.json()) as { adminEmail: string; adminPin: string };
+    const fresh = (await response.json()) as { adminEmail: string; adminPassword: string };
     expect(fresh.adminEmail).toBe(paying.adminEmail);
-    expect(fresh.adminPin).toMatch(/^[0-9]{6}$/);
-    expect(fresh.adminPin).not.toBe(paying.adminPin);
-    await expect(page.locator("main").getByText(fresh.adminPin, { exact: true })).toBeVisible();
-    await expect(page.locator("main").getByText(/لن يظهر رقم التعريف الشخصي مرة أخرى/).first()).toBeVisible();
+    expect(fresh.adminPassword).toMatch(/^.{8,}$/);
+    expect(fresh.adminPassword).not.toBe(paying.adminPassword);
+    await expect(page.locator("main").getByText(fresh.adminPassword, { exact: true })).toBeVisible();
+    await expect(page.locator("main").getByText(/لن تظهر كلمة المرور المؤقتة مرة أخرى/).first()).toBeVisible();
 
     await page.reload();
-    await expect(page.getByRole("button", { name: RESET_OWNER_PIN })).toBeVisible();
-    await expect(page.getByText(fresh.adminPin, { exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: RESET_OWNER_PASSWORD })).toBeVisible();
+    await expect(page.getByText(fresh.adminPassword, { exact: true })).toHaveCount(0);
 
-    const oldPin = await request.post(`${SAAS_API_URL}/api/auth/login`, {
+    const oldPassword = await request.post(`${SAAS_API_URL}/api/auth/login`, {
       headers: { [TENANT_HEADER]: paying.code },
-      data: { username: paying.adminEmail, pin: paying.adminPin },
+      data: { username: paying.adminEmail, password: currentPassword(paying) },
     });
-    expect(oldPin.status()).toBe(401);
-    paying = { ...paying, adminPin: fresh.adminPin };
+    expect(oldPassword.status()).toBe(401);
+    forgetChangedPassword(paying.adminEmail);
+    paying = { ...paying, adminPassword: fresh.adminPassword };
     await tenantApiLogin(request, paying);
   });
 });

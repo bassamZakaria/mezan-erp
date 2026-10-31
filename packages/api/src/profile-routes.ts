@@ -2,7 +2,6 @@ import { Hono, type Context, type MiddlewareHandler } from "hono";
 import {
   updateOwnProfile,
   changeOwnPassword,
-  changeOwnPin,
   IncorrectPasswordError,
   InvalidUserError,
   DuplicateUserEmailError,
@@ -14,7 +13,7 @@ import {
   type SecretHasher,
   type AuditSink,
 } from "@mezan/domain";
-import { updateProfileSchema, changePasswordSchema, changePinSchema } from "@mezan/contracts";
+import { updateProfileSchema, changePasswordSchema } from "@mezan/contracts";
 import { displacedSessionRefusal, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
 import { createPrecomputingHasher } from "./precomputed-secrets.js";
 
@@ -45,7 +44,6 @@ function serializeProfile(user: User) {
     phone: user.phone,
     isCompanyAdmin: user.isCompanyAdmin,
     roleId: user.roleId,
-    hasPin: user.pinHash !== null,
     photoUrl: user.photoUrl,
     lastLoginAt: user.lastLoginAt,
     createdAt: user.createdAt,
@@ -245,32 +243,6 @@ export function createProfileRoutes(
     }
   });
 
-  app.post("/change-pin", requireAuth, async (c) => {
-    const callerId = resolveCallerId(c);
-    const parsed = changePinSchema.safeParse(await c.req.json());
-    if (!parsed.success) {
-      return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
-    }
-    try {
-      const changed = await withCurrentPasswordChecked(callerId, parsed.data.currentPassword, parsed.data.newPin, async (tx) => {
-        await changeOwnPin(callerId, parsed.data, tx, secrets.hasher);
-        if (audit) {
-          await recordSecurityEvent(audit, {
-            module: "profile",
-            entityType: "USER",
-            entityId: callerId,
-            action: pinChangeAction(parsed.data.newPin),
-            actor: callerId,
-            severity: "WARNING",
-          });
-        }
-      });
-      return changed ? c.body(null, 204) : changedMeanwhile(c);
-    } catch (err) {
-      return profileErrorResponse(c, err);
-    }
-  });
-
   app.get("/activity", requireAuth, async (c) => {
     const callerId = resolveCallerId(c);
     if (!audit) return c.json([]);
@@ -285,8 +257,4 @@ export function createProfileRoutes(
   });
 
   return app;
-}
-
-function pinChangeAction(newPin: string | null): string {
-  return newPin === null ? "PIN_CLEARED" : "PIN_CHANGED";
 }

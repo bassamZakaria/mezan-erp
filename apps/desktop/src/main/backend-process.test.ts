@@ -185,11 +185,11 @@ describe("once the worker is ready", () => {
     });
   });
 
-  it("hands the seeded first-run PIN over exactly once", async () => {
+  it("hands the seeded first-run password over exactly once", async () => {
     const { handle, workers } = start();
-    workers[0]!.emit({ type: "ready", seededAdmin: { pin: "481920", generated: true } });
+    workers[0]!.emit({ type: "ready", seededAdmin: { password: "pw-481920abc", generated: true } });
     await handle.ready;
-    expect(handle.seededAdmin()).toEqual({ pin: "481920", generated: true });
+    expect(handle.seededAdmin()).toEqual({ password: "pw-481920abc", generated: true });
     expect(handle.seededAdmin()).toBeNull();
   });
 

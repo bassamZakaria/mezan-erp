@@ -104,6 +104,11 @@ export const routes: RouteObject[] = [
     ErrorBoundary: RouteErrorBoundary,
   },
   {
+    path: "/reset-password",
+    lazy: async () => ({ Component: (await import("../login/ResetPasswordScreen")).ResetPasswordScreen }),
+    ErrorBoundary: RouteErrorBoundary,
+  },
+  {
     path: LANDING_PATH,
     lazy: async () => ({ Component: (await import("../landing/LandingPage")).LandingPage }),
     ErrorBoundary: RouteErrorBoundary,

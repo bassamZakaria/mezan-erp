@@ -34,7 +34,7 @@ const TABLE_CONSTRAINT_RE = /^(?:PRIMARY|UNIQUE|FOREIGN|CHECK|CONSTRAINT)\b/i;
  * what stops the failure this constant exists for: an older build opening a
  * database a newer one wrote, silently, and writing into it.
  */
-export const CURRENT_SCHEMA_VERSION = 2;
+export const CURRENT_SCHEMA_VERSION = 3;
 
 /** Thrown when the FILE is newer than this build. Message is Arabic-first, on purpose. */
 export class SchemaTooNewError extends Error {

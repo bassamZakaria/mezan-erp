@@ -76,11 +76,29 @@ describe("users routes", () => {
     expect(createRes.status).toBe(201);
     const created = (await json(createRes)) as Record<string, unknown>;
     expect(created.passwordHash).toBeUndefined();
-    expect(created.pinHash).toBeUndefined();
-    expect(created.hasPin).toBe(false);
+    expect(created).not.toHaveProperty("pinHash");
+    expect(created).not.toHaveProperty("hasPin");
+    expect(created.mustChangePassword).toBe(true);
+    expect(created).not.toHaveProperty("temporaryPassword");
 
     const listRes = await app.fetch(new Request("http://x/users"));
     expect(((await json(listRes)) as unknown[]).length).toBe(1);
+  });
+
+  it("generates a temporary password when none is given, returns it once uncached, and makes the user change it", async () => {
+    const { app, users } = newAppWithStore();
+    const { password: _password, ...withoutPassword } = newUserBody;
+    const res = await app.fetch(
+      new Request("http://x/users", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(withoutPassword) }),
+    );
+    expect(res.status).toBe(201);
+    expect(res.headers.get("cache-control")).toBe("no-store");
+    const created = (await json(res)) as { id: string; temporaryPassword: string; mustChangePassword: boolean };
+    expect(created.temporaryPassword).toMatch(/^[A-Za-z0-9]{12}$/);
+    expect(created.mustChangePassword).toBe(true);
+    const stored = await users.findById(created.id);
+    expect(stored?.mustChangePassword).toBe(true);
+    expect(await createScryptHasher().verify(created.temporaryPassword, stored!.passwordHash)).toBe(true);
   });
 
   it("rejects a user with an unknown role", async () => {
@@ -227,7 +245,7 @@ describe("seat cap (A3: seat, branch and warehouse caps)", () => {
       email: "inactive@cyag.test",
       phone: null,
       passwordHash: "hashed:x",
-      pinHash: null,
+      mustChangePassword: false,
       roleId: null,
       isCompanyAdmin: true,
       employeeId: null,
@@ -257,7 +275,7 @@ describe("seat cap (A3: seat, branch and warehouse caps)", () => {
       email,
       phone: null,
       passwordHash: "hashed:x",
-      pinHash: null,
+      mustChangePassword: false,
       roleId: null,
       isCompanyAdmin: false,
       employeeId: null,
@@ -398,7 +416,7 @@ describe("who may make themselves a company admin (D86 — closed by PR #54, S2)
       email: "mona@cyag.test",
       phone: null,
       passwordHash: "hashed:x",
-      pinHash: null,
+      mustChangePassword: false,
       roleId: null,
       isCompanyAdmin: false,
       employeeId: null,
@@ -442,7 +460,7 @@ describe("who may make themselves a company admin (D86 — closed by PR #54, S2)
       email: "self@cyag.test",
       phone: null,
       passwordHash: "hashed:x",
-      pinHash: null,
+      mustChangePassword: false,
       roleId: null,
       isCompanyAdmin: false,
       employeeId: null,
@@ -496,7 +514,7 @@ describe("who may make themselves a company admin (D86 — closed by PR #54, S2)
       email: "peer@cyag.test",
       phone: null,
       passwordHash: "hashed:x",
-      pinHash: null,
+      mustChangePassword: false,
       roleId: "role-peer",
       isCompanyAdmin: false,
       employeeId: null,
@@ -535,7 +553,7 @@ describe("who may make themselves a company admin (D86 — closed by PR #54, S2)
       email: "next@cyag.test",
       phone: null,
       passwordHash: "hashed:x",
-      pinHash: null,
+      mustChangePassword: false,
       roleId: null,
       isCompanyAdmin: false,
       employeeId: null,
@@ -604,7 +622,7 @@ describe("scope self-widening and the last admin (D118, D117)", () => {
       email: "mona@cyag.test",
       phone: null,
       passwordHash: "hashed:x",
-      pinHash: null,
+      mustChangePassword: false,
       roleId: null,
       isCompanyAdmin: false,
       employeeId: null,
@@ -1031,7 +1049,6 @@ describe("announcing an email change", () => {
 });
 
 describe("a user editing their own account through the users route", () => {
-  const CURRENT_PIN = "135790";
   const hasher = createScryptHasher();
   const body = { ...newUserBody, nameAr: "المستخدم نفسه", email: "self@cyag.test", password: undefined };
 
@@ -1050,7 +1067,7 @@ describe("a user editing their own account through the users route", () => {
       email: body.email,
       phone: null,
       passwordHash: await hasher.hash("CurrentPass1"),
-      pinHash: await hasher.hash(CURRENT_PIN),
+      mustChangePassword: true,
       roleId: null,
       isCompanyAdmin: true,
       employeeId: null,
@@ -1069,17 +1086,16 @@ describe("a user editing their own account through the users route", () => {
   it.each([
     ["email", { email: "taken-over@cyag.test" }],
     ["password", { password: "BrandNewPass1" }],
-    ["PIN", { pin: "482913" }],
-  ])("asks for the current PIN or password before changing their own %s, and changes nothing without it", async (_what, changes) => {
+  ])("asks for the current password before changing their own %s, and changes nothing without it", async (_what, changes) => {
     const { put, users } = await selfApp();
     const before = await users.findById("u1");
 
     const missing = await put(changes);
     expect(missing.status).toBe(400);
     expect(((await json(missing)) as { error: string }).error).toBe(UsersRefusal.CurrentSecretRequired);
-    const wrong = await put({ ...changes, currentPin: "000000" });
-    expect(wrong.status).toBe(403);
-    expect(((await json(wrong)) as { error: string }).error).toBe(CurrentSecretRefusal.IncorrectPin);
+    const pinAsProof = await put({ ...changes, currentPin: "135790" });
+    expect(pinAsProof.status).toBe(400);
+    expect(((await json(pinAsProof)) as { error: string }).error).toBe(UsersRefusal.CurrentSecretRequired);
     const wrongPassword = await put({ ...changes, currentPassword: "not-it" });
     expect(wrongPassword.status).toBe(403);
     expect(((await json(wrongPassword)) as { error: string }).error).toBe(CurrentSecretRefusal.IncorrectPassword);
@@ -1087,10 +1103,10 @@ describe("a user editing their own account through the users route", () => {
     expect(await users.findById("u1")).toEqual(before);
   });
 
-  it("changes their own email with the current PIN, and records it on the security stream as their own change", async () => {
+  it("changes their own email with the current password, and records it on the security stream as their own change", async () => {
     const { put, users, events } = await selfApp();
 
-    const saved = await put({ email: "moved@cyag.test", currentPin: CURRENT_PIN });
+    const saved = await put({ email: "moved@cyag.test", currentPassword: "CurrentPass1" });
 
     expect(saved.status).toBe(200);
     expect((await users.findById("u1"))?.email).toBe("moved@cyag.test");
@@ -1102,16 +1118,18 @@ describe("a user editing their own account through the users route", () => {
     const { put, users } = await selfApp();
 
     expect((await put({ password: "BrandNewPass1", currentPassword: "CurrentPass1" })).status).toBe(200);
-    expect(await hasher.verify("BrandNewPass1", (await users.findById("u1"))!.passwordHash)).toBe(true);
+    const saved = (await users.findById("u1"))!;
+    expect(await hasher.verify("BrandNewPass1", saved.passwordHash)).toBe(true);
+    expect(saved.mustChangePassword).toBe(false);
   });
 
-  it("stops guessing the current PIN on the sign-in ladder", async () => {
+  it("stops guessing the current password on the sign-in ladder", async () => {
     const { put } = await selfApp();
     const statuses: number[] = [];
-    for (let attempt = 0; attempt < 12; attempt += 1) statuses.push((await put({ pin: "482913", currentPin: String(100000 + attempt) })).status);
+    for (let attempt = 0; attempt < 12; attempt += 1) statuses.push((await put({ password: "BrandNewPass1", currentPassword: `guess-${attempt}` })).status);
 
     expect(statuses).toContain(429);
-    expect((await put({ pin: "482913", currentPin: CURRENT_PIN })).status).toBe(429);
+    expect((await put({ password: "BrandNewPass1", currentPassword: "CurrentPass1" })).status).toBe(429);
   });
 
   it("saves the rest of their own record without asking (negative control)", async () => {

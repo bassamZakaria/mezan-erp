@@ -98,7 +98,7 @@ import {
   type CreateTenantRequestDTO,
   type ProvisionRetryRequestDTO,
   type ProvisionResultDTO,
-  type OwnerPinResetResultDTO,
+  type OwnerPasswordResetResultDTO,
   type OwnerCandidateDTO,
   PlatformRefusalCode,
   REFUSED_TENANT_BOOKS,
@@ -137,7 +137,7 @@ import {
   type EnvSettingsDTO,
 } from "@mezan/contracts";
 import { connectionTurn, createLogger } from "@mezan/api";
-import { OwnerPinResetOutcome } from "./owner-pin-reset-outcome.js";
+import { OwnerPasswordResetOutcome } from "./owner-password-reset-outcome.js";
 import type { PlatformHandle } from "./create-platform.js";
 import type { PlatformAuth } from "./platform-auth.js";
 
@@ -234,9 +234,10 @@ export enum PlatformAuditAction {
   TenantBackupExportFailed = "TENANT_BACKUP_EXPORT_FAILED",
   TenantBackupExportDownloaded = "TENANT_BACKUP_EXPORT_DOWNLOADED",
   TenantBackupExportRefused = "TENANT_BACKUP_EXPORT_REFUSED",
-  TenantOwnerPinReset = "TENANT_OWNER_PIN_RESET",
-  TenantOwnerPinResetRefused = "TENANT_OWNER_PIN_RESET_REFUSED",
-  TenantOwnerPinResetRequested = "TENANT_OWNER_PIN_RESET_REQUESTED",
+  // CONTRACT: stored audit codes, kept from when the owner credential was a PIN so existing rows still match.
+  TenantOwnerPasswordReset = "TENANT_OWNER_PIN_RESET",
+  TenantOwnerPasswordResetRefused = "TENANT_OWNER_PIN_RESET_REFUSED",
+  TenantOwnerPasswordResetRequested = "TENANT_OWNER_PIN_RESET_REQUESTED",
   TenantProvisioned = "TENANT_PROVISIONED",
   TenantProvisionRetried = "TENANT_PROVISION_RETRIED",
   TenantResumed = "TENANT_RESUMED",
@@ -314,7 +315,7 @@ const AUDIT_RESTORE_REFUSAL_COPY: Readonly<Record<AuditRestoreRefusal, { readonl
   [AuditRestoreRefusal.ChainBroken]: { message: "سلسلة سجل التدقيق المستعادة لا تتحقق بنفسها؛ لا تُعتمد.", messageEn: "The restored audit chain does not verify on its own; it cannot be accepted." },
 };
 
-export interface OwnerPinResetAccount {
+export interface OwnerPasswordResetAccount {
   readonly userId: string;
   readonly signInEmail: string;
   readonly adminEmail: string;
@@ -327,7 +328,7 @@ export interface CreatePlatformRoutesOptions {
   readonly provisionTenant: (cmd: CreateTenantRequestDTO & { actorId: string; intendedPlanId?: string | null }, activation: RecordedActivation) => Promise<ProvisionResultDTO>;
   /** Re-runs a failed provisioning (seed, admin, subscription) idempotently for a tenant stuck in `provisioning`. Optional only so a rig that never exercises this route still typechecks without supplying it. */
   readonly provisionRetry?: (input: { tenantId: string; actorId: string } & ProvisionRetryRequestDTO, activation: RecordedActivation) => Promise<ProvisionResultDTO>;
-  readonly resetOwnerPin?: (input: { tenant: Tenant; actorId: string; recordIntent: (account: OwnerPinResetAccount) => Promise<void> }) => Promise<OwnerPinResetResultDTO>;
+  readonly resetOwnerPassword?: (input: { tenant: Tenant; actorId: string; recordIntent: (account: OwnerPasswordResetAccount) => Promise<void> }) => Promise<OwnerPasswordResetResultDTO>;
   readonly releaseTenant?: (input: { tenant: Tenant; actorId: string }) => Promise<Tenant>;
   readonly lockedAccounts?: (tenant: Tenant) => Promise<readonly string[]>;
   // CONTRACT: false when the account is not locked. The tenant's own audit row
@@ -462,7 +463,7 @@ function asServerDomainFailure(err: unknown): { readonly code: string; readonly 
 export class TenantOwnerAccountNotFoundError extends Error {
   readonly code = "TENANT_OWNER_ACCOUNT_NOT_FOUND";
 
-  constructor(readonly outcome?: OwnerPinResetOutcome) {
+  constructor(readonly outcome?: OwnerPasswordResetOutcome) {
     super("لا يوجد في المنشأة حساب مدير نشط ببريد مالكها.");
     this.name = "TenantOwnerAccountNotFoundError";
   }
@@ -610,7 +611,7 @@ export type RecordedActivation = (activate: () => Promise<Tenant>) => Promise<Te
 
 export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono {
   const { envSettings } = options;
-  const { platform, auth, now, provisionTenant, provisionRetry, resetOwnerPin, releaseTenant, lockedAccounts, unlockAccount, tenantBackups, ownerCandidates, assignOwner, confirmPendingOwner, declinePendingOwner, resendPendingOwner, tenantBooks, reconcileOwner, reconcileOpenOwners, invalidateEntitlements, idOf = randomUUID } = options;
+  const { platform, auth, now, provisionTenant, provisionRetry, resetOwnerPassword, releaseTenant, lockedAccounts, unlockAccount, tenantBackups, ownerCandidates, assignOwner, confirmPendingOwner, declinePendingOwner, resendPendingOwner, tenantBooks, reconcileOwner, reconcileOpenOwners, invalidateEntitlements, idOf = randomUUID } = options;
   const nowIso = () => now().toISOString();
 
   const booksReadAgain = async (tenant: Tenant): Promise<TenantBooksStanding | null> => (tenantBooks ? tenantBooks.standingOf(tenant) : null);
@@ -732,6 +733,7 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
     try {
       const result = await provisionTenant({ ...parsed.data, actorId: platformUser.id }, activationRecordedAs(c, "TENANT_PROVISIONED"));
       invalidateEntitlements(result.tenant.code);
+      c.header("cache-control", "no-store");
       return c.json(result, 201);
     } catch (err) {
       return domainErrorResponse(c, err);
@@ -781,6 +783,7 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
           }),
       );
       invalidateEntitlements(result.tenant.code);
+      c.header("cache-control", "no-store");
       return c.json(result, 201);
     } catch (err) {
       if (lostTheDecision(err)) {
@@ -890,6 +893,7 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
       if (!provisionRetry) throw new Error("provisionRetry dependency is not configured");
       const result = await provisionRetry({ tenantId: tenant.id, actorId: c.get("platformUser")!.id, ...parsed.data }, activationRecordedAs(c, "TENANT_PROVISION_RETRIED"));
       invalidateEntitlements(result.tenant.code);
+      c.header("cache-control", "no-store");
       return c.json(result, 200);
     } catch (err) {
       return domainErrorResponse(c, err);
@@ -1173,46 +1177,47 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
     }
   });
 
-  const ownerPinResetRefused = (c: Context, tenantId: string | null, reason: string, actorId?: string, outcome?: OwnerPinResetOutcome) =>
-    noted(c, PlatformAuditAction.TenantOwnerPinResetRefused, tenantId, { reason, ...(outcome ? { outcome } : {}) }, AuditSeverityCode.Critical, actorId);
+  const ownerPasswordResetRefused = (c: Context, tenantId: string | null, reason: string, actorId?: string, outcome?: OwnerPasswordResetOutcome) =>
+    noted(c, PlatformAuditAction.TenantOwnerPasswordResetRefused, tenantId, { reason, ...(outcome ? { outcome } : {}) }, AuditSeverityCode.Critical, actorId);
 
-  const requireOwnerForPinReset = auth.requirePlatform("owner", (c, user) =>
-    ownerPinResetRefused(c, c.req.param("id") ?? null, "OWNER_ONLY", user.id),
+  const requireOwnerForPasswordReset = auth.requirePlatform("owner", (c, user) =>
+    ownerPasswordResetRefused(c, c.req.param("id") ?? null, "OWNER_ONLY", user.id),
   );
 
-  app.post("/tenants/:id/owner-pin/reset", requireOwnerForPinReset, async (c) => {
+  app.post("/tenants/:id/owner-password/reset", requireOwnerForPasswordReset, async (c) => {
     const platformUser = c.get("platformUser")!;
     const tenantId = c.req.param("id");
     try {
       const tenant = await requireTenant(tenantId);
       if (tenant.status !== TenantStatusCode.Active && tenant.status !== TenantStatusCode.Suspended) {
-        await ownerPinResetRefused(c, tenant.id, PlatformRefusalCode.TenantNotLive);
-        return c.json({ error: PlatformRefusalCode.TenantNotLive, message: "لا يُعاد تعيين رمز المالك إلا لمنشأة نشطة أو موقوفة" }, 409);
+        await ownerPasswordResetRefused(c, tenant.id, PlatformRefusalCode.TenantNotLive);
+        return c.json({ error: PlatformRefusalCode.TenantNotLive, message: "لا تُعاد تعيين كلمة مرور المالك إلا لمنشأة نشطة أو موقوفة" }, 409);
       }
-      if (!resetOwnerPin) throw new Error("resetOwnerPin dependency is not configured");
-      const intent: { account: OwnerPinResetAccount | null } = { account: null };
-      const recordIntent = async (account: OwnerPinResetAccount): Promise<void> => {
+      if (!resetOwnerPassword) throw new Error("resetOwnerPassword dependency is not configured");
+      const intent: { account: OwnerPasswordResetAccount | null } = { account: null };
+      const recordIntent = async (account: OwnerPasswordResetAccount): Promise<void> => {
         await recordedWith(c, async () => ({
           value: null,
-          action: PlatformAuditAction.TenantOwnerPinResetRequested,
+          action: PlatformAuditAction.TenantOwnerPasswordResetRequested,
           entityId: tenant.id,
           details: { code: tenant.code, ...account },
           severity: AuditSeverityCode.Critical,
         }));
         intent.account = account;
       };
-      const result = await resetOwnerPin({ tenant, actorId: platformUser.id, recordIntent });
+      const result = await resetOwnerPassword({ tenant, actorId: platformUser.id, recordIntent });
       const account = intent.account ?? { signInEmail: result.signInEmail, adminEmail: result.adminEmail };
-      // SECURITY: the PIN has moved by now and this answer is the only place it
+      // SECURITY: the password has moved by now and this answer is the only place it
       // is shown. An outcome row that cannot be written is logged, never turned
-      // into a refusal: the intent row written before the PIN moved stands.
-      await noted(c, PlatformAuditAction.TenantOwnerPinReset, tenant.id, { code: tenant.code, ...account, outcome: OwnerPinResetOutcome.Reset }, AuditSeverityCode.Critical).catch(
-        (err: unknown) => platformLog.error({ err: err }, `the owner PIN of tenant "${tenant.id}" was reset, and its outcome row could not be written`),
+      // into a refusal: the intent row written before the password moved stands.
+      await noted(c, PlatformAuditAction.TenantOwnerPasswordReset, tenant.id, { code: tenant.code, ...account, outcome: OwnerPasswordResetOutcome.Reset }, AuditSeverityCode.Critical).catch(
+        (err: unknown) => platformLog.error({ err: err }, `the owner password of tenant "${tenant.id}" was reset, and its outcome row could not be written`),
       );
+      c.header("cache-control", "no-store");
       return c.json(result, 200);
     } catch (err) {
       if (err instanceof TenantOwnerAccountNotFoundError) {
-        await ownerPinResetRefused(c, tenantId, err.code, undefined, err.outcome);
+        await ownerPasswordResetRefused(c, tenantId, err.code, undefined, err.outcome);
         return c.json({ error: err.code, message: err.message }, 409);
       }
       return domainErrorResponse(c, err);

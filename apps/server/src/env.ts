@@ -1,4 +1,5 @@
 import type { SmtpConfig } from "@mezan/api";
+import { SEED_ADMIN_PASSWORD } from "@mezan/backend";
 import { DEFAULT_IDLE_MS } from "./backend-cache.js";
 import type { ClientSourceOptions } from "./client-source.js";
 import type { SmtpSecurity } from "@mezan/domain";
@@ -46,7 +47,7 @@ export interface CloudEnv {
   readonly platformOwnerEmail?: string;
   readonly platformOwnerPassword?: string;
   readonly seedDemo: boolean;
-  readonly seedAdminPin?: string;
+  readonly seedAdminPassword?: string;
   readonly backupIntervalMinutes: number;
   readonly apiRequestsPerAddressPerMinute: number;
   readonly apiRequestsPerSessionPerMinute: number;
@@ -226,8 +227,8 @@ function parsePlatformSmtp(env: Record<string, string | undefined>): SmtpConfig 
 
 const EMAIL_PATTERN = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 const TENANT_CODE_PATTERN = /^[a-z0-9][a-z0-9-]{1,39}$/;
-const PUBLISHED_DEMO_PIN = "123456";
 const DEMO_TENANT_CODE = "demo";
+const MIN_SEED_PASSWORD_LENGTH = 8;
 
 function parseSupportEmail(value: string | undefined): string | undefined {
   const email = trimmedOrUndefined(value);
@@ -260,20 +261,20 @@ function parseAlertEmail(value: string | undefined): string | undefined {
 
 function parseReviewTenant(env: Record<string, string | undefined>): ReviewTenantConfig | undefined {
   const code = trimmedOrUndefined(env["MEZAN_REVIEW_TENANT_CODE"]);
-  const pin = trimmedOrUndefined(env["MEZAN_REVIEW_PIN"]);
-  if (code === undefined && pin === undefined) return undefined;
-  if (code === undefined || pin === undefined) {
-    throw new Error("MEZAN_REVIEW_TENANT_CODE and MEZAN_REVIEW_PIN are set together or not at all");
+  const password = trimmedOrUndefined(env["MEZAN_REVIEW_PASSWORD"]);
+  if (code === undefined && password === undefined) return undefined;
+  if (code === undefined || password === undefined) {
+    throw new Error("MEZAN_REVIEW_TENANT_CODE and MEZAN_REVIEW_PASSWORD are set together or not at all");
   }
   if (!TENANT_CODE_PATTERN.test(code) || code === DEMO_TENANT_CODE) {
     throw new Error(`MEZAN_REVIEW_TENANT_CODE must be 2-40 lower-case letters, digits or hyphens and not "${DEMO_TENANT_CODE}", got "${code}"`);
   }
-  if (!/^\d{6}$/.test(pin)) throw new Error("MEZAN_REVIEW_PIN must be exactly six digits");
-  if (pin === PUBLISHED_DEMO_PIN) throw new Error("MEZAN_REVIEW_PIN must not be the PIN published in this repository");
+  if (password.length < MIN_SEED_PASSWORD_LENGTH) throw new Error(`MEZAN_REVIEW_PASSWORD must be at least ${MIN_SEED_PASSWORD_LENGTH} characters`);
+  if (password === SEED_ADMIN_PASSWORD) throw new Error("MEZAN_REVIEW_PASSWORD must not be the password published in this repository");
   if (flag(env["MEZAN_SEED_DEMO"])) {
     throw new Error("MEZAN_REVIEW_TENANT_CODE cannot be combined with MEZAN_SEED_DEMO=1: the demo's basic auth would block the reviewer's app");
   }
-  return { code, pin };
+  return { code, password };
 }
 
 const TRUSTED_ADDRESS_HEADER_VAR = "MEZAN_TRUSTED_CLIENT_ADDRESS_HEADER";
@@ -391,7 +392,7 @@ export function parseEnv(env: Record<string, string | undefined> = process.env, 
     platformOwnerEmail: trimmedOrUndefined(env["MEZAN_PLATFORM_OWNER_EMAIL"]),
     platformOwnerPassword: trimmedOrUndefined(env["MEZAN_PLATFORM_OWNER_PASSWORD"]),
     seedDemo: flag(env["MEZAN_SEED_DEMO"]),
-    seedAdminPin: trimmedOrUndefined(env["MEZAN_SEED_ADMIN_PIN"]),
+    seedAdminPassword: trimmedOrUndefined(env["MEZAN_SEED_ADMIN_PASSWORD"]),
     backupIntervalMinutes: parseJobIntervalMinutes(env["MEZAN_BACKUP_INTERVAL_MINUTES"], "MEZAN_BACKUP_INTERVAL_MINUTES", 15),
     apiRequestsPerAddressPerMinute: parsePositiveInt(env["MEZAN_API_REQUESTS_PER_ADDRESS_PER_MINUTE"], "MEZAN_API_REQUESTS_PER_ADDRESS_PER_MINUTE", API_REQUESTS_PER_ADDRESS_PER_MINUTE),
     apiRequestsPerSessionPerMinute: parsePositiveInt(env["MEZAN_API_REQUESTS_PER_SESSION_PER_MINUTE"], "MEZAN_API_REQUESTS_PER_SESSION_PER_MINUTE", API_REQUESTS_PER_SESSION_PER_MINUTE),
@@ -418,8 +419,8 @@ export const MIN_DEMO_PASSWORD_LENGTH = 12;
 /** Settings the public server refuses to start with, beyond what parseEnv rejects. The console checks the same list before saving. */
 export function bootRefusals(env: CloudEnv): string[] {
   const refusals: string[] = [];
-  if (env.seedAdminPin) {
-    refusals.push("MEZAN_SEED_ADMIN_PIN pins the fallback admin to a literal PIN. On a public deploy the PIN must be generated per deploy.");
+  if (env.seedAdminPassword) {
+    refusals.push("MEZAN_SEED_ADMIN_PASSWORD fixes the fallback admin to a literal password. On a public deploy the password must be generated per deploy.");
   }
   if (env.paymob.mode === PaymobMode.Test && !env.seedDemo) {
     refusals.push("MEZAN_PAYMOB_TEST_MODE=1 is only allowed with MEZAN_SEED_DEMO=1. Set the four MEZAN_PAYMOB_* keys for real card checkout, or leave it off.");

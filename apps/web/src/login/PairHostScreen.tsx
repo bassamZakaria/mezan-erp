@@ -26,7 +26,7 @@ import {
  * THE COMPARISON IS THE SECURITY CONTROL, and the whole layout is built around
  * making it performable. The certificate is self-signed and chain-validated by
  * nothing, so what stops a laptop answering first on `192.168.1.7:4173` and
- * collecting the PIN is one human, once, checking that the value this screen
+ * collecting the password is one human, once, checking that the value this screen
  * shows is the value on the host's own «الأجهزة المتصلة» screen. That is why
  * the fingerprints are grouped in fours, marked `dir="ltr"` inside an RTL page,
  * and why «الشهادتان متطابقتان — اقترن» is a separate, deliberate press rather

@@ -1,6 +1,6 @@
 import type { Ctx } from "./harness.js";
 import { createBackend } from "../../packages/backend/src/create-backend.js";
-import { SEED_ADMIN_EMAIL, SEED_ADMIN_PIN } from "../../packages/backend/src/seed.js";
+import { SEED_ADMIN_EMAIL, SEED_ADMIN_PASSWORD } from "../../packages/backend/src/seed.js";
 import { createEntitlements, LAN_MULTI_TILL_FEATURE } from "../../packages/domain/src/index.js";
 
 /**
@@ -9,7 +9,7 @@ import { createEntitlements, LAN_MULTI_TILL_FEATURE } from "../../packages/domai
  * Every assertion here is the FIXED behaviour of something that was measured
  * working against a seeded tenant: an anonymous caller minting a company
  * admin, a clerk with one user-admin permission promoting itself, a role
- * manager rewriting its own role to `"*"`, a six-digit PIN taking 36 guesses a
+ * manager rewriting its own role to `"*"`, a password taking 36 guesses a
  * second. The suite is where those stay fixed — a permission gate has no
  * natural regression signal, because the screen looks identical whether the
  * gate holds or not.
@@ -39,7 +39,7 @@ export async function run(ctx: Ctx): Promise<void> {
     const claim = await req(
       "POST",
       "/bootstrap/admin",
-      { nameAr: "مهاجم", nameEn: "Attacker", email: "attacker@cyag.example", pin: "999999", companyName: "متجر الاختبار" },
+      { nameAr: "مهاجم", nameEn: "Attacker", email: "attacker@cyag.example", password: "Attacker-pass-2026", companyName: "متجر الاختبار" },
       ANONYMOUS,
     );
     check("POST /bootstrap/admin ⇒ 409", claim.status === 409, `got ${claim.status}`);
@@ -50,7 +50,7 @@ export async function run(ctx: Ctx): Promise<void> {
     const known = await req(
       "POST",
       "/bootstrap/admin",
-      { nameAr: "م", nameEn: "A", email: SEED_ADMIN_EMAIL, pin: "999999", companyName: "متجر الاختبار" },
+      { nameAr: "م", nameEn: "A", email: SEED_ADMIN_EMAIL, password: "Attacker-pass-2026", companyName: "متجر الاختبار" },
       ANONYMOUS,
     );
     check("a known admin address ⇒ no session either", known.status >= 400 && !known.body?.token, `got ${known.status}`);
@@ -69,7 +69,7 @@ export async function run(ctx: Ctx): Promise<void> {
 
     const clerk = await req("POST", "/users", {
       nameAr: "موظف", nameEn: "Clerk", email: "scn-sec-clerk@cyag.example", phone: null,
-      password: "scn-clerk-pass", pin: "222222", roleId, isCompanyAdmin: false,
+      password: "scn-clerk-pass", roleId, isCompanyAdmin: false,
       employeeId: null, branchScope: "*", warehouseScope: "*", status: "active",
     });
     check("clerk account created", clerk.status === 201, JSON.stringify(clerk.body).slice(0, 140));
@@ -79,7 +79,7 @@ export async function run(ctx: Ctx): Promise<void> {
 
     const promoted = await req("POST", "/users", {
       nameAr: "مرتقي", nameEn: "Escalated", email: "scn-sec-esc@cyag.example", phone: null,
-      password: "scn-esc-password", pin: "333333", roleId: null, isCompanyAdmin: true,
+      password: "scn-esc-password", roleId: null, isCompanyAdmin: true,
       employeeId: null, branchScope: "*", warehouseScope: "*", status: "active",
     }, asClerk);
     check("clerk cannot mint a company admin", promoted.status === 403, `got ${promoted.status}`);
@@ -107,17 +107,17 @@ export async function run(ctx: Ctx): Promise<void> {
     const owner = await req("PUT", "/users/USER-ADMIN", {
       nameAr: "محمد الشهابي", nameEn: "Mohamed El Shehaby", email: SEED_ADMIN_EMAIL, phone: null,
       roleId: null, isCompanyAdmin: true, employeeId: null,
-      branchScope: "*", warehouseScope: "*", status: "active", pin: "444444",
+      branchScope: "*", warehouseScope: "*", status: "active", password: "scn-reset-password",
     }, asClerk);
-    check("clerk cannot reset the owner's PIN", owner.status === 403, `got ${owner.status}`);
+    check("clerk cannot reset the owner's password", owner.status === 403, `got ${owner.status}`);
 
-    const stillWorks = await req("POST", "/auth/login", { username: SEED_ADMIN_EMAIL, pin: SEED_ADMIN_PIN }, ANONYMOUS);
-    check("so the owner's PIN is unchanged", stillWorks.status === 200, `got ${stillWorks.status}`);
+    const stillWorks = await req("POST", "/auth/login", { username: SEED_ADMIN_EMAIL, password: SEED_ADMIN_PASSWORD }, ANONYMOUS);
+    check("so the owner's password is unchanged", stillWorks.status === 200, `got ${stillWorks.status}`);
 
     // The job the permission exists for must survive the guard.
     const peer = await req("POST", "/users", {
       nameAr: "زميل", nameEn: "Peer", email: "scn-sec-peer@cyag.example", phone: null,
-      password: "scn-peer-password", pin: "555555", roleId, isCompanyAdmin: false,
+      password: "scn-peer-password", roleId, isCompanyAdmin: false,
       employeeId: null, branchScope: "*", warehouseScope: "*", status: "active",
     }, asClerk);
     check("clerk CAN still create a peer account", peer.status === 201, JSON.stringify(peer.body).slice(0, 140));
@@ -125,26 +125,26 @@ export async function run(ctx: Ctx): Promise<void> {
     const ghost = await req("PUT", "/users/SCN-GHOST-1", {
       nameAr: "شبح", nameEn: "Ghost", email: "scn-sec-ghost@cyag.example", phone: null,
       password: "scn-ghost-password", roleId: null, isCompanyAdmin: true, employeeId: null,
-      branchScope: "*", warehouseScope: "*", status: "active", pin: "111111",
+      branchScope: "*", warehouseScope: "*", status: "active",
     });
     check("PUT on an unknown user id is a 404, not a create", ghost.status === 404, `got ${ghost.status}`);
   });
 
-  await ctx.scenario("security — a PIN cannot be guessed at machine speed", async () => {
+  await ctx.scenario("security — a password cannot be guessed at machine speed", async () => {
     const target = "scn-sec-peer@cyag.example";
     const codes: number[] = [];
     for (let i = 1; i <= 7; i += 1) {
-      const res = await req("POST", "/auth/login", { username: target, pin: `00000${i}` }, ANONYMOUS);
+      const res = await req("POST", "/auth/login", { username: target, password: `wrong-password-${i}` }, ANONYMOUS);
       codes.push(res.status);
     }
     check("the first attempts are ordinary refusals", codes.slice(0, 5).every((s) => s === 401), codes.join(","));
     check("then the account locks", codes.slice(5).every((s) => s === 429), codes.join(","));
 
-    const correct = await req("POST", "/auth/login", { username: target, pin: "555555" }, ANONYMOUS);
-    check("and the lock holds even for the RIGHT PIN", correct.status === 429, `got ${correct.status}`);
+    const correct = await req("POST", "/auth/login", { username: target, password: "scn-peer-password" }, ANONYMOUS);
+    check("and the lock holds even for the RIGHT password", correct.status === 429, `got ${correct.status}`);
     check("with a wait the client can show", Number(correct.body?.retryAfterSeconds) > 0, String(correct.body?.retryAfterSeconds));
 
-    const other = await req("POST", "/auth/login", { username: SEED_ADMIN_EMAIL, pin: SEED_ADMIN_PIN }, ANONYMOUS);
+    const other = await req("POST", "/auth/login", { username: SEED_ADMIN_EMAIL, password: SEED_ADMIN_PASSWORD }, ANONYMOUS);
     check("one locked account does not lock the shop out", other.status === 200, `got ${other.status}`);
   });
 
@@ -172,7 +172,7 @@ export async function run(ctx: Ctx): Promise<void> {
       const login = await call("/auth/login", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ username: SEED_ADMIN_EMAIL, pin: SEED_ADMIN_PIN }),
+        body: JSON.stringify({ username: SEED_ADMIN_EMAIL, password: SEED_ADMIN_PASSWORD }),
       });
       const { token } = (await login.json()) as { token: string };
       const admin = await call("/lan/sessions", { headers: { authorization: `Bearer ${token}` } });
@@ -203,7 +203,7 @@ export async function run(ctx: Ctx): Promise<void> {
         const res = await call("/auth/login", address, {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ username: SEED_ADMIN_EMAIL, pin: SEED_ADMIN_PIN }),
+          body: JSON.stringify({ username: SEED_ADMIN_EMAIL, password: SEED_ADMIN_PASSWORD }),
         });
         return ((await res.json()) as { token?: string }).token ?? "";
       };
@@ -287,7 +287,7 @@ export async function run(ctx: Ctx): Promise<void> {
 
     const mgr = await req("POST", "/users", {
       nameAr: "مدير الفرع", nameEn: "Branch Manager", email: "scn-sec-brmgr@cyag.example", phone: null,
-      password: "scn-brmgr-password", pin: "662211", roleId, isCompanyAdmin: false,
+      password: "scn-brmgr-password", roleId, isCompanyAdmin: false,
       employeeId: null, branchScope: ["BR-MAIN"], warehouseScope: ["WH-MAIN"], status: "active",
     });
     check("branch manager account created", mgr.status === 201, JSON.stringify(mgr.body).slice(0, 160));
@@ -315,14 +315,14 @@ export async function run(ctx: Ctx): Promise<void> {
     // The other half: minting a NEW account with reach the creator lacks.
     const mintWide = await req("POST", "/users", {
       nameAr: "واسع", nameEn: "Wide", email: "scn-sec-wide@cyag.example", phone: null,
-      password: "scn-wide-password", pin: "663311", roleId, isCompanyAdmin: false,
+      password: "scn-wide-password", roleId, isCompanyAdmin: false,
       employeeId: null, branchScope: "*", warehouseScope: "*", status: "active",
     }, asManager);
     check("nor create an account with wider reach than its own", mintWide.status === 403, `got ${mintWide.status}`);
 
     const otherBranch = await req("POST", "/users", {
       nameAr: "فرع آخر", nameEn: "Other", email: "scn-sec-other@cyag.example", phone: null,
-      password: "scn-other-password", pin: "663312", roleId, isCompanyAdmin: false,
+      password: "scn-other-password", roleId, isCompanyAdmin: false,
       employeeId: null, branchScope: ["BR-OTHER"], warehouseScope: ["WH-MAIN"], status: "active",
     }, asManager);
     check("nor a branch it does not itself hold", otherBranch.status === 403, `got ${otherBranch.status}`);
@@ -330,7 +330,7 @@ export async function run(ctx: Ctx): Promise<void> {
     // The job the permission exists for must survive the guard.
     const peer = await req("POST", "/users", {
       nameAr: "زميل الفرع", nameEn: "Branch Peer", email: "scn-sec-brpeer@cyag.example", phone: null,
-      password: "scn-brpeer-password", pin: "663313", roleId, isCompanyAdmin: false,
+      password: "scn-brpeer-password", roleId, isCompanyAdmin: false,
       employeeId: null, branchScope: ["BR-MAIN"], warehouseScope: ["WH-MAIN"], status: "active",
     }, asManager);
     check("but a same-scope peer is still creatable", peer.status === 201, JSON.stringify(peer.body).slice(0, 160));
@@ -354,7 +354,7 @@ export async function run(ctx: Ctx): Promise<void> {
     check("every non-seed account is now inactive", deactivated.length === nonSeed.length, `${deactivated.length}/${nonSeed.length}`);
 
     const retake = await req("POST", "/bootstrap/admin", {
-      nameAr: "مهاجم", nameEn: "Attacker", email: "scn-sec-retake@cyag.example", pin: "987654", companyName: "متجر الاختبار",
+      nameAr: "مهاجم", nameEn: "Attacker", email: "scn-sec-retake@cyag.example", password: "Attacker-pass-2026", companyName: "متجر الاختبار",
     }, ANONYMOUS);
     check("an emptied tenant is STILL claimed", retake.status === 409, `got ${retake.status}`);
     check("and hands back no session", !retake.body?.token, JSON.stringify(retake.body).slice(0, 120));
@@ -386,12 +386,12 @@ export async function run(ctx: Ctx): Promise<void> {
     });
     const doomed = await req("POST", "/users", {
       nameAr: "مفصول", nameEn: "Dismissed", email: "scn-sec-doomed@cyag.example", phone: null,
-      password: "scn-doomed-password", pin: "774411", roleId: role.body?.id, isCompanyAdmin: false,
+      password: "scn-doomed-password", roleId: role.body?.id, isCompanyAdmin: false,
       employeeId: null, branchScope: "*", warehouseScope: "*", status: "active",
     });
     check("account created", doomed.status === 201, JSON.stringify(doomed.body).slice(0, 140));
 
-    const login = await req("POST", "/auth/login", { username: "scn-sec-doomed@cyag.example", pin: "774411" }, ANONYMOUS);
+    const login = await req("POST", "/auth/login", { username: "scn-sec-doomed@cyag.example", password: "scn-doomed-password" }, ANONYMOUS);
     check("and can sign in", login.status === 200, `got ${login.status}`);
     const token = login.body?.token as string;
     const asThem = { authorization: `Bearer ${token}` };
@@ -408,13 +408,13 @@ export async function run(ctx: Ctx): Promise<void> {
     const target = "scn-sec-brpeer@cyag.example";
     let codes: number[] = [];
     for (let i = 1; i <= 7; i += 1) {
-      const res = await req("POST", "/auth/login", { username: target, pin: `10000${i}` }, ANONYMOUS);
+      const res = await req("POST", "/auth/login", { username: target, password: `wrong-password-${i}` }, ANONYMOUS);
       codes.push(res.status);
     }
     check("the account locks after five free attempts", codes.slice(5).every((s) => s === 429), codes.join(","));
 
-    const locked = await req("POST", "/auth/login", { username: target, pin: "663313" }, ANONYMOUS);
-    check("and the lock holds even for the right PIN", locked.status === 429, `got ${locked.status}`);
+    const locked = await req("POST", "/auth/login", { username: target, password: "scn-brpeer-password" }, ANONYMOUS);
+    check("and the lock holds even for the right password", locked.status === 429, `got ${locked.status}`);
     check(
       "the wait is expressed in minutes past two, not 900 ثانية",
       Number(locked.body?.retryAfterSeconds) < 120 || String(locked.body?.message).includes("دقيق"),
@@ -428,7 +428,7 @@ export async function run(ctx: Ctx): Promise<void> {
     const unlock = await req("POST", `/users/${peer.id}/unlock`);
     check("an admin can clear the lockout", unlock.status === 200, JSON.stringify(unlock.body).slice(0, 140));
 
-    const back = await req("POST", "/auth/login", { username: target, pin: "663313" }, ANONYMOUS);
+    const back = await req("POST", "/auth/login", { username: target, password: "scn-brpeer-password" }, ANONYMOUS);
     check("and the person is back in immediately", back.status === 200, `got ${back.status}`);
     check("with lastLoginAt finally written", typeof back.body?.token === "string");
 
@@ -462,26 +462,26 @@ export async function run(ctx: Ctx): Promise<void> {
     check("and says what was reached for", !!refusal?.details?.reason, JSON.stringify(refusal?.details).slice(0, 140));
   });
 
-  await ctx.scenario("security — an admin PIN reset is not a phone-number edit", async () => {
+  await ctx.scenario("security — an admin password reset is not a phone-number edit", async () => {
     const users = await req("GET", "/users");
     const peer = ctx.rows(users.body).find((u: any) => u.email === "scn-sec-brpeer@cyag.example");
     const reset = await req("PUT", `/users/${peer.id}`, {
       nameAr: "زميل الفرع", nameEn: "Branch Peer", email: "scn-sec-brpeer@cyag.example", phone: null,
       roleId: peer.roleId, isCompanyAdmin: false, employeeId: null,
-      branchScope: ["BR-MAIN"], warehouseScope: ["WH-MAIN"], status: "active", pin: "998877",
+      branchScope: ["BR-MAIN"], warehouseScope: ["WH-MAIN"], status: "active", password: "scn-reset-password",
     });
-    check("an admin may still reset a subordinate's PIN", reset.status === 200, `got ${reset.status}`);
+    check("an admin may still reset a subordinate's password", reset.status === 200, `got ${reset.status}`);
 
     const audit = await req("GET", "/audit?stream=security&action=CREDENTIAL_RESET_BY_ADMIN&limit=20");
     const events = ctx.rows(audit.body).length ? ctx.rows(audit.body) : (audit.body?.events ?? []);
     check("and it is recorded as its own security event", events.length > 0, JSON.stringify(audit.body).slice(0, 160));
     check("at CRITICAL", events[0]?.severity === "CRITICAL", String(events[0]?.severity));
-    check("naming which credential moved", events[0]?.details?.pinChanged === true, JSON.stringify(events[0]?.details));
-    // The PIN itself must never be in the log — a forensic record that carries
+    check("naming which credential moved", events[0]?.details?.passwordChanged === true, JSON.stringify(events[0]?.details));
+    // The password itself must never be in the log — a forensic record that carries
     // the secret it protects is a second copy of the credential store.
     check(
-      "and never the PIN itself",
-      !JSON.stringify(events[0]?.details ?? {}).includes("998877"),
+      "and never the password itself",
+      !JSON.stringify(events[0]?.details ?? {}).includes("scn-reset-password"),
       JSON.stringify(events[0]?.details),
     );
   });
@@ -652,26 +652,26 @@ export async function run(ctx: Ctx): Promise<void> {
       const post = (path: string, body: unknown) =>
         call(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 
-      const before = await post("/auth/login", { username: SEED_ADMIN_EMAIL, pin: SEED_ADMIN_PIN });
+      const before = await post("/auth/login", { username: SEED_ADMIN_EMAIL, password: SEED_ADMIN_PASSWORD });
       check("the seeded fallback admin can sign in on an unclaimed tenant", before.status === 200, `got ${before.status}`);
 
       const claim = await post("/bootstrap/admin", {
-        nameAr: "المالك", nameEn: "Owner", email: "owner@fresh.example", pin: "246813", companyName: "متجر الاختبار",
+        nameAr: "المالك", nameEn: "Owner", email: "owner@fresh.example", password: "Owner-pass-2026", companyName: "متجر الاختبار",
       });
       check("the owner claims the install", claim.status === 201, `got ${claim.status}`);
 
       // The classic "generic admin account" finding, closed at the moment it
       // stops being needed. It was left ACTIVE with `["*"]` on every install —
-      // unattributable, claimable by anyone who could set its PIN, and a
+      // unattributable, claimable by anyone who could set its password, and a
       // permanent key for whoever installed the software.
-      const after = await post("/auth/login", { username: SEED_ADMIN_EMAIL, pin: SEED_ADMIN_PIN });
+      const after = await post("/auth/login", { username: SEED_ADMIN_EMAIL, password: SEED_ADMIN_PASSWORD });
       check("and the seeded admin can no longer sign in", after.status === 401, `got ${after.status}`);
 
-      const owner = await post("/auth/login", { username: "owner@fresh.example", pin: "246813" });
+      const owner = await post("/auth/login", { username: "owner@fresh.example", password: "Owner-pass-2026" });
       check("while the real owner can", owner.status === 200, `got ${owner.status}`);
 
       const retaken = await post("/bootstrap/admin", {
-        nameAr: "دخيل", nameEn: "Second", email: "second@fresh.example", pin: "135791", companyName: "متجر الاختبار",
+        nameAr: "دخيل", nameEn: "Second", email: "second@fresh.example", password: "Second-pass-2026", companyName: "متجر الاختبار",
       });
       check("and the install cannot be claimed twice", retaken.status === 409, `got ${retaken.status}`);
     } finally {
@@ -728,7 +728,7 @@ export async function run(ctx: Ctx): Promise<void> {
     }
 
     // And the one that must NOT be handed out with them: unlocking a colleague
-    // is a supervisory act, resetting their PIN is not the same thing.
+    // is a supervisory act, resetting their password is not the same thing.
     const cashier = rows.find((r: any) => r.code === "TREASURY_CASHIER");
     check(
       "a cashier who can see the tills still cannot edit accounts",
@@ -761,7 +761,7 @@ export async function run(ctx: Ctx): Promise<void> {
       check("an untouched install reports itself unclaimed", before.claimed === false, JSON.stringify(before));
 
       const admin = await post("/bootstrap/admin", {
-        nameAr: "المالك", nameEn: "Owner", email: "wizard-owner@fresh.example", pin: "357913", companyName: "متجر الاختبار",
+        nameAr: "المالك", nameEn: "Owner", email: "wizard-owner@fresh.example", password: "Wizard-pass-2026", companyName: "متجر الاختبار",
       });
       check("step 2 creates the owner's admin", admin.status === 201, `got ${admin.status}`);
 
@@ -775,7 +775,7 @@ export async function run(ctx: Ctx): Promise<void> {
       check("while a caller with no session learns only that it is claimed", !("accounts" in anonymous) && anonymous["claimed"] === true, JSON.stringify(anonymous));
 
       const again = await post("/bootstrap/admin", {
-        nameAr: "دخيل", nameEn: "Intruder", email: "intruder@fresh.example", pin: "111111", companyName: "متجر الاختبار",
+        nameAr: "دخيل", nameEn: "Intruder", email: "intruder@fresh.example", password: "Intruder-pass-2026", companyName: "متجر الاختبار",
       });
       check("while claiming it a second time is still refused", again.status === 409, `got ${again.status}`);
     } finally {

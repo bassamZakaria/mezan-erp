@@ -1,6 +1,6 @@
 import type { App } from "@mezan/api";
 import type { SeedFragment, SeedFragmentContext } from "./fragments.js";
-import { step } from "./shared.js";
+import { seedPersonaPassword, step } from "./shared.js";
 
 const TENANT_DOMAIN = "cyag.example";
 const EXTERNAL_AUDITOR_TEMPLATE = "external_auditor";
@@ -35,8 +35,7 @@ async function run(app: App, ctx: SeedFragmentContext): Promise<void> {
       branchScope: "*",
       warehouseScope: "*",
       status: "active",
-      password: `Mezan-demo-${auditor.local}`,
-      pin: "123456",
+      password: seedPersonaPassword(),
       accessExpiresAt: auditor.accessExpiresAt,
     });
   }

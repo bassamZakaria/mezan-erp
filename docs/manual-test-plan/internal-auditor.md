@@ -471,7 +471,7 @@ So there are two threat models here, not one:
 - **Expected:** refused — a user should never be able to grant themselves (or anyone) tenant
   admin without already holding it, or at minimum without a second approver.
 - **Observed:** nothing stops it. `saveUser` (`users/save-user.ts:123-161`) validates email,
-  domain policy, the `isCompanyAdmin XOR roleId` shape, and PIN format — it never compares
+  domain policy, the `isCompanyAdmin XOR roleId` shape, and password rules — it never compares
   `cmd.isCompanyAdmin` against the CALLER's own admin status. The route
   (`users-routes.ts:139-158`) gates only on `admin.users.edit`. The change is logged
   (`auditUser`, `users-routes.ts:84-106`, records `previousIsCompanyAdmin`), so it would be

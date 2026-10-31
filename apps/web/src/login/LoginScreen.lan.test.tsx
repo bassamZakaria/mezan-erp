@@ -29,7 +29,7 @@ describe("a till on the shop's network whose host machine does not answer", () =
     expect(await screen.findByText(UNREACHABLE)).toHaveAttribute("role", "status");
     await vi.waitFor(() => expect(lookups).toBeGreaterThan(0));
     expect(screen.queryByRole("textbox", { name: "رمز المنشأة" })).not.toBeInTheDocument();
-    expect(screen.getByLabelText("رمز PIN رقم 1")).toBeEnabled();
+    expect(screen.getByLabelText(/^كلمة المرور/)).toBeEnabled();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
@@ -38,7 +38,7 @@ describe("a till on the shop's network whose host machine does not answer", () =
       transport: stubTransport({ "POST /auth/login": () => ({ body: testAdminSession }), "GET /bootstrap/status": () => ({ body: { accounts: 0, taxRates: 0, branches: 0, warehouses: 0, fiscalPeriods: 0, users: 0, claimed: false } }) }),
     });
 
-    await screen.findByLabelText("رمز PIN رقم 1");
+    await screen.findByLabelText(/^كلمة المرور/);
     expect(screen.queryByRole("button", { name: "الإعداد الأولي" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "أنشئ حسابًا جديدًا" })).not.toBeInTheDocument();
   });
@@ -46,7 +46,7 @@ describe("a till on the shop's network whose host machine does not answer", () =
   it("says nothing of the kind while the host answers", async () => {
     renderWithProviders(<LoginScreen onStartWizard={() => {}} />, { transport: stubTransport({ "POST /auth/login": () => ({ body: testAdminSession }) }) });
 
-    await screen.findByLabelText("رمز PIN رقم 1");
+    await screen.findByLabelText(/^كلمة المرور/);
     expect(screen.queryByText(UNREACHABLE)).not.toBeInTheDocument();
   });
 });

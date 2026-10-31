@@ -116,8 +116,8 @@ test.describe("The clock moves — a trial lands on Free, the Free quota holds, 
     const token = new URL(((await start.json()) as { devVerifyUrl: string }).devVerifyUrl).searchParams.get("token") ?? "";
     const verify = await request.post(`${CLOCK_API_URL}/api/signup/verify`, { headers: proxiedSource(DEFAULT_BROWSER_CLIENT), data: { token } });
     expect(verify.status(), await verify.text()).toBe(200);
-    const body = (await verify.json()) as { tenant: { id: string }; adminEmail: string; adminPin: string };
-    tenant = { id: body.tenant.id, code: CODE, adminEmail: body.adminEmail, adminPin: body.adminPin };
+    const body = (await verify.json()) as { tenant: { id: string }; adminEmail: string; adminPassword: string };
+    tenant = { id: body.tenant.id, code: CODE, adminEmail: body.adminEmail, adminPassword: body.adminPassword };
 
     const session = await tenantApiLogin(request, tenant, CLOCK_API_URL);
     const onTrial = await call(request, session, HttpMethod.Get, "/entitlements");

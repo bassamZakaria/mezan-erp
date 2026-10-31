@@ -40,7 +40,7 @@ function post(app: App, path: string, body: unknown, headers: Record<string, str
  * signs the seeded admin in for real and carries the token it was issued.
  */
 async function loginAdmin(app: App): Promise<SessionDTO> {
-  const res = await post(app, "/auth/login", { username: "admin@cyag.example", pin: "123456" });
+  const res = await post(app, "/auth/login", { username: "admin@cyag.example", password: "Cyag@2026" });
   expect(res.status).toBe(200);
   return (await res.json()) as SessionDTO;
 }

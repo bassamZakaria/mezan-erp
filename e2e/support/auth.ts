@@ -1,18 +1,16 @@
 import type { Page } from "@playwright/test";
+import { PASSWORD_LABEL } from "../saas/support/env";
 
 /**
  * Phase 1 added a desktop login gate in front of the app shell
  * (apps/web/src/login/LoginScreen.tsx — App.tsx's `mode === "login"`).
  * Every screen this suite exercises lives behind it, so every spec goes
- * through here first. The seed admin's email and PIN (123456) are hardcoded
- * sample data (packages/backend/src/seed.ts's SEED_ADMIN_PIN) — not a secret.
- *
- * The PIN is six separate inputs that each hold one digit and move focus on,
- * so it is filled box by box: typing into the first one alone leaves the rest
- * empty and «دخول» stays disabled.
+ * through here first. The seed admin's email and password (Cyag@2026) are
+ * hardcoded sample data (packages/backend/src/seed.ts's SEED_ADMIN_PASSWORD) —
+ * not a secret.
  */
 const SEED_ADMIN_EMAIL = "admin@cyag.example";
-const SEED_ADMIN_PIN = "123456";
+const SEED_ADMIN_PASSWORD = "Cyag@2026";
 const DEMO_TENANT_CODE = "demo";
 
 export async function loginAsDemoUser(page: Page): Promise<void> {
@@ -28,7 +26,7 @@ export async function loginAsDemoUser(page: Page): Promise<void> {
    * (`AppLayout.tsx` — `bootstrapStatus.data?.claimed === false`). The e2e
    * backend runs on `:memory:` and is therefore unclaimed on every start, so
    * every spec in this suite landed on «معالج الإعداد الأولي» and timed out
-   * waiting for a PIN box that was never on screen.
+   * waiting for the password field that was never on screen.
    *
    * The wizard is dismissed rather than completed: these specs want the SEEDED
    * admin and the seeded chart of accounts, not a tenant the wizard just built,
@@ -36,13 +34,13 @@ export async function loginAsDemoUser(page: Page): Promise<void> {
    * was already provisioned for them.
    */
   const dismissWizard = page.getByRole("button", { name: "إلغاء والعودة لتسجيل الدخول" });
-  const firstPinBox = page.getByLabel("رمز PIN رقم 1");
+  const passwordField = page.getByLabel(PASSWORD_LABEL, { exact: true });
 
   /*
    * POLLED, not raced.
    *
    * This used to be a `Promise.race` of two 20-second `waitFor`s, then a single
-   * `isVisible()` probe of the wizard, then a final 20-second wait for the PIN
+   * `isVisible()` probe of the wizard, then a final 20-second wait for the password field
    * box. On a developer machine the app is up in under a second and it always
    * worked. On a CI runner it is the dominant cause of failure: 48 of the 55
    * failures in the first real e2e run on CI came out of this one function.
@@ -56,7 +54,7 @@ export async function loginAsDemoUser(page: Page): Promise<void> {
    *      at whatever moment the race happened to give up, which on a slow boot
    *      is BEFORE the wizard has painted. It answers false, so the wizard is
    *      never dismissed.
-   *   3. The final wait then sits for 20 more seconds on a PIN box that is
+   *   3. The final wait then sits for 20 more seconds on a password field that is
    *      behind the wizard nobody clicked, and times out at auth.ts:50.
    *
    * So it fails exactly when the machine is slow, which is exactly what CI is.
@@ -69,7 +67,7 @@ export async function loginAsDemoUser(page: Page): Promise<void> {
   const READY_BUDGET_MS = 60_000;
   const deadline = Date.now() + READY_BUDGET_MS;
   while (Date.now() < deadline) {
-    if (await firstPinBox.isVisible().catch(() => false)) break;
+    if (await passwordField.isVisible().catch(() => false)) break;
     if (await dismissWizard.isVisible().catch(() => false)) {
       // Not fatal if it misses: a click that lands mid-render leaves the wizard
       // up, and the next pass simply clicks it again.
@@ -78,10 +76,10 @@ export async function loginAsDemoUser(page: Page): Promise<void> {
     await page.waitForTimeout(250);
   }
 
-  // The loop above exits on the PIN box OR on the budget. Assert it explicitly,
+  // The loop above exits on the password field OR on the budget. Assert it explicitly,
   // so a timeout here means "the login screen never arrived in 60s" rather than
   // a confusing failure three lines later.
-  await firstPinBox.waitFor({ state: "visible", timeout: 10_000 });
+  await passwordField.waitFor({ state: "visible", timeout: 10_000 });
 
   // apps/server resolves the tenant from `x-mezan-tenant`; `demo` is what MEZAN_SEED_DEMO=1 provisions.
   const tenantCode = page.getByRole("textbox", { name: "رمز المنشأة" });
@@ -99,10 +97,7 @@ export async function loginAsDemoUser(page: Page): Promise<void> {
     await email.fill(SEED_ADMIN_EMAIL);
   }
 
-  for (const [index, digit] of [...SEED_ADMIN_PIN].entries()) {
-    await page.getByLabel(`رمز PIN رقم ${index + 1}`).fill(digit);
-  }
-
+  await passwordField.fill(SEED_ADMIN_PASSWORD);
   const submit = page.getByRole("button", { name: "دخول" });
   if (await submit.isEnabled()) await submit.click();
 

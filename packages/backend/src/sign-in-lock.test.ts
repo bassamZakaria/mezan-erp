@@ -7,7 +7,7 @@ import { openSqliteConnection } from "@mezan/persistence";
 import { CurrentSecretRefusal, type SessionDTO } from "@mezan/contracts";
 import { createBackend, type BackendHandle, type CreateBackendOptions } from "./create-backend.js";
 
-const OWNER = { nameAr: "المالك", nameEn: "Owner", email: "owner@shop.eg", pin: "731946", companyName: "متجر الاختبار" };
+const OWNER = { nameAr: "المالك", nameEn: "Owner", email: "owner@shop.eg", password: "pw-731946", companyName: "متجر الاختبار" };
 const PLATFORM_SMTP: SmtpConfig = {
   smtpEnabled: true, smtpHost: "smtp.mezan.test", smtpPort: 587, smtpSecurity: "STARTTLS",
   smtpUsername: "", smtpPassword: "", smtpFromName: "Mezan", smtpFromEmail: "no-reply@mezan.test",
@@ -46,32 +46,32 @@ async function claim(h: BackendHandle): Promise<SessionDTO> {
   return (await res.json()) as SessionDTO;
 }
 
-const signIn = (h: BackendHandle, pin: string, address: string | null, username = OWNER.email) => post(h, "/auth/login", { username, pin }, address);
+const signIn = (h: BackendHandle, password: string, address: string | null, username = OWNER.email) => post(h, "/auth/login", { username, password }, address);
 
-async function twentyWrongPins(h: BackendHandle, addresses: (i: number) => string = (i) => `41.33.${i}.10`): Promise<number[]> {
+async function twentyWrongPasswords(h: BackendHandle, addresses: (i: number) => string = (i) => `41.33.${i}.10`): Promise<number[]> {
   const statuses: number[] = [];
-  for (let i = 0; i < 20; i += 1) statuses.push((await signIn(h, String(100000 + i), addresses(i))).status);
+  for (let i = 0; i < 20; i += 1) statuses.push((await signIn(h, `pw-${100000 + i}`, addresses(i))).status);
   return statuses;
 }
 
-describe("an account under twenty wrong PINs", () => {
-  it("locks for every remote address, the right PIN included, and stays open at the machine itself", async () => {
+describe("an account under twenty wrong passwords", () => {
+  it("locks for every remote address, the right password included, and stays open at the machine itself", async () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     const h = await open();
     await claim(h);
 
-    const statuses = await twentyWrongPins(h);
+    const statuses = await twentyWrongPasswords(h);
     expect(statuses.slice(0, 19)).toEqual(Array<number>(19).fill(401));
     expect(statuses[19]).toBe(423);
 
-    const remote = await signIn(h, OWNER.pin, "196.221.5.5");
+    const remote = await signIn(h, OWNER.password, "196.221.5.5");
     expect(remote.status).toBe(423);
     expect(await remote.json()).toMatchObject({
       error: "ACCOUNT_LOCKED",
       unlockByCode: false,
       message: expect.stringContaining("اطلب من مدير النظام فكّ القفل"),
     });
-    expect((await signIn(h, OWNER.pin, null)).status).toBe(200);
+    expect((await signIn(h, OWNER.password, null)).status).toBe(200);
   }, 120_000);
 
   it("counts one IPv6 /64 as one caller and still stops it at twenty", async () => {
@@ -93,21 +93,21 @@ describe("an account under twenty wrong PINs", () => {
     const dbPath = path.join(dir, "tenant.db");
     const first = await createBackend({ dbPath });
     await claim(first);
-    await twentyWrongPins(first);
+    await twentyWrongPasswords(first);
     first.close();
 
     const second = await createBackend({ dbPath });
     handles.push(second);
-    expect((await signIn(second, OWNER.pin, "196.221.5.5")).status).toBe(423);
+    expect((await signIn(second, OWNER.password, "196.221.5.5")).status).toBe(423);
   }, 120_000);
 
   it("is recorded as a critical security event and put in front of every company administrator", async () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     const h = await open();
     const session = await claim(h);
-    await twentyWrongPins(h);
+    await twentyWrongPasswords(h);
 
-    const hostSession = (await (await signIn(h, OWNER.pin, null)).json()) as SessionDTO;
+    const hostSession = (await (await signIn(h, OWNER.password, null)).json()) as SessionDTO;
     const get = (pathname: string) => h.app.fetch(new Request(`http://local${pathname}`, { headers: { authorization: `Bearer ${hostSession.token}` } }));
     const notices = (await (await get("/notifications")).json()) as { title: string; body: string; recipientUserId?: string }[] | { items: { title: string; body: string }[] };
     const rows = Array.isArray(notices) ? notices : notices.items;
@@ -126,11 +126,11 @@ describe("getting back into a locked account", () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     const h = await open();
     const owner = await claim(h);
-    await twentyWrongPins(h);
-    const host = (await (await signIn(h, OWNER.pin, null)).json()) as SessionDTO;
+    await twentyWrongPasswords(h);
+    const host = (await (await signIn(h, OWNER.password, null)).json()) as SessionDTO;
 
     expect((await post(h, `/users/${owner.userId}/unlock`, {}, null, host.token)).status).toBe(200);
-    expect((await signIn(h, OWNER.pin, "196.221.5.5")).status).toBe(200);
+    expect((await signIn(h, OWNER.password, "196.221.5.5")).status).toBe(200);
   }, 120_000);
 
   it("opens it again, on this run and after a restart, when credentials are reset from outside the tenant's own routes", async () => {
@@ -140,24 +140,24 @@ describe("getting back into a locked account", () => {
     const dbPath = path.join(dir, "tenant.sqlite");
     const h = await open({ dbPath });
     await claim(h);
-    await twentyWrongPins(h);
-    expect((await signIn(h, OWNER.pin, "196.221.5.5")).status).toBe(423);
+    await twentyWrongPasswords(h);
+    expect((await signIn(h, OWNER.password, "196.221.5.5")).status).toBe(423);
 
     await h.credentialsResetByAdministrator(OWNER.email);
 
-    expect((await signIn(h, OWNER.pin, "196.221.5.5")).status).toBe(200);
+    expect((await signIn(h, OWNER.password, "196.221.5.5")).status).toBe(200);
     h.close();
     handles.splice(handles.indexOf(h), 1);
     const reopened = await open({ dbPath });
-    expect((await signIn(reopened, OWNER.pin, "196.221.5.5")).status).toBe(200);
+    expect((await signIn(reopened, OWNER.password, "196.221.5.5")).status).toBe(200);
   }, 120_000);
 
-  it("opens it again when an administrator resets its PIN", async () => {
+  it("opens it again when an administrator resets its password", async () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     const h = await open();
     const owner = await claim(h);
-    await twentyWrongPins(h);
-    const host = (await (await signIn(h, OWNER.pin, null)).json()) as SessionDTO;
+    await twentyWrongPasswords(h);
+    const host = (await (await signIn(h, OWNER.password, null)).json()) as SessionDTO;
 
     const reset = await h.app.fetch(
       new Request(`http://local/users/${owner.userId}`, {
@@ -165,12 +165,12 @@ describe("getting back into a locked account", () => {
         headers: { "content-type": "application/json", authorization: `Bearer ${host.token}` },
         body: JSON.stringify({
           nameAr: OWNER.nameAr, nameEn: OWNER.nameEn, email: OWNER.email, roleId: null, isCompanyAdmin: true,
-          branchScope: "*", warehouseScope: "*", pin: "864201", currentPin: OWNER.pin,
+          branchScope: "*", warehouseScope: "*", password: "pw-864201", currentPassword: OWNER.password,
         }),
       }),
     );
     expect(reset.status).toBe(200);
-    expect((await signIn(h, "864201", "196.221.5.5")).status).toBe(200);
+    expect((await signIn(h, "pw-864201", "196.221.5.5")).status).toBe(200);
   }, 120_000);
 
   it("mails each administrator a one-time code when a mail server is configured, and the code opens the account once", async () => {
@@ -184,7 +184,7 @@ describe("getting back into a locked account", () => {
       },
     });
     await claim(h);
-    const statuses = await twentyWrongPins(h);
+    const statuses = await twentyWrongPasswords(h);
     expect(statuses[19]).toBe(423);
     await h.drain();
 
@@ -192,16 +192,16 @@ describe("getting back into a locked account", () => {
     const code = /: ([A-Z2-7]{16})/.exec(sent[0]!.body)?.[1];
     expect(code).toBeDefined();
 
-    const locked = await signIn(h, OWNER.pin, "196.221.5.5");
+    const locked = await signIn(h, OWNER.password, "196.221.5.5");
     expect(await locked.json()).toMatchObject({ error: "ACCOUNT_LOCKED", unlockByCode: true, message: expect.stringContaining("رمز فكّ القفل") });
 
     const wrong = await post(h, "/auth/unlock", { username: OWNER.email, code: "AAAAAAAAAAAAAAAA" }, "196.221.5.5");
     expect(wrong.status).toBe(400);
     expect(await wrong.json()).toMatchObject({ error: "INVALID_UNLOCK_CODE" });
-    expect((await signIn(h, OWNER.pin, "196.221.5.5")).status).toBe(423);
+    expect((await signIn(h, OWNER.password, "196.221.5.5")).status).toBe(423);
 
     expect((await post(h, "/auth/unlock", { username: OWNER.email, code }, "196.221.5.5")).status).toBe(200);
-    expect((await signIn(h, OWNER.pin, "196.221.5.5")).status).toBe(200);
+    expect((await signIn(h, OWNER.password, "196.221.5.5")).status).toBe(200);
     expect((await post(h, "/auth/unlock", { username: OWNER.email, code }, "196.221.5.5")).status).toBe(400);
   }, 120_000);
 
@@ -220,7 +220,7 @@ describe("getting back into a locked account", () => {
       },
     });
     await claim(h);
-    await twentyWrongPins(h);
+    await twentyWrongPasswords(h);
     await h.drain();
     const token = linkIn(sent[0]!.body);
     expect(token).toBeDefined();
@@ -228,15 +228,15 @@ describe("getting back into a locked account", () => {
     const forged = await post(h, "/auth/unlock-link", { token: `${token!.slice(0, -4)}AAAA` }, "196.221.5.5");
     expect(forged.status).toBe(400);
     expect(await forged.json()).toMatchObject({ error: "INVALID_UNLOCK_LINK", message: expect.stringMatching(/[\u0600-\u06FF]/) });
-    expect((await signIn(h, OWNER.pin, "196.221.5.5")).status).toBe(423);
+    expect((await signIn(h, OWNER.password, "196.221.5.5")).status).toBe(423);
 
     const opened = await post(h, "/auth/unlock-link", { token }, "196.221.5.5");
     expect(opened.status).toBe(200);
     expect(await opened.json()).toEqual({ ok: true });
-    expect((await signIn(h, OWNER.pin, "196.221.5.5")).status).toBe(200);
+    expect((await signIn(h, OWNER.password, "196.221.5.5")).status).toBe(200);
     expect((await post(h, "/auth/unlock-link", { token }, "196.221.5.5")).status).toBe(400);
 
-    const hostSession = (await (await signIn(h, OWNER.pin, null)).json()) as SessionDTO;
+    const hostSession = (await (await signIn(h, OWNER.password, null)).json()) as SessionDTO;
     const audit = (await (await h.app.fetch(new Request("http://local/audit?action=ACCOUNT_UNLOCKED_BY_LINK", { headers: { authorization: `Bearer ${hostSession.token}` } }))).text());
     expect(audit.match(/ACCOUNT_UNLOCKED_BY_LINK/g)).toHaveLength(1);
     expect(audit).not.toContain(token!);
@@ -258,7 +258,7 @@ describe("getting back into a locked account", () => {
         new Request("http://local/auth/login", {
           method: "POST",
           headers: { "content-type": "application/json", host: "evil.example", "x-forwarded-host": "evil.example" },
-          body: JSON.stringify({ username: OWNER.email, pin: String(100000 + i) }),
+          body: JSON.stringify({ username: OWNER.email, password: `pw-${100000 + i}` }),
         }),
         from(`41.33.${i}.10`),
       );
@@ -281,7 +281,7 @@ describe("getting back into a locked account", () => {
       },
     });
     await claim(h);
-    await twentyWrongPins(h);
+    await twentyWrongPasswords(h);
     await h.drain();
     const code = /: ([A-Z2-7]{16})/.exec(sent[0]!)![1]!;
 
@@ -326,7 +326,7 @@ describe("getting back into a locked account", () => {
       },
     });
     await claim(h);
-    const statuses = await twentyWrongPins(h);
+    const statuses = await twentyWrongPasswords(h);
     expect(statuses[19]).toBe(423);
     await vi.waitFor(() => expect(sent).toHaveLength(1));
     await new Promise((resolve) => setTimeout(resolve, 60));
@@ -334,7 +334,7 @@ describe("getting back into a locked account", () => {
     await holding;
     await h.drain();
 
-    const hostSession = (await (await signIn(h, OWNER.pin, null)).json()) as SessionDTO;
+    const hostSession = (await (await signIn(h, OWNER.password, null)).json()) as SessionDTO;
     const authed = { authorization: `Bearer ${hostSession.token}`, "content-type": "application/json" };
     const emailStateOfTheNotice = async () => {
       const listed = (await (await h.app.fetch(new Request("http://local/notifications", { headers: authed }))).json()) as
@@ -352,7 +352,7 @@ describe("getting back into a locked account", () => {
     const token = linkIn(sent[0]!)!;
     expect((await post(h, "/auth/unlock-link", { token }, "196.221.5.5")).status).toBe(200);
     expect((await post(h, "/auth/unlock-link", { token }, "196.221.5.5")).status).toBe(400);
-    expect((await signIn(h, OWNER.pin, "196.221.5.5")).status).toBe(200);
+    expect((await signIn(h, OWNER.password, "196.221.5.5")).status).toBe(200);
   }, 120_000);
 
   it("answers a name nobody holds exactly as it answers a locked account", async () => {
@@ -390,7 +390,7 @@ describe("a locked account can always be recovered", () => {
       ...extra,
     });
     await claim(h);
-    expect((await twentyWrongPins(h))[19]).toBe(423);
+    expect((await twentyWrongPasswords(h))[19]).toBe(423);
     await h.drain();
     return { h, sent, logged, advance: (ms: number) => void (now += ms) };
   }
@@ -410,7 +410,7 @@ describe("a locked account can always be recovered", () => {
       },
     });
     await claim(h);
-    await twentyWrongPins(h);
+    await twentyWrongPasswords(h);
     await h.drain();
     expect(sent).toEqual([OWNER.email]);
 
@@ -429,7 +429,7 @@ describe("a locked account can always be recovered", () => {
     }
 
     expect((await post(h, "/auth/unlock", { username: OWNER.email, code }, "196.221.5.5")).status).toBe(200);
-    expect((await signIn(h, OWNER.pin, "196.221.5.5")).status).toBe(200);
+    expect((await signIn(h, OWNER.password, "196.221.5.5")).status).toBe(200);
   }, 120_000);
 
   it("mails a fresh code and link on the next attempt after the last ones expired, once, and the fresh link opens the account", async () => {
@@ -437,7 +437,7 @@ describe("a locked account can always be recovered", () => {
     const firstCode = codeIn(sent[0]!.body)!;
     const firstToken = tokenIn(sent[0]!.body)!;
 
-    expect((await signIn(h, OWNER.pin, "196.221.5.5")).status).toBe(423);
+    expect((await signIn(h, OWNER.password, "196.221.5.5")).status).toBe(423);
     await h.drain();
     expect(sent).toHaveLength(1);
 
@@ -456,7 +456,7 @@ describe("a locked account can always be recovered", () => {
     expect(freshCode).not.toBe(firstCode);
     expect((await post(h, "/auth/unlock-link", { token: firstToken }, "196.221.5.5")).status).toBe(400);
     expect((await post(h, "/auth/unlock-link", { token: freshToken }, "196.221.5.5")).status).toBe(200);
-    expect((await signIn(h, OWNER.pin, "196.221.5.5")).status).toBe(200);
+    expect((await signIn(h, OWNER.password, "196.221.5.5")).status).toBe(200);
   }, 120_000);
 
   it("writes the code and the link token into the mail only: no notification row, audit row or log line holds either", async () => {
@@ -468,7 +468,7 @@ describe("a locked account can always be recovered", () => {
     const token = tokenIn(sent[0]!.body)!;
     expect(sent[0]!.body).toContain(`${LINK_BASE}${token}`);
 
-    const hostSession = (await (await signIn(h, OWNER.pin, null)).json()) as SessionDTO;
+    const hostSession = (await (await signIn(h, OWNER.password, null)).json()) as SessionDTO;
     const get = (pathname: string) => h.app.fetch(new Request(`http://local${pathname}`, { headers: { authorization: `Bearer ${hostSession.token}` } }));
     const notices = await (await get("/notifications")).text();
     expect(notices).toContain("تم قفل حساب");
@@ -504,13 +504,13 @@ describe("a locked account can always be recovered", () => {
       )
       .run(
         session.userId,
-        ["قُفل حساب المالك بعد 20 محاولة دخول فاشلة.", "أو أدخل هذا الرمز في شاشة الدخول خلال ساعة واحدة: ABCDEFGHIJKLMNOP", `أو افتح هذا الرابط خلال ساعة واحدة: https://acme.mezan.test/unlock?token=${"t".repeat(43)}`, "إن لم تكن هذه المحاولات من صاحب الحساب فغيّر رمز PIN الخاص به."].join("\n"),
+        ["قُفل حساب المالك بعد 20 محاولة دخول فاشلة.", "أو أدخل هذا الرمز في شاشة الدخول خلال ساعة واحدة: ABCDEFGHIJKLMNOP", `أو افتح هذا الرابط خلال ساعة واحدة: https://acme.mezan.test/unlock?token=${"t".repeat(43)}`, "إن لم تكن هذه المحاولات من صاحب الحساب فغيّر كلمة المرور الخاصة به."].join("\n"),
       );
     sqlite.close();
 
     const second = await createBackend({ dbPath });
     handles.push(second);
-    const hostSession = (await (await signIn(second, OWNER.pin, null)).json()) as SessionDTO;
+    const hostSession = (await (await signIn(second, OWNER.password, null)).json()) as SessionDTO;
     const notices = await (await second.app.fetch(new Request("http://local/notifications", { headers: { authorization: `Bearer ${hostSession.token}` } }))).text();
 
     expect(notices).toContain("قُفل حساب المالك");
@@ -526,15 +526,15 @@ describe("a locked account can always be recovered", () => {
     const dbPath = path.join(dir, "tenant.db");
     const first = await createBackend({ dbPath });
     await claim(first);
-    await twentyWrongPins(first);
-    for (let i = 0; i < 20; i += 1) await signIn(first, String(300000 + i), `41.44.${i}.10`, "ghost@shop.eg");
-    const before = [await signIn(first, OWNER.pin, "196.221.5.5"), await signIn(first, "123456", "196.221.5.6", "ghost@shop.eg")];
+    await twentyWrongPasswords(first);
+    for (let i = 0; i < 20; i += 1) await signIn(first, `pw-${300000 + i}`, `41.44.${i}.10`, "ghost@shop.eg");
+    const before = [await signIn(first, OWNER.password, "196.221.5.5"), await signIn(first, "pw-123456", "196.221.5.6", "ghost@shop.eg")];
     expect(before.map((res) => res.status)).toEqual([423, 423]);
     first.close();
 
     const second = await createBackend({ dbPath });
     handles.push(second);
-    const real = await signIn(second, OWNER.pin, "196.221.5.5");
+    const real = await signIn(second, OWNER.password, "196.221.5.5");
     const ghost = await signIn(second, "123456", "196.221.5.6", "ghost@shop.eg");
 
     expect([real.status, ghost.status]).toEqual([423, 423]);
@@ -546,9 +546,9 @@ describe("a locked account can always be recovered", () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     const cloud = await open({ platformOperatorUnlocks: true });
     await claim(cloud);
-    await twentyWrongPins(cloud);
+    await twentyWrongPasswords(cloud);
 
-    const refused = (await (await signIn(cloud, OWNER.pin, "196.221.5.5")).json()) as { message: string; messageEn: string; unlockByCode: boolean };
+    const refused = (await (await signIn(cloud, OWNER.password, "196.221.5.5")).json()) as { message: string; messageEn: string; unlockByCode: boolean };
 
     expect(refused.unlockByCode).toBe(false);
     expect(refused.message).toContain("دعم المنصة");
@@ -557,8 +557,8 @@ describe("a locked account can always be recovered", () => {
 
     const onPremises = await open();
     await claim(onPremises);
-    await twentyWrongPins(onPremises);
-    const local = (await (await signIn(onPremises, OWNER.pin, "196.221.5.5")).json()) as { message: string; messageEn: string };
+    await twentyWrongPasswords(onPremises);
+    const local = (await (await signIn(onPremises, OWNER.password, "196.221.5.5")).json()) as { message: string; messageEn: string };
     expect(local.message).toContain("جهاز الخادم");
     expect(local.message).not.toContain("دعم المنصة");
     expect(local.messageEn).toMatch(/server machine/i);
@@ -568,14 +568,14 @@ describe("a locked account can always be recovered", () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     const h = await open({ platformOperatorUnlocks: true });
     await claim(h);
-    await twentyWrongPins(h);
+    await twentyWrongPasswords(h);
     expect(await h.lockedAccounts()).toEqual([OWNER.email]);
 
     expect(await h.unlockAccount("nobody@shop.eg", "platform:op-1")).toBe(false);
     expect(await h.unlockAccount(OWNER.email.toUpperCase(), "platform:op-1")).toBe(true);
 
     expect(await h.lockedAccounts()).toEqual([]);
-    const signedIn = await signIn(h, OWNER.pin, "196.221.5.5");
+    const signedIn = await signIn(h, OWNER.password, "196.221.5.5");
     expect(signedIn.status).toBe(200);
     const session = (await signedIn.json()) as SessionDTO;
     const audit = await (await h.app.fetch(new Request("http://local/audit?stream=security&action=ACCOUNT_UNLOCKED_BY_PLATFORM", { headers: { authorization: `Bearer ${session.token}` } }), from("196.221.5.5"))).text();
@@ -599,7 +599,7 @@ describe("a burst of sign-ins larger than the tenant checks at once", () => {
     expect(busy[0]!.headers.get("retry-after")).toBe("2");
     expect(answers.filter((answer) => answer.status !== 503 && answer.status !== 401)).toEqual([]);
 
-    const owner = await signIn(h, OWNER.pin, "196.221.5.5");
+    const owner = await signIn(h, OWNER.password, "196.221.5.5");
     expect(owner.status).toBe(200);
   }, 120_000);
 });
@@ -619,7 +619,7 @@ describe("a session bound to the device that signed in rather than to its addres
   }
 
   async function deviceSession(h: BackendHandle, address: string) {
-    const res = await call(h, "POST", "/auth/login", address, DEVICE, { username: OWNER.email, pin: OWNER.pin });
+    const res = await call(h, "POST", "/auth/login", address, DEVICE, { username: OWNER.email, password: OWNER.password });
     expect(res.status).toBe(200);
     const session = (await res.json()) as SessionDTO & { deviceSecret?: string };
     expect(session.deviceSecret).toMatch(/^[A-Za-z0-9_-]{40,}$/);
@@ -627,7 +627,7 @@ describe("a session bound to the device that signed in rather than to its addres
   }
 
   const auditText = async (h: BackendHandle, action: string) => {
-    const host = (await (await signIn(h, OWNER.pin, null)).json()) as SessionDTO;
+    const host = (await (await signIn(h, OWNER.password, null)).json()) as SessionDTO;
     const res = await h.app.fetch(new Request(`http://local/audit?action=${action}`, { headers: { authorization: `Bearer ${host.token}` } }));
     return res.text();
   };
@@ -676,7 +676,7 @@ describe("a session bound to the device that signed in rather than to its addres
     expect(audit.match(/"sessionEnded":true/g)).toHaveLength(1);
   }, 120_000);
 
-  it("asks for the PIN again before an administrative change made after the address moved, and accepts it", async () => {
+  it("asks for the password again before an administrative change made after the address moved, and accepts it", async () => {
     const h = await open();
     const owner = await claim(h);
     const { token, secret } = await deviceSession(h, "41.33.10.10");
@@ -686,14 +686,14 @@ describe("a session bound to the device that signed in rather than to its addres
     expect((await unlockSelf("41.33.10.10")).status).toBe(200);
     const moved = await unlockSelf("102.44.7.1");
     expect(moved.status).toBe(403);
-    expect(await moved.json()).toMatchObject({ error: "STEP_UP_REQUIRED", message: expect.stringContaining("رمز PIN") });
+    expect(await moved.json()).toMatchObject({ error: "STEP_UP_REQUIRED", message: expect.stringContaining("كلمة المرور") });
     expect((await call(h, "GET", "/profile", "102.44.7.1", bearer)).status).toBe(200);
 
-    const wrong = await call(h, "POST", "/auth/step-up", "102.44.7.1", bearer, { pin: "000000" });
+    const wrong = await call(h, "POST", "/auth/step-up", "102.44.7.1", bearer, { password: "pw-000000" });
     expect(wrong.status).toBe(403);
-    expect(await wrong.json()).toMatchObject({ error: CurrentSecretRefusal.IncorrectPin });
+    expect(await wrong.json()).toMatchObject({ error: CurrentSecretRefusal.IncorrectPassword });
     expect((await call(h, "GET", "/profile", "102.44.7.1", bearer)).status).toBe(200);
-    expect((await call(h, "POST", "/auth/step-up", "102.44.7.1", bearer, { pin: OWNER.pin })).status).toBe(200);
+    expect((await call(h, "POST", "/auth/step-up", "102.44.7.1", bearer, { password: OWNER.password })).status).toBe(200);
     expect((await unlockSelf("102.44.7.1")).status).toBe(200);
   }, 120_000);
 
@@ -701,7 +701,7 @@ describe("a session bound to the device that signed in rather than to its addres
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     const h = await open();
     await claim(h);
-    const session = (await (await signIn(h, OWNER.pin, "41.33.10.10")).json()) as SessionDTO & { deviceSecret?: string };
+    const session = (await (await signIn(h, OWNER.password, "41.33.10.10")).json()) as SessionDTO & { deviceSecret?: string };
     expect(session.deviceSecret).toBeUndefined();
     expect((await call(h, "GET", "/profile", "102.44.7.1", { authorization: `Bearer ${session.token}` })).status).toBe(401);
   }, 120_000);
@@ -709,12 +709,12 @@ describe("a session bound to the device that signed in rather than to its addres
 
 describe("a second person signing in on a device somebody else is signed in on", () => {
   const DEVICE = "41.33.7.7";
-  const deviceSignIn = (h: BackendHandle, username: string, pin: string, heldSecret?: string) =>
+  const deviceSignIn = (h: BackendHandle, username: string, password: string, heldSecret?: string) =>
     h.app.fetch(
       new Request("http://local/auth/login", {
         method: "POST",
         headers: { "content-type": "application/json", "x-mezan-device-binding": "1", ...(heldSecret ? { "x-mezan-device": heldSecret } : {}) },
-        body: JSON.stringify({ username, pin }),
+        body: JSON.stringify({ username, password }),
       }),
       from(DEVICE),
     );
@@ -725,13 +725,13 @@ describe("a second person signing in on a device somebody else is signed in on",
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     const h = await open();
     const owner = await claim(h);
-    const cashier = { nameAr: "أمين الخزنة", nameEn: "Cashier", email: "cashier@shop.eg", pin: "246813" };
-    const created = await post(h, "/users", { ...cashier, password: "a-long-password-1", roleId: null, isCompanyAdmin: true, branchScope: "*", warehouseScope: "*", acknowledge: true, reason: "مدير ثانٍ للاختبار" }, null, owner.token);
+    const cashier = { nameAr: "أمين الخزنة", nameEn: "Cashier", email: "cashier@shop.eg", password: "a-long-password-1" };
+    const created = await post(h, "/users", { ...cashier, roleId: null, isCompanyAdmin: true, branchScope: "*", warehouseScope: "*", acknowledge: true, reason: "مدير ثانٍ للاختبار" }, null, owner.token);
     expect(created.status, await created.clone().text()).toBeLessThan(300);
 
-    const first = (await (await deviceSignIn(h, OWNER.email, OWNER.pin)).json()) as SessionDTO & { token: string; deviceSecret: string };
+    const first = (await (await deviceSignIn(h, OWNER.email, OWNER.password)).json()) as SessionDTO & { token: string; deviceSecret: string };
     expect((await profileOf(h, first.token, first.deviceSecret)).status).toBe(200);
-    const second = (await (await deviceSignIn(h, cashier.email, cashier.pin, first.deviceSecret)).json()) as SessionDTO & { token: string; deviceSecret: string };
+    const second = (await (await deviceSignIn(h, cashier.email, cashier.password, first.deviceSecret)).json()) as SessionDTO & { token: string; deviceSecret: string };
     expect(second.userId).not.toBe(first.userId);
 
     const displaced = await profileOf(h, first.token, second.deviceSecret);
@@ -769,13 +769,13 @@ describe("claiming a tenant when the claim cannot be recorded", () => {
 
     const refused = await post(h, "/bootstrap/admin", OWNER, null);
     expect(refused.status).toBeGreaterThanOrEqual(500);
-    expect((await signIn(h, OWNER.pin, null)).status).toBe(401);
+    expect((await signIn(h, OWNER.password, null)).status).toBe(401);
     const status = (await (await h.app.fetch(new Request("http://local/bootstrap/status"))).json()) as { claimed: boolean };
     expect(status.claimed).toBe(false);
 
     side.exec("DROP TRIGGER refuse_claim");
     side.close();
     expect((await post(h, "/bootstrap/admin", OWNER, null)).status).toBe(201);
-    expect((await signIn(h, OWNER.pin, null)).status).toBe(200);
+    expect((await signIn(h, OWNER.password, null)).status).toBe(200);
   }, 120_000);
 });

@@ -16,7 +16,7 @@ export async function ensureCredentialResetMarksSchema(db: SqlDb): Promise<void>
 
 // SECURITY: a mark means "the credential this account signs in with was set by
 // somebody else". It is cleared only by the platform confirming who owns the
-// tenant, never by the account itself: whoever holds a reset PIN can change it.
+// tenant, never by the account itself: whoever holds a reset password can change it.
 export function createCredentialResetMarks(db: SqlDb): CredentialResetMarks {
   return {
     mark: async (userId, at, actor) => {

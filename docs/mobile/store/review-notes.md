@@ -3,7 +3,7 @@
 Pasted into App Store Connect → App Review Information, and Play Console →
 App content → App access. Google requires them in English; Apple accepts
 English. `{…}` values come from the deployed reviewer environment
-and are filled in at submission time — the PIN is a
+and are filled in at submission time — the password is a
 secret and is never committed.
 
 ## Sign-in details
@@ -13,8 +13,8 @@ secret and is never committed.
 | Server address | prefilled by the app — `https://review.mezan.app/api` |
 | Company code | `{REVIEW_TENANT_CODE}` (the runbook's default is `review`) |
 | Email | `admin@cyag.example` |
-| PIN | `{REVIEW_PIN}` — read from SSM `/mezan/review/review-pin` |
-| Second account, for clock-in with a photo | `ahmed.shennawy@cyag.example`, same PIN (the seed records a full day for this employee on the date the tenant is seeded, so the photo path opens from the next day — D337) |
+| Password | `{REVIEW_PASSWORD}` — read from SSM `/mezan/review/review-pin` |
+| Second account, for clock-in with a photo | `ahmed.shennawy@cyag.example`, same password (the seed records a full day for this employee on the date the tenant is seeded, so the photo path opens from the next day — D337) |
 
 Google: App access → "All or some functionality is restricted" → add the
 instructions below; the company code goes in "Any other instructions", since
@@ -29,7 +29,7 @@ the sign-in has three fields.
 > any purchase.
 >
 > To sign in: leave the server address as prefilled, enter company code
-> `{REVIEW_TENANT_CODE}`, email `admin@cyag.example` and PIN `{REVIEW_PIN}`.
+> `{REVIEW_TENANT_CODE}`, email `admin@cyag.example` and password `{REVIEW_PASSWORD}`.
 > This is a demonstration company filled with sample data; you may create
 > invoices, quotations and collections freely. The account is permanent and
 > is not reset between reviews.
@@ -42,7 +42,7 @@ the sign-in has three fields.
 > Clock: the administrator account is linked to an employee record, so
 > "Clock in" and "Clock out" work from it directly. To see the clock-in photo,
 > sign out (Overview → Sign out) and sign in as `ahmed.shennawy@cyag.example`
-> with the same PIN; that employee's record requires a photo, taken with the
+> with the same password; that employee's record requires a photo, taken with the
 > front camera only when you tap "Take a selfie".
 >
 > Camera: used for the clock-in photo and for barcode scanning. Face ID: used

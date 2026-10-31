@@ -19,7 +19,7 @@ appId: app.mezan.mobile
 # Sign in upright, then turn the device. A phone in landscape has about
 # 190dp of form left above the keyboard, so the fields below the first are
 # out of reach until the keyboard closes — which is also why a real user
-# types the PIN upright. Every screen after this one is walked in the
+# types the password upright. Every screen after this one is walked in the
 # orientation under test.
 - setOrientation: PORTRAIT
 - waitForAnimationToEnd
@@ -79,7 +79,7 @@ appId: app.mezan.mobile
     id: sign-in-email
 - inputText: ${EMAIL}
 # On a phone in landscape the keyboard covers the bottom of the form, so the
-# PIN field and the button have to be scrolled to — they are reachable, but
+# password field and the button have to be scrolled to — they are reachable, but
 # not on screen.
 - runFlow:
     when:
@@ -87,7 +87,7 @@ appId: app.mezan.mobile
     commands:
       - scrollUntilVisible:
           element:
-            id: sign-in-pin
+            id: sign-in-password
           direction: DOWN
           visibilityPercentage: 40
           centerElement: true
@@ -99,9 +99,9 @@ appId: app.mezan.mobile
           start: 50%, 45%
           end: 50%, 12%
 - tapOn:
-    id: sign-in-pin
+    id: sign-in-password
 - waitForAnimationToEnd
-- inputText: ${PIN}
+- inputText: ${PASSWORD}
 - tapOn:
     text: ${L_SERVER}
     index: 0

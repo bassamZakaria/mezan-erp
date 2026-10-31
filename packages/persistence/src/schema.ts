@@ -90,7 +90,7 @@ export const user = sqliteTable("user", {
   email: text("email").notNull(),
   phone: text("phone"),
   passwordHash: text("password_hash").notNull(),
-  pinHash: text("pin_hash"),
+  mustChangePassword: integer("must_change_password", { mode: "boolean" }).notNull().default(false),
   roleId: text("role_id").references(() => role.id),
   isCompanyAdmin: integer("is_company_admin", { mode: "boolean" }).notNull(),
   employeeId: text("employee_id"),

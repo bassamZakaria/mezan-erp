@@ -31,6 +31,7 @@ const validSession: Session = {
   nameAr: "سارة",
   nameEn: null,
   email: "sara@example.com",
+  mustChangePassword: false,
   isCompanyAdmin: false,
   permissions: ["items.view"],
   roleCode: "SALES",
@@ -54,6 +55,12 @@ describe("loadPersistedSession", () => {
   it("returns the parsed session when it matches the schema", () => {
     localStorage.setItem(SESSION_KEY, JSON.stringify(validSession));
     expect(loadPersistedSession()).toEqual(validSession);
+  });
+
+  it("still loads a session saved before mustChangePassword existed, as not needing a change", () => {
+    const { mustChangePassword: _dropped, ...older } = validSession;
+    localStorage.setItem(SESSION_KEY, JSON.stringify(older));
+    expect(loadPersistedSession()).toEqual({ ...validSession, mustChangePassword: false });
   });
 
   it("returns null for corrupt (non-JSON) storage", () => {

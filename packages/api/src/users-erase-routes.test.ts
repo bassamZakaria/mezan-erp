@@ -146,7 +146,6 @@ async function seedUser(
       email: over.email,
       phone: "+201000000000",
       password: "TempPass123",
-      pin: "4242",
       roleId: isCompanyAdmin ? null : "role-clerk",
       isCompanyAdmin,
       employeeId: over.employeeId ?? null,
@@ -217,7 +216,6 @@ describe("POST /users/:id/erase — personal-data erasure (D348)", () => {
     const before = await h.uow.users.findById("u-1");
     expect(before?.nameAr).toBe("محمد الشهابي");
     expect(before?.email).toBe("mohamed@cyag.test");
-    expect(before?.pinHash).not.toBeNull();
     expect((await h.employees.findById("emp-1"))?.nationalId).toBe("29004021201234");
 
     const res = await erase(h.app, "u-1", { confirmEmail: "mohamed@cyag.test", reason: "طلب صاحب البيانات محو بياناته" });
@@ -247,7 +245,6 @@ describe("POST /users/:id/erase — personal-data erasure (D348)", () => {
     expect(body.retained.length).toBeGreaterThan(0);
 
     const after = await h.uow.users.findById("u-1");
-    expect(after?.pinHash).toBeNull();
     expect(after?.status).toBe("inactive");
     expect(after?.lastLoginAt).toBeNull();
     expect(after?.passwordHash).not.toBe(before?.passwordHash);
@@ -392,7 +389,7 @@ describe("POST /users/:id/erase — personal-data erasure (D348)", () => {
           branchScope: "*",
           warehouseScope: "*",
           status: "active",
-          pin: "111111",
+          password: "BackAgain123",
         }),
       }),
     );

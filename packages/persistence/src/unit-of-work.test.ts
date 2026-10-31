@@ -1,5 +1,8 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { createSqliteUnitOfWork, type SqliteUnitOfWorkHandle } from "./unit-of-work.js";
+import Database from "better-sqlite3";
+import { createSqliteUnitOfWork, ensureUnitOfWorkSchema, type SqliteUnitOfWorkHandle } from "./unit-of-work.js";
+import { sqliteDb } from "./sql/sqlite-db.js";
+import { openSqliteConnection } from "./sqlite-connection.js";
 import type { Role, User } from "@mezan/domain";
 
 const handles: SqliteUnitOfWorkHandle[] = [];
@@ -29,7 +32,7 @@ const sampleUser: User = {
   email: "mohamed@cyag.test",
   phone: "+201000000000",
   passwordHash: "scrypt$aa$bb",
-  pinHash: null,
+  mustChangePassword: false,
   roleId: null,
   isCompanyAdmin: true,
   employeeId: null,
@@ -103,5 +106,62 @@ describe("SQLite UserRepository", () => {
     await db.users.save(sampleUser);
     await db.users.save({ ...sampleUser, id: "user-2", email: "second@cyag.test" });
     expect(await db.users.list()).toHaveLength(2);
+  });
+});
+
+describe("retiring the PIN column on an upgraded file", () => {
+  function preRetirementFile(): Database.Database {
+    const sqlite = new Database(":memory:");
+    sqlite.exec(`
+      CREATE TABLE user (
+        id TEXT PRIMARY KEY, name_ar TEXT NOT NULL, name_en TEXT, email TEXT NOT NULL, phone TEXT,
+        password_hash TEXT NOT NULL, pin_hash TEXT, role_id TEXT, is_company_admin INTEGER NOT NULL,
+        employee_id TEXT, branch_scope TEXT NOT NULL, warehouse_scope TEXT NOT NULL, status TEXT NOT NULL,
+        photo_url TEXT, last_login_at TEXT, created_at TEXT NOT NULL, erased_at TEXT, access_expires_at TEXT
+      );
+      INSERT INTO user (id, name_ar, email, password_hash, pin_hash, is_company_admin, branch_scope, warehouse_scope, status, created_at)
+      VALUES ('with-pin', 'أ', 'a@cyag.test', 'scrypt$pw', 'scrypt$pin', 1, '"*"', '"*"', 'active', '2026-01-01'),
+             ('no-pin', 'ب', 'b@cyag.test', 'scrypt$pw', NULL, 1, '"*"', '"*"', 'active', '2026-01-01');
+      CREATE TABLE auth_session (token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL);
+      INSERT INTO auth_session (token_hash, user_id) VALUES ('pre-upgrade', 'no-pin');
+    `);
+    return sqlite;
+  }
+
+  function columns(sqlite: Database.Database): string[] {
+    return (sqlite.prepare(`PRAGMA table_info(user)`).all() as { name: string }[]).map((c) => c.name);
+  }
+
+  async function expectRetired(sqlite: Database.Database, read: (id: string) => Promise<User | null>) {
+    expect(columns(sqlite)).not.toContain("pin_hash");
+    const withPin = await read("with-pin");
+    expect(withPin?.passwordHash).toBe("scrypt$pin");
+    expect(withPin?.mustChangePassword).toBe(true);
+    const noPin = await read("no-pin");
+    expect(noPin?.passwordHash).toBe("scrypt$pw");
+    expect(noPin?.mustChangePassword).toBe(true);
+    expect((sqlite.prepare(`SELECT COUNT(*) AS n FROM auth_session`).get() as { n: number }).n).toBe(0);
+  }
+
+  it("createSqliteUnitOfWork turns each PIN hash into a temporary password, flags every user, ends every session and drops the column", async () => {
+    const sqlite = preRetirementFile();
+    const h = createSqliteUnitOfWork(sqlite);
+    try {
+      await expectRetired(sqlite, (id) => h.users.findById(id));
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it("ensureUnitOfWorkSchema does the same on a SQLite SqlDb opened the way the app opens one", async () => {
+    const sqlite = openSqliteConnection(preRetirementFile()).sqlite;
+    try {
+      const db = sqliteDb(sqlite);
+      await ensureUnitOfWorkSchema(db);
+      const h = createSqliteUnitOfWork(sqlite);
+      await expectRetired(sqlite, (id) => h.users.findById(id));
+    } finally {
+      sqlite.close();
+    }
   });
 });

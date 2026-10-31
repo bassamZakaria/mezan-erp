@@ -1,7 +1,7 @@
 import { branchRefusalBefore, isBranchRestricted } from "../branch-restriction";
 import { DataMigrationMasterStep } from "./data-migration-step";
 import { useCallback, useRef, useSyncExternalStore } from "react";
-import { loadTenantCode, subscribeTenantCode } from "./session";
+import { loadTenantCode, subscribeTenantCode, TENANT_HEADER } from "./session";
 import { DocumentReadPermission, sessionMayRead } from "./document-read-permissions";
 import { keepPreviousData, useMutation, useQueries, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import type {
@@ -108,6 +108,7 @@ import type {
   CreateTaxRateDTO,
   CreateTreasuryAccountDTO,
   CreateUserDTO,
+  CreatedUserDTO,
   CreateVoucherDTO,
   CreateCollectionDTO,
   CollectionResultDTO,
@@ -160,6 +161,8 @@ import type {
   LandedCostDocumentDTO,
   LeadDTO,
   LoginRequestDTO,
+  ForgotPasswordRequestDTO,
+  ResetPasswordRequestDTO,
   MatchCandidateDTO,
   MatchSummaryDTO,
   MaterialFormulaDTO,
@@ -415,7 +418,7 @@ export class ApiError extends Error {
 }
 
 /**
- * Real login (docs/archive/plan.md desktop username+PIN). On success the resolved
+ * Real login (email + password). On success the resolved
  * session is stored in the ApiContext, so every subsequent query/mutation
  * sends the permission-gate headers it establishes.
  */
@@ -473,6 +476,32 @@ export function useUnlockAccountByLink() {
     mutationFn: async (body) => {
       const res = await request("/auth/unlock-link", { method: "POST", body: JSON.stringify(body) });
       if (!res.ok) throw await codedError(res, t("login.unlock.failed"), t);
+    },
+  });
+}
+
+export function useForgotPassword() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  return useMutation<void, ApiError, ForgotPasswordRequestDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/auth/forgot-password", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw await codedError(res, t("login.forgot.failed"), t);
+    },
+  });
+}
+
+export function useResetPassword() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  return useMutation<void, ApiError, ResetPasswordRequestDTO & { readonly tenant: string | null }>({
+    mutationFn: async ({ tenant, ...body }) => {
+      const res = await request("/auth/reset-password", {
+        method: "POST",
+        body: JSON.stringify(body),
+        ...(tenant ? { headers: { [TENANT_HEADER]: tenant } } : {}),
+      });
+      if (!res.ok) throw await codedError(res, t("resetPassword.failed"), t);
     },
   });
 }
@@ -2113,11 +2142,11 @@ export function useCreateUser() {
   const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
-  return useMutation<UserDTO, ApiError, CreateUserDTO>({
+  return useMutation<CreatedUserDTO, ApiError, CreateUserDTO>({
     mutationFn: async (body) => {
       const res = await request("/users", { method: "POST", body: JSON.stringify(body) });
       if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theUserCouldNotBe"), t));
-      return res.json<UserDTO>();
+      return res.json<CreatedUserDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["users"] }),
   });

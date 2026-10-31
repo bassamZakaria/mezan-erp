@@ -1,6 +1,7 @@
-import { randomInt, randomUUID } from "node:crypto";
+import { generateTemporaryPassword } from "@mezan/api";
+import { randomUUID } from "node:crypto";
 import { activateTenant, createTenant, normalizeEmail, startSubscription, TenantCodeTakenError, TenantStatusCode, type BillingCycle, type Tenant } from "@mezan/domain";
-import { OwnerPinResetOutcome, PlatformAuditUnavailableError, ProvisioningRefusalCode, TENANT_CODE_PROVISIONING, TenantOwnerAccountNotFoundError, type PlatformHandle, type RecordedActivation } from "@mezan/backend";
+import { OwnerPasswordResetOutcome, PlatformAuditUnavailableError, ProvisioningRefusalCode, TENANT_CODE_PROVISIONING, TenantOwnerAccountNotFoundError, type PlatformHandle, type RecordedActivation } from "@mezan/backend";
 import { tenantDTOOf, type ProvisionResultDTO } from "@mezan/contracts";
 import { TransactionMode } from "@mezan/persistence";
 import type { TenantRouter } from "./tenant-router.js";
@@ -25,7 +26,7 @@ export interface ProvisionTenantDeps {
   readonly platform: PlatformHandle;
   readonly router: TenantRouter;
   readonly now: () => Date;
-  readonly pinOf?: () => string;
+  readonly passwordOf?: () => string;
   readonly stillOurs?: () => Promise<boolean>;
   readonly fence?: number;
   readonly activation?: RecordedActivation;
@@ -34,11 +35,11 @@ export interface ProvisionTenantDeps {
 export interface ProvisionTenantResult {
   readonly tenant: Tenant;
   readonly adminEmail: string;
-  readonly adminPin: string | null;
+  readonly adminPassword: string | null;
 }
 
 export function provisionResultDTOOf(result: ProvisionTenantResult): ProvisionResultDTO {
-  return { tenant: tenantDTOOf(result.tenant), adminEmail: result.adminEmail, adminPin: result.adminPin };
+  return { tenant: tenantDTOOf(result.tenant), adminEmail: result.adminEmail, adminPassword: result.adminPassword };
 }
 
 export class TenantProvisioningError extends Error {
@@ -89,13 +90,13 @@ export function platformActor(actorId: string): string {
   return `platform:${actorId}`;
 }
 
-export function generateOwnerPin(): string {
-  return String(randomInt(0, 1_000_000)).padStart(6, "0");
+export function generateOwnerPassword(): string {
+  return generateTemporaryPassword();
 }
 
 // The caller is answered "nothing was saved" (503). That is made true here for
 // a tenant THIS call registered: its registration and its database go, and the
-// administrator PIN inside that database was never shown to anyone. A tenant
+// administrator password inside that database was never shown to anyone. A tenant
 // that was already waiting is left for the console's retry.
 async function discardUnrecorded(tenant: Tenant, deps: ProvisionTenantDeps): Promise<void> {
   const removed = await deps.platform.inTheTurn("unrecorded tenant discard", () => deps.platform.stores.tenants.discardProvisioning(tenant.id));
@@ -103,7 +104,7 @@ async function discardUnrecorded(tenant: Tenant, deps: ProvisionTenantDeps): Pro
 }
 
 interface TenantSide {
-  readonly adminPin: string | null;
+  readonly adminPassword: string | null;
 }
 
 // REQUIRED: the tenant's database is not the platform's connection. Each call
@@ -111,7 +112,7 @@ interface TenantSide {
 // write and is made with the turn held.
 async function prepareTenantDatabase(cmd: ProvisionTenantCommand, tenant: Tenant, deps: ProvisionTenantDeps, stillOurs: () => Promise<void>, nowIso: string): Promise<TenantSide> {
   const { platform } = deps;
-  const pinOf = deps.pinOf ?? generateOwnerPin;
+  const passwordOf = deps.passwordOf ?? generateOwnerPassword;
   const backend = await deps.router.backendOf(tenant.id);
 
   await platform.outsideTheTurn(async () => backend.app.fetch(new Request("http://tenant.internal/bootstrap/seed", { method: "POST" })));
@@ -120,40 +121,40 @@ async function prepareTenantDatabase(cmd: ProvisionTenantCommand, tenant: Tenant
   const { claimed } = (await statusRes.json()) as { claimed: boolean };
 
   await stillOurs();
-  if (claimed) {
-    if (tenant.status !== TenantStatusCode.Provisioning) throw new TenantCodeTakenError(cmd.code);
-    const freshPin = pinOf();
-    // SECURITY: every provisioning PIN is fenced. A caller with no claim of
-    // its own (the console) takes a fresh fence here, newer than any signup
-    // claim still in flight.
-    const fence = deps.fence ?? (await platform.inTheTurn("provisioning fence", () => platform.stores.signupRequests.takeProvisionFence(nowIso)));
-    const outcome = await platform.outsideTheTurn(() =>
-      backend.resetOwnerPin({
-        email: cmd.ownerEmail,
-        pin: freshPin,
-        onlyIfNeverSignedIn: true,
-        actor: cmd.actorId ? platformActor(cmd.actorId) : PROVISIONING_ACTOR,
-        fence,
-      }),
+  if (claimed && tenant.status !== TenantStatusCode.Provisioning) throw new TenantCodeTakenError(cmd.code);
+  if (!claimed) {
+    const adminRes = await platform.outsideTheTurn(async () =>
+      backend.app.fetch(
+        new Request("http://tenant.internal/bootstrap/admin", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ nameAr: cmd.ownerNameAr, email: cmd.ownerEmail, password: generateOwnerPassword(), companyName: cmd.nameAr }),
+        }),
+      ),
     );
-    if (outcome === OwnerPinResetOutcome.Superseded) throw new ProvisioningSupersededError();
-    if (outcome === OwnerPinResetOutcome.OwnerNotFound || outcome === OwnerPinResetOutcome.OwnerVanished) throw new TenantOwnerAccountNotFoundError();
-    return { adminPin: outcome === OwnerPinResetOutcome.Reset ? freshPin : null };
+    if (adminRes.status !== 201) {
+      throw new Error(`bootstrap/admin responded ${adminRes.status}`);
+    }
   }
-  const adminPin = pinOf();
-  const adminRes = await platform.outsideTheTurn(async () =>
-    backend.app.fetch(
-      new Request("http://tenant.internal/bootstrap/admin", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ nameAr: cmd.ownerNameAr, email: cmd.ownerEmail, pin: adminPin, companyName: cmd.nameAr }),
-      }),
-    ),
+  // SECURITY: /bootstrap/admin saves the password as the owner's own choice; the
+  // owner's handed-out password is set only here, through the reset, which marks
+  // it temporary. Every provisioning password is fenced: a caller with no claim
+  // of its own (the console) takes a fresh fence, newer than any signup claim
+  // still in flight.
+  const freshPassword = passwordOf();
+  const fence = deps.fence ?? (await platform.inTheTurn("provisioning fence", () => platform.stores.signupRequests.takeProvisionFence(nowIso)));
+  const outcome = await platform.outsideTheTurn(() =>
+    backend.resetOwnerPassword({
+      email: cmd.ownerEmail,
+      password: freshPassword,
+      onlyIfNeverSignedIn: true,
+      actor: cmd.actorId ? platformActor(cmd.actorId) : PROVISIONING_ACTOR,
+      fence,
+    }),
   );
-  if (adminRes.status !== 201) {
-    throw new Error(`bootstrap/admin responded ${adminRes.status}`);
-  }
-  return { adminPin };
+  if (outcome === OwnerPasswordResetOutcome.Superseded) throw new ProvisioningSupersededError();
+  if (outcome === OwnerPasswordResetOutcome.OwnerNotFound || outcome === OwnerPasswordResetOutcome.OwnerVanished) throw new TenantOwnerAccountNotFoundError();
+  return { adminPassword: outcome === OwnerPasswordResetOutcome.Reset ? freshPassword : null };
 }
 
 const codesInFlight = new WeakMap<object, Set<string>>();
@@ -198,7 +199,7 @@ async function provisionUnderItsClaim(cmd: ProvisionTenantCommand, deps: Provisi
   });
 
   try {
-    const { adminPin } = await prepareTenantDatabase(cmd, registered, deps, stillOurs, nowIso);
+    const { adminPassword } = await prepareTenantDatabase(cmd, registered, deps, stillOurs, nowIso);
 
     // REQUIRED ORDERING: each platform write re-checks the claim and the
     // tenant's status inside the write transaction that makes it. A release
@@ -247,7 +248,7 @@ async function provisionUnderItsClaim(cmd: ProvisionTenantCommand, deps: Provisi
       ),
     );
 
-    return { tenant, adminEmail: cmd.ownerEmail, adminPin };
+    return { tenant, adminEmail: cmd.ownerEmail, adminPassword };
   } catch (err) {
     if (err instanceof PlatformAuditUnavailableError && registeredByThisCall) await discardUnrecorded(registered, deps);
     if (err instanceof TenantCodeTakenError || err instanceof ProvisioningSupersededError || err instanceof PlatformAuditUnavailableError) throw err;

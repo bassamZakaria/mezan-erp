@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 if [ $# -ne 5 ]; then
-  echo "usage: SERVER=https://host/api TENANT=… EMAIL=… PIN=… $0 <simulator-udid> <ar|en> <light|dark> <portrait|landscape> <out-dir>" >&2
+  echo "usage: SERVER=https://host/api TENANT=… EMAIL=… PASSWORD=… $0 <simulator-udid> <ar|en> <light|dark> <portrait|landscape> <out-dir>" >&2
   exit 2
 fi
 UDID=$1 LANG_CODE=$2 THEME=$3 ROTATION=$4 OUT=$5
 HERE=$(cd "$(dirname "$0")" && pwd)
-: "${SERVER:?}" "${TENANT:?}" "${EMAIL:?}" "${PIN:?}"
+: "${SERVER:?}" "${TENANT:?}" "${EMAIL:?}" "${PASSWORD:?}"
 
 case "$LANG_CODE" in
   ar) LOCALE=ar_EG ;;
@@ -22,8 +22,8 @@ esac
 
 xcrun simctl spawn "$UDID" defaults write -g AppleLanguages -array "$LANG_CODE"
 xcrun simctl spawn "$UDID" defaults write -g AppleLocale "$LOCALE"
-# QuickType rewrote what was typed into the URL and PIN fields — the server
-# address came out with its path doubled and the PIN never landed at all.
+# QuickType rewrote what was typed into the URL and PASSWORD fields — the server
+# address came out with its path doubled and the PASSWORD never landed at all.
 for domain in com.apple.keyboard.preferences com.apple.Preferences; do
   xcrun simctl spawn "$UDID" defaults write "$domain" KeyboardAutocorrection -bool false >/dev/null 2>&1 || true
   xcrun simctl spawn "$UDID" defaults write "$domain" KeyboardPrediction -bool false >/dev/null 2>&1 || true
@@ -55,5 +55,5 @@ if [ -n "${COLLECT_INVOICE:-}" ]; then
 fi
 for flow in "${flows[@]}"; do
   maestro --device "$UDID" test --test-output-dir "$OUT" "${args[@]}" \
-    -e "SERVER=$SERVER" -e "TENANT=$TENANT" -e "EMAIL=$EMAIL" -e "PIN=$PIN" -e "ORIENTATION=$ORIENTATION" "$flow"
+    -e "SERVER=$SERVER" -e "TENANT=$TENANT" -e "EMAIL=$EMAIL" -e "PASSWORD=$PASSWORD" -e "ORIENTATION=$ORIENTATION" "$flow"
 done

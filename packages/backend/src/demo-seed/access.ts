@@ -1,7 +1,7 @@
 import { withReversalPermissions } from "@mezan/contracts";
 import type { App } from "@mezan/api";
 import { GOODS_RECEIVING_PERMISSIONS, withAttachmentPermissions } from "@mezan/domain";
-import { FORMER_SALES_REP_EMPLOYEE_ID, SALES_REP_EMPLOYEE_ID, loadSeededUsers, step } from "./shared.js";
+import { FORMER_SALES_REP_EMPLOYEE_ID, SALES_REP_EMPLOYEE_ID, loadSeededUsers, seedPersonaPassword, step } from "./shared.js";
 import type { SeedPerson } from "./fragments.js";
 import { fragmentGrantsFor, fragmentPeople, fragmentRoles, seedLicensing, type SeedLicensing } from "./fragment-registry.js";
 
@@ -144,7 +144,7 @@ const ROLES = [
       // outage it was written to end: the till is locked at 6pm and only the
       // owner's own account can do anything about it. Its own permission, not
       // `admin.users.edit`, so this does not also hand over every colleague's
-      // PIN.
+      // password.
       "admin.users.unlock",
     ],
   },
@@ -355,7 +355,7 @@ const ROLES = [
       // outage it was written to end: the till is locked at 6pm and only the
       // owner's own account can do anything about it. Its own permission, not
       // `admin.users.edit`, so this does not also hand over every colleague's
-      // PIN.
+      // password.
       "admin.users.unlock",
       ...SELF_SERVICE,
     ],
@@ -685,13 +685,9 @@ export async function seedAccess(app: App): Promise<void> {
       branchScope: person.branchScope ? [...person.branchScope] : "*",
       warehouseScope: person.warehouseScope ? [...person.warehouseScope] : "*",
       status: person.status,
-      password: `Mezan-demo-${person.local}`,
-      // Six digits, like every other PIN in the system since the login stopped
-      // asking for a typed username — the device supplies the identity, so the
-      // PIN is the whole credential. The SAME PIN for every demo account on
-      // purpose: a demo whose logins each need a different code is a demo
-      // nobody signs into twice.
-      pin: "123456",
+      // The SAME password for every demo account on purpose: a demo whose
+      // logins each need a different one is a demo nobody signs into twice.
+      password: seedPersonaPassword(),
       ...(roleId === null ? { acknowledge: true, reason: "مدير المنشأة — صلاحية كاملة في وضع المشغّل الواحد." } : {}),
     });
   }

@@ -56,8 +56,6 @@ export class LastCompanyAdminError extends Error {
   }
 }
 
-const PIN_PATTERN = /^\d{4,6}$/;
-
 /**
  * Deliberately not RFC 5322. It rejects what an operator actually mistypes —
  * a bare name, a missing @, a domain with no dot, an embedded space — and
@@ -97,11 +95,8 @@ export interface SaveUserCommand {
    * keep the existing hash unchanged.
    */
   readonly password?: string;
-  /**
-   * Plaintext six-digit PIN. `undefined` leaves it unchanged (update), `null`
-   * clears it, a string (re)sets it.
-   */
-  readonly pin?: string | null;
+  /** Whether `password` is a temporary one the user must replace at first sign-in. Defaults to true whenever a password is given. */
+  readonly passwordIsTemporary?: boolean;
   /** Profile photo as a data URL. `undefined` keeps whatever is stored. */
   readonly photoUrl?: string | null;
   readonly roleId: string | null;
@@ -196,9 +191,6 @@ export async function saveUser(
   if (isScopeEmpty(cmd.branchScope)) {
     throw new InvalidUserError("يجب اختيار فرع واحد على الأقل.");
   }
-  if (cmd.pin !== undefined && cmd.pin !== null && !PIN_PATTERN.test(cmd.pin)) {
-    throw new InvalidUserError("يجب أن يتكون الرقم السري من 4 إلى 6 أرقام.");
-  }
 
   const role = cmd.roleId ? await uow.roles.findById(cmd.roleId) : null;
   if (cmd.roleId && !role) throw new UnknownRoleError(cmd.roleId);
@@ -231,12 +223,7 @@ export async function saveUser(
     throw new InvalidUserError("كلمة المرور مطلوبة لإنشاء المستخدم.");
   }
 
-  const pinHash =
-    cmd.pin === undefined
-      ? (prior?.pinHash ?? null)
-      : cmd.pin === null
-        ? null
-        : await hasher.hash(cmd.pin);
+  const mustChangePassword = cmd.password ? (cmd.passwordIsTemporary ?? true) : (prior?.mustChangePassword ?? false);
 
   const user: User = {
     id: cmd.id,
@@ -245,7 +232,7 @@ export async function saveUser(
     email,
     phone: cmd.phone,
     passwordHash,
-    pinHash,
+    mustChangePassword,
     roleId: cmd.roleId,
     isCompanyAdmin: cmd.isCompanyAdmin,
     employeeId: cmd.employeeId,

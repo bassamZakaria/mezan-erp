@@ -56,9 +56,9 @@ describe("the audit row of a refused attempt is there after the answer, whatever
     await chainIsSound();
   });
 
-  it.each(BODIES)("a sign-in with the wrong PIN — %s", async (_label, body) => {
+  it.each(BODIES)("a sign-in with the wrong password — %s", async (_label, body) => {
     const before = securityRows();
-    const status = await post("/auth/login", { username: SIGN_IN_USER, pin: "000000", ...body });
+    const status = await post("/auth/login", { username: SIGN_IN_USER, password: "pw-000000", ...body });
     expect(status).toBeGreaterThanOrEqual(400);
     expect(securityRows()).toBe(before + 1);
     await chainIsSound();

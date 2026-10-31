@@ -157,7 +157,7 @@ function user(overrides: Partial<UserDTO> = {}): UserDTO {
     branchScope: "*",
     warehouseScope: "*",
     status: "active",
-    hasPin: false,
+    mustChangePassword: false,
     photoUrl: null,
     lastLoginAt: null,
     createdAt: "2026-01-01T00:00:00.000Z",

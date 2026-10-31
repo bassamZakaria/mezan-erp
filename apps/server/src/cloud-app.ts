@@ -10,7 +10,7 @@ import {
   createPlatformAuth,
   createPlatformRoutes,
   PLATFORM_SESSION_LIMITS,
-  type OwnerPinResetAccount,
+  type OwnerPasswordResetAccount,
   type PlatformEnvSettingsPort,
   type PlatformHandle,
   type RecordedActivation,
@@ -19,11 +19,11 @@ import { AuditBoundaryRefusal, BodyLimitRefusal, LogEvent, createJobRegistry, cr
 import { HealthLevel, SubscriptionStatusKind, TenantNotFoundError, TenantStatusCode, jobLevel, tenantSchema, type Tenant } from "@mezan/domain";
 import { createAesGcmSecretBox, createSessionStore, CURRENT_SCHEMA_VERSION, DatabaseBusyError, NulCharacterError, emptyBooksScratch, type SqlDb } from "@mezan/persistence";
 import { PLATFORM_SCHEMA, schemaKey, SchemaKeyPurpose, TenantDatabases } from "@mezan/persistence-postgres";
-import { HealthLevelDTO, PUBLIC_API_BASE_PATH, type CreateTenantRequestDTO, type OwnerPinResetResultDTO, type PlatformOperationsDTO, type ProvisionResultDTO, type ProvisionRetryRequestDTO } from "@mezan/contracts";
+import { HealthLevelDTO, PUBLIC_API_BASE_PATH, type CreateTenantRequestDTO, type OwnerPasswordResetResultDTO, type PlatformOperationsDTO, type ProvisionResultDTO, type ProvisionRetryRequestDTO } from "@mezan/contracts";
 import { booksScratchDir, createTenantRouter, requireOriginSecret, type TenantBooksScan, type TenantRouter } from "./tenant-router.js";
 import { answerTenantDbFileRefusal } from "./tenant-db-file.js";
 import { platformActor, provisionResultDTOOf, provisionTenant, PlanRequiredError } from "./provision-tenant.js";
-import { resetTenantOwnerPin } from "./owner-pin-reset.js";
+import { resetTenantOwnerPassword } from "./owner-password-reset.js";
 import { releaseProvisioningTenant } from "./release-tenant.js";
 import { callerSource, createSourceReporter, requireCloudSource } from "./client-source.js";
 import { addressKey, createRequestLimiter, requestCap, SESSION_CAP_MAX_RECORDS, sessionKey } from "./rate-limit.js";
@@ -55,7 +55,7 @@ import {
 } from "./billing-routes.js";
 import { PaymobMode, type CloudEnv } from "./env.js";
 import { MailOutcome, pendingHandOverEmail, smtpMailer, type PlatformMailer } from "./platform-mail.js";
-import { servedTenantLookup, tenantPublicOrigin, tenantUnlockLink, UNLOCK_PATH } from "./public-origin.js";
+import { PASSWORD_RESET_PATH, servedTenantLookup, tenantPasswordResetLink, tenantPublicOrigin, tenantUnlockLink, UNLOCK_PATH } from "./public-origin.js";
 import { createCookieSessions } from "./cookie-session.js";
 import { createPublicApiRoutes, refuseApiKeysOutsidePublicApi } from "./public-api-routes.js";
 import { AlertKind, createAlerter, type Alerter } from "./alerter.js";
@@ -262,6 +262,8 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
       : undefined,
     tenantDomain: env.tenantDomain,
     unlockLinkFor: (tenantCode) => tenantUnlockLink(env, tenantCode),
+    passwordResetLinkFor: (tenantCode) => tenantPasswordResetLink(env, tenantCode),
+    signInLinkFor: (tenantCode) => tenantPublicOrigin(env, tenantCode) ?? undefined,
     trustForwardedHost: env.trustProxy,
     clientSource: env.clientSource,
     sourceReporter,
@@ -278,7 +280,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
 
   if (env.reviewTenant) {
     const created = await provisionReviewTenant({ platform, router, env, now }, env.reviewTenant);
-    if (created) log.info(`reviewer tenant "${env.reviewTenant.code}" seeded; every login uses MEZAN_REVIEW_PIN.`);
+    if (created) log.info(`reviewer tenant "${env.reviewTenant.code}" seeded; every login uses MEZAN_REVIEW_PASSWORD.`);
   }
 
   const provisionTenantForRoutes = async (
@@ -311,8 +313,8 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
     return provisionResultDTOOf(provisioned);
   };
 
-  const resetOwnerPinForRoutes = (input: { tenant: Tenant; actorId: string; recordIntent: (account: OwnerPinResetAccount) => Promise<void> }): Promise<OwnerPinResetResultDTO> =>
-    resetTenantOwnerPin({ platform, router, now }, input);
+  const resetOwnerPasswordForRoutes = (input: { tenant: Tenant; actorId: string; recordIntent: (account: OwnerPasswordResetAccount) => Promise<void> }): Promise<OwnerPasswordResetResultDTO> =>
+    resetTenantOwnerPassword({ platform, router, now }, input);
 
   const reconcileOwnerQuietly = (tenant: Tenant): Promise<void> =>
     router.reconcileOwnerOf(tenant.id).catch((err: unknown) => log.error({ tenantId: tenant.id, err }, `owner contact of "${tenant.code}" could not be reconciled`));
@@ -354,7 +356,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
     now,
     provisionTenant: provisionTenantForRoutes,
     provisionRetry: provisionRetryForRoutes,
-    resetOwnerPin: resetOwnerPinForRoutes,
+    resetOwnerPassword: resetOwnerPasswordForRoutes,
     releaseTenant: (input) => releaseProvisioningTenant({ platform, router, dataDir: env.platformDir, now }, input),
     lockedAccounts: (tenant) => router.lockedAccountsOf(tenant.id),
     unlockAccount: ({ tenant, account, actorId }) => router.unlockAccountOf({ tenantId: tenant.id, account, actor: platformActor(actorId) }),
@@ -616,11 +618,13 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
     // served WITHOUT the index transform: that is where a deployment injects
     // its analytics beacon, and no third-party script may load on a page whose
     // address carries a credential.
-    root.get(UNLOCK_PATH, (c) => {
-      c.header("Referrer-Policy", "no-referrer");
-      c.header("Cache-Control", "no-store");
-      return c.html(rawIndexHtml);
-    });
+    for (const credentialPage of [UNLOCK_PATH, PASSWORD_RESET_PATH]) {
+      root.get(credentialPage, (c) => {
+        c.header("Referrer-Policy", "no-referrer");
+        c.header("Cache-Control", "no-store");
+        return c.html(rawIndexHtml);
+      });
+    }
     root.use("/assets/*", async (c, next) => {
       await next();
       // Vite names every file under assets/ by its content hash, so a new build is a new URL.

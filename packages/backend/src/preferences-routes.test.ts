@@ -40,7 +40,7 @@ async function seedUser(uow: ReturnType<typeof newApp>["uow"], id: string, nameA
     email: `${id}@cyag.test`,
     phone: null,
     passwordHash: "x",
-    pinHash: null,
+    mustChangePassword: false,
     roleId: null,
     isCompanyAdmin: false,
     employeeId: null,

@@ -58,7 +58,7 @@ if (env.seedDemo) {
   // SECURITY: compared as fixed-length digests in constant time, so the response time says nothing about how much of the credential matched.
   const gateToken = createHmac("sha256", demoPassword).update("mezan-demo-gate-v1").digest("base64url");
   const expectedGateToken = digestOf(gateToken);
-  // SECURITY: browsers drop a cached Basic credential after any 401 the app itself sends (a wrong PIN, an ended session),
+  // SECURITY: browsers drop a cached Basic credential after any 401 the app itself sends (a wrong password, an ended session),
   // which bounced demo visitors to the password prompt; the gate also accepts an HttpOnly cookie derived from the password.
   authMiddleware = async (c: Context, next) => {
     const basicOk = timingSafeEqual(digestOf(c.req.header("authorization") ?? ""), expectedAuthorization);
@@ -83,9 +83,9 @@ if (env.seedDemo) {
  * REQUIRED ORDERING: set before `createCloudApp`, the first call that can open
  * and seed a tenant database. Every tenant this process seeds — one the
  * platform console provisions, or an empty one the router opens — must see
- * `production`, so `resolveSeedAdminSecrets` generates its fallback admin's PIN
- * instead of handing out the published `123456`. The demo tenant does not
- * depend on this: `demo-tenant.ts` pins its PIN for that tenant alone.
+ * `production`, so `resolveSeedAdminSecrets` generates its fallback admin's password
+ * instead of handing out the published one. The demo tenant does not
+ * depend on this: `demo-tenant.ts` fixes its password for that tenant alone.
  */
 process.env["NODE_ENV"] = "production";
 

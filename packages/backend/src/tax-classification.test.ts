@@ -542,7 +542,7 @@ describe("classifying the tax of a posted purchase line that stored none", () =>
 describe("who in the seeded tenant may classify (D79 round 5)", () => {
   async function signIn(username: string) {
     const res = await backend.app.fetch(
-      new Request("http://local/auth/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ username, pin: "123456" }) }),
+      new Request("http://local/auth/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ username, password: "Cyag@2026" }) }),
     );
     return { status: res.status, body: (await res.json()) as { token: string; permissions: string[] } };
   }

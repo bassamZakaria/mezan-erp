@@ -98,7 +98,6 @@ export function erasedUser(user: User, erasedAt: string, unusablePasswordHash: s
     phone: null,
     photoUrl: null,
     passwordHash: unusablePasswordHash,
-    pinHash: null,
     status: ERASED_USER_STATUS,
     lastLoginAt: null,
     erasedAt,

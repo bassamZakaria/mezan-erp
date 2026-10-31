@@ -9,7 +9,10 @@ export function OneTimeSecret({ title, body, secret, onDone }: { title: string; 
 
   function copy() {
     if (!clipboard) return;
-    void clipboard.writeText(secret).then(() => setCopied(true));
+    void clipboard
+      .writeText(secret)
+      .then(() => setCopied(true))
+      .catch(() => setCopied(false));
   }
 
   return (

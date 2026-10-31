@@ -141,7 +141,7 @@ async function bootstrapAdmin(router: TenantRouter, code: string): Promise<strin
     new Request("http://tenant.internal/bootstrap/admin", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ nameAr: "المدير", email: `owner-${code}@example.com`, pin: "123456", companyName: "متجر الاختبار" }),
+      body: JSON.stringify({ nameAr: "المدير", email: `owner-${code}@example.com`, password: "pw-123456", companyName: "متجر الاختبار" }),
     }),
   );
   expect(res.status).toBe(201);
@@ -149,7 +149,7 @@ async function bootstrapAdmin(router: TenantRouter, code: string): Promise<strin
     new Request("http://ignored/auth/login", {
       method: "POST",
       headers: { "content-type": "application/json", [TENANT_HEADER]: code },
-      body: JSON.stringify({ username: `owner-${code}@example.com`, pin: "123456" }),
+      body: JSON.stringify({ username: `owner-${code}@example.com`, password: "pw-123456" }),
     }),
   );
   expect(signedIn.status).toBe(200);
@@ -414,7 +414,7 @@ describe("createTenantRouter", () => {
         dataDir,
         sweepEveryMs: 0,
         now: () => new Date(T),
-        openBackend: async () => ({ app: stub, audit: { append: vi.fn(), query: vi.fn() }, sessions: createSessionRegistry(), credentialsResetByAdministrator: vi.fn(), lockedAccounts: vi.fn(async () => []), unlockAccount: vi.fn(async () => false), ownerAccount: vi.fn(async () => null), companyAdmins: vi.fn(async () => []), recordOwnerAssigned: vi.fn(), resetOwnerPin: vi.fn(), backupTo: vi.fn(), runScheduledJobs: vi.fn(() => null), runOwnerDigest: vi.fn(async () => null), runScheduledCollections: vi.fn(async () => null), drain: vi.fn(), close: vi.fn() }),
+        openBackend: async () => ({ app: stub, audit: { append: vi.fn(), query: vi.fn() }, sessions: createSessionRegistry(), credentialsResetByAdministrator: vi.fn(), lockedAccounts: vi.fn(async () => []), unlockAccount: vi.fn(async () => false), ownerAccount: vi.fn(async () => null), companyAdmins: vi.fn(async () => []), recordOwnerAssigned: vi.fn(), resetOwnerPassword: vi.fn(), backupTo: vi.fn(), runScheduledJobs: vi.fn(() => null), runOwnerDigest: vi.fn(async () => null), runScheduledCollections: vi.fn(async () => null), drain: vi.fn(), close: vi.fn() }),
       });
       routers.push(router);
       reachable(router.app);
@@ -500,7 +500,7 @@ describe("createTenantRouter", () => {
         new Request(`http://ignored${route}`, {
           method: "POST",
           headers: { "content-type": "application/json", [TENANT_HEADER]: "susp" },
-          body: JSON.stringify({ nameAr: "المدير", email: "owner-susp@example.com", pin: "123456", companyName: "متجر الاختبار" }),
+          body: JSON.stringify({ nameAr: "المدير", email: "owner-susp@example.com", password: "pw-123456", companyName: "متجر الاختبار" }),
         }),
       );
       const status = await router.app.fetch(new Request("http://ignored/bootstrap/status", { headers: { [TENANT_HEADER]: "susp" } }));
@@ -637,7 +637,6 @@ describe("createTenantRouter", () => {
   describe("tenant sign-in from one address", () => {
     interface From {
       readonly forwardedFor?: string;
-      readonly pin?: string;
       readonly token?: string;
     }
     const send = (router: TenantRouter, code: string, method: string, path: string, from: From, body?: unknown) =>
@@ -653,8 +652,8 @@ describe("createTenantRouter", () => {
           body: body === undefined ? undefined : JSON.stringify(body),
         }),
       );
-    const signIn = (router: TenantRouter, code: string, username: string, forwardedFor: string, pin = "000000") =>
-      send(router, code, "POST", "/auth/login", { forwardedFor }, { username, pin });
+    const signIn = (router: TenantRouter, code: string, username: string, forwardedFor: string, password = "pw-000000") =>
+      send(router, code, "POST", "/auth/login", { forwardedFor }, { username, password });
     const EDGE = "130.176.0.7";
 
     it("holds an address after thirty failures in one tenant, and leaves it free in every other", async () => {
@@ -667,9 +666,9 @@ describe("createTenantRouter", () => {
       }
       expect((await signIn(router, "cyag", "ghost30@example.com", "203.0.113.9")).status).toBe(429);
 
-      const held = await signIn(router, "cyag", "owner-cyag@example.com", "203.0.113.9", "123456");
-      const elsewhere = await signIn(router, "cyag", "owner-cyag@example.com", "198.51.100.4", "123456");
-      const otherTenant = await signIn(router, "nile", "owner-nile@example.com", "203.0.113.9", "123456");
+      const held = await signIn(router, "cyag", "owner-cyag@example.com", "203.0.113.9", "pw-123456");
+      const elsewhere = await signIn(router, "cyag", "owner-cyag@example.com", "198.51.100.4", "pw-123456");
+      const otherTenant = await signIn(router, "nile", "owner-nile@example.com", "203.0.113.9", "pw-123456");
 
       expect(held.status).toBe(429);
       expect(await held.json()).toMatchObject({ error: "TOO_MANY_ATTEMPTS", message: expect.stringContaining("محاولات دخول كثيرة") });
@@ -689,10 +688,10 @@ describe("createTenantRouter", () => {
 
       expect(statuses.slice(0, 41)).toEqual(Array<number>(41).fill(401));
       expect(statuses.slice(41)).toEqual(Array<number>(4).fill(429));
-      const held = await signIn(router, "nile", "owner-nile@example.com", "203.0.113.9", "123456");
+      const held = await signIn(router, "nile", "owner-nile@example.com", "203.0.113.9", "pw-123456");
       expect(held.status).toBe(429);
       expect(await held.json()).toMatchObject({ error: "TOO_MANY_ATTEMPTS" });
-      expect((await signIn(router, "nile", "owner-nile@example.com", "198.51.100.4", "123456")).status).toBe(200);
+      expect((await signIn(router, "nile", "owner-nile@example.com", "198.51.100.4", "pw-123456")).status).toBe(200);
     }, 120_000);
 
     it("ignores a forwarded address it was not told to trust", async () => {
@@ -701,12 +700,12 @@ describe("createTenantRouter", () => {
       await bootstrapAdmin(router, "cyag");
       for (let i = 0; i < 31; i += 1) await signIn(router, "cyag", `ghost${i}@example.com`, "203.0.113.9");
 
-      const sameSocket = await signIn(router, "cyag", "owner-cyag@example.com", "198.51.100.4", "123456");
+      const sameSocket = await signIn(router, "cyag", "owner-cyag@example.com", "198.51.100.4", "pw-123456");
       const otherSocket = await router.app.fetch(
         new Request("http://ignored/auth/login", {
           method: "POST",
           headers: { "content-type": "application/json", [TENANT_HEADER]: "cyag", "x-forwarded-for": "203.0.113.9" },
-          body: JSON.stringify({ username: "owner-cyag@example.com", pin: "123456" }),
+          body: JSON.stringify({ username: "owner-cyag@example.com", password: "pw-123456" }),
         }),
         originEnv("10.0.7.7" as CloudSource),
       );
@@ -720,8 +719,8 @@ describe("createTenantRouter", () => {
       const { router } = await newRouter(platform, { trustForwardedHost: true, trustedProxyHops: 2 });
       await bootstrapAdmin(router, "cyag");
 
-      const oneHopShort = await signIn(router, "cyag", "owner-cyag@example.com", EDGE, "123456");
-      const notAnAddress = await signIn(router, "cyag", "owner-cyag@example.com", `unknown, ${EDGE}`, "123456");
+      const oneHopShort = await signIn(router, "cyag", "owner-cyag@example.com", EDGE, "pw-123456");
+      const notAnAddress = await signIn(router, "cyag", "owner-cyag@example.com", `unknown, ${EDGE}`, "pw-123456");
 
       expect(oneHopShort.status).toBe(503);
       expect(await oneHopShort.json()).toMatchObject({ error: "SOURCE_UNRESOLVED", message: expect.stringContaining("مصدر الطلب") });
@@ -747,21 +746,21 @@ describe("createTenantRouter", () => {
       await bootstrapAdmin(router, "cyag");
       for (let i = 0; i < 31; i += 1) await signIn(router, "cyag", `ghost${i}@example.com`, `196.221.5.5, 41.33.10.10, ${EDGE}`);
 
-      const office = await signIn(router, "cyag", "owner-cyag@example.com", `196.221.5.5, ${EDGE}`, "123456");
-      const attacker = await signIn(router, "cyag", "owner-cyag@example.com", `41.33.10.10, ${EDGE}`, "123456");
+      const office = await signIn(router, "cyag", "owner-cyag@example.com", `196.221.5.5, ${EDGE}`, "pw-123456");
+      const attacker = await signIn(router, "cyag", "owner-cyag@example.com", `41.33.10.10, ${EDGE}`, "pw-123456");
 
       expect(office.status).toBe(200);
       expect(attacker.status).toBe(429);
     }, 120_000);
 
-    it("leaves the owner able to sign in from the office after six wrong PINs sent from somewhere else", async () => {
+    it("leaves the owner able to sign in from the office after six wrong passwords sent from somewhere else", async () => {
       const platform = await seedPlatform();
       const { router } = await newRouter(platform, { trustForwardedHost: true, trustedProxyHops: 2 });
       await bootstrapAdmin(router, "cyag");
-      for (let i = 0; i < 6; i += 1) await signIn(router, "cyag", "owner-cyag@example.com", `41.33.10.10, ${EDGE}`, "111111");
+      for (let i = 0; i < 6; i += 1) await signIn(router, "cyag", "owner-cyag@example.com", `41.33.10.10, ${EDGE}`, "pw-111111");
 
-      const office = await signIn(router, "cyag", "owner-cyag@example.com", `196.221.5.5, ${EDGE}`, "123456");
-      const attacker = await signIn(router, "cyag", "owner-cyag@example.com", `41.33.10.10, ${EDGE}`, "123456");
+      const office = await signIn(router, "cyag", "owner-cyag@example.com", `196.221.5.5, ${EDGE}`, "pw-123456");
+      const attacker = await signIn(router, "cyag", "owner-cyag@example.com", `41.33.10.10, ${EDGE}`, "pw-123456");
 
       expect(office.status).toBe(200);
       expect(attacker.status).toBe(429);
@@ -773,7 +772,7 @@ describe("createTenantRouter", () => {
       const { router } = await newRouter(platform, { trustForwardedHost: true, trustedProxyHops: 2 });
       await bootstrapAdmin(router, "cyag");
       const office = `196.221.5.5, ${EDGE}`;
-      const session = (await (await signIn(router, "cyag", "owner-cyag@example.com", office, "123456")).json()) as SessionDTO;
+      const session = (await (await signIn(router, "cyag", "owner-cyag@example.com", office, "pw-123456")).json()) as SessionDTO;
 
       const fromTheOffice = await send(router, "cyag", "GET", "/item-brands", { forwardedFor: office, token: session.token });
       const stolen = await send(router, "cyag", "GET", "/item-brands", { forwardedFor: `41.33.10.10, ${EDGE}`, token: session.token });
@@ -788,13 +787,13 @@ describe("createTenantRouter", () => {
       const platform = await seedPlatform();
       const { router } = await newRouter(platform, { trustForwardedHost: true, trustedProxyHops: 2 });
       await bootstrapAdmin(router, "cyag");
-      await signIn(router, "cyag", "owner-cyag@example.com", `196.221.5.5, ${EDGE}`, "123456");
+      await signIn(router, "cyag", "owner-cyag@example.com", `196.221.5.5, ${EDGE}`, "pw-123456");
       await signIn(router, "cyag", "nobody@example.com", `198.51.100.4, ${EDGE}`);
 
       const flood = Array.from({ length: 1000 }, (_, i) => signIn(router, "cyag", `ghost${i}@example.com`, `41.33.10.10, ${EDGE}`));
       await new Promise<void>((resolve) => setImmediate(resolve));
       const started = performance.now();
-      const owner = await signIn(router, "cyag", "owner-cyag@example.com", `196.221.5.5, ${EDGE}`, "123456");
+      const owner = await signIn(router, "cyag", "owner-cyag@example.com", `196.221.5.5, ${EDGE}`, "pw-123456");
       const ownerMs = performance.now() - started;
       const answers = await Promise.all(flood);
 

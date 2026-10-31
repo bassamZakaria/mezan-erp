@@ -18,6 +18,9 @@ import {
   MEZAN_BACKUP_RESTORE_CHANNEL,
   MEZAN_BACKUP_REVERT_CHANNEL,
   MEZAN_BACKUP_EXPORT_PORTABLE_CHANNEL,
+  MEZAN_BACKUP_RECOVERY_SET_CHANNEL,
+  RecoveryMode,
+  type BackupRecoveryResult,
   type BackupCreateResult,
   type BackupExportResult,
   type BackupEntryDTO,
@@ -579,5 +582,55 @@ describe("a restore is recorded in the trail it lands in", () => {
     } finally {
       reopened.close();
     }
+  });
+});
+
+describe("replacing the backup protection re-checks the user's password", () => {
+  const checked: string[] = [];
+
+  async function registerWithRecovery(): Promise<void> {
+    handlers.clear();
+    checked.length = 0;
+    const { registerRestoreOverIpc, PasswordCheckOutcome } = await import("./restore-ipc.js");
+    registerRestoreOverIpc({
+      dbPath,
+      backupsDir,
+      appVersion: "9.9.9",
+      sqlite: () => live,
+      closeLiveConnections: () => {
+        live.close();
+      },
+      relaunch: () => undefined,
+      sessions: fakeSessions(ADMIN),
+      recoveryKeyStore: {
+        isAvailable: () => true,
+        seal: (plain) => Buffer.from(plain, "utf8"),
+        unseal: (sealed) => sealed.toString("utf8"),
+      },
+      verifyPassword: async (_token, password) => {
+        checked.push(password);
+        return password === "Owner-Pass-9"
+          ? { outcome: PasswordCheckOutcome.Confirmed, message: null }
+          : { outcome: PasswordCheckOutcome.Refused, message: "البريد الإلكتروني أو كلمة المرور غير صحيحة." };
+      },
+    });
+  }
+
+  const set = (body: Record<string, unknown>) =>
+    call<BackupRecoveryResult>(MEZAN_BACKUP_RECOVERY_SET_CHANNEL, "good-token", { mode: RecoveryMode.Passphrase, ...body });
+
+  it("sets the first secret with no password, then refuses a replacement without the right one", async () => {
+    await registerWithRecovery();
+    expect((await set({ passphrase: "first long passphrase" })).ok).toBe(true);
+    expect(checked).toEqual([]);
+
+    const missing = await set({ passphrase: "second long passphrase" });
+    expect(missing.ok === false && missing.code).toBe("PASSWORD_REQUIRED");
+
+    const wrong = await set({ passphrase: "second long passphrase", password: "guess" });
+    expect(wrong.ok === false && wrong.code).toBe("WRONG_PASSWORD");
+
+    expect((await set({ passphrase: "second long passphrase", password: "Owner-Pass-9" })).ok).toBe(true);
+    expect(checked).toEqual(["guess", "Owner-Pass-9"]);
   });
 });

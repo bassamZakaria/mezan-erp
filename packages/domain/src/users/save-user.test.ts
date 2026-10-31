@@ -30,7 +30,6 @@ const baseCmd = {
   email: "mohamed@cyag.test",
   phone: "+201000000000",
   password: "TempPass123",
-  pin: "123456",
   roleId: null,
   isCompanyAdmin: true,
   employeeId: null,
@@ -45,7 +44,7 @@ describe("saveUser", () => {
     const uow = createFakeUow();
     const user = await saveUser(baseCmd, uow, fakeHasher());
     expect(user.passwordHash).toBe("hashed:TempPass123");
-    expect(user.pinHash).toBe(`hashed:${baseCmd.pin}`);
+    expect(user.mustChangePassword).toBe(true);
     expect(user.roleId).toBeNull();
     expect(user.isCompanyAdmin).toBe(true);
   });
@@ -121,13 +120,6 @@ describe("saveUser", () => {
     );
   });
 
-  it("rejects a malformed PIN", async () => {
-    const uow = createFakeUow();
-    await expect(saveUser({ ...baseCmd, pin: "12" }, uow, fakeHasher())).rejects.toBeInstanceOf(
-      InvalidUserError,
-    );
-  });
-
   it("keeps the existing password hash on update when password is omitted", async () => {
     const uow = createFakeUow();
     const created = await saveUser(baseCmd, uow, fakeHasher());
@@ -138,12 +130,20 @@ describe("saveUser", () => {
     expect(updated.nameAr).toBe("محمد الشهابي (محدث)");
   });
 
-  it("clears the PIN when pin is explicitly null", async () => {
+  it("marks a given password temporary by default, and not when the caller says it is the user's own", async () => {
+    const uow = createFakeUow();
+    expect((await saveUser(baseCmd, uow, fakeHasher())).mustChangePassword).toBe(true);
+    const own = await saveUser({ ...baseCmd, password: "OwnPass123", passwordIsTemporary: false }, uow, fakeHasher());
+    expect(own.mustChangePassword).toBe(false);
+  });
+
+  it("keeps the prior temporary-password flag on an update that does not touch the password", async () => {
     const uow = createFakeUow();
     await saveUser(baseCmd, uow, fakeHasher());
     const { password: _password, ...rest } = baseCmd;
-    const updated = await saveUser({ ...rest, pin: null }, uow, fakeHasher());
-    expect(updated.pinHash).toBeNull();
+    expect((await saveUser({ ...rest, nameAr: "محمد" }, uow, fakeHasher())).mustChangePassword).toBe(true);
+    await saveUser({ ...baseCmd, passwordIsTemporary: false }, uow, fakeHasher());
+    expect((await saveUser({ ...rest, nameAr: "محمد" }, uow, fakeHasher())).mustChangePassword).toBe(false);
   });
 });
 

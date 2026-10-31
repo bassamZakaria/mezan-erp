@@ -15,6 +15,7 @@ import {
   type TenantStatusDTO,
   type TenantSummaryDTO,
 } from "@mezan/contracts";
+import { TemporaryPasswordField } from "../login/TemporaryPasswordField";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { entitlementModuleLabel } from "../domain-labels";
 import { SelectField, TextAreaField, ToggleField } from "../settings/form-controls";
@@ -44,8 +45,8 @@ import {
   useResolveCardCheckoutMutation,
   useResumeSubscriptionMutation,
   useResumeTenantMutation,
-  OwnerPinResetPhase,
-  useOwnerPinReset,
+  OwnerPasswordResetPhase,
+  useOwnerPasswordReset,
   useRetryProvisionMutation,
   useSuspendSubscriptionMutation,
   useSuspendTenantMutation,
@@ -81,7 +82,7 @@ function canChangeAnchorDay(status: SubscriptionStatusDTO): boolean {
 function canArchiveTenant(status: TenantStatusDTO): boolean {
   return status === TenantWireStatus.Active || status === TenantWireStatus.Suspended;
 }
-function canResetOwnerPin(status: TenantStatusDTO): boolean {
+function canResetOwnerPassword(status: TenantStatusDTO): boolean {
   return status === TenantWireStatus.Active || status === TenantWireStatus.Suspended;
 }
 /** Mirrors `changePlan`/`cancelSubscription`/`suspendSubscription`/`resumeSubscription` in `packages/domain/src/platform/subscription.ts`. */
@@ -154,15 +155,15 @@ export function TenantDetailPage() {
   const suspendSubscription = useSuspendSubscriptionMutation();
   const resumeSubscription = useResumeSubscriptionMutation();
   const retryProvision = useRetryProvisionMutation();
-  const ownerPin = useOwnerPinReset(id);
-  const holdsUndeliveredPin = ownerPin.phase !== OwnerPinResetPhase.Idle;
-  const leaving = useBlocker(holdsUndeliveredPin);
+  const ownerPassword = useOwnerPasswordReset(id);
+  const holdsUndeliveredPassword = ownerPassword.phase !== OwnerPasswordResetPhase.Idle;
+  const leaving = useBlocker(holdsUndeliveredPassword);
   useEffect(() => {
-    if (!holdsUndeliveredPin) return;
+    if (!holdsUndeliveredPassword) return;
     const warn = (event: BeforeUnloadEvent) => event.preventDefault();
     window.addEventListener("beforeunload", warn);
     return () => window.removeEventListener("beforeunload", warn);
-  }, [holdsUndeliveredPin]);
+  }, [holdsUndeliveredPassword]);
   const cardCheckouts = useCardCheckoutsQuery(id);
   const createCardCheckout = useCreateCardCheckoutMutation();
   const sweepCardCheckouts = useSweepCardCheckoutsMutation();
@@ -177,8 +178,8 @@ export function TenantDetailPage() {
 
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
   const [confirmSuspend, setConfirmSuspend] = useState(false);
-  const [confirmResetOwnerPin, setConfirmResetOwnerPin] = useState(false);
-  const ownerPinReset = ownerPin.issued;
+  const [confirmResetOwnerPassword, setConfirmResetOwnerPassword] = useState(false);
+  const ownerPasswordReset = ownerPassword.issued;
   const [confirmArchive, setConfirmArchive] = useState(false);
   const [confirmRelease, setConfirmRelease] = useState(false);
   const [confirmCancel, setConfirmCancel] = useState(false);
@@ -308,14 +309,14 @@ export function TenantDetailPage() {
               {t("platform.tenantDetail.suspend")}
             </Button>
           ) : null}
-          {canResetOwnerPin(tenant.status) ? (
+          {canResetOwnerPassword(tenant.status) ? (
             <Button
               variant="default"
-              disabled={ownerPin.phase === OwnerPinResetPhase.Pending || booksRefused}
+              disabled={ownerPassword.phase === OwnerPasswordResetPhase.Pending || booksRefused}
               aria-describedby={booksRefused ? booksRefusedHintId : undefined}
-              onClick={() => setConfirmResetOwnerPin(true)}
+              onClick={() => setConfirmResetOwnerPassword(true)}
             >
-              {t("platform.tenantDetail.resetOwnerPin")}
+              {t("platform.tenantDetail.resetOwnerPassword")}
             </Button>
           ) : null}
           {canResumeTenant(tenant.status) ? (
@@ -369,32 +370,27 @@ export function TenantDetailPage() {
         </Card>
       ) : null}
 
-      {ownerPinReset ? (
+      {ownerPasswordReset ? (
         <Card className="p-[16px]">
           <div className="flex flex-col gap-[10px]">
-            <p className="text-[12.5px] text-ink-muted">{t("platform.tenantDetail.resetOwnerPin.done")}</p>
+            <p className="text-[12.5px] text-ink-muted">{t("platform.tenantDetail.resetOwnerPassword.done")}</p>
             <div className="flex flex-col gap-[10px] rounded-md border border-border bg-surface-2 p-[14px]">
               <div>
                 <span className="mb-[6px] block text-xs font-semibold text-ink-muted">{t("platform.newTenant.result.adminEmail")}</span>
-                <span dir="ltr" className="break-all text-[13px] font-semibold text-ink">{ownerPinReset.adminEmail}</span>
+                <span dir="ltr" className="break-all text-[13px] font-semibold text-ink">{ownerPasswordReset.adminEmail}</span>
               </div>
-              {ownerPinReset.signInEmail === ownerPinReset.adminEmail ? null : (
+              {ownerPasswordReset.signInEmail === ownerPasswordReset.adminEmail ? null : (
                 <div>
                   <span className="mb-[6px] block text-xs font-semibold text-ink-muted">{t("platform.tenantDetail.ownerSignInEmail")}</span>
-                  <span dir="ltr" className="break-all text-[13px] font-semibold text-ink">{ownerPinReset.signInEmail}</span>
+                  <span dir="ltr" className="break-all text-[13px] font-semibold text-ink">{ownerPasswordReset.signInEmail}</span>
                 </div>
               )}
-              <div>
-                <span className="mb-[6px] block text-xs font-semibold text-ink-muted">{t("platform.newTenant.result.adminPin")}</span>
-                <code dir="ltr" className="mz-num select-all break-all rounded-[6px] bg-surface px-[10px] py-[6px] text-[16px] font-bold text-ink">
-                  {ownerPinReset.adminPin}
-                </code>
-              </div>
+              <TemporaryPasswordField label={t("platform.newTenant.result.adminPassword")} password={ownerPasswordReset.adminPassword} />
             </div>
             <p role="status" className="text-[11.5px] font-semibold text-warning-ink">{t("platform.newTenant.result.oneTime")}</p>
             <div>
-              <Button variant="default" onClick={ownerPin.acknowledge}>
-                {t("platform.tenantDetail.resetOwnerPin.hide")}
+              <Button variant="default" onClick={ownerPassword.acknowledge}>
+                {t("platform.tenantDetail.resetOwnerPassword.hide")}
               </Button>
             </div>
           </div>
@@ -411,12 +407,7 @@ export function TenantDetailPage() {
           <div className="flex flex-col gap-[10px]">
             <p className="text-[12.5px] text-ink-muted">{t("platform.newTenant.result.hint")}</p>
             <div className="flex flex-col gap-[10px] rounded-md border border-border bg-surface-2 p-[14px]">
-              <div>
-                <span className="mb-[6px] block text-xs font-semibold text-ink-muted">{t("platform.newTenant.result.adminPin")}</span>
-                <code dir="ltr" className="mz-num select-all break-all rounded-[6px] bg-surface px-[10px] py-[6px] text-[16px] font-bold text-ink">
-                  {retryResult.adminPin ?? t("platform.newTenant.result.pinKept")}
-                </code>
-              </div>
+              <TemporaryPasswordField label={t("platform.newTenant.result.adminPassword")} password={retryResult.adminPassword} fallback={t("platform.newTenant.result.passwordKept")} />
             </div>
             <p role="alert" className="text-[11.5px] font-semibold text-warning-ink">{t("platform.newTenant.result.oneTime")}</p>
           </div>
@@ -687,24 +678,24 @@ export function TenantDetailPage() {
       />
 
       <ConfirmDialog
-        open={confirmResetOwnerPin}
-        title={t("platform.tenantDetail.confirmResetOwnerPin.title")}
-        consequence={t("platform.tenantDetail.confirmResetOwnerPin.consequence", { email: tenant.ownerEmail })}
-        confirmLabel={t("platform.tenantDetail.resetOwnerPin.confirm")}
+        open={confirmResetOwnerPassword}
+        title={t("platform.tenantDetail.confirmResetOwnerPassword.title")}
+        consequence={t("platform.tenantDetail.confirmResetOwnerPassword.consequence", { email: tenant.ownerEmail })}
+        confirmLabel={t("platform.tenantDetail.resetOwnerPassword.confirm")}
         tone="danger"
         onConfirm={() => {
-          setConfirmResetOwnerPin(false);
+          setConfirmResetOwnerPassword(false);
           setMutationError(null);
-          ownerPin.reset({ onError: onMutationError });
+          ownerPassword.reset({ onError: onMutationError });
         }}
-        onCancel={() => setConfirmResetOwnerPin(false)}
+        onCancel={() => setConfirmResetOwnerPassword(false)}
       />
       <ConfirmDialog
         open={leaving.state === "blocked"}
-        title={t("platform.tenantDetail.leaveWithPin.title")}
-        consequence={t("platform.tenantDetail.leaveWithPin.consequence")}
-        confirmLabel={t("platform.tenantDetail.leaveWithPin.leave")}
-        cancelLabel={t("platform.tenantDetail.leaveWithPin.stay")}
+        title={t("platform.tenantDetail.leaveWithPassword.title")}
+        consequence={t("platform.tenantDetail.leaveWithPassword.consequence")}
+        confirmLabel={t("platform.tenantDetail.leaveWithPassword.leave")}
+        cancelLabel={t("platform.tenantDetail.leaveWithPassword.stay")}
         tone="danger"
         onConfirm={() => leaving.proceed?.()}
         onCancel={() => leaving.reset?.()}

@@ -110,18 +110,18 @@ describe("provisionResultSchema", () => {
     ownerContactVerified: true, ownerNeeded: false, pendingOwner: null, status: "provisioning" as const, dbFile: "tenants/acme.db",
     createdAt: "2026-09-14T00:00:00.000Z", updatedAt: "2026-09-14T00:00:00.000Z",
   };
-  const result = { tenant, adminEmail: "owner@acme.test", adminPin: "123456" };
+  const result = { tenant, adminEmail: "owner@acme.test", adminPassword: "Temp-Pass-123" };
 
   it("accepts a valid provisioning result", () => {
     expect(provisionResultSchema.safeParse(result).success).toBe(true);
   });
 
-  it("rejects a PIN that is not 6 digits", () => {
-    expect(provisionResultSchema.safeParse({ ...result, adminPin: "12345" }).success).toBe(false);
+  it("rejects a temporary password shorter than 8 characters", () => {
+    expect(provisionResultSchema.safeParse({ ...result, adminPassword: "1234567" }).success).toBe(false);
   });
 
-  it("accepts a null PIN for a resumed provision", () => {
-    expect(provisionResultSchema.safeParse({ ...result, adminPin: null }).success).toBe(true);
+  it("accepts a null password for a resumed provision", () => {
+    expect(provisionResultSchema.safeParse({ ...result, adminPassword: null }).success).toBe(true);
   });
 });
 

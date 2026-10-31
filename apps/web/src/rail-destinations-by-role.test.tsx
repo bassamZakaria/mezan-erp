@@ -20,7 +20,7 @@ interface SeededWorld {
 // The seeded backend is loaded by path at run time: this package does not depend on the server, and its typecheck must not reach into it.
 const SEEDED_WORLD = decodeURIComponent(new URL("../../../packages/backend/src/test-helpers/seeded-world.ts", import.meta.url).pathname);
 
-const SEED_PIN = "123456";
+const SEED_PASSWORD = "Cyag@2026";
 const REFUSED_FROM = 400;
 const QUIET_MS = 120;
 const SETTLE_TIMEOUT_MS = 20_000;
@@ -53,7 +53,7 @@ beforeAll(async () => {
 afterAll(() => world?.close());
 
 async function signIn(email: string): Promise<Session> {
-  const res = await world.backend.app.fetch(new Request("http://local/auth/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ username: email, pin: SEED_PIN }) }));
+  const res = await world.backend.app.fetch(new Request("http://local/auth/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ username: email, password: SEED_PASSWORD }) }));
   expect(res.status, `${email} signs in`).toBe(200);
   return (await res.json()) as Session;
 }

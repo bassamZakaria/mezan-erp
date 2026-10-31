@@ -28,10 +28,14 @@ async function provisionAndLogin(harness: CloudHarness, owner: string, code: str
     }),
   });
   expect(res.status).toBe(201);
-  const provisioned = (await res.json()) as { tenant: { id: string }; adminEmail: string; adminPin: string };
-  const login = await harness.send("/api/auth/login", { method: "POST", tenant: code, body: JSON.stringify({ username: provisioned.adminEmail, pin: provisioned.adminPin }) });
+  const provisioned = (await res.json()) as { tenant: { id: string }; adminEmail: string; adminPassword: string };
+  const login = await harness.send("/api/auth/login", { method: "POST", tenant: code, body: JSON.stringify({ username: provisioned.adminEmail, password: provisioned.adminPassword }) });
   expect(login.status).toBe(200);
-  return { id: provisioned.tenant.id, token: ((await login.json()) as { token: string }).token };
+  const issued = (await login.json()) as { token: string };
+  const changed = await harness.send("/api/profile/change-password", { method: "POST", token: issued.token, tenant: code, body: JSON.stringify({ currentPassword: provisioned.adminPassword, newPassword: "owner-own-password" }) });
+  expect(changed.status).toBe(204);
+  const own = await harness.send("/api/auth/login", { method: "POST", tenant: code, body: JSON.stringify({ username: provisioned.adminEmail, password: "owner-own-password" }) });
+  return { id: provisioned.tenant.id, token: ((await own.json()) as { token: string }).token };
 }
 
 describe("the platform database under a sweep, a card callback and a console write at once", () => {

@@ -4,6 +4,7 @@ import { Button, EmptyState } from "@mezan/ui";
 import { useApi } from "../../../data/ApiContext";
 import { sessionHolds } from "../../../data/session";
 import { LoginScreen } from "../../../login/LoginScreen";
+import { ChangeTemporaryPasswordScreen } from "../../../login/ChangeTemporaryPasswordScreen";
 import { useAppTranslation } from "../../../i18n";
 import { GlanceView } from "./GlanceScreen";
 import { GLANCE_PERMISSION } from "./permission";
@@ -40,5 +41,6 @@ function GlanceShell() {
 
 export function GlanceApp() {
   const { session } = useApi();
-  return session ? <GlanceShell /> : <LoginScreen onStartWizard={() => undefined} />;
+  if (!session) return <LoginScreen onStartWizard={() => undefined} />;
+  return session.mustChangePassword ? <ChangeTemporaryPasswordScreen /> : <GlanceShell />;
 }

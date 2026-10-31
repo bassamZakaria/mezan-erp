@@ -278,8 +278,8 @@ const OUTSIDE_THE_BOUNDARY: Readonly<Record<string, string>> = {
 
 const NOT_ROUTE_REACHED: Readonly<Record<string, string>> = {
   "packages/backend/src/pos/master.ts:36": "injected into the POS settings routes as deps.ensureWalkInCustomer; it writes inside its own withSqliteTransaction",
-  "packages/backend/src/create-backend.ts:4642": "the start-up backfill that links pre-#120 treasury accounts to a ledger leaf, run as system inside its own db.transaction, never from a route",
-  "packages/backend/src/create-backend.ts:4653": "the same start-up backfill's treasury audit event, in the same db.transaction",
+  "packages/backend/src/create-backend.ts:4698": "the start-up backfill that links pre-#120 treasury accounts to a ledger leaf, run as system inside its own db.transaction, never from a route",
+  "packages/backend/src/create-backend.ts:4709": "the same start-up backfill's treasury audit event, in the same db.transaction",
   "packages/backend/src/enh/e3-06.ts:189": "runs from the event bus when a quote is accepted, never from a route; the opportunity write and its event share deps.audit.atomic",
 };
 

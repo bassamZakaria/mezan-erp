@@ -14,7 +14,7 @@ under `packages/domain/src/`.
 - Fresh seeded backend: `MEZAN_SEED_DEMO=1` against an empty database file
   (`pnpm --filter web dev` with the backend seeded).
 - The seeded tenant "Cyag" (`packages/backend/src/demo-seed/access.ts`) ships
-  thirteen roles, one named person per role, PIN `123456` for every account,
+  thirteen roles, one named person per role, password `Cyag@2026` for every account,
   email `<local>@cyag.example`. Two accounts anchor this plan:
   - **ليلى إبراهيم / Laila Ibrahim** (`laila.ibrahim@cyag.example`), role
     `AUDITOR` (مراجع داخلي) — every permission she holds is a `.view`; no
@@ -124,15 +124,15 @@ apart silently.
 - **Persona / permission:** `laila.ibrahim`.
 - **Preconditions:** none.
 - **Steps:**
-  1. Sign out. Sign in as any seeded user with the correct PIN.
+  1. Sign out. Sign in as any seeded user with the correct password.
   2. Sign out again.
   3. As `laila.ibrahim`, open `audit`, filter الوحدة to `auth` / `profile`,
      and separately try الإجراء `LOGIN`.
 - **Expected — this is a documented gap, not a defect to "fix" by re-testing
-  differently:** no row exists for a successful login, a failed PIN attempt,
+  differently:** no row exists for a successful login, a failed password attempt,
   or a logout. `packages/backend/src/auth-routes.ts`'s `POST /auth/login`
   calls no `recordSecurityEvent`/`recordSensitiveEvent` anywhere on the
-  success or failure path; only `PASSWORD_CHANGED` and the PIN-change actions
+  success or failure path; only `PASSWORD_CHANGED` and the password-change actions
   are recorded, from `packages/api/src/profile-routes.ts`. The domain audit
   module's own doc comment names "account lockout = CRITICAL" as something
   "observed in the captured app" — i.e. the reference system had this, this

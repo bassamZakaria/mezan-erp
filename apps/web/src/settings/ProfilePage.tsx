@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { DocumentDetail, Button, Card, StatusPill, formatDate, type PillTone } from "@mezan/ui";
 import type { AuditEventDTO, AuditSeverityDTO } from "@mezan/contracts";
-import { useProfile, useUpdateProfile, useChangePassword, useChangePin, useProfileActivity } from "../data/account-hooks";
+import { useProfile, useUpdateProfile, useChangePassword, useProfileActivity } from "../data/account-hooks";
 import { TextField, SectionCard } from "./form-controls";
 import { squarePhotoDataUrl } from "./photo";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
@@ -36,8 +36,8 @@ function severityTone(severity: AuditSeverityDTO): PillTone {
 
 const ACTION_KEYS: Readonly<Record<string, AppTranslationKey>> = {
   PASSWORD_CHANGED: "profile.changeThePassword",
-  PIN_CHANGED: "profile.changeThePin",
-  PIN_CLEARED: "profile.clearThePin",
+  PIN_CHANGED: "profile.legacyCodeChanged",
+  PIN_CLEARED: "profile.legacyCodeCleared",
 };
 
 function InfoTab() {
@@ -165,16 +165,11 @@ function InfoTab() {
 function SecurityTab() {
   const { t, locale } = useAppTranslation();
   const changePassword = useChangePassword();
-  const changePin = useChangePin();
 
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [passwordMessage, setPasswordMessage] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
-
-  const [pinCurrentPassword, setPinCurrentPassword] = useState("");
-  const [newPin, setNewPin] = useState("");
-  const [pinMessage, setPinMessage] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
 
   async function handleChangePassword() {
     setPasswordMessage(null);
@@ -193,24 +188,12 @@ function SecurityTab() {
     }
   }
 
-  async function handleChangePin() {
-    setPinMessage(null);
-    try {
-      await changePin.mutateAsync({ currentPassword: pinCurrentPassword, newPin: newPin.trim() === "" ? null : newPin });
-      setPinMessage({ kind: "ok", text: newPin.trim() === "" ? t("profile.thePinWasCleared") : t("profile.thePinWasChanged") });
-      setPinCurrentPassword("");
-      setNewPin("");
-    } catch (err) {
-      setPinMessage({ kind: "error", text: err instanceof Error ? err.message : t("profile.couldNotChangeThePin") });
-    }
-  }
-
   return (
     <div className="flex flex-col gap-[16px]">
       <SectionCard title={t("profile.changeThePassword")} description={t("profile.enterTheCurrentPasswordTo")}>
-        <TextField label={t("profile.currentPassword")} value={currentPassword} onChange={setCurrentPassword} type="text" />
-        <TextField label={t("profile.newPassword")} value={newPassword} onChange={setNewPassword} type="text" hint={t("profile.atLeast8Characters")} />
-        <TextField label={t("profile.confirmTheNewPassword")} value={confirmPassword} onChange={setConfirmPassword} type="text" />
+        <TextField label={t("profile.currentPassword")} value={currentPassword} onChange={setCurrentPassword} type="password" autoComplete="current-password" />
+        <TextField label={t("profile.newPassword")} value={newPassword} onChange={setNewPassword} type="password" autoComplete="new-password" hint={t("profile.atLeast8Characters")} />
+        <TextField label={t("profile.confirmTheNewPassword")} value={confirmPassword} onChange={setConfirmPassword} type="password" autoComplete="new-password" />
         <div className="col-span-full flex items-center gap-[10px]">
           <Button
             variant="primary"
@@ -227,20 +210,6 @@ function SecurityTab() {
         </div>
       </SectionCard>
 
-      <SectionCard title={t("profile.pin")} description={t("profile.usedForAQuickSign")}>
-        <TextField label={t("profile.currentPassword")} value={pinCurrentPassword} onChange={setPinCurrentPassword} type="text" />
-        <TextField label={t("profile.newPin")} value={newPin} onChange={setNewPin} type="text" hint={t("profile.4To6DigitsOr")} />
-        <div className="col-span-full flex items-center gap-[10px]">
-          <Button variant="primary" disabled={changePin.isPending || !pinCurrentPassword} onClick={() => void handleChangePin()}>
-            {changePin.isPending ? t("profile.saving") : t("common.save")}
-          </Button>
-          {pinMessage ? (
-            <span className={pinMessage.kind === "ok" ? "text-[12.5px] text-success-ink" : "text-[12.5px] text-danger-ink"}>
-              {pinMessage.text}
-            </span>
-          ) : null}
-        </div>
-      </SectionCard>
     </div>
   );
 }
@@ -307,7 +276,6 @@ export function ProfilePage() {
       summary={
         profile
           ? [
-              { label: t("profile.pin2"), value: profile.hasPin ? t("profile.set") : t("profile.notSet") },
               { label: t("profile.lastSignedIn"), value: profile.lastLoginAt ? formatDate(profile.lastLoginAt, { style: "long", locale }) : t("common.none") },
               { label: t("profile.createdOn"), value: formatDate(profile.createdAt, { style: "long", locale }) },
             ]

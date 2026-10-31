@@ -32,6 +32,7 @@ export async function releaseProvisioningTenant(deps: ReleaseTenantDeps, input: 
       const live = await platform.stores.subscriptions.findLiveByTenant(after.id);
       if (live) await cancelSubscription({ id: live.id, now: at }, platform.stores.subscriptions);
       await platform.stores.signupRequests.releaseByCode(input.tenant.code);
+      await platform.stores.signInEmails.forgetTenant(after.id);
       await recordSecurityEvent(platform.audit, {
         module: "platform",
         entityType: "PLATFORM",

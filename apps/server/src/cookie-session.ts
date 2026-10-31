@@ -161,14 +161,14 @@ export function createCookieSessions(options: CookieSessionOptions): CookieSessi
     });
   }
 
-  async function intoCookies(jar: CookieJar, answer: Response, secure: boolean, sessionValue: (token: string) => string): Promise<Response> {
+  async function intoCookies(jar: CookieJar, answer: Response, secure: boolean, sessionValue: (token: string, body: Record<string, unknown>) => string): Promise<Response> {
     if (!answer.ok) return answer;
     const body = (await answer.json()) as { token?: unknown; deviceSecret?: unknown } & Record<string, unknown>;
     const { token, deviceSecret, ...rest } = body;
     const headers = new Headers(answer.headers);
     headers.delete("content-length");
     if (typeof token === "string") {
-      const value = sessionValue(token);
+      const value = sessionValue(token, rest);
       headers.append("set-cookie", cookie(jar, jar.session, value, secure, jar.maxAgeSeconds));
       headers.append("set-cookie", cookie(jar, jar.csrf, csrfFor(value), secure, jar.maxAgeSeconds));
     }
@@ -226,7 +226,8 @@ export function createCookieSessions(options: CookieSessionOptions): CookieSessi
       if (otherTenant) {
         if (c.res.status === 401) c.res = c.json({ error: SessionRefusal.TenantMismatch, message: TENANT_MISMATCH_MESSAGE, messageEn: TENANT_MISMATCH_MESSAGE_EN }, 403);
       } else if (signingIn) {
-        c.res = await intoCookies(jar, c.res, secure, (issued) => (bindsTenant ? `${code ?? ""}${SESSION_SEPARATOR}${issued}` : issued));
+        const boundTenant = (body: Record<string, unknown>) => code ?? (typeof body["tenantCode"] === "string" ? body["tenantCode"] : "");
+        c.res = await intoCookies(jar, c.res, secure, (issued, body) => (bindsTenant ? `${boundTenant(body)}${SESSION_SEPARATOR}${issued}` : issued));
       } else if ((c.req.method === "POST" && pathname === jar.signOut) || (token !== null && (await sessionIsGone(c.res)))) {
         c.res = clearing(jar, c.res, secure);
       }

@@ -1,6 +1,6 @@
 import { generateTemporaryPassword } from "@mezan/api";
 import { randomUUID } from "node:crypto";
-import { activateTenant, createTenant, normalizeEmail, startSubscription, TenantCodeTakenError, TenantStatusCode, type BillingCycle, type Tenant } from "@mezan/domain";
+import { activateTenant, createTenant, normalizeEmail, OwnerEmailInAnotherCompanyError, startSubscription, TenantCodeTakenError, tenantIsServed, TenantStatusCode, type BillingCycle, type Tenant } from "@mezan/domain";
 import { OwnerPasswordResetOutcome, PlatformAuditUnavailableError, ProvisioningRefusalCode, TENANT_CODE_PROVISIONING, TenantOwnerAccountNotFoundError, type PlatformHandle, type RecordedActivation } from "@mezan/backend";
 import { tenantDTOOf, type ProvisionResultDTO } from "@mezan/contracts";
 import { TransactionMode } from "@mezan/persistence";
@@ -182,6 +182,9 @@ async function provisionUnderItsClaim(cmd: ProvisionTenantCommand, deps: Provisi
   const nowIso = deps.now().toISOString();
   const { platform } = deps;
   const { tenants, subscriptions, plans, db } = platform.stores;
+  const holder = await platform.stores.signInEmails.tenantOf(cmd.ownerEmail);
+  const holding = holder ? await tenants.findById(holder) : null;
+  if (holding && holding.code !== cmd.code && tenantIsServed(holding)) throw new OwnerEmailInAnotherCompanyError();
 
   const stillOurs = async (): Promise<void> => {
     if (deps.stillOurs && !(await deps.stillOurs())) throw new ProvisioningSupersededError();

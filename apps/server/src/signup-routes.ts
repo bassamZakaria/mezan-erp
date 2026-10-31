@@ -21,6 +21,7 @@ import {
   type Plan,
   type SignupRequest,
   type Tenant,
+  OwnerEmailInAnotherCompanyError,
 } from "@mezan/domain";
 import { connectionTurn } from "@mezan/api";
 import type { PlatformHandle } from "@mezan/backend";
@@ -141,6 +142,9 @@ function signupErrorResponse(c: Context, err: unknown): Response {
   }
   if (err instanceof SignupTokenInvalidError) {
     return c.json({ error: err.code, message: err.message }, 400);
+  }
+  if (err instanceof OwnerEmailInAnotherCompanyError) {
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
   }
   if (err instanceof SignupActivationIncompleteError) {
     return c.json({ error: err.code, message: err.message }, 409);

@@ -1,7 +1,7 @@
 import { branchRefusalBefore, isBranchRestricted } from "../branch-restriction";
 import { DataMigrationMasterStep } from "./data-migration-step";
 import { useCallback, useRef, useSyncExternalStore } from "react";
-import { loadTenantCode, subscribeTenantCode, TENANT_HEADER } from "./session";
+import { loadTenantCode, NO_TENANT, persistTenantCode, subscribeTenantCode, TENANT_HEADER } from "./session";
 import { DocumentReadPermission, sessionMayRead } from "./document-read-permissions";
 import { keepPreviousData, useMutation, useQueries, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import type {
@@ -233,6 +233,7 @@ import type {
   LineTaxClassificationDTO,
   EtaReceiptRetryDTO,
   SessionDTO,
+  LoginResponseDTO,
   SettleVanTripDTO,
   StartPhysicalCountDTO,
   StatementColumnMappingDTO,
@@ -418,6 +419,12 @@ export class ApiError extends Error {
   }
 }
 
+interface ByEmail {
+  readonly byEmail?: boolean;
+}
+
+const tenantOf = (byEmail: boolean | undefined): Record<string, string> | undefined => (byEmail ? { [TENANT_HEADER]: NO_TENANT } : undefined);
+
 /**
  * Real login (email + password). On success the resolved
  * session is stored in the ApiContext, so every subsequent query/mutation
@@ -426,9 +433,10 @@ export class ApiError extends Error {
 export function useLogin() {
   const { t } = useAppTranslation();
   const { request, setSession } = useApi();
-  return useMutation<SessionDTO, ApiError, LoginRequestDTO>({
-    mutationFn: async (body) => {
-      const res = await request("/auth/login", { method: "POST", body: JSON.stringify(body) });
+  const queryClient = useQueryClient();
+  return useMutation<SessionDTO, ApiError, LoginRequestDTO & ByEmail>({
+    mutationFn: async ({ byEmail, ...body }) => {
+      const res = await request("/auth/login", { method: "POST", headers: tenantOf(byEmail), body: JSON.stringify(body) });
       if (!res.ok) {
         type LoginError = ServerErrorBody & { retryAfterSeconds?: number; unlockByCode?: boolean };
         const err = await res.json<LoginError>().catch((): LoginError => ({}));
@@ -441,7 +449,12 @@ export function useLogin() {
         if (err.error === SignInRefusalCode.AccountLocked) throw new AccountLockedError(res.status, message, err.unlockByCode === true);
         throw new ApiError(res.status, message, undefined, err.retryAfterSeconds ?? res.retryAfterSeconds ?? undefined, err.error);
       }
-      return res.json<SessionDTO>();
+      const { tenantCode, ...session } = await res.json<LoginResponseDTO>();
+      if (tenantCode && tenantCode !== loadTenantCode()) {
+        persistTenantCode(tenantCode);
+        queryClient.removeQueries();
+      }
+      return session;
     },
     onSuccess: (session) => setSession(session),
   });
@@ -462,9 +475,9 @@ export class AccountLockedError extends ApiError {
 export function useUnlockAccount() {
   const { t } = useAppTranslation();
   const { request } = useApi();
-  return useMutation<void, ApiError, { username: string; code: string }>({
-    mutationFn: async (body) => {
-      const res = await request("/auth/unlock", { method: "POST", body: JSON.stringify(body) });
+  return useMutation<void, ApiError, { username: string; code: string } & ByEmail>({
+    mutationFn: async ({ byEmail, ...body }) => {
+      const res = await request("/auth/unlock", { method: "POST", headers: tenantOf(byEmail), body: JSON.stringify(body) });
       if (!res.ok) throw await codedError(res, t("login.unlock.failed"), t);
     },
   });
@@ -484,9 +497,9 @@ export function useUnlockAccountByLink() {
 export function useForgotPassword() {
   const { t } = useAppTranslation();
   const { request } = useApi();
-  return useMutation<void, ApiError, ForgotPasswordRequestDTO>({
-    mutationFn: async (body) => {
-      const res = await request("/auth/forgot-password", { method: "POST", body: JSON.stringify(body) });
+  return useMutation<void, ApiError, ForgotPasswordRequestDTO & ByEmail>({
+    mutationFn: async ({ byEmail, ...body }) => {
+      const res = await request("/auth/forgot-password", { method: "POST", headers: tenantOf(byEmail), body: JSON.stringify(body) });
       if (!res.ok) throw await codedError(res, t("login.forgot.failed"), t);
     },
   });

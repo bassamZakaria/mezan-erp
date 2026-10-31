@@ -152,6 +152,7 @@ export function createTenantPurge(deps: TenantPurgeDeps): TenantPurgeService {
     await platform.stores.db.transaction(
       async () => {
         await store.removeTenantRows(tenant, deletedAt);
+        await platform.stores.signInEmails.forgetTenant(tenant.id);
         await recordSecurityEvent(platform.audit, {
           module: "platform",
           entityType: "PLATFORM",

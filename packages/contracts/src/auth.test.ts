@@ -81,8 +81,9 @@ describe("sessionSchema", () => {
 });
 
 describe("loginResponseSchema", () => {
-  it("is the same shape as sessionSchema", () => {
-    expect(loginResponseSchema).toBe(sessionSchema);
+  it("is a session that may name the company the email signed in to", () => {
+    expect(Object.keys(loginResponseSchema.shape)).toEqual([...Object.keys(sessionSchema.shape), "tenantCode"]);
+    expect(loginResponseSchema.shape.tenantCode.isOptional()).toBe(true);
   });
 });
 

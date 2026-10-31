@@ -14,11 +14,12 @@ internet ─▶ :80/:443 Caddy (TLS, security headers, x-mezan-origin) ─▶ me
 
 | File | Goes to | What it is |
 | --- | --- | --- |
-| `docker-compose.yml`, `Caddyfile`, `caddy.d/`, `deploy.sh`, `backup/`, `postgres-init/` | `/opt/mezan/` | this folder, copied as is |
+| `docker-compose.yml`, `Caddyfile`, `caddy.d/`, `deploy.sh`, `backup/`, `monitor/`, `postgres-init/` | `/opt/mezan/` | this folder, copied as is |
 | `.env.example` | `/srv/mezan/env` (root, 0600) | the app's environment, including its database login `MEZAN_DATABASE_URL` and `MEZAN_TENANT_DB_SECRET` |
 | `pg.env.example` | `/srv/mezan/pg.env` (root, 0600) | the Postgres superuser (`POSTGRES_*` only); the only file the postgres container reads, never given to the app |
 | `shared.env.example` | `/srv/mezan/shared.env` (root, 0600) | domain, ACME e-mail and the origin secret; the only file Caddy reads |
 | `backup/restic.env.example` | `/srv/mezan/restic.env` (root, 0600) | backup repository and its password |
+| `monitor/health.env.example` | `/srv/mezan/health.env` (root, 0600) | the public `/readyz` URL and its heartbeat check |
 | — | `/opt/mezan/.env` | written by `deploy.sh`: `MEZAN_IMAGE_TAG`, `MEZAN_PREVIOUS_IMAGE_TAG` |
 
 ## Region and sizing
@@ -57,6 +58,7 @@ and `systemctl restart docker`. **Why:** ufw does not filter Docker-published po
 - **DNS:** `A` (and `AAAA` once the Docker IPv6 step above is done) for the apex, for example `mezan.example.com`, pointing at the VPS. No wildcard in code mode. DNS only (grey cloud) is simplest. Cloudflare's proxy (orange cloud) also works: the Caddyfile believes `CF-Connecting-IP` only from Cloudflare's published ranges and hands the app that address as `X-Forwarded-For`, so per-address throttles still see each visitor and a direct caller cannot forge one. `X-Forwarded-Host`/`-Proto` are always overwritten, because trusting a range would otherwise pass them through from the caller. The range list is a manual copy: refresh it if Cloudflare changes its ranges. `SITE_DOMAIN` may list several names, comma-separated.
 - **Mail:** a transactional SMTP provider (Postmark, Mailgun, Brevo …) with SPF and DKIM on the sending domain. Mail sent straight from a fresh VPS address goes to spam, and the server's alerts depend on mail. Set `MEZAN_SMTP_*`, `MEZAN_PUBLIC_URL` and `MEZAN_ALERT_EMAIL=bassam.s.zakaria@gmail.com`.
 - **Uptime:** UptimeRobot HTTP(s) monitor on `https://<domain>/readyz`, 5 minutes, keyword `"ready"` (docs/OPERATIONS.md).
+- **Health heartbeat (free, from the VPS):** a healthchecks.io check (period 30 minutes, grace 10 minutes); its URL is `HEALTH_HEARTBEAT_URL` in `/srv/mezan/health.env`. Every 30 minutes `mezan-health.timer` fetches the public `/readyz`: a good answer pings the check, a bad one pings `<url>/fail` (alert now), and no ping at all (the VPS is down) alerts after the grace. Behind Cloudflare's proxy (orange cloud) Bot Fight Mode answers a bare `curl` from a datacenter address with a 403, so every run would alert: keep that hostname DNS only, or Bot Fight Mode off. This check runs on the VPS itself; it does not replace an outside monitor.
 - **Backup heartbeat:** a healthchecks.io check (period 1 hour, grace 2 hours) or an UptimeRobot heartbeat monitor; its URL is `BACKUP_HEARTBEAT_URL`. A missed ping is the alert that backups stopped. The Postgres jobs have one check each: `PG_DUMP_HEARTBEAT_URL` (hourly), `PG_BASE_HEARTBEAT_URL` (daily), `PG_DRILL_HEARTBEAT_URL` (weekly), all in `restic.env`.
 
 ## 3. Object storage
@@ -121,6 +123,17 @@ systemctl daemon-reload && systemctl enable --now mezan-backup.timer mezan-backu
 systemctl start mezan-pg-dump.service mezan-pg-base.service && journalctl -u mezan-pg-dump.service -n 30
 systemctl start mezan-backup.service && journalctl -u mezan-backup.service -n 30
 ```
+
+Then enable the health check:
+
+```
+cp /opt/mezan/monitor/health.env.example /srv/mezan/health.env && chmod 600 /srv/mezan/health.env   # fill in both values
+cp /opt/mezan/monitor/*.service /opt/mezan/monitor/*.timer /etc/systemd/system/
+systemctl daemon-reload && systemctl enable --now mezan-health.timer
+systemctl start mezan-health.service && journalctl -u mezan-health.service -n 20
+```
+
+The check must show **Up** on healthchecks.io afterwards: a check that was never pinged stays **New** and never alerts.
 
 After the first deploy, in a browser: sign in to a tenant, print an invoice and a label sheet, open the owner digest preview, upload an attachment, take an attendance selfie; the browser console must show no `Content-Security-Policy` violation. Check `curl -sI https://<domain>/` carries `strict-transport-security` and `content-security-policy`.
 

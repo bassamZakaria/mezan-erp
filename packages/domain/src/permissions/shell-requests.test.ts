@@ -34,7 +34,8 @@ describe("the subscription request is asked only where subscription billing exis
 
   it("still gates a module request on its module alone", () => {
     expect(planServesShellRequest(LICENCE, ShellRequest.Employees)).toBe(true);
-    expect(planServesShellRequest({ activeModules: ["sales"] }, ShellRequest.Employees)).toBe(false);
+    // The staff list is the free hr.people part: every plan serves it to other modules' pickers.
+    expect(planServesShellRequest({ activeModules: ["sales"] }, ShellRequest.Employees)).toBe(true);
     expect(planServesShellRequest({ activeModules: [] }, ShellRequest.Settings)).toBe(true);
   });
 });

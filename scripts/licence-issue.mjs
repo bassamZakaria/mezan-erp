@@ -74,7 +74,12 @@ if (!args.licensee) fail("--licensee is required (the shop's registered name, in
 if (!args.plan) fail("--plan is required (e.g. CORE, STANDARD, ENTERPRISE).");
 if (!args.expires) fail("--expires is required (YYYY-MM-DD, or an ISO timestamp).");
 
-const modules = list(args.modules);
+// Sub-modules (packages/domain/src/entitlements/sub-modules.ts): a part whose
+// parent is also listed is redundant, and a free part is held by every licence,
+// so neither is written. Keep FREE_PARTS in step with FREE_SUB_MODULES there.
+const FREE_PARTS = new Set(["hr.people"]);
+const requested = [...new Set(list(args.modules))];
+const modules = requested.filter((id) => !FREE_PARTS.has(id) && !(id.includes(".") && requested.includes(id.split(".")[0])));
 if (modules.length === 0) fail("--modules is required: a licence that activates nothing sells nothing.");
 
 const features = {};

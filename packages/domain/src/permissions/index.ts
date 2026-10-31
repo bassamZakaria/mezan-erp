@@ -47,6 +47,9 @@ export {
   isModuleReadOnly,
   entitlementModuleOf,
   licensedModules,
+  licensingIdOf,
+  isPermissionLicensed,
+  isPermissionReadOnly,
   licensedPermissions,
 } from "./module-licensing.js";
 

@@ -35,7 +35,8 @@ describe("what the shell asks for is what the tenant's plan includes", () => {
     }
 
     expect(refusedForTheModule.sort()).toEqual(tenantServed.filter((request) => SHELL_REQUESTS[request].module === "hr").sort());
-    expect(refusedForTheModule.sort()).toEqual([ShellRequest.Employees, ShellRequest.JobTitles].sort());
+    // The staff list and job titles are the free hr.people part: a plan without `hr` still serves them.
+    expect(refusedForTheModule).toEqual([]);
   });
 
   it("is never refused for the module by a request the shell would send, and withholds only what would be", async () => {

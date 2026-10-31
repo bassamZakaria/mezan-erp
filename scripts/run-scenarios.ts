@@ -14,6 +14,7 @@ import { run as shell } from "./scenarios/shell.js";
 import { run as crossModule } from "./scenarios/cross-module.js";
 import { run as seams } from "./scenarios/seams.js";
 import { run as trialFreemium } from "./scenarios/trial-freemium.js";
+import { run as subModules } from "./scenarios/sub-modules.js";
 import { run as eta, vatReturnInputBaseTiesToItsTax_D79, vatReturnOutputBaseTiesToItsTax_D79 } from "./scenarios/eta.js";
 import {
   run as reports,
@@ -97,6 +98,7 @@ const suites: readonly (readonly [string, (ctx: Ctx) => Promise<unknown>])[] = [
   ...fragmentSuites,
   ["branch-dimension", branchDimension],
   ["cross-module", crossModule], ["seams", seams],
+  ["sub-modules", subModules],
   // LAST, and on its own cloud app: it moves the process clock forward six
   // weeks to walk the trial, and restores it when it is done.
   ["trial-freemium", trialFreemium],

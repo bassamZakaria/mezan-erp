@@ -1,5 +1,5 @@
 import type { App } from "@mezan/api";
-import { getPermission, isModuleLicensed, type Entitlements } from "@mezan/domain";
+import { getPermission, isModuleLicensed, isPermissionLicensed, type Entitlements } from "@mezan/domain";
 import type { SeedFragmentContext, SeedPerson, SeedRole } from "./fragments.js";
 import { POS_SEED_FRAGMENTS } from "./pos.js";
 import { ENH_SEED_FRAGMENTS } from "./enh.js";
@@ -23,8 +23,7 @@ export async function seedLicensing(app: App): Promise<SeedLicensing> {
     licensed: (moduleId) => entitlements.activeModules.includes(moduleId),
     grantable: (codes) =>
       codes.filter((code) => {
-        const moduleId = getPermission(code)?.module;
-        return moduleId === undefined || isModuleLicensed(moduleId, entitlements);
+        return getPermission(code) === undefined || isPermissionLicensed(code, entitlements);
       }),
   };
 }

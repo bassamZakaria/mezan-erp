@@ -11,5 +11,6 @@ export {
   type EntitlementsView,
   type EntitlementLimits,
 } from "./entitlements.js";
-export { hasReadOnlyModule, type EntitlementModuleTrial } from "./entitlements.js";
+export { hasAnyPartOf, hasReadOnlyModule, heldModuleIds, type EntitlementModuleTrial } from "./entitlements.js";
+export { FREE_SUB_MODULES, HrSubModule, SUB_MODULES, SUB_MODULE_NAMES, isSubModule, parentOf } from "./sub-modules.js";
 export { MODULE_NAME_AR, moduleNotLicensedMessageAr } from "./module-refusal.js";

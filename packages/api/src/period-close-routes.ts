@@ -69,11 +69,11 @@ export interface PeriodCloseScope {
   readonly payrollEntitled: boolean;
 }
 
-const HR_MODULE = "hr";
+const PAYROLL_PART = "hr.payroll";
 
 export function periodCloseScopeOf(c: Context): PeriodCloseScope {
   const entitlements = c.get("entitlements");
-  return { payrollEntitled: entitlements ? hasModule(entitlements, HR_MODULE) : true };
+  return { payrollEntitled: entitlements ? hasModule(entitlements, PAYROLL_PART) : true };
 }
 
 export interface PeriodCloseGuard {

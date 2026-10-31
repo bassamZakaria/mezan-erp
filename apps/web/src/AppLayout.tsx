@@ -2,7 +2,7 @@ import { Suspense, useCallback, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Navigate, Outlet, useLocation, useNavigate, useNavigation as useRouterNavigation } from "react-router";
 import { AppShell, SkeletonTable, cn, filterNavGroups, isNavItemVisible, navGroupItems, type NavGroup, type NavItem } from "@mezan/ui";
-import { ALL_SCOPE, ShellRequest, moduleNotLicensedMessageAr, type UserStatusCode } from "@mezan/domain";
+import { ALL_SCOPE, ShellRequest, heldModuleIds, moduleNotLicensedMessageAr, type UserStatusCode } from "@mezan/domain";
 import { BranchRestrictedAccess, type BranchDTO, type EraseUserDTO, type RoleDTO, type ScopeSelectionDTO } from "@mezan/contracts";
 import { TenantPreferences } from "./settings/TenantPreferences";
 
@@ -312,7 +312,7 @@ function AppLayoutBody() {
      */
     const permitted = filterNavGroups(buildNavGroups(t), {
       permissions: session?.permissions ?? EMPTY,
-      activeModules: entitlements?.activeModules ?? null,
+      activeModules: entitlements ? heldModuleIds(entitlements) : null,
     });
     const inEdition = withoutScreensThisEditionLacks(permitted, entitlements ?? null);
     const visible = branchRestricted ? withoutBranchUnavailable(inEdition) : inEdition;

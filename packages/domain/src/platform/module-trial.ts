@@ -1,3 +1,4 @@
+import { isSubModule } from "../entitlements/sub-modules.js";
 import { isKnownModule, moduleName } from "./module-catalog.js";
 import { addDays } from "./subscription.js";
 import { isoTimestamp } from "./validation.js";
@@ -47,6 +48,9 @@ export async function startModuleTrial(cmd: StartModuleTrialCommand, repo: Modul
   if (!now) throw new InvalidSubscriptionError(["الطابع الزمني الحالي غير صالح (يجب أن يكون بصيغة ISO-8601)"]);
   if (!isKnownModule(cmd.module)) {
     throw new ModuleTrialUnavailableError(cmd.module, `الوحدة "${cmd.module}" غير معروفة`, `Unknown module "${cmd.module}"`);
+  }
+  if (isSubModule(cmd.module)) {
+    throw new ModuleTrialUnavailableError(cmd.module, "التجربة متاحة للوحدة كاملة فقط", "A trial covers a whole module only");
   }
   const name = moduleName(cmd.module);
   const previous = (await repo.listByTenant(cmd.tenantId)).find((t) => t.module === cmd.module);

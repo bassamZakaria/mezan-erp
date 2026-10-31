@@ -29,6 +29,7 @@
 import type { PermissionRow } from "./fragment.js";
 import { POS_PERMISSION_MODULES, POS_PERMISSION_ROWS } from "../pos/permissions.js";
 import { ENH_PERMISSION_MODULES, ENH_PERMISSION_ROWS } from "../enh/permissions.js";
+import { hrSubModuleOf } from "./hr-sub-modules.js";
 
 /** The three-tier visibility model: own records / all-in-branch / all-cross-branch. */
 export type VisibilityTier = "view" | "view_own" | "view_all";
@@ -38,6 +39,8 @@ export interface PermissionDef {
   readonly code: string;
   /** Owning module id (first dotted segment). */
   readonly module: string;
+  /** Licensable part of `module` this code needs (sub-modules.ts), or null when the whole module licenses it. */
+  readonly subModule: string | null;
   /** Prerequisite permission codes implied when this one is granted. */
   readonly deps: readonly string[];
   /** ⚠ sensitive metadata — distinct UI treatment + audit weight. */
@@ -438,6 +441,7 @@ function expand(row: Row): PermissionDef {
   return {
     code,
     module: moduleId,
+    subModule: hrSubModuleOf(code),
     deps,
     sensitive: flags === "s" || flags === "sp",
     platformAdminOnly: flags === "p" || flags === "sp",

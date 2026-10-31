@@ -1,3 +1,4 @@
+import { FREE_SUB_MODULES, parentOf } from "../entitlements/sub-modules.js";
 import { Money } from "../money/money.js";
 import { isKnownModule } from "./module-catalog.js";
 import { isValidSlug } from "./slug.js";
@@ -81,6 +82,19 @@ export function dedupeModules(modules: readonly string[]): string[] {
   return [...new Set(modules)];
 }
 
+/**
+ * What a plan or licence stores: unique ids, no part whose parent is also
+ * listed (the parent already grants it), no free part (every plan holds it).
+ */
+export function normaliseModules(modules: readonly string[]): string[] {
+  const unique = dedupeModules(modules);
+  return unique.filter((id) => {
+    if (FREE_SUB_MODULES.has(id)) return false;
+    const parent = parentOf(id);
+    return parent === null || !unique.includes(parent);
+  });
+}
+
 export function normalizeQuotas(quotas: PlanQuotas | undefined): PlanQuotas {
   const out: Partial<Record<QuotaKind, number>> = {};
   for (const kind of QUOTA_KINDS) {
@@ -144,7 +158,7 @@ export async function createPlan(cmd: CreatePlanCommand, repo: PlanRepository): 
     nameAr: cmd.nameAr.trim(),
     nameEn: cmd.nameEn.trim(),
     kind: cmd.kind ?? PlanKind.Paid,
-    modules: dedupeModules(cmd.modules),
+    modules: normaliseModules(cmd.modules),
     features: { ...(cmd.features ?? {}) },
     seatsIncluded: cmd.seatsIncluded,
     branchesIncluded: cmd.branchesIncluded,
@@ -181,7 +195,7 @@ export async function updatePlan(
     nameAr: (cmd.nameAr ?? current.nameAr).trim(),
     nameEn: (cmd.nameEn ?? current.nameEn).trim(),
     kind: cmd.kind ?? current.kind,
-    modules: dedupeModules(cmd.modules ?? current.modules),
+    modules: normaliseModules(cmd.modules ?? current.modules),
     features: { ...(cmd.features ?? current.features) },
     seatsIncluded: cmd.seatsIncluded ?? current.seatsIncluded,
     branchesIncluded: cmd.branchesIncluded ?? current.branchesIncluded,

@@ -1,4 +1,4 @@
-import { getPermission, isKnownPermission, isModuleLicensed, withAttachmentPermissions, type Entitlements, type Role, type UnitOfWork } from "@mezan/domain";
+import { getPermission, isKnownPermission, isModuleLicensed, isPermissionLicensed, withAttachmentPermissions, type Entitlements, type Role, type UnitOfWork } from "@mezan/domain";
 import { seededRoles } from "./demo-seed/access.js";
 
 const STANDARD_ROLE_ID_PREFIX = "ROLE-STD-";
@@ -17,8 +17,7 @@ export async function ensureStandardRoles(uow: UnitOfWork, entitlements: Entitle
   const grantable = (codes: readonly string[]): string[] =>
     codes.filter((code) => {
       if (!isKnownPermission(code)) return false;
-      const moduleId = getPermission(code)?.module;
-      return moduleId === undefined || isModuleLicensed(moduleId, entitlements);
+      return getPermission(code) === undefined || isPermissionLicensed(code, entitlements);
     });
   const created: string[] = [];
   for (const definition of seededRoles({ licensed: (moduleId) => isModuleLicensed(moduleId, entitlements), grantable })) {

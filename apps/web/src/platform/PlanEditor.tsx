@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button, Field, TextInput } from "@mezan/ui";
-import { MODULE_CATALOG } from "@mezan/domain";
+import { MODULE_CATALOG, isSubModule, normaliseModules } from "@mezan/domain";
 import type {
   PlanCreateRequestDTO,
   PlanDTO,
@@ -21,7 +21,7 @@ import {
   TextField,
   ToggleField,
 } from "../settings/form-controls";
-import { platformModuleOptions } from "./module-options";
+import { hrPartOptions, platformModuleOptions } from "./module-options";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { PlatformApiError, readPlatformErrorMessage, usePlatformApi } from "./api";
 import { PLANS_QUERY_KEY, usePlansQuery, useRetirePlan } from "./PlansPage";
@@ -203,7 +203,7 @@ export function PlanEditor() {
     const shared = {
       nameAr: draft.nameAr.trim(),
       nameEn: draft.nameEn.trim(),
-      modules: draft.modules,
+      modules: normaliseModules(draft.modules),
       seatsIncluded: draft.seatsIncluded,
       branchesIncluded: draft.branchesIncluded,
       warehousesIncluded: draft.warehousesIncluded,
@@ -406,6 +406,18 @@ export function PlanEditor() {
             disabled={readOnly}
             onChange={(v) => setDraft((d) => ({ ...d, modules: v }))}
           />
+          {draft.modules.includes("hr") ? (
+            <p className="text-[12px] text-ink-muted">{t("platform.plans.editor.hrAllParts")}</p>
+          ) : (
+            <MultiChipField
+              label={t("platform.plans.editor.field.hrParts")}
+              options={hrPartOptions()}
+              value={draft.modules.filter((id) => isSubModule(id))}
+              disabled={readOnly}
+              onChange={(parts) => setDraft((d) => ({ ...d, modules: [...d.modules.filter((id) => !isSubModule(id)), ...parts] }))}
+            />
+          )}
+          <p className="text-[12px] text-ink-muted">{t("platform.plans.editor.hrPeopleFree")}</p>
           {!readOnly ? (
             <div className="flex flex-wrap gap-[8px]">
               <Button type="button" size="sm" variant="ghost" onClick={() => setDraft((d) => ({ ...d, modules: [...MODULE_CATALOG] }))}>

@@ -6178,7 +6178,7 @@ async function composeBackend(options: CreateBackendOptions, db: SqlDb, sqlite: 
             numbering: ledger.numbering,
             transactor: configTransactor,
             generateId: () => randomUUID(),
-            allowed: () => (options.entitlements ? hasModule(options.entitlements, "hr") : true),
+            allowed: () => (options.entitlements ? hasModule(options.entitlements, "hr.time") : true),
           }),
           createCrmReminderJob(
             createCrmReminderService({

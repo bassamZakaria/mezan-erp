@@ -87,7 +87,8 @@ describe("saveRole", () => {
           code: "X",
           name: "x",
           description: "",
-          permissions: ["hr.employee.view"],
+          // Payroll is a paid HR part; the staff list (hr.employee.view) is free and grantable everywhere.
+          permissions: ["hr.payroll.view"],
           createdAt: "2026-08-08T00:00:00.000Z",
         },
         uow,
@@ -95,6 +96,21 @@ describe("saveRole", () => {
         TENANT_ADMIN,
       ),
     ).rejects.toBeInstanceOf(UnlicensedPermissionError);
+  });
+
+  it("grants the free HR staff list on a plan without HR, and a sold HR part on its own", async () => {
+    const plan = (activeModules: string[]) => createEntitlements({ plan: "STANDARD", activeModules, features: {}, seats: 5, expiresAt: null });
+    const role = (id: string, permissions: string[]) => ({ id, code: id, name: id, description: "", permissions, createdAt: "2026-08-08T00:00:00.000Z" });
+    await expect(saveRole(role("REP", ["sales.invoice.view", "hr.employee.view"]), createFakeUow(), plan(["sales"]), TENANT_ADMIN)).resolves.toBeDefined();
+    await expect(saveRole(role("TIME", ["hr.attendance.view"]), createFakeUow(), plan(["sales", "hr.time"]), TENANT_ADMIN)).resolves.toBeDefined();
+    await expect(saveRole(role("PAY", ["hr.payroll.view"]), createFakeUow(), plan(["sales", "hr.time"]), TENANT_ADMIN)).rejects.toBeInstanceOf(UnlicensedPermissionError);
+  });
+
+  it("mints the wildcard on a plan that sells only an HR part, never on the free part alone", async () => {
+    const plan = (activeModules: string[]) => createEntitlements({ plan: "STANDARD", activeModules, features: {}, seats: 5, expiresAt: null });
+    const admin = (id: string) => ({ id, code: id, name: id, description: "", permissions: ["*"], createdAt: "2026-08-08T00:00:00.000Z" });
+    await expect(saveRole(admin("ADM"), createFakeUow(), plan(["hr.time"]), TENANT_ADMIN)).resolves.toBeDefined();
+    await expect(saveRole(admin("NOPE"), createFakeUow(), plan(["hr.people"]), TENANT_ADMIN)).rejects.toBeInstanceOf(UnlicensedPermissionError);
   });
 
   it("rejects a duplicate role code on create", async () => {

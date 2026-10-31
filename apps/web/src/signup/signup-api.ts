@@ -10,6 +10,7 @@ import {
 } from "@mezan/contracts";
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { createHttpTransport } from "../data/transport";
+import { serverMessage, type ServerErrorBody } from "../data/server-message";
 
 /**
  * The signup flow's own tiny transport. It talks to `/api/signup` directly —
@@ -37,8 +38,8 @@ export class SignupApiError extends Error {
 
 async function readError(res: Awaited<ReturnType<typeof transport>>, fallback: string): Promise<SignupApiError> {
   try {
-    const body = await res.json<{ message?: string; error?: string }>();
-    return new SignupApiError(res.status, body.message ?? fallback, body.error ?? null);
+    const body = await res.json<ServerErrorBody>();
+    return new SignupApiError(res.status, serverMessage(body) ?? fallback, body.error ?? null);
   } catch {
     return new SignupApiError(res.status, fallback);
   }

@@ -75,10 +75,10 @@ describe("module refusal reaches the bound reporter", () => {
     app.use("*", entitlementsBinding(() => entitlements));
     if (gateAny) {
       const gate = createAnyPermissionGate(() => ctx);
-      app.get("/hr", gate("hr.employee.view", "hr.employee.create"), (c) => c.json({ ok: true }));
+      app.get("/hr", gate("hr.payroll.view", "hr.payroll.create"), (c) => c.json({ ok: true }));
     } else {
       const gate = createPermissionGate(() => ctx);
-      app.get("/hr", gate("hr.employee.view"), (c) => c.json({ ok: true }));
+      app.get("/hr", gate("hr.payroll.view"), (c) => c.json({ ok: true }));
     }
     return { app, report };
   }
@@ -87,9 +87,9 @@ describe("module refusal reaches the bound reporter", () => {
     const { app, report } = appFor(false);
     const res = await app.fetch(new Request("http://x/hr"));
     expect(res.status).toBe(403);
-    expect(await res.json()).toMatchObject({ error: "MODULE_NOT_LICENSED", module: "hr" });
+    expect(await res.json()).toMatchObject({ error: "MODULE_NOT_LICENSED", module: "hr.payroll" });
     expect(report).toHaveBeenCalledWith(
-      expect.objectContaining({ userId: "u1", permission: "hr.employee.view", path: "/hr" }),
+      expect.objectContaining({ userId: "u1", permission: "hr.payroll.view", path: "/hr" }),
     );
   });
 
@@ -97,9 +97,9 @@ describe("module refusal reaches the bound reporter", () => {
     const { app, report } = appFor(true);
     const res = await app.fetch(new Request("http://x/hr"));
     expect(res.status).toBe(403);
-    expect(await res.json()).toMatchObject({ error: "MODULE_NOT_LICENSED", module: "hr" });
+    expect(await res.json()).toMatchObject({ error: "MODULE_NOT_LICENSED", module: "hr.payroll" });
     expect(report).toHaveBeenCalledWith(
-      expect.objectContaining({ userId: "u1", permission: "hr.employee.view", path: "/hr" }),
+      expect.objectContaining({ userId: "u1", permission: "hr.payroll.view", path: "/hr" }),
     );
   });
 });

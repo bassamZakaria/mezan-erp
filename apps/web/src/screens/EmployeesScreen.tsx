@@ -1,6 +1,7 @@
 import { useCountPhrase } from "../lib/count-phrase";
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
-import { Money, ArabicCase, CountedNoun } from "@mezan/domain";
+import { Money, ArabicCase, CountedNoun, HrSubModule } from "@mezan/domain";
+import { planHoldsPart } from "../data/plan-modules";
 import {
   RowActionOutcome,
   Button,
@@ -39,6 +40,7 @@ import {
   useLeaveRequests,
   useRehireEmployee,
   useUpdateEmployee,
+  useEntitlements,
 } from "../data/hooks";
 import { useEmployeeAdvances, useEmployeePayslips, useEndOfServiceSettlement, usePayrollStatutoryFlag } from "../data/hr-payroll-hooks";
 import { ATTENDANCE_STATUS_KEY, LEAVE_STATUS_KEY, LEAVE_STATUS_TONE, LEAVE_TYPE_KEY } from "./hr-leave-labels";
@@ -379,6 +381,17 @@ enum TerminationPanelMode {
   Correct = "correct",
 }
 
+/** Employee-page tabs that belong to a paid HR part; any other tab is the free staff list's. */
+const DETAIL_TAB_PART: Readonly<Record<string, HrSubModule>> = {
+  contract: HrSubModule.Contracts,
+  leave: HrSubModule.Time,
+  attendance: HrSubModule.Time,
+  payslips: HrSubModule.Payroll,
+  advances: HrSubModule.Payroll,
+  "salary-payment": HrSubModule.Payroll,
+  "end-of-service": HrSubModule.Payroll,
+};
+
 export function EmployeesScreen() {
   const { t, locale } = useAppTranslation();
   const countPhrase = useCountPhrase();
@@ -392,6 +405,11 @@ export function EmployeesScreen() {
   const transitionEmployee = useTransitionEmployee();
   const terminateEmployee = useTerminateEmployee();
   const correctTerminationDate = useCorrectTerminationDate();
+  // HR parts this plan holds (sub-modules): the staff list is free, the rest is per part.
+  const entitlementsQuery = useEntitlements();
+  const hasContracts = planHoldsPart(entitlementsQuery, HrSubModule.Contracts);
+  const hasTime = planHoldsPart(entitlementsQuery, HrSubModule.Time);
+  const hasPayroll = planHoldsPart(entitlementsQuery, HrSubModule.Payroll);
 
   const employees = query.data ?? EMPTY;
   const departments = departmentsQuery.data ?? [];
@@ -663,10 +681,10 @@ export function EmployeesScreen() {
     { key: "department", header: t("employees.department"), render: (e) => departmentName(e.departmentId) },
     { key: "jobTitle", header: t("employees.jobTitle"), render: (e) => jobTitleName(e.jobTitleId) },
     { key: "branch", header: t("employees.branchColumn"), render: (e) => branchName(e.branchId) },
-    {
-      key: "contract",
+    ...(!hasContracts ? [] : [{
+      key: "contract" as const,
       header: t("employees.contract"),
-      render: (e) => {
+      render: (e: EmployeeDTO) => {
         const contract = activeContractByEmployee.get(e.id);
         if (!contract) return <span className="text-ink-faint">{t("employees.noActiveContract")}</span>;
         return (
@@ -677,7 +695,7 @@ export function EmployeesScreen() {
           </span>
         );
       },
-    },
+    }]),
     { key: "hireDate", header: t("employees.hireDate"), render: (e) => <span className="mz-num">{e.hireDate}</span> },
     { key: "status", header: t("common.status"), render: (e) => <StatusPill label={t(STATUS_KEY[e.status])} tone={STATUS_TONE[e.status]} /> },
   ];
@@ -724,7 +742,7 @@ export function EmployeesScreen() {
     </SidePanel>
   );
 
-  const detailTabs: DocumentDetailTab[] = selected
+  const detailTabs: DocumentDetailTab[] = (selected
     ? [
         {
           key: "personal",
@@ -755,32 +773,42 @@ export function EmployeesScreen() {
                 <dt className="text-ink-faint">{t("employees.priorYearsOfService")}</dt>
                 <dd className="mz-num text-ink">{selected.priorServiceYears}</dd>
               </div>
+              {hasPayroll ? (
               <div>
                 <dt className="text-ink-faint">{t("employees.pensionEntitlement")}</dt>
                 <dd className="text-ink">
                   <PensionEntitlementControl employeeId={selected.id} value={selected.hasPensionEntitlement} />
                 </dd>
               </div>
+              ) : null}
+              {hasTime ? (
               <div>
                 <dt className="text-ink-faint">{t("employees.deviceBadgeId")}</dt>
                 <dd className="text-ink">
                   <DeviceBadgeControl employeeId={selected.id} value={selected.deviceBadgeId} />
                 </dd>
               </div>
+              ) : null}
+              {hasTime ? (
               <div>
                 <dt className="text-ink-faint">{t("self.clockDevice")}</dt>
                 <dd className="text-ink">
                   <ClockDeviceControl employeeId={selected.id} />
                 </dd>
               </div>
+              ) : null}
+              {hasPayroll ? (
               <div>
                 <dt className="text-ink-faint">{t("employees.taxDisabilityExemption")}</dt>
                 <dd className="text-ink">{selected.taxDisabilityExemption ? t("employees.yes") : t("employees.no")}</dd>
               </div>
+              ) : null}
+              {hasTime ? (
               <div>
                 <dt className="text-ink-faint">{t("employees.overtimeCalculation")}</dt>
                 <dd className="text-ink">{t(OVERTIME_KEY[selected.overtimeEligibility])}</dd>
               </div>
+              ) : null}
               <div>
                 <dt className="text-ink-faint">{t("employees.workerCategory")}</dt>
                 <dd className="text-ink">{t(WORKER_CATEGORY_KEY[selected.workerCategory])}</dd>
@@ -1023,7 +1051,11 @@ export function EmployeesScreen() {
             ]
           : []),
       ]
-    : [];
+    : []
+  ).filter((tab) => {
+    const part = DETAIL_TAB_PART[tab.key];
+    return part === undefined || (part === HrSubModule.Contracts ? hasContracts : part === HrSubModule.Time ? hasTime : hasPayroll);
+  });
 
   const createPage = (
     <div className="w-full">
@@ -1100,18 +1132,22 @@ export function EmployeesScreen() {
               onChange={(v) => setDraft((d) => ({ ...d, employmentType: v as "full_time" | "part_time" }))}
               options={[{ value: "full_time", label: t("employees.fullTime") }, { value: "part_time", label: t("employees.partTime") }]}
             />
+            {hasTime ? (
             <SelectField
               label={t("employees.overtimeCalculation")}
               value={draft.overtimeEligibility}
               onChange={(v) => setDraft((d) => ({ ...d, overtimeEligibility: v as OvertimeEligibilityDTO }))}
               options={(Object.keys(OVERTIME_KEY) as OvertimeEligibilityDTO[]).map((o) => ({ value: o, label: t(OVERTIME_KEY[o]) }))}
             />
+            ) : null}
+            {hasTime ? (
             <NumberField
               label={t("employees.standardWorkingHours")}
               value={draft.standardWorkHours ?? Number.NaN}
               onChange={(v) => setDraft((d) => ({ ...d, standardWorkHours: Number.isNaN(v) ? null : v }))}
               hint={t("employees.byDepartmentCompany")}
             />
+            ) : null}
             <TextField label={t("employees.probationEndDate")} value={draft.probationEndDate} onChange={(v) => setDraft((d) => ({ ...d, probationEndDate: v }))} placeholder="YYYY-MM-DD" />
             <NumberField
               label={t("employees.priorYearsOfService")}
@@ -1120,22 +1156,29 @@ export function EmployeesScreen() {
               onChange={(v) => setDraft((d) => ({ ...d, priorServiceYears: Number.isNaN(v) ? 0 : v }))}
               hint={t("employees.usedToCalculateTheSeniority")}
             />
+            {hasTime ? (
             <ToggleField
               label={t("employees.requireAPhotoWhenClocking")}
               checked={draft.requireSelfieAtClockIn}
               onChange={(v) => setDraft((d) => ({ ...d, requireSelfieAtClockIn: v }))}
             />
+            ) : null}
+            {hasTime ? (
             <ToggleField
               label={t("employees.requireFingerprintVerificationWhenClocking")}
               checked={draft.requireBiometricAtClockIn}
               onChange={(v) => setDraft((d) => ({ ...d, requireBiometricAtClockIn: v }))}
             />
+            ) : null}
+            {hasTime ? (
             <TextField
               label={t("employees.deviceBadgeId")}
               value={draft.deviceBadgeId}
               onChange={(v) => setDraft((d) => ({ ...d, deviceBadgeId: v }))}
               hint={t("employees.deviceBadgeIdHint")}
             />
+            ) : null}
+            {hasPayroll ? (
             <SelectField
               label={t("employees.pensionEntitlement")}
               value={draft.hasPensionEntitlement}
@@ -1147,11 +1190,14 @@ export function EmployeesScreen() {
               ]}
               hint={t("employees.pensionEntitlementHint")}
             />
+            ) : null}
+            {hasPayroll ? (
             <ToggleField
               label={t("employees.taxDisabilityExemption")}
               checked={draft.taxDisabilityExemption}
               onChange={(v) => setDraft((d) => ({ ...d, taxDisabilityExemption: v }))}
             />
+            ) : null}
   
             <h3 className="mt-[6px] border-t border-border pt-[12px] font-display text-[13px] font-bold text-ink md:col-span-2">{t("employees.address")}</h3>
             <TextField label={t("employees.street")} value={draft.street} onChange={(v) => setDraft((d) => ({ ...d, street: v }))} />

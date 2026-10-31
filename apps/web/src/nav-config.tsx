@@ -1,5 +1,5 @@
 import { modKeyLabel, type CommandItem, type NavGroup, type NavItem } from "@mezan/ui";
-import { ShellRequest, isModuleLicensed, isModuleReadOnly, planServesShellRequest, type Entitlements, type ModuleId } from "@mezan/domain";
+import { HrSubModule, ShellRequest, isModuleLicensed, isModuleReadOnly, planServesShellRequest, type Entitlements, type LicensableId, type ModuleId } from "@mezan/domain";
 import type { AppTranslationKey } from "./i18n";
 import { navGroupIcon, navItemIcon } from "./nav-icons";
 import { applyNavFragments, type NavFragment, type NavGroupSpec, type NavItemAccess } from "./fragments";
@@ -313,13 +313,43 @@ const GROUP_MODULE: Readonly<Partial<Record<string, ModuleId>>> = Object.assign(
   ...NAV_FRAGMENTS.map((f) => f.groupModules ?? {}),
 );
 
+/** HR screens are licensed by part (domain entitlements/sub-modules.ts), not by the whole `hr` module. */
+const HR_ITEM_PART: Readonly<Record<string, LicensableId>> = {
+  "hr-dashboard": HrSubModule.People,
+  employees: HrSubModule.People,
+  departments: HrSubModule.People,
+  "job-titles": HrSubModule.People,
+  "report-headcount-movement": HrSubModule.People,
+  contracts: HrSubModule.Contracts,
+  attendance: HrSubModule.Time,
+  holidays: HrSubModule.Time,
+  "leave-requests": HrSubModule.Time,
+  "leave-balances": HrSubModule.Time,
+  "leave-accrual-batches": HrSubModule.Time,
+  "leave-policies": HrSubModule.Time,
+  "report-attendance-summary": HrSubModule.Time,
+  "report-leave-liability": HrSubModule.Time,
+  payroll: HrSubModule.Payroll,
+  advances: HrSubModule.Payroll,
+  "payroll-components": HrSubModule.Payroll,
+  garnishments: HrSubModule.Payroll,
+  "payroll-statutory": HrSubModule.Payroll,
+  "report-payroll-register": HrSubModule.Payroll,
+  "report-social-insurance": HrSubModule.Payroll,
+  "report-salary-tax": HrSubModule.Payroll,
+  "my-leave": HrSubModule.Self,
+  "my-attendance": HrSubModule.Self,
+  "my-payslips": HrSubModule.Self,
+  "my-advances": HrSubModule.Self,
+};
+
 /** Per-item overrides for a screen whose module differs from its group's — الأوراق المالية sits on the treasury shelf but is its own licensable module. */
-const ITEM_MODULE_OVERRIDE: Readonly<Partial<Record<string, ModuleId>>> = Object.assign(
-  { cheques: "financial_papers" },
+const ITEM_MODULE_OVERRIDE: Readonly<Partial<Record<string, LicensableId>>> = Object.assign(
+  { cheques: "financial_papers", ...HR_ITEM_PART },
   ...NAV_FRAGMENTS.map((f) => f.itemModules ?? {}),
 );
 
-function moduleForNavItem(groupKey: string, itemKey: string): ModuleId | undefined {
+function moduleForNavItem(groupKey: string, itemKey: string): LicensableId | undefined {
   return ITEM_MODULE_OVERRIDE[itemKey] ?? GROUP_MODULE[groupKey];
 }
 
@@ -330,12 +360,12 @@ function moduleForNavItem(groupKey: string, itemKey: string): ModuleId | undefin
  * means "still loading" and returns `groups` untouched: filtering on a `null`
  * would flash the whole rail empty for an instant on every load.
  */
-export function moduleForScreen(screenKey: string): ModuleId | undefined {
+export function moduleForScreen(screenKey: string): LicensableId | undefined {
   const group = navGroupSpecs.find((spec) => spec.itemKeys.includes(screenKey) || (spec.sections ?? []).some((section) => section.itemKeys.includes(screenKey)));
-  return (group ? moduleForNavItem(group.key, screenKey) : undefined) ?? (NAV_ITEM_ACCESS[screenKey]?.module as ModuleId | undefined);
+  return (group ? moduleForNavItem(group.key, screenKey) : undefined) ?? (NAV_ITEM_ACCESS[screenKey]?.module as LicensableId | undefined);
 }
 
-export function moduleOutsideLicence(screenKey: string, entitlements: Entitlements | null): ModuleId | null {
+export function moduleOutsideLicence(screenKey: string, entitlements: Entitlements | null): LicensableId | null {
   if (!entitlements) return null;
   const moduleId = moduleForScreen(screenKey);
   return moduleId !== undefined && !isModuleLicensed(moduleId, entitlements) && !isModuleReadOnly(moduleId, entitlements) ? moduleId : null;
@@ -502,32 +532,32 @@ const CORE_NAV_ITEM_ACCESS: Readonly<Record<string, NavItemAccess>> = {
   "tax-simplified-regime": { permission: "admin.settings.view" },
   "report-simplified-regime-comparison": { permission: "admin.settings.view" },
 
-  "hr-dashboard": { permission: "hr.employee.view", module: "hr" },
-  employees: { permission: "hr.employee.view", module: "hr" },
-  departments: { permission: "hr.department.view", module: "hr" },
-  "job-titles": { permission: "hr.job_title.view", module: "hr" },
-  contracts: { permission: "hr.contract.view", module: "hr" },
-  attendance: { permission: "hr.attendance.view", module: "hr" },
-  holidays: { permission: "hr.leave_policy.view", module: "hr" },
-  "leave-requests": { permission: "hr.leave.view", module: "hr" },
-  "leave-balances": { permission: "hr.leave.view", module: "hr" },
-  "leave-accrual-batches": { permission: "hr.leave_accrual.run", module: "hr" },
-  "my-leave": { permission: "hr.self.leave", module: "hr" },
-  "my-attendance": { permission: "hr.self.attendance", module: "hr" },
-  "my-payslips": { permission: "hr.self.payslip", module: "hr" },
-  "my-advances": { permission: "hr.self.advance", module: "hr" },
-  payroll: { permission: "hr.payroll.view", module: "hr" },
-  advances: { permission: "hr.advance.view", module: "hr" },
-  "leave-policies": { permission: "hr.leave_policy.view", module: "hr" },
-  "payroll-components": { permission: "hr.payroll.view", module: "hr" },
-  garnishments: { permission: "hr.payroll.view", module: "hr" },
-  "report-payroll-register": { permission: "hr.payroll.view", module: "hr" },
-  "payroll-statutory": { permission: "hr.payroll.view", module: "hr" },
-  "report-social-insurance": { permission: "hr.payroll.view", module: "hr" },
-  "report-salary-tax": { permission: "hr.payroll.view", module: "hr" },
-  "report-attendance-summary": { permission: "hr.attendance.view", module: "hr" },
-  "report-leave-liability": { permission: "hr.leave.view", module: "hr" },
-  "report-headcount-movement": { permission: "hr.employee.view", module: "hr" },
+  "hr-dashboard": { permission: "hr.employee.view", module: HrSubModule.People },
+  employees: { permission: "hr.employee.view", module: HrSubModule.People },
+  departments: { permission: "hr.department.view", module: HrSubModule.People },
+  "job-titles": { permission: "hr.job_title.view", module: HrSubModule.People },
+  contracts: { permission: "hr.contract.view", module: HrSubModule.Contracts },
+  attendance: { permission: "hr.attendance.view", module: HrSubModule.Time },
+  holidays: { permission: "hr.leave_policy.view", module: HrSubModule.Time },
+  "leave-requests": { permission: "hr.leave.view", module: HrSubModule.Time },
+  "leave-balances": { permission: "hr.leave.view", module: HrSubModule.Time },
+  "leave-accrual-batches": { permission: "hr.leave_accrual.run", module: HrSubModule.Time },
+  "my-leave": { permission: "hr.self.leave", module: HrSubModule.Self },
+  "my-attendance": { permission: "hr.self.attendance", module: HrSubModule.Self },
+  "my-payslips": { permission: "hr.self.payslip", module: HrSubModule.Self },
+  "my-advances": { permission: "hr.self.advance", module: HrSubModule.Self },
+  payroll: { permission: "hr.payroll.view", module: HrSubModule.Payroll },
+  advances: { permission: "hr.advance.view", module: HrSubModule.Payroll },
+  "leave-policies": { permission: "hr.leave_policy.view", module: HrSubModule.Time },
+  "payroll-components": { permission: "hr.payroll.view", module: HrSubModule.Payroll },
+  garnishments: { permission: "hr.payroll.view", module: HrSubModule.Payroll },
+  "report-payroll-register": { permission: "hr.payroll.view", module: HrSubModule.Payroll },
+  "payroll-statutory": { permission: "hr.payroll.view", module: HrSubModule.Payroll },
+  "report-social-insurance": { permission: "hr.payroll.view", module: HrSubModule.Payroll },
+  "report-salary-tax": { permission: "hr.payroll.view", module: HrSubModule.Payroll },
+  "report-attendance-summary": { permission: "hr.attendance.view", module: HrSubModule.Time },
+  "report-leave-liability": { permission: "hr.leave.view", module: HrSubModule.Time },
+  "report-headcount-movement": { permission: "hr.employee.view", module: HrSubModule.People },
 
   "assets-hub": { permission: "assets.view", module: "assets" },
   "asset-register": { permission: "assets.view", module: "assets" },

@@ -64,6 +64,16 @@ export function hasReadOnlyModule(ent: Pick<Entitlements, "activeModules" | "rea
   return readOnly.includes(module) || (parent !== null && readOnly.includes(parent));
 }
 
+/**
+ * Every id the entitlements grant: the listed ones plus each part they imply
+ * (a listed parent's parts, every free part). For a consumer that can only
+ * test list membership, such as the shell's nav filter.
+ */
+export function heldModuleIds(ent: Pick<Entitlements, "activeModules">): string[] {
+  const parts = Object.values(SUB_MODULES).flat().filter((part) => hasModule(ent, part));
+  return [...new Set([...ent.activeModules, ...parts])];
+}
+
 /** True when the parent or any of its parts is held — for showing a module's menu, never for a write gate. */
 export function hasAnyPartOf(ent: Pick<Entitlements, "activeModules">, parent: string): boolean {
   return hasModule(ent, parent) || (SUB_MODULES[parent] ?? []).some((part) => hasModule(ent, part));

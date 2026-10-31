@@ -3,7 +3,7 @@
 One Ubuntu VPS running Docker Compose: the `mezan` app container, a `postgres:17.6` container holding the books, and a stock `caddy:2` in front. CI builds the image; the VPS only pulls it.
 
 ```
-internet ─▶ :80/:443 Caddy (TLS, security headers, x-mezan-origin) ─▶ mezan:8080 (compose network only)
+internet ─▶ :80/:443 Caddy (TLS, security headers, x-mezan-origin) ─▶ mezan:9090 (compose network only)
                                                                          │
                          /srv/mezan/data  ◀──────────────────────────────┤  (keys, exports, backups/)
                                │                  mezan-postgres:5432 ◀──┘  (db network only; data in /srv/mezan/pg/data)
@@ -170,15 +170,23 @@ If the new tag never gets ready it **always** moves what the failed version wrot
 
 The server's own shutdown budget is 75 s (`apps/server/src/process-lifecycle.ts`); if a backup run takes longer the process exits 1 with the marker left behind and `deploy.sh` refuses. Wait a minute, `docker compose start mezan`, and deploy again.
 
+**App port 9090 (changed from 8080).** An automatic deploy changes only the image, and `/opt/mezan/docker-compose.yml` pins `PORT`, so a box keeps 8080 until its files are updated, and `deploy.sh` cannot see a Caddy/app port mismatch (its healthcheck runs inside the container). Switch a box in a quiet hour, all on one line, then check the public address straight away:
+
+```
+cd /opt/mezan && rsync -a <repo>/deploy/contabo/ /opt/mezan/ && docker compose up -d && docker compose restart caddy && curl -fsS https://<address>/readyz
+```
+
+`rsync` brings every change in `deploy/contabo/` since the box was last synced, so read `git diff` for that folder first. On a server with a shared Caddy, change its Mezan site's upstream to `mezan:9090` in the same step.
+
 ## Server that already runs Caddy
 
 When the box's own Caddy already serves other apps on ports 80/443 (the staging VPS), Mezan uses that Caddy instead of starting its own. The steps above for Docker, the `deploy` user, `/srv/mezan/*` env files and backups are unchanged; only Mezan's own Caddy is skipped.
 
-1. A network for Mezan and that Caddy only: `docker network create mezan-proxy && docker network connect mezan-proxy <existing caddy container>`. Never attach the other apps' containers to it: whatever reaches `mezan:8080` directly skips the proxy.
+1. A network for Mezan and that Caddy only: `docker network create mezan-proxy && docker network connect mezan-proxy <existing caddy container>`. Never attach the other apps' containers to it: whatever reaches `mezan:9090` directly skips the proxy.
 2. `cp /opt/mezan/docker-compose.shared-caddy.example.yml /opt/mezan/docker-compose.override.yml`. `deploy.sh` reads the override when it exists; without it nothing changes. A Caddy installed on the host instead of in Docker: follow the comments in that file.
 3. Give the existing Caddy `MEZAN_ORIGIN_SECRET` as an environment variable (the same value as `/srv/mezan/shared.env`, from an env file outside that Caddy's own repo), never as a literal in its Caddyfile. Staging has its own secret, never production's.
 4. Check that Caddy's global `servers { trusted_proxies … }`: it applies to every site on it. Behind Cloudflare it must hold only Cloudflare's ranges **and** `client_ip_headers CF-Connecting-IP`, as in [Caddyfile](Caddyfile); otherwise `trusted_proxies` stays empty. Anything else (a private range, or Cloudflare's ranges without that header) lets a caller forge the visitor address Mezan throttles on.
-5. Add this site (staging address; upstream `127.0.0.1:8081` for a host Caddy). Mount `/opt/mezan/caddy.d` into that Caddy at `/etc/caddy/mezan.d` for the import, or the platform-console allowlist is not active:
+5. Add this site (staging address; upstream `127.0.0.1:9090` for a host Caddy). Mount `/opt/mezan/caddy.d` into that Caddy at `/etc/caddy/mezan.d` for the import, or the platform-console allowlist is not active:
 
 ```
 staging.example.com {
@@ -191,7 +199,7 @@ staging.example.com {
 		Content-Security-Policy "default-src 'self'; script-src 'self' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://cloudflareinsights.com; frame-ancestors 'none'; object-src 'none'; base-uri 'none'; form-action 'self'"
 		-Server
 	}
-	reverse_proxy mezan:8080 {
+	reverse_proxy mezan:9090 {
 		header_up X-Mezan-Origin {env.MEZAN_ORIGIN_SECRET}
 		header_up X-Forwarded-For {client_ip}
 		header_up X-Forwarded-Host {host}

@@ -14,13 +14,14 @@ services:
       - mezan-proxy
     # Only when the existing Caddy is installed on the host (not in Docker), and only on
     # Docker 28 or newer: drop `mezan-proxy` from both lists and publish on loopback.
-    # Any process on the host can then reach the app directly.
+    # Any process on the host can then reach the app directly. Check 9090 is free first
+    # (`ss -ltnp 'sport = :9090'`; Prometheus and Cockpit default to it).
     # ports:
-    #   - "127.0.0.1:8081:8080"
+    #   - "127.0.0.1:9090:9090"
 
 networks:
   # SECURITY: holds only mezan and the existing Caddy, never the other apps' containers:
-  # anything that reaches mezan:8080 directly bypasses the proxy (docker-compose.yml, mezan).
+  # anything that reaches mezan:9090 directly bypasses the proxy (docker-compose.yml, mezan).
   mezan-proxy:
     external: true
     name: mezan-proxy

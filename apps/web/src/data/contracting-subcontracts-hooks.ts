@@ -17,7 +17,7 @@ import type {
   UpdateSubcontractDTO,
   UpdateSubCertificateDTO,
 } from "@mezan/contracts";
-import { ApiError, loaderError } from "./hooks";
+import { ApiError, loaderError, serverMessage, type ServerErrorBody } from "./hooks";
 import { useApi } from "./ApiContext";
 import { useAppTranslation } from "../i18n";
 
@@ -26,12 +26,11 @@ import { useAppTranslation } from "../i18n";
 /* ------------------------------------------------------------------ */
 
 async function readMessage(res: { json<T>(): Promise<T> }, fallback: string): Promise<string> {
-  const body = (await res.json<{ message?: string; reasons?: string[] }>().catch(() => ({}))) as {
-    message?: string;
+  const body = (await res.json<ServerErrorBody & { reasons?: string[] }>().catch(() => ({}))) as ServerErrorBody & {
     reasons?: string[];
   };
   if (body.reasons && body.reasons.length > 0) return body.reasons.join(" — ");
-  return body.message ?? fallback;
+  return serverMessage(body) ?? fallback;
 }
 
 const SUBCONTRACTS_KEY = ["contracting", "subcontracts"] as const;

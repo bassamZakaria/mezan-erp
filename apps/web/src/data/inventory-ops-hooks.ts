@@ -12,13 +12,13 @@ import type {
   StockBalanceRowDTO,
   StockTransferDocumentDTO,
 } from "@mezan/contracts";
-import { ApiError, readError, type JournalEntryDTO } from "./hooks";
+import { ApiError, readError, type JournalEntryDTO, serverMessage, type ServerErrorBody } from "./hooks";
 import { useApi } from "./ApiContext";
 import { useAppTranslation } from "../i18n";
 
 async function readMessage(res: { json<T>(): Promise<T> }, fallback: string): Promise<string> {
-  const body = (await res.json<{ message?: string }>().catch(() => ({}))) as { message?: string };
-  return body.message ?? fallback;
+  const body = (await res.json<ServerErrorBody>().catch(() => ({}))) as ServerErrorBody;
+  return serverMessage(body) ?? fallback;
 }
 
 /* -------------------------------------------------------------------- */

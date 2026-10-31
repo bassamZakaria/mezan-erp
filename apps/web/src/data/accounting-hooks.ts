@@ -13,14 +13,14 @@ import type {
   ReconciliationReportDTO,
 } from "@mezan/contracts";
 import { ScreenRequest } from "@mezan/domain";
-import { ApiError, readError, useHoldsScreenRequest } from "./hooks";
+import { ApiError, readError, useHoldsScreenRequest, serverMessage, type ServerErrorBody } from "./hooks";
 import { useApi } from "./ApiContext";
 import type { TransportResponse } from "./transport";
 import { useAppTranslation } from "../i18n";
 
 async function readMessage(res: { json<T>(): Promise<T> }, fallback: string): Promise<string> {
-  const body = (await res.json<{ message?: string }>().catch(() => ({}))) as { message?: string };
-  return body.message ?? fallback;
+  const body = (await res.json<ServerErrorBody>().catch(() => ({}))) as ServerErrorBody;
+  return serverMessage(body) ?? fallback;
 }
 
 /* -------------------------------------------------------------------- */
@@ -104,11 +104,10 @@ async function fxRevaluationRequest(
 ) {
   const res = await request(path, { method: "POST", body: JSON.stringify(body) });
   if (!res.ok) {
-    const err = (await res.json<{ message?: string; currency?: string }>().catch(() => ({}))) as {
-      message?: string;
+    const err = (await res.json<ServerErrorBody & { currency?: string }>().catch(() => ({}))) as ServerErrorBody & {
       currency?: string;
     };
-    throw new FxRevaluationError(res.status, err.message ?? fallback, err.currency ?? null);
+    throw new FxRevaluationError(res.status, serverMessage(err) ?? fallback, err.currency ?? null);
   }
   return res;
 }

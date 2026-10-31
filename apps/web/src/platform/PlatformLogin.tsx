@@ -5,6 +5,7 @@ import { BrandMark, Button, Copyright, TextInput } from "@mezan/ui";
 import type { PlatformSessionDTO } from "@mezan/contracts";
 import { useAppTranslation } from "../i18n";
 import { PlatformApiError, usePlatformApi } from "./api";
+import { serverMessage, type ServerErrorBody } from "../data/server-message";
 
 /**
  * The platform console's own door — email + password, apart from a
@@ -30,8 +31,8 @@ export function PlatformLogin() {
     mutationFn: async (body) => {
       const res = await request("/auth/login", { method: "POST", body: JSON.stringify(body) });
       if (!res.ok) {
-        const errBody = (await res.json<{ message?: string }>().catch(() => ({}))) as { message?: string };
-        throw new PlatformApiError(res.status, errBody.message ?? t("platform.login.error.generic"));
+        const errBody = (await res.json<ServerErrorBody>().catch(() => ({}))) as ServerErrorBody;
+        throw new PlatformApiError(res.status, serverMessage(errBody) ?? t("platform.login.error.generic"));
       }
       return res.json<PlatformSessionDTO>();
     },

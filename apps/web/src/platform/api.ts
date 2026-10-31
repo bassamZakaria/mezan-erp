@@ -4,6 +4,7 @@ import { QueryClientContext } from "@tanstack/react-query";
 import { createHttpTransport, type Transport, type TransportResponse } from "../data/transport";
 import type { AppTranslationKey } from "../i18n";
 import { sessionCredential } from "../data/session";
+import { serverMessage, type ServerErrorBody } from "../data/server-message";
 import { StepUpDialog, type StepUpPrompt } from "../data/StepUpDialog";
 import { loadPersistedPlatformSession, persistPlatformSession, type PlatformSession } from "./session";
 
@@ -13,9 +14,9 @@ const STEP_UP_PATH = "/auth/step-up";
 const STEP_UP_STATUS = 403;
 const STEP_UP_REQUIRED = "STEP_UP_REQUIRED";
 
-function errorOf(text: string): { error?: string; message?: string } | null {
+function errorOf(text: string): ServerErrorBody | null {
   try {
-    return JSON.parse(text) as { error?: string; message?: string };
+    return JSON.parse(text) as ServerErrorBody;
   } catch {
     return null;
   }
@@ -112,7 +113,7 @@ export function PlatformApiProvider({ children, transport, initialSession }: Pla
       if (body?.error !== STEP_UP_REQUIRED) return replayed;
       const confirmed = await new Promise<boolean>((resolve) => {
         setStepUp({
-          message: body.message ?? "",
+          message: serverMessage(body) ?? "",
           cancel: () => resolve(false),
           confirm: async (password) => {
             const answer = await resolvedTransport(STEP_UP_PATH, credentialed(STEP_UP_PATH, { method: "POST", body: JSON.stringify({ password }) }));
@@ -120,7 +121,8 @@ export function PlatformApiProvider({ children, transport, initialSession }: Pla
               resolve(true);
               return null;
             }
-            return errorOf(await answer.text())?.message ?? "";
+            const answerBody = errorOf(await answer.text());
+            return (answerBody && serverMessage(answerBody)) ?? "";
           },
         });
       });
@@ -190,11 +192,9 @@ export async function readPlatformError(
   t: (key: AppTranslationKey) => string,
   fallbackKey: AppTranslationKey,
 ): Promise<{ readonly message: string; readonly code: string | undefined }> {
-  const body = (await res.json<{ error?: string; message?: string }>().catch(() => ({}))) as {
-    error?: string;
-    message?: string;
-  };
-  if (body.message) return { message: body.message, code: body.error };
+  const body = (await res.json<ServerErrorBody>().catch(() => ({}))) as ServerErrorBody;
+  const message = serverMessage(body);
+  if (message) return { message, code: body.error };
   const key = body.error ? PLATFORM_ERROR_CODE_KEY[body.error] : undefined;
   return { message: t(key ?? fallbackKey), code: body.error };
 }

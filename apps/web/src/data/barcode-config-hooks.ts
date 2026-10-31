@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tan
 import type { BarcodeConfigDTO, UpdateBarcodeConfigDTO } from "@mezan/contracts";
 import { useApi } from "./ApiContext";
 import { useAppTranslation } from "../i18n";
-import { withSupportCode, type AppTranslate } from "./hooks";
+import { serverMessage, withSupportCode, type AppTranslate, type ServerErrorBody } from "./hooks";
 
 /**
  * Barcode configuration hooks (docs' "barcode-config screen") — kept out of
@@ -26,12 +26,12 @@ async function readError(
   separator: string,
   t?: AppTranslate,
 ): Promise<string> {
-  const body = (await res.json<{ message?: string; reasons?: string[] }>().catch(() => ({}))) as {
-    message?: string;
+  const body = (await res.json<ServerErrorBody & { reasons?: string[] }>().catch(() => ({}))) as ServerErrorBody & {
     reasons?: string[];
   };
   if (body.reasons && body.reasons.length > 0) return body.reasons.join(separator);
-  if (body.message !== undefined && body.message !== "") return body.message;
+  const message = serverMessage(body);
+  if (message !== undefined) return message;
   return withSupportCode(fallback, res.status, t);
 }
 

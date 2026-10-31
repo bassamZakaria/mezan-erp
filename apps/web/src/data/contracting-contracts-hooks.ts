@@ -14,7 +14,7 @@ import type {
   VariationOrderDTO,
   WorksContractDTO,
 } from "@mezan/contracts";
-import { ApiError, loaderError, useHoldsScreenRequest } from "./hooks";
+import { ApiError, loaderError, useHoldsScreenRequest, serverMessage, type ServerErrorBody } from "./hooks";
 import { ScreenRequest } from "@mezan/domain";
 import { useApi } from "./ApiContext";
 import { useAppTranslation } from "../i18n";
@@ -24,8 +24,8 @@ import { useAppTranslation } from "../i18n";
 /* ------------------------------------------------------------------ */
 
 async function readMessage(res: { json<T>(): Promise<T> }, fallback: string): Promise<string> {
-  const body = (await res.json<{ message?: string }>().catch(() => ({}))) as { message?: string };
-  return body.message ?? fallback;
+  const body = (await res.json<ServerErrorBody>().catch(() => ({}))) as ServerErrorBody;
+  return serverMessage(body) ?? fallback;
 }
 
 const CONTRACTS_KEY = ["contracting", "contracts"] as const;

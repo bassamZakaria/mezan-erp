@@ -50,6 +50,6 @@ describe("createApp — the last net", () => {
   it("still answers an error nobody recognises as 500 «خطأ داخلي»", async () => {
     const { status, body } = await postInto(new Error("boom"));
     expect(status).toBe(500);
-    expect(body).toEqual({ error: "INTERNAL", message: "خطأ داخلي", requestId: expect.any(String) });
+    expect(body).toEqual({ error: "INTERNAL", message: "خطأ داخلي", messageEn: "Internal error.", requestId: expect.any(String) });
   });
 });

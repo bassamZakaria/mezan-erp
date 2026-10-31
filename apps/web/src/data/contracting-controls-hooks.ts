@@ -17,7 +17,7 @@ import type {
   UpdateRetentionReleaseDTO,
 } from "@mezan/contracts";
 import { useApi } from "./ApiContext";
-import { ApiError, loaderError } from "./hooks";
+import { ApiError, loaderError, serverMessage, type ServerErrorBody } from "./hooks";
 import { useAppTranslation } from "../i18n";
 
 /**
@@ -29,8 +29,8 @@ import { useAppTranslation } from "../i18n";
  */
 
 async function readError(res: { json<T>(): Promise<T> }, fallback: string): Promise<string> {
-  const body = (await res.json<{ message?: string }>().catch(() => ({}))) as { message?: string };
-  return body.message ?? fallback;
+  const body = (await res.json<ServerErrorBody>().catch(() => ({}))) as ServerErrorBody;
+  return serverMessage(body) ?? fallback;
 }
 
 const REPORTS = "/contracting/reports";

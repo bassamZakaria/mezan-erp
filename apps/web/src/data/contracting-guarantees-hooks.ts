@@ -10,7 +10,7 @@ import type {
 } from "@mezan/contracts";
 import { ScreenRequest } from "@mezan/domain";
 import { useApi } from "./ApiContext";
-import { ApiError, loaderError, useHoldsScreenRequest } from "./hooks";
+import { ApiError, loaderError, useHoldsScreenRequest, serverMessage, type ServerErrorBody } from "./hooks";
 import { useAppTranslation } from "../i18n";
 
 /**
@@ -22,8 +22,8 @@ import { useAppTranslation } from "../i18n";
 
 /** The Arabic refusal the domain sent, or the generic fallback when it sent none. */
 async function readError(res: { json<T>(): Promise<T> }, fallback: string): Promise<string> {
-  const body = (await res.json<{ message?: string }>().catch(() => ({}))) as { message?: string };
-  return body.message ?? fallback;
+  const body = (await res.json<ServerErrorBody>().catch(() => ({}))) as ServerErrorBody;
+  return serverMessage(body) ?? fallback;
 }
 
 const ROOT = "/contracting/guarantees";

@@ -329,6 +329,7 @@ import { sessionHolds, sessionMayAsk, sessionMayAskScreen } from "./session";
 import type { TransportResponse } from "./transport";
 import { BranchRefusalCode } from "@mezan/contracts";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { serverMessage, type ServerErrorBody } from "./server-message";
 
 /**
  * The `/sales-quotes` responses (create/list/get/send/accept/reject) — the
@@ -429,14 +430,14 @@ export function useLogin() {
     mutationFn: async (body) => {
       const res = await request("/auth/login", { method: "POST", body: JSON.stringify(body) });
       if (!res.ok) {
-        type LoginError = { error?: string; message?: string; retryAfterSeconds?: number; unlockByCode?: boolean };
+        type LoginError = ServerErrorBody & { retryAfterSeconds?: number; unlockByCode?: boolean };
         const err = await res.json<LoginError>().catch((): LoginError => ({}));
         const message =
           err.error === "TENANT_REQUIRED"
             ? t("login.tenantRequired")
             : err.error === "TENANT_NOT_FOUND"
               ? t("login.tenantNotFound")
-              : (err.message ?? t("api.signInFailed"));
+              : (serverMessage(err) ?? t("api.signInFailed"));
         if (err.error === SignInRefusalCode.AccountLocked) throw new AccountLockedError(res.status, message, err.unlockByCode === true);
         throw new ApiError(res.status, message, undefined, err.retryAfterSeconds ?? res.retryAfterSeconds ?? undefined, err.error);
       }
@@ -661,10 +662,11 @@ export function useBootstrapStatus(options: { enabled?: boolean } = {}): UseQuer
     queryFn: async () => {
       const res = await request("/bootstrap/status");
       if (!res.ok) {
-        const body = (await res.json<{ error?: string; message?: string }>().catch(() => ({}))) as { error?: string; message?: string };
+        const body = (await res.json<ServerErrorBody>().catch(() => ({}))) as ServerErrorBody;
+        const bootMessage = serverMessage(body);
         const bootCode = [...BACKEND_STILL_STARTING, ...BACKEND_REFUSED].find((code) => code === body.error);
-        if (bootCode) throw new ApiError(res.status, body.message ?? t("boot.starting.body"), undefined, undefined, bootCode);
-        throw new ApiError(res.status, body.message !== undefined && body.message !== "" ? body.message : withSupportCode(t("api.theCoreDataStatusCould"), res.status, t));
+        if (bootCode) throw new ApiError(res.status, bootMessage ?? t("boot.starting.body"), undefined, undefined, bootCode);
+        throw new ApiError(res.status, bootMessage ?? withSupportCode(t("api.theCoreDataStatusCould"), res.status, t));
       }
       return res.json<BootstrapSeedResultDTO>();
     },
@@ -745,8 +747,8 @@ export function useCreateFirstAdmin() {
     mutationFn: async (body) => {
       const res = await request("/bootstrap/admin", { method: "POST", body: JSON.stringify(body) });
       if (!res.ok) {
-        const err = (await res.json<{ message?: string }>().catch(() => ({}))) as { message?: string };
-        throw new ApiError(res.status, err.message ?? t("api.theAdministratorAccountCouldNot"));
+        const err = (await res.json<ServerErrorBody>().catch(() => ({}))) as ServerErrorBody;
+        throw new ApiError(res.status, serverMessage(err) ?? t("api.theAdministratorAccountCouldNot"));
       }
       return res.json<SessionDTO>();
     },
@@ -794,13 +796,16 @@ export function useDashboardSummary(range: DashboardRange = {}): UseQueryResult<
  * already consumed the body (the two report hooks, via
  * `readReportFieldErrors`) must not call this.
  */
+export { serverMessage, type ServerErrorBody } from "./server-message";
+
 export async function readError(
   res: { readonly status: number; json<T>(): Promise<T> },
   fallback: string,
   t?: AppTranslate,
 ): Promise<string> {
-  const body = (await res.json<{ message?: string; requestId?: string }>().catch(() => ({}))) as { message?: string; requestId?: string };
-  if (body.message !== undefined && body.message !== "") return withRequestReference(body.message, res.status, body.requestId, t);
+  const body = (await res.json<ServerErrorBody>().catch(() => ({}))) as ServerErrorBody;
+  const message = serverMessage(body);
+  if (message !== undefined) return withRequestReference(message, res.status, body.requestId, t);
   return withRequestReference(withSupportCode(fallback, res.status, t), res.status, body.requestId, t);
 }
 
@@ -809,8 +814,8 @@ export async function codedError(
   fallback: string,
   t?: AppTranslate,
 ): Promise<ApiError> {
-  const body = (await res.json<{ error?: string; message?: string; requestId?: string }>().catch(() => ({}))) as { error?: string; message?: string; requestId?: string };
-  const message = body.message !== undefined && body.message !== "" ? body.message : withSupportCode(fallback, res.status, t);
+  const body = (await res.json<ServerErrorBody>().catch(() => ({}))) as ServerErrorBody;
+  const message = serverMessage(body) ?? withSupportCode(fallback, res.status, t);
   return new ApiError(res.status, withRequestReference(message, res.status, body.requestId, t), undefined, undefined, body.error);
 }
 
@@ -897,17 +902,14 @@ export async function loaderError(
   fallback: string,
   t?: AppTranslate,
 ): Promise<ApiError> {
-  const body = (await res.json<{ error?: string; message?: string; requestId?: string }>().catch(() => ({}))) as {
-    error?: string;
-    message?: string;
-    requestId?: string;
-  };
-  if (res.status === 403 && body.error === "MODULE_NOT_LICENSED" && body.message) {
-    return new ApiError(res.status, body.message, undefined, undefined, body.error);
+  const body = (await res.json<ServerErrorBody>().catch(() => ({}))) as ServerErrorBody;
+  const message = serverMessage(body);
+  if (res.status === 403 && body.error === "MODULE_NOT_LICENSED" && message) {
+    return new ApiError(res.status, message, undefined, undefined, body.error);
   }
   const branchRefusal = branchRefusalMessageKey(body.error);
   if (branchRefusal && t) return new ApiError(res.status, t(branchRefusal), undefined, undefined, body.error);
-  if (body.message !== undefined && body.message !== "") return new ApiError(res.status, withRequestReference(body.message, res.status, body.requestId, t));
+  if (message !== undefined) return new ApiError(res.status, withRequestReference(message, res.status, body.requestId, t));
   return new ApiError(res.status, withRequestReference(withSupportCode(fallback, res.status, t), res.status, body.requestId, t));
 }
 
@@ -1420,8 +1422,8 @@ export function useCreatePriceList() {
     mutationFn: async (body) => {
       const res = await request("/price-lists", { method: "POST", body: JSON.stringify(body) });
       if (!res.ok) {
-        const err = (await res.json<{ message?: string }>().catch(() => ({}))) as { message?: string };
-        throw new ApiError(res.status, err.message ?? t("api.thePriceListCouldNot"));
+        const err = (await res.json<ServerErrorBody>().catch(() => ({}))) as ServerErrorBody;
+        throw new ApiError(res.status, serverMessage(err) ?? t("api.thePriceListCouldNot"));
       }
       return res.json<PriceListDTO>();
     },
@@ -1467,8 +1469,8 @@ export function useCreatePromotion() {
     mutationFn: async (body) => {
       const res = await request("/promotions", { method: "POST", body: JSON.stringify(body) });
       if (!res.ok) {
-        const err = (await res.json<{ message?: string }>().catch(() => ({}))) as { message?: string };
-        throw new ApiError(res.status, err.message ?? t("api.thePromotionCouldNotBe"));
+        const err = (await res.json<ServerErrorBody>().catch(() => ({}))) as ServerErrorBody;
+        throw new ApiError(res.status, serverMessage(err) ?? t("api.thePromotionCouldNotBe"));
       }
       return res.json<PromotionDTO>();
     },
@@ -1563,8 +1565,8 @@ export function useCreateSalesQuote() {
     mutationFn: async (body) => {
       const res = await request("/sales-quotes", { method: "POST", body: JSON.stringify(body) });
       if (!res.ok) {
-        const err = (await res.json<{ message?: string }>().catch(() => ({}))) as { message?: string };
-        throw new ApiError(res.status, err.message ?? t("api.theQuoteCouldNotBe"));
+        const err = (await res.json<ServerErrorBody>().catch(() => ({}))) as ServerErrorBody;
+        throw new ApiError(res.status, serverMessage(err) ?? t("api.theQuoteCouldNotBe"));
       }
       return res.json<SalesQuoteRecord>();
     },
@@ -1592,8 +1594,8 @@ function useSalesQuoteTransition(action: "send" | "accept" | "reject" | "cancel"
       const { id, body } = actOf(input);
       const res = await request(`/sales-quotes/${id}/${action}`, { method: "POST", body });
       if (!res.ok) {
-        const err = (await res.json<{ message?: string }>().catch(() => ({}))) as { message?: string };
-        throw new ApiError(res.status, err.message ?? t("api.thatActionCouldNotBe"));
+        const err = (await res.json<ServerErrorBody>().catch(() => ({}))) as ServerErrorBody;
+        throw new ApiError(res.status, serverMessage(err) ?? t("api.thatActionCouldNotBe"));
       }
       return res.json<SalesQuoteRecord>();
     },
@@ -1640,8 +1642,8 @@ export function useConvertSalesQuoteToInvoice() {
         body: JSON.stringify(body),
       });
       if (!res.ok) {
-        const err = (await res.json<{ message?: string }>().catch(() => ({}))) as { message?: string };
-        throw new ApiError(res.status, err.message ?? t("api.theQuoteCouldNotBe2"));
+        const err = (await res.json<ServerErrorBody>().catch(() => ({}))) as ServerErrorBody;
+        throw new ApiError(res.status, serverMessage(err) ?? t("api.theQuoteCouldNotBe2"));
       }
       return res.json<{ quote: SalesQuoteRecord; invoiceId: string; invoiceDocNo: string | null }>();
     },
@@ -5168,8 +5170,8 @@ function useFiscalPeriodTransition(action: FiscalPeriodTransitionAction, fallbac
     mutationFn: async (id) => {
       const res = await request(`/fiscal-periods/${id}/${action}`, { method: "POST" });
       if (!res.ok) {
-        const refusal = (await res.json<{ error?: string; message?: string }>().catch(() => ({}))) as { error?: string; message?: string };
-        throw new ApiError(res.status, refusal.message ? refusal.message : fallbackMessage, undefined, undefined, refusal.error);
+        const refusal = (await res.json<ServerErrorBody>().catch(() => ({}))) as ServerErrorBody;
+        throw new ApiError(res.status, serverMessage(refusal) ?? fallbackMessage, undefined, undefined, refusal.error);
       }
       return res.json<FiscalPeriodDTO>();
     },

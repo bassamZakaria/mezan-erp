@@ -15,6 +15,7 @@ import {
 } from "./session";
 import { resolveDefaultTransport, SessionEndedReason, type Transport, type TransportResponse } from "./transport";
 import { publishLoaderApi } from "./api-bridge";
+import { serverMessage, type ServerErrorBody } from "./server-message";
 import { DEVICE_BINDING_HEADER, DeviceBinding, PasswordChangeRefusal } from "@mezan/contracts";
 import { StepUpDialog, type StepUpPrompt } from "./StepUpDialog";
 
@@ -24,9 +25,9 @@ const STEP_UP_PATH = "/auth/step-up";
 const STEP_UP_STATUS = 403;
 const STEP_UP_REQUIRED = "STEP_UP_REQUIRED";
 
-function parsed(text: string): { error?: string; message?: string } | null {
+function parsed(text: string): ServerErrorBody | null {
   try {
-    return JSON.parse(text) as { error?: string; message?: string };
+    return JSON.parse(text) as ServerErrorBody;
   } catch {
     return null;
   }
@@ -152,7 +153,7 @@ export function ApiProvider({ children, transport, initialSession }: ApiProvider
       if (body?.error !== STEP_UP_REQUIRED) return replayed;
       const confirmed = await new Promise<boolean>((resolve) => {
         setStepUp({
-          message: body.message ?? "",
+          message: serverMessage(body) ?? "",
           cancel: () => resolve(false),
           confirm: async (password) => {
             const answer = await resolvedTransport(STEP_UP_PATH, { method: "POST", headers, body: JSON.stringify({ password }) });
@@ -160,7 +161,8 @@ export function ApiProvider({ children, transport, initialSession }: ApiProvider
               resolve(true);
               return null;
             }
-            return parsed(await answer.text())?.message ?? "";
+            const answerBody = parsed(await answer.text());
+            return (answerBody && serverMessage(answerBody)) ?? "";
           },
         });
       });

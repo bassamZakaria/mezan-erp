@@ -10,7 +10,7 @@ import type {
 } from "@mezan/contracts";
 import { useApi } from "./ApiContext";
 import { useAppTranslation } from "../i18n";
-import { withSupportCode, type AppTranslate } from "./hooks";
+import { readError, serverMessage, type ServerErrorBody } from "./hooks";
 
 /**
  * Data-migration import wizard hooks (docs/archive/catalog/09 "نقل البيانات") — kept
@@ -30,16 +30,6 @@ export class ApiError extends Error {
   }
 }
 
-async function readError(
-  res: { readonly status: number; json<T>(): Promise<T> },
-  fallback: string,
-  t?: AppTranslate,
-): Promise<string> {
-  const body = (await res.json<{ message?: string }>().catch(() => ({}))) as { message?: string };
-  if (body.message !== undefined && body.message !== "") return body.message;
-  return withSupportCode(fallback, res.status, t);
-}
-
 function useImportMutation<TBody>(
   path: string,
   failureMessage: string,
@@ -48,8 +38,8 @@ function useImportMutation<TBody>(
   return useMutation<DataMigrationResultDTO, ApiError, TBody>({
     mutationFn: async (body) => {
       const res = await request(path, { method: "POST", body: JSON.stringify(body) });
-      const payload = await res.json<DataMigrationResultDTO & { error?: string; message?: string }>();
-      if (!res.ok && res.status !== 422) throw new ApiError(res.status, payload.message ?? failureMessage);
+      const payload = await res.json<DataMigrationResultDTO & ServerErrorBody>();
+      if (!res.ok && res.status !== 422) throw new ApiError(res.status, serverMessage(payload) ?? failureMessage);
       return payload;
     },
   });

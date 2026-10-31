@@ -8,7 +8,7 @@ import type {
   SequenceOverrideDTO,
 } from "@mezan/contracts";
 import { useApi } from "./ApiContext";
-import { ApiError, readError } from "./hooks";
+import { ApiError, readError, serverMessage, type ServerErrorBody } from "./hooks";
 import { useAppTranslation } from "../i18n";
 
 /**
@@ -78,8 +78,8 @@ export function useResetSequenceCounter() {
         body: JSON.stringify(body),
       });
       if (!res.ok) {
-        const payload = await res.json<{ message?: string }>().catch(() => ({}) as { message?: string });
-        throw new ApiError(res.status, payload.message ?? t("platformApi.theCounterCouldNotBe"));
+        const payload = await res.json<ServerErrorBody>().catch(() => ({}) as ServerErrorBody);
+        throw new ApiError(res.status, serverMessage(payload) ?? t("platformApi.theCounterCouldNotBe"));
       }
       return res.json<SequenceListItemDTO>();
     },

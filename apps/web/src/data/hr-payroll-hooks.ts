@@ -1,4 +1,3 @@
-import { ENGLISH_LOCALE } from "@mezan/ui";
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import type {
   CreateEmployeeAdvanceDTO,
@@ -19,7 +18,7 @@ import type {
   SocialInsuranceYearOverrideDTO,
 } from "@mezan/contracts";
 import { ScreenRequest } from "@mezan/domain";
-import { ApiError, readError, useHoldsScreenRequest } from "./hooks";
+import { ApiError, readError, useHoldsScreenRequest, serverMessage, type ServerErrorBody } from "./hooks";
 import { useApi } from "./ApiContext";
 import { useAppTranslation } from "../i18n";
 
@@ -27,10 +26,9 @@ import { useAppTranslation } from "../i18n";
 /* سلف الموظفين + الرواتب — docs/archive/catalog/06 (/hr/advances, /hr/payroll)  */
 /* -------------------------------------------------------------------- */
 
-async function readMessage(res: { json<T>(): Promise<T> }, fallback: string, locale?: string): Promise<string> {
-  const body = (await res.json<{ message?: string; messageEn?: string }>().catch(() => ({}))) as { message?: string; messageEn?: string };
-  if (locale === ENGLISH_LOCALE && body.messageEn) return body.messageEn;
-  return body.message ?? fallback;
+async function readMessage(res: { json<T>(): Promise<T> }, fallback: string): Promise<string> {
+  const body = (await res.json<ServerErrorBody>().catch(() => ({}))) as ServerErrorBody;
+  return serverMessage(body) ?? fallback;
 }
 
 export function useEmployeeAdvances(): UseQueryResult<EmployeeAdvanceDTO[], ApiError> {
@@ -162,13 +160,13 @@ export function useCreatePayrollRun() {
 }
 
 export function useCalculatePayrollRun() {
-  const { t, locale } = useAppTranslation();
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const invalidate = usePayrollInvalidation();
   return useMutation<PayrollRunDetailDTO, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/hr/payroll/runs/${id}/calculate`, { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("hrApi.payrollCouldNotBeCalculated"), locale));
+      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("hrApi.payrollCouldNotBeCalculated")));
       return res.json<PayrollRunDetailDTO>();
     },
     onSuccess: invalidate,

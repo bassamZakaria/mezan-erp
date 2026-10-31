@@ -81,7 +81,7 @@ describe("a cloud caller behind the two-hop proxy", () => {
     expect((await signIn(h, admin)).status).toBe(200);
   });
 
-  it("refuses an unresolved caller on billing, signup and the platform console alike", async () => {
+  it("refuses an unresolved caller on billing, the public site and the platform console alike", async () => {
     const h = await boot();
     for (const path of ["/api/billing/subscription", "/api/signup/plans", "/api/platform/auth/me", "/api/profile"]) {
       const res = await h.send(path, { tenant: "acme", chain: "unknown, 130.176.1.1" });
@@ -219,10 +219,9 @@ describe("a cloud caller behind the two-hop proxy", () => {
       expect(signIn.status).toBe(200);
       const jar = jarOf(signIn);
       const write = (h: CloudHarness) =>
-        h.send("/api/platform/settings/signup-mode", {
-          method: "PUT",
+        h.send("/api/platform/card-checkouts/sweep", {
+          method: "POST",
           headers: { cookie: jar.cookie, "x-mezan-csrf": jar.csrf, origin: "http://cloud.internal" },
-          body: JSON.stringify({ mode: "closed" }),
         });
       expect((await write(first)).status).toBe(200);
       await first.app.close();

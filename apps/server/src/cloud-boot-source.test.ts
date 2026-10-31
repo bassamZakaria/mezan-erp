@@ -19,19 +19,19 @@ function composePinnedProxyVariables(): Record<string, string | undefined> {
   );
 }
 
-async function checkCodeStatus(vars: Record<string, string | undefined>): Promise<number> {
+async function publicPlansStatus(vars: Record<string, string | undefined>): Promise<number> {
   const cloud = await bootCloudHarness({ vars });
   harnesses.push(cloud);
-  const res = await cloud.send("/api/signup/check-code?code=acme-co", { chain: FORWARDED_CHAIN });
+  const res = await cloud.send("/api/signup/plans", { chain: FORWARDED_CHAIN });
   return res.status;
 }
 
 describe("the cloud app as the deployed entry point serves it: no socket under the request, the caller in a forwarded chain", () => {
-  it("answers the public signup check when the proxy is trusted and its hops are counted", async () => {
-    expect(await checkCodeStatus({ MEZAN_TRUST_PROXY: "1", MEZAN_TRUSTED_PROXY_HOPS: "2" })).toBe(200);
+  it("answers the public plans list when the proxy is trusted and its hops are counted", async () => {
+    expect(await publicPlansStatus({ MEZAN_TRUST_PROXY: "1", MEZAN_TRUSTED_PROXY_HOPS: "2" })).toBe(200);
   });
 
-  it("answers the public signup check under the proxy variables deploy/contabo/docker-compose.yml pins", async () => {
-    expect(await checkCodeStatus(composePinnedProxyVariables())).toBe(200);
+  it("answers the public plans list under the proxy variables deploy/contabo/docker-compose.yml pins", async () => {
+    expect(await publicPlansStatus(composePinnedProxyVariables())).toBe(200);
   });
 });

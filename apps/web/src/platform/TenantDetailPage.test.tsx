@@ -3,6 +3,7 @@ import "@testing-library/jest-dom/vitest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { Link, Route, Routes } from "react-router";
+import { focusManager } from "@tanstack/react-query";
 import type { Transport, TransportResponse } from "../data/transport";
 import { LicenseStateCode, SubscriptionStatusCode, TenantBooksStanding, TenantWireStatus, type CardCheckoutDTO, type PlanDTO, type TenantSummaryDTO } from "@mezan/contracts";
 import { TenantDetailPage } from "./TenantDetailPage";
@@ -237,6 +238,27 @@ describe("TenantDetailPage", () => {
       await waitFor(() => expect(posts).toHaveLength(1));
       expect(posts[0]).not.toHaveProperty("extraStorageMb");
       expect(posts[0]!.extraSeats).toBe(3);
+    });
+
+    it("shows space approved while the owner edits other extras, never the figure the form opened with", async () => {
+      let granted = 0;
+      const transport = stubPlatformTransport({
+        "GET /tenants/tenant-1": () => ({ body: { ...makeSummary({}, { extraStorageMb: granted }), plan: { ...plan, quotas: { storage_mb: 1024 } } } }),
+        "GET /plans": () => ({ body: [plan, plan2] }),
+      });
+      renderDetail({ transport, session: testPlatformSession });
+
+      await screen.findByRole("heading", { name: "إضافات المنشأة" });
+      const card = extrasCard();
+      fireEvent.change(card.getByLabelText("مستخدمون إضافيون"), { target: { value: "3" } });
+      granted = 4096;
+      act(() => {
+        focusManager.setFocused(false);
+        focusManager.setFocused(true);
+      });
+
+      await waitFor(() => expect(card.getByLabelText("مساحة إضافية للمرفقات (MB)")).toHaveValue(4096));
+      expect(card.getByLabelText("مستخدمون إضافيون")).toHaveValue(3);
     });
 
     it("shows the stored extra storage, and says what the plan already includes — or that it has no cap", async () => {

@@ -17,6 +17,7 @@ import {
   setBillingAnchorDay,
   setSubscriptionExtras,
   decideStorageRequest,
+  StorageDecision,
   StorageRequestRefusal,
   StorageRequestRefusedError,
   type StorageRequest,
@@ -1571,8 +1572,9 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
     return c.json(rows);
   });
 
-  for (const [path, approve] of [["approve", true], ["decline", false]] as const) {
-    app.post(`/storage-requests/:id/${path}`, requireOwner, async (c) => {
+  for (const decision of Object.values(StorageDecision)) {
+    const approve = decision === StorageDecision.Approve;
+    app.post(`/storage-requests/:id/${decision}`, requireOwner, async (c) => {
       try {
         let tenantCode: string | null = null;
         const decided = await recordedWith(c, async () => {

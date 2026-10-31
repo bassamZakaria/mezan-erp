@@ -133,8 +133,6 @@ export function useRequestStorage() {
       if (!res.ok) throw new ApiError(res.status, await readError(res, t("plan.storage.requestFailed"), t));
       return res.json<StorageRequestDTO>();
     },
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: ["billing", "subscription"] });
-    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ["billing", "subscription"] }),
   });
 }

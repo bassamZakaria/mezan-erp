@@ -81,7 +81,7 @@ export {
   type LimitRefusal, type ModuleReadOnlyRefusal, type LocationOverLimitRefusal, type SeatsOverLimitRefusal, type PlanLabel,
 } from "./usage-limits.js";
 export {
-  StorageRequestStatus, StorageRequestStepMb, STORAGE_REQUEST_STEPS_MB, MAX_STORAGE_REQUEST_NOTE, StorageRequestRefusal,
+  StorageRequestStatus, StorageDecision, StorageRequestStepMb, STORAGE_REQUEST_STEPS_MB, MAX_STORAGE_REQUEST_NOTE, StorageRequestRefusal,
   StorageRequestRefusedError, requestStorage, decideStorageRequest,
   type StorageRequest, type StorageRequestRepository, type RequestStorageCommand, type DecideStorageRequestCommand,
 } from "./storage-request.js";

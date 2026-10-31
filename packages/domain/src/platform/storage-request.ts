@@ -7,6 +7,11 @@ export enum StorageRequestStatus {
   Declined = "declined",
 }
 
+export enum StorageDecision {
+  Approve = "approve",
+  Decline = "decline",
+}
+
 export enum StorageRequestStepMb {
   OneGb = 1024,
   FiveGb = 5120,

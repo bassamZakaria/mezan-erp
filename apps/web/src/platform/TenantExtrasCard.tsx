@@ -68,10 +68,10 @@ export function TenantExtrasCard({
   const save = useSetSubscriptionExtrasMutation();
   const [edits, setEdits] = useState<Draft | null>(null);
   const [confirming, setConfirming] = useState(false);
+  const stored = draftOf(subscription);
   // REQUIRED: extra storage is sent only when edited here; an approved request can land while this form is open.
   const [storageTouched, setStorageTouched] = useState(false);
-  const stored = draftOf(subscription);
-  const draft = edits ?? stored;
+  const draft = edits ? { ...edits, extraStorageMb: storageTouched ? edits.extraStorageMb : stored.extraStorageMb } : stored;
   const setDraft = (change: (d: Draft) => Draft) => setEdits(change(draft));
 
   const editable = isOwner && EDITABLE_STATUSES.has(subscription.status);

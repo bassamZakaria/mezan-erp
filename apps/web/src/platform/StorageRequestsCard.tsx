@@ -2,16 +2,11 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import { Button, Card, useFormat } from "@mezan/ui";
 import type { PendingStorageRequestDTO, StorageRequestDTO } from "@mezan/contracts";
-import { formatStorageMb } from "@mezan/domain";
+import { StorageDecision, formatStorageMb } from "@mezan/domain";
 import { useAppTranslation } from "../i18n";
 import { PlatformApiError, readPlatformErrorMessage, usePlatformApi } from "./api";
 
 const STORAGE_REQUESTS_KEY = ["platform", "storage-requests"] as const;
-
-export enum StorageDecision {
-  Approve = "approve",
-  Decline = "decline",
-}
 
 function usePendingStorageRequests(): UseQueryResult<PendingStorageRequestDTO[], PlatformApiError> {
   const { t } = useAppTranslation();

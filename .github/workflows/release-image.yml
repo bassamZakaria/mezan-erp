@@ -82,6 +82,7 @@ jobs:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
           DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          DEPLOY_USER: ${{ github.ref == 'refs/heads/production' && 'deploy' || 'mezan-deploy' }}
           REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.sha }}@${{ needs.image.outputs.digest }}
         run: |
@@ -94,4 +95,4 @@ jobs:
           printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
-          printf '%s' "$REGISTRY_TOKEN" | ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o ServerAliveInterval=30 "deploy@$DEPLOY_HOST" "$TAG"
+          printf '%s' "$REGISTRY_TOKEN" | ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o ServerAliveInterval=30 "$DEPLOY_USER@$DEPLOY_HOST" "$TAG"

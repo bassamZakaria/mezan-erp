@@ -6,6 +6,8 @@
  * knows nor cares which source produced it.
  */
 
+import { FREE_SUB_MODULES, SUB_MODULES, parentOf } from "./sub-modules.js";
+
 export interface EntitlementLimits {
   readonly branches: number;
   readonly warehouses: number;
@@ -45,12 +47,26 @@ export interface EntitlementsView extends Entitlements {
   hasFeature(flag: string): boolean;
 }
 
-export function hasModule(ent: Entitlements, module: string): boolean {
-  return ent.activeModules.includes(module);
+/**
+ * A whole module is held only when listed. A part is held when listed, when
+ * its parent is listed, or when every plan gets it free (sub-modules.ts).
+ */
+export function hasModule(ent: Pick<Entitlements, "activeModules">, module: string): boolean {
+  if (ent.activeModules.includes(module)) return true;
+  const parent = parentOf(module);
+  return parent !== null && (FREE_SUB_MODULES.has(module) || ent.activeModules.includes(parent));
 }
 
-export function hasReadOnlyModule(ent: Entitlements, module: string): boolean {
-  return !hasModule(ent, module) && (ent.readOnlyModules ?? []).includes(module);
+export function hasReadOnlyModule(ent: Pick<Entitlements, "activeModules" | "readOnlyModules">, module: string): boolean {
+  if (hasModule(ent, module)) return false;
+  const readOnly = ent.readOnlyModules ?? [];
+  const parent = parentOf(module);
+  return readOnly.includes(module) || (parent !== null && readOnly.includes(parent));
+}
+
+/** True when the parent or any of its parts is held — for showing a module's menu, never for a write gate. */
+export function hasAnyPartOf(ent: Pick<Entitlements, "activeModules">, parent: string): boolean {
+  return hasModule(ent, parent) || (SUB_MODULES[parent] ?? []).some((part) => hasModule(ent, part));
 }
 
 export function hasFeature(ent: Entitlements, flag: string): boolean {

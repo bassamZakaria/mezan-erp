@@ -1,4 +1,4 @@
-export { CLOUD_ONLY_MODULES, MODULE_CATALOG, isCloudOnlyModule, isKnownModule, type ModuleId } from "./module-catalog.js";
+export { CLOUD_ONLY_MODULES, MODULE_CATALOG, isCloudOnlyModule, isKnownModule, type LicensableId, type ModuleId } from "./module-catalog.js";
 export * from "./errors.js";
 export { isValidSlug, isReservedTenantCode, RESERVED_TENANT_CODE_MESSAGE } from "./slug.js";
 export { COMPANY_NAME_MAX_LENGTH, CompanyNameProblem, companyNameProblem, companyNameProblemAr } from "./company-name.js";

@@ -1,16 +1,14 @@
 name: Tests
 
 # Typecheck and the unit suite, with the Postgres half of the ledger suite
-# against the same major version the VPS runs. Never part of a deploy: the
-# staging release builds and deploys without it.
+# against the same major version the VPS runs. Manual only: never runs on a PR,
+# a push or a deploy. Run it from the Actions tab, or run the suite locally.
 on:
-  pull_request:
-  push:
-    branches: [main, fixes-after-demo]
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-tests-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: true
 
 permissions:
   contents: read

@@ -6,11 +6,11 @@ import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useCountPhrase } from "../lib/count-phrase";
 import { LanguageToggle } from "../i18n/LanguageToggle";
 import { SIGN_IN_PATH } from "../routing";
-import { usePublicPlans, useWhatsappNumber } from "../signup/signup-api";
+import { usePublicPlans, useSiteContact, useWhatsappNumber } from "../signup/signup-api";
 import { HeroLedger } from "./HeroLedger";
 import { PricingSection } from "./PricingSection";
 import { SaleExample } from "./SaleExample";
-import { whatsappHref } from "./site";
+import { contactHref, whatsappHref } from "./site";
 import "./landing.css";
 
 enum SectionId {
@@ -98,6 +98,17 @@ function WhatsAppLink({ className, children }: { className: string; children: Re
   );
 }
 
+function ContactLink({ className, children }: { className: string; children: ReactNode }) {
+  const href = contactHref(useSiteContact());
+  if (href === null) return null;
+  const external = href.startsWith("https:");
+  return (
+    <a href={href} className={className} {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}>
+      {children}
+    </a>
+  );
+}
+
 export function LandingPage() {
   const { t } = useAppTranslation();
   const countPhrase = useCountPhrase();
@@ -137,7 +148,7 @@ export function LandingPage() {
                 {t("landing.hero.lead")}
               </p>
               <div className="mt-[26px] flex flex-wrap gap-[10px]">
-                <WhatsAppLink className={PRIMARY_LINK}>{t("landing.cta.contact")}</WhatsAppLink>
+                <ContactLink className={PRIMARY_LINK}>{t("landing.cta.contact")}</ContactLink>
                 <a href={`#${SectionId.Pricing}`} className={SECONDARY_LINK}>
                   {t("landing.cta.pricing")}
                 </a>
@@ -189,9 +200,9 @@ export function LandingPage() {
               <h2 className="font-display text-[30px] font-bold leading-[1.3] sm:text-[36px]">{t("landing.desktop.title")}</h2>
               <p className="mt-[12px] max-w-[620px] text-[16px] leading-[1.8] text-chrome-ink-muted">{t("landing.desktop.body")}</p>
               <div className="mt-[22px] flex flex-wrap gap-[10px]">
-                <WhatsAppLink className="inline-flex min-h-[48px] items-center rounded-md bg-surface px-[20px] text-[15px] font-semibold text-ink hover:bg-surface-2">
+                <ContactLink className="inline-flex min-h-[48px] items-center rounded-md bg-surface px-[20px] text-[15px] font-semibold text-ink hover:bg-surface-2">
                   {t("landing.desktop.cta")}
-                </WhatsAppLink>
+                </ContactLink>
               </div>
               <p className="mt-[12px] text-[13px] text-chrome-ink-muted">{t("landing.desktop.note")}</p>
             </div>
@@ -255,9 +266,9 @@ export function LandingPage() {
               <h2 className="font-display text-[30px] font-bold leading-[1.3]">{t("landing.final.title")}</h2>
               <p className="mt-[6px] text-[16px] opacity-90">{t("landing.final.body")}</p>
             </div>
-            <WhatsAppLink className="mz-landing-on-brand inline-flex min-h-[48px] items-center rounded-md bg-surface px-[22px] text-[15px] font-semibold text-ink hover:bg-surface-2">
+            <ContactLink className="mz-landing-on-brand inline-flex min-h-[48px] items-center rounded-md bg-surface px-[22px] text-[15px] font-semibold text-ink hover:bg-surface-2">
               {t("landing.cta.contact")}
-            </WhatsAppLink>
+            </ContactLink>
           </div>
         </section>
       </main>

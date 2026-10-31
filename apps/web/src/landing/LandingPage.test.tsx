@@ -44,10 +44,10 @@ const PLANS: PublicPlanDTO[] = [
   }),
 ];
 
-function open(response: () => Promise<Response>, whatsapp: string | null = null) {
+function open(response: () => Promise<Response>, whatsapp: string | null = null, email: string | null = null) {
   vi.stubGlobal(
     "fetch",
-    vi.fn((input: RequestInfo | URL) => (String(input instanceof Request ? input.url : input).endsWith("/status") ? ok({ contact: { email: null, phone: null, whatsapp } })() : response())),
+    vi.fn((input: RequestInfo | URL) => (String(input instanceof Request ? input.url : input).endsWith("/status") ? ok({ contact: { email, phone: null, whatsapp } })() : response())),
   );
   render(
     <AppI18nProvider>
@@ -154,6 +154,15 @@ describe("LandingPage", () => {
     await screen.findByTestId("landing-plan-free");
     expect(screen.queryByText("تحدّث معنا على واتساب")).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "تواصل معنا" })).not.toBeInTheDocument();
+  });
+
+  it("falls back to the support email when no WhatsApp number is configured", async () => {
+    open(ok(PLANS), null, "hello@mezan.example");
+
+    const links = await screen.findAllByRole("link", { name: "تواصل معنا" });
+    expect(links.length).toBeGreaterThan(0);
+    for (const link of links) expect(link).toHaveAttribute("href", "mailto:hello@mezan.example");
+    expect(screen.queryByText("تحدّث معنا على واتساب")).not.toBeInTheDocument();
   });
 
   it("links to the WhatsApp number the owner set in the console", async () => {

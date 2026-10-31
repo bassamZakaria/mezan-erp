@@ -77,16 +77,16 @@ export const landingAr = {
   "landing.desktop.note": "نسعّر نسخة سطح المكتب حسب عدد الأجهزة والوحدات التي تحتاجها.",
 
   "landing.steps.title": "ابدأ في ثلاث خطوات",
-  "landing.step1.title": "أنشئ حسابك",
-  "landing.step1.body": "اسم منشأتك ورمزها واسمك وبريدك الإلكتروني، بلا بطاقة ائتمان.",
+  "landing.step1.title": "تواصل معنا",
+  "landing.step1.body": "نفتح حساب منشأتك ونرسل لك بيانات الدخول، بلا بطاقة ائتمان.",
   "landing.step2.title": "أدخل بيانات منشأتك",
   "landing.step2.body": "الأصناف والعملاء والموردون والأرصدة الافتتاحية، يدويًا أو من ملف Excel.",
   "landing.step3.title": "سجّل أول فاتورة",
   "landing.step3.body": "وشاهد كيف يتحدّث القيد والمخزون ورصيد العميل معًا.",
 
   "landing.pricing.title": "الباقات والأسعار",
-  "landing.pricing.lead": "كل حساب جديد يبدأ بتجربة مدتها {days} على أعلى باقة. بعد التجربة تختار باقتك، أو تتابع على الباقة المجانية ضمن حدودها.",
-  "landing.pricing.leadPlain": "كل حساب جديد يبدأ بتجربة على أعلى باقة. بعد التجربة تختار باقتك، أو تتابع على الباقة المجانية ضمن حدودها.",
+  "landing.pricing.lead": "يمكن أن يبدأ حسابك الجديد بتجربة مدتها {days} على أعلى باقة. بعد التجربة تختار باقتك، أو تتابع على الباقة المجانية ضمن حدودها.",
+  "landing.pricing.leadPlain": "يمكن أن يبدأ حسابك الجديد بتجربة على أعلى باقة. بعد التجربة تختار باقتك، أو تتابع على الباقة المجانية ضمن حدودها.",
   "landing.pricing.cycle": "دورة الفوترة",
   "landing.pricing.monthly": "شهريًا",
   "landing.pricing.yearly": "سنويًا",
@@ -110,7 +110,7 @@ export const landingAr = {
 
   "landing.faq.title": "أسئلة شائعة",
   "landing.faq.card.q": "هل أحتاج بطاقة ائتمان للتجربة؟",
-  "landing.faq.card.a": "لا. تنشئ حسابك باسم منشأتك ورمزها واسمك وبريدك الإلكتروني، ثم تفعّله من الرابط الذي يصلك على بريدك وتبدأ التجربة.",
+  "landing.faq.card.a": "لا. تواصل معنا فنفتح حساب منشأتك ونرسل لك بيانات الدخول، وتبدأ بلا بطاقة ائتمان.",
   "landing.faq.after.q": "ماذا يحدث بعد انتهاء التجربة؟",
   "landing.faq.after.a": "تنتقل منشأتك تلقائيًا إلى الباقة المجانية، ولا يُحذف شيء. الوحدات التي ليست في الباقة المجانية تبقى متاحة للعرض والطباعة والتصدير، ويمكنك الاشتراك في أي باقة متى أردت.",
   "landing.faq.data.q": "أين تُحفظ بياناتي؟",
@@ -131,7 +131,7 @@ export const landingAr = {
   "landing.faq.pay.a": "تشترك من صفحة الاشتراك داخل حسابك. الاشتراك شهري أو سنوي حسب ما تختار، ولا يتجدد تلقائيًا.",
 
   "landing.final.title": "هل أنت مستعد للبدء؟",
-  "landing.final.body": "تواصل معنا ونفتح حسابك، وسجّل أول فاتورة اليوم.",
+  "landing.final.body": "تواصل معنا ونفتح حسابك لتسجّل أول فاتورة.",
 
   "landing.whatsapp": "تحدّث معنا على واتساب",
   "landing.footer.privacy": "سياسة الخصوصية",
@@ -219,16 +219,16 @@ export const landingEn: Record<keyof typeof landingAr, string> = {
   "landing.desktop.note": "The desktop edition is priced by the number of machines and modules you need.",
 
   "landing.steps.title": "Get started in three steps",
-  "landing.step1.title": "Create your account",
-  "landing.step1.body": "Your business name and code, your name and your email, no credit card.",
+  "landing.step1.title": "Contact us",
+  "landing.step1.body": "We open your business account and send you the sign-in details, no credit card.",
   "landing.step2.title": "Add your business data",
   "landing.step2.body": "Items, customers, suppliers and opening balances, by hand or from an Excel file.",
   "landing.step3.title": "Record your first invoice",
   "landing.step3.body": "And watch the entry, the stock and the customer's balance update together.",
 
   "landing.pricing.title": "Plans and pricing",
-  "landing.pricing.lead": "Every new account starts with {days} on the top plan. After the trial, pick a plan or continue on the free plan within its limits.",
-  "landing.pricing.leadPlain": "Every new account starts with a trial on the top plan. After the trial, pick a plan or continue on the free plan within its limits.",
+  "landing.pricing.lead": "A new account can start with {days} on the top plan. After the trial, pick a plan or continue on the free plan within its limits.",
+  "landing.pricing.leadPlain": "A new account can start with a trial on the top plan. After the trial, pick a plan or continue on the free plan within its limits.",
   "landing.pricing.cycle": "Billing cycle",
   "landing.pricing.monthly": "Monthly",
   "landing.pricing.yearly": "Yearly",
@@ -252,7 +252,7 @@ export const landingEn: Record<keyof typeof landingAr, string> = {
 
   "landing.faq.title": "Common questions",
   "landing.faq.card.q": "Do I need a credit card for the trial?",
-  "landing.faq.card.a": "No. You create your account with your business name and code, your name and your email, then activate it from the link we email you and the trial starts.",
+  "landing.faq.card.a": "No. Contact us and we open your business account and send you the sign-in details, with no credit card.",
   "landing.faq.after.q": "What happens when the trial ends?",
   "landing.faq.after.a": "Your business moves to the free plan automatically, and nothing is deleted. Modules outside the free plan stay available to view, print and export, and you can subscribe to any plan whenever you want.",
   "landing.faq.data.q": "Where is my data kept?",
@@ -273,7 +273,7 @@ export const landingEn: Record<keyof typeof landingAr, string> = {
   "landing.faq.pay.a": "You subscribe from the subscription page inside your account. Subscriptions are monthly or yearly, as you choose, and do not renew automatically.",
 
   "landing.final.title": "Ready to start?",
-  "landing.final.body": "Contact us to open your account, and record your first invoice today.",
+  "landing.final.body": "Contact us and we open your account so you can record your first invoice.",
 
   "landing.whatsapp": "Chat with us on WhatsApp",
   "landing.footer.privacy": "Privacy policy",

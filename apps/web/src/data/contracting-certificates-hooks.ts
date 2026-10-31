@@ -13,21 +13,13 @@ import type {
   UpdateProgressCertificateDTO,
 } from "@mezan/contracts";
 import { ApiError, loaderError } from "./hooks";
+import { readServerReasons } from "./server-message";
 import { useApi } from "./ApiContext";
 import { useAppTranslation } from "../i18n";
 
 /* ------------------------------------------------------------------ */
 /* المستخلصات — /contracting/certificates                              */
 /* ------------------------------------------------------------------ */
-
-async function readMessage(res: { json<T>(): Promise<T> }, fallback: string): Promise<string> {
-  const body = (await res.json<{ message?: string; reasons?: string[] }>().catch(() => ({}))) as {
-    message?: string;
-    reasons?: string[];
-  };
-  if (body.reasons && body.reasons.length > 0) return body.reasons.join(" — ");
-  return body.message ?? fallback;
-}
 
 const CERTIFICATES_KEY = ["contracting", "certificates"] as const;
 
@@ -101,7 +93,7 @@ export function useCertificatePreview(
         method: "POST",
         body: JSON.stringify(body),
       });
-      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("certificates.previewFailed")));
+      if (!res.ok) throw new ApiError(res.status, await readServerReasons(res, t("certificates.previewFailed")));
       return res.json<ProgressCertificatePreviewDTO>();
     },
   });
@@ -132,7 +124,7 @@ export function useCreateProgressCertificate() {
   return useMutation<ProgressCertificateDTO, ApiError, CreateProgressCertificateDTO>({
     mutationFn: async (body) => {
       const res = await request("/contracting/certificates", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("certificates.saveFailed")));
+      if (!res.ok) throw new ApiError(res.status, await readServerReasons(res, t("certificates.saveFailed")));
       return res.json<ProgressCertificateDTO>();
     },
     onSuccess: invalidate,
@@ -149,7 +141,7 @@ export function useUpdateProgressCertificate() {
         method: "PATCH",
         body: JSON.stringify(patch),
       });
-      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("certificates.saveFailed")));
+      if (!res.ok) throw new ApiError(res.status, await readServerReasons(res, t("certificates.saveFailed")));
       return res.json<ProgressCertificateDTO>();
     },
     onSuccess: invalidate,
@@ -180,7 +172,7 @@ export function useProgressCertificateTransition() {
         method: "POST",
         body: JSON.stringify(body ?? {}),
       });
-      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("certificates.transitionFailed")));
+      if (!res.ok) throw new ApiError(res.status, await readServerReasons(res, t("certificates.transitionFailed")));
       return res.json<ProgressCertificateDTO>();
     },
     onSuccess: invalidate,

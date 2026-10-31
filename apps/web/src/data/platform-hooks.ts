@@ -9,6 +9,7 @@ import type {
 } from "@mezan/contracts";
 import { useApi } from "./ApiContext";
 import { ApiError, readError } from "./hooks";
+import { readServerMessage } from "./server-message";
 import { useAppTranslation } from "../i18n";
 
 /**
@@ -78,8 +79,7 @@ export function useResetSequenceCounter() {
         body: JSON.stringify(body),
       });
       if (!res.ok) {
-        const payload = await res.json<{ message?: string }>().catch(() => ({}) as { message?: string });
-        throw new ApiError(res.status, payload.message ?? t("platformApi.theCounterCouldNotBe"));
+        throw new ApiError(res.status, await readServerMessage(res, t("platformApi.theCounterCouldNotBe")));
       }
       return res.json<SequenceListItemDTO>();
     },

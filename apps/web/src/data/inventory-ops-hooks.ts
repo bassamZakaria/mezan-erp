@@ -13,13 +13,9 @@ import type {
   StockTransferDocumentDTO,
 } from "@mezan/contracts";
 import { ApiError, readError, type JournalEntryDTO } from "./hooks";
+import { readServerMessage } from "./server-message";
 import { useApi } from "./ApiContext";
 import { useAppTranslation } from "../i18n";
-
-async function readMessage(res: { json<T>(): Promise<T> }, fallback: string): Promise<string> {
-  const body = (await res.json<{ message?: string }>().catch(() => ({}))) as { message?: string };
-  return body.message ?? fallback;
-}
 
 /* -------------------------------------------------------------------- */
 /* أرصدة المخزون — Stock Balance (docs/archive/catalog/03, GET /inventory/stock-balance) */
@@ -68,10 +64,10 @@ export function useCreateStockAdjustment() {
   return useMutation<StockAdjustmentDocumentDTO, ApiError, CreateStockAdjustmentDTO>({
     mutationFn: async (body) => {
       const draftRes = await request("/inventory/stock-adjustments/draft", { method: "POST", body: JSON.stringify(body) });
-      if (!draftRes.ok) throw new ApiError(draftRes.status, await readMessage(draftRes, t("stockOps.theAdjustmentCouldNotBe")));
+      if (!draftRes.ok) throw new ApiError(draftRes.status, await readServerMessage(draftRes, t("stockOps.theAdjustmentCouldNotBe")));
       const draft = await draftRes.json<StockAdjustmentDocumentDTO>();
       const confirmRes = await request(`/inventory/stock-adjustments/${draft.id}/confirm`, { method: "POST" });
-      if (!confirmRes.ok) throw new ApiError(confirmRes.status, await readMessage(confirmRes, t("stockOps.theAdjustmentCouldNotBe2")));
+      if (!confirmRes.ok) throw new ApiError(confirmRes.status, await readServerMessage(confirmRes, t("stockOps.theAdjustmentCouldNotBe2")));
       const { document } = await confirmRes.json<{ document: StockAdjustmentDocumentDTO; held: boolean }>();
       return document;
     },
@@ -125,10 +121,10 @@ export function useCreateStockTransfer() {
   return useMutation<StockTransferDocumentDTO, ApiError, CreateStockTransferDTO>({
     mutationFn: async (body) => {
       const draftRes = await request("/inventory/stock-transfers/draft", { method: "POST", body: JSON.stringify(body) });
-      if (!draftRes.ok) throw new ApiError(draftRes.status, await readMessage(draftRes, t("stockOps.theTransferCouldNotBe")));
+      if (!draftRes.ok) throw new ApiError(draftRes.status, await readServerMessage(draftRes, t("stockOps.theTransferCouldNotBe")));
       const draft = await draftRes.json<StockTransferDocumentDTO>();
       const confirmRes = await request(`/inventory/stock-transfers/${draft.id}/confirm`, { method: "POST" });
-      if (!confirmRes.ok) throw new ApiError(confirmRes.status, await readMessage(confirmRes, t("stockOps.theTransferCouldNotBe2")));
+      if (!confirmRes.ok) throw new ApiError(confirmRes.status, await readServerMessage(confirmRes, t("stockOps.theTransferCouldNotBe2")));
       const { document } = await confirmRes.json<{ document: StockTransferDocumentDTO; held: boolean }>();
       return document;
     },
@@ -185,7 +181,7 @@ export function useStartPhysicalCount() {
   return useMutation<PhysicalCountDTO, ApiError, StartPhysicalCountDTO>({
     mutationFn: async (body) => {
       const res = await request("/inventory/physical-counts", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("api.theCountCouldNotBe")));
+      if (!res.ok) throw new ApiError(res.status, await readServerMessage(res, t("api.theCountCouldNotBe")));
       return res.json<PhysicalCountDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["physical-counts"] }),
@@ -199,7 +195,7 @@ export function useRecordPhysicalCounts() {
   return useMutation<PhysicalCountDTO, ApiError, { id: string; body: RecordPhysicalCountEntriesDTO }>({
     mutationFn: async ({ id, body }) => {
       const res = await request(`/inventory/physical-counts/${id}/counts`, { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("stockOps.theCountedQuantitiesCouldNot")));
+      if (!res.ok) throw new ApiError(res.status, await readServerMessage(res, t("stockOps.theCountedQuantitiesCouldNot")));
       return res.json<PhysicalCountDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["physical-counts"] }),
@@ -213,7 +209,7 @@ export function useCompletePhysicalCount() {
   return useMutation<PhysicalCountDTO, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/inventory/physical-counts/${id}/complete`, { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("api.theCountCouldNotBe2")));
+      if (!res.ok) throw new ApiError(res.status, await readServerMessage(res, t("api.theCountCouldNotBe2")));
       return res.json<PhysicalCountDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["physical-counts"] }),
@@ -227,7 +223,7 @@ export function useCancelPhysicalCount() {
   return useMutation<PhysicalCountDTO, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/inventory/physical-counts/${id}/cancel`, { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("api.theCountCouldNotBe3")));
+      if (!res.ok) throw new ApiError(res.status, await readServerMessage(res, t("api.theCountCouldNotBe3")));
       return res.json<PhysicalCountDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["physical-counts"] }),
@@ -245,7 +241,7 @@ export function useGenerateAdjustmentFromCount() {
   >({
     mutationFn: async ({ id, body }) => {
       const res = await request(`/inventory/physical-counts/${id}/generate-adjustment`, { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("stockOps.theAdjustmentCouldNotBe3")));
+      if (!res.ok) throw new ApiError(res.status, await readServerMessage(res, t("stockOps.theAdjustmentCouldNotBe3")));
       return res.json<{ count: PhysicalCountDTO; adjustment: StockAdjustmentDocumentDTO | null }>();
     },
     onSuccess: () => {

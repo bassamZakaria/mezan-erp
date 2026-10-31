@@ -1,4 +1,3 @@
-import { ENGLISH_LOCALE } from "@mezan/ui";
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import type {
   CreateEmployeeAdvanceDTO,
@@ -20,18 +19,13 @@ import type {
 } from "@mezan/contracts";
 import { ScreenRequest } from "@mezan/domain";
 import { ApiError, readError, useHoldsScreenRequest } from "./hooks";
+import { readServerMessage } from "./server-message";
 import { useApi } from "./ApiContext";
 import { useAppTranslation } from "../i18n";
 
 /* -------------------------------------------------------------------- */
 /* سلف الموظفين + الرواتب — docs/archive/catalog/06 (/hr/advances, /hr/payroll)  */
 /* -------------------------------------------------------------------- */
-
-async function readMessage(res: { json<T>(): Promise<T> }, fallback: string, locale?: string): Promise<string> {
-  const body = (await res.json<{ message?: string; messageEn?: string }>().catch(() => ({}))) as { message?: string; messageEn?: string };
-  if (locale === ENGLISH_LOCALE && body.messageEn) return body.messageEn;
-  return body.message ?? fallback;
-}
 
 export function useEmployeeAdvances(): UseQueryResult<EmployeeAdvanceDTO[], ApiError> {
   const { t } = useAppTranslation();
@@ -76,7 +70,7 @@ export function useRequestEmployeeAdvance() {
   return useMutation<EmployeeAdvanceDTO, ApiError, CreateEmployeeAdvanceDTO>({
     mutationFn: async (body) => {
       const res = await request("/hr/advances", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("advances.theAdvanceRequestCouldNot")));
+      if (!res.ok) throw new ApiError(res.status, await readServerMessage(res, t("advances.theAdvanceRequestCouldNot")));
       return res.json<EmployeeAdvanceDTO>();
     },
     onSuccess: invalidate,
@@ -90,7 +84,7 @@ export function useDecideEmployeeAdvance() {
   return useMutation<EmployeeAdvanceDTO, ApiError, { id: string; decision: "approve" | "reject" }>({
     mutationFn: async ({ id, decision }) => {
       const res = await request(`/hr/advances/${id}/${decision}`, { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("hrApi.theAdvanceCouldNotBe")));
+      if (!res.ok) throw new ApiError(res.status, await readServerMessage(res, t("hrApi.theAdvanceCouldNotBe")));
       return res.json<EmployeeAdvanceDTO>();
     },
     onSuccess: invalidate,
@@ -104,7 +98,7 @@ export function useDisburseEmployeeAdvance() {
   return useMutation<EmployeeAdvanceDTO, ApiError, { id: string; body: TreasuryDisbursementDTO }>({
     mutationFn: async ({ id, body }) => {
       const res = await request(`/hr/advances/${id}/disburse`, { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("advances.theAdvanceCouldNotBe")));
+      if (!res.ok) throw new ApiError(res.status, await readServerMessage(res, t("advances.theAdvanceCouldNotBe")));
       return res.json<EmployeeAdvanceDTO>();
     },
     onSuccess: invalidate,
@@ -154,7 +148,7 @@ export function useCreatePayrollRun() {
   return useMutation<PayrollRunDTO, ApiError, CreatePayrollRunDTO>({
     mutationFn: async (body) => {
       const res = await request("/hr/payroll/runs", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("payroll.thePayrollRunCouldNot")));
+      if (!res.ok) throw new ApiError(res.status, await readServerMessage(res, t("payroll.thePayrollRunCouldNot")));
       return res.json<PayrollRunDTO>();
     },
     onSuccess: invalidate,
@@ -162,13 +156,13 @@ export function useCreatePayrollRun() {
 }
 
 export function useCalculatePayrollRun() {
-  const { t, locale } = useAppTranslation();
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const invalidate = usePayrollInvalidation();
   return useMutation<PayrollRunDetailDTO, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/hr/payroll/runs/${id}/calculate`, { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("hrApi.payrollCouldNotBeCalculated"), locale));
+      if (!res.ok) throw new ApiError(res.status, await readServerMessage(res, t("hrApi.payrollCouldNotBeCalculated")));
       return res.json<PayrollRunDetailDTO>();
     },
     onSuccess: invalidate,
@@ -182,7 +176,7 @@ export function useApprovePayrollRun() {
   return useMutation<PayrollRunDTO, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/hr/payroll/runs/${id}/approve`, { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("hrApi.thePayrollRunCouldNot2")));
+      if (!res.ok) throw new ApiError(res.status, await readServerMessage(res, t("hrApi.thePayrollRunCouldNot2")));
       return res.json<PayrollRunDTO>();
     },
     onSuccess: invalidate,
@@ -196,7 +190,7 @@ export function useDisbursePayrollRun() {
   return useMutation<PayrollRunDTO, ApiError, { id: string; body: TreasuryDisbursementDTO }>({
     mutationFn: async ({ id, body }) => {
       const res = await request(`/hr/payroll/runs/${id}/disburse`, { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("payroll.payrollCouldNotBePaid")));
+      if (!res.ok) throw new ApiError(res.status, await readServerMessage(res, t("payroll.payrollCouldNotBePaid")));
       return res.json<PayrollRunDTO>();
     },
     onSuccess: invalidate,
@@ -210,7 +204,7 @@ export function useCancelPayrollRun() {
   return useMutation<PayrollRunDTO, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/hr/payroll/runs/${id}/cancel`, { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("hrApi.thePayrollRunCouldNot3")));
+      if (!res.ok) throw new ApiError(res.status, await readServerMessage(res, t("hrApi.thePayrollRunCouldNot3")));
       return res.json<PayrollRunDTO>();
     },
     onSuccess: invalidate,
@@ -264,7 +258,7 @@ export function useCreatePayrollComponent() {
   return useMutation<PayrollComponentDTO, ApiError, CreatePayrollComponentDTO>({
     mutationFn: async (body) => {
       const res = await request("/hr/payroll/components", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("payrollComponents.theComponentCouldNotBe")));
+      if (!res.ok) throw new ApiError(res.status, await readServerMessage(res, t("payrollComponents.theComponentCouldNotBe")));
       return res.json<PayrollComponentDTO>();
     },
     onSuccess: invalidate,
@@ -278,7 +272,7 @@ export function useUpdatePayrollComponent() {
   return useMutation<PayrollComponentDTO, ApiError, { id: string; body: UpdatePayrollComponentDTO }>({
     mutationFn: async ({ id, body }) => {
       const res = await request(`/hr/payroll/components/${id}`, { method: "PUT", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("payrollComponents.theComponentCouldNotBe")));
+      if (!res.ok) throw new ApiError(res.status, await readServerMessage(res, t("payrollComponents.theComponentCouldNotBe")));
       return res.json<PayrollComponentDTO>();
     },
     onSuccess: invalidate,
@@ -318,7 +312,7 @@ export function useCreateGarnishment() {
   return useMutation<GarnishmentDTO, ApiError, CreateGarnishmentDTO>({
     mutationFn: async (body) => {
       const res = await request("/hr/payroll/garnishments", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("garnishments.couldNotSave")));
+      if (!res.ok) throw new ApiError(res.status, await readServerMessage(res, t("garnishments.couldNotSave")));
       return res.json<GarnishmentDTO>();
     },
     onSuccess: invalidate,
@@ -332,7 +326,7 @@ export function useReleaseGarnishment() {
   return useMutation<GarnishmentDTO, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/hr/payroll/garnishments/${id}/release`, { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("garnishments.couldNotRelease")));
+      if (!res.ok) throw new ApiError(res.status, await readServerMessage(res, t("garnishments.couldNotRelease")));
       return res.json<GarnishmentDTO>();
     },
     onSuccess: invalidate,
@@ -425,7 +419,7 @@ export function useSaveInsuranceYear() {
   return useMutation<SocialInsuranceYearOverrideDTO, ApiError, { year: number; monthlyWageFloor: string; monthlyWageCeiling: string; note: string | null }>({
     mutationFn: async ({ year, ...body }) => {
       const res = await request(`/hr/payroll/statutory-tables/insurance-years/${year}`, { method: "PUT", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("statutory.couldNotSaveYear")));
+      if (!res.ok) throw new ApiError(res.status, await readServerMessage(res, t("statutory.couldNotSaveYear")));
       return res.json<SocialInsuranceYearOverrideDTO>();
     },
     onSuccess: invalidate,
@@ -439,7 +433,7 @@ export function useRemoveInsuranceYear() {
   return useMutation<void, ApiError, number>({
     mutationFn: async (year) => {
       const res = await request(`/hr/payroll/statutory-tables/insurance-years/${year}`, { method: "DELETE" });
-      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("statutory.couldNotRemoveYear")));
+      if (!res.ok) throw new ApiError(res.status, await readServerMessage(res, t("statutory.couldNotRemoveYear")));
     },
     onSuccess: invalidate,
   });
@@ -467,7 +461,7 @@ export function useSetPayrollStatutoryFlag() {
   return useMutation<PayrollStatutoryFlagDTO, ApiError, SetPayrollStatutoryFlagDTO>({
     mutationFn: async (body) => {
       const res = await request("/hr/payroll/statutory-flag", { method: "PUT", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("statutory.couldNotSwitch")));
+      if (!res.ok) throw new ApiError(res.status, await readServerMessage(res, t("statutory.couldNotSwitch")));
       return res.json<PayrollStatutoryFlagDTO>();
     },
     onSuccess: invalidate,
@@ -512,7 +506,7 @@ export function usePostProvision() {
   return useMutation<{ movement: string; journalEntryId: string }, ApiError, { kind: HrProvisionKindDTO; asOfDate: string }>({
     mutationFn: async ({ kind, asOfDate }) => {
       const res = await request(`/hr/payroll/provisions/${kind}`, { method: "POST", body: JSON.stringify({ asOfDate }) });
-      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("provisions.couldNotPost")));
+      if (!res.ok) throw new ApiError(res.status, await readServerMessage(res, t("provisions.couldNotPost")));
       return res.json<{ movement: string; journalEntryId: string }>();
     },
     onSettled: () => {
@@ -557,7 +551,7 @@ export function useEndOfServiceSettlement(employeeId: string | null, enabled: bo
     enabled: session !== null && enabled && employeeId !== null,
     queryFn: async () => {
       const res = await request(`/hr/employees/${employeeId}/end-of-service`);
-      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("endOfService.couldNotLoad")));
+      if (!res.ok) throw new ApiError(res.status, await readServerMessage(res, t("endOfService.couldNotLoad")));
       return res.json<EndOfServiceSettlementDTO>();
     },
   });

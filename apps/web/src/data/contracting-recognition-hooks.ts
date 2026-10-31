@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tan
 import type { PostRecognitionRunDTO, RecognitionPreviewDTO, RecognitionRunDTO } from "@mezan/contracts";
 import { useApi } from "./ApiContext";
 import { ApiError, loaderError } from "./hooks";
+import { readServerMessage } from "./server-message";
 import { useAppTranslation } from "../i18n";
 
 /**
@@ -9,11 +10,6 @@ import { useAppTranslation } from "../i18n";
  * Posting a run changes the ledger the status board is derived from, so a
  * mutation invalidates the whole subtree rather than one list.
  */
-
-async function readError(res: { json<T>(): Promise<T> }, fallback: string): Promise<string> {
-  const body = (await res.json<{ message?: string }>().catch(() => ({}))) as { message?: string };
-  return body.message ?? fallback;
-}
 
 const ROOT = "/contracting/recognition";
 const KEY = ["contracting", "recognition"] as const;
@@ -32,7 +28,7 @@ export function useRecognitionStatus(periodEnd: string | null): UseQueryResult<R
     enabled: session !== null && periodEnd !== null,
     queryFn: async () => {
       const res = await request(`${ROOT}/status?periodEnd=${encodeURIComponent(periodEnd as string)}`);
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("revenueRecognition.api.statusFailed")));
+      if (!res.ok) throw new ApiError(res.status, await readServerMessage(res, t("revenueRecognition.api.statusFailed")));
       return res.json<RecognitionStatusDTO>();
     },
   });
@@ -56,7 +52,7 @@ export function useRecognitionPreview(
     queryFn: async () => {
       const search = new URLSearchParams({ contractId: contractId as string, periodEnd: periodEnd as string });
       const res = await request(`${ROOT}/preview?${search.toString()}`);
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("revenueRecognition.api.statusFailed")));
+      if (!res.ok) throw new ApiError(res.status, await readServerMessage(res, t("revenueRecognition.api.statusFailed")));
       return res.json<RecognitionPreviewDTO>();
     },
   });
@@ -104,7 +100,7 @@ export function usePostRecognitionRun() {
   return useMutation<RecognitionRunDTO, ApiError, PostRecognitionRunDTO>({
     mutationFn: async (body) => {
       const res = await request(`${ROOT}/runs`, { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("revenueRecognition.api.runFailedToPost")));
+      if (!res.ok) throw new ApiError(res.status, await readServerMessage(res, t("revenueRecognition.api.runFailedToPost")));
       return res.json<RecognitionRunDTO>();
     },
     onSuccess: invalidate,
@@ -121,7 +117,7 @@ export function useReverseRecognitionRun() {
         method: "POST",
         body: JSON.stringify({}),
       });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("revenueRecognition.api.reverseFailed")));
+      if (!res.ok) throw new ApiError(res.status, await readServerMessage(res, t("revenueRecognition.api.reverseFailed")));
       return res.json<RecognitionRunDTO>();
     },
     onSuccess: invalidate,

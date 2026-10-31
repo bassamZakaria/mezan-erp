@@ -2013,7 +2013,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
         503,
       );
     }
-    return c.json({ error: "INTERNAL", message: "خطأ داخلي" }, 500);
+    return c.json({ error: "INTERNAL", message: "خطأ داخلي", messageEn: "Internal error." }, 500);
   });
 
   return app;

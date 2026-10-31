@@ -18,6 +18,7 @@ import type {
 } from "@mezan/contracts";
 import { useApi } from "./ApiContext";
 import { ApiError, loaderError } from "./hooks";
+import { readServerMessage } from "./server-message";
 import { useAppTranslation } from "../i18n";
 
 /**
@@ -27,11 +28,6 @@ import { useAppTranslation } from "../i18n";
  * derived from, so a mutation invalidates the whole subtree rather than one
  * list.
  */
-
-async function readError(res: { json<T>(): Promise<T> }, fallback: string): Promise<string> {
-  const body = (await res.json<{ message?: string }>().catch(() => ({}))) as { message?: string };
-  return body.message ?? fallback;
-}
 
 const REPORTS = "/contracting/reports";
 const RETENTION = "/contracting/retention";
@@ -65,7 +61,7 @@ function useExceptionReport<T>(key: string, params: ExceptionReportParams, enabl
     enabled: session !== null && enabled,
     queryFn: async () => {
       const res = await request(`${REPORTS}/${key}${searchOf(params)}`);
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("contractingReports.loadFailed")));
+      if (!res.ok) throw new ApiError(res.status, await readServerMessage(res, t("contractingReports.loadFailed")));
       return res.json<T>();
     },
   });
@@ -159,7 +155,7 @@ export function useRetentionHeadroom(
       const res = await request(
         `${RETENTION}/headroom?contractId=${encodeURIComponent(contractId as string)}&kind=${kind}`,
       );
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("retention.api.headroomFailed")));
+      if (!res.ok) throw new ApiError(res.status, await readServerMessage(res, t("retention.api.headroomFailed")));
       return res.json<RetentionHeadroomDTO>();
     },
   });
@@ -177,7 +173,7 @@ export function useCreateRetentionRelease() {
   return useMutation<RetentionReleaseDTO, ApiError, CreateRetentionReleaseDTO>({
     mutationFn: async (body) => {
       const res = await request(`${RETENTION}/releases`, { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("retention.api.saveFailed")));
+      if (!res.ok) throw new ApiError(res.status, await readServerMessage(res, t("retention.api.saveFailed")));
       return res.json<RetentionReleaseDTO>();
     },
     onSuccess: invalidate,
@@ -194,7 +190,7 @@ export function useUpdateRetentionRelease() {
         method: "PUT",
         body: JSON.stringify(body),
       });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("retention.api.saveFailed")));
+      if (!res.ok) throw new ApiError(res.status, await readServerMessage(res, t("retention.api.saveFailed")));
       return res.json<RetentionReleaseDTO>();
     },
     onSuccess: invalidate,
@@ -211,7 +207,7 @@ export function useReleaseRetention() {
         method: "POST",
         body: JSON.stringify({ approvedBy: approvedBy?.trim() ? approvedBy.trim() : null }),
       });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("retention.api.releaseActionFailed")));
+      if (!res.ok) throw new ApiError(res.status, await readServerMessage(res, t("retention.api.releaseActionFailed")));
       return res.json<RetentionReleaseDTO>();
     },
     onSuccess: invalidate,
@@ -228,7 +224,7 @@ export function useCancelRetentionRelease() {
         method: "POST",
         body: JSON.stringify({}),
       });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("retention.api.cancelFailed")));
+      if (!res.ok) throw new ApiError(res.status, await readServerMessage(res, t("retention.api.cancelFailed")));
       return res.json<RetentionReleaseDTO>();
     },
     onSuccess: invalidate,
@@ -254,7 +250,7 @@ export function useRecordHandover() {
         method: "POST",
         body: JSON.stringify(body),
       });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("retention.api.handoverFailed")));
+      if (!res.ok) throw new ApiError(res.status, await readServerMessage(res, t("retention.api.handoverFailed")));
       return res.json<RecordHandoverResultDTO>();
     },
     onSuccess: invalidate,

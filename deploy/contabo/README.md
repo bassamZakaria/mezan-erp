@@ -142,7 +142,7 @@ After the first deploy, in a browser: sign in to a tenant, print an invoice and 
 
 Push to `staging` or `production` → the **Release image** workflow pushes `ghcr.io/bassamzakaria/mezan-erp:<sha>` (linux/amd64). Its `deploy` job then runs `deploy.sh <sha>@sha256:<digest>` over SSH on that branch's own VPS (`staging` → the staging VPS, `production` → the production VPS; one stack per VPS), so every push to either branch goes live (about a minute of downtime). The deploy runs detached from the SSH session and logs to `/var/log/mezan-deploy.log`; re-sending the running tag succeeds without a restart.
 
-**Automatic deploy (once per VPS):** a `deploy` user whose only key is GitHub's, forced to `ci-deploy.sh`; the workflow's short-lived `GITHUB_TOKEN` is the registry login, so no GitHub token is stored on the box.
+**Automatic deploy (once per VPS):** a `deploy` user whose only key is GitHub's, forced to `ci-deploy.sh`; the workflow's short-lived `GITHUB_TOKEN` is the registry login, so no GitHub token is stored on the box. The user is `deploy` on the production VPS and `mezan-deploy` on the staging VPS (it shares the box with other apps): on staging, read `mezan-deploy` for `deploy` in the commands below and in `/home/deploy` paths.
 
 ```
 adduser --disabled-password --comment "" deploy

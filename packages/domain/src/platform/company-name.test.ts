@@ -1,9 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { COMPANY_NAME_MAX_LENGTH, CompanyNameProblem, companyNameProblem } from "./company-name.js";
 import { createTenant, type Tenant, type TenantRepository } from "./tenant.js";
-import { startSignup, type SignupRequest, type SignupRequestRepository } from "./signup.js";
-import { InvalidSignupError, InvalidTenantError } from "./errors.js";
-import type { Plan, PlanRepository } from "./plan.js";
+import { InvalidTenantError } from "./errors.js";
 
 const NOW = "2026-09-13T10:00:00.000Z";
 
@@ -21,35 +19,6 @@ function tenants(): TenantRepository & { rows: Tenant[] } {
     async setDbFile() { return false; },
   };
 }
-
-function signups(): SignupRequestRepository & { rows: SignupRequest[] } {
-  const rows: SignupRequest[] = [];
-  return {
-    rows,
-    async findByTokenHash(hash) { return rows.find((r) => r.tokenHash === hash) ?? null; },
-    async findById(id) { return rows.find((r) => r.id === id) ?? null; },
-    async listAwaitingDecision() { return []; },
-    async tryDecide() { return false; },
-    async findActiveByCode() { return null; },
-    async save(r) { rows.push(r); },
-    async tryMarkVerified() { return null; },
-    async tryClaimProvisioning() { return true; },
-    async renewProvisioning() { return true; },
-    async provisioningClaimedAt() { return null; },
-    async provisioningFence() { return 1; },
-    async takeProvisionFence() { return 1; },
-    async followOwnerEmail() {},
-    async releaseByCode() {},
-    async releaseProvisioning() {},
-  };
-}
-
-const plans: PlanRepository = {
-  async findById(id) { return { id, isPublic: true, status: "active" } as Plan; },
-  async findByCode() { return null; },
-  async list() { return []; },
-  async save() {},
-};
 
 describe("companyNameProblem", () => {
   it("accepts an ordinary Arabic or Latin trading name", () => {
@@ -81,9 +50,8 @@ describe("companyNameProblem", () => {
   });
 });
 
-describe("the platform's own validators hold the same rule", () => {
+describe("createTenant holds the same rule", () => {
   const tenant = { id: "T1", code: "cyag", nameAr: "سياج", ownerEmail: "owner@cyag.eg", now: NOW };
-  const signup = { id: "S1", code: "cyag", nameAr: "سياج", ownerEmail: "owner@cyag.eg", ownerNameAr: "سارة", planId: "PLAN-CORE", billingCycle: "monthly" as const, tokenHash: "hash", now: NOW, expiresInMs: 1000 };
 
   it.each([
     ["too long", "ش".repeat(COMPANY_NAME_MAX_LENGTH + 1)],
@@ -94,18 +62,8 @@ describe("the platform's own validators hold the same rule", () => {
     expect(repo.rows).toEqual([]);
   });
 
-  it.each([
-    ["too long", "ش".repeat(COMPANY_NAME_MAX_LENGTH + 1)],
-    ["carrying a right-to-left override", "شركة \u202Eevil"],
-  ])("startSignup refuses a name %s and saves nothing", async (_what, nameAr) => {
-    const repo = signups();
-    await expect(startSignup({ ...signup, nameAr }, repo, tenants(), plans)).rejects.toThrow(InvalidSignupError);
-    expect(repo.rows).toEqual([]);
-  });
-
-  it("both still accept the longest name", async () => {
+  it("still accepts the longest name", async () => {
     const nameAr = "ش".repeat(COMPANY_NAME_MAX_LENGTH);
     expect((await createTenant({ ...tenant, nameAr }, tenants())).nameAr).toBe(nameAr);
-    expect((await startSignup({ ...signup, nameAr }, signups(), tenants(), plans)).nameAr).toBe(nameAr);
   });
 });

@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..");
-const CLIENT_SOURCES = ["apps/web/src", "apps/mobile/src", "packages/ui/src"];
+const CLIENT_SOURCES = ["apps/web/src", "packages/ui/src"];
 
 const UTC_DAY_OF_AN_INSTANT = /\.toISOString\(\)\s*\.\s*(?:slice\(\s*0\s*,\s*10\s*\)|substring\(\s*0\s*,\s*10\s*\)|substr\(\s*0\s*,\s*10\s*\)|split\(\s*["'`]T["'`]\s*\)\s*\[\s*0\s*\])/g;
 const UTC_PART_OF_NOW = /new Date\(\)\s*\.\s*getUTC(?:FullYear|Month|Date|Day)\(\)/g;
@@ -17,7 +17,6 @@ interface Allowance {
 
 const ALLOWED: readonly Allowance[] = [
   { file: "apps/web/src/lib/dates.ts", occurrences: 1, why: "addDaysIso: UTC arithmetic on a calendar day that was already given, never on the clock" },
-  { file: "apps/mobile/src/domain/dates.ts", occurrences: 1, why: "addDaysIso: UTC arithmetic on a calendar day that was already given, never on the clock" },
   { file: "packages/ui/src/lib/data-migration-file.ts", occurrences: 1, why: "a spreadsheet date cell, which ExcelJS hands over as UTC midnight of the day typed" },
   { file: "packages/ui/src/lib/historical-import-file.ts", occurrences: 1, why: "a spreadsheet date cell, which ExcelJS hands over as UTC midnight of the day typed" },
 ];

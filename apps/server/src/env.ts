@@ -62,12 +62,7 @@ export interface CloudEnv {
   readonly deploymentEnvironment?: DeploymentEnvironment;
   readonly port: number;
   readonly paymob: PaymobEnv;
-  /**
-   * The signup flow's outbound mail — there is no tenant yet to read
-   * `TenantSettings` from, so this is its own platform-level config, built
-   * from env vars. `undefined` means dev mode: the verification link is shown
-   * on screen instead of mailed (see `signup-routes.ts`).
-   */
+  /** The platform's own outbound mail, built from env vars. `undefined` means dev mode: no platform mail is sent. */
   readonly platformSmtp?: SmtpConfig;
   readonly supportEmail?: string;
   readonly supportPhone?: string;
@@ -202,8 +197,7 @@ const SMTP_SECURITIES: readonly SmtpSecurity[] = ["NONE", "STARTTLS", "TLS"];
 
 /**
  * `MEZAN_SMTP_HOST` is the on/off switch: unset means dev mode (no outbound
- * mail anywhere on the platform, not just signup — the verification link is
- * shown on screen instead). Set, it needs a sender address at minimum; the
+ * mail anywhere on the platform). Set, it needs a sender address at minimum; the
  * rest fall back the same way the tenant email settings screen defaults them.
  */
 function parsePlatformSmtp(env: Record<string, string | undefined>): SmtpConfig | undefined {
@@ -331,7 +325,7 @@ function publicOriginOf(env: Record<string, string | undefined>): { readonly pub
 
 // SECURITY: a mailed link is built only on an origin this deployment was
 // given, never on the host a request claimed. With mail on and no such origin
-// every signup would be refused at the first request; it is refused here.
+// no mailed link could be built; it is refused here.
 export function configuredPublicOrigin(env: Pick<CloudEnv, "publicOrigin" | "paymob">): string | undefined {
   return env.publicOrigin ?? (env.paymob.mode === PaymobMode.Off ? undefined : env.paymob.publicUrl);
 }
@@ -339,7 +333,7 @@ export function configuredPublicOrigin(env: Pick<CloudEnv, "publicOrigin" | "pay
 function requireOriginForMailedLinks(parsed: CloudEnv): CloudEnv {
   if (parsed.platformSmtp !== undefined && configuredPublicOrigin(parsed) === undefined) {
     throw new Error(
-      "MEZAN_PUBLIC_URL is required once MEZAN_SMTP_HOST is set: every mailed link (signup verification, owner hand-over) is built on it, and without it no signup can be completed",
+      "MEZAN_PUBLIC_URL is required once MEZAN_SMTP_HOST is set: every mailed link (owner hand-over, unlock) is built on it",
     );
   }
   return parsed;

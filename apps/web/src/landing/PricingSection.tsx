@@ -1,13 +1,12 @@
 import { useState } from "react";
-import { Link } from "react-router";
 import { Button, Money, Segmented, StatusPill, cn } from "@mezan/ui";
-import { SignupModeCode, type PublicPlanDTO } from "@mezan/contracts";
+import type { PublicPlanDTO } from "@mezan/contracts";
 import { BillingCycleKind, CountedNoun, PlanKind, QuotaKind } from "@mezan/domain";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useCountPhrase } from "../lib/count-phrase";
 import { entitlementModuleLabel } from "../domain-labels";
-import { usePublicPlans, useSignupMode, useWhatsappNumber } from "../signup/signup-api";
-import { whatsappHref } from "./site";
+import { usePublicPlans, useSiteContact } from "../signup/signup-api";
+import { contactHref, contactLinkProps } from "./site";
 
 enum PlanCode {
   Free = "free",
@@ -50,7 +49,6 @@ function PlanCard({ plan, previous, cycle }: { plan: PublicPlanDTO; previous: Pu
   const name = locale === "ar" ? plan.nameAr : plan.nameEn;
   const price = cycle === BillingCycleKind.Monthly ? plan.priceMonthly : plan.priceYearly;
   const audience = audienceOf(plan.code);
-  const signupOpen = useSignupMode() !== SignupModeCode.Closed;
   const invoiceCap = plan.quotas?.[QuotaKind.SalesInvoicesPerMonth];
   const builtOn = previous !== null && previous.modules.every((id) => plan.modules.includes(id)) ? previous : null;
   const inherited = new Set(builtOn?.modules ?? []);
@@ -91,16 +89,6 @@ function PlanCard({ plan, previous, cycle }: { plan: PublicPlanDTO; previous: Pu
         <span className="mt-[16px] inline-flex min-h-[44px] items-center justify-center rounded-md border border-border bg-surface-2 px-[15px] text-[14px] font-semibold text-ink-muted">
           {t("landing.pricing.soldOut")}
         </span>
-      ) : signupOpen ? (
-        <Link
-          to={`/signup?plan=${encodeURIComponent(plan.code)}&cycle=${cycle}`}
-          className={cn(
-            "mt-[16px] inline-flex min-h-[44px] items-center justify-center rounded-md border px-[15px] text-[14px] font-semibold transition-colors",
-            popular ? "border-brand bg-brand text-brand-ink hover:bg-brand-strong" : "border-border-strong bg-surface text-ink hover:bg-surface-2",
-          )}
-        >
-          {t("landing.pricing.choose")}
-        </Link>
       ) : null}
       <ul className="mt-[18px] flex flex-col gap-[6px] border-b border-border pb-[14px] text-[13px] text-ink">
         {limits.map((limit) => (
@@ -130,7 +118,7 @@ export function PricingSection() {
   const { t } = useAppTranslation();
   const [cycle, setCycle] = useState<BillingCycleKind>(BillingCycleKind.Monthly);
   const plansQuery = usePublicPlans();
-  const whatsapp = useWhatsappNumber();
+  const contact = contactHref(useSiteContact());
   const plans = plansQuery.data ?? [];
   const savesTwoMonths = yearlySavesTwoMonths(plans);
 
@@ -167,8 +155,8 @@ export function PricingSection() {
       )}
 
       <p className="mt-[18px] text-[13px] text-ink-muted">{t("landing.pricing.vat")}</p>
-      {whatsapp === null ? null : (
-        <a href={whatsappHref(whatsapp)} target="_blank" rel="noopener noreferrer" className="mt-[4px] inline-flex min-h-[44px] items-center text-[13px] text-accent hover:underline">
+      {contact === null ? null : (
+        <a {...contactLinkProps(contact)} className="mt-[4px] inline-flex min-h-[44px] items-center text-[13px] text-accent hover:underline">
           {t("landing.pricing.more")}
         </a>
       )}

@@ -22,10 +22,7 @@ const SCAN_DIRS = ["apps", "packages"];
 // the built web bundle, so every rule below matched MINIFIED CSS and reported the
 // font-face block as a hardcoded physical property. It is gitignored; these
 // scanners walk the filesystem, not the index, so they have to be told too.
-// "mobile" is React Native, not the DOM: it has no CSS classes and no @mezan/ui controls,
-// so both of these web scanners would report every file. Its RTL and control rules are
-// enforced by scripts/check-mobile-rtl.mjs instead — keep that one in step with this one.
-const SKIP_DIRS = new Set(["node_modules", "dist", ".git", ".worktrees", "build", "release", "coverage", "mobile"]);
+const SKIP_DIRS = new Set(["node_modules", "dist", ".git", ".worktrees", "build", "release", "coverage"]);
 
 /** Files that implement a primitive, and so legitimately render the native element. */
 const EXEMPT_FILES = new Set(

@@ -56,13 +56,12 @@ export {
   type CardCheckout, type CardCheckoutRepository, type CardCheckoutSettlement,
 } from "./card-checkout.js";
 export {
-  startSignup, verifySignup, isDisposableEmailDomain, DISPOSABLE_EMAIL_DOMAINS, SignupRequestStatus,
-  SignupMode, SignupDecision, DEFAULT_SIGNUP_MODE, signupModeOf, VERIFIED_LINK_VALID_MS,
-  type SignupRequest, type SignupRequestRepository, type StartSignupCommand,
+  SignupRequestStatus, SignupDecision, VERIFIED_LINK_VALID_MS,
+  type SignupRequest, type SignupRequestRepository,
 } from "./signup.js";
 export { PlatformSettingKey, type PlatformSettingRepository } from "./settings.js";
 export {
-  PlanKind, PlanStatusCode, QuotaKind, QUOTA_KINDS, normalizeQuotas, isFreePlan, topPublicPaidPlan, defaultFreePlan,
+  PlanKind, PlanStatusCode, QuotaKind, QUOTA_KINDS, normalizeQuotas, isFreePlan, defaultFreePlan,
   type PlanQuotas,
 } from "./plan.js";
 export {

@@ -5,7 +5,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
-import { SignupModeCode, type PublicPlanDTO } from "@mezan/contracts";
+import type { PublicPlanDTO } from "@mezan/contracts";
 import { PlanKind, QuotaKind } from "@mezan/domain";
 import { AppI18nProvider } from "../i18n";
 import { LandingPage } from "./LandingPage";
@@ -44,10 +44,10 @@ const PLANS: PublicPlanDTO[] = [
   }),
 ];
 
-function open(response: () => Promise<Response>, mode: SignupModeCode = SignupModeCode.Open, whatsapp: string | null = null) {
+function open(response: () => Promise<Response>, whatsapp: string | null = null, email: string | null = null) {
   vi.stubGlobal(
     "fetch",
-    vi.fn((input: RequestInfo | URL) => (String(input instanceof Request ? input.url : input).endsWith("/status") ? ok({ mode, contact: { email: null, phone: null, whatsapp } })() : response())),
+    vi.fn((input: RequestInfo | URL) => (String(input instanceof Request ? input.url : input).endsWith("/status") ? ok({ contact: { email, phone: null, whatsapp } })() : response())),
   );
   render(
     <AppI18nProvider>
@@ -67,21 +67,13 @@ describe("LandingPage", () => {
     vi.unstubAllGlobals();
   });
 
-  it("states the trial length read from the live plans, and sends every call to action to signup", async () => {
+  it("offers no way to create an account, only sign-in and contact", async () => {
     open(ok(PLANS));
 
-    expect(await screen.findByText(/جرّب ميزان 14 يومًا بكل المزايا/)).toBeInTheDocument();
-    for (const link of screen.getAllByRole("link", { name: "ابدأ التجربة المجانية" })) expect(link).toHaveAttribute("href", "/signup");
+    expect(await screen.findByTestId("landing-plan-business")).toBeInTheDocument();
+    expect(screen.getByText("تواصل معنا ونفتح حساب منشأتك ونجهّزه لك. ودفاترك تبقى معك.")).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryAllByRole("link").filter((link) => link.getAttribute("href")?.startsWith("/signup"))).toEqual([]));
     for (const link of screen.getAllByRole("link", { name: "تسجيل الدخول" })) expect(link).toHaveAttribute("href", "/dashboard");
-  });
-
-  it("asks for an account instead of promising a trial while sign-up needs approval", async () => {
-    open(ok(PLANS), SignupModeCode.Approval);
-
-    expect((await screen.findAllByRole("link", { name: "اطلب حسابك" })).length).toBeGreaterThan(0);
-    expect(screen.queryByRole("link", { name: "ابدأ التجربة المجانية" })).not.toBeInTheDocument();
-    expect(screen.getByText("اطلب حسابًا لمنشأتك، فنراجع طلبك ونفعّله لك. ودفاترك تبقى معك.")).toBeInTheDocument();
-    expect(screen.queryByText(/بلا بطاقة ائتمان · تفعيل برابط/)).not.toBeInTheDocument();
   });
 
   it("marks a sold-out package and offers no way to choose it", async () => {
@@ -90,14 +82,6 @@ describe("LandingPage", () => {
     const card = await screen.findByTestId("landing-plan-business");
     expect(within(card).getAllByText("نفدت حاليًا").length).toBeGreaterThan(0);
     expect(within(card).queryByRole("link")).not.toBeInTheDocument();
-  });
-
-  it("offers no way to sign up while sign-up is closed, only sign-in", async () => {
-    open(ok(PLANS), SignupModeCode.Closed);
-
-    expect(await screen.findByTestId("landing-plan-business")).toBeInTheDocument();
-    await waitFor(() => expect(screen.queryAllByRole("link").filter((link) => link.getAttribute("href")?.startsWith("/signup"))).toEqual([]));
-    expect(screen.getAllByRole("link", { name: "تسجيل الدخول" }).length).toBeGreaterThan(0);
   });
 
   it("lets a visitor clear a field and type a new quantity digit by digit without it jumping", async () => {
@@ -118,7 +102,7 @@ describe("LandingPage", () => {
     expect(quantity).toHaveValue(400);
   });
 
-  it("prices each plan from the API, names the Free plan's limits, and links each card to signup with its plan and cycle", async () => {
+  it("prices each plan from the API and names the Free plan's limits", async () => {
     open(ok(PLANS));
 
     const free = await screen.findByTestId("landing-plan-free");
@@ -131,11 +115,9 @@ describe("LandingPage", () => {
     expect(within(business).getByText("10 مستخدمين")).toBeInTheDocument();
     expect(within(business).getByText("كل ما في «الأساسية»، ومعه:")).toBeInTheDocument();
     expect(within(business).queryByText("المحاسبة")).not.toBeInTheDocument();
-    expect(within(business).getByRole("link", { name: "ابدأ بهذه الباقة" })).toHaveAttribute("href", "/signup?plan=business&cycle=monthly");
 
     fireEvent.click(screen.getByRole("radio", { name: "سنويًا" }));
     expect(within(business).getByText(/9,800/)).toBeInTheDocument();
-    expect(within(business).getByRole("link", { name: "ابدأ بهذه الباقة" })).toHaveAttribute("href", "/signup?plan=business&cycle=yearly");
     expect(screen.getByText("وفّر شهرين")).toBeInTheDocument();
   });
 
@@ -146,12 +128,11 @@ describe("LandingPage", () => {
     expect(screen.queryByText("وفّر شهرين")).not.toBeInTheDocument();
   });
 
-  it("offers a retry instead of empty cards when the prices cannot be loaded, and drops the day count it cannot know", async () => {
+  it("offers a retry instead of empty cards when the prices cannot be loaded", async () => {
     open(() => Promise.resolve(new Response("{}", { status: 503 })));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("تعذّر تحميل الأسعار الآن.");
     expect(screen.getByRole("button", { name: "حاول مرة أخرى" })).toBeInTheDocument();
-    expect(screen.getByText(/جرّب ميزان بكل المزايا، بلا بطاقة ائتمان/)).toBeInTheDocument();
   });
 
   it("recomputes the example's entry as the quantity changes, and the entry always balances", async () => {
@@ -175,10 +156,19 @@ describe("LandingPage", () => {
     expect(screen.queryByRole("link", { name: "تواصل معنا" })).not.toBeInTheDocument();
   });
 
-  it("links to the WhatsApp number the owner set in the console", async () => {
-    open(ok(PLANS), SignupModeCode.Open, "201001234567");
+  it("falls back to the support email when no WhatsApp number is configured", async () => {
+    open(ok(PLANS), null, "hello@mezan.example");
 
-    const link = await screen.findByRole("link", { name: "تواصل معنا" });
-    expect(link).toHaveAttribute("href", "https://wa.me/201001234567");
+    const links = await screen.findAllByRole("link", { name: "تواصل معنا" });
+    expect(links.length).toBeGreaterThan(0);
+    for (const link of links) expect(link).toHaveAttribute("href", "mailto:hello@mezan.example");
+    expect(screen.queryByText("تحدّث معنا على واتساب")).not.toBeInTheDocument();
+  });
+
+  it("links to the WhatsApp number the owner set in the console", async () => {
+    open(ok(PLANS), "201001234567");
+
+    const links = await screen.findAllByRole("link", { name: "تواصل معنا" });
+    for (const link of links) expect(link).toHaveAttribute("href", "https://wa.me/201001234567");
   });
 });

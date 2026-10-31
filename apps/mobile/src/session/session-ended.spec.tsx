@@ -84,7 +84,7 @@ describe("a session the server ended under the app", () => {
     await mounted();
     await act(async () => void (await signOutByHand()));
     mockApiRequest.mockImplementation(async (_credentials: unknown, path: string) =>
-      path === "/auth/login" ? { token: "temporary-token-0123456789", mustChangePassword: true, userId: "u-1", permissions: [], branchScope: "*", warehouseScope: "*" } : {},
+      path === "/auth/login" ? { token: "temporary-token-0123456789", deviceSecret: "temporary-device-secret", mustChangePassword: true, userId: "u-1", permissions: [], branchScope: "*", warehouseScope: "*" } : {},
     );
 
     let signedIn: boolean | undefined;
@@ -92,6 +92,7 @@ describe("a session the server ended under the app", () => {
 
     expect(signedIn).toBe(false);
     expect(mockApiRequest.mock.calls.map((call) => call[1])).toEqual(["/auth/login", "/auth/logout"]);
+    expect(mockApiRequest.mock.calls[1]?.[0]).toMatchObject({ token: "temporary-token-0123456789", deviceSecret: "temporary-device-secret" });
     expect(screen.getByTestId("state").props.children).toBe(`ready|signed-out|${SessionEnded.PasswordChangeRequired}`);
   });
 

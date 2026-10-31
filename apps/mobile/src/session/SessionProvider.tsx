@@ -204,7 +204,7 @@ export function SessionProvider({ children }: { children: ReactNode }): ReactNod
     );
     if (signedIn.mustChangePassword) {
       await apiRequest(
-        { baseUrl: next.baseUrl, tenantCode: next.tenantCode, token: signedIn.token ?? null, branchScope: ScopeAll.Every, warehouseScope: ScopeAll.Every },
+        { baseUrl: next.baseUrl, tenantCode: next.tenantCode, token: signedIn.token ?? null, deviceSecret: signedIn.deviceSecret ?? null, branchScope: ScopeAll.Every, warehouseScope: ScopeAll.Every },
         "/auth/logout",
         { method: HttpMethod.Post },
       ).catch(() => undefined);

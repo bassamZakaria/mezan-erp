@@ -61,6 +61,16 @@ describe("the sign-in screen after the server ended the session", () => {
     expect(screen.getByTestId("sign-in-session-ended").props.children).toBe("غيّر كلمة المرور المؤقتة من موقع ميزان أولاً، ثم سجّل الدخول من جديد.");
   });
 
+  it("stays on the sign-in screen when the sign-in is turned away for a temporary password", async () => {
+    mockSignIn.mockResolvedValue(false);
+    await render(<SignIn />);
+    await submitPassword("Temp@2026x");
+
+    expect(mockSignIn).toHaveBeenCalled();
+    expect(mockReplace).not.toHaveBeenCalled();
+    expect(screen.getByTestId("sign-in-password").props.value).toBe("");
+  });
+
   it("says the session ended when it simply expired", async () => {
     mockSessionEnded = SessionEnded.Expired;
     await render(<SignIn />);

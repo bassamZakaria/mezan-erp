@@ -162,7 +162,7 @@ describe("a tenant created in the console", () => {
 
   it.each([
     ["longer than the claim accepts", "ش".repeat(COMPANY_NAME_MAX_LENGTH + 1)],
-    ["carrying a right-to-left override", "شركة ‮evil"],
+    ["carrying a right-to-left override", "شركة \u202Eevil"],
   ])("refuses a tenant created in the console with a name %s, and creates nothing", async (_what, nameAr) => {
     const app = await boot();
     const token = await platformBearer(app);

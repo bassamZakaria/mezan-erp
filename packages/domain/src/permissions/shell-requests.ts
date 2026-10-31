@@ -1,7 +1,7 @@
-import { SUBSCRIPTION_BILLING_FEATURE, type Entitlements } from "../entitlements/index.js";
+import { SUBSCRIPTION_BILLING_FEATURE, hasModule, hasReadOnlyModule, type Entitlements } from "../entitlements/index.js";
 import { can, type AuthContext } from "./auth-context.js";
 import { getPermission } from "./catalog.js";
-import { isModuleLicensed, isModuleReadOnly } from "./module-licensing.js";
+import { isModuleLicensed, isModuleReadOnly, isPermissionLicensed, isPermissionReadOnly } from "./module-licensing.js";
 
 export enum ShellRequest {
   Roles = "roles",
@@ -17,6 +17,7 @@ export enum ShellRequest {
 
 export enum ShellRequestModule {
   Hr = "hr",
+  HrPeople = "hr.people",
 }
 
 export interface ShellRequestGate {
@@ -37,8 +38,8 @@ export const SHELL_REQUESTS: Record<ShellRequest, ShellRequestGate> = {
   [ShellRequest.Users]: { path: "/users", permission: "admin.users.view", servedByTenant: true, module: null, feature: null },
   [ShellRequest.Branches]: { path: "/branches", permission: "admin.branches.view", servedByTenant: true, module: null, feature: null },
   [ShellRequest.Warehouses]: { path: "/warehouses", permission: "admin.warehouses.view", servedByTenant: true, module: null, feature: null },
-  [ShellRequest.Employees]: { path: "/hr/employees", permission: "hr.employee.view", servedByTenant: true, module: ShellRequestModule.Hr, feature: null },
-  [ShellRequest.JobTitles]: { path: "/hr/job-titles", permission: "hr.job_title.view", servedByTenant: true, module: ShellRequestModule.Hr, feature: null },
+  [ShellRequest.Employees]: { path: "/hr/employees", permission: "hr.employee.view", servedByTenant: true, module: ShellRequestModule.HrPeople, feature: null },
+  [ShellRequest.JobTitles]: { path: "/hr/job-titles", permission: "hr.job_title.view", servedByTenant: true, module: ShellRequestModule.HrPeople, feature: null },
   [ShellRequest.PendingApprovals]: { path: "/workflow/requests/pending-count", permission: "workflow.view", servedByTenant: true, module: null, feature: null },
   [ShellRequest.Settings]: { path: "/settings", permission: "admin.settings.view", servedByTenant: true, module: null, feature: null },
   [ShellRequest.Subscription]: { path: "/billing/subscription", permission: "admin.settings.view", servedByTenant: false, module: null, feature: SUBSCRIPTION_BILLING_FEATURE },
@@ -57,7 +58,7 @@ export interface PlanModules {
 export function planServesShellRequest(plan: PlanModules, request: ShellRequest): boolean {
   const { module, feature } = SHELL_REQUESTS[request];
   if (feature !== null && plan.features?.[feature] !== true) return false;
-  return module === null || plan.activeModules.includes(module) || (plan.readOnlyModules ?? []).includes(module);
+  return module === null || hasModule(plan, module) || hasReadOnlyModule(plan, module);
 }
 
 export enum ScreenRequest {
@@ -141,8 +142,8 @@ export const SCREEN_REQUESTS: Record<ScreenRequest, ScreenRequestGate> = {
 export function mayAskScreenRequest(auth: AuthContext, entitlements: Entitlements | null, request: ScreenRequest): boolean {
   const { permission, ownTiers } = SCREEN_REQUESTS[request];
   if (![permission, ...(ownTiers ?? [])].some((code) => can(auth, code))) return false;
-  const module = getPermission(permission)?.module;
-  return !entitlements || !module || isModuleLicensed(module, entitlements) || isModuleReadOnly(module, entitlements);
+  if (!entitlements || !getPermission(permission)) return true;
+  return isPermissionLicensed(permission, entitlements) || isPermissionReadOnly(permission, entitlements);
 }
 
 export enum ShellModuleRequest {

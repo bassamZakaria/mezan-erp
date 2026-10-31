@@ -1,5 +1,6 @@
 import { OWNER_DIGEST_EVENT, ReversalDocumentType, reversalPermissionSuccessors } from "@mezan/contracts";
-import { attachmentPermissionSuccessors, type User } from "@mezan/domain";
+import { attachmentPermissionSuccessors, type SignInEmailGuard, type User } from "@mezan/domain";
+import { signInEmailOf, withSignInEmailGuard } from "./sign-in-email-guard.js";
 import { createHash, randomUUID } from "node:crypto";
 import { OwnerPasswordResetOutcome } from "./owner-password-reset-outcome.js";
 import { createLeaveAccrualJob, startScheduledJobs, type ScheduledJobResult, type ScheduledJobStatus } from "./scheduled-jobs.js";
@@ -975,18 +976,16 @@ function passwordResetMail(link: string): string {
   ].join("\n");
 }
 
-function invitationMail(email: string, temporaryPassword: string, signInLink: string | null, companyCode: string | null): string {
+function invitationMail(email: string, temporaryPassword: string, signInLink: string | null): string {
   return [
     "أُنشئ لك حساب في ميزان.",
     ...(signInLink ? [`رابط الدخول: ${signInLink}`] : []),
-    ...(companyCode ? [`رمز المنشأة: ${companyCode}`] : []),
     `البريد الإلكتروني: ${email}`,
     `كلمة المرور المؤقتة: ${temporaryPassword}`,
     "ستُطلب منك كلمة مرور جديدة عند أول دخول.",
     "",
     "An account was created for you in Mezan.",
     ...(signInLink ? [`Sign in at: ${signInLink}`] : []),
-    ...(companyCode ? [`Company code: ${companyCode}`] : []),
     `Email: ${email}`,
     `Temporary password: ${temporaryPassword}`,
     "You will be asked to choose a new password at your first sign-in.",
@@ -1029,9 +1028,8 @@ export interface CreateBackendOptions {
   readonly unlockLink?: (token: string) => string;
   // SECURITY: built like `unlockLink`, from the deployment's origin only.
   readonly passwordResetLink?: (token: string) => string;
-  /** Where an invited user signs in, and the company code they type there, quoted in the invitation email. */
+  /** Where an invited user signs in, quoted in the invitation email. */
   readonly signInLink?: string;
-  readonly signInCompanyCode?: string;
   // CONTRACT: true where a platform operator can unlock this tenant's accounts
   // from the console (the cloud edition). It changes what a locked account is told.
   readonly platformOperatorUnlocks?: boolean;
@@ -1077,6 +1075,7 @@ export interface CreateBackendOptions {
    */
   readonly resolveLicenseState?: CreateAppOptions["resolveLicenseState"];
   readonly onUserEmailChanged?: CreateAppOptions["onUserEmailChanged"];
+  readonly signInEmails?: SignInEmailGuard;
   readonly companyOwner?: CreateAppOptions["companyOwner"];
   readonly onUserSignedIn?: (user: SignedInUser) => Promise<void>;
   readonly claimedElsewhere?: () => Promise<boolean>;
@@ -1255,7 +1254,16 @@ async function composeBackend(options: CreateBackendOptions, db: SqlDb, sqlite: 
   const configTransactor: ConfigTransactor = { run: (fn) => db.transaction(fn) };
   const labelLayouts = store((s) => createSqliteLabelLayoutStore(s), (d) => createLabelLayoutStore(d));
 
-  const uow = store((s) => createSqliteUnitOfWork(s), (d) => createUnitOfWork(d));
+  const books = store((s) => createSqliteUnitOfWork(s), (d) => createUnitOfWork(d));
+  const signInEmails = options.signInEmails;
+  const uow = signInEmails
+    ? withSignInEmailGuard(books, signInEmails)
+    : books;
+  if (signInEmails) {
+    await signInEmails
+      .sync((await books.users.list()).map(signInEmailOf).filter((email): email is string => email !== null))
+      .catch((err: unknown) => backendLog.error({ err }, "the sign-in email list could not be brought up to date"));
+  }
   await grantSuccessorPermissionsOnce(db, REVERSAL_PERMISSIONS_GRANT, reversalPermissionSuccessors());
   // INVARIANT: a marker of its own — books that already hold the marker above were upgraded before the voucher route joined the registry and would never be given its permission.
   await grantSuccessorPermissionsOnce(db, VOUCHER_REVERSAL_PERMISSION_GRANT, reversalPermissionSuccessors([ReversalDocumentType.Voucher]));
@@ -3912,7 +3920,7 @@ async function composeBackend(options: CreateBackendOptions, db: SqlDb, sqlite: 
     mailUserOutsideTheTurn(user.email, "ميزان — إعادة تعيين كلمة المرور / Mezan password reset", passwordResetMail(options.passwordResetLink(token)));
   };
   const mailInvitation = async ({ user, temporaryPassword }: { readonly user: User; readonly temporaryPassword: string }): Promise<void> => {
-    mailUserOutsideTheTurn(user.email, "ميزان — دعوة للدخول / Your Mezan account", invitationMail(user.email, temporaryPassword, options.signInLink ?? null, options.signInCompanyCode ?? null));
+    mailUserOutsideTheTurn(user.email, "ميزان — دعوة للدخول / Your Mezan account", invitationMail(user.email, temporaryPassword, options.signInLink ?? null));
   };
   const recordLateInTheTurn = inTheTurn("late notification record");
   type MailResult = Awaited<ReturnType<typeof sendNotificationEmail>>;
@@ -6178,7 +6186,7 @@ async function composeBackend(options: CreateBackendOptions, db: SqlDb, sqlite: 
             numbering: ledger.numbering,
             transactor: configTransactor,
             generateId: () => randomUUID(),
-            allowed: () => (options.entitlements ? hasModule(options.entitlements, "hr") : true),
+            allowed: () => (options.entitlements ? hasModule(options.entitlements, "hr.time") : true),
           }),
           createCrmReminderJob(
             createCrmReminderService({

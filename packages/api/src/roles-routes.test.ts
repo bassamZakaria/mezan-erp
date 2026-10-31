@@ -73,7 +73,8 @@ describe("roles routes", () => {
       new Request("http://x/roles", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ code: "X", name: "x", permissions: ["hr.employee.view"] }),
+        // A paid HR part; the free staff list (hr.employee.view) is grantable on every plan.
+        body: JSON.stringify({ code: "X", name: "x", permissions: ["hr.payroll.view"] }),
       }),
     );
     expect(res.status).toBe(400);

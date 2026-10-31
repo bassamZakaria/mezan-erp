@@ -81,23 +81,29 @@ export function HrDashboardScreen() {
       </div>
 
       <div className="grid grid-cols-2 gap-[14px] lg:grid-cols-4">
+        {attendance ? (
         <StatCard
           label={t("hrDashboard.absenceRate")}
           value={<span className="mz-num">{attendance?.absenceRatePercent ?? 0}%</span>}
           sub={t("hrDashboard.overTheLast30Days")}
           valueTone={(attendance?.absenceRatePercent ?? 0) >= 10 ? "danger" : "default"}
         />
+        ) : null}
+        {attendance ? (
         <StatCard
           label={t("hrDashboard.lateArrivals")}
           value={<span className="mz-num">{attendance?.daysLate ?? 0}</span>}
           sub={t("hrDashboard.percentOfAttendedDays", { percent: attendance?.lateArrivalRatePercent ?? 0 })}
           valueTone={(attendance?.lateArrivalRatePercent ?? 0) >= 15 ? "danger" : "default"}
         />
+        ) : null}
+        {summary?.contractsExpiringSoon !== null ? (
         <StatCard
           label={t("hrDashboard.contractsEndingWithin30Days")}
           value={<span className="mz-num">{summary?.contractsExpiringSoon ?? 0}</span>}
           valueTone={(summary?.contractsExpiringSoon ?? 0) > 0 ? "danger" : "default"}
         />
+        ) : null}
         <StatCard
           label={t("hrDashboard.probationEndingSoon")}
           value={<span className="mz-num">{summary?.probationEndingSoon ?? 0}</span>}
@@ -113,6 +119,7 @@ export function HrDashboardScreen() {
           centerSub={t("hrDashboard.employee")}
         />
         <DonutChart title={t("hrDashboard.employeesByBranch")} segments={branchSegments} centerLabel={String(summary?.activeEmployees ?? 0)} centerSub={t("hrDashboard.employee")} />
+        {attendance ? (
         <DonutChart
           title={t("hrDashboard.attendanceMix")}
           hint={t("hrDashboard.overTheLast30Days")}
@@ -120,6 +127,7 @@ export function HrDashboardScreen() {
           centerLabel={String(attendance?.workingDays ?? 0)}
           centerSub={t("hrDashboard.day")}
         />
+        ) : null}
         <TrendChart
           title={t("hrDashboard.headcountMovement")}
           hint={t("hrDashboard.overTheLast12Months")}
@@ -131,6 +139,7 @@ export function HrDashboardScreen() {
         />
       </div>
 
+      {summary?.leaveConsumption === null ? null : (
       <Card className="p-[18px_20px]">
         <h3 className="font-display text-[14.5px] font-bold text-ink">{t("hrDashboard.leaveTaken")}</h3>
         <div className="mt-[14px] overflow-x-auto">
@@ -158,6 +167,7 @@ export function HrDashboardScreen() {
           </table>
         </div>
       </Card>
+      )}
     </div>
   );
 }

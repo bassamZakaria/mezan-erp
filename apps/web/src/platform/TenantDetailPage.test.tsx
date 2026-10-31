@@ -1931,3 +1931,15 @@ describe("TenantDetailPage", () => {
     });
   });
 });
+
+describe("TenantDetailPage — HR parts", () => {
+  it("names a licensed HR part under its module", async () => {
+    const summary = { ...makeSummary(), entitlements: { ...entitlementsFixture, activeModules: ["sales", "hr.time"] } };
+    const transport = stubPlatformTransport({
+      "GET /tenants/tenant-1": () => ({ body: summary }),
+      "GET /plans": () => ({ body: [plan, plan2] }),
+    });
+    renderDetail({ transport, session: testPlatformSession });
+    expect(await screen.findByText("الموارد البشرية — الدوام والإجازات")).toBeInTheDocument();
+  });
+});

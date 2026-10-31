@@ -22,7 +22,7 @@
 		-Server
 	}
 
-	reverse_proxy mezan:8080 {
+	reverse_proxy mezan:9090 {
 		# SECURITY: the origin secret proves to the app that a request crossed
 		# this proxy; it overwrites whatever the caller sent under that name.
 		header_up X-Mezan-Origin {$MEZAN_ORIGIN_SECRET}

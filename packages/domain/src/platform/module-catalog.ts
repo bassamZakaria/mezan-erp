@@ -1,3 +1,5 @@
+import { SUB_MODULE_NAMES, isSubModule, type HrSubModule } from "../entitlements/sub-modules.js";
+
 /**
  * Modules this build can actually serve, used as the default entitlements the
  * `/roles` route validates grants against and as what `GET /entitlements`
@@ -33,10 +35,13 @@ export const MODULE_CATALOG = [
 
 export type ModuleId = (typeof MODULE_CATALOG)[number];
 
+/** A whole module or one of its licensable parts. */
+export type LicensableId = ModuleId | HrSubModule;
+
 const KNOWN = new Set<string>(MODULE_CATALOG);
 
-export function isKnownModule(id: string): id is ModuleId {
-  return KNOWN.has(id);
+export function isKnownModule(id: string): id is LicensableId {
+  return KNOWN.has(id) || isSubModule(id);
 }
 
 export interface ModuleName {
@@ -76,5 +81,6 @@ export function isCloudOnlyModule(id: string): boolean {
 }
 
 export function moduleName(id: string): ModuleName {
-  return isKnownModule(id) ? MODULE_NAMES[id] : { ar: id, en: id };
+  if (KNOWN.has(id)) return MODULE_NAMES[id as ModuleId];
+  return SUB_MODULE_NAMES[id] ?? { ar: id, en: id };
 }

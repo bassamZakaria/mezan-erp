@@ -14,6 +14,7 @@ import { landingEn } from "../landing/landing-strings";
 
 export const webEn: Record<WebTranslationKey, string> = {
   "i18n.englishUnavailable": "The English interface could not be loaded, so it stayed in Arabic. Reload the page and try again.",
+  "environment.staging": "STAGING · test environment",
   "license.loadFailed": "Could not load the license status.",
   "update.available": "Update available — version {version}",
   "update.download": "Download update",
@@ -8657,6 +8658,9 @@ export const webEn: Record<WebTranslationKey, string> = {
   "platform.plans.editor.field.nameAr": "Arabic name",
   "platform.plans.editor.field.nameEn": "English name",
   "platform.plans.editor.field.modules": "Available modules",
+  "platform.plans.editor.field.hrParts": "HR parts (without the whole module)",
+  "platform.plans.editor.hrAllParts": "All of HR: every part is included.",
+  "platform.plans.editor.hrPeopleFree": "People: free in every plan",
   "platform.plans.editor.field.seats": "Seats included",
   "platform.plans.editor.field.branches": "Branches included",
   "platform.plans.editor.field.warehouses": "Warehouses included",

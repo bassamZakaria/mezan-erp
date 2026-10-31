@@ -3,7 +3,7 @@
 One Ubuntu VPS running Docker Compose: the `mezan` app container, a `postgres:17.6` container holding the books, and a stock `caddy:2` in front. CI builds the image; the VPS only pulls it.
 
 ```
-internet ─▶ :80/:443 Caddy (TLS, security headers, x-mezan-origin) ─▶ mezan:8080 (compose network only)
+internet ─▶ :80/:443 Caddy (TLS, security headers, x-mezan-origin) ─▶ mezan:9090 (compose network only)
                                                                          │
                          /srv/mezan/data  ◀──────────────────────────────┤  (keys, exports, backups/)
                                │                  mezan-postgres:5432 ◀──┘  (db network only; data in /srv/mezan/pg/data)
@@ -14,11 +14,13 @@ internet ─▶ :80/:443 Caddy (TLS, security headers, x-mezan-origin) ─▶ me
 
 | File | Goes to | What it is |
 | --- | --- | --- |
-| `docker-compose.yml`, `Caddyfile`, `caddy.d/`, `deploy.sh`, `backup/`, `postgres-init/` | `/opt/mezan/` | this folder, copied as is |
+| `docker-compose.yml`, `Caddyfile`, `caddy.d/`, `deploy.sh`, `backup/`, `monitor/`, `postgres-init/` | `/opt/mezan/` | this folder, copied as is |
 | `.env.example` | `/srv/mezan/env` (root, 0600) | the app's environment, including its database login `MEZAN_DATABASE_URL` and `MEZAN_TENANT_DB_SECRET` |
 | `pg.env.example` | `/srv/mezan/pg.env` (root, 0600) | the Postgres superuser (`POSTGRES_*` only); the only file the postgres container reads, never given to the app |
 | `shared.env.example` | `/srv/mezan/shared.env` (root, 0600) | domain, ACME e-mail and the origin secret; the only file Caddy reads |
 | `backup/restic.env.example` | `/srv/mezan/restic.env` (root, 0600) | backup repository and its password |
+| `monitor/health-prod.env.example`, `monitor/health-staging.env.example` | `/srv/mezan/health-prod.env`, `/srv/mezan/health-staging.env` (root, 0600) | per environment: the public `/readyz` URL and its heartbeat check |
+| `docker-compose.shared-caddy.example.yml` | `/opt/mezan/docker-compose.override.yml` | only on a server whose Caddy already serves other apps ("Server that already runs Caddy"); keep it across updates |
 | — | `/opt/mezan/.env` | written by `deploy.sh`: `MEZAN_IMAGE_TAG`, `MEZAN_PREVIOUS_IMAGE_TAG` |
 
 ## Region and sizing
@@ -57,6 +59,7 @@ and `systemctl restart docker`. **Why:** ufw does not filter Docker-published po
 - **DNS:** `A` (and `AAAA` once the Docker IPv6 step above is done) for the apex, for example `mezan.example.com`, pointing at the VPS. No wildcard in code mode. DNS only (grey cloud) is simplest. Cloudflare's proxy (orange cloud) also works: the Caddyfile believes `CF-Connecting-IP` only from Cloudflare's published ranges and hands the app that address as `X-Forwarded-For`, so per-address throttles still see each visitor and a direct caller cannot forge one. `X-Forwarded-Host`/`-Proto` are always overwritten, because trusting a range would otherwise pass them through from the caller. The range list is a manual copy: refresh it if Cloudflare changes its ranges. `SITE_DOMAIN` may list several names, comma-separated.
 - **Mail:** a transactional SMTP provider (Postmark, Mailgun, Brevo …) with SPF and DKIM on the sending domain. Mail sent straight from a fresh VPS address goes to spam, and the server's alerts depend on mail. Set `MEZAN_SMTP_*`, `MEZAN_PUBLIC_URL` and `MEZAN_ALERT_EMAIL=bassam.s.zakaria@gmail.com`.
 - **Uptime:** UptimeRobot HTTP(s) monitor on `https://<domain>/readyz`, 5 minutes, keyword `"ready"` (docs/OPERATIONS.md).
+- **Health heartbeat (free, from the VPS):** one healthchecks.io check per environment (prod: period 10 minutes, grace 15 minutes; staging: period 1 day, grace 1 hour); its URL is `HEALTH_HEARTBEAT_URL` in `/srv/mezan/health-<env>.env`. Every 10 minutes `mezan-health@<env>.timer` fetches the public `/readyz`: a good answer pings the check, a bad one pings `<url>/fail` (alert now), and no ping at all (the VPS is down) alerts after the grace. Behind Cloudflare's proxy (orange cloud) Bot Fight Mode answers a bare `curl` from a datacenter address with a 403, so every run would alert: keep that hostname DNS only, or Bot Fight Mode off. This check runs on the VPS itself; it does not replace an outside monitor.
 - **Backup heartbeat:** a healthchecks.io check (period 1 hour, grace 2 hours) or an UptimeRobot heartbeat monitor; its URL is `BACKUP_HEARTBEAT_URL`. A missed ping is the alert that backups stopped. The Postgres jobs have one check each: `PG_DUMP_HEARTBEAT_URL` (hourly), `PG_BASE_HEARTBEAT_URL` (daily), `PG_DRILL_HEARTBEAT_URL` (weekly), all in `restic.env`.
 
 ## 3. Object storage
@@ -111,7 +114,7 @@ mkdir -p /srv/mezan/pg/data    # must be EMPTY: the C locale and data checksums 
 
 The app logs in as `mezan_app`, which is not a superuser: it may create, alter and drop the per-company roles and schemas, nothing else. `deploy.sh` creates it (`postgres-init/10-mezan-app.sql`, also run by the image on an empty data directory), sets its password from `MEZAN_DATABASE_URL` on every deploy and refuses to start the app if that user is a superuser. The superuser in `pg.env` is used only by `deploy.sh` and the backup jobs. By design `mezan_app` is a member of every company's role (it creates them, and needs that to create and drop their schemas); that does not widen what an SQL injection can reach: a company's statements run on pools logged in as that company's `NOINHERIT` role, the `mezan_app` pool runs only fixed provisioning statements, and the process already holds `MEZAN_TENANT_DB_SECRET`, from which every company's password derives. `deploy.sh` sends its password as a SCRAM-SHA-256 verifier computed on the host, so the plain password never reaches Postgres or its logs.
 
-Then set up the automatic deploy (§5) and push to `staging`. To deploy by hand instead, log in once with a `read:packages` token (`docker login ghcr.io --password-stdin`; it stays in `/root/.docker/config.json`) and run `/opt/mezan/deploy.sh <tag>`. On first boot without `MEZAN_PLATFORM_OWNER_PASSWORD` the owner password is written to `/srv/mezan/data/platform-owner-password.txt`: sign in at `/platform/login`, change it, delete the file.
+On a server whose Caddy already serves other apps, first follow "Server that already runs Caddy" below. Then set up the automatic deploy (§5) and push to `staging`. To deploy by hand instead, log in once with a `read:packages` token (`docker login ghcr.io --password-stdin`; it stays in `/root/.docker/config.json`) and run `/opt/mezan/deploy.sh <tag>`. On first boot without `MEZAN_PLATFORM_OWNER_PASSWORD` the owner password is written to `/srv/mezan/data/platform-owner-password.txt`: sign in at `/platform/login`, change it, delete the file.
 
 Then enable the backups:
 
@@ -122,11 +125,22 @@ systemctl start mezan-pg-dump.service mezan-pg-base.service && journalctl -u mez
 systemctl start mezan-backup.service && journalctl -u mezan-backup.service -n 30
 ```
 
+Then enable the health check:
+
+```
+for e in prod staging; do cp /opt/mezan/monitor/health-$e.env.example /srv/mezan/health-$e.env && chmod 600 /srv/mezan/health-$e.env; done   # fill in HEALTH_HEARTBEAT_URL in each
+cp /opt/mezan/monitor/*.service /opt/mezan/monitor/*.timer /etc/systemd/system/
+systemctl daemon-reload && systemctl enable --now mezan-health@prod.timer mezan-health@staging.timer
+systemctl start mezan-health@prod.service mezan-health@staging.service && journalctl -u 'mezan-health@*' -n 20
+```
+
+Both checks must show **Up** on healthchecks.io afterwards: a check that was never pinged stays **New** and never alerts.
+
 After the first deploy, in a browser: sign in to a tenant, print an invoice and a label sheet, open the owner digest preview, upload an attachment, take an attendance selfie; the browser console must show no `Content-Security-Policy` violation. Check `curl -sI https://<domain>/` carries `strict-transport-security` and `content-security-policy`.
 
 ## 5. Update and rollback
 
-Push to `staging` or `production` → the **Release image** workflow pushes `ghcr.io/bassamzakaria/mezan-erp:<sha>` (linux/amd64). For `staging` only, its `deploy` job then runs `deploy.sh <sha>@sha256:<digest>` on this VPS over SSH, so every push to `staging` goes live (about a minute of downtime). The deploy runs detached from the SSH session and logs to `/var/log/mezan-deploy.log`; re-sending the running tag succeeds without a restart.
+Push to `staging` or `production` → the **Release image** workflow pushes `ghcr.io/bassamzakaria/mezan-erp:<sha>` (linux/amd64). Its `deploy` job then runs `deploy.sh <sha>@sha256:<digest>` over SSH on that branch's own VPS (`staging` → the staging VPS, `production` → the production VPS; one stack per VPS), so every push to either branch goes live (about a minute of downtime). The deploy runs detached from the SSH session and logs to `/var/log/mezan-deploy.log`; re-sending the running tag succeeds without a restart.
 
 **Automatic deploy (once per VPS):** a `deploy` user whose only key is GitHub's, forced to `ci-deploy.sh`; the workflow's short-lived `GITHUB_TOKEN` is the registry login, so no GitHub token is stored on the box.
 
@@ -139,7 +153,7 @@ install -o deploy -g deploy -m 700 -d /home/deploy/.ssh
 echo 'deploy ALL=(root) NOPASSWD: /usr/local/bin/mezan-ci-deploy' > /etc/sudoers.d/91-deploy && chmod 440 /etc/sudoers.d/91-deploy
 ```
 
-Secrets of the GitHub environment `contabo` (deployment branches: `staging` only, so no other branch or manual run can reach them): `DEPLOY_HOST` (the VPS address), `DEPLOY_SSH_KEY` (the private key), `DEPLOY_KNOWN_HOSTS` (`<address> ssh-ed25519 <host key>`, from `ssh-keyscan -t ed25519 <address>` checked against the key you saw on first login). To stop automatic deploys, delete `/home/deploy/.ssh/authorized_keys`; to deploy by hand, on the VPS:
+Each VPS has its own GitHub environment, which admits only its branch, so no other branch can reach its secrets (a manual run on that branch deploys like a push): `contabo` ← `production`, `contabo-staging` ← `staging`. While an environment's `DEPLOY_HOST` is the placeholder `CHANGE_ME`, its deploy is skipped with a warning. Secrets of each environment: `DEPLOY_HOST` (the VPS address), `DEPLOY_SSH_KEY` (the private key), `DEPLOY_KNOWN_HOSTS` (`<address> ssh-ed25519 <host key>`, from `ssh-keyscan -t ed25519 <address>` checked against the key you saw on first login). To stop automatic deploys, delete `/home/deploy/.ssh/authorized_keys`; to deploy by hand, on the VPS:
 
 ```
 sudo /opt/mezan/deploy.sh <sha>
@@ -155,6 +169,47 @@ If the new tag never gets ready it **always** moves what the failed version wrot
 **Downtime:** about a minute per deploy (the Postgres cutover with `--migrate-sqlite` takes longer: see its step 6). The old and new versions never run at once.
 
 The server's own shutdown budget is 75 s (`apps/server/src/process-lifecycle.ts`); if a backup run takes longer the process exits 1 with the marker left behind and `deploy.sh` refuses. Wait a minute, `docker compose start mezan`, and deploy again.
+
+**App port 9090 (changed from 8080).** An automatic deploy changes only the image, and `/opt/mezan/docker-compose.yml` pins `PORT`, so a box keeps 8080 until its files are updated, and `deploy.sh` cannot see a Caddy/app port mismatch (its healthcheck runs inside the container). Switch a box in a quiet hour, all on one line, then check the public address straight away:
+
+```
+cd /opt/mezan && rsync -a <repo>/deploy/contabo/ /opt/mezan/ && docker compose up -d && docker compose restart caddy && curl -fsS https://<address>/readyz
+```
+
+`rsync` brings every change in `deploy/contabo/` since the box was last synced, so read `git diff` for that folder first. On a server with a shared Caddy, change its Mezan site's upstream to `mezan:9090` in the same step.
+
+## Server that already runs Caddy
+
+When the box's own Caddy already serves other apps on ports 80/443 (the staging VPS), Mezan uses that Caddy instead of starting its own. The steps above for Docker, the `deploy` user, `/srv/mezan/*` env files and backups are unchanged; only Mezan's own Caddy is skipped.
+
+1. A network for Mezan and that Caddy only: `docker network create mezan-proxy && docker network connect mezan-proxy <existing caddy container>`. Never attach the other apps' containers to it: whatever reaches `mezan:9090` directly skips the proxy.
+2. `cp /opt/mezan/docker-compose.shared-caddy.example.yml /opt/mezan/docker-compose.override.yml`. `deploy.sh` reads the override when it exists; without it nothing changes. A Caddy installed on the host instead of in Docker: follow the comments in that file.
+3. Give the existing Caddy `MEZAN_ORIGIN_SECRET` as an environment variable (the same value as `/srv/mezan/shared.env`, from an env file outside that Caddy's own repo), never as a literal in its Caddyfile. Staging has its own secret, never production's.
+4. Check that Caddy's global `servers { trusted_proxies … }`: it applies to every site on it. Behind Cloudflare it must hold only Cloudflare's ranges **and** `client_ip_headers CF-Connecting-IP`, as in [Caddyfile](Caddyfile); otherwise `trusted_proxies` stays empty. Anything else (a private range, or Cloudflare's ranges without that header) lets a caller forge the visitor address Mezan throttles on.
+5. Add this site (staging address; upstream `127.0.0.1:9090` for a host Caddy). Mount `/opt/mezan/caddy.d` into that Caddy at `/etc/caddy/mezan.d` for the import, or the platform-console allowlist is not active:
+
+```
+staging.example.com {
+	import /etc/caddy/mezan.d/*.caddyfile
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		?Referrer-Policy "strict-origin-when-cross-origin"
+		Content-Security-Policy "default-src 'self'; script-src 'self' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://cloudflareinsights.com; frame-ancestors 'none'; object-src 'none'; base-uri 'none'; form-action 'self'"
+		-Server
+	}
+	reverse_proxy mezan:9090 {
+		header_up X-Mezan-Origin {env.MEZAN_ORIGIN_SECRET}
+		header_up X-Forwarded-For {client_ip}
+		header_up X-Forwarded-Host {host}
+		header_up X-Forwarded-Proto {scheme}
+		header_up X-Request-Id {http.request.uuid}
+	}
+}
+```
+
+6. Reload that Caddy, and remove a Mezan Caddy left from an earlier deploy: `docker rm -f mezan-caddy`. Proxy logs are that Caddy's, not `docker compose logs caddy`. Then check the secret reached the app through that Caddy: `curl -s https://<staging address>/api/session | grep -q ORIGIN_REQUIRED && echo 'origin secret mismatch'` must print nothing (repeat after rotating the secret: the health check alone does not catch it). On staging also set `MEZAN_ENV=staging` in `/srv/mezan/env` for the STAGING badge, and point `HEALTH_URL` in `/srv/mezan/health-staging.env` at the staging address.
 
 ## Cutover to Postgres (once, on a box that ran the SQLite books)
 

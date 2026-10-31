@@ -62,6 +62,7 @@ import {
   type SelfEmployeeDTO,
 } from "@mezan/contracts";
 import { createAnyPermissionGate, createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
+import { requireSubModule } from "./module-gate.js";
 import { recordAdminEvent } from "./admin-audit.js";
 import { serializeAttendance } from "./hr-time-leave-routes.js";
 import { serializeAdvance, serializePayslip } from "./hr-payroll-routes.js";
@@ -140,6 +141,11 @@ export function createHrSelfRoutes(deps: HrSelfRoutesDeps, resolveAuthContext: A
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
   const gateAny = createAnyPermissionGate(resolveAuthContext);
+  // Self-service reads another part's data: leave and the clock are hr.time, payslips and advances hr.payroll.
+  for (const [path, part] of [["/self/leave-requests", "hr.time"], ["/self/attendance", "hr.time"], ["/self/clock", "hr.time"], ["/self/payslips", "hr.payroll"], ["/self/advances", "hr.payroll"]] as const) {
+    app.use(path, requireSubModule(part));
+    app.use(`${path}/*`, requireSubModule(part));
+  }
   const challenges: WebauthnChallengeRepository = deps.challenges ?? new InMemoryChallengeStore();
 
   async function caller(c: Context): Promise<{ user: User; employee: Employee } | null> {
@@ -587,12 +593,12 @@ export function createHrSelfRoutes(deps: HrSelfRoutesDeps, resolveAuthContext: A
 
   // --- HR: reset a lost or replaced clock device ------------------------------
 
-  app.get("/employees/:id/clock-credential", gate("hr.employee.view"), async (c) => {
+  app.get("/employees/:id/clock-credential", gate("hr.attendance.view"), async (c) => {
     const credential = await deps.clockCredentials?.findByEmployeeId(c.req.param("id"));
     return c.json({ registered: credential != null, createdAt: credential?.createdAt ?? null, lastUsedAt: credential?.lastUsedAt ?? null });
   });
 
-  app.post("/employees/:id/clock-credential/reset", gate("hr.employee.edit"), async (c) => {
+  app.post("/employees/:id/clock-credential/reset", gate("hr.attendance.edit"), async (c) => {
     const employee = await deps.employees.findById(c.req.param("id"));
     if (!employee) return bilingual(c, 404, "EMPLOYEE_NOT_FOUND", "الموظف غير موجود.", "The employee was not found.");
     const removed = (await deps.clockCredentials?.deleteByEmployeeId(employee.id)) ?? 0;

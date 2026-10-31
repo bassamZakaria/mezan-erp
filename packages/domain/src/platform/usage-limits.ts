@@ -1,3 +1,4 @@
+import { parentOf } from "../entitlements/sub-modules.js";
 import { moduleName } from "./module-catalog.js";
 import { QuotaKind } from "./plan.js";
 
@@ -96,6 +97,17 @@ export interface ModuleReadOnlyRefusal {
 
 export function moduleReadOnlyRefusal(moduleId: string, plan: PlanLabel & { readonly code: string }): ModuleReadOnlyRefusal {
   const name = moduleName(moduleId);
+  const parent = parentOf(moduleId);
+  if (parent !== null) {
+    const parentName = moduleName(parent);
+    return {
+      error: UsageRefusalCode.ModuleReadOnly,
+      module: moduleId,
+      plan: plan.code,
+      message: `جزء ${name.ar} من ${parentName.ar} ليس ضمن باقة «${plan.nameAr}»، فهو للقراءة فقط: بياناته متاحة للعرض والتصدير، ولا يمكن تسجيل جديد فيه.`,
+      messageEn: `The ${name.en} part of ${parentName.en} is not in the ${plan.nameEn} plan, so it is read-only: its data can be viewed and exported, but nothing new can be recorded in it.`,
+    };
+  }
   return {
     error: UsageRefusalCode.ModuleReadOnly,
     module: moduleId,

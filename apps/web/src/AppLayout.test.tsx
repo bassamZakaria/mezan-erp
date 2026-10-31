@@ -480,7 +480,7 @@ describe("AppLayout — nav entitlements", () => {
     persistSession(null);
   });
 
-  it("hides a workspace whose module the plan does not license — a sales+accounting plan shows no الأشخاص or التصنيع in the rail", async () => {
+  it("hides a workspace whose module the plan does not license — a sales+accounting plan shows no التصنيع, and keeps الأشخاص for the free staff list", async () => {
     const businessEntitlements: EntitlementsDTO = { ...entitlements, activeModules: ["sales", "accounting"] };
     const transport = stubTransport({
       ...baseHandlers(),
@@ -494,8 +494,8 @@ describe("AppLayout — nav entitlements", () => {
     // Licensed workspaces stay put once the query resolves.
     await waitFor(() => expect(within(rail).getByRole("button", { name: "المالية والإقفال" })).toBeInTheDocument());
     expect(within(rail).getByRole("button", { name: "البيع والتحصيل" })).toBeInTheDocument();
-    // Unlicensed ones (hr, manufacturing) never reach the rail.
-    expect(within(rail).queryByRole("button", { name: "الأشخاص" })).not.toBeInTheDocument();
+    // The staff list (hr.people) is free on every plan, so الأشخاص stays; manufacturing is unlicensed.
+    expect(within(rail).getByRole("button", { name: "الأشخاص" })).toBeInTheDocument();
     expect(within(rail).queryByRole("button", { name: "التصنيع" })).not.toBeInTheDocument();
   });
 });
@@ -553,14 +553,14 @@ describe("AppLayout — HR lookups follow the plan (D-SAAS-03)", () => {
     };
   }
 
-  it("asks for no employee or job title on a plan without HR", async () => {
+  it("still loads employees and job titles on a plan without HR — the staff list is free on every plan", async () => {
     const { transport, requests } = recordingTransport(["sales", "accounting"]);
     renderLayout(transport, ["/dashboard"]);
 
-    const rail = await screen.findByRole("navigation", { name: "التنقل بين مساحات العمل" });
-    await waitFor(() => expect(within(rail).getByRole("button", { name: "المالية والإقفال" })).toBeInTheDocument());
-    await waitFor(() => expect(requests).toContain("/users"));
-    expect(requests.filter((path) => path.startsWith("/hr/"))).toEqual([]);
+    await waitFor(() => expect(requests).toContain("/hr/employees"));
+    expect(requests).toContain("/hr/job-titles");
+    // Nothing from a paid HR part is asked for.
+    expect(requests.filter((path) => /^\/hr\/(payroll|contracts|attendance|leave|advances)/.test(path))).toEqual([]);
   });
 
   it("still loads them for the user form when the plan includes HR", async () => {
@@ -618,10 +618,11 @@ describe("AppLayout — a direct address to a screen the licence does not carry"
   });
 
   it("names the plan the way the server's refusal does when the licence states one", async () => {
-    renderLayout(stubTransport({ ...baseHandlers(), "GET /entitlements": () => ({ body: { ...entitlements, planNameAr: "الأعمال", activeModules: entitlements.activeModules.filter((module) => module !== "hr") } }) }), [pathForRoute("employees")]);
+    renderLayout(stubTransport({ ...baseHandlers(), "GET /entitlements": () => ({ body: { ...entitlements, planNameAr: "الأعمال", activeModules: entitlements.activeModules.filter((module) => module !== "hr") } }) }), [pathForRoute("payroll")]);
 
+    // The staff list is free; payroll is the part this plan lacks, and the refusal names it.
     const refusal = await screen.findByTestId("module-not-licensed");
-    expect(refusal.textContent).toBe("وحدة الموارد البشرية ليست ضمن باقة «الأعمال». يمكنكم إضافتها بترقية الباقة من صفحة الاشتراك.");
+    expect(refusal.textContent).toBe("جزء الرواتب من الموارد البشرية ليس ضمن باقة «الأعمال». يمكنكم إضافته بترقية الباقة من صفحة الاشتراك.");
   });
 
   it("opens the screen as before when the licence carries its module", async () => {

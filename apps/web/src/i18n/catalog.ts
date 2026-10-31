@@ -19,6 +19,7 @@ import { landingAr } from "../landing/landing-strings";
  */
 export const webAr = {
   "i18n.englishUnavailable": "تعذّر تحميل الواجهة الإنجليزية، فبقيت بالعربية. أعد تحميل الصفحة ثم حاول مرة أخرى.",
+  "environment.staging": "بيئة تجريبية · STAGING",
   "license.loadFailed": "تعذّر تحميل حالة الترخيص.",
   "update.available": "تحديث متاح — الإصدار {version}",
   "update.download": "تنزيل التحديث",
@@ -8752,6 +8753,9 @@ export const webAr = {
   "platform.plans.editor.field.nameAr": "الاسم بالعربية",
   "platform.plans.editor.field.nameEn": "الاسم بالإنجليزية",
   "platform.plans.editor.field.modules": "الوحدات المتاحة",
+  "platform.plans.editor.field.hrParts": "أجزاء الموارد البشرية (بدون الوحدة كاملة)",
+  "platform.plans.editor.hrAllParts": "الموارد البشرية كاملة: كل أجزائها مشمولة.",
+  "platform.plans.editor.hrPeopleFree": "الأفراد: مجاني في كل الباقات",
   "platform.plans.editor.field.seats": "عدد المقاعد المتضمنة",
   "platform.plans.editor.field.branches": "عدد الفروع المتضمنة",
   "platform.plans.editor.field.warehouses": "عدد المخازن المتضمنة",

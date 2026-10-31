@@ -11,8 +11,8 @@
  * `cheques` module is the `financial_papers` entitlement).
  */
 
-import { hasModule, hasReadOnlyModule, type Entitlements } from "../entitlements/entitlements.js";
-import { MODULES, PERMISSIONS, type ModuleDef, type PermissionDef } from "./catalog.js";
+import { hasAnyPartOf, hasModule, hasReadOnlyModule, type Entitlements } from "../entitlements/entitlements.js";
+import { MODULES, PERMISSIONS, getPermission, type ModuleDef, type PermissionDef } from "./catalog.js";
 
 /** Catalog module ids that are core platform surface, never entitlement-gated. */
 const ALWAYS_LICENSED_MODULES: ReadonlySet<string> = new Set([
@@ -52,10 +52,32 @@ export function isModuleReadOnly(moduleId: string, entitlements: Entitlements): 
 
 /** Catalog modules visible under `entitlements`, in catalog order. */
 export function licensedModules(entitlements: Entitlements): readonly ModuleDef[] {
-  return MODULES.filter((m) => isModuleLicensed(m.id, entitlements));
+  return MODULES.filter((m) => isModuleLicensed(m.id, entitlements) || hasAnyPartOf(entitlements, entitlementModuleOf(m.id)));
+}
+
+/** The id a permission is licensed under: its sub-module, else its module's entitlement id. */
+export function licensingIdOf(permission: PermissionDef): string {
+  return permission.subModule ?? entitlementModuleOf(permission.module);
+}
+
+function permissionLicensed(p: PermissionDef, entitlements: Entitlements): boolean {
+  return p.subModule === null ? isModuleLicensed(p.module, entitlements) : hasModule(entitlements, p.subModule);
+}
+
+/** True when `code`'s module — or its sub-module — is licensed. An unknown code is not licensed. */
+export function isPermissionLicensed(code: string, entitlements: Entitlements): boolean {
+  const p = getPermission(code);
+  return p !== undefined && permissionLicensed(p, entitlements);
+}
+
+/** True when `code`'s module or sub-module left the plan but its data stays readable. */
+export function isPermissionReadOnly(code: string, entitlements: Entitlements): boolean {
+  const p = getPermission(code);
+  if (!p) return false;
+  return p.subModule === null ? isModuleReadOnly(p.module, entitlements) : hasReadOnlyModule(entitlements, p.subModule);
 }
 
 /** Catalog permissions grantable under `entitlements`, in catalog order. */
 export function licensedPermissions(entitlements: Entitlements): readonly PermissionDef[] {
-  return PERMISSIONS.filter((p) => isModuleLicensed(p.module, entitlements));
+  return PERMISSIONS.filter((p) => permissionLicensed(p, entitlements));
 }

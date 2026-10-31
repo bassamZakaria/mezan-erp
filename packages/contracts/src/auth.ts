@@ -118,7 +118,7 @@ export const sessionSchema = z.object({
   deviceSecret: z.string().optional(),
 });
 
-export const loginResponseSchema = sessionSchema;
+export const loginResponseSchema = sessionSchema.extend({ tenantCode: z.string().optional() });
 
 /** First-run wizard "create admin" step — persists the very first company admin. */
 export const bootstrapAdminRequestSchema = z.object({

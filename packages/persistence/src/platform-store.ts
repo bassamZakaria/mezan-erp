@@ -18,6 +18,7 @@ import {
   type PlatformUser, type PlatformUserRepository,
   type SignupRequest, type SignupRequestRepository, SignupRequestStatus, SignupDecision, VERIFIED_LINK_VALID_MS,
   type PlatformSettingKey, type PlatformSettingRepository,
+  normalizeEmail, type SignInEmailRepository,
   type Subscription, SubscriptionStatusKind, anchorIsUtcDayOfCreation, billingDayBehindUtcAnchor, inferBillingAnchorDay,
   type OwnerRecordDue, type PendingOwner, type Tenant, type TenantRepository, TenantBooksReview, TenantStatusCode,
 } from "@mezan/domain";
@@ -234,6 +235,13 @@ CREATE INDEX IF NOT EXISTS idx_storage_request_tenant ON storage_request(tenant_
 -- One open request per tenant is enforced HERE, so two clicks cannot both file one.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_storage_request_one_pending
   ON storage_request(tenant_id) WHERE status = 'pending';
+
+-- One email signs in to one company: the primary key is what refuses a second.
+CREATE TABLE IF NOT EXISTS sign_in_email (
+  email     TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sign_in_email_tenant ON sign_in_email(tenant_id);
 `;
 
 /** Columns added after the first release; an existing platform database is migrated in place. */
@@ -1264,6 +1272,42 @@ class SqlPlatformSettingStore implements PlatformSettingRepository {
   }
 }
 
+class SqlSignInEmailStore implements SignInEmailRepository {
+  constructor(private readonly db: SqlDb) {}
+
+  async tenantOf(email: string): Promise<string | null> {
+    return (await this.db.get<{ tenant_id: string }>(`SELECT tenant_id FROM sign_in_email WHERE email = ?`, [normalizeEmail(email)]))?.tenant_id ?? null;
+  }
+
+  async claim(email: string, tenantId: string): Promise<boolean> {
+    const key = normalizeEmail(email);
+    return this.db.transaction(async () => {
+      await this.db.run(`INSERT INTO sign_in_email (email, tenant_id) VALUES (?, ?) ON CONFLICT(email) DO NOTHING`, [key, tenantId]);
+      return (await this.tenantOf(key)) === tenantId;
+    });
+  }
+
+  async release(email: string, tenantId: string): Promise<void> {
+    await this.db.transaction(() => this.db.run(`DELETE FROM sign_in_email WHERE email = ? AND tenant_id = ?`, [normalizeEmail(email), tenantId]));
+  }
+
+  async replaceTenant(tenantId: string, emails: readonly string[]): Promise<readonly string[]> {
+    const wanted = [...new Set(emails.map(normalizeEmail))];
+    return this.db.transaction(async () => {
+      const held = await this.db.all<{ email: string }>(`SELECT email FROM sign_in_email WHERE tenant_id = ?`, [tenantId]);
+      const keep = new Set(wanted);
+      for (const { email } of held) if (!keep.has(email)) await this.release(email, tenantId);
+      const elsewhere: string[] = [];
+      for (const email of wanted) if (!(await this.claim(email, tenantId))) elsewhere.push(email);
+      return elsewhere;
+    });
+  }
+
+  async forgetTenant(tenantId: string): Promise<void> {
+    await this.db.transaction(() => this.db.run(`DELETE FROM sign_in_email WHERE tenant_id = ?`, [tenantId]));
+  }
+}
+
 export interface PlatformStoresHandle {
   readonly tenants: TenantRepository;
   readonly plans: PlanRepository;
@@ -1275,6 +1319,7 @@ export interface PlatformStoresHandle {
   readonly moduleTrials: ModuleTrialRepository;
   readonly storageRequests: StorageRequestRepository;
   readonly settings: PlatformSettingRepository;
+  readonly signInEmails: SignInEmailRepository;
 }
 
 export interface SqlitePlatformStoresHandle extends PlatformStoresHandle {
@@ -1322,6 +1367,7 @@ export function createPlatformStores(db: SqlDb): PlatformStoresHandle {
     moduleTrials: new SqlModuleTrialStore(db),
     storageRequests: new SqlStorageRequestStore(db),
     settings: new SqlPlatformSettingStore(db),
+    signInEmails: new SqlSignInEmailStore(db),
   };
 }
 

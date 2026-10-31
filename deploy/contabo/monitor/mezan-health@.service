@@ -1,0 +1,10 @@
+[Unit]
+Description=Mezan public health check (/readyz) with heartbeat, %i
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/srv/mezan/health-%i.env
+# $$ hands the variable to sh unexpanded; a 503 from /readyz fails curl -f and pings /fail.
+ExecStart=/bin/sh -c 'if curl -fsS -m 20 --retry 2 -o /dev/null "$${HEALTH_URL}"; then curl -fsS -m 10 --retry 3 -o /dev/null "$${HEALTH_HEARTBEAT_URL}"; else curl -fsS -m 10 --retry 3 -o /dev/null "$${HEALTH_HEARTBEAT_URL}/fail"; exit 1; fi'

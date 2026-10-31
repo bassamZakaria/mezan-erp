@@ -1,6 +1,6 @@
 import type { Context, MiddlewareHandler } from "hono";
 import {
-  hasModule, hasReadOnlyModule, moduleNotLicensedMessageAr, moduleReadOnlyRefusal, MODULE_NAME_AR as DOMAIN_MODULE_NAME_AR, MODULES,
+  hasModule, hasReadOnlyModule, moduleNotLicensedMessageAr, parentOf, SUB_MODULE_NAMES, moduleReadOnlyRefusal, MODULE_NAME_AR as DOMAIN_MODULE_NAME_AR, MODULES,
   type Entitlements, type ModuleReadOnlyRefusal, type PlanLabel,
 } from "@mezan/domain";
 import { POS_MODULE_ROUTES } from "./pos/route-prefixes.js";
@@ -80,7 +80,22 @@ const CORE_MODULE_ROUTE_PREFIXES: ReadonlyArray<readonly [string, string]> = [
   ["/cheques", "financial_papers"],
   ["/installments", "installments"],
   ["/crm", "crm"],
-  ["/hr", "hr"],
+  // HR is licensed by part (domain entitlements/sub-modules.ts). The mixed
+  // `/hr/employees/:id/*` paths are settled by each route's permission gate.
+  ["/hr/payroll", "hr.payroll"],
+  ["/hr/advances", "hr.payroll"],
+  ["/hr/attendance", "hr.time"],
+  ["/hr/holidays", "hr.time"],
+  ["/hr/leave-policies", "hr.time"],
+  ["/hr/leave-balances", "hr.time"],
+  ["/hr/leave-accrual-batches", "hr.time"],
+  ["/hr/leave-requests", "hr.time"],
+  ["/hr/contracts", "hr.contracts"],
+  ["/hr/self", "hr.self"],
+  ["/hr/employees", "hr.people"],
+  ["/hr/departments", "hr.people"],
+  ["/hr/job-titles", "hr.people"],
+  ["/hr/dashboard", "hr.people"],
   ["/manufacturing", "manufacturing"],
   ["/assets", "assets"],
   ["/field", "field"],
@@ -148,6 +163,15 @@ export function readOnlyModuleOutcome(
 
 /** The 403 body a permission gate answers with when its permission's module isn't licensed. */
 export function moduleRefusal(moduleId: string): { error: "MODULE_NOT_LICENSED"; module: string; message: string } {
+  const parent = parentOf(moduleId);
+  if (parent !== null) {
+    const parentAr = MODULES.find((m) => m.id === parent)?.labelAr ?? parent;
+    return {
+      error: "MODULE_NOT_LICENSED",
+      module: moduleId,
+      message: `جزء ${SUB_MODULE_NAMES[moduleId]?.ar ?? moduleId} من ${parentAr} غير مفعّل في باقتكم`,
+    };
+  }
   const labelAr = MODULES.find((m) => m.id === moduleId)?.labelAr ?? moduleId;
   return {
     error: "MODULE_NOT_LICENSED",
@@ -185,6 +209,18 @@ export function createModuleGate(resolveEntitlements: EntitlementsResolver) {
       await next();
     };
   };
+}
+
+/**
+ * Gates one route on a licensable part, read from the entitlements already
+ * bound to the request (`entitlementsBinding`). For a route whose permission
+ * belongs to one part but whose data belongs to another — self-service
+ * payslips need `hr.payroll` as well as `hr.self`.
+ */
+export function requireSubModule(moduleId: string): MiddlewareHandler {
+  const gate = createModuleGate((c) => c.get("entitlements"))(moduleId);
+  // No entitlements bound (a desktop route test, a unit app) means no module check, as in permission-gate.
+  return async (c, next) => (c.get("entitlements") ? gate(c, next) : next());
 }
 
 /**

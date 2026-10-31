@@ -410,108 +410,12 @@ describe("a platform operator who is not the platform owner", () => {
   });
 });
 
-describe("the link a signup mails", () => {
-  const body = (code: string) =>
-    JSON.stringify({ code, nameAr: "متجر الياسمين", ownerEmail: `owner@${code}.example`, ownerNameAr: "المالك", planId: "PLAN-CORE", billingCycle: "monthly" });
-
-  it("is built on the configured public origin, never on a forwarded host the caller wrote", async () => {
-    const w = await world();
-
-    const started = await w.cloud.send("/api/signup", {
-      method: "POST", body: body("forged"), headers: { "x-forwarded-host": "evil.example", "x-forwarded-proto": "http", host: "evil.example" },
-    });
-
-    expect(started.status).toBe(201);
-    expect(await started.json()).toEqual({ devVerifyUrl: null });
-    const mail = w.sent.find((entry) => entry.to === "owner@forged.example");
-    const links = (mail?.mail.body ?? "").match(/https?:\/\/\S+/g) ?? [];
-    expect(links.length).toBeGreaterThan(0);
-    for (const link of links) expect(link.startsWith("https://app.mezan.example/signup/verify?token=")).toBe(true);
-    expect(mail?.mail.body).not.toContain("evil.example");
-  });
-
-  it.each(["2130706433/x?.mezan.example", "[::1]/?.mezan.example", "user@evil.example/?.mezan.example"])(
-    "is never built on a forwarded host that only ends in the tenant domain: %s",
-    async (hostile) => {
-      const w = await world({ MEZAN_PUBLIC_URL: "https://app.mezan.example", MEZAN_TENANT_DOMAIN: "mezan.example" });
-
-      const started = await w.cloud.send("/api/signup", { method: "POST", body: body("victim"), headers: { "x-forwarded-host": hostile } });
-
-      expect(started.status).toBe(201);
-      const links = (w.sent.find((entry) => entry.to === "owner@victim.example")?.mail.body ?? "").match(/https?:\/\/\S+/g) ?? [];
-      expect(links.length).toBeGreaterThan(0);
-      for (const link of links) expect(new URL(link).origin).toBe("https://app.mezan.example");
-    },
-  );
-
-  it("is built on the tenant subdomain the request really arrived on", async () => {
-    const w = await world({ MEZAN_PUBLIC_URL: "https://app.mezan.example", MEZAN_TENANT_DOMAIN: "mezan.example" });
-
-    await w.cloud.send("/api/signup", { method: "POST", body: body("honest"), headers: { "x-forwarded-host": "nile.mezan.example" } });
-
-    const links = (w.sent.find((entry) => entry.to === "owner@honest.example")?.mail.body ?? "").match(/https?:\/\/\S+/g) ?? [];
-    expect(links.length).toBeGreaterThan(0);
-    for (const link of links) expect(new URL(link).origin).toBe("https://nile.mezan.example");
-  });
-
-  it.each(["honest.mezan.example", "www.mezan.example", "blog.mezan.example"])(
-    "is built on the configured origin when the request arrived on %s, a subdomain no tenant answers on",
-    async (host) => {
-      const w = await world({ MEZAN_PUBLIC_URL: "https://app.mezan.example", MEZAN_TENANT_DOMAIN: "mezan.example" });
-
-      const started = await w.cloud.send("/api/signup", { method: "POST", body: body("honest"), headers: { "x-forwarded-host": host } });
-
-      expect(started.status).toBe(201);
-      const links = (w.sent.find((entry) => entry.to === "owner@honest.example")?.mail.body ?? "").match(/https?:\/\/\S+/g) ?? [];
-      expect(links.length).toBeGreaterThan(0);
-      for (const link of links) expect(new URL(link).origin).toBe("https://app.mezan.example");
-    },
-  );
-
-  it("is refused when no public origin is configured and the request arrived on a subdomain no tenant answers on", async () => {
-    const w = await world({ MEZAN_TENANT_DOMAIN: "mezan.example" });
-
-    const started = await w.cloud.send("/api/signup", { method: "POST", body: body("honest"), headers: { "x-forwarded-host": "honest.mezan.example" } });
-
-    expect(started.status).toBe(503);
-    expect(await started.json()).toMatchObject({ error: "SIGNUP_LINK_ORIGIN_UNKNOWN" });
-    expect(w.sent).toEqual([]);
-  });
-
-  it("is refused, with no mail and no signup recorded, when mail is configured but no origin can be trusted", async () => {
-    const w = await world({});
-
-    const started = await w.cloud.send("/api/signup", { method: "POST", body: body("nowhere"), headers: { "x-forwarded-host": "evil.example" } });
-
-    expect(started.status).toBe(503);
-    expect(await started.json()).toMatchObject({ error: "SIGNUP_LINK_ORIGIN_UNKNOWN", message: "التسجيل غير متاح الآن. حاول لاحقًا أو تواصل مع الدعم." });
-    expect(w.sent).toEqual([]);
-    const free = await w.cloud.send("/api/signup/check-code?code=nowhere");
-    expect(await free.json()).toEqual({ available: true });
-  });
-});
-
 describe("a company code the platform keeps for itself", () => {
-  const signup = (code: string) =>
-    JSON.stringify({ code, nameAr: "متجر الياسمين", ownerEmail: `owner@${code}.example`, ownerNameAr: "المالك", planId: "PLAN-CORE", billingCycle: "monthly" });
-
-  it.each(["platform", "released-abc", "api", "www", "admin", "demo"])("is refused at signup in Arabic and reported as taken: %s", async (code) => {
-    const w = await world();
-
-    const started = await w.cloud.send("/api/signup", { method: "POST", body: signup(code) });
-    const checked = await w.cloud.send(`/api/signup/check-code?code=${code}`);
-
-    expect(started.status).toBe(400);
-    expect(String(((await started.json()) as { message: string }).message)).toContain("رمز المنشأة محجوز للنظام. اختر رمزًا آخر.");
-    expect(await checked.json()).toEqual({ available: false });
-    expect(w.sent).toEqual([]);
-  });
-
-  it("is refused when the platform owner creates a tenant from the console, and no tenant is recorded", async () => {
+  it.each(["platform", "released-abc", "api", "www", "admin", "demo"])("is refused when the platform owner creates a tenant from the console, and no tenant is recorded: %s", async (code) => {
     const w = await world();
 
     const created = await w.platformCall("POST", "/tenants", {
-      code: "platform", nameAr: "شركة", ownerEmail: "o@x.example", ownerNameAr: "المالك", planId: "PLAN-CORE", billingCycle: "monthly", trial: true,
+      code, nameAr: "شركة", ownerEmail: "o@x.example", ownerNameAr: "المالك", planId: "PLAN-CORE", billingCycle: "monthly", trial: true,
     });
 
     expect(created.status).toBe(422);

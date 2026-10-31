@@ -108,15 +108,6 @@ export function isFreePlan(plan: Pick<Plan, "kind">): boolean {
   return plan.kind === PlanKind.Free;
 }
 
-function offered(plan: Plan): boolean {
-  return plan.status === PlanStatusCode.Active && plan.isPublic && !plan.soldOut;
-}
-
-export function topPublicPaidPlan(plans: readonly Plan[]): Plan | null {
-  const paid = plans.filter((p) => offered(p) && p.kind === PlanKind.Paid && p.trialDays > 0);
-  return paid.reduce<Plan | null>((best, p) => (best === null || p.sortOrder > best.sortOrder ? p : best), null);
-}
-
 export function defaultFreePlan(plans: readonly Plan[]): Plan | null {
   const free = plans.filter((p) => p.status === "active" && p.kind === PlanKind.Free);
   const pick = (list: Plan[]) => list.reduce<Plan | null>((best, p) => (best === null || p.sortOrder < best.sortOrder ? p : best), null);

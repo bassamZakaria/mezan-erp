@@ -81,5 +81,4 @@ id_rsa*
 id_ed25519*
 !.env.example
 !*.env.example
-!apps/mobile/maestro/*.env
 !test-fixtures/upgrade-matrix/*.audit-chain.key

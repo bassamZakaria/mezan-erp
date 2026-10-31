@@ -8,6 +8,7 @@ import {
   CardPaymentNotApplicableError,
   createPlatformUser,
   createTenant,
+  requestStorage,
   Money,
   SignupDecision,
   SignupRequestStatus,
@@ -575,6 +576,88 @@ describe("createPlatformRoutes", () => {
     expect(cleared.entitlements.activeModules).not.toContain("manufacturing");
     expect(cleared.entitlements.activeModules).not.toContain("pos");
     expect(cleared.entitlements.seats).toBe(cleared.plan.seatsIncluded);
+  });
+
+  describe("a tenant's request for more attachment storage", () => {
+    const ONE_GB = 1024;
+    async function withRequest(extraMb = ONE_GB) {
+      const rig = await buildRig();
+      const { body } = await provisionOne(rig);
+      const request = await requestStorage(
+        { id: "SR-1", tenantId: body.tenant.id, extraMb, requestedBy: "U-OWNER", now: "2026-01-01T00:00:00.000Z" },
+        rig.platform.stores.storageRequests,
+      );
+      const decide = (token: string, id: string, action: "approve" | "decline") =>
+        rig.app.fetch(req(`/storage-requests/${id}/${action}`, token, { method: "POST" }));
+      const extraMbOf = async () => (await rig.platform.stores.subscriptions.findLiveByTenant(body.tenant.id))?.extraStorageMb ?? 0;
+      return { rig, tenant: body.tenant, request, decide, extraMbOf };
+    }
+
+    it("lists only pending requests, naming the company, to any console user", async () => {
+      const { rig, tenant, decide } = await withRequest();
+      const asSupport = await rig.app.fetch(req("/storage-requests", rig.supportToken));
+      expect(asSupport.status).toBe(200);
+      expect(await json(asSupport)).toMatchObject([{ id: "SR-1", extraMb: ONE_GB, status: "pending", tenantCode: tenant.code, tenantNameAr: tenant.nameAr }]);
+      await decide(rig.ownerToken, "SR-1", "decline");
+      expect(await json(await rig.app.fetch(req("/storage-requests", rig.ownerToken)))).toEqual([]);
+    });
+
+    it("approving adds the space to the live subscription, refreshes the entitlements and audits it", async () => {
+      const { rig, tenant, decide, extraMbOf } = await withRequest();
+      rig.invalidated.length = 0;
+      const res = await decide(rig.ownerToken, "SR-1", "approve");
+      expect(res.status).toBe(200);
+      expect(await json(res)).toMatchObject({ id: "SR-1", status: "approved", decidedBy: "PU-OWNER" });
+      expect(await extraMbOf()).toBe(ONE_GB);
+      expect(rig.invalidated).toEqual([tenant.code]);
+      const rows = (await rig.platform.audit.query("security")).filter((r) => r.action === "STORAGE_REQUEST_APPROVED");
+      expect(rows).toMatchObject([{ actor: "PU-OWNER", entityId: tenant.id, details: { requestId: "SR-1", extraMb: ONE_GB } }]);
+    });
+
+    it("a second approved request stacks on the first", async () => {
+      const { rig, tenant, decide, extraMbOf } = await withRequest();
+      await decide(rig.ownerToken, "SR-1", "approve");
+      await requestStorage({ id: "SR-2", tenantId: tenant.id, extraMb: 5120, requestedBy: "U-OWNER", now: "2026-01-02T00:00:00.000Z" }, rig.platform.stores.storageRequests);
+      await decide(rig.ownerToken, "SR-2", "approve");
+      expect(await extraMbOf()).toBe(ONE_GB + 5120);
+    });
+
+    it("declining grants nothing and leaves the entitlements alone", async () => {
+      const { rig, decide, extraMbOf } = await withRequest();
+      rig.invalidated.length = 0;
+      const res = await decide(rig.ownerToken, "SR-1", "decline");
+      expect(res.status).toBe(200);
+      expect(await json(res)).toMatchObject({ status: "declined" });
+      expect(await extraMbOf()).toBe(0);
+      expect(rig.invalidated).toEqual([]);
+      expect((await rig.platform.audit.query("security")).some((r) => r.action === "STORAGE_REQUEST_DECLINED")).toBe(true);
+    });
+
+    it("a request decided once cannot be decided again, either way, and the space is granted once", async () => {
+      const { rig, decide, extraMbOf } = await withRequest();
+      await decide(rig.ownerToken, "SR-1", "approve");
+      for (const action of ["approve", "decline"] as const) {
+        const again = await decide(rig.ownerToken, "SR-1", action);
+        expect(again.status).toBe(409);
+        expect(await json(again)).toMatchObject({ error: "STORAGE_REQUEST_DECIDED" });
+      }
+      expect(await extraMbOf()).toBe(ONE_GB);
+    });
+
+    it("answers 404 for a request that does not exist", async () => {
+      const { rig, decide } = await withRequest();
+      const res = await decide(rig.ownerToken, "SR-NOPE", "approve");
+      expect(res.status).toBe(404);
+      expect(await json(res)).toMatchObject({ error: "STORAGE_REQUEST_NOT_FOUND" });
+    });
+
+    it("support staff cannot approve or decline, and the request stays pending", async () => {
+      const { rig, decide, extraMbOf } = await withRequest();
+      expect((await decide(rig.supportToken, "SR-1", "approve")).status).toBe(403);
+      expect((await decide(rig.supportToken, "SR-1", "decline")).status).toBe(403);
+      expect(await extraMbOf()).toBe(0);
+      expect(await json(await rig.app.fetch(req("/storage-requests", rig.ownerToken)))).toHaveLength(1);
+    });
   });
 
   describe("sign-up requests decided while a company was half-created", () => {

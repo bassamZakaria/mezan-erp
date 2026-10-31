@@ -190,7 +190,79 @@ describe("TenantDetailPage", () => {
       fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "حفظ الإضافات" }));
 
       await waitFor(() => expect(posts).toHaveLength(1));
-      expect(posts[0]).toEqual({ addOnModules: ["inventory"], extraSeats: 2, extraBranches: 0, extraWarehouses: 0, graceDays: 5 });
+      expect(posts[0]).toEqual({ addOnModules: ["inventory"], extraSeats: 2, extraBranches: 0, extraWarehouses: 0, extraStorageMb: 0, graceDays: 5 });
+    });
+
+    it("sends the extra attachment storage the owner typed, in megabytes, after confirming", async () => {
+      const posts: Array<{ extraStorageMb?: number }> = [];
+      const transport = stubPlatformTransport({
+        "GET /tenants/tenant-1": () => ({ body: makeSummary() }),
+        "GET /plans": () => ({ body: [plan, plan2] }),
+        "POST /tenants/tenant-1/subscription/extras": (init) => {
+          posts.push(JSON.parse(String(init?.body)));
+          return { body: makeSummary({}, { extraStorageMb: 2048 }) };
+        },
+      });
+      renderDetail({ transport, session: testPlatformSession });
+
+      await screen.findByRole("heading", { name: "إضافات المنشأة" });
+      const card = extrasCard();
+      fireEvent.change(card.getByLabelText("مساحة إضافية للمرفقات (ميجابايت)"), { target: { value: "2048" } });
+      fireEvent.click(card.getByRole("button", { name: "حفظ الإضافات" }));
+      fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "حفظ الإضافات" }));
+
+      await waitFor(() => expect(posts).toHaveLength(1));
+      expect(posts[0]!.extraStorageMb).toBe(2048);
+    });
+
+    it("shows the stored extra storage, and says what the plan already includes — or that it has no cap", async () => {
+      const capped = { ...makeSummary({}, { extraStorageMb: 5120 }), plan: { ...plan, quotas: { storage_mb: 1024 } } };
+      const transport = stubPlatformTransport({
+        "GET /tenants/tenant-1": () => ({ body: capped }),
+        "GET /plans": () => ({ body: [plan, plan2] }),
+      });
+      renderDetail({ transport, session: testPlatformSession });
+
+      await screen.findByRole("heading", { name: "إضافات المنشأة" });
+      const card = extrasCard();
+      expect(card.getByLabelText("مساحة إضافية للمرفقات (ميجابايت)")).toHaveValue(5120);
+      expect(card.getByText("الباقة تشمل 1 GB")).toBeInTheDocument();
+    });
+
+    it("says the plan has no storage cap when the plan sets none", async () => {
+      const transport = stubPlatformTransport({
+        "GET /tenants/tenant-1": () => ({ body: makeSummary() }),
+        "GET /plans": () => ({ body: [plan, plan2] }),
+      });
+      renderDetail({ transport, session: testPlatformSession });
+
+      await screen.findByRole("heading", { name: "إضافات المنشأة" });
+      expect(extrasCard().getByText("الباقة بلا حد لمساحة المرفقات")).toBeInTheDocument();
+    });
+
+    it("blocks saving an extra storage figure above the limit, and disables the field for support", async () => {
+      const transport = stubPlatformTransport({
+        "GET /tenants/tenant-1": () => ({ body: makeSummary() }),
+        "GET /plans": () => ({ body: [plan, plan2] }),
+      });
+      renderDetail({ transport, session: testPlatformSession });
+
+      await screen.findByRole("heading", { name: "إضافات المنشأة" });
+      const card = extrasCard();
+      fireEvent.change(card.getByLabelText("مساحة إضافية للمرفقات (ميجابايت)"), { target: { value: "1048577" } });
+      expect(card.getByRole("alert")).toHaveTextContent("1048576 ميجابايت");
+      expect(card.getByRole("button", { name: "حفظ الإضافات" })).toBeDisabled();
+    });
+
+    it("leaves the extra storage field read-only for support", async () => {
+      const transport = stubPlatformTransport({
+        "GET /tenants/tenant-1": () => ({ body: makeSummary({}, { extraStorageMb: 1024 }) }),
+        "GET /plans": () => ({ body: [plan, plan2] }),
+      });
+      renderDetail({ transport, session: supportSession });
+
+      await screen.findByRole("heading", { name: "إضافات المنشأة" });
+      expect(extrasCard().getByLabelText("مساحة إضافية للمرفقات (ميجابايت)")).toBeDisabled();
     });
 
     it("select all adds every module the plan lacks, and an invalid count blocks saving", async () => {
@@ -205,7 +277,7 @@ describe("TenantDetailPage", () => {
       fireEvent.click(card.getByRole("button", { name: "تحديد الكل" }));
       expect(card.getByRole("button", { name: "المخزون" })).toHaveAttribute("aria-pressed", "true");
       fireEvent.change(card.getByLabelText("فروع إضافية"), { target: { value: "" } });
-      expect(card.getByRole("alert")).toHaveTextContent("الأعداد أرقام صحيحة من 0 إلى 10000، وأيام السماح من 0 إلى 365");
+      expect(card.getByRole("alert")).toHaveTextContent("الأعداد أرقام صحيحة من 0 إلى 10000، والمساحة الإضافية من 0 إلى 1048576 ميجابايت، وأيام السماح من 0 إلى 365");
       expect(card.getByRole("button", { name: "حفظ الإضافات" })).toBeDisabled();
       fireEvent.change(card.getByLabelText("فروع إضافية"), { target: { value: "0" } });
       fireEvent.change(card.getByLabelText("أيام السماح"), { target: { value: "400" } });

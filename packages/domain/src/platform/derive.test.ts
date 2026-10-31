@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { Money } from "../money/money.js";
-import { PlanKind, type Plan } from "./plan.js";
+import { PlanKind, QuotaKind, type Plan } from "./plan.js";
 import { SubscriptionStatusKind, type Subscription } from "./subscription.js";
 import type { Tenant } from "./tenant.js";
 import { deriveEntitlements, LicenseReasonCode, subscriptionLicenseState } from "./derive.js";
@@ -41,6 +41,16 @@ describe("deriveEntitlements", () => {
   it("expires at the trial end while trialing", () => {
     const trial = { ...sub, status: "trialing" as const, trialEndsAt: "2026-09-15T00:00:00.000Z" };
     expect(deriveEntitlements(plan, trial).expiresAt).toBe("2026-09-15T00:00:00.000Z");
+  });
+
+  it("adds the subscription's extra storage to the plan's storage quota", () => {
+    const limited = { ...plan, quotas: { [QuotaKind.StorageMb]: 2048, [QuotaKind.SalesInvoicesPerMonth]: 100 } };
+    expect(deriveEntitlements(limited, { ...sub, extraStorageMb: 5120 }).quotas).toEqual({ storage_mb: 7168, sales_invoices_per_month: 100 });
+    expect(deriveEntitlements(limited, sub).quotas).toEqual({ storage_mb: 2048, sales_invoices_per_month: 100 });
+  });
+
+  it("leaves storage unlimited when the plan sets no storage limit, whatever extra is recorded", () => {
+    expect(deriveEntitlements(plan, { ...sub, extraStorageMb: 5120 }).quotas).toEqual({});
   });
 
   it("sums plan-included and subscription extra branches and warehouses into limits", () => {

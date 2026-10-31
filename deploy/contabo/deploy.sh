@@ -361,7 +361,8 @@ deploy() {
   if [ -n "$old_tag" ]; then check_disk; fi
   stop_cleanly
   PHASE=stopped
-  start_postgres
+  # A first deploy has no tag file yet, and compose cannot read the file without a tag.
+  MEZAN_IMAGE_TAG="$new_tag" start_postgres
   local label="${old_tag:-initial}"
   if [ -n "$old_tag" ]; then snapshot_data "$label"; fi
   if [ "$MIGRATE_SQLITE" = 1 ] && ! migrate_sqlite_books "$new_tag"; then

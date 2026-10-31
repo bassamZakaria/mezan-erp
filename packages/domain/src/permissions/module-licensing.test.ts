@@ -46,7 +46,10 @@ describe("licensedModules / licensedPermissions", () => {
     expect(moduleIds).toContain("cheques");
     expect(moduleIds).toContain("admin");
     expect(moduleIds).not.toContain("pos");
-    expect(moduleIds).not.toContain("hr");
+    // Sub-modules: the free HR staff list shows HR in the role editor, and only its codes are grantable.
+    expect(moduleIds).toContain("hr");
+    const hrCodes = licensedPermissions(ent).filter((p) => p.module === "hr");
+    expect(hrCodes.every((p) => p.subModule === "hr.people")).toBe(true);
 
     const permissionModules = new Set(licensedPermissions(ent).map((p) => p.module));
     expect(permissionModules).toEqual(new Set(moduleIds));
@@ -55,6 +58,7 @@ describe("licensedModules / licensedPermissions", () => {
   it("licenses nothing extra for an empty tenant beyond the core modules", () => {
     const ent = entitlementsWith([]);
     const moduleIds = licensedModules(ent).map((m) => m.id).sort();
-    expect(moduleIds).toEqual(["admin", "audit", "dashboard", "workflow"]);
+    // `hr` is here for its free staff list (hr.people) only.
+    expect(moduleIds).toEqual(["admin", "audit", "dashboard", "hr", "workflow"]);
   });
 });

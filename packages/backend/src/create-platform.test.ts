@@ -27,7 +27,7 @@ describe("createPlatform", () => {
     expect(free.kind).toBe(PlanKind.Free);
     // DEC-31 §3.3 — core modules, 2 users, 1 branch, 1 warehouse, 100 invoices
     // a month. Business call, editable in the console, seeded here.
-    expect(free.quotas).toEqual({ [QuotaKind.SalesInvoicesPerMonth]: 100 });
+    expect(free.quotas).toEqual({ [QuotaKind.SalesInvoicesPerMonth]: 100, [QuotaKind.StorageMb]: 200 });
     expect([...free.modules].sort()).toEqual(["accounting", "inventory", "purchases", "sales", "treasury"]);
     const enterprise = plans[3]!;
     // `pos` is licensable (DEC-23) but deliberately stays out of the seeded

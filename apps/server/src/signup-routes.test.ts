@@ -525,8 +525,8 @@ describe("a trailing slash on an /api route", () => {
     const app = await boot();
     const plans = (await (await app.root.fetch(new Request("http://cloud.internal/api/signup/plans"))).json()) as PublicPlanDTO[];
 
-    expect(plans.find((plan) => plan.code === "free")?.quotas).toEqual({ [QuotaKind.SalesInvoicesPerMonth]: 100 });
-    expect(plans.find((plan) => plan.code === "core")?.quotas).toEqual({});
+    expect(plans.find((plan) => plan.code === "free")?.quotas).toEqual({ [QuotaKind.SalesInvoicesPerMonth]: 100, [QuotaKind.StorageMb]: 200 });
+    expect(plans.find((plan) => plan.code === "core")?.quotas).toEqual({ [QuotaKind.StorageMb]: 2048 });
   });
 
   it("still refuses a tenant route that carries no session, slash or not", async () => {

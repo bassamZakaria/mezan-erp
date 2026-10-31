@@ -1,0 +1,34 @@
+# Shared-VPS setup: the host Caddy (apt) fronts Mezan, like the CRM and the website.
+# Install as /etc/caddy/sites/mezan.caddy after replacing <DOMAIN> and <MEZAN_ORIGIN_SECRET>
+# (the value of MEZAN_ORIGIN_SECRET in /srv/mezan/shared.env).
+# Then: caddy validate --config /etc/caddy/Caddyfile && systemctl reload caddy
+#
+# Behind Cloudflare? Put this once in the global options block at the top of /etc/caddy/Caddyfile
+# (above the `import /etc/caddy/sites/*.caddy` line) so {client_ip} is the visitor, not Cloudflare:
+#   {
+#   	servers {
+#   		trusted_proxies static <Cloudflare ranges, see deploy/contabo/Caddyfile>
+#   		client_ip_headers CF-Connecting-IP
+#   	}
+#   }
+# Not behind Cloudflare: skip it.
+
+<DOMAIN> {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		?Referrer-Policy "strict-origin-when-cross-origin"
+		Content-Security-Policy "default-src 'self'; script-src 'self' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://cloudflareinsights.com; frame-ancestors 'none'; object-src 'none'; base-uri 'none'; form-action 'self'"
+		-Server
+	}
+
+	reverse_proxy 127.0.0.1:8081 {
+		header_up X-Mezan-Origin <MEZAN_ORIGIN_SECRET>
+		header_up X-Forwarded-For {client_ip}
+		header_up X-Forwarded-Host {host}
+		header_up X-Forwarded-Proto {scheme}
+		header_up X-Request-Id {http.request.uuid}
+	}
+}

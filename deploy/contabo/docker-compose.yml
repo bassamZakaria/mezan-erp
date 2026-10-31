@@ -6,11 +6,11 @@ services:
     platform: linux/amd64
     container_name: mezan
     restart: unless-stopped
-    # SECURITY: never publish this port. A Docker-published port bypasses ufw,
+    # SECURITY: publish on loopback only (never 0.0.0.0): a Docker-published port bypasses ufw,
     # and a caller reaching the app directly writes its own X-Forwarded-For and
-    # dodges every per-address throttle. Only Caddy, on this network, reaches it.
-    expose:
-      - "9090"
+    # dodges every per-address throttle. Only the host Caddy (mezan.caddy.example) reaches it.
+    ports:
+      - "127.0.0.1:8081:9090"
     depends_on:
       postgres:
         condition: service_healthy
@@ -123,31 +123,6 @@ services:
     networks:
       - db
 
-  caddy:
-    image: caddy:2
-    container_name: mezan-caddy
-    restart: unless-stopped
-    depends_on:
-      - mezan
-    ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"
-    env_file:
-      - ${MEZAN_SHARED_ENV_FILE:-/srv/mezan/shared.env}
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - ./caddy.d:/etc/caddy/conf.d:ro
-      - caddy-data:/data
-      - caddy-config:/config
-    logging:
-      driver: json-file
-      options:
-        max-size: "20m"
-        max-file: "5"
-    networks:
-      - edge
-
 networks:
   edge:
     # Without IPv6 on this network, Docker hands IPv6 clients to Caddy through
@@ -160,7 +135,3 @@ networks:
         - subnet: fd4d:657a:616e::/64
   db:
     internal: true
-
-volumes:
-  caddy-data:
-  caddy-config:

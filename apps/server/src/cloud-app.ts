@@ -31,7 +31,7 @@ import { createSignupRoutes, SIGNUP_BASE_PATH } from "./signup-routes.js";
 import { provisionDemoTenant } from "./demo-tenant.js";
 import { provisionReviewTenant } from "./review-tenant.js";
 import { createLegalRoutes, LEGAL_BASE_PATH } from "./legal-routes.js";
-import { withCloudSiteHead } from "./site-head.js";
+import { withCloudSiteHead, withDeploymentEnvironmentMeta } from "./site-head.js";
 import { requestHost, tenantSlugOfHost } from "./tenant-resolver.js";
 import { startDunningTimer } from "./dunning.js";
 import { startOwnerDigestTimer } from "./owner-digest.js";
@@ -602,8 +602,9 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
     return answerTenantDbFileRefusal(c, err) ?? c.json({ error: "INTERNAL", message: "حدث خطأ غير متوقع" }, 500);
   });
 
-  const rawIndexHtml = await readIndexHtmlIfPresent(env.webDist);
-  if (rawIndexHtml !== null) {
+  const builtIndexHtml = await readIndexHtmlIfPresent(env.webDist);
+  if (builtIndexHtml !== null) {
+    const rawIndexHtml = withDeploymentEnvironmentMeta(builtIndexHtml, env.deploymentEnvironment);
     const transform = (html: string) => (options.transformIndexHtml ? options.transformIndexHtml(html) : html);
     const appHtml = transform(rawIndexHtml);
     const siteHtml = env.publicLanding ? transform(withCloudSiteHead(rawIndexHtml)) : appHtml;

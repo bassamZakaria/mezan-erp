@@ -2065,3 +2065,5 @@ export {
   type UpdateEnvSettingsRequestDTO,
   type RestartServerRequestDTO,
 } from "./env-settings.js";
+
+export { DeploymentEnvironment, DEPLOYMENT_ENVIRONMENT_META, parseDeploymentEnvironment } from "./deployment-environment.js";

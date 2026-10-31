@@ -1,4 +1,5 @@
 import type { SmtpConfig } from "@mezan/api";
+import { type DeploymentEnvironment, parseDeploymentEnvironment } from "@mezan/contracts";
 import { SEED_ADMIN_PASSWORD } from "@mezan/backend";
 import { DEFAULT_IDLE_MS } from "./backend-cache.js";
 import type { ClientSourceOptions } from "./client-source.js";
@@ -58,6 +59,7 @@ export interface CloudEnv {
   readonly analyticsToken?: string;
   // INVARIANT: off by default — the public landing page at `/` stays dark until the owner switches it on for a host.
   readonly publicLanding: boolean;
+  readonly deploymentEnvironment?: DeploymentEnvironment;
   readonly port: number;
   readonly paymob: PaymobEnv;
   /** The platform's own outbound mail, built from env vars. `undefined` means dev mode: no platform mail is sent. */
@@ -395,6 +397,7 @@ export function parseEnv(env: Record<string, string | undefined> = process.env, 
     demoPassword: trimmedOrUndefined(env["MEZAN_DEMO_PASSWORD"]),
     analyticsToken: parseAnalyticsToken(env["MEZAN_ANALYTICS_TOKEN"]),
     publicLanding: flag(env["MEZAN_PUBLIC_LANDING"]),
+    deploymentEnvironment: parseDeploymentEnvironment(env["MEZAN_ENV"]),
     port: parsePositiveInt(env["PORT"], "PORT", 8080),
     paymob: parsePaymob(env, options.paymobTestByDefault ?? false),
     platformSmtp: parsePlatformSmtp(env),

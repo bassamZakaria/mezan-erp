@@ -14,6 +14,7 @@ import { landingEn } from "../landing/landing-strings";
 
 export const webEn: Record<WebTranslationKey, string> = {
   "i18n.englishUnavailable": "The English interface could not be loaded, so it stayed in Arabic. Reload the page and try again.",
+  "environment.staging": "STAGING · test environment",
   "license.loadFailed": "Could not load the license status.",
   "update.available": "Update available — version {version}",
   "update.download": "Download update",

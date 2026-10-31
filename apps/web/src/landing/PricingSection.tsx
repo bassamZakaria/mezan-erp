@@ -6,7 +6,7 @@ import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useCountPhrase } from "../lib/count-phrase";
 import { entitlementModuleLabel } from "../domain-labels";
 import { usePublicPlans, useSiteContact } from "../signup/signup-api";
-import { contactHref } from "./site";
+import { contactHref, contactLinkProps } from "./site";
 
 enum PlanCode {
   Free = "free",
@@ -156,7 +156,7 @@ export function PricingSection() {
 
       <p className="mt-[18px] text-[13px] text-ink-muted">{t("landing.pricing.vat")}</p>
       {contact === null ? null : (
-        <a href={contact} {...(contact.startsWith("https:") ? { target: "_blank", rel: "noopener noreferrer" } : {})} className="mt-[4px] inline-flex min-h-[44px] items-center text-[13px] text-accent hover:underline">
+        <a {...contactLinkProps(contact)} className="mt-[4px] inline-flex min-h-[44px] items-center text-[13px] text-accent hover:underline">
           {t("landing.pricing.more")}
         </a>
       )}

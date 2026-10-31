@@ -8366,7 +8366,7 @@ from a tenant user's session.
 
 These eight scenarios are guarded by an automated browser suite, `pnpm
 test:saas` (`e2e/saas/`, `playwright.saas.config.ts`), which also covers
-self-serve signup, card checkout in test mode, trial expiry, the Free invoice
+card checkout in test mode, trial expiry, the Free invoice
 quota, the lapse of a paid period, and every SaaS screen in both locales and
 both themes. To walk them by hand, run them on `pnpm env:testing:fresh` (which
 seeds the platform owner and the `demo` tenant automatically,

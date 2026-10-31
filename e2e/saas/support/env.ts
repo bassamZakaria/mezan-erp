@@ -160,7 +160,7 @@ export enum CodePrefix {
   Resolved = "oasis",
   ResolvedSecond = "delta",
   Renamed = "rename",
-  SignedUp = "shop",
+  Printed = "shop",
   Crafted = "crafted",
   Paid = "paid",
   Declined = "declined",

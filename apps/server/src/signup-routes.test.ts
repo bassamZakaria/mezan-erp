@@ -43,12 +43,12 @@ enum TenantTransition {
   Resume = "resume",
 }
 
-async function boot(): Promise<CloudApp> {
+async function boot(vars: Record<string, string> = {}): Promise<CloudApp> {
   const platformDir = mkdtempSync(path.join(tmpdir(), "mezan-signup-platform-"));
   dirs.push(platformDir);
   const app = await createCloudApp(
     {
-      ...parseEnv({}),
+      ...parseEnv(vars),
       platformDir,
       webDist: path.join(platformDir, "no-web-dist"),
       backupIntervalMinutes: 0,
@@ -106,6 +106,25 @@ async function listedTenantCodes(app: CloudApp): Promise<string[]> {
   const listed = await platformCall(app, await platformBearer(app), "/tenants");
   return ((await listed.json()) as { tenant: { code: string } }[]).map((row) => row.tenant.code);
 }
+
+describe("the public site's contact details", () => {
+  it("answers the support email, phone and WhatsApp number the server was given, and nothing else", async () => {
+    const app = await boot({ MEZAN_SUPPORT_EMAIL: "help@mezan.example", MEZAN_SUPPORT_PHONE: "+20 100 123 4567", MEZAN_WHATSAPP_NUMBER: "201001234567" });
+
+    const res = await app.root.fetch(new Request("http://cloud.internal/api/signup/status"));
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ contact: { email: "help@mezan.example", phone: "+20 100 123 4567", whatsapp: "201001234567" } });
+  });
+
+  it("answers null for every channel the server was not given", async () => {
+    const app = await boot();
+
+    const res = await app.root.fetch(new Request("http://cloud.internal/api/signup/status"));
+
+    expect(await res.json()).toEqual({ contact: { email: null, phone: null, whatsapp: null } });
+  });
+});
 
 describe("a sold-out package", () => {
   it("stays on the public list marked sold out", async () => {

@@ -4,8 +4,6 @@ import { planSchema } from "./platform.js";
 /**
  * Public, session-less contracts served under `/api/signup` — anyone on the
  * internet can call them, so every response here is deliberately thin.
- * Self-serve account creation was removed; accounts are created from the
- * platform console only.
  */
 
 /** What a visitor is allowed to know about a plan — no `features`, no `sortOrder`/`createdAt` internals. */

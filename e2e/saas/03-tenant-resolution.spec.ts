@@ -21,8 +21,12 @@ import {
   enterCredentials,
   enterTenantCode,
   fillPassword,
+  invoiceDrafts,
   provisionTenant,
+  rowsOf,
   storedSession,
+  tenantApiLogin,
+  tenantCall,
   tenantSignIn,
   tenantSignOut,
   type TenantLogin,
@@ -35,6 +39,9 @@ const NAME_AFTER_RENAME = "الاسم التجاري بعد التعديل";
 const WIZARD_LINK = "الإعداد الأولي";
 const SIGNUP_LINK = "أنشئ حسابًا جديدًا";
 const COMPANY_LOOKUP_PATH = "/api/platform/resolve";
+const PRINTED_NAME = "مؤسسة الفاتورة المطبوعة";
+const PRINTED_CUSTOMER = "عميل الفاتورة المطبوعة";
+const VENDOR_NAME = "Cyag";
 
 let tenant: TenantLogin;
 let second: TenantLogin;
@@ -274,5 +281,29 @@ test.describe("PLT-SAAS-08 — resolving a tenant reveals nothing before sign-in
     await enterTenantCode(page, tenant.code);
     await enterCredentials(page, tenant.adminEmail, tenant.adminPassword);
     await expect(page.getByRole("heading", { level: 1 })).toContainText("وليد");
+  });
+
+  test("a console-created tenant carries its own company name in the session and on a printed invoice, never the vendor's [guards D-SAAS-02]", async ({ page, request, playwright }) => {
+    const direct = await directApi(playwright);
+    const printed = await provisionTenant(direct, { code: uniqueCode(CodePrefix.Printed), nameAr: PRINTED_NAME, ownerNameAr: "سمير الطباعة", planId: PlanId.Core, trial: true });
+    await direct.dispose();
+
+    await tenantSignIn(page, printed);
+    expect((await storedSession(page))?.tenantName).toBe(PRINTED_NAME);
+
+    const api = await tenantApiLogin(request, printed);
+    const today = ((await tenantCall(request, api, HttpMethod.Get, "/billing/subscription")).body as { today: string }).today;
+    expect((await tenantCall(request, api, HttpMethod.Post, "/customers", { id: "CUST-PRINT", code: "CP1", nameAr: PRINTED_CUSTOMER })).status).toBe(201);
+    const drafts = await invoiceDrafts(request, api, { customerId: "CUST-PRINT", customerName: PRINTED_CUSTOMER, itemId: "ITEM-PRINT", itemName: "خدمة طباعة", today });
+    const invoice = await tenantCall(request, api, HttpMethod.Post, "/sales-invoices", drafts.draft(1));
+    expect(invoice.status, JSON.stringify(invoice.body)).toBe(201);
+    const invoiceId = String((invoice.body as { id: string }).id);
+
+    await page.goto(`/sell/sales-invoices/${invoiceId}/print`);
+    const sheet = page.locator("main");
+    await expect(sheet.getByText(PRINTED_CUSTOMER).first()).toBeVisible();
+    await expect(sheet.getByText(PRINTED_NAME, { exact: true }).first()).toBeVisible();
+    await expect(sheet).not.toContainText(VENDOR_NAME);
+    expect(rowsOf((await tenantCall(request, api, HttpMethod.Get, "/sales-invoices")).body)).toHaveLength(1);
   });
 });

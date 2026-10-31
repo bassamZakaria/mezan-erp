@@ -10,7 +10,7 @@ import { usePublicPlans, useSiteContact, useWhatsappNumber } from "../signup/sig
 import { HeroLedger } from "./HeroLedger";
 import { PricingSection } from "./PricingSection";
 import { SaleExample } from "./SaleExample";
-import { contactHref, whatsappHref } from "./site";
+import { contactHref, contactLinkProps, whatsappHref } from "./site";
 import "./landing.css";
 
 enum SectionId {
@@ -101,9 +101,8 @@ function WhatsAppLink({ className, children }: { className: string; children: Re
 function ContactLink({ className, children }: { className: string; children: ReactNode }) {
   const href = contactHref(useSiteContact());
   if (href === null) return null;
-  const external = href.startsWith("https:");
   return (
-    <a href={href} className={className} {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}>
+    <a {...contactLinkProps(href)} className={className}>
       {children}
     </a>
   );

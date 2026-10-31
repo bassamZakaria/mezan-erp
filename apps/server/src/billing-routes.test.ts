@@ -114,6 +114,29 @@ describe("tenant billing routes — whose subscription a session may touch", () 
     expect(await checkout.json()).toMatchObject({ tenantId: acme.id, status: "pending" });
   });
 
+  it("suggests the plan a subscription records as intended, for a subscription that carries one (DEC-31)", async () => {
+    const env = testEnv();
+    const app = await createCloudApp(env, { now: () => new Date(T) });
+    apps.push(app);
+    reachable(app.root, PROXY_HOPS);
+    const acme = await provisionAndLogin(app, await platformToken(app), "acme");
+    const { sqlite: platformDb } = openSqliteConnection(path.join(env.platformDir, "platform.db"));
+    try {
+      platformDb.prepare("UPDATE subscription SET intended_plan_id = ? WHERE tenant_id = ?").run("PLAN-BUSINESS", acme.id);
+    } finally {
+      platformDb.close();
+    }
+
+    const billing = (await (await send(app, "/api/billing/subscription", { token: acme.token, tenant: "acme" })).json()) as {
+      intendedPlan: { id: string } | null;
+      plans: { id: string; suggested: boolean; current: boolean }[];
+    };
+
+    expect(billing.intendedPlan).toMatchObject({ id: "PLAN-BUSINESS" });
+    expect(billing.plans.filter((p) => p.suggested).map((p) => p.id)).toEqual(["PLAN-BUSINESS"]);
+    expect(billing.plans.filter((p) => p.current).map((p) => p.id)).toEqual(["PLAN-CORE"]);
+  });
+
   it("refuses tenant A's token presented with tenant B's header, on every billing route", async () => {
     const app = await boot();
     const owner = await platformToken(app);

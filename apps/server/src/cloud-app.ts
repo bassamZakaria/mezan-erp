@@ -241,6 +241,9 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
   if (!alerter.configured) {
     log.warn({ event: LogEvent.ConfigurationWarning }, "operational alerts are not mailed: set MEZAN_ALERT_EMAIL and the platform SMTP variables");
   }
+  if (env.publicLanding && !env.supportEmail && !env.supportPhone && !env.whatsappNumber) {
+    log.warn({ event: LogEvent.ConfigurationWarning }, "the public landing page offers no way to reach you: set MEZAN_SUPPORT_EMAIL, MEZAN_SUPPORT_PHONE or MEZAN_WHATSAPP_NUMBER");
+  }
   const jobs = createJobRegistry(now);
   jobs.onFailure((failure) =>
     alerter.raise({ kind: AlertKind.JobFailed, key: failure.kind, summary: `the ${failure.kind} job failed`, facts: { job: failure.kind, durationMs: failure.durationMs } }),

@@ -99,7 +99,7 @@ export async function run(ctx: Ctx): Promise<void> {
     const top = (plans.body as any[]).find((p) => p.code === "enterprise");
 
     // ------------------------------------------------------------------
-    // 2 · The console starts the tenant on a 14-day trial of the TOP public plan.
+    // 2 · The console starts the tenant on a 14-day trial of the plan it chose — here the top one.
     // ------------------------------------------------------------------
     const provisioned = await call(
       "POST",
@@ -126,7 +126,7 @@ export async function run(ctx: Ctx): Promise<void> {
     const dayOne = await api("GET", "/billing/subscription");
     check("day 1 is a trial", dayOne.body?.subscription?.status === "trialing", JSON.stringify(dayOne.body?.subscription));
     check(
-      "on the TOP public plan",
+      "on the plan the console chose",
       dayOne.body?.subscription?.planNameEn === "Enterprise",
       String(dayOne.body?.subscription?.planNameEn),
     );

@@ -103,6 +103,7 @@ import {
   type TransitionEmployeeDTO,
 } from "@mezan/contracts";
 import { createPermissionGate, getAuthContext, type AuthContextResolver, branchScopeOf, withinScope } from "./permission-gate.js";
+import { requireSubModule } from "./module-gate.js";
 import { createHrTimeLeaveRoutes, type HrTimeLeaveRoutesDeps } from "./hr-time-leave-routes.js";
 import { createHrPayrollRoutes, type HrPayrollRoutesDeps } from "./hr-payroll-routes.js";
 import { createHrSelfRoutes } from "./hr-self-routes.js";
@@ -563,7 +564,7 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
     return c.json(serializeEmployee(employee, maySeeSalary(c)));
   });
 
-  app.put("/employees/:id/salary-payment", gate("hr.employee.edit"), async (c) => {
+  app.put("/employees/:id/salary-payment", gate("hr.payroll.create"), async (c) => {
     if (!maySeeSalary(c)) {
       return c.json(
         {
@@ -928,7 +929,7 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
 
   // --- Leave Requests (إجازاتي — My Leave self-service) ---------------------
 
-  app.get("/leave-requests/me", gate("hr.self.leave"), async (c) => {
+  app.get("/leave-requests/me", gate("hr.self.leave"), requireSubModule("hr.time"), async (c) => {
     const employeeId = await resolveCallerEmployeeId(c, deps);
     if (!employeeId) return c.json({ employeeId: null, requests: [] });
     const requests = await deps.leaveRequests.listByEmployeeId(employeeId);

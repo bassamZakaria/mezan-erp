@@ -4512,9 +4512,10 @@ describe("resolveEntitlements", () => {
     expect(body.activeModules).toEqual(["sales"]);
     expect(body.seats).toBe(1);
 
-    const refused = await app.fetch(new Request("http://local/hr/employees", { headers: await admin(app) }));
+    // The staff list is free on every plan, so the refused example is HR payroll.
+    const refused = await app.fetch(new Request("http://local/hr/payroll/runs", { headers: await admin(app) }));
     expect(refused.status).toBe(403);
-    expect(await refused.json()).toMatchObject({ error: "MODULE_NOT_LICENSED", module: "hr" });
+    expect(await refused.json()).toMatchObject({ error: "MODULE_NOT_LICENSED", module: "hr.payroll" });
   });
 
   it("defaults to the full ENTERPRISE catalog when omitted", async () => {

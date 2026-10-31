@@ -127,8 +127,9 @@ describe("applyModuleGates over the real route prefixes", () => {
     expect(res.status).toBe(403);
   });
 
-  it("refuses HR and fixed assets on the same licence", async () => {
-    for (const path of ["/hr/employees", "/assets/register"]) {
+  it("refuses HR payroll and fixed assets on the same licence", async () => {
+    // The HR staff list (/hr/employees) is free on every plan; payroll is not.
+    for (const path of ["/hr/payroll/runs", "/assets/register"]) {
       expect((await coreApp().fetch(new Request(`http://x${path}`))).status).toBe(403);
     }
   });
@@ -196,7 +197,7 @@ describe("permission gate — module check via bound entitlements", () => {
     const gate = createPermissionGate(() => ctx);
     const app = new Hono();
     app.use("*", entitlementsBinding(() => entitlements));
-    app.get("/hr", gate("hr.employee.view"), (c) => c.json({ ok: true }));
+    app.get("/hr", gate("hr.payroll.view"), (c) => c.json({ ok: true }));
     app.get("/sales", gate("sales.invoice.view"), (c) => c.json({ ok: true }));
     app.get("/admin", gate("admin.users.view"), (c) => c.json({ ok: true }));
     return app;
@@ -208,8 +209,8 @@ describe("permission gate — module check via bound entitlements", () => {
     expect(res.status).toBe(403);
     expect(await res.json()).toEqual({
       error: "MODULE_NOT_LICENSED",
-      module: "hr",
-      message: "وحدة الموارد البشرية غير مفعّلة في باقتكم",
+      module: "hr.payroll",
+      message: "جزء الرواتب من الموارد البشرية غير مفعّل في باقتكم",
     });
   });
 

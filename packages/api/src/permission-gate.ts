@@ -5,6 +5,8 @@ import {
   CostPermission,
   createAuthContext,
   entitlementModuleOf,
+  isPermissionLicensed,
+  licensingIdOf,
   getPermission,
   isModuleLicensed,
   PermissionLabelLocale,
@@ -145,13 +147,15 @@ function refuse(c: Context, ctx: AuthContext, permission: string) {
 export function moduleRefusalFor(c: Context, permission: string): Response | null {
   const entitlements = c.get("entitlements");
   const permissionDef = getPermission(permission);
-  if (!entitlements || !permissionDef || isModuleLicensed(permissionDef.module, entitlements)) return null;
+  if (!entitlements || !permissionDef || isPermissionLicensed(permission, entitlements)) return null;
   // A module the tenant once held reads and exports normally and refuses
   // writes by name (DEC-31 rule 5); only one it never had is a flat 403.
-  const readOnly = readOnlyModuleOutcome(entitlements, entitlementModuleOf(permissionDef.module), c.req.method);
+  // A permission tied to a sub-module is refused by that part's id.
+  const licensingId = licensingIdOf(permissionDef);
+  const readOnly = readOnlyModuleOutcome(entitlements, licensingId, c.req.method);
   if (readOnly === null) return null;
   if (readOnly) return c.json(readOnly, 403);
-  return c.json(moduleRefusal(permissionDef.module), 403);
+  return c.json(moduleRefusal(permissionDef.subModule ?? permissionDef.module), 403);
 }
 
 /**

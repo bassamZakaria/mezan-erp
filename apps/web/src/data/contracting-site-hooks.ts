@@ -16,7 +16,8 @@ import type {
   SiteReceiptDTO,
 } from "@mezan/contracts";
 import { useApi } from "./ApiContext";
-import { loaderError, serverMessage, type ServerErrorBody } from "./hooks";
+import { loaderError } from "./hooks";
+import { readServerMessage } from "./server-message";
 import { useAppTranslation } from "../i18n";
 
 /**
@@ -34,11 +35,6 @@ export class ApiError extends Error {
     super(message);
     this.name = "ApiError";
   }
-}
-
-async function readError(res: { json<T>(): Promise<T> }, fallback: string): Promise<string> {
-  const body = (await res.json<ServerErrorBody>().catch(() => ({}))) as ServerErrorBody;
-  return serverMessage(body) ?? fallback;
 }
 
 function queryString(params: Record<string, string | undefined>): string {
@@ -95,7 +91,7 @@ export function useCreateSiteIssue() {
   return useMutation<SiteIssueDTO, ApiError, CreateSiteIssueDTO>({
     mutationFn: async (body) => {
       const res = await request("/contracting/site/issues", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("siteApi.issueSaveFailed")));
+      if (!res.ok) throw new ApiError(res.status, await readServerMessage(res, t("siteApi.issueSaveFailed")));
       return res.json<SiteIssueDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["site-issues"] }),
@@ -109,7 +105,7 @@ export function useConfirmSiteIssue() {
   return useMutation<SiteIssueDTO, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/contracting/site/issues/${encodeURIComponent(id)}/confirm`, { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("siteApi.issueConfirmFailed")));
+      if (!res.ok) throw new ApiError(res.status, await readServerMessage(res, t("siteApi.issueConfirmFailed")));
       return res.json<SiteIssueDTO>();
     },
     onSuccess: () => {
@@ -141,7 +137,7 @@ export function useCreateSiteReceipt() {
   return useMutation<SiteReceiptDTO, ApiError, CreateSiteReceiptDTO>({
     mutationFn: async (body) => {
       const res = await request("/contracting/site/receipts", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("siteApi.receiptSaveFailed")));
+      if (!res.ok) throw new ApiError(res.status, await readServerMessage(res, t("siteApi.receiptSaveFailed")));
       return res.json<SiteReceiptDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["site-receipts"] }),
@@ -155,7 +151,7 @@ export function useConfirmSiteReceipt() {
   return useMutation<SiteReceiptDTO, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/contracting/site/receipts/${encodeURIComponent(id)}/confirm`, { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("siteApi.receiptConfirmFailed")));
+      if (!res.ok) throw new ApiError(res.status, await readServerMessage(res, t("siteApi.receiptConfirmFailed")));
       return res.json<SiteReceiptDTO>();
     },
     onSuccess: () => {
@@ -223,7 +219,7 @@ export function useCreateMaterialConsumption() {
   return useMutation<MaterialConsumptionDTO, ApiError, CreateMaterialConsumptionDTO>({
     mutationFn: async (body) => {
       const res = await request("/contracting/site/consumptions", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("siteApi.consumptionSaveFailed")));
+      if (!res.ok) throw new ApiError(res.status, await readServerMessage(res, t("siteApi.consumptionSaveFailed")));
       return res.json<MaterialConsumptionDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["material-consumptions"] }),
@@ -237,7 +233,7 @@ export function useConfirmMaterialConsumption() {
   return useMutation<MaterialConsumptionDTO, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/contracting/site/consumptions/${encodeURIComponent(id)}/confirm`, { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("siteApi.consumptionConfirmFailed")));
+      if (!res.ok) throw new ApiError(res.status, await readServerMessage(res, t("siteApi.consumptionConfirmFailed")));
       return res.json<MaterialConsumptionDTO>();
     },
     onSuccess: () => {
@@ -283,7 +279,7 @@ export function useIssueCustody() {
   return useMutation<CustodyItemDTO, ApiError, IssueCustodyDTO>({
     mutationFn: async (body) => {
       const res = await request("/contracting/site/custody", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("siteApi.custodySaveFailed")));
+      if (!res.ok) throw new ApiError(res.status, await readServerMessage(res, t("siteApi.custodySaveFailed")));
       return res.json<CustodyItemDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["site-custody"] }),
@@ -300,7 +296,7 @@ export function useReturnCustody() {
         method: "POST",
         body: JSON.stringify(body),
       });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("siteApi.custodyReturnFailed")));
+      if (!res.ok) throw new ApiError(res.status, await readServerMessage(res, t("siteApi.custodyReturnFailed")));
       return res.json<CustodyItemDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["site-custody"] }),
@@ -328,7 +324,7 @@ export function useCreateEquipmentLog() {
   return useMutation<EquipmentLogDTO, ApiError, CreateEquipmentLogDTO>({
     mutationFn: async (body) => {
       const res = await request("/contracting/site/equipment-logs", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("siteApi.equipmentLogSaveFailed")));
+      if (!res.ok) throw new ApiError(res.status, await readServerMessage(res, t("siteApi.equipmentLogSaveFailed")));
       return res.json<EquipmentLogDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["equipment-logs"] }),
@@ -342,7 +338,7 @@ export function useConfirmEquipmentLog() {
   return useMutation<EquipmentLogDTO, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/contracting/site/equipment-logs/${encodeURIComponent(id)}/confirm`, { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("siteApi.equipmentLogConfirmFailed")));
+      if (!res.ok) throw new ApiError(res.status, await readServerMessage(res, t("siteApi.equipmentLogConfirmFailed")));
       return res.json<EquipmentLogDTO>();
     },
     onSuccess: () => {

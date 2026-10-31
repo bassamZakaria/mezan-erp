@@ -329,7 +329,7 @@ import { sessionHolds, sessionMayAsk, sessionMayAskScreen } from "./session";
 import type { TransportResponse } from "./transport";
 import { BranchRefusalCode } from "@mezan/contracts";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
-import { serverMessage, type ServerErrorBody } from "./server-message";
+import { readServerMessage, serverMessage, type ServerErrorBody } from "./server-message";
 
 /**
  * The `/sales-quotes` responses (create/list/get/send/accept/reject) — the
@@ -747,8 +747,7 @@ export function useCreateFirstAdmin() {
     mutationFn: async (body) => {
       const res = await request("/bootstrap/admin", { method: "POST", body: JSON.stringify(body) });
       if (!res.ok) {
-        const err = (await res.json<ServerErrorBody>().catch(() => ({}))) as ServerErrorBody;
-        throw new ApiError(res.status, serverMessage(err) ?? t("api.theAdministratorAccountCouldNot"));
+        throw new ApiError(res.status, await readServerMessage(res, t("api.theAdministratorAccountCouldNot")));
       }
       return res.json<SessionDTO>();
     },
@@ -787,7 +786,7 @@ export function useDashboardSummary(range: DashboardRange = {}): UseQueryResult<
 }
 
 /**
- * The failure text a screen shows: the SERVER's own Arabic reason when it sent
+ * The failure text a screen shows: the SERVER's own reason, in the interface language, when it sent
  * one, otherwise the screen's fallback sentence with the HTTP status appended
  * as a support code so a phone call has something to quote.
  *
@@ -796,8 +795,6 @@ export function useDashboardSummary(range: DashboardRange = {}): UseQueryResult<
  * already consumed the body (the two report hooks, via
  * `readReportFieldErrors`) must not call this.
  */
-export { serverMessage, type ServerErrorBody } from "./server-message";
-
 export async function readError(
   res: { readonly status: number; json<T>(): Promise<T> },
   fallback: string,
@@ -1422,8 +1419,7 @@ export function useCreatePriceList() {
     mutationFn: async (body) => {
       const res = await request("/price-lists", { method: "POST", body: JSON.stringify(body) });
       if (!res.ok) {
-        const err = (await res.json<ServerErrorBody>().catch(() => ({}))) as ServerErrorBody;
-        throw new ApiError(res.status, serverMessage(err) ?? t("api.thePriceListCouldNot"));
+        throw new ApiError(res.status, await readServerMessage(res, t("api.thePriceListCouldNot")));
       }
       return res.json<PriceListDTO>();
     },
@@ -1469,8 +1465,7 @@ export function useCreatePromotion() {
     mutationFn: async (body) => {
       const res = await request("/promotions", { method: "POST", body: JSON.stringify(body) });
       if (!res.ok) {
-        const err = (await res.json<ServerErrorBody>().catch(() => ({}))) as ServerErrorBody;
-        throw new ApiError(res.status, serverMessage(err) ?? t("api.thePromotionCouldNotBe"));
+        throw new ApiError(res.status, await readServerMessage(res, t("api.thePromotionCouldNotBe")));
       }
       return res.json<PromotionDTO>();
     },
@@ -1565,8 +1560,7 @@ export function useCreateSalesQuote() {
     mutationFn: async (body) => {
       const res = await request("/sales-quotes", { method: "POST", body: JSON.stringify(body) });
       if (!res.ok) {
-        const err = (await res.json<ServerErrorBody>().catch(() => ({}))) as ServerErrorBody;
-        throw new ApiError(res.status, serverMessage(err) ?? t("api.theQuoteCouldNotBe"));
+        throw new ApiError(res.status, await readServerMessage(res, t("api.theQuoteCouldNotBe")));
       }
       return res.json<SalesQuoteRecord>();
     },
@@ -1594,8 +1588,7 @@ function useSalesQuoteTransition(action: "send" | "accept" | "reject" | "cancel"
       const { id, body } = actOf(input);
       const res = await request(`/sales-quotes/${id}/${action}`, { method: "POST", body });
       if (!res.ok) {
-        const err = (await res.json<ServerErrorBody>().catch(() => ({}))) as ServerErrorBody;
-        throw new ApiError(res.status, serverMessage(err) ?? t("api.thatActionCouldNotBe"));
+        throw new ApiError(res.status, await readServerMessage(res, t("api.thatActionCouldNotBe")));
       }
       return res.json<SalesQuoteRecord>();
     },
@@ -1642,8 +1635,7 @@ export function useConvertSalesQuoteToInvoice() {
         body: JSON.stringify(body),
       });
       if (!res.ok) {
-        const err = (await res.json<ServerErrorBody>().catch(() => ({}))) as ServerErrorBody;
-        throw new ApiError(res.status, serverMessage(err) ?? t("api.theQuoteCouldNotBe2"));
+        throw new ApiError(res.status, await readServerMessage(res, t("api.theQuoteCouldNotBe2")));
       }
       return res.json<{ quote: SalesQuoteRecord; invoiceId: string; invoiceDocNo: string | null }>();
     },

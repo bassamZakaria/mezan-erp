@@ -10,7 +10,8 @@ import type {
 } from "@mezan/contracts";
 import { useApi } from "./ApiContext";
 import { useAppTranslation } from "../i18n";
-import { readError, serverMessage, type ServerErrorBody } from "./hooks";
+import { readError } from "./hooks";
+import { serverMessage, type ServerErrorBody } from "./server-message";
 
 /**
  * Data-migration import wizard hooks (docs/archive/catalog/09 "نقل البيانات") — kept

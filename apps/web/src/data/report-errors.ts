@@ -1,4 +1,4 @@
-import { serverMessage, type ServerErrorBody } from "./hooks";
+import { serverMessage, type ServerErrorBody } from "./server-message";
 
 interface ServerValidationError {
   readonly field?: string;

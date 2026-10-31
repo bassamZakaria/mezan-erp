@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from "vitest";
+import { DEFAULT_LOCALE, ENGLISH_LOCALE } from "@mezan/ui";
 import { serverMessage } from "./server-message";
 import { readError } from "./hooks";
 
@@ -10,30 +11,31 @@ function answering(body: unknown) {
 }
 
 describe("serverMessage", () => {
-  afterEach(() => document.documentElement.setAttribute("lang", "ar"));
+  afterEach(() => document.documentElement.setAttribute("lang", DEFAULT_LOCALE));
 
   it("shows the Arabic text in the Arabic interface", () => {
-    document.documentElement.setAttribute("lang", "ar");
+    document.documentElement.setAttribute("lang", DEFAULT_LOCALE);
     expect(serverMessage(BOTH)).toBe("الفترة مقفلة");
   });
 
   it("shows the English text in the English interface", () => {
-    document.documentElement.setAttribute("lang", "en");
+    document.documentElement.setAttribute("lang", ENGLISH_LOCALE);
     expect(serverMessage(BOTH)).toBe("The period is closed.");
   });
 
   it("falls back to whichever text the server sent", () => {
-    document.documentElement.setAttribute("lang", "en");
+    document.documentElement.setAttribute("lang", ENGLISH_LOCALE);
     expect(serverMessage({ message: "الفترة مقفلة" })).toBe("الفترة مقفلة");
-    document.documentElement.setAttribute("lang", "ar");
+    document.documentElement.setAttribute("lang", DEFAULT_LOCALE);
     expect(serverMessage({ messageEn: "The period is closed." })).toBe("The period is closed.");
     expect(serverMessage({ message: "" })).toBeUndefined();
+    expect(serverMessage({ message: "  ", messageEn: " " })).toBeUndefined();
   });
 
   it("is what readError shows, so every screen follows the interface language", async () => {
-    document.documentElement.setAttribute("lang", "en");
+    document.documentElement.setAttribute("lang", ENGLISH_LOCALE);
     expect(await readError(answering(BOTH), "fallback")).toBe("The period is closed.");
-    document.documentElement.setAttribute("lang", "ar");
+    document.documentElement.setAttribute("lang", DEFAULT_LOCALE);
     expect(await readError(answering(BOTH), "fallback")).toBe("الفترة مقفلة");
   });
 });

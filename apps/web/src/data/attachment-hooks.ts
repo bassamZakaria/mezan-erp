@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import type { AttachmentContentDTO, AttachmentDTO, AttachmentEntityTypeDTO } from "@mezan/contracts";
-import { ApiError, readError, serverMessage, type ServerErrorBody } from "./hooks";
+import { ApiError, readError } from "./hooks";
+import { readServerMessage } from "./server-message";
 import { useApi } from "./ApiContext";
 import { useAppTranslation } from "../i18n";
 
@@ -48,8 +49,7 @@ export function useUploadAttachment() {
     mutationFn: async (input) => {
       const res = await request("/attachments", { method: "POST", body: JSON.stringify(input) });
       if (!res.ok) {
-        const body = (await res.json<ServerErrorBody>().catch(() => ({}))) as ServerErrorBody;
-        throw new ApiError(res.status, serverMessage(body) ?? t("attachments.uploadFailed"));
+        throw new ApiError(res.status, await readServerMessage(res, t("attachments.uploadFailed")));
       }
       return res.json<AttachmentDTO>();
     },
@@ -66,8 +66,7 @@ export function useDeleteAttachment(entityType: AttachmentEntityTypeDTO, entityI
     mutationFn: async (id) => {
       const res = await request(`/attachments/${encodeURIComponent(id)}`, { method: "DELETE" });
       if (!res.ok) {
-        const body = (await res.json<ServerErrorBody>().catch(() => ({}))) as ServerErrorBody;
-        throw new ApiError(res.status, serverMessage(body) ?? t("attachments.deleteFailed"));
+        throw new ApiError(res.status, await readServerMessage(res, t("attachments.deleteFailed")));
       }
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: attachmentsKey(entityType, entityId) }),

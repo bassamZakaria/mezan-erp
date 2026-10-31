@@ -8,14 +8,10 @@ import type {
   ItemUnitDTO,
   UpdateItemSpecificationDTO,
 } from "@mezan/contracts";
-import { ApiError, readError, serverMessage, type ServerErrorBody } from "./hooks";
+import { ApiError, readError } from "./hooks";
+import { readServerMessage } from "./server-message";
 import { useApi } from "./ApiContext";
 import { useAppTranslation } from "../i18n";
-
-async function readMessage(res: { json<T>(): Promise<T> }, fallback: string): Promise<string> {
-  const body = (await res.json<ServerErrorBody>().catch(() => ({}))) as ServerErrorBody;
-  return serverMessage(body) ?? fallback;
-}
 
 /* -------------------------------------------------------------------- */
 /* وحدات القياس — Units of measure (docs/archive/catalog/03)                      */
@@ -42,7 +38,7 @@ export function useCreateItemUnit() {
   return useMutation<ItemUnitDTO, ApiError, CreateItemUnitDTO>({
     mutationFn: async (body) => {
       const res = await request("/item-units", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("api.theUnitOfMeasureCould")));
+      if (!res.ok) throw new ApiError(res.status, await readServerMessage(res, t("api.theUnitOfMeasureCould")));
       return res.json<ItemUnitDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["item-units"] }),
@@ -74,7 +70,7 @@ export function useCreateItemCategory() {
   return useMutation<ItemCategoryDTO, ApiError, CreateItemCategoryDTO>({
     mutationFn: async (body) => {
       const res = await request("/item-categories", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("api.theCategoryCouldNotBe")));
+      if (!res.ok) throw new ApiError(res.status, await readServerMessage(res, t("api.theCategoryCouldNotBe")));
       return res.json<ItemCategoryDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["item-categories"] }),
@@ -120,7 +116,7 @@ export function useCreateItemSpecification() {
   return useMutation<ItemSpecificationDTO, ApiError, CreateItemSpecificationDTO>({
     mutationFn: async (body) => {
       const res = await request("/item-specifications", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("catalogApi.theSpecificationCouldNotBe")));
+      if (!res.ok) throw new ApiError(res.status, await readServerMessage(res, t("catalogApi.theSpecificationCouldNotBe")));
       return res.json<ItemSpecificationDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["item-specifications"] }),
@@ -137,7 +133,7 @@ export function useUpdateItemSpecification() {
         method: "PATCH",
         body: JSON.stringify(patch),
       });
-      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("catalogApi.theSpecificationCouldNotBe2")));
+      if (!res.ok) throw new ApiError(res.status, await readServerMessage(res, t("catalogApi.theSpecificationCouldNotBe2")));
       return res.json<ItemSpecificationDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["item-specifications"] }),
@@ -151,7 +147,7 @@ export function useDeleteItemSpecification() {
   return useMutation<void, ApiError, string>({
     mutationFn: async (code) => {
       const res = await request(`/item-specifications/${encodeURIComponent(code)}`, { method: "DELETE" });
-      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("specs.theSpecificationCouldNotBe")));
+      if (!res.ok) throw new ApiError(res.status, await readServerMessage(res, t("specs.theSpecificationCouldNotBe")));
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["item-specifications"] }),
   });

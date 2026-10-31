@@ -1,13 +1,9 @@
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import type { FiscalPeriodDTO, PeriodCloseChecklistDTO, PeriodCloseRequestDTO, PeriodCloseSummaryDTO } from "@mezan/contracts";
 import { useApi } from "../../../data/ApiContext";
-import { ApiError, serverMessage, type ServerErrorBody } from "../../../data/hooks";
+import { ApiError } from "../../../data/hooks";
 import { useAppTranslation } from "../../../i18n";
-
-async function refusalOf(res: { status: number; json<T>(): Promise<T> }, fallback: string): Promise<ApiError> {
-  const body = (await res.json<ServerErrorBody>().catch(() => ({}))) as ServerErrorBody;
-  return new ApiError(res.status, serverMessage(body) ?? fallback);
-}
+import { readServerMessage } from "../../../data/server-message";
 
 const CHECKLIST_KEY = "period-close-checks";
 const SUMMARIES_KEY = "period-close-summaries";
@@ -26,7 +22,7 @@ export function usePeriodCloseChecklist(periodId: string | null): UseQueryResult
     enabled: session !== null && periodId !== null,
     queryFn: async () => {
       const res = await request(`/period-close/${encodeURIComponent(periodId ?? "")}/checks`);
-      if (!res.ok) throw await refusalOf(res, t("periodClose.loadFailed"));
+      if (!res.ok) throw new ApiError(res.status, await readServerMessage(res, t("periodClose.loadFailed")));
       return res.json<PeriodCloseChecklistDTO>();
     },
   });
@@ -40,7 +36,7 @@ export function usePeriodCloseSummaries(periodId: string | null): UseQueryResult
     enabled: session !== null && periodId !== null,
     queryFn: async () => {
       const res = await request(`/period-close/${encodeURIComponent(periodId ?? "")}/summaries`);
-      if (!res.ok) throw await refusalOf(res, t("periodClose.summariesLoadFailed"));
+      if (!res.ok) throw new ApiError(res.status, await readServerMessage(res, t("periodClose.summariesLoadFailed")));
       return res.json<readonly PeriodCloseSummaryDTO[]>();
     },
   });
@@ -60,7 +56,7 @@ export function usePeriodCloseTransition() {
     mutationFn: async ({ periodId, action, overrideReason }) => {
       const body: PeriodCloseRequestDTO = overrideReason === undefined ? {} : { overrideReason };
       const res = await request(`/fiscal-periods/${encodeURIComponent(periodId)}/${action}`, { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw await refusalOf(res, t("periodClose.actionFailed"));
+      if (!res.ok) throw new ApiError(res.status, await readServerMessage(res, t("periodClose.actionFailed")));
       return res.json<FiscalPeriodDTO>();
     },
     onSettled: () =>

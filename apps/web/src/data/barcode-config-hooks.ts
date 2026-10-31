@@ -2,7 +2,8 @@ import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tan
 import type { BarcodeConfigDTO, UpdateBarcodeConfigDTO } from "@mezan/contracts";
 import { useApi } from "./ApiContext";
 import { useAppTranslation } from "../i18n";
-import { serverMessage, withSupportCode, type AppTranslate, type ServerErrorBody } from "./hooks";
+import { withSupportCode, type AppTranslate } from "./hooks";
+import { serverMessage, type ServerErrorBody } from "./server-message";
 
 /**
  * Barcode configuration hooks (docs' "barcode-config screen") — kept out of

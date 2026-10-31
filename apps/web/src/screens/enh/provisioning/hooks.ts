@@ -9,8 +9,9 @@ import type {
   UserImportReportDTO,
 } from "@mezan/contracts";
 import { useApi } from "../../../data/ApiContext";
-import { ApiError, loaderError, readError, serverMessage, type ServerErrorBody } from "../../../data/hooks";
+import { ApiError, loaderError, readError } from "../../../data/hooks";
 import { useAppTranslation } from "../../../i18n";
+import { serverMessage, type ServerErrorBody } from "../../../data/server-message";
 
 const TEMPLATES_KEY = ["role-templates"] as const;
 

@@ -17,7 +17,8 @@ import type {
   UpdateSubcontractDTO,
   UpdateSubCertificateDTO,
 } from "@mezan/contracts";
-import { ApiError, loaderError, serverMessage, type ServerErrorBody } from "./hooks";
+import { ApiError, loaderError } from "./hooks";
+import { serverMessage, type ServerErrorBody } from "./server-message";
 import { useApi } from "./ApiContext";
 import { useAppTranslation } from "../i18n";
 

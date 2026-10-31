@@ -9,6 +9,13 @@ export interface ServerErrorBody {
 
 export function serverMessage(body: { readonly message?: string; readonly messageEn?: string }): string | undefined {
   const english = typeof document !== "undefined" && document.documentElement.lang === ENGLISH_LOCALE;
-  if (english && body.messageEn) return body.messageEn;
-  return body.message || body.messageEn || undefined;
+  const arabic = body.message?.trim();
+  const englishText = body.messageEn?.trim();
+  if (english && englishText) return englishText;
+  return arabic || englishText || undefined;
+}
+
+export async function readServerMessage(res: { json<T>(): Promise<T> }, fallback: string): Promise<string> {
+  const body = (await res.json<ServerErrorBody>().catch(() => ({}))) as ServerErrorBody;
+  return serverMessage(body) ?? fallback;
 }

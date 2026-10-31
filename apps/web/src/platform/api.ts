@@ -4,9 +4,9 @@ import { QueryClientContext } from "@tanstack/react-query";
 import { createHttpTransport, type Transport, type TransportResponse } from "../data/transport";
 import type { AppTranslationKey } from "../i18n";
 import { sessionCredential } from "../data/session";
-import { serverMessage, type ServerErrorBody } from "../data/server-message";
 import { StepUpDialog, type StepUpPrompt } from "../data/StepUpDialog";
 import { loadPersistedPlatformSession, persistPlatformSession, type PlatformSession } from "./session";
+import { serverMessage, type ServerErrorBody } from "../data/server-message";
 
 const SIGN_IN_PATH = "/auth/login";
 const SIGN_OUT_PATH = "/auth/logout";

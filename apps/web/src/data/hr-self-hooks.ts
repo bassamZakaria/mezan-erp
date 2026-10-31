@@ -18,7 +18,8 @@ import type {
   SelfPayslipsDTO,
   SelfProfileDTO,
 } from "@mezan/contracts";
-import { ApiError, serverMessage, withSupportCode, type ServerErrorBody } from "./hooks";
+import { ApiError, withSupportCode } from "./hooks";
+import { serverMessage, type ServerErrorBody } from "./server-message";
 import { useApi } from "./ApiContext";
 import { useAppTranslation } from "../i18n";
 

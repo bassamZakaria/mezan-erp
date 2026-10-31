@@ -190,13 +190,14 @@ describe("TenantDetailPage", () => {
       fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "حفظ الإضافات" }));
 
       await waitFor(() => expect(posts).toHaveLength(1));
-      expect(posts[0]).toEqual({ addOnModules: ["inventory"], extraSeats: 2, extraBranches: 0, extraWarehouses: 0, extraStorageMb: 0, graceDays: 5 });
+      expect(posts[0]).toEqual({ addOnModules: ["inventory"], extraSeats: 2, extraBranches: 0, extraWarehouses: 0, graceDays: 5 });
+      expect(posts[0]).not.toHaveProperty("extraStorageMb");
     });
 
     it("sends the extra attachment storage the owner typed, in megabytes, after confirming", async () => {
       const posts: Array<{ extraStorageMb?: number }> = [];
       const transport = stubPlatformTransport({
-        "GET /tenants/tenant-1": () => ({ body: makeSummary() }),
+        "GET /tenants/tenant-1": () => ({ body: { ...makeSummary(), plan: { ...plan, quotas: { storage_mb: 1024 } } } }),
         "GET /plans": () => ({ body: [plan, plan2] }),
         "POST /tenants/tenant-1/subscription/extras": (init) => {
           posts.push(JSON.parse(String(init?.body)));
@@ -207,12 +208,35 @@ describe("TenantDetailPage", () => {
 
       await screen.findByRole("heading", { name: "إضافات المنشأة" });
       const card = extrasCard();
-      fireEvent.change(card.getByLabelText("مساحة إضافية للمرفقات (ميجابايت)"), { target: { value: "2048" } });
+      fireEvent.change(card.getByLabelText("مساحة إضافية للمرفقات (MB)"), { target: { value: "2048" } });
       fireEvent.click(card.getByRole("button", { name: "حفظ الإضافات" }));
       fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "حفظ الإضافات" }));
 
       await waitFor(() => expect(posts).toHaveLength(1));
       expect(posts[0]!.extraStorageMb).toBe(2048);
+    });
+
+    it("an untouched storage field is not sent, so a request approved meanwhile keeps its granted space", async () => {
+      const posts: Array<Record<string, unknown>> = [];
+      const transport = stubPlatformTransport({
+        "GET /tenants/tenant-1": () => ({ body: { ...makeSummary({}, { extraStorageMb: 2048 }), plan: { ...plan, quotas: { storage_mb: 1024 } } } }),
+        "GET /plans": () => ({ body: [plan, plan2] }),
+        "POST /tenants/tenant-1/subscription/extras": (init) => {
+          posts.push(JSON.parse(String(init?.body)));
+          return { body: makeSummary({}, { extraStorageMb: 2048, extraSeats: 3 }) };
+        },
+      });
+      renderDetail({ transport, session: testPlatformSession });
+
+      await screen.findByRole("heading", { name: "إضافات المنشأة" });
+      const card = extrasCard();
+      fireEvent.change(card.getByLabelText("مستخدمون إضافيون"), { target: { value: "3" } });
+      fireEvent.click(card.getByRole("button", { name: "حفظ الإضافات" }));
+      fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "حفظ الإضافات" }));
+
+      await waitFor(() => expect(posts).toHaveLength(1));
+      expect(posts[0]).not.toHaveProperty("extraStorageMb");
+      expect(posts[0]!.extraSeats).toBe(3);
     });
 
     it("shows the stored extra storage, and says what the plan already includes — or that it has no cap", async () => {
@@ -225,7 +249,7 @@ describe("TenantDetailPage", () => {
 
       await screen.findByRole("heading", { name: "إضافات المنشأة" });
       const card = extrasCard();
-      expect(card.getByLabelText("مساحة إضافية للمرفقات (ميجابايت)")).toHaveValue(5120);
+      expect(card.getByLabelText("مساحة إضافية للمرفقات (MB)")).toHaveValue(5120);
       expect(card.getByText("الباقة تشمل 1 GB")).toBeInTheDocument();
     });
 
@@ -242,15 +266,15 @@ describe("TenantDetailPage", () => {
 
     it("blocks saving an extra storage figure above the limit, and disables the field for support", async () => {
       const transport = stubPlatformTransport({
-        "GET /tenants/tenant-1": () => ({ body: makeSummary() }),
+        "GET /tenants/tenant-1": () => ({ body: { ...makeSummary(), plan: { ...plan, quotas: { storage_mb: 1024 } } } }),
         "GET /plans": () => ({ body: [plan, plan2] }),
       });
       renderDetail({ transport, session: testPlatformSession });
 
       await screen.findByRole("heading", { name: "إضافات المنشأة" });
       const card = extrasCard();
-      fireEvent.change(card.getByLabelText("مساحة إضافية للمرفقات (ميجابايت)"), { target: { value: "1048577" } });
-      expect(card.getByRole("alert")).toHaveTextContent("1048576 ميجابايت");
+      fireEvent.change(card.getByLabelText("مساحة إضافية للمرفقات (MB)"), { target: { value: "1048577" } });
+      expect(card.getByRole("alert")).toHaveTextContent("1048576 MB");
       expect(card.getByRole("button", { name: "حفظ الإضافات" })).toBeDisabled();
     });
 
@@ -262,7 +286,7 @@ describe("TenantDetailPage", () => {
       renderDetail({ transport, session: supportSession });
 
       await screen.findByRole("heading", { name: "إضافات المنشأة" });
-      expect(extrasCard().getByLabelText("مساحة إضافية للمرفقات (ميجابايت)")).toBeDisabled();
+      expect(extrasCard().getByLabelText("مساحة إضافية للمرفقات (MB)")).toBeDisabled();
     });
 
     it("select all adds every module the plan lacks, and an invalid count blocks saving", async () => {
@@ -277,7 +301,7 @@ describe("TenantDetailPage", () => {
       fireEvent.click(card.getByRole("button", { name: "تحديد الكل" }));
       expect(card.getByRole("button", { name: "المخزون" })).toHaveAttribute("aria-pressed", "true");
       fireEvent.change(card.getByLabelText("فروع إضافية"), { target: { value: "" } });
-      expect(card.getByRole("alert")).toHaveTextContent("الأعداد أرقام صحيحة من 0 إلى 10000، والمساحة الإضافية من 0 إلى 1048576 ميجابايت، وأيام السماح من 0 إلى 365");
+      expect(card.getByRole("alert")).toHaveTextContent("الأعداد أرقام صحيحة من 0 إلى 10000، والمساحة الإضافية من 0 إلى 1048576 MB، وأيام السماح من 0 إلى 365");
       expect(card.getByRole("button", { name: "حفظ الإضافات" })).toBeDisabled();
       fireEvent.change(card.getByLabelText("فروع إضافية"), { target: { value: "0" } });
       fireEvent.change(card.getByLabelText("أيام السماح"), { target: { value: "400" } });

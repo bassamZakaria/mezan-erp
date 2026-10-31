@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Button, Card, ConfirmDialog, StatusPill } from "@mezan/ui";
 import { MAX_EXTRA_CAPACITY, MAX_EXTRA_STORAGE_MB, MAX_GRACE_DAYS, SubscriptionStatusCode, type PlanDTO, type TenantSummaryDTO } from "@mezan/contracts";
-import { formatStorageMb } from "@mezan/domain";
+import { QuotaKind, formatStorageMb } from "@mezan/domain";
 import { useAppTranslation } from "../i18n";
 import { MultiChipField, NumberField } from "../settings/form-controls";
 import { PlatformApiError } from "./api";
@@ -68,11 +68,14 @@ export function TenantExtrasCard({
   const save = useSetSubscriptionExtrasMutation();
   const [edits, setEdits] = useState<Draft | null>(null);
   const [confirming, setConfirming] = useState(false);
+  // REQUIRED: extra storage is sent only when edited here; an approved request can land while this form is open.
+  const [storageTouched, setStorageTouched] = useState(false);
   const stored = draftOf(subscription);
   const draft = edits ?? stored;
   const setDraft = (change: (d: Draft) => Draft) => setEdits(change(draft));
 
   const editable = isOwner && EDITABLE_STATUSES.has(subscription.status);
+  const planStorage = plan.quotas[QuotaKind.StorageMb];
   const included = new Set(plan.modules);
   const options = platformModuleOptions(t).filter((o) => !included.has(o.value) || draft.addOnModules.includes(o.value));
   const valid =
@@ -145,15 +148,18 @@ export function TenantExtrasCard({
           <NumberField
             label={t("platform.tenantDetail.extras.extraStorageMb")}
             hint={
-              plan.quotas.storage_mb === undefined
+              planStorage === undefined
                 ? t("platform.tenantDetail.extras.storageUnlimited")
-                : t("platform.tenantDetail.extras.planHasStorage", { size: formatStorageMb(plan.quotas.storage_mb) })
+                : t("platform.tenantDetail.extras.planHasStorage", { size: formatStorageMb(planStorage) })
             }
             value={draft.extraStorageMb}
             min={0}
             max={MAX_EXTRA_STORAGE_MB}
-            disabled={!editable}
-            onChange={(v) => setDraft((d) => ({ ...d, extraStorageMb: v }))}
+            disabled={!editable || planStorage === undefined}
+            onChange={(v) => {
+              setStorageTouched(true);
+              setDraft((d) => ({ ...d, extraStorageMb: v }));
+            }}
           />
           <NumberField
             label={t("platform.tenantDetail.graceDays")}
@@ -171,6 +177,7 @@ export function TenantExtrasCard({
             </Button>
             <Button size="sm" disabled={!changed || save.isPending} onClick={() => {
                 setEdits(null);
+                setStorageTouched(false);
                 save.reset();
               }}>
               {t("common.cancel")}
@@ -187,7 +194,16 @@ export function TenantExtrasCard({
         confirmLabel={t("platform.tenantDetail.extras.save")}
         onConfirm={() => {
           setConfirming(false);
-          save.mutate({ tenantId, body: draft }, { onSuccess: () => setEdits(null) });
+          const { extraStorageMb: _untouched, ...rest } = draft;
+          save.mutate(
+            { tenantId, body: storageTouched ? draft : rest },
+            {
+              onSuccess: () => {
+                setEdits(null);
+                setStorageTouched(false);
+              },
+            },
+          );
         }}
         onCancel={() => setConfirming(false)}
       />

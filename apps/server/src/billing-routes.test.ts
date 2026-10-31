@@ -260,6 +260,20 @@ describe("tenant billing routes — asking for more attachment storage", () => {
     expect(await again.json()).toMatchObject({ error: "STORAGE_REQUEST_PENDING" });
   });
 
+  it("never shows the tenant which console user decided its request", async () => {
+    const app = await boot();
+    const owner = await platformToken(app);
+    await capStorage(app, owner, 100);
+    const acme = await provisionAndLogin(app, owner, "acme");
+    const filed = (await (await ask(app, acme, { extraMb: ONE_GB })).json()) as { id: string };
+
+    const decided = await send(app, `/api/platform/storage-requests/${filed.id}/approve`, { method: "POST", token: owner });
+    expect(decided.status).toBe(200);
+
+    const sub = (await (await send(app, "/api/billing/subscription", { token: acme.token, tenant: "acme" })).json()) as { storageRequest: Record<string, unknown> };
+    expect(sub.storageRequest).toMatchObject({ status: "approved", decidedBy: null });
+  });
+
   it("refuses a plan that has no storage limit, and files nothing", async () => {
     const app = await boot();
     const owner = await platformToken(app);

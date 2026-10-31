@@ -103,7 +103,6 @@ export async function withQuota<T>(
 }
 
 export interface StorageEnforcement {
-  /** Bytes already stored, summed from the attachment table itself. */
   readonly usedBytes: () => Promise<number>;
   readonly serializeWrite: <T>(fn: () => Promise<T>) => Promise<T>;
 }

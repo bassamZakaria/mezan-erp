@@ -42,6 +42,8 @@ describe("createPlan", () => {
     await expect(createPlan({ ...cmd, priceMonthly: Money.fromMajor("-1") }, memoryRepo())).rejects.toThrow(InvalidPlanError);
     await expect(createPlan({ ...cmd, code: "Core!" }, memoryRepo())).rejects.toThrow(InvalidPlanError);
     await expect(createPlan({ ...cmd, trialDays: -1 }, memoryRepo())).rejects.toThrow(InvalidPlanError);
+    await expect(createPlan({ ...cmd, quotas: { storage_mb: 0 } }, memoryRepo())).rejects.toThrow(InvalidPlanError);
+    await expect(createPlan({ ...cmd, quotas: { storage_mb: 1 } }, memoryRepo())).resolves.toMatchObject({ quotas: { storage_mb: 1 } });
   });
 
   it("refuses a duplicate code", async () => {

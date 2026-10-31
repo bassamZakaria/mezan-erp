@@ -37,14 +37,14 @@ function useDecideStorageRequest() {
       if (!res.ok) throw new PlatformApiError(res.status, await readPlatformErrorMessage(res, t, "platform.storageRequests.decideFailed"));
       return res.json<StorageRequestDTO>();
     },
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: STORAGE_REQUESTS_KEY });
-      void queryClient.invalidateQueries({ queryKey: ["platform", "tenants"] });
-    },
+    onSettled: () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: STORAGE_REQUESTS_KEY }),
+        queryClient.invalidateQueries({ queryKey: ["platform", "tenants"] }),
+      ]),
   });
 }
 
-/** «طلبات المساحة الإضافية» — what tenants have asked for, shown only while one waits. Approving adds the space to that tenant's extras for good. */
 export function StorageRequestsCard({ isOwner }: { isOwner: boolean }) {
   const { t } = useAppTranslation();
   const format = useFormat();
@@ -52,10 +52,23 @@ export function StorageRequestsCard({ isOwner }: { isOwner: boolean }) {
   const decide = useDecideStorageRequest();
   const [busyId, setBusyId] = useState<string | null>(null);
   const rows = pending.data ?? [];
+  if (pending.isError) {
+    return (
+      <Card className="mb-[14px] p-[14px_16px]">
+        <p role="alert" className="text-[12.5px] font-semibold text-danger-ink">
+          {pending.error.message}
+        </p>
+        <Button size="sm" className="mt-[8px]" onClick={() => pending.refetch()}>
+          {t("common.retry")}
+        </Button>
+      </Card>
+    );
+  }
   if (rows.length === 0) return null;
 
   const act = (id: string, decision: StorageDecision) => {
     if (busyId !== null) return;
+    decide.reset();
     setBusyId(id);
     decide.mutate({ id, decision }, { onSettled: () => setBusyId(null) });
   };
@@ -84,10 +97,21 @@ export function StorageRequestsCard({ isOwner }: { isOwner: boolean }) {
             </div>
             {isOwner ? (
               <div className="flex gap-[8px]">
-                <Button size="sm" variant="primary" disabled={busyId === r.id} onClick={() => act(r.id, StorageDecision.Approve)}>
+                <Button
+                  size="sm"
+                  variant="primary"
+                  disabled={busyId === r.id}
+                  aria-label={`${t("platform.storageRequests.approve")} ${formatStorageMb(r.extraMb)} ${r.tenantNameAr}`}
+                  onClick={() => act(r.id, StorageDecision.Approve)}
+                >
                   {t("platform.storageRequests.approve")}
                 </Button>
-                <Button size="sm" disabled={busyId === r.id} onClick={() => act(r.id, StorageDecision.Decline)}>
+                <Button
+                  size="sm"
+                  disabled={busyId === r.id}
+                  aria-label={`${t("platform.storageRequests.decline")} ${formatStorageMb(r.extraMb)} ${r.tenantNameAr}`}
+                  onClick={() => act(r.id, StorageDecision.Decline)}
+                >
                   {t("platform.storageRequests.decline")}
                 </Button>
               </div>

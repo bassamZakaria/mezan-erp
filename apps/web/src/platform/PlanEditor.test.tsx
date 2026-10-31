@@ -178,8 +178,8 @@ describe("PlanEditor", () => {
     });
 
     await screen.findByDisplayValue("الأساسية");
-    expect(screen.getByText("1024 ميجابايت = 1 جيجابايت. صفر = بلا حد.")).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText("مساحة المرفقات (ميجابايت)"), { target: { value: "2048" } });
+    expect(screen.getByText("1024 MB = 1 GB. صفر = بلا حد.")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("مساحة المرفقات (MB)"), { target: { value: "2048" } });
     fireEvent.click(screen.getByRole("button", { name: "حفظ" }));
     await waitFor(() => expect(puts).toHaveLength(1));
     expect(puts[0]!.quotas).toEqual({ storage_mb: 2048 });
@@ -201,7 +201,7 @@ describe("PlanEditor", () => {
     });
 
     await screen.findByDisplayValue("الأساسية");
-    fireEvent.change(screen.getByLabelText("مساحة المرفقات (ميجابايت)"), { target: { value: "0" } });
+    fireEvent.change(screen.getByLabelText("مساحة المرفقات (MB)"), { target: { value: "0" } });
     fireEvent.click(screen.getByRole("button", { name: "حفظ" }));
     await waitFor(() => expect(puts).toHaveLength(1));
     expect(puts[0]!.quotas).toEqual({ sales_invoices_per_month: 100 });
@@ -223,7 +223,7 @@ describe("PlanEditor", () => {
     });
 
     await screen.findByDisplayValue("الأساسية");
-    expect(screen.getByLabelText("مساحة المرفقات (ميجابايت)")).toHaveValue(5120);
+    expect(screen.getByLabelText("مساحة المرفقات (MB)")).toHaveValue(5120);
     fireEvent.change(screen.getByLabelText("الاسم بالإنجليزية"), { target: { value: "Starter 2" } });
     fireEvent.click(screen.getByRole("button", { name: "حفظ" }));
     await waitFor(() => expect(puts).toHaveLength(1));
@@ -237,6 +237,6 @@ describe("PlanEditor", () => {
       transport: stubPlatformTransport({ "GET /plans": () => ({ body: [{ ...starterPlan, quotas: { storage_mb: 1024 } }] }) }),
     });
     await screen.findByDisplayValue("الأساسية");
-    expect(screen.getByLabelText("مساحة المرفقات (ميجابايت)")).toBeDisabled();
+    expect(screen.getByLabelText("مساحة المرفقات (MB)")).toBeDisabled();
   });
 });

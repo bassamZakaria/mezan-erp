@@ -43,7 +43,7 @@ import {
   type TenantBillingDTO,
 } from "@mezan/contracts";
 import { BodyLimitRefusal, DEVICE_SECRET_HEADER, connectionTurn, readSessionToken, type SessionGrant } from "@mezan/api";
-import { resolveTenantPlan, serializeCardCheckoutForTenant, serializeStorageRequest, type PlatformHandle } from "@mezan/backend";
+import { resolveTenantPlan, serializeCardCheckoutForTenant, serializeStorageRequestForTenant, type PlatformHandle } from "@mezan/backend";
 import { SettlementStatus, type CardCheckoutService } from "./card-checkout.js";
 import type { PaymobTestProvider } from "./paymob-provider.js";
 import { PaymobMode, type CloudEnv } from "./env.js";
@@ -301,7 +301,7 @@ export function createTenantBillingRoutes(options: TenantBillingRoutesOptions): 
           trialDays: p.trialDays, current: p.id === plan?.id, suggested: p.id === intendedPlan?.id,
         })),
       checkouts: checkouts.map(serializeCardCheckoutForTenant),
-      storageRequest: latestStorageRequest ? serializeStorageRequest(latestStorageRequest) : null,
+      storageRequest: latestStorageRequest ? serializeStorageRequestForTenant(latestStorageRequest) : null,
     };
     return c.json(body);
   });
@@ -403,7 +403,7 @@ export function createTenantBillingRoutes(options: TenantBillingRoutesOptions): 
         timestamp: nowIso,
         details: { tenantId: caller.tenant.id, extraMb: request.extraMb },
       });
-      return c.json(serializeStorageRequest(request), 201);
+      return c.json(serializeStorageRequestForTenant(request), 201);
     } catch (err) {
       if (err instanceof StorageRequestRefusedError) return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
       if (err instanceof InvalidSubscriptionError) return c.json({ error: "VALIDATION_ERROR", message: err.message }, 400);

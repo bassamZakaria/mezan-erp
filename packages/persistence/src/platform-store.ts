@@ -1,6 +1,6 @@
 import type Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput, type SqliteOpenOptions } from "./sqlite-connection.js";
-import { placeholders, SqlDialect, TransactionMode, type SqlDb, type SqlValue } from "./sql/sql-db.js";
+import { placeholders, TransactionMode, type SqlDb, type SqlValue } from "./sql/sql-db.js";
 import { sqliteDb } from "./sql/sqlite-db.js";
 import {
   InvalidTenantError,
@@ -1302,11 +1302,10 @@ function ensurePaymentIndexes(sqlite: Database.Database): void {
   sqlite.exec(PAYMENT_INDEXES);
 }
 
-// A Postgres platform schema is created at the current shape; a column added
-// after the Postgres cut-over is added here, because the table already exists.
+// A Postgres platform schema is always created at the current shape, so none
+// of the SQLite upgrade passes below apply to it.
 export async function ensurePlatformSchema(db: SqlDb): Promise<void> {
   await db.applySchema(CREATE_TABLES);
-  if (db.dialect === SqlDialect.Postgres) await db.exec(`ALTER TABLE subscription ADD COLUMN IF NOT EXISTS extra_storage_mb INTEGER NOT NULL DEFAULT 0`);
   await db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS ${TENANT_DB_FILE_INDEX} ON tenant(db_file)`);
   await db.exec(PAYMENT_INDEXES);
 }

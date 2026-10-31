@@ -17,10 +17,9 @@ export const LIMIT_OF_QUOTA: Readonly<Record<QuotaKind, LimitKind>> = {
 export const BYTES_PER_MB = 1024 * 1024;
 const MB_PER_GB = 1024;
 
-/** Storage in MB as a reader says it: whole MB under a GB, GB to one decimal above. */
 export function formatStorageMb(mb: number): string {
   if (mb < MB_PER_GB) return `${Math.ceil(mb)} MB`;
-  const gb = Math.round((mb / MB_PER_GB) * 10) / 10;
+  const gb = Math.floor((mb / MB_PER_GB) * 10) / 10;
   return `${gb} GB`;
 }
 

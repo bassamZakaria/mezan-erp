@@ -425,6 +425,7 @@ async function tenantSummary(platform: PlatformHandle, tenant: Tenant, nowIso: s
           id: subscription.id, tenantId: subscription.tenantId, planId: subscription.planId, status: subscriptionStatusOf(subscription.status),
           billingCycle: subscription.billingCycle, addOnModules: [...subscription.addOnModules],
           extraSeats: subscription.extraSeats, extraBranches: subscription.extraBranches, extraWarehouses: subscription.extraWarehouses,
+          extraStorageMb: subscription.extraStorageMb ?? 0,
           currentPeriodStart: subscription.currentPeriodStart, currentPeriodEnd: subscription.currentPeriodEnd,
           billingAnchorDay: billingAnchorDayOf(subscription), billingAnchorNeedsReview: subscription.billingAnchorNeedsReview === true,
           trialEndsAt: subscription.trialEndsAt, graceDays: subscription.graceDays, cancelledAt: subscription.cancelledAt,
@@ -538,6 +539,10 @@ const STORAGE_REQUEST_STATUS_CODE: Readonly<Record<StorageRequestStatus, Storage
   [StorageRequestStatus.Approved]: StorageRequestStatusCode.Approved,
   [StorageRequestStatus.Declined]: StorageRequestStatusCode.Declined,
 };
+
+export function serializeStorageRequestForTenant(r: StorageRequest): StorageRequestDTO {
+  return { ...serializeStorageRequest(r), decidedBy: null };
+}
 
 export function serializeStorageRequest(r: StorageRequest): StorageRequestDTO {
   return {
@@ -1558,11 +1563,11 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
 
   app.get("/storage-requests", requireAny, async (c) => {
     const pending = await platform.stores.storageRequests.listPending();
-    const rows: PendingStorageRequestDTO[] = [];
-    for (const request of pending) {
-      const tenant = await platform.stores.tenants.findById(request.tenantId);
-      rows.push({ ...serializeStorageRequest(request), tenantCode: tenant?.code ?? "", tenantNameAr: tenant?.nameAr ?? "" });
-    }
+    const tenants = new Map((await platform.stores.tenants.list()).map((t) => [t.id, t]));
+    const rows: PendingStorageRequestDTO[] = pending.map((request) => {
+      const tenant = tenants.get(request.tenantId);
+      return { ...serializeStorageRequest(request), tenantCode: tenant?.code ?? "", tenantNameAr: tenant?.nameAr ?? "" };
+    });
     return c.json(rows);
   });
 

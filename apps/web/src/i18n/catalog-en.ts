@@ -388,6 +388,7 @@ export const webEn: Record<WebTranslationKey, string> = {
   "plan.storage.request": "Request more storage",
   "plan.storage.sending": "Sending…",
   "plan.storage.pending": "Request for {size} under review",
+  "plan.storage.approved": "Your request for {size} was approved and the space was added to your subscription.",
   "plan.storage.declined": "Your earlier request for {size} was declined. You can send a new one.",
   "plan.storage.askAdmin": "A company administrator can request more storage.",
   "plan.storage.requestFailed": "The storage request could not be sent.",

@@ -53,7 +53,6 @@ export interface Subscription {
   readonly extraSeats: number;
   readonly extraBranches: number;
   readonly extraWarehouses: number;
-  /** Attachment storage on top of the plan's own, in MB. Permanent until the platform owner lowers it. */
   readonly extraStorageMb?: number;
   readonly currentPeriodStart: string;
   readonly currentPeriodEnd: string;

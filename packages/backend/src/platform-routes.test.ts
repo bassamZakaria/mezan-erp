@@ -614,6 +614,24 @@ describe("createPlatformRoutes", () => {
       expect(rows).toMatchObject([{ actor: "PU-OWNER", entityId: tenant.id, details: { requestId: "SR-1", extraMb: ONE_GB } }]);
     });
 
+    it("the tenant summary shows the granted storage, and saving other extras keeps it", async () => {
+      const { rig, tenant, decide } = await withRequest();
+      await decide(rig.ownerToken, "SR-1", "approve");
+      type Summary = { subscription: { extraStorageMb: number; extraSeats: number } };
+      const read = async () => (await json(await rig.app.fetch(req(`/tenants/${tenant.id}`, rig.ownerToken)))) as Summary;
+      expect((await read()).subscription.extraStorageMb).toBe(ONE_GB);
+
+      const saved = await rig.app.fetch(
+        req(`/tenants/${tenant.id}/subscription/extras`, rig.ownerToken, {
+          method: "POST",
+          body: JSON.stringify({ addOnModules: [], extraSeats: 2, extraBranches: 0, extraWarehouses: 0, graceDays: 5 }),
+        }),
+      );
+      expect(saved.status).toBe(200);
+      expect(((await json(saved)) as Summary).subscription).toMatchObject({ extraSeats: 2, extraStorageMb: ONE_GB });
+      expect((await read()).subscription.extraStorageMb).toBe(ONE_GB);
+    });
+
     it("a second approved request stacks on the first", async () => {
       const { rig, tenant, decide, extraMbOf } = await withRequest();
       await decide(rig.ownerToken, "SR-1", "approve");

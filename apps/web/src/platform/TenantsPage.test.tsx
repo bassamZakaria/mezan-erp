@@ -342,6 +342,7 @@ describe("TenantsPage", () => {
     const plansTransport = stubPlatformTransport({ "GET /plans": () => ({ body: [plan] }) });
     const transport: Transport = async (path, init) => {
       if (path === "/tenants") throw new TypeError("Failed to fetch");
+      if (path === "/storage-requests") return { status: 200, ok: true, json: async <T,>() => [] as T, text: async () => "[]" };
       return plansTransport(path, init);
     };
     renderWithPlatformProviders(<TenantsPage />, { transport, initialSession: testPlatformSession });
@@ -380,6 +381,7 @@ describe("TenantsPage", () => {
   it("surfaces the server's message in the error banner when the tenants fail to load", async () => {
     const transport = stubPlatformTransport({
       "GET /tenants": () => ({ status: 500, body: { error: "INTERNAL", message: "تعذّر تحميل المنشآت." } }),
+      "GET /storage-requests": () => ({ body: [] }),
       "GET /plans": () => ({ body: [plan] }),
     });
     renderWithPlatformProviders(<TenantsPage />, { transport, initialSession: testPlatformSession });
@@ -529,7 +531,7 @@ describe("TenantsPage — storage requests", () => {
 
     const heading = await screen.findByRole("heading", { name: "طلبات مساحة إضافية" });
     const first = within(screen.getAllByRole("listitem").find((li) => li.textContent?.includes("acme")) as HTMLElement);
-    fireEvent.click(first.getByRole("button", { name: "موافقة" }));
+    fireEvent.click(first.getByRole("button", { name: /موافقة/ }));
 
     await waitFor(() => expect(posted).toEqual(["SR-1/approve"]));
     await waitFor(() => expect(within(heading.parentElement as HTMLElement).getAllByRole("listitem")).toHaveLength(1));
@@ -550,7 +552,7 @@ describe("TenantsPage — storage requests", () => {
       initialSession: testPlatformSession,
     });
 
-    fireEvent.click(await screen.findByRole("button", { name: "رفض" }));
+    fireEvent.click(await screen.findByRole("button", { name: /رفض/ }));
     await waitFor(() => expect(posted).toEqual(["SR-1/decline"]));
   });
 
@@ -572,14 +574,14 @@ describe("TenantsPage — storage requests", () => {
 
     await screen.findByRole("heading", { name: "طلبات مساحة إضافية" });
     const rowOf = (code: string) => within(screen.getAllByRole("listitem").find((li) => li.textContent?.includes(code)) as HTMLElement);
-    fireEvent.click(rowOf("acme").getByRole("button", { name: "موافقة" }));
+    fireEvent.click(rowOf("acme").getByRole("button", { name: /موافقة/ }));
 
-    await waitFor(() => expect(rowOf("acme").getByRole("button", { name: "موافقة" })).toBeDisabled());
-    expect(rowOf("acme").getByRole("button", { name: "رفض" })).toBeDisabled();
-    expect(rowOf("beta").getByRole("button", { name: "موافقة" })).toBeEnabled();
-    expect(rowOf("beta").getByRole("button", { name: "رفض" })).toBeEnabled();
+    await waitFor(() => expect(rowOf("acme").getByRole("button", { name: /موافقة/ })).toBeDisabled());
+    expect(rowOf("acme").getByRole("button", { name: /رفض/ })).toBeDisabled();
+    expect(rowOf("beta").getByRole("button", { name: /موافقة/ })).toBeEnabled();
+    expect(rowOf("beta").getByRole("button", { name: /رفض/ })).toBeEnabled();
     release();
-    await waitFor(() => expect(rowOf("acme").getByRole("button", { name: "موافقة" })).toBeEnabled());
+    await waitFor(() => expect(rowOf("acme").getByRole("button", { name: /موافقة/ })).toBeEnabled());
   });
 
   it("shows the server's refusal and leaves the row in place", async () => {
@@ -592,9 +594,9 @@ describe("TenantsPage — storage requests", () => {
       initialSession: testPlatformSession,
     });
 
-    fireEvent.click(await screen.findByRole("button", { name: "موافقة" }));
+    fireEvent.click(await screen.findByRole("button", { name: /موافقة/ }));
     expect(await screen.findByRole("alert")).toHaveTextContent("تم البت في هذا الطلب مسبقًا");
-    expect(screen.getByRole("button", { name: "موافقة" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /موافقة/ })).toBeEnabled();
   });
 
   it("shows support the requests but no approve or decline buttons", async () => {
@@ -605,7 +607,7 @@ describe("TenantsPage — storage requests", () => {
 
     expect(await screen.findByRole("heading", { name: "طلبات مساحة إضافية" })).toBeInTheDocument();
     expect(screen.getByText("5 GB")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "موافقة" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "رفض" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /موافقة/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /رفض/ })).not.toBeInTheDocument();
   });
 });

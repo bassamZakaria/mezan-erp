@@ -29,7 +29,7 @@ export {
   createPlatformRoutes, PlatformAuditAction, TENANT_CODE_PROVISIONING,
   serializeCardCheckout,
   serializeCardCheckoutForTenant,
-  serializeStorageRequest,
+  serializeStorageRequestForTenant,
   TenantOwnerAccountNotFoundError,
   PlatformAuditUnavailableError,
   TenantBackupRefusalError,

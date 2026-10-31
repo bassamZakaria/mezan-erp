@@ -123,7 +123,6 @@ export function useStartModuleTrial() {
   });
 }
 
-/** «طلب مساحة إضافية» — files the request; the platform owner approves it in the console. */
 export function useRequestStorage() {
   const { t } = useAppTranslation();
   const { request } = useApi();

@@ -404,7 +404,7 @@ export const storageRequestSchema = z.object({
 });
 
 export const createStorageRequestSchema = z.object({
-  extraMb: z.union([z.literal(STORAGE_REQUEST_STEPS_MB[0]), z.literal(STORAGE_REQUEST_STEPS_MB[1]), z.literal(STORAGE_REQUEST_STEPS_MB[2])]),
+  extraMb: z.number().int().refine((mb) => (STORAGE_REQUEST_STEPS_MB as readonly number[]).includes(mb)),
   note: z.string().trim().max(MAX_STORAGE_REQUEST_NOTE).optional(),
 });
 
@@ -663,7 +663,6 @@ export const tenantBillingSchema = z.object({
   modules: z.array(billingModuleSchema),
   plans: z.array(billingPlanOfferSchema),
   checkouts: z.array(cardCheckoutSchema),
-  /** The tenant's latest storage request, so the screen can show one still under review. */
   storageRequest: storageRequestSchema.nullable(),
 });
 

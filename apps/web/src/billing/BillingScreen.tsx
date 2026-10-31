@@ -1,4 +1,4 @@
-import { ArabicCase, CountedNoun, formatStorageMb } from "@mezan/domain";
+import { ArabicCase, CountedNoun, LimitKind, QuotaKind, formatStorageMb } from "@mezan/domain";
 import { useCountPhrase } from "../lib/count-phrase";
 import { useState } from "react";
 import { useLocation } from "react-router";
@@ -23,14 +23,14 @@ import { useEditionHasSubscriptionBilling, useRequestStorage, useStartModuleTria
 
 const QUOTA_LABEL: Record<BillingQuotaDTO["kind"], AppTranslationKey> = {
   sales_invoices_per_month: "plan.quota.salesInvoicesPerMonth",
-  storage_mb: "plan.limit.storage",
+  [QuotaKind.StorageMb]: "plan.limit.storage",
 };
 
 const LIMIT_LABEL: Record<BillingLimitDTO["limit"], AppTranslationKey> = {
   seats: "plan.limit.seats",
   branches: "plan.limit.branches",
   warehouses: "plan.limit.warehouses",
-  storage_mb: "plan.limit.storage",
+  [LimitKind.StorageMb]: "plan.limit.storage",
 };
 
 const MODULE_STATE_LABEL: Record<BillingModuleDTO["state"], AppTranslationKey> = {
@@ -118,7 +118,7 @@ export function BillingScreen() {
                 label={t(LIMIT_LABEL[l.limit])}
                 used={l.used}
                 allowed={l.allowed}
-                {...(l.limit === "storage_mb" ? { show: formatStorageMb } : {})}
+                {...(l.limit === LimitKind.StorageMb ? { show: formatStorageMb } : {})}
               />
             ))}
           </div>
@@ -126,7 +126,7 @@ export function BillingScreen() {
         </Card>
       ) : null}
 
-      {data && data.limits.some((l) => l.limit === "storage_mb") ? <StorageRequestCard latest={data.storageRequest} /> : null}
+      {data && data.limits.some((l) => l.limit === LimitKind.StorageMb) ? <StorageRequestCard latest={data.storageRequest} /> : null}
 
       {data && data.modules.length > 0 ? (
         <Card className="p-[16px]">
@@ -227,7 +227,7 @@ function PlanOffer({
 }) {
   const { t } = useAppTranslation();
   const invoiceQuota = plan.quotas["sales_invoices_per_month"];
-  const storageQuota = plan.quotas["storage_mb"];
+  const storageQuota = plan.quotas[QuotaKind.StorageMb];
   return (
     <div
       className={`rounded-md border p-[12px] ${plan.current || plan.suggested ? "border-brand bg-brand-soft" : "border-border bg-surface-2"}`}
@@ -272,10 +272,11 @@ function StorageRequestCard({ latest }: { latest: StorageRequestDTO | null }) {
   const { session } = useApi();
   const mayRequest = sessionHolds(session, "admin.settings.edit");
   const request = useRequestStorage();
-  const [extraMb, setExtraMb] = useState<string>(String(STORAGE_REQUEST_STEPS_MB[0]));
+  const [extraMb, setExtraMb] = useState<number>(STORAGE_REQUEST_STEPS_MB[0]);
   const [note, setNote] = useState("");
   const pending = latest?.status === StorageRequestStatusCode.Pending ? latest : null;
   const declined = latest?.status === StorageRequestStatusCode.Declined ? latest : null;
+  const approved = latest?.status === StorageRequestStatusCode.Approved ? latest : null;
 
   return (
     <Card className="p-[16px]">
@@ -286,10 +287,11 @@ function StorageRequestCard({ latest }: { latest: StorageRequestDTO | null }) {
       ) : mayRequest ? (
         <div className="flex max-w-[420px] flex-col gap-[10px]">
           {declined ? <p className="text-[12px] text-ink-muted">{t("plan.storage.declined", { size: formatStorageMb(declined.extraMb) })}</p> : null}
+          {approved ? <p className="text-[12px] text-ink-muted">{t("plan.storage.approved", { size: formatStorageMb(approved.extraMb) })}</p> : null}
           <SelectField
             label={t("plan.storage.amount")}
-            value={extraMb}
-            onChange={setExtraMb}
+            value={String(extraMb)}
+            onChange={(v) => setExtraMb(STORAGE_REQUEST_STEPS_MB.find((mb) => String(mb) === v) ?? STORAGE_REQUEST_STEPS_MB[0])}
             options={STORAGE_REQUEST_STEPS_MB.map((mb) => ({ value: String(mb), label: formatStorageMb(mb) }))}
           />
           <TextAreaField label={t("plan.storage.note")} value={note} onChange={(v) => setNote(v.slice(0, MAX_STORAGE_REQUEST_NOTE))} rows={2} />
@@ -304,8 +306,7 @@ function StorageRequestCard({ latest }: { latest: StorageRequestDTO | null }) {
               disabled={request.isPending}
               onClick={() => {
                 if (request.isPending) return;
-                const step = STORAGE_REQUEST_STEPS_MB.find((mb) => String(mb) === extraMb) ?? STORAGE_REQUEST_STEPS_MB[0];
-                request.mutate({ extraMb: step, ...(note.trim() ? { note: note.trim() } : {}) }, { onSuccess: () => setNote("") });
+                request.mutate({ extraMb, ...(note.trim() ? { note: note.trim() } : {}) }, { onSuccess: () => setNote("") });
               }}
             >
               {request.isPending ? t("plan.storage.sending") : t("plan.storage.request")}

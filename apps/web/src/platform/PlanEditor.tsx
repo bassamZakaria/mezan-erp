@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button, Field, TextInput } from "@mezan/ui";
-import { MODULE_CATALOG } from "@mezan/domain";
+import { MODULE_CATALOG, QuotaKind } from "@mezan/domain";
 import type {
   PlanCreateRequestDTO,
   PlanDTO,
@@ -32,7 +32,7 @@ const PRICE_PATTERN = /^\d+(\.\d{1,6})?$/;
 /** The quotas the console can edit. Mirrors `QuotaKind`; a key left out is unlimited. */
 const QUOTA_FIELDS: ReadonlyArray<{ readonly kind: QuotaKindDTO; readonly label: AppTranslationKey; readonly hint?: AppTranslationKey; readonly zeroIsUnlimited?: boolean }> = [
   { kind: "sales_invoices_per_month", label: "platform.plans.editor.field.quotaSalesInvoices" },
-  { kind: "storage_mb", label: "platform.plans.editor.field.quotaStorageMb", hint: "platform.plans.editor.field.quotaStorageMbHint", zeroIsUnlimited: true },
+  { kind: QuotaKind.StorageMb, label: "platform.plans.editor.field.quotaStorageMb", hint: "platform.plans.editor.field.quotaStorageMbHint", zeroIsUnlimited: true },
 ];
 
 const PLANS_PATH = "/platform/plans";

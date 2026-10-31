@@ -1,8 +1,8 @@
 /**
  * A small fixed-window rate limiter for public, unauthenticated endpoints —
  * the self-serve signup form, which has no session to hang a per-account
- * throttle off (that is `@mezan/api`'s `login-throttle.ts`, built for a
- * six-digit PIN's keyspace, not this).
+ * throttle off (that is `@mezan/api`'s `login-throttle.ts`, built for
+ * sign-in guessing, not this).
  *
  * One window per key: the count resets `windowMs` after the key's FIRST
  * request in the current window, not on a rolling basis — simple, and good

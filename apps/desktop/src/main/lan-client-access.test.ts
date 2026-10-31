@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { createEntitlements, SeatSessionRegistry } from "@mezan/domain";
-import { createBackend, SEED_ADMIN_EMAIL, SEED_ADMIN_PIN } from "@mezan/backend";
+import { createBackend, SEED_ADMIN_EMAIL, SEED_ADMIN_PASSWORD } from "@mezan/backend";
 import { startLanHost } from "./lan-host.js";
 import { createLanClientAuthorizer } from "./lan-authorization.js";
 import { loadOrCreateLanTlsIdentity, type LanTlsIdentity } from "./lan-tls.js";
@@ -128,7 +128,7 @@ async function login(port: number): Promise<string> {
   const res = await lanFetch(port, "/auth/login", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ username: SEED_ADMIN_EMAIL, pin: SEED_ADMIN_PIN }),
+    body: JSON.stringify({ username: SEED_ADMIN_EMAIL, password: SEED_ADMIN_PASSWORD }),
   });
   expect(res.status).toBe(200);
   return (JSON.parse(res.body) as { token: string }).token;
@@ -203,7 +203,7 @@ describe("a connected client reaches the books; nobody else does", () => {
       new Request("http://ipc/auth/login", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ username: SEED_ADMIN_EMAIL, pin: SEED_ADMIN_PIN }),
+        body: JSON.stringify({ username: SEED_ADMIN_EMAIL, password: SEED_ADMIN_PASSWORD }),
       }),
     );
     expect(hostSideLogin.status).toBe(200);

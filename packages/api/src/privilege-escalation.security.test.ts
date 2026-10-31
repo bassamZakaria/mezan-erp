@@ -254,25 +254,29 @@ describe("editing an account the caller does not outrank", () => {
     expect((await users.findById(peerId))?.roleId).toBe(clerk.id);
   });
 
-  it("refuses any write against a company admin, so a helpdesk tier cannot reset the owner PIN", async () => {
+  it("refuses any write against a company admin, so a helpdesk tier cannot reset the owner password", async () => {
     const { as, users, bossId } = await seeded();
+    const before = await users.findById(bossId);
     const res = await as(["admin.users.edit", "sales.invoice.view"]).fetch(
-      put(`/users/${bossId}`, { ...newUser("boss@shop.test", null, true), pin: "123456", password: undefined }),
+      put(`/users/${bossId}`, { ...newUser("boss@shop.test", null, true), password: "Taken0ver!" }),
     );
     expect(res.status).toBe(403);
     expect((await escalationBody(res)).error).toBe("PRIVILEGE_ESCALATION_DENIED");
     const stored = await users.findById(bossId);
     expect(stored?.isCompanyAdmin).toBe(true);
-    expect(stored?.pinHash).toBeNull();
+    expect(stored?.passwordHash).toBe(before?.passwordHash);
   });
 
-  it("still edits a PEER, including resetting their PIN — that is the job the permission exists for", async () => {
+  it("still edits a PEER, including resetting their password — that is the job the permission exists for", async () => {
     const { as, users, clerk, peerId } = await seeded();
+    const before = await users.findById(peerId);
     const res = await as(["admin.users.edit", "sales.invoice.view"]).fetch(
-      put(`/users/${peerId}`, { ...newUser("peer@shop.test", clerk.id, false), pin: "654321", password: undefined }),
+      put(`/users/${peerId}`, { ...newUser("peer@shop.test", clerk.id, false), password: "ResetPass123" }),
     );
     expect(res.status).toBe(200);
-    expect((await users.findById(peerId))?.pinHash).not.toBeNull();
+    const stored = await users.findById(peerId);
+    expect(stored?.passwordHash).not.toBe(before?.passwordHash);
+    expect(stored?.mustChangePassword).toBe(true);
   });
 
   it("404s a PUT against an unknown id rather than creating that account behind a caller-chosen id", async () => {

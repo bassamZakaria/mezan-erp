@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { profileSchema, updateProfileSchema, changePasswordSchema, changePinSchema } from "./profile.js";
+import { profileSchema, updateProfileSchema, changePasswordSchema } from "./profile.js";
 
 describe("profileSchema", () => {
   const profile = {
@@ -10,7 +10,6 @@ describe("profileSchema", () => {
     phone: null,
     isCompanyAdmin: true,
     roleId: null,
-    hasPin: false,
     photoUrl: null,
     lastLoginAt: null,
     createdAt: "2026-01-01T00:00:00.000Z",
@@ -97,35 +96,5 @@ describe("changePasswordSchema", () => {
     const result = changePasswordSchema.safeParse({ ...payload, newPassword: "short" });
     expect(result.success).toBe(false);
     if (!result.success) expect(result.error.flatten().fieldErrors.newPassword?.[0]).toContain("8 characters");
-  });
-});
-
-describe("changePinSchema", () => {
-  const payload = { currentPassword: "OldPass123", newPin: "1234" };
-
-  it("accepts a minimal valid payload and preserves every field verbatim", () => {
-    const result = changePinSchema.safeParse(payload);
-    expect(result.success).toBe(true);
-    if (result.success) expect(result.data).toEqual(payload);
-  });
-
-  it("accepts a null newPin to remove it", () => {
-    const result = changePinSchema.safeParse({ ...payload, newPin: null });
-    expect(result.success).toBe(true);
-  });
-
-  it("rejects a 3-digit PIN", () => {
-    const result = changePinSchema.safeParse({ ...payload, newPin: "123" });
-    expect(result.success).toBe(false);
-  });
-
-  it("rejects a 7-digit PIN", () => {
-    const result = changePinSchema.safeParse({ ...payload, newPin: "1234567" });
-    expect(result.success).toBe(false);
-  });
-
-  it("rejects a non-numeric PIN", () => {
-    const result = changePinSchema.safeParse({ ...payload, newPin: "abcd" });
-    expect(result.success).toBe(false);
   });
 });

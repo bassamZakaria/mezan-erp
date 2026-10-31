@@ -2,37 +2,22 @@ import { randomInt } from "node:crypto";
 import type { Context } from "hono";
 
 export interface OneTimeSecrets {
-  readonly pin: string;
   readonly password: string;
 }
 
 const PASSWORD_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
 const PASSWORD_LENGTH = 12;
-const PIN_DIGITS = 6;
-
-function isWeakPin(pin: string): boolean {
-  const digits = [...pin].map(Number);
-  const steps = digits.slice(1).map((digit, index) => digit - (digits[index] as number));
-  return steps.every((step) => step === 0) || steps.every((step) => step === 1) || steps.every((step) => step === -1);
-}
-
-export function generatePin(): string {
-  for (;;) {
-    const pin = String(randomInt(0, 10 ** PIN_DIGITS)).padStart(PIN_DIGITS, "0");
-    if (!isWeakPin(pin)) return pin;
-  }
-}
 
 export function generateTemporaryPassword(): string {
   return Array.from({ length: PASSWORD_LENGTH }, () => PASSWORD_ALPHABET[randomInt(0, PASSWORD_ALPHABET.length)]).join("");
 }
 
 export function generateOneTimeSecrets(): OneTimeSecrets {
-  return { pin: generatePin(), password: generateTemporaryPassword() };
+  return { password: generateTemporaryPassword() };
 }
 
 export function plaintextOf(secrets: OneTimeSecrets): readonly string[] {
-  return [secrets.pin, secrets.password];
+  return [secrets.password];
 }
 
 // SECURITY: these plaintexts live only between the pre-transaction hash and the

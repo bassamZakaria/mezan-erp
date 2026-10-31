@@ -190,10 +190,10 @@ describe("PlatformApiProvider", () => {
     expect(localStorage.getItem("mezan.platform.session")).toBeNull();
   });
 
-  it("empties the query cache when the session expires, exactly as signing out does, so a PIN shown once does not stay in memory", async () => {
+  it("empties the query cache when the session expires, exactly as signing out does, so a temporary password shown once does not stay in memory", async () => {
     const queryClient = new QueryClient();
-    queryClient.setQueryData(["platform", "ownerPinReset", "PU-1", "tenant-1"], { adminEmail: "owner@acme.test", adminPin: "305917" });
-    queryClient.setQueryDefaults(["platform", "ownerPinReset"], { gcTime: Infinity });
+    queryClient.setQueryData(["platform", "ownerPasswordReset", "PU-1", "tenant-1"], { adminEmail: "owner@acme.test", adminPassword: "Tmp-3059-17ab" });
+    queryClient.setQueryDefaults(["platform", "ownerPasswordReset"], { gcTime: Infinity });
     const transport = stubPlatformTransport({ "GET /tenants": () => ({ status: 401, body: { error: "UNAUTHENTICATED" } }) });
     render(
       <QueryClientProvider client={queryClient}>

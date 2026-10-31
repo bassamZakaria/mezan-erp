@@ -79,7 +79,7 @@ function makeUser(overrides: Partial<User> = {}): User {
     email: `${overrides.id ?? "user-1"}@test.local`,
     phone: null,
     passwordHash: "hash",
-    pinHash: null,
+    mustChangePassword: false,
     roleId: overrides.roleId ?? null,
     isCompanyAdmin: overrides.isCompanyAdmin ?? false,
     employeeId: null,

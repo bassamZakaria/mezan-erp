@@ -37,7 +37,7 @@ MEZAN_SEED_DEMO=1 MEZAN_DB=$S/test.db PORT=3300 pnpm exec tsx apps/server/src/in
 cd apps/web && MEZAN_API_URL=http://127.0.0.1:3300 pnpm exec vite --port 5300 --host 127.0.0.1 &
 ```
 
-Log in as `محمد الشهابي` / PIN `1234`. Use a **fresh database** each run — a previous
+Log in as `admin@cyag.example` / password `Cyag@2026`. Use a **fresh database** each run — a previous
 run's writes change what later phases see. Cross-check a screen against its endpoint
 with `curl` and headers `x-user-id`, `x-permissions: *`, `x-branch-scope: *`,
 `x-warehouse-scope: *`.

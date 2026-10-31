@@ -1,6 +1,7 @@
 /// <reference types="jest" />
 import { act, fireEvent, render, screen } from "@testing-library/react-native";
 import { ApiError, ApiFailure } from "@/api/errors";
+import { SessionEnded } from "@/session/SessionProvider";
 import { SignIn } from "./index";
 
 const mockReplace = jest.fn();
@@ -14,7 +15,7 @@ jest.mock("expo-router", () => ({ useRouter: () => ({ replace: mockReplace }) })
 jest.mock("react-native-safe-area-context", () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) }));
 jest.mock("@/components/legal-links", () => ({ LegalLinks: () => null }));
 jest.mock("@/session/SessionProvider", () => ({
-  SessionEnded: { Displaced: "displaced", Expired: "expired" },
+  SessionEnded: { Displaced: "displaced", Expired: "expired", PasswordChangeRequired: "password-change-required" },
   useSession: () => ({ connection: { baseUrl: "https://shop.example/api", tenantCode: "acme", email: "owner@shop.eg" }, signIn: mockSignIn, unlockAccount: mockUnlockAccount, sessionEnded: mockSessionEnded, acknowledgeSessionEnded: mockAcknowledge }),
 }));
 
@@ -25,8 +26,8 @@ const AUDIT = "تعذّر تسجيل العملية في سجل التدقيق،
 const refusal = (failure: ApiFailure, status: number, message: string | null, code: string, detail: { retryAfterSeconds?: number; unlockByCode?: boolean } = {}) =>
   new ApiError(failure, status, message, null, code, detail);
 
-async function submitPin(pin = "123456") {
-  await act(async () => fireEvent.changeText(screen.getByTestId("sign-in-pin"), pin));
+async function submitPassword(password = "Cyag@2026") {
+  await act(async () => fireEvent.changeText(screen.getByTestId("sign-in-password"), password));
   await act(async () => fireEvent.press(screen.getByTestId("sign-in-submit")));
 }
 
@@ -47,14 +48,31 @@ afterEach(() => {
 
 describe("the sign-in screen after the server ended the session", () => {
   it("says another user signed in on this device when that is why the session ended", async () => {
-    mockSessionEnded = "displaced";
+    mockSessionEnded = SessionEnded.Displaced;
     await render(<SignIn />);
 
     expect(screen.getByTestId("sign-in-session-ended").props.children).toBe("سجّل مستخدم آخر الدخول على هذا الجهاز، فانتهت جلستك هنا. سجّل الدخول من جديد للمتابعة.");
   });
 
+  it("tells a person whose password is still temporary to change it on the website first", async () => {
+    mockSessionEnded = SessionEnded.PasswordChangeRequired;
+    await render(<SignIn />);
+
+    expect(screen.getByTestId("sign-in-session-ended").props.children).toBe("غيّر كلمة المرور المؤقتة من موقع ميزان أولاً، ثم سجّل الدخول من جديد.");
+  });
+
+  it("stays on the sign-in screen when the sign-in is turned away for a temporary password", async () => {
+    mockSignIn.mockResolvedValue(false);
+    await render(<SignIn />);
+    await submitPassword("Temp@2026x");
+
+    expect(mockSignIn).toHaveBeenCalled();
+    expect(mockReplace).not.toHaveBeenCalled();
+    expect(screen.getByTestId("sign-in-password").props.value).toBe("");
+  });
+
   it("says the session ended when it simply expired", async () => {
-    mockSessionEnded = "expired";
+    mockSessionEnded = SessionEnded.Expired;
     await render(<SignIn />);
 
     expect(screen.getByTestId("sign-in-session-ended").props.children).toBe("انتهت الجلسة. سجّل الدخول من جديد.");
@@ -67,31 +85,31 @@ describe("the sign-in screen after the server ended the session", () => {
   });
 
   it("takes the notice down once the person signs in again", async () => {
-    mockSessionEnded = "displaced";
-    mockSignIn.mockResolvedValue(undefined);
+    mockSessionEnded = SessionEnded.Displaced;
+    mockSignIn.mockResolvedValue(true);
     await render(<SignIn />);
-    await submitPin();
+    await submitPassword();
 
     expect(mockAcknowledge).toHaveBeenCalledTimes(1);
   });
 });
 
 describe("the sign-in screen when the server refuses", () => {
-  it("opens the app on a correct PIN", async () => {
-    mockSignIn.mockResolvedValue(undefined);
+  it("opens the app on a correct password", async () => {
+    mockSignIn.mockResolvedValue(true);
     await render(<SignIn />);
-    await submitPin();
+    await submitPassword();
 
-    expect(mockSignIn).toHaveBeenCalledWith({ baseUrl: "https://shop.example/api", tenantCode: "acme", email: "owner@shop.eg", pin: "123456" });
+    expect(mockSignIn).toHaveBeenCalledWith({ baseUrl: "https://shop.example/api", tenantCode: "acme", email: "owner@shop.eg", password: "Cyag@2026" });
     expect(mockReplace).toHaveBeenCalledWith("/(tabs)");
   });
 
-  it("says a wrong PIN is wrong, and nothing about a lock or a wait", async () => {
-    mockSignIn.mockRejectedValue(refusal(ApiFailure.Unauthorized, 401, "اسم المستخدم أو رمز PIN غير صحيح.", "INVALID_CREDENTIALS"));
+  it("says a wrong password is wrong, and nothing about a lock or a wait", async () => {
+    mockSignIn.mockRejectedValue(refusal(ApiFailure.Unauthorized, 401, "البريد الإلكتروني أو كلمة المرور غير صحيحة.", "INVALID_CREDENTIALS"));
     await render(<SignIn />);
-    await submitPin();
+    await submitPassword();
 
-    expect(screen.getByTestId("sign-in-failure").props.children).toBe("اسم المستخدم أو رمز PIN غير صحيح.");
+    expect(screen.getByTestId("sign-in-failure").props.children).toBe("البريد الإلكتروني أو كلمة المرور غير صحيحة.");
     expect(screen.queryByTestId("sign-in-unlock-code")).toBeNull();
     expect(screen.getByText("دخول")).toBeTruthy();
   });
@@ -99,7 +117,7 @@ describe("the sign-in screen when the server refuses", () => {
   it("says the account is locked and offers no code field when no code was mailed", async () => {
     mockSignIn.mockRejectedValue(refusal(ApiFailure.Locked, 423, LOCKED, "ACCOUNT_LOCKED", { unlockByCode: false }));
     await render(<SignIn />);
-    await submitPin();
+    await submitPassword();
 
     expect(screen.getByTestId("sign-in-failure").props.children).toBe(LOCKED);
     expect(screen.queryByTestId("sign-in-unlock-code")).toBeNull();
@@ -109,7 +127,7 @@ describe("the sign-in screen when the server refuses", () => {
     mockSignIn.mockRejectedValue(refusal(ApiFailure.Locked, 423, LOCKED_WITH_CODE, "ACCOUNT_LOCKED", { unlockByCode: true }));
     mockUnlockAccount.mockResolvedValue(undefined);
     await render(<SignIn />);
-    await submitPin();
+    await submitPassword();
     expect(screen.getByTestId("sign-in-failure").props.children).toBe(LOCKED_WITH_CODE);
 
     expect(screen.getByTestId("sign-in-unlock-submit").props.accessibilityState?.disabled).toBe(true);
@@ -117,7 +135,7 @@ describe("the sign-in screen when the server refuses", () => {
     await act(async () => fireEvent.press(screen.getByTestId("sign-in-unlock-submit")));
 
     expect(mockUnlockAccount).toHaveBeenCalledWith({ baseUrl: "https://shop.example/api", tenantCode: "acme", email: "owner@shop.eg", code: "abcdefgh23456723" });
-    expect(screen.getByTestId("sign-in-notice").props.children).toBe("تم فكّ قفل الحساب. أدخل الرقم السري للدخول.");
+    expect(screen.getByTestId("sign-in-notice").props.children).toBe("تم فكّ قفل الحساب. أدخل كلمة المرور للدخول.");
     expect(screen.queryByTestId("sign-in-unlock-code")).toBeNull();
     expect(screen.queryByTestId("sign-in-failure")).toBeNull();
   });
@@ -126,7 +144,7 @@ describe("the sign-in screen when the server refuses", () => {
     mockSignIn.mockRejectedValue(refusal(ApiFailure.Locked, 423, LOCKED_WITH_CODE, "ACCOUNT_LOCKED", { unlockByCode: true }));
     mockUnlockAccount.mockRejectedValue(refusal(ApiFailure.Refused, 400, "رمز فكّ القفل غير صحيح أو انتهت صلاحيته.", "INVALID_UNLOCK_CODE"));
     await render(<SignIn />);
-    await submitPin();
+    await submitPassword();
     await act(async () => fireEvent.changeText(screen.getByTestId("sign-in-unlock-code"), "AAAAAAAAAAAAAAAA"));
     await act(async () => fireEvent.press(screen.getByTestId("sign-in-unlock-submit")));
 
@@ -138,7 +156,7 @@ describe("the sign-in screen when the server refuses", () => {
     mockSignIn.mockRejectedValue(refusal(ApiFailure.Locked, 423, LOCKED_WITH_CODE, "ACCOUNT_LOCKED", { unlockByCode: true }));
     mockUnlockAccount.mockRejectedValue(refusal(ApiFailure.Throttled, 429, "محاولات دخول كثيرة. حاول بعد 2 ثانية.", "TOO_MANY_ATTEMPTS", { retryAfterSeconds: 2 }));
     await render(<SignIn />);
-    await submitPin();
+    await submitPassword();
     await act(async () => fireEvent.changeText(screen.getByTestId("sign-in-unlock-code"), "AAAAAAAAAAAAAAAA"));
     await act(async () => fireEvent.press(screen.getByTestId("sign-in-unlock-submit")));
 
@@ -154,12 +172,12 @@ describe("the sign-in screen when the server refuses", () => {
   it("holds the button for the seconds a 429 names, counts them down, and lets the person try again when they are over", async () => {
     mockSignIn.mockRejectedValue(refusal(ApiFailure.Throttled, 429, "محاولات دخول كثيرة. حاول بعد 3 ثانية.", "TOO_MANY_ATTEMPTS", { retryAfterSeconds: 3 }));
     await render(<SignIn />);
-    await submitPin();
+    await submitPassword();
 
     expect(screen.getByTestId("sign-in-failure").props.children).toBe("محاولات دخول كثيرة.");
     expect(screen.getByText("حاول بعد 3 ثوانٍ")).toBeTruthy();
     expect(screen.queryByText(/الحساب مقفل|\d ث$/)).toBeNull();
-    await act(async () => fireEvent.changeText(screen.getByTestId("sign-in-pin"), "123456"));
+    await act(async () => fireEvent.changeText(screen.getByTestId("sign-in-password"), "Cyag@2026"));
     expect(submitIsDisabled()).toBe(true);
     await act(async () => fireEvent.press(screen.getByTestId("sign-in-submit")));
     expect(mockSignIn).toHaveBeenCalledTimes(1);
@@ -175,7 +193,7 @@ describe("the sign-in screen when the server refuses", () => {
   it("says the server is busy, not that the account is locked, for a 503 that names a wait", async () => {
     mockSignIn.mockRejectedValue(refusal(ApiFailure.Unavailable, 503, "الخادم مشغول الآن بطلبات دخول أخرى، ولم تُحتسب هذه المحاولة. أعد المحاولة بعد ثوانٍ.", "SIGN_IN_BUSY", { retryAfterSeconds: 2 }));
     await render(<SignIn />);
-    await submitPin();
+    await submitPassword();
 
     expect(screen.getByTestId("sign-in-failure").props.children).toContain("الخادم مشغول الآن");
     expect(screen.getByText("الخادم مشغول — أعد المحاولة بعد ثانيتين")).toBeTruthy();
@@ -185,7 +203,7 @@ describe("the sign-in screen when the server refuses", () => {
   it("says the audit log could not record the sign-in, holds nothing and offers no code", async () => {
     mockSignIn.mockRejectedValue(refusal(ApiFailure.Unavailable, 503, AUDIT, "AUDIT_UNAVAILABLE"));
     await render(<SignIn />);
-    await submitPin();
+    await submitPassword();
 
     expect(screen.getByTestId("sign-in-failure").props.children).toBe(AUDIT);
     expect(screen.getByText("دخول")).toBeTruthy();
@@ -195,7 +213,7 @@ describe("the sign-in screen when the server refuses", () => {
   it("says the server could not be reached when there is no network, in words of its own", async () => {
     mockSignIn.mockRejectedValue(new ApiError(ApiFailure.Network, null, null, null));
     await render(<SignIn />);
-    await submitPin();
+    await submitPassword();
 
     expect(screen.getByTestId("sign-in-failure").props.children).toBe("تعذّر الوصول إلى الخادم. تحقّق من الاتصال ومن عنوان الخادم.");
   });

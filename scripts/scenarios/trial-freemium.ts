@@ -2,6 +2,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { installClockOverride, FAKE_TODAY_ENV } from "../../packages/backend/src/clock-override.js";
+import { SEED_ADMIN_PASSWORD } from "../../packages/backend/src/seed.js";
 import { createCloudApp } from "../../apps/server/src/cloud-app.ts";
 import { PaymobMode, type CloudEnv } from "../../apps/server/src/env.ts";
 import { DEVICE_SECRET_HEADER, SignupModeCode } from "../../packages/contracts/src/index.js";
@@ -122,12 +123,17 @@ export async function run(ctx: Ctx): Promise<void> {
 
     const verified = await call("POST", "/api/signup/verify", { token });
     check("verifying provisions the tenant", verified.status === 200, `status ${verified.status} ${JSON.stringify(verified.body).slice(0, 200)}`);
-    const adminPin = String(verified.body?.adminPin ?? "");
+    let adminPassword = String(verified.body?.adminPassword ?? "");
     const adminEmail = String(verified.body?.adminEmail ?? OWNER_EMAIL);
 
-    const login = await call("POST", "/api/auth/login", { username: adminEmail, pin: adminPin });
+    const login = await call("POST", "/api/auth/login", { username: adminEmail, password: adminPassword });
     check("the owner can sign in", login.status === 200, `status ${login.status} ${JSON.stringify(login.body).slice(0, 200)}`);
     session = String(login.body?.token ?? "");
+    if (login.body?.mustChangePassword === true) {
+      const changed = await call("POST", "/api/profile/change-password", { currentPassword: adminPassword, newPassword: SEED_ADMIN_PASSWORD }, auth());
+      check("a temporary owner password is replaced at first sign-in", changed.status === 200, `status ${changed.status}`);
+      adminPassword = SEED_ADMIN_PASSWORD;
+    }
 
     const dayOne = await api("GET", "/billing/subscription");
     check("day 1 is a trial", dayOne.body?.subscription?.status === "trialing", JSON.stringify(dayOne.body?.subscription));
@@ -157,10 +163,10 @@ export async function run(ctx: Ctx): Promise<void> {
     const roles = await api("GET", "/roles");
     const roleId = String(madeRole.body?.id ?? ctx.rows(roles.body)[0]?.id ?? "");
     check("a role exists to hire against", roleId !== "", `${madeRole.status} ${JSON.stringify(madeRole.body).slice(0, 200)} / ${JSON.stringify(roles.body).slice(0, 160)}`);
-    const clerks: { email: string; pin: string }[] = [];
+    const clerks: { email: string; password: string }[] = [];
     for (const n of [1, 2]) {
       const email = `clerk${n}@freemium.example`;
-      const pin = `10000${n}`;
+      const password = `Clerk-pass-${n}-2026`;
       const res = await api("POST", "/users", {
         nameAr: `موظف ${n}`,
         email,
@@ -168,14 +174,13 @@ export async function run(ctx: Ctx): Promise<void> {
         isCompanyAdmin: false,
         branchScope: "*",
         warehouseScope: "*",
-        password: "clerk-password-1",
-        pin,
+        password,
       });
-      if (res.status === 201) clerks.push({ email, pin });
+      if (res.status === 201) clerks.push({ email, password });
       else check(`clerk ${n} is hired`, false, `status ${res.status} ${JSON.stringify(res.body).slice(0, 220)}`);
     }
     check("two more users are hired while the trial's 25 seats are open", clerks.length === 2, `created ${clerks.length}`);
-    const clerkLogin = await call("POST", "/api/auth/login", { username: clerks[0]?.email, pin: clerks[0]?.pin });
+    const clerkLogin = await call("POST", "/api/auth/login", { username: clerks[0]?.email, password: clerks[0]?.password });
     check("and a clerk can sign in during the trial", clerkLogin.status === 200, `status ${clerkLogin.status}`);
 
     // ------------------------------------------------------------------
@@ -200,13 +205,13 @@ export async function run(ctx: Ctx): Promise<void> {
     // ------------------------------------------------------------------
     // 3b · Over the seat count: nobody is deleted, only an admin may sign in.
     // ------------------------------------------------------------------
-    const clerkAfter = await call("POST", "/api/auth/login", { username: clerks[0]?.email, pin: clerks[0]?.pin });
+    const clerkAfter = await call("POST", "/api/auth/login", { username: clerks[0]?.email, password: clerks[0]?.password });
     check("a clerk cannot sign in while the tenant is over its seat count", clerkAfter.status === 403, `status ${clerkAfter.status}`);
     check("and is told why", clerkAfter.body?.error === "SEATS_OVER_LIMIT", JSON.stringify(clerkAfter.body).slice(0, 220));
     check("in Arabic", typeof clerkAfter.body?.message === "string" && /مدير المنشأة/.test(clerkAfter.body.message), String(clerkAfter.body?.message));
     check("and in English", typeof clerkAfter.body?.messageEn === "string" && clerkAfter.body.messageEn.includes("administrator"), String(clerkAfter.body?.messageEn));
 
-    const adminAfter = await call("POST", "/api/auth/login", { username: adminEmail, pin: adminPin });
+    const adminAfter = await call("POST", "/api/auth/login", { username: adminEmail, password: adminPassword });
     check("the company admin still can, so somebody can choose who stays", adminAfter.status === 200, `status ${adminAfter.status}`);
     session = String(adminAfter.body?.token ?? session);
     const stillThere = await api("GET", "/users");

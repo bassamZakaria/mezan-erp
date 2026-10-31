@@ -13,7 +13,6 @@ import type { Transport } from "./transport";
 import {
   ApiError,
   useChangePassword,
-  useChangePin,
   useProfile,
   useProfileActivity,
   useUpdateProfile,
@@ -126,22 +125,6 @@ describe("useChangePassword", () => {
     result.current.mutate({ currentPassword: "wrong", newPassword: "x" } as never);
     await waitFor(() => expect(result.current.isError).toBe(true));
     expect(result.current.error?.message).toBe("كلمة المرور الحالية غير صحيحة");
-  });
-});
-
-describe("useChangePin", () => {
-  it("sends the pin change body", async () => {
-    let seenBody: unknown = null;
-    const transport = stubTransport({
-      "POST /profile/change-pin": (init) => {
-        seenBody = JSON.parse((init?.body as string) ?? "{}");
-        return { body: {} };
-      },
-    });
-    const { result } = renderHook(() => useChangePin(), { wrapper: makeWrapper(transport).Wrapper });
-    result.current.mutate({ currentPin: "123456", newPin: "654321" } as never);
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(seenBody).toEqual({ currentPin: "123456", newPin: "654321" });
   });
 });
 

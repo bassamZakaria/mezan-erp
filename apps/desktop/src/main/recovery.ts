@@ -1,4 +1,4 @@
-import { randomInt } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { chmod, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { SEED_ADMIN_EMAIL, SEED_ADMIN_USER_ID } from "@mezan/backend";
@@ -12,15 +12,16 @@ import {
 /**
  * The one way back into an install nobody can sign into.
  *
- * WHAT THIS FIXES. A packaged build seeds its fallback admin with a RANDOM PIN
- * (seed.ts — the alternative was the published `123456` on every Mezan install
- * in the country), and that PIN was previously printed nowhere. There is no
- * password-reset route in this product, no admin unlock, and no second account
- * on a fresh install — so a forgotten PIN did not degrade the install, it ended
- * it: the remaining moves were hand-editing a scrypt hash into the SQLite file
- * or losing the books. The same wall stood in front of the disaster case the
- * backups exist for — a backup restored onto replacement hardware is only
- * usable by someone who still knows a PIN from the machine that died.
+ * WHAT THIS FIXES. A packaged build seeds its fallback admin with a RANDOM
+ * temporary password (seed.ts — the alternative was the published demo password
+ * on every Mezan install in the country), and that password was previously
+ * printed nowhere. There is no password-reset route in this product, no admin
+ * unlock, and no second account on a fresh install — so a forgotten password
+ * did not degrade the install, it ended it: the remaining moves were
+ * hand-editing a scrypt hash into the SQLite file or losing the books. The same
+ * wall stood in front of the disaster case the backups exist for — a backup
+ * restored onto replacement hardware is only usable by someone who still knows
+ * a password from the machine that died.
  *
  * Both doors below are authorised by FILESYSTEM ACCESS to the database
  * directory. That was once an argument from futility — the SQLite file was not
@@ -37,7 +38,9 @@ import {
  * paths come in as arguments and the module is exercisable headlessly.
  */
 
-const RECOVERY_FILE_NAME = "recovery-pin.txt";
+const RECOVERY_FILE_NAME = "recovery-password.txt";
+/** Written by installs from before the PIN was removed; its PIN became a temporary password on upgrade, so it is still a live credential. */
+const LEGACY_RECOVERY_FILE_NAME = "recovery-pin.txt";
 
 /** Owner read/write only. The file holds a live credential until the wizard runs. */
 const OWNER_ONLY = 0o600;
@@ -47,13 +50,16 @@ export function recoveryFilePath(dbPath: string): string {
   return path.join(path.dirname(dbPath), RECOVERY_FILE_NAME);
 }
 
-export type RecoveryReason = "first-run" | "reset";
+export enum RecoveryReason {
+  FirstRun = "first-run",
+  Reset = "reset",
+}
 
-function recoveryFileBody(pin: string, reason: RecoveryReason): string {
+function recoveryFileBody(password: string, reason: RecoveryReason): string {
   const heading =
-    reason === "first-run"
-      ? ["مزان — رمز الدخول الأول لحساب المدير", "Mezan — first-run administrator PIN"]
-      : ["مزان — رمز دخول جديد لحساب المدير (تمت إعادة التعيين)", "Mezan — administrator PIN reset"];
+    reason === RecoveryReason.FirstRun
+      ? ["مزان — كلمة المرور المؤقتة الأولى لحساب المدير", "Mezan — first-run administrator password"]
+      : ["مزان — كلمة مرور مؤقتة جديدة لحساب المدير (تمت إعادة التعيين)", "Mezan — administrator password reset"];
 
   return [
     "============================================================",
@@ -61,18 +67,18 @@ function recoveryFileBody(pin: string, reason: RecoveryReason): string {
     heading[1],
     "============================================================",
     "",
-    `البريد الإلكتروني / Email:  ${SEED_ADMIN_EMAIL}`,
-    `رمز الدخول / PIN:           ${pin}`,
+    `البريد الإلكتروني / Email:       ${SEED_ADMIN_EMAIL}`,
+    `كلمة المرور المؤقتة / Password:  ${password}`,
     "",
     "------------------------------------------------------------",
     "بالعربية",
     "------------------------------------------------------------",
-    "هذا الملف يحتوي على رمز دخول حساب المدير لهذه النسخة من مزان.",
-    "استخدمه لتسجيل الدخول أول مرة، ثم أكمل معالج الإعداد وأنشئ",
-    "حسابك الشخصي.",
+    "هذا الملف يحتوي على كلمة مرور مؤقتة لحساب المدير لهذه النسخة من مزان.",
+    "سجّل الدخول بها مرة واحدة، وسيطلب منك البرنامج تعيين كلمة مرور جديدة",
+    "فوراً، ثم أكمل معالج الإعداد وأنشئ حسابك الشخصي.",
     "",
     "بعد إتمام الإعداد يحذف البرنامج هذا الملف تلقائياً عند التشغيل",
-    "التالي. إن أردت حذفه بنفسك فافعل — احتفظ بالرمز في مكان آمن أولاً.",
+    "التالي. إن أردت حذفه بنفسك فافعل بعد تعيين كلمة مرورك الجديدة.",
     "",
     "من يقرأ هذا الملف يستطيع الدخول إلى دفاتر منشأتك. لا تتركه على",
     "جهاز مشترك ولا ترسله في رسالة.",
@@ -80,13 +86,14 @@ function recoveryFileBody(pin: string, reason: RecoveryReason): string {
     "------------------------------------------------------------",
     "In English",
     "------------------------------------------------------------",
-    "This file holds the administrator PIN for this Mezan installation.",
-    "Sign in with it once, finish the first-run wizard, and create your",
+    "This file holds a temporary administrator password for this Mezan",
+    "installation. Sign in with it once; Mezan then asks you to set a new",
+    "password straight away. Finish the first-run wizard and create your",
     "own account.",
     "",
     "Once the tenant is set up, Mezan deletes this file automatically on",
-    "the next launch. Delete it yourself sooner if you prefer — write the",
-    "PIN down somewhere safe first.",
+    "the next launch. Delete it yourself sooner if you prefer, once you",
+    "have set your new password.",
     "",
     "Anyone who reads this file can sign in to your company's books. Do",
     "not leave it on a shared machine and do not send it in a message.",
@@ -96,7 +103,7 @@ function recoveryFileBody(pin: string, reason: RecoveryReason): string {
 }
 
 /**
- * Writes the PIN where a human can find it, with owner-only permissions.
+ * Writes the temporary password where a human can find it, with owner-only permissions.
  *
  * `chmod` runs as a separate step rather than relying on `writeFile`'s `mode`,
  * because `mode` is only applied when the file is CREATED — a second run over
@@ -104,13 +111,13 @@ function recoveryFileBody(pin: string, reason: RecoveryReason): string {
  * (On Windows the call is a no-op; NTFS inherits the directory's ACL, and the
  * per-user app-data directory is already owner-scoped there.)
  */
-export async function writeRecoveryPin(
+export async function writeRecoveryPassword(
   dbPath: string,
-  pin: string,
+  password: string,
   reason: RecoveryReason,
 ): Promise<string> {
   const target = recoveryFilePath(dbPath);
-  await writeFile(target, recoveryFileBody(pin, reason), { encoding: "utf8", mode: OWNER_ONLY });
+  await writeFile(target, recoveryFileBody(password, reason), { encoding: "utf8", mode: OWNER_ONLY });
   await chmod(target, OWNER_ONLY).catch(() => undefined);
   return target;
 }
@@ -127,7 +134,7 @@ export async function writeRecoveryPin(
  *
  * Returns true when a file was actually removed.
  */
-export async function clearRecoveryPinIfClaimed(
+export async function clearRecoveryPasswordIfClaimed(
   dbPath: string,
   connection: SqliteConnectionInput = dbPath,
 ): Promise<boolean> {
@@ -139,25 +146,26 @@ export async function clearRecoveryPinIfClaimed(
     settings.close();
   }
 
-  const target = recoveryFilePath(dbPath);
-  await rm(target, { force: true });
+  await rm(recoveryFilePath(dbPath), { force: true });
+  await rm(path.join(path.dirname(dbPath), LEGACY_RECOVERY_FILE_NAME), { force: true });
   return true;
 }
 
-export interface SeedAdminPinReset {
-  readonly pin: string;
+export interface SeedAdminPasswordReset {
+  readonly password: string;
   /** True when the account had been deactivated and this brought it back. */
   readonly reactivated: boolean;
   readonly recoveryFile: string;
 }
 
 /**
- * `--reset-admin`: mints a fresh PIN for the seeded admin account.
+ * `--reset-admin`: mints a fresh TEMPORARY password for the seeded admin
+ * account, so the next sign-in is forced through a password change.
  *
- * Writes the PIN hash directly rather than going through `saveUser`, because
- * `saveUser` takes a plaintext PASSWORD too and would therefore reset a
- * credential the owner may still know. Nothing else about the account changes,
- * with one exception: a deactivated seed admin is reactivated. That account
+ * Writes the row directly rather than going through `saveUser`, because the
+ * reset is authorised by filesystem access, not by a signed-in admin. Nothing
+ * else about the account changes, with one exception: a deactivated seed admin
+ * is reactivated. That account
  * being inactive is the other half of the same brick — a company admin may
  * deactivate another company admin, so an install can reach "no account anybody
  * can sign into" without anyone meaning to — and a reset that leaves the door
@@ -166,31 +174,30 @@ export interface SeedAdminPinReset {
  * Returns null when there is no seeded admin to reset (an empty or
  * not-yet-created database), so the caller can say so rather than claim success.
  */
-export async function resetSeedAdminPin(
+export async function resetSeedAdminPassword(
   dbPath: string,
   connection: SqliteConnectionInput = dbPath,
-): Promise<SeedAdminPinReset | null> {
+): Promise<SeedAdminPasswordReset | null> {
   const uow = createSqliteUnitOfWork(connection);
-  let pin: string;
+  let password: string;
   let reactivated: boolean;
   try {
     const user = await uow.users.findById(SEED_ADMIN_USER_ID);
     if (!user) return null;
 
-    // Same generator the seed uses: `randomInt` refuses a range wider than
-    // 2**48-1, and six digits is what the login screen's PIN pad accepts.
-    pin = String(randomInt(0, 1_000_000)).padStart(6, "0");
+    password = randomBytes(9).toString("base64url");
     reactivated = user.status !== "active";
     await uow.users.save({
       ...user,
-      pinHash: await createScryptHasher().hash(pin),
+      passwordHash: await createScryptHasher().hash(password),
+      mustChangePassword: true,
       status: "active",
     });
   } finally {
     uow.close();
   }
 
-  return { pin, reactivated, recoveryFile: await writeRecoveryPin(dbPath, pin, "reset") };
+  return { password, reactivated, recoveryFile: await writeRecoveryPassword(dbPath, password, RecoveryReason.Reset) };
 }
 
 /** True when the process was started with the `--reset-admin` recovery flag. */

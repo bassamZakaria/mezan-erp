@@ -44,10 +44,20 @@ export const UNLOCK_PATH = "/unlock";
 // configured. Nothing a request carries reaches this function. The token rides
 // in the FRAGMENT: it reaches the page's own script and is never sent to this
 // server, a proxy, an access log or a Referer header.
-export function tenantUnlockLink(env: CloudEnv, tenantCode: string): ((token: string) => string) | undefined {
+export const PASSWORD_RESET_PATH = "/reset-password";
+
+function tenantTokenLink(env: CloudEnv, tenantCode: string, path: string): ((token: string) => string) | undefined {
   const onTenantHost = tenantOrigin(env, tenantSlugOfHost(`${tenantCode}.${env.tenantDomain?.toLowerCase() ?? ""}`, env.tenantDomain));
-  if (onTenantHost) return (token) => `${onTenantHost}${UNLOCK_PATH}#token=${encodeURIComponent(token)}`;
+  if (onTenantHost) return (token) => `${onTenantHost}${path}#token=${encodeURIComponent(token)}`;
   const configured = configuredPublicOrigin(env);
   if (!configured) return undefined;
-  return (token) => `${configured}${UNLOCK_PATH}#tenant=${encodeURIComponent(tenantCode)}&token=${encodeURIComponent(token)}`;
+  return (token) => `${configured}${path}#tenant=${encodeURIComponent(tenantCode)}&token=${encodeURIComponent(token)}`;
+}
+
+export function tenantUnlockLink(env: CloudEnv, tenantCode: string): ((token: string) => string) | undefined {
+  return tenantTokenLink(env, tenantCode, UNLOCK_PATH);
+}
+
+export function tenantPasswordResetLink(env: CloudEnv, tenantCode: string): ((token: string) => string) | undefined {
+  return tenantTokenLink(env, tenantCode, PASSWORD_RESET_PATH);
 }

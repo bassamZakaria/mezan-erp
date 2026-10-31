@@ -22,7 +22,7 @@ describe("assertLocalOrTest", () => {
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("MEZAN_SEED_DEMO", undefined);
     vi.stubEnv("MEZAN_REVIEW_TENANT_CODE", "cyag");
-    vi.stubEnv("MEZAN_REVIEW_PIN", "482913");
+    vi.stubEnv("MEZAN_REVIEW_PASSWORD", "pw-482913");
     expect(() => assertLocalOrTest()).not.toThrow();
   });
 
@@ -30,7 +30,7 @@ describe("assertLocalOrTest", () => {
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("MEZAN_SEED_DEMO", undefined);
     vi.stubEnv("MEZAN_REVIEW_TENANT_CODE", "cyag");
-    vi.stubEnv("MEZAN_REVIEW_PIN", undefined);
+    vi.stubEnv("MEZAN_REVIEW_PASSWORD", undefined);
     expect(() => assertLocalOrTest()).toThrow(/refusing to seed: NODE_ENV=production/);
   });
 

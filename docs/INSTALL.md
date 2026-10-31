@@ -21,7 +21,7 @@ the email and status are ordinary master data an admin can change later, which i
 product answers "has this tenant been claimed" from a recorded fact and not from that
 account's email — see §2.
 
-**On a packaged build, that account's PIN is random and printed nowhere** —
+**On a packaged build, that account's password is random and printed nowhere** —
 `resolveSeedAdminSecrets()` in `seed.ts` generates it with the same CSPRNG the session
 tokens use, and does not hand it to you. "Packaged" here means `MEZAN_PACKAGED=1` (set by
 `apps/desktop/src/main/index.ts` from Electron's own `app.isPackaged`) **or**
@@ -29,17 +29,17 @@ tokens use, and does not hand it to you. "Packaged" here means `MEZAN_PACKAGED=1
 random path. That second condition was narrowed away once, on the reasoning that only the
 desktop edition has a first-run wizard to recover through, and put back deliberately: the
 alternative is a container or `apps/server` box silently seeding an admin nobody can ever log
-in as, which is worse than a server build sharing the published `123456`. `apps/server/src/
-index.ts` prints a freshly generated PIN once, to the console, on the run that seeded it —
-the desktop shell's `recovery-pin.txt` and `--reset-admin` (§1.4) are both desktop-only and do
+in as, which is worse than a server build sharing the published `Cyag@2026`. `apps/server/src/
+index.ts` prints a freshly generated temporary password once, to the console, on the run that seeded it —
+the desktop shell's `recovery-password.txt` and `--reset-admin` (§1.4) are both desktop-only and do
 not exist on this surface, so watch the console on that first run or set
-`MEZAN_SEED_ADMIN_PIN` (§1.3) before it. This is
+`MEZAN_SEED_ADMIN_PASSWORD` (§1.3) before it. This is
 deliberate, and it is the fix for a real
-defect (S7): before it, every Mezan install in the country shipped with the same seeded PIN
-(`123456`, the one every dev script and this doc's own test-plan section signs in with —
-see `TESTING.md` §2.2), so an anonymous caller who knew that PIN held the company admin of
-*any* Mezan install reachable on its shop wifi. **Do not try `123456` on a packaged build —
-it will not work, and it will not tell you why**: the login route answers a wrong PIN and an
+defect (S7): before it, every Mezan install in the country shipped with the same seeded password
+(`Cyag@2026`, the one every dev script and this doc's own test-plan section signs in with —
+see `TESTING.md` §2.2), so an anonymous caller who knew that password held the company admin of
+*any* Mezan install reachable on its shop wifi. **Do not try `Cyag@2026` on a packaged build —
+it will not work, and it will not tell you why**: the login route answers a wrong password and an
 unknown account with the identical `INVALID_CREDENTIALS`, on purpose (`packages/backend/src/
 auth-routes.ts` — an unknown-account response is hashed against a decoy so response time
 gives nothing away either).
@@ -63,7 +63,7 @@ has five steps on the desktop host, four on the browser build (`apps/web/src/log
    be refused. Skipping this step is fine — the licence can be imported later from
    `الإعدادات ← الأجهزة المتصلة` — but a green pill now means the file verified.
 2. **Administrator account** — `POST /bootstrap/admin` with the owner's real name (Arabic
-   and, optionally, English), a real email, and a PIN **they** choose. This call also
+   and, optionally, English), a real email, and a password **they** choose (at least 8 characters, entered twice). This call also
    idempotently seeds the empty database (chart of accounts, VAT, the main branch and
    warehouse, fiscal periods) if nothing has run `POST /bootstrap/seed` yet.
 3. **«حماية النسخ الاحتياطية»** (desktop host only, required) — the owner sets a recovery
@@ -76,51 +76,50 @@ has five steps on the desktop host, four on the browser build (`apps/web/src/log
    because it 409'd the wizard on its own next click on a brand-new install.
 5. **Import** — hands off into the data migration wizard, §3 below.
 
-After step 2, the seeded fallback account (`USER-ADMIN`) still exists in the database, PIN
+After step 2, the seeded fallback account (`USER-ADMIN`) still exists in the database, password
 unknown to anyone. It is not deleted and does not need to be — it plays no further role once
 a real admin exists, and the product does not distinguish it from any other inactive-in-
 practice account. Do not go looking for a way to "finish setting it up"; there isn't one, and
 there does not need to be.
 
-### 1.3 Scripted or unattended rollout: `MEZAN_SEED_ADMIN_PIN`
+### 1.3 Scripted or unattended rollout: `MEZAN_SEED_ADMIN_PASSWORD`
 
-For a rollout where the wizard's random PIN is inconvenient — a scripted deployment across
+For a rollout where the wizard's random password is inconvenient — a scripted deployment across
 several machines, or a QA pass against a packaged build where you need a known credential —
-set `MEZAN_SEED_ADMIN_PIN` to a six-digit string **before the process that first seeds the
-database starts**. `resolveSeedAdminSecrets()` reads it and pins the fallback admin's PIN to
+set `MEZAN_SEED_ADMIN_PASSWORD` to a string of at least 8 characters **before the process that first seeds the
+database starts**. `resolveSeedAdminSecrets()` reads it and pins the fallback admin's password to
 that value instead of generating one; it does not affect anything after the wizard has
-already claimed the tenant. `MEZAN_SEED_ADMIN_PIN` set to anything that does not match
-`^\d{6}$` is ignored, silently, and a random PIN is generated as usual — check it took by
+already claimed the tenant. `MEZAN_SEED_ADMIN_PASSWORD` set to anything shorter than 8 characters is ignored, silently, and a random password is generated as usual — check it took by
 confirming you can sign in as `admin@cyag.example` with it before you walk away from the
 machine.
 
 This is not a substitute for §1.2. It exists so *you*, the person running the rollout, have
-a known door in while you drive the wizard — not so the client's till ships with a shared PIN
-across sites again. Do not leave `MEZAN_SEED_ADMIN_PIN` set in an image or script that
+a known door in while you drive the wizard — not so the client's till ships with a shared password
+across sites again. Do not leave `MEZAN_SEED_ADMIN_PASSWORD` set in an image or script that
 multiple client machines are provisioned from unless every one of those machines is meant to
-share that PIN until someone runs the wizard on it — which is exactly S7, reintroduced by
+share that password until someone runs the wizard on it — which is exactly S7, reintroduced by
 policy instead of by bug.
 
-### 1.4 The recovery file, and what happens if nobody knows a PIN for this machine
+### 1.4 The recovery file, and what happens if nobody knows a password for this machine
 
 Both pieces the security review called for now exist and are wired into the desktop shell
 (`apps/desktop/src/main/recovery.ts`, called from `main/index.ts`):
 
-- **`recovery-pin.txt`, written beside the database, owner-only (`0600`) permissions.** On the
-  launch that actually generates a random admin PIN — i.e. the first launch that seeds an
+- **`recovery-password.txt`, written beside the database, owner-only (`0600`) permissions.** On the
+  launch that actually generates a random admin password — i.e. the first launch that seeds an
   empty tenant on a packaged build (`takeSeededAdminSecrets()` returns a one-shot,
   `generated: true` result exactly once) — the shell writes this file next to `mezan.db`, with
-  the PIN in both Arabic and English, and also prints the PIN to stdout as a fallback for the
+  the temporary password in both Arabic and English, and also prints it to stdout as a fallback for the
   one failure this can't protect against: a first launch that cannot write to its own data
   directory at all. **Read this file, or the console, once, then finish the wizard.**
 - **The file deletes itself.** On every subsequent launch, if nothing was freshly generated
-  that run, the shell calls `clearRecoveryPinIfClaimed()`, which checks the same
+  that run, the shell calls `clearRecoveryPasswordIfClaimed()`, which checks the same
   `settings.tenantClaimedAt` fact §2 relies on and removes the file the moment it is true —
   i.e. the moment the wizard has actually run and a real admin exists. Do not rely on the file
-  surviving past that point; if you need the generated PIN for a record, copy it out before
+  surviving past that point; if you need the generated password for a record, copy it out before
   finishing the wizard.
-- **`--reset-admin`** mints a fresh random PIN directly against the seeded admin account
-  (`SEED_ADMIN_USER_ID`) and writes it into a NEW `recovery-pin.txt` (reason `"reset"`), then
+- **`--reset-admin`** mints a fresh random temporary password directly against the seeded admin account
+  (`SEED_ADMIN_USER_ID`) and writes it into a NEW `recovery-password.txt` (reason `"reset"`), then
   prints it and exits. Run it as `<mezan-binary> --reset-admin` against a packaged install with
   its database on disk — it refuses to run against the in-memory dev database, and it exits 1
   with a clear message if the target database has no seeded admin row at all (an empty or
@@ -134,11 +133,11 @@ Both pieces the security review called for now exist and are wired into the desk
 There is no permission check, no session, nothing reachable over the LAN socket, IPC or the
 renderer — deliberately: whoever can read that directory already holds the unencrypted SQLite
 file with the full customer list, every price and every salary in it (§7), so refusing them a
-PIN reset protects nothing they could not already take, and would only cost the install. Do
+password reset protects nothing they could not already take, and would only cost the install. Do
 not read this as a general precedent — it is specific to a machine's own local disk, not a
 statement that permission checks elsewhere are optional.
 
-**With both of these landed, §1.3's `MEZAN_SEED_ADMIN_PIN` is now a convenience for a known
+**With both of these landed, §1.3's `MEZAN_SEED_ADMIN_PASSWORD` is now a convenience for a known
 credential during a scripted rollout, not the only way back in.** A genuinely locked-out
 packaged install — nobody captured the recovery file, nobody set the env var in advance — is
 recovered with `--reset-admin`, run on that machine, by whoever has a terminal on it.
@@ -170,7 +169,7 @@ the moment a tenant's claim is **recorded**, the route refuses everyone, permane
   **fixed id** — never its editable email — against the account list.
 
 Practically: run the wizard once per install, capture what the owner set (their email, and
-confirm they know their own PIN — you set it together, on step 2, in front of them), and if
+confirm they know their own password — you set it together, on step 2, in front of them), and if
 you ever need to re-run any part of the wizard against a machine you are not sure has been
 claimed, check `GET /bootstrap/status` first (`claimed: true|false`) rather than assuming.
 
@@ -403,8 +402,8 @@ till: a till owns no backups, its backup channels answer «النسخ الاحت
 form says protection cannot be turned on there (and the first-run step lets the owner continue).
 
 **Changing it.** «تغيير كلمة السر أو الطريقة» on the backup screen asks for the new secret and the
-signed-in user's **current PIN**, which the main process proves through the backend's own
-`POST /auth/step-up` — so a wrong PIN counts on the same lock-out ladder as a wrong sign-in. Only
+signed-in user's **current password**, which the main process proves through the backend's own
+`POST /auth/step-up` — so a wrong password counts on the same lock-out ladder as a wrong sign-in. Only
 **future** second-folder copies use the new secret. **Copies already written keep the old
 passphrase and are never rewritten** — tell the owner to keep the old one for as long as those
 copies matter. Setting and changing are written to the security audit trail
@@ -446,7 +445,7 @@ Two cases behave differently, and it is worth knowing which one you are in:
    its checksum and `integrity_check` are verified, and a copy made by a newer build is refused —
    all before anything on disk changes. A wrong passphrase leaves the install untouched.
 5. The database is re-keyed to the new machine's own key and the app relaunches onto the login
-   screen. Sign in with a PIN from the old machine (or `--reset-admin`, §1.4).
+   screen. Sign in with a password from the old machine (or `--reset-admin`, §1.4).
 6. The recovery secret does **not** travel with the books (its sealed key belongs to the old
    machine's keychain), so the backup screen shows the protection banner again: set the passphrase
    once more and pick the second folder again.
@@ -507,7 +506,7 @@ install opens «الإعداد الأولي», and its first step carries «اس
 no key card needed, because the portable export is encrypted under the passphrase, not the dead
 machine's key. It works without a sign-in only while this install's tenant is unclaimed, the
 same rule the licence import uses. The imported database is re-keyed to this machine's key
-before the relaunch, then the login screen asks for a PIN from the old machine (or use
+before the relaunch, then the login screen asks for a password from the old machine (or use
 `--reset-admin`, below). An archive written by a NEWER build is refused before anything is
 touched ("حدّث البرنامج على هذا الجهاز أولاً"). The licence is a separate file and is not in
 the backup: install the licence issued for this machine at the same step. Only if the app
@@ -520,16 +519,16 @@ screen gives you for free, so prefer the screen whenever the app runs at all.
 A backup taken from a working install is, by definition, from a tenant that has already been
 claimed (`settings.tenantClaimedAt` is set). Restoring it does not reopen §2's bootstrap door —
 the wizard will not offer to create a new admin on a restored database, because the fact that
-this tenant was claimed travels with the backup. **The way in is a PIN somebody already knows
+this tenant was claimed travels with the backup. **The way in is a password somebody already knows
 from the machine the backup came from, OR `--reset-admin` run against the restored database**
 (§1.4) — the seeded fallback admin account is still in that database even on a long-claimed
-tenant, the flag mints it a fresh PIN and reactivates it if it had been deactivated, and both
+tenant, the flag mints it a fresh temporary password and reactivates it if it had been deactivated, and both
 are authorised purely by filesystem access to the restored machine, exactly as they would be
 on the original one. This closed what used to be a genuine dead end: before `--reset-admin`
 existed, a replacement-hardware setup where nobody had a working login for the tenant — the
-owner unreachable, the PIN never written down, the dead machine the only one anyone was ever
+owner unreachable, the password never written down, the dead machine the only one anyone was ever
 logged into — had no way back in short of hand-editing a scrypt hash into the SQLite file.
-Still worth doing anyway: capture a working admin credential (or set `MEZAN_SEED_ADMIN_PIN` at
+Still worth doing anyway: capture a working admin credential (or set `MEZAN_SEED_ADMIN_PASSWORD` at
 install time and keep a record of it somewhere safe) as a standing part of every rollout, so
 `--reset-admin` is a convenience you don't need rather than the only door left.
 
@@ -559,7 +558,7 @@ answers are "do not start" and "start unencrypted, loudly", and it must never pi
 |---|---|---|
 | `--allow-unencrypted-database` | Runs the old plaintext path, with a loud warning on every launch: the database **and every backup** are written in the clear | A machine with no OS keyring, where the alternative is not running at all. **Never the right answer on a customer machine.** It is **refused** on a database that is already encrypted — it cannot decrypt one, and letting it try would report "file is not a database", a corruption message for an intact file, which is how books get thrown away |
 | `--export-database-key` | Re-writes `database-key.txt` beside the database and exits | The owner lost the key card and the machine still runs. Do it, hand it over, delete the file again |
-| `--reset-admin` | Mints a fresh random PIN for the seeded admin, prints it, and exits (§1.4) | Nobody has a working login on this install |
+| `--reset-admin` | Mints a fresh random temporary password for the seeded admin, prints it, and exits (§1.4) | Nobody has a working login on this install |
 
 All three are authorised by filesystem access to the database directory and nothing else.
 None is reachable over the LAN socket, over IPC, or from the renderer.
@@ -568,15 +567,14 @@ None is reachable over the LAN socket, over IPC, or from the renderer.
 
 ## 5. Login lockout on training day
 
-`packages/api/src/login-throttle.ts` — five consecutive wrong PINs against one account start
+`packages/api/src/login-throttle.ts` — five consecutive wrong passwords against one account start
 a lockout: 60 seconds, then doubling with each further failure (120s, 240s, …) to a ceiling of
 **15 minutes**. A quiet hour (no failures for 60 minutes) forgets the streak entirely.
 
 **A served lock steps the ladder down ONE RUNG — it does not reset the streak to zero.** That
 reset-to-zero behaviour was this file's first fix and did not survive contact with its own
 suite: giving a served lock a full five free attempts again means 7,200 guesses a day are
-available for free, which walks a six-digit PIN's keyspace in about **four months** instead of
-the ~28 years the doubling ceiling is supposed to buy. Stepping down one rung instead keeps
+available for free, which lets a patient guesser try far more passwords than the doubling ceiling is supposed to allow. Stepping down one rung instead keeps
 that ceiling (one guess per fifteen minutes at the top) while still fixing the real complaint
 that drove the original change — that a served lock used to leave the streak at its
 high-water mark, so one more typo after waiting out fifteen minutes bought **thirty**, not
@@ -594,7 +592,7 @@ locked and mine isn't."**
 - **A remote caller — anything arriving over the LAN socket (§6) or through `apps/server`** —
   is counted per **(account, source)**, where the source is the actual TCP peer address
   (`request-origin.ts` — read off the socket, never a header a client could forge). This is
-  why one till fumbling its trainee's PIN five times does not lock a different till signed in
+  why one till fumbling its trainee's password five times does not lock a different till signed in
   as the same shared account: they are different sources, counted separately.
 
 This split exists because counting purely per account is right for stopping brute force and
@@ -613,10 +611,10 @@ whichever address they can actually reach the shop from.
    it is for. The login screen itself now disables its submit button for the exact wait the
    server named and counts it down — it used to print "حاول بعد 900 ثانية" and leave the button
    pressable, so every immediate retry read to the person typing as one more failure of their
-   own PIN rather than the lockout it actually was.
+   own password rather than the lockout it actually was.
 2. **`POST /users/:id/unlock`**, gated on `admin.users.unlock` (a role granted separately from
    `admin.users.edit`, so a branch manager standing at the counter can clear a lockout without
-   also holding every colleague's PIN). Clears the lock **and resets the streak** on every key
+   also holding every colleague's password). Clears the lock **and resets the streak** on every key
    it was counted under for that account — an unlock means "this person can sign in now," not
    "this person can sign in now and is one typo from being locked again."
 3. **`الإعدادات ← المستخدمون` has a "فكّ القفل" row action now.** It shows only on an active
@@ -766,7 +764,7 @@ takes effect without a restart.
 
 ### 6.3 Pairing a till: compare the fingerprint, in the shop, by eye
 
-**Do this once per till, at the counter, before you type a PIN into it. If you skip it, the
+**Do this once per till, at the counter, before you type a password into it. If you skip it, the
 TLS in §6.1 protects the shop against a passive listener and against nobody else.**
 
 The host's certificate is self-signed. No public certificate authority will ever certify
@@ -800,7 +798,7 @@ afternoon (§7A.3); everything below is what an operator does without one.
 6. **Match → press «الشهادتان متطابقتان — اقترن».** The till re-reads the certificate at that
    instant (so a host swapped mid-comparison is refused), writes `client.json`, moves its own
    empty database aside, and restarts as a till. From then on it trusts only this certificate.
-7. **Mismatch → STOP.** Do not pin, do not type a PIN, do not "try again". A different
+7. **Mismatch → STOP.** Do not pin, do not type a password, do not "try again". A different
    certificate on that address means something other than the host answered you. Disconnect
    the till from the network and find out what, before any credential goes near it.
 
@@ -1008,7 +1006,7 @@ still open is the list that follows, and the certificates in §8.1.
 - **The audit trail is now tamper-EVIDENT, which is not the same as tamper-proof.** A SQLite
   trigger refuses `UPDATE`/`DELETE` against audit rows from anything the application itself
   does — which is what closed several audit gaps this rollout depends on (a login lockout, a
-  PIN reset, an approval-config change all now leave a row that cannot be quietly edited back
+  password reset, an approval-config change all now leave a row that cannot be quietly edited back
   out by the app). On top of it, each row carries the hash of the row before it, and the latest
   row's hash is held under an **HMAC whose key is not in the database**: on desktop it is
   derived from the sealed database key in the OS keychain. «تحقق من سلامة السجل» on the audit

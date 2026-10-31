@@ -606,4 +606,5 @@ export { createAttemptStore, ensureAttemptSchema } from "./sign-in-attempt-store
 export { createSessionStore, ensureSessionSchema } from "./session-store.js";
 export { createOwnerPinFence, ensureOwnerPinFenceSchema } from "./owner-pin-fence.js";
 export { createCredentialResetMarks, ensureCredentialResetMarksSchema } from "./credential-reset-marks.js";
+export { createPasswordResetTokens, createSqlitePasswordResetTokens, ensurePasswordResetTokensSchema, type PasswordResetTokens } from "./password-reset-tokens.js";
 export { createTenantRetentionStoreOn, ensureTenantRetentionSchema } from "./tenant-retention-store.js";

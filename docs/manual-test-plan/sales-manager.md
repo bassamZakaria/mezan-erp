@@ -14,7 +14,7 @@ Grounded against the code as it stands in this worktree: `apps/web/src/screens/s
 The demo tenant (`MEZAN_SEED_DEMO=1`) has no role literally named "مدير مبيعات". The closest
 built role is **مشرف المبيعات** (`SUPERVISOR`) — it holds `sales.invoice.view_all` and
 `sales.invoice.confirm`, which is where the approval/oversight half of this plan lives. Use it
-for every step marked **[مشرف المبيعات]**. Every login uses PIN `123456`
+for every step marked **[مشرف المبيعات]**. Every login uses password `Cyag@2026`
 (`packages/backend/src/demo-seed/access.ts`).
 
 | Persona in this plan | Seeded login | Role code | Notes |

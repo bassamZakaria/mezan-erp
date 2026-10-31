@@ -1,7 +1,6 @@
 export const REDACTED = "[redacted]";
 
 const SENSITIVE_WORDS = new Set([
-  "pin",
   "pass",
   "password",
   "passphrase",
@@ -33,7 +32,7 @@ const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
 const IBAN = /\b[A-Z]{2}\d{2}(?: ?[A-Za-z0-9]{4}){3,7}(?: ?[A-Za-z0-9]{1,4})?\b/g;
 const BEARER = /\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{8,}/gi;
 const KEYED_VALUE =
-  /(["']?(?<![A-Za-z0-9])(?:[A-Za-z0-9]+[_-])*(?:pin|pass(?:word|phrase)?|token|secret|iban|authorization|cookie|cipher[A-Za-z]*|(?:database|db|encryption|private|api)[\s_-]?key)(?:[_-][A-Za-z0-9]+)*["']?\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s,;}&]+)/gi;
+  /(["']?(?<![A-Za-z0-9])(?:[A-Za-z0-9]+[_-])*[A-Za-z0-9]*?(?:pass(?:word|phrase)?|token|secret|iban|authorization|cookie|cipher[A-Za-z]*|(?:database|db|encryption|private|api)[\s_-]?key)(?:[_-][A-Za-z0-9]+)*["']?\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s,;}&]+)/gi;
 const LONG_HEX = /\b[0-9a-fA-F]{32,}\b/g;
 const LONG_BASE64 = /\b[A-Za-z0-9+_-]{40,}={0,2}(?![A-Za-z0-9+_-])/g;
 

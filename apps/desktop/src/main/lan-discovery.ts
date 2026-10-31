@@ -217,7 +217,7 @@ export class HostProbeError extends Error {
  *
  * The handshake completes and the socket is destroyed before a byte of
  * application data is written, which is what makes this safe to point at an
- * address a human just typed: a wrong address learns the operator's PIN only if
+ * address a human just typed: a wrong address learns the operator's password only if
  * something is sent to it, and nothing is.
  *
  * ECONNREFUSED AND A TIMEOUT ARE DIFFERENT ANSWERS and are reported as such.

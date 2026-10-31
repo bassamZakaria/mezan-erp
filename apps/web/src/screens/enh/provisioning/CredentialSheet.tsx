@@ -55,9 +55,6 @@ export function CredentialSheet({ credentials, onClose }: CredentialSheetProps) 
               {t("provisioning.sheet.col.email")}
             </th>
             <th scope="col" className="px-[8px] py-[6px] text-start font-semibold">
-              {t("provisioning.sheet.col.pin")}
-            </th>
-            <th scope="col" className="px-[8px] py-[6px] text-start font-semibold">
               {t("provisioning.sheet.col.password")}
             </th>
           </tr>
@@ -68,9 +65,6 @@ export function CredentialSheet({ credentials, onClose }: CredentialSheetProps) 
               <td className="px-[8px] py-[8px]">{entry.nameAr}</td>
               <td className="px-[8px] py-[8px]" dir="ltr">
                 {entry.email}
-              </td>
-              <td className="px-[8px] py-[8px] font-mono tracking-[0.12em]" dir="ltr">
-                {entry.pin}
               </td>
               <td className="px-[8px] py-[8px] font-mono" dir="ltr">
                 {entry.password}

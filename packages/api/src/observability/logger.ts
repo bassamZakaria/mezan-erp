@@ -63,12 +63,11 @@ export function annotateRequest(fields: { readonly tenantId?: string; readonly u
 // SECURITY: redaction happens HERE, at the logger, so no call site has to remember it. Pino's `*`
 // matches one level only, so each key is listed at the top level and two levels down.
 const REDACTED_KEYS = [
-  "pin",
-  "newPin",
-  "currentPin",
   "password",
   "newPassword",
   "currentPassword",
+  "temporaryPassword",
+  "adminPassword",
   "passphrase",
   "token",
   "accessToken",

@@ -19,11 +19,12 @@ export const DEMO_API_URL = `http://127.0.0.1:${DEMO_API_PORT}`;
 export const DEMO_WEB_URL = `http://127.0.0.1:${DEMO_WEB_PORT}`;
 
 export const TENANT_DOMAIN = "localhost";
+export const PASSWORD_LABEL = "كلمة المرور";
 export const PLATFORM_OWNER_EMAIL = "owner@mezan.local";
 export const PLATFORM_OWNER_PASSWORD = "owner-password-123";
 export const MAIN_SERVER_TODAY = "2027-01-31";
 export const DEMO_SERVER_TODAY = "2026-10-11";
-export const DEMO_TENANT = { code: "demo", adminEmail: "admin@cyag.example", adminPin: "123456" } as const;
+export const DEMO_TENANT = { code: "demo", adminEmail: "admin@cyag.example", adminPassword: "Cyag@2026" } as const;
 export const FORWARDED_FOR_HEADER = "x-forwarded-for";
 export const TRUSTED_PROXY_HOPS = 2;
 export const TRUSTED_PROXY_HOP = "130.176.0.7";
@@ -118,7 +119,7 @@ export enum Module {
 export const TENANT_HEADER = "x-mezan-tenant";
 export const FORWARDED_HOST_HEADER = "x-forwarded-host";
 
-export const INVALID_CREDENTIALS_SENTENCE = "اسم المستخدم أو رمز PIN غير صحيح.";
+export const INVALID_CREDENTIALS_SENTENCE = "البريد الإلكتروني أو كلمة المرور غير صحيحة.";
 export const LICENSE_READ_ONLY_SENTENCE =
   "الترخيص غير فعّال حاليًا، والبرنامج في وضع القراءة فقط. كل بياناتك متاحة للعرض والطباعة والتصدير، لكن لا يمكن حفظ أي حركة جديدة حتى تجديد الترخيص.";
 

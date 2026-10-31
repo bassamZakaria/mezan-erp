@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Button, SidePanel } from "@mezan/ui";
 import type { BillingCycleDTO, CreateTenantRequestDTO, PlanDTO, ProvisionResultDTO } from "@mezan/contracts";
+import { TemporaryPasswordField } from "../login/TemporaryPasswordField";
 import { useAppTranslation } from "../i18n";
 import { COMPANY_NAME_MAX_LENGTH } from "@mezan/contracts";
 import { FormError, SelectField, TextField, ToggleField } from "../settings/form-controls";
@@ -30,9 +31,9 @@ function emptyDraft(): TenantDraft {
 
 /**
  * «منشأة جديدة» — create a tenant and start its subscription in one call
- * (`provisionTenant`). The response carries a one-time admin PIN that the
+ * (`provisionTenant`). The response carries a one-time admin password that the
  * backend never returns again, so a successful submit swaps the form for a
- * result panel instead of just closing — closing it would throw the PIN away
+ * result panel instead of just closing — closing it would throw the password away
  * with nowhere else to read it from.
  */
 export function NewTenantDialog({ open, onClose, plans }: NewTenantDialogProps) {
@@ -133,43 +134,16 @@ export function NewTenantDialog({ open, onClose, plans }: NewTenantDialogProps) 
   );
 }
 
-/** The one-time admin PIN of a just-provisioned company: the backend never returns it again, so the panel stays until the operator closes it. */
+/** The one-time admin password of a just-provisioned company: the backend never returns it again, so the panel stays until the operator closes it. */
 export function ProvisionResultPanel({ result, onClose }: { result: ProvisionResultDTO; onClose: () => void }) {
   const { t } = useAppTranslation();
-  const [copied, setCopied] = useState(false);
-  const clipboard = navigator.clipboard as Clipboard | undefined;
   return (
     <div className="flex flex-col gap-[14px]">
       <p className="text-[12.5px] text-ink-muted">{t("platform.newTenant.result.hint")}</p>
       <div className="flex flex-col gap-[10px] rounded-md border border-border bg-surface-2 p-[14px]">
         <ResultRow label={t("platform.newTenant.result.code")} value={result.tenant.code} />
         <ResultRow label={t("platform.newTenant.result.adminEmail")} value={result.adminEmail} />
-        <div>
-          <span className="mb-[6px] block text-xs font-semibold text-ink-muted">{t("platform.newTenant.result.adminPin")}</span>
-          <div className="flex flex-wrap items-center gap-[10px]">
-            <code
-              dir="ltr"
-              className="mz-num select-all break-all rounded-[6px] bg-surface px-[10px] py-[6px] text-[16px] font-bold text-ink"
-            >
-              {result.adminPin ?? t("platform.newTenant.result.pinKept")}
-            </code>
-            {clipboard && result.adminPin ? (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => {
-                  void clipboard
-                    .writeText(result.adminPin ?? "")
-                    .then(() => setCopied(true))
-                    .catch(() => setCopied(false));
-                }}
-              >
-                {t("platform.newTenant.result.copy")}
-              </Button>
-            ) : null}
-            {copied ? <span className="text-[12px] text-ink-muted">{t("platform.newTenant.result.copied")}</span> : null}
-          </div>
-        </div>
+        <TemporaryPasswordField label={t("platform.newTenant.result.adminPassword")} password={result.adminPassword} fallback={t("platform.newTenant.result.passwordKept")} />
       </div>
       <p role="alert" className="text-[11.5px] font-semibold text-warning-ink">
         {t("platform.newTenant.result.oneTime")}

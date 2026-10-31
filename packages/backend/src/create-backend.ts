@@ -1,7 +1,7 @@
 import { OWNER_DIGEST_EVENT, ReversalDocumentType, reversalPermissionSuccessors } from "@mezan/contracts";
-import { attachmentPermissionSuccessors } from "@mezan/domain";
+import { attachmentPermissionSuccessors, type User } from "@mezan/domain";
 import { createHash, randomUUID } from "node:crypto";
-import { OwnerPinResetOutcome } from "./owner-pin-reset-outcome.js";
+import { OwnerPasswordResetOutcome } from "./owner-password-reset-outcome.js";
 import { createLeaveAccrualJob, startScheduledJobs, type ScheduledJobResult, type ScheduledJobStatus } from "./scheduled-jobs.js";
 import {
   createApp,
@@ -379,6 +379,7 @@ import {
   createSqliteUserPreferencesStore,
   createSqliteOwnerPinFence,
   createSqliteCredentialResetMarks,
+  createSqlitePasswordResetTokens,
   createSqliteAuditSink,
   createSqliteIdempotentRequestStore,
   createSqliteAccountLockStore,
@@ -423,6 +424,7 @@ import {
   createContractingSiteStore,
   createCostCenterRepository,
   createCredentialResetMarks,
+  createPasswordResetTokens,
   createCustomerRepository,
   createDepartmentRepository,
   createDepreciationRunRepository,
@@ -551,7 +553,7 @@ import { createBranchDirectory, createSqliteBranchDirectory } from "./branch-dir
 import { createPostgresWarehouseUse, createWarehouseUse } from "./warehouse-use.js";
 import { createDashboardRoutes } from "./dashboard-routes.js";
 import { createPreferencesRoutes } from "./preferences-routes.js";
-import { isEmptyTenant, SEED_ADMIN_USER_ID, seedIfEmpty, type SeedStores } from "./seed.js";
+import { isEmptyTenant, SEED_ADMIN_PASSWORD, SEED_ADMIN_USER_ID, seedIfEmpty, type SeedStores } from "./seed.js";
 import type { BackendModuleContext, CollectionsScheduleSlot, IntegrationsSlot, IntegrationsSurface, OwnerDigestSlot, ScheduledCollectionsResult } from "./module-context.js";
 import type { IntegrationsGateway } from "./integrations/gateway.js";
 import { mountPos } from "./pos/index.js";
@@ -824,17 +826,17 @@ export enum SecurityEventOrigin {
   Platform = "platform",
 }
 
-export { OwnerPinResetOutcome };
+export { OwnerPasswordResetOutcome };
 
 export const COMPANY_OWNER_ASSIGNED_AUDIT = "COMPANY_OWNER_ASSIGNED";
 
 export type OwnerAssignedRecord = OwnerRecordDue;
 const OWNER_ASSIGNED_LOOKBACK = 500;
 
-export interface ResetOwnerPinCommand {
+export interface ResetOwnerPasswordCommand {
   readonly userId?: string | null;
   readonly email: string;
-  readonly pin: string;
+  readonly password: string;
   readonly onlyIfNeverSignedIn: boolean;
   readonly actor: string;
   readonly fence?: number;
@@ -872,7 +874,7 @@ export interface BackendHandle {
    * the tenant router and the desktop LAN mount; this is callable only by code
    * that already holds the handle (platform provisioning and the platform console).
    */
-  resetOwnerPin(cmd: ResetOwnerPinCommand): Promise<OwnerPinResetOutcome>;
+  resetOwnerPassword(cmd: ResetOwnerPasswordCommand): Promise<OwnerPasswordResetOutcome>;
   /**
    * الإيصال الإلكتروني — issues a consumer sale's (or return's) e-receipt
    * synchronously, on the chain of the device serial given. The POS till calls
@@ -893,11 +895,11 @@ export interface BackendHandle {
   readonly sessions: SessionRegistry;
   /**
    * SECURITY: every path on which an administrator sets, resets or reopens an
-   * account's credentials calls this ONE function: the Users screen, a PIN
-   * reset, an email change, the platform console's owner PIN reset and its
+   * account's credentials calls this ONE function: the Users screen, a password
+   * reset, an email change, the platform console's owner password reset and its
    * account unlock. It clears the persisted account lock and the sign-in
-   * backoff together; a reset that skips it hands out a PIN the account still
-   * refuses.
+   * backoff together; a reset that skips it hands out a password the account
+   * still refuses.
    */
   credentialsResetByAdministrator(account: string): Promise<void>;
   lockedAccounts(): Promise<readonly string[]>;
@@ -935,7 +937,7 @@ export interface BackendHandle {
 const ACCOUNT_LOCKED_NOTICE = "SECURITY_ACCOUNT_LOCKED";
 
 const LOCK_NOTICE_UNLOCK_ON_USERS = "لفكّ القفل: افتح شاشة المستخدمين واضغط «فكّ القفل» أمام الحساب.";
-const LOCK_NOTICE_CHANGE_PIN = "إن لم تكن هذه المحاولات من صاحب الحساب فغيّر رمز PIN الخاص به.";
+const LOCK_NOTICE_CHANGE_PASSWORD = "إن لم تكن هذه المحاولات من صاحب الحساب فغيّر كلمة المرور الخاصة به.";
 
 function accountLockedHeadline(event: AccountLockedEvent): string {
   const locked = `قُفل حساب «${event.user.nameAr}» (${event.user.email}) بعد ${ACCOUNT_LOCK_FAILURES} محاولة دخول فاشلة خلال ٢٤ ساعة. آخر مصدر: ${event.source}.`;
@@ -947,7 +949,7 @@ function accountLockedHeadline(event: AccountLockedEvent): string {
 function accountLockedNotice(event: AccountLockedEvent, mailed: boolean, linkMailed: boolean): string {
   const lines = [accountLockedHeadline(event), LOCK_NOTICE_UNLOCK_ON_USERS];
   if (mailed) lines.push(`أُرسل إلى بريد مديري النظام رمز لفكّ القفل${linkMailed ? " ورابط يعمل مرة واحدة" : ""}، صالح لساعة واحدة.`);
-  lines.push(LOCK_NOTICE_CHANGE_PIN);
+  lines.push(LOCK_NOTICE_CHANGE_PASSWORD);
   return lines.join("\n");
 }
 
@@ -957,8 +959,38 @@ function accountLockedMail(event: AccountLockedEvent, unlockUrl: string | null):
   const lines = [accountLockedHeadline(event), LOCK_NOTICE_UNLOCK_ON_USERS];
   if (event.unlockCode) lines.push(`أو أدخل هذا الرمز في شاشة الدخول خلال ساعة واحدة: ${event.unlockCode}`);
   if (unlockUrl) lines.push(`أو افتح هذا الرابط خلال ساعة واحدة، وهو يعمل مرة واحدة فقط: ${unlockUrl}`);
-  lines.push(LOCK_NOTICE_CHANGE_PIN);
+  lines.push(LOCK_NOTICE_CHANGE_PASSWORD);
   return lines.join("\n");
+}
+
+function passwordResetMail(link: string): string {
+  return [
+    "طُلب تعيين كلمة مرور جديدة لحسابك في ميزان.",
+    `افتح هذا الرابط خلال ساعة واحدة، وهو يعمل مرة واحدة فقط: ${link}`,
+    "إن لم تطلب ذلك فتجاهل هذه الرسالة؛ تبقى كلمة مرورك كما هي.",
+    "",
+    "A new password was requested for your Mezan account.",
+    `Open this link within one hour; it works once: ${link}`,
+    "If you did not ask for this, ignore this email; your password stays as it is.",
+  ].join("\n");
+}
+
+function invitationMail(email: string, temporaryPassword: string, signInLink: string | null, companyCode: string | null): string {
+  return [
+    "أُنشئ لك حساب في ميزان.",
+    ...(signInLink ? [`رابط الدخول: ${signInLink}`] : []),
+    ...(companyCode ? [`رمز المنشأة: ${companyCode}`] : []),
+    `البريد الإلكتروني: ${email}`,
+    `كلمة المرور المؤقتة: ${temporaryPassword}`,
+    "ستُطلب منك كلمة مرور جديدة عند أول دخول.",
+    "",
+    "An account was created for you in Mezan.",
+    ...(signInLink ? [`Sign in at: ${signInLink}`] : []),
+    ...(companyCode ? [`Company code: ${companyCode}`] : []),
+    `Email: ${email}`,
+    `Temporary password: ${temporaryPassword}`,
+    "You will be asked to choose a new password at your first sign-in.",
+  ].join("\n");
 }
 
 const STORED_UNLOCK_SECRET = /[A-Z2-7]{16}|https?:\/\//;
@@ -979,13 +1011,13 @@ export interface CreateBackendOptions {
    */
   readonly seedDemoData?: boolean;
   /**
-   * Pins the fallback admin's PIN for THIS database only. For the public demo
-   * tenant alone: its instance re-seeds from scratch on every wake, so a
-   * generated PIN would change each time, and every demo persona shares the
-   * published PIN anyway. Refused without `seedDemoData: true` so a real tenant
-   * can never be opened with a known admin PIN.
+   * Fixes the password of the fallback admin AND of every demo persona for THIS
+   * database only. For the demo and reviewer tenants alone: the demo re-seeds
+   * from scratch on every wake, so a generated password would change each
+   * time. Refused without `seedDemoData: true` so a real tenant can never be
+   * opened with a known admin password.
    */
-  readonly seedAdminPin?: string;
+  readonly seedAdminPassword?: string;
   /** Outbound HTTP for the ETA gateway. Tests inject a fake server; nothing else should. */
   readonly etaHttpClient?: EtaHttpClient;
   readonly securityMail?: SmtpConfig;
@@ -995,6 +1027,11 @@ export interface CreateBackendOptions {
   // attacker's own, and a link built from it would mail the administrators a
   // working token pointed at the attacker's server.
   readonly unlockLink?: (token: string) => string;
+  // SECURITY: built like `unlockLink`, from the deployment's origin only.
+  readonly passwordResetLink?: (token: string) => string;
+  /** Where an invited user signs in, and the company code they type there, quoted in the invitation email. */
+  readonly signInLink?: string;
+  readonly signInCompanyCode?: string;
   // CONTRACT: true where a platform operator can unlock this tenant's accounts
   // from the console (the cloud edition). It changes what a locked account is told.
   readonly platformOperatorUnlocks?: boolean;
@@ -1125,8 +1162,8 @@ enum BackendPass {
 }
 
 export async function createBackend(options: CreateBackendOptions = {}): Promise<BackendHandle> {
-  if (options.seedAdminPin !== undefined && options.seedDemoData !== true) {
-    throw new Error("createBackend: seedAdminPin is only accepted together with seedDemoData: true");
+  if (options.seedAdminPassword !== undefined && options.seedDemoData !== true) {
+    throw new Error("createBackend: seedAdminPassword is only accepted together with seedDemoData: true");
   }
   if (options.db) {
     if (options.dbPath !== undefined || options.connection !== undefined || options.tenantBinding !== undefined) {
@@ -1210,6 +1247,7 @@ async function composeBackend(options: CreateBackendOptions, db: SqlDb, sqlite: 
   const userPreferences = store((s) => createSqliteUserPreferencesStore(s), (d) => createUserPreferencesStore(d));
   const ownerPinFence = store((s) => createSqliteOwnerPinFence(s), (d) => createOwnerPinFence(d));
   const credentialResets = store((s) => createSqliteCredentialResetMarks(s), (d) => createCredentialResetMarks(d));
+  const passwordResetTokens = store((s) => createSqlitePasswordResetTokens(s), (d) => createPasswordResetTokens(d));
   const dataMigrationTransactor: DataMigrationTransactor = { run: (fn) => db.transaction(fn) };
   // The boundary a route-level config write shares with its audit row (D298).
   // Same shared connection the audit sink writes on, so the append nests as a
@@ -3572,7 +3610,7 @@ async function composeBackend(options: CreateBackendOptions, db: SqlDb, sqlite: 
     itemCatalog,
     labelLayouts,
   };
-  if (seedWhenEmpty) await seedIfEmpty(seedStores, undefined, { adminPin: options.seedAdminPin });
+  if (seedWhenEmpty) await seedIfEmpty(seedStores, undefined, { adminPassword: options.seedAdminPassword });
   const leftEmpty = !seedWhenEmpty && (await isEmptyTenant(seedStores));
 
   const upgradeLedger = store((s) => createSqliteUpgradeLedger(s), (d) => createUpgradeLedger(d));
@@ -3841,7 +3879,7 @@ async function composeBackend(options: CreateBackendOptions, db: SqlDb, sqlite: 
   const signInSources = createSourceThrottle(options.signInClock, undefined, store((s) => createSqliteAttemptStore(s, SignInAttemptScope.Source), (d) => createAttemptStore(d, SignInAttemptScope.Source)));
   const accountLockStore = store((s) => createSqliteAccountLockStore(s, { now: options.signInClock, failureWindowMs: ACCOUNT_LOCK_WINDOW_MS }), (d) => createAccountLockStore(d, { now: options.signInClock, failureWindowMs: ACCOUNT_LOCK_WINDOW_MS }));
   const accountLocks = createAccountLocks({ known: accountLockStore, unknown: accountLockStore.unknownNames, now: options.signInClock });
-  // REQUIRED: every unlock in the product — the Users screen, a PIN reset, an
+  // REQUIRED: every unlock in the product — the Users screen, a password reset, an
   // email change — goes through this one object, and it must clear the
   // account lock as well as the backoff or the button unlocks nothing.
   const credentialsResetByAdministrator = async (account: string): Promise<void> => {
@@ -3860,6 +3898,22 @@ async function composeBackend(options: CreateBackendOptions, db: SqlDb, sqlite: 
     return options.securityMail ? { config: options.securityMail, sendOptions: platformMail } : null;
   };
   const lockMailInTheTurn = inTheTurn("account lock notice");
+  // SECURITY: the body carries a temporary password or a reset link; it goes to the mail transport only, never to a store or a log.
+  const mailUserOutsideTheTurn = (to: string, subject: string, body: string): void => {
+    void outsideTheTurn(async () => {
+      const smtp = await securitySmtp();
+      if (smtp === null) return;
+      const sent = await sendMail(smtp.config, to, { subject, body }, smtp.sendOptions);
+      if (sent.outcome !== "sent") backendLog.warn({ area: "auth", outcome: sent.outcome }, "a credential email was not delivered");
+    }).catch((err: unknown) => backendLog.error({ area: "auth", err }, "a credential email could not be sent"));
+  };
+  const mailPasswordResetLink = async ({ user, token }: { readonly user: User; readonly token: string }): Promise<void> => {
+    if (!options.passwordResetLink) return;
+    mailUserOutsideTheTurn(user.email, "ميزان — إعادة تعيين كلمة المرور / Mezan password reset", passwordResetMail(options.passwordResetLink(token)));
+  };
+  const mailInvitation = async ({ user, temporaryPassword }: { readonly user: User; readonly temporaryPassword: string }): Promise<void> => {
+    mailUserOutsideTheTurn(user.email, "ميزان — دعوة للدخول / Your Mezan account", invitationMail(user.email, temporaryPassword, options.signInLink ?? null, options.signInCompanyCode ?? null));
+  };
   const recordLateInTheTurn = inTheTurn("late notification record");
   type MailResult = Awaited<ReturnType<typeof sendNotificationEmail>>;
   const dispatchOutcomeOf = (sent: MailResult): DispatchOutcome =>
@@ -4612,6 +4666,8 @@ async function composeBackend(options: CreateBackendOptions, db: SqlDb, sqlite: 
     accountLocks,
     platformOperatorUnlocks: options.platformOperatorUnlocks === true,
     onAccountLocked: notifyAccountLocked,
+    passwordResetTokens,
+    onPasswordResetRequested: mailPasswordResetLink,
     canMailUnlockCode: async () => (await securitySmtp()) !== null,
     audit: auditSink,
     resolveEntitlements: options.resolveEntitlements,
@@ -4757,6 +4813,7 @@ async function composeBackend(options: CreateBackendOptions, db: SqlDb, sqlite: 
           },
         }
       : {}),
+    onUserCreated: mailInvitation,
     onUserCredentialSetByOther: (userId, actorId) => credentialResets.mark(userId, new Date().toISOString(), actorId),
     onPermissionRefused,
     // The LAN routes need the SAME session registry the auth routes issue
@@ -6005,7 +6062,7 @@ async function composeBackend(options: CreateBackendOptions, db: SqlDb, sqlite: 
   branchDirectory = sqlite ? createSqliteBranchDirectory(sqlite) : await createBranchDirectory(db);
 
   if (options.seedDemoData) {
-    await seedDemoTenant(app, {
+    const seeded = await seedDemoTenant(app, {
       token: await sessions.issue({
         userId: SEED_ADMIN_USER_ID,
         permissions: ["*"],
@@ -6016,7 +6073,10 @@ async function composeBackend(options: CreateBackendOptions, db: SqlDb, sqlite: 
       mint: ({ userId, permissions, roleCode, branchScope }) =>
         sessions.issue({ userId, permissions, roleCode, branchScope: branchScope ? [...branchScope] : ALL_SCOPE, warehouseScope: ALL_SCOPE }),
       audit: auditSink,
+      password: options.seedAdminPassword ?? SEED_ADMIN_PASSWORD,
     });
+    // The personas were created through POST /users, which marks an admin-set password temporary; a demo login must not be forced to change it.
+    if (seeded) for (const user of await uow.users.list()) if (user.mustChangePassword) await uow.users.save({ ...user, mustChangePassword: false });
   }
 
   async function companyAdmins(): Promise<CompanyAdminAccount[]> {
@@ -6048,14 +6108,14 @@ async function composeBackend(options: CreateBackendOptions, db: SqlDb, sqlite: 
     return { id: user.id, email: user.email, canAdminister: user.isCompanyAdmin && user.status === UserStatusCode.Active };
   }
 
-  async function resetOwnerPin(cmd: ResetOwnerPinCommand): Promise<OwnerPinResetOutcome> {
+  async function resetOwnerPassword(cmd: ResetOwnerPasswordCommand): Promise<OwnerPasswordResetOutcome> {
     const owner = cmd.userId ? await uow.users.findById(cmd.userId) : await uow.users.findByEmail(cmd.email.trim().toLowerCase());
-    if (!owner || !owner.isCompanyAdmin || owner.status !== UserStatusCode.Active) return OwnerPinResetOutcome.OwnerNotFound;
-    if (cmd.onlyIfNeverSignedIn && owner.lastLoginAt !== null) return OwnerPinResetOutcome.AlreadySignedIn;
-    const pinHash = await hasher.hash(cmd.pin);
+    if (!owner || !owner.isCompanyAdmin || owner.status !== UserStatusCode.Active) return OwnerPasswordResetOutcome.OwnerNotFound;
+    if (cmd.onlyIfNeverSignedIn && owner.lastLoginAt !== null) return OwnerPasswordResetOutcome.AlreadySignedIn;
+    const passwordHash = await hasher.hash(cmd.password);
     // SECURITY: the fence is compared and raised in the same transaction as the
-    // PIN write. A holder that lost its claim while it was paused arrives here
-    // with an older generation and writes nothing, so the PIN the newer holder
+    // password write. A holder that lost its claim while it was paused arrives here
+    // with an older generation and writes nothing, so the password the newer holder
     // handed out is the one that still signs in.
     const written = await uow.transaction(async (tx) => {
       if (cmd.fence !== undefined) {
@@ -6063,12 +6123,12 @@ async function composeBackend(options: CreateBackendOptions, db: SqlDb, sqlite: 
         await ownerPinFence.raiseTo(cmd.fence);
       }
       const current = await tx.users.findById(owner.id);
-      if (!current) return OwnerPinResetOutcome.OwnerVanished;
-      await tx.users.save({ ...current, pinHash });
+      if (!current) return OwnerPasswordResetOutcome.OwnerVanished;
+      await tx.users.save({ ...current, passwordHash, mustChangePassword: true });
       return true;
     });
-    if (written === OwnerPinResetOutcome.OwnerVanished) return written;
-    if (!written) return OwnerPinResetOutcome.Superseded;
+    if (written === OwnerPasswordResetOutcome.OwnerVanished) return written;
+    if (!written) return OwnerPasswordResetOutcome.Superseded;
     if (!cmd.onlyIfNeverSignedIn) await credentialResets.mark(owner.id, new Date().toISOString(), cmd.actor);
     await sessions.revokeUser(owner.id);
     await credentialsResetByAdministrator(owner.email);
@@ -6081,7 +6141,7 @@ async function composeBackend(options: CreateBackendOptions, db: SqlDb, sqlite: 
       severity: "CRITICAL",
       details: { email: owner.email, onlyIfNeverSignedIn: cmd.onlyIfNeverSignedIn, origin: SecurityEventOrigin.Platform },
     });
-    return OwnerPinResetOutcome.Reset;
+    return OwnerPasswordResetOutcome.Reset;
   }
 
   const platformUnlockInTheTurn = inTheTurn("platform account unlock");
@@ -6149,7 +6209,7 @@ async function composeBackend(options: CreateBackendOptions, db: SqlDb, sqlite: 
     ownerAccount,
     companyAdmins,
     recordOwnerAssigned,
-    resetOwnerPin,
+    resetOwnerPassword,
     etaReceipts,
     ...(sqlite ? { backupTo: (destination: string) => sqlite.backup(destination).then(() => undefined) } : {}),
     runScheduledJobs: () => scheduledJobs?.runNow() ?? null,

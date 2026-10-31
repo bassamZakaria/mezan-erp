@@ -99,6 +99,7 @@ export enum SignInRefusal {
   Busy = "SIGN_IN_BUSY",
   InvalidUnlockCode = "INVALID_UNLOCK_CODE",
   InvalidUnlockLink = "INVALID_UNLOCK_LINK",
+  InvalidResetLink = "INVALID_RESET_LINK",
 }
 
 export function signInBusy(seconds: number) {

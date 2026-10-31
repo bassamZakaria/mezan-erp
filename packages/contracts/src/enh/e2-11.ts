@@ -79,7 +79,6 @@ export const oneTimeCredentialSchema = z.object({
   userId: z.string(),
   email: z.string(),
   nameAr: z.string(),
-  pin: z.string(),
   password: z.string(),
 });
 export type OneTimeCredentialDTO = z.infer<typeof oneTimeCredentialSchema>;

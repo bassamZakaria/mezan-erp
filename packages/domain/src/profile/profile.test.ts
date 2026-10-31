@@ -6,7 +6,6 @@ import type { SecretHasher, User } from "../users/user.js";
 import {
   updateOwnProfile,
   changeOwnPassword,
-  changeOwnPin,
   IncorrectPasswordError,
 } from "./profile.js";
 
@@ -29,7 +28,7 @@ function seedUser(overrides: Partial<User> = {}): User {
     email: "mohamed@cyag.test",
     phone: "+201000000000",
     passwordHash: "hashed:CurrentPass1",
-    pinHash: "hashed:123456",
+    mustChangePassword: false,
     roleId: null,
     isCompanyAdmin: true,
     employeeId: null,
@@ -160,46 +159,20 @@ describe("changeOwnPassword", () => {
     const updated = await uow.users.findById("user-1");
     expect(updated?.passwordHash).toBe("hashed:12345678");
   });
-});
 
-describe("changeOwnPin", () => {
-  it("sets a new PIN once the current password verifies", async () => {
+  it("clears the temporary-password flag once the user picks their own", async () => {
     const uow = createFakeUow();
-    await uow.users.save(seedUser());
-    await changeOwnPin("user-1", { currentPassword: "CurrentPass1", newPin: "654321" }, uow, fakeHasher());
-    const updated = await uow.users.findById("user-1");
-    expect(updated?.pinHash).toBe("hashed:654321");
+    await uow.users.save(seedUser({ mustChangePassword: true }));
+    await changeOwnPassword("user-1", { currentPassword: "CurrentPass1", newPassword: "BrandNewPass1" }, uow, fakeHasher());
+    expect((await uow.users.findById("user-1"))?.mustChangePassword).toBe(false);
   });
 
-  it("clears the PIN when newPin is null", async () => {
+  it("refuses a new password equal to the current one and keeps the flag", async () => {
     const uow = createFakeUow();
-    await uow.users.save(seedUser());
-    await changeOwnPin("user-1", { currentPassword: "CurrentPass1", newPin: null }, uow, fakeHasher());
-    const updated = await uow.users.findById("user-1");
-    expect(updated?.pinHash).toBeNull();
-  });
-
-  it("rejects a PIN that is not 4-6 digits, and leaves the stored PIN unchanged", async () => {
-    const uow = createFakeUow();
-    await uow.users.save(seedUser());
+    await uow.users.save(seedUser({ mustChangePassword: true }));
     await expect(
-      changeOwnPin("user-1", { currentPassword: "CurrentPass1", newPin: "123" }, uow, fakeHasher()),
+      changeOwnPassword("user-1", { currentPassword: "CurrentPass1", newPassword: "CurrentPass1" }, uow, fakeHasher()),
     ).rejects.toBeInstanceOf(InvalidUserError);
-    await expect(
-      changeOwnPin("user-1", { currentPassword: "CurrentPass1", newPin: "1234567" }, uow, fakeHasher()),
-    ).rejects.toBeInstanceOf(InvalidUserError);
-    await expect(
-      changeOwnPin("user-1", { currentPassword: "CurrentPass1", newPin: "12a456" }, uow, fakeHasher()),
-    ).rejects.toBeInstanceOf(InvalidUserError);
-    const untouched = await uow.users.findById("user-1");
-    expect(untouched?.pinHash).toBe("hashed:123456");
-  });
-
-  it("rejects the wrong current password before ever looking at the new PIN", async () => {
-    const uow = createFakeUow();
-    await uow.users.save(seedUser());
-    await expect(
-      changeOwnPin("user-1", { currentPassword: "WrongPass", newPin: "1" }, uow, fakeHasher()),
-    ).rejects.toBeInstanceOf(IncorrectPasswordError);
+    expect((await uow.users.findById("user-1"))?.mustChangePassword).toBe(true);
   });
 });

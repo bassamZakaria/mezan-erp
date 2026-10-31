@@ -57,7 +57,7 @@ describe("a first-run claim sent by three callers at once", () => {
   it("makes one company admin and refuses the other two", async () => {
     const t = await open();
     const claim = (racer: number) =>
-      t.anonymous("POST", "/bootstrap/admin", { nameAr: `مالك ${racer}`, nameEn: `Owner ${racer}`, email: `owner${racer}@example.eg`, pin: "246810", companyName: "شركة الاختبار" });
+      t.anonymous("POST", "/bootstrap/admin", { nameAr: `مالك ${racer}`, nameEn: `Owner ${racer}`, email: `owner${racer}@example.eg`, password: "pw-246810", companyName: "شركة الاختبار" });
 
     await raced(claim, async (answers) => {
       expect(statuses(answers)).toEqual([201, 409, 409]);
@@ -83,7 +83,6 @@ const clerk = (id: string, email: string) => ({
   warehouseScope: "*",
   status: "active",
   password: "first-password",
-  pin: "135790",
   acknowledge: true,
   reason: "مالك المنشأة يدير كل شيء بنفسه",
 });
@@ -97,8 +96,8 @@ async function signedInClerk() {
   const t = await open();
   const made = await t.admin("POST", "/users", clerk("clerk-1", "clerk@example.eg"));
   expect(made.status, JSON.stringify(made.body)).toBe(201);
-  const signIn = (pin: string) => t.anonymous("POST", "/auth/login", { username: "clerk@example.eg", pin });
-  const session = await signIn("135790");
+  const signIn = (password: string) => t.anonymous("POST", "/auth/login", { username: "clerk@example.eg", password });
+  const session = await signIn("first-password");
   expect(session.status, JSON.stringify(session.body)).toBe(200);
   return { ...t, signIn, clerk: t.as((session.body as { token: string }).token) };
 }
@@ -129,16 +128,16 @@ describe("a credential changed three times at once from the same current passwor
     expect(again.status, JSON.stringify(again.body)).toBe(204);
   });
 
-  it("sets one new PIN when three are sent together, and that PIN signs in", async () => {
+  it("leaves exactly one of the three new passwords signing in, and the old one not", async () => {
     const t = await signedInClerk();
-    const pins = ["111111", "222222", "333333"];
-    const change = (racer: number) => t.clerk("POST", "/profile/change-pin", { currentPassword: "first-password", newPin: pins[racer] });
+    const passwords = ["next-password-a", "next-password-b", "next-password-c"];
+    const change = (racer: number) => t.clerk("POST", "/profile/change-password", { currentPassword: "first-password", newPassword: passwords[racer] });
 
-    await raced(change, (got) => expect(statuses(got)).toEqual([204, 204, 204]));
+    await raced(change, (got) => expect(statuses(got)).toEqual([204, 403, 403]));
 
-    const signedIn = await Promise.all(pins.map((pin) => t.signIn(pin)));
+    const signedIn = await Promise.all(passwords.map((password) => t.signIn(password)));
     expect(signedIn.filter((answer) => answer.status === 200)).toHaveLength(1);
-    expect((await t.signIn("135790")).status).toBe(401);
+    expect((await t.signIn("first-password")).status).toBe(401);
   });
 });
 

@@ -23,8 +23,8 @@ export const backupProtectionAr = {
   "backupProtection.saveKeyCard": "احفظ ملف المفتاح على فلاشة",
   "backupProtection.keyCardSaved": "حُفظ الملف في:",
   "backupProtection.keyCardStored": "نقلت ملف المفتاح خارج هذا الجهاز وأحتفظ به في مكان آمن.",
-  "backupProtection.pin": "رمز PIN الحالي",
-  "backupProtection.pinHint": "تغيير الحماية يتطلب رمز PIN الخاص بك.",
+  "backupProtection.password": "كلمة المرور الحالية",
+  "backupProtection.passwordHint": "تغيير الحماية يتطلب كلمة المرور التي تسجّل بها الدخول.",
   "backupProtection.oldCopies":
     "النسخ التي كُتبت قبل التغيير تبقى مشفّرة بكلمة السر القديمة ولا تُعاد كتابتها. احتفظ بالكلمة القديمة طالما احتجت تلك النسخ. النسخ الجديدة فقط تستخدم الكلمة الجديدة.",
   "backupProtection.save": "فعّل الحماية",
@@ -81,8 +81,8 @@ export const backupProtectionEn: Record<keyof typeof backupProtectionAr, string>
   "backupProtection.saveKeyCard": "Save the key card to a USB stick",
   "backupProtection.keyCardSaved": "Saved to:",
   "backupProtection.keyCardStored": "I have moved the key card off this computer and keep it somewhere safe.",
-  "backupProtection.pin": "Your current PIN",
-  "backupProtection.pinHint": "Changing the protection needs your PIN.",
+  "backupProtection.password": "Your current password",
+  "backupProtection.passwordHint": "Changing the protection needs the password you sign in with.",
   "backupProtection.oldCopies":
     "Copies written before the change keep the OLD passphrase and are not rewritten. Keep the old passphrase for as long as you may need those copies. Only new copies use the new one.",
   "backupProtection.save": "Turn on protection",

@@ -28,23 +28,23 @@ describe("VerifyScreen", () => {
     vi.unstubAllGlobals();
   });
 
-  it("points the holder of a long-used link to sign-in, with no PIN field, no company code and no error styling", async () => {
+  it("points the holder of a long-used link to sign-in, with no password field, no company code and no error styling", async () => {
     open(410, { error: "SIGNUP_ALREADY_ACTIVATED", message: "تم تفعيل هذا الحساب مسبقًا. سجّل الدخول برمز منشأتك وبريدك." });
 
     expect(await screen.findByRole("heading", { name: "تم تفعيل هذا الحساب مسبقًا", level: 1 })).toBeInTheDocument();
     expect(screen.getByText("تم تفعيل هذا الحساب مسبقًا. سجّل الدخول برمز منشأتك وبريدك.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "الذهاب لتسجيل الدخول" })).toBeInTheDocument();
-    expect(screen.queryByText("رقم التعريف الشخصي (PIN)")).not.toBeInTheDocument();
+    expect(screen.queryByText("كلمة المرور المؤقتة")).not.toBeInTheDocument();
     expect(screen.queryByText("رمز المنشأة")).not.toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
-  it("tells someone whose sign-up awaits approval that it was received, with no PIN and no error", async () => {
+  it("tells someone whose sign-up awaits approval that it was received, with no password and no error", async () => {
     open(409, { error: "SIGNUP_AWAITING_APPROVAL", message: "تم تأكيد بريدك الإلكتروني. طلبك قيد المراجعة، وسنتواصل معك عند تفعيل حسابك." });
 
     expect(await screen.findByRole("heading", { name: "تم استلام طلبك", level: 1 })).toBeInTheDocument();
     expect(screen.getByRole("status")).toHaveTextContent("طلبك قيد المراجعة");
-    expect(screen.queryByText("رقم التعريف الشخصي (PIN)")).not.toBeInTheDocument();
+    expect(screen.queryByText("كلمة المرور المؤقتة")).not.toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 

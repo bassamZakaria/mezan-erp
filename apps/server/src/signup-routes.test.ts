@@ -52,7 +52,7 @@ enum TenantTransition {
 interface VerifyBody {
   readonly tenant: { readonly id: string; readonly code: string; readonly status: string };
   readonly adminEmail: string;
-  readonly adminPin: string | null;
+  readonly adminPassword: string | null;
   readonly alreadyVerified: boolean;
 }
 
@@ -142,7 +142,7 @@ async function listedTenantCodes(app: CloudApp): Promise<string[]> {
 }
 
 describe("sign-ups the platform owner approves", () => {
-  it("holds a verified sign-up for review, then the owner approves it onto the package they pick and receives the PIN", async () => {
+  it("holds a verified sign-up for review, then the owner approves it onto the package they pick and receives the password", async () => {
     const app = await boot(SignupMode.Approval);
     const token = await startAndReadToken(app, "reviewme");
 
@@ -160,15 +160,15 @@ describe("sign-ups the platform owner approves", () => {
       platformCall(app, owner, `/signup-requests/${queue[0]!.id}/approve`, { method: "POST", body: JSON.stringify({ planId: "PLAN-CORE", billingCycle: "monthly", trial }) });
     const approved = await approve(false);
     expect(approved.status).toBe(201);
-    const result = (await approved.json()) as { tenant: { code: string; status: string }; adminPin: string };
+    const result = (await approved.json()) as { tenant: { code: string; status: string }; adminPassword: string };
     expect(result.tenant).toMatchObject({ code: "reviewme", status: "active" });
-    expect(result.adminPin).toMatch(/^\d{6}$/);
+    expect(result.adminPassword).toMatch(/^[A-Za-z0-9]{12}$/);
     expect((await approve(false)).status).toBe(409);
     expect(await (await platformCall(app, owner, "/signup-requests")).json()).toEqual([]);
 
     const again = await post(app, "/api/signup/verify", { token });
     expect(again.status).toBe(200);
-    expect(await again.json()).toMatchObject({ alreadyVerified: true, adminPin: null });
+    expect(await again.json()).toMatchObject({ alreadyVerified: true, adminPassword: null });
   });
 
   it("a rejected sign-up never becomes a company, frees its code, and its link stops working", async () => {
@@ -246,32 +246,32 @@ describe("self-serve signup routes", () => {
     expect(((await res.json()) as { error: string }).error).toBe("VALIDATION_ERROR");
   });
 
-  it("provisions on the first verification and hands over a six-digit PIN once", async () => {
+  it("provisions on the first verification and hands over a generated password once", async () => {
     const app = await boot();
     const token = await startAndReadToken(app, "yasmin");
     const res = await post(app, "/api/signup/verify", { token });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { tenant: { code: string; status: string }; adminPin: string | null; alreadyVerified: boolean };
+    const body = (await res.json()) as { tenant: { code: string; status: string }; adminPassword: string | null; alreadyVerified: boolean };
     expect(body.tenant).toMatchObject({ code: "yasmin", status: "active" });
-    expect(body.adminPin).toMatch(/^\d{6}$/);
+    expect(body.adminPassword).toMatch(/^[A-Za-z0-9]{12}$/);
     expect(body.alreadyVerified).toBe(false);
   });
 
-  it("answers a link opened a second time as already verified, with no PIN — never TENANT_CODE_TAKEN for the owner's own account", async () => {
+  it("answers a link opened a second time as already verified, with no password — never TENANT_CODE_TAKEN for the owner's own account", async () => {
     const app = await boot();
     const token = await startAndReadToken(app, "yasmin");
-    const first = (await (await post(app, "/api/signup/verify", { token })).json()) as { adminPin: string };
+    const first = (await (await post(app, "/api/signup/verify", { token })).json()) as { adminPassword: string };
 
     const again = await post(app, "/api/signup/verify", { token });
     expect(again.status).toBe(200);
-    const body = (await again.json()) as { tenant: { code: string }; adminEmail: string; adminPin: string | null; alreadyVerified: boolean };
-    expect(body).toMatchObject({ tenant: { code: "yasmin" }, adminEmail: "owner@yasmin.example", adminPin: null, alreadyVerified: true });
+    const body = (await again.json()) as { tenant: { code: string }; adminEmail: string; adminPassword: string | null; alreadyVerified: boolean };
+    expect(body).toMatchObject({ tenant: { code: "yasmin" }, adminEmail: "owner@yasmin.example", adminPassword: null, alreadyVerified: true });
 
     const login = await app.root.fetch(
       new Request("http://cloud.internal/api/auth/login", {
         method: "POST",
         headers: { "content-type": "application/json", "x-mezan-tenant": "yasmin" },
-        body: JSON.stringify({ username: "owner@yasmin.example", pin: first.adminPin }),
+        body: JSON.stringify({ username: "owner@yasmin.example", password: first.adminPassword }),
       }),
     );
     expect(login.status).toBe(200);
@@ -312,9 +312,9 @@ describe("self-serve signup routes", () => {
 
     expect(answers.map((answer) => answer.status)).toEqual([200, 200]);
     const bodies = (await Promise.all(answers.map((answer) => answer.json()))) as VerifyBody[];
-    const pins = bodies.map((body) => body.adminPin).filter((pin): pin is string => pin !== null);
-    expect(pins).toHaveLength(1);
-    expect(pins[0]).toMatch(/^\d{6}$/);
+    const passwords = bodies.map((body) => body.adminPassword).filter((password): password is string => password !== null);
+    expect(passwords).toHaveLength(1);
+    expect(passwords[0]).toMatch(/^[A-Za-z0-9]{12}$/);
     expect(bodies.map((body) => body.alreadyVerified).sort()).toEqual([false, true]);
     expect(bodies.map((body) => body.tenant.status)).toEqual(["active", "active"]);
     expect(new Set(bodies.map((body) => body.tenant.id)).size).toBe(1);
@@ -324,13 +324,13 @@ describe("self-serve signup routes", () => {
       new Request("http://cloud.internal/api/auth/login", {
         method: "POST",
         headers: { "content-type": "application/json", "x-mezan-tenant": "yasmin" },
-        body: JSON.stringify({ username: "owner@yasmin.example", pin: pins[0] }),
+        body: JSON.stringify({ username: "owner@yasmin.example", password: passwords[0] }),
       }),
     );
     expect(login.status).toBe(200);
   });
 
-  it("still answers already verified, with no PIN, for a tenant the operator has suspended", async () => {
+  it("still answers already verified, with no password, for a tenant the operator has suspended", async () => {
     const app = await boot();
     const token = await startAndReadToken(app, "yasmin");
     const first = (await (await post(app, "/api/signup/verify", { token })).json()) as VerifyBody;
@@ -339,7 +339,7 @@ describe("self-serve signup routes", () => {
     const again = await post(app, "/api/signup/verify", { token });
 
     expect(again.status).toBe(200);
-    expect((await again.json()) as VerifyBody).toMatchObject({ tenant: { code: "yasmin", status: "suspended" }, adminPin: null, alreadyVerified: true });
+    expect((await again.json()) as VerifyBody).toMatchObject({ tenant: { code: "yasmin", status: "suspended" }, adminPassword: null, alreadyVerified: true });
   });
 
   it("does not call an archived tenant an activated account", async () => {
@@ -377,12 +377,12 @@ describe("self-serve signup routes", () => {
     expect(verified.status).toBe(200);
     const body = (await verified.json()) as VerifyBody;
     expect(body.tenant.status).toBe("active");
-    expect(body.adminPin).toMatch(/^\d{6}$/);
+    expect(body.adminPassword).toMatch(/^[A-Za-z0-9]{12}$/);
     const login = await app.root.fetch(
       new Request("http://cloud.internal/api/auth/login", {
         method: "POST",
         headers: { "content-type": "application/json", "x-mezan-tenant": "longest" },
-        body: JSON.stringify({ username: "owner@longest.example", pin: body.adminPin }),
+        body: JSON.stringify({ username: "owner@longest.example", password: body.adminPassword }),
       }),
     );
     expect(((await login.json()) as { tenantName: string }).tenantName).toBe(longest);
@@ -441,22 +441,43 @@ describe("self-serve signup routes", () => {
   });
 });
 
-function cloudLogin(app: CloudApp, code: string, pin: string): Promise<Response> {
+function cloudLogin(app: CloudApp, code: string, password: string): Promise<Response> {
   return Promise.resolve(
     app.root.fetch(
       new Request("http://cloud.internal/api/auth/login", {
         method: "POST",
         headers: { "content-type": "application/json", "x-mezan-tenant": code },
-        body: JSON.stringify({ username: `owner@${code}.example`, pin }),
+        body: JSON.stringify({ username: `owner@${code}.example`, password }),
       }),
     ),
   );
 }
 
-function resetOwnerPin(app: CloudApp, tenantId: string, bearer: string | null): Promise<Response> {
+const OWN_PASSWORD = "owner-chose-this-1";
+
+async function signInChangingPassword(fetch: (request: Request) => Response | Promise<Response>, base: string, tenant: string, username: string, temporary: string): Promise<string> {
+  const login = async (password: string) =>
+    fetch(new Request(`${base}/auth/login`, { method: "POST", headers: { "content-type": "application/json", [TENANT_HEADER]: tenant }, body: JSON.stringify({ username, password }) }));
+  const { token } = (await (await login(temporary)).json()) as { token: string };
+  const changed = await fetch(
+    new Request(`${base}/profile/change-password`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${token}`, [TENANT_HEADER]: tenant },
+      body: JSON.stringify({ currentPassword: temporary, newPassword: OWN_PASSWORD }),
+    }),
+  );
+  expect(changed.status).toBe(204);
+  return ((await (await login(OWN_PASSWORD)).json()) as { token: string }).token;
+}
+
+function cloudOwnerSession(app: CloudApp, code: string, temporary: string): Promise<string> {
+  return signInChangingPassword((request) => app.root.fetch(request), "http://cloud.internal/api", code, `owner@${code}.example`, temporary);
+}
+
+function resetOwnerPassword(app: CloudApp, tenantId: string, bearer: string | null): Promise<Response> {
   return Promise.resolve(
     app.root.fetch(
-      new Request(`http://cloud.internal/api/platform/tenants/${tenantId}/owner-pin/reset`, {
+      new Request(`http://cloud.internal/api/platform/tenants/${tenantId}/owner-password/reset`, {
         method: "POST",
         headers: bearer ? { ...bearerHeaders(bearer) } : {},
       }),
@@ -488,11 +509,11 @@ describe("a trailing slash on an /api route", () => {
       new Request("http://cloud.internal/api/auth/login/", {
         method: "POST",
         headers: { "content-type": "application/json", "x-mezan-tenant": "slashes" },
-        body: JSON.stringify({ username: "owner@slashes.example", pin: first.adminPin }),
+        body: JSON.stringify({ username: "owner@slashes.example", password: first.adminPassword }),
       }),
     );
     expect(tenantLoginAnswer.status).toBe(200);
-    const session = ((await tenantLoginAnswer.json()) as { token: string }).token;
+    const session = await cloudOwnerSession(app, "slashes", first.adminPassword ?? "");
 
     const customers = await app.root.fetch(
       new Request("http://cloud.internal/api/customers/?pageSize=5", { headers: { ...bearerHeaders(session), "x-mezan-tenant": "slashes" } }),
@@ -518,85 +539,86 @@ describe("a trailing slash on an /api route", () => {
   });
 });
 
-describe("the platform owner resets a tenant owner's PIN", () => {
-  it("issues a new PIN once, retires the old one and ends the owner's open sessions", async () => {
+describe("the platform owner resets a tenant owner's password", () => {
+  it("issues a new password once, retires the old one and ends the owner's open sessions", async () => {
     const app = await boot();
     const first = (await (await post(app, "/api/signup/verify", { token: await startAndReadToken(app, "locked") })).json()) as VerifyBody;
-    const oldPin = first.adminPin ?? "";
-    const session = ((await (await cloudLogin(app, "locked", oldPin)).json()) as { token: string }).token;
+    const session = await cloudOwnerSession(app, "locked", first.adminPassword ?? "");
+    const oldPassword = OWN_PASSWORD;
     const customers = () =>
       app.root.fetch(new Request("http://cloud.internal/api/customers", { headers: { ...bearerHeaders(session), "x-mezan-tenant": "locked" } }));
     expect((await customers()).status).toBe(200);
 
-    const reset = await resetOwnerPin(app, first.tenant.id, await platformBearer(app));
+    const reset = await resetOwnerPassword(app, first.tenant.id, await platformBearer(app));
 
     expect(reset.status).toBe(200);
-    const body = (await reset.json()) as { adminEmail: string; adminPin: string };
+    const body = (await reset.json()) as { adminEmail: string; adminPassword: string };
     expect(body.adminEmail).toBe("owner@locked.example");
-    expect(body.adminPin).toMatch(/^[0-9]{6}$/);
-    expect(body.adminPin).not.toBe(oldPin);
+    expect(body.adminPassword).toMatch(/^[A-Za-z0-9]{12}$/);
+    expect(body.adminPassword).not.toBe(oldPassword);
     expect((await customers()).status).toBe(401);
-    expect((await cloudLogin(app, "locked", oldPin)).status).toBe(401);
-    expect((await cloudLogin(app, "locked", body.adminPin)).status).toBe(200);
+    expect((await cloudLogin(app, "locked", oldPassword)).status).toBe(401);
+    expect((await cloudLogin(app, "locked", body.adminPassword)).status).toBe(200);
+    expect(body.adminPassword).not.toBe(first.adminPassword);
   });
 
-  it("resets the owner's PIN on a suspended tenant, where the new PIN is accepted once the tenant is resumed", async () => {
+  it("resets the owner's password on a suspended tenant, where the new password is accepted once the tenant is resumed", async () => {
     const app = await boot();
     const first = (await (await post(app, "/api/signup/verify", { token: await startAndReadToken(app, "paused") })).json()) as VerifyBody;
-    const oldPin = first.adminPin ?? "";
+    const oldPassword = first.adminPassword ?? "";
     await moveTenant(app, first.tenant.id, TenantTransition.Suspend);
 
-    const reset = await resetOwnerPin(app, first.tenant.id, await platformBearer(app));
+    const reset = await resetOwnerPassword(app, first.tenant.id, await platformBearer(app));
 
     expect(reset.status).toBe(200);
-    const { adminPin } = (await reset.json()) as { adminPin: string };
-    expect(adminPin).toMatch(/^[0-9]{6}$/);
-    expect(adminPin).not.toBe(oldPin);
+    const { adminPassword } = (await reset.json()) as { adminPassword: string };
+    expect(adminPassword).toMatch(/^[A-Za-z0-9]{12}$/);
+    expect(adminPassword).not.toBe(oldPassword);
     await moveTenant(app, first.tenant.id, TenantTransition.Resume);
-    expect((await cloudLogin(app, "paused", oldPin)).status).toBe(401);
-    expect((await cloudLogin(app, "paused", adminPin)).status).toBe(200);
+    expect((await cloudLogin(app, "paused", oldPassword)).status).toBe(401);
+    expect((await cloudLogin(app, "paused", adminPassword)).status).toBe(200);
   });
 
   it("is refused without a platform session, and for a tenant session", async () => {
     const app = await boot();
     const first = (await (await post(app, "/api/signup/verify", { token: await startAndReadToken(app, "guarded") })).json()) as VerifyBody;
-    const pin = first.adminPin ?? "";
-    const tenantSession = ((await (await cloudLogin(app, "guarded", pin)).json()) as { token: string }).token;
+    const password = first.adminPassword ?? "";
+    const tenantSession = ((await (await cloudLogin(app, "guarded", password)).json()) as { token: string }).token;
 
-    expect((await resetOwnerPin(app, first.tenant.id, null)).status).toBe(401);
-    expect((await resetOwnerPin(app, first.tenant.id, tenantSession)).status).toBe(401);
-    expect((await cloudLogin(app, "guarded", pin)).status).toBe(200);
+    expect((await resetOwnerPassword(app, first.tenant.id, null)).status).toBe(401);
+    expect((await resetOwnerPassword(app, first.tenant.id, tenantSession)).status).toBe(401);
+    expect((await cloudLogin(app, "guarded", password)).status).toBe(200);
   });
 
   it("is not reachable on the tenant's own API, with or without the tenant's admin session", async () => {
     const app = await boot();
     const first = (await (await post(app, "/api/signup/verify", { token: await startAndReadToken(app, "inside") })).json()) as VerifyBody;
-    const pin = first.adminPin ?? "";
-    const tenantSession = ((await (await cloudLogin(app, "inside", pin)).json()) as { token: string }).token;
+    const tenantSession = await cloudOwnerSession(app, "inside", first.adminPassword ?? "");
 
-    for (const route of ["/api/owner-pin/reset", "/api/bootstrap/owner-pin", "/api/auth/owner-pin/reset"]) {
+    for (const route of ["/api/owner-password/reset", "/api/bootstrap/owner-password", "/api/auth/owner-password/reset"]) {
       const answer = await app.root.fetch(
         new Request(`http://cloud.internal${route}`, {
           method: "POST",
           headers: { "content-type": "application/json", ...bearerHeaders(tenantSession), "x-mezan-tenant": "inside" },
-          body: JSON.stringify({ email: "owner@inside.example", pin: "000000" }),
+          body: JSON.stringify({ email: "owner@inside.example", password: "pw-000000" }),
         }),
       );
       expect(answer.status, route).toBe(404);
     }
-    expect((await cloudLogin(app, "inside", "000000")).status).toBe(401);
+    expect((await cloudLogin(app, "inside", "pw-000000")).status).toBe(401);
+    expect((await cloudLogin(app, "inside", OWN_PASSWORD)).status).toBe(200);
   });
 
   it("answers 404 for a tenant that does not exist", async () => {
     const app = await boot();
-    expect((await resetOwnerPin(app, "no-such-tenant", await platformBearer(app))).status).toBe(404);
+    expect((await resetOwnerPassword(app, "no-such-tenant", await platformBearer(app))).status).toBe(404);
   });
 
   it("follows the owner to a new email changed inside the tenant, so the reset still reaches their account", async () => {
     const app = await boot();
     const linkToken = await startAndReadToken(app, "moved");
     const first = (await (await post(app, "/api/signup/verify", { token: linkToken })).json()) as VerifyBody;
-    const session = ((await (await cloudLogin(app, "moved", first.adminPin ?? "")).json()) as { token: string }).token;
+    const session = await cloudOwnerSession(app, "moved", first.adminPassword ?? "");
     const tenantHeaders = { ...bearerHeaders(session), "x-mezan-tenant": "moved", "content-type": "application/json" };
     const users = (await (await app.root.fetch(new Request("http://cloud.internal/api/users", { headers: tenantHeaders }))).json()) as Record<string, unknown>[];
     const owner = users.find((user) => user["email"] === "owner@moved.example");
@@ -610,7 +632,7 @@ describe("the platform owner resets a tenant owner's PIN", () => {
       new Request(`http://cloud.internal/api/users/${String(owner?.["id"])}`, {
         method: "PUT",
         headers: tenantHeaders,
-        body: JSON.stringify({ ...owner, email: " Sara@Moved-Shop.example ", currentPin: first.adminPin }),
+        body: JSON.stringify({ ...owner, email: " Sara@Moved-Shop.example ", currentPassword: OWN_PASSWORD }),
       }),
     );
 
@@ -618,16 +640,16 @@ describe("the platform owner resets a tenant owner's PIN", () => {
     expect(await recordedOwner()).toBe("sara@moved-shop.example");
     const reopened = await post(app, "/api/signup/verify", { token: linkToken });
     expect(reopened.status).toBe(200);
-    expect((await reopened.json()) as VerifyBody).toMatchObject({ adminEmail: "sara@moved-shop.example", adminPin: null, alreadyVerified: true });
-    const reset = await resetOwnerPin(app, first.tenant.id, bearer);
+    expect((await reopened.json()) as VerifyBody).toMatchObject({ adminEmail: "sara@moved-shop.example", adminPassword: null, alreadyVerified: true });
+    const reset = await resetOwnerPassword(app, first.tenant.id, bearer);
     expect(reset.status).toBe(200);
-    const body = (await reset.json()) as { adminEmail: string; adminPin: string };
+    const body = (await reset.json()) as { adminEmail: string; adminPassword: string };
     expect(body.adminEmail).toBe("sara@moved-shop.example");
     const signedIn = await app.root.fetch(
       new Request("http://cloud.internal/api/auth/login", {
         method: "POST",
         headers: { "content-type": "application/json", "x-mezan-tenant": "moved" },
-        body: JSON.stringify({ username: "sara@moved-shop.example", pin: body.adminPin }),
+        body: JSON.stringify({ username: "sara@moved-shop.example", password: body.adminPassword }),
       }),
     );
     expect(signedIn.status).toBe(200);
@@ -648,12 +670,12 @@ describe("the platform owner resets a tenant owner's PIN", () => {
     };
     const router = reachableRouter({ platform: { ...platform, stores: { ...platform.stores, tenants } }, dataDir, sweepEveryMs: 0, now: () => new Date(T) });
     routers.push(router);
-    const { adminPin } = await provisionTenant(
+    const { adminPassword } = await provisionTenant(
       { code: "steady", nameAr: "ثابتة", ownerEmail: "owner@steady.example", ownerNameAr: "المالك", planId: "PLAN-CORE", billingCycle: "monthly", trial: false },
       { platform, router, now: () => new Date(T) },
     );
     router.invalidate("steady");
-    const session = ((await (await tenantLogin(router, "steady", adminPin)).json()) as { token: string }).token;
+    const session = await signInChangingPassword((request) => router.app.fetch(request), "http://ignored", "steady", "owner@steady.example", adminPassword ?? "");
     const call = (method: string, route: string, body?: unknown) =>
       Promise.resolve(
         router.app.fetch(
@@ -679,7 +701,7 @@ describe("the platform owner resets a tenant owner's PIN", () => {
     expect((await platform.stores.tenants.findByCode("steady"))?.ownerEmail).toBe("owner@steady.example");
 
     refuseSave = true;
-    const refused = await call("PUT", `/users/${String(owner?.["id"])}`, { ...owner, email: "new@steady.example", currentPin: adminPin });
+    const refused = await call("PUT", `/users/${String(owner?.["id"])}`, { ...owner, email: "new@steady.example", currentPassword: OWN_PASSWORD });
 
     expect(refused.status).toBe(200);
     expect((await platform.stores.tenants.findByCode("steady"))?.ownerEmail).toBe("owner@steady.example");
@@ -687,7 +709,7 @@ describe("the platform owner resets a tenant owner's PIN", () => {
     expect(after.find((user) => user["id"] === owner?.["id"])?.["email"]).toBe("new@steady.example");
   });
 
-  it("records the operator who retried a provision as the actor of the tenant's PIN reset", async () => {
+  it("records the operator who retried a provision as the actor of the tenant's password reset", async () => {
     const app = await boot();
     const bearer = await platformBearer(app);
     const console_ = (route: string, body?: unknown) =>
@@ -707,14 +729,14 @@ describe("the platform owner resets a tenant owner's PIN", () => {
     const retried = await console_(`/tenants/${tenantId}/provision`, { planId: "PLAN-BUSINESS", billingCycle: "monthly" });
 
     expect(retried.status).toBe(200);
-    const { adminPin } = (await retried.json()) as { adminPin: string };
-    const session = ((await (await cloudLogin(app, "retried", adminPin)).json()) as { token: string }).token;
+    const { adminPassword } = (await retried.json()) as { adminPassword: string };
+    const session = await cloudOwnerSession(app, "retried", adminPassword);
     const audit = await app.root.fetch(
       new Request("http://cloud.internal/api/audit?stream=security&action=OWNER_PIN_RESET", { headers: { ...bearerHeaders(session), "x-mezan-tenant": "retried" } }),
     );
     expect(audit.status).toBe(200);
     const { events } = (await audit.json()) as { events: { action: string; actor: string }[] };
-    expect(events.map((row) => row.actor)).toEqual([`platform:${operator.id}`]);
+    expect(events.map((row) => row.actor)).toEqual([`platform:${operator.id}`, `platform:${operator.id}`]);
   });
 });
 
@@ -785,7 +807,7 @@ function deferred(): { readonly reached: Promise<void>; readonly promise: Promis
 
 // A frozen process holds nothing of its own platform connection while it is
 // frozen, so the stall is taken with the turn handed back.
-function stallingAfterThePin(gate: ReturnType<typeof deferred>): (stores: SignupStores, outsideTheTurn: PlatformHandle["outsideTheTurn"]) => Partial<SignupStores> {
+function stallingAfterThePassword(gate: ReturnType<typeof deferred>): (stores: SignupStores, outsideTheTurn: PlatformHandle["outsideTheTurn"]) => Partial<SignupStores> {
   return (stores, outsideTheTurn) => {
     const subscriptions = Object.create(stores.subscriptions) as SignupStores["subscriptions"];
     subscriptions.findLiveByTenant = async (tenantId) => {
@@ -809,13 +831,13 @@ async function startOn(app: Hono, code: string): Promise<string> {
   return new URL(((await started.json()) as { devVerifyUrl: string }).devVerifyUrl).searchParams.get("token") ?? "";
 }
 
-function tenantLogin(router: TenantRouter, code: string, pin: string | null): Promise<Response> {
+function tenantLogin(router: TenantRouter, code: string, password: string | null): Promise<Response> {
   return Promise.resolve(
     router.app.fetch(
       new Request("http://ignored/auth/login", {
         method: "POST",
         headers: { "content-type": "application/json", [TENANT_HEADER]: code },
-        body: JSON.stringify({ username: `owner@${code}.example`, pin }),
+        body: JSON.stringify({ username: `owner@${code}.example`, password }),
       }),
     ),
   );
@@ -852,7 +874,7 @@ describe("a sign-up awaiting approval whose company an approval left half-made",
 });
 
 describe("signup verification when provisioning fails or is shared between processes", () => {
-  it("hands the owner a fresh PIN when the link is opened again after a provision that failed once the admin existed", async () => {
+  it("hands the owner a fresh password when the link is opened again after a provision that failed once the admin existed", async () => {
     const dataDir = platformDir();
     const platform = await openPlatform(dataDir);
     const { signup, router } = signupProcess(platform, dataDir, failOnce());
@@ -866,13 +888,13 @@ describe("signup verification when provisioning fails or is shared between proce
     expect(again.status).toBe(200);
     const body = (await again.json()) as VerifyBody;
     expect(body.tenant.status).toBe("active");
-    expect(body.adminPin).toMatch(/^\d{6}$/);
+    expect(body.adminPassword).toMatch(/^[A-Za-z0-9]{12}$/);
     expect(body.alreadyVerified).toBe(false);
-    expect((await tenantLogin(router, "retry", body.adminPin)).status).toBe(200);
+    expect((await tenantLogin(router, "retry", body.adminPassword)).status).toBe(200);
 
     const third = await send(signup, "/verify", { token });
-    expect((await third.json()) as VerifyBody).toMatchObject({ adminPin: null, alreadyVerified: true });
-    expect((await tenantLogin(router, "retry", body.adminPin)).status).toBe(200);
+    expect((await third.json()) as VerifyBody).toMatchObject({ adminPassword: null, alreadyVerified: true });
+    expect((await tenantLogin(router, "retry", body.adminPassword)).status).toBe(200);
   });
 
   // Two SQLite connections in ONE event loop cannot model two processes: an async
@@ -904,12 +926,12 @@ describe("signup verification when provisioning fails or is shared between proce
 
     expect(answers.map((answer) => answer.status)).toEqual([200, 200]);
     const bodies = (await Promise.all(answers.map((answer) => answer.json()))) as VerifyBody[];
-    const pins = bodies.map((body) => body.adminPin).filter((pin): pin is string => pin !== null);
-    expect(pins).toHaveLength(1);
+    const passwords = bodies.map((body) => body.adminPassword).filter((password): password is string => password !== null);
+    expect(passwords).toHaveLength(1);
     expect(bodies.map((body) => body.alreadyVerified).sort()).toEqual([false, true]);
     expect(new Set(bodies.map((body) => body.tenant.id)).size).toBe(1);
     expect((await platform.stores.tenants.list()).filter((tenant) => tenant.code === "twice")).toHaveLength(1);
-    expect((await tenantLogin(one.router, "twice", pins[0] ?? null)).status).toBe(200);
+    expect((await tenantLogin(one.router, "twice", passwords[0] ?? null)).status).toBe(200);
   });
 
   it("answers the provisioning failure itself when the tenant was archived while it failed, not an invalid link", async () => {
@@ -932,7 +954,7 @@ describe("signup verification when provisioning fails or is shared between proce
 describe("a signup verification whose provisioning claim is contested", () => {
   const LATER = "2026-01-15T00:03:00.000Z";
 
-  it("hands exactly one working PIN when a second process takes a stalled provision over and the first then wakes up", async () => {
+  it("hands exactly one working password when a second process takes a stalled provision over and the first then wakes up", async () => {
     const dataDir = platformDir();
     const platform = await openPlatform(dataDir);
     const stalled = deferred();
@@ -945,10 +967,10 @@ describe("a signup verification whose provisioning claim is contested", () => {
           waiting.arrive();
           return stores.signupRequests.provisioningClaimedAt(tokenHash);
         };
-        return { ...stallingAfterThePin(stalled)(stores, outsideTheTurn), signupRequests };
+        return { ...stallingAfterThePassword(stalled)(stores, outsideTheTurn), signupRequests };
       },
     });
-    const second = signupProcess(await openPlatform(dataDir), dataDir, { now: () => new Date(LATER), stores: stallingAfterThePin(takeover) });
+    const second = signupProcess(await openPlatform(dataDir), dataDir, { now: () => new Date(LATER), stores: stallingAfterThePassword(takeover) });
     const token = await startOn(first.signup, "contested");
 
     const slow = send(first.signup, "/verify", { token });
@@ -962,21 +984,21 @@ describe("a signup verification whose provisioning claim is contested", () => {
     const answers = await Promise.all([slow, fast]);
     const bodies = (await Promise.all(answers.map((answer) => answer.json()))) as VerifyBody[];
     expect(answers.map((answer) => answer.status)).toEqual([200, 200]);
-    const pins = bodies.map((body) => body.adminPin).filter((pin): pin is string => pin !== null);
-    expect(pins).toHaveLength(1);
-    expect((await tenantLogin(second.router, "contested", pins[0] ?? null)).status).toBe(200);
-    expect(bodies[0]).toMatchObject({ adminPin: null, alreadyVerified: true });
+    const passwords = bodies.map((body) => body.adminPassword).filter((password): password is string => password !== null);
+    expect(passwords).toHaveLength(1);
+    expect((await tenantLogin(second.router, "contested", passwords[0] ?? null)).status).toBe(200);
+    expect(bodies[0]).toMatchObject({ adminPassword: null, alreadyVerified: true });
     expect(bodies[1]).toMatchObject({ alreadyVerified: false });
     expect((await platform.stores.subscriptions.listByTenant(bodies[1]?.tenant.id ?? "")).length).toBe(1);
   });
 
-  it("never hands out a dead PIN when a holder freezes after its last claim check, just before it writes the PIN, and is superseded meanwhile", async () => {
+  it("never hands out a dead password when a holder freezes after its last claim check, just before it writes the password, and is superseded meanwhile", async () => {
     const EVEN_LATER = "2026-01-15T00:06:00.000Z";
     const dataDir = platformDir();
     const platform = await openPlatform(dataDir);
     const firstStalled = deferred();
-    const frozenBeforeThePin = deferred();
-    const first = signupProcess(platform, dataDir, { stores: stallingAfterThePin(firstStalled) });
+    const frozenBeforeThePassword = deferred();
+    const first = signupProcess(platform, dataDir, { stores: stallingAfterThePassword(firstStalled) });
     let checks = 0;
     const second = signupProcess(await openPlatform(dataDir), dataDir, {
       now: () => new Date(LATER),
@@ -985,8 +1007,8 @@ describe("a signup verification whose provisioning claim is contested", () => {
         signupRequests.renewProvisioning = async (...args) => {
           const ours = await stores.signupRequests.renewProvisioning(...args);
           if ((checks += 1) === 1) {
-            frozenBeforeThePin.arrive();
-            await outsideTheTurn(() => frozenBeforeThePin.promise);
+            frozenBeforeThePassword.arrive();
+            await outsideTheTurn(() => frozenBeforeThePassword.promise);
           }
           return ours;
         };
@@ -999,24 +1021,24 @@ describe("a signup verification whose provisioning claim is contested", () => {
     const abandoned = send(first.signup, "/verify", { token });
     await firstStalled.reached;
     const superseded = send(second.signup, "/verify", { token });
-    await frozenBeforeThePin.reached;
+    await frozenBeforeThePassword.reached;
     const winner = await send(third.signup, "/verify", { token });
-    frozenBeforeThePin.release();
+    frozenBeforeThePassword.release();
     firstStalled.release();
 
     const answers = [await abandoned, await superseded, winner];
     const bodies = (await Promise.all(answers.map((answer) => answer.json()))) as VerifyBody[];
     expect(answers.map((answer) => answer.status)).toEqual([200, 200, 200]);
-    const pins = bodies.map((body) => body.adminPin).filter((pin): pin is string => pin !== null);
-    expect(pins).toEqual([bodies[2]?.adminPin]);
-    expect((await tenantLogin(third.router, "frozen", pins[0] ?? null)).status).toBe(200);
+    const passwords = bodies.map((body) => body.adminPassword).filter((password): password is string => password !== null);
+    expect(passwords).toEqual([bodies[2]?.adminPassword]);
+    expect((await tenantLogin(third.router, "frozen", passwords[0] ?? null)).status).toBe(200);
   });
 
   it("answers 503 with a retry hint to a second opener that outwaits a live provision, without writing to the platform database while it waits", async () => {
     const dataDir = platformDir();
     const platform = await openPlatform(dataDir);
     const stalled = deferred();
-    const holder = signupProcess(platform, dataDir, { stores: stallingAfterThePin(stalled) });
+    const holder = signupProcess(platform, dataDir, { stores: stallingAfterThePassword(stalled) });
     let claimAttempts = 0;
     let claimReads = 0;
     const waiter = signupProcess(await openPlatform(dataDir), dataDir, {
@@ -1049,10 +1071,10 @@ describe("a signup verification whose provisioning claim is contested", () => {
 
     stalled.release();
     const delivered = (await (await held).json()) as VerifyBody;
-    expect(delivered.adminPin).toMatch(/^\d{6}$/);
-    expect((await tenantLogin(holder.router, "patient", delivered.adminPin)).status).toBe(200);
+    expect(delivered.adminPassword).toMatch(/^[A-Za-z0-9]{12}$/);
+    expect((await tenantLogin(holder.router, "patient", delivered.adminPassword)).status).toBe(200);
     const reopened = await send(waiter.signup, "/verify", { token });
-    expect((await reopened.json()) as VerifyBody).toMatchObject({ adminPin: null, alreadyVerified: true });
+    expect((await reopened.json()) as VerifyBody).toMatchObject({ adminPassword: null, alreadyVerified: true });
   });
 
   it("keeps a slow but living provision's claim, so a later opener waits instead of taking it over", async () => {
@@ -1071,7 +1093,7 @@ describe("a signup verification whose provisioning claim is contested", () => {
           if (nowIso === LATER) renewed.arrive();
           return kept;
         };
-        return { ...stallingAfterThePin(stalled)(stores, outsideTheTurn), signupRequests };
+        return { ...stallingAfterThePassword(stalled)(stores, outsideTheTurn), signupRequests };
       },
     });
     const later = signupProcess(await openPlatform(dataDir), dataDir, { now: () => new Date(LATER), provisionWaitMs: 100 });
@@ -1087,14 +1109,14 @@ describe("a signup verification whose provisioning claim is contested", () => {
     stalled.release();
     const delivered = (await (await held).json()) as VerifyBody;
     expect(delivered).toMatchObject({ alreadyVerified: false });
-    expect((await tenantLogin(holder.router, "living", delivered.adminPin)).status).toBe(200);
+    expect((await tenantLogin(holder.router, "living", delivered.adminPassword)).status).toBe(200);
   });
 });
 
 describe("a verification link long after it was used", () => {
   const DAY_MS = 24 * 60 * 60 * 1000;
 
-  it("answers already activated for thirty days, then retires: no PIN, no account details, nothing provisioned or claimed", async () => {
+  it("answers already activated for thirty days, then retires: no password, no account details, nothing provisioned or claimed", async () => {
     const dataDir = platformDir();
     const platform = await openPlatform(dataDir);
     let clock = new Date(T).getTime();
@@ -1117,7 +1139,7 @@ describe("a verification link long after it was used", () => {
     clock += 30 * DAY_MS;
     const onTheLastDay = await send(signup, "/verify", { token });
     expect(onTheLastDay.status).toBe(200);
-    expect((await onTheLastDay.json()) as VerifyBody).toMatchObject({ adminPin: null, alreadyVerified: true });
+    expect((await onTheLastDay.json()) as VerifyBody).toMatchObject({ adminPassword: null, alreadyVerified: true });
     const attemptsWhileValid = claimAttempts;
 
     clock += 1;
@@ -1128,7 +1150,7 @@ describe("a verification link long after it was used", () => {
     expect(claimAttempts).toBe(attemptsWhileValid);
     expect(await platform.stores.tenants.findByCode("aged")).toEqual(tenantBefore);
     expect((await platform.stores.subscriptions.listByTenant(first.tenant.id)).length).toBe(1);
-    expect((await tenantLogin(router, "aged", first.adminPin)).status).toBe(200);
+    expect((await tenantLogin(router, "aged", first.adminPassword)).status).toBe(200);
   });
 });
 
@@ -1207,17 +1229,10 @@ describe("releasing a tenant stuck in provisioning", () => {
     expect(verified.tenant).toMatchObject({ code: "freed", status: TenantStatusCode.Active });
     expect(verified.tenant.id).not.toBe(tenant.id);
     expect((await platform.stores.tenants.findByCode("freed"))?.dbFile).not.toBe(tenant.dbFile);
-    const signedIn = await working.router.app.fetch(
-      new Request("http://ignored/auth/login", {
-        method: "POST",
-        headers: { "content-type": "application/json", [TENANT_HEADER]: "freed" },
-        body: JSON.stringify({ username: "someone-new@freed.example", pin: verified.adminPin }),
-      }),
-    );
-    expect(signedIn.status).toBe(200);
+    const token = await signInChangingPassword((request) => working.router.app.fetch(request), "http://ignored", "freed", "someone-new@freed.example", verified.adminPassword ?? "");
     const users = (await (
       await working.router.app.fetch(
-        new Request("http://ignored/users", { headers: { authorization: `Bearer ${((await signedIn.json()) as { token: string }).token}`, [TENANT_HEADER]: "freed" } }),
+        new Request("http://ignored/users", { headers: { authorization: `Bearer ${token}`, [TENANT_HEADER]: "freed" } }),
       )
     ).json()) as { email: string }[];
     expect(users.map((user) => user.email)).toContain("someone-new@freed.example");
@@ -1259,7 +1274,7 @@ describe("a stored subscription status this build does not know", () => {
     const app = await boot();
     const odd = (await (await post(app, "/api/signup/verify", { token: await startAndReadToken(app, "oddone") })).json()) as VerifyBody;
     await post(app, "/api/signup/verify", { token: await startAndReadToken(app, "fineone") });
-    const session = ((await (await cloudLogin(app, "oddone", odd.adminPin ?? "")).json()) as { token: string }).token;
+    const session = await cloudOwnerSession(app, "oddone", odd.adminPassword ?? "");
     const raw = openSqliteConnection(path.join(dirs[dirs.length - 1] ?? "", "platform.db")).sqlite;
     raw.prepare("UPDATE subscription SET status = 'paused' WHERE tenant_id = ?").run(odd.tenant.id);
     raw.close();

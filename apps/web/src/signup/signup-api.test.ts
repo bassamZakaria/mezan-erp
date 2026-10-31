@@ -34,7 +34,7 @@ describe("signup-api", () => {
   });
 
   it("posts the verification token to /api/signup/verify", async () => {
-    const calls = stubFetch(200, { tenant: { code: "acme" }, adminEmail: "owner@acme.example", adminPin: "123456", alreadyVerified: false });
+    const calls = stubFetch(200, { tenant: { code: "acme" }, adminEmail: "owner@acme.example", adminPassword: "Tmp-1234-56gh", alreadyVerified: false });
     await verifySignup("token");
     expect(calls).toEqual([{ url: "/api/signup/verify", method: "POST" }]);
   });

@@ -54,7 +54,7 @@ describe("drizzle schema", () => {
         email TEXT NOT NULL,
         phone TEXT,
         password_hash TEXT NOT NULL,
-        pin_hash TEXT,
+        must_change_password INTEGER NOT NULL DEFAULT 0,
         role_id TEXT REFERENCES role(id),
         is_company_admin INTEGER NOT NULL,
         employee_id TEXT,

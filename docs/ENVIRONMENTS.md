@@ -64,7 +64,7 @@ Webhook signing secrets and a tenant's SMTP password are sealed with AES-256-GCM
 
 ## Moving the SQLite books to Postgres
 
-`apps/server/src/sqlite-to-postgres-cli.ts` (`check` / `migrate`, run by `deploy/contabo/deploy.sh --migrate-sqlite`; see deploy/contabo/README.md "Cutover to Postgres") reads `MEZAN_AUDIT_CHAIN_KEY`, `MEZAN_SECRETS_KEY`, and for `migrate` also `MEZAN_DATABASE_URL`, `MEZAN_TENANT_DB_SECRET` and `MEZAN_MIGRATE_OWNER_URL` (a superuser URL `deploy.sh` builds from `pg.env` and passes only to that one-off container; never put it in `/srv/mezan/env`). Without `MEZAN_SECRETS_KEY` or `<data dir>/secrets.key` it refuses rather than mint a key. It reads each book through SQLite's backup API, so the app must be stopped; scratch copies go under `TMPDIR`. Run it with `MEZAN_LOG_STDERR=1` so the app's log lines go to stderr and stdout carries only the JSON report. Keep after the cutover: `MEZAN_AUDIT_CHAIN_KEY` and any `audit-chain.key` file, `MEZAN_SECRETS_KEY` / `secrets.key`, each `tenants/<id>.db.evidence-signing.key`, and `audit-anchors/`.
+`apps/server/src/sqlite-to-postgres-cli.ts` (`check` / `migrate`, run by `deploy/contabo/deploy.sh --migrate-sqlite`; see deploy/contabo/README.md "Cutover to Postgres") reads `MEZAN_AUDIT_CHAIN_KEY`, `MEZAN_SECRETS_KEY`, and for `migrate` also `MEZAN_DATABASE_URL`, `MEZAN_TENANT_DB_SECRET` and `MEZAN_MIGRATE_OWNER_URL` (a superuser URL `deploy.sh` builds from `pg.env` and passes only to that one-off container; never put it in `/srv/mezan/env`). Without `MEZAN_SECRETS_KEY` or `<data dir>/secrets.key` it refuses rather than mint a key. A book last opened by a build older than schema version 3 still has its `pin_hash` column and is refused: start the server once on the current build so every book is upgraded, then run `check` again. It reads each book through SQLite's backup API, so the app must be stopped; scratch copies go under `TMPDIR`. Run it with `MEZAN_LOG_STDERR=1` so the app's log lines go to stderr and stdout carries only the JSON report. Keep after the cutover: `MEZAN_AUDIT_CHAIN_KEY` and any `audit-chain.key` file, `MEZAN_SECRETS_KEY` / `secrets.key`, each `tenants/<id>.db.evidence-signing.key`, and `audit-anchors/`.
 
 ## Audit trail anchors (tamper evidence from outside the database)
 
@@ -195,7 +195,7 @@ Two logins, both seeded automatically by `scripts/env.mjs`:
 | --- | --- | --- |
 | Browser basic auth | every page, before anything loads | `demo` / `local-demo-password` |
 | Platform owner | `/platform/login` | `owner@mezan.local` / `owner-password-123` |
-| Demo tenant | company code `demo`, then the login screen | `admin@cyag.example` with PIN `123456` |
+| Demo tenant | company code `demo`, then the login screen | `admin@cyag.example` with password `Cyag@2026` |
 
 Both sit behind basic auth because they seed the demo tenant: `cloud.ts` refuses
 to start with `MEZAN_SEED_DEMO=1` unless `MEZAN_DEMO_PASSWORD` holds at least 12

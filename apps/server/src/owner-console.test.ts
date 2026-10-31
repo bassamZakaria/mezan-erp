@@ -25,10 +25,10 @@ interface World {
   readonly sent: Sent[];
   readonly platform: string;
   readonly tenantId: string;
-  readonly ownerPin: string;
+  readonly ownerPassword: string;
   platformCall(method: string, route: string, body?: unknown, token?: string | null): Promise<{ status: number; json: Record<string, unknown> }>;
   tenantCall(method: string, route: string, token: string, body?: unknown): Promise<{ status: number; json: unknown }>;
-  signIn(username: string, pin: string): Promise<string>;
+  signIn(username: string, password: string): Promise<string>;
 }
 
 interface Setup {
@@ -69,22 +69,33 @@ async function world(vars: Record<string, string> = { MEZAN_PUBLIC_URL: "https:/
     const res = await cloud.send(`/api${route}`, { method, token, tenant: "nile", ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
     return { status: res.status, json: await res.json().catch(() => null) };
   };
-  const signIn: World["signIn"] = async (username, pin) => {
-    const res = await cloud.send("/api/auth/login", { method: "POST", tenant: "nile", body: JSON.stringify({ username, pin }) });
+  const chosen = new Map<string, string>();
+  const login = async (username: string, password: string) => {
+    const res = await cloud.send("/api/auth/login", { method: "POST", tenant: "nile", body: JSON.stringify({ username, password }) });
     expect(res.status).toBe(200);
-    return ((await res.json()) as { token: string }).token;
+    return (await res.json()) as { token: string; mustChangePassword: boolean };
+  };
+  const signIn: World["signIn"] = async (username, password) => {
+    const current = chosen.get(`${username}:${password}`) ?? password;
+    const session = await login(username, current);
+    if (!session.mustChangePassword) return session.token;
+    const own = `${current}-own`;
+    const changed = await cloud.send("/api/profile/change-password", { method: "POST", tenant: "nile", token: session.token, body: JSON.stringify({ currentPassword: current, newPassword: own }) });
+    expect(changed.status).toBe(204);
+    chosen.set(`${username}:${password}`, own);
+    return (await login(username, own)).token;
   };
   return {
     cloud, sent, platform, platformCall, tenantCall, signIn,
     tenantId: String((created.json["tenant"] as Record<string, unknown>)["id"]),
-    ownerPin: String(created.json["adminPin"]),
+    ownerPassword: String(created.json["adminPassword"]),
   };
 }
 
-async function addAdmin(w: World, ownerToken: string, email: string, pin: string): Promise<string> {
+async function addAdmin(w: World, ownerToken: string, email: string, password: string): Promise<string> {
   const created = await w.tenantCall("POST", "/users", ownerToken, {
     nameAr: "مدير ثان", nameEn: null, email, phone: null, roleId: null, isCompanyAdmin: true, employeeId: null,
-    branchScope: "*", warehouseScope: "*", status: "active", password: "second-password-1", pin, acknowledge: true, reason: "اختبار",
+    branchScope: "*", warehouseScope: "*", status: "active", password, acknowledge: true, reason: "اختبار",
   });
   expect(created.status).toBe(201);
   return String((created.json as Record<string, unknown>)["id"]);
@@ -92,13 +103,13 @@ async function addAdmin(w: World, ownerToken: string, email: string, pin: string
 
 const tenantOf = (json: Record<string, unknown>) => json["tenant"] as Record<string, unknown>;
 
-async function ownerStepsDownOnConsolePin(w: World): Promise<{ peer: string; peerToken: string; owner: Record<string, unknown> }> {
-  const ownerToken = await w.signIn("owner@nile.example", w.ownerPin);
+async function ownerStepsDownOnConsolePassword(w: World): Promise<{ peer: string; peerToken: string; owner: Record<string, unknown> }> {
+  const ownerToken = await w.signIn("owner@nile.example", w.ownerPassword);
   const owner = ((await w.tenantCall("GET", "/users", ownerToken)).json as Record<string, unknown>[]).find((user) => user["email"] === "owner@nile.example") ?? {};
-  const peer = await addAdmin(w, ownerToken, "second@nile.example", "222222");
-  const peerToken = await w.signIn("second@nile.example", "222222");
-  const reset = await w.platformCall("POST", `/tenants/${w.tenantId}/owner-pin/reset`);
-  const session = await w.signIn("owner@nile.example", String(reset.json["adminPin"]));
+  const peer = await addAdmin(w, ownerToken, "second@nile.example", "pw-222222");
+  const peerToken = await w.signIn("second@nile.example", "pw-222222");
+  const reset = await w.platformCall("POST", `/tenants/${w.tenantId}/owner-password/reset`);
+  const session = await w.signIn("owner@nile.example", String(reset.json["adminPassword"]));
   const stepped = await w.tenantCall("PUT", `/users/${String(owner["id"])}`, session, { ...owner, status: "inactive", newOwnerUserId: peer });
   expect(stepped.status).toBe(200);
   return { peer, peerToken, owner };
@@ -107,8 +118,8 @@ async function ownerStepsDownOnConsolePin(w: World): Promise<{ peer: string; pee
 describe("the platform owner assigns a tenant's owner from the console", () => {
   it("lists the tenant's active company admins, to the platform owner only", async () => {
     const w = await world();
-    const ownerToken = await w.signIn("owner@nile.example", w.ownerPin);
-    const second = await addAdmin(w, ownerToken, "second@nile.example", "222222");
+    const ownerToken = await w.signIn("owner@nile.example", w.ownerPassword);
+    const second = await addAdmin(w, ownerToken, "second@nile.example", "pw-222222");
 
     const listed = await w.cloud.send(`/api/platform/tenants/${w.tenantId}/owner/candidates`, { token: w.platform });
     const unauthenticated = await w.platformCall("GET", `/tenants/${w.tenantId}/owner/candidates`, undefined, null);
@@ -123,8 +134,8 @@ describe("the platform owner assigns a tenant's owner from the console", () => {
 
   it("makes the chosen admin the verified owner, with a CRITICAL row inside the tenant naming the platform operator", async () => {
     const w = await world();
-    const ownerToken = await w.signIn("owner@nile.example", w.ownerPin);
-    const second = await addAdmin(w, ownerToken, "second@nile.example", "222222");
+    const ownerToken = await w.signIn("owner@nile.example", w.ownerPassword);
+    const second = await addAdmin(w, ownerToken, "second@nile.example", "pw-222222");
 
     const assigned = await w.platformCall("POST", `/tenants/${w.tenantId}/owner`, { userId: second });
 
@@ -133,7 +144,7 @@ describe("the platform owner assigns a tenant's owner from the console", () => {
     const audit = (await w.tenantCall("GET", "/audit?stream=security&action=COMPANY_OWNER_ASSIGNED", ownerToken)).json as { events: Record<string, unknown>[] };
     expect(audit.events).toMatchObject([{ entityId: second, severity: "CRITICAL", details: { confirmedBy: "platform-console" } }]);
     expect(String(audit.events[0]?.["actor"])).toMatch(/^platform:/);
-    const reset = await w.platformCall("POST", `/tenants/${w.tenantId}/owner-pin/reset`);
+    const reset = await w.platformCall("POST", `/tenants/${w.tenantId}/owner-password/reset`);
     expect(reset.json).toMatchObject({ adminEmail: "second@nile.example", signInEmail: "second@nile.example" });
   });
 
@@ -152,10 +163,10 @@ describe("the platform owner assigns a tenant's owner from the console", () => {
 
   it("lets a peer admin erase the former owner only after the console has assigned another owner, and refuses it in Arabic before", async () => {
     const w = await world();
-    const ownerToken = await w.signIn("owner@nile.example", w.ownerPin);
+    const ownerToken = await w.signIn("owner@nile.example", w.ownerPassword);
     const owner = ((await w.tenantCall("GET", "/users", ownerToken)).json as Record<string, unknown>[]).find((user) => user["email"] === "owner@nile.example") ?? {};
-    const peer = await addAdmin(w, ownerToken, "second@nile.example", "222222");
-    const peerToken = await w.signIn("second@nile.example", "222222");
+    const peer = await addAdmin(w, ownerToken, "second@nile.example", "pw-222222");
+    const peerToken = await w.signIn("second@nile.example", "pw-222222");
     const erase = () => w.tenantCall("POST", `/users/${String(owner["id"])}/erase`, peerToken, { confirmEmail: "owner@nile.example", reason: "طلب محو", newOwnerUserId: peer });
 
     const before = await erase();
@@ -173,9 +184,9 @@ describe("the platform owner assigns a tenant's owner from the console", () => {
     expect(tenantOf((await w.platformCall("GET", `/tenants/${w.tenantId}`)).json)).toMatchObject({ ownerEmail: "second@nile.example", ownerContactVerified: true });
   });
 
-  it("shows a hand-over the owner asked for on a console-issued PIN as pending, and confirming it makes the successor the verified owner once", async () => {
+  it("shows a hand-over the owner asked for on a console-issued password as pending, and confirming it makes the successor the verified owner once", async () => {
     const w = await world();
-    const { peer } = await ownerStepsDownOnConsolePin(w);
+    const { peer } = await ownerStepsDownOnConsolePassword(w);
 
     const pending = tenantOf((await w.platformCall("GET", `/tenants/${w.tenantId}`)).json);
     expect(pending).toMatchObject({ ownerEmail: "owner@nile.example", pendingOwner: { userId: peer, email: "second@nile.example" } });
@@ -192,7 +203,7 @@ describe("the platform owner assigns a tenant's owner from the console", () => {
 
   it("mails the previously recorded owner a link on the configured origin, and the link confirms the hand-over exactly once", async () => {
     const w = await world();
-    await ownerStepsDownOnConsolePin(w);
+    await ownerStepsDownOnConsolePassword(w);
 
     expect(w.sent).toHaveLength(1);
     expect(w.sent[0]?.to).toBe("owner@nile.example");
@@ -215,7 +226,7 @@ describe("the platform owner assigns a tenant's owner from the console", () => {
 
   it("records the hand-over as pending with no link when no public origin is configured, so only the console can confirm it", async () => {
     const w = await world({});
-    const { peer } = await ownerStepsDownOnConsolePin(w);
+    const { peer } = await ownerStepsDownOnConsolePassword(w);
 
     expect(w.sent).toEqual([]);
     expect(tenantOf((await w.platformCall("GET", `/tenants/${w.tenantId}`)).json)).toMatchObject({ pendingOwner: { userId: peer } });
@@ -233,7 +244,7 @@ describe("a pending hand-over that is not confirmed", () => {
   async function pendingWorld(setup: Setup = {}, vars?: Record<string, string>) {
     const clock = { at: START };
     const w = await world(vars, { clock, ...setup });
-    const made = await ownerStepsDownOnConsolePin(w);
+    const made = await ownerStepsDownOnConsolePassword(w);
     return { w, clock, ...made };
   }
 
@@ -297,11 +308,11 @@ describe("a pending hand-over that is not confirmed", () => {
     const mailFails = { on: true };
     const clock = { at: START };
     const w = await world(undefined, { clock, mailFails });
-    const ownerToken = await w.signIn("owner@nile.example", w.ownerPin);
+    const ownerToken = await w.signIn("owner@nile.example", w.ownerPassword);
     const owner = ((await w.tenantCall("GET", "/users", ownerToken)).json as Record<string, unknown>[]).find((user) => user["email"] === "owner@nile.example") ?? {};
-    const peer = await addAdmin(w, ownerToken, "second@nile.example", "222222");
-    const reset = await w.platformCall("POST", `/tenants/${w.tenantId}/owner-pin/reset`);
-    const session = await w.signIn("owner@nile.example", String(reset.json["adminPin"]));
+    const peer = await addAdmin(w, ownerToken, "second@nile.example", "pw-222222");
+    const reset = await w.platformCall("POST", `/tenants/${w.tenantId}/owner-password/reset`);
+    const session = await w.signIn("owner@nile.example", String(reset.json["adminPassword"]));
 
     const stepped = await w.tenantCall("PUT", `/users/${String(owner["id"])}`, session, { ...owner, status: "inactive", newOwnerUserId: peer });
 
@@ -380,11 +391,11 @@ describe("a platform operator who is not the platform owner", () => {
     ["decline a pending hand-over", "POST", "/owner/decline", undefined],
     ["send the confirmation link again", "POST", "/owner/resend", undefined],
     ["release the tenant", "POST", "/release", undefined],
-    ["reset the owner's PIN", "POST", "/owner-pin/reset", undefined],
+    ["reset the owner's password", "POST", "/owner-password/reset", undefined],
   ])("cannot %s: 403, and the tenant's owner, its pending hand-over and its link are as they were", async (_label, method, route, body) => {
     const clock = { at: new Date("2026-10-12T10:00:00.000Z") };
     const w = await world(undefined, { clock });
-    const { peer } = await ownerStepsDownOnConsolePin(w);
+    const { peer } = await ownerStepsDownOnConsolePassword(w);
     const support = await supportToken(w);
     const before = tenantOf((await w.platformCall("GET", `/tenants/${w.tenantId}`)).json);
     const mailsBefore = w.sent.length;
@@ -392,7 +403,7 @@ describe("a platform operator who is not the platform owner", () => {
     const refused = await w.platformCall(method, `/tenants/${w.tenantId}${route}`, body, support);
 
     expect(refused.status).toBe(403);
-    expect(refused.json["adminPin"]).toBeUndefined();
+    expect(refused.json["adminPassword"]).toBeUndefined();
     expect(tenantOf((await w.platformCall("GET", `/tenants/${w.tenantId}`)).json)).toEqual(before);
     expect(before).toMatchObject({ ownerEmail: "owner@nile.example", status: "active", pendingOwner: { userId: peer } });
     expect(w.sent).toHaveLength(mailsBefore);

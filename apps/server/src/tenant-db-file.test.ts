@@ -2,7 +2,7 @@ import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFile
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createBackend, createPlatform, SEED_ADMIN_PIN, type PlatformHandle } from "@mezan/backend";
+import { createBackend, createPlatform, SEED_ADMIN_PASSWORD, type PlatformHandle } from "@mezan/backend";
 import { activateTenant, createTenant, releaseTenant, tenantDbFile, TenantStatusCode, type Tenant } from "@mezan/domain";
 import { bindTenantDatabase, holdSqliteFile, openSqliteConnection, SqliteFileBusyError } from "@mezan/persistence";
 import { createCloudApp, type CloudApp } from "./cloud-app.js";
@@ -469,7 +469,7 @@ const NOT_IN_PLACE = {
   message: "ملف بيانات المنشأة ليس في مكانه المتوقع. تواصل مع الدعم.",
   messageEn: "The company's data file is not where it is expected. Contact support.",
 };
-const ATTACKER = { nameAr: "مهاجم", nameEn: "Attacker", email: "attacker@evil.example", pin: "246813", companyName: "شركة النيل" };
+const ATTACKER = { nameAr: "مهاجم", nameEn: "Attacker", email: "attacker@evil.example", password: "pw-246813", companyName: "شركة النيل" };
 
 describe("a served company whose database file was removed from the server", () => {
   const MISSING = { error: "TENANT_DB_FILE_MISSING", ...NOT_IN_PLACE };
@@ -486,8 +486,8 @@ describe("a served company whose database file was removed from the server", () 
     });
     expect(created.status).toBe(201);
     const tenantId = String((created.json?.["tenant"] as Record<string, unknown>)["id"]);
-    const adminPin = String(created.json?.["adminPin"]);
-    const credentials = JSON.stringify({ username: "owner@nile.example", pin: adminPin });
+    const adminPassword = String(created.json?.["adminPassword"]);
+    const credentials = JSON.stringify({ username: "owner@nile.example", password: adminPassword });
     expect((await first.send("/api/auth/login", { method: "POST", tenant: "nile", body: credentials })).status).toBe(200);
     const rowOf = async (from: Booted) => (await from.send(`/api/platform/tenants/${tenantId}`, { token: from.platformToken })).json?.["tenant"];
     const before = await rowOf(first);
@@ -500,7 +500,7 @@ describe("a served company whose database file was removed from the server", () 
     const login = await second.send("/api/auth/login", { method: "POST", tenant: "nile", body: credentials });
     const status = await second.send("/api/bootstrap/status", { tenant: "nile" });
     const claim = await second.send("/api/bootstrap/admin", { method: "POST", tenant: "nile", body: JSON.stringify(ATTACKER) });
-    const attacker = await second.send("/api/auth/login", { method: "POST", tenant: "nile", body: JSON.stringify({ username: ATTACKER.email, pin: ATTACKER.pin }) });
+    const attacker = await second.send("/api/auth/login", { method: "POST", tenant: "nile", body: JSON.stringify({ username: ATTACKER.email, password: ATTACKER.password }) });
 
     expect(login).toEqual({ status: 503, json: MISSING });
     expect(status.status).toBe(503);
@@ -532,7 +532,7 @@ describe("a served company whose database file does not hold its own books", () 
     });
     expect(created.status).toBe(201);
     const tenantId = String((created.json?.["tenant"] as Record<string, unknown>)["id"]);
-    const credentials = JSON.stringify({ username: `owner@${code}.example`, pin: String(created.json?.["adminPin"]) });
+    const credentials = JSON.stringify({ username: `owner@${code}.example`, password: String(created.json?.["adminPassword"]) });
     expect((await on.send("/api/auth/login", { method: "POST", tenant: code, body: credentials })).status).toBe(200);
     return { code, tenantId, file: path.join(env.platformDir, tenantDbFile(tenantId)), credentials };
   }
@@ -573,8 +573,8 @@ describe("a served company whose database file does not hold its own books", () 
       status: await on.send("/api/bootstrap/status", { tenant: victim.code }),
       seed: await on.send("/api/bootstrap/seed", { method: "POST", tenant: victim.code }),
       claim: await on.send("/api/bootstrap/admin", { method: "POST", tenant: victim.code, body: JSON.stringify(ATTACKER) }),
-      attacker: await on.send("/api/auth/login", { method: "POST", tenant: victim.code, body: JSON.stringify({ username: ATTACKER.email, pin: ATTACKER.pin }) }),
-      seedAdmin: await on.send("/api/auth/login", { method: "POST", tenant: victim.code, body: JSON.stringify({ username: "admin@cyag.example", pin: SEED_ADMIN_PIN }) }),
+      attacker: await on.send("/api/auth/login", { method: "POST", tenant: victim.code, body: JSON.stringify({ username: ATTACKER.email, password: ATTACKER.password }) }),
+      seedAdmin: await on.send("/api/auth/login", { method: "POST", tenant: victim.code, body: JSON.stringify({ username: "admin@cyag.example", password: SEED_ADMIN_PASSWORD }) }),
     };
   }
 
@@ -753,7 +753,7 @@ describe("a served company whose database file does not hold its own books", () 
     inBooks(path.join(env.platformDir, "platform.db"), (sqlite) => sqlite.prepare("UPDATE tenant SET owner_user_id = NULL, owner_email = 'admin@cyag.example' WHERE id = ?").run(victim.tenantId));
 
     const second = await boot(env);
-    const seedAdmin = await second.send("/api/auth/login", { method: "POST", tenant: victim.code, body: JSON.stringify({ username: "admin@cyag.example", pin: SEED_ADMIN_PIN }) });
+    const seedAdmin = await second.send("/api/auth/login", { method: "POST", tenant: victim.code, body: JSON.stringify({ username: "admin@cyag.example", password: SEED_ADMIN_PASSWORD }) });
     await second.app.close();
 
     expect(seedAdmin).toEqual({ status: 503, json: FOREIGN });
@@ -803,12 +803,12 @@ describe("a database opened with no tenant to bind it to, as the desktop and its
 });
 
 describe("opening a tenant stored under its code", () => {
-  async function login(router: TenantRouter, code: string, pin: string | null): Promise<number> {
+  async function login(router: TenantRouter, code: string, password: string | null): Promise<number> {
     const res = await router.app.fetch(
       new Request("http://ignored/auth/login", {
         method: "POST",
         headers: { "content-type": "application/json", [TENANT_HEADER]: code },
-        body: JSON.stringify({ username: `o@${code}.example`, pin }),
+        body: JSON.stringify({ username: `o@${code}.example`, password }),
       }),
     );
     return res.status;
@@ -831,7 +831,7 @@ describe("opening a tenant stored under its code", () => {
     const second = reachableRouter({ platform, dataDir, sweepEveryMs: 0, now });
     routers.push(second);
 
-    expect(await login(second, "legacy", provisioned.adminPin)).toBe(200);
+    expect(await login(second, "legacy", provisioned.adminPassword)).toBe(200);
     expect((await platform.stores.tenants.findById(tenant.id))?.dbFile).toBe(tenantDbFile(tenant.id));
     expect(existsSync(path.join(dataDir, "tenants/legacy.db"))).toBe(false);
     expect(existsSync(path.join(dataDir, tenantDbFile(tenant.id)))).toBe(true);
@@ -853,14 +853,14 @@ describe("opening a tenant stored under its code", () => {
 
   it("answers 503 in Arabic, and repoints nothing, when a served company's database file is missing", async () => {
     const { dataDir, platform } = await world();
-    const { tenant, legacy, adminPin } = await legacyTenant(dataDir, platform, "vanish");
+    const { tenant, legacy, adminPassword } = await legacyTenant(dataDir, platform, "vanish");
     rmSync(path.join(dataDir, legacy));
     const router = reachableRouter({ platform, dataDir, sweepEveryMs: 0, now });
     routers.push(router);
 
     const res = await router.app.fetch(
       new Request("http://ignored/auth/login", {
-        method: "POST", headers: { "content-type": "application/json", [TENANT_HEADER]: "vanish" }, body: JSON.stringify({ username: "o@vanish.example", pin: adminPin }),
+        method: "POST", headers: { "content-type": "application/json", [TENANT_HEADER]: "vanish" }, body: JSON.stringify({ username: "o@vanish.example", password: adminPassword }),
       }),
     );
 
@@ -872,14 +872,14 @@ describe("opening a tenant stored under its code", () => {
 
   it("answers a retryable 503 in Arabic while the old file is open elsewhere, and serves the same books once it is free", async () => {
     const { dataDir, platform } = await world();
-    const { legacy, adminPin } = await legacyTenant(dataDir, platform, "inuse");
+    const { legacy, adminPassword } = await legacyTenant(dataDir, platform, "inuse");
     const elsewhere = openSqliteConnection(path.join(dataDir, legacy)).sqlite;
     const router = reachableRouter({ platform, dataDir, sweepEveryMs: 0, now, dbFileWaitMs: 50 });
     routers.push(router);
     const attempt = () =>
       router.app.fetch(
         new Request("http://ignored/auth/login", {
-          method: "POST", headers: { "content-type": "application/json", [TENANT_HEADER]: "inuse" }, body: JSON.stringify({ username: "o@inuse.example", pin: adminPin }),
+          method: "POST", headers: { "content-type": "application/json", [TENANT_HEADER]: "inuse" }, body: JSON.stringify({ username: "o@inuse.example", password: adminPassword }),
         }),
       );
 
@@ -915,13 +915,13 @@ describe("opening a tenant stored under its code", () => {
 
     expect(fresh.tenant.id).not.toBe(old.tenant.id);
     expect(fresh.tenant.dbFile).not.toBe(old.tenant.dbFile);
-    expect(fresh.adminPin).not.toBeNull();
-    expect(await login(router, "shared", old.adminPin)).toBe(401);
+    expect(fresh.adminPassword).not.toBeNull();
+    expect(await login(router, "shared", old.adminPassword)).toBe(401);
     const signedIn = await router.app.fetch(
       new Request("http://ignored/auth/login", {
         method: "POST",
         headers: { "content-type": "application/json", [TENANT_HEADER]: "shared" },
-        body: JSON.stringify({ username: "new@shared.example", pin: fresh.adminPin }),
+        body: JSON.stringify({ username: "new@shared.example", password: fresh.adminPassword }),
       }),
     );
     expect(signedIn.status).toBe(200);

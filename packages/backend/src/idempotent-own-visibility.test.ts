@@ -40,7 +40,7 @@ describe("a sales rep who may create an invoice but only read their own", () => 
     expect(employeeId, `employee create answered ${created.status}`).not.toBeNull();
     const user = await send("POST", "/users", admin, {
       nameAr: "مندوب المبيعات", email, roleId: null, isCompanyAdmin: true, employeeId,
-      branchScope: "*", warehouseScope: "*", password: "rep-password-1", pin: "246813", acknowledge: true, reason: "test fixture",
+      branchScope: "*", warehouseScope: "*", password: "rep-password-1", acknowledge: true, reason: "test fixture",
     });
     expect(user.status).toBe(201);
     const userId = ((await user.json()) as { id: string }).id;

@@ -59,7 +59,7 @@ describe("SignupRequestsPage", () => {
     localStorage.clear();
   });
 
-  it("approves a request onto the chosen package and shows the one-time PIN", async () => {
+  it("approves a request onto the chosen package and shows the one-time temporary password", async () => {
     let approved: unknown = null;
     let rows = [request];
     renderPage({
@@ -67,7 +67,7 @@ describe("SignupRequestsPage", () => {
       "POST /signup-requests/REQ-1/approve": (init) => {
         approved = JSON.parse(String(init?.body));
         rows = [];
-        return { status: 201, body: { tenant: { code: "nile" }, adminEmail: "owner@nile.example", adminPin: "482913" } };
+        return { status: 201, body: { tenant: { code: "nile" }, adminEmail: "owner@nile.example", adminPassword: "Tmp-4829-13cd" } };
       },
     });
 
@@ -80,12 +80,12 @@ describe("SignupRequestsPage", () => {
     expect(within(panel).getByText("باقة مدفوعة بلا فترة تجريبية تبدأ فترتها المدفوعة الآن: سجّل الدفعة من صفحة المنشأة.")).toBeInTheDocument();
     fireEvent.click(within(panel).getByRole("button", { name: "الموافقة وإنشاء الحساب" }));
 
-    expect(await within(panel).findByText("482913")).toBeInTheDocument();
+    expect(await within(panel).findByText("Tmp-4829-13cd")).toBeInTheDocument();
     expect(approved).toEqual({ planId: "PLAN-CORE", billingCycle: "monthly", trial: false });
     await waitFor(() => expect(screen.getByText("لا توجد طلبات تنتظر المراجعة.")).toBeInTheDocument());
   });
 
-  it("cannot be closed while the approval is in flight, so the one-time PIN is never lost", async () => {
+  it("cannot be closed while the approval is in flight, so the one-time temporary password is never lost", async () => {
     let answer: (value: { status: number; body: unknown }) => void = () => undefined;
     const pending = new Promise<{ status: number; body: unknown }>((resolve) => {
       answer = resolve;
@@ -113,8 +113,8 @@ describe("SignupRequestsPage", () => {
     await waitFor(() => expect(within(panel).getByRole("button", { name: "إلغاء" })).toBeDisabled());
     fireEvent.keyDown(panel, { key: "Escape" });
 
-    answer({ status: 201, body: { tenant: { code: "nile" }, adminEmail: "owner@nile.example", adminPin: "482913" } });
-    expect(await screen.findByText("482913")).toBeInTheDocument();
+    answer({ status: 201, body: { tenant: { code: "nile" }, adminEmail: "owner@nile.example", adminPassword: "Tmp-4829-13cd" } });
+    expect(await screen.findByText("Tmp-4829-13cd")).toBeInTheDocument();
   });
 
   it("rejects only after confirming, and changing the mode asks first", async () => {

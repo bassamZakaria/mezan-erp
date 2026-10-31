@@ -124,7 +124,7 @@ interface Report {
   summary: { total: number; valid: number; invalid: number };
   seats: { limit: number | null; active: number; available: number | null };
   created: number;
-  credentials: { rowNumber: number; userId: string; email: string; pin: string; password: string }[];
+  credentials: { rowNumber: number; userId: string; email: string; password: string }[];
 }
 
 async function dryRun(h: Harness, body: string, extra: Record<string, unknown> = {}) {
@@ -306,10 +306,11 @@ describe("POST /users/import", () => {
       expect(user.branchScope).toEqual(["BR1"]);
       expect(user.warehouseScope).toEqual(["WH1"]);
       const sheet = done.credentials.find((entry) => entry.userId === user.id)!;
-      expect(sheet.pin).toMatch(/^\d{6}$/);
-      expect(user.pinHash).not.toContain(sheet.pin);
-      expect(await h.hasher.verify(sheet.pin, user.pinHash!)).toBe(true);
+      expect(sheet).not.toHaveProperty("pin");
+      expect(sheet.password).toHaveLength(12);
+      expect(user.passwordHash).not.toContain(sheet.password);
       expect(await h.hasher.verify(sheet.password, user.passwordHash)).toBe(true);
+      expect(user.mustChangePassword).toBe(true);
     }
 
     const again = await send(h, "POST", "/users/import", { csv: body, dryRun: false, digest: dry.digest });
@@ -318,7 +319,7 @@ describe("POST /users/import", () => {
     expect(await h.uow.users.list()).toHaveLength(2);
   });
 
-  it("never writes a PIN or a temporary password into the audit trail", async () => {
+  it("never writes a temporary password into the audit trail", async () => {
     const h = harness();
     await seedBranchAndWarehouse(h);
     await seedRole(h, "CASH", CASHIER_PERMISSIONS);
@@ -327,12 +328,12 @@ describe("POST /users/import", () => {
     const done = (await (await send(h, "POST", "/users/import", { csv: body, dryRun: false, digest: dry.digest })).json()) as Report;
     const sheet = done.credentials[0]!;
     const everything = JSON.stringify(h.sqlite.prepare("SELECT * FROM audit_event").all());
-    expect(everything).not.toContain(sheet.pin);
     expect(everything).not.toContain(sheet.password);
     expect(everything).toContain("USERS_IMPORTED");
     const created = h.sqlite.prepare("SELECT details FROM audit_event WHERE action = 'CREATE' AND entity_type = 'USER'").all() as { details: string }[];
     expect(created).toHaveLength(1);
-    expect(created[0]!.details).toContain("pinChanged");
+    expect(created[0]!.details).toContain("passwordChanged");
+    expect(created[0]!.details).not.toContain("pinChanged");
   });
 
   it("stops at the seat limit row by row and commits nothing while any row fails", async () => {
@@ -398,7 +399,7 @@ describe("POST /users/:id/clone", () => {
       email: "source@x.test",
       phone: "0100",
       passwordHash: hash,
-      pinHash: await h.hasher.hash("482913"),
+      mustChangePassword: false,
       roleId: role.id,
       isCompanyAdmin: false,
       employeeId: "emp-1",
@@ -423,7 +424,7 @@ describe("POST /users/:id/clone", () => {
     const res = await send(h, "POST", "/users/source/clone", cloneBody);
     expect(res.status).toBe(201);
     expect(res.headers.get("cache-control")).toBe("no-store");
-    const result = (await res.json()) as { user: { id: string }; preferencesCopied: boolean; credentials: { pin: string; password: string } };
+    const result = (await res.json()) as { user: { id: string }; preferencesCopied: boolean; credentials: { password: string } };
     expect(result.preferencesCopied).toBe(true);
     const copy = (await h.uow.users.findById(result.user.id))!;
     expect(copy.roleId).toBe(source.roleId);
@@ -433,8 +434,8 @@ describe("POST /users/:id/clone", () => {
     expect(copy.employeeId).toBeNull();
     expect(copy.photoUrl).toBeNull();
     expect(copy.passwordHash).not.toBe(source.passwordHash);
-    expect(copy.pinHash).not.toBe(source.pinHash);
-    expect(await h.hasher.verify(result.credentials.pin, copy.pinHash!)).toBe(true);
+    expect(await h.hasher.verify(result.credentials.password, copy.passwordHash)).toBe(true);
+    expect(copy.mustChangePassword).toBe(true);
     expect(await h.hasher.verify("OriginalPass1", copy.passwordHash)).toBe(false);
     const prefs = (await h.preferences.get(copy.id))!;
     expect(prefs.railCollapsed).toBe(true);
@@ -442,7 +443,6 @@ describe("POST /users/:id/clone", () => {
     expect(prefs.recentRecords).toEqual([]);
     expect((await h.preferences.get("source"))!.userId).toBe("source");
     const everything = JSON.stringify(h.sqlite.prepare("SELECT * FROM audit_event").all());
-    expect(everything).not.toContain(result.credentials.pin);
     expect(everything).not.toContain(result.credentials.password);
     expect(everything).toContain("USER_CLONED");
   });
@@ -498,7 +498,7 @@ describe("POST /users/:id/clone", () => {
       email: "source@x.test",
       phone: null,
       passwordHash: await h.hasher.hash("OriginalPass1"),
-      pinHash: null,
+      mustChangePassword: false,
       roleId: role.id,
       isCompanyAdmin: false,
       employeeId: null,

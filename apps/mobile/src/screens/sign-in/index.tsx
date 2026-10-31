@@ -11,7 +11,6 @@ import { SizeClass, useFormPadding, useSizeClass } from "@/layout";
 import { SessionEnded, useSession } from "@/session/SessionProvider";
 import { SPACE, TYPE, useTheme } from "@/theme";
 
-const PIN_LENGTH = 6;
 const SECOND_MS = 1000;
 const SHOWN_AS_MINUTES_FROM = 120;
 
@@ -31,6 +30,12 @@ function counted(count: number, forms: WaitForms): string {
 function formatWait(seconds: number, strings: Strings): string {
   if (seconds < SHOWN_AS_MINUTES_FROM) return counted(seconds, strings.signIn.wait[WaitUnit.Seconds]);
   return counted(Math.ceil(seconds / 60), strings.signIn.wait[WaitUnit.Minutes]);
+}
+
+function sessionEndedSentence(ended: SessionEnded, strings: Strings): string {
+  if (ended === SessionEnded.Displaced) return strings.signIn.sessionDisplaced;
+  if (ended === SessionEnded.PasswordChangeRequired) return strings.signIn.passwordChangeRequired;
+  return strings.signIn.sessionExpired;
 }
 
 // The wait is counted down in ONE place, on the button. A throttle's own
@@ -59,7 +64,7 @@ export function SignIn() {
   const [baseUrl, setBaseUrl] = useState(connection.baseUrl);
   const [tenantCode, setTenantCode] = useState(connection.tenantCode ?? "");
   const [email, setEmail] = useState(connection.email ?? "");
-  const [pin, setPin] = useState("");
+  const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -85,7 +90,7 @@ export function SignIn() {
     };
   }, [held]);
 
-  const complete = baseUrl.trim().length > 0 && email.trim().length > 0 && pin.length === PIN_LENGTH;
+  const complete = baseUrl.trim().length > 0 && email.trim().length > 0 && password.length > 0;
   const tenant = tenantCode.trim() === "" ? null : tenantCode.trim();
 
   const submitUnlockCode = (): void => {
@@ -119,9 +124,13 @@ export function SignIn() {
       baseUrl: baseUrl.trim(),
       tenantCode: tenant,
       email: email.trim(),
-      pin,
+      password,
     })
-      .then(() => {
+      .then((signedIn) => {
+        if (!signedIn) {
+          setPassword("");
+          return;
+        }
         acknowledgeSessionEnded();
         router.replace("/(tabs)");
       })
@@ -131,7 +140,7 @@ export function SignIn() {
         setUnlockOffered(error instanceof ApiError && error.failure === ApiFailure.Locked && error.unlockByCode);
         setHold(wait.hold);
         setHeldForSeconds(wait.seconds);
-        setPin("");
+        setPassword("");
       })
       .finally(() => {
         setBusy(false);
@@ -144,7 +153,7 @@ export function SignIn() {
        * "padding" on BOTH platforms. Android 15 draws every app edge to edge,
        * and an edge-to-edge window is no longer resized by
        * android:windowSoftInputMode="adjustResize" — so with the keyboard up
-       * the form did not shrink, did not scroll, and the PIN field and the
+       * the form did not shrink, did not scroll, and the password field and the
        * sign-in button could not be reached at all. Measured on a 360x640dp
        * emulator.
        */
@@ -191,21 +200,17 @@ export function SignIn() {
             value={email}
           />
           <TextField
-            keyboardType="number-pad"
-            label={strings.signIn.pinLabel}
-            maxLength={PIN_LENGTH}
-            onChangeText={(next) => {
-              setPin(next.replace(/\D/g, ""));
-            }}
+            label={strings.signIn.passwordLabel}
+            onChangeText={setPassword}
             secureTextEntry
-            testID="sign-in-pin"
-            value={pin}
+            testID="sign-in-password"
+            value={password}
           />
         </Pair>
 
         {sessionEnded === null || failure !== null ? null : (
           <Text accessibilityRole="alert" style={[styles.failure, { color: theme.negative }]} testID="sign-in-session-ended">
-            {sessionEnded === SessionEnded.Displaced ? strings.signIn.sessionDisplaced : strings.signIn.sessionExpired}
+            {sessionEndedSentence(sessionEnded, strings)}
           </Text>
         )}
         {failure === null ? null : (

@@ -3,8 +3,8 @@ import { scopeSelectionSchema } from "./roles.js";
 import { companyNameSchema } from "./company-name.js";
 
 /**
- * Real desktop login (docs/archive/plan.md — username + PIN). `POST /auth/login`
- * verifies the PIN against the persisted user's hash and returns the
+ * Email + password sign-in on every edition. `POST /auth/login`
+ * verifies the password against the persisted user's hash and returns the
  * resolved session the web client turns into the permission-gate headers
  * (`x-user-id`, `x-permissions`, `x-branch-scope`, `x-warehouse-scope`) it
  * sends on every subsequent API call.
@@ -27,13 +27,22 @@ export enum CsrfCookie {
   Platform = "mezan_platform_csrf",
 }
 
-// CONTRACT: a wrong CURRENT secret from a signed-in caller (password change,
-// PIN change, email change, step-up) answers 403 with one of these. 401 is kept
-// for "this session is gone": the clients sign out on it.
+// CONTRACT: a wrong CURRENT password from a signed-in caller (password change,
+// email change, step-up) answers 403 with this. 401 is kept for "this session
+// is gone": the clients sign out on it.
 export enum CurrentSecretRefusal {
   IncorrectPassword = "INCORRECT_PASSWORD",
-  IncorrectPin = "INCORRECT_PIN",
 }
+
+// CONTRACT: a session whose user still holds an admin-issued temporary password
+// answers 403 with this on every route but the password change, sign-out and
+// session read; the client then shows the change-password screen.
+export enum PasswordChangeRefusal {
+  Required = "PASSWORD_CHANGE_REQUIRED",
+}
+
+/** Accepted at sign-in and step-up. Only a NEW password is held to the 8-character policy, so a legacy 6-digit one still signs in once to be replaced. */
+export const signInPasswordSchema = z.string().min(1).max(256);
 
 // CONTRACT: a browser whose session cookie was issued by one tenant and whose
 // request names another answers 403 with this code; the cookie is neither
@@ -42,7 +51,7 @@ export enum SessionRefusal {
   TenantMismatch = "SESSION_TENANT_MISMATCH",
 }
 
-export const stepUpRequestSchema = z.object({ pin: z.string().regex(/^\d{6}$/) });
+export const stepUpRequestSchema = z.object({ password: signInPasswordSchema });
 export type StepUpRequestDTO = z.infer<typeof stepUpRequestSchema>;
 
 export const unlockAccountRequestSchema = z.object({
@@ -50,6 +59,15 @@ export const unlockAccountRequestSchema = z.object({
   code: z.string().min(1).max(64),
 });
 export type UnlockAccountRequestDTO = z.infer<typeof unlockAccountRequestSchema>;
+
+export const forgotPasswordRequestSchema = z.object({ username: z.string().min(1).max(254) });
+export type ForgotPasswordRequestDTO = z.infer<typeof forgotPasswordRequestSchema>;
+
+export const resetPasswordRequestSchema = z.object({
+  token: z.string().min(20).max(128),
+  password: z.string().min(8, "Password must be at least 8 characters").max(256),
+});
+export type ResetPasswordRequestDTO = z.infer<typeof resetPasswordRequestSchema>;
 
 export const unlockAccountByLinkRequestSchema = z.object({ token: z.string().min(20).max(128) });
 export type UnlockAccountByLinkRequestDTO = z.infer<typeof unlockAccountByLinkRequestSchema>;
@@ -62,7 +80,7 @@ export const loginRequestSchema = z.object({
    * the login form is called; the value is an address.
    */
   username: z.string().min(1),
-  pin: z.string().regex(/^\d{6}$/),
+  password: signInPasswordSchema,
 });
 
 export const UNDISCLOSED_TENANT_NAME = "Mezan";
@@ -74,6 +92,7 @@ export const sessionSchema = z.object({
   nameEn: z.string().nullable(),
   email: z.string(),
   isCompanyAdmin: z.boolean(),
+  mustChangePassword: z.boolean(),
   /** Resolved effective permission codes; `["*"]` for a tenant admin. */
   permissions: z.array(z.string()),
   /**
@@ -107,7 +126,7 @@ export const bootstrapAdminRequestSchema = z.object({
   nameEn: z.string().min(1).nullable().default(null),
   /** The first admin's email — and, from this moment on, their login. */
   email: z.string().trim().toLowerCase().email(),
-  pin: z.string().regex(/^\d{6}$/),
+  password: z.string().min(8).max(256),
   companyName: companyNameSchema,
 });
 

@@ -27,7 +27,7 @@ interface Call {
  * A host that behaves the way the real one does: everything outside the public
  * list is 404 until this device holds a seat.
  */
-function fakeHost(options: { seatsAvailable?: boolean } = {}) {
+function fakeHost(options: { seatsAvailable?: boolean; mustChangePassword?: boolean } = {}) {
   const calls: Call[] = [];
   let seated = false;
 
@@ -46,7 +46,10 @@ function fakeHost(options: { seatsAvailable?: boolean } = {}) {
       body: JSON.stringify(body),
     });
 
-    if (path === "/auth/login") return reply(200, { userId: "USER-ADMIN", token: "TOKEN-1" });
+    if (path === "/auth/login") {
+      return reply(200, { userId: "USER-ADMIN", token: "TOKEN-1", mustChangePassword: options.mustChangePassword === true });
+    }
+    if (path === "/profile/change-password") return { status: 204, headers: {}, body: "" };
     if (path === "/auth/logout") return reply(200, { ok: true });
     if (path === "/lan/sessions" && (init.method ?? "GET") === "POST") {
       if (options.seatsAvailable === false) return reply(409, { error: "SEAT_LIMIT_EXCEEDED" });
@@ -88,7 +91,7 @@ describe("a client claims its seat as part of signing in", () => {
 
     const login = await client("/auth/login", {
       method: "POST",
-      body: JSON.stringify({ username: "a@b.c", pin: "123456" }),
+      body: JSON.stringify({ username: "a@b.c", password: "Cyag@2026" }),
     });
 
     expect(login.status).toBe(200);
@@ -103,6 +106,25 @@ describe("a client claims its seat as part of signing in", () => {
     expect(seatCall!.auth).toBe("Bearer TOKEN-1");
 
     expect((await client("/items")).status).toBe(200);
+  });
+
+  it("signs a temporary-password user in without a seat, and seats them on the first request after the change", async () => {
+    const host = fakeHost({ mustChangePassword: true });
+    const client = withSeatClaim(host.forward, CONFIG);
+
+    const login = await client("/auth/login", { method: "POST", body: "{}" });
+    expect(login.status).toBe(200);
+    expect(host.calls.some((c) => c.path === "/lan/sessions")).toBe(false);
+
+    const changed = await client("/profile/change-password", {
+      method: "POST",
+      headers: { authorization: "Bearer TOKEN-1" },
+      body: JSON.stringify({ currentPassword: "Temp-1234", newPassword: "Owner-Pass-9" }),
+    });
+    expect(changed.status).toBe(204);
+
+    expect((await client("/items", { headers: { authorization: "Bearer TOKEN-1" } })).status).toBe(200);
+    expect(host.calls.filter((c) => c.path === "/lan/sessions")).toHaveLength(1);
   });
 
   /**

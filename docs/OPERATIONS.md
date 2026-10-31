@@ -97,3 +97,17 @@ UptimeRobot covers what the server cannot report about itself: the VPS down, Doc
 ## Client errors
 
 The web app (and the desktop renderer, which runs the same bundle), and the mobile app post their crashes to the tenant's `POST /api/client-errors`: route-boundary errors, `window` `error` / `unhandledrejection`, and React Native's global JS handler. The endpoint takes reports with or without a session, holds them to 16 KB, 20 per caller per 10 minutes, and keeps the newest 500 per tenant. Each report is also logged as `client_error.reported`. The last ones — when, which interface, screen, message, stack and the failing request's id — are on the tenant's **حالة النظام** health console, for users who hold `admin.health.view`.
+
+## Resetting test-tenant passwords (staging only)
+
+`scripts/reset-test-passwords.ts` gives every active user in the staging tenants the shared test password `Cyag@2026` with no forced change. It refuses to run without `--i-know-these-are-test-tenants` and `--only=<tenant codes>`, refuses a database host that is not localhost, revokes those users' sessions, never prints a hash, and prints one line per tenant with the user count. Never run it against a tenant that holds real people.
+
+The production image does not carry `scripts/` or `tsx`, so run it from a repo checkout through an SSH tunnel to the staging Postgres, with `MEZAN_DATABASE_URL` pointing at the local end of the tunnel. The tenant secret must be the one the server runs with.
+
+```bash
+MEZAN_DATABASE_URL=postgres://mezan_app:<password>@127.0.0.1:5432/mezan \
+MEZAN_TENANT_DB_SECRET=<64 hex from the staging .env> \
+pnpm exec tsx scripts/reset-test-passwords.ts --i-know-these-are-test-tenants --only=demo,acme
+```
+
+Only the named tenants are touched. Postgres installs only (the Contabo layout).

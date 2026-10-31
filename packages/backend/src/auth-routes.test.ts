@@ -9,8 +9,8 @@ const cashier: User = {
   nameEn: "Cashier",
   email: "cashier@example.eg",
   phone: null,
-  passwordHash: "hash:password",
-  pinHash: "hash:135790",
+  passwordHash: "hash:pw-135790",
+  mustChangePassword: false,
   roleId: null,
   isCompanyAdmin: true,
   employeeId: null,
@@ -71,7 +71,7 @@ function mounted() {
       new Request("http://local/auth/login", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ username: cashier.email, pin: "135790" }),
+        body: JSON.stringify({ username: cashier.email, password: "pw-135790" }),
       }),
       from ? { incoming: { socket: { remoteAddress: from } } } : undefined,
     );
@@ -79,7 +79,7 @@ function mounted() {
   return { users, signIn, verifyAsked: firstVerify, nextVerify: () => pending, finishChecking: () => checked(), issued: () => issued };
 }
 
-describe("a sign-in whose account changes while its PIN is being checked", () => {
+describe("a sign-in whose account changes while its password is being checked", () => {
   it("issues no session to an account deactivated during the check", async () => {
     const t = mounted();
 
@@ -92,24 +92,24 @@ describe("a sign-in whose account changes while its PIN is being checked", () =>
     expect(t.issued()).toBe(0);
   });
 
-  it("issues no session on a PIN that was replaced during the check", async () => {
+  it("issues no session on a password that was replaced during the check", async () => {
     const t = mounted();
 
     const answer = t.signIn();
     await t.verifyAsked;
-    t.users.set(cashier.id, { ...cashier, pinHash: "hash:999999" });
+    t.users.set(cashier.id, { ...cashier, passwordHash: "hash:pw-999999" });
     t.finishChecking();
 
     expect((await answer).status).toBe(401);
     expect(t.issued()).toBe(0);
   });
 
-  it("does not count a PIN replaced during the check as a failed attempt against the account", async () => {
+  it("does not count a password replaced during the check as a failed attempt against the account", async () => {
     const t = mounted();
     for (let attempt = 0; attempt < 8; attempt += 1) {
       const answer = t.signIn("41.33.10.10");
       await t.nextVerify();
-      t.users.set(cashier.id, { ...cashier, pinHash: `hash:replaced-${attempt}` });
+      t.users.set(cashier.id, { ...cashier, passwordHash: `hash:replaced-${attempt}` });
       t.finishChecking();
       expect((await answer).status).toBe(401);
       t.users.set(cashier.id, cashier);

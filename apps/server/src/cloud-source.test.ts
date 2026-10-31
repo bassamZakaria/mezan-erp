@@ -14,7 +14,7 @@ async function boot(): Promise<CloudHarness> {
   return h;
 }
 
-async function provision(h: CloudHarness, code = "acme"): Promise<{ adminEmail: string; adminPin: string }> {
+async function provision(h: CloudHarness, code = "acme"): Promise<{ adminEmail: string; adminPassword: string }> {
   const res = await h.send("/api/platform/tenants", {
     method: "POST",
     token: await h.platformToken(),
@@ -23,11 +23,17 @@ async function provision(h: CloudHarness, code = "acme"): Promise<{ adminEmail: 
     }),
   });
   expect(res.status).toBe(201);
-  return (await res.json()) as { adminEmail: string; adminPin: string };
+  const provisioned = (await res.json()) as { adminEmail: string; adminPassword: string };
+  const login = await h.send("/api/auth/login", { method: "POST", tenant: code, body: JSON.stringify({ username: provisioned.adminEmail, password: provisioned.adminPassword }) });
+  const { token } = (await login.json()) as { token: string };
+  const own = `${provisioned.adminPassword}-own`;
+  const changed = await h.send("/api/profile/change-password", { method: "POST", token, tenant: code, body: JSON.stringify({ currentPassword: provisioned.adminPassword, newPassword: own }) });
+  expect(changed.status).toBe(204);
+  return { adminEmail: provisioned.adminEmail, adminPassword: own };
 }
 
-async function signIn(h: CloudHarness, admin: { adminEmail: string; adminPin: string }, init: { client?: string; chain?: string | null } = {}) {
-  return h.send("/api/auth/login", { method: "POST", tenant: "acme", body: JSON.stringify({ username: admin.adminEmail, pin: admin.adminPin }), ...init });
+async function signIn(h: CloudHarness, admin: { adminEmail: string; adminPassword: string }, init: { client?: string; chain?: string | null } = {}) {
+  return h.send("/api/auth/login", { method: "POST", tenant: "acme", body: JSON.stringify({ username: admin.adminEmail, password: admin.adminPassword }), ...init });
 }
 
 describe("a cloud caller behind the two-hop proxy", () => {
@@ -63,12 +69,12 @@ describe("a cloud caller behind the two-hop proxy", () => {
     const statuses: number[] = [];
     for (let i = 0; i < 30; i += 1) {
       const res = await h.send("/api/auth/login", {
-        method: "POST", tenant: "acme", chain: HARNESS_PROXY_HOP, body: JSON.stringify({ username: admin.adminEmail, pin: String(100000 + i) }),
+        method: "POST", tenant: "acme", chain: HARNESS_PROXY_HOP, body: JSON.stringify({ username: admin.adminEmail, password: `pw-${100000 + i}` }),
       });
       statuses.push(res.status);
     }
     expect(new Set(statuses)).toEqual(new Set([503]));
-    const refusal = await h.send("/api/auth/login", { method: "POST", tenant: "acme", chain: null, body: JSON.stringify({ username: admin.adminEmail, pin: "000000" }) });
+    const refusal = await h.send("/api/auth/login", { method: "POST", tenant: "acme", chain: null, body: JSON.stringify({ username: admin.adminEmail, password: "pw-000000" }) });
     expect(refusal.status).toBe(503);
     expect(((await refusal.json()) as { error: string }).error).toBe("SOURCE_UNRESOLVED");
 
@@ -99,7 +105,7 @@ describe("a cloud caller behind the two-hop proxy", () => {
     const admin = await provision(h);
     const login = await h.send("/api/auth/login", {
       method: "POST", tenant: "acme", headers: { "x-mezan-device-binding": "1" },
-      body: JSON.stringify({ username: admin.adminEmail, pin: admin.adminPin }),
+      body: JSON.stringify({ username: admin.adminEmail, password: admin.adminPassword }),
     });
     const { token, deviceSecret } = (await login.json()) as { token: string; deviceSecret: string };
     const device = { "x-mezan-device": deviceSecret };
@@ -141,10 +147,10 @@ describe("a cloud caller behind the two-hop proxy", () => {
       };
     }
 
-    async function browserSignIn(h: CloudHarness, admin: { adminEmail: string; adminPin: string }, headers: Record<string, string> = {}) {
+    async function browserSignIn(h: CloudHarness, admin: { adminEmail: string; adminPassword: string }, headers: Record<string, string> = {}) {
       const res = await h.send("/api/auth/login", {
         method: "POST", tenant: "acme", headers: { "x-mezan-device-binding": "cookie", "sec-fetch-site": "same-origin", ...headers },
-        body: JSON.stringify({ username: admin.adminEmail, pin: admin.adminPin }),
+        body: JSON.stringify({ username: admin.adminEmail, password: admin.adminPassword }),
       });
       const body = (await res.json()) as { token?: string; deviceSecret?: string; userId?: string };
       return { status: res.status, body, jar: jarOf(res) };
@@ -252,7 +258,7 @@ describe("a cloud caller behind the two-hop proxy", () => {
       const admin = await provision(h);
       const browser = await browserSignIn(h, admin);
       const phone = (await (await h.send("/api/auth/login", {
-        method: "POST", tenant: "acme", headers: { "x-mezan-device-binding": "1" }, body: JSON.stringify({ username: admin.adminEmail, pin: admin.adminPin }),
+        method: "POST", tenant: "acme", headers: { "x-mezan-device-binding": "1" }, body: JSON.stringify({ username: admin.adminEmail, password: admin.adminPassword }),
       })).json()) as { token: string; deviceSecret: string };
       const plain = (await (await signIn(h, admin)).json()) as { token: string };
       const statuses = [

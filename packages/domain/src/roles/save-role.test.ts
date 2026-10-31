@@ -190,7 +190,7 @@ describe("deleteRole", () => {
       email: "driver@cyag.test",
       phone: null,
       passwordHash: "x",
-      pinHash: null,
+      mustChangePassword: false,
       roleId: "role-1",
       isCompanyAdmin: false,
       employeeId: null,

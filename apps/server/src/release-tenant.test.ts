@@ -132,7 +132,7 @@ describe("releasing a tenant stuck in provisioning", () => {
     expect((await platform.audit.query("security")).filter((row) => row.action === "TENANT_RELEASED")).toEqual([]);
   });
 
-  it("supersedes a provisioner parked before its PIN write: it starts no subscription and no database is created or moved", async () => {
+  it("supersedes a provisioner parked before its password write: it starts no subscription and no database is created or moved", async () => {
     const { dataDir, platform } = await world();
     const parked = gate();
     let park = true;

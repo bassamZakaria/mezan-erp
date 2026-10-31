@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { SEED_ADMIN_PASSWORD } from "@mezan/backend";
 import { parseEnv, PaymobMode } from "./env.js";
 
 describe("parseEnv audit anchoring", () => {
@@ -34,7 +35,7 @@ describe("parseEnv", () => {
       platformOwnerEmail: undefined,
       platformOwnerPassword: undefined,
       seedDemo: false,
-      seedAdminPin: undefined,
+      seedAdminPassword: undefined,
       backupIntervalMinutes: 15,
       apiRequestsPerAddressPerMinute: 3000,
       apiRequestsPerSessionPerMinute: 600,
@@ -56,21 +57,21 @@ describe("parseEnv", () => {
   it("reads the reviewer tenant and the support mailbox", () => {
     const env = parseEnv({
       MEZAN_REVIEW_TENANT_CODE: "review",
-      MEZAN_REVIEW_PIN: "482913",
+      MEZAN_REVIEW_PASSWORD: "pw-482913",
       MEZAN_SUPPORT_EMAIL: "support@mezan.test",
     });
-    expect(env.reviewTenant).toEqual({ code: "review", pin: "482913" });
+    expect(env.reviewTenant).toEqual({ code: "review", password: "pw-482913" });
     expect(env.supportEmail).toBe("support@mezan.test");
   });
 
-  it("refuses a reviewer tenant that is half-configured, on the published PIN, named demo, or next to the basic-auth demo", () => {
+  it("refuses a reviewer tenant that is half-configured, on the published password, too short, named demo, or next to the basic-auth demo", () => {
     expect(() => parseEnv({ MEZAN_REVIEW_TENANT_CODE: "review" })).toThrow(/set together/);
-    expect(() => parseEnv({ MEZAN_REVIEW_PIN: "482913" })).toThrow(/set together/);
-    expect(() => parseEnv({ MEZAN_REVIEW_TENANT_CODE: "review", MEZAN_REVIEW_PIN: "123456" })).toThrow(/published/);
-    expect(() => parseEnv({ MEZAN_REVIEW_TENANT_CODE: "review", MEZAN_REVIEW_PIN: "4829" })).toThrow(/six digits/);
-    expect(() => parseEnv({ MEZAN_REVIEW_TENANT_CODE: "demo", MEZAN_REVIEW_PIN: "482913" })).toThrow(/not "demo"/);
+    expect(() => parseEnv({ MEZAN_REVIEW_PASSWORD: "pw-482913" })).toThrow(/set together/);
+    expect(() => parseEnv({ MEZAN_REVIEW_TENANT_CODE: "review", MEZAN_REVIEW_PASSWORD: SEED_ADMIN_PASSWORD })).toThrow(/published/);
+    expect(() => parseEnv({ MEZAN_REVIEW_TENANT_CODE: "review", MEZAN_REVIEW_PASSWORD: "pw-4829" })).toThrow(/at least 8/);
+    expect(() => parseEnv({ MEZAN_REVIEW_TENANT_CODE: "demo", MEZAN_REVIEW_PASSWORD: "pw-482913" })).toThrow(/not "demo"/);
     expect(() =>
-      parseEnv({ MEZAN_REVIEW_TENANT_CODE: "review", MEZAN_REVIEW_PIN: "482913", MEZAN_SEED_DEMO: "1" }),
+      parseEnv({ MEZAN_REVIEW_TENANT_CODE: "review", MEZAN_REVIEW_PASSWORD: "pw-482913", MEZAN_SEED_DEMO: "1" }),
     ).toThrow(/MEZAN_SEED_DEMO/);
   });
 
@@ -103,7 +104,7 @@ describe("parseEnv", () => {
       MEZAN_PLATFORM_OWNER_EMAIL: "owner@mezan.local",
       MEZAN_PLATFORM_OWNER_PASSWORD: "owner-password-123",
       MEZAN_SEED_DEMO: "1",
-      MEZAN_SEED_ADMIN_PIN: "654321",
+      MEZAN_SEED_ADMIN_PASSWORD: "pw-654321",
       MEZAN_BACKUP_INTERVAL_MINUTES: "30",
       MEZAN_API_REQUESTS_PER_ADDRESS_PER_MINUTE: "5000",
       MEZAN_API_REQUESTS_PER_SESSION_PER_MINUTE: "900",
@@ -137,7 +138,7 @@ describe("parseEnv", () => {
       platformOwnerEmail: "owner@mezan.local",
       platformOwnerPassword: "owner-password-123",
       seedDemo: true,
-      seedAdminPin: "654321",
+      seedAdminPassword: "pw-654321",
       backupIntervalMinutes: 30,
       apiRequestsPerAddressPerMinute: 5000,
       apiRequestsPerSessionPerMinute: 900,

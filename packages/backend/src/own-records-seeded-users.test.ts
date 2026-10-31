@@ -1,10 +1,10 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { SEED_ADMIN_PASSWORD } from "./seed.js";
 import { seededWorld, type SeededWorld } from "./test-helpers/seeded-world.js";
 
 const OWN_INVOICES = "sales.invoice.view_own";
 const WIDER_INVOICE_VIEWS: readonly string[] = ["sales.invoice.view", "sales.invoice.view_all", "*"];
 const CREATE_INVOICE = "sales.invoice.create";
-const SEED_PIN = "123456";
 const MAIN_WAREHOUSE = "WH-MAIN";
 const ARABIC = /[؀-ۿ]/;
 
@@ -39,10 +39,21 @@ const permissionsOf = (user: SeededUser): string[] => roles.find((role) => role.
 const holdsOwnTier = (user: SeededUser): boolean => permissionsOf(user).some((code) => code.endsWith(".view_own"));
 const seesOnlyOwnInvoices = (user: SeededUser): boolean => permissionsOf(user).includes(OWN_INVOICES) && !permissionsOf(user).some((code) => WIDER_INVOICE_VIEWS.includes(code));
 
-async function signedIn(email: string) {
-  const login = await world.backend.app.fetch(new Request("http://local/auth/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ username: email, pin: SEED_PIN }) }));
+const OWN_PASSWORD = "own-password-1";
+
+async function signIn(email: string, password: string) {
+  const login = await world.backend.app.fetch(new Request("http://local/auth/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ username: email, password }) }));
   expect(login.status, `${email} signs in`).toBe(200);
-  const { token } = (await login.json()) as { token: string };
+  return (await login.json()) as { token: string; mustChangePassword: boolean };
+}
+
+async function signedIn(email: string, password = SEED_ADMIN_PASSWORD) {
+  let { token, mustChangePassword } = await signIn(email, password);
+  if (mustChangePassword) {
+    const changed = await world.backend.app.fetch(new Request("http://local/profile/change-password", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${token}` }, body: JSON.stringify({ currentPassword: password, newPassword: OWN_PASSWORD }) }));
+    expect(changed.status, `${email} replaces the temporary password`).toBe(204);
+    ({ token } = await signIn(email, OWN_PASSWORD));
+  }
   return async (method: string, path: string, body?: unknown) => {
     const res = await world.backend.app.fetch(new Request(`http://local${path}`, { method, headers: { "content-type": "application/json", authorization: `Bearer ${token}` }, body: body === undefined ? undefined : JSON.stringify(body) }));
     return { status: res.status, body: (await res.json()) as any };
@@ -95,9 +106,9 @@ describe("a seeded user whose role sees only their own records", () => {
 
   it("one with no employee link is refused in Arabic before any draft is made", async () => {
     const repRole = roles.find((role) => role.code === "SALES_REP")!;
-    const made = await world.request("POST", "/users", { nameAr: "مندوب بلا ملف", nameEn: "Unlinked Rep", email: "unlinked.rep@cyag.example", phone: null, roleId: repRole.id, isCompanyAdmin: false, employeeId: null, branchScope: "*", warehouseScope: "*", status: "active", password: "Mezan-demo-unlinked.rep", pin: SEED_PIN });
+    const made = await world.request("POST", "/users", { nameAr: "مندوب بلا ملف", nameEn: "Unlinked Rep", email: "unlinked.rep@cyag.example", phone: null, roleId: repRole.id, isCompanyAdmin: false, employeeId: null, branchScope: "*", warehouseScope: "*", status: "active", password: "temp-unlinked-rep" });
     expect(made.status, JSON.stringify(made.body)).toBe(201);
-    const as = await signedIn("unlinked.rep@cyag.example");
+    const as = await signedIn("unlinked.rep@cyag.example", "temp-unlinked-rep");
     const drafts = world.count("sales_invoice");
 
     const refused = await as("POST", "/sales-invoices", invoiceFrom(MAIN_WAREHOUSE));

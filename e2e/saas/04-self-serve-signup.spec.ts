@@ -1,6 +1,6 @@
 import { test, expect } from "./support/test";
 import { ApiError, BillingCycle, CodePrefix, HttpMethod, PlanCode, PlanId, SAAS_API_URL, SubscriptionStatus, TENANT_HEADER, FORWARDED_FOR_HEADER, browserSource, proxiedSource, uniqueCode } from "./support/env";
-import { errorOf, fillPin, invoiceDrafts, provisionTenant, rowsOf, storedSession, tenantApiLogin, tenantCall, tenantSignIn, tenantSignOut, type TenantLogin } from "./support/saas";
+import { completeForcedChange, currentPassword, errorOf, fillPassword, invoiceDrafts, provisionTenant, rowsOf, storedSession, tenantApiLogin, tenantCall, tenantSignIn, tenantSignOut, type TenantLogin } from "./support/saas";
 
 const CODE = uniqueCode(CodePrefix.SignedUp);
 const COMPANY = "متجر الياسمين";
@@ -97,7 +97,7 @@ test.describe("Self-serve signup — form, verification link, first sign-in", ()
   test("the code is not usable before the link is opened", async ({ request }) => {
     const login = await request.post(`${SAAS_API_URL}/api/auth/login`, {
       headers: { [TENANT_HEADER]: CODE },
-      data: { username: OWNER_EMAIL, pin: "000000" },
+      data: { username: OWNER_EMAIL, password: "wrong-password-0" },
     });
     expect(login.status()).toBe(404);
     expect(((await login.json()) as { error: string }).error).toBe(ApiError.TenantNotFound);
@@ -110,21 +110,21 @@ test.describe("Self-serve signup — form, verification link, first sign-in", ()
     await expect(page.getByText("هذا الرمز مستخدم بالفعل")).toBeVisible();
   });
 
-  test("opening the link activates the account and shows the PIN once", async ({ page }) => {
+  test("opening the link activates the account and shows the password once", async ({ page }) => {
     const verified = page.waitForResponse((r) => new URL(r.url()).pathname === "/api/signup/verify");
     await page.goto(new URL(verifyUrl).pathname + new URL(verifyUrl).search);
-    const body = (await (await verified).json()) as { tenant: { id: string }; adminEmail: string; adminPin: string };
-    expect(body.adminPin).toMatch(/^\d{6}$/);
-    tenant = { id: body.tenant.id, code: CODE, adminEmail: body.adminEmail, adminPin: body.adminPin };
+    const body = (await (await verified).json()) as { tenant: { id: string }; adminEmail: string; adminPassword: string };
+    expect(body.adminPassword).toMatch(/^.{8,}$/);
+    tenant = { id: body.tenant.id, code: CODE, adminEmail: body.adminEmail, adminPassword: body.adminPassword };
 
     await expect(page.getByRole("heading", { name: "تم تفعيل الحساب", level: 1 })).toBeVisible();
     await expect(page.getByText(CODE, { exact: true })).toBeVisible();
-    await expect(page.getByText(body.adminPin, { exact: true })).toBeVisible();
+    await expect(page.getByText(body.adminPassword, { exact: true })).toBeVisible();
     await expect(page.getByRole("alert")).toContainText("لن يظهر مرة أخرى");
 
     await page.reload();
     await expect(page.getByRole("heading", { name: "تم تفعيل هذا الحساب مسبقًا", level: 1 })).toBeVisible();
-    await expect(page.getByText(body.adminPin, { exact: true })).toHaveCount(0);
+    await expect(page.getByText(body.adminPassword, { exact: true })).toHaveCount(0);
   });
 
   test("a forged verification link is refused in Arabic", async ({ page }) => {
@@ -157,7 +157,7 @@ test.describe("Self-serve signup — form, verification link, first sign-in", ()
   test("the new tenant carries the company name its owner typed, in the session, in settings and on a printed invoice [guards D-SAAS-02]", async ({ page, request }) => {
     const login = await request.post(`${SAAS_API_URL}/api/auth/login`, {
       headers: { [TENANT_HEADER]: CODE },
-      data: { username: tenant.adminEmail, pin: tenant.adminPin },
+      data: { username: tenant.adminEmail, password: currentPassword(tenant) },
     });
     expect(((await login.json()) as { tenantName: string }).tenantName).toBe(COMPANY);
 
@@ -200,14 +200,15 @@ test.describe("Self-serve signup — form, verification link, first sign-in", ()
 
     const verified = page.waitForResponse((r) => new URL(r.url()).pathname === "/api/signup/verify");
     await page.goto(verifyLink.pathname + verifyLink.search);
-    const { adminPin } = (await (await verified).json()) as { adminPin: string };
+    const { adminPassword } = (await (await verified).json()) as { adminPassword: string };
     await page.getByRole("button", { name: "الذهاب لتسجيل الدخول" }).click();
 
     await expect(page.getByRole("textbox", { name: "رمز المنشأة" })).toHaveValue(code);
     await expect(page.getByRole("textbox", { name: "البريد الإلكتروني" })).toHaveValue(ownerEmail);
     await expect(page.getByRole("radio"), "no earlier company's face is offered").toHaveCount(0);
 
-    await fillPin(page, adminPin);
+    await fillPassword(page, adminPassword);
+    await completeForcedChange(page, ownerEmail, adminPassword);
     await expect(page.getByRole("button", { name: "تسجيل الخروج" })).toBeVisible();
     await expect(page.getByRole("heading", { level: 1 })).toContainText("هالة");
   });
@@ -221,8 +222,8 @@ test.describe("Self-serve signup — form, verification link, first sign-in", ()
     expect(start.status()).toBe(201);
     const token = new URL(((await start.json()) as { devVerifyUrl: string }).devVerifyUrl).searchParams.get("token") ?? "";
     const verify = await request.post(`${SAAS_API_URL}/api/signup/verify`, { headers: freshSource(), data: { token } });
-    const body = (await verify.json()) as { tenant: { id: string }; adminEmail: string; adminPin: string };
-    const api = await tenantApiLogin(request, { id: body.tenant.id, code, adminEmail: body.adminEmail, adminPin: body.adminPin });
+    const body = (await verify.json()) as { tenant: { id: string }; adminEmail: string; adminPassword: string };
+    const api = await tenantApiLogin(request, { id: body.tenant.id, code, adminEmail: body.adminEmail, adminPassword: body.adminPassword });
     const entitlements = await tenantCall(request, api, HttpMethod.Get, "/entitlements");
     expect((entitlements.body as { plan: string; trialEndsAt: string | null }).plan).toBe(PlanCode.Enterprise);
     expect((entitlements.body as { trialEndsAt: string | null }).trialEndsAt).not.toBeNull();

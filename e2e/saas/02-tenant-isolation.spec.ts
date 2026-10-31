@@ -14,6 +14,7 @@ import {
   TENANT_HEADER,
   TenantStatus,
   uniqueCode,
+  PASSWORD_LABEL,
 } from "./support/env";
 import {
   addCustomer,
@@ -207,13 +208,13 @@ test.describe("PLT-SAAS-07 — one tenant never sees another tenant's data", () 
     expect((await page.context().cookies()).some((cookie) => cookie.name === "mezan_session")).toBe(false);
 
     await page.goBack();
-    await expect(page.getByLabel("رمز PIN رقم 1")).toBeVisible();
+    await expect(page.getByLabel(PASSWORD_LABEL, { exact: true })).toBeVisible();
     await expect(page.getByText(CUSTOMER_OF_A)).toHaveCount(0);
 
     await page.getByRole("button", { name: "تغيير المنشأة" }).click();
     await enterTenantCode(page, tenantB.code);
     await expect(page.getByRole("radio", { name: /علي ألفا/ })).toHaveCount(0);
-    await enterCredentials(page, tenantB.adminEmail, tenantB.adminPin);
+    await enterCredentials(page, tenantB.adminEmail, tenantB.adminPassword);
     await expect(page.getByRole("button", { name: "نهى النيل" })).toBeVisible();
 
     await page.goto("/sell/customers");
@@ -229,7 +230,7 @@ test.describe("PLT-SAAS-07 — one tenant never sees another tenant's data", () 
 
     expect(await serverSignOut(page, tenantA.code)).toBe(200);
     await page.goto("/sell/customers");
-    await expect(page.getByLabel("رمز PIN رقم 1")).toBeVisible();
+    await expect(page.getByLabel(PASSWORD_LABEL, { exact: true })).toBeVisible();
     await expect(page.getByRole("status")).toContainText("انتهت الجلسة");
     await expect(page.getByText(CUSTOMER_OF_A)).toHaveCount(0);
   });
@@ -241,13 +242,13 @@ test.describe("PLT-SAAS-07 — one tenant never sees another tenant's data", () 
     await page.reload();
     await expect(page.getByRole("status")).toContainText("انتهت الجلسة");
     await page.reload();
-    await expect(page.getByLabel("رمز PIN رقم 1")).toBeVisible();
+    await expect(page.getByLabel(PASSWORD_LABEL, { exact: true })).toBeVisible();
     await expect(page.getByRole("status")).toContainText("انتهت الجلسة");
 
-    await page.getByLabel("رمز PIN رقم 1").fill("1");
+    await page.getByLabel(PASSWORD_LABEL, { exact: true }).fill("1");
     await expect(page.getByRole("status")).toHaveCount(0);
     await page.reload();
-    await expect(page.getByLabel("رمز PIN رقم 1")).toBeVisible();
+    await expect(page.getByLabel(PASSWORD_LABEL, { exact: true })).toBeVisible();
     await expect(page.getByRole("status")).toHaveCount(0);
   });
 });

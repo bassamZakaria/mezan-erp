@@ -47,7 +47,6 @@ export interface ProvisioningPorts {
 }
 
 interface CredentialsSet {
-  readonly pinChanged: boolean;
   readonly passwordChanged: boolean;
 }
 
@@ -78,7 +77,7 @@ export interface ProvisioningKit {
 }
 
 const NO_STORE = "no-store";
-const BOTH_CREDENTIALS: CredentialsSet = { pinChanged: true, passwordChanged: true };
+const PASSWORD_SET: CredentialsSet = { passwordChanged: true };
 
 function problemDto(problem: UserImportRowProblem): UserImportProblemDTO {
   const message = userImportRowProblemMessage(problem);
@@ -242,7 +241,6 @@ export function createUserProvisioningRoutes(kit: ProvisioningKit): Hono {
               email: entry.row.email,
               phone: entry.row.phone,
               password: secrets.password,
-              pin: secrets.pin,
               roleId: entry.role?.id ?? null,
               isCompanyAdmin: false,
               employeeId: null,
@@ -260,7 +258,7 @@ export function createUserProvisioningRoutes(kit: ProvisioningKit): Hono {
         return made;
       });
       for (const { user, entry } of created) {
-        await kit.auditUser(c, user, "CREATE", null, BOTH_CREDENTIALS);
+        await kit.auditUser(c, user, "CREATE", null, PASSWORD_SET);
         if (entry.conflicts.length > 0) await kit.auditSodOverride(c, user, entry.conflicts, body.reason ?? "");
       }
       await recordAdminEvent(audit, c, {
@@ -279,7 +277,6 @@ export function createUserProvisioningRoutes(kit: ProvisioningKit): Hono {
         userId: user.id,
         email: user.email,
         nameAr: user.nameAr,
-        pin: secrets.pin,
         password: secrets.password,
       }));
       return c.json(reportOf(planned, fileProblems, seats, { dryRun: false, digest, created: created.length, credentials }), 201);
@@ -329,7 +326,6 @@ export function createUserProvisioningRoutes(kit: ProvisioningKit): Hono {
           email: parsed.data.email,
           phone: parsed.data.phone,
           password: secrets.password,
-          pin: secrets.pin,
           roleId: source.roleId,
           isCompanyAdmin: false,
           employeeId: null,
@@ -344,7 +340,7 @@ export function createUserProvisioningRoutes(kit: ProvisioningKit): Hono {
       );
       const sourcePreferences = (await ports.preferences?.get(sourceId)) ?? null;
       if (sourcePreferences && ports.preferences) await ports.preferences.save(cloneUserPreferences(sourcePreferences, user.id));
-      await kit.auditUser(c, user, "CREATE", null, BOTH_CREDENTIALS);
+      await kit.auditUser(c, user, "CREATE", null, PASSWORD_SET);
       await recordAdminEvent(audit, c, {
         module: "admin",
         entityType: "USER",
@@ -356,7 +352,7 @@ export function createUserProvisioningRoutes(kit: ProvisioningKit): Hono {
       const result: CloneUserResultDTO = {
         user: { id: user.id, email: user.email, nameAr: user.nameAr, roleId: user.roleId },
         preferencesCopied: sourcePreferences !== null,
-        credentials: { rowNumber: null, userId: user.id, email: user.email, nameAr: user.nameAr, pin: secrets.pin, password: secrets.password },
+        credentials: { rowNumber: null, userId: user.id, email: user.email, nameAr: user.nameAr, password: secrets.password },
       };
       c.header("cache-control", NO_STORE);
       return c.json(result, 201);

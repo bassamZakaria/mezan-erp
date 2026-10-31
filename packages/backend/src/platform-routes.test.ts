@@ -101,7 +101,7 @@ async function buildRig(overrides: Partial<Parameters<typeof createPlatformRoute
       );
       return activateTenant({ id: tenant.id, now: nowIso }, platform.stores.tenants);
     });
-    return { tenant: tenantDTOOf(active), adminEmail: cmd.ownerEmail, adminPin: "482913" };
+    return { tenant: tenantDTOOf(active), adminEmail: cmd.ownerEmail, adminPassword: "pw-482913" };
   };
 
   const provisionRetry = async (
@@ -120,7 +120,7 @@ async function buildRig(overrides: Partial<Parameters<typeof createPlatformRoute
       }
       return activateTenant({ id: tenantId, now: nowIso }, platform.stores.tenants);
     });
-    return { tenant: tenantDTOOf(tenant), adminEmail: tenant.ownerEmail, adminPin: null };
+    return { tenant: tenantDTOOf(tenant), adminEmail: tenant.ownerEmail, adminPassword: null };
   };
 
   const app = createPlatformRoutes({
@@ -129,10 +129,10 @@ async function buildRig(overrides: Partial<Parameters<typeof createPlatformRoute
     now: FIXED_NOW,
     provisionTenant,
     provisionRetry,
-    resetOwnerPin: async ({ tenant, recordIntent }) => {
+    resetOwnerPassword: async ({ tenant, recordIntent }) => {
       if (tenant.ownerEmail === OWNER_WHO_LEFT) throw new TenantOwnerAccountNotFoundError();
       await recordIntent({ userId: "U-OWNER", signInEmail: tenant.ownerEmail, adminEmail: tenant.ownerEmail });
-      return { adminEmail: tenant.ownerEmail, signInEmail: tenant.ownerEmail, adminPin: RESET_PIN };
+      return { adminEmail: tenant.ownerEmail, signInEmail: tenant.ownerEmail, adminPassword: RESET_PASSWORD };
     },
     reconcileOwner: async (tenant) => {
       reconciled.push(tenant.code);
@@ -152,7 +152,7 @@ async function buildRig(overrides: Partial<Parameters<typeof createPlatformRoute
   return { reconciled, released, platform, auth, app, ownerToken: await login("owner@mezan.app"), supportToken: await login("support@mezan.app"), invalidated, provisioned };
 }
 
-const RESET_PIN = "305917";
+const RESET_PASSWORD = "pw-305917";
 const OWNER_WHO_LEFT = "gone@acme.eg";
 
 const devices = new Map<string, string>();
@@ -195,8 +195,9 @@ async function provisionOne(rig: Rig, overrides: Partial<CreateTenantRequestDTO>
 describe("createPlatformRoutes", () => {
   it("lists tenants and returns a full summary for one, including licenseState and entitlements", async () => {
     const rig = await buildRig();
-    const { body } = await provisionOne(rig);
-    expect(body.adminPin).toBe("482913");
+    const { res, body } = await provisionOne(rig);
+    expect(body.adminPassword).toBe("pw-482913");
+    expect(res.headers.get("cache-control")).toBe("no-store");
     expect(rig.provisioned).toHaveLength(1);
 
     const listRes = await rig.app.fetch(req("/tenants", rig.ownerToken));
@@ -416,20 +417,21 @@ describe("createPlatformRoutes", () => {
     });
   });
 
-  it("resets a live tenant's owner PIN for the platform owner, answers it once and audits it without the PIN", async () => {
+  it("resets a live tenant's owner password for the platform owner, answers it once and audits it without the password", async () => {
     const rig = await buildRig();
     const { body } = await provisionOne(rig);
 
-    const res = await rig.app.fetch(req(`/tenants/${body.tenant.id}/owner-pin/reset`, rig.ownerToken, { method: "POST" }));
+    const res = await rig.app.fetch(req(`/tenants/${body.tenant.id}/owner-password/reset`, rig.ownerToken, { method: "POST" }));
 
     expect(res.status).toBe(200);
-    expect(await json(res)).toEqual({ adminEmail: body.tenant.ownerEmail, signInEmail: body.tenant.ownerEmail, adminPin: RESET_PIN });
+    expect(await json(res)).toEqual({ adminEmail: body.tenant.ownerEmail, signInEmail: body.tenant.ownerEmail, adminPassword: RESET_PASSWORD });
+    expect(res.headers.get("cache-control")).toBe("no-store");
     const row = (await rig.platform.audit.query("security")).find((r) => r.action === "TENANT_OWNER_PIN_RESET");
     expect(row).toMatchObject({ module: "platform", actor: "PU-OWNER", entityId: body.tenant.id, severity: "CRITICAL" });
-    expect(JSON.stringify(row)).not.toContain(RESET_PIN);
+    expect(JSON.stringify(row)).not.toContain(RESET_PASSWORD);
   });
 
-  it("answers 503 in Arabic, and never the new PIN, when the audit of an owner PIN reset cannot record that it was asked for", async () => {
+  it("answers 503 in Arabic, and never the new password, when the audit of an owner password reset cannot record that it was asked for", async () => {
     const rig = await buildRig();
     const { body } = await provisionOne(rig);
     const append = rig.platform.audit.append.bind(rig.platform.audit);
@@ -438,16 +440,16 @@ describe("createPlatformRoutes", () => {
       return append(event);
     };
 
-    const res = await rig.app.fetch(req(`/tenants/${body.tenant.id}/owner-pin/reset`, rig.ownerToken, { method: "POST" }));
+    const res = await rig.app.fetch(req(`/tenants/${body.tenant.id}/owner-password/reset`, rig.ownerToken, { method: "POST" }));
 
     const answered = await json(res);
     expect(res.status).toBe(503);
     expect(answered).toMatchObject({ error: "AUDIT_UNAVAILABLE", message: "تعذّر تسجيل العملية في سجل التدقيق، فلم يُحفظ أي تغيير. حاول مرة أخرى." });
-    expect(JSON.stringify(answered)).not.toContain(RESET_PIN);
+    expect(JSON.stringify(answered)).not.toContain(RESET_PASSWORD);
     expect((await rig.platform.audit.query("security")).filter((row) => row.action.startsWith("TENANT_OWNER_PIN_RESET"))).toEqual([]);
   });
 
-  it("still answers the new PIN, once, when only the row saying the reset happened cannot be written: the row saying it was asked for stands", async () => {
+  it("still answers the new password, once, when only the row saying the reset happened cannot be written: the row saying it was asked for stands", async () => {
     const rig = await buildRig();
     const { body } = await provisionOne(rig);
     const append = rig.platform.audit.append.bind(rig.platform.audit);
@@ -456,18 +458,18 @@ describe("createPlatformRoutes", () => {
       return append(event);
     };
 
-    const res = await rig.app.fetch(req(`/tenants/${body.tenant.id}/owner-pin/reset`, rig.ownerToken, { method: "POST" }));
+    const res = await rig.app.fetch(req(`/tenants/${body.tenant.id}/owner-password/reset`, rig.ownerToken, { method: "POST" }));
 
     expect(res.status).toBe(200);
-    expect(await json(res)).toMatchObject({ adminPin: RESET_PIN });
+    expect(await json(res)).toMatchObject({ adminPassword: RESET_PASSWORD });
     const rows = (await rig.platform.audit.query("security")).filter((row) => row.action.startsWith("TENANT_OWNER_PIN_RESET"));
     expect(rows.map((row) => [row.action, row.actor, row.severity])).toEqual([["TENANT_OWNER_PIN_RESET_REQUESTED", "PU-OWNER", "CRITICAL"]]);
   });
 
-  it("refuses the owner PIN reset to a support operator, for an archived tenant, and when the owner's account is gone", async () => {
+  it("refuses the owner password reset to a support operator, for an archived tenant, and when the owner's account is gone", async () => {
     const rig = await buildRig();
     const { body } = await provisionOne(rig);
-    const reset = (id: string, token: string) => rig.app.fetch(req(`/tenants/${id}/owner-pin/reset`, token, { method: "POST" }));
+    const reset = (id: string, token: string) => rig.app.fetch(req(`/tenants/${id}/owner-password/reset`, token, { method: "POST" }));
 
     expect((await reset(body.tenant.id, rig.supportToken)).status).toBe(403);
 
@@ -1279,8 +1281,9 @@ describe("createPlatformRoutes", () => {
     expect(res.status).toBe(200);
     const body = (await json(res)) as ProvisionResultDTO;
     expect(body.tenant.status).toBe("active");
-    expect(body.adminPin).toBeNull();
+    expect(body.adminPassword).toBeNull();
     expect(rig.invalidated).toContain("stuck");
+    expect(res.headers.get("cache-control")).toBe("no-store");
 
     const rows = await rig.platform.audit.query("security");
     expect(rows.some((r) => r.action === "TENANT_PROVISION_RETRIED")).toBe(true);

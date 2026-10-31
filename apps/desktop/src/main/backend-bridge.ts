@@ -176,10 +176,10 @@ export type BackendNotice =
       readonly type: "ready";
       /**
        * `takeSeededAdminSecrets()` is a one-shot read inside @mezan/backend, and
-       * the seed now runs in the worker — so the first-run PIN would be read by
+       * the seed now runs in the worker — so the first-run password would be read by
        * nobody if it did not travel. main/index.ts writes the recovery file.
        */
-      readonly seededAdmin: { readonly pin: string; readonly generated: boolean } | null;
+      readonly seededAdmin: { readonly password: string; readonly generated: boolean } | null;
     }
   | { readonly type: "boot-error"; readonly error: string; readonly refusal?: BackendBootRefusal | null };
 

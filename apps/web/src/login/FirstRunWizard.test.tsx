@@ -48,8 +48,8 @@ function fillAdminForm(company = COMPANY) {
   fireEvent.change(screen.getByLabelText("البريد الإلكتروني", { exact: false }), {
     target: { value: "sara@cyag.example" },
   });
-  fireEvent.change(screen.getByLabelText("الرمز السرّي (٦ أرقام)"), { target: { value: "432198" } });
-  fireEvent.change(screen.getByLabelText("تأكيد رمز PIN"), { target: { value: "432198" } });
+  fireEvent.change(screen.getByLabelText("كلمة المرور"), { target: { value: "Cyag@2026" } });
+  fireEvent.change(screen.getByLabelText("تأكيد كلمة المرور"), { target: { value: "Cyag@2026" } });
 }
 
 describe.each(["light", "dark"] as const)("FirstRunWizard (%s theme)", (theme) => {
@@ -109,7 +109,7 @@ describe.each(["light", "dark"] as const)("FirstRunWizard (%s theme)", (theme) =
     expect(await screen.findByRole("heading", { name: "تهيئة البيانات الأساسية" })).toBeInTheDocument();
   });
 
-  it("rejects a PIN that isn't 6 digits, then a PIN whose confirmation doesn't match", () => {
+  it("rejects a password shorter than 8 characters, then a password whose confirmation doesn't match", () => {
     renderWizard();
     goToAdminStep();
     fireEvent.change(screen.getByLabelText("اسم المنشأة", { exact: false }), { target: { value: COMPANY } });
@@ -118,15 +118,15 @@ describe.each(["light", "dark"] as const)("FirstRunWizard (%s theme)", (theme) =
       target: { value: "sara@cyag.example" },
     });
 
-    fireEvent.change(screen.getByLabelText("الرمز السرّي (٦ أرقام)"), { target: { value: "12" } });
-    fireEvent.change(screen.getByLabelText("تأكيد رمز PIN"), { target: { value: "12" } });
+    fireEvent.change(screen.getByLabelText("كلمة المرور"), { target: { value: "short1" } });
+    fireEvent.change(screen.getByLabelText("تأكيد كلمة المرور"), { target: { value: "short1" } });
     fireEvent.click(screen.getByRole("button", { name: "التالي" }));
-    expect(screen.getByRole("alert")).toHaveTextContent("الرمز السرّي يجب أن يكون ٦ أرقام.");
+    expect(screen.getByRole("alert")).toHaveTextContent("كلمة المرور يجب أن تكون 8 أحرف على الأقل.");
 
-    fireEvent.change(screen.getByLabelText("الرمز السرّي (٦ أرقام)"), { target: { value: "111111" } });
-    fireEvent.change(screen.getByLabelText("تأكيد رمز PIN"), { target: { value: "222222" } });
+    fireEvent.change(screen.getByLabelText("كلمة المرور"), { target: { value: "Cyag@2026" } });
+    fireEvent.change(screen.getByLabelText("تأكيد كلمة المرور"), { target: { value: "Cyag@2027" } });
     fireEvent.click(screen.getByRole("button", { name: "التالي" }));
-    expect(screen.getByRole("alert")).toHaveTextContent("رمز PIN وتأكيده غير متطابقين.");
+    expect(screen.getByRole("alert")).toHaveTextContent("كلمة المرور الجديدة وتأكيدها غير متطابقين.");
   });
 
   it("sends the company's own name with the claim, so the install never prints the seeded one", async () => {
@@ -136,7 +136,7 @@ describe.each(["light", "dark"] as const)("FirstRunWizard (%s theme)", (theme) =
     fireEvent.click(screen.getByRole("button", { name: "التالي" }));
     await screen.findByRole("heading", { name: "تهيئة البيانات الأساسية" });
 
-    expect(claims).toEqual([{ nameAr: "سارة حسن", nameEn: null, email: "sara@cyag.example", pin: "432198", companyName: COMPANY }]);
+    expect(claims).toEqual([{ nameAr: "سارة حسن", nameEn: null, email: "sara@cyag.example", password: "Cyag@2026", companyName: COMPANY }]);
   });
 
   it("does not claim the install until the company is named", () => {

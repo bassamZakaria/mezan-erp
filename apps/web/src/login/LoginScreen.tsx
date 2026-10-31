@@ -1,9 +1,9 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent } from "react";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router";
 import { BrandMark, Button, Copyright, TextInput, cn } from "@mezan/ui";
 import { TenantResolveMode } from "@mezan/contracts";
-import { AccountLockedError, ApiError, SignInRefusalCode, isDesktopHost, noPlatformInFront, platformLookupFailing, useBootstrapStatus, useLogin, usePlatformResolve, useTenantInfo, useUnlockAccount } from "../data/hooks";
+import { AccountLockedError, ApiError, SignInRefusalCode, isDesktopHost, noPlatformInFront, platformLookupFailing, useBootstrapStatus, useForgotPassword, useLogin, usePlatformResolve, useTenantInfo, useUnlockAccount } from "../data/hooks";
 import { holdsItsOwnBooks, lastTenantMode, LookupHost, lookupHostOf, rememberTenantMode } from "./lookup-host";
 import { useAppVersion } from "../data/hub-hooks";
 import { OWNER_HAND_OVER_NOTICE_KEYS } from "../data/owner-hand-over-notice";
@@ -31,8 +31,9 @@ import { displayName } from "../display-name";
 import { readDeviceUsers, rememberDeviceUser, type DeviceUser } from "./device-users";
 // lan-ux
 import { PairHostLink } from "./PairHostLink";
+import { PasswordInput } from "./PasswordInput";
+import { SignupLayout } from "../signup/SignupLayout";
 
-const PIN_LENGTH = 6;
 const HOST_REFUSAL_STATUSES: readonly number[] = [403, 429];
 const TENANT_CODE_RE = /^[a-z0-9](?:[a-z0-9-]{1,30}[a-z0-9])$/;
 
@@ -71,26 +72,7 @@ export interface LoginScreenProps {
   onStartWizard: () => void;
 }
 
-/**
- * Desktop login, direction ل٢ «مَن على الجهاز».
- *
- *   مَن يعمل الآن؟
- *   (م.ا) محمد   (س.ع) سارة   (+) آخر
- *   الرمز السرّي لـ محمد الشهابي
- *   [•][•][•][ ]
- *
- * NO TYPED USERNAME in the common case. The clerk opens this ~60 times a month
- * and is the same person almost every time, so the device offers the people it
- * has actually seen and asks only for the PIN. «آخر» reveals the email field
- * for the monthly-visit accountant, the new hire, and the first run.
- *
- * The face row is NOT the staff roster — it is only who has signed in HERE
- * (see `device-users.ts`), because listing every employee and their role to
- * whoever opens the machine leaks the org chart for no gain.
- *
- * The PIN auto-submits on the fourth digit: at 60 logins a month, a Tab to a
- * button the form already knows how to press is pure friction.
- */
+// SECURITY: the face row is NOT the staff roster — only who has signed in HERE (`device-users.ts`); listing every employee to whoever opens the machine leaks the org chart.
 const SERVER_BUSY = 503;
 
 export function LoginScreen({ onStartWizard }: LoginScreenProps) {
@@ -192,7 +174,7 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
       setTyping(list.length === 0);
       setUsername(list[0]?.email ?? "");
     }
-    setPinDigits(Array(PIN_LENGTH).fill(""));
+    setPassword("");
     setError(null);
   }
 
@@ -271,7 +253,9 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
     if (identity !== "" && tenantCodeForEmail(identity) === resolvedCode) forgetTenantCodeForEmail(identity);
   }, [tenantNotFound, username, resolvedCode]);
 
-  const [pinDigits, setPinDigits] = useState<string[]>(Array(PIN_LENGTH).fill(""));
+  const [password, setPassword] = useState("");
+  const [forgotOpen, setForgotOpen] = useState(false);
+  const passwordId = useId();
   const [arrivedWith, setArrivedWith] = useState(pendingSignInNotice);
   const signedOutNotice =
     arrivedWith === SignInNotice.SignedInElsewhere ? t("login.signedInElsewhere") : arrivedWith === SignInNotice.SessionExpired ? t("login.sessionExpired") : null;
@@ -297,7 +281,7 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
    * The server answers a 429 with `retryAfterSeconds`, and the screen used to
    * print the sentence and leave the button enabled — so the obvious response
    * to "try again later" was to try again now, and every attempt during a lock
-   * reads to the person typing as another failure of their own PIN. A shop
+   * reads to the person typing as another failure of their own password. A shop
    * floor at 6pm does not read carefully; it presses the button again.
    */
   const [lockedForSeconds, setLockedForSeconds] = useState(0);
@@ -318,21 +302,24 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
           setUnlockCode("");
           setError(null);
           setUnlockedNotice(true);
-          submittedFor.current = "";
         },
         onError: (err) => setError(err.message),
       },
     );
   }
-  const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
-  const submittedFor = useRef<string>("");
+  const passwordRef = useRef<HTMLInputElement | null>(null);
+  const emailRef = useRef<HTMLInputElement | null>(null);
+  const focusEmailNext = useRef(false);
+  useEffect(() => {
+    if (!typing || !focusEmailNext.current) return;
+    focusEmailNext.current = false;
+    emailRef.current?.focus();
+  }, [typing]);
 
-  const pin = pinDigits.join("");
-  const pinComplete = pin.length === PIN_LENGTH && pinDigits.every((d) => d !== "");
   const identity = typing ? username.trim() : (selected?.email ?? "");
   const canSubmit =
     identity !== "" &&
-    pinComplete &&
+    password !== "" &&
     !login.isPending &&
     lockedForSeconds === 0 &&
     !tenantCodeInvalid;
@@ -344,15 +331,10 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
     }
     if (tenantCodeInvalid) return;
     if (!canSubmit) return;
-    // Guard the auto-submit against React re-running the effect for the same
-    // completed PIN — otherwise a slow server turns one sign-in into several.
-    const attempt = `${identity}:${pin}`;
-    if (submittedFor.current === attempt) return;
-    submittedFor.current = attempt;
     setError(null);
     setCompanyUnconfirmed(lookupFailing && tenantCode.trim() !== "" && !tenantInfo.isSuccess);
     login.mutate(
-      { username: identity, pin },
+      { username: identity, password },
       {
         onSuccess: (session) => {
           clearSignInNotice();
@@ -368,13 +350,12 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
           setError(throttled ? t("login.tooManyAttempts") : err.message || t("login.error.generic"));
           setErrorEndsWithTheWait(throttled);
           setUnlockOffered(err instanceof AccountLockedError && err.unlockByCode);
-          submittedFor.current = "";
           if (timedWait) {
             setLockedForSeconds(Math.max(1, Math.ceil(err.retryAfterSeconds ?? 1)));
             setWaitingOnBusyServer(err.status === SERVER_BUSY);
           }
-          setPinDigits(Array(PIN_LENGTH).fill(""));
-          inputRefs.current[0]?.focus();
+          setPassword("");
+          passwordRef.current?.focus();
         },
       },
     );
@@ -396,57 +377,14 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
     return () => clearInterval(id);
   }, [isLocked]);
 
-  /**
-   * The fourth digit submits. `submit()` is idempotent per (identity, pin) via
-   * `submittedFor`, so re-running this effect cannot fire two sign-ins for one
-   * PIN — which is why it does not need to be in the dependency list.
-   */
-  const submitRef = useRef(submit);
-  submitRef.current = submit;
-  useEffect(() => {
-    if (pinComplete) submitRef.current();
-  }, [pinComplete, pin, identity]);
-
   function pickUser(user: DeviceUser) {
     acknowledgeExpiry();
     setSelected(user);
     setTyping(false);
     setUsername(user.email);
-    setPinDigits(Array(PIN_LENGTH).fill(""));
+    setPassword("");
     setError(null);
-    inputRefs.current[0]?.focus();
-  }
-
-  function handlePinChange(index: number, event: ChangeEvent<HTMLInputElement>) {
-    acknowledgeExpiry();
-    const raw = event.target.value.replace(/\D/g, "");
-    // The box keeps no `maxLength`, so a PASTED "1234" arrives whole — but that
-    // also means typing over a filled box arrives as old+new ("1" + "4" = "14").
-    // Drop the digit that was already there, or the stale one wins and the PIN
-    // silently becomes the wrong number.
-    const previous = pinDigits[index] ?? "";
-    let typed = previous !== "" && raw.startsWith(previous) ? raw.slice(previous.length) : raw;
-    if (typed === "") typed = raw.slice(-1);
-    if (raw === "") {
-      setPinDigits((prev) => prev.map((d, i) => (i === index ? "" : d)));
-      return;
-    }
-    // A pasted or fast-typed run fills forward from here rather than keeping
-    // only its last character — the reason a pasted 4-digit PIN used to vanish.
-    setPinDigits((prev) => {
-      const next = [...prev];
-      for (let i = 0; i < typed.length && index + i < PIN_LENGTH; i += 1) next[index + i] = typed[i] ?? "";
-      return next;
-    });
-    setError(null);
-    const landed = Math.min(index + typed.length, PIN_LENGTH - 1);
-    inputRefs.current[landed]?.focus();
-  }
-
-  function handlePinKeyDown(index: number, event: KeyboardEvent<HTMLInputElement>) {
-    if (event.key === "Backspace" && pinDigits[index] === "" && index > 0) {
-      inputRefs.current[index - 1]?.focus();
-    }
+    passwordRef.current?.focus();
   }
 
   function handleSubmit(event: FormEvent) {
@@ -454,72 +392,69 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
     submit();
   }
 
-  const pinLabel = typing
-    ? t("login.pin")
-    : t("login.who.pinFor", { name: selected ? displayName(selected, locale) : "" });
+  const passwordLabel = typing ? t("login.password") : t("login.who.passwordFor", { name: selected ? displayName(selected, locale) : "" });
+  const onCloud = lookupHost === LookupHost.Cloud;
 
-  return (
-    <div className="flex min-h-screen items-center justify-center bg-bg p-[24px]">
-      {/* The mark, oversized and barely there, anchors the empty quadrant
-          instead of sitting as a badge on the card. */}
-      <BrandMark
-        aria-hidden
-        className="pointer-events-none fixed bottom-[-70px] end-[-40px] h-[320px] w-[320px] text-brand opacity-10"
-      />
-
-      <form
-        onSubmit={handleSubmit}
-        noValidate
-        className="relative w-full max-w-[380px] rounded-lg border border-border bg-surface p-[28px] pb-[18px] shadow-2"
-      >
+  const card = forgotOpen ? (
+    <ForgotPasswordCard
+      initialEmail={identity}
+      mailed={onCloud}
+      tenantMissing={tenantMode === TenantResolveMode.Code && tenantCode.trim() === ""}
+      onBack={() => setForgotOpen(false)}
+    />
+  ) : (
+    <form onSubmit={handleSubmit} noValidate className={CARD_CLASS}>
+      {onCloud ? null : (
         <div className="flex items-center gap-[10px]">
           <BrandMark className="h-[30px] w-[30px] flex-none text-brand" />
           <span className="mz-disp text-[17px] font-bold text-ink">{t("shell.brand.name")}</span>
           <span className="ms-auto text-2xs text-ink-faint">{t("login.branchHint")}</span>
         </div>
+      )}
 
-        {platformResolve.isLoading && !lookupFailing ? (
-          <p className="mt-[4px] text-2xs text-ink-faint">{t("login.platformChecking")}</p>
-        ) : null}
+      {platformResolve.isLoading && !lookupFailing ? (
+        <p className="mt-[4px] text-2xs text-ink-faint">{t("login.platformChecking")}</p>
+      ) : null}
 
-        {hostUnreachable ? (
-          <p role="status" className="mt-[12px] rounded-md border border-warning bg-warning-soft px-[12px] py-[9px] text-xs text-warning-ink">
-            {t("login.hostUnreachable")}
-          </p>
-        ) : null}
+      {hostUnreachable ? (
+        <p role="status" className="mt-[12px] rounded-md border border-warning bg-warning-soft px-[12px] py-[9px] text-xs text-warning-ink">
+          {t("login.hostUnreachable")}
+        </p>
+      ) : null}
 
-        {hostMessage ? (
-          <p role="status" className="mt-[12px] rounded-md border border-warning bg-warning-soft px-[12px] py-[9px] text-xs text-warning-ink">
-            {hostMessage}
-          </p>
-        ) : null}
+      {hostMessage ? (
+        <p role="status" className="mt-[12px] rounded-md border border-warning bg-warning-soft px-[12px] py-[9px] text-xs text-warning-ink">
+          {hostMessage}
+        </p>
+      ) : null}
 
-        {/* A session that ended says so, rather than looking like a fresh start
-            the user asked for. It sits above the face row, since that is where
-            the eye lands first. */}
-        {signedOutNotice !== null && error === null ? (
-          <div
-            role="status"
-            className="mt-[12px] rounded-md border border-warning bg-warning-soft px-[12px] py-[9px] text-xs text-warning-ink"
-          >
-            {signedOutNotice}
-          </div>
-        ) : null}
-        {handOverNoticeKey ? (
-          <div role="status" className="mt-[12px] flex items-start gap-[8px] rounded-md border border-warning bg-warning-soft px-[12px] py-[9px] text-xs text-warning-ink">
-            <span className="flex-1">{t(handOverNoticeKey)}</span>
-            <Button size="sm" variant="ghost" onClick={dismissHandOver}>
-              {t("login.ownerHandOver.dismiss")}
-            </Button>
-          </div>
-        ) : null}
+      {/* A session that ended says so, rather than looking like a fresh start
+          the user asked for. It sits above the face row, since that is where
+          the eye lands first. */}
+      {signedOutNotice !== null && error === null ? (
+        <div
+          role="status"
+          className="mt-[12px] rounded-md border border-warning bg-warning-soft px-[12px] py-[9px] text-xs text-warning-ink"
+        >
+          {signedOutNotice}
+        </div>
+      ) : null}
+      {handOverNoticeKey ? (
+        <div role="status" className="mt-[12px] flex items-start gap-[8px] rounded-md border border-warning bg-warning-soft px-[12px] py-[9px] text-xs text-warning-ink">
+          <span className="flex-1">{t(handOverNoticeKey)}</span>
+          <Button size="sm" variant="ghost" onClick={dismissHandOver}>
+            {t("login.ownerHandOver.dismiss")}
+          </Button>
+        </div>
+      ) : null}
 
-        <h1 className="mt-[14px] font-display text-[21px] font-bold leading-[1.35] text-ink">
-          {typing ? t("login.title") : t("login.who")}
-        </h1>
+      <h1 className="mt-[14px] font-display text-[21px] font-bold leading-[1.35] text-ink">
+        {typing ? t("login.title") : t("login.who")}
+      </h1>
 
-        {remembered.length > 0 ? (
-          <div className="mt-[14px] flex gap-[9px]" role="radiogroup" aria-label={t("login.who")}>
+      {remembered.length > 0 ? (
+        <div className="mt-[14px] flex gap-[9px]">
+          <div role="radiogroup" aria-label={t("login.who")} className="flex min-w-0 gap-[9px]" style={{ flexGrow: remembered.length, flexBasis: 0 }}>
             {remembered.map((user) => {
               const active = !typing && selected?.email === user.email;
               return (
@@ -556,193 +491,271 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
                 </button>
               );
             })}
-            {/* «آخر» is an ACTION, not a fourth person — it sits outside the
-                radiogroup so a screen reader does not count it as a choice. */}
-            <button
-              type="button"
-              onClick={() => {
-                setTyping(true);
-                setSelected(null);
-                setUsername("");
-                setError(null);
-              }}
-              className={cn(
-                "flex min-w-0 flex-1 flex-col items-center gap-[6px] rounded-md border px-[4px] py-[10px] text-2xs transition-colors",
-                typing ? "border-accent-strong bg-accent-soft font-semibold text-ink" : "border-transparent bg-surface-2 text-ink-muted hover:bg-surface-3",
-              )}
-            >
-              <span
-                aria-hidden
-                className="flex h-[40px] w-[40px] flex-none items-center justify-center rounded-full bg-surface-3 text-[16px] text-ink-muted"
-              >
-                +
-              </span>
-              <span className="w-full truncate text-center">{t("login.who.other")}</span>
-            </button>
           </div>
-        ) : null}
-
-        {companyCodeOffered ? (
-          <div className="mt-[14px] flex flex-col gap-[6px]">
-            <label className="flex flex-col gap-[6px]">
-              <span className="text-xs font-semibold text-ink">{t("login.tenantCode")}</span>
-              <TextInput
-                value={tenantCode}
-                dir="ltr"
-                autoComplete="organization"
-                placeholder={t("login.tenantCodeHint")}
-                className="mz-lat"
-                invalid={tenantCodeInvalid}
-                onChange={handleTenantCodeChange}
-                onBlur={handleTenantCodeBlur}
-              />
-            </label>
-            {tenantCodeInvalid ? (
-              <p role="alert" className="text-2xs font-semibold text-danger-ink">
-                {t("login.tenantCodeInvalid")}
-              </p>
-            ) : resolvedCode !== "" && tenantInfo.isSuccess ? (
-              // The tenant's real name is shown only after sign-in — pre-auth
-              // this echoes back the code the person typed, per the
-              // `/platform/resolve` name-leak fix (never a name lookup here).
-              <div className="flex items-center justify-between gap-[8px]">
-                <span className="mz-lat text-2xs text-ink-muted" dir="ltr">
-                  {t("login.tenantResolved", { code: resolvedCode })}
-                </span>
-                <button type="button" onClick={handleChangeTenant} className="text-2xs text-ink-muted hover:underline">
-                  {t("login.changeTenant")}
-                </button>
-              </div>
-            ) : tenantNotFound ? (
-              <p role="alert" className="text-2xs font-semibold text-danger-ink">
-                {t("login.tenantNotFound")}
-              </p>
-            ) : (
-              <span className="text-2xs text-ink-faint">{t("login.tenantCodeHint")}</span>
+          {/* «آخر» is an ACTION, not a fourth person — it sits outside the
+              radiogroup so a screen reader does not count it as a choice. */}
+          <button
+            type="button"
+            onClick={() => {
+              setTyping(true);
+              setSelected(null);
+              setUsername("");
+              setError(null);
+              focusEmailNext.current = true;
+            }}
+            className={cn(
+              "flex min-w-0 flex-1 flex-col items-center gap-[6px] rounded-md border px-[4px] py-[10px] text-2xs transition-colors",
+              typing ? "border-accent-strong bg-accent-soft font-semibold text-ink" : "border-transparent bg-surface-2 text-ink-muted hover:bg-surface-3",
             )}
-          </div>
-        ) : null}
+          >
+            <span
+              aria-hidden
+              className="flex h-[40px] w-[40px] flex-none items-center justify-center rounded-full bg-surface-3 text-[16px] text-ink-muted"
+            >
+              +
+            </span>
+            <span className="w-full truncate text-center">{t("login.who.other")}</span>
+          </button>
+        </div>
+      ) : null}
 
-        {typing ? (
-          <label className="mt-[14px] flex flex-col gap-[6px]">
-            <span className="text-xs font-semibold text-ink">{t("login.email")}</span>
+      {companyCodeOffered ? (
+        <div className="mt-[14px] flex flex-col gap-[6px]">
+          <label className="flex flex-col gap-[6px]">
+            <span className="text-xs font-semibold text-ink">{t("login.tenantCode")}</span>
             <TextInput
-              type="email"
-              value={username}
-              placeholder={t("login.who.otherHint")}
-              autoComplete="username"
+              value={tenantCode}
+              dir="ltr"
+              autoComplete="organization"
+              placeholder={t("login.tenantCodeHint")}
               className="mz-lat"
-              onChange={(e) => {
-                acknowledgeExpiry();
-                setUsername(e.target.value);
-              }}
-              onBlur={handleEmailBlur}
+              invalid={tenantCodeInvalid}
+              onChange={handleTenantCodeChange}
+              onBlur={handleTenantCodeBlur}
             />
           </label>
-        ) : null}
+          {tenantCodeInvalid ? (
+            <p role="alert" className="text-2xs font-semibold text-danger-ink">
+              {t("login.tenantCodeInvalid")}
+            </p>
+          ) : resolvedCode !== "" && tenantInfo.isSuccess ? (
+            // The tenant's real name is shown only after sign-in — pre-auth
+            // this echoes back the code the person typed, per the
+            // `/platform/resolve` name-leak fix (never a name lookup here).
+            <div className="flex items-center justify-between gap-[8px]">
+              <span className="mz-lat text-2xs text-ink-muted" dir="ltr">
+                {t("login.tenantResolved", { code: resolvedCode })}
+              </span>
+              <button type="button" onClick={handleChangeTenant} className="text-2xs text-ink-muted hover:underline">
+                {t("login.changeTenant")}
+              </button>
+            </div>
+          ) : tenantNotFound ? (
+            <p role="alert" className="text-2xs font-semibold text-danger-ink">
+              {t("login.tenantNotFound")}
+            </p>
+          ) : (
+            <span className="text-2xs text-ink-faint">{t("login.tenantCodeHint")}</span>
+          )}
+        </div>
+      ) : null}
 
-        <p className="mt-[16px] text-xs text-ink-muted">{pinLabel}</p>
+      {typing ? (
+        <label className="mt-[14px] flex flex-col gap-[6px]">
+          <span className="text-xs font-semibold text-ink">{t("login.email")}</span>
+          <TextInput
+            ref={emailRef}
+            type="email"
+            value={username}
+            placeholder={t("login.who.otherHint")}
+            autoComplete="username"
+            className="mz-lat"
+            onChange={(e) => {
+              acknowledgeExpiry();
+              setUsername(e.target.value);
+            }}
+            onBlur={handleEmailBlur}
+          />
+        </label>
+      ) : null}
 
-        <div className="mt-[8px] flex gap-[7px]" dir="ltr" role="group" aria-label={t("login.pin")}>
-          {pinDigits.map((digit, index) => (
+      <div className="mt-[16px] flex items-center justify-between gap-[8px]">
+        <label htmlFor={passwordId} className="text-xs text-ink-muted">
+          {passwordLabel}
+        </label>
+        <button type="button" onClick={() => setForgotOpen(true)} className="text-2xs font-semibold text-accent-strong hover:underline">
+          {t("login.forgot")}
+        </button>
+      </div>
+      <PasswordInput
+        id={passwordId}
+        ref={passwordRef}
+        autoComplete="current-password"
+        value={password}
+        onChange={(e) => {
+          acknowledgeExpiry();
+          setPassword(e.target.value);
+          setError(null);
+        }}
+        className="mt-[8px]"
+      />
+
+      {companyUnconfirmed ? (
+        <p role="status" className="mt-[10px] text-xs text-warning-ink">
+          {t("login.companyUnconfirmed")}
+        </p>
+      ) : null}
+
+      {error ? (
+        <p role="alert" className="mt-[10px] text-xs font-semibold text-danger-ink">
+          {error}
+        </p>
+      ) : null}
+
+      {unlockedNotice && error === null ? (
+        <p role="status" className="mt-[10px] text-xs font-semibold text-success-ink">
+          {t("login.unlock.done")}
+        </p>
+      ) : null}
+
+      {unlockOffered ? (
+        <div className="mt-[12px] flex items-end gap-[8px]">
+          <label className="flex-1 text-xs text-ink-muted">
+            {t("login.unlock.code")}
             <TextInput
-              key={index}
-              ref={(el) => {
-                inputRefs.current[index] = el;
-              }}
-              type="password"
-              inputMode="numeric"
+              dir="ltr"
               autoComplete="one-time-code"
-              value={digit}
-              aria-label={t("login.pin.digit", { index: index + 1 })}
-              onChange={(e) => handlePinChange(index, e)}
-              onKeyDown={(e) => handlePinKeyDown(index, e)}
-              className="h-[52px] w-full px-0 text-center text-[19px] font-bold"
+              value={unlockCode}
+              onChange={(e) => setUnlockCode(e.target.value)}
+              className="mt-[4px] w-full"
             />
-          ))}
+          </label>
+          <Button type="button" disabled={unlockCode.trim() === "" || unlock.isPending} onClick={submitUnlockCode}>
+            {t("login.unlock.submit")}
+          </Button>
         </div>
+      ) : null}
 
-        {companyUnconfirmed ? (
-          <p role="status" className="mt-[10px] text-xs text-warning-ink">
-            {t("login.companyUnconfirmed")}
-          </p>
+      <Button type="submit" variant="primary" disabled={!canSubmit} className="mt-[16px] w-full justify-center py-[12px]">
+        {lockedForSeconds > 0 ? t(waitingOnBusyServer ? "login.busyFor" : "login.throttledFor", { wait: formatWait(lockedForSeconds, t) }) : t("login.submit")}
+      </Button>
+
+      <div className="mt-[16px] flex items-center gap-[10px] text-2xs text-ink-faint">
+        {!typing ? (
+          <button
+            type="button"
+            onClick={() => {
+              setTyping(true);
+              setSelected(null);
+              setUsername("");
+              focusEmailNext.current = true;
+            }}
+            className="text-ink-muted hover:underline"
+          >
+            {t("login.otherUser")}
+          </button>
         ) : null}
-
-        {error ? (
-          <p role="alert" className="mt-[10px] text-xs font-semibold text-danger-ink">
-            {error}
-          </p>
+        {offersFirstRun ? (
+          <button type="button" onClick={onStartWizard} className="text-ink-muted hover:underline">
+            {t("login.wizard.short")}
+          </button>
         ) : null}
-
-        {unlockedNotice && error === null ? (
-          <p role="status" className="mt-[10px] text-xs font-semibold text-success-ink">
-            {t("login.unlock.done")}
-          </p>
+        {offersSignup ? (
+          <Link to="/signup" className="text-xs font-semibold text-accent-strong hover:underline">
+            {t("login.signup")}
+          </Link>
         ) : null}
+        {/* lan-ux: the only way into pairing from the UI. Rendered only on a
+            desktop machine that holds no books, so it can never appear on a
+            shop's live host and offer to turn it into a till. */}
+        <PairHostLink />
+        {/*
+          The build's OWN version, over IPC on desktop. It was the literal
+          `Mezan 2026.8`, which is the first thing support asks for and the one
+          place a user could read it — so «ما هي نسختك؟» had a confident wrong
+          answer that no upgrade ever changed.
+        */}
+        {onCloud ? null : <span className="mz-lat ms-auto">Mezan {appVersion}</span>}
+      </div>
 
-        {unlockOffered ? (
-          <div className="mt-[12px] flex items-end gap-[8px]">
-            <label className="flex-1 text-xs text-ink-muted">
-              {t("login.unlock.code")}
-              <TextInput
-                dir="ltr"
-                autoComplete="one-time-code"
-                value={unlockCode}
-                onChange={(e) => setUnlockCode(e.target.value)}
-                className="mt-[4px] w-full"
-              />
-            </label>
-            <Button type="button" disabled={unlockCode.trim() === "" || unlock.isPending} onClick={submitUnlockCode}>
-              {t("login.unlock.submit")}
-            </Button>
-          </div>
-        ) : null}
-
-        <Button type="submit" variant="primary" disabled={!canSubmit} className="mt-[16px] w-full justify-center py-[12px]">
-          {lockedForSeconds > 0 ? t(waitingOnBusyServer ? "login.busyFor" : "login.throttledFor", { wait: formatWait(lockedForSeconds, t) }) : t("login.submit")}
-        </Button>
-
-        <div className="mt-[16px] flex items-center gap-[10px] text-2xs text-ink-faint">
-          {!typing ? (
-            <button
-              type="button"
-              onClick={() => {
-                setTyping(true);
-                setSelected(null);
-                setUsername("");
-              }}
-              className="text-ink-muted hover:underline"
-            >
-              {t("login.otherUser")}
-            </button>
-          ) : null}
-          {offersFirstRun ? (
-            <button type="button" onClick={onStartWizard} className="text-ink-muted hover:underline">
-              {t("login.wizard.short")}
-            </button>
-          ) : null}
-          {offersSignup ? (
-            <Link to="/signup" className="text-ink-muted hover:underline">
-              {t("login.signup")}
-            </Link>
-          ) : null}
-          {/* lan-ux: the only way into pairing from the UI. Rendered only on a
-              desktop machine that holds no books, so it can never appear on a
-              shop's live host and offer to turn it into a till. */}
-          <PairHostLink />
-          {/*
-            The build's OWN version, over IPC on desktop. It was the literal
-            `Mezan 2026.8`, which is the first thing support asks for and the one
-            place a user could read it — so «ما هي نسختك؟» had a confident wrong
-            answer that no upgrade ever changed.
-          */}
-          <span className="mz-lat ms-auto">Mezan {appVersion}</span>
-        </div>
-
+      {onCloud ? null : (
         <div className="mt-[10px] border-t border-border pt-[10px] text-center">
           <Copyright />
         </div>
-      </form>
+      )}
+    </form>
+  );
+
+  if (onCloud) return <SignupLayout maxWidthClassName="max-w-[380px]">{card}</SignupLayout>;
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-bg p-[24px]">
+      {/* The mark, oversized and barely there, anchors the empty quadrant
+          instead of sitting as a badge on the card. */}
+      <BrandMark
+        aria-hidden
+        className="pointer-events-none fixed bottom-[-70px] end-[-40px] h-[320px] w-[320px] text-brand opacity-10"
+      />
+      {card}
     </div>
+  );
+}
+
+const CARD_CLASS = "relative w-full max-w-[380px] rounded-lg border border-border bg-surface p-[28px] pb-[18px] shadow-2";
+
+function ForgotPasswordCard({ initialEmail, mailed, tenantMissing, onBack }: { initialEmail: string; mailed: boolean; tenantMissing: boolean; onBack: () => void }) {
+  const { t } = useAppTranslation();
+  const forgot = useForgotPassword();
+  const emailId = useId();
+  const [email, setEmail] = useState(initialEmail);
+  const [sent, setSent] = useState(false);
+
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    if (email.trim() === "" || tenantMissing || forgot.isPending) return;
+    forgot.mutate({ username: email.trim() }, { onSuccess: () => setSent(true) });
+  }
+
+  let body: ReactNode;
+  if (!mailed) {
+    body = <p className="mt-[12px] text-[13px] leading-[1.8] text-ink-muted">{t("login.forgot.askAdmin")}</p>;
+  } else if (sent) {
+    body = (
+      <p role="status" className="mt-[12px] text-[13px] leading-[1.8] text-ink">
+        {t("login.forgot.sent")}
+      </p>
+    );
+  } else {
+    body = (
+      <>
+        <p className="mt-[8px] text-[13px] leading-[1.8] text-ink-muted">{t("login.forgot.body")}</p>
+        <label htmlFor={emailId} className="mt-[14px] block text-xs font-semibold text-ink">
+          {t("login.email")}
+        </label>
+        <TextInput id={emailId} type="email" autoComplete="username" className="mz-lat mt-[6px] w-full" value={email} onChange={(e) => setEmail(e.target.value)} />
+        {tenantMissing ? (
+          <p role="alert" className="mt-[10px] text-xs font-semibold text-danger-ink">
+            {t("login.tenantRequired")}
+          </p>
+        ) : null}
+        {forgot.error ? (
+          <p role="alert" className="mt-[10px] text-xs font-semibold text-danger-ink">
+            {forgot.error.message}
+          </p>
+        ) : null}
+        <Button type="submit" variant="primary" disabled={email.trim() === "" || tenantMissing || forgot.isPending} className="mt-[16px] w-full justify-center py-[12px]">
+          {t("login.forgot.submit")}
+        </Button>
+      </>
+    );
+  }
+
+  return (
+    <form onSubmit={submit} noValidate className={CARD_CLASS}>
+      <h1 className="font-display text-[21px] font-bold leading-[1.35] text-ink">{t("login.forgot.title")}</h1>
+      {body}
+      <button type="button" onClick={onBack} className="mt-[16px] text-xs font-semibold text-accent-strong hover:underline">
+        {t("login.unlockLink.backToSignIn")}
+      </button>
+    </form>
   );
 }

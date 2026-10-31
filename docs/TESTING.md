@@ -94,7 +94,7 @@ return, and the way they are written changes:
 | Integration | `pnpm test` (`packages/api/**`) | HTTP routes against a real SQLite DB: status, body, and what the DB holds afterwards |
 | UI | `pnpm test` (`apps/web/**`, `packages/ui/**`) | rendered screens, RTL, Arabic copy, keyboard paths, error and empty states |
 | Property / fuzz | `pnpm test:fuzz` | invariants over generated input — balance, non-negative stock, exact allocation sums |
-| Abuse / brute force | `pnpm test` (`*.abuse.test.ts`) | PIN brute force, lockout, replay, IDOR, injection, oversized payloads |
+| Abuse / brute force | `pnpm test` (`*.abuse.test.ts`) | password brute force, lockout, replay, IDOR, injection, oversized payloads |
 | E2E | `pnpm test:e2e` | the browser path a named persona actually walks — the `demo` tenant on the cloud entrypoint, API **3187** / web **5183** |
 | Every screen | `pnpm test:every-screen` | every address in `e2e/support/screen-catalog.ts` at 1440px and 390px, plus the journeys in `e2e/journeys/` — the nav tree, and `ADDRESSED_SCREENS` for sub-pages behind an id and the pages outside the tenant shell (platform console, signup, unlock link, owner hand-over); API **3311** / web **5311** |
 | Responsive | `pnpm test:responsive` | page-level sideways scroll and the workspace drawer at 390px and 360px; API **3133** / web **5233** |
@@ -205,17 +205,17 @@ MEZAN_SEED_DEMO=1 MEZAN_DB=$S/test.db PORT=3300 pnpm exec tsx apps/server/src/in
 cd apps/web && MEZAN_API_URL=http://127.0.0.1:3300 pnpm exec vite --port 5300 --host 127.0.0.1 &
 ```
 
-**Sign in with `admin@cyag.example`, PIN `123456`.** The login field is the **email and only
+**Sign in with `admin@cyag.example`, password `Cyag@2026`.** The login field is the **email and only
 the email** — matching the display name made "who can log in" a property of a field any
 admin may edit, and two people sharing a name shared an account door. Older notes naming
-`محمد الشهابي` / PIN `1234` are stale; where a scenario below still says that, read it as
+`محمد الشهابي` / PIN `1234` (the PIN no longer exists) are stale; where a scenario below still says that, read it as
 the email login.
 
-`123456` is a DEVELOPMENT credential and works only in a development process. A packaged
-build seeds that fallback admin with a random, unprinted PIN (`resolveSeedAdminSecrets` in
+`Cyag@2026` is a DEVELOPMENT credential and works only in a development process. A packaged
+build seeds that fallback admin with a random, unprinted temporary password (`resolveSeedAdminSecrets` in
 `packages/backend/src/seed.ts`) and the owner claims the install through the first-run
 wizard instead — every install sharing one published admin login was S7. Set
-`MEZAN_SEED_ADMIN_PIN` to a six-digit string to pin it deliberately when testing a
+`MEZAN_SEED_ADMIN_PASSWORD` (8+ characters) to fix it deliberately when testing a
 packaged build. **This is a testing note, not a rollout guide** — `docs/INSTALL.md` is the
 one a consultant follows at a client's counter, and it documents the same knob for a
 scripted install.
@@ -225,16 +225,16 @@ bare 409 and no session (S1, hardened S17) — it used to hand back the existing
 session, so a script written against the old contract must fall back to `POST /auth/login`
 on a 409. Test both a genuinely fresh install and a retry against one already claimed.
 
-Five wrong PINs in a row lock an account for a minute, doubling to fifteen (S6, hardened
+Five wrong passwords in a row lock an account for a minute, doubling to fifteen (S6, hardened
 S19–S20 — see T69 item 2 for the per-account/per-source split and the unlock route). If a
 sign-in starts answering `TOO_MANY_ATTEMPTS`, that is the lockout, not a broken login —
 wait out `retryAfterSeconds` or use another account.
 
 ### Demo logins
 
-Every seeded account signs in with its **email** and PIN **`123456`** (one PIN for all of
-them on purpose — a demo whose logins each need a different code is a demo nobody signs
-into twice). Passwords, where a screen asks for one, are `Mezan-demo-<local-part>`.
+Every seeded account signs in with its **email** and password **`Cyag@2026`** (one password
+for all of them on purpose — a demo whose logins each need a different secret is a demo nobody
+signs into twice). There is no PIN: email and password is the only sign-in.
 
 Use `admin@cyag.example` to see everything. Use one of the others to see what a *role*
 sees — which is the only way to catch a screen that opens for someone who should not have
@@ -1469,7 +1469,7 @@ catalog describes and what the code actually renders is marked
 **`[NOT IMPLEMENTED]`** at the point it matters, with the file it was checked
 against.
 
-Login: `admin@cyag.example` / PIN `123456`. Reports (`/reports/purchases/*`,
+Login: `admin@cyag.example` / password `Cyag@2026`. Reports (`/reports/purchases/*`,
 `/reports/aging/suppliers`) and POS are out of scope — see §1 above
 for how to run the app and cross-check the API directly.
 
@@ -6686,7 +6686,7 @@ just a CRUD form. Matches the reference's finding closely.
   `workflow.approve` + `workflow.reject`, matching the seeded
   `SALES_INVOICE_CONFIRM` workflow config's step role — see §16/§17).
   **Steps**: Click "إضافة مستخدم"; fill الاسم الكامل, البريد الإلكتروني, كلمة
-  مرور مؤقتة (≥8 chars, hint shown inline); leave رمز PIN empty; leave "صلاحيات
+  مرور مؤقتة (≥8 chars, hint shown inline); leave the password field empty to get a generated temporary password; leave "صلاحيات
   مدير المنشأة" UNCHECKED; pick الدور = SUPERVISOR from the `EntityPicker`;
   optionally link الموظف المرتبط; check at least one branch under الفروع
   المتاحة (required — the only field this form structurally requires by
@@ -6768,7 +6768,7 @@ just a CRUD form. Matches the reference's finding closely.
   (`unlockingId === row.id`), the rest of the list stays interactive, and a
   second click while it is pending is a no-op. On success the same account can
   sign in immediately (streak reset to zero, not just the current lock cleared
-  — try one more deliberate wrong PIN afterward and confirm it counts as
+  — try one more deliberate wrong password afterward and confirm it counts as
   failure 1, not 7 — note this is different from what a *served* lock does on
   its own; see `docs/INSTALL.md` §5); a `SECURITY / ACCOUNT_UNLOCKED` row
   appears in `الإعدادات ← سجل المراجعة`. This is the support answer for "why
@@ -7946,7 +7946,7 @@ are the entire reason this section's Pre-conditions look the way they do.
   raises the pending one, `rania.adel` (`PURCHASING_OFFICER`) the approved
   one, `salma.fouad` (`VAN_SALES`) the rejected one; `tarek.mansour`
   (`FINANCE_MANAGER`) approved and `omar.hilal` (`SUPERVISOR`) rejected. All
-  sign in at the login screen (§ demo accounts, PIN `123456`). To exercise a
+  sign in at the login screen (§ demo accounts, password `Cyag@2026`). To exercise a
   non-admin approve/reject/request-modification decision through the live UI,
   sign out of `USER-ADMIN` and sign in as `omar.hilal@cyag.example`: the
   `SUPERVISOR` role holds `workflow.view` + `workflow.approve` +
@@ -8198,15 +8198,12 @@ design.
 ### 19 — Profile (`الإعدادات ← الملف الشخصي`)
 
 `ProfilePage.tsx`. Self-service — every action scoped to the caller's own id
-server-side, no permission gate, no user picker. This build adds a PIN
-quick-login feature the reference never documented at all.
+server-side, no permission gate, no user picker.
 
 - **PLT-PRO-01** — Header summary fields.
   **Pre**: Signed in as `USER-ADMIN`.
   **Assert**: Title = full name, subtitle = email; status pill "مدير الشركة"
-  success-tone (`isCompanyAdmin: true`); summary strip shows الرقم السري
-  (مُفعّل/غير مُفعّل depending on whether a PIN is set — seed sets
-  `SEED_ADMIN_PIN`, so expect "مُفعّل"), آخر تسجيل دخول, تاريخ الإنشاء.
+  success-tone (`isCompanyAdmin: true`); summary strip shows آخر تسجيل دخول, تاريخ الإنشاء.
   **Gap vs. reference**: there is no "الدور" (role) field anywhere on this
   screen — the reference showed a disabled/read-only role textbox; this
   build's header/summary/Info-tab has nothing equivalent, even though
@@ -8262,25 +8259,18 @@ quick-login feature the reference never documented at all.
   — confirm/tأكيد is NOT part of this disabled-check, only checked at submit
   time per PLT-PRO-06).
 
-- **PLT-PRO-09** — Security tab: set a PIN.
-  **Steps**: In the الرقم السري (PIN) card, enter كلمة المرور الحالية
-  (required to authorize the change) and a new 4–6 digit PIN; save.
-  **Assert**: Success message "تم تغيير الرقم السري."; header's الرقم السري
-  summary field flips to "مُفعّل" if it wasn't already.
+- **PLT-PRO-09** — Security tab: there is no PIN card.
+  **Assert**: The tab holds the password change only (current password, new
+  password, confirmation). No الرقم السري card exists and the header summary
+  shows no PIN field.
 
-- **PLT-PRO-10** — Security tab: clear the PIN by submitting blank.
-  **Steps**: Enter كلمة المرور الحالية correctly; leave الرقم السري الجديد
-  EMPTY; save.
-  **Assert**: Success message differs on purpose: "تم إلغاء الرقم السري."
-  (not the "changed" message) — `newPin.trim() === ""` sent as `null`; header
-  summary flips back to "غير مُفعّل".
+- **PLT-PRO-10** — Security tab: a temporary password forces this tab.
+  **Pre**: Signed in with a password an admin set for the account.
+  **Assert**: Every other screen is held back until the password is changed;
+  after the change the account lands on the dashboard.
 
-- **PLT-PRO-11** — Security tab: PIN save button requires only the current
-  password, not the PIN field itself.
-  **Assert**: "حفظ" under the PIN card is disabled only on
-  `!pinCurrentPassword` — an empty new-PIN field does NOT disable it (that's
-  the intentional "clear PIN" path from PLT-PRO-10, not a validation
-  failure).
+- **PLT-PRO-11** — Security tab: the new password may not equal the current one.
+  **Assert**: Saving the same password again is refused with a message.
 
 - **PLT-PRO-12** — Activity tab: 7 seeded entries, precisely accounted for.
   **Pre**: Demo seed's `PLATFORM_ADMIN` (`USER-ADMIN`) actions in
@@ -8652,8 +8642,8 @@ owner-PIN test existed, 59 of 59 after). Specs 01, 03 and 04 with
 | ID | Result | What the suite asserts |
 |---|---|---|
 | PLT-SAAS-01 | pass | Owner signs in; the rail shows its three links; the list holds the paying tenant the suite provisioned and no code it did not create; a wrong password answers «بيانات الدخول غير صحيحة» and stores no session. |
-| PLT-SAAS-02 | pass | Tenant created on business with a trial; PIN shown once and gone after a reload; the list marks it «تجريبي» and does not mark the paying tenant so; a second tenant on the same code answers 409 «رمز المنشأة "…" مستخدم بالفعل» and creates nothing. |
-| PLT-SAAS-03 | pass | Code, email and PIN reach an empty tenant; the code survives a reload; the same PIN against the paying tenant answers 401 «اسم المستخدم أو رمز PIN غير صحيح.». |
+| PLT-SAAS-02 | pass | Tenant created on business with a trial; temporary password shown once and gone after a reload; the list marks it «تجريبي» and does not mark the paying tenant so; a second tenant on the same code answers 409 «رمز المنشأة "…" مستخدم بالفعل» and creates nothing. |
+| PLT-SAAS-03 | pass | Code, email and the temporary password (changed at first sign-in) reach an empty tenant; the code survives a reload; the same password against the paying tenant answers 401 «البريد الإلكتروني أو كلمة المرور غير صحيحة.». |
 | PLT-SAAS-04 | pass | 403 `MODULE_NOT_LICENSED` with its exact sentence; the rail hides «الأشخاص» and «التصنيع»; the screen shows the same sentence. |
 | PLT-SAAS-05 | pass | One payment recorded; status becomes «نشط»; the period end moves from 2027-02-28 to 2027-03-28, same time of day, on the server and on screen; a payment with no amount is refused on the form. |
 | PLT-SAAS-06 | pass | Suspend asks first; then `POST /customers` and `POST /sales-invoices` answer 403 `LICENSE_READ_ONLY` with the exact sentence, reads answer 200, the tenant app shows the read-only banner and refuses a customer on screen; resume restores writing. |
@@ -8680,9 +8670,9 @@ through all four phone looks as well.
 
 Also guarded since 2026-10-11: a forged verification link shows the server's
 «رابط التفعيل غير صالح»; the signup form caps the company name at 200
-characters; the platform owner resets a tenant owner's PIN from the tenant
-page — asked first, the new PIN shown once and gone after a reload, the old
-PIN answers 401 and the new one signs in.
+characters; the platform owner resets a tenant owner's password from the tenant
+page — asked first, the new temporary password shown once and gone after a reload, the old
+password answers 401 and the new one signs in.
 
 ### Run record — 2026-10-11 (second), `pnpm test:saas` on :3321–:3323 / :5321–:5323, Chromium
 
@@ -9610,7 +9600,7 @@ make sense at the end of it?*
 |---|---|
 | Web | `http://localhost:5174` (`pnpm --filter web dev`) |
 | API | `http://127.0.0.1:3010` with `MEZAN_SEED_DEMO=1` (`pnpm server`) |
-| Sign in | `admin@cyag.example` / PIN `123456` |
+| Sign in | `admin@cyag.example` / password `Cyag@2026` |
 
 Take the steps **in order, in the UI**, and after each one open the screens
 listed under it and check them against the stated effect. Reload the page before

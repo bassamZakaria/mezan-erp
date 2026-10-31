@@ -103,7 +103,7 @@ describe("the address a mailed unlock link opens", () => {
     reachable(router.app, 0);
     const backend = await router.backendFor("acme");
     const claimed = await backend.app.fetch(
-      new Request("http://tenant.internal/bootstrap/admin", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ nameAr: "المالك", email: "owner@acme.example", pin: "731946", companyName: "منشأة" }) }),
+      new Request("http://tenant.internal/bootstrap/admin", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ nameAr: "المالك", email: "owner@acme.example", password: "pw-731946", companyName: "منشأة" }) }),
     );
     expect(claimed.status).toBe(201);
 
@@ -114,7 +114,7 @@ describe("the address a mailed unlock link opens", () => {
         new Request("http://evil.example/auth/login", {
           method: "POST",
           headers: { "content-type": "application/json", host: "evil.example", "x-forwarded-host": "evil.example", "x-forwarded-proto": "http" },
-          body: JSON.stringify({ username: "owner@acme.example", pin: String(100000 + i) }),
+          body: JSON.stringify({ username: "owner@acme.example", password: `wrong-password-${i}` }),
         }),
         `41.33.${i}.10` as CloudSource,
       );

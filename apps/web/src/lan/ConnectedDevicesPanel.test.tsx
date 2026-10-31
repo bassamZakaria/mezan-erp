@@ -267,7 +267,7 @@ describe("ConnectedDevicesPanel — the LAN address", () => {
  * The LAN socket now serves TLS, but with a self-signed certificate that no
  * chain validates — there is no CA a shop LAN can reach. Encryption alone
  * therefore still lets a laptop that answers first on the host's address
- * present its own key and collect the PIN. What closes that is the till
+ * present its own key and collect the password. What closes that is the till
  * pinning this exact SHA-256, and the ONLY place a human can read it is the
  * host's own screen.
  */

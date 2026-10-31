@@ -96,7 +96,7 @@ async function platformLogin(app: CloudApp, email: string, password: string): Pr
   return body.token;
 }
 
-async function provisionCyag(app: CloudApp, token: string): Promise<{ tenant: { dbFile: string }; adminEmail: string; adminPin: string }> {
+async function provisionCyag(app: CloudApp, token: string): Promise<{ tenant: { dbFile: string }; adminEmail: string; adminPassword: string }> {
   const res = await app.root.fetch(
     new Request("http://cloud.internal/api/platform/tenants", {
       method: "POST",
@@ -113,7 +113,7 @@ async function provisionCyag(app: CloudApp, token: string): Promise<{ tenant: { 
     }),
   );
   expect(res.status).toBe(201);
-  return (await res.json()) as { tenant: { dbFile: string }; adminEmail: string; adminPin: string };
+  return (await res.json()) as { tenant: { dbFile: string }; adminEmail: string; adminPassword: string };
 }
 
 describe("createCloudApp", () => {
@@ -231,7 +231,7 @@ describe("createCloudApp", () => {
       new Request("http://cloud.internal/api/auth/login", {
         method: "POST",
         headers: { "content-type": "application/json", "x-mezan-tenant": "cyag" },
-        body: JSON.stringify({ username: provisioned.adminEmail, pin: provisioned.adminPin }),
+        body: JSON.stringify({ username: provisioned.adminEmail, password: provisioned.adminPassword }),
       }),
     );
     expect(tenantLoginRes.status).toBe(200);
@@ -284,15 +284,15 @@ describe("createCloudApp", () => {
       }),
     );
     expect(retryRes.status).toBe(200);
-    const retried = (await retryRes.json()) as { tenant: { status: string }; adminEmail: string; adminPin: string | null };
+    const retried = (await retryRes.json()) as { tenant: { status: string }; adminEmail: string; adminPassword: string | null };
     expect(retried.tenant.status).toBe("active");
     expect(retried.adminEmail).toBe("owner@retryco.example");
-    expect(retried.adminPin).toMatch(/^[0-9]{6}$/);
+    expect(retried.adminPassword).toMatch(/^[A-Za-z0-9]{12}$/);
     const login = await app.root.fetch(
       new Request("http://cloud.internal/api/auth/login", {
         method: "POST",
         headers: { "content-type": "application/json", "x-mezan-tenant": "retryco" },
-        body: JSON.stringify({ username: "owner@retryco.example", pin: retried.adminPin }),
+        body: JSON.stringify({ username: "owner@retryco.example", password: retried.adminPassword }),
       }),
     );
     expect(login.status).toBe(200);
@@ -320,7 +320,7 @@ describe("createCloudApp", () => {
         new Request("http://cloud.internal/api/auth/login", {
           method: "POST",
           headers: { "content-type": "application/json", "x-mezan-tenant": "demo" },
-          body: JSON.stringify({ username: "a@b.example", pin: "123456" }),
+          body: JSON.stringify({ username: "a@b.example", password: "pw-123456" }),
         }),
       );
       expect(res.status).toBe(403);
@@ -333,7 +333,7 @@ describe("createCloudApp", () => {
         new Request("http://cloud.internal/api/auth/login", {
           method: "POST",
           headers: { "content-type": "application/json", "x-mezan-tenant": "demo", "x-mezan-origin": "top-secret" },
-          body: JSON.stringify({ username: "a@b.example", pin: "123456" }),
+          body: JSON.stringify({ username: "a@b.example", password: "pw-123456" }),
         }),
       );
       // No tenant "demo" exists yet, but that is a 404 from the tenant router
@@ -466,6 +466,17 @@ describe("createCloudApp", () => {
       expect(unlock.headers.get("referrer-policy")).toBe("no-referrer");
       expect(unlock.headers.get("cache-control")).toBe("no-store");
       expect(home.headers.get("cache-control")).not.toBe("no-store");
+    });
+
+    it("serves the password-reset page uncached, with no referrer and without the injected script", async () => {
+      const BEACON = '<script src="https://analytics.example/beacon.js"></script>';
+      const app = await boot(testEnv(), { transformIndexHtml: (html) => html.replace("</body>", `${BEACON}</body>`) });
+      const page = await app.root.fetch(new Request("http://cloud.internal/reset-password"));
+
+      expect(page.status).toBe(200);
+      expect(await page.text()).not.toContain("analytics.example");
+      expect(page.headers.get("referrer-policy")).toBe("no-referrer");
+      expect(page.headers.get("cache-control")).toBe("no-store");
     });
 
     it("answers a plain 404 JSON at / when no web bundle is present", async () => {

@@ -8,7 +8,7 @@ import {
 } from "./auth.js";
 
 describe("loginRequestSchema", () => {
-  const login = { username: "mohamed@cyag.test", pin: "123456" };
+  const login = { username: "mohamed@cyag.test", password: "Cyag@2026" };
 
   it("accepts a minimal valid login and preserves every field verbatim", () => {
     const result = loginRequestSchema.safeParse(login);
@@ -16,26 +16,23 @@ describe("loginRequestSchema", () => {
     if (result.success) expect(result.data).toEqual(login);
   });
 
-  it("rejects a login missing pin", () => {
-    const { pin, ...rest } = login;
+  it("rejects a login missing password", () => {
+    const { password, ...rest } = login;
     const result = loginRequestSchema.safeParse(rest);
     expect(result.success).toBe(false);
-    if (!result.success) expect(result.error.flatten().fieldErrors).toHaveProperty("pin");
+    if (!result.success) expect(result.error.flatten().fieldErrors).toHaveProperty("password");
   });
 
-  it("rejects a 5-digit pin", () => {
-    const result = loginRequestSchema.safeParse({ ...login, pin: "12345" });
-    expect(result.success).toBe(false);
+  it("rejects an empty password", () => {
+    expect(loginRequestSchema.safeParse({ ...login, password: "" }).success).toBe(false);
   });
 
-  it("rejects a 7-digit pin", () => {
-    const result = loginRequestSchema.safeParse({ ...login, pin: "1234567" });
-    expect(result.success).toBe(false);
+  it("still accepts a legacy 6-digit secret, so an upgraded install signs in once to replace it", () => {
+    expect(loginRequestSchema.safeParse({ ...login, password: "123456" }).success).toBe(true);
   });
 
-  it("rejects a non-numeric pin", () => {
-    const result = loginRequestSchema.safeParse({ ...login, pin: "abcdef" });
-    expect(result.success).toBe(false);
+  it("no longer accepts a pin in place of the password", () => {
+    expect(loginRequestSchema.safeParse({ username: login.username, pin: "123456" }).success).toBe(false);
   });
 });
 
@@ -46,6 +43,7 @@ describe("sessionSchema", () => {
     nameEn: null,
     email: "mohamed@cyag.test",
     isCompanyAdmin: true,
+    mustChangePassword: false,
     permissions: ["*"],
     roleCode: null,
     photoUrl: null,
@@ -71,6 +69,11 @@ describe("sessionSchema", () => {
     expect(sessionSchema.safeParse(rest).success).toBe(true);
   });
 
+  it("rejects a session that does not say whether the password must be changed", () => {
+    const { mustChangePassword, ...rest } = session;
+    expect(sessionSchema.safeParse(rest).success).toBe(false);
+  });
+
   it("rejects an invalid branchScope — neither '*' nor an array", () => {
     const result = sessionSchema.safeParse({ ...session, branchScope: "some-branch" });
     expect(result.success).toBe(false);
@@ -84,7 +87,7 @@ describe("loginResponseSchema", () => {
 });
 
 describe("bootstrapAdminRequestSchema", () => {
-  const admin = { nameAr: "محمد الشهابي", email: "Mohamed@CYAG.test", pin: "123456", companyName: "  متجر الياسمين  " };
+  const admin = { nameAr: "محمد الشهابي", email: "Mohamed@CYAG.test", password: "OwnerPass1", companyName: "  متجر الياسمين  " };
 
   it("requires the company being claimed and trims it", () => {
     const { companyName, ...unnamed } = admin;
@@ -111,8 +114,8 @@ describe("bootstrapAdminRequestSchema", () => {
     expect(result.success).toBe(false);
   });
 
-  it("rejects a malformed pin", () => {
-    const result = bootstrapAdminRequestSchema.safeParse({ ...admin, pin: "abc" });
+  it("rejects a first-admin password shorter than 8 characters", () => {
+    const result = bootstrapAdminRequestSchema.safeParse({ ...admin, password: "1234567" });
     expect(result.success).toBe(false);
   });
 });

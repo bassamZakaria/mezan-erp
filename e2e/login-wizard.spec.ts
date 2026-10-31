@@ -1,6 +1,8 @@
 import { test, expect, type Page } from "@playwright/test";
+import { PASSWORD_LABEL } from "./saas/support/env";
 
 const SEED_ADMIN_EMAIL = "admin@cyag.example";
+const SEED_ADMIN_PASSWORD = "Cyag@2026";
 
 /**
  * The cloud login gate (apps/web/src/login/LoginScreen.tsx). These tests
@@ -14,8 +16,8 @@ const SEED_ADMIN_EMAIL = "admin@cyag.example";
  *
  * This platform resolves the tenant by CODE (`tenantMode === "code"` —
  * LoginScreen.tsx), so a login screen with no code entered yet refuses to
- * submit at all — filling the PIN alone surfaces "حدّد رمز المنشأة" (specify
- * the company code) instead of an actual login attempt or a wrong-PIN error.
+ * submit at all — filling the password alone surfaces "حدّد رمز المنشأة" (specify
+ * the company code) instead of an actual login attempt or a wrong-password error.
  * `selectDemoTenant` fills and resolves the "demo" code first, the same way
  * support/auth.ts's `loginAsDemoUser` does.
  *
@@ -24,10 +26,10 @@ const SEED_ADMIN_EMAIL = "admin@cyag.example";
  * Its steps are covered in apps/web/src/login/FirstRunWizard.test.tsx.
  */
 
-async function fillPin(page: Page, digits: string): Promise<void> {
-  for (const [index, digit] of [...digits].entries()) {
-    await page.getByLabel(`رمز PIN رقم ${index + 1}`).fill(digit);
-  }
+async function fillPassword(page: Page, password: string): Promise<void> {
+  const field = page.getByLabel(PASSWORD_LABEL, { exact: true });
+  await field.fill(password);
+  await field.press("Enter");
 }
 
 async function selectDemoTenant(page: Page): Promise<void> {
@@ -42,7 +44,7 @@ test.describe("Login screen", () => {
     await page.goto("/");
   });
 
-  test("دخول is disabled until all 6 PIN digits are entered, then logs in with the correct demo PIN", async ({
+  test("دخول is disabled until the email and password are entered, then logs in with the demo password", async ({
     page,
   }) => {
     await selectDemoTenant(page);
@@ -50,22 +52,18 @@ test.describe("Login screen", () => {
     await expect(loginButton).toBeDisabled();
 
     await page.getByRole("textbox", { name: "البريد الإلكتروني" }).fill(SEED_ADMIN_EMAIL);
-    await fillPin(page, "123456");
-    // The 6th digit auto-submits (LoginScreen.tsx) — the button flips straight
-    // from disabled (incomplete PIN) to disabled-while-pending, so "enabled" is
-    // never a stable intermediate state to assert; the real proof it accepted
-    // the PIN is landing on the app shell.
+    await fillPassword(page, SEED_ADMIN_PASSWORD);
 
     // Lands on the app shell (default screen is the Dashboard).
     await expect(page.getByRole("heading", { name: /مرحباً، محمد/ })).toBeVisible();
   });
 
-  test("shows a validation error for an incorrect PIN and stays on the login screen", async ({ page }) => {
+  test("shows a validation error for an incorrect password and stays on the login screen", async ({ page }) => {
     await selectDemoTenant(page);
     await page.getByRole("textbox", { name: "البريد الإلكتروني" }).fill(SEED_ADMIN_EMAIL);
-    await fillPin(page, "000000");
+    await fillPassword(page, "wrong-password-0");
 
-    await expect(page.getByRole("alert")).toHaveText("اسم المستخدم أو رمز PIN غير صحيح.");
+    await expect(page.getByRole("alert")).toHaveText("البريد الإلكتروني أو كلمة المرور غير صحيحة.");
     await expect(page.getByRole("heading", { name: "تسجيل الدخول" })).toBeVisible();
     await expect(page.getByRole("heading", { name: /مرحباً، محمد/ })).toBeHidden();
   });

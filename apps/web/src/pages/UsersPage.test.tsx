@@ -33,7 +33,7 @@ const user: UserDTO = {
     nameEn: null,
   email: "mohamed@cyag.test",
   phone: null,
-  hasPin: false,
+  mustChangePassword: false,
   roleId: null,
   isCompanyAdmin: true,
   employeeId: null,
@@ -186,7 +186,7 @@ describe("UsersPage", () => {
     expect(screen.getByRole("checkbox", { name: "مستودع الإسكندرية" })).not.toBeChecked();
   });
 
-  it("saves every edited field — nameEn, phone, password, pin, role, employee and the scope checkboxes — as the exact draft, keyed to the row that was opened", () => {
+  it("saves every edited field — nameEn, phone, password, role, employee and the scope checkboxes — as the exact draft, keyed to the row that was opened", () => {
     const onSave = vi.fn().mockResolvedValue({ ok: true });
     const employees = [{ id: "EMP1", name: "موظف واحد", position: "محاسب" }];
     renderPage({
@@ -200,8 +200,7 @@ describe("UsersPage", () => {
     fireEvent.click(screen.getByText("فرع واحد فقط"));
     fireEvent.change(screen.getByDisplayValue("Branch Only"), { target: { value: "Branch Two" } });
     fireEvent.change(screen.getByPlaceholderText("+20 1xx xxx xxxx"), { target: { value: "0111111111" } });
-    fireEvent.change(screen.getByLabelText("كلمة مرور جديدة (اتركها فارغة للإبقاء على الحالية)"), { target: { value: "Passw0rd!" } });
-    fireEvent.change(screen.getByPlaceholderText("123456"), { target: { value: "9999" } });
+    fireEvent.change(screen.getByLabelText(/^إعادة تعيين كلمة المرور/), { target: { value: "Passw0rd!" } });
 
     const roleInput = screen.getByLabelText("الدور *");
     fireEvent.focus(roleInput);
@@ -221,7 +220,6 @@ describe("UsersPage", () => {
         nameEn: "Branch Two",
         phone: "0111111111",
         password: "Passw0rd!",
-        pin: "9999",
         roleId: "role-1",
         employeeId: "EMP1",
         branchIds: expect.arrayContaining(["MAIN", "BRANCH2"]),
@@ -230,26 +228,63 @@ describe("UsersPage", () => {
     );
   });
 
-  it("asks the signed-in user for their current PIN when they edit their own row, and sends it with the save", () => {
+  it("asks the signed-in user for their current password when they edit their own row, and sends it with the save", () => {
     const onSave = vi.fn().mockResolvedValue({ ok: true });
     const self = { ...inactiveUser, status: "active" as const };
     renderPage({ users: [self], onSave, currentUserId: self.id });
 
     fireEvent.click(screen.getByText(self.nameAr));
-    fireEvent.change(screen.getByPlaceholderText("123456"), { target: { value: "482913" } });
-    fireEvent.change(screen.getByLabelText(/^رمز PIN الحالي/), { target: { value: "13a5790" } });
+    fireEvent.change(screen.getByLabelText(/^إعادة تعيين كلمة المرور/), { target: { value: "New-Pass-2026" } });
+    fireEvent.change(screen.getByLabelText(/^كلمة المرور الحالية/), { target: { value: "Cyag@2026" } });
     fireEvent.click(screen.getByRole("button", { name: "حفظ المستخدم" }));
 
-    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ pin: "482913", currentPin: "135790" }), self.id);
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ password: "New-Pass-2026", currentPassword: "Cyag@2026" }), self.id);
+    expect(onSave.mock.calls[0]?.[0]).not.toHaveProperty("pin");
   });
 
-  it("does not ask for a current PIN on somebody else's row", () => {
+  it("does not ask for a current password on somebody else's row, and says a reset becomes a temporary password", () => {
     const self = { ...inactiveUser, status: "active" as const };
     renderPage({ users: [self], currentUserId: "someone-else" });
 
     fireEvent.click(screen.getByText(self.nameAr));
-    expect(screen.getByPlaceholderText("123456")).toBeInTheDocument();
-    expect(screen.queryByLabelText(/^رمز PIN الحالي/)).toBeNull();
+    expect(screen.getByText("تصبح كلمة مرور مؤقتة يجب على المستخدم تغييرها عند أول دخول.")).toBeInTheDocument();
+    expect(screen.queryByLabelText(/^كلمة المرور الحالية/)).toBeNull();
+  });
+
+  it("offers an optional password on create, and shows a generated temporary password once with a copy button", async () => {
+    const onSave = vi.fn().mockResolvedValue({ ok: true, value: { ...user, id: "user-new", nameAr: "مستخدم جديد", mustChangePassword: true, temporaryPassword: "Tmp-9f3K-q2Lx" } });
+    renderPage({ onSave });
+
+    fireEvent.click(screen.getByRole("button", { name: "إضافة مستخدم" }));
+    expect(screen.getByText("اتركها فارغة لتوليد كلمة مرور مؤقتة")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("الاسم بالعربية"), { target: { value: "مستخدم جديد" } });
+    fireEvent.change(screen.getByLabelText("البريد الإلكتروني *", { exact: false }), { target: { value: "new@cyag.test" } });
+    fireEvent.click(screen.getByRole("button", { name: "حفظ المستخدم" }));
+
+    expect(await screen.findByText("Tmp-9f3K-q2Lx")).toBeInTheDocument();
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ password: "" }), null);
+    expect(screen.getByText("تظهر مرة واحدة فقط. سلّمها للمستخدم الآن؛ يجب تغييرها عند أول دخول.")).toBeInTheDocument();
+    const dialog = screen.getByRole("dialog", { name: "كلمة المرور المؤقتة لـ مستخدم جديد" });
+    expect(within(dialog).getByRole("button", { name: "تم، إخفاء كلمة المرور" })).toHaveFocus();
+    fireEvent.click(screen.getByRole("button", { name: "تم، إخفاء كلمة المرور" }));
+    expect(screen.queryByText("Tmp-9f3K-q2Lx")).not.toBeInTheDocument();
+  });
+
+  it("closes the issued-password dialog on Escape", async () => {
+    const onSave = vi.fn().mockResolvedValue({ ok: true, value: { ...user, id: "user-new", nameAr: "مستخدم جديد", temporaryPassword: "Tmp-9f3K-q2Lx" } });
+    renderPage({ onSave });
+    fireEvent.click(screen.getByRole("button", { name: "إضافة مستخدم" }));
+    fireEvent.change(screen.getByLabelText("الاسم بالعربية"), { target: { value: "مستخدم جديد" } });
+    fireEvent.change(screen.getByLabelText("البريد الإلكتروني *", { exact: false }), { target: { value: "new@cyag.test" } });
+    fireEvent.click(screen.getByRole("button", { name: "حفظ المستخدم" }));
+    await screen.findByText("Tmp-9f3K-q2Lx");
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByText("Tmp-9f3K-q2Lx")).not.toBeInTheDocument();
+  });
+
+  it("marks a user who still holds a temporary password", () => {
+    renderPage({ users: [{ ...user, mustChangePassword: true }] });
+    expect(screen.getByText("يجب تغيير كلمة المرور")).toBeInTheDocument();
   });
 
   it("toggling one branch checkbox off changes only that branch — the sibling stays checked, not cleared", () => {

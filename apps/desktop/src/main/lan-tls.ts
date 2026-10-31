@@ -8,10 +8,10 @@ import { generate } from "selfsigned";
  * The host's TLS identity for the multi-till socket.
  *
  * WHAT THIS FIXES. `startLanHost` served the shared Hono app over PLAIN HTTP.
- * `POST /auth/login` carries a user's PIN in the request body and hands back a
+ * `POST /auth/login` carries a user's password in the request body and hands back a
  * bearer token in the response body, and both crossed a WPA2-PSK shop network
  * whose key the staff, the delivery drivers and the customers all know — so
- * anyone associated to that wifi could read a PIN off the air and replay the
+ * anyone associated to that wifi could read a password off the air and replay the
  * token. The token is worth the whole ERP: `packages/api/src/session-auth.ts`
  * binds a session to no device, no address and no seat, and it lives twelve
  * hours, so a capture at 09:00 is still an admin at 20:00.
@@ -178,7 +178,7 @@ async function readIfPresent(target: string): Promise<string | null> {
  * pinned by anything, so a till would have to accept whatever key answered on
  * the address — which is the plain-HTTP threat model back again, wearing TLS:
  * a laptop that answers first on `192.168.1.7:4173` presents its own
- * certificate, the till accepts it, and the PIN goes to the laptop.
+ * certificate, the till accepts it, and the password goes to the laptop.
  *
  * A PRESENT-BUT-UNREADABLE pair therefore throws rather than re-minting. A new
  * fingerprint is indistinguishable, from the till's side, from an attacker

@@ -111,7 +111,7 @@ import {
 } from "@mezan/domain";
 import { createScryptHasher } from "@mezan/persistence";
 import { createLanRoutes } from "./lan/routes.js";
-import { existenceRead, sessionOriginReporting, stepUpGate, type SessionRegistry } from "./session-auth.js";
+import { existenceRead, passwordChangeGate, sessionOriginReporting, stepUpGate, type SessionRegistry } from "./session-auth.js";
 
 const STEP_UP_MOUNTS: readonly string[] = ["/users", "/users/*", "/roles", "/roles/*", "/settings", "/settings/*", "/fiscal-periods/*"];
 import type { LoginThrottle } from "./login-throttle.js";
@@ -401,6 +401,7 @@ export interface CreateAppOptions {
   readonly onUserEmailChanged?: UsersRoutesOptions["onEmailChanged"];
   readonly companyOwner?: UsersRoutesOptions["owner"];
   readonly onUserCredentialSetByOther?: UsersRoutesOptions["onCredentialSetByOther"];
+  readonly onUserCreated?: UsersRoutesOptions["onUserCreated"];
   /** Mounts `/audit` — the read-only audit query surface — when present. */
   readonly audit?: { readonly store: AuditQueryPort; readonly unrecorded?: SecurityEventFallback; readonly resolveAuthContext?: AuthContextResolver };
   /** Mounts `/label-layouts` when present — the sticker-sheet geometries the label screen renders. */
@@ -870,7 +871,7 @@ export interface CreateAppOptions {
    * `MODULE_CATALOG` until a real per-tenant source is wired up.
    */
   readonly resolveEntitlements?: EntitlementsResolver;
-  /** Secret hasher for `/users` password/PIN storage. Defaults to `createScryptHasher()`. */
+  /** Secret hasher for `/users` password storage. Defaults to `createScryptHasher()`. */
   readonly hasher?: ReturnType<typeof createScryptHasher>;
   readonly secrets?: PrecomputingHasher;
   readonly idempotentRequests?: IdempotentRequests;
@@ -1044,7 +1045,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   const secrets = options.secrets ?? createPrecomputingHasher(options.hasher ?? createScryptHasher());
   const hasher = secrets.hasher;
 
-  // Saving a user hashes its password and PIN, and scrypt gives the event loop
+  // Saving a user hashes its password, and scrypt gives the event loop
   // away. Done here, ahead of the audit transaction, and only for a caller who
   // may make the write at all — an anonymous request must not buy a hash.
   async function hashUserSecretsBeforeTheTransaction(c: Context): Promise<(() => void) | void> {
@@ -1054,20 +1055,21 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     if (body === null || typeof body !== "object") return;
     const provisioned = provisioningSecretsFor(c, body);
     if (provisioned) return secrets.precompute({ hash: provisioned.flatMap((entry) => plaintextOf(entry)) });
-    const { password, pin, currentPin, currentPassword } = body as { password?: unknown; pin?: unknown; currentPin?: unknown; currentPassword?: unknown };
-    const toHash = [password, pin].filter((secret): secret is string => typeof secret === "string" && secret !== "");
-    const toVerify = await ownSecretsToVerify(c, currentPin, currentPassword);
+    const { password, currentPassword } = body as { password?: unknown; currentPassword?: unknown };
+    const toHash = [password].filter((secret): secret is string => typeof secret === "string" && secret !== "");
+    const toVerify = await ownSecretsToVerify(c, currentPassword);
     if (toHash.length === 0 && toVerify.length === 0) return;
     return secrets.precompute({ hash: toHash, verify: toVerify });
   }
 
-  // The PIN sheet's secrets are generated here, not read from the request, so
+  // The credential sheet's secrets — and a created user's temporary password when the admin typed none — are generated here, not read from the request, so
   // they are hashed ahead of the audit transaction like any other; the handler
   // then takes the same plaintexts back out. Only a commit (dryRun: false) buys
   // the hashes, and never for a file the handler will refuse for its size.
   function provisioningSecretsFor(c: Context, body: object): readonly OneTimeSecrets[] | null {
     if (c.req.method !== MutatingMethod.Post) return null;
-    if (/\/users\/[^/]+\/clone$/.test(c.req.path)) {
+    const typed = (body as { password?: unknown }).password;
+    if (/\/users\/[^/]+\/clone$/.test(c.req.path) || (/\/users$/.test(c.req.path) && (typeof typed !== "string" || typed === ""))) {
       const one = generateOneTimeSecrets();
       stashProvisionedSecrets(c, new Map([[CLONE_SECRETS_KEY, one]]));
       return [one];
@@ -1082,14 +1084,13 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     return [...generated.values()];
   }
 
-  async function ownSecretsToVerify(c: Context, currentPin: unknown, currentPassword: unknown): Promise<[string, string][]> {
+  async function ownSecretsToVerify(c: Context, currentPassword: unknown): Promise<[string, string][]> {
     if (c.req.method !== MutatingMethod.Put) return [];
     const targetId = /\/users\/([^/]+)$/.exec(c.req.path)?.[1];
     if (!targetId || (await resolveAuth(c)).userId !== decodeURIComponent(targetId)) return [];
     const target = await uow.users.findById(decodeURIComponent(targetId));
     if (!target) return [];
     const pairs: [string, string][] = [];
-    if (typeof currentPin === "string" && target.pinHash) pairs.push([currentPin, target.pinHash]);
     if (typeof currentPassword === "string") pairs.push([currentPassword, target.passwordHash]);
     return pairs;
   }
@@ -1210,6 +1211,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   if (options.security?.sessions) {
     const recentPin = stepUpGate(options.security.sessions);
     for (const mount of STEP_UP_MOUNTS) app.use(mount, recentPin);
+    app.use("*", passwordChangeGate(options.security.sessions));
   }
 
   /**
@@ -1902,6 +1904,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
       onEmailChanged: options.onUserEmailChanged,
       owner: options.companyOwner,
       onCredentialSetByOther: options.onUserCredentialSetByOther,
+      onUserCreated: options.onUserCreated,
       sessions: options.security?.sessions,
       loginThrottle: options.security?.loginThrottle,
       provisioning: { branches: options.branchStore, warehouses: options.warehouseStore, preferences: options.userPreferences },

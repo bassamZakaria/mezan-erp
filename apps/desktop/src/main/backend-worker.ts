@@ -72,7 +72,7 @@ function nodeChannelPort(): BridgePort | null {
   };
 }
 
-async function boot(payload: BackendBootPayload): Promise<{ pin: string; generated: boolean } | null> {
+async function boot(payload: BackendBootPayload): Promise<{ password: string; generated: boolean } | null> {
   if (payload.protocol !== BACKEND_BRIDGE_PROTOCOL) {
     throw new Error(
       `backend bridge protocol mismatch: this worker speaks ${BACKEND_BRIDGE_PROTOCOL}, ` +
@@ -126,7 +126,7 @@ async function boot(payload: BackendBootPayload): Promise<{ pin: string; generat
 
   state = { backend, seats, licence: payload.licence };
   const seeded = takeSeededAdminSecrets();
-  return seeded ? { pin: seeded.pin, generated: seeded.generated } : null;
+  return seeded ? { password: seeded.password, generated: seeded.generated } : null;
 }
 
 export function bootRefusalOf(err: unknown): BackendBootRefusal | null {

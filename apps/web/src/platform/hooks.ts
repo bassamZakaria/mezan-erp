@@ -1,5 +1,5 @@
 import { useMutation, useMutationState, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
-import { ownerPinResetResultSchema, REFUSED_TENANT_BOOKS } from "@mezan/contracts";
+import { ownerPasswordResetResultSchema, REFUSED_TENANT_BOOKS } from "@mezan/contracts";
 import type {
   ApplyCardCheckoutRequestDTO,
   CardCheckoutDTO,
@@ -12,7 +12,7 @@ import type {
   PlanDTO,
   LockedTenantAccountsDTO,
   OwnerCandidateDTO,
-  OwnerPinResetResultDTO,
+  OwnerPasswordResetResultDTO,
   TenantBackupDrillRequestDTO,
   TenantBackupDrillResultDTO,
   TenantBackupListDTO,
@@ -169,33 +169,33 @@ export function useRetryProvisionMutation() {
   });
 }
 
-export enum OwnerPinResetPhase {
+export enum OwnerPasswordResetPhase {
   Idle = "idle",
   Pending = "pending",
   Issued = "issued",
 }
 
-export interface OwnerPinReset {
-  readonly phase: OwnerPinResetPhase;
-  readonly issued: OwnerPinResetResultDTO | null;
+export interface OwnerPasswordReset {
+  readonly phase: OwnerPasswordResetPhase;
+  readonly issued: OwnerPasswordResetResultDTO | null;
   reset(handlers: { onError: (err: PlatformApiError) => void }): void;
   acknowledge(): void;
 }
 
-const ownerPinResetKey = (operatorId: string, tenantId: string) => ["platform", "ownerPinReset", operatorId, tenantId] as const;
+const ownerPasswordResetKey = (operatorId: string, tenantId: string) => ["platform", "ownerPasswordReset", operatorId, tenantId] as const;
 
-export function useOwnerPinReset(tenantId: string): OwnerPinReset {
+export function useOwnerPasswordReset(tenantId: string): OwnerPasswordReset {
   const { t } = useAppTranslation();
   const { request, session } = usePlatformApi();
   const queryClient = useQueryClient();
-  const mutationKey = ownerPinResetKey(session?.user.id ?? "", tenantId);
-  const mutation = useMutation<OwnerPinResetResultDTO, PlatformApiError, void>({
+  const mutationKey = ownerPasswordResetKey(session?.user.id ?? "", tenantId);
+  const mutation = useMutation<OwnerPasswordResetResultDTO, PlatformApiError, void>({
     mutationKey,
     gcTime: Infinity,
     mutationFn: async () => {
-      const res = await request(`/tenants/${tenantId}/owner-pin/reset`, { method: "POST" });
-      if (!res.ok) throw new PlatformApiError(res.status, await readPlatformErrorMessage(res, t, "platform.tenantDetail.resetOwnerPin.error.generic"));
-      return res.json<OwnerPinResetResultDTO>();
+      const res = await request(`/tenants/${tenantId}/owner-password/reset`, { method: "POST" });
+      if (!res.ok) throw new PlatformApiError(res.status, await readPlatformErrorMessage(res, t, "platform.tenantDetail.resetOwnerPassword.error.generic"));
+      return res.json<OwnerPasswordResetResultDTO>();
     },
   });
   const latest = useMutationState({
@@ -203,7 +203,7 @@ export function useOwnerPinReset(tenantId: string): OwnerPinReset {
     select: (entry) => ({ status: entry.state.status, data: entry.state.data }),
   }).at(-1);
   const pending = latest?.status === "pending";
-  const parsed = latest?.status === "success" ? ownerPinResetResultSchema.safeParse(latest.data) : null;
+  const parsed = latest?.status === "success" ? ownerPasswordResetResultSchema.safeParse(latest.data) : null;
   const issued = parsed?.success ? parsed.data : null;
 
   const forget = () => {
@@ -214,7 +214,7 @@ export function useOwnerPinReset(tenantId: string): OwnerPinReset {
   };
 
   return {
-    phase: pending ? OwnerPinResetPhase.Pending : issued ? OwnerPinResetPhase.Issued : OwnerPinResetPhase.Idle,
+    phase: pending ? OwnerPasswordResetPhase.Pending : issued ? OwnerPasswordResetPhase.Issued : OwnerPasswordResetPhase.Idle,
     issued,
     reset: ({ onError }) => {
       if (pending) return;

@@ -34,9 +34,11 @@ describe("createUserSchema", () => {
     expect(result.success).toBe(false);
   });
 
-  it("rejects a malformed PIN", () => {
-    const result = createUserSchema.safeParse({ ...base, roleId: null, isCompanyAdmin: true, pin: "12" });
-    expect(result.success).toBe(false);
+  it("accepts a user with no password, which the server then generates as a temporary one", () => {
+    const { password, ...rest } = base;
+    const result = createUserSchema.safeParse({ ...rest, roleId: null, isCompanyAdmin: true });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.password).toBeUndefined();
   });
 
   it("rejects a short password", () => {

@@ -3,7 +3,7 @@ import { StepUpOverlay } from "@/components/step-up-overlay";
 import { withStepUp } from "./step-up";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AppState } from "react-native";
-import { loginResponseSchema, type SessionDTO } from "@mezan/contracts";
+import { PasswordChangeRefusal, loginResponseSchema, type SessionDTO } from "@mezan/contracts";
 import { ApiError, ApiFailure } from "@/api/errors";
 import { forgetCachedReads } from "@/api/query-cache";
 import { HttpMethod, apiRequest, ScopeAll, type ApiCredentials, type RequestOptions } from "@/api/client";
@@ -15,7 +15,7 @@ export interface SignInInput {
   readonly baseUrl: string;
   readonly tenantCode: string | null;
   readonly email: string;
-  readonly pin: string;
+  readonly password: string;
 }
 
 export interface UnlockAccountInput {
@@ -28,6 +28,7 @@ export interface UnlockAccountInput {
 export enum SessionEnded {
   Displaced = "displaced",
   Expired = "expired",
+  PasswordChangeRequired = "password-change-required",
 }
 
 const SESSION_DISPLACED_CODE = "SESSION_DISPLACED";
@@ -43,7 +44,7 @@ export interface SessionState {
   readonly locked: boolean;
   readonly unlock: (promptMessage: string, cancelLabel: string) => Promise<boolean>;
   readonly connection: Connection;
-  readonly signIn: (input: SignInInput) => Promise<void>;
+  readonly signIn: (input: SignInInput) => Promise<boolean>;
   readonly unlockAccount: (input: UnlockAccountInput) => Promise<void>;
   readonly signOut: () => Promise<void>;
   readonly request: <T>(path: string, options?: RequestOptions<T>) => Promise<T>;
@@ -57,7 +58,7 @@ function scopeHeader(scope: SessionDTO["branchScope"]): string {
 }
 
 const STEP_UP_PATH = "/auth/step-up";
-const STEP_UP_FAILED = "رمز PIN غير صحيح.";
+const STEP_UP_FAILED = "كلمة المرور غير صحيحة.";
 
 export function SessionProvider({ children }: { children: ReactNode }): ReactNode {
   const [ready, setReady] = useState(false);
@@ -114,7 +115,7 @@ export function SessionProvider({ children }: { children: ReactNode }): ReactNod
     return () => subscription.remove();
   }, []);
 
-  const [stepUp, setStepUp] = useState<{ message: string; cancel: () => void; confirm: (pin: string) => Promise<string | null> } | null>(null);
+  const [stepUp, setStepUp] = useState<{ message: string; cancel: () => void; confirm: (password: string) => Promise<string | null> } | null>(null);
 
   const unlock = useCallback(async (promptMessage: string, cancelLabel: string) => {
     const confirmed = await confirmDeviceOwner(promptMessage, cancelLabel);
@@ -157,9 +158,9 @@ export function SessionProvider({ children }: { children: ReactNode }): ReactNod
               setStepUp({
                 message,
                 cancel: () => resolve(false),
-                confirm: async (pin) => {
+                confirm: async (password) => {
                   try {
-                    await apiRequest(credentials, STEP_UP_PATH, { method: HttpMethod.Post, body: { pin } });
+                    await apiRequest(credentials, STEP_UP_PATH, { method: HttpMethod.Post, body: { password } });
                     resolve(true);
                     return null;
                   } catch (failure) {
@@ -173,6 +174,10 @@ export function SessionProvider({ children }: { children: ReactNode }): ReactNod
         // A dead token must end the session here, or every screen renders its own sign-in prompt.
         if (error instanceof ApiError && error.failure === ApiFailure.Unauthorized && session) {
           setSessionEnded(error.code === SESSION_DISPLACED_CODE ? SessionEnded.Displaced : SessionEnded.Expired);
+          await signOut();
+        }
+        if (error instanceof ApiError && error.failure === ApiFailure.Forbidden && error.code === PasswordChangeRefusal.Required && session) {
+          setSessionEnded(SessionEnded.PasswordChangeRequired);
           await signOut();
         }
         throw error;
@@ -195,14 +200,26 @@ export function SessionProvider({ children }: { children: ReactNode }): ReactNod
         warehouseScope: ScopeAll.Every,
       },
       "/auth/login",
-      { method: HttpMethod.Post, body: { username: input.email, pin: input.pin }, schema: loginResponseSchema },
+      { method: HttpMethod.Post, body: { username: input.email, password: input.password }, schema: loginResponseSchema },
     );
+    if (signedIn.mustChangePassword) {
+      await apiRequest(
+        { baseUrl: next.baseUrl, tenantCode: next.tenantCode, token: signedIn.token ?? null, deviceSecret: signedIn.deviceSecret ?? null, branchScope: ScopeAll.Every, warehouseScope: ScopeAll.Every },
+        "/auth/logout",
+        { method: HttpMethod.Post },
+      ).catch(() => undefined);
+      await saveConnection(next);
+      setConnection(next);
+      setSessionEnded(SessionEnded.PasswordChangeRequired);
+      return false;
+    }
     await saveConnection(next);
     await saveSession(signedIn);
     setConnection(next);
     setSessionEnded(null);
     setSession(signedIn);
     setLocked(false);
+    return true;
   }, []);
 
   const unlockAccount = useCallback(async (input: UnlockAccountInput) => {

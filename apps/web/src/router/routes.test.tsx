@@ -24,4 +24,9 @@ describe("routes — doors loaded on demand", () => {
     renderAt("/unlock");
     expect(await screen.findByRole("heading", { name: "فكّ قفل الحساب" })).toBeInTheDocument();
   });
+
+  it("mounts the reset-password screen at /reset-password", async () => {
+    renderAt("/reset-password");
+    expect(await screen.findByRole("heading", { name: "تعيين كلمة مرور جديدة" })).toBeInTheDocument();
+  });
 });

@@ -55,7 +55,7 @@ beforeAll(async () => {
     resolveEntitlements: () => createEntitlements({ plan: "DEMO", activeModules: MODULE_CATALOG, features: {}, seats: 50, expiresAt: null }),
   });
   app = backend.app;
-  const login = await app.fetch(new Request("http://local/auth/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ username: "admin@cyag.example", pin: "123456" }) }));
+  const login = await app.fetch(new Request("http://local/auth/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ username: "admin@cyag.example", password: "Cyag@2026" }) }));
   expect(login.status).toBe(200);
   session = (await login.json()) as SessionDTO;
   const item = await call("POST", "/items", {

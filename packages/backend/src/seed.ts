@@ -1,4 +1,4 @@
-import { randomBytes, randomInt } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import {
   EtaVatSubTypeCode,
   TaxRateStatusCode,
@@ -59,20 +59,18 @@ export function tenantBooksClaimed(books: { readonly claimedAt?: string | null; 
   return Boolean(books.claimedAt) || books.userIds.some((id) => id !== SEED_ADMIN_USER_ID);
 }
 /**
- * The DEVELOPMENT default PIN — the one docs/TESTING.md, `pnpm smoke`,
+ * The DEVELOPMENT and test-tenant password — the one docs/TESTING.md, `pnpm smoke`,
  * `pnpm check:seed` and `pnpm scenarios` all sign in with.
  *
  * It is published, so on a real install it is not a credential, it is a door.
  * `resolveSeedAdminSecrets` therefore hands it out only to a development
- * process; a packaged build gets random secrets instead (see below).
+ * process; a packaged build gets a random password instead (see below).
  */
-export const SEED_ADMIN_PIN = "123456";
-const SEED_ADMIN_PASSWORD = "change-me-on-first-login";
+export const SEED_ADMIN_PASSWORD = "Cyag@2026";
 
 export interface SeedAdminSecrets {
-  readonly pin: string;
   readonly password: string;
-  /** True when the secrets were generated, i.e. nobody knows them yet. */
+  /** True when the password was generated, i.e. nobody knows it yet — it is then a temporary one, changed at first sign-in. */
   readonly generated: boolean;
 }
 
@@ -81,7 +79,7 @@ export interface SeedAdminSecrets {
  * seeded a tenant.
  *
  * Module state, deliberately: the composition root (`createBackend`) has to be
- * able to hand a generated PIN to the desktop shell so it can be written
+ * able to hand a generated password to the desktop shell so it can be written
  * somewhere a human can read it once, and threading a return value out of
  * `seedIfEmpty` through every caller — smoke, scenarios, apps/server — to reach
  * one of them would change five signatures for one consumer.
@@ -98,53 +96,28 @@ export function takeSeededAdminSecrets(): SeedAdminSecrets | null {
 /**
  * What the fallback admin account is created with.
  *
- * A packaged install gets a random PIN and password rather than the published
- * `123456`, which meant every Mezan install in the country shared one working
- * company-admin login — verified against a seeded tenant, which returned
- * `permissions: ["*"]`.
+ * A packaged install gets a random password rather than the published one, so
+ * no two installs share a working company-admin login. The generated password
+ * IS handed back to the caller, and the desktop shell writes it to a one-time
+ * recovery file beside the database — a secret printed nowhere would brick the
+ * install the first time it was forgotten.
  *
- * The generated PIN IS handed back to the caller, and the desktop shell writes
- * it to a one-time recovery file beside the database. Generating a secret and
- * printing it nowhere closed the only field-recovery door this product had
- * without opening another: a forgotten PIN then bricked the install outright —
- * no reset route, no recovery flag, no admin unlock, and a restored backup on
- * replacement hardware usable only by someone who still knew a PIN from the
- * machine that died. The remaining moves were hand-editing a scrypt hash into
- * the SQLite file or losing the books.
- *
- * `MEZAN_SEED_ADMIN_PIN` overrides it for a deliberate packaged-build test.
+ * `MEZAN_SEED_ADMIN_PASSWORD` overrides it for a deliberate packaged-build test.
  * That variable is PROCESS-WIDE: in a multi-tenant server it reaches every
- * tenant this process seeds, including real ones. `pinOverride` is the
+ * tenant this process seeds, including real ones. `passwordOverride` is the
  * per-tenant alternative, passed by one caller for one database.
  */
 export function resolveSeedAdminSecrets(
   env: Record<string, string | undefined> = process.env,
-  pinOverride?: string,
+  passwordOverride?: string,
 ): SeedAdminSecrets {
-  if (pinOverride !== undefined && /^\d{6}$/.test(pinOverride)) {
-    return { pin: pinOverride, password: SEED_ADMIN_PASSWORD, generated: false };
-  }
-  const override = env["MEZAN_SEED_ADMIN_PIN"];
-  if (override && /^\d{6}$/.test(override)) {
-    return { pin: override, password: SEED_ADMIN_PASSWORD, generated: false };
-  }
-  // Both a packaged desktop build and a headless production deployment get a
-  // generated PIN. The objection to including `NODE_ENV=production` was real —
-  // it silently seeded an admin nobody could log in as, on deployments with no
-  // first-run wizard to recover through — but the answer to that is to PRINT
-  // the secret, not to leave a server build on the published `123456`.
-  // `takeSeededAdminSecrets()` below is how the composition root gets it.
+  if (passwordOverride !== undefined && passwordOverride.length >= 8) return { password: passwordOverride, generated: false };
+  const override = env["MEZAN_SEED_ADMIN_PASSWORD"];
+  if (override && override.length >= 8) return { password: override, generated: false };
   const packaged = env["MEZAN_PACKAGED"] === "1" || env["NODE_ENV"] === "production";
-  if (!packaged) return { pin: SEED_ADMIN_PIN, password: SEED_ADMIN_PASSWORD, generated: false };
-  return {
-    pin: String(randomInt(0, 1_000_000)).padStart(6, "0"),
-    // `randomInt` refuses a range wider than 2**48-1, so MAX_SAFE_INTEGER
-    // (2**53-1) threw — on every packaged build, which is the only build that
-    // reaches this branch. 32 hex characters is 128 bits, drawn from the same
-    // CSPRNG, and is not a number at all.
-    password: `pw-${randomBytes(16).toString("hex")}`,
-    generated: true,
-  };
+  if (!packaged) return { password: SEED_ADMIN_PASSWORD, generated: false };
+  // 32 hex characters is 128 bits from the CSPRNG.
+  return { password: `pw-${randomBytes(16).toString("hex")}`, generated: true };
 }
 const SEED_MAIN_BRANCH_ID = "BR-MAIN";
 const SEED_MAIN_WAREHOUSE_ID = "WH-MAIN";
@@ -219,7 +192,7 @@ export async function isEmptyTenant(stores: Pick<SeedStores, "accounts">): Promi
  * Seeds an EMPTY database with the minimum a tenant needs to operate:
  * a standard Chart of Accounts, the 14% VAT rate, the current fiscal year's
  * periods, one main branch + its main warehouse, tenant settings, one system
- * role, and one fallback company-admin user (admin@cyag.example; PIN 123456 in
+ * role, and one fallback company-admin user (admin@cyag.example; password Cyag@2026 in
  * development, random and unprinted in a packaged build — see
  * `resolveSeedAdminSecrets`). Numbering
  * sequences are initialised lazily by the NextNumber service on first use, so
@@ -228,7 +201,7 @@ export async function isEmptyTenant(stores: Pick<SeedStores, "accounts">): Promi
 export async function seedIfEmpty(
   stores: SeedStores,
   now: () => Date = () => new Date(),
-  opts: { readonly adminPin?: string } = {},
+  opts: { readonly adminPassword?: string } = {},
 ): Promise<BootstrapSeedResultDTO> {
   if (!(await isEmptyTenant(stores))) {
     return currentCounts(stores);
@@ -304,7 +277,7 @@ export async function seedIfEmpty(
   };
   await stores.uow.roles.save(adminRole);
 
-  const adminSecrets = resolveSeedAdminSecrets(process.env, opts.adminPin);
+  const adminSecrets = resolveSeedAdminSecrets(process.env, opts.adminPassword);
   lastSeededAdminSecrets = adminSecrets;
   await saveUser(
     {
@@ -314,7 +287,7 @@ export async function seedIfEmpty(
       email: SEED_ADMIN_EMAIL,
       phone: null,
       password: adminSecrets.password,
-      pin: adminSecrets.pin,
+      passwordIsTemporary: adminSecrets.generated,
       roleId: null,
       isCompanyAdmin: true,
       employeeId: null,

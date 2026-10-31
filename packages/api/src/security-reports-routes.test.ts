@@ -73,7 +73,7 @@ function user(overrides: Partial<User> & Pick<User, "id" | "createdAt">): User {
     email: `${overrides.id}@shop.test`,
     phone: null,
     passwordHash: "x",
-    pinHash: null,
+    mustChangePassword: false,
     roleId: "role-clerk",
     isCompanyAdmin: false,
     employeeId: null,

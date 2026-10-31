@@ -12,6 +12,7 @@ import { useProfile } from "./data/account-hooks";
 import { LoginScreen } from "./login/LoginScreen";
 import { planServesRequest } from "./data/plan-modules";
 import { FirstRunWizard } from "./login/FirstRunWizard";
+import { ChangeTemporaryPasswordScreen } from "./login/ChangeTemporaryPasswordScreen";
 import { LicenceStatusNotice } from "./lan/ConnectedDevicesPanel";
 import {
   buildCommandItems,
@@ -146,6 +147,12 @@ function initialsFor(fullName: string, unknown: string): string {
 }
 
 export function AppLayout() {
+  const { session } = useApi();
+  const routerNavigate = useNavigate();
+  return session?.mustChangePassword ? <ChangeTemporaryPasswordScreen onSignedOut={() => routerNavigate(pathForRoute("dashboard"))} /> : <AppLayoutBody />;
+}
+
+function AppLayoutBody() {
   const { session, setSession, request } = useApi();
   const queryClient = useQueryClient();
   const profile = useProfile();
@@ -505,9 +512,8 @@ export function AppLayout() {
       nameEn: draft.nameEn.trim() === "" ? null : draft.nameEn,
       email: draft.email,
       phone: draft.phone.trim() === "" ? null : draft.phone,
-      password: draft.password.trim() === "" ? undefined : draft.password,
-      pin: draft.pin.trim() === "" ? undefined : draft.pin,
-      ...(draft.currentPin ? { currentPin: draft.currentPin } : {}),
+      ...(draft.password.trim() === "" ? {} : { password: draft.password }),
+      ...(draft.currentPassword ? { currentPassword: draft.currentPassword } : {}),
       roleId: draft.roleId,
       isCompanyAdmin: draft.isCompanyAdmin,
       employeeId: draft.employeeId,
@@ -526,7 +532,7 @@ export function AppLayout() {
     try {
       const value = editingId
         ? await updateUser.mutateAsync({ id: editingId, body: fields })
-        : await createUser.mutateAsync({ ...fields, password: fields.password ?? "" });
+        : await createUser.mutateAsync(fields);
       return { ok: true, value };
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : t("app.userSaveFailed") };
@@ -609,7 +615,7 @@ export function AppLayout() {
     // The wizard used to be a 10px text link at the bottom of the login form,
     // so a fresh packaged install showed an empty account list and a blank
     // email box with nothing saying the machine had never been set up — and
-    // the only account that existed had a random PIN nobody knows. The owner
+    // the only account that existed had a random password nobody knows. The owner
     // types their own name, fails five times, and is locked out of a
     // brand-new install inside ninety seconds. `GET /bootstrap/status` already
     // knows the answer; the screen just has to read it.

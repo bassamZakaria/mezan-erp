@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createLoginThrottle, createSourceThrottle, throttleKey } from "./login-throttle.js";
 
 /**
- * S6. A Mezan credential is a six-digit PIN — one million combinations. With
+ * S6. A Mezan credential was once a six-digit PIN — one million combinations. With
  * no throttle, 20 attempts took 0.557s on one connection (~36/s), which
  * exhausts the keyspace in under eight hours sequentially and over a lunch
  * break in parallel; the LAN mount puts that attacker on the shop wifi.
@@ -77,7 +77,7 @@ describe("createLoginThrottle — the sequence has to cost something", () => {
     expect(await throttle.retryAfter("owner@shop.test")).toBe(0);
   });
 
-  it("clears the streak on a verified credential, so a typo before a correct PIN costs nothing", async () => {
+  it("clears the streak on a verified credential, so a typo before a correct password costs nothing", async () => {
     const { throttle } = throttleAt();
     for (let i = 0; i < 4; i++) await throttle.fail("owner@shop.test");
     await throttle.succeed("owner@shop.test");

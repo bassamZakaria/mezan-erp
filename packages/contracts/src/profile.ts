@@ -10,7 +10,6 @@ export const profileSchema = z.object({
   phone: z.string().nullable(),
   isCompanyAdmin: z.boolean(),
   roleId: z.string().nullable(),
-  hasPin: z.boolean(),
   photoUrl: z.string().nullable(),
   lastLoginAt: z.string().nullable(),
   createdAt: z.string(),
@@ -34,15 +33,6 @@ export const changePasswordSchema = z.object({
   newPassword: z.string().min(8, "Password must be at least 8 characters"),
 });
 
-export const changePinSchema = z.object({
-  currentPassword: z.string().min(1),
-  newPin: z
-    .string()
-    .regex(/^\d{4,6}$/, "PIN must be 4 to 6 digits")
-    .nullable(),
-});
-
 export type ProfileDTO = z.infer<typeof profileSchema>;
 export type UpdateProfileDTO = z.infer<typeof updateProfileSchema>;
 export type ChangePasswordDTO = z.infer<typeof changePasswordSchema>;
-export type ChangePinDTO = z.infer<typeof changePinSchema>;

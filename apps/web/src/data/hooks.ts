@@ -1,7 +1,7 @@
 import { branchRefusalBefore, isBranchRestricted } from "../branch-restriction";
 import { DataMigrationMasterStep } from "./data-migration-step";
 import { useCallback, useRef, useSyncExternalStore } from "react";
-import { loadTenantCode, subscribeTenantCode, TENANT_HEADER } from "./session";
+import { loadTenantCode, persistTenantCode, subscribeTenantCode, TENANT_HEADER } from "./session";
 import { DocumentReadPermission, sessionMayRead } from "./document-read-permissions";
 import { keepPreviousData, useMutation, useQueries, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import type {
@@ -233,6 +233,7 @@ import type {
   LineTaxClassificationDTO,
   EtaReceiptRetryDTO,
   SessionDTO,
+  LoginResponseDTO,
   SettleVanTripDTO,
   StartPhysicalCountDTO,
   StatementColumnMappingDTO,
@@ -441,7 +442,9 @@ export function useLogin() {
         if (err.error === SignInRefusalCode.AccountLocked) throw new AccountLockedError(res.status, message, err.unlockByCode === true);
         throw new ApiError(res.status, message, undefined, err.retryAfterSeconds ?? res.retryAfterSeconds ?? undefined, err.error);
       }
-      return res.json<SessionDTO>();
+      const { tenantCode, ...session } = await res.json<LoginResponseDTO>();
+      if (tenantCode) persistTenantCode(tenantCode);
+      return session;
     },
     onSuccess: (session) => setSession(session),
   });

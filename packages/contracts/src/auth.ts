@@ -118,7 +118,8 @@ export const sessionSchema = z.object({
   deviceSecret: z.string().optional(),
 });
 
-export const loginResponseSchema = sessionSchema;
+/** `tenantCode` is set when the cloud found the company from the email; the client sends it on every later request. */
+export const loginResponseSchema = sessionSchema.extend({ tenantCode: z.string().optional() });
 
 /** First-run wizard "create admin" step — persists the very first company admin. */
 export const bootstrapAdminRequestSchema = z.object({

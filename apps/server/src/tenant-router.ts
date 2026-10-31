@@ -2,11 +2,25 @@ import { Hono, type Context, type MiddlewareHandler } from "hono";
 import path from "node:path";
 import { existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { randomUUID, timingSafeEqual } from "node:crypto";
-import { createSourceThrottle, delegatedGrantEnv, SmtpDestinationPolicy, throttleSource, tooManyAttempts, type SourceThrottle } from "@mezan/api";
+import {
+  accountLocked,
+  createAccountLocks,
+  createLoginThrottle,
+  createMemoryAccountLockStore,
+  createSignInGuard,
+  createSourceThrottle,
+  delegatedGrantEnv,
+  SignInVerdict,
+  SmtpDestinationPolicy,
+  throttleSource,
+  tooManyAttempts,
+  type SourceThrottle,
+} from "@mezan/api";
 import { createBackend, type BackendHandle, type CompanyAdminAccount, type IntegrationsGateway, type PlatformHandle, type SignedInUser } from "@mezan/backend";
 import type { SessionGrant, SmtpConfig } from "@mezan/api";
 import {
   clearTenantBinding,
+  createScryptHasher,
   isBusySqliteError,
   isUnreadableSqliteError,
   SqliteFileBusyError,
@@ -18,9 +32,9 @@ import {
   type TenantBooksIdentity,
 } from "@mezan/persistence";
 import type { CompanyOwnerPort, UserEmailChange } from "@mezan/api";
-import { REFUSED_TENANT_BOOKS, TenantBooksStanding, TenantResolveMode, type PlatformResolveDTO, type TenantBooksDTO } from "@mezan/contracts";
+import { loginRequestSchema, REFUSED_TENANT_BOOKS, TenantBooksStanding, TenantResolveMode, type PlatformResolveDTO, type TenantBooksDTO } from "@mezan/contracts";
 import { schemaKey, SchemaKeyPurpose, type TenantDatabases } from "@mezan/persistence-postgres";
-import { TenantBooksReview, tenantDbFile, tenantHandedTo, tenantSchema, tenantIsServed, TenantStatusCode, tenantWithBooksReview, tenantWithOwnerRecordDue, type Tenant } from "@mezan/domain";
+import { EmailInAnotherCompanyError, type SignInEmailGuard, TenantBooksReview, tenantDbFile, tenantHandedTo, tenantSchema, tenantIsServed, TenantStatusCode, tenantWithBooksReview, tenantWithOwnerRecordDue, type Tenant } from "@mezan/domain";
 import { createBackendCache, type BackendCache } from "./backend-cache.js";
 import { callerSource, originEnv, requireCloudSource, SOCKET_ONLY, type ClientSourceOptions, type CloudSource, type SourceReporter } from "./client-source.js";
 import {
@@ -99,6 +113,7 @@ export interface TenantBackendHooks {
   readonly onUserSignedIn: (user: SignedInUser) => Promise<void>;
   readonly companyOwner: CompanyOwnerPort;
   readonly claimedElsewhere: () => Promise<boolean>;
+  readonly signInEmails: SignInEmailGuard;
 }
 
 export interface TenantBooks {
@@ -126,7 +141,6 @@ export interface TenantMail {
   readonly unlockLink?: (token: string) => string;
   readonly passwordResetLink?: (token: string) => string;
   readonly signInLink?: string;
-  readonly companyCode?: string;
 }
 
 function safeEqual(provided: string, secret: string): boolean {
@@ -152,6 +166,9 @@ export function requireOriginSecret(secret?: string): MiddlewareHandler {
 }
 
 const SIGN_IN = "/auth/login";
+const FORGOT_PASSWORD = "/auth/forgot-password";
+const RESOLVED_BY_EMAIL: ReadonlySet<string> = new Set([SIGN_IN, FORGOT_PASSWORD]);
+const ACCOUNT_LOCKED_STATUS = 423;
 
 const COUNTED_AS_FAILED: ReadonlySet<number> = new Set([401, 423]);
 const CROSS_TENANT_FREE_ATTEMPTS = 90;
@@ -250,6 +267,20 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
     now: options.now ?? (() => new Date()),
     mailPendingHandOver: options.mailPendingHandOver,
   });
+  const signInEmailGuardFor = (tenantId: string, code: string): SignInEmailGuard => {
+    const emails = options.platform.stores.signInEmails;
+    return {
+      claim: async (email) => {
+        if (!(await emails.claim(email, tenantId))) throw new EmailInAnotherCompanyError(email);
+      },
+      release: (email) => emails.release(email, tenantId),
+      sync: async (held) => {
+        const elsewhere = await emails.replaceTenant(tenantId, held);
+        if (elsewhere.length > 0) log.warn({ tenantId, emails: elsewhere }, `"${code}" has users whose email signs in to another company; they cannot sign in here without a company code`);
+        return elsewhere;
+      },
+    };
+  };
   const hooksFor = (tenantId: string, code: string): TenantBackendHooks => ({
     onUserEmailChanged: (change) => ownerContact.emailChanged(tenantId, change),
     onUserSignedIn: (user) => ownerContact.signedIn(tenantId, user),
@@ -264,6 +295,7 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
       const tenant = await options.platform.stores.tenants.findById(tenantId);
       return !tenant || tenant.ownerUserId !== null || tenant.status !== TenantStatusCode.Provisioning;
     },
+    signInEmails: signInEmailGuardFor(tenantId, code),
   });
   const backendOptions = (code: string, r: TenantResolvers, hooks: TenantBackendHooks, mail: TenantMail, books: TenantBooks) => ({
     seedWhenEmpty: books.provisioning,
@@ -271,7 +303,6 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
     unlockLink: mail.unlockLink,
     passwordResetLink: mail.passwordResetLink,
     signInLink: mail.signInLink,
-    signInCompanyCode: mail.companyCode,
     platformOperatorUnlocks: true,
     sessionsInDatabase: true,
     tenantMailDestinations: SmtpDestinationPolicy.PublicOnly,
@@ -282,6 +313,7 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
     onUserSignedIn: hooks.onUserSignedIn,
     companyOwner: hooks.companyOwner,
     claimedElsewhere: hooks.claimedElsewhere,
+    signInEmails: hooks.signInEmails,
     integrations: { tenantCode: code },
   });
   const openBackend = options.openBackend ?? (async (code, dbPath, r, hooks, connection, mail, books) => {
@@ -304,7 +336,7 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
     const schema = tenantSchema(tenantId);
     if (provisioning) await pgOptions.databases.provision(schema);
     const entry = pgOptions.databases.get(schema);
-    const mail: TenantMail = { unlockLink: options.unlockLinkFor?.(code), passwordResetLink: options.passwordResetLinkFor?.(code), signInLink: options.signInLinkFor?.(code), companyCode: code };
+    const mail: TenantMail = { unlockLink: options.unlockLinkFor?.(code), passwordResetLink: options.passwordResetLinkFor?.(code), signInLink: options.signInLinkFor?.(code) };
     const backend = await createBackend({
       ...backendOptions(code, resolversFor(code), hooksFor(tenantId, code), mail, { tenantId, provisioning, bind: true }),
       db: entry.db,
@@ -357,7 +389,7 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
       const provisioning = tenant.status === TenantStatusCode.Provisioning;
       const connection: SqliteOpenOptions = { ...options.connection, fileMustExist: !provisioning };
       const bind = verdict.standing !== TenantBooksStanding.Unbound;
-      const mail: TenantMail = { unlockLink: options.unlockLinkFor?.(code), passwordResetLink: options.passwordResetLinkFor?.(code), signInLink: options.signInLinkFor?.(code), companyCode: code };
+      const mail: TenantMail = { unlockLink: options.unlockLinkFor?.(code), passwordResetLink: options.passwordResetLinkFor?.(code), signInLink: options.signInLinkFor?.(code) };
       const backend = await openBackend(code, tenantDbPath(options.dataDir, tenant.dbFile), resolversFor(code), hooksFor(tenantId, code), connection, mail, { tenantId, provisioning, bind }).catch((err: unknown) => {
         if (isUnreadableSqliteError(err)) throw new TenantDbFileUnreadableError(tenantId, tenant.dbFile, err);
         if (err instanceof TenantBindingMismatchError) throw new TenantDbFileForeignError(tenantId, tenant.dbFile, err.boundTenantId);
@@ -477,6 +509,15 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
 
   const signInSources =
     options.signInSources ?? createSourceThrottle(options.now ? () => options.now!().getTime() : undefined, CROSS_TENANT_FREE_ATTEMPTS);
+  const signInClock = options.now ? () => options.now!().getTime() : undefined;
+  const unknownEmails = createSignInGuard({
+    throttle: createLoginThrottle(signInClock),
+    sources: createSourceThrottle(signInClock),
+    locks: createAccountLocks({ known: createMemoryAccountLockStore(), now: signInClock }),
+  });
+  const decoyHasher = createScryptHasher();
+  let decoy: Promise<string> | null = null;
+  const decoyHash = () => (decoy ??= decoyHasher.hash("mezan-login-timing-decoy"));
 
   const app = new Hono();
   app.use("*", requireCloudSource(options.clientSource ?? SOCKET_ONLY, options.sourceReporter));
@@ -511,20 +552,73 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
   });
 
   /** `c.req.path`/`routePath` stay undecoded, unlike `c.req.param`, so an encoded segment (e.g. `%2F`) survives the forward. */
+  async function tenantOfSignInEmail(request: Request): Promise<Tenant | null> {
+    const body: unknown = await request.clone().json().catch(() => null);
+    const email = typeof body === "object" && body !== null && "username" in body && typeof body.username === "string" ? body.username : "";
+    const tenantId = email.trim() === "" ? null : await options.platform.stores.signInEmails.tenantOf(email);
+    const tenant = tenantId ? await options.platform.stores.tenants.findById(tenantId) : null;
+    return tenant && tenantIsServed(tenant) ? tenant : null;
+  }
+
+  // SECURITY: an email no company holds is answered as each company answers an
+  // unknown email — the same scrypt, the same counting and lock, the same body.
+  async function unknownSignInEmail(c: Context, subPath: string, source: CloudSource): Promise<Response> {
+    if (subPath === FORGOT_PASSWORD) return c.json({ ok: true }, 202);
+    const body: unknown = await c.req.raw.clone().json().catch(() => null);
+    const parsed = loginRequestSchema.safeParse(body);
+    if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    const needle = parsed.data.username.trim().toLowerCase();
+    const counted = throttleSource(source) ?? source;
+    const crossTenantWait = await signInSources.retryAfter(counted);
+    if (crossTenantWait > 0) {
+      c.header("retry-after", String(crossTenantWait));
+      return c.json(tooManyAttempts(crossTenantWait), 429);
+    }
+    const answered = await unknownEmailAnswer(c, needle, source, parsed.data.password);
+    if (COUNTED_AS_FAILED.has(answered.status)) await signInSources.fail(counted);
+    return answered;
+  }
+
+  async function unknownEmailAnswer(c: Context, needle: string, source: CloudSource, password: string): Promise<Response> {
+    const locked = () => c.json(accountLocked({ mailed: options.securityMail !== undefined, operatorUnlocks: true }), ACCOUNT_LOCKED_STATUS);
+    const waitFor = (seconds: number) => {
+      c.header("retry-after", String(seconds));
+      return c.json(tooManyAttempts(seconds), 429);
+    };
+    const held = await unknownEmails.check(needle, source, false);
+    if (held.verdict === SignInVerdict.Locked) return locked();
+    if (held.verdict === SignInVerdict.Wait) return waitFor(held.retryAfterSeconds);
+    await decoyHasher.verify(password, await decoyHash());
+    const failed = await unknownEmails.failed(needle, source, false);
+    if (failed.verdict === SignInVerdict.Locked) return locked();
+    if (failed.verdict === SignInVerdict.Wait) return waitFor(failed.retryAfterSeconds);
+    return c.json({ error: "INVALID_CREDENTIALS", message: "البريد الإلكتروني أو كلمة المرور غير صحيحة." }, 401);
+  }
+
+  async function withTenantCode(answer: Response, code: string): Promise<Response> {
+    if (!answer.ok || !(answer.headers.get("content-type") ?? "").includes("application/json")) return answer;
+    const body = (await answer.json()) as Record<string, unknown>;
+    const headers = new Headers(answer.headers);
+    headers.delete("content-length");
+    return new Response(JSON.stringify({ ...body, tenantCode: code }), { status: answer.status, headers });
+  }
+
   app.all(REST_PATTERN, async (c) => {
+    const prefixLen = c.req.routePath.length - REST_PATTERN.length;
+    const subPath = c.req.path.slice(prefixLen) || "/";
+    const source = callerSource(c);
     const code = resolveTenantCode(c.req.raw, resolverOptions);
-    if (!code) return c.json({ error: "TENANT_REQUIRED", message: "حدّد رمز المنشأة" }, 400);
-    const tenant = await options.platform.stores.tenants.findByCode(code);
+    const byEmail = !code && c.req.method === "POST" && RESOLVED_BY_EMAIL.has(subPath);
+    if (!code && !byEmail) return c.json({ error: "TENANT_REQUIRED", message: "حدّد رمز المنشأة" }, 400);
+    const tenant = code ? await options.platform.stores.tenants.findByCode(code) : await tenantOfSignInEmail(c.req.raw);
+    if (byEmail && !tenant) return unknownSignInEmail(c, subPath, source);
     if (!tenant || !tenantIsServed(tenant)) {
       return c.json({ error: "TENANT_NOT_FOUND", message: "المنشأة غير موجودة" }, 404);
     }
     annotateRequest({ tenantId: tenant.id });
     const door = doorTo(await opened(tenant.id));
-    const prefixLen = c.req.routePath.length - REST_PATTERN.length;
-    const subPath = c.req.path.slice(prefixLen) || "/";
     const targetUrl = new URL(`${subPath}${new URL(c.req.raw.url).search}`, c.req.raw.url);
     const forwarded = new Request(targetUrl, c.req.raw);
-    const source = callerSource(c);
     if (c.req.method !== "POST" || subPath !== SIGN_IN) return door.fetch(forwarded, source);
 
     const counted = throttleSource(source) ?? source;
@@ -535,7 +629,7 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
     }
     const answer = await door.fetch(forwarded, source);
     if (COUNTED_AS_FAILED.has(answer.status)) await signInSources.fail(counted);
-    return answer;
+    return byEmail ? withTenantCode(answer, tenant.code) : answer;
   });
 
   async function openFor(code: string): Promise<BackendHandle> {
@@ -552,6 +646,7 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
   async function discardDatabase(tenant: Pick<Tenant, "id" | "dbFile">): Promise<void> {
     await cache.evict(tenant.id);
     forget(tenant.id);
+    await options.platform.stores.signInEmails.forgetTenant(tenant.id);
     if (options.postgres) {
       await options.postgres.databases.drop(tenantSchema(tenant.id));
       return;

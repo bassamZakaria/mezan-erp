@@ -106,7 +106,13 @@ function asWrittenBeforeBinding(env: CloudEnv, companies: readonly Company[], bo
 async function legacy(env: CloudEnv, codes: readonly (readonly [code: string, ownerEmail?: string])[], booksChange?: (company: Company) => string): Promise<Company[]> {
   const first = await boot(env);
   const companies: Company[] = [];
-  for (const [code, ownerEmail] of codes) companies.push(await provisioned(first, code, ownerEmail));
+  const owners = codes.map(([, ownerEmail]) => ownerEmail).filter((email) => email !== undefined);
+  const sharedOwner = new Set(owners).size < owners.length;
+  for (const [code, ownerEmail] of codes) {
+    companies.push(await provisioned(first, code, ownerEmail));
+    // Books from before the one-email-one-company rule may share an owner; only the code tells them apart.
+    if (sharedOwner) inDatabase(platformDb(env), (sqlite) => sqlite.prepare("DELETE FROM sign_in_email").run());
+  }
   await first.app.close();
   asWrittenBeforeBinding(env, companies, booksChange);
   return companies;

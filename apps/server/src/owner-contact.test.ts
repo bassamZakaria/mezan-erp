@@ -534,14 +534,15 @@ describe("the platform's record of a tenant's owner", () => {
     const ownerOne = await one.user("owner@hotel.example");
     const peer = await secondAdmin(one);
 
-    expect((await one.call("PUT", `/users/${String(ownerOne["id"])}`, { ...ownerOne, email: "owner@india.example", currentPassword: one.ownerPassword })).status).toBe(200);
+    expect((await one.call("PUT", `/users/${String(ownerOne["id"])}`, { ...ownerOne, email: "owner@india.example", currentPassword: one.ownerPassword })).status).toBe(409);
+    expect((await one.call("PUT", `/users/${String(ownerOne["id"])}`, { ...ownerOne, email: "owner@juliet.example", currentPassword: one.ownerPassword })).status).toBe(200);
 
-    expect((await one.recorded()).ownerEmail).toBe("owner@india.example");
+    expect((await one.recorded()).ownerEmail).toBe("owner@juliet.example");
     expect(await two.recorded()).toEqual(twoBefore);
 
     const peerRow = await one.user("second@hotel.example");
     expect((await one.call("PUT", `/users/${peer.id}`, { ...peerRow, email: "owner@hotel.example", currentPassword: SECOND_ADMIN_PASSWORD }, peer.token)).status).toBe(200);
-    expect(await one.recorded()).toMatchObject({ ownerEmail: "owner@india.example", ownerUserId: ownerOne["id"], ownerContactVerified: true });
+    expect(await one.recorded()).toMatchObject({ ownerEmail: "owner@juliet.example", ownerUserId: ownerOne["id"], ownerContactVerified: true });
     expect(await two.recorded()).toEqual(twoBefore);
   });
 });

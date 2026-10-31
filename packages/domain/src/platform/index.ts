@@ -80,3 +80,4 @@ export {
   seatsOverLimitRefusal, tenantMonthOf,
   type LimitRefusal, type ModuleReadOnlyRefusal, type LocationOverLimitRefusal, type SeatsOverLimitRefusal, type PlanLabel,
 } from "./usage-limits.js";
+export { type SignInEmailRepository } from "./sign-in-email.js";

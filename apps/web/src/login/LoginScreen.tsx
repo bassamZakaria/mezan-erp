@@ -23,7 +23,6 @@ import {
   pendingOwnerHandOver,
   pendingSignInHandOff,
   tenantCodeIsLeftover,
-  tenantCodeConfirmedThisVisit,
   tenantCodeForEmail,
 } from "../data/session";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
@@ -106,7 +105,8 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
     if (tenantMode !== undefined) rememberTenantMode(tenantMode);
   }, [tenantMode]);
   const companyCodeUnknown = lookupFailing && lookupHost === LookupHost.Cloud && lastTenantMode() !== TenantResolveMode.Subdomain;
-  const companyCodeOffered = tenantMode === TenantResolveMode.Code || companyCodeUnknown;
+  const companyCodeOffered = companyCodeUnknown;
+  const resolvesByEmail = tenantMode === TenantResolveMode.Code && !companyCodeUnknown;
   const hostUnreachable = lookupFailing && lookupHost === LookupHost.LanTill;
   const [companyUnconfirmed, setCompanyUnconfirmed] = useState(false);
   const [tenantCode, setTenantCode] = useState(() => openingTenantCode() ?? "");
@@ -132,18 +132,6 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
   useEffect(() => {
     if (demoSeeded && desktopHost && remembered.length === 0) setUsername((current) => (current === "" ? DEMO_SEED_ADMIN_EMAIL : current));
   }, [demoSeeded, desktopHost, remembered.length]);
-
-  /**
-   * Whether the OPERATOR NOW AT THE MACHINE has explicitly confirmed a
-   * company code this visit (typed it and blurred the field), as opposed to
-   * it simply being whatever a previous visit — anyone's — left in storage.
-   * `handleEmailBlur` below must never override a code the person in front
-   * of the screen just chose on purpose: an implementation consultant who
-   * signs the same email into two different client tenants would otherwise
-   * be corrected straight back to whichever one they used last, and could
-   * never reach the second (security review, item 3 finding 1).
-   */
-  const codeConfirmedThisVisitRef = useRef(tenantCodeConfirmedThisVisit() || handOff !== null);
 
   /**
    * A different company's rows must never survive a tenant switch on the
@@ -194,12 +182,10 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
     switchTenantCode(() => persistTenantCode(tenantCode));
     setResolvedCode(tenantCode);
     markTenantCodeConfirmed(loadTenantCode() ?? tenantCode);
-    codeConfirmedThisVisitRef.current = true;
   }
 
   function forgetConfirmedCode() {
     clearTenantCodeConfirmed();
-    codeConfirmedThisVisitRef.current = false;
   }
 
   function handleChangeTenant() {
@@ -207,37 +193,6 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
     setTenantCode("");
     setResolvedCode("");
     forgetConfirmedCode();
-  }
-
-  /**
-   * Corrects a STALE company code once a returning operator identifies
-   * themselves by typing their own email — the face row can never be wrong
-   * this way (it only ever lists people already remembered under the code
-   * that is currently loaded), but manual email entry has no such guarantee:
-   * a shared "code" origin can otherwise carry operator A's leftover company
-   * straight into operator B's sign-in attempt.
-   *
-   * Never overrides a code the operator explicitly confirmed THIS visit
-   * (`codeConfirmedThisVisitRef`) — only a silent leftover from storage is
-   * fair game, so an operator who deliberately types their SECOND company's
-   * code and then their (shared) email is never bounced back to the first.
-   *
-   * Deliberately lighter than `switchTenantCode`: it still clears the
-   * query cache (the same cross-company invariant), but does NOT reset the
-   * identity fields the operator is mid-typing — only a manual "change
-   * company" action should do that.
-   */
-  function handleEmailBlur() {
-    if (tenantMode !== TenantResolveMode.Code || codeConfirmedThisVisitRef.current) return;
-    const mapped = tenantCodeForEmail(username);
-    if (!mapped || mapped === resolvedCode) return;
-    const before = loadTenantCode();
-    persistTenantCode(mapped);
-    if (loadTenantCode() === before) return;
-    queryClient.clear();
-    setTenantCode(mapped);
-    setResolvedCode(mapped);
-    setRemembered(readDeviceUsers());
   }
 
   /**
@@ -325,14 +280,11 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
     !tenantCodeInvalid;
 
   function submit() {
-    if (tenantMode === TenantResolveMode.Code && tenantCode.trim() === "") {
-      setError(t("login.tenantRequired"));
-      return;
-    }
     if (tenantCodeInvalid) return;
     if (!canSubmit) return;
     setError(null);
     setCompanyUnconfirmed(lookupFailing && tenantCode.trim() !== "" && !tenantInfo.isSuccess);
+    if (resolvesByEmail) clearTenantCode();
     login.mutate(
       { username: identity, password },
       {
@@ -342,7 +294,8 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
           clearOwnerHandOver();
           clearTenantCodeConfirmed();
           rememberDeviceUser(session);
-          if (tenantMode === TenantResolveMode.Code && resolvedCode !== "") rememberTenantCodeForEmail(session.email, resolvedCode);
+          const signedInto = loadTenantCode();
+          if (tenantMode === TenantResolveMode.Code && signedInto) rememberTenantCodeForEmail(session.email, signedInto);
         },
         onError: (err) => {
           const timedWait = (err.status === 429 || err.status === SERVER_BUSY) && typeof err.retryAfterSeconds === "number";
@@ -399,7 +352,6 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
     <ForgotPasswordCard
       initialEmail={identity}
       mailed={onCloud}
-      tenantMissing={tenantMode === TenantResolveMode.Code && tenantCode.trim() === ""}
       onBack={() => setForgotOpen(false)}
     />
   ) : (
@@ -574,7 +526,6 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
               acknowledgeExpiry();
               setUsername(e.target.value);
             }}
-            onBlur={handleEmailBlur}
           />
         </label>
       ) : null}
@@ -583,7 +534,12 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
         <label htmlFor={passwordId} className="text-xs text-ink-muted">
           {passwordLabel}
         </label>
-        <button type="button" onClick={() => setForgotOpen(true)} className="text-2xs font-semibold text-accent-strong hover:underline">
+        <button
+          type="button"
+          onClick={() => {
+            if (resolvesByEmail) clearTenantCode();
+            setForgotOpen(true);
+          }} className="text-2xs font-semibold text-accent-strong hover:underline">
           {t("login.forgot")}
         </button>
       </div>
@@ -702,7 +658,7 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
 
 const CARD_CLASS = "relative w-full max-w-[380px] rounded-lg border border-border bg-surface p-[28px] pb-[18px] shadow-2";
 
-function ForgotPasswordCard({ initialEmail, mailed, tenantMissing, onBack }: { initialEmail: string; mailed: boolean; tenantMissing: boolean; onBack: () => void }) {
+function ForgotPasswordCard({ initialEmail, mailed, onBack }: { initialEmail: string; mailed: boolean; onBack: () => void }) {
   const { t } = useAppTranslation();
   const forgot = useForgotPassword();
   const emailId = useId();
@@ -711,7 +667,7 @@ function ForgotPasswordCard({ initialEmail, mailed, tenantMissing, onBack }: { i
 
   function submit(event: FormEvent) {
     event.preventDefault();
-    if (email.trim() === "" || tenantMissing || forgot.isPending) return;
+    if (email.trim() === "" || forgot.isPending) return;
     forgot.mutate({ username: email.trim() }, { onSuccess: () => setSent(true) });
   }
 
@@ -732,17 +688,12 @@ function ForgotPasswordCard({ initialEmail, mailed, tenantMissing, onBack }: { i
           {t("login.email")}
         </label>
         <TextInput id={emailId} type="email" autoComplete="username" className="mz-lat mt-[6px] w-full" value={email} onChange={(e) => setEmail(e.target.value)} />
-        {tenantMissing ? (
-          <p role="alert" className="mt-[10px] text-xs font-semibold text-danger-ink">
-            {t("login.tenantRequired")}
-          </p>
-        ) : null}
         {forgot.error ? (
           <p role="alert" className="mt-[10px] text-xs font-semibold text-danger-ink">
             {forgot.error.message}
           </p>
         ) : null}
-        <Button type="submit" variant="primary" disabled={email.trim() === "" || tenantMissing || forgot.isPending} className="mt-[16px] w-full justify-center py-[12px]">
+        <Button type="submit" variant="primary" disabled={email.trim() === "" || forgot.isPending} className="mt-[16px] w-full justify-center py-[12px]">
           {t("login.forgot.submit")}
         </Button>
       </>

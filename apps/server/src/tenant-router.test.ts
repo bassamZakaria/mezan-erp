@@ -124,6 +124,7 @@ async function newRouter(
         resolveEntitlements: () => resolvers.resolveEntitlements(),
         resolveLicenseState: () => resolvers.resolveLicenseState(),
         ...(opts.platformClaimGuard ? { claimedElsewhere: hooks.claimedElsewhere } : {}),
+        signInEmails: hooks.signInEmails,
       });
       const spied: BackendHandle = { ...handle, close: vi.fn(handle.close) };
       opened.push(spied);
@@ -158,6 +159,65 @@ async function bootstrapAdmin(router: TenantRouter, code: string): Promise<strin
 }
 
 describe("createTenantRouter", () => {
+  describe("sign-in by email alone", () => {
+    const post = (router: TenantRouter, path: string, body: unknown, code?: string) =>
+      router.app.fetch(
+        new Request(`http://ignored${path}`, {
+          method: "POST",
+          headers: { "content-type": "application/json", ...(code ? { [TENANT_HEADER]: code } : {}) },
+          body: JSON.stringify(body),
+        }),
+      );
+
+    it("finds the company from the email and names it in the answer", async () => {
+      const platform = await seedPlatform();
+      const { router } = await newRouter(platform);
+      await bootstrapAdmin(router, "cyag");
+      await bootstrapAdmin(router, "nile");
+
+      const res = await post(router, "/auth/login", { username: "Owner-Nile@example.com ", password: "pw-123456" });
+      expect(res.status).toBe(200);
+      const session = (await res.json()) as SessionDTO & { tenantCode?: string };
+      expect(session.tenantCode).toBe("nile");
+      const tenant = await router.app.fetch(new Request("http://ignored/tenant", { headers: { [TENANT_HEADER]: "nile", authorization: `Bearer ${session.token ?? ""}` } }));
+      expect(tenant.status).toBe(200);
+      expect(await platform.stores.signInEmails.tenantOf("owner-cyag@example.com")).toBe("t-cyag");
+    }, 120_000);
+
+    it("answers an email no company holds exactly as a company answers an unknown email", async () => {
+      const platform = await seedPlatform();
+      const { router } = await newRouter(platform);
+      await bootstrapAdmin(router, "cyag");
+
+      const byEmail = await post(router, "/auth/login", { username: "nobody@example.com", password: "pw-123456" });
+      const inCompany = await post(router, "/auth/login", { username: "nobody@example.com", password: "pw-123456" }, "cyag");
+      expect(byEmail.status).toBe(401);
+      expect(await byEmail.json()).toEqual(await inCompany.json());
+      expect((await post(router, "/auth/login", { username: "owner-cyag@example.com", password: "wrong-pass" })).status).toBe(401);
+      const forgot = await post(router, "/auth/forgot-password", { username: "nobody@example.com" });
+      expect(forgot.status).toBe(202);
+      expect(await forgot.json()).toEqual({ ok: true });
+      expect((await router.app.fetch(new Request("http://ignored/tenant"))).status).toBe(400);
+    }, 120_000);
+
+    it("refuses an email another company already signs in with", async () => {
+      const platform = await seedPlatform();
+      const { router } = await newRouter(platform);
+      await bootstrapAdmin(router, "cyag");
+      const nile = await router.backendFor("nile");
+      const res = await nile.app.fetch(
+        new Request("http://tenant.internal/bootstrap/admin", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ nameAr: "المدير", email: "owner-cyag@example.com", password: "pw-123456", companyName: "النيل" }),
+        }),
+      );
+      expect(res.status).toBe(409);
+      expect(await res.json()).toMatchObject({ error: "DUPLICATE_USER_EMAIL", message: expect.stringContaining("منشأة أخرى") });
+      expect(await platform.stores.signInEmails.tenantOf("owner-cyag@example.com")).toBe("t-cyag");
+    }, 120_000);
+  });
+
   describe("GET /platform/resolve", () => {
     it("reports mode subdomain and exists true when the host names a live tenant — never its name", async () => {
       const platform = await seedPlatform();

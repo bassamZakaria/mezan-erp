@@ -139,7 +139,7 @@ After the first deploy, in a browser: sign in to a tenant, print an invoice and 
 
 ## 5. Update and rollback
 
-Push to `staging` or `production` → the **Release image** workflow pushes `ghcr.io/bassamzakaria/mezan-erp:<sha>` (linux/amd64). For `staging` only, its `deploy` job then runs `deploy.sh <sha>@sha256:<digest>` on this VPS over SSH, so every push to `staging` goes live (about a minute of downtime). The deploy runs detached from the SSH session and logs to `/var/log/mezan-deploy.log`; re-sending the running tag succeeds without a restart.
+Push to `staging` or `production` → the **Release image** workflow pushes `ghcr.io/bassamzakaria/mezan-erp:<sha>` (linux/amd64). Its `deploy` job then runs `deploy.sh <sha>@sha256:<digest>` over SSH on that branch's own VPS (`staging` → the staging VPS, `production` → the production VPS; one stack per VPS), so every push to either branch goes live (about a minute of downtime). The deploy runs detached from the SSH session and logs to `/var/log/mezan-deploy.log`; re-sending the running tag succeeds without a restart.
 
 **Automatic deploy (once per VPS):** a `deploy` user whose only key is GitHub's, forced to `ci-deploy.sh`; the workflow's short-lived `GITHUB_TOKEN` is the registry login, so no GitHub token is stored on the box.
 
@@ -152,7 +152,7 @@ install -o deploy -g deploy -m 700 -d /home/deploy/.ssh
 echo 'deploy ALL=(root) NOPASSWD: /usr/local/bin/mezan-ci-deploy' > /etc/sudoers.d/91-deploy && chmod 440 /etc/sudoers.d/91-deploy
 ```
 
-Secrets of the GitHub environment `contabo` (deployment branches: `staging` only, so no other branch or manual run can reach them): `DEPLOY_HOST` (the VPS address), `DEPLOY_SSH_KEY` (the private key), `DEPLOY_KNOWN_HOSTS` (`<address> ssh-ed25519 <host key>`, from `ssh-keyscan -t ed25519 <address>` checked against the key you saw on first login). To stop automatic deploys, delete `/home/deploy/.ssh/authorized_keys`; to deploy by hand, on the VPS:
+Each VPS has its own GitHub environment, which admits only its branch, so no other branch can reach its secrets (a manual run on that branch deploys like a push): `contabo` ← `production`, `contabo-staging` ← `staging`. While an environment's `DEPLOY_HOST` is the placeholder `CHANGE_ME`, its deploy is skipped with a warning. Secrets of each environment: `DEPLOY_HOST` (the VPS address), `DEPLOY_SSH_KEY` (the private key), `DEPLOY_KNOWN_HOSTS` (`<address> ssh-ed25519 <host key>`, from `ssh-keyscan -t ed25519 <address>` checked against the key you saw on first login). To stop automatic deploys, delete `/home/deploy/.ssh/authorized_keys`; to deploy by hand, on the VPS:
 
 ```
 sudo /opt/mezan/deploy.sh <sha>

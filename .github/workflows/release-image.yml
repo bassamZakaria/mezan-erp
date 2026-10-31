@@ -2,7 +2,8 @@ name: Release image
 
 # Builds the linux/amd64 image for the Contabo VPS (deploy/contabo) and pushes
 # it to GHCR tagged with the commit SHA. The VPS never builds; it pulls the tag
-# and, for `staging`, deploys it over SSH (deploy/contabo/ci-deploy.sh). Runs on a push to `staging` or `production`, or by hand.
+# and deploys it over SSH (deploy/contabo/ci-deploy.sh): `staging` to the staging VPS,
+# `production` to the production VPS. Runs on a push to `staging` or `production`, or by hand.
 on:
   push:
     branches: [staging, production]
@@ -62,17 +63,18 @@ jobs:
         run: echo "::notice::On the VPS run sudo /opt/mezan/deploy.sh $TAG"
 
   deploy:
-    name: deploy · contabo
+    name: deploy · ${{ github.ref_name }}
     needs: image
-    # The contabo environment holds the DEPLOY_* secrets and admits only the staging branch.
-    if: github.ref == 'refs/heads/staging'
-    environment: contabo
+    # Each environment holds its own DEPLOY_* secrets and admits only its own branch:
+    # contabo ← production, contabo-staging ← staging.
+    if: github.ref == 'refs/heads/staging' || github.ref == 'refs/heads/production'
+    environment: ${{ github.ref == 'refs/heads/production' && 'contabo' || 'contabo-staging' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
       packages: read
     concurrency:
-      group: deploy-contabo
+      group: deploy-${{ github.ref_name }}
       cancel-in-progress: false
     steps:
       - name: Deploy over SSH
@@ -83,6 +85,11 @@ jobs:
           REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.sha }}@${{ needs.image.outputs.digest }}
         run: |
+          if [ "$DEPLOY_HOST" = "CHANGE_ME" ]; then
+            echo "::warning::Deploy skipped: DEPLOY_HOST is still the placeholder in this environment; nothing went live."
+            echo "**Deploy skipped:** DEPLOY_HOST is still the placeholder; nothing went live." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           install -m 700 -d ~/.ssh
           printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key

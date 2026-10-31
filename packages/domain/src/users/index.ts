@@ -67,3 +67,5 @@ export {
   type UserImportRow,
   type UserImportRowProblem,
 } from "./user-import.js";
+
+export { EmailInAnotherCompanyError, type SignInEmailGuard } from "./sign-in-email.js";

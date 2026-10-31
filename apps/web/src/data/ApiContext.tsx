@@ -9,6 +9,7 @@ import {
   persistScopeSelection,
   persistSession,
   SignInNotice,
+  NO_TENANT,
   TENANT_HEADER,
   type ScopeSelection,
   type Session,
@@ -191,7 +192,8 @@ export function ApiProvider({ children, transport, initialSession }: ApiProvider
         const namedTenant = headers.get(TENANT_HEADER);
         for (const [k, v] of Object.entries(authHeaders(session, narrowing))) headers.set(k, v);
         // A reset link names its own company; neither the stored code nor a signed-in company may redirect it to another one.
-        if (namedTenant !== null) headers.set(TENANT_HEADER, namedTenant);
+        if (namedTenant === NO_TENANT) headers.delete(TENANT_HEADER);
+        else if (namedTenant !== null) headers.set(TENANT_HEADER, namedTenant);
         if (init?.body && !headers.has("content-type")) headers.set("content-type", "application/json");
         if (SESSION_ISSUING_PATHS.has(path)) headers.set(DEVICE_BINDING_HEADER, DeviceBinding.Cookie);
         const refusedByBranchPolicy = isBranchRestricted(session) ? branchRefusalBefore(path, method) : null;

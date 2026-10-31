@@ -237,6 +237,25 @@ describe("createCloudApp", () => {
     expect(tenantLoginRes.status).toBe(200);
   });
 
+  it("keeps a browser signed in after it signs in by email alone: the cookie is bound to the company the server found, so the next request is the signed-in owner's", async () => {
+    const app = await boot(testEnv());
+    const token = await platformLogin(app, "owner@mezan.local", "owner-password-123");
+    const provisioned = await provisionCyag(app, token);
+
+    const login = await app.root.fetch(
+      new Request("http://cloud.internal/api/auth/login", {
+        method: "POST",
+        headers: { "content-type": "application/json", [DEVICE_BINDING_HEADER]: DeviceBinding.Cookie },
+        body: JSON.stringify({ username: provisioned.adminEmail, password: provisioned.adminPassword }),
+      }),
+    );
+    expect(login.status).toBe(200);
+    expect(((await login.json()) as { tenantCode?: string }).tenantCode).toBe("cyag");
+    const cookie = login.headers.getSetCookie().map((c) => c.split(";")[0]).join("; ");
+    const next = await app.root.fetch(new Request("http://cloud.internal/api/sessions", { headers: { cookie, "x-mezan-tenant": "cyag" } }));
+    expect(await next.json()).toMatchObject({ error: "PASSWORD_CHANGE_REQUIRED" });
+  });
+
   it("retries a tenant whose provisioning failed on a retired plan, through the route, ending active", async () => {
     const env = testEnv();
     const app = await boot(env);

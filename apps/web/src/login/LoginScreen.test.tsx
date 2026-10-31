@@ -2,8 +2,8 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { useState, useSyncExternalStore, type ReactElement } from "react";
+import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useState, useSyncExternalStore, type ReactElement } from "react";
 import { LoginScreen } from "./LoginScreen";
 import { useApi, ApiProvider } from "../data/ApiContext";
 import {
@@ -17,11 +17,13 @@ import {
   rememberTenantCodeForEmail,
   sessionExpiredPending,
   subscribeTenantCode,
+  TENANT_HEADER,
 } from "../data/session";
-import { OwnerHandOverOutcome } from "@mezan/contracts";
+import { OwnerHandOverOutcome, TenantResolveMode } from "@mezan/contracts";
 import { createQueryClient } from "../data/queryClient";
 import { AppI18nProvider } from "../i18n";
 import { rememberDeviceUser } from "./device-users";
+import { rememberTenantMode } from "./lookup-host";
 import { MemoryRouter } from "react-router";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
 import type { Transport, TransportResponse } from "../data/transport";
@@ -40,6 +42,13 @@ function typeEmailWhenNoneIsOffered() {
 }
 
 const PASSWORD_LABEL = /^كلمة المرور/;
+
+const CHECKING_COMPANY = "جارٍ التحقق من المنشأة…";
+const LOOKUP_DOWN = { "GET /platform/resolve": () => ({ status: 500, body: {} }) };
+
+async function lookupSettled() {
+  await waitFor(() => expect(screen.queryByText(CHECKING_COMPANY)).not.toBeInTheDocument());
+}
 
 function passwordField(): HTMLInputElement {
   return screen.getByLabelText<HTMLInputElement>(PASSWORD_LABEL);
@@ -137,16 +146,17 @@ describe.each(["light", "dark"] as const)("LoginScreen (%s theme)", (theme) => {
       expect(screen.getByLabelText("البريد الإلكتروني")).toHaveValue("");
     });
 
-    it("is never offered on the cloud, and the cloud sign-in asks no tenant for it", async () => {
+    it("is never offered on the cloud, and the cloud sign-in asks no company code for it", async () => {
       const asked: string[] = [];
       const base = stubTransport({
         ...preAuth,
-        "GET /platform/resolve": () => ({ body: { mode: "code", exists: false } }),
+        "GET /platform/resolve": () => ({ body: { mode: TenantResolveMode.Code, exists: false } }),
         "GET /bootstrap/status": () => ({ body: { ...counts, demoSeeded: true } }),
       });
       renderWithProviders(<LoginScreen onStartWizard={() => {}} />, { transport: (path, init) => (asked.push(path), base(path, init)) });
 
-      await screen.findByRole("textbox", { name: "رمز المنشأة" });
+      await lookupSettled();
+      expect(screen.queryByLabelText("رمز المنشأة")).not.toBeInTheDocument();
       expect(screen.getByLabelText("البريد الإلكتروني")).toHaveValue("");
       expect(asked).not.toContain("/bootstrap/status");
     });
@@ -374,8 +384,8 @@ describe.each(["light", "dark"] as const)("LoginScreen (%s theme)", (theme) => {
     });
 
     it.each([
-      ["a company's own subdomain", { mode: "subdomain", exists: true }, "/tenant"],
-      ["the shared address that asks for a company code", { mode: "code", exists: false }, "/platform/resolve"],
+      ["a company's own subdomain", { mode: TenantResolveMode.Subdomain, exists: true }, "/tenant"],
+      ["the shared address that asks for a company code", { mode: TenantResolveMode.Code, exists: false }, "/platform/resolve"],
     ])("is the signup page on the cloud, on %s, where the first-run wizard leads nowhere: no wizard link, and nothing asked about setup", async (_label, resolved, lastAsked) => {
       const asked: string[] = [];
       const base = stubTransport({ ...preAuth, "GET /platform/resolve": () => ({ body: resolved }), "GET /bootstrap/status": () => ({ body: { ...counts, claimed: false } }) });
@@ -408,14 +418,186 @@ describe("LoginScreen — SaaS company code", () => {
     localStorage.clear();
   });
 
-  it("renders the company-code input in code mode", async () => {
-    renderWithProviders(<LoginScreen onStartWizard={() => {}} />, {
-      transport: stubTransport({ ...preAuth, "GET /platform/resolve": () => ({ body: { mode: "code", exists: false } }) }),
-    });
-    expect(await screen.findByLabelText("رمز المنشأة")).toBeInTheDocument();
+  it("shows no company-code field in code mode, and signing in with email and password sends no company header even when a code was left over", async () => {
+    localStorage.setItem("mezan.tenantCode", "nile");
+    let seenTenantHeader: string | null | undefined;
+    renderWithProviders(
+      <>
+        <LoginScreen onStartWizard={() => {}} />
+        <SessionProbe />
+      </>,
+      {
+        transport: stubTransport({
+          ...preAuth,
+          "GET /platform/resolve": () => ({ body: { mode: TenantResolveMode.Code, exists: true } }),
+          "POST /auth/login": (init) => {
+            seenTenantHeader = new Headers(init?.headers).get(TENANT_HEADER);
+            return { body: testAdminSession };
+          },
+        }),
+      },
+    );
+    await lookupSettled();
+    expect(screen.queryByLabelText("رمز المنشأة")).not.toBeInTheDocument();
+
+    signIn("Cyag@2026");
+
+    await vi.waitFor(() => expect(screen.getByTestId("session")).toHaveTextContent(testAdminSession.nameAr));
+    expect(seenTenantHeader).toBeNull();
+    expect(localStorage.getItem("mezan.tenantCode")).toBe("nile");
   });
 
-  it("lower-cases as it is typed but only persists and resolves on blur — firing exactly one /tenant request, and echoes the CODE back rather than the tenant's real name", async () => {
+  it("keeps the remembered company and its face row after a refused sign-in, and offers the face again when the screen is shown anew", async () => {
+    rememberTenantCodeForEmail("b@nile.example", "nile");
+    localStorage.setItem("mezan.tenantCode", "nile");
+    localStorage.setItem(
+      "mezan.deviceUsers.nile",
+      JSON.stringify([{ email: "b@nile.example", nameAr: "بسمة النيل", nameEn: null, initials: "ب.ا", role: "admin", photoUrl: null }]),
+    );
+    const transport = stubTransport({
+      ...preAuth,
+      "GET /platform/resolve": () => ({ body: { mode: TenantResolveMode.Code, exists: true } }),
+      "POST /auth/login": () => ({ status: 401, body: { error: "INVALID_CREDENTIALS", message: "البريد الإلكتروني أو كلمة المرور غير صحيحة." } }),
+    });
+    const first = renderWithProviders(<LoginScreen onStartWizard={() => {}} />, { transport });
+    await lookupSettled();
+    expect(screen.getByRole("radio", { name: "اختر بسمة النيل" })).toBeChecked();
+
+    fireEvent.change(passwordField(), { target: { value: "wrong-password" } });
+    fireEvent.submit(passwordField().closest("form")!);
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    expect(localStorage.getItem("mezan.tenantCode")).toBe("nile");
+    expect(screen.getByRole("radio", { name: "اختر بسمة النيل" })).toBeChecked();
+
+    first.unmount();
+    renderWithProviders(<LoginScreen onStartWizard={() => {}} />, { transport });
+    await lookupSettled();
+    expect(screen.getByRole("radio", { name: "اختر بسمة النيل" })).toBeChecked();
+    expect(localStorage.getItem("mezan.tenantCode")).toBe("nile");
+  });
+
+  it("opens a locked account with the mailed code without naming any company, and says the account was unlocked", async () => {
+    localStorage.setItem("mezan.tenantCode", "nile");
+    let unlockTenant: string | null | undefined;
+    renderWithProviders(<LoginScreen onStartWizard={() => {}} />, {
+      transport: stubTransport({
+        ...preAuth,
+        "GET /platform/resolve": () => ({ body: { mode: TenantResolveMode.Code, exists: true } }),
+        "POST /auth/login": () => ({
+          status: 423,
+          body: { error: "ACCOUNT_LOCKED", unlockByCode: true, message: "تم قفل هذا الحساب بعد محاولات دخول فاشلة متكررة." },
+        }),
+        "POST /auth/unlock": (init) => {
+          unlockTenant = new Headers(init?.headers).get(TENANT_HEADER);
+          return { body: { ok: true } };
+        },
+      }),
+    });
+    await lookupSettled();
+    signIn("wrong-password");
+    expect(await screen.findByRole("alert")).toHaveTextContent("تم قفل هذا الحساب");
+
+    fireEvent.change(screen.getByLabelText("رمز فكّ القفل"), { target: { value: "ABCDEFGHIJKLMNOP" } });
+    fireEvent.click(screen.getByRole("button", { name: "فكّ القفل" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent("تم فكّ قفل الحساب");
+    expect(unlockTenant).toBeNull();
+    expect(localStorage.getItem("mezan.tenantCode")).toBe("nile");
+  });
+
+  it("keeps the company the server names in its login answer, and remembers it under the operator's email", async () => {
+    renderWithProviders(<LoginScreen onStartWizard={() => {}} />, {
+      transport: stubTransport({
+        ...preAuth,
+        "GET /platform/resolve": () => ({ body: { mode: TenantResolveMode.Code, exists: true } }),
+        "POST /auth/login": () => ({ body: { ...testAdminSession, tenantCode: "nile" } }),
+      }),
+    });
+    await lookupSettled();
+
+    signIn("Cyag@2026");
+
+    await vi.waitFor(() => expect(localStorage.getItem("mezan.tenantCode")).toBe("nile"));
+    await vi.waitFor(() => expect(localStorage.getItem("mezan.tenantCodeByEmail")).not.toBeNull());
+    const map = JSON.parse(localStorage.getItem("mezan.tenantCodeByEmail")!);
+    expect(map[testAdminSession.email.toLowerCase()]).toBe("nile");
+  });
+
+  it("sends every request after sign-in under the company the server named, and drops what the previous company left cached", async () => {
+    localStorage.setItem("mezan.tenantCode", "acme");
+    const seen: (string | null)[] = [];
+    function AfterSignIn() {
+      const { request, session } = useApi();
+      const queryClient = useQueryClient();
+      const cached = useQuery({ queryKey: ["acme-only"], queryFn: () => "refetched", enabled: false, staleTime: Infinity, gcTime: Infinity });
+      useEffect(() => {
+        if (!session) queryClient.setQueryData(["acme-only"], "acme");
+      }, [queryClient, session]);
+      return session ? (
+        <button type="button" onClick={() => void request("/tenant")}>
+          {cached.data === "acme" ? "acme still cached" : "next request"}
+        </button>
+      ) : null;
+    }
+    renderWithProviders(
+      <>
+        <LoginScreen onStartWizard={() => {}} />
+        <AfterSignIn />
+      </>,
+      {
+        transport: stubTransport({
+          ...preAuth,
+          "GET /platform/resolve": () => ({ body: { mode: TenantResolveMode.Code, exists: true } }),
+          "POST /auth/login": () => ({ body: { ...testAdminSession, tenantCode: "nile" } }),
+          "GET /tenant": (init) => {
+            seen.push(new Headers(init?.headers).get(TENANT_HEADER));
+            return { body: { name: "Nile" } };
+          },
+        }),
+      },
+    );
+    await lookupSettled();
+
+    signIn("Cyag@2026");
+
+    const next = await screen.findByRole("button", { name: "next request" });
+    seen.length = 0;
+    fireEvent.click(next);
+    await vi.waitFor(() => expect(seen).toContain("nile"));
+    expect(seen.every((tenant) => tenant === "nile")).toBe(true);
+    expect(localStorage.getItem("mezan.tenantCode")).toBe("nile");
+  });
+
+  it("asks for no company code when a forgotten password is sent in code mode, and sends no company header", async () => {
+    localStorage.setItem("mezan.tenantCode", "nile");
+    let seenTenantHeader: string | null | undefined;
+    let asked: unknown;
+    renderWithProviders(<LoginScreen onStartWizard={() => {}} />, {
+      transport: stubTransport({
+        ...preAuth,
+        "GET /platform/resolve": () => ({ body: { mode: TenantResolveMode.Code, exists: true } }),
+        "POST /auth/forgot-password": (init) => {
+          seenTenantHeader = new Headers(init?.headers).get(TENANT_HEADER);
+          asked = JSON.parse((init?.body as string) ?? "{}");
+          return { status: 202, body: { ok: true } };
+        },
+      }),
+    });
+    await lookupSettled();
+
+    fireEvent.click(screen.getByRole("button", { name: "نسيت كلمة المرور؟" }));
+    fireEvent.change(screen.getByLabelText("البريد الإلكتروني"), { target: { value: TYPED_EMAIL } });
+    expect(screen.queryByLabelText("رمز المنشأة")).not.toBeInTheDocument();
+    expect(screen.queryByText("حدّد رمز المنشأة")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "إرسال الرابط" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent("إن كان هذا البريد مسجّلًا");
+    expect(asked).toEqual({ username: TYPED_EMAIL });
+    expect(seenTenantHeader).toBeNull();
+    expect(localStorage.getItem("mezan.tenantCode")).toBe("nile");
+  });
+
+  it("on a failed lookup, lower-cases as it is typed but only persists and resolves on blur — firing exactly one /tenant request, and echoes the CODE back rather than the tenant's real name", async () => {
     let tenantRequests = 0;
     renderWithProviders(<LoginScreen onStartWizard={() => {}} />, {
       transport: stubTransport({
@@ -424,7 +606,7 @@ describe("LoginScreen — SaaS company code", () => {
           tenantRequests += 1;
           return { body: { name: "Cyag" } };
         },
-        "GET /platform/resolve": () => ({ body: { mode: "code", exists: true } }),
+        ...LOOKUP_DOWN,
       }),
     });
     const input = await screen.findByLabelText("رمز المنشأة");
@@ -442,9 +624,9 @@ describe("LoginScreen — SaaS company code", () => {
     expect(tenantRequests).toBe(1);
   });
 
-  it("shows «رمز المنشأة غير صالح» for an invalid code and disables submit", async () => {
+  it("on a failed lookup, shows «رمز المنشأة غير صالح» for an invalid code and disables submit", async () => {
     renderWithProviders(<LoginScreen onStartWizard={() => {}} />, {
-      transport: stubTransport({ ...preAuth, "GET /platform/resolve": () => ({ body: { mode: "code", exists: false } }) }),
+      transport: stubTransport({ ...preAuth, ...LOOKUP_DOWN }),
     });
     const input = await screen.findByLabelText("رمز المنشأة");
     fireEvent.change(input, { target: { value: "a" } });
@@ -453,9 +635,9 @@ describe("LoginScreen — SaaS company code", () => {
     expect(screen.getByRole("button", { name: "دخول" })).toBeDisabled();
   });
 
-  it("clears the stored code from «تغيير المنشأة»", async () => {
+  it("on a failed lookup, clears the stored code from «تغيير المنشأة»", async () => {
     renderWithProviders(<LoginScreen onStartWizard={() => {}} />, {
-      transport: stubTransport({ ...preAuth, "GET /platform/resolve": () => ({ body: { mode: "code", exists: true } }) }),
+      transport: stubTransport({ ...preAuth, ...LOOKUP_DOWN }),
     });
     const input = await screen.findByLabelText("رمز المنشأة");
     fireEvent.change(input, { target: { value: "cyag" } });
@@ -469,7 +651,7 @@ describe("LoginScreen — SaaS company code", () => {
     expect(localStorage.getItem("mezan.tenantCode")).toBeNull();
   });
 
-  it("switching the company code clears the query cache and re-reads the face row under the new tenant — one browser origin serves every 'code' tenant, so a stale query or a rival company's remembered faces must not survive the switch", async () => {
+  it("on a failed lookup, switching the company code clears the query cache and re-reads the face row under the new tenant — one browser origin serves every 'code' tenant, so a stale query or a rival company's remembered faces must not survive the switch", async () => {
     localStorage.setItem("mezan.tenantCode", "cyag");
     localStorage.setItem(
       "mezan.deviceUsers.cyag",
@@ -477,7 +659,7 @@ describe("LoginScreen — SaaS company code", () => {
     );
     const clearSpy = vi.spyOn(QueryClient.prototype, "clear");
     renderWithProviders(<LoginScreen onStartWizard={() => {}} />, {
-      transport: stubTransport({ ...preAuth, "GET /platform/resolve": () => ({ body: { mode: "code", exists: true } }) }),
+      transport: stubTransport({ ...preAuth, ...LOOKUP_DOWN }),
     });
     expect(await screen.findByRole("radio", { name: /قديم/ })).toBeInTheDocument();
 
@@ -493,11 +675,11 @@ describe("LoginScreen — SaaS company code", () => {
     clearSpy.mockRestore();
   });
 
-  it("shows «المنشأة غير موجودة» inline once the typed code fails to resolve", async () => {
+  it("on a failed lookup, shows «المنشأة غير موجودة» inline once the typed code fails to resolve", async () => {
     renderWithProviders(<LoginScreen onStartWizard={() => {}} />, {
       transport: stubTransport({
         ...preAuth,
-        "GET /platform/resolve": () => ({ body: { mode: "code", exists: false } }),
+        ...LOOKUP_DOWN,
         "GET /tenant": () => ({ status: 404, body: { error: "TENANT_NOT_FOUND", message: "المنشأة غير موجودة" } }),
       }),
     });
@@ -511,7 +693,7 @@ describe("LoginScreen — SaaS company code", () => {
     renderWithProviders(<LoginScreen onStartWizard={() => {}} />, {
       transport: stubTransport({
         ...preAuth,
-        "GET /platform/resolve": () => ({ body: { mode: "subdomain", exists: true } }),
+        "GET /platform/resolve": () => ({ body: { mode: TenantResolveMode.Subdomain, exists: true } }),
       }),
     });
     await vi.waitFor(() => expect(screen.queryByText("جارٍ التحقق من المنشأة…")).not.toBeInTheDocument());
@@ -520,34 +702,52 @@ describe("LoginScreen — SaaS company code", () => {
     expect(screen.queryByLabelText("رمز المنشأة")).not.toBeInTheDocument();
   });
 
-  it("blocks a submit with no company code and shows «حدّد رمز المنشأة» without calling the server", async () => {
-    let loginCalled = false;
+  it("on a failed lookup, still sends a sign-in with no company code so the server can find the company from the email", async () => {
+    let tenantSent: string | null | undefined;
     renderWithProviders(<LoginScreen onStartWizard={() => {}} />, {
       transport: stubTransport({
         ...preAuth,
-        "GET /platform/resolve": () => ({ body: { mode: "code", exists: false } }),
-        "POST /auth/login": () => {
-          loginCalled = true;
+        ...LOOKUP_DOWN,
+        "POST /auth/login": (init) => {
+          tenantSent = new Headers(init?.headers).get(TENANT_HEADER);
           return { body: testAdminSession };
         },
       }),
     });
     await screen.findByLabelText("رمز المنشأة");
     signIn("Cyag@2026");
-    expect(await screen.findByRole("alert")).toHaveTextContent("حدّد رمز المنشأة");
-    expect(loginCalled).toBe(false);
+    await waitFor(() => expect(tenantSent).toBeNull());
+    expect(screen.queryByText("حدّد رمز المنشأة")).not.toBeInTheDocument();
+  });
+
+  it("on a failed lookup, sends the typed company code with the sign-in", async () => {
+    let tenantSent: string | null | undefined;
+    renderWithProviders(<LoginScreen onStartWizard={() => {}} />, {
+      transport: stubTransport({
+        ...preAuth,
+        ...LOOKUP_DOWN,
+        "POST /auth/login": (init) => {
+          tenantSent = new Headers(init?.headers).get(TENANT_HEADER);
+          return { body: testAdminSession };
+        },
+      }),
+    });
+    const code = await screen.findByLabelText("رمز المنشأة");
+    fireEvent.change(code, { target: { value: "acme" } });
+    fireEvent.blur(code);
+    signIn("Cyag@2026");
+    await waitFor(() => expect(tenantSent).toBe("acme"));
   });
 
   it("maps a login refusal by the server's error CODE, not its status — an unrelated message is replaced with the client's own translation", async () => {
     renderWithProviders(<LoginScreen onStartWizard={() => {}} />, {
       transport: stubTransport({
         ...preAuth,
-        "GET /platform/resolve": () => ({ body: { mode: "code", exists: false } }),
+        "GET /platform/resolve": () => ({ body: { mode: TenantResolveMode.Code, exists: false } }),
         "POST /auth/login": () => ({ status: 404, body: { error: "TENANT_NOT_FOUND", message: "some other server text" } }),
       }),
     });
-    const input = await screen.findByLabelText("رمز المنشأة");
-    fireEvent.change(input, { target: { value: "ghost" } });
+    await lookupSettled();
     signIn("Cyag@2026");
     expect(await screen.findByRole("alert")).toHaveTextContent("المنشأة غير موجودة");
   });
@@ -556,12 +756,11 @@ describe("LoginScreen — SaaS company code", () => {
     renderWithProviders(<LoginScreen onStartWizard={() => {}} />, {
       transport: stubTransport({
         ...preAuth,
-        "GET /platform/resolve": () => ({ body: { mode: "code", exists: true } }),
+        "GET /platform/resolve": () => ({ body: { mode: TenantResolveMode.Code, exists: true } }),
         "POST /auth/login": () => ({ status: 401, body: { error: "INVALID_CREDENTIALS", message: "البريد الإلكتروني أو كلمة المرور غير صحيحة." } }),
       }),
     });
-    const input = await screen.findByLabelText("رمز المنشأة");
-    fireEvent.change(input, { target: { value: "cyag" } });
+    await lookupSettled();
     signIn("wrong-password");
     expect(await screen.findByRole("alert")).toHaveTextContent("البريد الإلكتروني أو كلمة المرور غير صحيحة.");
   });
@@ -570,14 +769,14 @@ describe("LoginScreen — SaaS company code", () => {
     renderWithProviders(<LoginScreen onStartWizard={() => {}} />, {
       transport: stubTransport({
         ...preAuth,
-        "GET /platform/resolve": () => ({ body: { mode: "code", exists: true } }),
+        "GET /platform/resolve": () => ({ body: { mode: TenantResolveMode.Code, exists: true } }),
         "POST /auth/login": () => ({
           status: 503,
           body: { error: "SIGN_IN_BUSY", retryAfterSeconds: 2, message: "الخادم مشغول الآن بطلبات دخول أخرى، ولم تُحتسب هذه المحاولة. أعد المحاولة بعد ثوانٍ." },
         }),
       }),
     });
-    fireEvent.change(await screen.findByLabelText("رمز المنشأة"), { target: { value: "cyag" } });
+    await lookupSettled();
     signIn("Cyag@2026");
     expect(await screen.findByRole("alert")).toHaveTextContent("الخادم مشغول الآن");
     signIn("Cyag@2026");
@@ -591,11 +790,11 @@ describe("LoginScreen — SaaS company code", () => {
     renderWithProviders(<LoginScreen onStartWizard={() => {}} />, {
       transport: stubTransport({
         ...preAuth,
-        "GET /platform/resolve": () => ({ body: { mode: "code", exists: true } }),
+        "GET /platform/resolve": () => ({ body: { mode: TenantResolveMode.Code, exists: true } }),
         "POST /auth/login": () => ({ status, body, retryAfterSeconds: 60 }),
       }),
     });
-    fireEvent.change(await screen.findByLabelText("رمز المنشأة"), { target: { value: "cyag" } });
+    await lookupSettled();
     signIn("Cyag@2026");
 
     expect(await screen.findByRole("alert")).toHaveTextContent(said);
@@ -606,11 +805,11 @@ describe("LoginScreen — SaaS company code", () => {
     renderWithProviders(<LoginScreen onStartWizard={() => {}} />, {
       transport: stubTransport({
         ...preAuth,
-        "GET /platform/resolve": () => ({ body: { mode: "code", exists: true } }),
+        "GET /platform/resolve": () => ({ body: { mode: TenantResolveMode.Code, exists: true } }),
         "POST /auth/login": () => ({ status: 429, body: { error: "TOO_MANY_ATTEMPTS", retryAfterSeconds: 3, message: "محاولات دخول كثيرة. حاول بعد 3 ثانية." } }),
       }),
     });
-    fireEvent.change(await screen.findByLabelText("رمز المنشأة"), { target: { value: "cyag" } });
+    await lookupSettled();
     signIn("Cyag@2026");
 
     const alert = await screen.findByRole("alert");
@@ -627,14 +826,14 @@ describe("LoginScreen — SaaS company code", () => {
     renderWithProviders(<LoginScreen onStartWizard={() => {}} />, {
       transport: stubTransport({
         ...preAuth,
-        "GET /platform/resolve": () => ({ body: { mode: "code", exists: true } }),
+        "GET /platform/resolve": () => ({ body: { mode: TenantResolveMode.Code, exists: true } }),
         "POST /auth/login": () => ({
           status: 503,
           body: { error: "AUDIT_UNAVAILABLE", message: "تعذّر تسجيل العملية في سجل التدقيق، فلم يُحفظ أي تغيير. حاول مرة أخرى." },
         }),
       }),
     });
-    fireEvent.change(await screen.findByLabelText("رمز المنشأة"), { target: { value: "cyag" } });
+    await lookupSettled();
     signIn("Cyag@2026");
 
     expect(await screen.findByRole("alert")).toHaveTextContent("تعذّر تسجيل العملية في سجل التدقيق، فلم يُحفظ أي تغيير. حاول مرة أخرى.");
@@ -647,7 +846,7 @@ describe("LoginScreen — SaaS company code", () => {
     renderWithProviders(<LoginScreen onStartWizard={() => {}} />, {
       transport: stubTransport({
         ...preAuth,
-        "GET /platform/resolve": () => ({ body: { mode: "code", exists: true } }),
+        "GET /platform/resolve": () => ({ body: { mode: TenantResolveMode.Code, exists: true } }),
         "POST /auth/login": () => ({
           status: 423,
           body: { error: "ACCOUNT_LOCKED", unlockByCode: true, message: "تم قفل هذا الحساب بعد محاولات دخول فاشلة متكررة." },
@@ -658,7 +857,7 @@ describe("LoginScreen — SaaS company code", () => {
         },
       }),
     });
-    fireEvent.change(await screen.findByLabelText("رمز المنشأة"), { target: { value: "cyag" } });
+    await lookupSettled();
     signIn("wrong-password");
     expect(await screen.findByRole("alert")).toHaveTextContent("تم قفل هذا الحساب");
 
@@ -674,64 +873,23 @@ describe("LoginScreen — SaaS company code", () => {
     renderWithProviders(<LoginScreen onStartWizard={() => {}} />, {
       transport: stubTransport({
         ...preAuth,
-        "GET /platform/resolve": () => ({ body: { mode: "code", exists: true } }),
+        "GET /platform/resolve": () => ({ body: { mode: TenantResolveMode.Code, exists: true } }),
         "POST /auth/login": () => ({
           status: 423,
           body: { error: "ACCOUNT_LOCKED", unlockByCode: false, message: "تم قفل هذا الحساب. اطلب من مدير النظام فكّ القفل." },
         }),
       }),
     });
-    fireEvent.change(await screen.findByLabelText("رمز المنشأة"), { target: { value: "cyag" } });
+    await lookupSettled();
     signIn("wrong-password");
     expect(await screen.findByRole("alert")).toHaveTextContent("اطلب من مدير النظام فكّ القفل");
     expect(screen.queryByLabelText("رمز فكّ القفل")).not.toBeInTheDocument();
   });
 
-  it("sends x-mezan-tenant on the login request once a company code is resolved", async () => {
-    let seenTenantHeader: string | null = null;
-    renderWithProviders(<LoginScreen onStartWizard={() => {}} />, {
-      transport: stubTransport({
-        ...preAuth,
-        "GET /platform/resolve": () => ({ body: { mode: "code", exists: true } }),
-        "POST /auth/login": (init) => {
-          seenTenantHeader = new Headers(init?.headers).get("x-mezan-tenant");
-          return { body: testAdminSession };
-        },
-      }),
-    });
-    const input = await screen.findByLabelText("رمز المنشأة");
-    fireEvent.change(input, { target: { value: "cyag" } });
-    fireEvent.blur(input);
-    await screen.findByText("الرمز: cyag");
-    signIn("Cyag@2026");
-    await vi.waitFor(() => expect(seenTenantHeader).toBe("cyag"));
-  });
-
-  it("corrects a stale company code once a returning operator types their OWN email — a shared 'code' origin must not carry operator A's leftover company into operator B's sign-in", async () => {
-    // Operator "a" signed in here before and was remembered under "acme"; the
-    // browser's CURRENT code is left over from someone else ("nile").
-    rememberTenantCodeForEmail("a@acme.example", "acme");
-    localStorage.setItem("mezan.tenantCode", "nile");
-    renderWithProviders(<LoginScreen onStartWizard={() => {}} />, {
-      transport: stubTransport({
-        ...preAuth,
-        "GET /tenant": () => ({ body: { name: "either tenant, never shown pre-login" } }),
-        "GET /platform/resolve": () => ({ body: { mode: "code", exists: true } }),
-      }),
-    });
-
-    const email = await screen.findByLabelText("البريد الإلكتروني");
-    fireEvent.change(email, { target: { value: "a@acme.example" } });
-    fireEvent.blur(email);
-
-    await screen.findByText("الرمز: acme");
-    expect(localStorage.getItem("mezan.tenantCode")).toBe("acme");
-  });
-
   it("leaves the company code alone for an email nobody has signed in with before", async () => {
     localStorage.setItem("mezan.tenantCode", "nile");
     renderWithProviders(<LoginScreen onStartWizard={() => {}} />, {
-      transport: stubTransport({ ...preAuth, "GET /platform/resolve": () => ({ body: { mode: "code", exists: true } }) }),
+      transport: stubTransport({ ...preAuth, "GET /platform/resolve": () => ({ body: { mode: TenantResolveMode.Code, exists: true } }) }),
     });
 
     const email = await screen.findByLabelText("البريد الإلكتروني");
@@ -741,7 +899,7 @@ describe("LoginScreen — SaaS company code", () => {
     expect(localStorage.getItem("mezan.tenantCode")).toBe("nile");
   });
 
-  it("opens on no company and no face row when two companies have signed in on this device — the last operator's leftover is dropped before the first paint", async () => {
+  it("in code mode, opens on no company and no face row when two companies have signed in on this device — the last operator's leftover is dropped before the first paint", async () => {
     rememberTenantCodeForEmail("a@acme.example", "acme");
     rememberTenantCodeForEmail("b@nile.example", "nile");
     localStorage.setItem("mezan.tenantCode", "nile");
@@ -753,7 +911,7 @@ describe("LoginScreen — SaaS company code", () => {
     const transport = stubTransport({
       ...preAuth,
       "GET /tenant": () => ({ body: { name: "never shown" } }),
-      "GET /platform/resolve": () => ({ body: { mode: "code", exists: false } }),
+      "GET /platform/resolve": () => ({ body: { mode: TenantResolveMode.Code, exists: false } }),
     });
     renderWithProviders(<LoginScreen onStartWizard={() => {}} />, {
       transport: (path, init) => {
@@ -762,17 +920,12 @@ describe("LoginScreen — SaaS company code", () => {
       },
     });
 
-    expect(await screen.findByLabelText("رمز المنشأة")).toHaveValue("");
+    await lookupSettled();
+    expect(screen.queryByLabelText("رمز المنشأة")).not.toBeInTheDocument();
     expect(localStorage.getItem("mezan.tenantCode")).toBeNull();
     expect(screen.queryByRole("radiogroup")).not.toBeInTheDocument();
     expect(screen.queryByText("بسمة النيل")).not.toBeInTheDocument();
     expect(requests).not.toContain("/tenant");
-
-    const email = screen.getByLabelText("البريد الإلكتروني");
-    fireEvent.change(email, { target: { value: "a@acme.example" } });
-    fireEvent.blur(email);
-    await screen.findByText("الرمز: acme");
-    expect(localStorage.getItem("mezan.tenantCode")).toBe("acme");
   });
 
   it("drops the leftover company without updating another component while it renders, and sends no request under it", async () => {
@@ -794,10 +947,10 @@ describe("LoginScreen — SaaS company code", () => {
     }
     const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const requests: (string | null)[] = [];
-    const transport = stubTransport({ ...preAuth, "GET /platform/resolve": () => ({ body: { mode: "code", exists: true } }) });
+    const transport = stubTransport({ ...preAuth, "GET /platform/resolve": () => ({ body: { mode: TenantResolveMode.Code, exists: true } }) });
     renderWithProviders(<Shell />, {
       transport: (path, init) => {
-        requests.push(new Headers(init?.headers).get("x-mezan-tenant"));
+        requests.push(new Headers(init?.headers).get(TENANT_HEADER));
         return transport(path, init);
       },
     });
@@ -806,7 +959,7 @@ describe("LoginScreen — SaaS company code", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "sign out" }));
 
-    expect(await screen.findByLabelText("رمز المنشأة")).toHaveValue("");
+    await lookupSettled();
     await waitFor(() => expect(screen.getByTestId("stored-code")).toHaveTextContent("none"));
     const warnings = errors.mock.calls.map((call) => String(call[0])).filter((message) => message.includes("while rendering a different component"));
     errors.mockRestore();
@@ -815,11 +968,11 @@ describe("LoginScreen — SaaS company code", () => {
     expect(requests.filter((code) => code !== null)).toEqual([]);
   });
 
-  it("keeps the company the operator just confirmed when the screen mounts again — opening the setup wizard and cancelling must not wipe it", async () => {
+  it("on a failed lookup, keeps the company the operator just confirmed when the screen mounts again — opening the setup wizard and cancelling must not wipe it", async () => {
     rememberTenantCodeForEmail("a@acme.example", "acme");
     rememberTenantCodeForEmail("b@nile.example", "nile");
     localStorage.setItem("mezan.tenantCode", "nile");
-    const transport = stubTransport({ ...preAuth, "GET /platform/resolve": () => ({ body: { mode: "code", exists: true } }) });
+    const transport = stubTransport({ ...preAuth, ...LOOKUP_DOWN });
     const first = renderWithProviders(<LoginScreen onStartWizard={() => {}} />, { transport });
     const code = await screen.findByLabelText("رمز المنشأة");
     expect(code).toHaveValue("");
@@ -834,46 +987,26 @@ describe("LoginScreen — SaaS company code", () => {
     expect(localStorage.getItem("mezan.tenantCode")).toBe("acme");
   });
 
-  it("drops a company confirmed on an earlier page load — a reload on a shared device opens neutral again", async () => {
+  it("on a failed lookup, drops a company confirmed on an earlier page load — a reload on a shared device opens neutral again", async () => {
     rememberTenantCodeForEmail("a@acme.example", "acme");
     rememberTenantCodeForEmail("b@nile.example", "nile");
     localStorage.setItem("mezan.tenantCode", "acme");
     sessionStorage.setItem("mezan.tenantCodeConfirmed", JSON.stringify({ code: "acme", load: "an-earlier-page-load" }));
 
     renderWithProviders(<LoginScreen onStartWizard={() => {}} />, {
-      transport: stubTransport({ ...preAuth, "GET /platform/resolve": () => ({ body: { mode: "code", exists: true } }) }),
+      transport: stubTransport({ ...preAuth, ...LOOKUP_DOWN }),
     });
 
     expect(await screen.findByLabelText("رمز المنشأة")).toHaveValue("");
     expect(localStorage.getItem("mezan.tenantCode")).toBeNull();
   });
 
-  it("does not let a remembered email pull the screen off the company confirmed before it mounted again", async () => {
-    rememberTenantCodeForEmail("a@acme.example", "acme");
-    rememberTenantCodeForEmail("b@nile.example", "nile");
-    const transport = stubTransport({ ...preAuth, "GET /platform/resolve": () => ({ body: { mode: "code", exists: true } }) });
-    const first = renderWithProviders(<LoginScreen onStartWizard={() => {}} />, { transport });
-    const code = await screen.findByLabelText("رمز المنشأة");
-    fireEvent.change(code, { target: { value: "nile" } });
-    fireEvent.blur(code);
-    await screen.findByText("الرمز: nile");
-    first.unmount();
-    renderWithProviders(<LoginScreen onStartWizard={() => {}} />, { transport });
-    await screen.findByText("الرمز: nile");
-
-    const email = await screen.findByLabelText("البريد الإلكتروني");
-    fireEvent.change(email, { target: { value: "a@acme.example" } });
-    fireEvent.blur(email);
-
-    expect(localStorage.getItem("mezan.tenantCode")).toBe("nile");
-  });
-
-  it("opens neutral again for the next operator once the one who confirmed a company has signed in and out", async () => {
+  it("on a failed lookup, opens neutral again for the next operator once the one who confirmed a company has signed in and out", async () => {
     rememberTenantCodeForEmail("a@acme.example", "acme");
     rememberTenantCodeForEmail("b@nile.example", "nile");
     const transport = stubTransport({
       ...preAuth,
-      "GET /platform/resolve": () => ({ body: { mode: "code", exists: true } }),
+      ...LOOKUP_DOWN,
       "POST /auth/login": () => ({ body: testAdminSession }),
     });
     const first = renderWithProviders(
@@ -899,7 +1032,7 @@ describe("LoginScreen — SaaS company code", () => {
     expect(localStorage.getItem("mezan.tenantCode")).toBeNull();
   });
 
-  it("keeps the company code and the face row on a device only one company signs into", async () => {
+  it("on a failed lookup, keeps the company code and the face row on a device only one company signs into", async () => {
     rememberTenantCodeForEmail("b@nile.example", "nile");
     localStorage.setItem("mezan.tenantCode", "nile");
     localStorage.setItem(
@@ -907,34 +1040,12 @@ describe("LoginScreen — SaaS company code", () => {
       JSON.stringify([{ email: "b@nile.example", nameAr: "بسمة النيل", nameEn: null, initials: "ب.ا", role: "admin", photoUrl: null }]),
     );
     renderWithProviders(<LoginScreen onStartWizard={() => {}} />, {
-      transport: stubTransport({ ...preAuth, "GET /platform/resolve": () => ({ body: { mode: "code", exists: true } }) }),
+      transport: stubTransport({ ...preAuth, ...LOOKUP_DOWN }),
     });
 
     expect(await screen.findByLabelText("رمز المنشأة")).toHaveValue("nile");
     expect(screen.getByRole("radio", { name: "اختر بسمة النيل" })).toBeChecked();
     expect(localStorage.getItem("mezan.tenantCode")).toBe("nile");
-  });
-
-  it("remembers the resolved company code under the operator's email after a successful sign-in", async () => {
-    renderWithProviders(<LoginScreen onStartWizard={() => {}} />, {
-      transport: stubTransport({
-        ...preAuth,
-        "GET /platform/resolve": () => ({ body: { mode: "code", exists: true } }),
-        "POST /auth/login": () => ({ body: testAdminSession }),
-      }),
-    });
-    const input = await screen.findByLabelText("رمز المنشأة");
-    fireEvent.change(input, { target: { value: "cyag" } });
-    fireEvent.blur(input);
-    await screen.findByText("الرمز: cyag");
-
-    const email = screen.getByLabelText("البريد الإلكتروني");
-    fireEvent.change(email, { target: { value: testAdminSession.email } });
-    signIn("Cyag@2026");
-
-    await vi.waitFor(() => expect(localStorage.getItem("mezan.tenantCodeByEmail")).not.toBeNull());
-    const map = JSON.parse(localStorage.getItem("mezan.tenantCodeByEmail")!);
-    expect(map[testAdminSession.email.toLowerCase()]).toBe("cyag");
   });
 
   it("shows a checking status line while /platform/resolve is pending", async () => {
@@ -945,7 +1056,7 @@ describe("LoginScreen — SaaS company code", () => {
     expect(await screen.findByText("جارٍ التحقق من المنشأة…")).toBeInTheDocument();
   });
 
-  it("does not gate submission when /platform/resolve answers 500 — a normal sign-in still succeeds (regression: desktop and every existing transport never serve this route, so gating on any error hung sign-in forever)", async () => {
+  it("does not gate submission when /platform/resolve answers 500 — a sign-in with a typed company code still succeeds (regression: desktop and every existing transport never serve this route, so gating on any error hung sign-in forever)", async () => {
     renderWithProviders(
       <>
         <LoginScreen onStartWizard={() => {}} />
@@ -961,6 +1072,7 @@ describe("LoginScreen — SaaS company code", () => {
     );
     await vi.waitFor(() => expect(screen.queryByText("جارٍ التحقق من المنشأة…")).not.toBeInTheDocument());
     expect(screen.queryByText("تعذّر الوصول إلى الخادم")).not.toBeInTheDocument();
+    fireEvent.change(await screen.findByLabelText("رمز المنشأة"), { target: { value: "cyag" } });
     signIn("Cyag@2026");
     fireEvent.click(screen.getByRole("button", { name: "دخول" }));
     await vi.waitFor(() => expect(screen.getByTestId("session")).toHaveTextContent(testAdminSession.nameAr));
@@ -1033,7 +1145,7 @@ describe("LoginScreen — SaaS company code", () => {
     });
 
     it("offers no company-code field on a host that last answered as a company's own subdomain", async () => {
-      const first = failingLookup(jsonFailure(500), { "GET /platform/resolve": () => ({ body: { mode: "subdomain", exists: true } }) });
+      const first = failingLookup(jsonFailure(500), { "GET /platform/resolve": () => ({ body: { mode: TenantResolveMode.Subdomain, exists: true } }) });
       first.state.failing = false;
       const opened = renderWithProviders(<LoginScreen onStartWizard={() => {}} />, { transport: first.transport });
       await vi.waitFor(() => expect(first.state.lookups).toBe(1));
@@ -1091,7 +1203,8 @@ describe("LoginScreen — SaaS company code", () => {
       expect(screen.queryByText("جارٍ التحقق من المنشأة…")).not.toBeInTheDocument();
     });
 
-    it("signs in without a company code, as a subdomain needs, and says nothing about the lookup", async () => {
+    it("signs in without a company code on a host that last answered as a subdomain, and says nothing about the lookup", async () => {
+      rememberTenantMode(TenantResolveMode.Subdomain);
       const { transport, state } = failingLookup(jsonFailure(503));
       renderWithProviders(
         <>
@@ -1100,7 +1213,9 @@ describe("LoginScreen — SaaS company code", () => {
         </>,
         { transport },
       );
-      await screen.findByRole("textbox", { name: "رمز المنشأة" });
+      await vi.waitFor(() => expect(state.lookups).toBeGreaterThan(0));
+      await lookupSettled();
+      expect(screen.queryByRole("textbox", { name: "رمز المنشأة" })).not.toBeInTheDocument();
 
       signIn("Cyag@2026");
 
@@ -1131,7 +1246,7 @@ describe("LoginScreen — SaaS company code", () => {
 
     it("looks again on its own and settles into the answered mode with no click", async () => {
       vi.useFakeTimers();
-      const { transport, state } = failingLookup(jsonFailure(500), { "GET /platform/resolve": () => ({ body: { mode: "subdomain", exists: true } }) });
+      const { transport, state } = failingLookup(jsonFailure(500), { "GET /platform/resolve": () => ({ body: { mode: TenantResolveMode.Subdomain, exists: true } }) });
       renderWithProviders(<LoginScreen onStartWizard={() => {}} />, { transport });
       await act(async () => { await vi.advanceTimersByTimeAsync(0); });
       expect(screen.getByRole("textbox", { name: "رمز المنشأة" })).toBeInTheDocument();
@@ -1209,7 +1324,7 @@ describe("LoginScreen — SaaS company code", () => {
       <LoginScreen onStartWizard={() => {}} />,
       stubTransport({
         ...preAuth,
-        "GET /platform/resolve": () => ({ body: { mode: "subdomain", exists: true } }),
+        "GET /platform/resolve": () => ({ body: { mode: TenantResolveMode.Subdomain, exists: true } }),
       }),
     );
     await vi.waitFor(() => expect(screen.queryByText("Checking your company…")).not.toBeInTheDocument());

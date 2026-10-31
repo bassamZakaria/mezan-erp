@@ -124,6 +124,7 @@ async function newRouter(
         resolveEntitlements: () => resolvers.resolveEntitlements(),
         resolveLicenseState: () => resolvers.resolveLicenseState(),
         ...(opts.platformClaimGuard ? { claimedElsewhere: hooks.claimedElsewhere } : {}),
+        signInEmails: hooks.signInEmails,
       });
       const spied: BackendHandle = { ...handle, close: vi.fn(handle.close) };
       opened.push(spied);
@@ -158,6 +159,121 @@ async function bootstrapAdmin(router: TenantRouter, code: string): Promise<strin
 }
 
 describe("createTenantRouter", () => {
+  describe("sign-in by email alone", () => {
+    const post = (router: TenantRouter, path: string, body: unknown, code?: string) =>
+      router.app.fetch(
+        new Request(`http://ignored${path}`, {
+          method: "POST",
+          headers: { "content-type": "application/json", ...(code ? { [TENANT_HEADER]: code } : {}) },
+          body: JSON.stringify(body),
+        }),
+      );
+
+    it("finds the company from the email and names it in the answer", async () => {
+      const platform = await seedPlatform();
+      const { router } = await newRouter(platform);
+      await bootstrapAdmin(router, "cyag");
+      await bootstrapAdmin(router, "nile");
+
+      const res = await post(router, "/auth/login", { username: "Owner-Nile@example.com ", password: "pw-123456" });
+      expect(res.status).toBe(200);
+      const session = (await res.json()) as SessionDTO & { tenantCode?: string };
+      expect(session.tenantCode).toBe("nile");
+      const tenant = await router.app.fetch(new Request("http://ignored/tenant", { headers: { [TENANT_HEADER]: "nile", authorization: `Bearer ${session.token ?? ""}` } }));
+      expect(tenant.status).toBe(200);
+      expect(await platform.stores.signInEmails.tenantOf("owner-cyag@example.com")).toBe("t-cyag");
+    }, 120_000);
+
+    it("answers an email no company holds exactly as a company answers an unknown email", async () => {
+      const platform = await seedPlatform();
+      const { router } = await newRouter(platform);
+      await bootstrapAdmin(router, "cyag");
+
+      const byEmail = await post(router, "/auth/login", { username: "nobody@example.com", password: "pw-123456" });
+      const inCompany = await post(router, "/auth/login", { username: "nobody@example.com", password: "pw-123456" }, "cyag");
+      expect(byEmail.status).toBe(401);
+      expect(await byEmail.json()).toEqual(await inCompany.json());
+      expect((await post(router, "/auth/login", { username: "owner-cyag@example.com", password: "wrong-pass" })).status).toBe(401);
+      const forgot = await post(router, "/auth/forgot-password", { username: "nobody@example.com" });
+      expect(forgot.status).toBe(202);
+      expect(await forgot.json()).toEqual({ ok: true });
+      expect((await router.app.fetch(new Request("http://ignored/tenant"))).status).toBe(400);
+    }, 120_000);
+
+    it("answers an unlock for an email no company holds as a company answers a wrong unlock code", async () => {
+      const platform = await seedPlatform();
+      const { router } = await newRouter(platform);
+      await bootstrapAdmin(router, "cyag");
+      const byEmail = await post(router, "/auth/unlock", { username: "nobody@example.com", code: "ABCDEFGH" });
+      const inCompany = await post(router, "/auth/unlock", { username: "nobody@example.com", code: "ABCDEFGH" }, "cyag");
+      expect(byEmail.status).toBe(400);
+      expect(await byEmail.json()).toEqual(await inCompany.json());
+    }, 120_000);
+
+    it("holds an address on one bucket for every sign-in found by email, known or not, before any company's own", async () => {
+      const platform = await seedPlatform();
+      const { router } = await newRouter(platform, { trustForwardedHost: true, trustedProxyHops: 1 });
+      await bootstrapAdmin(router, "cyag");
+      const from = (address: string, body: unknown, path = "/auth/login") =>
+        router.app.fetch(
+          new Request(`http://ignored${path}`, {
+            method: "POST",
+            headers: { "content-type": "application/json", "x-forwarded-for": address },
+            body: JSON.stringify(body),
+          }),
+        );
+      const statuses: number[] = [];
+      for (let i = 0; i < 17; i += 1) statuses.push((await from("203.0.113.9", { username: `ghost${i}@example.com`, password: "pw-000000" })).status);
+      for (let i = 0; i < 4; i += 1) statuses.push((await from("203.0.113.9", { username: "owner-cyag@example.com", password: "pw-000000" })).status);
+      expect(statuses).toEqual(Array<number>(21).fill(401));
+
+      const unknown = await from("203.0.113.9", { username: "ghost-last@example.com", password: "pw-000000" });
+      const known = await from("203.0.113.9", { username: "owner-cyag@example.com", password: "pw-123456" });
+      expect([unknown.status, known.status]).toEqual([429, 429]);
+      expect(await unknown.json()).toEqual(await known.json());
+      expect((await from("198.51.100.4", { username: "owner-cyag@example.com", password: "pw-123456" })).status).toBe(200);
+
+      for (let i = 0; i < 21; i += 1) expect((await from("192.0.2.7", { username: i % 2 ? "owner-cyag@example.com" : "nobody@example.com" }, "/auth/forgot-password")).status).toBe(202);
+      expect((await from("192.0.2.7", { username: "nobody@example.com" }, "/auth/forgot-password")).status).toBe(429);
+    }, 120_000);
+
+    it("answers an email in a company and an email in none alike after the company's own limits were tripped by name", async () => {
+      const platform = await seedPlatform();
+      const { router } = await newRouter(platform, { trustForwardedHost: true, trustedProxyHops: 1 });
+      await bootstrapAdmin(router, "cyag");
+      const from = (body: unknown, code?: string) =>
+        router.app.fetch(
+          new Request("http://ignored/auth/login", {
+            method: "POST",
+            headers: { "content-type": "application/json", "x-forwarded-for": "203.0.113.9", ...(code ? { [TENANT_HEADER]: code } : {}) },
+            body: JSON.stringify(body),
+          }),
+        );
+      for (let i = 0; i < 30; i += 1) await from({ username: `ghost${i}@example.com`, password: "pw-000000" }, "cyag");
+      const known = await from({ username: "owner-cyag@example.com", password: "pw-123456" });
+      const unknown = await from({ username: "nobody@example.com", password: "pw-123456" });
+      expect([known.status, unknown.status]).toEqual([429, 429]);
+      expect(await known.json()).toEqual(await unknown.json());
+    }, 120_000);
+
+    it("refuses an email another company already signs in with", async () => {
+      const platform = await seedPlatform();
+      const { router } = await newRouter(platform);
+      await bootstrapAdmin(router, "cyag");
+      const nile = await router.backendFor("nile");
+      const res = await nile.app.fetch(
+        new Request("http://tenant.internal/bootstrap/admin", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ nameAr: "المدير", email: "owner-cyag@example.com", password: "pw-123456", companyName: "النيل" }),
+        }),
+      );
+      expect(res.status).toBe(409);
+      expect(await res.json()).toMatchObject({ error: "DUPLICATE_USER_EMAIL", message: expect.stringContaining("منشأة أخرى") });
+      expect(await platform.stores.signInEmails.tenantOf("owner-cyag@example.com")).toBe("t-cyag");
+    }, 120_000);
+  });
+
   describe("GET /platform/resolve", () => {
     it("reports mode subdomain and exists true when the host names a live tenant — never its name", async () => {
       const platform = await seedPlatform();

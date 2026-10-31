@@ -590,8 +590,6 @@ and needs none of that.
 
 ### Status after phase A — 2026-09-21
 
-> **2026-10-31:** the mobile app (`apps/mobile`, `pnpm lint:store`, `pnpm lint:mobile-rtl`) and self-serve signup were removed from `main` and kept on branch `archive/signup-and-mobile`. This section describes that archived work.
-
 Phase A (everything that did not touch the app itself) landed on `main` from
 `feat/m3-store-readiness`; D335–D343 closed the same day, which also clears **S3**. Each decision
 below was taken against the current published rule, quoted in the lane's report.

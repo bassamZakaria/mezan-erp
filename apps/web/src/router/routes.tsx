@@ -1,4 +1,4 @@
-import { redirect, type RouteObject } from "react-router";
+import { type RouteObject } from "react-router";
 import { AppLayout } from "../AppLayout";
 import { LanHostGate } from "../lan/LanHostGate";
 import { RouteErrorBoundary } from "./RouteErrorBoundary";
@@ -88,15 +88,15 @@ export const routes: RouteObject[] = [
     lazy: async () => ({ Component: (await import("../platform/PlatformApp")).PlatformApp }),
     ErrorBoundary: RouteErrorBoundary,
   },
-  // CONTRACT: hand-over links mailed by the console point at this exact path.
-  {
-    path: "/signup/owner-handover",
-    lazy: async () => ({ Component: (await import("../signup/OwnerHandOverScreen")).OwnerHandOverScreen }),
-    ErrorBoundary: RouteErrorBoundary,
-  },
+  /**
+   * The public self-serve signup flow — also a sibling, also outside the
+   * gate: it runs before any tenant exists, so a LAN-host check or a tenant
+   * session would both be nonsensical here.
+   */
   {
     path: "/signup/*",
-    loader: () => redirect("/"),
+    lazy: async () => ({ Component: (await import("../signup/SignupApp")).SignupApp }),
+    ErrorBoundary: RouteErrorBoundary,
   },
   {
     path: "/unlock",

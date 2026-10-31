@@ -5,7 +5,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
 import { AppI18nProvider } from "../i18n";
-import { OwnerHandOverScreen } from "./OwnerHandOverScreen";
+import { SignupApp } from "./SignupApp";
 
 function open(status: number, body: unknown, url = "/signup/owner-handover?token=the-token") {
   const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit) =>
@@ -16,7 +16,7 @@ function open(status: number, body: unknown, url = "/signup/owner-handover?token
     <AppI18nProvider>
       <QueryClientProvider client={new QueryClient()}>
         <MemoryRouter initialEntries={[url]}>
-          <OwnerHandOverScreen />
+          <SignupApp />
         </MemoryRouter>
       </QueryClientProvider>
     </AppI18nProvider>,
@@ -67,7 +67,7 @@ describe("the owner hand-over confirmation page", () => {
       <AppI18nProvider>
         <QueryClientProvider client={new QueryClient()}>
           <MemoryRouter initialEntries={["/signup/owner-handover?token=the-token"]}>
-            <OwnerHandOverScreen />
+            <SignupApp />
           </MemoryRouter>
         </QueryClientProvider>
       </AppI18nProvider>,

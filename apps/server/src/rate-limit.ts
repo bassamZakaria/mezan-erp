@@ -1,12 +1,12 @@
 /**
  * A small fixed-window rate limiter for public, unauthenticated endpoints —
- * the owner hand-over confirmation, which has no session to hang a per-account
+ * the self-serve signup form, which has no session to hang a per-account
  * throttle off (that is `@mezan/api`'s `login-throttle.ts`, built for
  * sign-in guessing, not this).
  *
  * One window per key: the count resets `windowMs` after the key's FIRST
  * request in the current window, not on a rolling basis — simple, and good
- * enough for "N attempts per hour per address", which is the whole ask.
+ * enough for "N signups per hour per address/email", which is the whole ask.
  * The store is bounded the same way `login-throttle.ts` bounds its own: oldest
  * windows evicted first, so an unauthenticated flood cannot grow it forever.
  *

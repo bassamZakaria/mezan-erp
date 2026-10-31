@@ -1,0 +1,258 @@
+import { DEFAULT_BASE_URL } from "@/config";
+import { StepUpOverlay } from "@/components/step-up-overlay";
+import { withStepUp } from "./step-up";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { AppState } from "react-native";
+import { PasswordChangeRefusal, loginResponseSchema, type SessionDTO } from "@mezan/contracts";
+import { ApiError, ApiFailure } from "@/api/errors";
+import { forgetCachedReads } from "@/api/query-cache";
+import { HttpMethod, apiRequest, ScopeAll, type ApiCredentials, type RequestOptions } from "@/api/client";
+import { installMobileErrorReporter } from "@/api/client-errors";
+import { confirmDeviceOwner, deviceCanConfirmOwner } from "./device-lock";
+import { clearSession, loadConnection, loadSession, saveConnection, saveSession, type Connection } from "./storage";
+
+export interface SignInInput {
+  readonly baseUrl: string;
+  readonly tenantCode: string | null;
+  readonly email: string;
+  readonly password: string;
+}
+
+export interface UnlockAccountInput {
+  readonly baseUrl: string;
+  readonly tenantCode: string | null;
+  readonly email: string;
+  readonly code: string;
+}
+
+export enum SessionEnded {
+  Displaced = "displaced",
+  Expired = "expired",
+  PasswordChangeRequired = "password-change-required",
+}
+
+const SESSION_DISPLACED_CODE = "SESSION_DISPLACED";
+
+export interface SessionState {
+  readonly ready: boolean;
+  readonly session: SessionDTO | null;
+  // Why the server ended the last session, kept for the sign-in screen to say;
+  // null after a sign-out the person asked for.
+  readonly sessionEnded: SessionEnded | null;
+  readonly acknowledgeSessionEnded: () => void;
+  /** A stored session is present but the device owner has not confirmed it yet — the screens stay covered. */
+  readonly locked: boolean;
+  readonly unlock: (promptMessage: string, cancelLabel: string) => Promise<boolean>;
+  readonly connection: Connection;
+  readonly signIn: (input: SignInInput) => Promise<boolean>;
+  readonly unlockAccount: (input: UnlockAccountInput) => Promise<void>;
+  readonly signOut: () => Promise<void>;
+  readonly request: <T>(path: string, options?: RequestOptions<T>) => Promise<T>;
+  readonly can: (permission: string) => boolean;
+}
+
+const SessionContext = createContext<SessionState | null>(null);
+
+function scopeHeader(scope: SessionDTO["branchScope"]): string {
+  return scope === ScopeAll.Every ? ScopeAll.Every : scope.join(",");
+}
+
+const STEP_UP_PATH = "/auth/step-up";
+const STEP_UP_FAILED = "كلمة المرور غير صحيحة.";
+
+export function SessionProvider({ children }: { children: ReactNode }): ReactNode {
+  const [ready, setReady] = useState(false);
+  const [session, setSession] = useState<SessionDTO | null>(null);
+  const [locked, setLocked] = useState(false);
+  const [sessionEnded, setSessionEnded] = useState<SessionEnded | null>(null);
+  const acknowledgeSessionEnded = useCallback(() => setSessionEnded(null), []);
+  const sessionRef = useRef<SessionDTO | null>(null);
+  sessionRef.current = session;
+  const [connection, setConnection] = useState<Connection>({
+    baseUrl: DEFAULT_BASE_URL,
+    tenantCode: null,
+    email: null,
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const [stored, storedConnection] = await Promise.all([loadSession(), loadConnection()]);
+        if (cancelled) return;
+        const gate = stored !== null && (await deviceCanConfirmOwner());
+        if (cancelled) return;
+        if (storedConnection) setConnection(storedConnection);
+        setSession(stored);
+        setLocked(gate);
+      } catch (error: unknown) {
+        console.warn("[mezan] the stored session could not be read", error);
+      } finally {
+        if (!cancelled) setReady(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let wasInBackground = false;
+    const subscription = AppState.addEventListener("change", (state) => {
+      // Only "background" counts: the Face ID sheet and the permission alerts
+      // themselves take the app to "inactive", and locking on those would loop.
+      if (state === "background") {
+        wasInBackground = true;
+        return;
+      }
+      if (state !== "active" || !wasInBackground) return;
+      wasInBackground = false;
+      if (sessionRef.current === null) return;
+      void deviceCanConfirmOwner().then((gate) => {
+        if (gate && sessionRef.current !== null) setLocked(true);
+      });
+    });
+    return () => subscription.remove();
+  }, []);
+
+  const [stepUp, setStepUp] = useState<{ message: string; cancel: () => void; confirm: (password: string) => Promise<string | null> } | null>(null);
+
+  const unlock = useCallback(async (promptMessage: string, cancelLabel: string) => {
+    const confirmed = await confirmDeviceOwner(promptMessage, cancelLabel);
+    if (confirmed) setLocked(false);
+    return confirmed;
+  }, []);
+
+  const credentials: ApiCredentials = useMemo(
+    () => ({
+      baseUrl: connection.baseUrl,
+      tenantCode: connection.tenantCode,
+      token: session?.token ?? null,
+      deviceSecret: session?.deviceSecret ?? null,
+      branchScope: session ? scopeHeader(session.branchScope) : ScopeAll.Every,
+      warehouseScope: session ? scopeHeader(session.warehouseScope) : ScopeAll.Every,
+    }),
+    [connection, session],
+  );
+
+  const credentialsRef = useRef(credentials);
+  useEffect(() => {
+    credentialsRef.current = credentials;
+  }, [credentials]);
+  useEffect(() => installMobileErrorReporter(() => credentialsRef.current), []);
+
+  const signOut = useCallback(async () => {
+    setSession(null);
+    setLocked(false);
+    await clearSession();
+    await forgetCachedReads();
+  }, []);
+
+  const request = useCallback(
+    async <T,>(path: string, options?: RequestOptions<T>): Promise<T> => {
+      try {
+        return await withStepUp(
+          () => apiRequest<T>(credentials, path, options),
+          (message) =>
+            new Promise<boolean>((resolve) => {
+              setStepUp({
+                message,
+                cancel: () => resolve(false),
+                confirm: async (password) => {
+                  try {
+                    await apiRequest(credentials, STEP_UP_PATH, { method: HttpMethod.Post, body: { password } });
+                    resolve(true);
+                    return null;
+                  } catch (failure) {
+                    return failure instanceof ApiError && failure.serverMessage ? failure.serverMessage : STEP_UP_FAILED;
+                  }
+                },
+              });
+            }).finally(() => setStepUp(null)),
+        );
+      } catch (error) {
+        // A dead token must end the session here, or every screen renders its own sign-in prompt.
+        if (error instanceof ApiError && error.failure === ApiFailure.Unauthorized && session) {
+          setSessionEnded(error.code === SESSION_DISPLACED_CODE ? SessionEnded.Displaced : SessionEnded.Expired);
+          await signOut();
+        }
+        if (error instanceof ApiError && error.failure === ApiFailure.Forbidden && error.code === PasswordChangeRefusal.Required && session) {
+          setSessionEnded(SessionEnded.PasswordChangeRequired);
+          await signOut();
+        }
+        throw error;
+      }
+    },
+    [credentials, session, signOut],
+  );
+
+  const signIn = useCallback(async (input: SignInInput) => {
+    const next: Connection = { baseUrl: input.baseUrl, tenantCode: input.tenantCode, email: input.email };
+    // Whoever signs in next must never be served the last session's figures.
+    await forgetCachedReads();
+    const signedIn = await apiRequest(
+      {
+        baseUrl: next.baseUrl,
+        tenantCode: next.tenantCode,
+        token: null,
+        bindDevice: true,
+        branchScope: ScopeAll.Every,
+        warehouseScope: ScopeAll.Every,
+      },
+      "/auth/login",
+      { method: HttpMethod.Post, body: { username: input.email, password: input.password }, schema: loginResponseSchema },
+    );
+    if (signedIn.mustChangePassword) {
+      await apiRequest(
+        { baseUrl: next.baseUrl, tenantCode: next.tenantCode, token: signedIn.token ?? null, deviceSecret: signedIn.deviceSecret ?? null, branchScope: ScopeAll.Every, warehouseScope: ScopeAll.Every },
+        "/auth/logout",
+        { method: HttpMethod.Post },
+      ).catch(() => undefined);
+      await saveConnection(next);
+      setConnection(next);
+      setSessionEnded(SessionEnded.PasswordChangeRequired);
+      return false;
+    }
+    await saveConnection(next);
+    await saveSession(signedIn);
+    setConnection(next);
+    setSessionEnded(null);
+    setSession(signedIn);
+    setLocked(false);
+    return true;
+  }, []);
+
+  const unlockAccount = useCallback(async (input: UnlockAccountInput) => {
+    await apiRequest(
+      { baseUrl: input.baseUrl, tenantCode: input.tenantCode, token: null, branchScope: ScopeAll.Every, warehouseScope: ScopeAll.Every },
+      "/auth/unlock",
+      { method: HttpMethod.Post, body: { username: input.email, code: input.code } },
+    );
+  }, []);
+
+  const can = useCallback(
+    (permission: string) => {
+      if (!session) return false;
+      return session.permissions.includes(ScopeAll.Every) || session.permissions.includes(permission);
+    },
+    [session],
+  );
+
+  const value = useMemo<SessionState>(
+    () => ({ ready, session, locked, unlock, connection, signIn, unlockAccount, signOut, request, can, sessionEnded, acknowledgeSessionEnded }),
+    [ready, session, locked, unlock, connection, signIn, unlockAccount, signOut, request, can, sessionEnded, acknowledgeSessionEnded],
+  );
+
+  return (
+    <SessionContext.Provider value={value}>
+      {children}
+      {stepUp ? <StepUpOverlay message={stepUp.message} onCancel={stepUp.cancel} onConfirm={stepUp.confirm} /> : null}
+    </SessionContext.Provider>
+  );
+}
+
+export function useSession(): SessionState {
+  const value = useContext(SessionContext);
+  if (!value) throw new Error("useSession was called outside <SessionProvider>.");
+  return value;
+}

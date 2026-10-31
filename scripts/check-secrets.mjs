@@ -8,6 +8,7 @@ import { readFileSync } from "node:fs";
 
 const ALLOWED_FILES = [
   /\.env\.example$/,
+  /^apps\/mobile\/maestro\/[^/]+\.env$/,
   /^test-fixtures\/upgrade-matrix\/[^/]+\.audit-chain\.key$/,
 ];
 const SECRET_FILE = /(^|\/)([^/]*\.env([.~][^/]*)?|[^/]+\.(pem|key|p12|pfx|jks|keystore)|id_(rsa|ed25519)[^/]*)$/;
@@ -52,6 +53,7 @@ function selfTest() {
   assert.equal(isSecretFile("deploy/contabo/app.env~"), true);
   assert.equal(isSecretFile("deploy/contabo/restic.env.example"), false);
   assert.equal(isSecretFile("deploy/contabo/.env.example"), false);
+  assert.equal(isSecretFile("apps/mobile/maestro/en.env"), false);
   assert.equal(isSecretFile("test-fixtures/upgrade-matrix/x.audit-chain.key"), false);
   assert.equal(isSecretFile("packages/persistence/src/secret-box.ts"), false);
   const fakeAws = "AKIA" + "ABCDEFGHIJKLMNOP";

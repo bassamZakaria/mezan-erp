@@ -1,0 +1,10 @@
+{
+  "ios": {
+    "CFBundleDisplayName": "Mezan",
+    "NSCameraUsageDescription": "The camera takes a photo when you clock in or out, and reads item barcodes.",
+    "NSFaceIDUsageDescription": "Face ID unlocks the Mezan session saved on this device."
+  },
+  "android": {
+    "app_name": "Mezan"
+  }
+}

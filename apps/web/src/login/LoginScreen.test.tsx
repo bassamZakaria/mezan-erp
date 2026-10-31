@@ -386,14 +386,14 @@ describe.each(["light", "dark"] as const)("LoginScreen (%s theme)", (theme) => {
     it.each([
       ["a company's own subdomain", { mode: TenantResolveMode.Subdomain, exists: true }, "/tenant"],
       ["the shared address that asks for a company code", { mode: TenantResolveMode.Code, exists: false }, "/platform/resolve"],
-    ])("offers neither signup nor the first-run wizard on the cloud, on %s, and asks nothing about setup", async (_label, resolved, lastAsked) => {
+    ])("is the signup page on the cloud, on %s, where the first-run wizard leads nowhere: no wizard link, and nothing asked about setup", async (_label, resolved, lastAsked) => {
       const asked: string[] = [];
       const base = stubTransport({ ...preAuth, "GET /platform/resolve": () => ({ body: resolved }), "GET /bootstrap/status": () => ({ body: { ...counts, claimed: false } }) });
       renderWithProviders(<LoginScreen onStartWizard={() => {}} />, { transport: (path, init) => (asked.push(path), base(path, init)) });
 
+      expect(await screen.findByRole("link", { name: SIGN_UP })).toHaveAttribute("href", "/signup");
       await waitFor(() => expect(asked).toContain(lastAsked));
       await screen.findByLabelText(PASSWORD_LABEL);
-      expect(screen.queryByRole("link", { name: SIGN_UP })).not.toBeInTheDocument();
       expect(asked).not.toContain("/bootstrap/status");
       expect(screen.queryByRole("button", { name: FIRST_RUN })).not.toBeInTheDocument();
     });

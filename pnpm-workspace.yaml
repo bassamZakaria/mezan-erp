@@ -1,6 +1,20 @@
 packages:
   - packages/*
   - apps/*
+# apps/mobile runs on React 19 and every other workspace on React 18. pnpm's hidden
+# hoist store keeps ONE copy per name, so hoisting @types/react put 19 where the web
+# client's `react/jsx-runtime` resolves its types from — every JSX element in apps/web
+# then failed to typecheck. Keep these two unhoisted so each package reads its own.
+# This MUST live here, not in .npmrc: pnpm 11 reads only auth and registry settings
+# from .npmrc, so the same lines there were silently ignored (D340).
+hoistPattern:
+  - "*"
+  - "!@types/react"
+  - "!@types/react-dom"
+  # jest-expo (apps/mobile) brings @types/jsdom. Hoisted, vitest's optional types
+  # resolve it and pull lib.dom into every Node-only program that imports vitest:
+  # `fetch`'s body type becomes the DOM's and apps/desktop stops typechecking.
+  - "!@types/jsdom"
 allowBuilds:
   better-sqlite3: true
   esbuild: true
@@ -30,6 +44,6 @@ overrides:
   # standing question at every release. Pinned rather than argued about.
   uuid@<11.1.1: ^11.1.1
   # GHSA (high) — js-yaml 4.0.0–4.3.1. Reached through electron-updater, which
-  # parses the update feed's latest.yml. electron-updater
+  # parses the update feed's latest.yml, and through the Expo CLI. electron-updater
   # 6.8.9 is the newest and still asks for ^4.1.0, so the fixed 4.x is pinned here.
   js-yaml@>=4.0.0 <4.3.2: ^4.3.2

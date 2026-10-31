@@ -175,7 +175,7 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
     if (tenantCode === "") {
       switchTenantCode(clearTenantCode);
       setResolvedCode("");
-      forgetConfirmedCode();
+      clearTenantCodeConfirmed();
       return;
     }
     if (tenantCodeInvalid) return;
@@ -184,15 +184,11 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
     markTenantCodeConfirmed(loadTenantCode() ?? tenantCode);
   }
 
-  function forgetConfirmedCode() {
-    clearTenantCodeConfirmed();
-  }
-
   function handleChangeTenant() {
     switchTenantCode(clearTenantCode);
     setTenantCode("");
     setResolvedCode("");
-    forgetConfirmedCode();
+    clearTenantCodeConfirmed();
   }
 
   /**
@@ -250,7 +246,7 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
   function submitUnlockCode() {
     if (unlockCode.trim() === "" || unlock.isPending) return;
     unlock.mutate(
-      { username: identity, code: unlockCode.trim() },
+      { username: identity, code: unlockCode.trim(), byEmail: resolvesByEmail },
       {
         onSuccess: () => {
           setUnlockOffered(false);
@@ -284,9 +280,8 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
     if (!canSubmit) return;
     setError(null);
     setCompanyUnconfirmed(lookupFailing && tenantCode.trim() !== "" && !tenantInfo.isSuccess);
-    if (resolvesByEmail) clearTenantCode();
     login.mutate(
-      { username: identity, password },
+      { username: identity, password, byEmail: resolvesByEmail },
       {
         onSuccess: (session) => {
           clearSignInNotice();
@@ -352,6 +347,7 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
     <ForgotPasswordCard
       initialEmail={identity}
       mailed={onCloud}
+      byEmail={resolvesByEmail}
       onBack={() => setForgotOpen(false)}
     />
   ) : (
@@ -536,10 +532,9 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
         </label>
         <button
           type="button"
-          onClick={() => {
-            if (resolvesByEmail) clearTenantCode();
-            setForgotOpen(true);
-          }} className="text-2xs font-semibold text-accent-strong hover:underline">
+          onClick={() => setForgotOpen(true)}
+          className="text-2xs font-semibold text-accent-strong hover:underline"
+        >
           {t("login.forgot")}
         </button>
       </div>
@@ -658,7 +653,7 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
 
 const CARD_CLASS = "relative w-full max-w-[380px] rounded-lg border border-border bg-surface p-[28px] pb-[18px] shadow-2";
 
-function ForgotPasswordCard({ initialEmail, mailed, onBack }: { initialEmail: string; mailed: boolean; onBack: () => void }) {
+function ForgotPasswordCard({ initialEmail, mailed, byEmail, onBack }: { initialEmail: string; mailed: boolean; byEmail: boolean; onBack: () => void }) {
   const { t } = useAppTranslation();
   const forgot = useForgotPassword();
   const emailId = useId();
@@ -668,7 +663,7 @@ function ForgotPasswordCard({ initialEmail, mailed, onBack }: { initialEmail: st
   function submit(event: FormEvent) {
     event.preventDefault();
     if (email.trim() === "" || forgot.isPending) return;
-    forgot.mutate({ username: email.trim() }, { onSuccess: () => setSent(true) });
+    forgot.mutate({ username: email.trim(), byEmail }, { onSuccess: () => setSent(true) });
   }
 
   let body: ReactNode;

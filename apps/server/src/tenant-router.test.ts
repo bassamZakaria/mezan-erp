@@ -200,6 +200,43 @@ describe("createTenantRouter", () => {
       expect((await router.app.fetch(new Request("http://ignored/tenant"))).status).toBe(400);
     }, 120_000);
 
+    it("answers an unlock for an email no company holds as a company answers a wrong unlock code", async () => {
+      const platform = await seedPlatform();
+      const { router } = await newRouter(platform);
+      await bootstrapAdmin(router, "cyag");
+      const byEmail = await post(router, "/auth/unlock", { username: "nobody@example.com", code: "ABCDEFGH" });
+      const inCompany = await post(router, "/auth/unlock", { username: "nobody@example.com", code: "ABCDEFGH" }, "cyag");
+      expect(byEmail.status).toBe(400);
+      expect(await byEmail.json()).toEqual(await inCompany.json());
+    }, 120_000);
+
+    it("holds an address on one bucket for every sign-in found by email, known or not, before any company's own", async () => {
+      const platform = await seedPlatform();
+      const { router } = await newRouter(platform, { trustForwardedHost: true, trustedProxyHops: 1 });
+      await bootstrapAdmin(router, "cyag");
+      const from = (address: string, body: unknown, path = "/auth/login") =>
+        router.app.fetch(
+          new Request(`http://ignored${path}`, {
+            method: "POST",
+            headers: { "content-type": "application/json", "x-forwarded-for": address },
+            body: JSON.stringify(body),
+          }),
+        );
+      const statuses: number[] = [];
+      for (let i = 0; i < 17; i += 1) statuses.push((await from("203.0.113.9", { username: `ghost${i}@example.com`, password: "pw-000000" })).status);
+      for (let i = 0; i < 4; i += 1) statuses.push((await from("203.0.113.9", { username: "owner-cyag@example.com", password: "pw-000000" })).status);
+      expect(statuses).toEqual(Array<number>(21).fill(401));
+
+      const unknown = await from("203.0.113.9", { username: "ghost-last@example.com", password: "pw-000000" });
+      const known = await from("203.0.113.9", { username: "owner-cyag@example.com", password: "pw-123456" });
+      expect([unknown.status, known.status]).toEqual([429, 429]);
+      expect(await unknown.json()).toEqual(await known.json());
+      expect((await from("198.51.100.4", { username: "owner-cyag@example.com", password: "pw-123456" })).status).toBe(200);
+
+      for (let i = 0; i < 21; i += 1) expect((await from("192.0.2.7", { username: i % 2 ? "owner-cyag@example.com" : "nobody@example.com" }, "/auth/forgot-password")).status).toBe(202);
+      expect((await from("192.0.2.7", { username: "nobody@example.com" }, "/auth/forgot-password")).status).toBe(429);
+    }, 120_000);
+
     it("refuses an email another company already signs in with", async () => {
       const platform = await seedPlatform();
       const { router } = await newRouter(platform);

@@ -10,6 +10,7 @@ import {
   createSignInGuard,
   createSourceThrottle,
   delegatedGrantEnv,
+  SignInRefusal,
   SignInVerdict,
   SmtpDestinationPolicy,
   throttleSource,
@@ -32,7 +33,7 @@ import {
   type TenantBooksIdentity,
 } from "@mezan/persistence";
 import type { CompanyOwnerPort, UserEmailChange } from "@mezan/api";
-import { loginRequestSchema, REFUSED_TENANT_BOOKS, TenantBooksStanding, TenantResolveMode, type PlatformResolveDTO, type TenantBooksDTO } from "@mezan/contracts";
+import { loginRequestSchema, REFUSED_TENANT_BOOKS, unlockAccountRequestSchema, TenantBooksStanding, TenantResolveMode, type PlatformResolveDTO, type TenantBooksDTO } from "@mezan/contracts";
 import { schemaKey, SchemaKeyPurpose, type TenantDatabases } from "@mezan/persistence-postgres";
 import { EmailInAnotherCompanyError, type SignInEmailGuard, TenantBooksReview, tenantDbFile, tenantHandedTo, tenantSchema, tenantIsServed, TenantStatusCode, tenantWithBooksReview, tenantWithOwnerRecordDue, type Tenant } from "@mezan/domain";
 import { createBackendCache, type BackendCache } from "./backend-cache.js";
@@ -167,7 +168,10 @@ export function requireOriginSecret(secret?: string): MiddlewareHandler {
 
 const SIGN_IN = "/auth/login";
 const FORGOT_PASSWORD = "/auth/forgot-password";
-const RESOLVED_BY_EMAIL: ReadonlySet<string> = new Set([SIGN_IN, FORGOT_PASSWORD]);
+const UNLOCK = "/auth/unlock";
+const RESOLVED_BY_EMAIL: ReadonlySet<string> = new Set([SIGN_IN, FORGOT_PASSWORD, UNLOCK]);
+const COUNTED_BY_EMAIL: ReadonlySet<number> = new Set([400, 401, 423]);
+const EMAIL_RESOLVED_FREE_ATTEMPTS = 20;
 const ACCOUNT_LOCKED_STATUS = 423;
 
 const COUNTED_AS_FAILED: ReadonlySet<number> = new Set([401, 423]);
@@ -515,6 +519,7 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
     sources: createSourceThrottle(signInClock),
     locks: createAccountLocks({ known: createMemoryAccountLockStore(), now: signInClock }),
   });
+  const emailResolvedSources = createSourceThrottle(signInClock, EMAIL_RESOLVED_FREE_ATTEMPTS);
   const decoyHasher = createScryptHasher();
   let decoy: Promise<string> | null = null;
   const decoyHash = () => (decoy ??= decoyHasher.hash("mezan-login-timing-decoy"));
@@ -561,20 +566,24 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
   }
 
   // SECURITY: an email no company holds is answered as each company answers an
-  // unknown email — the same scrypt, the same counting and lock, the same body.
+  // unknown email — the same scrypt, the same lock, the same body.
   async function unknownSignInEmail(c: Context, subPath: string, source: CloudSource): Promise<Response> {
     if (subPath === FORGOT_PASSWORD) return c.json({ ok: true }, 202);
     const body: unknown = await c.req.raw.clone().json().catch(() => null);
+    if (subPath === UNLOCK) {
+      const unlock = unlockAccountRequestSchema.safeParse(body);
+      if (!unlock.success) return c.json({ error: "VALIDATION_ERROR", details: unlock.error.flatten() }, 400);
+      return c.json({ error: SignInRefusal.InvalidUnlockCode, message: "رمز فكّ القفل غير صحيح أو انتهت صلاحيته." }, 400);
+    }
     const parsed = loginRequestSchema.safeParse(body);
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
-    const needle = parsed.data.username.trim().toLowerCase();
     const counted = throttleSource(source) ?? source;
     const crossTenantWait = await signInSources.retryAfter(counted);
     if (crossTenantWait > 0) {
       c.header("retry-after", String(crossTenantWait));
       return c.json(tooManyAttempts(crossTenantWait), 429);
     }
-    const answered = await unknownEmailAnswer(c, needle, source, parsed.data.password);
+    const answered = await unknownEmailAnswer(c, parsed.data.username.trim().toLowerCase(), source, parsed.data.password);
     if (COUNTED_AS_FAILED.has(answered.status)) await signInSources.fail(counted);
     return answered;
   }
@@ -603,13 +612,8 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
     return new Response(JSON.stringify({ ...body, tenantCode: code }), { status: answer.status, headers });
   }
 
-  app.all(REST_PATTERN, async (c) => {
-    const prefixLen = c.req.routePath.length - REST_PATTERN.length;
-    const subPath = c.req.path.slice(prefixLen) || "/";
-    const source = callerSource(c);
-    const code = resolveTenantCode(c.req.raw, resolverOptions);
-    const byEmail = !code && c.req.method === "POST" && RESOLVED_BY_EMAIL.has(subPath);
-    if (!code && !byEmail) return c.json({ error: "TENANT_REQUIRED", message: "حدّد رمز المنشأة" }, 400);
+  async function dispatch(c: Context, subPath: string, source: CloudSource, code: string | null): Promise<Response> {
+    const byEmail = code === null;
     const tenant = code ? await options.platform.stores.tenants.findByCode(code) : await tenantOfSignInEmail(c.req.raw);
     if (byEmail && !tenant) return unknownSignInEmail(c, subPath, source);
     if (!tenant || !tenantIsServed(tenant)) {
@@ -630,6 +634,27 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
     const answer = await door.fetch(forwarded, source);
     if (COUNTED_AS_FAILED.has(answer.status)) await signInSources.fail(counted);
     return byEmail ? withTenantCode(answer, tenant.code) : answer;
+  }
+
+  app.all(REST_PATTERN, async (c) => {
+    const prefixLen = c.req.routePath.length - REST_PATTERN.length;
+    const subPath = c.req.path.slice(prefixLen) || "/";
+    const source = callerSource(c);
+    const code = resolveTenantCode(c.req.raw, resolverOptions);
+    if (code) return dispatch(c, subPath, source, code);
+    if (c.req.method !== "POST" || !RESOLVED_BY_EMAIL.has(subPath)) return c.json({ error: "TENANT_REQUIRED", message: "حدّد رمز المنشأة" }, 400);
+
+    // SECURITY: one bucket for every sign-in found by email, known or not, held
+    // below each company's own so a company's 429 is never the first to answer.
+    const counted = throttleSource(source) ?? source;
+    const wait = await emailResolvedSources.retryAfter(counted);
+    if (wait > 0) {
+      c.header("retry-after", String(wait));
+      return c.json(tooManyAttempts(wait), 429);
+    }
+    const answer = await dispatch(c, subPath, source, null);
+    if (subPath === FORGOT_PASSWORD || COUNTED_BY_EMAIL.has(answer.status)) await emailResolvedSources.fail(counted);
+    return answer;
   });
 
   async function openFor(code: string): Promise<BackendHandle> {

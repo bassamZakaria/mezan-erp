@@ -65,6 +65,7 @@ import {
   SignupRequestStatus,
   signupModeOf,
   type SignupRequest,
+  OwnerEmailInAnotherCompanyError,
 } from "@mezan/domain";
 import {
   createTenantRequestSchema,
@@ -598,7 +599,7 @@ function domainErrorResponse(c: Context, err: unknown): Response {
   ) {
     return c.json({ error: err.code, message: err.message }, 409);
   }
-  if (err instanceof FreePlanRequiredError) {
+  if (err instanceof FreePlanRequiredError || err instanceof OwnerEmailInAnotherCompanyError) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
   }
   throw err;

@@ -443,6 +443,65 @@ describe("LoginScreen — SaaS company code", () => {
 
     await vi.waitFor(() => expect(screen.getByTestId("session")).toHaveTextContent(testAdminSession.nameAr));
     expect(seenTenantHeader).toBeNull();
+    expect(localStorage.getItem("mezan.tenantCode")).toBe("nile");
+  });
+
+  it("keeps the remembered company and its face row after a refused sign-in, and offers the face again when the screen is shown anew", async () => {
+    rememberTenantCodeForEmail("b@nile.example", "nile");
+    localStorage.setItem("mezan.tenantCode", "nile");
+    localStorage.setItem(
+      "mezan.deviceUsers.nile",
+      JSON.stringify([{ email: "b@nile.example", nameAr: "بسمة النيل", nameEn: null, initials: "ب.ا", role: "admin", photoUrl: null }]),
+    );
+    const transport = stubTransport({
+      ...preAuth,
+      "GET /platform/resolve": () => ({ body: { mode: TenantResolveMode.Code, exists: true } }),
+      "POST /auth/login": () => ({ status: 401, body: { error: "INVALID_CREDENTIALS", message: "البريد الإلكتروني أو كلمة المرور غير صحيحة." } }),
+    });
+    const first = renderWithProviders(<LoginScreen onStartWizard={() => {}} />, { transport });
+    await lookupSettled();
+    expect(screen.getByRole("radio", { name: "اختر بسمة النيل" })).toBeChecked();
+
+    fireEvent.change(passwordField(), { target: { value: "wrong-password" } });
+    fireEvent.submit(passwordField().closest("form")!);
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    expect(localStorage.getItem("mezan.tenantCode")).toBe("nile");
+    expect(screen.getByRole("radio", { name: "اختر بسمة النيل" })).toBeChecked();
+
+    first.unmount();
+    renderWithProviders(<LoginScreen onStartWizard={() => {}} />, { transport });
+    await lookupSettled();
+    expect(screen.getByRole("radio", { name: "اختر بسمة النيل" })).toBeChecked();
+    expect(localStorage.getItem("mezan.tenantCode")).toBe("nile");
+  });
+
+  it("opens a locked account with the mailed code without naming any company, and says the account was unlocked", async () => {
+    localStorage.setItem("mezan.tenantCode", "nile");
+    let unlockTenant: string | null | undefined;
+    renderWithProviders(<LoginScreen onStartWizard={() => {}} />, {
+      transport: stubTransport({
+        ...preAuth,
+        "GET /platform/resolve": () => ({ body: { mode: TenantResolveMode.Code, exists: true } }),
+        "POST /auth/login": () => ({
+          status: 423,
+          body: { error: "ACCOUNT_LOCKED", unlockByCode: true, message: "تم قفل هذا الحساب بعد محاولات دخول فاشلة متكررة." },
+        }),
+        "POST /auth/unlock": (init) => {
+          unlockTenant = new Headers(init?.headers).get("x-mezan-tenant");
+          return { body: { ok: true } };
+        },
+      }),
+    });
+    await lookupSettled();
+    signIn("wrong-password");
+    expect(await screen.findByRole("alert")).toHaveTextContent("تم قفل هذا الحساب");
+
+    fireEvent.change(screen.getByLabelText("رمز فكّ القفل"), { target: { value: "ABCDEFGHIJKLMNOP" } });
+    fireEvent.click(screen.getByRole("button", { name: "فكّ القفل" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent("تم فكّ قفل الحساب");
+    expect(unlockTenant).toBeNull();
+    expect(localStorage.getItem("mezan.tenantCode")).toBe("nile");
   });
 
   it("keeps the company the server names in its login answer, and remembers it under the operator's email", async () => {
@@ -461,6 +520,46 @@ describe("LoginScreen — SaaS company code", () => {
     await vi.waitFor(() => expect(localStorage.getItem("mezan.tenantCodeByEmail")).not.toBeNull());
     const map = JSON.parse(localStorage.getItem("mezan.tenantCodeByEmail")!);
     expect(map[testAdminSession.email.toLowerCase()]).toBe("nile");
+  });
+
+  it("sends every request after sign-in under the company the server named", async () => {
+    localStorage.setItem("mezan.tenantCode", "acme");
+    const seen: (string | null)[] = [];
+    function AfterSignIn() {
+      const { request, session } = useApi();
+      return session ? (
+        <button type="button" onClick={() => void request("/tenant")}>
+          next request
+        </button>
+      ) : null;
+    }
+    renderWithProviders(
+      <>
+        <LoginScreen onStartWizard={() => {}} />
+        <AfterSignIn />
+      </>,
+      {
+        transport: stubTransport({
+          ...preAuth,
+          "GET /platform/resolve": () => ({ body: { mode: TenantResolveMode.Code, exists: true } }),
+          "POST /auth/login": () => ({ body: { ...testAdminSession, tenantCode: "nile" } }),
+          "GET /tenant": (init) => {
+            seen.push(new Headers(init?.headers).get("x-mezan-tenant"));
+            return { body: { name: "Nile" } };
+          },
+        }),
+      },
+    );
+    await lookupSettled();
+
+    signIn("Cyag@2026");
+
+    const next = await screen.findByRole("button", { name: "next request" });
+    seen.length = 0;
+    fireEvent.click(next);
+    await vi.waitFor(() => expect(seen).toContain("nile"));
+    expect(seen).toEqual(seen.map(() => "nile"));
+    expect(localStorage.getItem("mezan.tenantCode")).toBe("nile");
   });
 
   it("asks for no company code when a forgotten password is sent in code mode, and sends no company header", async () => {
@@ -489,6 +588,7 @@ describe("LoginScreen — SaaS company code", () => {
     expect(await screen.findByRole("status")).toHaveTextContent("إن كان هذا البريد مسجّلًا");
     expect(asked).toEqual({ username: TYPED_EMAIL });
     expect(seenTenantHeader).toBeNull();
+    expect(localStorage.getItem("mezan.tenantCode")).toBe("nile");
   });
 
   it("on a failed lookup, lower-cases as it is typed but only persists and resolves on blur — firing exactly one /tenant request, and echoes the CODE back rather than the tenant's real name", async () => {
@@ -612,6 +712,25 @@ describe("LoginScreen — SaaS company code", () => {
     signIn("Cyag@2026");
     await waitFor(() => expect(tenantSent).toBeNull());
     expect(screen.queryByText("حدّد رمز المنشأة")).not.toBeInTheDocument();
+  });
+
+  it("on a failed lookup, sends the typed company code with the sign-in", async () => {
+    let tenantSent: string | null | undefined;
+    renderWithProviders(<LoginScreen onStartWizard={() => {}} />, {
+      transport: stubTransport({
+        ...preAuth,
+        ...LOOKUP_DOWN,
+        "POST /auth/login": (init) => {
+          tenantSent = new Headers(init?.headers).get("x-mezan-tenant");
+          return { body: testAdminSession };
+        },
+      }),
+    });
+    const code = await screen.findByLabelText("رمز المنشأة");
+    fireEvent.change(code, { target: { value: "acme" } });
+    fireEvent.blur(code);
+    signIn("Cyag@2026");
+    await waitFor(() => expect(tenantSent).toBe("acme"));
   });
 
   it("maps a login refusal by the server's error CODE, not its status — an unrelated message is replaced with the client's own translation", async () => {

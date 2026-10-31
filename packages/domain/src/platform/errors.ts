@@ -66,6 +66,15 @@ export class TenantCodeTakenError extends Error {
   }
 }
 
+export class OwnerEmailInAnotherCompanyError extends Error {
+  readonly code = "OWNER_EMAIL_IN_ANOTHER_COMPANY";
+  readonly messageEn = "This email already signs in to a company on Mezan. Sign in with it, or use another email for the new company.";
+  constructor() {
+    super("هذا البريد الإلكتروني يدخل بالفعل إلى منشأة على ميزان. سجّل الدخول به، أو استخدم بريدًا آخر للمنشأة الجديدة.");
+    this.name = "OwnerEmailInAnotherCompanyError";
+  }
+}
+
 export class InvalidTenantTransitionError extends Error {
   readonly code = "INVALID_TENANT_TRANSITION";
   constructor(readonly from: string, readonly to: string) {

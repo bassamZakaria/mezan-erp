@@ -1206,12 +1206,14 @@ class SqlSignInEmailStore implements SignInEmailRepository {
 
   async claim(email: string, tenantId: string): Promise<boolean> {
     const key = normalizeEmail(email);
-    await this.db.run(`INSERT INTO sign_in_email (email, tenant_id) VALUES (?, ?) ON CONFLICT(email) DO NOTHING`, [key, tenantId]);
-    return (await this.tenantOf(key)) === tenantId;
+    return this.db.transaction(async () => {
+      await this.db.run(`INSERT INTO sign_in_email (email, tenant_id) VALUES (?, ?) ON CONFLICT(email) DO NOTHING`, [key, tenantId]);
+      return (await this.tenantOf(key)) === tenantId;
+    });
   }
 
   async release(email: string, tenantId: string): Promise<void> {
-    await this.db.run(`DELETE FROM sign_in_email WHERE email = ? AND tenant_id = ?`, [normalizeEmail(email), tenantId]);
+    await this.db.transaction(() => this.db.run(`DELETE FROM sign_in_email WHERE email = ? AND tenant_id = ?`, [normalizeEmail(email), tenantId]));
   }
 
   async replaceTenant(tenantId: string, emails: readonly string[]): Promise<readonly string[]> {
@@ -1227,7 +1229,7 @@ class SqlSignInEmailStore implements SignInEmailRepository {
   }
 
   async forgetTenant(tenantId: string): Promise<void> {
-    await this.db.run(`DELETE FROM sign_in_email WHERE tenant_id = ?`, [tenantId]);
+    await this.db.transaction(() => this.db.run(`DELETE FROM sign_in_email WHERE tenant_id = ?`, [tenantId]));
   }
 }
 

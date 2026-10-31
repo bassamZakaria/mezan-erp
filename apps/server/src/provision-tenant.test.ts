@@ -12,7 +12,7 @@ import {
   type PlatformHandle,
   type RecordedActivation,
 } from "@mezan/backend";
-import { createTenant, releaseTenant, retirePlan, startSubscription, TenantCodeTakenError, TenantStatusCode } from "@mezan/domain";
+import { createTenant, OwnerEmailInAnotherCompanyError, releaseTenant, retirePlan, startSubscription, TenantCodeTakenError, TenantStatusCode } from "@mezan/domain";
 import { reachable } from "./cloud-harness.js";
 import { createTenantRouter, TENANT_HEADER, type TenantRouter } from "./tenant-router.js";
 import { provisionTenant, ProvisioningSupersededError, TenantCodeProvisioningError, TenantProvisioningError } from "./provision-tenant.js";
@@ -119,6 +119,20 @@ describe("provisionTenant", () => {
     const signedIn = await login(await router.backendFor("cyag"), "owner@cyag.example", "pw-654321");
     expect(signedIn.status).toBe(200);
     expect(((await signedIn.json()) as { mustChangePassword: boolean }).mustChangePassword).toBe(true);
+  });
+
+  it("refuses an owner whose email already signs in to another company, before anything is registered", async () => {
+    const platform = await newPlatform();
+    const router = newRouter(platform);
+    await platform.stores.signInEmails.claim("owner@nile.example", "t-elsewhere");
+
+    await expect(
+      provisionTenant(
+        { code: "delta", nameAr: "الدلتا", ownerEmail: "Owner@nile.example", ownerNameAr: "المدير", planId: "PLAN-CORE", billingCycle: "monthly", trial: false },
+        { platform, router, now: () => new Date(T), passwordOf: () => "pw-111111" },
+      ),
+    ).rejects.toBeInstanceOf(OwnerEmailInAnotherCompanyError);
+    expect(await platform.stores.tenants.findByCode("delta")).toBeNull();
   });
 
   it("refuses a code already claimed by a live tenant", async () => {

@@ -386,6 +386,8 @@ export function forgetTenantCodeForEmail(email: string): void {
  * permission code, so it isn't folded into the resolved permission set.
  */
 export const TENANT_HEADER = "x-mezan-tenant";
+// CONTRACT: a request that names this as its tenant leaves with no tenant header at all (ApiContext).
+export const NO_TENANT = "";
 
 export function authHeaders(session: Session | null, selection?: ScopeSelection): Record<string, string> {
   const tenantCode = loadTenantCode();

@@ -13,9 +13,7 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["packages/**/*.test.{ts,tsx}", "apps/**/*.test.{ts,tsx}"],
-    // apps/mobile is React Native on React 19; this project pins React 18 for the web
-    // client, and loading both into one vitest run breaks react-dom. It has its own config.
-    exclude: ["**/node_modules/**", "**/dist/**", "apps/mobile/**"],
+    exclude: ["**/node_modules/**", "**/dist/**"],
     setupFiles: ["packages/ui/src/test/setup.ts", "packages/api/src/test/turn-yield-guard.ts"],
     /*
      * Vitest's 5s default is the per-test budget, and testing-library's

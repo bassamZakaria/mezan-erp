@@ -33,12 +33,9 @@ test.describe("Public landing page at / on the cloud site", () => {
     });
   }
 
-  test("a plan's button opens signup with that plan and cycle chosen", async ({ page }) => {
+  test("offers no way to create an account from the landing page", async ({ page }) => {
     await page.goto("/");
-    await page.getByRole("radio", { name: "سنويًا" }).click();
-    await page.getByTestId("landing-plan-business").getByRole("link", { name: "ابدأ بهذه الباقة" }).click();
-
-    await expect(page).toHaveURL(/\/signup\?plan=business&cycle=yearly$/);
-    await expect(page.getByRole("button", { name: /الأعمال/, pressed: true })).toBeVisible();
+    await expect(page.getByTestId("landing-plan-business")).toBeVisible();
+    await expect(page.locator('a[href^="/signup"]')).toHaveCount(0);
   });
 });

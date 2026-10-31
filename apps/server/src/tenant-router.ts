@@ -277,7 +277,6 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
       claim: async (email) => {
         if (!(await emails.claim(email, tenantId))) throw new EmailInAnotherCompanyError(email);
       },
-      release: (email) => emails.release(email, tenantId),
       sync: async (held) => {
         const elsewhere = await emails.replaceTenant(tenantId, held);
         if (elsewhere.length > 0) log.warn({ tenantId, emails: elsewhere }, `"${code}" has users whose email signs in to another company; they cannot sign in here without a company code`);
@@ -641,12 +640,23 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
     const subPath = c.req.path.slice(prefixLen) || "/";
     const source = callerSource(c);
     const code = resolveTenantCode(c.req.raw, resolverOptions);
+    const signInDoor = c.req.method === "POST" && RESOLVED_BY_EMAIL.has(subPath);
+    const counted = throttleSource(source) ?? source;
+    // SECURITY: a sign-in that names its company still feeds the email path's own
+    // counters, so tripping a company's limits first can never make an email in it
+    // answer differently from an email in none.
+    if (code && signInDoor) {
+      const signingInAs = subPath === SIGN_IN ? loginRequestSchema.safeParse(await c.req.raw.clone().json().catch(() => null)) : null;
+      const answer = await dispatch(c, subPath, source, code);
+      if (subPath === FORGOT_PASSWORD || COUNTED_BY_EMAIL.has(answer.status)) await emailResolvedSources.fail(counted);
+      if (signingInAs?.success && COUNTED_AS_FAILED.has(answer.status)) await unknownEmails.failed(signingInAs.data.username.trim().toLowerCase(), source, false);
+      return answer;
+    }
     if (code) return dispatch(c, subPath, source, code);
-    if (c.req.method !== "POST" || !RESOLVED_BY_EMAIL.has(subPath)) return c.json({ error: "TENANT_REQUIRED", message: "حدّد رمز المنشأة" }, 400);
+    if (!signInDoor) return c.json({ error: "TENANT_REQUIRED", message: "حدّد رمز المنشأة" }, 400);
 
     // SECURITY: one bucket for every sign-in found by email, known or not, held
     // below each company's own so a company's 429 is never the first to answer.
-    const counted = throttleSource(source) ?? source;
     const wait = await emailResolvedSources.retryAfter(counted);
     if (wait > 0) {
       c.header("retry-after", String(wait));

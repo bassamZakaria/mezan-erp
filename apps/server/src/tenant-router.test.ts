@@ -237,6 +237,25 @@ describe("createTenantRouter", () => {
       expect((await from("192.0.2.7", { username: "nobody@example.com" }, "/auth/forgot-password")).status).toBe(429);
     }, 120_000);
 
+    it("answers an email in a company and an email in none alike after the company's own limits were tripped by name", async () => {
+      const platform = await seedPlatform();
+      const { router } = await newRouter(platform, { trustForwardedHost: true, trustedProxyHops: 1 });
+      await bootstrapAdmin(router, "cyag");
+      const from = (body: unknown, code?: string) =>
+        router.app.fetch(
+          new Request("http://ignored/auth/login", {
+            method: "POST",
+            headers: { "content-type": "application/json", "x-forwarded-for": "203.0.113.9", ...(code ? { [TENANT_HEADER]: code } : {}) },
+            body: JSON.stringify(body),
+          }),
+        );
+      for (let i = 0; i < 30; i += 1) await from({ username: `ghost${i}@example.com`, password: "pw-000000" }, "cyag");
+      const known = await from({ username: "owner-cyag@example.com", password: "pw-123456" });
+      const unknown = await from({ username: "nobody@example.com", password: "pw-123456" });
+      expect([known.status, unknown.status]).toEqual([429, 429]);
+      expect(await known.json()).toEqual(await unknown.json());
+    }, 120_000);
+
     it("refuses an email another company already signs in with", async () => {
       const platform = await seedPlatform();
       const { router } = await newRouter(platform);

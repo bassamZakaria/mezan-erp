@@ -11,9 +11,6 @@ function listGuard(heldElsewhere: readonly string[] = []) {
       if (heldElsewhere.includes(email)) throw new EmailInAnotherCompanyError(email);
       held.add(email);
     },
-    release: async (email) => {
-      held.delete(email);
-    },
     sync: async () => [],
   };
   return { guard, held };
@@ -25,36 +22,33 @@ const user = (id: string, email: string): User => ({
 });
 
 describe("withSignInEmailGuard", () => {
-  it("claims a new email, moves the claim when it changes, and refuses one another company holds", async () => {
+  it("claims every new email before it is written, and writes nothing another company holds", async () => {
     const { guard, held } = listGuard(["taken@example.com"]);
-    const uow = withSignInEmailGuard(createSqliteUnitOfWork(), guard, (fn) => fn(), () => {});
+    const uow = withSignInEmailGuard(createSqliteUnitOfWork(), guard);
     await uow.users.save(user("u1", "Ali@Example.com"));
-    expect([...held]).toEqual(["ali@example.com"]);
     await uow.users.save(user("u1", "ali2@example.com"));
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect([...held]).toEqual(["ali2@example.com"]);
+    expect([...held].sort()).toEqual(["ali2@example.com", "ali@example.com"]);
     await expect(uow.users.save(user("u2", "taken@example.com"))).rejects.toBeInstanceOf(EmailInAnotherCompanyError);
     expect(await uow.users.findById("u2")).toBeNull();
   });
 
-  it("undoes a claim and keeps the old email when the transaction rolls back", async () => {
-    const { guard, held } = listGuard();
-    const uow = withSignInEmailGuard(createSqliteUnitOfWork(), guard, (fn) => fn(), () => {});
+  it("claims inside a transaction too, and a rollback never drops an email the company still holds", async () => {
+    const { guard, held } = listGuard(["taken@example.com"]);
+    const uow = withSignInEmailGuard(createSqliteUnitOfWork(), guard);
     await uow.users.save(user("u1", "old@example.com"));
     await expect(
       uow.transaction(async (tx) => {
         await tx.users.save(user("u1", "new@example.com"));
-        await tx.users.save(user("u2", "other@example.com"));
-        throw new Error("boom");
+        await tx.users.save(user("u2", "taken@example.com"));
       }),
-    ).rejects.toThrow("boom");
-    expect([...held].sort()).toEqual(["old@example.com"]);
+    ).rejects.toBeInstanceOf(EmailInAnotherCompanyError);
+    expect(held.has("old@example.com")).toBe(true);
     expect((await uow.users.findById("u1"))?.email).toBe("old@example.com");
   });
 
   it("never puts the seeded recovery admin on the list", async () => {
     const { guard, held } = listGuard();
-    const uow = withSignInEmailGuard(createSqliteUnitOfWork(), guard, (fn) => fn(), () => {});
+    const uow = withSignInEmailGuard(createSqliteUnitOfWork(), guard);
     await uow.users.save(user(SEED_ADMIN_USER_ID, "admin@cyag.example"));
     expect([...held]).toEqual([]);
   });

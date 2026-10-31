@@ -452,7 +452,7 @@ export function useLogin() {
       const { tenantCode, ...session } = await res.json<LoginResponseDTO>();
       if (tenantCode && tenantCode !== loadTenantCode()) {
         persistTenantCode(tenantCode);
-        queryClient.clear();
+        queryClient.removeQueries();
       }
       return session;
     },

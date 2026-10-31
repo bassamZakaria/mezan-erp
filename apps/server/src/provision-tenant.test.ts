@@ -124,7 +124,11 @@ describe("provisionTenant", () => {
   it("refuses an owner whose email already signs in to another company, before anything is registered", async () => {
     const platform = await newPlatform();
     const router = newRouter(platform);
-    await platform.stores.signInEmails.claim("owner@nile.example", "t-elsewhere");
+    await provisionTenant(
+      { code: "nile", nameAr: "النيل", ownerEmail: "owner@nile.example", ownerNameAr: "المدير", planId: "PLAN-CORE", billingCycle: "monthly", trial: false },
+      { platform, router, now: () => new Date(T), passwordOf: () => "pw-000000" },
+    );
+    await platform.stores.signInEmails.claim("owner@nile.example", (await platform.stores.tenants.findByCode("nile"))!.id);
 
     await expect(
       provisionTenant(

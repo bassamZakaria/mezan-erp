@@ -226,7 +226,6 @@ export function createCookieSessions(options: CookieSessionOptions): CookieSessi
       if (otherTenant) {
         if (c.res.status === 401) c.res = c.json({ error: SessionRefusal.TenantMismatch, message: TENANT_MISMATCH_MESSAGE, messageEn: TENANT_MISMATCH_MESSAGE_EN }, 403);
       } else if (signingIn) {
-        // A sign-in that named no company is bound to the one the server found from the email.
         const boundTenant = (body: Record<string, unknown>) => code ?? (typeof body["tenantCode"] === "string" ? body["tenantCode"] : "");
         c.res = await intoCookies(jar, c.res, secure, (issued, body) => (bindsTenant ? `${boundTenant(body)}${SESSION_SEPARATOR}${issued}` : issued));
       } else if ((c.req.method === "POST" && pathname === jar.signOut) || (token !== null && (await sessionIsGone(c.res)))) {

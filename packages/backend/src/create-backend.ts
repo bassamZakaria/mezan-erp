@@ -1257,10 +1257,9 @@ async function composeBackend(options: CreateBackendOptions, db: SqlDb, sqlite: 
   const books = store((s) => createSqliteUnitOfWork(s), (d) => createUnitOfWork(d));
   const signInEmails = options.signInEmails;
   const uow = signInEmails
-    ? withSignInEmailGuard(books, signInEmails, (fn) => db.afterCommit(fn), (err) => backendLog.error({ err }, "an email let go stayed on the sign-in list"))
+    ? withSignInEmailGuard(books, signInEmails)
     : books;
   if (signInEmails) {
-    // The guard holds the rule on every write; a sync that fails only leaves the list as it was until the next open.
     await signInEmails
       .sync((await books.users.list()).map(signInEmailOf).filter((email): email is string => email !== null))
       .catch((err: unknown) => backendLog.error({ err }, "the sign-in email list could not be brought up to date"));

@@ -10,6 +10,5 @@ export class EmailInAnotherCompanyError extends DuplicateUserEmailError {
 
 export interface SignInEmailGuard {
   claim(email: string): Promise<void>;
-  release(email: string): Promise<void>;
   sync(emails: readonly string[]): Promise<readonly string[]>;
 }

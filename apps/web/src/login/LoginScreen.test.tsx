@@ -2,8 +2,8 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { useState, useSyncExternalStore, type ReactElement } from "react";
+import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useState, useSyncExternalStore, type ReactElement } from "react";
 import { LoginScreen } from "./LoginScreen";
 import { useApi, ApiProvider } from "../data/ApiContext";
 import {
@@ -17,6 +17,7 @@ import {
   rememberTenantCodeForEmail,
   sessionExpiredPending,
   subscribeTenantCode,
+  TENANT_HEADER,
 } from "../data/session";
 import { OwnerHandOverOutcome, TenantResolveMode } from "@mezan/contracts";
 import { createQueryClient } from "../data/queryClient";
@@ -430,7 +431,7 @@ describe("LoginScreen — SaaS company code", () => {
           ...preAuth,
           "GET /platform/resolve": () => ({ body: { mode: TenantResolveMode.Code, exists: true } }),
           "POST /auth/login": (init) => {
-            seenTenantHeader = new Headers(init?.headers).get("x-mezan-tenant");
+            seenTenantHeader = new Headers(init?.headers).get(TENANT_HEADER);
             return { body: testAdminSession };
           },
         }),
@@ -487,7 +488,7 @@ describe("LoginScreen — SaaS company code", () => {
           body: { error: "ACCOUNT_LOCKED", unlockByCode: true, message: "تم قفل هذا الحساب بعد محاولات دخول فاشلة متكررة." },
         }),
         "POST /auth/unlock": (init) => {
-          unlockTenant = new Headers(init?.headers).get("x-mezan-tenant");
+          unlockTenant = new Headers(init?.headers).get(TENANT_HEADER);
           return { body: { ok: true } };
         },
       }),
@@ -522,14 +523,19 @@ describe("LoginScreen — SaaS company code", () => {
     expect(map[testAdminSession.email.toLowerCase()]).toBe("nile");
   });
 
-  it("sends every request after sign-in under the company the server named", async () => {
+  it("sends every request after sign-in under the company the server named, and drops what the previous company left cached", async () => {
     localStorage.setItem("mezan.tenantCode", "acme");
     const seen: (string | null)[] = [];
     function AfterSignIn() {
       const { request, session } = useApi();
+      const queryClient = useQueryClient();
+      const cached = useQuery({ queryKey: ["acme-only"], queryFn: () => "refetched", enabled: false, staleTime: Infinity, gcTime: Infinity });
+      useEffect(() => {
+        if (!session) queryClient.setQueryData(["acme-only"], "acme");
+      }, [queryClient, session]);
       return session ? (
         <button type="button" onClick={() => void request("/tenant")}>
-          next request
+          {cached.data === "acme" ? "acme still cached" : "next request"}
         </button>
       ) : null;
     }
@@ -544,7 +550,7 @@ describe("LoginScreen — SaaS company code", () => {
           "GET /platform/resolve": () => ({ body: { mode: TenantResolveMode.Code, exists: true } }),
           "POST /auth/login": () => ({ body: { ...testAdminSession, tenantCode: "nile" } }),
           "GET /tenant": (init) => {
-            seen.push(new Headers(init?.headers).get("x-mezan-tenant"));
+            seen.push(new Headers(init?.headers).get(TENANT_HEADER));
             return { body: { name: "Nile" } };
           },
         }),
@@ -558,7 +564,7 @@ describe("LoginScreen — SaaS company code", () => {
     seen.length = 0;
     fireEvent.click(next);
     await vi.waitFor(() => expect(seen).toContain("nile"));
-    expect(seen).toEqual(seen.map(() => "nile"));
+    expect(seen.every((tenant) => tenant === "nile")).toBe(true);
     expect(localStorage.getItem("mezan.tenantCode")).toBe("nile");
   });
 
@@ -571,7 +577,7 @@ describe("LoginScreen — SaaS company code", () => {
         ...preAuth,
         "GET /platform/resolve": () => ({ body: { mode: TenantResolveMode.Code, exists: true } }),
         "POST /auth/forgot-password": (init) => {
-          seenTenantHeader = new Headers(init?.headers).get("x-mezan-tenant");
+          seenTenantHeader = new Headers(init?.headers).get(TENANT_HEADER);
           asked = JSON.parse((init?.body as string) ?? "{}");
           return { status: 202, body: { ok: true } };
         },
@@ -703,7 +709,7 @@ describe("LoginScreen — SaaS company code", () => {
         ...preAuth,
         ...LOOKUP_DOWN,
         "POST /auth/login": (init) => {
-          tenantSent = new Headers(init?.headers).get("x-mezan-tenant");
+          tenantSent = new Headers(init?.headers).get(TENANT_HEADER);
           return { body: testAdminSession };
         },
       }),
@@ -721,7 +727,7 @@ describe("LoginScreen — SaaS company code", () => {
         ...preAuth,
         ...LOOKUP_DOWN,
         "POST /auth/login": (init) => {
-          tenantSent = new Headers(init?.headers).get("x-mezan-tenant");
+          tenantSent = new Headers(init?.headers).get(TENANT_HEADER);
           return { body: testAdminSession };
         },
       }),
@@ -944,7 +950,7 @@ describe("LoginScreen — SaaS company code", () => {
     const transport = stubTransport({ ...preAuth, "GET /platform/resolve": () => ({ body: { mode: TenantResolveMode.Code, exists: true } }) });
     renderWithProviders(<Shell />, {
       transport: (path, init) => {
-        requests.push(new Headers(init?.headers).get("x-mezan-tenant"));
+        requests.push(new Headers(init?.headers).get(TENANT_HEADER));
         return transport(path, init);
       },
     });

@@ -1224,7 +1224,8 @@ describe("LoginScreen — the cloud card and a forgotten password", () => {
     localStorage.clear();
     sessionStorage.clear();
   });
-  afterEach(() => {
+  afterEach(async () => {
+    await act(() => new Promise((settle) => setTimeout(settle, 50)));
     delete desktop.mezan;
   });
 

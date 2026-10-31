@@ -44,7 +44,7 @@ export interface SessionState {
   readonly locked: boolean;
   readonly unlock: (promptMessage: string, cancelLabel: string) => Promise<boolean>;
   readonly connection: Connection;
-  readonly signIn: (input: SignInInput) => Promise<void>;
+  readonly signIn: (input: SignInInput) => Promise<boolean>;
   readonly unlockAccount: (input: UnlockAccountInput) => Promise<void>;
   readonly signOut: () => Promise<void>;
   readonly request: <T>(path: string, options?: RequestOptions<T>) => Promise<T>;
@@ -202,12 +202,24 @@ export function SessionProvider({ children }: { children: ReactNode }): ReactNod
       "/auth/login",
       { method: HttpMethod.Post, body: { username: input.email, password: input.password }, schema: loginResponseSchema },
     );
+    if (signedIn.mustChangePassword) {
+      await apiRequest(
+        { baseUrl: next.baseUrl, tenantCode: next.tenantCode, token: signedIn.token ?? null, branchScope: ScopeAll.Every, warehouseScope: ScopeAll.Every },
+        "/auth/logout",
+        { method: HttpMethod.Post },
+      ).catch(() => undefined);
+      await saveConnection(next);
+      setConnection(next);
+      setSessionEnded(SessionEnded.PasswordChangeRequired);
+      return false;
+    }
     await saveConnection(next);
     await saveSession(signedIn);
     setConnection(next);
     setSessionEnded(null);
     setSession(signedIn);
     setLocked(false);
+    return true;
   }, []);
 
   const unlockAccount = useCallback(async (input: UnlockAccountInput) => {

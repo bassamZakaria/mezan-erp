@@ -126,7 +126,11 @@ export function SignIn() {
       email: email.trim(),
       password,
     })
-      .then(() => {
+      .then((signedIn) => {
+        if (!signedIn) {
+          setPassword("");
+          return;
+        }
         acknowledgeSessionEnded();
         router.replace("/(tabs)");
       })

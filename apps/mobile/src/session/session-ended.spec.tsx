@@ -1,4 +1,5 @@
 /// <reference types="jest" />
+import { PasswordChangeRefusal } from "@mezan/contracts";
 import { act, render, screen } from "@testing-library/react-native";
 import { Text } from "react-native";
 import { ApiError, ApiFailure } from "@/api/errors";
@@ -25,9 +26,11 @@ jest.mock("@/api/client", () => ({
 
 let ask: () => Promise<unknown> = async () => undefined;
 let signOutByHand: () => Promise<void> = async () => undefined;
+let signInWith: (password: string) => Promise<boolean> = async () => false;
 
 function Probe() {
-  const { ready, session, sessionEnded, request, signOut } = useSession();
+  const { ready, session, sessionEnded, request, signOut, signIn } = useSession();
+  signInWith = (password) => signIn({ baseUrl: "https://shop.example/api", tenantCode: "acme", email: "owner@shop.eg", password });
   ask = () => request("/customers").catch((error: unknown) => error);
   signOutByHand = signOut;
   return <Text testID="state">{`${ready ? "ready" : "loading"}|${session ? "signed-in" : "signed-out"}|${sessionEnded ?? "none"}`}</Text>;
@@ -70,10 +73,25 @@ describe("a session the server ended under the app", () => {
 
   it("is signed out saying the temporary password must be changed on the website, on PASSWORD_CHANGE_REQUIRED", async () => {
     await mounted();
-    mockApiRequest.mockRejectedValue(new ApiError(ApiFailure.Forbidden, 403, "غيّر كلمة المرور", null, "PASSWORD_CHANGE_REQUIRED"));
+    mockApiRequest.mockRejectedValue(new ApiError(ApiFailure.Forbidden, 403, "غيّر كلمة المرور", null, PasswordChangeRefusal.Required));
 
     await act(async () => void (await ask()));
 
+    expect(screen.getByTestId("state").props.children).toBe(`ready|signed-out|${SessionEnded.PasswordChangeRequired}`);
+  });
+
+  it("turns away a sign-in that still holds a temporary password, and ends that session on the server", async () => {
+    await mounted();
+    await act(async () => void (await signOutByHand()));
+    mockApiRequest.mockImplementation(async (_credentials: unknown, path: string) =>
+      path === "/auth/login" ? { token: "temporary-token-0123456789", mustChangePassword: true, userId: "u-1", permissions: [], branchScope: "*", warehouseScope: "*" } : {},
+    );
+
+    let signedIn: boolean | undefined;
+    await act(async () => void (signedIn = await signInWith("Temp@2026x")));
+
+    expect(signedIn).toBe(false);
+    expect(mockApiRequest.mock.calls.map((call) => call[1])).toEqual(["/auth/login", "/auth/logout"]);
     expect(screen.getByTestId("state").props.children).toBe(`ready|signed-out|${SessionEnded.PasswordChangeRequired}`);
   });
 

@@ -78,6 +78,7 @@ describe("the temporary-password change that gates a first sign-in", () => {
     );
     fill("Tmp-9f3K-q2Lx", "My-Own-2026");
     expect(await screen.findByRole("alert")).toHaveTextContent("تغيّرت كلمة المرور، لكن تعذّر الدخول تلقائيًا.");
+    expect(screen.getByRole("alert")).toHaveTextContent("طلبات كثيرة");
     expect(screen.queryByLabelText("كلمة المرور المؤقتة")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "إعادة محاولة الدخول" }));

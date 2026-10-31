@@ -1,6 +1,7 @@
 /// <reference types="jest" />
 import { act, fireEvent, render, screen } from "@testing-library/react-native";
 import { ApiError, ApiFailure } from "@/api/errors";
+import { SessionEnded } from "@/session/SessionProvider";
 import { SignIn } from "./index";
 
 const mockReplace = jest.fn();
@@ -47,21 +48,21 @@ afterEach(() => {
 
 describe("the sign-in screen after the server ended the session", () => {
   it("says another user signed in on this device when that is why the session ended", async () => {
-    mockSessionEnded = "displaced";
+    mockSessionEnded = SessionEnded.Displaced;
     await render(<SignIn />);
 
     expect(screen.getByTestId("sign-in-session-ended").props.children).toBe("سجّل مستخدم آخر الدخول على هذا الجهاز، فانتهت جلستك هنا. سجّل الدخول من جديد للمتابعة.");
   });
 
   it("tells a person whose password is still temporary to change it on the website first", async () => {
-    mockSessionEnded = "password-change-required";
+    mockSessionEnded = SessionEnded.PasswordChangeRequired;
     await render(<SignIn />);
 
     expect(screen.getByTestId("sign-in-session-ended").props.children).toBe("غيّر كلمة المرور المؤقتة من موقع ميزان أولاً، ثم سجّل الدخول من جديد.");
   });
 
   it("says the session ended when it simply expired", async () => {
-    mockSessionEnded = "expired";
+    mockSessionEnded = SessionEnded.Expired;
     await render(<SignIn />);
 
     expect(screen.getByTestId("sign-in-session-ended").props.children).toBe("انتهت الجلسة. سجّل الدخول من جديد.");
@@ -74,8 +75,8 @@ describe("the sign-in screen after the server ended the session", () => {
   });
 
   it("takes the notice down once the person signs in again", async () => {
-    mockSessionEnded = "displaced";
-    mockSignIn.mockResolvedValue(undefined);
+    mockSessionEnded = SessionEnded.Displaced;
+    mockSignIn.mockResolvedValue(true);
     await render(<SignIn />);
     await submitPassword();
 
@@ -85,7 +86,7 @@ describe("the sign-in screen after the server ended the session", () => {
 
 describe("the sign-in screen when the server refuses", () => {
   it("opens the app on a correct password", async () => {
-    mockSignIn.mockResolvedValue(undefined);
+    mockSignIn.mockResolvedValue(true);
     await render(<SignIn />);
     await submitPassword();
 

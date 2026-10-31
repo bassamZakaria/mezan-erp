@@ -36,8 +36,9 @@ export function ChangeTemporaryPasswordScreen({ onSignedOut }: { readonly onSign
     setError(null);
     try {
       await login.mutateAsync({ username: session.email, password });
-    } catch {
-      setError(t("changePassword.signInAgainFailed"));
+    } catch (err) {
+      const said = err instanceof Error && err.message !== "" ? ` ${err.message}` : "";
+      setError(`${t("changePassword.signInAgainFailed")}${said}`);
     }
   }
 

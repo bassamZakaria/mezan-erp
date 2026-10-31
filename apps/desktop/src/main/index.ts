@@ -1,4 +1,5 @@
 import { hostname } from "node:os";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { app, BrowserWindow, dialog, powerSaveBlocker, safeStorage } from "electron";
 import Database from "better-sqlite3";
@@ -495,7 +496,7 @@ app.whenReady().then(async () => {
       upgradePending = isMigrationPending(probe);
       if (probe !== resetConn) probe.close();
     } catch {
-      upgradePending = false;
+      upgradePending = existsSync(dbPath);
     }
     // REQUIRED ORDERING: the reset opens the books through the migrating unit of work, so an older file must first be backed up and upgraded by a normal launch.
     if (upgradePending) {

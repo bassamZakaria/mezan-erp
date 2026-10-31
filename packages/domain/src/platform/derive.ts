@@ -1,5 +1,5 @@
 import type { Entitlements } from "../entitlements/entitlements.js";
-import { dedupeModules, isFreePlan, type Plan } from "./plan.js";
+import { dedupeModules, isFreePlan, QuotaKind, type Plan, type PlanQuotas } from "./plan.js";
 import { liveTrialModules, type ModuleTrial } from "./module-trial.js";
 import { addDays, SubscriptionStatusKind, type Subscription } from "./subscription.js";
 import { TenantStatusCode, type Tenant } from "./tenant.js";
@@ -14,6 +14,12 @@ export interface DeriveEntitlementsContext {
   /** Every module this tenant has ever been entitled to. One that is no longer active stays readable. */
   readonly everEntitled?: readonly string[];
   readonly now?: string;
+}
+
+function quotasWithExtras(quotas: PlanQuotas, subscription: Subscription): PlanQuotas {
+  const storage = quotas[QuotaKind.StorageMb];
+  if (storage === undefined) return { ...quotas };
+  return { ...quotas, [QuotaKind.StorageMb]: storage + (subscription.extraStorageMb ?? 0) };
 }
 
 export function deriveEntitlements(plan: Plan, subscription: Subscription, context: DeriveEntitlementsContext = {}): Entitlements {
@@ -38,7 +44,7 @@ export function deriveEntitlements(plan: Plan, subscription: Subscription, conte
       branches: plan.branchesIncluded + subscription.extraBranches,
       warehouses: plan.warehousesIncluded + subscription.extraWarehouses,
     },
-    quotas: { ...plan.quotas },
+    quotas: quotasWithExtras(plan.quotas, subscription),
     moduleTrials: trials.map((t) => ({ module: t.module, startedAt: t.startedAt, endsAt: t.endsAt })),
   };
 }

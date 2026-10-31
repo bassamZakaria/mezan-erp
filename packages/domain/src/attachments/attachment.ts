@@ -60,4 +60,6 @@ export interface AttachmentRepository {
   readContent(id: string): Promise<AttachmentContent | null>;
   create(attachment: Attachment, bytes: Uint8Array): Promise<void>;
   delete(id: string): Promise<void>;
+  /** Every stored file's size added up, in bytes: what counts against the plan's storage. */
+  totalBytes(): Promise<number>;
 }

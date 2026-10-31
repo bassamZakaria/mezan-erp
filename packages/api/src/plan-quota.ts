@@ -1,10 +1,12 @@
 import type { Context } from "hono";
 import {
+  BYTES_PER_MB,
   LimitKind,
   LIMIT_OF_QUOTA,
   limitRefusal,
   QuotaKind,
   tenantMonthOf,
+  usedStorageMb,
   type Entitlements,
   type LimitRefusal,
   type PlanLabel,
@@ -91,6 +93,48 @@ export async function withQuota<T>(
     const value = await quota.serializeWrite(async () => {
       const used = await quota.countInMonth(kind, month);
       if (used >= allowed) throw new QuotaReachedError(limitRefusal(limit, allowed, used, plan));
+      return write();
+    });
+    return { refusal: null, value };
+  } catch (err) {
+    if (err instanceof QuotaReachedError) return { refusal: err.refusal, value: null };
+    throw err;
+  }
+}
+
+export interface StorageEnforcement {
+  /** Bytes already stored, summed from the attachment table itself. */
+  readonly usedBytes: () => Promise<number>;
+  readonly serializeWrite: <T>(fn: () => Promise<T>) => Promise<T>;
+}
+
+/**
+ * The plan's attachment storage, checked before a NEW file is stored. Like
+ * `withQuota` it checks once cheaply and again inside the serialized write, so
+ * two uploads racing for the last megabytes cannot both land. Nothing already
+ * stored is ever refused: reading, downloading and deleting never come here.
+ */
+export async function withStorageQuota<T>(
+  c: Context,
+  storage: StorageEnforcement | undefined,
+  incomingBytes: number,
+  write: () => Promise<T>,
+): Promise<WithQuotaResult<T>> {
+  const entitlements = c.get("entitlements");
+  const allowedMb = allowedQuota(entitlements, QuotaKind.StorageMb);
+  if (!storage || allowedMb === null || !entitlements) return { refusal: null, value: await write() };
+
+  const allowedBytes = allowedMb * BYTES_PER_MB;
+  const plan = planLabelOf(entitlements);
+  const refusalAt = (used: number) => limitRefusal(LimitKind.StorageMb, allowedMb, usedStorageMb(used), plan);
+
+  const usedBefore = await storage.usedBytes();
+  if (usedBefore + incomingBytes > allowedBytes) return { refusal: refusalAt(usedBefore), value: null };
+
+  try {
+    const value = await storage.serializeWrite(async () => {
+      const used = await storage.usedBytes();
+      if (used + incomingBytes > allowedBytes) throw new QuotaReachedError(refusalAt(used));
       return write();
     });
     return { refusal: null, value };

@@ -30,8 +30,9 @@ import { PLANS_QUERY_KEY, usePlansQuery, useRetirePlan } from "./PlansPage";
 const PRICE_PATTERN = /^\d+(\.\d{1,6})?$/;
 
 /** The quotas the console can edit. Mirrors `QuotaKind`; a key left out is unlimited. */
-const QUOTA_FIELDS: ReadonlyArray<{ readonly kind: QuotaKindDTO; readonly label: AppTranslationKey }> = [
+const QUOTA_FIELDS: ReadonlyArray<{ readonly kind: QuotaKindDTO; readonly label: AppTranslationKey; readonly hint?: AppTranslationKey; readonly zeroIsUnlimited?: boolean }> = [
   { kind: "sales_invoices_per_month", label: "platform.plans.editor.field.quotaSalesInvoices" },
+  { kind: "storage_mb", label: "platform.plans.editor.field.quotaStorageMb", hint: "platform.plans.editor.field.quotaStorageMbHint", zeroIsUnlimited: true },
 ];
 
 const PLANS_PATH = "/platform/plans";
@@ -390,10 +391,17 @@ export function PlanEditor() {
             <NumberField
               key={q.kind}
               label={t(q.label)}
+              {...(q.hint ? { hint: t(q.hint) } : {})}
               value={draft.quotas[q.kind] ?? 0}
               min={0}
               disabled={readOnly}
-              onChange={(v) => setDraft((d) => ({ ...d, quotas: { ...d.quotas, [q.kind]: v } }))}
+              onChange={(v) =>
+                setDraft((d) => {
+                  const quotas = { ...d.quotas, [q.kind]: v };
+                  if (q.zeroIsUnlimited && v === 0) delete quotas[q.kind];
+                  return { ...d, quotas };
+                })
+              }
             />
           ))}
         </SectionCard>

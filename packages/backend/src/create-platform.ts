@@ -54,23 +54,26 @@ export const PLATFORM_SEED_PLANS: readonly SeedPlan[] = [
   {
     id: "PLAN-FREE", code: "free", nameAr: "المجانية", nameEn: "Free", kind: PlanKind.Free, modules: FREE_MODULES,
     seatsIncluded: 2, branchesIncluded: 1, warehousesIncluded: 1,
-    quotas: { [QuotaKind.SalesInvoicesPerMonth]: 100 },
+    quotas: { [QuotaKind.SalesInvoicesPerMonth]: 100, [QuotaKind.StorageMb]: 200 },
     priceMonthly: Money.fromMajor("0"), priceYearly: Money.fromMajor("0"), trialDays: 0, isPublic: true, sortOrder: 0,
   },
   {
     id: "PLAN-CORE", code: "core", nameAr: "الأساسية", nameEn: "Core", modules: CORE_MODULES,
     seatsIncluded: 3, branchesIncluded: 1, warehousesIncluded: 1,
+    quotas: { [QuotaKind.StorageMb]: 2048 },
     priceMonthly: Money.fromMajor("490"), priceYearly: Money.fromMajor("4900"), trialDays: 14, isPublic: true, sortOrder: 1,
   },
   {
     id: "PLAN-BUSINESS", code: "business", nameAr: "الأعمال", nameEn: "Business", modules: BUSINESS_MODULES,
     seatsIncluded: 10, branchesIncluded: 3, warehousesIncluded: 3,
+    quotas: { [QuotaKind.StorageMb]: 10240 },
     priceMonthly: Money.fromMajor("980"), priceYearly: Money.fromMajor("9800"), trialDays: 14, isPublic: true, sortOrder: 2,
   },
   {
     id: "PLAN-ENTERPRISE", code: "enterprise", nameAr: "المؤسسات", nameEn: "Enterprise", modules: MODULE_CATALOG.filter((id) => id !== "pos"),
     seatsIncluded: 25, branchesIncluded: 10, warehousesIncluded: 10,
     features: { [SEPARATE_ATTACHMENT_PERMISSIONS_FEATURE]: true },
+    quotas: { [QuotaKind.StorageMb]: 51200 },
     priceMonthly: Money.fromMajor("1960"), priceYearly: Money.fromMajor("19600"), trialDays: 14, isPublic: true, sortOrder: 3,
   },
 ];

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Button, Card, ConfirmDialog, StatusPill } from "@mezan/ui";
-import { MAX_EXTRA_CAPACITY, MAX_GRACE_DAYS, SubscriptionStatusCode, type PlanDTO, type TenantSummaryDTO } from "@mezan/contracts";
+import { MAX_EXTRA_CAPACITY, MAX_EXTRA_STORAGE_MB, MAX_GRACE_DAYS, SubscriptionStatusCode, type PlanDTO, type TenantSummaryDTO } from "@mezan/contracts";
+import { formatStorageMb } from "@mezan/domain";
 import { useAppTranslation } from "../i18n";
 import { MultiChipField, NumberField } from "../settings/form-controls";
 import { PlatformApiError } from "./api";
@@ -15,6 +16,7 @@ interface Draft {
   extraSeats: number;
   extraBranches: number;
   extraWarehouses: number;
+  extraStorageMb: number;
   graceDays: number;
 }
 
@@ -24,6 +26,7 @@ function draftOf(s: Subscription): Draft {
     extraSeats: s.extraSeats,
     extraBranches: s.extraBranches,
     extraWarehouses: s.extraWarehouses,
+    extraStorageMb: s.extraStorageMb ?? 0,
     graceDays: s.graceDays,
   };
 }
@@ -35,6 +38,7 @@ function sameDraft(a: Draft, b: Draft): boolean {
     a.extraSeats === b.extraSeats &&
     a.extraBranches === b.extraBranches &&
     a.extraWarehouses === b.extraWarehouses &&
+    a.extraStorageMb === b.extraStorageMb &&
     a.graceDays === b.graceDays &&
     a.addOnModules.length === b.addOnModules.length &&
     a.addOnModules.every((m) => b.addOnModules.includes(m))
@@ -75,6 +79,7 @@ export function TenantExtrasCard({
     isCount(draft.extraSeats, MAX_EXTRA_CAPACITY) &&
     isCount(draft.extraBranches, MAX_EXTRA_CAPACITY) &&
     isCount(draft.extraWarehouses, MAX_EXTRA_CAPACITY) &&
+    isCount(draft.extraStorageMb, MAX_EXTRA_STORAGE_MB) &&
     isCount(draft.graceDays, MAX_GRACE_DAYS);
   const changed = !sameDraft(draft, stored);
   const saveError = save.error instanceof PlatformApiError ? save.error.message : save.error ? t("platform.error.network") : null;
@@ -138,6 +143,19 @@ export function TenantExtrasCard({
             onChange={(v) => setDraft((d) => ({ ...d, extraWarehouses: v }))}
           />
           <NumberField
+            label={t("platform.tenantDetail.extras.extraStorageMb")}
+            hint={
+              plan.quotas.storage_mb === undefined
+                ? t("platform.tenantDetail.extras.storageUnlimited")
+                : t("platform.tenantDetail.extras.planHasStorage", { size: formatStorageMb(plan.quotas.storage_mb) })
+            }
+            value={draft.extraStorageMb}
+            min={0}
+            max={MAX_EXTRA_STORAGE_MB}
+            disabled={!editable}
+            onChange={(v) => setDraft((d) => ({ ...d, extraStorageMb: v }))}
+          />
+          <NumberField
             label={t("platform.tenantDetail.graceDays")}
             value={draft.graceDays}
             min={0}
@@ -157,7 +175,7 @@ export function TenantExtrasCard({
               }}>
               {t("common.cancel")}
             </Button>
-            {!valid ? <span role="alert" className="text-[12px] font-semibold text-danger-ink">{t("platform.tenantDetail.extras.invalid", { maxCapacity: MAX_EXTRA_CAPACITY, maxGrace: MAX_GRACE_DAYS })}</span> : null}
+            {!valid ? <span role="alert" className="text-[12px] font-semibold text-danger-ink">{t("platform.tenantDetail.extras.invalid", { maxCapacity: MAX_EXTRA_CAPACITY, maxGrace: MAX_GRACE_DAYS, maxStorage: MAX_EXTRA_STORAGE_MB })}</span> : null}
             {valid && saveError ? <span role="alert" className="text-[12px] font-semibold text-danger-ink">{saveError}</span> : null}
           </div>
         ) : null}

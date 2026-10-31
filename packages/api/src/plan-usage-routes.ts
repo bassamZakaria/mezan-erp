@@ -1,14 +1,15 @@
 import { Hono } from "hono";
-import { LimitKind, QuotaKind, type BranchRepository, type UserRepository, type WarehouseRepository } from "@mezan/domain";
+import { LimitKind, QuotaKind, usedStorageMb, type BranchRepository, type UserRepository, type WarehouseRepository } from "@mezan/domain";
 import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
 import { tenantToday } from "./tenant-day.js";
-import { tenantMonth, type QuotaEnforcement } from "./plan-quota.js";
+import { tenantMonth, type QuotaEnforcement, type StorageEnforcement } from "./plan-quota.js";
 
 export interface PlanUsageRoutesDeps {
   readonly quota?: QuotaEnforcement;
   readonly users?: Pick<UserRepository, "list">;
   readonly branches?: Pick<BranchRepository, "findAll">;
   readonly warehouses?: Pick<WarehouseRepository, "findAll">;
+  readonly storage?: Pick<StorageEnforcement, "usedBytes">;
   readonly today?: () => string;
 }
 
@@ -37,6 +38,7 @@ export function createPlanUsageRoutes(deps: PlanUsageRoutesDeps, resolveAuthCont
 
     const quotas: { kind: QuotaKind; allowed: number; used: number }[] = [];
     for (const kind of Object.values(QuotaKind)) {
+      if (kind === QuotaKind.StorageMb) continue;
       const allowed = entitlements?.quotas?.[kind];
       if (typeof allowed !== "number") continue;
       quotas.push({ kind, allowed, used: (await deps.quota?.countInMonth(kind, month)) ?? 0 });
@@ -57,6 +59,10 @@ export function createPlanUsageRoutes(deps: PlanUsageRoutesDeps, resolveAuthCont
           allowed: entitlements.limits.warehouses,
           used: (await deps.warehouses?.findAll())?.length ?? 0,
         });
+      }
+      const storageMb = entitlements.quotas?.[QuotaKind.StorageMb];
+      if (typeof storageMb === "number") {
+        limits.push({ limit: LimitKind.StorageMb, allowed: storageMb, used: usedStorageMb((await deps.storage?.usedBytes()) ?? 0) });
       }
     }
 

@@ -283,6 +283,11 @@ export const provisionResultSchema = z.object({
 /** Mirrors `MAX_EXTRA_CAPACITY` / `MAX_GRACE_DAYS` in `packages/domain/src/platform/subscription.ts`; `@mezan/contracts` may not import `@mezan/domain`. */
 export const MAX_EXTRA_CAPACITY = 10_000;
 export const MAX_GRACE_DAYS = 365;
+/** Mirrors `MAX_EXTRA_STORAGE_MB` in the domain subscription. */
+export const MAX_EXTRA_STORAGE_MB = 1_048_576;
+/** Mirrors `StorageRequestStepMb` in the domain: 1, 5 and 10 GB. */
+export const STORAGE_REQUEST_STEPS_MB = [1024, 5120, 10240] as const;
+export const MAX_STORAGE_REQUEST_NOTE = 500;
 
 export const startSubscriptionRequestSchema = z.object({
   planId: z.string().min(1),
@@ -356,6 +361,7 @@ export const subscriptionSchema = z.object({
   extraSeats: z.number().int().nonnegative(),
   extraBranches: z.number().int().nonnegative(),
   extraWarehouses: z.number().int().nonnegative(),
+  extraStorageMb: z.number().int().nonnegative().optional(),
   currentPeriodStart: isoLikeSchema,
   currentPeriodEnd: isoLikeSchema,
   billingAnchorDay: billingAnchorDaySchema,
@@ -374,13 +380,43 @@ export const setSubscriptionExtrasRequestSchema = z.object({
   extraSeats: z.number().int().nonnegative().max(MAX_EXTRA_CAPACITY),
   extraBranches: z.number().int().nonnegative().max(MAX_EXTRA_CAPACITY),
   extraWarehouses: z.number().int().nonnegative().max(MAX_EXTRA_CAPACITY),
+  extraStorageMb: z.number().int().nonnegative().max(MAX_EXTRA_STORAGE_MB).optional(),
   graceDays: z.number().int().nonnegative().max(MAX_GRACE_DAYS),
+});
+
+/** Mirrors the domain's `StorageRequestStatus`. */
+export enum StorageRequestStatusCode {
+  Pending = "pending",
+  Approved = "approved",
+  Declined = "declined",
+}
+
+export const storageRequestSchema = z.object({
+  id: z.string().min(1),
+  tenantId: z.string().min(1),
+  extraMb: z.number().int().positive(),
+  note: z.string().nullable(),
+  status: z.nativeEnum(StorageRequestStatusCode),
+  requestedBy: z.string().min(1),
+  requestedAt: isoLikeSchema,
+  decidedBy: z.string().nullable(),
+  decidedAt: isoLikeSchema.nullable(),
+});
+
+export const createStorageRequestSchema = z.object({
+  extraMb: z.union([z.literal(STORAGE_REQUEST_STEPS_MB[0]), z.literal(STORAGE_REQUEST_STEPS_MB[1]), z.literal(STORAGE_REQUEST_STEPS_MB[2])]),
+  note: z.string().trim().max(MAX_STORAGE_REQUEST_NOTE).optional(),
+});
+
+export const pendingStorageRequestSchema = storageRequestSchema.extend({
+  tenantCode: z.string(),
+  tenantNameAr: z.string(),
 });
 
 /** Mirrors the domain's `PlanKind`; `@mezan/contracts` may not import `@mezan/domain`. */
 export const planKindSchema = z.enum(["paid", "free"]);
 /** Mirrors the domain's `QuotaKind`. An absent key is unlimited. */
-export const quotaKindSchema = z.enum(["sales_invoices_per_month"]);
+export const quotaKindSchema = z.enum(["sales_invoices_per_month", "storage_mb"]);
 export const planQuotasSchema = z.record(quotaKindSchema, z.number().int().nonnegative());
 
 export const planStatusSchema = z.enum(["active", "retired"]);
@@ -581,7 +617,7 @@ export const billingQuotaSchema = z.object({
 });
 
 export const billingLimitSchema = z.object({
-  limit: z.enum(["seats", "branches", "warehouses"]),
+  limit: z.enum(["seats", "branches", "warehouses", "storage_mb"]),
   allowed: z.number().int().nonnegative(),
   used: z.number().int().nonnegative(),
 });
@@ -627,6 +663,8 @@ export const tenantBillingSchema = z.object({
   modules: z.array(billingModuleSchema),
   plans: z.array(billingPlanOfferSchema),
   checkouts: z.array(cardCheckoutSchema),
+  /** The tenant's latest storage request, so the screen can show one still under review. */
+  storageRequest: storageRequestSchema.nullable(),
 });
 
 export const startModuleTrialRequestSchema = z.object({ module: z.string().min(1) });
@@ -687,6 +725,9 @@ export type BillingModuleDTO = z.infer<typeof billingModuleSchema>;
 export type BillingQuotaDTO = z.infer<typeof billingQuotaSchema>;
 export type BillingLimitDTO = z.infer<typeof billingLimitSchema>;
 export type BillingPlanOfferDTO = z.infer<typeof billingPlanOfferSchema>;
+export type StorageRequestDTO = z.infer<typeof storageRequestSchema>;
+export type CreateStorageRequestDTO = z.infer<typeof createStorageRequestSchema>;
+export type PendingStorageRequestDTO = z.infer<typeof pendingStorageRequestSchema>;
 export type StartModuleTrialRequestDTO = z.infer<typeof startModuleTrialRequestSchema>;
 export type PlatformCardCheckoutsDTO = z.infer<typeof platformCardCheckoutsSchema>;
 export type CardCheckoutSweepResultDTO = z.infer<typeof cardCheckoutSweepResultSchema>;

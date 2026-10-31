@@ -17,6 +17,7 @@ export enum PlanKind {
 
 export enum QuotaKind {
   SalesInvoicesPerMonth = "sales_invoices_per_month",
+  StorageMb = "storage_mb",
 }
 
 export const QUOTA_KINDS: readonly QuotaKind[] = Object.values(QuotaKind);

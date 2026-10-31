@@ -15,6 +15,11 @@ import {
   PlanStatusCode,
   recordSecurityEvent,
   startModuleTrial,
+  requestStorage,
+  QuotaKind,
+  StorageRequestRefusal,
+  StorageRequestRefusedError,
+  InvalidSubscriptionError,
   SubscriptionNotFoundError,
   SubscriptionTransition,
   TenantNotFoundError,
@@ -29,6 +34,7 @@ import {
 } from "@mezan/domain";
 import {
   createCardCheckoutRequestSchema,
+  createStorageRequestSchema,
   startModuleTrialRequestSchema,
   subscriptionStatusOf,
   type BillingLimitDTO,
@@ -37,7 +43,7 @@ import {
   type TenantBillingDTO,
 } from "@mezan/contracts";
 import { BodyLimitRefusal, DEVICE_SECRET_HEADER, connectionTurn, readSessionToken, type SessionGrant } from "@mezan/api";
-import { resolveTenantPlan, serializeCardCheckoutForTenant, type PlatformHandle } from "@mezan/backend";
+import { resolveTenantPlan, serializeCardCheckoutForTenant, serializeStorageRequest, type PlatformHandle } from "@mezan/backend";
 import { SettlementStatus, type CardCheckoutService } from "./card-checkout.js";
 import type { PaymobTestProvider } from "./paymob-provider.js";
 import { PaymobMode, type CloudEnv } from "./env.js";
@@ -257,6 +263,7 @@ export function createTenantBillingRoutes(options: TenantBillingRoutesOptions): 
     const intendedPlan =
       subscription?.intendedPlanId && subscription.intendedPlanId !== plan?.id ? (plans.find((p) => p.id === subscription.intendedPlanId) ?? null) : null;
     const checkouts: CardCheckout[] = service ? (await service.listByTenant(caller.tenant.id)).slice(0, 10) : [];
+    const [latestStorageRequest] = await platform.stores.storageRequests.listByTenant(caller.tenant.id);
 
     const body: TenantBillingDTO = {
       cardCheckout: service !== null,
@@ -294,6 +301,7 @@ export function createTenantBillingRoutes(options: TenantBillingRoutesOptions): 
           trialDays: p.trialDays, current: p.id === plan?.id, suggested: p.id === intendedPlan?.id,
         })),
       checkouts: checkouts.map(serializeCardCheckoutForTenant),
+      storageRequest: latestStorageRequest ? serializeStorageRequest(latestStorageRequest) : null,
     };
     return c.json(body);
   });
@@ -349,6 +357,56 @@ export function createTenantBillingRoutes(options: TenantBillingRoutesOptions): 
       if (err instanceof ModuleTrialUnavailableError) {
         return c.json({ error: err.code, module: err.module, message: err.message, messageEn: err.messageEn }, 409);
       }
+      throw err;
+    }
+  });
+
+  /**
+   * «طلب مساحة إضافية» — the tenant asks; the platform owner approves in the
+   * console. One open request per tenant, held by a unique index. A plan with
+   * no storage limit has nothing to add to, so it is refused.
+   */
+  app.post("/storage-requests", async (c) => {
+    const caller = await resolveCaller(c);
+    if (caller instanceof Response) return caller;
+    if (!allowed(caller.grant, "admin.settings.edit")) return forbidden(c);
+    const parsed = createStorageRequestSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    const nowIso = now().toISOString();
+    const view = await resolveTenantPlan(platform, caller.tenant.id, nowIso);
+    if (!view.plan || !view.subscription) return c.json({ error: "SUBSCRIPTION_NOT_FOUND", message: "لا يوجد اشتراك فعّال لهذه المنشأة" }, 404);
+    if (view.plan.quotas[QuotaKind.StorageMb] === undefined) {
+      return c.json(
+        { error: StorageRequestRefusal.NoStorageLimit, message: "باقتكم بلا حد لمساحة المرفقات، فلا حاجة لطلب مساحة إضافية.", messageEn: "Your plan has no attachment storage limit, so there is nothing to request." },
+        409,
+      );
+    }
+    try {
+      const request = await requestStorage(
+        {
+          id: randomUUID(),
+          tenantId: caller.tenant.id,
+          extraMb: parsed.data.extraMb,
+          note: parsed.data.note ?? null,
+          requestedBy: `tenant:${caller.tenant.code}:${caller.grant.userId}`,
+          now: nowIso,
+        },
+        platform.stores.storageRequests,
+      );
+      await recordSecurityEvent(platform.audit, {
+        module: "platform",
+        entityType: "STORAGE_REQUEST",
+        entityId: request.id,
+        action: SubscriptionTransition.StorageRequested,
+        actor: request.requestedBy,
+        severity: "INFO",
+        timestamp: nowIso,
+        details: { tenantId: caller.tenant.id, extraMb: request.extraMb },
+      });
+      return c.json(serializeStorageRequest(request), 201);
+    } catch (err) {
+      if (err instanceof StorageRequestRefusedError) return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
+      if (err instanceof InvalidSubscriptionError) return c.json({ error: "VALIDATION_ERROR", message: err.message }, 400);
       throw err;
     }
   });

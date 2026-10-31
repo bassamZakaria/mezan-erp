@@ -1,6 +1,6 @@
 import type Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput, type SqliteOpenOptions } from "./sqlite-connection.js";
-import { placeholders, TransactionMode, type SqlDb, type SqlValue } from "./sql/sql-db.js";
+import { placeholders, SqlDialect, TransactionMode, type SqlDb, type SqlValue } from "./sql/sql-db.js";
 import { sqliteDb } from "./sql/sqlite-db.js";
 import {
   InvalidTenantError,
@@ -13,6 +13,7 @@ import {
   type Payment, type PaymentRepository,
   type Plan, type PlanRepository, type PlanQuotas, PlanKind,
   type ModuleTrial, type ModuleTrialRepository,
+  type StorageRequest, type StorageRequestRepository, StorageRequestStatus,
   type SubscriptionTransitionRepository,
   type PlatformUser, type PlatformUserRepository,
   type SignupRequest, type SignupRequestRepository, SignupRequestStatus, SignupDecision, VERIFIED_LINK_VALID_MS,
@@ -82,6 +83,7 @@ CREATE TABLE IF NOT EXISTS subscription (
   extra_seats           INTEGER NOT NULL,
   extra_branches        INTEGER NOT NULL,
   extra_warehouses      INTEGER NOT NULL,
+  extra_storage_mb      INTEGER NOT NULL DEFAULT 0,
   current_period_start  TEXT NOT NULL,
   current_period_end    TEXT NOT NULL,
   trial_ends_at         TEXT,
@@ -216,6 +218,22 @@ CREATE TABLE IF NOT EXISTS module_trial (
 -- Once per module per tenant is enforced HERE, not by a prior read: two
 -- simultaneous "try this module" clicks must not both open a trial.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_module_trial_once ON module_trial(tenant_id, module);
+
+CREATE TABLE IF NOT EXISTS storage_request (
+  id            TEXT PRIMARY KEY,
+  tenant_id     TEXT NOT NULL,
+  extra_mb      INTEGER NOT NULL,
+  note          TEXT,
+  status        TEXT NOT NULL,
+  requested_by  TEXT NOT NULL,
+  requested_at  TEXT NOT NULL,
+  decided_by    TEXT,
+  decided_at    TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_storage_request_tenant ON storage_request(tenant_id, requested_at);
+-- One open request per tenant is enforced HERE, so two clicks cannot both file one.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_storage_request_one_pending
+  ON storage_request(tenant_id) WHERE status = 'pending';
 `;
 
 /** Columns added after the first release; an existing platform database is migrated in place. */
@@ -245,6 +263,7 @@ function addMissingColumns(sqlite: Database.Database): void {
   );
   if (!onSubscription.has("previous_plan_id")) sqlite.exec(`ALTER TABLE subscription ADD COLUMN previous_plan_id TEXT`);
   if (!onSubscription.has("intended_plan_id")) sqlite.exec(`ALTER TABLE subscription ADD COLUMN intended_plan_id TEXT`);
+  if (!onSubscription.has("extra_storage_mb")) sqlite.exec(`ALTER TABLE subscription ADD COLUMN extra_storage_mb INTEGER NOT NULL DEFAULT 0`);
   const onSignup = new Set((sqlite.prepare(`PRAGMA table_info(signup_request)`).all() as { name: string }[]).map((c) => c.name));
   if (!onSignup.has("intended_plan_id")) sqlite.exec(`ALTER TABLE signup_request ADD COLUMN intended_plan_id TEXT`);
   sqlite.transaction(() => {
@@ -544,7 +563,7 @@ class SqlPlanStore implements PlanRepository {
 interface SubscriptionRow {
   id: string; tenant_id: string; plan_id: string; status: Subscription["status"];
   billing_cycle: Subscription["billingCycle"]; add_on_modules: string;
-  extra_seats: bigint; extra_branches: bigint; extra_warehouses: bigint;
+  extra_seats: bigint; extra_branches: bigint; extra_warehouses: bigint; extra_storage_mb?: bigint;
   current_period_start: string; current_period_end: string; trial_ends_at: string | null;
   previous_plan_id: string | null;
   intended_plan_id?: string | null;
@@ -558,6 +577,7 @@ function toSubscription(r: SubscriptionRow): Subscription {
     id: r.id, tenantId: r.tenant_id, planId: r.plan_id, status: r.status, billingCycle: r.billing_cycle,
     addOnModules: JSON.parse(r.add_on_modules) as string[],
     extraSeats: Number(r.extra_seats), extraBranches: Number(r.extra_branches), extraWarehouses: Number(r.extra_warehouses),
+    ...(Number(r.extra_storage_mb ?? 0) > 0 ? { extraStorageMb: Number(r.extra_storage_mb) } : {}),
     currentPeriodStart: r.current_period_start, currentPeriodEnd: r.current_period_end,
     trialEndsAt: r.trial_ends_at, previousPlanId: r.previous_plan_id, graceDays: Number(r.grace_days), cancelledAt: r.cancelled_at,
     ...(r.intended_plan_id ? { intendedPlanId: r.intended_plan_id } : {}),
@@ -719,8 +739,8 @@ class SqlSubscriptionStore implements SubscriptionTransitionRepository {
     await this.db.run(
       `INSERT INTO subscription (id, tenant_id, plan_id, status, billing_cycle, add_on_modules, extra_seats,
          extra_branches, extra_warehouses, current_period_start, current_period_end, trial_ends_at, previous_plan_id,
-         billing_anchor_day, billing_anchor_review, grace_days, cancelled_at, created_at, updated_at, intended_plan_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         billing_anchor_day, billing_anchor_review, grace_days, cancelled_at, created_at, updated_at, intended_plan_id, extra_storage_mb)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          tenant_id = excluded.tenant_id, plan_id = excluded.plan_id, status = excluded.status, billing_cycle = excluded.billing_cycle,
          add_on_modules = excluded.add_on_modules, extra_seats = excluded.extra_seats, extra_branches = excluded.extra_branches,
@@ -728,12 +748,13 @@ class SqlSubscriptionStore implements SubscriptionTransitionRepository {
          current_period_end = excluded.current_period_end, trial_ends_at = excluded.trial_ends_at, previous_plan_id = excluded.previous_plan_id,
          billing_anchor_day = excluded.billing_anchor_day, billing_anchor_review = excluded.billing_anchor_review, grace_days = excluded.grace_days,
          cancelled_at = excluded.cancelled_at, created_at = excluded.created_at, updated_at = excluded.updated_at,
-         intended_plan_id = COALESCE(excluded.intended_plan_id, subscription.intended_plan_id)`,
+         intended_plan_id = COALESCE(excluded.intended_plan_id, subscription.intended_plan_id),
+         extra_storage_mb = excluded.extra_storage_mb`,
       [
         s.id, s.tenantId, s.planId, s.status, s.billingCycle, JSON.stringify(s.addOnModules), s.extraSeats,
         s.extraBranches, s.extraWarehouses, s.currentPeriodStart, s.currentPeriodEnd, s.trialEndsAt, s.previousPlanId,
         s.billingAnchorDay ?? null, s.billingAnchorNeedsReview === true ? 1 : 0, s.graceDays, s.cancelledAt,
-        s.createdAt, s.updatedAt, s.intendedPlanId ?? null,
+        s.createdAt, s.updatedAt, s.intendedPlanId ?? null, s.extraStorageMb ?? 0,
       ],
     );
   }
@@ -765,6 +786,60 @@ class SqlModuleTrialStore implements ModuleTrialRepository {
       [trial.id, trial.tenantId, trial.module, trial.startedAt, trial.endsAt, trial.startedBy],
     );
     return result.changes === 1;
+  }
+}
+
+interface StorageRequestRow {
+  id: string; tenant_id: string; extra_mb: bigint; note: string | null; status: string;
+  requested_by: string; requested_at: string; decided_by: string | null; decided_at: string | null;
+}
+
+const STORAGE_REQUEST_STATUSES: readonly string[] = Object.values(StorageRequestStatus);
+
+function toStorageRequest(r: StorageRequestRow): StorageRequest {
+  assertKnownStatus("storage request", r.status, STORAGE_REQUEST_STATUSES);
+  return {
+    id: r.id, tenantId: r.tenant_id, extraMb: Number(r.extra_mb), note: r.note, status: r.status as StorageRequestStatus,
+    requestedBy: r.requested_by, requestedAt: r.requested_at, decidedBy: r.decided_by, decidedAt: r.decided_at,
+  };
+}
+
+class SqlStorageRequestStore implements StorageRequestRepository {
+  constructor(private readonly db: SqlDb) {}
+
+  async findById(id: string): Promise<StorageRequest | null> {
+    const row = await this.db.get<StorageRequestRow>(`SELECT * FROM storage_request WHERE id = ?`, [id]);
+    return row ? toStorageRequest(row) : null;
+  }
+
+  async listByTenant(tenantId: string): Promise<StorageRequest[]> {
+    return (await this.db.all<StorageRequestRow>(`SELECT * FROM storage_request WHERE tenant_id = ? ORDER BY requested_at DESC, id`, [tenantId])).map(toStorageRequest);
+  }
+
+  async listPending(): Promise<StorageRequest[]> {
+    return (await this.db.all<StorageRequestRow>(`SELECT * FROM storage_request WHERE status = ? ORDER BY requested_at, id`, [StorageRequestStatus.Pending])).map(toStorageRequest);
+  }
+
+  async insertIfNonePending(r: StorageRequest): Promise<boolean> {
+    const result = await this.db.run(
+      `INSERT INTO storage_request (id, tenant_id, extra_mb, note, status, requested_by, requested_at, decided_by, decided_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT DO NOTHING`,
+      [r.id, r.tenantId, r.extraMb, r.note, r.status, r.requestedBy, r.requestedAt, r.decidedBy, r.decidedAt],
+    );
+    return result.changes === 1;
+  }
+
+  async decide(before: StorageRequest, after: StorageRequest, sideEffect: () => Promise<void>): Promise<boolean> {
+    return this.db.transaction(async () => {
+      const result = await this.db.run(
+        `UPDATE storage_request SET status = ?, decided_by = ?, decided_at = ? WHERE id = ? AND status = ?`,
+        [after.status, after.decidedBy, after.decidedAt, before.id, StorageRequestStatus.Pending],
+      );
+      if (result.changes !== 1) return false;
+      await sideEffect();
+      return true;
+    }, TransactionMode.Immediate);
   }
 }
 
@@ -1198,6 +1273,7 @@ export interface PlatformStoresHandle {
   readonly cardCheckouts: CardCheckoutRepository;
   readonly signupRequests: SignupRequestRepository;
   readonly moduleTrials: ModuleTrialRepository;
+  readonly storageRequests: StorageRequestRepository;
   readonly settings: PlatformSettingRepository;
 }
 
@@ -1226,10 +1302,11 @@ function ensurePaymentIndexes(sqlite: Database.Database): void {
   sqlite.exec(PAYMENT_INDEXES);
 }
 
-// A Postgres platform schema is always created at the current shape, so none
-// of the SQLite upgrade passes below apply to it.
+// A Postgres platform schema is created at the current shape; a column added
+// after the Postgres cut-over is added here, because the table already exists.
 export async function ensurePlatformSchema(db: SqlDb): Promise<void> {
   await db.applySchema(CREATE_TABLES);
+  if (db.dialect === SqlDialect.Postgres) await db.exec(`ALTER TABLE subscription ADD COLUMN IF NOT EXISTS extra_storage_mb INTEGER NOT NULL DEFAULT 0`);
   await db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS ${TENANT_DB_FILE_INDEX} ON tenant(db_file)`);
   await db.exec(PAYMENT_INDEXES);
 }
@@ -1244,6 +1321,7 @@ export function createPlatformStores(db: SqlDb): PlatformStoresHandle {
     cardCheckouts: new SqlCardCheckoutStore(db),
     signupRequests: new SqlSignupRequestStore(db),
     moduleTrials: new SqlModuleTrialStore(db),
+    storageRequests: new SqlStorageRequestStore(db),
     settings: new SqlPlatformSettingStore(db),
   };
 }

@@ -165,6 +165,7 @@ import { createVouchersRoutes, createAllocationRoutes, type VoucherRoutesDeps } 
 import { createSalesInvoicesRoutes, type SalesInvoiceRoutesDeps } from "./sales-invoices-routes.js";
 import { buildSalesInvoiceService } from "./sales-invoice-service.js";
 import { createSalesInvoiceQuota } from "./plan-quota-wiring.js";
+import type { StorageEnforcement } from "./plan-quota.js";
 import { createPlanUsageRoutes } from "./plan-usage-routes.js";
 import { planLocationsBinding } from "./plan-locations.js";
 import { createSalesReturnsRoutes } from "./sales-returns-routes.js";
@@ -894,6 +895,7 @@ export interface CreateAppOptions {
     readonly repo: AttachmentRepository;
     readonly resolveAuthContext?: AuthContextResolver;
     readonly entityBranches?: AttachmentEntityBranches;
+    readonly storage?: StorageEnforcement;
   };
   /**
    * The license state every mutating request is gated against, and that
@@ -1026,6 +1028,10 @@ function attachmentEntityBranches(options: CreateAppOptions): AttachmentEntityBr
 const appLog = createLogger("api");
 
 export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
+  const attachmentStorage = (repo: AttachmentRepository): StorageEnforcement => ({
+    usedBytes: () => repo.totalBytes(),
+    serializeWrite: (fn) => uow.transaction(fn),
+  });
   /**
    * One resolver for every route on this app.
    *
@@ -1867,6 +1873,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
         users: uow.users,
         branches: options.branchStore,
         warehouses: options.warehouseStore,
+        storage: options.attachments ? (options.attachments.storage ?? attachmentStorage(options.attachments.repo)) : undefined,
       },
       resolveAuth,
     ),
@@ -1974,7 +1981,11 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     app.route(
       "/attachments",
       createAttachmentsRoutes(
-        { ...options.attachments, entityBranches: options.attachments.entityBranches ?? attachmentEntityBranches(options) },
+        {
+          ...options.attachments,
+          entityBranches: options.attachments.entityBranches ?? attachmentEntityBranches(options),
+          storage: options.attachments.storage ?? attachmentStorage(options.attachments.repo),
+        },
         (options.attachments.resolveAuthContext ?? resolveAuth) ?? resolveAuth,
       ),
     );

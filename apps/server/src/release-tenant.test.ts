@@ -9,10 +9,7 @@ import {
   archiveTenant,
   createTenant,
   InvalidTenantTransitionError,
-  SignupRequestStatus,
-  startSignup,
   TenantStatusCode,
-  verifySignup,
   type Tenant,
 } from "@mezan/domain";
 import { releaseProvisioningTenant } from "./release-tenant.js";
@@ -132,7 +129,7 @@ describe("releasing a tenant stuck in provisioning", () => {
     expect((await platform.audit.query("security")).filter((row) => row.action === "TENANT_RELEASED")).toEqual([]);
   });
 
-  it("supersedes a provisioner parked before its password write: it starts no subscription and no database is created or moved", async () => {
+  it("stops a console provisioner parked before its password write: it starts no subscription and no database is created or moved", async () => {
     const { dataDir, platform } = await world();
     const parked = gate();
     let park = true;
@@ -161,20 +158,9 @@ describe("releasing a tenant stuck in provisioning", () => {
       },
     });
     routers.push(router);
-    const claims = platform.stores.signupRequests;
-    await startSignup(
-      { id: "sr-1", code: "parked", nameAr: "شركة منتظرة", ownerEmail: "o@parked.example", ownerNameAr: "المالك", planId: "PLAN-CORE", billingCycle: "monthly", tokenHash: "hash-1", now: T, expiresInMs: 60_000 },
-      claims,
-      platform.stores.tenants,
-      platform.stores.plans,
-    );
-    const request = await verifySignup("hash-1", claims, T, platform.stores.tenants);
-    expect(await claims.tryClaimProvisioning("hash-1", "claim-1", T, "2026-10-12T09:58:00.000Z")).toBe(true);
-    const fence = await claims.provisioningFence("hash-1", "claim-1");
-
     const provisioning = provisionTenant(
-      { code: request.code, nameAr: request.nameAr, ownerEmail: request.ownerEmail, ownerNameAr: request.ownerNameAr, planId: request.planId, billingCycle: request.billingCycle, trial: true },
-      { platform, router, now, stillOurs: () => claims.renewProvisioning("hash-1", "claim-1", T), fence: fence ?? 0 },
+      { code: "parked", nameAr: "شركة منتظرة", ownerEmail: "o@parked.example", ownerNameAr: "المالك", planId: "PLAN-CORE", billingCycle: "monthly", trial: true },
+      { platform, router, now },
     ).then(
       () => "provisioned",
       (err: unknown) => (err as Error).name,
@@ -188,9 +174,7 @@ describe("releasing a tenant stuck in provisioning", () => {
     parked.open();
 
     expect(released.status).toBe(TenantStatusCode.Archived);
-    expect(await provisioning).toBe("ProvisioningSupersededError");
-    expect(await claims.provisioningClaimedAt("hash-1")).toBeNull();
-    expect((await claims.findByTokenHash("hash-1"))?.status).toBe(SignupRequestStatus.Released);
+    expect(await provisioning).not.toBe("provisioned");
     expect(await platform.stores.subscriptions.listByTenant(tenant.id)).toEqual([]);
     expect(await platform.stores.tenants.findById(tenant.id)).toMatchObject({ status: TenantStatusCode.Archived, code: `released-${tenant.id}` });
     expect(databasesIn(dataDir)).toEqual(before);

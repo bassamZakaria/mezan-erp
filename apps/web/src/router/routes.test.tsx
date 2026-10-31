@@ -15,9 +15,9 @@ function renderAt(path: string) {
 }
 
 describe("routes — doors loaded on demand", () => {
-  it("mounts the signup flow at /signup", async () => {
-    renderAt("/signup");
-    expect(await screen.findByRole("heading", { name: "أنشئ حساب ميزان" })).toBeInTheDocument();
+  it("mounts the owner hand-over screen at /signup/owner-handover", async () => {
+    renderAt("/signup/owner-handover?token=t");
+    expect(await screen.findByRole("heading", { name: "تأكيد نقل ملكية المنشأة" })).toBeInTheDocument();
   });
 
   it("mounts the unlock-link screen at /unlock", async () => {

@@ -582,7 +582,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
   for (const mount of ["/api/platform/*", "/api/billing/*", "/api/signup/*"]) root.use(mount, platformBody);
   root.route("/api/platform", platformApp);
   root.route("/api/billing", createTenantBillingRoutes({ platform, router, env, service: checkoutService, now, sourceReporter }));
-  root.route(SIGNUP_BASE_PATH, createSignupRoutes({ platform, router, env, now, sourceReporter, mailer }));
+  root.route(SIGNUP_BASE_PATH, createSignupRoutes({ platform, router, env, sourceReporter }));
   root.route("/api", router.app);
 
   if (checkoutService && testProvider) {

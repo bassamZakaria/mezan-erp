@@ -247,7 +247,7 @@ test.describe("PLT-SAAS-08 — resolving a tenant reveals nothing before sign-in
     await expect(page.getByRole("heading", { level: 1 })).toContainText("وليد");
   });
 
-  test("on a shared device, the cloud sign-in offers the signup page and never the first-run wizard, and a company just confirmed survives going there and back", async ({ page }) => {
+  test("on a shared device, the cloud sign-in offers neither signup nor the first-run wizard, and a company just confirmed survives a reload", async ({ page }) => {
     await tenantSignIn(page, tenant);
     await tenantSignOut(page);
     await page.getByRole("button", { name: "تغيير المنشأة" }).click();
@@ -259,12 +259,9 @@ test.describe("PLT-SAAS-08 — resolving a tenant reveals nothing before sign-in
     await expect(page.getByRole("textbox", { name: "رمز المنشأة" })).toHaveValue("");
 
     await enterTenantCode(page, tenant.code);
-    await expect(page.getByRole("link", { name: SIGNUP_LINK })).toBeVisible();
+    await expect(page.getByLabel(PASSWORD_LABEL, { exact: true })).toBeVisible();
+    await expect(page.getByRole("link", { name: SIGNUP_LINK })).toHaveCount(0);
     await expect(page.getByRole("button", { name: WIZARD_LINK })).toHaveCount(0);
-    await page.getByRole("link", { name: SIGNUP_LINK }).click();
-    await expect(page).toHaveURL(/\/signup$/);
-    await expect(page.getByRole("heading", { name: "أنشئ حساب ميزان" })).toBeVisible();
-    await page.goBack();
 
     await expect(page.getByLabel(PASSWORD_LABEL, { exact: true })).toBeVisible();
     await expect(page.getByText(`الرمز: ${tenant.code}`)).toBeVisible();

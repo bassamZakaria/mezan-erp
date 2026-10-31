@@ -70,20 +70,18 @@ test.describe("Login screen", () => {
 });
 
 test.describe("The way to a first account on the cloud", () => {
-  test("is the signup page, before and after a company code is entered, and never the first-run wizard", async ({ page }) => {
+  test("is neither a signup page nor the first-run wizard, before and after a company code is entered", async ({ page }) => {
     const wizardLink = page.getByRole("button", { name: "الإعداد الأولي" });
     const signupLink = page.getByRole("link", { name: "أنشئ حسابًا جديدًا" });
 
     await page.goto("/");
-    await expect(signupLink).toBeVisible();
+    await expect(page.getByRole("heading", { name: "تسجيل الدخول" })).toBeVisible();
+    await expect(signupLink).toHaveCount(0);
     await expect(wizardLink).toHaveCount(0);
 
     await selectDemoTenant(page);
     await expect(wizardLink).toHaveCount(0);
+    await expect(signupLink).toHaveCount(0);
     await expect(page.getByRole("heading", { name: "معالج الإعداد الأولي" })).toHaveCount(0);
-
-    await signupLink.click();
-    await expect(page).toHaveURL(/\/signup$/);
-    await expect(page.getByRole("heading", { name: "أنشئ حساب ميزان" })).toBeVisible();
   });
 });

@@ -9,14 +9,10 @@ export const landingAr = {
   "landing.nav.label": "أقسام الصفحة",
 
   "landing.hero.title": "حساباتك ومخزونك ومبيعاتك في برنامج واحد، بالعربية من أول يوم",
-  "landing.hero.lead": "جرّب ميزان {days} بكل المزايا، بلا بطاقة ائتمان. وبعدها تتابع على الباقة المجانية، ودفاترك تبقى معك.",
-  "landing.hero.leadPlain": "جرّب ميزان بكل المزايا، بلا بطاقة ائتمان. وبعدها تتابع على الباقة المجانية، ودفاترك تبقى معك.",
-  "landing.cta.start": "ابدأ التجربة المجانية",
-  "landing.cta.request": "اطلب حسابك",
+  "landing.hero.lead": "تواصل معنا ونفتح حساب منشأتك ونجهّزه لك. ودفاترك تبقى معك.",
+  "landing.cta.contact": "تواصل معنا",
   "landing.pricing.soldOut": "نفدت حاليًا",
   "landing.cta.pricing": "اطّلع على الأسعار",
-  "landing.hero.noCard": "بلا بطاقة ائتمان · تفعيل برابط على بريدك",
-  "landing.hero.leadRequest": "اطلب حسابًا لمنشأتك، فنراجع طلبك ونفعّله لك. ودفاترك تبقى معك.",
 
   "landing.ledger.caption": "فاتورة بيع تُسجَّل الآن",
   "landing.ledger.invoice": "فاتورة بيع رقم 1048",
@@ -78,7 +74,6 @@ export const landingAr = {
   "landing.desktop.point2": "أكثر من جهاز على الشبكة الداخلية",
   "landing.desktop.point3": "نسخ احتياطي مشفّر",
   "landing.desktop.cta": "تواصل معنا",
-  "landing.desktop.ctaSignup": "ابدأ بالنسخة السحابية",
   "landing.desktop.note": "نسعّر نسخة سطح المكتب حسب عدد الأجهزة والوحدات التي تحتاجها.",
 
   "landing.steps.title": "ابدأ في ثلاث خطوات",
@@ -103,7 +98,6 @@ export const landingAr = {
   "landing.pricing.invoices": "حتى {count} بيع شهريًا",
   "landing.pricing.everything": "كل ما في «{plan}»، ومعه:",
   "landing.pricing.includes": "يشمل:",
-  "landing.pricing.choose": "ابدأ بهذه الباقة",
   "landing.pricing.loading": "جارٍ تحميل الباقات…",
   "landing.pricing.failed": "تعذّر تحميل الأسعار الآن.",
   "landing.pricing.retry": "حاول مرة أخرى",
@@ -137,7 +131,7 @@ export const landingAr = {
   "landing.faq.pay.a": "تشترك من صفحة الاشتراك داخل حسابك. الاشتراك شهري أو سنوي حسب ما تختار، ولا يتجدد تلقائيًا.",
 
   "landing.final.title": "هل أنت مستعد للبدء؟",
-  "landing.final.body": "أنشئ حسابك الآن، وسجّل أول فاتورة اليوم.",
+  "landing.final.body": "تواصل معنا ونفتح حسابك، وسجّل أول فاتورة اليوم.",
 
   "landing.whatsapp": "تحدّث معنا على واتساب",
   "landing.footer.privacy": "سياسة الخصوصية",
@@ -157,14 +151,10 @@ export const landingEn: Record<keyof typeof landingAr, string> = {
   "landing.nav.label": "Page sections",
 
   "landing.hero.title": "Your accounts, stock and sales in one program, in Arabic from day one",
-  "landing.hero.lead": "Try Mezan for {days} with every feature, no credit card. Then continue on the free plan, and your books stay with you.",
-  "landing.hero.leadPlain": "Try Mezan with every feature, no credit card. Then continue on the free plan, and your books stay with you.",
-  "landing.cta.start": "Start your free trial",
-  "landing.cta.request": "Request your account",
+  "landing.hero.lead": "Contact us and we open and set up your business account for you. Your books stay with you.",
+  "landing.cta.contact": "Contact us",
   "landing.pricing.soldOut": "Sold out",
   "landing.cta.pricing": "See pricing",
-  "landing.hero.noCard": "No credit card · Activate from a link in your email",
-  "landing.hero.leadRequest": "Request an account for your business; we review it and activate it for you. Your books stay with you.",
 
   "landing.ledger.caption": "A sales invoice being recorded",
   "landing.ledger.invoice": "Sales invoice 1048",
@@ -226,7 +216,6 @@ export const landingEn: Record<keyof typeof landingAr, string> = {
   "landing.desktop.point2": "Several machines on the local network",
   "landing.desktop.point3": "Encrypted backups",
   "landing.desktop.cta": "Contact us",
-  "landing.desktop.ctaSignup": "Start with the cloud edition",
   "landing.desktop.note": "The desktop edition is priced by the number of machines and modules you need.",
 
   "landing.steps.title": "Get started in three steps",
@@ -251,7 +240,6 @@ export const landingEn: Record<keyof typeof landingAr, string> = {
   "landing.pricing.invoices": "Sales: up to {count} a month",
   "landing.pricing.everything": "Everything in “{plan}”, plus:",
   "landing.pricing.includes": "Includes:",
-  "landing.pricing.choose": "Start with this plan",
   "landing.pricing.loading": "Loading plans…",
   "landing.pricing.failed": "Prices could not be loaded right now.",
   "landing.pricing.retry": "Try again",
@@ -285,7 +273,7 @@ export const landingEn: Record<keyof typeof landingAr, string> = {
   "landing.faq.pay.a": "You subscribe from the subscription page inside your account. Subscriptions are monthly or yearly, as you choose, and do not renew automatically.",
 
   "landing.final.title": "Ready to start?",
-  "landing.final.body": "Create your account now and record your first invoice today.",
+  "landing.final.body": "Contact us to open your account, and record your first invoice today.",
 
   "landing.whatsapp": "Chat with us on WhatsApp",
   "landing.footer.privacy": "Privacy policy",

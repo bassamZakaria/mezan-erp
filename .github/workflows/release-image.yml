@@ -66,9 +66,9 @@ jobs:
     name: deploy · ${{ github.ref_name }}
     needs: image
     # Each environment holds its own DEPLOY_* secrets and admits only its own branch:
-    # contabo ← staging, contabo-production ← production.
+    # contabo ← production, contabo-staging ← staging.
     if: github.ref == 'refs/heads/staging' || github.ref == 'refs/heads/production'
-    environment: ${{ github.ref == 'refs/heads/production' && 'contabo-production' || 'contabo' }}
+    environment: ${{ github.ref == 'refs/heads/production' && 'contabo' || 'contabo-staging' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:

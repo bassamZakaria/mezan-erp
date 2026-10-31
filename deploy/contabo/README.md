@@ -139,7 +139,7 @@ install -o deploy -g deploy -m 700 -d /home/deploy/.ssh
 echo 'deploy ALL=(root) NOPASSWD: /usr/local/bin/mezan-ci-deploy' > /etc/sudoers.d/91-deploy && chmod 440 /etc/sudoers.d/91-deploy
 ```
 
-Each VPS has its own GitHub environment, which admits only its branch, so no other branch can reach its secrets (a manual run on that branch deploys like a push): `contabo` ← `staging`, `contabo-production` ← `production`. While an environment's `DEPLOY_HOST` is the placeholder `CHANGE_ME`, its deploy is skipped with a warning. Secrets of each environment: `DEPLOY_HOST` (the VPS address), `DEPLOY_SSH_KEY` (the private key), `DEPLOY_KNOWN_HOSTS` (`<address> ssh-ed25519 <host key>`, from `ssh-keyscan -t ed25519 <address>` checked against the key you saw on first login). To stop automatic deploys, delete `/home/deploy/.ssh/authorized_keys`; to deploy by hand, on the VPS:
+Each VPS has its own GitHub environment, which admits only its branch, so no other branch can reach its secrets (a manual run on that branch deploys like a push): `contabo` ← `production`, `contabo-staging` ← `staging`. While an environment's `DEPLOY_HOST` is the placeholder `CHANGE_ME`, its deploy is skipped with a warning. Secrets of each environment: `DEPLOY_HOST` (the VPS address), `DEPLOY_SSH_KEY` (the private key), `DEPLOY_KNOWN_HOSTS` (`<address> ssh-ed25519 <host key>`, from `ssh-keyscan -t ed25519 <address>` checked against the key you saw on first login). To stop automatic deploys, delete `/home/deploy/.ssh/authorized_keys`; to deploy by hand, on the VPS:
 
 ```
 sudo /opt/mezan/deploy.sh <sha>

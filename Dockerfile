@@ -53,8 +53,8 @@ ENV NODE_ENV=production
 ARG MEZAN_VERSION=dev
 ENV MEZAN_VERSION=$MEZAN_VERSION
 ENV MEZAN_PLATFORM_DIR=/data
-ENV PORT=8080
-EXPOSE 8080
+ENV PORT=9090
+EXPOSE 9090
 USER node
 # SECURITY / read-only root fs: started by node itself, with nothing to fetch
 # or compile at boot; deploy/contabo runs this container read_only.

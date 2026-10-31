@@ -19,6 +19,7 @@ import { landingAr } from "../landing/landing-strings";
  */
 export const webAr = {
   "i18n.englishUnavailable": "تعذّر تحميل الواجهة الإنجليزية، فبقيت بالعربية. أعد تحميل الصفحة ثم حاول مرة أخرى.",
+  "environment.staging": "بيئة تجريبية · STAGING",
   "license.loadFailed": "تعذّر تحميل حالة الترخيص.",
   "update.available": "تحديث متاح — الإصدار {version}",
   "update.download": "تنزيل التحديث",

@@ -1,0 +1,33 @@
+# For a server whose own Caddy already serves other apps on ports 80/443.
+# Copy to /opt/mezan/docker-compose.override.yml. Production has no override file.
+# See README "Server that already runs Caddy".
+
+services:
+  caddy:
+    # Never started: the server's existing Caddy owns ports 80/443.
+    profiles: ["own-caddy"]
+
+  mezan:
+    networks:
+      - edge
+      - db
+      - mezan-proxy
+    # Only when the existing Caddy is installed on the host (not in Docker), and only on
+    # Docker 28 or newer: drop `mezan-proxy` from both lists and publish on loopback.
+    # Any process on the host can then reach the app directly. Check 9090 is free first
+    # (`ss -ltnp 'sport = :9090'`; Prometheus and Cockpit default to it).
+    # ports:
+    #   - "127.0.0.1:9090:9090"
+
+networks:
+  # SECURITY: holds only mezan and the existing Caddy, never the other apps' containers:
+  # anything that reaches mezan:9090 directly bypasses the proxy (docker-compose.yml, mezan).
+  mezan-proxy:
+    external: true
+    name: mezan-proxy
+  # Only if 172.30.0.0/24 is already used by another app on this server:
+  # edge:
+  #   ipam:
+  #     config: !override
+  #       - subnet: 172.31.0.0/24
+  #       - subnet: fd4d:657a:616e::/64

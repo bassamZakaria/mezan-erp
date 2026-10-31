@@ -40,7 +40,10 @@ MIGRATE_SCRATCH="$DATA_DIR/.migrate-scratch"
 
 log() { printf '[deploy %s] %s\n' "$(date -u +%H:%M:%S)" "$*"; }
 die() { log "REFUSED: $*"; exit 1; }
-compose() { docker compose --project-directory "$COMPOSE_DIR" -f "$COMPOSE_DIR/docker-compose.yml" "$@"; }
+# A server that already runs its own Caddy adds docker-compose.override.yml (README "Server that already runs Caddy").
+COMPOSE_FILES=(-f "$COMPOSE_DIR/docker-compose.yml")
+[ ! -f "$COMPOSE_DIR/docker-compose.override.yml" ] || COMPOSE_FILES+=(-f "$COMPOSE_DIR/docker-compose.override.yml")
+compose() { docker compose --project-directory "$COMPOSE_DIR" "${COMPOSE_FILES[@]}" "$@"; }
 pg_user() { sed -n 's/^POSTGRES_USER=//p' "$PG_ENV" | tail -n 1; }
 pg_password() { sed -n 's/^POSTGRES_PASSWORD=//p' "$PG_ENV" | tail -n 1; }
 psql_in() { docker exec -i mezan-postgres psql -U "$(pg_user)" -d mezan -v ON_ERROR_STOP=1 -Atc "$1"; }
@@ -78,7 +81,14 @@ preflight() {
     [ -f "$file" ] || die "$file is missing"
     [ "$(stat -c '%a' "$file")" = "600" ] || die "$file must be mode 0600"
   done
-  grep -Eq '^MEZAN_ORIGIN_SECRET=[A-Za-z0-9_-]{32,}$' "$SHARED_ENV" || die "MEZAN_ORIGIN_SECRET in $SHARED_ENV must be at least 32 letters, digits, - or _ (it is substituted into the Caddyfile)"
+  if [ -f "$COMPOSE_DIR/docker-compose.override.yml" ]; then
+    local net networks
+    networks=$(MEZAN_IMAGE_TAG=preflight compose config --format json | python3 -c 'import json, sys; print("\n".join(n["name"] for n in json.load(sys.stdin).get("networks", {}).values() if n.get("external")))') || die "$COMPOSE_DIR/docker-compose.override.yml is not valid"
+    for net in $networks; do
+      docker network inspect "$net" >/dev/null 2>&1 || die "network $net does not exist: docker network create $net && docker network connect $net <caddy container> (README \"Server that already runs Caddy\")"
+    done
+  fi
+  grep -Eq '^MEZAN_ORIGIN_SECRET=[A-Za-z0-9_-]{32,}$' "$SHARED_ENV" || die "MEZAN_ORIGIN_SECRET in $SHARED_ENV must be at least 32 letters, digits, - or _ (the proxy sends it to the app on every request)"
   grep -Eq '^MEZAN_AUDIT_CHAIN_KEY=[0-9a-f]{64}$' "$APP_ENV" || die "MEZAN_AUDIT_CHAIN_KEY in $APP_ENV must be 64 lower-case hex characters (openssl rand -hex 32); the Postgres server refuses to start without it"
   if grep -q '^MEZAN_ORIGIN_SECRET=' "$APP_ENV"; then die "MEZAN_ORIGIN_SECRET belongs in $SHARED_ENV only; remove it from $APP_ENV"; fi
   if grep -q '^MEZAN_MIGRATE_OWNER_URL=' "$APP_ENV" "$SHARED_ENV"; then die "MEZAN_MIGRATE_OWNER_URL is the Postgres superuser and only deploy.sh --migrate-sqlite builds it; remove it from $APP_ENV and $SHARED_ENV"; fi
@@ -292,7 +302,7 @@ migrate_sqlite_books() {
   docker rm -f "$MIGRATE_CONTAINER" >/dev/null 2>&1 || true
   log "migrating the SQLite books into Postgres with $tag (progress below, report: $MIGRATION_REPORT, stopped after $MIGRATE_TIMEOUT_SECONDS s)"
   MEZAN_MIGRATE_OWNER_URL="$owner_url" MEZAN_IMAGE_TAG="$tag" timeout -k 30 "$MIGRATE_TIMEOUT_SECONDS" \
-    docker compose --project-directory "$COMPOSE_DIR" -f "$COMPOSE_DIR/docker-compose.yml" run --rm --no-deps -T --name "$MIGRATE_CONTAINER" \
+    docker compose --project-directory "$COMPOSE_DIR" "${COMPOSE_FILES[@]}" run --rm --no-deps -T --name "$MIGRATE_CONTAINER" \
     -e MEZAN_MIGRATE_OWNER_URL -e TMPDIR=/data/.migrate-scratch -e MEZAN_LOG_STDERR=1 mezan \
     node --enable-source-maps apps/server/dist/sqlite-to-postgres-cli.js migrate --data /data > "$MIGRATION_REPORT" || code=$?
   # timeout stops the compose client, not the container.
@@ -339,7 +349,8 @@ deploy() {
     MEZAN_IMAGE_TAG="$new_tag" compose pull mezan
   fi
   # Postgres and Caddy too, before any downtime: on the cutover postgres is not on the host yet.
-  MEZAN_IMAGE_TAG="$new_tag" compose pull --policy missing postgres caddy
+  # shellcheck disable=SC2046 # one word per service name
+  MEZAN_IMAGE_TAG="$new_tag" compose pull --policy missing $(MEZAN_IMAGE_TAG="$new_tag" compose config --services | grep -xE 'postgres|caddy')
   # An image pulled by digest has no local tag, so prune_images would delete it once it is the rollback image.
   if [[ "$new_tag" == *@* ]]; then
     docker tag "${MEZAN_IMAGE:-ghcr.io/bassamzakaria/mezan-erp}@${new_tag#*@}" "${MEZAN_IMAGE:-ghcr.io/bassamzakaria/mezan-erp}:${new_tag%%@*}"

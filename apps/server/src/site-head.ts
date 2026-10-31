@@ -1,4 +1,4 @@
-import { CLOUD_SITE_META } from "@mezan/contracts";
+import { CLOUD_SITE_META, DEPLOYMENT_ENVIRONMENT_META, DeploymentEnvironment } from "@mezan/contracts";
 
 const TITLE = "ميزان | برنامج محاسبة ومخزون ومبيعات بالعربية";
 const DESCRIPTION =
@@ -17,4 +17,9 @@ const SITE_HEAD = [
 
 export function withCloudSiteHead(html: string): string {
   return html.replace(/<title>[^<]*<\/title>/, () => `<title>${TITLE}</title>`).replace("</head>", () => `${SITE_HEAD}</head>`);
+}
+
+export function withDeploymentEnvironmentMeta(html: string, environment: DeploymentEnvironment | undefined): string {
+  if (environment !== DeploymentEnvironment.Staging) return html;
+  return html.replace("</head>", () => `<meta name="${DEPLOYMENT_ENVIRONMENT_META}" content="${environment}"></head>`);
 }

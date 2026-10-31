@@ -1,6 +1,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
+import { EnvironmentBadge } from "./EnvironmentBadge";
 import { AppProviders } from "./data/AppProviders";
 import { redirectLegacyHashRoute } from "./router/legacy-hash";
 import { ClientErrorReporting } from "./observability/ClientErrorReporting";
@@ -24,6 +25,7 @@ createRoot(rootEl).render(
     <AppProviders>
       <ClientErrorReporting />
       <App />
+      <EnvironmentBadge />
     </AppProviders>
   </StrictMode>,
 );

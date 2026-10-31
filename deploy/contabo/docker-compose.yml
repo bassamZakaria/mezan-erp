@@ -10,7 +10,7 @@ services:
     # and a caller reaching the app directly writes its own X-Forwarded-For and
     # dodges every per-address throttle. Only Caddy, on this network, reaches it.
     expose:
-      - "8080"
+      - "9090"
     depends_on:
       postgres:
         condition: service_healthy
@@ -19,7 +19,7 @@ services:
       - ${MEZAN_SHARED_ENV_FILE:-/srv/mezan/shared.env}
     environment:
       MEZAN_PLATFORM_DIR: /data
-      PORT: "8080"
+      PORT: "9090"
       MEZAN_TRUST_PROXY: "1"
       MEZAN_TRUSTED_PROXY_HOPS: "1"
     volumes:
@@ -34,7 +34,7 @@ services:
       - no-new-privileges:true
     stop_grace_period: 90s
     healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/readyz').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:9090/readyz').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
       interval: 15s
       timeout: 5s
       retries: 4

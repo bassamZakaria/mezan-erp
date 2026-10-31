@@ -1,5 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { Link } from "react-router";
 import { BrandMark, Button, Copyright, TextInput, cn } from "@mezan/ui";
 import { TenantResolveMode } from "@mezan/contracts";
 import { AccountLockedError, ApiError, SignInRefusalCode, isDesktopHost, noPlatformInFront, platformLookupFailing, useBootstrapStatus, useForgotPassword, useLogin, usePlatformResolve, useTenantInfo, useUnlockAccount } from "../data/hooks";
@@ -127,6 +128,7 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
   const bootstrap = useBootstrapStatus({ enabled: oneCompanyHost });
   const demoSeeded = bootstrap.data?.demoSeeded === true;
   const offersFirstRun = oneCompanyHost && bootstrap.data?.claimed === false;
+  const offersSignup = tenantMode !== undefined;
   useEffect(() => {
     if (demoSeeded && desktopHost && remembered.length === 0) setUsername((current) => (current === "" ? DEMO_SEED_ADMIN_EMAIL : current));
   }, [demoSeeded, desktopHost, remembered.length]);
@@ -608,6 +610,11 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
           <button type="button" onClick={onStartWizard} className="text-ink-muted hover:underline">
             {t("login.wizard.short")}
           </button>
+        ) : null}
+        {offersSignup ? (
+          <Link to="/signup" className="text-xs font-semibold text-accent-strong hover:underline">
+            {t("login.signup")}
+          </Link>
         ) : null}
         {/* lan-ux: the only way into pairing from the UI. Rendered only on a
             desktop machine that holds no books, so it can never appear on a

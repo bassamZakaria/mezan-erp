@@ -74,6 +74,7 @@ let platformState: StorageState;
 
 const SCREENS: readonly Screen[] = [
   { name: "platform-login", door: Door.Public, path: () => "/platform/login" },
+  { name: "signup", door: Door.Public, path: () => "/signup" },
   { name: "tenant-login", door: Door.Public, path: () => "/" },
   { name: "platform-tenants", door: Door.Platform, path: () => "/platform/tenants" },
   { name: "platform-tenant-detail", door: Door.Platform, path: () => `/platform/tenants/${tenant.id}` },

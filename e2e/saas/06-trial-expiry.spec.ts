@@ -3,11 +3,13 @@ import { type APIRequestContext } from "@playwright/test";
 import { test, expect, directApi } from "./support/test";
 import {
   ApiError,
+  BillingCycle,
   CLOCK_API_PORT,
   CLOCK_API_URL,
   CLOCK_WEB_PORT,
   CLOCK_WEB_URL,
   CodePrefix,
+  DEFAULT_BROWSER_CLIENT,
   HttpMethod,
   LICENSE_READ_ONLY_SENTENCE,
   LicenseState,
@@ -16,6 +18,7 @@ import {
   PlanId,
   PlanKind,
   SubscriptionStatus,
+  proxiedSource,
   uniqueCode,
 } from "./support/env";
 import {
@@ -105,11 +108,16 @@ test.describe("The clock moves — a trial lands on Free, the Free quota holds, 
     const request = await directApi(playwright);
 
     api = await startApiServer({ port: CLOCK_API_PORT, platformDir, seedDemo: false });
-    tenant = await provisionTenant(
-      request,
-      { code: CODE, nameAr: "شركة التجربة", ownerNameAr: "تامر التجربة", planId: PlanId.Enterprise, trial: true },
-      CLOCK_API_URL,
-    );
+    const start = await request.post(`${CLOCK_API_URL}/api/signup`, {
+      headers: proxiedSource(DEFAULT_BROWSER_CLIENT),
+      data: { code: CODE, nameAr: "شركة التجربة", ownerEmail: `owner@${CODE}.example`, ownerNameAr: "تامر التجربة", planId: PlanId.Core, billingCycle: BillingCycle.Monthly },
+    });
+    expect(start.status(), await start.text()).toBe(201);
+    const token = new URL(((await start.json()) as { devVerifyUrl: string }).devVerifyUrl).searchParams.get("token") ?? "";
+    const verify = await request.post(`${CLOCK_API_URL}/api/signup/verify`, { headers: proxiedSource(DEFAULT_BROWSER_CLIENT), data: { token } });
+    expect(verify.status(), await verify.text()).toBe(200);
+    const body = (await verify.json()) as { tenant: { id: string }; adminEmail: string; adminPassword: string };
+    tenant = { id: body.tenant.id, code: CODE, adminEmail: body.adminEmail, adminPassword: body.adminPassword };
 
     const session = await tenantApiLogin(request, tenant, CLOCK_API_URL);
     const onTrial = await call(request, session, HttpMethod.Get, "/entitlements");

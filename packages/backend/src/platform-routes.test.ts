@@ -9,7 +9,10 @@ import {
   createPlatformUser,
   createTenant,
   Money,
+  SignupDecision,
+  SignupRequestStatus,
   TenantStatusCode,
+  type SignupRequest,
   releaseTenant,
   startSubscription,
   CardCheckoutResolution,
@@ -572,6 +575,85 @@ describe("createPlatformRoutes", () => {
     expect(cleared.entitlements.activeModules).not.toContain("manufacturing");
     expect(cleared.entitlements.activeModules).not.toContain("pos");
     expect(cleared.entitlements.seats).toBe(cleared.plan.seatsIncluded);
+  });
+
+  describe("sign-up requests decided while a company was half-created", () => {
+    const verifiedRequest = (code: string): SignupRequest => ({
+      id: `REQ-${code}`, code, nameAr: "منشأة", nameEn: null, ownerEmail: `owner@${code}.example`, ownerNameAr: "سارة", planId: "PLAN-CORE",
+      billingCycle: "monthly", tokenHash: `hash-${code}`, status: SignupRequestStatus.Verified, expiresAt: FIXED_NOW().toISOString(),
+      createdAt: FIXED_NOW().toISOString(), verifiedAt: FIXED_NOW().toISOString(),
+    });
+
+    it("an approval audits both the plan asked for and the subscription the company actually has", async () => {
+      const rig = await buildRig();
+      await rig.platform.stores.signupRequests.save(verifiedRequest("audited"));
+
+      const res = await rig.app.fetch(
+        req("/signup-requests/REQ-audited/approve", rig.ownerToken, { method: "POST", body: JSON.stringify({ planId: "PLAN-CORE", billingCycle: "monthly", trial: false }) }),
+      );
+
+      expect(res.status).toBe(201);
+      const rows = (await rig.platform.audit.query("security")).filter((row) => row.action === "SIGNUP_APPROVED");
+      expect(rows).toMatchObject([{ details: { requested: { planId: "PLAN-CORE", trial: false }, applied: { planId: "PLAN-CORE", billingCycle: "monthly", trialEndsAt: null } } }]);
+    });
+
+    it("rejecting releases a company an earlier approval left in provisioning, freeing the code", async () => {
+      const rig = await buildRig();
+      await rig.platform.stores.signupRequests.save(verifiedRequest("halfway"));
+      await createTenant({ id: "T-HALF", code: "halfway", nameAr: "منشأة", ownerEmail: "owner@halfway.example", now: FIXED_NOW().toISOString() }, rig.platform.stores.tenants);
+
+      const res = await rig.app.fetch(req("/signup-requests/REQ-halfway/reject", rig.ownerToken, { method: "POST" }));
+
+      expect(res.status).toBe(200);
+      expect((await rig.platform.stores.tenants.findById("T-HALF"))?.status).not.toBe(TenantStatusCode.Provisioning);
+      expect((await rig.platform.stores.signupRequests.findById("REQ-halfway"))?.decision).toBe(SignupDecision.Rejected);
+    });
+
+    it("an approval that loses to a rejection answers 409 and leaves no company holding the code", async () => {
+      const rig = await buildRig();
+      await rig.platform.stores.signupRequests.save(verifiedRequest("raced"));
+      const store = rig.platform.stores.signupRequests;
+      const find = store.findById.bind(store);
+      store.tryDecide = async () => false;
+      store.findById = async (id) => {
+        const found = await find(id);
+        return found ? { ...found, decision: SignupDecision.Rejected } : null;
+      };
+
+      const res = await rig.app.fetch(
+        req("/signup-requests/REQ-raced/approve", rig.ownerToken, { method: "POST", body: JSON.stringify({ planId: "PLAN-CORE", billingCycle: "monthly", trial: false }) }),
+      );
+
+      expect(res.status).toBe(409);
+      expect(await json(res)).toMatchObject({ error: "SIGNUP_ALREADY_DECIDED" });
+      const tenant = await rig.platform.stores.tenants.findByCode("raced");
+      expect(tenant?.status).not.toBe(TenantStatusCode.Provisioning);
+      expect(tenant?.status).not.toBe(TenantStatusCode.Active);
+    });
+
+    it("an approval that loses without a rejection leaves the half-made company for whoever is finishing it", async () => {
+      const rig = await buildRig();
+      await rig.platform.stores.signupRequests.save(verifiedRequest("contested"));
+      rig.platform.stores.signupRequests.tryDecide = async () => false;
+
+      const res = await rig.app.fetch(
+        req("/signup-requests/REQ-contested/approve", rig.ownerToken, { method: "POST", body: JSON.stringify({ planId: "PLAN-CORE", billingCycle: "monthly", trial: false }) }),
+      );
+
+      expect(res.status).toBe(409);
+      expect((await rig.platform.stores.tenants.findByCode("contested"))?.status).toBe(TenantStatusCode.Provisioning);
+    });
+
+    it("an approval keeps the package the visitor picked as their suggested upgrade", async () => {
+      const rig = await buildRig();
+      await rig.platform.stores.signupRequests.save({ ...verifiedRequest("suggested"), intendedPlanId: "PLAN-BUSINESS" });
+
+      await rig.app.fetch(
+        req("/signup-requests/REQ-suggested/approve", rig.ownerToken, { method: "POST", body: JSON.stringify({ planId: "PLAN-CORE", billingCycle: "monthly", trial: false }) }),
+      );
+
+      expect(rig.provisioned.at(-1)).toMatchObject({ code: "suggested", planId: "PLAN-CORE", intendedPlanId: "PLAN-BUSINESS" });
+    });
   });
 
   it("changes plan, cancels, suspends and resumes a subscription", async () => {

@@ -1,0 +1,264 @@
+appId: app.mezan.mobile
+---
+# A fresh install flips the native layout direction to match the locale and
+# RELAUNCHES once (DEC-30 §7). Letting that happen, then starting the app
+# again, is what stops the relaunch landing in the middle of the sign-in form
+# and emptying it — which it did, in English, on every device.
+- launchApp:
+    clearState: true
+    clearKeychain: true
+- setOrientation: PORTRAIT
+- extendedWaitUntil:
+    visible: ${L_SUBMIT}
+    timeout: 30000
+- stopApp
+- launchApp
+- extendedWaitUntil:
+    visible: ${L_SUBMIT}
+    timeout: 30000
+# Sign in upright, then turn the device. A phone in landscape has about
+# 190dp of form left above the keyboard, so the fields below the first are
+# out of reach until the keyboard closes — which is also why a real user
+# types the password upright. Every screen after this one is walked in the
+# orientation under test.
+- setOrientation: PORTRAIT
+- waitForAnimationToEnd
+- takeScreenshot: 01-sign-in
+# Measured on the simulator: one eraseText stops a few characters short and
+# leaves the cursor at position 0, so the next backspaces are no-ops and the
+# typed URL ends up with the old tail glued to it. Re-tapping puts the cursor
+# back at the end of what is left.
+- tapOn:
+    id: sign-in-server
+- eraseText: 60
+- tapOn:
+    id: sign-in-server
+- eraseText: 30
+- tapOn:
+    id: sign-in-server
+- eraseText: 30
+- inputText: ${SERVER}
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - scrollUntilVisible:
+          element:
+            id: sign-in-tenant
+          direction: DOWN
+          visibilityPercentage: 40
+          centerElement: true
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - swipe:
+          start: 50%, 45%
+          end: 50%, 12%
+- tapOn:
+    id: sign-in-tenant
+- inputText: ${TENANT}
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - scrollUntilVisible:
+          element:
+            id: sign-in-email
+          direction: DOWN
+          visibilityPercentage: 40
+          centerElement: true
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - swipe:
+          start: 50%, 45%
+          end: 50%, 12%
+- tapOn:
+    id: sign-in-email
+- inputText: ${EMAIL}
+# On a phone in landscape the keyboard covers the bottom of the form, so the
+# password field and the button have to be scrolled to — they are reachable, but
+# not on screen.
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - scrollUntilVisible:
+          element:
+            id: sign-in-password
+          direction: DOWN
+          visibilityPercentage: 40
+          centerElement: true
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - swipe:
+          start: 50%, 45%
+          end: 50%, 12%
+- tapOn:
+    id: sign-in-password
+- waitForAnimationToEnd
+- inputText: ${PASSWORD}
+- tapOn:
+    text: ${L_SERVER}
+    index: 0
+    optional: true
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - scrollUntilVisible:
+          element:
+            id: sign-in-submit
+          direction: DOWN
+          visibilityPercentage: 40
+          centerElement: true
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - swipe:
+          start: 50%, 45%
+          end: 50%, 12%
+- tapOn:
+    id: sign-in-submit
+- extendedWaitUntil:
+    visible: ${T_SALES_TODAY}
+    timeout: 30000
+- setOrientation: ${ORIENTATION}
+- waitForAnimationToEnd
+- takeScreenshot: 02-home
+- tapOn:
+    id: tab-customers
+- extendedWaitUntil:
+    visible: ".*${CUSTOMER}.*"
+    timeout: 20000
+- takeScreenshot: 03-customers
+- tapOn: ".*${CUSTOMER}.*"
+# The aging ladder is below the fold on a phone in landscape.
+- scrollUntilVisible:
+    element:
+      text: ${L_AGING}
+    direction: DOWN
+    visibilityPercentage: 30
+    timeout: 20000
+- waitForAnimationToEnd
+- takeScreenshot: 04-customer
+# The detail is PUSHED on a narrow screen and sits beside the list on a wide
+# one, so there is only something to go back from when the tab bar is gone.
+- runFlow:
+    when:
+      notVisible:
+        id: tab-sell
+    commands:
+      # maestro's `back` is an edge swipe on iOS, and the edge it swipes from
+      # is the wrong one once the app is right-to-left; the header button is
+      # not mirrored away.
+      - runFlow:
+          when:
+            platform: iOS
+          commands:
+            - tapOn:
+                id: BackButton
+      - runFlow:
+          when:
+            platform: Android
+          commands:
+            - back
+      - waitForAnimationToEnd
+- tapOn:
+    id: tab-sell
+- assertVisible: ".*${C_CUSTOMER_PLACEHOLDER}.*"
+- waitForAnimationToEnd
+- takeScreenshot: 05-sell
+- tapOn:
+    id: tab-stock
+- tapOn:
+    id: stock-search
+- inputText: ${ITEM_QUERY}
+- pressKey: Enter
+- extendedWaitUntil:
+    visible: ".*${ITEM}.*"
+    timeout: 20000
+- waitForAnimationToEnd
+- takeScreenshot: 06-stock
+- tapOn: ".*${ITEM}.*"
+- waitForAnimationToEnd
+- takeScreenshot: 06b-stock-item
+- tapOn:
+    id: tab-more
+- assertVisible: ".*${M_CLOCK}.*"
+- waitForAnimationToEnd
+- takeScreenshot: 07-more
+- tapOn: ".*${M_COLLECT}.*"
+# The collect form is taller than a phone in landscape, so its submit button
+# is below the fold; the customer picker at the top is there in every size.
+- extendedWaitUntil:
+    visible: ".*${C_CUSTOMER_PLACEHOLDER}.*"
+    timeout: 20000
+- waitForAnimationToEnd
+- takeScreenshot: 08-collect
+# The detail is PUSHED on a narrow screen and sits beside the list on a wide
+# one, so there is only something to go back from when the tab bar is gone.
+- runFlow:
+    when:
+      notVisible:
+        id: tab-sell
+    commands:
+      # maestro's `back` is an edge swipe on iOS, and the edge it swipes from
+      # is the wrong one once the app is right-to-left; the header button is
+      # not mirrored away.
+      - runFlow:
+          when:
+            platform: iOS
+          commands:
+            - tapOn:
+                id: BackButton
+      - runFlow:
+          when:
+            platform: Android
+          commands:
+            - back
+      - waitForAnimationToEnd
+- tapOn: ".*${M_CLOCK}.*"
+- waitForAnimationToEnd
+- takeScreenshot: 09-clock
+# The detail is PUSHED on a narrow screen and sits beside the list on a wide
+# one, so there is only something to go back from when the tab bar is gone.
+- runFlow:
+    when:
+      notVisible:
+        id: tab-sell
+    commands:
+      # maestro's `back` is an edge swipe on iOS, and the edge it swipes from
+      # is the wrong one once the app is right-to-left; the header button is
+      # not mirrored away.
+      - runFlow:
+          when:
+            platform: iOS
+          commands:
+            - tapOn:
+                id: BackButton
+      - runFlow:
+          when:
+            platform: Android
+          commands:
+            - back
+      - waitForAnimationToEnd
+- scrollUntilVisible:
+    element:
+      text: ".*${M_APPROVALS}.*"
+    direction: DOWN
+    visibilityPercentage: 30
+    timeout: 20000
+- tapOn: ".*${M_APPROVALS}.*"
+- tapOn:
+    id: approval-summary
+    index: 0
+    optional: true
+- assertVisible: ${APPROVALS_ASSERT}
+- waitForAnimationToEnd
+- takeScreenshot: 10-approvals

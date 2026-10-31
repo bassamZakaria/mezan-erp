@@ -96,7 +96,7 @@ return, and the way they are written changes:
 | Property / fuzz | `pnpm test:fuzz` | invariants over generated input — balance, non-negative stock, exact allocation sums |
 | Abuse / brute force | `pnpm test` (`*.abuse.test.ts`) | password brute force, lockout, replay, IDOR, injection, oversized payloads |
 | E2E | `pnpm test:e2e` | the browser path a named persona actually walks — the `demo` tenant on the cloud entrypoint, API **3187** / web **5183** |
-| Every screen | `pnpm test:every-screen` | every address in `e2e/support/screen-catalog.ts` at 1440px and 390px, plus the journeys in `e2e/journeys/` — the nav tree, and `ADDRESSED_SCREENS` for sub-pages behind an id and the pages outside the tenant shell (platform console, unlock link, owner hand-over); API **3311** / web **5311** |
+| Every screen | `pnpm test:every-screen` | every address in `e2e/support/screen-catalog.ts` at 1440px and 390px, plus the journeys in `e2e/journeys/` — the nav tree, and `ADDRESSED_SCREENS` for sub-pages behind an id and the pages outside the tenant shell (platform console, signup, unlock link, owner hand-over); API **3311** / web **5311** |
 | Responsive | `pnpm test:responsive` | page-level sideways scroll and the workspace drawer at 390px and 360px; API **3133** / web **5233** |
 | Executable scenarios | `pnpm scenarios` | seeded end-to-end money trails over the real HTTP surface |
 | Manual | `docs/MANUAL-TEST-PLAN.md` | what only a human can judge — the persona walkthroughs |
@@ -8366,7 +8366,7 @@ from a tenant user's session.
 
 These eight scenarios are guarded by an automated browser suite, `pnpm
 test:saas` (`e2e/saas/`, `playwright.saas.config.ts`), which also covers
-card checkout in test mode, trial expiry, the Free invoice
+self-serve signup, card checkout in test mode, trial expiry, the Free invoice
 quota, the lapse of a paid period, and every SaaS screen in both locales and
 both themes. To walk them by hand, run them on `pnpm env:testing:fresh` (which
 seeds the platform owner and the `demo` tenant automatically,
@@ -8415,10 +8415,24 @@ warehouse limit lets the tenant fill up to 10 and refuses the next with
 «وصلتم إلى الحد الأقصى للمستودعات في باقتكم»; and a trial tenant's banner
 shows the number of days between the server's day and the trial's end.
 
-Self-serve signup was removed on 2026-10-31 (kept on the
-`archive/signup-and-mobile` branch); accounts are created from the platform
-console only. The per-address limit on public routes is now asserted on the
-owner hand-over route in `apps/server/src/signup-routes.test.ts`.
+Signup allows 8 requests per source address per hour per server process, and
+every request counts, including a malformed one. Spec 04 makes 5 signup
+requests on the main server (four by API, one from the form) and spec 06 makes
+1 on the clock server. The suite's servers trust two proxy hops
+(`MEZAN_TRUST_PROXY=1`, `MEZAN_TRUSTED_PROXY_HOPS=2`): the address a signup is
+counted against is the second entry from the right of `x-forwarded-for`, never
+the leftmost one, which the caller writes. A browser in the suite sends its
+client address alone and the Vite dev proxy appends its own hop; a request sent
+straight to the API carries the whole chain, `<client>, 130.176.0.7`
+(`proxiedSource` in `e2e/saas/support/env.ts`). Every browser context gets the
+client `10.9.0.1` unless a spec gives it another, and each of spec 04's signups
+carries its own client, handed out in order from `10.4.0.1`, not at random.
+The limit itself is asserted: one client (`10.44.0.1`) makes eight attempts,
+each with a different address written ahead of it in the chain and each
+answered on its merits; its ninth answers 429 «محاولات كثيرة جدًا، حاول لاحقًا»
+with a `retry-after`; a different client that writes `10.44.0.1` ahead of
+itself still gets through; and a chain too short to hold a client is answered
+503 `SOURCE_UNRESOLVED`.
 
 Sign-in never waits on the company lookup (`GET /api/platform/resolve`). Spec
 03 fails that request in the browser (`page.route`) two ways: a 502 HTML page

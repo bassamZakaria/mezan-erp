@@ -18,21 +18,13 @@ import type {
   UpdateSubCertificateDTO,
 } from "@mezan/contracts";
 import { ApiError, loaderError } from "./hooks";
+import { readServerReasons } from "./server-message";
 import { useApi } from "./ApiContext";
 import { useAppTranslation } from "../i18n";
 
 /* ------------------------------------------------------------------ */
 /* عقود الباطن — /contracting/subcontracts                             */
 /* ------------------------------------------------------------------ */
-
-async function readMessage(res: { json<T>(): Promise<T> }, fallback: string): Promise<string> {
-  const body = (await res.json<{ message?: string; reasons?: string[] }>().catch(() => ({}))) as {
-    message?: string;
-    reasons?: string[];
-  };
-  if (body.reasons && body.reasons.length > 0) return body.reasons.join(" — ");
-  return body.message ?? fallback;
-}
 
 const SUBCONTRACTS_KEY = ["contracting", "subcontracts"] as const;
 const SUB_CERTIFICATES_KEY = ["contracting", "subcontract-certificates"] as const;
@@ -118,7 +110,7 @@ export function useCreateSubcontract() {
   return useMutation<SubcontractDTO, ApiError, CreateSubcontractDTO>({
     mutationFn: async (body) => {
       const res = await request("/contracting/subcontracts", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("subcontracts.saveFailed")));
+      if (!res.ok) throw new ApiError(res.status, await readServerReasons(res, t("subcontracts.saveFailed")));
       return res.json<SubcontractDTO>();
     },
     onSuccess: invalidate,
@@ -135,7 +127,7 @@ export function useUpdateSubcontract() {
         method: "PATCH",
         body: JSON.stringify(patch),
       });
-      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("subcontracts.saveFailed")));
+      if (!res.ok) throw new ApiError(res.status, await readServerReasons(res, t("subcontracts.saveFailed")));
       return res.json<SubcontractDTO>();
     },
     onSuccess: invalidate,
@@ -152,7 +144,7 @@ export function usePutSubcontractLines() {
         method: "PUT",
         body: JSON.stringify(body),
       });
-      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("subcontracts.saveFailed")));
+      if (!res.ok) throw new ApiError(res.status, await readServerReasons(res, t("subcontracts.saveFailed")));
       return res.json<SubcontractDTO>();
     },
     onSuccess: invalidate,
@@ -176,7 +168,7 @@ export function useSubcontractTransition() {
         method: "POST",
         body: JSON.stringify(body),
       });
-      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("subcontracts.transitionFailed")));
+      if (!res.ok) throw new ApiError(res.status, await readServerReasons(res, t("subcontracts.transitionFailed")));
       return res.json<SubcontractDTO>();
     },
     onSuccess: invalidate,
@@ -193,7 +185,7 @@ export function useLinkSubcontractAdvance() {
         method: "POST",
         body: JSON.stringify(body),
       });
-      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("subcontracts.advanceLinkFailed")));
+      if (!res.ok) throw new ApiError(res.status, await readServerReasons(res, t("subcontracts.advanceLinkFailed")));
       return res.json<SubcontractDTO>();
     },
     onSuccess: invalidate,
@@ -210,7 +202,7 @@ export function useReleaseSubcontractRetention() {
         method: "POST",
         body: JSON.stringify(body),
       });
-      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("subcontracts.retentionReleaseFailed")));
+      if (!res.ok) throw new ApiError(res.status, await readServerReasons(res, t("subcontracts.retentionReleaseFailed")));
       return res.json<SubcontractDTO>();
     },
     onSuccess: invalidate,
@@ -282,7 +274,7 @@ export function useSubCertificatePreview(
         method: "POST",
         body: JSON.stringify(body),
       });
-      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("subCertificates.previewFailed")));
+      if (!res.ok) throw new ApiError(res.status, await readServerReasons(res, t("subCertificates.previewFailed")));
       return res.json<SubCertificatePreviewDTO>();
     },
   });
@@ -295,7 +287,7 @@ export function useCreateSubCertificate() {
   return useMutation<SubCertificateDTO, ApiError, CreateSubCertificateDTO>({
     mutationFn: async (body) => {
       const res = await request("/contracting/subcontract-certificates", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("subCertificates.saveFailed")));
+      if (!res.ok) throw new ApiError(res.status, await readServerReasons(res, t("subCertificates.saveFailed")));
       return res.json<SubCertificateDTO>();
     },
     onSuccess: invalidate,
@@ -312,7 +304,7 @@ export function useUpdateSubCertificate() {
         method: "PATCH",
         body: JSON.stringify(patch),
       });
-      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("subCertificates.saveFailed")));
+      if (!res.ok) throw new ApiError(res.status, await readServerReasons(res, t("subCertificates.saveFailed")));
       return res.json<SubCertificateDTO>();
     },
     onSuccess: invalidate,
@@ -343,7 +335,7 @@ export function useSubCertificateTransition() {
         method: "POST",
         body: JSON.stringify(body ?? {}),
       });
-      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("subCertificates.transitionFailed")));
+      if (!res.ok) throw new ApiError(res.status, await readServerReasons(res, t("subCertificates.transitionFailed")));
       return res.json<SubCertificateDTO>();
     },
     onSuccess: invalidate,

@@ -16,11 +16,7 @@ import type {
 import { useApi } from "../../../data/ApiContext";
 import { ApiError, loaderError } from "../../../data/hooks";
 import { useAppTranslation } from "../../../i18n";
-
-async function readError(res: { json<T>(): Promise<T> }, fallback: string): Promise<string> {
-  const body = (await res.json<{ message?: string }>().catch(() => ({}))) as { message?: string };
-  return body.message ?? fallback;
-}
+import { readServerMessage } from "../../../data/server-message";
 
 const TERMINALS = ["pos", "terminals"] as const;
 const METHODS = ["pos", "payment-methods"] as const;
@@ -49,7 +45,7 @@ function useWrite<Body, Result>(invalidate: readonly (readonly unknown[])[], sen
     mutationFn: async (body) => {
       const { path, method, payload } = send(body);
       const res = await request(path, { method, ...(payload === undefined ? {} : { body: JSON.stringify(payload) }) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("pos.common.saveFailed")));
+      if (!res.ok) throw new ApiError(res.status, await readServerMessage(res, t("pos.common.saveFailed")));
       return res.status === 204 ? (undefined as Result) : res.json<Result>();
     },
     onSettled: () => Promise.all(invalidate.map((queryKey) => queryClient.invalidateQueries({ queryKey }))),

@@ -11,6 +11,7 @@ import type {
 import { useApi } from "../../../data/ApiContext";
 import { ApiError, loaderError, readError } from "../../../data/hooks";
 import { useAppTranslation } from "../../../i18n";
+import { serverMessage, type ServerErrorBody } from "../../../data/server-message";
 
 const TEMPLATES_KEY = ["role-templates"] as const;
 
@@ -42,10 +43,7 @@ export function useCreateRoleFromTemplate() {
   });
 }
 
-interface ImportRefusalBody extends Partial<UserImportReportDTO> {
-  readonly error?: string;
-  readonly message?: string;
-}
+interface ImportRefusalBody extends Partial<UserImportReportDTO>, ServerErrorBody {}
 
 export function useImportUsers() {
   const { t } = useAppTranslation();
@@ -57,7 +55,7 @@ export function useImportUsers() {
       const res = await request("/users/import", { method: "POST", body: JSON.stringify(body) });
       const payload = await res.json<ImportRefusalBody>().catch((): ImportRefusalBody => ({}));
       if (res.ok || (res.status === 422 && Array.isArray(payload.rows))) return payload as UserImportReportDTO;
-      throw new ApiError(res.status, payload.message ?? t("provisioning.import.failed"), undefined, undefined, payload.error);
+      throw new ApiError(res.status, serverMessage(payload) ?? t("provisioning.import.failed"), undefined, undefined, payload.error);
     },
     onSettled: () => queryClient.invalidateQueries({ queryKey: ["users"] }),
   });
@@ -72,8 +70,8 @@ export function useCloneUser() {
     mutationFn: async ({ sourceId, body }) => {
       const res = await request(`/users/${encodeURIComponent(sourceId)}/clone`, { method: "POST", body: JSON.stringify(body) });
       if (!res.ok) {
-        const payload = await res.json<{ error?: string; message?: string }>().catch(() => ({}) as { error?: string; message?: string });
-        throw new ApiError(res.status, payload.message ?? t("provisioning.clone.failed"), undefined, undefined, payload.error);
+        const payload = await res.json<ServerErrorBody>().catch(() => ({}) as ServerErrorBody);
+        throw new ApiError(res.status, serverMessage(payload) ?? t("provisioning.clone.failed"), undefined, undefined, payload.error);
       }
       return res.json<CloneUserResultDTO>();
     },

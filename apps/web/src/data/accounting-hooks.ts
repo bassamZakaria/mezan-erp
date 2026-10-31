@@ -14,14 +14,10 @@ import type {
 } from "@mezan/contracts";
 import { ScreenRequest } from "@mezan/domain";
 import { ApiError, readError, useHoldsScreenRequest } from "./hooks";
+import { readServerMessage, serverMessage, type ServerErrorBody } from "./server-message";
 import { useApi } from "./ApiContext";
 import type { TransportResponse } from "./transport";
 import { useAppTranslation } from "../i18n";
-
-async function readMessage(res: { json<T>(): Promise<T> }, fallback: string): Promise<string> {
-  const body = (await res.json<{ message?: string }>().catch(() => ({}))) as { message?: string };
-  return body.message ?? fallback;
-}
 
 /* -------------------------------------------------------------------- */
 /* أسعار الصرف — Exchange Rates (docs/archive/catalog/04)                        */
@@ -49,7 +45,7 @@ export function useCreateExchangeRate() {
   return useMutation<ExchangeRateDTO, ApiError, CreateExchangeRateDTO>({
     mutationFn: async (body) => {
       const res = await request("/exchange-rates", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("fxRates.theExchangeRateCouldNot2")));
+      if (!res.ok) throw new ApiError(res.status, await readServerMessage(res, t("fxRates.theExchangeRateCouldNot2")));
       return res.json<ExchangeRateDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["exchange-rates"] }),
@@ -62,7 +58,7 @@ function useExchangeRateTransition(action: "approve" | "lock", fallbackMessage: 
   return useMutation<ExchangeRateDTO, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/exchange-rates/${id}/${action}`, { method: "POST", body: JSON.stringify({}) });
-      if (!res.ok) throw new ApiError(res.status, await readMessage(res, fallbackMessage));
+      if (!res.ok) throw new ApiError(res.status, await readServerMessage(res, fallbackMessage));
       return res.json<ExchangeRateDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["exchange-rates"] }),
@@ -104,11 +100,10 @@ async function fxRevaluationRequest(
 ) {
   const res = await request(path, { method: "POST", body: JSON.stringify(body) });
   if (!res.ok) {
-    const err = (await res.json<{ message?: string; currency?: string }>().catch(() => ({}))) as {
-      message?: string;
+    const err = (await res.json<ServerErrorBody & { currency?: string }>().catch(() => ({}))) as ServerErrorBody & {
       currency?: string;
     };
-    throw new FxRevaluationError(res.status, err.message ?? fallback, err.currency ?? null);
+    throw new FxRevaluationError(res.status, serverMessage(err) ?? fallback, err.currency ?? null);
   }
   return res;
 }
@@ -241,10 +236,10 @@ export function useSubmitEtaSubmission() {
     mutationFn: async (id) => {
       const res = await request(`/eta/submissions/${id}/submit`, { method: "POST" });
       if (res.status === 202) {
-        const message = await readMessage(res, t("accountingApi.reallySubmittingIsPossibleOnly"));
+        const message = await readServerMessage(res, t("accountingApi.reallySubmittingIsPossibleOnly"));
         return { submission: null, offline: true, message };
       }
-      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("api.theDocumentCouldNotBe")));
+      if (!res.ok) throw new ApiError(res.status, await readServerMessage(res, t("api.theDocumentCouldNotBe")));
       return { submission: await res.json<EtaSubmissionDTO>(), offline: false, message: null };
     },
     onSuccess: () => invalidateEtaSubmissions(queryClient),
@@ -263,7 +258,7 @@ export function useSubmitAllEtaReady() {
   return useMutation<EtaSubmitAllResultDTO, ApiError, void>({
     mutationFn: async () => {
       const res = await request("/eta/submissions/submit-all", { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("api.theReadyDocumentsCouldNot")));
+      if (!res.ok) throw new ApiError(res.status, await readServerMessage(res, t("api.theReadyDocumentsCouldNot")));
       return res.json<EtaSubmitAllResultDTO>();
     },
     onSuccess: () => invalidateEtaSubmissions(queryClient),
@@ -277,7 +272,7 @@ export function useExcludeEtaSubmission() {
   return useMutation<EtaSubmissionDTO, ApiError, { id: string; reason: string }>({
     mutationFn: async ({ id, reason }) => {
       const res = await request(`/eta/submissions/${id}/exclude`, { method: "POST", body: JSON.stringify({ reason }) });
-      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("api.theDocumentCouldNotBe2")));
+      if (!res.ok) throw new ApiError(res.status, await readServerMessage(res, t("api.theDocumentCouldNotBe2")));
       return res.json<EtaSubmissionDTO>();
     },
     onSuccess: () => invalidateEtaSubmissions(queryClient),

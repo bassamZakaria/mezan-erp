@@ -1,15 +1,11 @@
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import type { CreateLabelLayoutDTO, LabelLayoutDTO, UpdateLabelLayoutDTO } from "@mezan/contracts";
 import { ApiError, readError } from "./hooks";
+import { readServerMessage } from "./server-message";
 import { useApi } from "./ApiContext";
 import { useAppTranslation } from "../i18n";
 
 /** تخطيطات الملصقات — label layouts (docs/archive/catalog/03, /label-layouts). */
-
-async function readMessage(res: { json<T>(): Promise<T> }, fallback: string): Promise<string> {
-  const body = (await res.json<{ message?: string }>().catch(() => ({}))) as { message?: string };
-  return body.message ?? fallback;
-}
 
 export function useLabelLayouts(): UseQueryResult<LabelLayoutDTO[], ApiError> {
   const { t } = useAppTranslation();
@@ -32,7 +28,7 @@ export function useCreateLabelLayout() {
   return useMutation<LabelLayoutDTO, ApiError, CreateLabelLayoutDTO>({
     mutationFn: async (body) => {
       const res = await request("/label-layouts", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("labelApi.theLabelLayoutCouldNot")));
+      if (!res.ok) throw new ApiError(res.status, await readServerMessage(res, t("labelApi.theLabelLayoutCouldNot")));
       return res.json<LabelLayoutDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["label-layouts"] }),
@@ -46,7 +42,7 @@ export function useUpdateLabelLayout() {
   return useMutation<LabelLayoutDTO, ApiError, { id: string; body: UpdateLabelLayoutDTO }>({
     mutationFn: async ({ id, body }) => {
       const res = await request(`/label-layouts/${id}`, { method: "PATCH", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("labelApi.theLabelLayoutCouldNot2")));
+      if (!res.ok) throw new ApiError(res.status, await readServerMessage(res, t("labelApi.theLabelLayoutCouldNot2")));
       return res.json<LabelLayoutDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["label-layouts"] }),

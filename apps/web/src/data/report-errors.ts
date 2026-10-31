@@ -1,6 +1,9 @@
+import { serverMessage, type ServerErrorBody } from "./server-message";
+
 interface ServerValidationError {
   readonly field?: string;
   readonly message?: string;
+  readonly messageEn?: string;
 }
 
 /**
@@ -16,15 +19,17 @@ export async function readReportFieldErrors(res: {
   json<T>(): Promise<T>;
 }): Promise<Record<string, string> | undefined> {
   const body = await res
-    .json<{ errors?: readonly ServerValidationError[]; message?: string }>()
-    .catch(() => ({}) as { errors?: readonly ServerValidationError[]; message?: string });
+    .json<ServerErrorBody & { errors?: readonly ServerValidationError[] }>()
+    .catch(() => ({}) as ServerErrorBody & { errors?: readonly ServerValidationError[] });
   const byField: Record<string, string> = {};
   for (const e of body.errors ?? []) {
-    if (!e.message) continue;
+    const text = serverMessage(e);
+    if (!text) continue;
     const key = e.field || "_root";
-    byField[key] = byField[key] ? `${byField[key]} ${e.message}` : e.message;
+    byField[key] = byField[key] ? `${byField[key]} ${text}` : text;
   }
   // Routes outside the report engine reject with a bare `message` and no field.
-  if (Object.keys(byField).length === 0 && body.message) byField._root = body.message;
+  const rootMessage = serverMessage(body);
+  if (Object.keys(byField).length === 0 && rootMessage) byField._root = rootMessage;
   return Object.keys(byField).length > 0 ? byField : undefined;
 }

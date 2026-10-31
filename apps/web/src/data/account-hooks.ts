@@ -7,7 +7,7 @@ import type {
 } from "@mezan/contracts";
 import { useApi } from "./ApiContext";
 import { useAppTranslation } from "../i18n";
-import { withSupportCode, type AppTranslate } from "./hooks";
+import { readError } from "./hooks";
 
 /**
  * Self-service profile hooks — kept out of `data/hooks.ts` but following the
@@ -23,16 +23,6 @@ export class ApiError extends Error {
     super(message);
     this.name = "ApiError";
   }
-}
-
-async function readError(
-  res: { readonly status: number; json<T>(): Promise<T> },
-  fallback: string,
-  t?: AppTranslate,
-): Promise<string> {
-  const body = (await res.json<{ message?: string }>().catch(() => ({}))) as { message?: string };
-  if (body.message !== undefined && body.message !== "") return body.message;
-  return withSupportCode(fallback, res.status, t);
 }
 
 // --- الملف الشخصي (self-service profile) ---

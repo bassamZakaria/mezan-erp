@@ -15,6 +15,7 @@ import type {
   WorksContractDTO,
 } from "@mezan/contracts";
 import { ApiError, loaderError, useHoldsScreenRequest } from "./hooks";
+import { readServerMessage } from "./server-message";
 import { ScreenRequest } from "@mezan/domain";
 import { useApi } from "./ApiContext";
 import { useAppTranslation } from "../i18n";
@@ -22,11 +23,6 @@ import { useAppTranslation } from "../i18n";
 /* ------------------------------------------------------------------ */
 /* العقود وجداول الكميات وأوامر التغيير — /contracting/contracts        */
 /* ------------------------------------------------------------------ */
-
-async function readMessage(res: { json<T>(): Promise<T> }, fallback: string): Promise<string> {
-  const body = (await res.json<{ message?: string }>().catch(() => ({}))) as { message?: string };
-  return body.message ?? fallback;
-}
 
 const CONTRACTS_KEY = ["contracting", "contracts"] as const;
 const VARIATIONS_KEY = ["contracting", "variation-orders"] as const;
@@ -126,7 +122,7 @@ export function useCreateWorksContract() {
   return useMutation<WorksContractDTO, ApiError, CreateWorksContractDTO>({
     mutationFn: async (body) => {
       const res = await request("/contracting/contracts", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("worksContracts.saveFailed")));
+      if (!res.ok) throw new ApiError(res.status, await readServerMessage(res, t("worksContracts.saveFailed")));
       return res.json<WorksContractDTO>();
     },
     onSuccess: invalidate,
@@ -143,7 +139,7 @@ export function useUpdateWorksContract() {
         method: "PATCH",
         body: JSON.stringify(patch),
       });
-      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("worksContracts.saveFailed")));
+      if (!res.ok) throw new ApiError(res.status, await readServerMessage(res, t("worksContracts.saveFailed")));
       return res.json<WorksContractDTO>();
     },
     onSuccess: invalidate,
@@ -169,7 +165,7 @@ export function useWorksContractTransition() {
         method: "POST",
         body: JSON.stringify(body),
       });
-      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("worksContracts.saveFailed")));
+      if (!res.ok) throw new ApiError(res.status, await readServerMessage(res, t("worksContracts.saveFailed")));
       return res.json<WorksContractDTO>();
     },
     onSuccess: invalidate,
@@ -186,7 +182,7 @@ export function usePutContractBoq() {
         method: "PUT",
         body: JSON.stringify(body),
       });
-      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("boq.saveFailed")));
+      if (!res.ok) throw new ApiError(res.status, await readServerMessage(res, t("boq.saveFailed")));
       return res.json<BoqResponse>();
     },
     onSuccess: invalidate,
@@ -203,7 +199,7 @@ export function useReviewBoqImport() {
         method: "POST",
         body: JSON.stringify(body),
       });
-      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("boq.importFailed")));
+      if (!res.ok) throw new ApiError(res.status, await readServerMessage(res, t("boq.importFailed")));
       return res.json<BoqImportReviewDTO>();
     },
   });
@@ -219,7 +215,7 @@ export function useCommitBoqImport() {
         method: "POST",
         body: JSON.stringify(body),
       });
-      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("boq.importFailed")));
+      if (!res.ok) throw new ApiError(res.status, await readServerMessage(res, t("boq.importFailed")));
       return res.json<{ review: BoqImportReviewDTO; lines: BoqLineDTO[] }>();
     },
     onSuccess: invalidate,
@@ -256,7 +252,7 @@ export function useCreateVariationOrder() {
   return useMutation<VariationOrderDTO, ApiError, CreateVariationOrderDTO>({
     mutationFn: async (body) => {
       const res = await request("/contracting/variation-orders", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("variationOrders.saveFailed")));
+      if (!res.ok) throw new ApiError(res.status, await readServerMessage(res, t("variationOrders.saveFailed")));
       return res.json<VariationOrderDTO>();
     },
     onSuccess: invalidate,
@@ -273,7 +269,7 @@ export function useUpdateVariationOrder() {
         method: "PATCH",
         body: JSON.stringify(patch),
       });
-      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("variationOrders.saveFailed")));
+      if (!res.ok) throw new ApiError(res.status, await readServerMessage(res, t("variationOrders.saveFailed")));
       return res.json<VariationOrderDTO>();
     },
     onSuccess: invalidate,
@@ -290,7 +286,7 @@ export function useApproveVariationOrder() {
         method: "POST",
         body: JSON.stringify(body),
       });
-      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("variationOrders.approveFailed")));
+      if (!res.ok) throw new ApiError(res.status, await readServerMessage(res, t("variationOrders.approveFailed")));
       return res.json<VariationOrderDTO>();
     },
     onSuccess: invalidate,
@@ -307,7 +303,7 @@ export function useRejectVariationOrder() {
         method: "POST",
         body: JSON.stringify(body),
       });
-      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("variationOrders.approveFailed")));
+      if (!res.ok) throw new ApiError(res.status, await readServerMessage(res, t("variationOrders.approveFailed")));
       return res.json<VariationOrderDTO>();
     },
     onSuccess: invalidate,

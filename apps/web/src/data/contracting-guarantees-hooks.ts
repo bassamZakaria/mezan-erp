@@ -11,6 +11,7 @@ import type {
 import { ScreenRequest } from "@mezan/domain";
 import { useApi } from "./ApiContext";
 import { ApiError, loaderError, useHoldsScreenRequest } from "./hooks";
+import { readServerMessage } from "./server-message";
 import { useAppTranslation } from "../i18n";
 
 /**
@@ -19,12 +20,6 @@ import { useAppTranslation } from "../i18n";
  * as well as the list: the four tiles are derived from posted documents, so a
  * letter that moves must re-derive them.
  */
-
-/** The Arabic refusal the domain sent, or the generic fallback when it sent none. */
-async function readError(res: { json<T>(): Promise<T> }, fallback: string): Promise<string> {
-  const body = (await res.json<{ message?: string }>().catch(() => ({}))) as { message?: string };
-  return body.message ?? fallback;
-}
 
 const ROOT = "/contracting/guarantees";
 const KEY = ["contracting", "guarantees"] as const;
@@ -99,7 +94,7 @@ export function useCreateGuarantee() {
   return useMutation<GuaranteeDTO, ApiError, CreateGuaranteeDTO>({
     mutationFn: async (body) => {
       const res = await request(ROOT, { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("guarantees.api.saveFailed")));
+      if (!res.ok) throw new ApiError(res.status, await readServerMessage(res, t("guarantees.api.saveFailed")));
       return res.json<GuaranteeDTO>();
     },
     onSuccess: invalidate,
@@ -113,7 +108,7 @@ export function useUpdateGuarantee() {
   return useMutation<GuaranteeDTO, ApiError, { id: string; patch: UpdateGuaranteeDTO }>({
     mutationFn: async ({ id, patch }) => {
       const res = await request(`${ROOT}/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(patch) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("guarantees.api.saveFailed")));
+      if (!res.ok) throw new ApiError(res.status, await readServerMessage(res, t("guarantees.api.saveFailed")));
       return res.json<GuaranteeDTO>();
     },
     onSuccess: invalidate,
@@ -130,7 +125,7 @@ function useGuaranteeAction<Body>(action: string) {
         method: "POST",
         body: JSON.stringify(body),
       });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("guarantees.api.actionFailed")));
+      if (!res.ok) throw new ApiError(res.status, await readServerMessage(res, t("guarantees.api.actionFailed")));
       return res.json<GuaranteeDTO>();
     },
     onSuccess: invalidate,

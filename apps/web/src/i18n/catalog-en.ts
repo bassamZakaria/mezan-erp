@@ -539,6 +539,7 @@ export const webEn: Record<WebTranslationKey, string> = {
   "changePassword.current": "Temporary password",
   "changePassword.submit": "Save and continue",
   "changePassword.signInAgainFailed": "The password was changed, but signing in again automatically failed. Sign in with the new password.",
+  "changePassword.retrySignIn": "Try signing in again",
   "resetPassword.title": "Set a new password",
   "resetPassword.body": "Choose a new password for your account. The link works once.",
   "resetPassword.submit": "Save the password",
@@ -553,6 +554,7 @@ export const webEn: Record<WebTranslationKey, string> = {
   "users.created.title": "Temporary password for {name}",
   "users.created.body": "Shown only once. Hand it to the user now; it must be changed at first sign-in.",
   "users.created.done": "Done, hide the password",
+  "users.created.label": "Temporary password",
   "firstRun.password": "Password",
   "firstRun.confirmPassword": "Confirm the password",
   "login.throttledFor": "Try again in {wait}",
@@ -6522,8 +6524,8 @@ export const webEn: Record<WebTranslationKey, string> = {
   "profile.activity": "Activity",
 
   // profile
-  "profile.changeThePin": "Change the PIN",
-  "profile.clearThePin": "Clear the PIN",
+  "profile.legacyCodeChanged": "Code changed (old record)",
+  "profile.legacyCodeCleared": "Code cleared (old record)",
 
   // production
   "production.late": "Late",

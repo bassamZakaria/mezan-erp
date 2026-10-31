@@ -264,7 +264,21 @@ describe("UsersPage", () => {
     expect(await screen.findByText("Tmp-9f3K-q2Lx")).toBeInTheDocument();
     expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ password: "" }), null);
     expect(screen.getByText("تظهر مرة واحدة فقط. سلّمها للمستخدم الآن؛ يجب تغييرها عند أول دخول.")).toBeInTheDocument();
+    const dialog = screen.getByRole("dialog", { name: "كلمة المرور المؤقتة لـ مستخدم جديد" });
+    expect(within(dialog).getByRole("button", { name: "تم، إخفاء كلمة المرور" })).toHaveFocus();
     fireEvent.click(screen.getByRole("button", { name: "تم، إخفاء كلمة المرور" }));
+    expect(screen.queryByText("Tmp-9f3K-q2Lx")).not.toBeInTheDocument();
+  });
+
+  it("closes the issued-password dialog on Escape", async () => {
+    const onSave = vi.fn().mockResolvedValue({ ok: true, value: { ...user, id: "user-new", nameAr: "مستخدم جديد", temporaryPassword: "Tmp-9f3K-q2Lx" } });
+    renderPage({ onSave });
+    fireEvent.click(screen.getByRole("button", { name: "إضافة مستخدم" }));
+    fireEvent.change(screen.getByLabelText("الاسم بالعربية"), { target: { value: "مستخدم جديد" } });
+    fireEvent.change(screen.getByLabelText("البريد الإلكتروني *", { exact: false }), { target: { value: "new@cyag.test" } });
+    fireEvent.click(screen.getByRole("button", { name: "حفظ المستخدم" }));
+    await screen.findByText("Tmp-9f3K-q2Lx");
+    fireEvent.keyDown(document, { key: "Escape" });
     expect(screen.queryByText("Tmp-9f3K-q2Lx")).not.toBeInTheDocument();
   });
 

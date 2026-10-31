@@ -308,6 +308,13 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
     );
   }
   const passwordRef = useRef<HTMLInputElement | null>(null);
+  const emailRef = useRef<HTMLInputElement | null>(null);
+  const focusEmailNext = useRef(false);
+  useEffect(() => {
+    if (!typing || !focusEmailNext.current) return;
+    focusEmailNext.current = false;
+    emailRef.current?.focus();
+  }, [typing]);
 
   const identity = typing ? username.trim() : (selected?.email ?? "");
   const canSubmit =
@@ -446,43 +453,45 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
       </h1>
 
       {remembered.length > 0 ? (
-        <div className="mt-[14px] flex gap-[9px]" role="radiogroup" aria-label={t("login.who")}>
-          {remembered.map((user) => {
-            const active = !typing && selected?.email === user.email;
-            return (
-              <button
-                key={user.email}
-                type="button"
-                role="radio"
-                aria-checked={active}
-                aria-label={t("login.who.pick", { name: displayName(user, locale) })}
-                onClick={() => pickUser(user)}
-                className={cn(
-                  "flex min-w-0 flex-1 flex-col items-center gap-[6px] rounded-md border px-[4px] py-[10px] text-2xs transition-colors",
-                  active
-                    ? "border-accent-strong bg-accent-soft font-semibold text-ink"
-                    : "border-transparent bg-surface-2 text-ink-muted hover:bg-surface-3",
-                )}
-              >
-                {user.photoUrl ? (
-                  <img src={user.photoUrl} alt="" className="h-[40px] w-[40px] flex-none rounded-full object-cover" />
-                ) : (
-                  <span
-                    aria-hidden
-                    className={cn(
-                      "flex h-[40px] w-[40px] flex-none items-center justify-center rounded-full font-display text-[13px] font-extrabold",
-                      active ? "bg-accent text-accent-ink" : "bg-brand text-brand-ink",
-                    )}
-                  >
-                    {user.initials}
+        <div className="mt-[14px] flex gap-[9px]">
+          <div role="radiogroup" aria-label={t("login.who")} className="flex min-w-0 gap-[9px]" style={{ flexGrow: remembered.length, flexBasis: 0 }}>
+            {remembered.map((user) => {
+              const active = !typing && selected?.email === user.email;
+              return (
+                <button
+                  key={user.email}
+                  type="button"
+                  role="radio"
+                  aria-checked={active}
+                  aria-label={t("login.who.pick", { name: displayName(user, locale) })}
+                  onClick={() => pickUser(user)}
+                  className={cn(
+                    "flex min-w-0 flex-1 flex-col items-center gap-[6px] rounded-md border px-[4px] py-[10px] text-2xs transition-colors",
+                    active
+                      ? "border-accent-strong bg-accent-soft font-semibold text-ink"
+                      : "border-transparent bg-surface-2 text-ink-muted hover:bg-surface-3",
+                  )}
+                >
+                  {user.photoUrl ? (
+                    <img src={user.photoUrl} alt="" className="h-[40px] w-[40px] flex-none rounded-full object-cover" />
+                  ) : (
+                    <span
+                      aria-hidden
+                      className={cn(
+                        "flex h-[40px] w-[40px] flex-none items-center justify-center rounded-full font-display text-[13px] font-extrabold",
+                        active ? "bg-accent text-accent-ink" : "bg-brand text-brand-ink",
+                      )}
+                    >
+                      {user.initials}
+                    </span>
+                  )}
+                  <span className="w-full truncate text-center" title={displayName(user, locale)}>
+                    {displayName(user, locale)}
                   </span>
-                )}
-                <span className="w-full truncate text-center" title={displayName(user, locale)}>
-                  {displayName(user, locale)}
-                </span>
-              </button>
-            );
-          })}
+                </button>
+              );
+            })}
+          </div>
           {/* «آخر» is an ACTION, not a fourth person — it sits outside the
               radiogroup so a screen reader does not count it as a choice. */}
           <button
@@ -492,6 +501,7 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
               setSelected(null);
               setUsername("");
               setError(null);
+              focusEmailNext.current = true;
             }}
             className={cn(
               "flex min-w-0 flex-1 flex-col items-center gap-[6px] rounded-md border px-[4px] py-[10px] text-2xs transition-colors",
@@ -554,6 +564,7 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
         <label className="mt-[14px] flex flex-col gap-[6px]">
           <span className="text-xs font-semibold text-ink">{t("login.email")}</span>
           <TextInput
+            ref={emailRef}
             type="email"
             value={username}
             placeholder={t("login.who.otherHint")}
@@ -637,6 +648,7 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
               setTyping(true);
               setSelected(null);
               setUsername("");
+              focusEmailNext.current = true;
             }}
             className="text-ink-muted hover:underline"
           >

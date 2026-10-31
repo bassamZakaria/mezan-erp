@@ -17,6 +17,7 @@ import {
   PASSWORD_LABEL,
 } from "./support/env";
 import {
+  currentPassword,
   enterCredentials,
   enterTenantCode,
   fillPassword,
@@ -106,7 +107,7 @@ test.describe("PLT-SAAS-08 — resolving a tenant reveals nothing before sign-in
 
     const signedIn = await request.post(`${SAAS_API_URL}/api/auth/login`, {
       headers: byCode,
-      data: { username: renamed.adminEmail, password: renamed.adminPassword },
+      data: { username: renamed.adminEmail, password: currentPassword(renamed) },
     });
     expect(((await signedIn.json()) as { tenantName: string }).tenantName).toBe(NAME_AFTER_RENAME);
   });

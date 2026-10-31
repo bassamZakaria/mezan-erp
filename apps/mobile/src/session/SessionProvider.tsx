@@ -3,7 +3,7 @@ import { StepUpOverlay } from "@/components/step-up-overlay";
 import { withStepUp } from "./step-up";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AppState } from "react-native";
-import { loginResponseSchema, type SessionDTO } from "@mezan/contracts";
+import { PasswordChangeRefusal, loginResponseSchema, type SessionDTO } from "@mezan/contracts";
 import { ApiError, ApiFailure } from "@/api/errors";
 import { forgetCachedReads } from "@/api/query-cache";
 import { HttpMethod, apiRequest, ScopeAll, type ApiCredentials, type RequestOptions } from "@/api/client";
@@ -28,6 +28,7 @@ export interface UnlockAccountInput {
 export enum SessionEnded {
   Displaced = "displaced",
   Expired = "expired",
+  PasswordChangeRequired = "password-change-required",
 }
 
 const SESSION_DISPLACED_CODE = "SESSION_DISPLACED";
@@ -173,6 +174,10 @@ export function SessionProvider({ children }: { children: ReactNode }): ReactNod
         // A dead token must end the session here, or every screen renders its own sign-in prompt.
         if (error instanceof ApiError && error.failure === ApiFailure.Unauthorized && session) {
           setSessionEnded(error.code === SESSION_DISPLACED_CODE ? SessionEnded.Displaced : SessionEnded.Expired);
+          await signOut();
+        }
+        if (error instanceof ApiError && error.failure === ApiFailure.Forbidden && error.code === PasswordChangeRefusal.Required && session) {
+          setSessionEnded(SessionEnded.PasswordChangeRequired);
           await signOut();
         }
         throw error;

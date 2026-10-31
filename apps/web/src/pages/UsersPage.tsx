@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Button,
   Card,
@@ -13,6 +13,7 @@ import {
   type DocumentListStatusChip,
   type EntityPickerOption,
   type PillTone,
+  useFocusTrap,
 } from "@mezan/ui";
 import { ALL_SCOPE, detectSodConflicts, UserStatusCode, WILDCARD_PERMISSION, type ScopeSelection, type SodConflictMatch } from "@mezan/domain";
 import { ErasureRetention, type OwnerHandOverOutcome, type EraseUserDTO, type RoleDTO, type ScopeSelectionDTO, type UserDTO, type CreatedUserDTO, type UserErasureResultDTO, type UserStatusDTO } from "@mezan/contracts";
@@ -22,7 +23,7 @@ import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useNavigation } from "../navigation";
 import { CLONE_SEGMENT } from "../screens/enh/provisioning/segments";
 import { useUrlParam } from "../lib/url-state";
-import { OneTimeSecret } from "../screens/enh/integrations/OneTimeSecret";
+import { TemporaryPasswordField } from "../login/TemporaryPasswordField";
 
 export type SavedUser = CreatedUserDTO;
 
@@ -733,19 +734,7 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
         </div>
       ) : null}
 
-      {issuedPassword ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-scrim p-4">
-          <div role="dialog" aria-modal="true" aria-label={t("users.created.title", { name: issuedPassword.name })} className="w-full max-w-[420px]">
-            <OneTimeSecret
-              title={t("users.created.title", { name: issuedPassword.name })}
-              body={t("users.created.body")}
-              secret={issuedPassword.password}
-              doneLabel={t("users.created.done")}
-              onDone={() => setIssuedPassword(null)}
-            />
-          </div>
-        </div>
-      ) : null}
+      {issuedPassword ? <IssuedPasswordDialog name={issuedPassword.name} password={issuedPassword.password} onDone={() => setIssuedPassword(null)} /> : null}
 
       {eraseNotice ? (
         <div className="fixed bottom-[18px] start-[18px] z-50 flex items-center gap-[10px] rounded-md border border-border bg-surface px-[14px] py-[10px] text-[12.5px] text-ink shadow-lg">
@@ -756,6 +745,35 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
         </div>
       ) : null}
     </>
+  );
+}
+
+function IssuedPasswordDialog({ name, password, onDone }: { name: string; password: string; onDone: () => void }) {
+  const { t } = useAppTranslation();
+  const titleId = useId();
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const doneRef = useRef<HTMLButtonElement>(null);
+  useLayoutEffect(() => {
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    doneRef.current?.focus();
+    return () => previous?.focus();
+  }, []);
+  useFocusTrap({ active: true, containerRef: dialogRef, onEscape: onDone, preventEscapeDefault: true });
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-scrim p-4">
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby={titleId} className="flex w-full max-w-[420px] flex-col gap-[12px] rounded-lg border border-warning bg-surface p-[18px] shadow-2">
+        <h2 id={titleId} className="text-[14px] font-bold text-ink">
+          {t("users.created.title", { name })}
+        </h2>
+        <p className="text-[12.5px] text-ink-muted">{t("users.created.body")}</p>
+        <TemporaryPasswordField label={t("users.created.label")} password={password} />
+        <div className="flex justify-end">
+          <Button ref={doneRef} variant="primary" onClick={onDone}>
+            {t("users.created.done")}
+          </Button>
+        </div>
+      </div>
+    </div>
   );
 }
 

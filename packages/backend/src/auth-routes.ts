@@ -103,6 +103,8 @@ export interface AuthRoutesDeps {
 
 const PASSWORD_RESET_TTL_MS = 60 * 60 * 1000;
 const PASSWORD_RESET_TOKEN_BYTES = 32;
+// SECURITY: one emailed link per account per window, so a stranger who knows the address can neither flood the inbox nor keep cancelling the link the owner is about to open.
+const PASSWORD_RESET_REISSUE_MS = 5 * 60 * 1000;
 
 function hashResetToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
@@ -146,6 +148,8 @@ async function toSession(user: User, deps: AuthRoutesDeps, origin: string | null
   } else {
     permissions = [];
   }
+  // SECURITY: a temporary password grants nothing. Every door that checks permissions — billing, desktop IPC, the API — refuses it, not only the HTTP gate.
+  if (user.mustChangePassword) permissions = [];
   return {
     userId: user.id,
     nameAr: user.nameAr,
@@ -259,6 +263,12 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
     await deps.audit?.settled?.();
     if (await tenantIsClaimed()) return;
     return secrets.precompute({ hash: [parsed.data.password] });
+  };
+
+  const hashResetPasswordBeforeTheTurn: BoundaryPreparation = async (c) => {
+    const parsed = resetPasswordRequestSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success || !deps.secrets) return;
+    return deps.secrets.precompute({ hash: [parsed.data.password] });
   };
 
   /**
@@ -551,26 +561,6 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
     return c.json({ ok: true });
   });
 
-  /**
-   * Ends the session server-side. Without this a token stayed valid until it
-   * idled out.
-   *
-   * THE ORIGIN IS CHECKED, exactly as every other lookup in the product checks
-   * it. This route is on the LAN socket's public list — it has to be, a till
-   * signs out over the same socket it signed in on — and it was the ONE place a
-   * token was acted on without asking `find()` whether the caller was where the
-   * token was minted. A captured token is worth an admin session for twelve
-   * hours, but a token that only ever appears in a `POST /auth/logout` is worth
-   * something quieter and just as useful to an attacker: signing the owner out
-   * of the counter, repeatedly, from anywhere on the wifi. `find()` with the
-   * origin is what makes revoking a session require being the machine that
-   * holds it.
-   *
-   * It still answers `{ ok: true }` either way. A logout that reports whether
-   * the token it was handed was real would be a token oracle, and the caller
-   * has nothing to do differently: the session it wanted ended is, from its
-   * side, ended.
-   */
   app.post("/auth/forgot-password", async (c) => {
     const parsed = forgotPasswordRequestSchema.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
@@ -583,7 +573,9 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
     const user = await deps.uow.users.findByEmail(needle);
     const tokens = deps.passwordResetTokens;
     const send = deps.onPasswordResetRequested;
-    if (user && user.status === UserStatusCode.Active && !user.erasedAt && tokens && send) {
+    const latest = user && tokens ? await tokens.latestExpiry(user.id, Date.now()) : null;
+    const issuedRecently = latest !== null && latest - PASSWORD_RESET_TTL_MS > Date.now() - PASSWORD_RESET_REISSUE_MS;
+    if (user && user.status === UserStatusCode.Active && !user.erasedAt && tokens && send && !issuedRecently) {
       const token = randomBytes(PASSWORD_RESET_TOKEN_BYTES).toString("base64url");
       await tokens.issue(user.id, hashResetToken(token), Date.now() + PASSWORD_RESET_TTL_MS);
       await send({ user, token }).catch((err: unknown) => authLog.error({ err }, "the password-reset link was issued, but mailing it failed"));
@@ -606,13 +598,39 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
       return c.json({ error: SignInRefusal.InvalidResetLink, message: "رابط إعادة تعيين كلمة المرور غير صالح، أو انتهت صلاحيته، أو استُخدم من قبل." }, 400);
     }
     const passwordHash = await deps.hasher.hash(parsed.data.password);
-    await deps.uow.users.save({ ...user, passwordHash, mustChangePassword: false });
+    const saved = await atomically(async () => {
+      const current = await deps.uow.users.findById(user.id);
+      if (!current || current.status !== UserStatusCode.Active) return false;
+      await deps.uow.users.save({ ...current, passwordHash, mustChangePassword: false });
+      return true;
+    });
+    if (!saved) return c.json({ error: SignInRefusal.InvalidResetLink, message: "رابط إعادة تعيين كلمة المرور غير صالح، أو انتهت صلاحيته، أو استُخدم من قبل." }, 400);
     await deps.sessions.revokeUser(user.id);
     await guard.unlock(user.email);
     await security(c, "PASSWORD_RESET_BY_LINK", AuditSeverityCode.Warning, { userId: user.id });
     return c.json({ ok: true });
   });
 
+  /**
+   * Ends the session server-side. Without this a token stayed valid until it
+   * idled out.
+   *
+   * THE ORIGIN IS CHECKED, exactly as every other lookup in the product checks
+   * it. This route is on the LAN socket's public list — it has to be, a till
+   * signs out over the same socket it signed in on — and it was the ONE place a
+   * token was acted on without asking `find()` whether the caller was where the
+   * token was minted. A captured token is worth an admin session for twelve
+   * hours, but a token that only ever appears in a `POST /auth/logout` is worth
+   * something quieter and just as useful to an attacker: signing the owner out
+   * of the counter, repeatedly, from anywhere on the wifi. `find()` with the
+   * origin is what makes revoking a session require being the machine that
+   * holds it.
+   *
+   * It still answers `{ ok: true }` either way. A logout that reports whether
+   * the token it was handed was real would be a token oracle, and the caller
+   * has nothing to do differently: the session it wanted ended is, from its
+   * side, ended.
+   */
   app.post("/auth/logout", async (c) => {
     const token = readSessionToken(c);
     if (token && (await deps.sessions.find(token, requestOrigin(c), c.req.header(DEVICE_SECRET_HEADER) ?? null))) await deps.sessions.revoke(token);
@@ -773,5 +791,5 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
     }
   });
 
-  return { routes: app, beforeTheTurn: { "/auth/login": verifyPasswordBeforeTheTurn, "/bootstrap/admin": hashClaimSecretsBeforeTheTurn } };
+  return { routes: app, beforeTheTurn: { "/auth/login": verifyPasswordBeforeTheTurn, "/bootstrap/admin": hashClaimSecretsBeforeTheTurn, "/auth/reset-password": hashResetPasswordBeforeTheTurn } };
 }

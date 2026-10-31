@@ -67,7 +67,7 @@ without being asked again is the point of writing them down.
 
 ## Naming and content
 
-- Company name is **cyag**. Demo user is **محمد الشهابي** (Mohamed el Shehaby), PIN `1234`.
+- Company name is **cyag**. Demo user is **محمد الشهابي** (Mohamed el Shehaby), `admin@cyag.example` / password `Cyag@2026`.
 - **Never mention the competing product this catalog was captured from** — not in code,
   docs, UI, commit messages or artifacts.
 

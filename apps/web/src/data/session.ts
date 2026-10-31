@@ -50,7 +50,8 @@ export function loadPersistedSession(): Session | null {
   const raw = storage.getItem(SESSION_STORAGE_KEY);
   if (!raw) return null;
   try {
-    const parsed = sessionSchema.safeParse(JSON.parse(raw));
+    // A session saved before `mustChangePassword` existed still loads; the server's 403 gate re-flags it if it holds a temporary password.
+    const parsed = sessionSchema.safeParse({ mustChangePassword: false, ...(JSON.parse(raw) as object) });
     return parsed.success ? parsed.data : null;
   } catch {
     return null;

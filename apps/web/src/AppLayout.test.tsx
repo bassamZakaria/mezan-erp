@@ -21,7 +21,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { QueryClient } from "@tanstack/react-query";
 import { createMemoryRouter, RouterProvider, useLocation } from "react-router";
 import { GLANCE_PERMISSION } from "./screens/enh/glance/permission";
-import type { EntitlementsDTO, RoleDTO, UserDTO } from "@mezan/contracts";
+import { PasswordChangeRefusal, type EntitlementsDTO, type RoleDTO, type UserDTO } from "@mezan/contracts";
 import { SUBSCRIPTION_BILLING_FEATURE, moduleNotLicensedMessageAr } from "@mezan/domain";
 import { AppLayout } from "./AppLayout";
 import { useEffect, useState } from "react";
@@ -867,6 +867,38 @@ describe("AppLayout — sign out", () => {
     fireEvent.click(await screen.findByRole("button", { name: "تسجيل الخروج" }));
     expect(clearSpy).toHaveBeenCalled();
     clearSpy.mockRestore();
+  });
+});
+
+describe("AppLayout — a session holding a temporary password", () => {
+  afterEach(() => {
+    persistSession(null);
+  });
+
+  it("shows only the change-password screen and never asks for the page behind it", async () => {
+    const asked: string[] = [];
+    const transport = stubTransport({
+      ...baseHandlers(),
+      "GET /users": (_init, path) => {
+        asked.push(path);
+        return { body: [] };
+      },
+    });
+    renderLayout(transport, [pathForRoute("users")], { ...testAdminSession, mustChangePassword: true });
+
+    expect(await screen.findByRole("heading", { name: "غيّر كلمة المرور المؤقتة" })).toBeInTheDocument();
+    expect(asked).toEqual([]);
+  });
+
+  it("switches to the change-password screen when the server answers PASSWORD_CHANGE_REQUIRED mid-session", async () => {
+    const transport = stubTransport({
+      ...baseHandlers(),
+      "GET /roles": () => ({ body: [] }),
+      "GET /users": () => ({ status: 403, body: { error: PasswordChangeRefusal.Required, message: "يجب تغيير كلمة المرور المؤقتة قبل المتابعة." } }),
+    });
+    renderLayout(transport, [pathForRoute("users")]);
+
+    expect(await screen.findByRole("heading", { name: "غيّر كلمة المرور المؤقتة" })).toBeInTheDocument();
   });
 });
 

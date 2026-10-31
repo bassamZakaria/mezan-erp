@@ -32,6 +32,12 @@ function formatWait(seconds: number, strings: Strings): string {
   return counted(Math.ceil(seconds / 60), strings.signIn.wait[WaitUnit.Minutes]);
 }
 
+function sessionEndedSentence(ended: SessionEnded, strings: Strings): string {
+  if (ended === SessionEnded.Displaced) return strings.signIn.sessionDisplaced;
+  if (ended === SessionEnded.PasswordChangeRequired) return strings.signIn.passwordChangeRequired;
+  return strings.signIn.sessionExpired;
+}
+
 // The wait is counted down in ONE place, on the button. A throttle's own
 // sentence names a number of seconds that is stale a second later, so the
 // screen says what happened and leaves the number to the button.
@@ -200,7 +206,7 @@ export function SignIn() {
 
         {sessionEnded === null || failure !== null ? null : (
           <Text accessibilityRole="alert" style={[styles.failure, { color: theme.negative }]} testID="sign-in-session-ended">
-            {sessionEnded === SessionEnded.Displaced ? strings.signIn.sessionDisplaced : strings.signIn.sessionExpired}
+            {sessionEndedSentence(sessionEnded, strings)}
           </Text>
         )}
         {failure === null ? null : (

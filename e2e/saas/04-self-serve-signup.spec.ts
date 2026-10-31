@@ -1,6 +1,6 @@
 import { test, expect } from "./support/test";
 import { ApiError, BillingCycle, CodePrefix, HttpMethod, PlanCode, PlanId, SAAS_API_URL, SubscriptionStatus, TENANT_HEADER, FORWARDED_FOR_HEADER, browserSource, proxiedSource, uniqueCode } from "./support/env";
-import { errorOf, fillPassword, invoiceDrafts, provisionTenant, rowsOf, storedSession, tenantApiLogin, tenantCall, tenantSignIn, tenantSignOut, type TenantLogin } from "./support/saas";
+import { completeForcedChange, currentPassword, errorOf, fillPassword, invoiceDrafts, provisionTenant, rowsOf, storedSession, tenantApiLogin, tenantCall, tenantSignIn, tenantSignOut, type TenantLogin } from "./support/saas";
 
 const CODE = uniqueCode(CodePrefix.SignedUp);
 const COMPANY = "متجر الياسمين";
@@ -157,7 +157,7 @@ test.describe("Self-serve signup — form, verification link, first sign-in", ()
   test("the new tenant carries the company name its owner typed, in the session, in settings and on a printed invoice [guards D-SAAS-02]", async ({ page, request }) => {
     const login = await request.post(`${SAAS_API_URL}/api/auth/login`, {
       headers: { [TENANT_HEADER]: CODE },
-      data: { username: tenant.adminEmail, password: tenant.adminPassword },
+      data: { username: tenant.adminEmail, password: currentPassword(tenant) },
     });
     expect(((await login.json()) as { tenantName: string }).tenantName).toBe(COMPANY);
 
@@ -208,6 +208,7 @@ test.describe("Self-serve signup — form, verification link, first sign-in", ()
     await expect(page.getByRole("radio"), "no earlier company's face is offered").toHaveCount(0);
 
     await fillPassword(page, adminPassword);
+    await completeForcedChange(page, ownerEmail, adminPassword);
     await expect(page.getByRole("button", { name: "تسجيل الخروج" })).toBeVisible();
     await expect(page.getByRole("heading", { level: 1 })).toContainText("هالة");
   });

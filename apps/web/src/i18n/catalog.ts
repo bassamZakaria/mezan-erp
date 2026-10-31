@@ -545,6 +545,7 @@ export const webAr = {
   "changePassword.current": "كلمة المرور المؤقتة",
   "changePassword.submit": "حفظ والمتابعة",
   "changePassword.signInAgainFailed": "تغيّرت كلمة المرور، لكن تعذّر الدخول تلقائيًا. سجّل الدخول بكلمة المرور الجديدة.",
+  "changePassword.retrySignIn": "إعادة محاولة الدخول",
   "resetPassword.title": "تعيين كلمة مرور جديدة",
   "resetPassword.body": "اختر كلمة مرور جديدة لحسابك. الرابط يعمل مرة واحدة.",
   "resetPassword.submit": "حفظ كلمة المرور",
@@ -559,6 +560,7 @@ export const webAr = {
   "users.created.title": "كلمة المرور المؤقتة لـ {name}",
   "users.created.body": "تظهر مرة واحدة فقط. سلّمها للمستخدم الآن؛ يجب تغييرها عند أول دخول.",
   "users.created.done": "تم، إخفاء كلمة المرور",
+  "users.created.label": "كلمة المرور المؤقتة",
   "firstRun.password": "كلمة المرور",
   "firstRun.confirmPassword": "تأكيد كلمة المرور",
   "login.throttledFor": "حاول بعد {wait}",
@@ -6528,8 +6530,8 @@ export const webAr = {
   "profile.activity": "النشاط",
 
   // profile
-  "profile.changeThePin": "تغيير الرقم السري",
-  "profile.clearThePin": "إلغاء الرقم السري",
+  "profile.legacyCodeChanged": "تغيير الرمز (سجل قديم)",
+  "profile.legacyCodeCleared": "إلغاء الرمز (سجل قديم)",
 
   // production
   "production.late": "متأخر",

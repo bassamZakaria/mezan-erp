@@ -43,7 +43,7 @@ afterEach(() => {
 });
 
 describe("the page a mailed password-reset link opens", () => {
-  it("sets the new password under the link's company, and remembers that company only once the server accepted the link", async () => {
+  it("sets the new password under the link's company, and never saves that company for later sign-ins", async () => {
     let tenantWhenSent: string | null = "unset";
     const sent: Sent[] = [];
     const transport = stubTransport({
@@ -65,7 +65,7 @@ describe("the page a mailed password-reset link opens", () => {
     expect(await screen.findByRole("status")).toHaveTextContent("تم تعيين كلمة المرور الجديدة. سجّل الدخول بها الآن.");
     expect(sent).toEqual([{ body: { token: TOKEN, password: "Cyag@2026" }, tenant: "acme" }]);
     expect(tenantWhenSent).toBeNull();
-    expect(loadTenantCode()).toBe("acme");
+    expect(loadTenantCode()).toBeNull();
   });
 
   it("sends the link's own company even when another company is left in storage", async () => {
@@ -74,9 +74,10 @@ describe("the page a mailed password-reset link opens", () => {
     choose("Cyag@2026");
     await screen.findByRole("status");
     expect(sent[0]?.tenant).toBe("acme");
+    expect(loadTenantCode()).toBe("rival");
   });
 
-  it("shows the server's Arabic refusal for a used or expired link and leaves the stored company alone", async () => {
+  it("shows the server's Arabic refusal for a used or expired link", async () => {
     mount(`/reset-password#tenant=acme&token=${TOKEN}`, () => ({ status: 400, body: { error: "INVALID_RESET_LINK", message: "رابط تعيين كلمة المرور غير صالح أو انتهت صلاحيته." } }));
     choose("Cyag@2026");
     expect(await screen.findByRole("alert")).toHaveTextContent("رابط تعيين كلمة المرور غير صالح أو انتهت صلاحيته.");

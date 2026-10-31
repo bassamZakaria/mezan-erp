@@ -101,7 +101,7 @@ MEZAN_SEED_DEMO=1 MEZAN_DB=./dev.db PORT=3187 pnpm exec tsx apps/server/src/inde
 cd apps/web && MEZAN_API_URL=http://127.0.0.1:3187 pnpm exec vite --port 5183
 ```
 
-Sign in as `admin@cyag.example` / PIN `123456` — the login field is the **email and only the
+Sign in as `admin@cyag.example` / password `Cyag@2026` — the login field is the **email and only the
 email**. **Reload the page to confirm a save actually persisted**; that check alone has
 caught several "works until you look again" bugs.
 
@@ -536,14 +536,14 @@ Its first run found D328–D343; the defects still open are D335–D343, with tw
 
 | Requirement | Store | State |
 |---|---|---|
-| Demo credentials and review notes: tenant code, email, PIN, and a sentence that this is a B2B app whose accounts are created by the company's own administrator | both | **to write** — depends on S1 |
+| Demo credentials and review notes: tenant code, email, password, and a sentence that this is a B2B app whose accounts are created by the company's own administrator | both | **to write** — depends on S1 |
 | Account deletion: Apple requires in-app deletion only for apps that let a user *create* an account; Mezan does not (the company admin provisions users). Google requires a deletion path for apps with accounts. Offer a public deletion-request URL either way, and state the admin-provisioning model in review notes | both | **to build** — confirm against the current text of Apple 5.1.1(v) and Google's account-deletion policy before submission |
 | Privacy manifest (`PrivacyInfo.xcprivacy`) declaring required-reason APIs — AsyncStorage reaches `UserDefaults`, and Expo modules touch file timestamps and disk space | Apple | **to build** — via `ios.privacyManifests` in `app.json`, checked against what each Expo module already ships |
 | App Privacy "nutrition label" and Google's Data safety form: what is collected (email, name, a selfie at clock-in, business records), that it is linked to the user, not used for tracking, encrypted in transit | both | **to write** — must match S2 word for word |
 | Export compliance: HTTPS only, no custom cryptography → `ITSAppUsesNonExemptEncryption: false` | Apple | **to set** |
 | Usage strings for camera and Face ID, in Arabic and English | Apple | done; the system alert chrome renders in English on an Arabic device until `CFBundleDevelopmentRegion` is `ar` (D343, in progress) |
 | No purchasing inside the app, and no link to buy — the subscription is sold outside it (Paymob, web). Apple 3.1.1/3.1.3: a B2B service paid elsewhere may be used in-app provided the app neither sells nor points to a purchase | Apple | **to verify** — grep the app for any pricing, upgrade or checkout link |
-| Sign in with Apple is required only when an app offers third-party social login; Mezan signs in with its own email + PIN | Apple | not required — say so in review notes if asked |
+| Sign in with Apple is required only when an app offers third-party social login; Mezan signs in with its own email + password | Apple | not required — say so in review notes if asked |
 | iPad: `supportsTablet: true` means the reviewer may test on an iPad and every screen must hold up there, with iPad screenshots in the listing | Apple | **decide**: test and screenshot on iPad, or set `supportsTablet: false` for v1 |
 | IPv6-only networks: Apple reviews on one | Apple | **to verify** — the server must be reachable over IPv6 (the Contabo VPS is once Docker IPv6 is set up; a raw IPv4 literal anywhere would fail) |
 | Android permissions: request only what is used — camera yes, `RECORD_AUDIO` no (already off), no storage or location unless a screen uses them; audit the merged manifest `expo prebuild` generates | Google | **to audit** |
@@ -596,7 +596,7 @@ below was taken against the current published rule, quoted in the lane's report.
 
 | Row | State | Evidence |
 |---|---|---|
-| **S1** reviewer environment | **not prepared — no host chosen** | The AWS reviewer stack was dropped (production is Contabo only). In this repo, `MEZAN_REVIEW_TENANT_CODE`/`MEZAN_REVIEW_PIN` seed the demo once and move every account onto the private PIN (measured locally: the reviewer PIN 200, `123456` 401); a reviewer host still has to be chosen and deployed |
+| **S1** reviewer environment | **not prepared — no host chosen** | The AWS reviewer stack was dropped (production is Contabo only). In this repo, `MEZAN_REVIEW_TENANT_CODE`/`MEZAN_REVIEW_PASSWORD` seed the demo once on the private password (must differ from `Cyag@2026`); an existing reviewer tenant seeded before 2026-10-30 still holds migrated temporary passwords and must be released and re-provisioned; a reviewer host still has to be chosen and deployed |
 | **S2** privacy policy | **built, draft — needs legal sign-off** | `/legal/privacy` and `/legal/account-deletion`, served by `apps/server` before any auth and outside `/api`, Arabic by default and English with `?lang=en`, headed «مسودة — تحتاج مراجعة قانونية». Written from what the code actually collects |
 | Account deletion | **built — needs a commitment** | The page lists only channels that reach someone (the company admin; a support mailbox if configured; a form only when SMTP is configured, recorded in the platform security audit). Apple 5.1.1(v) applies only to apps that support account creation, which this one does not; **Corrected 2026-09-23:** the policy text is scoped to an account created *from within* the app, and does **not** reach an app that merely directs users elsewhere — the earlier claim here was wrong. The readiness check still fails the build on any `/signup` link in the app, now as an Apple 3.1.3(f) precaution rather than a Google requirement. **There is no erasure tool — only deactivation (D348)** |
 | IPv6 | **needs the host** | the Contabo VPS serves IPv6 once the Docker IPv6 step in `deploy/contabo/README.md` is done |
@@ -784,7 +784,7 @@ the cloud edition. Every item below is on `main` and was walked in a browser on 
 | Platform console session | Device-bound (`issueDeviceBound`), 8h absolute / 30min idle, password step-up after an address move for any change, server-side sign-out, every event on the platform security stream | `packages/backend/src/platform-auth.ts`, `packages/api/src/session-auth.ts` |
 | 6A — cookie sessions + CSRF (cloud only) | Tenant and console tokens move to HttpOnly SameSite=Strict cookies; CSRF = HMAC cookie echoed in `x-mezan-csrf` plus `Sec-Fetch-Site`/`Origin` checks; cookie bound to its tenant; the browser stores no token. Desktop, LAN and mobile keep bearer tokens | `apps/server/src/cookie-session.ts`, `apps/web/src/data/session.ts` |
 | Shared sessions (cloud) | Sessions in SQLite (`auth_session`, token hashes only), so a revoke holds on every instance and a restart signs nobody out; desktop stays in memory by decision | `packages/persistence/src/session-store.ts` |
-| Credential changes | Email change on the profile needs the current password; a self edit of email/PIN/password on the users route needs the current secret; a wrong current secret answers 403 (no longer signs the user out); same-device re-sign-in ends the earlier session | `profile-routes.ts`, `users-routes.ts` |
+| Credential changes | Email change on the profile needs the current password; a self edit of email/password on the users route needs the current password; a wrong current secret answers 403 (no longer signs the user out); same-device re-sign-in ends the earlier session | `profile-routes.ts`, `users-routes.ts` |
 | 5D — tenant backup export + restore drill | Owner-only, typed reason, passphrase-encrypted portable file the desktop imports, single-use 10-minute link, sign-in attempts/leases/sessions scrubbed from the copy; drill restores into a scratch copy only | `apps/server/src/tenant-backups.ts`, `TenantBackupCard.tsx` |
 | Multi-instance state | Login throttle, signup/deletion rate limits and HR punch/repayment leases in the database | `login-throttle.ts`, `keyed-lock.ts`, `rate-limit.ts` |
 | Audit tamper evidence | Ed25519-signed chain-head anchors every 15 min to an append-only sink (S3 or local), key rotation, verifier CLI detecting rewrite and rollback | `apps/server/src/audit-anchor*.ts` |
@@ -1382,7 +1382,7 @@ Found by four independent reviewers (ledger, security, UI/conventions, schema/te
 - **#122: a draft sales invoice is cancelled, not hard-deleted.** Its number stays in the log as «ملغي», so the counter has no gap.
 - **#127: on a phone, the journal-entry lines table scrolls sideways inside its own box** (640 px of content in 325 px). The page itself no longer scrolls sideways.
 - **#115: a collector can record up to the whole receivable less 0.01 as "commission"**, which works as a write-off without a write-off right. Decide whether commission needs its own right or a cap.
-- **GitHub issues #113, #116, #123, #124 and #128 were not started.** They need the owner's decisions: service-type accounts, what a bonus is, invoice-before-issue flow, prior-year openings, PIN removal.
+- **GitHub issues #113, #116, #123, #124 and #128 were not started.** They need the owner's decisions: service-type accounts, what a bonus is, invoice-before-issue flow, prior-year openings, PIN removal (PIN removal since done — DEC-32).
 
 ## 5.1 Filing a new one
 
@@ -2743,6 +2743,17 @@ resolve `@mezan/contracts`' NodeNext `./x.js` specifiers without a resolver shim
 worktree's copy of the app.
 
 ---
+
+#### DEC-32 — Email + password is the only sign-in, on every edition. The PIN is gone. (2026-10-30)
+
+**Taken by the owner** after the SaaS sign-in panel (`.claude/stakeholders/meeting-2026-10-29-saas-login.md`); external providers (Supabase, Cognito, Firebase, Google sign-in) were weighed and dropped.
+- Web/SaaS, Electron desktop and LAN tills sign in with email + password; sensitive actions re-ask the password (`/auth/step-up`).
+- An admin-created user, a provisioned owner and a packaged install's fallback admin get a **temporary** password (`mustChangePassword`). While it is held the session carries no permissions and `passwordChangeGate` refuses every route but sign-in/out, the pre-sign-in reads, `GET /profile` and `POST /profile/change-password`.
+- Upgrade: `pin_hash` is dropped; each old PIN hash becomes the user's password and every migrated user must change it at next sign-in; sessions opened before the upgrade end. `CURRENT_SCHEMA_VERSION` 3, so desktop takes its pre-migration backup.
+- Cloud: invitation email with the temporary password, sign-in link and company code; «نسيت كلمة المرور» mails a one-hour single-use link (`/reset-password`), at most once per five minutes per account. Desktop has no mail: the admin resets.
+- Demo/dev/test password `Cyag@2026`; test tenants on Contabo are reset with `scripts/reset-test-passwords.ts --only=…` (refuses without a loopback DB host).
+- **Not done:** 2FA (owner: later); the mobile app signs in with a password but cannot change a temporary one — it tells the user to change it on the web first.
+- **Reversing it** means restoring a second credential column and its UI; the migration is one-way (old PIN hashes are now password hashes).
 
 ### Taken earlier
 

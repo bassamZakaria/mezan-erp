@@ -88,6 +88,29 @@ export async function openTenantDetail(page: Page, code: string): Promise<void> 
   await expect(page.getByRole("button", { name: "تسجيل دفعة" })).toBeVisible();
 }
 
+const OWNER_NEW_PASSWORD = "Cyag@2026";
+const changedPasswords = new Map<string, string>();
+
+export function forgetChangedPassword(email: string): void {
+  changedPasswords.delete(email);
+}
+
+export function currentPassword(tenant: Pick<TenantLogin, "adminEmail" | "adminPassword">): string {
+  return changedPasswords.get(tenant.adminEmail) ?? tenant.adminPassword;
+}
+
+export async function completeForcedChange(page: Page, email: string, temporary: string): Promise<void> {
+  const title = page.getByRole("heading", { name: "غيّر كلمة المرور المؤقتة" });
+  const shell = page.locator("main").first();
+  await expect(title.or(shell)).toBeVisible();
+  if (!(await title.isVisible())) return;
+  await page.getByLabel("كلمة المرور المؤقتة", { exact: true }).fill(temporary);
+  await page.getByLabel("كلمة المرور الجديدة", { exact: true }).fill(OWNER_NEW_PASSWORD);
+  await page.getByLabel("تأكيد كلمة المرور الجديدة", { exact: true }).fill(OWNER_NEW_PASSWORD);
+  await page.getByRole("button", { name: "حفظ والمتابعة" }).click();
+  changedPasswords.set(email, OWNER_NEW_PASSWORD);
+}
+
 export async function fillPassword(page: Page, password: string): Promise<void> {
   const field = page.getByLabel(PASSWORD_LABEL, { exact: true });
   await field.fill(password);
@@ -108,13 +131,14 @@ export async function enterCredentials(page: Page, email: string, password: stri
   const field = page.getByRole("textbox", { name: "البريد الإلكتروني" });
   if (!(await field.isVisible())) await page.getByRole("button", { name: "آخر", exact: true }).click();
   await field.fill(email);
-  await fillPassword(page, password);
+  await fillPassword(page, changedPasswords.get(email) ?? password);
 }
 
 export async function tenantSignIn(page: Page, tenant: TenantLogin, baseUrl = ""): Promise<void> {
   await page.goto(`${baseUrl}/`);
   await enterTenantCode(page, tenant.code);
-  await enterCredentials(page, tenant.adminEmail, tenant.adminPassword);
+  await enterCredentials(page, tenant.adminEmail, currentPassword(tenant));
+  await completeForcedChange(page, tenant.adminEmail, currentPassword(tenant));
   await expect(page.locator("main").first()).toBeVisible();
   await expect(page.getByRole("button", { name: "تسجيل الخروج" })).toBeVisible();
 }
@@ -199,12 +223,23 @@ export async function tenantApiLogin(
   tenant: TenantLogin,
   apiUrl = SAAS_API_URL,
 ): Promise<TenantApi> {
-  const response = await request.post(`${apiUrl}/api/auth/login`, {
-    headers: { [TENANT_HEADER]: tenant.code },
-    data: { username: tenant.adminEmail, password: tenant.adminPassword },
-  });
+  const signIn = async (password: string) =>
+    request.post(`${apiUrl}/api/auth/login`, { headers: { [TENANT_HEADER]: tenant.code }, data: { username: tenant.adminEmail, password } });
+  let response = await signIn(currentPassword(tenant));
   expect(response.status(), await response.text()).toBe(200);
-  return { code: tenant.code, token: ((await response.json()) as { token: string }).token };
+  let body = (await response.json()) as { token: string; mustChangePassword?: boolean };
+  if (body.mustChangePassword === true) {
+    const changed = await request.post(`${apiUrl}/api/profile/change-password`, {
+      headers: { [TENANT_HEADER]: tenant.code, authorization: `Bearer ${body.token}` },
+      data: { currentPassword: currentPassword(tenant), newPassword: OWNER_NEW_PASSWORD },
+    });
+    expect(changed.status(), await changed.text()).toBe(200);
+    changedPasswords.set(tenant.adminEmail, OWNER_NEW_PASSWORD);
+    response = await signIn(OWNER_NEW_PASSWORD);
+    expect(response.status(), await response.text()).toBe(200);
+    body = (await response.json()) as { token: string };
+  }
+  return { code: tenant.code, token: body.token };
 }
 
 export interface ApiAnswer {

@@ -19,6 +19,8 @@ import {
 } from "./support/env";
 import {
   addCustomer,
+  currentPassword,
+  forgetChangedPassword,
   createTenantInConsole,
   enterCredentials,
   errorOf,
@@ -42,8 +44,8 @@ const CUSTOMER_NAME = `عميل ${TENANT_CODE}`;
 const HR_REFUSAL = "وحدة الموارد البشرية ليست ضمن باقة «الأعمال». يمكنكم إضافتها بترقية الباقة من صفحة الاشتراك.";
 const READ_ONLY_BANNER = "الترخيص غير فعّال — وضع القراءة فقط";
 const SUSPEND_QUESTION = "إيقاف المنشأة؟";
-const RESET_OWNER_PASSWORD = "إعادة تعيين رمز المالك";
-const RESET_OWNER_PASSWORD_QUESTION = "إعادة تعيين رمز المالك؟";
+const RESET_OWNER_PASSWORD = "إعادة تعيين كلمة مرور المالك";
+const RESET_OWNER_PASSWORD_QUESTION = "إعادة تعيين كلمة مرور المالك؟";
 const FIRST_PERIOD_END = "2027-02-28";
 const RENEWED_PERIOD_END = "2027-03-31";
 
@@ -126,7 +128,7 @@ test.describe("PLT-SAAS-01..06 — the platform console and the tenant it create
     await expect(dialog.getByText(tenant.adminPassword, { exact: true })).toBeVisible();
     await expect(dialog.getByText(tenant.adminEmail, { exact: true })).toBeVisible();
     await expect(dialog.getByText(TENANT_CODE, { exact: true })).toBeVisible();
-    await expect(dialog.getByText(/لن يظهر رقم التعريف الشخصي مرة أخرى/).first()).toBeVisible();
+    await expect(dialog.getByText(/لن تظهر كلمة المرور المؤقتة مرة أخرى/).first()).toBeVisible();
     await dialog.getByRole("button", { name: "إغلاق", exact: true }).click();
 
     const row = page.getByRole("row").filter({ hasText: TENANT_CODE });
@@ -359,7 +361,7 @@ test.describe("PLT-SAAS-01..06 — the platform console and the tenant it create
     expect(fresh.adminPassword).toMatch(/^.{8,}$/);
     expect(fresh.adminPassword).not.toBe(paying.adminPassword);
     await expect(page.locator("main").getByText(fresh.adminPassword, { exact: true })).toBeVisible();
-    await expect(page.locator("main").getByText(/لن يظهر رقم التعريف الشخصي مرة أخرى/).first()).toBeVisible();
+    await expect(page.locator("main").getByText(/لن تظهر كلمة المرور المؤقتة مرة أخرى/).first()).toBeVisible();
 
     await page.reload();
     await expect(page.getByRole("button", { name: RESET_OWNER_PASSWORD })).toBeVisible();
@@ -367,9 +369,10 @@ test.describe("PLT-SAAS-01..06 — the platform console and the tenant it create
 
     const oldPassword = await request.post(`${SAAS_API_URL}/api/auth/login`, {
       headers: { [TENANT_HEADER]: paying.code },
-      data: { username: paying.adminEmail, password: paying.adminPassword },
+      data: { username: paying.adminEmail, password: currentPassword(paying) },
     });
     expect(oldPassword.status()).toBe(401);
+    forgetChangedPassword(paying.adminEmail);
     paying = { ...paying, adminPassword: fresh.adminPassword };
     await tenantApiLogin(request, paying);
   });

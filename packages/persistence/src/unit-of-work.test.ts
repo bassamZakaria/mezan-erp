@@ -122,6 +122,8 @@ describe("retiring the PIN column on an upgraded file", () => {
       INSERT INTO user (id, name_ar, email, password_hash, pin_hash, is_company_admin, branch_scope, warehouse_scope, status, created_at)
       VALUES ('with-pin', 'أ', 'a@cyag.test', 'scrypt$pw', 'scrypt$pin', 1, '"*"', '"*"', 'active', '2026-01-01'),
              ('no-pin', 'ب', 'b@cyag.test', 'scrypt$pw', NULL, 1, '"*"', '"*"', 'active', '2026-01-01');
+      CREATE TABLE auth_session (token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL);
+      INSERT INTO auth_session (token_hash, user_id) VALUES ('pre-upgrade', 'no-pin');
     `);
     return sqlite;
   }
@@ -137,10 +139,11 @@ describe("retiring the PIN column on an upgraded file", () => {
     expect(withPin?.mustChangePassword).toBe(true);
     const noPin = await read("no-pin");
     expect(noPin?.passwordHash).toBe("scrypt$pw");
-    expect(noPin?.mustChangePassword).toBe(false);
+    expect(noPin?.mustChangePassword).toBe(true);
+    expect((sqlite.prepare(`SELECT COUNT(*) AS n FROM auth_session`).get() as { n: number }).n).toBe(0);
   }
 
-  it("createSqliteUnitOfWork turns each PIN hash into a temporary password and drops the column", async () => {
+  it("createSqliteUnitOfWork turns each PIN hash into a temporary password, flags every user, ends every session and drops the column", async () => {
     const sqlite = preRetirementFile();
     const h = createSqliteUnitOfWork(sqlite);
     try {

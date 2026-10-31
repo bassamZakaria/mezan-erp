@@ -36,8 +36,8 @@ function severityTone(severity: AuditSeverityDTO): PillTone {
 
 const ACTION_KEYS: Readonly<Record<string, AppTranslationKey>> = {
   PASSWORD_CHANGED: "profile.changeThePassword",
-  PIN_CHANGED: "profile.changeThePin",
-  PIN_CLEARED: "profile.clearThePin",
+  PIN_CHANGED: "profile.legacyCodeChanged",
+  PIN_CLEARED: "profile.legacyCodeCleared",
 };
 
 function InfoTab() {

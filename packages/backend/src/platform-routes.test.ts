@@ -195,8 +195,9 @@ async function provisionOne(rig: Rig, overrides: Partial<CreateTenantRequestDTO>
 describe("createPlatformRoutes", () => {
   it("lists tenants and returns a full summary for one, including licenseState and entitlements", async () => {
     const rig = await buildRig();
-    const { body } = await provisionOne(rig);
+    const { res, body } = await provisionOne(rig);
     expect(body.adminPassword).toBe("pw-482913");
+    expect(res.headers.get("cache-control")).toBe("no-store");
     expect(rig.provisioned).toHaveLength(1);
 
     const listRes = await rig.app.fetch(req("/tenants", rig.ownerToken));
@@ -424,6 +425,7 @@ describe("createPlatformRoutes", () => {
 
     expect(res.status).toBe(200);
     expect(await json(res)).toEqual({ adminEmail: body.tenant.ownerEmail, signInEmail: body.tenant.ownerEmail, adminPassword: RESET_PASSWORD });
+    expect(res.headers.get("cache-control")).toBe("no-store");
     const row = (await rig.platform.audit.query("security")).find((r) => r.action === "TENANT_OWNER_PIN_RESET");
     expect(row).toMatchObject({ module: "platform", actor: "PU-OWNER", entityId: body.tenant.id, severity: "CRITICAL" });
     expect(JSON.stringify(row)).not.toContain(RESET_PASSWORD);
@@ -1281,6 +1283,7 @@ describe("createPlatformRoutes", () => {
     expect(body.tenant.status).toBe("active");
     expect(body.adminPassword).toBeNull();
     expect(rig.invalidated).toContain("stuck");
+    expect(res.headers.get("cache-control")).toBe("no-store");
 
     const rows = await rig.platform.audit.query("security");
     expect(rows.some((r) => r.action === "TENANT_PROVISION_RETRIED")).toBe(true);

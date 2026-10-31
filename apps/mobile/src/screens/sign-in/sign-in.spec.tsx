@@ -14,7 +14,7 @@ jest.mock("expo-router", () => ({ useRouter: () => ({ replace: mockReplace }) })
 jest.mock("react-native-safe-area-context", () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) }));
 jest.mock("@/components/legal-links", () => ({ LegalLinks: () => null }));
 jest.mock("@/session/SessionProvider", () => ({
-  SessionEnded: { Displaced: "displaced", Expired: "expired" },
+  SessionEnded: { Displaced: "displaced", Expired: "expired", PasswordChangeRequired: "password-change-required" },
   useSession: () => ({ connection: { baseUrl: "https://shop.example/api", tenantCode: "acme", email: "owner@shop.eg" }, signIn: mockSignIn, unlockAccount: mockUnlockAccount, sessionEnded: mockSessionEnded, acknowledgeSessionEnded: mockAcknowledge }),
 }));
 
@@ -51,6 +51,13 @@ describe("the sign-in screen after the server ended the session", () => {
     await render(<SignIn />);
 
     expect(screen.getByTestId("sign-in-session-ended").props.children).toBe("سجّل مستخدم آخر الدخول على هذا الجهاز، فانتهت جلستك هنا. سجّل الدخول من جديد للمتابعة.");
+  });
+
+  it("tells a person whose password is still temporary to change it on the website first", async () => {
+    mockSessionEnded = "password-change-required";
+    await render(<SignIn />);
+
+    expect(screen.getByTestId("sign-in-session-ended").props.children).toBe("غيّر كلمة المرور المؤقتة من موقع ميزان أولاً، ثم سجّل الدخول من جديد.");
   });
 
   it("says the session ended when it simply expired", async () => {

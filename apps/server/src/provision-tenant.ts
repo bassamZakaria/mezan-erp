@@ -1,4 +1,5 @@
-import { randomBytes, randomUUID } from "node:crypto";
+import { generateTemporaryPassword } from "@mezan/api";
+import { randomUUID } from "node:crypto";
 import { activateTenant, createTenant, normalizeEmail, startSubscription, TenantCodeTakenError, TenantStatusCode, type BillingCycle, type Tenant } from "@mezan/domain";
 import { OwnerPasswordResetOutcome, PlatformAuditUnavailableError, ProvisioningRefusalCode, TENANT_CODE_PROVISIONING, TenantOwnerAccountNotFoundError, type PlatformHandle, type RecordedActivation } from "@mezan/backend";
 import { tenantDTOOf, type ProvisionResultDTO } from "@mezan/contracts";
@@ -90,7 +91,7 @@ export function platformActor(actorId: string): string {
 }
 
 export function generateOwnerPassword(): string {
-  return randomBytes(12).toString("base64url");
+  return generateTemporaryPassword();
 }
 
 // The caller is answered "nothing was saved" (503). That is made true here for

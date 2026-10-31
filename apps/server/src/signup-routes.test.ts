@@ -162,7 +162,7 @@ describe("sign-ups the platform owner approves", () => {
     expect(approved.status).toBe(201);
     const result = (await approved.json()) as { tenant: { code: string; status: string }; adminPassword: string };
     expect(result.tenant).toMatchObject({ code: "reviewme", status: "active" });
-    expect(result.adminPassword).toMatch(/^[A-Za-z0-9_-]{16}$/);
+    expect(result.adminPassword).toMatch(/^[A-Za-z0-9]{12}$/);
     expect((await approve(false)).status).toBe(409);
     expect(await (await platformCall(app, owner, "/signup-requests")).json()).toEqual([]);
 
@@ -253,7 +253,7 @@ describe("self-serve signup routes", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { tenant: { code: string; status: string }; adminPassword: string | null; alreadyVerified: boolean };
     expect(body.tenant).toMatchObject({ code: "yasmin", status: "active" });
-    expect(body.adminPassword).toMatch(/^[A-Za-z0-9_-]{16}$/);
+    expect(body.adminPassword).toMatch(/^[A-Za-z0-9]{12}$/);
     expect(body.alreadyVerified).toBe(false);
   });
 
@@ -314,7 +314,7 @@ describe("self-serve signup routes", () => {
     const bodies = (await Promise.all(answers.map((answer) => answer.json()))) as VerifyBody[];
     const passwords = bodies.map((body) => body.adminPassword).filter((password): password is string => password !== null);
     expect(passwords).toHaveLength(1);
-    expect(passwords[0]).toMatch(/^[A-Za-z0-9_-]{16}$/);
+    expect(passwords[0]).toMatch(/^[A-Za-z0-9]{12}$/);
     expect(bodies.map((body) => body.alreadyVerified).sort()).toEqual([false, true]);
     expect(bodies.map((body) => body.tenant.status)).toEqual(["active", "active"]);
     expect(new Set(bodies.map((body) => body.tenant.id)).size).toBe(1);
@@ -377,7 +377,7 @@ describe("self-serve signup routes", () => {
     expect(verified.status).toBe(200);
     const body = (await verified.json()) as VerifyBody;
     expect(body.tenant.status).toBe("active");
-    expect(body.adminPassword).toMatch(/^[A-Za-z0-9_-]{16}$/);
+    expect(body.adminPassword).toMatch(/^[A-Za-z0-9]{12}$/);
     const login = await app.root.fetch(
       new Request("http://cloud.internal/api/auth/login", {
         method: "POST",
@@ -554,7 +554,7 @@ describe("the platform owner resets a tenant owner's password", () => {
     expect(reset.status).toBe(200);
     const body = (await reset.json()) as { adminEmail: string; adminPassword: string };
     expect(body.adminEmail).toBe("owner@locked.example");
-    expect(body.adminPassword).toMatch(/^[A-Za-z0-9_-]{16}$/);
+    expect(body.adminPassword).toMatch(/^[A-Za-z0-9]{12}$/);
     expect(body.adminPassword).not.toBe(oldPassword);
     expect((await customers()).status).toBe(401);
     expect((await cloudLogin(app, "locked", oldPassword)).status).toBe(401);
@@ -572,7 +572,7 @@ describe("the platform owner resets a tenant owner's password", () => {
 
     expect(reset.status).toBe(200);
     const { adminPassword } = (await reset.json()) as { adminPassword: string };
-    expect(adminPassword).toMatch(/^[A-Za-z0-9_-]{16}$/);
+    expect(adminPassword).toMatch(/^[A-Za-z0-9]{12}$/);
     expect(adminPassword).not.toBe(oldPassword);
     await moveTenant(app, first.tenant.id, TenantTransition.Resume);
     expect((await cloudLogin(app, "paused", oldPassword)).status).toBe(401);
@@ -888,7 +888,7 @@ describe("signup verification when provisioning fails or is shared between proce
     expect(again.status).toBe(200);
     const body = (await again.json()) as VerifyBody;
     expect(body.tenant.status).toBe("active");
-    expect(body.adminPassword).toMatch(/^[A-Za-z0-9_-]{16}$/);
+    expect(body.adminPassword).toMatch(/^[A-Za-z0-9]{12}$/);
     expect(body.alreadyVerified).toBe(false);
     expect((await tenantLogin(router, "retry", body.adminPassword)).status).toBe(200);
 
@@ -1071,7 +1071,7 @@ describe("a signup verification whose provisioning claim is contested", () => {
 
     stalled.release();
     const delivered = (await (await held).json()) as VerifyBody;
-    expect(delivered.adminPassword).toMatch(/^[A-Za-z0-9_-]{16}$/);
+    expect(delivered.adminPassword).toMatch(/^[A-Za-z0-9]{12}$/);
     expect((await tenantLogin(holder.router, "patient", delivered.adminPassword)).status).toBe(200);
     const reopened = await send(waiter.signup, "/verify", { token });
     expect((await reopened.json()) as VerifyBody).toMatchObject({ adminPassword: null, alreadyVerified: true });
@@ -1274,7 +1274,7 @@ describe("a stored subscription status this build does not know", () => {
     const app = await boot();
     const odd = (await (await post(app, "/api/signup/verify", { token: await startAndReadToken(app, "oddone") })).json()) as VerifyBody;
     await post(app, "/api/signup/verify", { token: await startAndReadToken(app, "fineone") });
-    const session = ((await (await cloudLogin(app, "oddone", odd.adminPassword ?? "")).json()) as { token: string }).token;
+    const session = await cloudOwnerSession(app, "oddone", odd.adminPassword ?? "");
     const raw = openSqliteConnection(path.join(dirs[dirs.length - 1] ?? "", "platform.db")).sqlite;
     raw.prepare("UPDATE subscription SET status = 'paused' WHERE tenant_id = ?").run(odd.tenant.id);
     raw.close();

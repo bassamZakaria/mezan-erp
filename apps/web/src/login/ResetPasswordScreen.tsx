@@ -2,7 +2,6 @@ import { useEffect, useId, useState, type FormEvent } from "react";
 import { useLocation } from "react-router";
 import { Button, Card } from "@mezan/ui";
 import { useResetPassword } from "../data/hooks";
-import { persistTenantCode } from "../data/session";
 import { useAppTranslation } from "../i18n";
 import { SignupLayout } from "../signup/SignupLayout";
 import { SIGN_IN_PATH } from "../routing";
@@ -43,11 +42,8 @@ export function ResetPasswordScreen() {
     reset.mutate(
       { token, password, tenant },
       {
-        onSuccess: () => {
-          // SECURITY: only a link the server accepted may change which company this browser signs in to.
-          if (tenant) persistTenantCode(tenant);
-          setDone(true);
-        },
+        // SECURITY: the link's company code is used for this request only and never saved, so a crafted link cannot repoint this browser's sign-in to another company.
+        onSuccess: () => setDone(true),
         onError: (err) => setError(err.message),
       },
     );

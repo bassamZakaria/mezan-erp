@@ -100,9 +100,9 @@ The web app (and the desktop renderer, which runs the same bundle), and the mobi
 
 ## Resetting test-tenant passwords (staging only)
 
-`scripts/reset-test-passwords.ts` gives every active user in the staging tenants the shared test password `Cyag@2026` with no forced change. It refuses to run without `--i-know-these-are-test-tenants`, never prints a hash, and prints one line per tenant with the user count. Never run it against a tenant that holds real people.
+`scripts/reset-test-passwords.ts` gives every active user in the staging tenants the shared test password `Cyag@2026` with no forced change. It refuses to run without `--i-know-these-are-test-tenants` and `--only=<tenant codes>`, refuses a database host that is not localhost, revokes those users' sessions, never prints a hash, and prints one line per tenant with the user count. Never run it against a tenant that holds real people.
 
-The production image does not carry `scripts/` or `tsx`, so run it from a repo checkout that can reach the staging Postgres (for example through an SSH tunnel to the host's `postgres` container, with the host part of `MEZAN_DATABASE_URL` pointed at the tunnel). The tenant secret must be the one the server runs with.
+The production image does not carry `scripts/` or `tsx`, so run it from a repo checkout through an SSH tunnel to the staging Postgres, with `MEZAN_DATABASE_URL` pointing at the local end of the tunnel. The tenant secret must be the one the server runs with.
 
 ```bash
 MEZAN_DATABASE_URL=postgres://mezan_app:<password>@127.0.0.1:5432/mezan \
@@ -110,4 +110,4 @@ MEZAN_TENANT_DB_SECRET=<64 hex from the staging .env> \
 pnpm exec tsx scripts/reset-test-passwords.ts --i-know-these-are-test-tenants --only=demo,acme
 ```
 
-Without `--only` it walks every tenant that is not archived or provisioning. Postgres installs only (the Contabo layout); open sessions stay signed in.
+Only the named tenants are touched. Postgres installs only (the Contabo layout).

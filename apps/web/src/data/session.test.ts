@@ -57,6 +57,12 @@ describe("loadPersistedSession", () => {
     expect(loadPersistedSession()).toEqual(validSession);
   });
 
+  it("still loads a session saved before mustChangePassword existed, as not needing a change", () => {
+    const { mustChangePassword: _dropped, ...older } = validSession;
+    localStorage.setItem(SESSION_KEY, JSON.stringify(older));
+    expect(loadPersistedSession()).toEqual({ ...validSession, mustChangePassword: false });
+  });
+
   it("returns null for corrupt (non-JSON) storage", () => {
     localStorage.setItem(SESSION_KEY, "{not json");
     expect(loadPersistedSession()).toBeNull();

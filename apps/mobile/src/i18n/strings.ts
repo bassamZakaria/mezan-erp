@@ -34,6 +34,7 @@ export interface Strings {
     readonly wait: Readonly<Record<WaitUnit, WaitForms>>;
     readonly sessionDisplaced: string;
     readonly sessionExpired: string;
+    readonly passwordChangeRequired: string;
     readonly unlockCodeLabel: string;
     readonly unlockSubmit: string;
     readonly unlockDone: string;
@@ -263,6 +264,7 @@ const AR: Strings = {
     },
     sessionDisplaced: "سجّل مستخدم آخر الدخول على هذا الجهاز، فانتهت جلستك هنا. سجّل الدخول من جديد للمتابعة.",
     sessionExpired: "انتهت الجلسة. سجّل الدخول من جديد.",
+    passwordChangeRequired: "غيّر كلمة المرور المؤقتة من موقع ميزان أولاً، ثم سجّل الدخول من جديد.",
     unlockCodeLabel: "رمز فكّ القفل",
     unlockSubmit: "فكّ القفل",
     unlockDone: "تم فكّ قفل الحساب. أدخل كلمة المرور للدخول.",
@@ -490,6 +492,7 @@ const EN: Strings = {
     },
     sessionDisplaced: "Another user signed in on this device, so your session here ended. Sign in again to continue.",
     sessionExpired: "The session ended. Sign in again.",
+    passwordChangeRequired: "Change your temporary password on the Mezan website first, then sign in again.",
     unlockCodeLabel: "Unlock code",
     unlockSubmit: "Unlock",
     unlockDone: "The account is unlocked. Enter your password to sign in.",

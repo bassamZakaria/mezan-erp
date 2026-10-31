@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState, useSyncExternalStore, type ReactElement } from "react";
 import { LoginScreen } from "./LoginScreen";
@@ -1294,5 +1294,14 @@ describe("LoginScreen — the cloud card and a forgotten password", () => {
     renderWithProviders(<LoginScreen onStartWizard={() => {}} />, { transport: okTransport() });
     fireEvent.click(screen.getByRole("radio", { name: "اختر محمد الشهابي" }));
     expect(screen.getByLabelText("كلمة المرور لـ محمد الشهابي")).toHaveValue("");
+  });
+
+  it("moves focus to the email field «آخر» reveals, and keeps «آخر» out of the people radiogroup", () => {
+    rememberDeviceUser(testAdminSession);
+    renderWithProviders(<LoginScreen onStartWizard={() => {}} />, { transport: okTransport() });
+    const group = screen.getByRole("radiogroup", { name: "مَن يعمل الآن؟" });
+    expect(within(group).queryByRole("button", { name: "آخر" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "آخر" }));
+    expect(screen.getByLabelText("البريد الإلكتروني")).toHaveFocus();
   });
 });

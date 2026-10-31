@@ -489,6 +489,23 @@ app.whenReady().then(async () => {
     // otherwise open the encrypted file with the plain driver and report "no
     // seeded administrator account found" on an install that has one.
     const resetConn = cipher ? openTenantConnection(dbPath, cipher) : undefined;
+    let upgradePending = false;
+    try {
+      const probe = resetConn ?? new Database(dbPath, { readonly: true, fileMustExist: true });
+      upgradePending = isMigrationPending(probe);
+      if (probe !== resetConn) probe.close();
+    } catch {
+      upgradePending = false;
+    }
+    // REQUIRED ORDERING: the reset opens the books through the migrating unit of work, so an older file must first be backed up and upgraded by a normal launch.
+    if (upgradePending) {
+      resetConn?.close();
+      fatal(
+        "افتح البرنامج مرة واحدة أولاً ليأخذ نسخة احتياطية ويُحدّث قاعدة البيانات، ثم أعد تشغيل ‎--reset-admin.",
+        "[recovery] this database is from an older version: open the app normally once so it backs up and upgrades the file, then run --reset-admin again.",
+      );
+      return;
+    }
     const reset = await resetSeedAdminPassword(dbPath, resetConn ?? dbPath).catch((err: unknown) => {
       log(`[recovery] --reset-admin failed: ${err instanceof Error ? err.message : String(err)}`);
       return null;
@@ -847,7 +864,7 @@ app.whenReady().then(async () => {
     licenseId: license.identity.licenseId,
     fingerprint: license.identity.fingerprint,
     publicKey: loaded.config.publicKey,
-    sessions: { find: (token) => backendProcess.findSession(token) },
+    sessions: { find: async (token) => { const grant = await backendProcess.findSession(token); return grant?.mustChangePassword ? null : grant; } },
     log,
   });
   registerLicenceStatusOverIpc({
@@ -893,7 +910,7 @@ app.whenReady().then(async () => {
     logs: log,
     seatsUsed: async () => (await backendProcess.connectedDevices()).length,
     lanHost: () => lanHost,
-    sessions: { find: (token) => backendProcess.findSession(token) },
+    sessions: { find: async (token) => { const grant = await backendProcess.findSession(token); return grant?.mustChangePassword ? null : grant; } },
     // Only the IMPORT channel consults this, and only to let the first-run
     // wizard install a licence before any account exists to sign in with.
     tenantIsClaimed: async () => {

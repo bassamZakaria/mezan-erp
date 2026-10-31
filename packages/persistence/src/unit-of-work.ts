@@ -114,8 +114,10 @@ function migrateUserLogin(sqlite: Database.Database): void {
   // password hash, so it becomes a one-time password the user must replace —
   // nobody is locked out by the upgrade and no shared password is published.
   if (has("pin_hash")) {
-    sqlite.exec(`UPDATE user SET password_hash = pin_hash, must_change_password = 1 WHERE pin_hash IS NOT NULL`);
+    sqlite.exec(`UPDATE user SET password_hash = COALESCE(pin_hash, password_hash), must_change_password = 1`);
     sqlite.exec(`ALTER TABLE user DROP COLUMN pin_hash`);
+    const sessions = sqlite.prepare(`SELECT 1 AS x FROM sqlite_master WHERE type = 'table' AND name = 'auth_session'`).get();
+    if (sessions) sqlite.exec(`DELETE FROM auth_session`);
   }
   if (!has("name_en") && !columns.some((c) => c.name === "name_en")) {
     const after = sqlite.prepare(`PRAGMA table_info(user)`).all() as { name: string }[];
@@ -370,14 +372,23 @@ export async function ensureUnitOfWorkSchema(db: SqlDb): Promise<void> {
 }
 
 async function retirePinColumn(db: SqlDb): Promise<void> {
-  const present =
+  const pinColumn =
     db.dialect === SqlDialect.Postgres
-      ? await db.get(`SELECT 1 AS x FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'user' AND column_name = 'pin_hash'`)
-      : await db.get(`SELECT 1 AS x FROM pragma_table_info('user') WHERE name = 'pin_hash'`);
-  if (!present) return;
+      ? `SELECT 1 AS x FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'user' AND column_name = 'pin_hash'`
+      : `SELECT 1 AS x FROM pragma_table_info('user') WHERE name = 'pin_hash'`;
   await db.transaction(async () => {
-    await db.run(`UPDATE "user" SET password_hash = pin_hash, must_change_password = 1 WHERE pin_hash IS NOT NULL`);
+    // REQUIRED: schema sync skips the quoted "user" table on Postgres, so the flag column is added here before it is written.
+    const flagColumn = `SELECT 1 AS x FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'user' AND column_name = 'must_change_password'`;
+    if (db.dialect === SqlDialect.Postgres && !(await db.get(flagColumn))) await db.exec(`ALTER TABLE "user" ADD COLUMN IF NOT EXISTS must_change_password INTEGER NOT NULL DEFAULT 0`);
+    if (!(await db.get(pinColumn))) return;
+    await db.run(`UPDATE "user" SET password_hash = COALESCE(pin_hash, password_hash), must_change_password = 1`);
     await db.exec(`ALTER TABLE "user" DROP COLUMN pin_hash`);
+    const sessionTable =
+      db.dialect === SqlDialect.Postgres
+        ? `SELECT 1 AS x FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = 'auth_session'`
+        : `SELECT 1 AS x FROM sqlite_master WHERE type = 'table' AND name = 'auth_session'`;
+    // SECURITY: a session opened before the upgrade carries no temporary-password flag, so it must not outlive the migration.
+    if (await db.get(sessionTable)) await db.run(`DELETE FROM auth_session`);
   });
 }
 

@@ -8642,8 +8642,8 @@ owner-PIN test existed, 59 of 59 after). Specs 01, 03 and 04 with
 | ID | Result | What the suite asserts |
 |---|---|---|
 | PLT-SAAS-01 | pass | Owner signs in; the rail shows its three links; the list holds the paying tenant the suite provisioned and no code it did not create; a wrong password answers «بيانات الدخول غير صحيحة» and stores no session. |
-| PLT-SAAS-02 | pass | Tenant created on business with a trial; PIN shown once and gone after a reload; the list marks it «تجريبي» and does not mark the paying tenant so; a second tenant on the same code answers 409 «رمز المنشأة "…" مستخدم بالفعل» and creates nothing. |
-| PLT-SAAS-03 | pass | Code, email and PIN reach an empty tenant; the code survives a reload; the same PIN against the paying tenant answers 401 «اسم المستخدم أو رمز PIN غير صحيح.». |
+| PLT-SAAS-02 | pass | Tenant created on business with a trial; temporary password shown once and gone after a reload; the list marks it «تجريبي» and does not mark the paying tenant so; a second tenant on the same code answers 409 «رمز المنشأة "…" مستخدم بالفعل» and creates nothing. |
+| PLT-SAAS-03 | pass | Code, email and the temporary password (changed at first sign-in) reach an empty tenant; the code survives a reload; the same password against the paying tenant answers 401 «البريد الإلكتروني أو كلمة المرور غير صحيحة.». |
 | PLT-SAAS-04 | pass | 403 `MODULE_NOT_LICENSED` with its exact sentence; the rail hides «الأشخاص» and «التصنيع»; the screen shows the same sentence. |
 | PLT-SAAS-05 | pass | One payment recorded; status becomes «نشط»; the period end moves from 2027-02-28 to 2027-03-28, same time of day, on the server and on screen; a payment with no amount is refused on the form. |
 | PLT-SAAS-06 | pass | Suspend asks first; then `POST /customers` and `POST /sales-invoices` answer 403 `LICENSE_READ_ONLY` with the exact sentence, reads answer 200, the tenant app shows the read-only banner and refuses a customer on screen; resume restores writing. |
@@ -8670,9 +8670,9 @@ through all four phone looks as well.
 
 Also guarded since 2026-10-11: a forged verification link shows the server's
 «رابط التفعيل غير صالح»; the signup form caps the company name at 200
-characters; the platform owner resets a tenant owner's PIN from the tenant
-page — asked first, the new PIN shown once and gone after a reload, the old
-PIN answers 401 and the new one signs in.
+characters; the platform owner resets a tenant owner's password from the tenant
+page — asked first, the new temporary password shown once and gone after a reload, the old
+password answers 401 and the new one signs in.
 
 ### Run record — 2026-10-11 (second), `pnpm test:saas` on :3321–:3323 / :5321–:5323, Chromium
 

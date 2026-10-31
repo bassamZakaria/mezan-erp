@@ -68,6 +68,15 @@ describe("a session the server ended under the app", () => {
     expect(screen.getByTestId("state").props.children).toBe(`ready|signed-out|${SessionEnded.Expired}`);
   });
 
+  it("is signed out saying the temporary password must be changed on the website, on PASSWORD_CHANGE_REQUIRED", async () => {
+    await mounted();
+    mockApiRequest.mockRejectedValue(new ApiError(ApiFailure.Forbidden, 403, "غيّر كلمة المرور", null, "PASSWORD_CHANGE_REQUIRED"));
+
+    await act(async () => void (await ask()));
+
+    expect(screen.getByTestId("state").props.children).toBe(`ready|signed-out|${SessionEnded.PasswordChangeRequired}`);
+  });
+
   it("says nothing after a sign-out the person asked for, or a refusal that is not a 401", async () => {
     await mounted();
     mockApiRequest.mockRejectedValue(new ApiError(ApiFailure.Forbidden, 403, "ليست لديك صلاحية", null, "FORBIDDEN"));

@@ -103,7 +103,7 @@ MEZAN_SEED_DEMO=1 MEZAN_DB=./dev.db PORT=3187 pnpm exec tsx apps/server/src/inde
 cd apps/web && MEZAN_API_URL=http://127.0.0.1:3187 pnpm exec vite --port 5183
 ```
 
-Sign in as `admin@cyag.example`, PIN `123456` — the login field is the email and
+Sign in as `admin@cyag.example`, password `Cyag@2026` — the login field is the email and
 only the email. `pnpm --filter web dev` alone gives a UI with no backend behind
 it, which will read as a hundred broken screens.
 
@@ -145,16 +145,16 @@ simplification does not count for this review.
 ## Observed in the app (verified, use freely)
 
 The four readings that used to sit here — an invoice row that opened nothing,
-three dead accounting nav items, a dark-by-default shell, and a PIN box that
+three dead accounting nav items, a dark-by-default shell, and a login field that
 ignored a pasted string — are **all closed**, and re-reporting any of them is a
 false finding. Documents open as pages, accounting is fully wired,
 `apps/web/index.html` ships `data-theme="light"` so the OS preference cannot
-override the light-first direction, and the PIN boxes accept a paste.
+override the light-first direction, and the password field accepts a paste.
 
 Two things worth knowing before you drive the app:
 
-- **The PIN boxes are one input per digit, in RTL order.** Automation that types
-  into "the PIN field" lands in the wrong box; click each one.
+- **Sign-in is email + password.** Fill both fields and press Enter; a seeded or
+  console-created account with a temporary password lands on the change-password screen first.
 - **Documents are pages, not drawers.** Only short master-data forms stay as
   overlays. A document that opens in a drawer is a finding.
 

@@ -733,6 +733,7 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
     try {
       const result = await provisionTenant({ ...parsed.data, actorId: platformUser.id }, activationRecordedAs(c, "TENANT_PROVISIONED"));
       invalidateEntitlements(result.tenant.code);
+      c.header("cache-control", "no-store");
       return c.json(result, 201);
     } catch (err) {
       return domainErrorResponse(c, err);
@@ -782,6 +783,7 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
           }),
       );
       invalidateEntitlements(result.tenant.code);
+      c.header("cache-control", "no-store");
       return c.json(result, 201);
     } catch (err) {
       if (lostTheDecision(err)) {
@@ -891,6 +893,7 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
       if (!provisionRetry) throw new Error("provisionRetry dependency is not configured");
       const result = await provisionRetry({ tenantId: tenant.id, actorId: c.get("platformUser")!.id, ...parsed.data }, activationRecordedAs(c, "TENANT_PROVISION_RETRIED"));
       invalidateEntitlements(result.tenant.code);
+      c.header("cache-control", "no-store");
       return c.json(result, 200);
     } catch (err) {
       return domainErrorResponse(c, err);
@@ -1210,6 +1213,7 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
       await noted(c, PlatformAuditAction.TenantOwnerPasswordReset, tenant.id, { code: tenant.code, ...account, outcome: OwnerPasswordResetOutcome.Reset }, AuditSeverityCode.Critical).catch(
         (err: unknown) => platformLog.error({ err: err }, `the owner password of tenant "${tenant.id}" was reset, and its outcome row could not be written`),
       );
+      c.header("cache-control", "no-store");
       return c.json(result, 200);
     } catch (err) {
       if (err instanceof TenantOwnerAccountNotFoundError) {

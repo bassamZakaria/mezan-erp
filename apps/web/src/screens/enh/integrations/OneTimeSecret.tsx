@@ -2,14 +2,17 @@ import { useState } from "react";
 import { Button, Card } from "@mezan/ui";
 import { useAppTranslation } from "../../../i18n";
 
-export function OneTimeSecret({ title, body, secret, doneLabel, onDone }: { title: string; body: string; secret: string; doneLabel?: string; onDone: () => void }) {
+export function OneTimeSecret({ title, body, secret, onDone }: { title: string; body: string; secret: string; onDone: () => void }) {
   const { t } = useAppTranslation();
   const [copied, setCopied] = useState(false);
   const clipboard = navigator.clipboard as Clipboard | undefined;
 
   function copy() {
     if (!clipboard) return;
-    void clipboard.writeText(secret).then(() => setCopied(true));
+    void clipboard
+      .writeText(secret)
+      .then(() => setCopied(true))
+      .catch(() => setCopied(false));
   }
 
   return (
@@ -28,7 +31,7 @@ export function OneTimeSecret({ title, body, secret, doneLabel, onDone }: { titl
           </Button>
         ) : null}
         <Button variant="primary" onClick={onDone}>
-          {doneLabel ?? t("integrations.keys.tokenDone")}
+          {t("integrations.keys.tokenDone")}
         </Button>
       </div>
     </Card>

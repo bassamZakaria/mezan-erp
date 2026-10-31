@@ -287,7 +287,7 @@ describe("createCloudApp", () => {
     const retried = (await retryRes.json()) as { tenant: { status: string }; adminEmail: string; adminPassword: string | null };
     expect(retried.tenant.status).toBe("active");
     expect(retried.adminEmail).toBe("owner@retryco.example");
-    expect(retried.adminPassword).toMatch(/^[A-Za-z0-9_-]{16}$/);
+    expect(retried.adminPassword).toMatch(/^[A-Za-z0-9]{12}$/);
     const login = await app.root.fetch(
       new Request("http://cloud.internal/api/auth/login", {
         method: "POST",
@@ -466,6 +466,17 @@ describe("createCloudApp", () => {
       expect(unlock.headers.get("referrer-policy")).toBe("no-referrer");
       expect(unlock.headers.get("cache-control")).toBe("no-store");
       expect(home.headers.get("cache-control")).not.toBe("no-store");
+    });
+
+    it("serves the password-reset page uncached, with no referrer and without the injected script", async () => {
+      const BEACON = '<script src="https://analytics.example/beacon.js"></script>';
+      const app = await boot(testEnv(), { transformIndexHtml: (html) => html.replace("</body>", `${BEACON}</body>`) });
+      const page = await app.root.fetch(new Request("http://cloud.internal/reset-password"));
+
+      expect(page.status).toBe(200);
+      expect(await page.text()).not.toContain("analytics.example");
+      expect(page.headers.get("referrer-policy")).toBe("no-referrer");
+      expect(page.headers.get("cache-control")).toBe("no-store");
     });
 
     it("answers a plain 404 JSON at / when no web bundle is present", async () => {

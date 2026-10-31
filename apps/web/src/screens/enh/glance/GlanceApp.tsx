@@ -20,8 +20,6 @@ function GlanceShell() {
     queryClient.clear();
   }, [request, setSession, queryClient]);
 
-  if (session?.mustChangePassword) return <ChangeTemporaryPasswordScreen onSignOut={signOut} />;
-
   return (
     <div className="min-h-dvh bg-bg text-ink">
       <main className="mx-auto flex w-full max-w-[430px] flex-col px-4 pb-[max(24px,env(safe-area-inset-bottom))] pt-[max(16px,env(safe-area-inset-top))]">
@@ -43,5 +41,6 @@ function GlanceShell() {
 
 export function GlanceApp() {
   const { session } = useApi();
-  return session ? <GlanceShell /> : <LoginScreen onStartWizard={() => undefined} />;
+  if (!session) return <LoginScreen onStartWizard={() => undefined} />;
+  return session.mustChangePassword ? <ChangeTemporaryPasswordScreen /> : <GlanceShell />;
 }

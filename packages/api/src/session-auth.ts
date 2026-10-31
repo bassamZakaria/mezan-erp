@@ -755,12 +755,8 @@ export function tokensMatch(a: string, b: string): boolean {
 
 export const STEP_UP_REQUIRED = "STEP_UP_REQUIRED";
 
-// SECURITY: an administrative change made on a device-bound session whose
-// address has moved since the password was entered waits until it is entered again
-// (`POST /auth/step-up`). A token and its device secret lifted together from
-// one phone can then read, but cannot re-shape who may do what.
 // Every route a session holding a temporary password may still reach: sign-in and sign-out, the pre-sign-in reads, its own profile and the change itself.
-const PASSWORD_CHANGE_OPEN_ROUTES = /^(?:\/api)?\/(?:auth\/[a-z-]+|bootstrap\/status|tenant|platform\/resolve)$/;
+const PASSWORD_CHANGE_OPEN_ROUTES = /^(?:\/api)?\/(?:auth\/(?:login|logout|forgot-password|reset-password|unlock|unlock-link)|bootstrap\/status|tenant|platform\/resolve)$/;
 const PASSWORD_CHANGE_OWN_ROUTES: ReadonlyArray<readonly [string, RegExp]> = [
   ["GET", /^(?:\/api)?\/profile$/],
   ["POST", /^(?:\/api)?\/profile\/change-password$/],
@@ -787,6 +783,10 @@ export function passwordChangeGate(sessions: SessionRegistry): MiddlewareHandler
   };
 }
 
+// SECURITY: an administrative change made on a device-bound session whose
+// address has moved since the password was entered waits until it is entered again
+// (`POST /auth/step-up`). A token and its device secret lifted together from
+// one phone can then read, but cannot re-shape who may do what.
 export function stepUpGate(sessions: SessionRegistry): MiddlewareHandler {
   return async function requireRecentPassword(c, next) {
     if (c.req.method === "GET" || c.req.method === "HEAD") return next();

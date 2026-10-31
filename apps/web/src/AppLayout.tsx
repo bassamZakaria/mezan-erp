@@ -147,6 +147,12 @@ function initialsFor(fullName: string, unknown: string): string {
 }
 
 export function AppLayout() {
+  const { session } = useApi();
+  const routerNavigate = useNavigate();
+  return session?.mustChangePassword ? <ChangeTemporaryPasswordScreen onSignedOut={() => routerNavigate(pathForRoute("dashboard"))} /> : <AppLayoutBody />;
+}
+
+function AppLayoutBody() {
   const { session, setSession, request } = useApi();
   const queryClient = useQueryClient();
   const profile = useProfile();
@@ -640,8 +646,6 @@ export function AppLayout() {
       />
     );
   }
-
-  if (session.mustChangePassword) return <ChangeTemporaryPasswordScreen onSignOut={signOut} />;
 
   // The Arabic name is the record; the Latin one shows on the English UI when
   // the person has one, and falls back rather than leaving a blank.

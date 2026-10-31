@@ -8,8 +8,9 @@ import { ApiProvider, useApi } from "./ApiContext";
 import { AppI18nProvider } from "../i18n";
 import { createQueryClient } from "./queryClient";
 import { stubTransport, testAdminSession } from "./test-support";
+import type { Transport } from "./transport";
 import { PasswordChangeRefusal, SessionRefusal } from "@mezan/contracts";
-import { SignInNotice, pendingSignInNotice, sessionExpiredPending, type Session } from "./session";
+import { SignInNotice, loadPersistedSession, pendingSignInNotice, sessionExpiredPending, type Session } from "./session";
 
 const STORAGE_KEY = "mezan.session";
 
@@ -305,6 +306,43 @@ describe("ApiProvider request() — a temporary password the server says must be
     await waitFor(() => expect(screen.getByTestId("must-change")).toHaveTextContent("true"));
     await waitFor(() => expect(status).toBe(403));
     expect(sessionExpiredPending()).toBe(false);
+    expect(loadPersistedSession()?.mustChangePassword).toBe(true);
+  });
+
+  it("does not flag the fresh session when the refusal answers a request the replaced temporary session sent", async () => {
+    const refusal = JSON.stringify({ error: PasswordChangeRefusal.Required, message: "" });
+    let answer: () => void = () => undefined;
+    const transport: Transport = () =>
+      new Promise((resolve) => {
+        answer = () => resolve({ status: 403, ok: false, json: async <T,>() => JSON.parse(refusal) as T, text: async () => refusal });
+      });
+    const fresh: Session = { ...testAdminSession, token: "fresh-token" };
+    function Probe() {
+      const { session, setSession, request } = useApi();
+      return (
+        <div>
+          <span data-testid="must-change">{String(session?.mustChangePassword)}</span>
+          <span data-testid="token">{session?.token}</span>
+          <button onClick={() => void request("/items")}>call</button>
+          <button onClick={() => setSession(fresh)}>swap</button>
+        </div>
+      );
+    }
+    render(
+      <AppI18nProvider>
+        <QueryClientProvider client={createQueryClient()}>
+          <ApiProvider transport={transport} initialSession={{ ...testAdminSession, mustChangePassword: true, token: "old-token" }}>
+            <Probe />
+          </ApiProvider>
+        </QueryClientProvider>
+      </AppI18nProvider>,
+    );
+    fireEvent.click(screen.getByText("call"));
+    fireEvent.click(screen.getByText("swap"));
+    await waitFor(() => expect(screen.getByTestId("token")).toHaveTextContent("fresh-token"));
+    answer();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(screen.getByTestId("must-change")).toHaveTextContent("false");
   });
 });
 

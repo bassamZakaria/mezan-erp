@@ -438,7 +438,7 @@ export function EmployeesScreen() {
 
   const selected = firstSegment !== undefined && !creating ? (employees.find((e) => e.id === firstSegment || e.code === firstSegment) ?? null) : null;
   const selectedId = selected?.id ?? null;
-  const contractsQuery = useEmployeeContracts(selectedId);
+  const contractsQuery = useEmployeeContracts(hasContracts ? selectedId : null);
   useNameSubPage(selected?.code ?? null, selected ? employeeDisplayName(selected, locale) : null);
   const [detailTab, setDetailTab] = useState("personal");
   const [terminateOpen, setTerminateOpen] = useState(false);
@@ -453,7 +453,7 @@ export function EmployeesScreen() {
   const currentYear = new Date().getFullYear();
   const leaveBalancesQuery = useLeaveBalances(selectedId, currentYear);
   const leaveRequestsQuery = useLeaveRequests({ employeeId: selectedId, status: null, leaveType: null, from: null, to: null });
-  const payslipsQuery = useEmployeePayslips(selectedId);
+  const payslipsQuery = useEmployeePayslips(hasPayroll ? selectedId : null);
   const advancesQuery = useEmployeeAdvances();
   const attendanceQuery = useAttendance({ employeeId: selectedId, from: null, to: null, status: null });
 

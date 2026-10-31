@@ -39,9 +39,9 @@ const sampleSummary: HrDashboardSummaryDTO = {
   },
 };
 
-function renderScreen() {
+function renderScreen(summary: HrDashboardSummaryDTO = sampleSummary) {
   const transport = stubTransport({
-    "GET /hr/dashboard": () => ({ body: sampleSummary }),
+    "GET /hr/dashboard": () => ({ body: summary }),
     "GET /branches": () => ({ body: sampleBranches }),
   });
   return renderWithProviders(<HrDashboardScreen />, { transport, initialSession: testAdminSession });
@@ -60,5 +60,14 @@ describe("HrDashboardScreen", () => {
     renderScreen();
     expect(await screen.findByText("استهلاك الإجازات")).toBeInTheDocument();
     expect(await screen.findByText("إجازة سنوية")).toBeInTheDocument();
+  });
+});
+
+describe("HrDashboardScreen on the free staff list", () => {
+  it("drops the attendance, contract and leave widgets the plan's parts do not carry", async () => {
+    renderScreen({ ...sampleSummary, contractsExpiringSoon: null, leaveConsumption: null, attendance: null });
+    await screen.findAllByText("5");
+    expect(screen.queryByText("معدل الغياب")).not.toBeInTheDocument();
+    expect(screen.queryByText("استهلاك الإجازات")).not.toBeInTheDocument();
   });
 });

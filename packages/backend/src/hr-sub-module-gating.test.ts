@@ -115,3 +115,22 @@ describe("a plan with all of HR is unchanged", () => {
     }
   });
 });
+
+describe("the HR dashboard on the free staff list", () => {
+  it("carries headcount but no contract, leave or attendance figures", async () => {
+    const { send, hire } = await rig(["sales"]);
+    await hire();
+    const res = await send("GET", "/hr/dashboard");
+    expect(res.status).toBe(200);
+    expect(res.body.activeEmployees).toBeGreaterThan(0);
+    expect(res.body).toMatchObject({ contractsExpiringSoon: null, leaveConsumption: null, attendance: null });
+  });
+
+  it("carries them where the plan holds those parts", async () => {
+    const { send } = await rig(["sales", "hr"]);
+    const res = await send("GET", "/hr/dashboard");
+    expect(typeof res.body.contractsExpiringSoon).toBe("number");
+    expect(Array.isArray(res.body.leaveConsumption)).toBe(true);
+    expect(res.body.attendance).not.toBeNull();
+  });
+});

@@ -71,10 +71,12 @@ function renderScreen(
     onRehire?: (id: string, hireDate: string) => { status?: number; body: unknown } | undefined;
     /** The plan's modules; omitted, no `/entitlements` answer is stubbed and every part shows. */
     activeModules?: string[];
+    /** Every path the screen asks for, in order. */
+    seen?: string[];
   } = {},
 ) {
   let current = [...employees];
-  const transport = stubTransport({
+  const answer = stubTransport({
     ...(opts.activeModules
       ? { "GET /entitlements": () => ({ body: { plan: "P", activeModules: opts.activeModules, features: {}, seats: 5, expiresAt: null } }) }
       : {}),
@@ -120,6 +122,10 @@ function renderScreen(
       return { body: updated };
     },
   });
+  const transport: typeof answer = (path, init) => {
+    opts.seen?.push(path);
+    return answer(path, init);
+  };
   return renderWithProviders(
     <RoutedScreen>
       <EmployeesScreen />
@@ -329,5 +335,16 @@ describe("EmployeesScreen on a plan that holds only the free staff list", () => 
     expect(await screen.findByRole("heading", { name: "أحمد محمود" })).toBeInTheDocument();
     const tabs = screen.getAllByRole("tab").map((tab) => tab.textContent ?? "");
     for (const label of PAID_TABS) expect(tabs.some((tab) => tab.includes(label)), label).toBe(true);
+  });
+});
+
+describe("EmployeesScreen asks only for the HR parts the plan holds", () => {
+  it("never asks for an employee's contracts or payslips on the free staff list", async () => {
+    const seen: string[] = [];
+    renderScreen(sampleEmployees, { activeModules: ["sales"], seen });
+    fireEvent.click(await screen.findByText("أحمد محمود"));
+    expect(await screen.findByRole("heading", { name: "أحمد محمود" })).toBeInTheDocument();
+    await waitFor(() => expect(seen).toContain("/entitlements"));
+    expect(seen.filter((path) => /\/hr\/(employees\/[^/]+\/contracts|payroll|contracts|attendance|leave|advances)/.test(path))).toEqual([]);
   });
 });

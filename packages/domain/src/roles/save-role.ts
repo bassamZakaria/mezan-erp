@@ -4,7 +4,8 @@ import {
   isKnownPermission,
   isPlatformAdminOnly,
 } from "../permissions/catalog.js";
-import { isAlwaysLicensed, isModuleLicensed } from "../permissions/module-licensing.js";
+import { isAlwaysLicensed, isModuleLicensed, isPermissionLicensed } from "../permissions/module-licensing.js";
+import { FREE_SUB_MODULES, isSubModule } from "../entitlements/sub-modules.js";
 import { resolvePermissions } from "../permissions/resolve.js";
 import { can, type AuthContext } from "../permissions/auth-context.js";
 import type { Entitlements } from "../entitlements/entitlements.js";
@@ -120,12 +121,15 @@ function actorHolds(actor: AuthContext, code: string): boolean {
 function assertLicensed(permission: string, entitlements: Entitlements): void {
   if (permission === WILDCARD_PERMISSION) {
     const licensable = MODULES.filter((m) => !isAlwaysLicensed(m.id));
-    if (!licensable.some((m) => isModuleLicensed(m.id, entitlements))) {
+    // A paid part listed on its own counts; a free part does not — it is held by a tenant licensed for nothing.
+    const holdsPaidPart = entitlements.activeModules.some((id) => isSubModule(id) && !FREE_SUB_MODULES.has(id));
+    if (!holdsPaidPart && !licensable.some((m) => isModuleLicensed(m.id, entitlements))) {
       throw new UnlicensedPermissionError(WILDCARD_PERMISSION, licensable[0]?.id);
     }
     return;
   }
-  if (!isModuleLicensed(permissionModule(permission), entitlements)) {
+  // A permission tied to a sub-module (the HR staff list, payroll, …) is licensed by its part.
+  if (!isPermissionLicensed(permission, entitlements)) {
     throw new UnlicensedPermissionError(permission);
   }
 }
@@ -210,7 +214,3 @@ export async function deleteRole(roleId: string, uow: UnitOfWork): Promise<void>
   await uow.roles.delete(roleId);
 }
 
-function permissionModule(code: string): string {
-  const dotIndex = code.indexOf(".");
-  return dotIndex === -1 ? code : code.slice(0, dotIndex);
-}

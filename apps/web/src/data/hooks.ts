@@ -727,7 +727,10 @@ export function useMayAskScreen(request: ScreenRequest): boolean {
 // shows a user who opened it by its address.
 export function useHoldsScreenRequest(request: ScreenRequest): boolean {
   const { session } = useApi();
-  return sessionMayAskScreen(session, null, request);
+  const entitlements = useEntitlements();
+  // Wait for the plan's first answer, then ask only for what it licenses — a module or HR part it lacks is a 403.
+  if (entitlements.isLoading && entitlements.failureCount === 0) return false;
+  return sessionMayAskScreen(session, entitlements.data ?? null, request);
 }
 
 export function useMayAskShellModule(request: ShellModuleRequest): boolean {

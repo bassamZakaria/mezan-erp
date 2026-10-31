@@ -83,6 +83,9 @@ import {
   setEmployeeSalaryPayment,
   assertDeviceBadgeAvailable,
   normalizeDeviceBadgeId,
+  HrSubModule,
+  hasModule,
+  hasReadOnlyModule,
 } from "@mezan/domain";
 import {
   createDepartmentSchema,
@@ -103,7 +106,7 @@ import {
   type TransitionEmployeeDTO,
 } from "@mezan/contracts";
 import { createPermissionGate, getAuthContext, type AuthContextResolver, branchScopeOf, withinScope } from "./permission-gate.js";
-import { requireSubModule } from "./module-gate.js";
+import { readOnlyModuleOutcome, requireSubModule } from "./module-gate.js";
 import { createHrTimeLeaveRoutes, type HrTimeLeaveRoutesDeps } from "./hr-time-leave-routes.js";
 import { createHrPayrollRoutes, type HrPayrollRoutesDeps } from "./hr-payroll-routes.js";
 import { createHrSelfRoutes } from "./hr-self-routes.js";
@@ -380,7 +383,10 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
   // --- Dashboard -----------------------------------------------------------
 
   app.get("/dashboard", gate("hr.employee.view"), async (c) => {
-    const [employees, departments, contracts] = await Promise.all([deps.employees.list(), deps.departments.list(), deps.contracts.list()]);
+    // The free staff list sees headcount; contract, leave and attendance figures belong to their own HR parts.
+    const entitlements = c.get("entitlements");
+    const holds = (part: HrSubModule) => !entitlements || hasModule(entitlements, part) || hasReadOnlyModule(entitlements, part);
+    const [employees, departments, contracts] = await Promise.all([deps.employees.list(), deps.departments.list(), holds(HrSubModule.Contracts) ? deps.contracts.list() : Promise.resolve([])]);
     const now = new Date();
     // The tenant's own month and day, never the host's UTC (D288): between
     // midnight and 02:00/03:00 Cairo the UTC day is yesterday, and on the 1st
@@ -421,7 +427,7 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
     }
     const byBranch = [...byBranchMap.entries()].map(([branchId, count]) => ({ branchId, count }));
 
-    const leaveRequests = await deps.leaveRequests.list();
+    const leaveRequests = holds(HrSubModule.Time) ? await deps.leaveRequests.list() : [];
     const year = now.getUTCFullYear();
     const balances = (await deps.leaveBalances?.list({ year })) ?? [];
     const leaveTypes: LeaveType[] = LEAVE_TYPE_DEFINITIONS.map((d) => d.code);
@@ -458,7 +464,7 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
     const attendanceWindowDays = 30;
     const windowEnd = todayIso;
     const windowStart = new Date(Date.parse(`${todayIso}T00:00:00Z`) - attendanceWindowDays * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-    const attendanceEntries = (await deps.attendance?.list({ from: windowStart, to: windowEnd })) ?? [];
+    const attendanceEntries = holds(HrSubModule.Time) ? ((await deps.attendance?.list({ from: windowStart, to: windowEnd })) ?? []) : [];
     const attendance = summarizeWorkforceAttendance(windowStart, windowEnd, attendanceEntries);
 
     return c.json({
@@ -466,13 +472,13 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
       onLeave,
       hiresThisMonth,
       terminationsThisMonth,
-      contractsExpiringSoon,
+      contractsExpiringSoon: holds(HrSubModule.Contracts) ? contractsExpiringSoon : null,
       probationEndingSoon,
       byDepartment,
       byBranch,
-      leaveConsumption,
+      leaveConsumption: holds(HrSubModule.Time) ? leaveConsumption : null,
       headcountTrend,
-      attendance: {
+      attendance: !holds(HrSubModule.Time) ? null : {
         from: attendance.from,
         to: attendance.to,
         workingDays: attendance.workingDays,
@@ -676,6 +682,23 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
     };
   }
 
+  /**
+   * The payroll a termination may touch. Termination is the free staff list's
+   * (hr.people); the pay recovery it books is payroll's. Without hr.payroll it
+   * books nothing, and when payroll is read-only a day that payroll already
+   * covered is refused rather than left unrecovered.
+   */
+  async function terminationPayrollFor(c: Context, employeeId: string, fromDate: string): Promise<{ payroll: TerminationPayrollDeps | undefined } | Response> {
+    const entitlements = c.get("entitlements");
+    if (!entitlements || hasModule(entitlements, HrSubModule.Payroll)) return { payroll: await terminationPayroll() };
+    const readOnly = readOnlyModuleOutcome(entitlements, HrSubModule.Payroll, c.req.method);
+    if (readOnly && deps.payroll) {
+      const slips = await deps.payroll.payslips.listByEmployeeId(employeeId);
+      if (slips.some((slip) => slip.periodEnd > fromDate)) return c.json(readOnly, 403);
+    }
+    return { payroll: undefined };
+  }
+
   function serializePayRecovery(payRecovery: TerminationPayRecovery | null) {
     return (
       payRecovery && {
@@ -696,10 +719,13 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
     try {
       const body = (await c.req.json().catch(() => ({}))) as { effectiveDate?: unknown } | null;
       const requested = body?.effectiveDate === undefined || body.effectiveDate === null || body.effectiveDate === "" ? null : String(body.effectiveDate);
+      const today = await tenantToday(c);
+      const scope = await terminationPayrollFor(c, c.req.param("id"), requested ?? today);
+      if (scope instanceof Response) return scope;
       const { employee, payRecovery } = await terminateEmployeeService(
         c.req.param("id"),
-        { effectiveDate: requested, today: await tenantToday(c) },
-        { employees: deps.employees, payroll: await terminationPayroll() },
+        { effectiveDate: requested, today },
+        { employees: deps.employees, payroll: scope.payroll },
       );
       return c.json({ ...serializeEmployee(employee), payRecovery: serializePayRecovery(payRecovery) });
     } catch (err) {
@@ -714,10 +740,15 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
     }
     try {
       const before = await deps.employees.findById(c.req.param("id"));
+      const corrected = body.effectiveDate.trim();
+      // A recovery booked for the old day is undone, so the earlier of the two days is the one payroll must not cover.
+      const earliest = before?.terminatedAt && before.terminatedAt < corrected ? before.terminatedAt : corrected;
+      const scope = await terminationPayrollFor(c, c.req.param("id"), earliest);
+      if (scope instanceof Response) return scope;
       const { employee, payRecovery } = await correctTerminationDate(
         c.req.param("id"),
-        { effectiveDate: body.effectiveDate.trim(), today: await tenantToday(c) },
-        { employees: deps.employees, payroll: await terminationPayroll() },
+        { effectiveDate: corrected, today: await tenantToday(c) },
+        { employees: deps.employees, payroll: scope.payroll },
       );
       if (deps.audit) {
         await recordSensitiveEvent(deps.audit, {

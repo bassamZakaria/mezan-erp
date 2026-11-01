@@ -346,6 +346,8 @@ export {
   type MonthlyCollectionRow,
   type CollectionReportVoucher,
   type CollectionFilterOptions,
+  type CollectionInvoiceReps,
+  openItemReps,
 } from "./collections.js";
 export {
   createWithholdingTaxReport,

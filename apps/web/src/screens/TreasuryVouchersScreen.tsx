@@ -40,6 +40,8 @@ import {
   type VoucherLine,
   type VoucherPaymentMethod,
   type VoucherType,
+  transferCommissionApplies,
+  isCommissionExpenseAccount,
 } from "@mezan/domain";
 import type {
   AccountDTO,
@@ -789,6 +791,15 @@ function VoucherDetailView({
     { label: t("vouchers.paymentMethod"), value: getVoucherPaymentMethodLabel(doc.paymentMethod) },
     { label: t("vouchers.party"), value: partyName(partyId) },
     { label: t("common.amount"), value: <MoneyDisplay value={toMajor(doc.amount)} currencyLabel={doc.fxRate ? doc.currency : undefined} /> },
+    ...(doc.commissionAmount && Money.fromMajor(doc.commissionAmount).scaled > 0n
+      ? [
+          { label: t("vouchers.commission"), value: <MoneyDisplay value={doc.commissionAmount} currencyLabel={doc.fxRate ? doc.currency : undefined} /> },
+          {
+            label: t("vouchers.netReceived"),
+            value: <MoneyDisplay value={Money.fromMajor(doc.amount).add(Money.fromMajor(doc.commissionAmount).negate()).add(Money.fromMajor(doc.withholdingAmount ?? "0").negate()).toString()} currencyLabel={doc.fxRate ? doc.currency : undefined} />,
+          },
+        ]
+      : []),
     ...(doc.projectId
       ? [
           {
@@ -1194,11 +1205,13 @@ function CreateVoucherView({
   );
   const accountCurrencies = new Set([...chosenTreasuryAccounts.map((account) => account.currency), BASE_CURRENCY]);
   const voucherCurrency = draft.currency !== "" && accountCurrencies.has(draft.currency) ? draft.currency : (chosenTreasuryAccounts[0]?.currency ?? BASE_CURRENCY);
+  const voucherCurrencyLabel = voucherCurrency === BASE_CURRENCY ? undefined : voucherCurrency;
+  const draftHasCommission = draft.commissionAmount !== "" && Money.fromMajor(draft.commissionAmount).scaled > 0n;
 
   const buildLine = useCallback((): VoucherLine | null => {
     if (!type || !def) return null;
     const received = draft.amount === "" ? Money.zero() : Money.fromMajor(draft.amount);
-    const commission = type === "customer_collection" && draft.paymentMethod !== "cash" && draft.paymentMethod !== "cheque" && draft.commissionAmount !== "" ? Money.fromMajor(draft.commissionAmount) : Money.zero();
+    const commission = transferCommissionApplies(type, draft.paymentMethod) && draft.commissionAmount !== "" ? Money.fromMajor(draft.commissionAmount) : Money.zero();
     const amount = received.add(commission);
     return {
       voucherType: type,
@@ -1485,21 +1498,26 @@ function CreateVoucherView({
 
           <TextField label={t("vouchers.date")} value={draft.date} onChange={(v) => setDraft((d) => ({ ...d, date: v }))} placeholder="YYYY-MM-DD" />
           <TextField label={t("vouchers.referenceNumber")} value={draft.referenceNo} onChange={(v) => setDraft((d) => ({ ...d, referenceNo: v }))} />
-          {type === "customer_collection" && draft.paymentMethod !== "cash" && draft.paymentMethod !== "cheque" ? (
+          {type && transferCommissionApplies(type, draft.paymentMethod) ? (
             <>
               <div>
                 <div className="mb-[6px] text-[12.5px] font-semibold text-ink">{t("vouchers.commission")}</div>
-                <MoneyStringInput value={draft.commissionAmount} onChange={(v) => setDraft((d) => ({ ...d, commissionAmount: v }))} aria-label={t("vouchers.commission")} />
+                <MoneyStringInput value={draft.commissionAmount} onChange={(v) => setDraft((d) => ({ ...d, commissionAmount: v }))} aria-label={t("vouchers.commission")} currencyLabel={voucherCurrencyLabel} />
                 <p className="mt-[4px] text-[11.5px] text-ink-muted">{t("vouchers.commissionHint")}</p>
+                {draftHasCommission ? (
+                  <p className="mt-[4px] text-[12px] font-semibold text-ink">
+                    {t("vouchers.customerRelieved")} <MoneyDisplay value={Money.fromMajor(draft.amount === "" ? "0" : draft.amount).add(Money.fromMajor(draft.commissionAmount)).toString()} currencyLabel={voucherCurrencyLabel} />
+                  </p>
+                ) : null}
               </div>
-              {draft.commissionAmount !== "" && Money.fromMajor(draft.commissionAmount).scaled > 0n ? (
+              {draftHasCommission ? (
                 <SelectField
                   label={t("vouchers.commissionAccount")}
                   value={draft.commissionGlAccountId}
                   onChange={(v) => setDraft((d) => ({ ...d, commissionGlAccountId: v }))}
                   options={[
                     { value: "", label: t("salesInvoices.payments.commissionAccountPlaceholder") },
-                    ...accounts.filter((a) => a.type === "expense" && !a.isHeader && a.status === "active").map((a) => ({ value: a.id, label: `${a.code} — ${nameOf(a)}` })),
+                    ...accounts.filter(isCommissionExpenseAccount).map((a) => ({ value: a.id, label: `${a.code} — ${nameOf(a)}` })),
                   ]}
                 />
               ) : null}

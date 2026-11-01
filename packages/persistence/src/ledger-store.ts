@@ -261,6 +261,19 @@ class SqlLedgerRepository implements LedgerRepository {
     return dates;
   }
 
+  async findByIds(ids: readonly string[]): Promise<ReadonlyMap<string, JournalEntry>> {
+    const unique = [...new Set(ids)];
+    const rows = [...(await childRowsByParentAsync<EntryRow>(this.db, { table: "journal_entry", parentColumn: "id", parentIds: unique, orderBy: "id" })).values()].flat();
+    const linesByEntry = await childRowsByParentAsync<LineRow & { entry_id: string }>(this.db, {
+      table: "journal_line",
+      parentColumn: "entry_id",
+      parentIds: rows.map((row) => row.id),
+      orderBy: "entry_id, line_no",
+      columns: `entry_id, ${LINE_COLUMNS}`,
+    });
+    return new Map(await Promise.all(rows.map(async (row) => [row.id, await this.hydrate(row, linesByEntry.get(row.id) ?? [])] as const)));
+  }
+
   async findByEntryNo(entryNo: string): Promise<JournalEntry | null> {
     const row = await this.db.get<EntryRow>(`SELECT * FROM journal_entry WHERE entry_no = ?`, [entryNo]);
     return row ? this.hydrate(row) : null;

@@ -3,7 +3,7 @@ import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
 import { useState, type ReactNode } from "react";
 import { screen, fireEvent, waitFor, within } from "@testing-library/react";
-import type { AccountDTO, CustomerDTO, ItemDTO, TaxRateDTO, TreasuryAccountDTO, WarehouseDTO } from "@mezan/contracts";
+import type { AccountDTO, CustomerDTO, EmployeeDTO, ItemDTO, TaxRateDTO, TreasuryAccountDTO, WarehouseDTO } from "@mezan/contracts";
 import { SalesInvoicesScreen } from "./SalesInvoicesScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
 import type { Transport } from "../data/transport";
@@ -449,6 +449,65 @@ describe("SalesInvoicesScreen — create + confirm flow", () => {
   });
 });
 
+function employee(id: string, firstNameAr: string, managerId: string | null): EmployeeDTO {
+  return {
+    id, code: id.toUpperCase(), firstName: id, lastName: "", firstNameAr, lastNameAr: "", email: null, phone: null, birthDate: null, nationalId: null, gender: null, maritalStatus: null,
+    departmentId: null, jobTitleId: null, managerId, branchId: "MAIN", hireDate: "2026-01-01", workerCategory: "staff", employmentType: "full_time", overtimeEligibility: "inherit_department",
+    standardWorkHours: null, probationEndDate: null, priorServiceYears: 0, requireSelfieAtClockIn: false, requireBiometricAtClockIn: false, deviceBadgeId: null, hasPensionEntitlement: null,
+    taxDisabilityExemption: false, address: null, emergencyContact: null, status: "active", terminatedAt: null, createdAt: "2026-01-01T00:00:00.000Z",
+  } as EmployeeDTO;
+}
+
+const repEmployees: EmployeeDTO[] = [
+  employee("emp-rep", "سامي", "emp-mgr"),
+  employee("emp-mgr", "هشام", null),
+  employee("emp-promo", "نهى", "emp-mgr2"),
+  employee("emp-mgr2", "رانيا", null),
+  employee("emp-other", "كريم", null),
+];
+
+describe("SalesInvoicesScreen — reps and their managers (#114)", () => {
+  function repTransport(created: Record<string, unknown>[]) {
+    let current = [...seededInvoices];
+    return stubTransport({
+      ...baseHandlers(current),
+      "GET /sales-invoices": () => ({ body: current }),
+      "GET /hr/employees": () => ({ body: repEmployees }),
+      "POST /sales-invoices": (init) => {
+        const body = JSON.parse((init?.body as string) ?? "{}");
+        created.push(body);
+        const draft = invoice({ docNo: null, status: "draft", journalEntryId: null, confirmedAt: null, ...body, id: "inv-4", lines: body.lines ?? [] });
+        current = [...current, draft];
+        return { status: 201, body: draft };
+      },
+      "POST /sales-invoices/inv-4/confirm": () => ({ body: { ...current.find((inv) => inv.id === "inv-4")!, status: "confirmed", docNo: "INV-000004", held: false } }),
+    });
+  }
+
+  it("picking a rep pre-fills the rep's manager, a manager the user chose survives a rep change, and the request carries all four", async () => {
+    const created: Record<string, unknown>[] = [];
+    renderWithProviders(<TestNavigation><SalesInvoicesScreen /></TestNavigation>, { transport: repTransport(created), initialSession: testAdminSession });
+    await screen.findByText("INV-000001");
+    openNewInvoicePage();
+    await pickFromCombobox("العميل *", "شركة الأمل للتجارة");
+    await pickFromCombobox("الصنف — سطر 1", "أرز أبيض مصري");
+
+    await pickFromCombobox("مندوب البيع", "سامي");
+    await waitFor(() => expect(screen.getByLabelText("مدير مندوب البيع")).toHaveValue("هشام"));
+    await pickFromCombobox("مندوب الدعاية", "نهى");
+    await waitFor(() => expect(screen.getByLabelText("مدير مندوب الدعاية")).toHaveValue("رانيا"));
+    await pickFromCombobox("مدير مندوب الدعاية", "كريم");
+    await pickFromCombobox("مندوب الدعاية", "سامي");
+    expect(screen.getByLabelText("مدير مندوب الدعاية")).toHaveValue("كريم");
+
+    const confirmButton = screen.getByRole("button", { name: "تأكيد الفاتورة" });
+    await waitFor(() => expect(confirmButton).toBeEnabled());
+    fireEvent.click(confirmButton);
+    await waitFor(() => expect(created).toHaveLength(1));
+    expect(created[0]).toMatchObject({ salespersonId: "emp-rep", salesManagerId: "emp-mgr", promotionRepId: "emp-rep", promotionManagerId: "emp-other" });
+  });
+});
+
 describe("SalesInvoicesScreen — an item waiting to be priced", () => {
   const pending: ItemDTO = { ...items[1]!, id: "item-pending", code: "ITM-9", nameAr: "شاي أخضر بانتظار التسعير", salePrice: null, status: "pending_pricing" };
 
@@ -648,12 +707,13 @@ describe("SalesInvoicesScreen — payments", () => {
     fireEvent.click(await screen.findByText("INV-000001"));
     await screen.findByRole("heading", { name: "INV-000001" });
     fireEvent.click(screen.getByRole("tab", { name: "المدفوعات" }));
-    const commissionLabel = "عمولة التحويل (ما خصمه البنك؛ يُخصم من رصيد العميل المبلغ المستلم مضافاً إليه العمولة)";
+    const commissionLabel = "عمولة التحويل";
     expect(screen.queryByLabelText(commissionLabel)).not.toBeInTheDocument();
 
     selectOption("طريقة الدفع", "بنكي");
     typeMoney(screen.getByLabelText("قيمة الدفعة"), "85");
     typeMoney(screen.getByLabelText(commissionLabel), "15");
+    expect(screen.getByText(/يُخصم من رصيد العميل:/)).toHaveTextContent("100.00");
     fireEvent.click(screen.getByRole("button", { name: "تحصيل دفعة" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("اختر حساب مصروف عمولة التحويل.");
     expect(paymentRequests).toHaveLength(0);

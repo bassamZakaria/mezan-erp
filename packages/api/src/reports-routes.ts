@@ -48,6 +48,8 @@ import {
   createVatReturnReport,
   createWithholdingTaxReport,
   createCollectionsReport,
+  openItemReps,
+  type CollectionInvoiceReps,
   createMonthlyCollectionsByRepReport,
   type CollectionsContext,
   createGeneralLedgerReport,
@@ -148,6 +150,7 @@ import {
   branchOfWarehouse,
   CostPermission,
 } from "@mezan/domain";
+import { VoucherTypeCode } from "@mezan/contracts";
 import { tenantToday } from "./tenant-day.js";
 import { branchScopeOf, createAnyPermissionGate, createPermissionGate, maySeeItemCost, warehouseScopeOf, withinScope, type AuthContextResolver } from "./permission-gate.js";
 import { branchLineViewOf, isWholeLedgerView, lineInView, readableEntries, type BranchLineView } from "./branch-view.js";
@@ -185,7 +188,7 @@ export interface ReportsRoutesDeps {
   /** Confirmed vouchers, for collections that named no invoice. */
   readonly voucherDocuments?: Pick<DocumentRepository<VoucherLine>, "list">;
   /** Allocations, to tell an applied collection from an on-account one. */
-  readonly allocations?: Pick<AllocationRepository, "listByVoucher"> & Partial<Pick<AllocationRepository, "findById">>;
+  readonly allocations?: Pick<AllocationRepository, "listByVoucher"> & Partial<Pick<AllocationRepository, "findById" | "listByVouchers">>;
   readonly purchaseInvoices: PurchaseInvoiceRepository;
   /**
    * Documents imported from the previous system (x31/x32). An unsettled one
@@ -2067,31 +2070,43 @@ export function createReportsRoutes(
     ]);
     const customerName = new Map(customers.map((customer) => [customer.id, customer.nameAr]));
     const byId = new Map(docs.map((doc) => [doc.id, doc]));
-    const vouchers = await Promise.all(
-      docs
-        .filter((doc) => doc.lines[0]?.voucherType === "customer_collection" && doc.date >= dateFrom && doc.date <= dateTo && voucherStandsAsOf(doc, byId, dateTo))
-        .map(async (doc) => {
-          const line = doc.lines[0]!;
-          const [allocations, entry] = await Promise.all([
-            deps.allocations?.listByVoucher(doc.id) ?? Promise.resolve([]),
-            deps.ledger.findById(doc.journalEntryId ?? doc.id),
-          ]);
-          const postedCredit = Money.sum((entry?.lines ?? []).filter((l) => l.accountId === line.counterpartyGlAccountId).map((l) => Money.fromScaled(l.credit.scaled - l.debit.scaled)));
-          return {
-            postedCredit,
-            voucherId: doc.id,
-            voucherNo: doc.docNo,
-            date: doc.date,
-            branchId: line.branchId || null,
-            customerId: line.customerId,
-            customerNameAr: (line.customerId && customerName.get(line.customerId)) || "—",
-            gross: voucherBaseAmount(line),
-            commission: voucherBaseCommission(line),
-            allocations: allocations.filter((a) => allocationStoodOn(a, dateTo)).map((a) => ({ invoiceId: a.invoiceId, amount: a.amount })),
-          };
-        }),
-    );
-    return { vouchers, invoices: new Map(invoices.map((invoice) => [invoice.id, invoice])) };
+    const collections = docs.filter((doc) => doc.lines[0]?.voucherType === VoucherTypeCode.CustomerCollection && doc.date >= dateFrom && doc.date <= dateTo && voucherStandsAsOf(doc, byId, dateTo));
+    const entryIds = collections.map((doc) => doc.journalEntryId ?? doc.id);
+    const [allocationsByVoucher, entries] = await Promise.all([
+      allocationsOfVouchers(collections.map((doc) => doc.id)),
+      deps.ledger.findByIds
+        ? deps.ledger.findByIds(entryIds)
+        : Promise.all(entryIds.map(async (id) => [id, await deps.ledger.findById(id)] as const)).then((pairs) => new Map(pairs.flatMap(([id, entry]) => (entry ? [[id, entry] as const] : [])))),
+    ]);
+    const vouchers = collections.map((doc) => {
+      const line = doc.lines[0]!;
+      const entry = entries.get(doc.journalEntryId ?? doc.id);
+      const postedCredit = Money.sum((entry?.lines ?? []).filter((l) => l.accountId === line.counterpartyGlAccountId).map((l) => Money.fromScaled(l.credit.scaled - l.debit.scaled)));
+      return {
+        postedCredit,
+        voucherId: doc.id,
+        voucherNo: doc.docNo,
+        date: doc.date,
+        branchId: line.branchId || null,
+        customerId: line.customerId,
+        customerNameAr: (line.customerId && customerName.get(line.customerId)) || "—",
+        gross: voucherBaseAmount(line),
+        commission: voucherBaseCommission(line),
+        allocations: (allocationsByVoucher.get(doc.id) ?? []).filter((a) => allocationStoodOn(a, dateTo)).map((a) => ({ invoiceId: a.invoiceId, amount: a.amount })),
+      };
+    });
+    const invoiceReps = new Map<string, CollectionInvoiceReps>(invoices.map((invoice) => [invoice.id, invoice]));
+    const otherItemIds = [...new Set(vouchers.flatMap((v) => v.allocations.map((a) => a.invoiceId)))].filter((id) => !invoiceReps.has(id));
+    const openItems = otherItemIds.length > 0 && deps.allocatable?.findByIds ? await deps.allocatable.findByIds(otherItemIds) : new Map<string, { readonly invoiceNo: string }>();
+    for (const [id, item] of openItems) invoiceReps.set(id, openItemReps(item.invoiceNo));
+    return { vouchers, invoices: invoiceReps };
+  }
+
+  async function allocationsOfVouchers(voucherIds: readonly string[]): Promise<ReadonlyMap<string, readonly VoucherAllocation[]>> {
+    const allocations = deps.allocations;
+    if (!allocations) return new Map();
+    if (allocations.listByVouchers) return allocations.listByVouchers(voucherIds);
+    return new Map(await Promise.all(voucherIds.map(async (id) => [id, await allocations.listByVoucher(id)] as const)));
   }
 
   app.get("/treasury/collections", gate("accounting.reports.view"), async (c) => {

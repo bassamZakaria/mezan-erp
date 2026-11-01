@@ -17,7 +17,9 @@
  * stays pure so it drives both the UI effects panel and tests.
  */
 
+import { VoucherPaymentMethodCode, VoucherTypeCode } from "@mezan/contracts";
 import { Money, roundMoney } from "../money/index.js";
+import { transferCommissionApplies } from "./transfer-commission.js";
 import { convertToBase } from "../exchange-rates/convert.js";
 import { FX_REALISED_LINE_MEMO } from "./realised-fx.js";
 import type { DocumentTypeDefinition, FrameworkDocument } from "../documents/document.js";
@@ -101,12 +103,7 @@ export interface VoucherLine {
   readonly withholdingAmount?: Money | null;
   readonly withholdingRatePercent?: number | null;
   readonly withholdingGlAccountId?: string | null;
-  /**
-   * عمولة تحويل — what the bank or wallet kept from a customer collection.
-   * `amount` stays the GROSS that relieves the receivable and settles the
-   * invoices; only `amount − commissionAmount` lands in the treasury and the
-   * rest is an expense on `commissionGlAccountId`.
-   */
+  /** INVARIANT: `amount` is the gross the customer is relieved of; the treasury gets `amount − commissionAmount`. */
   readonly commissionAmount?: Money | null;
   readonly commissionGlAccountId?: string | null;
   /**
@@ -332,7 +329,6 @@ function buildVoucherLines(line: VoucherLine): DocumentGlPosting["lines"] {
   ];
 }
 
-/** What actually moves through the treasury, in BASE currency: the settling amount less any tax withheld or commission kept. */
 export function voucherNetPaid(line: VoucherLine): Money {
   return Money.fromScaled(voucherBaseAmount(line).scaled - voucherBaseWithholding(line).scaled - voucherBaseCommission(line).scaled);
 }
@@ -410,13 +406,13 @@ export const voucherDocumentType: DocumentTypeDefinition<VoucherLine> = {
     }
     const commission = line.commissionAmount?.scaled ?? 0n;
     if (commission !== 0n) {
-      if (line.voucherType !== "customer_collection") {
-        throw new InvalidDocumentError(VOUCHER_DOC_TYPE, doc.id, "عمولة التحويل لا تُطبَّق إلا على سندات تحصيل العملاء.", "A transfer commission applies to customer collections only.");
-      }
-      if (line.paymentMethod === "cheque") {
-        throw new InvalidDocumentError(VOUCHER_DOC_TYPE, doc.id, "عمولة التحويل لا تُخصم من تحصيل بشيك؛ تُسجَّل عند تحصيل الشيك من البنك.", "A transfer commission cannot be taken from a cheque collection; record it when the bank collects the cheque.");
-      }
-      if (line.paymentMethod === "cash") {
+      if (!transferCommissionApplies(line.voucherType, line.paymentMethod)) {
+        if (line.voucherType !== VoucherTypeCode.CustomerCollection) {
+          throw new InvalidDocumentError(VOUCHER_DOC_TYPE, doc.id, "عمولة التحويل لا تُطبَّق إلا على سندات تحصيل العملاء.", "A transfer commission applies to customer collections only.");
+        }
+        if (line.paymentMethod === VoucherPaymentMethodCode.Cheque) {
+          throw new InvalidDocumentError(VOUCHER_DOC_TYPE, doc.id, "عمولة التحويل لا تُخصم من تحصيل بشيك؛ تُسجَّل عند تحصيل الشيك من البنك.", "A transfer commission cannot be taken from a cheque collection; record it when the bank collects the cheque.");
+        }
         throw new InvalidDocumentError(VOUCHER_DOC_TYPE, doc.id, "عمولة التحويل لا تُخصم من تحصيل نقدي؛ تُسجَّل على التحويل البنكي أو المحفظة أو البطاقة.", "A transfer commission cannot be taken from a cash collection; it belongs on a bank, wallet or card collection.");
       }
       if (commission < 0n || commission >= line.amount.scaled) {

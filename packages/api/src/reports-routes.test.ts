@@ -2610,3 +2610,65 @@ describe("reports routes — paging (pageSize/page)", () => {
     expect(res.status).toBe(400);
   });
 });
+
+describe("reports routes — treasury collections (#117)", () => {
+  it("labels a collection on a non-sales-invoice open item by its own number, and reads the posted credit from the voucher's entry", async () => {
+    const { app, deps, vouchers } = await newApp();
+    await vouchers.invoices.save({ id: "cert-1", invoiceNo: "CERT-0001", kind: "sales", partyId: "cust-1", date: "2026-08-05", total: Money.fromMajor("500"), allocated: Money.fromMajor("500") });
+    await vouchers.documents.save({
+      id: "vc-1",
+      docType: "TREASURY_VOUCHER",
+      docNo: "CV-000001",
+      date: "2026-08-12",
+      memo: "تحصيل",
+      status: "confirmed",
+      lines: [
+        {
+          voucherType: "customer_collection",
+          direction: "receipt",
+          amount: Money.fromMajor("500"),
+          currency: "EGP",
+          branchId: "br-1",
+          paymentMethod: "bank",
+          treasuryAccountId: "ta-bank",
+          treasuryGlAccountId: "1310",
+          counterpartyGlAccountId: "1105",
+          counterTreasuryAccountId: null,
+          counterTreasuryGlAccountId: null,
+          customerId: "cust-1",
+          supplierId: null,
+          referenceNo: null,
+          commissionAmount: Money.fromMajor("10"),
+          commissionGlAccountId: "5910",
+        },
+      ],
+      createdAt: "2026-08-12T10:00:00.000Z",
+      confirmedAt: "2026-08-12T10:00:00.000Z",
+      reversesDocId: null,
+      reversedByDocId: null,
+      workflowRequestId: null,
+      journalEntryId: "je-vc-1",
+    });
+    await vouchers.allocations.save({ id: "al-1", voucherId: "vc-1", invoiceId: "cert-1", amount: Money.fromMajor("500"), status: "active", createdAt: "2026-08-12T10:00:00.000Z", reversedAt: null, date: "2026-08-12" });
+    await deps.ledger.save({
+      id: "je-vc-1",
+      date: "2026-08-12",
+      memo: "collection",
+      status: "posted",
+      source: "system",
+      sourceDocType: "TREASURY_VOUCHER",
+      sourceDocId: "vc-1",
+      lines: [
+        { accountId: "1310", debit: Money.fromMajor("490"), credit: Money.zero() },
+        { accountId: "5910", debit: Money.fromMajor("10"), credit: Money.zero() },
+        { accountId: "1105", debit: Money.zero(), credit: Money.fromMajor("500") },
+      ],
+    });
+
+    const res = await app.fetch(req("/treasury/collections?dateFrom=2026-08-01&dateTo=2026-08-31", "accounting.reports.view"));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { rows: { invoiceNo: string; gross: string; commission: string; net: string }[]; reconciliation: { withinTolerance: boolean } };
+    expect(body.rows.map((r) => [r.invoiceNo, r.gross, r.commission, r.net])).toEqual([["CERT-0001", "500.000000", "10.000000", "490.000000"]]);
+    expect(body.reconciliation.withinTolerance).toBe(true);
+  });
+});

@@ -29,6 +29,28 @@ export const voucherTypeSchema = z.enum([
 
 export const voucherDirectionSchema = z.enum(["receipt", "payment", "transfer"]);
 export const voucherPaymentMethodSchema = z.enum(["cash", "bank", "cheque", "card", "wallet"]);
+
+export enum VoucherTypeCode {
+  CustomerCollection = "customer_collection",
+  SupplierPayment = "supplier_payment",
+  CustomerRefund = "customer_refund",
+  CustomerAdvance = "customer_advance",
+  SupplierRefund = "supplier_refund",
+  OtherIncome = "other_income",
+  OtherExpense = "other_expense",
+  CapitalInjection = "capital_injection",
+  CapitalWithdrawal = "capital_withdrawal",
+  TaxPayment = "tax_payment",
+  InterTreasuryTransfer = "inter_treasury_transfer",
+}
+
+export enum VoucherPaymentMethodCode {
+  Cash = "cash",
+  Bank = "bank",
+  Cheque = "cheque",
+  Card = "card",
+  Wallet = "wallet",
+}
 export const voucherStatusSchema = z.enum(["draft", "pending", "confirmed", "posted", "cancelled", "reversed"]);
 export const allocationInvoiceKindSchema = z.enum(["sales", "purchase"]);
 export const allocationStatusSchema = z.enum(["active", "reversed"]);
@@ -120,7 +142,7 @@ export const createVoucherSchema = z.object({
   date: isoDateOrInstant,
   memo: z.string().optional(),
   voucherType: voucherTypeSchema,
-  amount: moneyString,
+  amount: moneyString.describe("The gross that settles the counterparty and its invoices. The treasury moves amount − withholdingAmount − commissionAmount."),
   currency: z.string().optional(),
   branchId: z.string().min(1),
   paymentMethod: voucherPaymentMethodSchema,
@@ -142,8 +164,7 @@ export const createVoucherSchema = z.object({
   withholdingAmount: moneyString.nullish(),
   withholdingRatePercent: z.number().min(0).max(100).nullish(),
   withholdingGlAccountId: z.string().nullish(),
-  /** عمولة تحويل kept from a customer collection; `amount` stays the gross that settles the invoices. */
-  commissionAmount: moneyString.nullish(),
+  commissionAmount: moneyString.nullish().describe("Transfer commission kept from a customer collection, included in amount."),
   commissionGlAccountId: z.string().nullish(),
   /** The invoices this draft is meant to settle; whoever confirms it applies them in the same act (D344). */
   allocations: z.array(requestedAllocationSchema).optional(),
@@ -217,7 +238,7 @@ export const createCollectionSchema = z.object({
   customerId: z.string().min(1),
   branchId: z.string().min(1),
   treasuryAccountId: z.string().min(1),
-  amount: moneyString,
+  amount: moneyString.describe("The gross the customer is relieved of. The treasury receives amount − commissionAmount − withholdingAmount."),
   paymentMethod: voucherPaymentMethodSchema,
   referenceNo: z.string().nullish(),
   costCenterId: z.string().nullish(),

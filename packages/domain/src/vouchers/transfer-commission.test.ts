@@ -1,3 +1,4 @@
+import { AccountStatusCode, AccountTypeCode, VoucherPaymentMethodCode, VoucherTypeCode } from "@mezan/contracts";
 import { describe, expect, it } from "vitest";
 import { Money } from "../money/index.js";
 import { buildTestService } from "./test-helpers/build-test-service.js";
@@ -5,6 +6,7 @@ import type { AllocatableInvoice } from "./allocation.js";
 import type { CreateVoucherCommand } from "./voucher-service.js";
 import { voucherLine, voucherNetPaid } from "./voucher-document.js";
 import { allocationStoodOn } from "./allocation.js";
+import { transferCommissionApplies } from "./transfer-commission.js";
 
 const AR = "1100";
 const BANK = "1310";
@@ -87,6 +89,32 @@ describe("transfer commission on a customer collection (#115)", () => {
       })(),
     ).rejects.toThrow(message);
     expect(await h.ledger.findById("vc")).toBeNull();
+  });
+});
+
+describe("the commission account is re-checked at confirm (#115)", () => {
+  it.each([
+    ["deactivated", { status: AccountStatusCode.Inactive }],
+    ["turned into a header", { isHeader: true }],
+    ["retyped away from expense", { type: AccountTypeCode.Liability }],
+  ])("refuses a confirm when the account was %s after the draft", async (_label, change) => {
+    const h = buildTestService();
+    await h.seedCashBalance(AR, "1000.00");
+    await h.service.createVoucher(collection());
+    h.accountsById.set(COMMISSION, { ...h.accountsById.get(COMMISSION)!, ...change });
+    await expect(h.service.confirmVoucher("vc")).rejects.toThrow("حساب مصروفات فرعياً نشطاً");
+    expect(await h.ledger.findById("vc")).toBeNull();
+  });
+});
+
+describe("where a transfer commission applies (#115)", () => {
+  it("is a customer collection by bank, card or wallet only", () => {
+    expect(transferCommissionApplies(VoucherTypeCode.CustomerCollection, VoucherPaymentMethodCode.Bank)).toBe(true);
+    expect(transferCommissionApplies(VoucherTypeCode.CustomerCollection, VoucherPaymentMethodCode.Wallet)).toBe(true);
+    expect(transferCommissionApplies(VoucherTypeCode.CustomerCollection, VoucherPaymentMethodCode.Card)).toBe(true);
+    expect(transferCommissionApplies(VoucherTypeCode.CustomerCollection, VoucherPaymentMethodCode.Cash)).toBe(false);
+    expect(transferCommissionApplies(VoucherTypeCode.CustomerCollection, VoucherPaymentMethodCode.Cheque)).toBe(false);
+    expect(transferCommissionApplies(VoucherTypeCode.SupplierPayment, VoucherPaymentMethodCode.Bank)).toBe(false);
   });
 });
 

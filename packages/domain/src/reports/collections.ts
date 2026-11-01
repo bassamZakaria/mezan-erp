@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { isoDateParamSchema } from "./iso-date.js";
-import { Money, allocate } from "../money/index.js";
+import { Money, allocateScaled } from "../money/index.js";
 import { INVOICE_REP_ROLE_LABELS_AR, InvoiceRepRole, invoiceRepOf, type SalesInvoice } from "../sales-invoices/sales-invoice.js";
 import type { ReportDefinition, ReportParamField } from "./types.js";
 import { ReportParamKind } from "./types.js";
@@ -16,6 +16,20 @@ export type CollectionInvoiceReps = Pick<
   SalesInvoice,
   "docNo" | "salespersonId" | "salespersonNameAr" | "salesManagerId" | "salesManagerNameAr" | "promotionRepId" | "promotionRepNameAr" | "promotionManagerId" | "promotionManagerNameAr"
 >;
+
+export function openItemReps(invoiceNo: string): CollectionInvoiceReps {
+  return {
+    docNo: invoiceNo,
+    salespersonId: null,
+    salespersonNameAr: null,
+    salesManagerId: null,
+    salesManagerNameAr: null,
+    promotionRepId: null,
+    promotionRepNameAr: null,
+    promotionManagerId: null,
+    promotionManagerNameAr: null,
+  };
+}
 
 export interface CollectionReportVoucher {
   readonly voucherId: string;
@@ -121,15 +135,25 @@ interface Share {
   readonly commission: Money;
 }
 
+const PIASTRE_SCALED = 10_000n;
+
+function commissionInPiastres(commission: Money, weights: readonly bigint[]): Money[] {
+  const piastres = allocateScaled(commission.scaled / PIASTRE_SCALED, weights);
+  const subPiastre = commission.scaled % PIASTRE_SCALED;
+  return piastres.map((p, i) => Money.fromScaled(p * PIASTRE_SCALED + (i === 0 ? subPiastre : 0n)));
+}
+
 function sharesOf(voucher: CollectionReportVoucher, ctx: CollectionsContext, role: InvoiceRepRole): Share[] {
   const allocated = voucher.allocations.reduce((sum, a) => sum + a.amount.scaled, 0n);
   const remainder = voucher.gross.scaled - allocated;
-  const parts = [
-    ...voucher.allocations.map((a) => ({ invoiceId: a.invoiceId as string | null, gross: a.amount })),
-    ...(remainder > 0n ? [{ invoiceId: null as string | null, gross: Money.fromScaled(remainder) }] : []),
-  ].filter((p) => p.gross.scaled > 0n);
+  const perInvoice = new Map<string | null, bigint>();
+  for (const a of voucher.allocations) perInvoice.set(a.invoiceId, (perInvoice.get(a.invoiceId) ?? 0n) + a.amount.scaled);
+  if (remainder > 0n) perInvoice.set(null, remainder);
+  const parts = [...perInvoice]
+    .filter(([, gross]) => gross > 0n)
+    .map(([invoiceId, gross]) => ({ invoiceId, gross: Money.fromScaled(gross) }));
   if (parts.length === 0) return [];
-  const commissions = allocate(voucher.commission, parts.map((p) => p.gross.scaled));
+  const commissions = commissionInPiastres(voucher.commission, parts.map((p) => p.gross.scaled));
   return parts.map((part, i) => {
     const invoice = part.invoiceId ? ctx.invoices.get(part.invoiceId) : undefined;
     const rep = invoice ? invoiceRepOf(invoice, role) : { id: null, nameAr: null };

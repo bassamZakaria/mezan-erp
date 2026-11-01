@@ -141,6 +141,8 @@ export {
   type UpdateAccountRoutingDTO,
   type LatePenaltyTreatmentDTO,
   type AccountTypeDTO,
+  AccountTypeCode,
+  AccountStatusCode,
   type NaturalBalanceDTO,
   type AccountStatusDTO,
   type AccountDTO,
@@ -514,6 +516,8 @@ export {
 
 export {
   voucherTypeSchema,
+  VoucherTypeCode,
+  VoucherPaymentMethodCode,
   voucherDirectionSchema,
   voucherPaymentMethodSchema,
   voucherStatusSchema,

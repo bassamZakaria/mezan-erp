@@ -17,6 +17,7 @@ import {
   type DocumentWorkflowGate,
   EtaSubmissionStatusCode,
   EtaDocumentTypeCode,
+  EmployeeRefStatus,
 } from "@mezan/domain";
 import { createSqliteSalesInvoiceStore, type SqliteSalesInvoiceStoreHandle } from "@mezan/persistence";
 import { createSalesInvoicesRoutes, type SalesInvoiceRoutesDeps } from "./sales-invoices-routes.js";
@@ -1090,20 +1091,45 @@ describe("sales invoice routes — optimistic concurrency (N-9)", () => {
 });
 
 describe("sales-invoices routes — reps and managers are real employees (#114)", () => {
-  const people: Record<string, string> = { "emp-u1": "أحمد سامي", "emp-mgr": "هشام منصور", "emp-promo": "نهى سمير" };
-  const employees = { findById: async (id: string) => (people[id] ? ({ id, fullNameAr: people[id] } as Awaited<ReturnType<NonNullable<SalesInvoiceRoutesDeps["employees"]>["findById"]>>) : null) };
+  const people: Record<string, string> = { "emp-u1": "أحمد سامي", "emp-mgr": "هشام منصور", "emp-promo": "نهى سمير", "emp-gone": "سامح فؤاد" };
+  const employees = {
+    findById: async (id: string) =>
+      people[id]
+        ? ({ id, fullNameAr: people[id], status: id === "emp-gone" ? EmployeeRefStatus.Terminated : EmployeeRefStatus.Active } as Awaited<ReturnType<NonNullable<SalesInvoiceRoutesDeps["employees"]>["findById"]>>)
+        : null,
+  };
   const create = (app: Awaited<ReturnType<typeof harness>>["app"], body: unknown) =>
     app.fetch(req("/", { method: "POST", body: JSON.stringify(body), permissions: "sales.invoice.create" }));
 
-  it("refuses an id no employee holds, naming it, in Arabic", async () => {
+  it("refuses an id no employee holds, in Arabic, without echoing the id", async () => {
     const { app, repo } = await harness({ employees });
     const res = await create(app, { ...draftBody, salesManagerId: "emp-mgr", promotionRepId: "ghost-rep" });
     expect(res.status).toBe(422);
-    const body = (await res.json()) as { error: string; employeeIds: string[]; message: string };
+    const body = (await res.json()) as Record<string, unknown> & { error: string; message: string; messageEn: string };
     expect(body.error).toBe("EMPLOYEE_NOT_FOUND");
-    expect(body.employeeIds).toEqual(["ghost-rep"]);
-    expect(body.message).toContain("ghost-rep");
+    expect(body.employeeIds).toBeUndefined();
+    expect(JSON.stringify(body)).not.toContain("ghost-rep");
+    expect(body.message).toContain("سجل الموظفين");
+    expect(body.messageEn).toContain("employee register");
     expect(await repo.list({})).toHaveLength(0);
+  });
+
+  it("refuses a terminated employee as rep or manager, on create and on a draft edit", async () => {
+    const { app, repo } = await harness({ employees });
+    const refused = await create(app, { ...draftBody, salesManagerId: "emp-gone" });
+    expect(refused.status).toBe(422);
+    const body = (await refused.json()) as { error: string; message: string; messageEn: string };
+    expect(body.error).toBe("EMPLOYEE_TERMINATED");
+    expect(body.message).toContain("منتهية خدمته");
+    expect(body.messageEn).toContain("terminated");
+    expect(await repo.list({})).toHaveLength(0);
+
+    const made = await create(app, { ...draftBody, salesManagerId: "emp-mgr" });
+    expect(made.status).toBe(201);
+    const { id } = (await made.json()) as { id: string };
+    const edit = await create(app, { ...draftBody, id, promotionManagerId: "emp-gone" });
+    expect(edit.status).toBe(422);
+    expect((await repo.findById(id))?.promotionManagerId).toBeNull();
   });
 
   it("stores all four ids and takes every name from the employee register, not the request", async () => {

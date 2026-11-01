@@ -16,6 +16,12 @@ import {
   billingAnchorDayOf,
   setBillingAnchorDay,
   setSubscriptionExtras,
+  decideStorageRequest,
+  StorageDecision,
+  StorageRequestRefusal,
+  StorageRequestRefusedError,
+  type StorageRequest,
+  StorageRequestStatus,
   recordPayment,
   createPlatformUser,
   deactivatePlatformUser,
@@ -78,6 +84,9 @@ import {
   type TenantExportOfferDTO,
   setBillingAnchorDayRequestSchema,
   setSubscriptionExtrasRequestSchema,
+  type PendingStorageRequestDTO,
+  type StorageRequestDTO,
+  StorageRequestStatusCode,
   startSubscriptionRequestSchema,
   changePlanRequestSchema,
   subscriptionSuspendRequestSchema,
@@ -205,6 +214,8 @@ export enum PlatformAuditAction {
   SubscriptionAnchorDaySet = "SUBSCRIPTION_ANCHOR_DAY_SET",
   SubscriptionCancelled = "SUBSCRIPTION_CANCELLED",
   SubscriptionExtrasSet = "SUBSCRIPTION_EXTRAS_SET",
+  StorageRequestApproved = "STORAGE_REQUEST_APPROVED",
+  StorageRequestDeclined = "STORAGE_REQUEST_DECLINED",
   SignupApproved = "SIGNUP_APPROVED",
   SignupRejected = "SIGNUP_REJECTED",
   SignupModeSet = "SIGNUP_MODE_SET",
@@ -405,6 +416,7 @@ async function tenantSummary(platform: PlatformHandle, tenant: Tenant, nowIso: s
           id: subscription.id, tenantId: subscription.tenantId, planId: subscription.planId, status: subscriptionStatusOf(subscription.status),
           billingCycle: subscription.billingCycle, addOnModules: [...subscription.addOnModules],
           extraSeats: subscription.extraSeats, extraBranches: subscription.extraBranches, extraWarehouses: subscription.extraWarehouses,
+          extraStorageMb: subscription.extraStorageMb ?? 0,
           currentPeriodStart: subscription.currentPeriodStart, currentPeriodEnd: subscription.currentPeriodEnd,
           billingAnchorDay: billingAnchorDayOf(subscription), billingAnchorNeedsReview: subscription.billingAnchorNeedsReview === true,
           trialEndsAt: subscription.trialEndsAt, graceDays: subscription.graceDays, cancelledAt: subscription.cancelledAt,
@@ -483,11 +495,34 @@ export enum ProvisioningRefusalCode {
   Superseded = "PROVISIONING_SUPERSEDED",
 }
 
-function extrasOf(s: Pick<Subscription, "addOnModules" | "extraSeats" | "extraBranches" | "extraWarehouses" | "graceDays">) {
-  return { addOnModules: [...s.addOnModules], extraSeats: s.extraSeats, extraBranches: s.extraBranches, extraWarehouses: s.extraWarehouses, graceDays: s.graceDays };
+function extrasOf(s: Pick<Subscription, "addOnModules" | "extraSeats" | "extraBranches" | "extraWarehouses" | "extraStorageMb" | "graceDays">) {
+  return {
+    addOnModules: [...s.addOnModules], extraSeats: s.extraSeats, extraBranches: s.extraBranches, extraWarehouses: s.extraWarehouses,
+    extraStorageMb: s.extraStorageMb ?? 0, graceDays: s.graceDays,
+  };
+}
+
+const STORAGE_REQUEST_STATUS_CODE: Readonly<Record<StorageRequestStatus, StorageRequestStatusCode>> = {
+  [StorageRequestStatus.Pending]: StorageRequestStatusCode.Pending,
+  [StorageRequestStatus.Approved]: StorageRequestStatusCode.Approved,
+  [StorageRequestStatus.Declined]: StorageRequestStatusCode.Declined,
+};
+
+export function serializeStorageRequestForTenant(r: StorageRequest): StorageRequestDTO {
+  return { ...serializeStorageRequest(r), decidedBy: null };
+}
+
+export function serializeStorageRequest(r: StorageRequest): StorageRequestDTO {
+  return {
+    id: r.id, tenantId: r.tenantId, extraMb: r.extraMb, note: r.note, status: STORAGE_REQUEST_STATUS_CODE[r.status],
+    requestedBy: r.requestedBy, requestedAt: r.requestedAt, decidedBy: r.decidedBy, decidedAt: r.decidedAt,
+  };
 }
 
 function domainErrorResponse(c: Context, err: unknown): Response {
+  if (err instanceof StorageRequestRefusedError) {
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, err.code === StorageRequestRefusal.NotFound ? 404 : 409);
+  }
   if (err instanceof TenantBackupRefusalError) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, err.status);
   }
@@ -1397,6 +1432,53 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
       return domainErrorResponse(c, err);
     }
   });
+
+  app.get("/storage-requests", requireAny, async (c) => {
+    const pending = await platform.stores.storageRequests.listPending();
+    const tenants = new Map((await platform.stores.tenants.list()).map((t) => [t.id, t]));
+    const rows: PendingStorageRequestDTO[] = pending.map((request) => {
+      const tenant = tenants.get(request.tenantId);
+      return { ...serializeStorageRequest(request), tenantCode: tenant?.code ?? "", tenantNameAr: tenant?.nameAr ?? "" };
+    });
+    return c.json(rows);
+  });
+
+  for (const decision of Object.values(StorageDecision)) {
+    const approve = decision === StorageDecision.Approve;
+    app.post(`/storage-requests/:id/${decision}`, requireOwner, async (c) => {
+      try {
+        let tenantCode: string | null = null;
+        const decided = await recordedWith(c, async () => {
+          let grant: { before: ReturnType<typeof extrasOf>; after: ReturnType<typeof extrasOf> } | null = null;
+          const request = await decideStorageRequest(
+            { id: c.req.param("id"), approve, decidedBy: c.get("platformUser")?.id ?? "unknown", now: nowIso() },
+            platform.stores.storageRequests,
+            async (approved) => {
+              const tenant = await requireTenant(approved.tenantId);
+              tenantCode = tenant.code;
+              const subscription = await requireLiveSubscription(tenant);
+              const saved = await setSubscriptionExtras(
+                { ...extrasOf(subscription), id: subscription.id, extraStorageMb: (subscription.extraStorageMb ?? 0) + approved.extraMb, now: nowIso() },
+                platform.stores.subscriptions,
+              );
+              grant = { before: extrasOf(subscription), after: extrasOf(saved) };
+            },
+          );
+          return {
+            value: request,
+            action: approve ? PlatformAuditAction.StorageRequestApproved : PlatformAuditAction.StorageRequestDeclined,
+            entityId: request.tenantId,
+            details: { requestId: request.id, extraMb: request.extraMb, ...(grant ? { extras: grant } : {}) },
+            severity: approve ? AuditSeverityCode.Warning : AuditSeverityCode.Info,
+          };
+        });
+        if (tenantCode) invalidateEntitlements(tenantCode);
+        return c.json(serializeStorageRequest(decided));
+      } catch (err) {
+        return domainErrorResponse(c, err);
+      }
+    });
+  }
 
   app.post("/tenants/:id/subscription/suspend", requireOwner, async (c) => {
     const parsed = subscriptionSuspendRequestSchema.safeParse(await c.req.json().catch(() => null));

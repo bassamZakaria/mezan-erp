@@ -16,6 +16,8 @@ import {
   type Tenant,
   type PlatformUser,
   type Payment,
+  type StorageRequest,
+  StorageRequestStatus,
 } from "@mezan/domain";
 import { createSqlitePlatformStores } from "./platform-store.js";
 
@@ -857,5 +859,50 @@ describe("signup provisioning claim", () => {
     await signupRequests.releaseProvisioning(TOKEN, "eager");
     expect(await signupRequests.provisioningClaimedAt(TOKEN)).toBeNull();
     close();
+  });
+});
+
+describe("attachment storage on the platform store", () => {
+  const request = (over: Partial<StorageRequest> = {}): StorageRequest => ({
+    id: "R1", tenantId: "T1", extraMb: 5120, note: null, status: StorageRequestStatus.Pending,
+    requestedBy: "tenant:cyag:U1", requestedAt: NOW, decidedBy: null, decidedAt: null, ...over,
+  });
+
+  it("keeps a subscription's extra storage, and a platform database from before it gains the column at zero", async () => {
+    const db = new Database(":memory:");
+    await createSqlitePlatformStores(db).subscriptions.save(sub);
+    db.exec(`ALTER TABLE subscription DROP COLUMN extra_storage_mb`);
+
+    const after = createSqlitePlatformStores(db);
+    expect((await after.subscriptions.findById("S1"))?.extraStorageMb).toBeUndefined();
+    await after.subscriptions.save({ ...sub, extraStorageMb: 1024 });
+    expect((await after.subscriptions.findById("S1"))?.extraStorageMb).toBe(1024);
+    db.close();
+  });
+
+  it("holds one pending request per tenant, and decides a request once", async () => {
+    const stores = createSqlitePlatformStores(":memory:");
+    expect(await stores.storageRequests.insertIfNonePending(request())).toBe(true);
+    expect(await stores.storageRequests.insertIfNonePending(request({ id: "R2" }))).toBe(false);
+    expect(await stores.storageRequests.insertIfNonePending(request({ id: "R3", tenantId: "T2" }))).toBe(true);
+    expect((await stores.storageRequests.listPending()).map((r) => r.id)).toEqual(["R1", "R3"]);
+
+    const approved = request({ status: StorageRequestStatus.Approved, decidedBy: "U1", decidedAt: NOW });
+    let effects = 0;
+    expect(await stores.storageRequests.decide(request(), approved, async () => { effects += 1; })).toBe(true);
+    expect(await stores.storageRequests.decide(request(), approved, async () => { effects += 1; })).toBe(false);
+    expect(effects).toBe(1);
+    expect(await stores.storageRequests.findById("R1")).toEqual(approved);
+    expect(await stores.storageRequests.insertIfNonePending(request({ id: "R4" }))).toBe(true);
+    stores.close();
+  });
+
+  it("rolls the decision back when granting the space fails", async () => {
+    const stores = createSqlitePlatformStores(":memory:");
+    await stores.storageRequests.insertIfNonePending(request());
+    const approved = request({ status: StorageRequestStatus.Approved, decidedBy: "U1", decidedAt: NOW });
+    await expect(stores.storageRequests.decide(request(), approved, async () => { throw new Error("no subscription"); })).rejects.toThrow("no subscription");
+    expect((await stores.storageRequests.findById("R1"))?.status).toBe(StorageRequestStatus.Pending);
+    stores.close();
   });
 });

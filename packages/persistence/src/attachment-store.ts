@@ -101,6 +101,11 @@ class SqlAttachmentRepository implements AttachmentRepository {
     refuseUnlessInserted(attachment.id, inserted.changes);
   }
 
+  async totalBytes(): Promise<number> {
+    const row = await this.db.get<{ bytes: bigint | null }>(`SELECT CAST(COALESCE(SUM(byte_size), 0) AS BIGINT) AS bytes FROM attachment`);
+    return Number(row?.bytes ?? 0);
+  }
+
   async delete(id: string): Promise<void> {
     await this.db.run(`DELETE FROM attachment WHERE id = ?`, [id]);
   }

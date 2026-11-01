@@ -60,4 +60,5 @@ export interface AttachmentRepository {
   readContent(id: string): Promise<AttachmentContent | null>;
   create(attachment: Attachment, bytes: Uint8Array): Promise<void>;
   delete(id: string): Promise<void>;
+  totalBytes(): Promise<number>;
 }

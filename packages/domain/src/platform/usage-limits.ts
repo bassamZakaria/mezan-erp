@@ -7,11 +7,26 @@ export enum LimitKind {
   Branches = "branches",
   Warehouses = "warehouses",
   SalesInvoicesPerMonth = "sales_invoices_per_month",
+  StorageMb = "storage_mb",
 }
 
 export const LIMIT_OF_QUOTA: Readonly<Record<QuotaKind, LimitKind>> = {
   [QuotaKind.SalesInvoicesPerMonth]: LimitKind.SalesInvoicesPerMonth,
+  [QuotaKind.StorageMb]: LimitKind.StorageMb,
 };
+
+export const BYTES_PER_MB = 1024 * 1024;
+const MB_PER_GB = 1024;
+
+export function formatStorageMb(mb: number): string {
+  if (mb < MB_PER_GB) return `${Math.ceil(mb)} MB`;
+  const gb = Math.floor((mb / MB_PER_GB) * 10) / 10;
+  return `${gb} GB`;
+}
+
+export function usedStorageMb(bytes: number): number {
+  return Math.ceil(bytes / BYTES_PER_MB);
+}
 
 export enum UsageRefusalCode {
   LimitReached = "PLAN_LIMIT_REACHED",
@@ -25,6 +40,7 @@ const LIMIT_NOUN: Readonly<Record<LimitKind, { readonly ar: string; readonly en:
   [LimitKind.Branches]: { ar: "فروع", en: "branches" },
   [LimitKind.Warehouses]: { ar: "مخازن", en: "warehouses" },
   [LimitKind.SalesInvoicesPerMonth]: { ar: "فاتورة مبيعات في الشهر", en: "sales invoices a month" },
+  [LimitKind.StorageMb]: { ar: "مساحة للمرفقات", en: "of attachment storage" },
 };
 
 export interface PlanLabel {
@@ -43,6 +59,7 @@ export interface LimitRefusal {
 }
 
 export function limitRefusal(kind: LimitKind, allowed: number, used: number, plan: PlanLabel & { readonly code: string }): LimitRefusal {
+  if (kind === LimitKind.StorageMb) return storageRefusal(allowed, used, plan);
   const noun = LIMIT_NOUN[kind];
   const period = kind === LimitKind.SalesInvoicesPerMonth ? { ar: " هذا الشهر", en: " this month" } : { ar: "", en: "" };
   return {
@@ -53,6 +70,20 @@ export function limitRefusal(kind: LimitKind, allowed: number, used: number, pla
     plan: plan.code,
     message: `باقة «${plan.nameAr}» تسمح بـ ${allowed} ${noun.ar}، وقد وصلتم إلى ${used}${period.ar}. ما سُجّل من قبل يبقى كما هو ويمكن إكماله.`,
     messageEn: `The ${plan.nameEn} plan allows ${allowed} ${noun.en}, and you have reached ${used}${period.en}. Everything already recorded stays and can still be completed.`,
+  };
+}
+
+function storageRefusal(allowedMb: number, usedMb: number, plan: PlanLabel & { readonly code: string }): LimitRefusal {
+  const allowed = formatStorageMb(allowedMb);
+  const used = formatStorageMb(usedMb);
+  return {
+    error: UsageRefusalCode.LimitReached,
+    limit: LimitKind.StorageMb,
+    allowed: allowedMb,
+    used: usedMb,
+    plan: plan.code,
+    message: `مساحة المرفقات في اشتراككم ${allowed} (باقة «${plan.nameAr}»)، والمستخدم منها ${used}، فلا تتسع لهذا الملف. المرفقات الحالية تبقى متاحة؛ احذفوا ما لا تحتاجونه أو اطلبوا مساحة إضافية من صفحة الاشتراك.`,
+    messageEn: `Your subscription has ${allowed} of attachment storage (${plan.nameEn} plan) and ${used} is used, so this file does not fit. Existing attachments stay available; delete what you no longer need or request more space from the subscription page.`,
   };
 }
 

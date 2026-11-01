@@ -193,6 +193,109 @@ describe("tenant billing routes — whose subscription a session may touch", () 
   });
 });
 
+describe("tenant billing routes — asking for more attachment storage", () => {
+  const ONE_GB = 1024;
+
+  async function capStorage(app: CloudApp, owner: string, storageMb: number | null) {
+    const list = (await (await send(app, "/api/platform/plans", { token: owner })).json()) as Array<Record<string, unknown> & { id: string }>;
+    const plan = list.find((p) => p.id === "PLAN-CORE")!;
+    const { id, code, createdAt, status, ...rest } = plan;
+    const quotas = { ...(plan["quotas"] as Record<string, number>) };
+    if (storageMb === null) delete quotas["storage_mb"];
+    else quotas["storage_mb"] = storageMb;
+    const res = await send(app, `/api/platform/plans/${id}`, { method: "PUT", token: owner, body: JSON.stringify({ ...rest, quotas }) });
+    expect(res.status).toBe(200);
+  }
+
+  async function limitedUser(app: CloudApp, tenant: TenantLogin) {
+    const admin = { token: tenant.token, tenant: tenant.code };
+    const role = await send(app, "/api/roles", { method: "POST", ...admin, body: JSON.stringify({ code: "VIEWER", name: "Viewer", permissions: ["admin.settings.view"] }) });
+    expect(role.status).toBe(201);
+    const created = await send(app, "/api/users", {
+      method: "POST", ...admin,
+      body: JSON.stringify({
+        nameAr: "مستخدم", email: `viewer@${tenant.code}.example`, roleId: ((await role.json()) as { id: string }).id, isCompanyAdmin: false,
+        branchScope: "*", warehouseScope: "*", password: "temporary-pass-1",
+      }),
+    });
+    expect(created.status).toBe(201);
+    const login = await send(app, "/api/auth/login", { method: "POST", tenant: tenant.code, body: JSON.stringify({ username: `viewer@${tenant.code}.example`, password: "temporary-pass-1" }) });
+    return ownPassword(app, tenant.code, `viewer@${tenant.code}.example`, "temporary-pass-1", ((await login.json()) as { token: string }).token);
+  }
+
+  const ask = (app: CloudApp, tenant: TenantLogin, body: unknown, token = tenant.token) =>
+    send(app, "/api/billing/storage-requests", { method: "POST", token, tenant: tenant.code, body: JSON.stringify(body) });
+
+  it("files a request, which the subscription then shows as the latest storageRequest", async () => {
+    const app = await boot();
+    const owner = await platformToken(app);
+    await capStorage(app, owner, 100);
+    const acme = await provisionAndLogin(app, owner, "acme");
+
+    const before = await send(app, "/api/billing/subscription", { token: acme.token, tenant: "acme" });
+    expect(((await before.json()) as { storageRequest: unknown }).storageRequest).toBeNull();
+
+    const filed = await ask(app, acme, { extraMb: ONE_GB, note: "more scans" });
+    expect(filed.status).toBe(201);
+    expect(await filed.json()).toMatchObject({ extraMb: ONE_GB, note: "more scans", status: "pending", tenantId: acme.id });
+
+    const after = await send(app, "/api/billing/subscription", { token: acme.token, tenant: "acme" });
+    expect(((await after.json()) as { storageRequest: unknown }).storageRequest).toMatchObject({ extraMb: ONE_GB, status: "pending" });
+    const pending = await send(app, "/api/platform/storage-requests", { token: owner });
+    expect(await pending.json()).toMatchObject([{ tenantCode: "acme", extraMb: ONE_GB }]);
+  });
+
+  it("refuses a second request while one is pending, and one outside the offered sizes", async () => {
+    const app = await boot();
+    const owner = await platformToken(app);
+    await capStorage(app, owner, 100);
+    const acme = await provisionAndLogin(app, owner, "acme");
+
+    expect((await ask(app, acme, { extraMb: 7 })).status).toBe(400);
+    expect((await ask(app, acme, { extraMb: ONE_GB })).status).toBe(201);
+    const again = await ask(app, acme, { extraMb: 5120 });
+    expect(again.status).toBe(409);
+    expect(await again.json()).toMatchObject({ error: "STORAGE_REQUEST_PENDING" });
+  });
+
+  it("never shows the tenant which console user decided its request", async () => {
+    const app = await boot();
+    const owner = await platformToken(app);
+    await capStorage(app, owner, 100);
+    const acme = await provisionAndLogin(app, owner, "acme");
+    const filed = (await (await ask(app, acme, { extraMb: ONE_GB })).json()) as { id: string };
+
+    const decided = await send(app, `/api/platform/storage-requests/${filed.id}/approve`, { method: "POST", token: owner });
+    expect(decided.status).toBe(200);
+
+    const sub = (await (await send(app, "/api/billing/subscription", { token: acme.token, tenant: "acme" })).json()) as { storageRequest: Record<string, unknown> };
+    expect(sub.storageRequest).toMatchObject({ status: "approved", decidedBy: null });
+  });
+
+  it("refuses a plan that has no storage limit, and files nothing", async () => {
+    const app = await boot();
+    const owner = await platformToken(app);
+    await capStorage(app, owner, null);
+    const acme = await provisionAndLogin(app, owner, "acme");
+
+    const res = await ask(app, acme, { extraMb: ONE_GB });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: "STORAGE_UNLIMITED" });
+    expect(await (await send(app, "/api/platform/storage-requests", { token: owner })).json()).toEqual([]);
+  });
+
+  it("refuses a user without admin.settings.edit, and files nothing", async () => {
+    const app = await boot();
+    const owner = await platformToken(app);
+    await capStorage(app, owner, 100);
+    const acme = await provisionAndLogin(app, owner, "acme");
+    const viewer = await limitedUser(app, acme);
+
+    expect((await ask(app, acme, { extraMb: ONE_GB }, viewer)).status).toBe(403);
+    expect(await (await send(app, "/api/platform/storage-requests", { token: owner })).json()).toEqual([]);
+  });
+});
+
 describe("the fake hosted checkout, end to end through the real webhook path", () => {
   it("renews the tenant once however many times the success button is pressed", async () => {
     const app = await boot();

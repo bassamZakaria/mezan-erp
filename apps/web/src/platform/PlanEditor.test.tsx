@@ -162,4 +162,81 @@ describe("PlanEditor", () => {
     await screen.findByDisplayValue("الأساسية");
     expect(screen.queryByRole("button", { name: "حفظ" })).not.toBeInTheDocument();
   });
+
+  it("sends the storage quota typed in megabytes", async () => {
+    const puts: Array<{ quotas?: Record<string, number> }> = [];
+    renderWithPlatformProviders(<PlatformShell />, {
+      route: "/platform/plans/PLAN-1",
+      initialSession: testPlatformSession,
+      transport: stubPlatformTransport({
+        "GET /plans": () => ({ body: [starterPlan] }),
+        "PUT /plans/PLAN-1": (init) => {
+          puts.push(JSON.parse(String(init?.body)));
+          return { body: starterPlan };
+        },
+      }),
+    });
+
+    await screen.findByDisplayValue("الأساسية");
+    expect(screen.getByText("1024 MB = 1 GB. صفر = بلا حد.")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("مساحة المرفقات (MB)"), { target: { value: "2048" } });
+    fireEvent.click(screen.getByRole("button", { name: "حفظ" }));
+    await waitFor(() => expect(puts).toHaveLength(1));
+    expect(puts[0]!.quotas).toEqual({ storage_mb: 2048 });
+  });
+
+  it("typing 0 removes the storage quota key, so the plan becomes unlimited, and leaves the other quota alone", async () => {
+    const puts: Array<{ quotas?: Record<string, number> }> = [];
+    const capped: PlanDTO = { ...starterPlan, quotas: { storage_mb: 5120, sales_invoices_per_month: 100 } };
+    renderWithPlatformProviders(<PlatformShell />, {
+      route: "/platform/plans/PLAN-1",
+      initialSession: testPlatformSession,
+      transport: stubPlatformTransport({
+        "GET /plans": () => ({ body: [capped] }),
+        "PUT /plans/PLAN-1": (init) => {
+          puts.push(JSON.parse(String(init?.body)));
+          return { body: capped };
+        },
+      }),
+    });
+
+    await screen.findByDisplayValue("الأساسية");
+    fireEvent.change(screen.getByLabelText("مساحة المرفقات (MB)"), { target: { value: "0" } });
+    fireEvent.click(screen.getByRole("button", { name: "حفظ" }));
+    await waitFor(() => expect(puts).toHaveLength(1));
+    expect(puts[0]!.quotas).toEqual({ sales_invoices_per_month: 100 });
+  });
+
+  it("shows an existing plan's storage quota and keeps it when only the name changes", async () => {
+    const puts: Array<{ quotas?: Record<string, number> }> = [];
+    const capped: PlanDTO = { ...starterPlan, quotas: { storage_mb: 5120, sales_invoices_per_month: 100 } };
+    renderWithPlatformProviders(<PlatformShell />, {
+      route: "/platform/plans/PLAN-1",
+      initialSession: testPlatformSession,
+      transport: stubPlatformTransport({
+        "GET /plans": () => ({ body: [capped] }),
+        "PUT /plans/PLAN-1": (init) => {
+          puts.push(JSON.parse(String(init?.body)));
+          return { body: capped };
+        },
+      }),
+    });
+
+    await screen.findByDisplayValue("الأساسية");
+    expect(screen.getByLabelText("مساحة المرفقات (MB)")).toHaveValue(5120);
+    fireEvent.change(screen.getByLabelText("الاسم بالإنجليزية"), { target: { value: "Starter 2" } });
+    fireEvent.click(screen.getByRole("button", { name: "حفظ" }));
+    await waitFor(() => expect(puts).toHaveLength(1));
+    expect(puts[0]!.quotas).toEqual({ storage_mb: 5120, sales_invoices_per_month: 100 });
+  });
+
+  it("support sees the storage quota but cannot edit it", async () => {
+    renderWithPlatformProviders(<PlatformShell />, {
+      route: "/platform/plans/PLAN-1",
+      initialSession: supportSession,
+      transport: stubPlatformTransport({ "GET /plans": () => ({ body: [{ ...starterPlan, quotas: { storage_mb: 1024 } }] }) }),
+    });
+    await screen.findByDisplayValue("الأساسية");
+    expect(screen.getByLabelText("مساحة المرفقات (MB)")).toBeDisabled();
+  });
 });

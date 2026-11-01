@@ -18,6 +18,7 @@ export enum PlanKind {
 
 export enum QuotaKind {
   SalesInvoicesPerMonth = "sales_invoices_per_month",
+  StorageMb = "storage_mb",
 }
 
 export const QUOTA_KINDS: readonly QuotaKind[] = Object.values(QuotaKind);
@@ -132,7 +133,7 @@ function validate(plan: Omit<Plan, "status" | "createdAt">): string[] {
   if (!Object.values(PlanKind).includes(plan.kind)) reasons.push("نوع الباقة غير معروف");
   for (const [kind, value] of Object.entries(plan.quotas)) {
     if (!QUOTA_KINDS.includes(kind as QuotaKind)) reasons.push(`حد استخدام غير معروف "${kind}"`);
-    else if (!isCount(value as number, 0)) reasons.push("حد الاستخدام يجب أن يكون رقمًا صحيحًا لا يقل عن 0");
+    else if (!isCount(value as number, kind === QuotaKind.StorageMb ? 1 : 0)) reasons.push(kind === QuotaKind.StorageMb ? "مساحة المرفقات يجب أن تكون رقمًا صحيحًا لا يقل عن 1 ميجابايت" : "حد الاستخدام يجب أن يكون رقمًا صحيحًا لا يقل عن 0");
   }
   if (plan.kind === PlanKind.Free) {
     if (plan.priceMonthly.scaled !== 0n || plan.priceYearly.scaled !== 0n) reasons.push("الباقة المجانية سعرها صفر");

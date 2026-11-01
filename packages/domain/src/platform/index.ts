@@ -17,7 +17,7 @@ export {
   type CreatePlanCommand, type UpdatePlanCommand,
 } from "./plan.js";
 export {
-  DEFAULT_GRACE_DAYS, BillingCycleKind, SubscriptionStatusKind, billingAnchorDayOf, billingDayBehindUtcAnchor, inferBillingAnchorDay, settledPeriodEnd, setBillingAnchorDay, setSubscriptionExtras, MAX_EXTRA_CAPACITY, MAX_GRACE_DAYS,
+  DEFAULT_GRACE_DAYS, BillingCycleKind, SubscriptionStatusKind, billingAnchorDayOf, billingDayBehindUtcAnchor, inferBillingAnchorDay, settledPeriodEnd, setBillingAnchorDay, setSubscriptionExtras, MAX_EXTRA_CAPACITY, MAX_EXTRA_STORAGE_MB, MAX_GRACE_DAYS,
   startSubscription, renewSubscription, applyRenewal, anchorIsUtcDayOfCreation, changePlan, markPastDue,
   suspendSubscription, resumeSubscription, cancelSubscription, RENEWABLE_SUBSCRIPTION_STATES,
   type Subscription, type SubscriptionStatus, type BillingCycle, type SubscriptionRepository,
@@ -76,7 +76,12 @@ export {
 export type { DeriveEntitlementsContext } from "./derive.js";
 export {
   LimitKind, LIMIT_OF_QUOTA, UsageRefusalCode, limitRefusal, moduleReadOnlyRefusal, locationOverLimitRefusal,
-  seatsOverLimitRefusal, tenantMonthOf,
+  seatsOverLimitRefusal, tenantMonthOf, BYTES_PER_MB, formatStorageMb, usedStorageMb,
   type LimitRefusal, type ModuleReadOnlyRefusal, type LocationOverLimitRefusal, type SeatsOverLimitRefusal, type PlanLabel,
 } from "./usage-limits.js";
+export {
+  StorageRequestStatus, StorageDecision, StorageRequestStepMb, STORAGE_REQUEST_STEPS_MB, MAX_STORAGE_REQUEST_NOTE, StorageRequestRefusal,
+  StorageRequestRefusedError, requestStorage, decideStorageRequest,
+  type StorageRequest, type StorageRequestRepository, type RequestStorageCommand, type DecideStorageRequestCommand,
+} from "./storage-request.js";
 export { type SignInEmailRepository } from "./sign-in-email.js";

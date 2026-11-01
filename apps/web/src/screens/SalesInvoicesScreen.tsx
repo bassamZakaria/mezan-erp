@@ -548,7 +548,7 @@ function CreateInvoicePage({
   );
 
   const salespersonOptions = useMemo<EntityPickerOption[]>(
-    () => employees.filter((e) => e.status === EmployeeRefStatus.Active).map(employeeOption),
+    () => employees.filter((e) => e.status !== EmployeeRefStatus.Terminated).map(employeeOption),
     [employees],
   );
   const managerOptionOf = (rep: EntityPickerOption | null): EntityPickerOption | null => {
@@ -1403,7 +1403,7 @@ function InvoiceDetailView({
    * the confirm consumed.
    */
 
-  const [paymentAmount, setPaymentAmount] = useState<number | null>(null);
+  const [paymentAmount, setPaymentAmount] = useState("");
   const [commissionAmount, setCommissionAmount] = useState("");
   const [commissionAccountId, setCommissionAccountId] = useState("");
   const commissionAccountOptions = accounts
@@ -1430,7 +1430,7 @@ function InvoiceDetailView({
   const [payBusy, setPayBusy] = useState(false);
   const commissionAllowed = transferCommissionApplies(VoucherTypeCode.CustomerCollection, paymentMethod);
   const hasCommission = commissionAllowed && commissionAmount !== "" && Money.fromMajor(commissionAmount).scaled > 0n;
-  const relievedGross = hasCommission ? Money.fromMajor(paymentAmount === null ? "0" : String(paymentAmount)).add(Money.fromMajor(commissionAmount)).toString() : "0";
+  const relievedGross = hasCommission ? Money.fromMajor(paymentAmount === "" ? "0" : paymentAmount).add(Money.fromMajor(commissionAmount)).toString() : "0";
 
   const remaining = toMajor(invoice.remainingBalance);
   const overdue = isOverdue(invoice, today);
@@ -1509,7 +1509,7 @@ function InvoiceDetailView({
   };
 
   async function handleRecordPayment() {
-    if (!paymentAmount || paymentAmount <= 0) {
+    if (paymentAmount === "" || Money.fromMajor(paymentAmount).scaled <= 0n) {
       setPaymentError(t("salesInvoices.error.paymentPositive"));
       return;
     }
@@ -1526,12 +1526,12 @@ function InvoiceDetailView({
       }
       await recordPayment.mutateAsync({
         id: invoice.id,
-        amount: String(paymentAmount),
+        amount: paymentAmount,
         treasuryAccountId: paymentTreasuryId,
         paymentMethod: paymentMethod,
         ...(hasCommission ? { commissionAmount, commissionGlAccountId: commissionAccountId } : {}),
       });
-      setPaymentAmount(null);
+      setPaymentAmount("");
       setCommissionAmount("");
       setCommissionAccountId("");
     } catch (err) {
@@ -1902,7 +1902,7 @@ function InvoiceDetailView({
                   <div className="flex flex-col gap-[10px]">
                     <div>
                       <span className="mb-[6px] block text-xs font-semibold text-ink-muted">{t("salesInvoices.payments.amount")}</span>
-                      <MoneyInput aria-label={t("salesInvoices.payments.amount")} value={paymentAmount} onChange={setPaymentAmount} />
+                      <MoneyStringInput aria-label={t("salesInvoices.payments.amount")} value={paymentAmount} onChange={setPaymentAmount} currencyLabel={settlementLabel} />
                     </div>
                     <SelectField
                       label={t("salesInvoices.payments.treasury")}

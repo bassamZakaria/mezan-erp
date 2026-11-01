@@ -174,11 +174,15 @@ function toVoucherLine(d: {
   projectId?: string | null;
   costCategory?: CostCategoryDTO | null;
   treasuryFx?: VoucherRowDTO["treasuryFx"];
+  withholdingAmount?: string | null;
+  commissionAmount?: string | null;
 }): VoucherLine {
   const leg = d.treasuryFx;
   return {
     ...d,
     amount: Money.fromMajor(d.amount),
+    withholdingAmount: d.withholdingAmount ? Money.fromMajor(d.withholdingAmount) : null,
+    commissionAmount: d.commissionAmount ? Money.fromMajor(d.commissionAmount) : null,
     treasuryFx: leg
       ? {
           currency: leg.currency,

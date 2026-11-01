@@ -22,6 +22,9 @@ class FakeAttachmentRepository implements AttachmentRepository {
   async create(attachment: Attachment): Promise<void> {
     insertOnly(this.rows, attachment.id, attachment);
   }
+  async totalBytes(): Promise<number> {
+    return [...this.rows.values()].reduce((sum, a) => sum + a.byteSize, 0);
+  }
   async delete(id: string): Promise<void> {
     this.rows.delete(id);
     this.deleted.push(id);

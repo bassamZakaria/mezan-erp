@@ -548,6 +548,7 @@ export function createHrSelfRoutes(deps: HrSelfRoutesDeps, resolveAuthContext: A
       }
 
       let selfieAttachmentId: string | null = null;
+      // INVARIANT: a clock-in selfie is never refused by the plan's storage limit; a full store must not stop attendance. It still counts toward usage.
       if (selfie && deps.attachments) {
         const attachment = await createAttachment(
           {

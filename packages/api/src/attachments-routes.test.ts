@@ -1,9 +1,10 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { Hono } from "hono";
 import { createSqliteAttachmentStore, type SqliteAttachmentStoreHandle } from "@mezan/persistence";
-import { ATTACHMENT_MAX_BYTES, AttachmentPermission, SEPARATE_ATTACHMENT_PERMISSIONS_FEATURE, createEntitlements } from "@mezan/domain";
+import { ATTACHMENT_MAX_BYTES, AttachmentPermission, QuotaKind, SEPARATE_ATTACHMENT_PERMISSIONS_FEATURE, createEntitlements } from "@mezan/domain";
 import { createAttachmentsRoutes } from "./attachments-routes.js";
 import { entitlementsBinding } from "./module-gate.js";
+import { createPlanUsageRoutes } from "./plan-usage-routes.js";
 
 import { insecureHeaderAuthContextResolver } from "./permission-gate.js";
 const handles: SqliteAttachmentStoreHandle[] = [];
@@ -397,5 +398,79 @@ describe("#125 separate attachment permissions — only where the plan carries t
     expect(await json(refused)).toMatchObject({ permission: AttachmentPermission.Delete });
     expect(await repo.listAll()).toHaveLength(1);
     expect((await app.fetch(req("/ATT-C1", { method: "DELETE", permissions: `${CUSTOMER_MANAGE},${AttachmentPermission.Delete}` }))).status).toBe(204);
+  });
+});
+
+describe("plan storage limit — uploads against the plan's attachment space", () => {
+  const MB = 1024 * 1024;
+  const chunk = (bytes: number) => Buffer.alloc(bytes, 1).toString("base64");
+
+  function storageApp(storageMb: number | undefined) {
+    const store = createSqliteAttachmentStore();
+    handles.push(store);
+    const entitlements = createEntitlements({
+      plan: "starter",
+      activeModules: ["sales", "admin"],
+      features: {},
+      seats: 1,
+      expiresAt: null,
+      ...(storageMb === undefined ? {} : { quotas: { [QuotaKind.StorageMb]: storageMb } }),
+    });
+    const storage = { usedBytes: () => store.attachments.totalBytes(), serializeWrite: <T,>(fn: () => Promise<T>) => fn() };
+    const wrapper = new Hono();
+    wrapper.use("*", entitlementsBinding(() => entitlements));
+    wrapper.route("/attachments", createAttachmentsRoutes({ repo: store.attachments, storage }, insecureHeaderAuthContextResolver));
+    wrapper.route("/plan-usage", createPlanUsageRoutes({ storage }, insecureHeaderAuthContextResolver));
+    const upload = (id: string, bytes: number) =>
+      wrapper.fetch(req("/attachments", { method: "POST", permissions: CUSTOMER_MANAGE, body: JSON.stringify(customerUpload({ id, contentBase64: chunk(bytes) })) }));
+    return { app: wrapper, repo: store.attachments, upload };
+  }
+
+  it("uploads while the file fits in the plan's space", async () => {
+    const { upload, repo } = storageApp(1);
+    expect((await upload("A1", 0.4 * MB)).status).toBe(201);
+    expect((await upload("A2", 0.4 * MB)).status).toBe(201);
+    expect(await repo.listAll()).toHaveLength(2);
+  });
+
+  it("refuses the file that would not fit, bilingual and naming the limit, and stores nothing", async () => {
+    const { upload, repo } = storageApp(1);
+    expect((await upload("A1", 0.6 * MB)).status).toBe(201);
+    const res = await upload("A2", 0.6 * MB);
+    expect(res.status).toBe(409);
+    expect(await json(res)).toMatchObject({ error: "PLAN_LIMIT_REACHED", limit: "storage_mb", allowed: 1, used: 1 });
+    const body = (await json(await upload("A3", 0.6 * MB))) as { message: string; messageEn: string };
+    expect(body.message.length).toBeGreaterThan(0);
+    expect(body.messageEn).toContain("attachment storage");
+    expect((await repo.listAll()).map((a) => a.id)).toEqual(["A1"]);
+  });
+
+  it("deleting a file frees room for the next upload", async () => {
+    const { app, upload } = storageApp(1);
+    await upload("A1", 0.6 * MB);
+    expect((await upload("A2", 0.6 * MB)).status).toBe(409);
+    expect((await app.fetch(req("/attachments/A1", { method: "DELETE", permissions: CUSTOMER_MANAGE }))).status).toBe(204);
+    expect((await upload("A2", 0.6 * MB)).status).toBe(201);
+  });
+
+  it("a plan with no storage limit is unlimited", async () => {
+    const { upload } = storageApp(undefined);
+    expect((await upload("A1", 3 * MB)).status).toBe(201);
+    expect((await upload("A2", 3 * MB)).status).toBe(201);
+  });
+
+  it("GET /plan-usage reports storage used in MB, rounded up", async () => {
+    const { app, upload } = storageApp(5);
+    await upload("A1", 0.2 * MB);
+    const res = await app.fetch(req("/plan-usage", { permissions: "admin.settings.view" }));
+    expect(res.status).toBe(200);
+    const body = (await json(res)) as { limits: Array<{ limit: string; allowed: number; used: number }> };
+    expect(body.limits).toContainEqual({ limit: "storage_mb", allowed: 5, used: 1 });
+  });
+
+  it("GET /plan-usage has no storage entry when the plan has no storage limit", async () => {
+    const { app } = storageApp(undefined);
+    const body = (await json(await app.fetch(req("/plan-usage", { permissions: "admin.settings.view" })))) as { limits: Array<{ limit: string }> };
+    expect(body.limits.map((l) => l.limit)).not.toContain("storage_mb");
   });
 });

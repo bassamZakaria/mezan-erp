@@ -31,6 +31,7 @@ export enum SubscriptionTransition {
   TrialEndedToFree = "TRIAL_ENDED_TO_FREE",
   ModuleTrialStarted = "MODULE_TRIAL_STARTED",
   SeatsSelected = "SEATS_SELECTED",
+  StorageRequested = "STORAGE_REQUESTED",
 }
 
 export enum PlanChangeActor {
@@ -52,6 +53,7 @@ export interface Subscription {
   readonly extraSeats: number;
   readonly extraBranches: number;
   readonly extraWarehouses: number;
+  readonly extraStorageMb?: number;
   readonly currentPeriodStart: string;
   readonly currentPeriodEnd: string;
   readonly billingAnchorDay?: number;
@@ -317,17 +319,19 @@ export interface StartSubscriptionCommand {
 }
 
 export const MAX_EXTRA_CAPACITY = 10_000;
+export const MAX_EXTRA_STORAGE_MB = 1_048_576;
 /** A grace period feeds `addDays` when the licence is derived; an unbounded one overflows `Date` and breaks every read of that tenant. */
 export const MAX_GRACE_DAYS = 365;
 
 const isBoundedCount = (n: number, max: number): boolean => isCount(n, 0) && n <= max;
 
-function validateExtras(s: Pick<Subscription, "addOnModules" | "extraSeats" | "extraBranches" | "extraWarehouses" | "graceDays">): string[] {
+function validateExtras(s: Pick<Subscription, "addOnModules" | "extraSeats" | "extraBranches" | "extraWarehouses" | "extraStorageMb" | "graceDays">): string[] {
   const reasons: string[] = [];
   for (const m of s.addOnModules) if (!isKnownModule(m)) reasons.push(`وحدة إضافية غير معروفة "${m}"`);
   if (!isBoundedCount(s.extraSeats, MAX_EXTRA_CAPACITY)) reasons.push(`عدد المقاعد الإضافية يجب أن يكون رقمًا صحيحًا من 0 إلى ${MAX_EXTRA_CAPACITY}`);
   if (!isBoundedCount(s.extraBranches, MAX_EXTRA_CAPACITY)) reasons.push(`عدد الفروع الإضافية يجب أن يكون رقمًا صحيحًا من 0 إلى ${MAX_EXTRA_CAPACITY}`);
   if (!isBoundedCount(s.extraWarehouses, MAX_EXTRA_CAPACITY)) reasons.push(`عدد المخازن الإضافية يجب أن يكون رقمًا صحيحًا من 0 إلى ${MAX_EXTRA_CAPACITY}`);
+  if (!isBoundedCount(s.extraStorageMb ?? 0, MAX_EXTRA_STORAGE_MB)) reasons.push(`المساحة الإضافية يجب أن تكون رقمًا صحيحًا بالميجابايت من 0 إلى ${MAX_EXTRA_STORAGE_MB}`);
   if (!isBoundedCount(s.graceDays, MAX_GRACE_DAYS)) reasons.push(`أيام السماح يجب أن تكون رقمًا صحيحًا من 0 إلى ${MAX_GRACE_DAYS}`);
   return reasons;
 }
@@ -445,6 +449,7 @@ export interface SetSubscriptionExtrasCommand extends SubscriptionCommand {
   readonly extraSeats: number;
   readonly extraBranches: number;
   readonly extraWarehouses: number;
+  readonly extraStorageMb?: number;
   readonly graceDays: number;
 }
 
@@ -456,6 +461,7 @@ export async function setSubscriptionExtras(cmd: SetSubscriptionExtrasCommand, r
     extraSeats: cmd.extraSeats,
     extraBranches: cmd.extraBranches,
     extraWarehouses: cmd.extraWarehouses,
+    extraStorageMb: cmd.extraStorageMb ?? s.extraStorageMb ?? 0,
     graceDays: cmd.graceDays,
   };
   const reasons = validateExtras(extras);

@@ -22,6 +22,7 @@ import { BranchRefusalCode, branchRefusal } from "./branch-policy.js";
 import { moduleRefusalFor, permissionDeniedBody, storedDocumentRefusal, type AuthContextResolver } from "./permission-gate.js";
 import { duplicateIdRefusal } from "./duplicate-id.js";
 import { DuplicateRecordIdError } from "@mezan/domain";
+import { quotaRefusalResponse, withStorageQuota, type StorageEnforcement } from "./plan-quota.js";
 
 /**
  * المرفقات — `/attachments`. Files hang off a document (invoice, voucher, work
@@ -77,6 +78,7 @@ export interface AttachmentsRoutesDeps {
   readonly repo: AttachmentRepository;
   readonly resolveAuthContext?: AuthContextResolver;
   readonly entityBranches?: AttachmentEntityBranches;
+  readonly storage?: StorageEnforcement;
 }
 
 function canView(ctx: AuthContext, entityType: AttachmentEntityType): boolean {
@@ -261,7 +263,9 @@ export function createAttachmentsRoutes(
     const outsideGrant = await entityOutsideGrant(c, parsed.data.entityType, parsed.data.entityId);
     if (outsideGrant) return outsideGrant;
     try {
-      const attachment = await createAttachment(
+      const bytes = new Uint8Array(Buffer.from(parsed.data.contentBase64, "base64"));
+      const stored = await withStorageQuota(c, deps.storage, bytes.byteLength, () =>
+        createAttachment(
         {
           id: parsed.data.id,
           entityType: parsed.data.entityType,
@@ -269,12 +273,14 @@ export function createAttachmentsRoutes(
           fileName: parsed.data.fileName,
           mimeType: parsed.data.mimeType,
           notes: parsed.data.notes,
-          bytes: new Uint8Array(Buffer.from(parsed.data.contentBase64, "base64")),
+          bytes,
           uploadedBy: ctx.userId,
         },
         deps.repo,
+        ),
       );
-      return c.json(serialize(attachment), 201);
+      if (stored.refusal) return quotaRefusalResponse(c, stored.refusal);
+      return c.json(serialize(stored.value!), 201);
     } catch (err) {
       return handleDomainError(c, err);
     }

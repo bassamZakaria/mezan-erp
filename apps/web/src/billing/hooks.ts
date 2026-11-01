@@ -2,6 +2,8 @@ import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tan
 import type {
   CardCheckoutDTO,
   CreateCardCheckoutRequestDTO,
+  CreateStorageRequestDTO,
+  StorageRequestDTO,
   StartModuleTrialRequestDTO,
   TenantBillingDTO,
 } from "@mezan/contracts";
@@ -118,5 +120,19 @@ export function useStartModuleTrial() {
       void queryClient.invalidateQueries({ queryKey: ["billing", "subscription"] });
       void queryClient.invalidateQueries({ queryKey: ["entitlements"] });
     },
+  });
+}
+
+export function useRequestStorage() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<StorageRequestDTO, ApiError, CreateStorageRequestDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/billing/storage-requests", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("plan.storage.requestFailed"), t));
+      return res.json<StorageRequestDTO>();
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ["billing", "subscription"] }),
   });
 }

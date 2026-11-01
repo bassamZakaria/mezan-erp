@@ -6,6 +6,7 @@ import { useAppTranslation } from "../i18n";
 import { BillingDayReviewChip, OwnerContactChip, TenantBooksChip, TenantLicenceChip, TenantStatusChip } from "./chips";
 import { PlatformApiError, usePlatformApi } from "./api";
 import { NewTenantDialog } from "./NewTenantDialog";
+import { StorageRequestsCard } from "./StorageRequestsCard";
 import { subscriptionEndOf } from "./subscription-end";
 import { usePlansQuery, useTenantsQuery } from "./hooks";
 import { useMediaQuery } from "../lib/use-media-query";
@@ -83,6 +84,7 @@ export function TenantsPage() {
 
   return (
     <>
+      <StorageRequestsCard isOwner={isOwner} />
       {tenantsQuery.isError ? (
         <Card className="mb-[14px] p-[14px_16px]">
           <p role="alert" className="text-[13px] font-semibold text-danger-ink">

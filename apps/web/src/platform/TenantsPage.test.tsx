@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, screen, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { useLocation } from "react-router";
-import { LicenseStateCode, SubscriptionStatusCode, TenantBooksStanding, TenantWireStatus, type PlanDTO, type TenantSummaryDTO } from "@mezan/contracts";
+import { LicenseStateCode, StorageRequestStatusCode, SubscriptionStatusCode, TenantBooksStanding, TenantWireStatus, type PendingStorageRequestDTO, type PlanDTO, type TenantSummaryDTO } from "@mezan/contracts";
 import type { Transport } from "../data/transport";
 import { NARROW_TENANT_LIST_QUERY, TenantsPage } from "./TenantsPage";
 import { renderWithPlatformProviders, stubPlatformTransport, testPlatformSession } from "./test-support";
@@ -342,6 +342,7 @@ describe("TenantsPage", () => {
     const plansTransport = stubPlatformTransport({ "GET /plans": () => ({ body: [plan] }) });
     const transport: Transport = async (path, init) => {
       if (path === "/tenants") throw new TypeError("Failed to fetch");
+      if (path === "/storage-requests") return { status: 200, ok: true, json: async <T,>() => [] as T, text: async () => "[]" };
       return plansTransport(path, init);
     };
     renderWithPlatformProviders(<TenantsPage />, { transport, initialSession: testPlatformSession });
@@ -380,6 +381,7 @@ describe("TenantsPage", () => {
   it("surfaces the server's message in the error banner when the tenants fail to load", async () => {
     const transport = stubPlatformTransport({
       "GET /tenants": () => ({ status: 500, body: { error: "INTERNAL", message: "تعذّر تحميل المنشآت." } }),
+      "GET /storage-requests": () => ({ body: [] }),
       "GET /plans": () => ({ body: [plan] }),
     });
     renderWithPlatformProviders(<TenantsPage />, { transport, initialSession: testPlatformSession });
@@ -478,5 +480,134 @@ describe("TenantsPage", () => {
 
     fireEvent.click(await screen.findByText("acme"));
     expect(screen.getByTestId("location")).toHaveTextContent("/platform/tenants/tenant-1");
+  });
+});
+
+describe("TenantsPage — storage requests", () => {
+  const pendingRequest = (id: string, overrides: Partial<PendingStorageRequestDTO> = {}): PendingStorageRequestDTO => ({
+    id, tenantId: "tenant-1", tenantCode: "acme", tenantNameAr: "شركة أكمي", extraMb: 5120, note: "أرشيف عقود",
+    status: StorageRequestStatusCode.Pending, requestedBy: "U-1", requestedAt: "2026-10-20T09:00:00.000Z", decidedBy: null, decidedAt: null, ...overrides,
+  });
+
+  it("lists each waiting request with the tenant, the size asked for and the note", async () => {
+    renderWithPlatformProviders(<TenantsPage />, {
+      transport: stubPlatformTransport({ ...baseHandlers(), "GET /storage-requests": () => ({ body: [pendingRequest("SR-1"), pendingRequest("SR-2", { tenantNameAr: "شركة ثانية", tenantCode: "beta", extraMb: 1024, note: null })] }) }),
+      initialSession: testPlatformSession,
+    });
+
+    const heading = await screen.findByRole("heading", { name: "طلبات مساحة إضافية" });
+    const card = within(heading.parentElement as HTMLElement);
+    expect(card.getAllByRole("listitem")).toHaveLength(2);
+    expect(card.getByText("5 GB")).toBeInTheDocument();
+    expect(card.getByText("1 GB")).toBeInTheDocument();
+    expect(card.getByText("أرشيف عقود")).toBeInTheDocument();
+    expect(card.getByText("beta")).toBeInTheDocument();
+  });
+
+  it("renders nothing when no request is waiting", async () => {
+    renderWithPlatformProviders(<TenantsPage />, {
+      transport: stubPlatformTransport({ ...baseHandlers(), "GET /storage-requests": () => ({ body: [] }) }),
+      initialSession: testPlatformSession,
+    });
+    await screen.findByText("acme");
+    expect(screen.queryByRole("heading", { name: "طلبات مساحة إضافية" })).not.toBeInTheDocument();
+  });
+
+  it("lets the owner approve one request: posts to that request's approve route and clears it from the list", async () => {
+    const posted: string[] = [];
+    let rows = [pendingRequest("SR-1"), pendingRequest("SR-2", { tenantCode: "beta", tenantNameAr: "شركة ثانية" })];
+    renderWithPlatformProviders(<TenantsPage />, {
+      transport: stubPlatformTransport({
+        ...baseHandlers(),
+        "GET /storage-requests": () => ({ body: rows }),
+        "POST /storage-requests/SR-1/approve": () => {
+          posted.push("SR-1/approve");
+          rows = rows.filter((r) => r.id !== "SR-1");
+          return { body: { ...pendingRequest("SR-1"), status: StorageRequestStatusCode.Approved } };
+        },
+      }),
+      initialSession: testPlatformSession,
+    });
+
+    const heading = await screen.findByRole("heading", { name: "طلبات مساحة إضافية" });
+    const first = within(screen.getAllByRole("listitem").find((li) => li.textContent?.includes("acme")) as HTMLElement);
+    fireEvent.click(first.getByRole("button", { name: /موافقة/ }));
+
+    await waitFor(() => expect(posted).toEqual(["SR-1/approve"]));
+    await waitFor(() => expect(within(heading.parentElement as HTMLElement).getAllByRole("listitem")).toHaveLength(1));
+    expect(within(heading.parentElement as HTMLElement).getByText("beta")).toBeInTheDocument();
+  });
+
+  it("posts to the decline route when the owner declines", async () => {
+    const posted: string[] = [];
+    renderWithPlatformProviders(<TenantsPage />, {
+      transport: stubPlatformTransport({
+        ...baseHandlers(),
+        "GET /storage-requests": () => ({ body: [pendingRequest("SR-1")] }),
+        "POST /storage-requests/SR-1/decline": () => {
+          posted.push("SR-1/decline");
+          return { body: { ...pendingRequest("SR-1"), status: StorageRequestStatusCode.Declined } };
+        },
+      }),
+      initialSession: testPlatformSession,
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: /رفض/ }));
+    await waitFor(() => expect(posted).toEqual(["SR-1/decline"]));
+  });
+
+  it("disables only the clicked row's buttons while its decision is in flight", async () => {
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const base = stubPlatformTransport({
+      ...baseHandlers(),
+      "GET /storage-requests": () => ({ body: [pendingRequest("SR-1"), pendingRequest("SR-2", { tenantCode: "beta", tenantNameAr: "شركة ثانية" })] }),
+      "POST /storage-requests/SR-1/approve": () => ({ body: { ...pendingRequest("SR-1"), status: StorageRequestStatusCode.Approved } }),
+    });
+    const transport: Transport = async (path, init) => {
+      if ((init?.method ?? "GET") === "POST") await gate;
+      return base(path, init);
+    };
+    renderWithPlatformProviders(<TenantsPage />, { transport, initialSession: testPlatformSession });
+
+    await screen.findByRole("heading", { name: "طلبات مساحة إضافية" });
+    const rowOf = (code: string) => within(screen.getAllByRole("listitem").find((li) => li.textContent?.includes(code)) as HTMLElement);
+    fireEvent.click(rowOf("acme").getByRole("button", { name: /موافقة/ }));
+
+    await waitFor(() => expect(rowOf("acme").getByRole("button", { name: /موافقة/ })).toBeDisabled());
+    expect(rowOf("acme").getByRole("button", { name: /رفض/ })).toBeDisabled();
+    expect(rowOf("beta").getByRole("button", { name: /موافقة/ })).toBeEnabled();
+    expect(rowOf("beta").getByRole("button", { name: /رفض/ })).toBeEnabled();
+    release();
+    await waitFor(() => expect(rowOf("acme").getByRole("button", { name: /موافقة/ })).toBeEnabled());
+  });
+
+  it("shows the server's refusal and leaves the row in place", async () => {
+    renderWithPlatformProviders(<TenantsPage />, {
+      transport: stubPlatformTransport({
+        ...baseHandlers(),
+        "GET /storage-requests": () => ({ body: [pendingRequest("SR-1")] }),
+        "POST /storage-requests/SR-1/approve": () => ({ status: 409, body: { error: "STORAGE_REQUEST_REFUSED", message: "تم البت في هذا الطلب مسبقًا" } }),
+      }),
+      initialSession: testPlatformSession,
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: /موافقة/ }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("تم البت في هذا الطلب مسبقًا");
+    expect(screen.getByRole("button", { name: /موافقة/ })).toBeEnabled();
+  });
+
+  it("shows support the requests but no approve or decline buttons", async () => {
+    renderWithPlatformProviders(<TenantsPage />, {
+      transport: stubPlatformTransport({ ...baseHandlers(), "GET /storage-requests": () => ({ body: [pendingRequest("SR-1")] }) }),
+      initialSession: supportSession,
+    });
+
+    expect(await screen.findByRole("heading", { name: "طلبات مساحة إضافية" })).toBeInTheDocument();
+    expect(screen.getByText("5 GB")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /موافقة/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /رفض/ })).not.toBeInTheDocument();
   });
 });

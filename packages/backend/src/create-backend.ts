@@ -261,6 +261,7 @@ import {
   disposalProceedsAccounts,
   UserStatusCode,
   isErasedUser,
+  EmailInAnotherCompanyError,
   normalizeEmail,
   AuditSeverityCode,
   type OwnerRecordDue,
@@ -3959,7 +3960,8 @@ async function composeBackend(options: CreateBackendOptions, db: SqlDb, sqlite: 
       // SECURITY: a Firebase account is reset only for an address this company holds; another company's user is never touched.
       await signInEmails?.claim(address);
     } catch (err) {
-      backendLog.warn({ area: "auth", err }, "the address belongs to another company: its Firebase account was left alone");
+      if (err instanceof EmailInAnotherCompanyError) backendLog.warn({ area: "auth" }, "the address belongs to another company: its Firebase account was left alone");
+      else backendLog.error({ area: "auth", err }, "the address could not be checked: no Firebase set-password link was sent");
       return;
     }
     try {

@@ -547,7 +547,7 @@ import {
   createAfterTaxClassified,
   type EtaReceiptIssuer,
 } from "./eta-receipts.js";
-import { createAuth, type AccountLockedEvent } from "./auth-routes.js";
+import { createAuth, type AccountLockedEvent, type FirebaseVerifier } from "./auth-routes.js";
 import { OutsideWork, OutsideWorkDeadlineError, withinDeadline } from "./outside-work.js";
 import { BranchAccess, BranchRecordKind, type BranchDirectory, type OwnerDigestBackupReading, type ScheduledDigestResult } from "@mezan/api";
 import { createBranchDirectory, createSqliteBranchDirectory } from "./branch-directory.js";
@@ -992,9 +992,32 @@ function invitationMail(email: string, temporaryPassword: string, signInLink: st
   ].join("\n");
 }
 
+function firebaseSetPasswordMail(email: string, link: string, signInLink: string | null): string {
+  return [
+    "لديك حساب في ميزان. اختر كلمة المرور من هذا الرابط (صالح لساعة واحدة):",
+    link,
+    `البريد الإلكتروني: ${email}`,
+    ...(signInLink ? [`رابط الدخول: ${signInLink}`] : []),
+    "يمكنك أيضاً الدخول بحساب Google لهذا البريد. وإن انتهت صلاحية الرابط فاضغط «نسيت كلمة المرور» في صفحة الدخول.",
+    "",
+    "You have a Mezan account. Choose your password at this link (valid for one hour):",
+    link,
+    `Email: ${email}`,
+    ...(signInLink ? [`Sign in at: ${signInLink}`] : []),
+    "You can also sign in with Google for this address. If the link has expired, use \"Forgot password\" on the sign-in page.",
+  ].join("\n");
+}
+
 const STORED_UNLOCK_SECRET = /[A-Z2-7]{16}|https?:\/\//;
 
+export interface FirebaseAccounts extends FirebaseVerifier {
+  /** Creates the account when it is missing and returns a one-time link to set its password; null when the server holds no Firebase admin key. */
+  setPasswordLink(email: string, displayName: string): Promise<string | null>;
+}
+
 export interface CreateBackendOptions {
+  // SECURITY: the cloud edition only. Firebase then holds every credential but the seed admin's.
+  readonly firebase?: FirebaseAccounts;
   readonly connectionTurn?: CreateAppOptions["connectionTurn"];
   /**
    * SQLite location. A file path gives durable, shared-across-restarts storage
@@ -3923,7 +3946,17 @@ async function composeBackend(options: CreateBackendOptions, db: SqlDb, sqlite: 
     if (!options.passwordResetLink) return;
     mailUserOutsideTheTurn(user.email, "ميزان — إعادة تعيين كلمة المرور / Mezan password reset", passwordResetMail(options.passwordResetLink(token)));
   };
+  const firebase = options.firebase;
+  const mailFirebaseSetPasswordLink = (user: User): void => {
+    if (!firebase) return;
+    void outsideTheTurn(async () => {
+      const link = await firebase.setPasswordLink(user.email, user.nameAr || user.nameEn || user.email);
+      if (link === null) return backendLog.warn({ area: "auth" }, "no Firebase admin key: the set-password link was not sent");
+      mailUserOutsideTheTurn(user.email, "ميزان — اختر كلمة المرور / Set your Mezan password", firebaseSetPasswordMail(user.email, link, options.signInLink ?? null));
+    }).catch((err: unknown) => backendLog.error({ area: "auth", err }, "the Firebase set-password link could not be issued"));
+  };
   const mailInvitation = async ({ user, temporaryPassword }: { readonly user: User; readonly temporaryPassword: string }): Promise<void> => {
+    if (firebase) return mailFirebaseSetPasswordLink(user);
     mailUserOutsideTheTurn(user.email, "ميزان — دعوة للدخول / Your Mezan account", invitationMail(user.email, temporaryPassword, options.signInLink ?? null));
   };
   const recordLateInTheTurn = inTheTurn("late notification record");
@@ -4680,6 +4713,7 @@ async function composeBackend(options: CreateBackendOptions, db: SqlDb, sqlite: 
     onAccountLocked: notifyAccountLocked,
     passwordResetTokens,
     onPasswordResetRequested: mailPasswordResetLink,
+    firebase,
     canMailUnlockCode: async () => (await securitySmtp()) !== null,
     audit: auditSink,
     resolveEntitlements: options.resolveEntitlements,
@@ -4826,7 +4860,12 @@ async function composeBackend(options: CreateBackendOptions, db: SqlDb, sqlite: 
         }
       : {}),
     onUserCreated: mailInvitation,
-    onUserCredentialSetByOther: (userId, actorId) => credentialResets.mark(userId, new Date().toISOString(), actorId),
+    onUserCredentialSetByOther: async (userId, actorId) => {
+      await credentialResets.mark(userId, new Date().toISOString(), actorId);
+      const user = firebase ? await uow.users.findById(userId) : null;
+      if (user) mailFirebaseSetPasswordLink(user);
+    },
+    ...(firebase ? { credentialsHeldByFirebase: (userId: string) => userId !== SEED_ADMIN_USER_ID } : {}),
     onPermissionRefused,
     // The LAN routes need the SAME session registry the auth routes issue
     // into, or a disconnect revokes a token nobody is holding.
@@ -6153,6 +6192,7 @@ async function composeBackend(options: CreateBackendOptions, db: SqlDb, sqlite: 
       severity: "CRITICAL",
       details: { email: owner.email, onlyIfNeverSignedIn: cmd.onlyIfNeverSignedIn, origin: SecurityEventOrigin.Platform },
     });
+    mailFirebaseSetPasswordLink(owner);
     return OwnerPasswordResetOutcome.Reset;
   }
 

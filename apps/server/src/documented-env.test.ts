@@ -17,6 +17,8 @@ const SAMPLE_VALUES: Record<string, string> = {
   MEZAN_SMTP_PASSWORD: "smtp-password",
   MEZAN_AUDIT_CHAIN_KEY: "c".repeat(64),
   MEZAN_TENANT_DB_SECRET: "d".repeat(64),
+  MEZAN_FIREBASE_SERVICE_ACCOUNT: '{"type":"service_account"}',
+  MEZAN_FIREBASE_API_KEY: "firebase-web-api-key",
 };
 
 const SERVER_VARIABLE = /^(?:MEZAN_[A-Z0-9_]+|PORT|NODE_ENV)$/;

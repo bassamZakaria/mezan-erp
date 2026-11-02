@@ -21,6 +21,8 @@ allowBuilds:
   # encrypted-database.ts). It is a native module like better-sqlite3 itself,
   # so it has to build — and the desktop CI job's ABI probe now covers both.
   better-sqlite3-multiple-ciphers: true
+  '@firebase/util': false
+  protobufjs: false
 minimumReleaseAgeExclude:
   - react-router@7.18.3
 overrides:

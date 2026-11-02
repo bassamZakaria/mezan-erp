@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { createFirebaseAccounts } from "./firebase-auth.js";
 import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { bodyLimit } from "hono/body-limit";
@@ -271,6 +272,10 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
     clientSource: env.clientSource,
     sourceReporter,
     securityMail: env.platformSmtp,
+    firebase: env.firebase ? createFirebaseAccounts(env.firebase, env.publicOrigin ? { continueUrl: env.publicOrigin } : {}) : undefined,
+    firebaseWebConfig: env.firebase
+      ? { apiKey: env.firebase.apiKey, authDomain: env.firebase.authDomain, projectId: env.firebase.projectId, appId: env.firebase.appId, ...(env.firebase.authEmulatorHost ? { authEmulatorUrl: `http://${env.firebase.authEmulatorHost}` } : {}) }
+      : undefined,
     allowTenantHeader: true,
     now,
     connection: { exclusive: env.sqliteExclusive },

@@ -2,7 +2,9 @@ import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type Chan
 import { useQueryClient } from "@tanstack/react-query";
 import { BrandMark, Button, Copyright, TextInput, cn } from "@mezan/ui";
 import { TenantResolveMode } from "@mezan/contracts";
-import { AccountLockedError, ApiError, SignInRefusalCode, isDesktopHost, noPlatformInFront, platformLookupFailing, useBootstrapStatus, useForgotPassword, useLogin, usePlatformResolve, useTenantInfo, useUnlockAccount } from "../data/hooks";
+import { AccountLockedError, ApiError, SignInRefusalCode, isDesktopHost, noPlatformInFront, platformLookupFailing, useBootstrapStatus, useForgotPassword, useLogin, usePlatformResolve, useSignInConfig, useTenantInfo, useUnlockAccount } from "../data/hooks";
+import type { FirebaseWebConfigDTO } from "@mezan/contracts";
+import { FirebaseFailure, FirebaseSignInError, firebaseGoogleToken, firebasePasswordToken, firebaseSendPasswordReset } from "./firebase-sign-in";
 import { holdsItsOwnBooks, lastTenantMode, LookupHost, lookupHostOf, rememberTenantMode } from "./lookup-host";
 import { useAppVersion } from "../data/hub-hooks";
 import { OWNER_HAND_OVER_NOTICE_KEYS } from "../data/owner-hand-over-notice";
@@ -70,6 +72,16 @@ export interface LoginScreenProps {
   onStartWizard: () => void;
 }
 
+const FIREBASE_FAILURE_KEYS: Readonly<Record<FirebaseFailure, AppTranslationKey | null>> = {
+  [FirebaseFailure.WrongCredentials]: "login.firebase.wrongCredentials",
+  [FirebaseFailure.TooManyAttempts]: "login.tooManyAttempts",
+  [FirebaseFailure.Disabled]: "login.firebase.disabled",
+  [FirebaseFailure.NotRegistered]: "login.firebase.notRegistered",
+  [FirebaseFailure.Cancelled]: null,
+  [FirebaseFailure.Network]: "login.firebase.network",
+  [FirebaseFailure.Other]: "login.error.generic",
+};
+
 // SECURITY: the face row is NOT the staff roster — only who has signed in HERE (`device-users.ts`); listing every employee to whoever opens the machine leaks the org chart.
 const SERVER_BUSY = 503;
 
@@ -100,6 +112,8 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
   const lookupFailing = lookupFailingNow || (lastLookupFailure !== null && !lookupAnswered);
   const hostMessage = lookupFailingNow ? hostMessageNow : lookupFailing ? (lastLookupFailure?.hostMessage ?? null) : null;
   const lookupHost = useMemo(() => lookupHostOf(), []);
+  const firebaseConfig = useSignInConfig({ enabled: lookupHost === LookupHost.Cloud }).data?.firebase ?? null;
+  const [firebaseBusy, setFirebaseBusy] = useState(false);
   useEffect(() => {
     if (tenantMode !== undefined) rememberTenantMode(tenantMode);
   }, [tenantMode]);
@@ -270,6 +284,7 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
     identity !== "" &&
     password !== "" &&
     !login.isPending &&
+    !firebaseBusy &&
     lockedForSeconds === 0 &&
     !tenantCodeInvalid;
 
@@ -278,9 +293,28 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
     if (!canSubmit) return;
     setError(null);
     setCompanyUnconfirmed(lookupFailing && tenantCode.trim() !== "" && !tenantInfo.isSuccess);
-    login.mutate(
-      { username: identity, password, byEmail: resolvesByEmail },
-      {
+    if (firebaseConfig) {
+      signInThroughFirebase(() => firebasePasswordToken(firebaseConfig, identity, password));
+      return;
+    }
+    login.mutate({ username: identity, password, byEmail: resolvesByEmail }, signInOutcome);
+  }
+
+  function signInThroughFirebase(token: () => Promise<string>) {
+    if (firebaseBusy || login.isPending) return;
+    setError(null);
+    setFirebaseBusy(true);
+    token()
+      .then((idToken) => login.mutate({ idToken, byEmail: resolvesByEmail }, signInOutcome))
+      .catch((err: unknown) => {
+        const key = err instanceof FirebaseSignInError ? FIREBASE_FAILURE_KEYS[err.failure] : "login.error.generic";
+        if (key) setError(t(key));
+        setPassword("");
+      })
+      .finally(() => setFirebaseBusy(false));
+  }
+
+  const signInOutcome = {
         onSuccess: (session) => {
           clearSignInNotice();
           clearSignInHandOff();
@@ -303,9 +337,7 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
           setPassword("");
           passwordRef.current?.focus();
         },
-      },
-    );
-  }
+  } satisfies Parameters<typeof login.mutate>[1];
 
   // Ticks the lockout down so the form re-enables itself the moment the wait
   // is over, rather than after a reload nobody thinks to do. Keyed on WHETHER
@@ -344,6 +376,7 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
   const card = forgotOpen ? (
     <ForgotPasswordCard
       initialEmail={identity}
+      firebase={firebaseConfig}
       mailed={onCloud}
       byEmail={resolvesByEmail}
       onBack={() => setForgotOpen(false)}
@@ -589,6 +622,25 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
         {lockedForSeconds > 0 ? t(waitingOnBusyServer ? "login.busyFor" : "login.throttledFor", { wait: formatWait(lockedForSeconds, t) }) : t("login.submit")}
       </Button>
 
+      {firebaseConfig ? (
+        <>
+          <div className="mt-[14px] flex items-center gap-[10px] text-2xs text-ink-faint">
+            <span className="h-px flex-1 bg-border" />
+            {t("login.or")}
+            <span className="h-px flex-1 bg-border" />
+          </div>
+          <Button
+            type="button"
+            variant="default"
+            disabled={firebaseBusy || login.isPending || lockedForSeconds > 0}
+            onClick={() => signInThroughFirebase(() => firebaseGoogleToken(firebaseConfig, identity || undefined))}
+            className="mt-[14px] w-full justify-center py-[12px]"
+          >
+            {t("login.google")}
+          </Button>
+        </>
+      ) : null}
+
       <div className="mt-[16px] flex items-center gap-[10px] text-2xs text-ink-faint">
         {!typing ? (
           <button
@@ -646,16 +698,40 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
 
 const CARD_CLASS = "relative w-full max-w-[380px] rounded-lg border border-border bg-surface p-[28px] pb-[18px] shadow-2";
 
-function ForgotPasswordCard({ initialEmail, mailed, byEmail, onBack }: { initialEmail: string; mailed: boolean; byEmail: boolean; onBack: () => void }) {
+function ForgotPasswordCard({
+  initialEmail,
+  firebase,
+  mailed,
+  byEmail,
+  onBack,
+}: {
+  initialEmail: string;
+  firebase: FirebaseWebConfigDTO | null;
+  mailed: boolean;
+  byEmail: boolean;
+  onBack: () => void;
+}) {
   const { t } = useAppTranslation();
   const forgot = useForgotPassword();
   const emailId = useId();
   const [email, setEmail] = useState(initialEmail);
   const [sent, setSent] = useState(false);
+  const [firebaseSending, setFirebaseSending] = useState(false);
+  const [firebaseFailed, setFirebaseFailed] = useState(false);
+  const sending = forgot.isPending || firebaseSending;
 
   function submit(event: FormEvent) {
     event.preventDefault();
-    if (email.trim() === "" || forgot.isPending) return;
+    if (email.trim() === "" || sending) return;
+    if (firebase) {
+      setFirebaseFailed(false);
+      setFirebaseSending(true);
+      firebaseSendPasswordReset(firebase, email)
+        .then(() => setSent(true))
+        .catch(() => setFirebaseFailed(true))
+        .finally(() => setFirebaseSending(false));
+      return;
+    }
     forgot.mutate({ username: email.trim(), byEmail }, { onSuccess: () => setSent(true) });
   }
 
@@ -676,12 +752,12 @@ function ForgotPasswordCard({ initialEmail, mailed, byEmail, onBack }: { initial
           {t("login.email")}
         </label>
         <TextInput id={emailId} type="email" autoComplete="username" className="mz-lat mt-[6px] w-full" value={email} onChange={(e) => setEmail(e.target.value)} />
-        {forgot.error ? (
+        {forgot.error || firebaseFailed ? (
           <p role="alert" className="mt-[10px] text-xs font-semibold text-danger-ink">
-            {forgot.error.message}
+            {forgot.error?.message ?? t("login.forgot.failed")}
           </p>
         ) : null}
-        <Button type="submit" variant="primary" disabled={email.trim() === "" || forgot.isPending} className="mt-[16px] w-full justify-center py-[12px]">
+        <Button type="submit" variant="primary" disabled={email.trim() === "" || sending} className="mt-[16px] w-full justify-center py-[12px]">
           {t("login.forgot.submit")}
         </Button>
       </>

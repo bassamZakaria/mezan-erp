@@ -21,7 +21,7 @@ import {
   type User,
 } from "@mezan/domain";
 import type { PasswordResetTokens } from "@mezan/persistence";
-import { CurrentSecretRefusal, loginRequestSchema, bootstrapAdminRequestSchema, unlockAccountRequestSchema, unlockAccountByLinkRequestSchema, stepUpRequestSchema, forgotPasswordRequestSchema, resetPasswordRequestSchema, UNDISCLOSED_TENANT_NAME, type SessionDTO } from "@mezan/contracts";
+import { CurrentSecretRefusal, loginRequestSchema, bootstrapAdminRequestSchema, unlockAccountRequestSchema, unlockAccountByLinkRequestSchema, stepUpRequestSchema, firebaseSignInRequestSchema, FirebaseRefusal, forgotPasswordRequestSchema, resetPasswordRequestSchema, UNDISCLOSED_TENANT_NAME, type SessionDTO } from "@mezan/contracts";
 import {
   accountLocked,
   signInBusy,
@@ -99,7 +99,23 @@ export interface AuthRoutesDeps {
   readonly passwordResetTokens?: PasswordResetTokens;
   // CONTRACT: delivers the one-time reset link to the user's own address. Absent — an install with no mail — and «نسيت كلمة المرور» issues nothing.
   readonly onPasswordResetRequested?: (event: { readonly user: User; readonly token: string }) => Promise<void>;
+  // SECURITY: present on the cloud edition only. Firebase then holds every credential: the password routes
+  // answer 410 for everyone but the seed admin, whose company-code sign-in stays for support.
+  readonly firebase?: FirebaseVerifier;
 }
+
+export interface FirebaseIdentity {
+  readonly email: string;
+  readonly emailVerified: boolean;
+  readonly authTimeSeconds: number;
+}
+
+export interface FirebaseVerifier {
+  /** Null for a token that is malformed, expired, revoked or issued for another project. */
+  verify(idToken: string): Promise<FirebaseIdentity | null>;
+}
+
+const FIREBASE_STEP_UP_MAX_AGE_SECONDS = 5 * 60;
 
 const PASSWORD_RESET_TTL_MS = 60 * 60 * 1000;
 const PASSWORD_RESET_TOKEN_BYTES = 32;
@@ -220,6 +236,13 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
   const locks = deps.accountLocks ?? createAccountLocks({ known: createMemoryAccountLockStore() });
   const guard = createSignInGuard({ throttle, sources, locks });
   const canMailUnlockCode = deps.canMailUnlockCode ?? (async () => false);
+  const firebase = deps.firebase;
+  const passwordsClosed = (user: User | null) => firebase !== undefined && user?.id !== SEED_ADMIN_USER_ID;
+  const signInWithFirebase = (c: Context) =>
+    c.json({ error: FirebaseRefusal.SignInWithFirebase, message: "سجّل الدخول بالبريد الإلكتروني وكلمة المرور أو بحساب Google من صفحة الدخول." }, 410);
+  if (firebase) {
+    for (const path of ["/auth/forgot-password", "/auth/reset-password", "/auth/unlock", "/auth/unlock-link"]) app.post(path, signInWithFirebase);
+  }
 
   async function refused(c: Context, held: SignInDecision): Promise<Response> {
     if (held.verdict === SignInVerdict.Locked) {
@@ -239,7 +262,9 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
     // bought, and a caller the gate has no place for is answered here — it must
     // not reach the handler, which would hash for it under the connection's turn.
     await deps.audit?.settled?.();
-    const known = (await deps.uow.users.findByEmail(needle)) !== null;
+    const found = await deps.uow.users.findByEmail(needle);
+    if (passwordsClosed(found)) return;
+    const known = found !== null;
     if ((await guard.check(needle, origin, known)).verdict !== SignInVerdict.Proceed) return;
     const checked = gate.admit(throttleSource(origin), async () => {
       await deps.audit?.settled?.();
@@ -393,6 +418,54 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
     await deps.onAccountLocked({ user, unlockCode, unlockLinkToken, source: origin ?? "host", reissued: true });
   }
 
+  async function admit(c: Context, signedIn: User, needle: string, origin: string | null): Promise<Response> {
+    /**
+     * OVER THE SEAT COUNT — the reverse trial's drop to Free can leave a tenant
+     * with more active users than the Free plan allows. DEC-31 rule 6: nothing
+     * is deleted and nobody is deactivated automatically; only a company admin
+     * can sign in, so that a human decides who stays. Checked AFTER the
+     * credential, so it can never tell an outsider how many users a tenant has.
+     */
+    if (isAccessExpired(signedIn, Date.now())) {
+      await guard.succeeded(needle, origin);
+      await security(c, "LOGIN_REFUSED_ACCESS_EXPIRED", AuditSeverityCode.Warning, { userId: signedIn.id, accessExpiresAt: signedIn.accessExpiresAt ?? null });
+      return c.json(
+        {
+          error: ACCESS_EXPIRED_ERROR,
+          message: "انتهت مدة الوصول الممنوحة لهذا الحساب. اطلب من مدير النظام تمديدها.",
+          messageEn: "This account's access period has ended. Ask the administrator to extend it.",
+        },
+        403,
+      );
+    }
+    if (!signedIn.isCompanyAdmin) {
+      const entitlements = await deps.resolveEntitlements?.(c);
+      if (entitlements) {
+        const active = (await deps.uow.users.list()).filter((u) => u.status === UserStatusCode.Active).length;
+        if (active > entitlements.seats) {
+          const refusal = seatsOverLimitRefusal(entitlements.seats, active, {
+            nameAr: entitlements.planNameAr ?? entitlements.plan,
+            nameEn: entitlements.planNameEn ?? entitlements.plan,
+          });
+          await security(c, "LOGIN_REFUSED_SEATS", AuditSeverityCode.Warning, { userId: signedIn.id, seats: entitlements.seats, active });
+          return c.json(refusal, 403);
+        }
+      }
+    }
+    await guard.succeeded(needle, origin);
+    const at = new Date().toISOString();
+    await recordSuccessfulLogin(signedIn.id, at, deps.uow);
+    await security(c, "LOGIN_SUCCEEDED", AuditSeverityCode.Info, { userId: signedIn.id, username: needle });
+    // SECURITY: announced only here, after this request's own password check. A
+    // session answered without one proves nothing about who holds the credential.
+    await deps.onSignedIn?.({ userId: signedIn.id, email: signedIn.email }).catch((err: unknown) =>
+      authLog.error({ err: err }, "the sign-in succeeded, but announcing it failed"),
+    );
+    // The session is bound to the origin the CREDENTIAL was verified from, so
+    // the till that logged in is the only place the token it got back works.
+    return c.json(await toSession(signedIn, deps, requestOrigin(c), deviceBindingOf(c)));
+  }
+
   app.post("/auth/login", async (c) => {
     const parsed = loginRequestSchema.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) {
@@ -409,6 +482,7 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
     // "who can log in" a property of a field any admin may edit, and two people
     // who share a display name shared an account door.
     const user = await deps.uow.users.findByEmail(needle);
+    if (passwordsClosed(user)) return signInWithFirebase(c);
     const held = await guard.check(needle, origin, user !== null);
     if (held.verdict !== SignInVerdict.Proceed) {
       await security(c, "LOGIN_BLOCKED", AuditSeverityCode.Warning, {
@@ -456,51 +530,38 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
       await security(c, "LOGIN_FAILED", AuditSeverityCode.Warning, { username: needle });
       return c.json({ error: "INVALID_CREDENTIALS", message: "البريد الإلكتروني أو كلمة المرور غير صحيحة." }, 401);
     }
-    /**
-     * OVER THE SEAT COUNT — the reverse trial's drop to Free can leave a tenant
-     * with more active users than the Free plan allows. DEC-31 rule 6: nothing
-     * is deleted and nobody is deactivated automatically; only a company admin
-     * can sign in, so that a human decides who stays. Checked AFTER the
-     * credential, so it can never tell an outsider how many users a tenant has.
-     */
-    if (isAccessExpired(signedIn, Date.now())) {
-      await guard.succeeded(needle, origin);
-      await security(c, "LOGIN_REFUSED_ACCESS_EXPIRED", AuditSeverityCode.Warning, { userId: signedIn.id, accessExpiresAt: signedIn.accessExpiresAt ?? null });
-      return c.json(
-        {
-          error: ACCESS_EXPIRED_ERROR,
-          message: "انتهت مدة الوصول الممنوحة لهذا الحساب. اطلب من مدير النظام تمديدها.",
-          messageEn: "This account's access period has ended. Ask the administrator to extend it.",
-        },
-        403,
-      );
+    return admit(c, signedIn, needle, origin);
+  });
+
+  app.post("/auth/firebase", async (c) => {
+    if (!firebase) return c.json({ error: "NOT_FOUND" }, 404);
+    const parsed = firebaseSignInRequestSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    const origin = requestOrigin(c);
+    const identity = await firebase.verify(parsed.data.idToken);
+    const needle = identity?.email.trim().toLowerCase() ?? "";
+    // SECURITY: an unverified address proves nothing about who holds the mailbox, so it opens nothing.
+    const user = identity?.emailVerified ? await deps.uow.users.findByEmail(needle) : null;
+    if (!user || user.status !== UserStatusCode.Active || user.id === SEED_ADMIN_USER_ID) {
+      await security(c, "LOGIN_FAILED", AuditSeverityCode.Warning, { username: needle, firebase: true, emailVerified: identity?.emailVerified ?? null });
+      return c.json({ error: "INVALID_CREDENTIALS", message: "البريد الإلكتروني أو كلمة المرور غير صحيحة." }, 401);
     }
-    if (!signedIn.isCompanyAdmin) {
-      const entitlements = await deps.resolveEntitlements?.(c);
-      if (entitlements) {
-        const active = (await deps.uow.users.list()).filter((u) => u.status === UserStatusCode.Active).length;
-        if (active > entitlements.seats) {
-          const refusal = seatsOverLimitRefusal(entitlements.seats, active, {
-            nameAr: entitlements.planNameAr ?? entitlements.plan,
-            nameEn: entitlements.planNameEn ?? entitlements.plan,
-          });
-          await security(c, "LOGIN_REFUSED_SEATS", AuditSeverityCode.Warning, { userId: signedIn.id, seats: entitlements.seats, active });
-          return c.json(refusal, 403);
-        }
-      }
+    const held = await guard.check(needle, origin, true);
+    if (held.verdict !== SignInVerdict.Proceed) return refused(c, held);
+    // A temporary password is never imported into Firebase, so holding a Firebase credential already proves it was replaced.
+    const signedIn = user.mustChangePassword
+      ? await atomically(async () => {
+          const current = await deps.uow.users.findById(user.id);
+          if (!current || !current.mustChangePassword) return current;
+          const cleared = { ...current, mustChangePassword: false };
+          await deps.uow.users.save(cleared);
+          return cleared;
+        })
+      : user;
+    if (!signedIn || signedIn.status !== UserStatusCode.Active) {
+      return c.json({ error: "INVALID_CREDENTIALS", message: "البريد الإلكتروني أو كلمة المرور غير صحيحة." }, 401);
     }
-    await guard.succeeded(needle, origin);
-    const at = new Date().toISOString();
-    await recordSuccessfulLogin(signedIn.id, at, deps.uow);
-    await security(c, "LOGIN_SUCCEEDED", AuditSeverityCode.Info, { userId: signedIn.id, username: needle });
-    // SECURITY: announced only here, after this request's own password check. A
-    // session answered without one proves nothing about who holds the credential.
-    await deps.onSignedIn?.({ userId: signedIn.id, email: signedIn.email }).catch((err: unknown) =>
-      authLog.error({ err: err }, "the sign-in succeeded, but announcing it failed"),
-    );
-    // The session is bound to the origin the CREDENTIAL was verified from, so
-    // the till that logged in is the only place the token it got back works.
-    return c.json(await toSession(signedIn, deps, requestOrigin(c), deviceBindingOf(c)));
+    return admit(c, signedIn, needle, origin);
   });
 
   app.post("/auth/step-up", async (c) => {
@@ -515,6 +576,22 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
     }
     const held = await guard.check(user.email, origin, true);
     if (held.verdict !== SignInVerdict.Proceed) return refused(c, held);
+    if ("idToken" in parsed.data) {
+      const identity = firebase ? await firebase.verify(parsed.data.idToken) : null;
+      const sameUser = identity !== null && identity.emailVerified && identity.email.trim().toLowerCase() === user.email.trim().toLowerCase();
+      if (!sameUser) {
+        await security(c, "STEP_UP_FAILED", AuditSeverityCode.Warning, { userId: user.id, firebase: true });
+        return c.json({ error: CurrentSecretRefusal.IncorrectPassword, message: "تعذّر تأكيد هويتك. أعد المحاولة." }, 403);
+      }
+      // SECURITY: an ID token lives an hour; only a sign-in made moments ago proves the person is at the keyboard now.
+      if (Date.now() / 1000 - identity.authTimeSeconds > FIREBASE_STEP_UP_MAX_AGE_SECONDS) {
+        return c.json({ error: FirebaseRefusal.ReauthenticationTooOld, message: "أكّد هويتك مرة أخرى للمتابعة." }, 403);
+      }
+      await deps.sessions.confirmStepUp(token);
+      await security(c, "STEP_UP_CONFIRMED", AuditSeverityCode.Info, { userId: user.id, firebase: true });
+      return c.json({ ok: true });
+    }
+    if (passwordsClosed(user)) return signInWithFirebase(c);
     if (!(await deps.hasher.verify(parsed.data.password, user.passwordHash))) {
       const failure = await atomically(() => guard.failed(user.email, origin, true));
       await security(c, "STEP_UP_FAILED", AuditSeverityCode.Warning, { userId: user.id });

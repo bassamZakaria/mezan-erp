@@ -55,7 +55,9 @@ describe("a fresh on-premises install is given the standard roles, and nothing e
     const standard = roles.filter((role) => !role.isSystem);
     expect(standard.map((role) => role.code)).toEqual(expect.arrayContaining(["ACCOUNTANT", "TREASURY_CASHIER", "WAREHOUSE_KEEPER", "SALES_REP", "PURCHASING_OFFICER"]));
     expect(standard.map((role) => role.code)).not.toEqual(expect.arrayContaining(["CONSULTANT_QS"]));
-    expect(standard.find((role) => role.code === "HR_OFFICER")?.permissions).not.toContain("hr.attendance.view");
+    const hrOfficer = standard.find((role) => role.code === "HR_OFFICER");
+    expect(hrOfficer?.permissions).toEqual(expect.arrayContaining(["hr.employee.view"]));
+    expect(hrOfficer?.permissions).not.toContain("hr.attendance.view");
     for (const role of standard) {
       expect(role.name).toMatch(/[؀-ۿ]/);
       expect(role.permissions.length).toBeGreaterThan(1);

@@ -54,6 +54,7 @@ import {
   type SalesInvoicePromotionHook,
   type CreateSalesInvoiceCommand,
   type EmployeeDirectory,
+  EmployeeRefStatus,
   InvalidDocumentError,
   type DocumentNumberingHook,
   type DocumentGlHook,
@@ -309,10 +310,21 @@ type InvoiceReps = Pick<
   "salespersonId" | "salespersonNameAr" | "salesManagerId" | "salesManagerNameAr" | "promotionRepId" | "promotionRepNameAr" | "promotionManagerId" | "promotionManagerNameAr"
 >;
 
+enum InvoiceRepRefusalCode {
+  EmployeeNotFound = "EMPLOYEE_NOT_FOUND",
+  EmployeeTerminated = "EMPLOYEE_TERMINATED",
+}
+
+interface InvoiceRepRefusal {
+  readonly error: InvoiceRepRefusalCode;
+  readonly message: string;
+  readonly messageEn: string;
+}
+
 async function resolveInvoiceReps(
   employees: Pick<EmployeeDirectory, "findById"> | undefined,
   req: InvoiceRepsRequest,
-): Promise<{ ok: true; value: InvoiceReps } | { ok: false; refusal: { error: string; employeeIds: string[]; message: string; messageEn: string } }> {
+): Promise<{ ok: true; value: InvoiceReps } | { ok: false; refusal: InvoiceRepRefusal }> {
   const ids = [req.salespersonId, req.salesManagerId, req.promotionRepId, req.promotionManagerId];
   if (!employees) {
     return {
@@ -321,15 +333,23 @@ async function resolveInvoiceReps(
     };
   }
   const found = await Promise.all(ids.map((id) => (id ? employees.findById(id) : Promise.resolve(null))));
-  const unknown = ids.filter((id, i): id is string => Boolean(id) && !found[i]);
-  if (unknown.length > 0) {
+  if (ids.some((id, i) => Boolean(id) && !found[i])) {
     return {
       ok: false,
       refusal: {
-        error: "EMPLOYEE_NOT_FOUND",
-        employeeIds: [...new Set(unknown)],
-        message: `موظفون غير موجودين في سجل الموظفين: ${[...new Set(unknown)].join("، ")}. اختر المندوب والمدير من قائمة الموظفين.`,
-        messageEn: `Employees that are not in the employee register: ${[...new Set(unknown)].join(", ")}. Pick the rep and the manager from the employee list.`,
+        error: InvoiceRepRefusalCode.EmployeeNotFound,
+        message: "أحد المندوبين أو المديرين غير موجود في سجل الموظفين. اختر المندوب والمدير من قائمة الموظفين.",
+        messageEn: "A rep or manager is not in the employee register. Pick the rep and the manager from the employee list.",
+      },
+    };
+  }
+  if (found.some((employee) => employee?.status === EmployeeRefStatus.Terminated)) {
+    return {
+      ok: false,
+      refusal: {
+        error: InvoiceRepRefusalCode.EmployeeTerminated,
+        message: "أحد المندوبين أو المديرين منتهية خدمته، فلا يُسنَد إليه البيع. اختر موظفاً على رأس عمله.",
+        messageEn: "A rep or manager has been terminated and cannot be credited with the sale. Pick a current employee.",
       },
     };
   }

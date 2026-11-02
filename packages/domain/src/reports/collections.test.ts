@@ -67,15 +67,43 @@ describe("collections report (#117, #118)", () => {
     const outcome = runReport(report, report.defaultParams, ctx);
     const rows = rowsOf(outcome);
     expect(rows.map((r) => [r.voucherId, r.invoiceNo, r.repId, r.gross, r.commission, r.net])).toEqual([
-      ["v1", "INV-1", "r1", "333.330000", "3.333300", "329.996700"],
-      ["v1", "INV-2", "r2", "666.670000", "6.666700", "660.003300"],
-      ["v2", "INV-2", "r2", "200.000000", "0.004000", "199.996000"],
-      ["v2", "غير مخصص على فاتورة", UNASSIGNED_COLLECTION_KEY, "300.000000", "0.006000", "299.994000"],
+      ["v1", "INV-1", "r1", "333.330000", "3.330000", "330.000000"],
+      ["v1", "INV-2", "r2", "666.670000", "6.670000", "660.000000"],
+      ["v2", "INV-2", "r2", "200.000000", "0.000000", "200.000000"],
+      ["v2", "غير مخصص على فاتورة", UNASSIGNED_COLLECTION_KEY, "300.000000", "0.010000", "299.990000"],
       ["v3", "INV-3", UNASSIGNED_COLLECTION_KEY, "300.000000", "0.000000", "300.000000"],
     ]);
     if (!outcome.ok) return;
     expect(outcome.reconciliation).toMatchObject({ reportTotal: "1800.000000", referenceTotal: "1800.000000", withinTolerance: true });
     expect(outcome.kpis.find((k) => k.key === "commission")?.value).toBe("10.010000");
+  });
+
+  it("splits the commission in whole piastres, so every displayed column adds up to its total", () => {
+    const even = {
+      ...ctx,
+      vouchers: [
+        voucher({
+          voucherId: "v7",
+          gross: m("999.99"),
+          commission: m("10"),
+          allocations: [{ invoiceId: "i1", amount: m("333.33") }, { invoiceId: "i2", amount: m("333.33") }, { invoiceId: "i3", amount: m("333.33") }],
+        }),
+      ],
+    };
+    const rows = rowsOf(runReport(report, report.defaultParams, even));
+    expect(rows.map((r) => r.commission)).toEqual(["3.340000", "3.330000", "3.330000"]);
+    expect(rows.map((r) => r.net)).toEqual(["329.990000", "330.000000", "330.000000"]);
+    const sum = (k: "gross" | "commission" | "net") => Money.sum(rows.map((r) => m(r[k]))).toString();
+    expect([sum("gross"), sum("commission"), sum("net")]).toEqual(["999.990000", "10.000000", "989.990000"]);
+  });
+
+  it("merges two allocations of one voucher to the same invoice into one row with a unique key", () => {
+    const twice = {
+      ...ctx,
+      vouchers: [voucher({ voucherId: "v8", gross: m("150"), commission: m("1.50"), allocations: [{ invoiceId: "i1", amount: m("100") }, { invoiceId: "i1", amount: m("50") }] })],
+    };
+    const rows = rowsOf(runReport(report, report.defaultParams, twice));
+    expect(rows.map((r) => [r.key, r.invoiceNo, r.gross, r.commission, r.net])).toEqual([["v8:i1", "INV-1", "150.000000", "1.500000", "148.500000"]]);
   });
 
   it("narrows to one customer (pharmacy) and to one rep", () => {
@@ -101,9 +129,9 @@ describe("collections report (#117, #118)", () => {
     const monthly = createMonthlyCollectionsByRepReport("2026-08-01", "2026-09-30");
     const rows = rowsOf(runReport(monthly, monthly.defaultParams, ctx));
     expect(rows.map((r) => [r.month, r.repId, r.voucherCount, r.gross, r.commission, r.net])).toEqual([
-      ["2026-08", "r1", 1, "333.330000", "3.333300", "329.996700"],
-      ["2026-08", "r2", 2, "866.670000", "6.670700", "859.999300"],
-      ["2026-08", UNASSIGNED_COLLECTION_KEY, 1, "300.000000", "0.006000", "299.994000"],
+      ["2026-08", "r1", 1, "333.330000", "3.330000", "330.000000"],
+      ["2026-08", "r2", 2, "866.670000", "6.670000", "860.000000"],
+      ["2026-08", UNASSIGNED_COLLECTION_KEY, 1, "300.000000", "0.010000", "299.990000"],
       ["2026-09", UNASSIGNED_COLLECTION_KEY, 1, "300.000000", "0.000000", "300.000000"],
     ]);
   });

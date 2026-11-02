@@ -78,6 +78,24 @@ describe("SqliteVoucherStore — documents", () => {
     expect(loaded!.lines[0]!.costCategory).toBeNull();
   });
 
+  it("round-trips a transfer commission and its expense account, and update rewrites them (#115)", async () => {
+    handle = createSqliteVoucherStore();
+    const doc = voucherDoc("vc", "draft", "1000");
+    await handle.documents.save({ ...doc, lines: [{ ...doc.lines[0]!, paymentMethod: "bank", commissionAmount: Money.fromMajor("15.25"), commissionGlAccountId: "5910" }] });
+    const saved = (await handle.documents.findById("vc"))!;
+    expect(saved.lines[0]!.commissionAmount?.toString()).toBe("15.250000");
+    expect(saved.lines[0]!.commissionGlAccountId).toBe("5910");
+
+    await handle.documents.update({ ...saved, lines: [{ ...saved.lines[0]!, commissionAmount: Money.fromMajor("7.50"), commissionGlAccountId: "5900" }] });
+    const updated = (await handle.documents.findById("vc"))!.lines[0]!;
+    expect(updated.commissionAmount?.toString()).toBe("7.500000");
+    expect(updated.commissionGlAccountId).toBe("5900");
+
+    await handle.documents.save(voucherDoc("vn", "draft", "100"));
+    const none = (await handle.documents.findById("vn"))!.lines[0]!;
+    expect([none.commissionAmount, none.commissionGlAccountId]).toEqual([null, null]);
+  });
+
   it("update persists a status/number transition", async () => {
     handle = createSqliteVoucherStore();
     await handle.documents.save(voucherDoc("v1", "draft", "100"));

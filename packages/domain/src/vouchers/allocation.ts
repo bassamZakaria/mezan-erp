@@ -241,6 +241,7 @@ export interface AllocationRepository {
   findById(id: string): Promise<VoucherAllocation | null>;
   listByVoucher(voucherId: string): Promise<readonly VoucherAllocation[]>;
   listByInvoice(invoiceId: string): Promise<readonly VoucherAllocation[]>;
+  listByVouchers?(voucherIds: readonly string[]): Promise<ReadonlyMap<string, readonly VoucherAllocation[]>>;
 }
 
 /** Persistence port for the open-invoice sub-ledger. */
@@ -256,6 +257,7 @@ export interface AllocatableInvoiceRepository {
    * is simply absent from the map.
    */
   allocatedByIds(ids: readonly string[]): Promise<ReadonlyMap<string, Money>>;
+  findByIds?(ids: readonly string[]): Promise<ReadonlyMap<string, AllocatableInvoice>>;
 }
 
 /** Sum of ACTIVE allocation amounts. */

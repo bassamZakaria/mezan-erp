@@ -1,0 +1,10 @@
+[Unit]
+Description=Mezan backup repository prune (restic)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/mezan/backup/mezan-backup.sh prune
+Nice=10
+IOSchedulingClass=idle

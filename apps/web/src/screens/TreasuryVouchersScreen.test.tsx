@@ -810,3 +810,28 @@ describe("TreasuryVouchersScreen — the cashier writes a voucher and the branch
     expect(screen.queryByRole("menuitem", { name: "تأكيد السند" })).not.toBeInTheDocument();
   });
 });
+
+describe("TreasuryVouchersScreen — a collection with a transfer commission (#115)", () => {
+  it("the voucher page shows the commission and the net that reached the treasury, in the voucher's currency", async () => {
+    const usd = voucher({ paymentMethod: "bank", currency: "USD", fxRate: "50.000000", amount: "100.000000", baseAmount: "5000.000000", commissionAmount: "2.500000", commissionGlAccountId: "5910" } as Partial<VoucherDTO>);
+    renderScreen({ vouchers: [{ ...usd, allocatable: true, allocationSummary: { voucherAmount: "100.000000", allocated: "0", unallocated: "100.000000", fullyAllocated: false, needsAllocation: true } }], allocations: {} });
+    fireEvent.click(await screen.findByText("CV-000001"));
+    const net = (await screen.findByText("صافي ما وصل الخزينة")).parentElement!;
+    expect(net).toHaveTextContent("97.50");
+    expect(net).toHaveTextContent("USD");
+    expect(screen.getByText("عمولة التحويل").parentElement).toHaveTextContent("2.50");
+  });
+
+  it("the form says what comes off the customer's balance once a commission is typed on a bank collection", async () => {
+    renderScreen();
+    await screen.findByText("CV-000001");
+    fireEvent.click(screen.getByRole("button", { name: "سند جديد" }));
+    fireEvent.click(screen.getByText("تحصيل من عميل"));
+    expect(screen.queryByLabelText("عمولة التحويل")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("combobox", { name: "طريقة الدفع *" }));
+    fireEvent.mouseDown(screen.getByRole("option", { name: "بنكي" }));
+    setMoney(screen.getByLabelText("المبلغ"), "485");
+    setMoney(screen.getByLabelText("عمولة التحويل"), "15");
+    expect(screen.getByText(/يُخصم من رصيد العميل:/)).toHaveTextContent("500.00");
+  });
+});

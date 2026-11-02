@@ -55,6 +55,7 @@ export interface TestHarness {
   readonly documents: InMemoryDocumentRepository<VoucherLine>;
   readonly allocations: InMemoryAllocationRepository;
   readonly invoices: InMemoryInvoiceRepository;
+  readonly accountsById: Map<string, Account>;
   /** Post a starting cash balance into a treasury GL account so payment tests have funds. */
   seedCashBalance(glAccountId: string, amountMajor: string): Promise<void>;
 }
@@ -156,5 +157,5 @@ export function buildTestService(
     });
   }
 
-  return { service, ledger, documents, allocations, invoices, seedCashBalance };
+  return { service, ledger, documents, allocations, invoices, seedCashBalance, accountsById };
 }

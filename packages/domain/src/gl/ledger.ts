@@ -56,6 +56,7 @@ export interface LedgerRepository {
    */
   tagJournalLines?(entryId: string, lineIndexes: readonly number[], taxRatePercent: number, taxRateId: string): Promise<number>;
   findById(id: string): Promise<JournalEntry | null>;
+  findByIds?(ids: readonly string[]): Promise<ReadonlyMap<string, JournalEntry>>;
   findByEntryNo(entryNo: string): Promise<JournalEntry | null>;
   entryDates?(ids: readonly string[]): Promise<ReadonlyMap<string, string>>;
   list(filter?: JournalListFilter): Promise<readonly JournalEntry[]>;

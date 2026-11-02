@@ -30,6 +30,7 @@ import {
 } from "../documents/index.js";
 import { createDocumentWorkflowGate } from "../documents/journal-document.js";
 import { approvalLabel } from "../documents/approval-label.js";
+import { isCommissionExpenseAccount } from "./transfer-commission.js";
 import {
   voucherBaseAmount,
   isStandingVoucher,
@@ -352,7 +353,7 @@ export class VoucherService {
   private async refuseUnusableCommissionAccount(id: string, line: VoucherLine): Promise<void> {
     if (!line.commissionAmount || line.commissionAmount.scaled === 0n || !line.commissionGlAccountId) return;
     const account = await this.deps.accounts.findById(line.commissionGlAccountId);
-    if (account && !account.isHeader && account.status === "active" && account.type === "expense") return;
+    if (account && isCommissionExpenseAccount(account)) return;
     throw new InvalidDocumentError(
       VOUCHER_DOC_TYPE,
       id,
@@ -447,6 +448,7 @@ export class VoucherService {
     const existing = await this.service.findById(id);
     let carried: readonly HeldAllocationRequest[] = [];
     if (existing) {
+      await this.refuseUnusableCommissionAccount(id, voucherLine(existing));
       // The rate is resolved and STAMPED before anything is posted, exactly as
       // `confirmPurchaseInvoice` does it, so the GL amount, the treasury guard
       // and every allocation all read one base figure (B-4).

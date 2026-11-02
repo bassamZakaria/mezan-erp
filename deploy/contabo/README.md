@@ -37,7 +37,7 @@ adduser ops && usermod -aG sudo ops                         # then copy your SSH
 #   KbdInteractiveAuthentication no
 #   PermitRootLogin no
 systemctl reload ssh
-apt update && apt install -y ufw fail2ban unattended-upgrades rsync sqlite3 restic curl
+apt update && apt install -y ufw fail2ban unattended-upgrades rsync sqlite3 restic rclone curl
 ufw default deny incoming && ufw allow 22/tcp && ufw allow 80/tcp && ufw allow 443/tcp && ufw allow 443/udp && ufw enable
 dpkg-reconfigure -plow unattended-upgrades
 printf '[sshd]\nenabled = true\nbackend = systemd\n' > /etc/fail2ban/jail.local   # 24.04 logs sshd to the journal only
@@ -120,7 +120,7 @@ Then enable the backups:
 
 ```
 cp /opt/mezan/backup/*.service /opt/mezan/backup/*.timer /etc/systemd/system/
-systemctl daemon-reload && systemctl enable --now mezan-backup.timer mezan-backup-check.timer mezan-pg-dump.timer mezan-pg-base.timer mezan-pg-drill.timer
+systemctl daemon-reload && systemctl enable --now mezan-backup.timer mezan-backup-prune.timer mezan-backup-check.timer mezan-pg-dump.timer mezan-pg-base.timer mezan-pg-drill.timer
 systemctl start mezan-pg-dump.service mezan-pg-base.service && journalctl -u mezan-pg-dump.service -n 30
 systemctl start mezan-backup.service && journalctl -u mezan-backup.service -n 30
 ```
@@ -302,7 +302,7 @@ The tenant count must match the live one and the latest `updated_at` must be wit
 
 ### Files (keys, anchors, older SQLite snapshots)
 
-Local snapshots: the app writes one per open tenant and one of the platform database every `MEZAN_BACKUP_INTERVAL_MINUTES` (keep it at 30 or less: a tenant idle for 30 minutes is closed and skipped) under `/srv/mezan/data/backups/`, keeping 12 per folder. Off-box: restic keeps 48 hourly, 30 daily, 12 weekly, 12 monthly.
+Local snapshots: the app writes one per open tenant and one of the platform database every `MEZAN_BACKUP_INTERVAL_MINUTES` (keep it at 30 or less: a tenant idle for 30 minutes is closed and skipped) under `/srv/mezan/data/backups/`, keeping 12 per folder. Off-box: restic keeps every snapshot from the last 7 days; the hourly run forgets older ones and the weekly `mezan-backup-prune.timer` (Sunday 04:00) deletes their data.
 
 ```
 set -a; . /srv/mezan/restic.env; set +a

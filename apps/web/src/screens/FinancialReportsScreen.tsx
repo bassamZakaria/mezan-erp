@@ -90,8 +90,6 @@ function AccountLedgerTab() {
   return <ReportScreen definition={definition} apiPath="/account-ledger" apiRoot="/financial-reports" />;
 }
 
-const MONTH_START = `${TODAY.slice(0, 7)}-01`;
-
 function useCollectionFilterOptions(): CollectionFilterOptions {
   const customersQuery = useCustomers();
   const employeesQuery = useEmployees(planServesRequest(useEntitlements(), ShellRequest.Employees));
@@ -109,13 +107,15 @@ function useCollectionFilterOptions(): CollectionFilterOptions {
 
 function CollectionsTab() {
   const options = useCollectionFilterOptions();
-  const definition = useMemo(() => createCollectionsReport(MONTH_START, TODAY, options), [options]);
+  const [today] = useState(todayIso);
+  const definition = useMemo(() => createCollectionsReport(`${today.slice(0, 7)}-01`, today, options), [today, options]);
   return <ReportScreen definition={definition} apiPath="/treasury/collections" />;
 }
 
 function MonthlyCollectionsTab() {
   const options = useCollectionFilterOptions();
-  const definition = useMemo(() => createMonthlyCollectionsByRepReport(YEAR_START, TODAY, options), [options]);
+  const [today] = useState(todayIso);
+  const definition = useMemo(() => createMonthlyCollectionsByRepReport(`${today.slice(0, 4)}-01-01`, today, options), [today, options]);
   return <ReportScreen definition={definition} apiPath="/treasury/collections-monthly-by-rep" />;
 }
 

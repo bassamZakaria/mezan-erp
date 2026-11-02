@@ -418,6 +418,25 @@ const backdated = {
 };
 
 
+describe("a collection with a transfer commission (#115)", () => {
+  it("reverses through POST /vouchers/:id/reverse: AR, bank and commission net to zero and the invoice reopens", async () => {
+    const { vouchers, root, ledger } = await newApp();
+    const body = { ...collection, amount: "200.00", paymentMethod: "bank", commissionAmount: "5.00", commissionGlAccountId: "5900" };
+    expect((await vouchers.fetch(req("/", { method: "POST", body: JSON.stringify(body) }))).status).toBe(201);
+    expect((await vouchers.fetch(req("/v1/confirm", { method: "POST" }))).status).toBe(200);
+    expect((await vouchers.fetch(req("/v1/allocations", { method: "POST", body: JSON.stringify({ allocationId: "al1", invoiceId: "inv1", amount: "200.00" }) }))).status).toBe(201);
+    const balances = async () => Promise.all(["1100", "1300-1", "5900"].map(async (id) => (await ledger.accountBalance(id)).balance.toString()));
+    expect(await balances()).toEqual(["-200.000000", "195.000000", "5.000000"]);
+    expect((await (await root.fetch(req("/open-invoices?kind=sales&partyId=cust-1"))).json()) as unknown[]).toHaveLength(0);
+
+    const reversed = await vouchers.fetch(req("/v1/reverse", { method: "POST", body: JSON.stringify({ memo: "سبب العكس", date: "2026-08-22" }) }));
+    expect(reversed.status).toBe(201);
+    expect(await balances()).toEqual(["0.000000", "0.000000", "0.000000"]);
+    const reopened = (await (await root.fetch(req("/open-invoices?kind=sales&partyId=cust-1"))).json()) as { id: string; allocated: string }[];
+    expect(reopened.map((invoice) => [invoice.id, invoice.allocated])).toEqual([["inv1", "0.000000"]]);
+  });
+});
+
 describe("a voucher back-dated into a closed day", () => {
   it("is refused, posts nothing, and leaves the voucher a draft", async () => {
     const { vouchers, ledger } = await newClosedPeriodApp();

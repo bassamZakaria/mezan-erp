@@ -520,6 +520,15 @@ class SqlAllocationRepository implements AllocationRepository {
   async listByInvoice(invoiceId: string): Promise<readonly VoucherAllocation[]> {
     return (await this.db.all<AllocationRow>(`SELECT * FROM voucher_allocation WHERE invoice_id = ? ORDER BY created_at`, [invoiceId])).map(toAllocation);
   }
+  async listByVouchers(voucherIds: readonly string[]): Promise<ReadonlyMap<string, readonly VoucherAllocation[]>> {
+    const rowsByVoucher = await childRowsByParentAsync<AllocationRow>(this.db, {
+      table: "voucher_allocation",
+      parentColumn: "voucher_id",
+      parentIds: [...new Set(voucherIds)],
+      orderBy: "voucher_id, created_at",
+    });
+    return new Map([...rowsByVoucher].map(([voucherId, rows]) => [voucherId, rows.map(toAllocation)]));
+  }
 }
 
 interface InvoiceRow {
@@ -561,6 +570,11 @@ class SqlInvoiceRepository implements AllocatableInvoiceRepository {
          date = excluded.date, total = excluded.total, allocated = excluded.allocated`,
       [invoice.id, invoice.invoiceNo, invoice.kind, invoice.partyId, invoice.date, invoice.total.scaled, invoice.allocated.scaled],
     );
+  }
+
+  async findByIds(ids: readonly string[]): Promise<ReadonlyMap<string, AllocatableInvoice>> {
+    const rowsById = await childRowsByParentAsync<InvoiceRow>(this.db, { table: "open_invoice", parentColumn: "id", parentIds: [...new Set(ids)], orderBy: "id" });
+    return new Map([...rowsById].flatMap(([id, rows]) => (rows[0] ? [[id, toInvoice(rows[0])] as const] : [])));
   }
 
   async allocatedByIds(ids: readonly string[]): Promise<ReadonlyMap<string, Money>> {

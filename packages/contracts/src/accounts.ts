@@ -6,6 +6,20 @@ export const accountTypeSchema = z.enum(["asset", "liability", "equity", "revenu
 export const naturalBalanceSchema = z.enum(["debit", "credit"]);
 export const accountStatusSchema = z.enum(["active", "inactive"]);
 
+export enum AccountTypeCode {
+  Asset = "asset",
+  Liability = "liability",
+  Equity = "equity",
+  Revenue = "revenue",
+  Expense = "expense",
+  Memorandum = "memorandum",
+}
+
+export enum AccountStatusCode {
+  Active = "active",
+  Inactive = "inactive",
+}
+
 export const accountSchema = z.object({
   id: z.string().min(1),
   code: z.string().min(1),

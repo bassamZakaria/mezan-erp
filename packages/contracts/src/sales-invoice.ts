@@ -161,14 +161,13 @@ export const voidSalesInvoiceSchema = z.object({
 export type VoidSalesInvoiceDTO = z.infer<typeof voidSalesInvoiceSchema>;
 
 export const salesInvoicePaymentSchema = z.object({
-  amount: moneyString,
+  amount: moneyString.describe("What reached the treasury. A commissionAmount is added on top, and the invoice is relieved of amount + commissionAmount."),
   treasuryAccountId: z.string().min(1),
   paymentMethod: z.enum(["cash", "bank", "cheque", "card", "wallet"]).optional(),
   date: isoDateOrInstant.optional(),
   referenceNo: z.string().nullish(),
   notes: z.string().nullish(),
-  /** عمولة تحويل kept by the bank; `amount` is what was received, and the invoice is relieved of both. */
-  commissionAmount: moneyString.nullish(),
+  commissionAmount: moneyString.nullish().describe("Transfer commission the bank or wallet kept, on top of amount."),
   commissionGlAccountId: z.string().nullish(),
 });
 

@@ -211,7 +211,7 @@ export const PRIVACY: Record<LegalLanguage, LegalDocument> = {
           "حذف مستخدم: عند محو بيانات مستخدم تُزال بياناته الشخصية (الاسم والبريد والهاتف وكلمة المرور والصورة والرقم القومي والعنوان والحساب البنكي وصور الحضور ومواقعه ومفاتيح البصمة)، ويبقى حسابه باسم «مستخدم محذوف» لأن المستندات المحاسبية التي أنشأها لا تُعدَّل.",
           "سجلات التشغيل: تُدوَّر حسب الحجم (خمسة ملفات بحد أقصى 20 ميجابايت لكل منها)، فيُكتب الجديد فوق الأقدم. [[TODO: قِس المدة الفعلية التي تغطيها السجلات على الخادم واذكرها بالأيام]]",
           "تقارير الأعطال: يُحتفظ بأحدث 500 تقرير لكل شركة، ويُحذف الأقدم تلقائياً.",
-          "النسخ الاحتياطية: على الخادم آخر 12 نسخة لكل شركة. وخارج الخادم نحتفظ بنسخ كل ساعة لمدة 48 ساعة، ويومية لمدة 30 يوماً، وأسبوعية لمدة 12 أسبوعاً، وشهرية لمدة 12 شهراً. لذلك قد تبقى البيانات المحذوفة في النسخ الاحتياطية حتى 12 شهراً، ثم تُحذف.",
+          "النسخ الاحتياطية: على الخادم آخر 12 نسخة لكل شركة. وخارج الخادم نحتفظ بنسخ كل ساعة لمدة 7 أيام، ثم يحذف تنظيف أسبوعي النسخ الأقدم، وقد يحتفظ مزوّد التخزين بالملفات المحذوفة حتى 30 يوماً إضافية. لذلك قد تبقى البيانات المحذوفة في النسخ الاحتياطية نحو 45 يوماً على الأكثر، ثم تُحذف.",
         ],
       },
       {
@@ -377,7 +377,7 @@ export const PRIVACY: Record<LegalLanguage, LegalDocument> = {
           "Erasing a user: their personal data is removed (name, email, phone, password, photo, national ID number, address, bank account, clock-in photos and locations, and biometric check keys). The account stays, named \"Deleted user\", because the accounting documents it created cannot be changed.",
           "Server logs: rotated by size (five files of at most 20 MB each), so the newest entries overwrite the oldest. [[TODO: measure how many days the logs actually cover on the server and state it]]",
           "Error reports: the newest 500 per company are kept; older ones are deleted automatically.",
-          "Backups: the server keeps the last 12 copies of each company's data. Off the server we keep hourly copies for 48 hours, daily copies for 30 days, weekly copies for 12 weeks and monthly copies for 12 months. Deleted data can therefore remain in backups for up to 12 months before it is gone.",
+          "Backups: the server keeps the last 12 copies of each company's data. Off the server we keep hourly copies for 7 days; a weekly clean-up then deletes older copies, and our storage provider may keep deleted files for up to 30 more days. Deleted data can therefore remain in backups for up to about 45 days before it is gone.",
         ],
       },
       {

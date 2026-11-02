@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Usage (as root, run by the systemd timers beside this file):
-#   mezan-backup.sh backup   copy the app's own snapshots off the box, then forget/prune
+#   mezan-backup.sh backup   copy the app's own snapshots off the box, then forget those older than 7 days (hourly)
+#   mezan-backup.sh prune    delete the data of forgotten snapshots (weekly)
 #   mezan-backup.sh check    verify a slice of the repository's data (weekly)
-# Reads /srv/mezan/restic.env (RESTIC_REPOSITORY, RESTIC_PASSWORD,
-# AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, BACKUP_HEARTBEAT_URL).
+# Reads /srv/mezan/restic.env (RESTIC_REPOSITORY, RESTIC_PASSWORD, AWS_* or
+# RCLONE_CONFIG, BACKUP_HEARTBEAT_URL, PRUNE_HEARTBEAT_URL).
 set -Eeuo pipefail
 
 ENV_FILE="${MEZAN_RESTIC_ENV_FILE:-/srv/mezan/restic.env}"
@@ -20,9 +21,12 @@ set -a
 set +a
 : "${RESTIC_REPOSITORY:?}" "${RESTIC_PASSWORD:?}"
 
+HEARTBEAT="${BACKUP_HEARTBEAT_URL:-}"
+[ "${1:-}" = prune ] && HEARTBEAT="${PRUNE_HEARTBEAT_URL:-}"
+
 ping_heartbeat() {
-  [ -n "${BACKUP_HEARTBEAT_URL:-}" ] || return 0
-  curl -fsS -m 10 --retry 3 -o /dev/null "${BACKUP_HEARTBEAT_URL}$1" || log "heartbeat ping failed"
+  [ -n "$HEARTBEAT" ] || return 0
+  curl -fsS -m 10 --retry 3 -o /dev/null "$HEARTBEAT$1" || log "heartbeat ping failed"
 }
 
 on_failure() {
@@ -52,9 +56,16 @@ run_backup() {
   # (without them a restored database's chain cannot be verified). Never the
   # live Postgres data directory: a raw copy of a running cluster can be torn.
   restic backup --host "$HOST_TAG" --tag mezan --exclude '*.tmp' --exclude '*.partial' --one-file-system "${sources[@]}"
-  restic forget --host "$HOST_TAG" --tag mezan --keep-hourly 48 --keep-daily 30 --keep-weekly 12 --keep-monthly 12 --prune
+  restic forget --host "$HOST_TAG" --tag mezan --group-by host,tags --keep-within 7d
   ping_heartbeat ""
   log "backup done"
+}
+
+run_prune() {
+  restic forget --host "$HOST_TAG" --tag mezan --group-by host,tags --keep-within 7d
+  restic prune --max-unused 0
+  ping_heartbeat ""
+  log "prune done"
 }
 
 run_check() {
@@ -63,7 +74,16 @@ run_check() {
 }
 
 case "${1:-}" in
+  backup | prune | check) ;;
+  *) echo "usage: $0 backup | prune | check" >&2; exit 64 ;;
+esac
+
+# prune takes restic's exclusive lock and restic fails at once on a held lock: the modes wait for each other instead.
+exec 9>/run/lock/mezan-restic.lock
+flock -w 7200 9 || { log "another backup job held the lock for 2 hours"; false; }
+
+case "${1:-}" in
   backup) run_backup ;;
+  prune) run_prune ;;
   check) run_check ;;
-  *) echo "usage: $0 backup | check" >&2; exit 64 ;;
 esac

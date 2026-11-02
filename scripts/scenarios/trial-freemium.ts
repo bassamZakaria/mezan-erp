@@ -414,7 +414,7 @@ export async function run(ctx: Ctx): Promise<void> {
       const onSpare = await api("POST", "/sales-invoices", { ...invoiceBody(300), warehouseId: spare.id });
       check("but no new document may be raised on it", onSpare.status === 409, `status ${onSpare.status} ${JSON.stringify(onSpare.body).slice(0, 220)}`);
       check("and the refusal names the limit", onSpare.body?.error === "LOCATION_OVER_LIMIT", JSON.stringify(onSpare.body).slice(0, 220));
-      check("in Arabic", typeof onSpare.body?.message === "string" && /المخزن/.test(onSpare.body.message), String(onSpare.body?.message));
+      check("in Arabic", typeof onSpare.body?.message === "string" && /المستودع/.test(onSpare.body.message), String(onSpare.body?.message));
     }
 
     // ------------------------------------------------------------------

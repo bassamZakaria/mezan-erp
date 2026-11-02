@@ -55,7 +55,7 @@ export function createFirebaseAccounts(config: FirebaseEnv, options: { readonly 
       const unusable = randomBytes(32).toString("base64url");
       try {
         const existing = await auth.getUserByEmail(email);
-        await auth.updateUser(existing.uid, { password: unusable, emailVerified: true, disabled: false });
+        await auth.updateUser(existing.uid, { password: unusable, emailVerified: true });
         await auth.revokeRefreshTokens(existing.uid);
       } catch (err) {
         if (errorCode(err) !== USER_NOT_FOUND) throw err;

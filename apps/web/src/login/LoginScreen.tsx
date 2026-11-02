@@ -289,7 +289,12 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
     setCompanyUnconfirmed(lookupFailing && tenantCode.trim() !== "" && !tenantInfo.isSuccess);
     // On the cloud the sign-in waits for the config: guessing "no Firebase" would post a password the server refuses.
     if (lookupHost === LookupHost.Cloud && !signInConfig.isSuccess) {
-      void signInConfig.refetch().then(({ data }) => (data ? signInWith(data.firebase) : setError(t("login.firebase.network"))));
+      setFirebaseBusy(true);
+      void signInConfig.refetch().then(({ data }) => {
+        setFirebaseBusy(false);
+        if (data) signInWith(data.firebase);
+        else setError(t("login.firebase.network"));
+      });
       return;
     }
     signInWith(firebaseConfig);

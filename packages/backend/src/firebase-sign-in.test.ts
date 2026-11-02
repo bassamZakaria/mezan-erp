@@ -44,6 +44,8 @@ function fakeFirebase(): FirebaseAccounts & { linksFor: string[] } {
       }
     },
     async setPasswordLink(email) {
+      // As slow as Google: a call awaited inside a request's transaction would surface here.
+      await new Promise((resolve) => setTimeout(resolve, 20));
       linksFor.push(email);
       return SET_PASSWORD_LINK;
     },
@@ -168,6 +170,38 @@ describe("Firebase sign-in on the cloud edition", () => {
     await settle();
     expect(firebase.linksFor).toContain(OWNER.email);
     expect(mails.find((m) => m.to === OWNER.email)?.body).toContain(SET_PASSWORD_LINK);
+  });
+
+  it("never touches the Firebase account of an address another company holds", async () => {
+    const firebase = fakeFirebase();
+    let heldElsewhere = false;
+    const signInEmails = {
+      async claim(email: string) {
+        if (heldElsewhere && email === OWNER.email) throw new Error("held by another company");
+      },
+      async sync() {
+        return [];
+      },
+    };
+    const { h } = await claimed({ firebase, signInEmails });
+    const account = await h.ownerAccount({ email: OWNER.email });
+    heldElsewhere = true;
+    await h.resetOwnerPassword({ userId: account!.id, email: OWNER.email, password: "unused-Temp-123", onlyIfNeverSignedIn: false, actor: "platform:support" });
+    await settle();
+    expect(firebase.linksFor).not.toContain(OWNER.email);
+  });
+
+  it("lets an admin reset another user's password and takes the old Firebase one away", async () => {
+    const firebase = fakeFirebase();
+    const { h } = await claimed({ firebase });
+    const owner = (await (await firebaseSignIn(h, token({ email: OWNER.email }))).json()) as { token: string };
+    const created = (await (await call(h, "POST", "/users", STAFF, owner.token)).json()) as { id: string };
+    await settle();
+    firebase.linksFor.length = 0;
+    const reset = await call(h, "PUT", `/users/${created.id}`, { ...STAFF, password: "Admin-Set-9876" }, owner.token);
+    expect(reset.status).toBe(200);
+    await settle();
+    expect(firebase.linksFor).toEqual([STAFF.email]);
   });
 
   it("confirms a step-up only with a fresh Firebase sign-in of the same user", async () => {

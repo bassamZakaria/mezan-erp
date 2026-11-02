@@ -261,6 +261,7 @@ import {
   disposalProceedsAccounts,
   UserStatusCode,
   isErasedUser,
+  normalizeEmail,
   AuditSeverityCode,
   type OwnerRecordDue,
   type SettingsRepository,
@@ -3950,8 +3951,17 @@ async function composeBackend(options: CreateBackendOptions, db: SqlDb, sqlite: 
     mailUserOutsideTheTurn(user.email, "ميزان — إعادة تعيين كلمة المرور / Mezan password reset", passwordResetMail(options.passwordResetLink(token)));
   };
   const firebase = options.firebase;
-  const issueFirebaseSetPasswordLink = async (email: string, displayName: string): Promise<void> => {
+  const issueFirebaseSetPasswordLink = async (userId: string, email: string, displayName: string): Promise<void> => {
     if (!firebase) return;
+    const address = userId === SEED_ADMIN_USER_ID ? null : normalizeEmail(email);
+    if (address === null) return;
+    try {
+      // SECURITY: a Firebase account is reset only for an address this company holds; another company's user is never touched.
+      await signInEmails?.claim(address);
+    } catch (err) {
+      backendLog.warn({ area: "auth", err }, "the address belongs to another company: its Firebase account was left alone");
+      return;
+    }
     try {
       const link = await outsideTheTurn(() => firebase.setPasswordLink(email, displayName));
       mailUserOutsideTheTurn(email, "ميزان — اختر كلمة المرور / Set your Mezan password", firebaseSetPasswordMail(email, link, options.signInLink ?? null));
@@ -3960,7 +3970,7 @@ async function composeBackend(options: CreateBackendOptions, db: SqlDb, sqlite: 
     }
   };
   const mailFirebaseSetPasswordLink = (user: User): void => {
-    void issueFirebaseSetPasswordLink(user.email, user.nameAr || user.nameEn || user.email);
+    void issueFirebaseSetPasswordLink(user.id, user.email, user.nameAr || user.nameEn || user.email);
   };
   const mailInvitation = async ({ user, temporaryPassword }: { readonly user: User; readonly temporaryPassword: string }): Promise<void> => {
     if (firebase) return mailFirebaseSetPasswordLink(user);
@@ -4852,7 +4862,7 @@ async function composeBackend(options: CreateBackendOptions, db: SqlDb, sqlite: 
       ? {
           onUserEmailChanged: async (change) => {
             // The new address needs a Firebase account of its own; the old one opens nothing once no user holds it.
-            await issueFirebaseSetPasswordLink(change.after, change.after);
+            await issueFirebaseSetPasswordLink(change.userId, change.after, change.after);
             if (!options.onUserEmailChanged) return;
             const announced = { ...change, actorCredentialIsOwn: !(await credentialResets.has(change.actorId)) };
             return outsideTheTurn(() => options.onUserEmailChanged!(announced));
@@ -4874,7 +4884,8 @@ async function composeBackend(options: CreateBackendOptions, db: SqlDb, sqlite: 
     onUserCredentialSetByOther: async (userId, actorId) => {
       await credentialResets.mark(userId, new Date().toISOString(), actorId);
       const user = firebase ? await uow.users.findById(userId) : null;
-      if (user) await issueFirebaseSetPasswordLink(user.email, user.nameAr || user.nameEn || user.email);
+      // REQUIRED: not awaited — this runs inside the /users transaction, which may not yield to a Google round-trip.
+      if (user) mailFirebaseSetPasswordLink(user);
     },
     ...(firebase ? { credentialsHeldByFirebase: () => true } : {}),
     onPermissionRefused,

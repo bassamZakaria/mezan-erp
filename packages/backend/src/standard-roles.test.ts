@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { createEntitlements, getPermission, isModuleLicensed, type Entitlements } from "@mezan/domain";
+import { createEntitlements, isPermissionLicensed, type Entitlements } from "@mezan/domain";
 import { createBackend, type BackendHandle } from "./create-backend.js";
 
 const CORE = createEntitlements({ plan: "core", activeModules: ["sales", "purchases", "inventory", "accounting", "treasury"], features: {}, seats: 5, expiresAt: null });
@@ -54,14 +54,14 @@ describe("a fresh on-premises install is given the standard roles, and nothing e
     const roles = (await call(backend, "GET", "/roles", token)).body as { id: string; code: string; name: string; permissions: string[]; isSystem: boolean }[];
     const standard = roles.filter((role) => !role.isSystem);
     expect(standard.map((role) => role.code)).toEqual(expect.arrayContaining(["ACCOUNTANT", "TREASURY_CASHIER", "WAREHOUSE_KEEPER", "SALES_REP", "PURCHASING_OFFICER"]));
-    expect(standard.map((role) => role.code)).not.toEqual(expect.arrayContaining(["HR_OFFICER"]));
+    expect(standard.map((role) => role.code)).not.toEqual(expect.arrayContaining(["CONSULTANT_QS"]));
+    const hrOfficer = standard.find((role) => role.code === "HR_OFFICER");
+    expect(hrOfficer?.permissions).toEqual(expect.arrayContaining(["hr.employee.view"]));
+    expect(hrOfficer?.permissions).not.toContain("hr.attendance.view");
     for (const role of standard) {
       expect(role.name).toMatch(/[؀-ۿ]/);
       expect(role.permissions.length).toBeGreaterThan(1);
-      const unlicensed = role.permissions.filter((code) => {
-        const moduleId = getPermission(code)?.module;
-        return moduleId !== undefined && !isModuleLicensed(moduleId, CORE);
-      });
+      const unlicensed = role.permissions.filter((code) => !isPermissionLicensed(code, CORE));
       expect(unlicensed).toEqual([]);
     }
     expect((await call(backend, "GET", "/bootstrap/status", token)).body.roles).toBe(roles.length);

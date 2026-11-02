@@ -2,10 +2,16 @@ import { useId, useState, type FormEvent } from "react";
 import { Button } from "@mezan/ui";
 import { useAppTranslation } from "../i18n";
 import { PasswordInput } from "../login/PasswordInput";
+import { FIREBASE_FAILURE_KEYS, type FirebaseFailure } from "../login/firebase-sign-in";
+
+/** Null: confirmed. */
+export type StepUpAnswer = null | { readonly message: string } | { readonly failure: FirebaseFailure };
 
 export interface StepUpPrompt {
   readonly message: string;
-  confirm(password: string): Promise<string | null>;
+  confirm(password: string): Promise<StepUpAnswer>;
+  /** Present on the cloud edition, where Firebase holds the credential. */
+  confirmWithGoogle?(): Promise<StepUpAnswer>;
   cancel(): void;
 }
 
@@ -17,17 +23,21 @@ export function StepUpDialog({ prompt }: { prompt: StepUpPrompt }) {
   const [busy, setBusy] = useState(false);
   const ready = password.length > 0;
 
+  async function settle(attempt: Promise<StepUpAnswer>) {
+    setBusy(true);
+    setError(null);
+    const answer = await attempt;
+    setBusy(false);
+    if (answer === null) return;
+    const key = "failure" in answer ? FIREBASE_FAILURE_KEYS[answer.failure] : null;
+    setError("failure" in answer ? (key ? t(key) : null) : answer.message);
+    setPassword("");
+  }
+
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (busy || !ready) return;
-    setBusy(true);
-    setError(null);
-    const refusal = await prompt.confirm(password);
-    setBusy(false);
-    if (refusal !== null) {
-      setError(refusal);
-      setPassword("");
-    }
+    await settle(prompt.confirm(password));
   }
 
   return (
@@ -56,6 +66,11 @@ export function StepUpDialog({ prompt }: { prompt: StepUpPrompt }) {
           <p role="alert" className="mt-2 text-xs font-semibold text-danger-ink">
             {error}
           </p>
+        ) : null}
+        {prompt.confirmWithGoogle ? (
+          <Button type="button" variant="default" disabled={busy} onClick={() => void settle(prompt.confirmWithGoogle!())} className="mt-3 w-full justify-center">
+            {t("login.google")}
+          </Button>
         ) : null}
         <div className="mt-4 flex justify-end gap-2">
           <Button type="button" onClick={prompt.cancel}>

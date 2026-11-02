@@ -1220,7 +1220,7 @@ describe("LoginScreen — SaaS company code", () => {
       signIn("Cyag@2026");
 
       await vi.waitFor(() => expect(screen.getByTestId("session")).toHaveTextContent(testAdminSession.nameAr));
-      expect(state.requests.filter((path) => !path.startsWith("/platform/resolve") && path !== "/auth/login")).toEqual([]);
+      expect(state.requests.filter((path) => !path.startsWith("/platform/resolve") && path !== "/platform/sign-in-config" && path !== "/auth/login")).toEqual([]);
     });
 
     it("signs in with a typed company code it could not confirm, and says so in a notice that blocks nothing", async () => {

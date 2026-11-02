@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { createFirebaseAccounts } from "./firebase-auth.js";
 import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { bodyLimit } from "hono/body-limit";
@@ -271,6 +272,10 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
     clientSource: env.clientSource,
     sourceReporter,
     securityMail: env.platformSmtp,
+    firebase: env.firebase ? createFirebaseAccounts(env.firebase, env.publicOrigin ? { continueUrl: env.publicOrigin } : {}) : undefined,
+    firebaseWebConfig: env.firebase
+      ? { apiKey: env.firebase.apiKey, authDomain: env.firebase.authDomain, projectId: env.firebase.projectId, appId: env.firebase.appId, ...(env.firebase.authEmulatorHost ? { authEmulatorUrl: `http://${env.firebase.authEmulatorHost}` } : {}) }
+      : undefined,
     allowTenantHeader: true,
     now,
     connection: { exclusive: env.sqliteExclusive },
@@ -290,7 +295,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
     cmd: CreateTenantRequestDTO & { actorId: string; intendedPlanId?: string | null },
     activation: RecordedActivation,
   ): Promise<ProvisionResultDTO> =>
-    provisionResultDTOOf(await provisionTenant(cmd, { platform, router, now, activation }));
+    provisionResultDTOOf(await provisionTenant(cmd, { platform, router, now, activation }), router.credentialsInFirebase);
 
   const provisionRetryForRoutes = async (input: { tenantId: string; actorId: string } & ProvisionRetryRequestDTO, activation: RecordedActivation): Promise<ProvisionResultDTO> => {
     const tenant = await platform.stores.tenants.findById(input.tenantId);
@@ -313,7 +318,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
       },
       { platform, router, now, activation },
     );
-    return provisionResultDTOOf(provisioned);
+    return provisionResultDTOOf(provisioned, router.credentialsInFirebase);
   };
 
   const resetOwnerPasswordForRoutes = (input: { tenant: Tenant; actorId: string; recordIntent: (account: OwnerPasswordResetAccount) => Promise<void> }): Promise<OwnerPasswordResetResultDTO> =>

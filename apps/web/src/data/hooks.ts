@@ -161,6 +161,8 @@ import type {
   LandedCostDocumentDTO,
   LeadDTO,
   LoginRequestDTO,
+  FirebaseSignInRequestDTO,
+  SignInConfigDTO,
   ForgotPasswordRequestDTO,
   ResetPasswordRequestDTO,
   MatchCandidateDTO,
@@ -325,7 +327,8 @@ import type {
 import { DashboardRequest, ScreenRequest, ShellModuleRequest, ShellRequest, mayAskDashboard, mayAskShellModuleRequest, type DisplaySettingKey } from "@mezan/domain";
 import { ApprovalRequestScope, MAX_PAGE_SIZE, type ApprovalRequestCountsDTO, TenantResolveMode, type PlatformResolveDTO } from "@mezan/contracts";
 import { UserStatusCode } from "@mezan/domain";
-import { useApi } from "./ApiContext";
+import { FIREBASE_SIGN_IN_PATH, useApi } from "./ApiContext";
+import { SIGN_IN_CONFIG_KEY, SIGN_IN_CONFIG_PATH, fetchSignInConfig } from "../login/firebase-sign-in";
 import { sessionHolds, sessionMayAsk, sessionMayAskScreen } from "./session";
 import type { TransportResponse } from "./transport";
 import { BranchRefusalCode } from "@mezan/contracts";
@@ -434,9 +437,10 @@ export function useLogin() {
   const { t } = useAppTranslation();
   const { request, setSession } = useApi();
   const queryClient = useQueryClient();
-  return useMutation<SessionDTO, ApiError, LoginRequestDTO & ByEmail>({
+  return useMutation<SessionDTO, ApiError, (LoginRequestDTO | FirebaseSignInRequestDTO) & ByEmail>({
     mutationFn: async ({ byEmail, ...body }) => {
-      const res = await request("/auth/login", { method: "POST", headers: tenantOf(byEmail), body: JSON.stringify(body) });
+      const path = "idToken" in body ? FIREBASE_SIGN_IN_PATH : "/auth/login";
+      const res = await request(path, { method: "POST", headers: tenantOf(byEmail), body: JSON.stringify(body) });
       if (!res.ok) {
         type LoginError = ServerErrorBody & { retryAfterSeconds?: number; unlockByCode?: boolean };
         const err = await res.json<LoginError>().catch((): LoginError => ({}));
@@ -582,6 +586,22 @@ export function noPlatformInFront(error: unknown): boolean {
 export function platformLookupWorthRetrying(error: unknown): boolean {
   if (noPlatformInFront(error)) return false;
   return !(error instanceof ApiError && PERMANENT_LOOKUP_REFUSALS.includes(error.status));
+}
+
+// The cloud edge answers; a desktop or LAN host has no platform in front and signs in itself.
+export function useSignInConfig(options: { enabled?: boolean } = {}): UseQueryResult<SignInConfigDTO, ApiError> {
+  const { request } = useApi();
+  return useQuery<SignInConfigDTO, ApiError>({
+    queryKey: SIGN_IN_CONFIG_KEY,
+    enabled: options.enabled ?? true,
+    staleTime: Infinity,
+    queryFn: () => fetchSignInConfig(() => request(SIGN_IN_CONFIG_PATH)),
+  });
+}
+
+/** True on the cloud edition when Firebase holds the signed-in user's password and email. */
+export function useCredentialsInFirebase(): boolean {
+  return useApi().session?.credentialsInFirebase === true;
 }
 
 export function usePlatformResolve(options: { enabled?: boolean } = {}): UseQueryResult<PlatformResolveDTO, ApiError> {

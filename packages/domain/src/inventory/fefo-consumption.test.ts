@@ -17,7 +17,7 @@ import { InMemoryStockLedger, InMemoryCostLayers, InMemorySnapshots } from "./te
 const WH1 = "WH1";
 const WH2 = "WH2";
 
-function harness() {
+function harness(extra: Partial<ConstructorParameters<typeof StockLedgerService>[0]> = {}) {
   const layers = new InMemoryCostLayers();
   const snapshots = new InMemorySnapshots();
   const svc = new StockLedgerService({
@@ -26,6 +26,7 @@ function harness() {
     snapshots,
     policy: { allowNegativeStock: false },
     clock: () => "2026-08-10T00:00:00.000Z",
+    ...extra,
   });
   return { svc, layers };
 }
@@ -149,6 +150,43 @@ describe("an EXPIRED batch at the head of the FEFO queue", () => {
     await receive(svc, { id: "RCPT-E1", itemId: "ITEM-B", qty: "4", unitCost: "20.00", batchNo: "B-DEAD", expiryDate: "2026-08-05", on: "2026-08-01T00:00:00.000Z" });
     await receive(svc, { id: "RCPT-E2", itemId: "ITEM-B", qty: "6", unitCost: "20.00", batchNo: "B-GOOD", expiryDate: "2027-01-31", on: "2026-08-02T00:00:00.000Z" });
   }
+
+  it("names the item and warehouse in the refusal instead of their ids (#139)", async () => {
+    const { svc } = harness({
+      stockLabels: async (itemId, warehouseId) => {
+        expect([itemId, warehouseId]).toEqual(["ITEM-B", WH1]);
+        return { item: "P-001 - باراسيتامول", warehouse: "المخزن الرئيسي" };
+      },
+    });
+    await seedExpired(svc);
+
+    const refusal = svc.postIssue({
+      issueId: "ISS-N",
+      warehouseId: WH1,
+      sourceDocType: "SALES_INVOICE",
+      sourceDocId: "INV-N",
+      occurredAt: "2026-08-10T00:00:00.000Z",
+      lines: [{ itemId: "ITEM-B", qty: Qty.fromMajor("2") }],
+    });
+    await expect(refusal).rejects.toThrow(/الصنف "P-001 - باراسيتامول" في المستودع "المخزن الرئيسي"/);
+    await expect(refusal).rejects.toMatchObject({ itemId: "ITEM-B", warehouseId: WH1 });
+  });
+
+  it("still refuses with the ids when the name lookup fails", async () => {
+    const { svc } = harness({ stockLabels: async () => { throw new Error("db down"); } });
+    await seedExpired(svc);
+
+    await expect(
+      svc.postIssue({
+        issueId: "ISS-F",
+        warehouseId: WH1,
+        sourceDocType: "SALES_INVOICE",
+        sourceDocId: "INV-F",
+        occurredAt: "2026-08-10T00:00:00.000Z",
+        lines: [{ itemId: "ITEM-B", qty: Qty.fromMajor("2") }],
+      }),
+    ).rejects.toThrow(/الصنف "ITEM-B" في المستودع "WH1"/);
+  });
 
   it("REFUSES the issue outright — it does not skip the dead batch and sell the good one", async () => {
     const { svc, layers } = harness();

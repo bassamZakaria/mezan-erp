@@ -784,7 +784,7 @@ describe("AppLayout — nothing tenant-scoped is asked before a company is known
     await waitFor(() => expect(requests).toContain("/platform/resolve"));
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(screen.queryByRole("textbox", { name: "رمز المنشأة" })).not.toBeInTheDocument();
-    expect(requests.filter((path) => !path.startsWith("/platform/resolve"))).toEqual([]);
+    expect(requests.filter((path) => !path.startsWith("/platform/resolve") && path !== "/platform/sign-in-config")).toEqual([]);
 
     act(() => persistTenantCode("acme"));
 
@@ -841,7 +841,7 @@ describe("AppLayout — nothing tenant-scoped is asked before a company is known
     const requests = signedOut(() => ({ status: 503, body: { error: "UPSTREAM" } }));
     await screen.findByRole("textbox", { name: "رمز المنشأة" });
     await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(requests.filter((path) => !path.startsWith("/platform/resolve"))).toEqual([]);
+    expect(requests.filter((path) => !path.startsWith("/platform/resolve") && path !== "/platform/sign-in-config")).toEqual([]);
 
     act(() => persistTenantCode("acme"));
 

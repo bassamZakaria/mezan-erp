@@ -2750,6 +2750,16 @@ worktree's copy of the app.
 
 ---
 
+#### DEC-33 — The cloud edition signs in through Firebase: email + password and Google. Desktop and LAN tills are unchanged. (2026-11-02)
+
+**Taken by the owner**, reversing DEC-32 for the cloud edition only.
+- Firebase projects `mezan-erp-prod` and `mezan-erp-staging` (owner bassam.s.zakaria@gmail.com). Email/Password and Google are on, public self-signup is off: only Mezan creates accounts.
+- The browser signs in with the Firebase SDK and posts the ID token to `POST /api/auth/firebase`. The tenant router picks the company from the token's email; the backend verifies the token (`firebase-admin`), requires `email_verified`, and issues the usual Mezan session cookie. Firebase keeps nothing in the browser.
+- With `MEZAN_FIREBASE_PROJECT_ID` set, `/auth/login`, forgot/reset, unlock and the in-app password and email changes answer 410 `SIGN_IN_WITH_FIREBASE` for everyone but the seed admin (company-code sign-in for support). Step-up takes a Firebase sign-in made in the last five minutes.
+- Invitations, an admin's password reset and the owner console's reset mail a Firebase set-password link (needs `MEZAN_FIREBASE_SERVICE_ACCOUNT`). Signing in through Firebase clears `mustChangePassword`.
+- Migration: `apps/server/scripts/firebase-export-users.mjs` then `firebase auth:import --hash-algo=STANDARD_SCRYPT`; existing passwords keep working (proved on staging 2026-11-02). Temporary passwords are not carried over.
+- **Not done:** Arabic text in Firebase's own reset email template; a custom sender domain.
+
 #### DEC-32 — Email + password is the only sign-in, on every edition. The PIN is gone. (2026-10-30)
 
 **Taken by the owner** after the SaaS sign-in panel (`.claude/stakeholders/meeting-2026-10-29-saas-login.md`); external providers (Supabase, Cognito, Firebase, Google sign-in) were weighed and dropped.

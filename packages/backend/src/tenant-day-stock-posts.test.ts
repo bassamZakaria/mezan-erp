@@ -25,6 +25,7 @@ describe("half an hour after midnight in Cairo on the first of November", () => 
 
   it("a stock adjustment and a transfer posted with no date are dated the first, on the stock ledger and in the general ledger alike", async () => {
     await item("TD-A");
+    const inventoryOnTheLastOfOctober = world.balance("1200", "2026-10-31");
     const adjusted = await world.request("POST", "/inventory/adjustments", { adjustmentId: "TD-ADJ", warehouseId: "WH-MAIN", reason: "INITIAL_STOCK", lines: [{ itemId: "TD-A", direction: "IN", qty: "10", unitCost: "20" }] });
     expect(adjusted.status).toBe(201);
     const moved = await world.request("POST", "/inventory/transfers", { transferId: "TD-TR", fromWarehouseId: "WH-MAIN", toWarehouseId: "WH-DEMO-2", lines: [{ itemId: "TD-A", qty: "4" }] });
@@ -32,7 +33,7 @@ describe("half an hour after midnight in Cairo on the first of November", () => 
 
     expect(movementDays("TD-A")).toEqual(["2026-11-01"]);
     expect(entryDays(`source_doc_id = 'TD-ADJ'`)).toEqual(["2026-11-01"]);
-    expect(world.balance("1200", "2026-10-31")).toBe(world.balance("1200", "2026-10-30"));
+    expect(world.balance("1200", "2026-10-31")).toBe(inventoryOnTheLastOfOctober);
     expect(await world.invariants()).toEqual(INVARIANTS_ZERO);
   });
 

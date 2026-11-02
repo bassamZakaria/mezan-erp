@@ -51,7 +51,33 @@ export enum SessionRefusal {
   TenantMismatch = "SESSION_TENANT_MISMATCH",
 }
 
-export const stepUpRequestSchema = z.object({ password: signInPasswordSchema });
+export interface FirebaseWebConfigDTO {
+  readonly apiKey: string;
+  readonly authDomain: string;
+  readonly projectId: string;
+  readonly appId: string;
+  readonly authEmulatorUrl?: string;
+}
+
+// CONTRACT: GET /api/platform/sign-in-config. `firebase` null: the server signs in with email + password itself.
+export interface SignInConfigDTO {
+  readonly firebase: FirebaseWebConfigDTO | null;
+}
+
+export const firebaseIdTokenSchema = z.string().min(1).max(8192);
+
+// CONTRACT: on the cloud edition Firebase holds every credential. `idToken` is a Firebase ID token; the
+// tenant is resolved from its verified email claim.
+export const firebaseSignInRequestSchema = z.object({ idToken: firebaseIdTokenSchema });
+export type FirebaseSignInRequestDTO = z.infer<typeof firebaseSignInRequestSchema>;
+
+// CONTRACT: a password route that Firebase replaced answers 410 with this; the client signs in through Firebase.
+export enum FirebaseRefusal {
+  SignInWithFirebase = "SIGN_IN_WITH_FIREBASE",
+  ReauthenticationTooOld = "REAUTHENTICATION_TOO_OLD",
+}
+
+export const stepUpRequestSchema = z.union([z.object({ password: signInPasswordSchema }), z.object({ idToken: firebaseIdTokenSchema })]);
 export type StepUpRequestDTO = z.infer<typeof stepUpRequestSchema>;
 
 export const unlockAccountRequestSchema = z.object({
@@ -108,6 +134,8 @@ export const sessionSchema = z.object({
   branchScope: scopeSelectionSchema,
   warehouseScope: scopeSelectionSchema,
   tenantName: z.string(),
+  /** True on the cloud edition, where Firebase holds this user's password and email; absent elsewhere. */
+  credentialsInFirebase: z.boolean().optional(),
   /**
    * The opaque session token. Every subsequent request carries it, and the
    * server resolves the caller's permissions from ITS copy of the grant — the

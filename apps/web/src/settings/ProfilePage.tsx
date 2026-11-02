@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { DocumentDetail, Button, Card, StatusPill, formatDate, type PillTone } from "@mezan/ui";
 import type { AuditEventDTO, AuditSeverityDTO } from "@mezan/contracts";
 import { useProfile, useUpdateProfile, useChangePassword, useProfileActivity } from "../data/account-hooks";
+import { useCredentialsInFirebase } from "../data/hooks";
 import { TextField, SectionCard } from "./form-controls";
 import { squarePhotoDataUrl } from "./photo";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
@@ -42,6 +43,7 @@ const ACTION_KEYS: Readonly<Record<string, AppTranslationKey>> = {
 
 function InfoTab() {
   const { t, locale } = useAppTranslation();
+  const credentialsInFirebase = useCredentialsInFirebase();
   const profileQuery = useProfile();
   const updateProfile = useUpdateProfile();
   const profile = profileQuery.data;
@@ -137,8 +139,15 @@ function InfoTab() {
       </div>
       <TextField label={t("users.nameAr")} value={nameAr} onChange={setNameAr} />
       <TextField label={t("users.nameEn")} value={nameEn} onChange={setNameEn} placeholder={t("users.nameEnOptional")} />
-      <TextField label={t("common.email")} value={email} onChange={setEmail} type="email" />
-      {emailChanges ? (
+      <TextField
+        label={t("common.email")}
+        value={email}
+        onChange={setEmail}
+        type="email"
+        disabled={credentialsInFirebase}
+        hint={credentialsInFirebase ? t("login.firebase.emailByAdmin") : undefined}
+      />
+      {emailChanges && !credentialsInFirebase ? (
         <TextField
           label={t("profile.currentPassword")}
           value={emailPassword}
@@ -165,6 +174,7 @@ function InfoTab() {
 function SecurityTab() {
   const { t, locale } = useAppTranslation();
   const changePassword = useChangePassword();
+  const credentialsInFirebase = useCredentialsInFirebase();
 
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -186,6 +196,16 @@ function SecurityTab() {
     } catch (err) {
       setPasswordMessage({ kind: "error", text: err instanceof Error ? err.message : t("profile.couldNotChangeThePassword") });
     }
+  }
+
+  if (credentialsInFirebase) {
+    return (
+      <div className="flex flex-col gap-[16px]">
+        <SectionCard title={t("profile.changeThePassword")} description={t("login.firebase.managedHere")}>
+          {null}
+        </SectionCard>
+      </div>
+    );
   }
 
   return (

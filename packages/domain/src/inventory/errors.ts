@@ -6,6 +6,11 @@
 
 import { Qty } from "../money/index.js";
 
+export interface StockLabels {
+  readonly item: string;
+  readonly warehouse: string;
+}
+
 /**
  * Raised when an issue/transfer/OUT adjustment would drive on-hand stock below
  * zero and the tenant's `allowNegativeStock` policy is off (docs/archive/catalog/09
@@ -18,9 +23,10 @@ export class NegativeStockError extends Error {
     readonly warehouseId: string,
     readonly onHand: Qty,
     readonly requested: Qty,
+    readonly labels?: StockLabels,
   ) {
     super(
-      `صرف ${requested.toString()} من الصنف "${itemId}" من المستودع "${warehouseId}" ` +
+      `صرف ${requested.toString()} من الصنف "${labels?.item ?? itemId}" من المستودع "${labels?.warehouse ?? warehouseId}" ` +
         `سيجعل الرصيد المتاح (${onHand.toString()}) سالباً، والرصيد السالب غير مسموح به.`,
     );
     this.name = "NegativeStockError";
@@ -42,9 +48,10 @@ export class UncostedDeficitIssueError extends Error {
     readonly itemId: string,
     readonly warehouseId: string,
     readonly requested: Qty,
+    readonly labels?: StockLabels,
   ) {
     super(
-      `صرف ${requested.toString()} من الصنف "${itemId}" من المستودع "${warehouseId}" ` +
+      `صرف ${requested.toString()} من الصنف "${labels?.item ?? itemId}" من المستودع "${labels?.warehouse ?? warehouseId}" ` +
         `يتجاوز الرصيد المتاح، ولا توجد تكلفة معروفة لهذا الصنف تُسعَّر بها الكمية الناقصة.`,
     );
     this.name = "UncostedDeficitIssueError";
@@ -65,9 +72,10 @@ export class ExpiredStockError extends Error {
     readonly warehouseId: string,
     readonly batchNo: string | null,
     readonly expiryDate: string,
+    readonly labels?: StockLabels,
   ) {
     super(
-      `الصنف "${itemId}" في المستودع "${warehouseId}" له رصيد منتهي الصلاحية` +
+      `الصنف "${labels?.item ?? itemId}" في المستودع "${labels?.warehouse ?? warehouseId}" له رصيد منتهي الصلاحية` +
         `${batchNo ? ` (التشغيلة "${batchNo}")` : ""} بتاريخ ${expiryDate}، فلا يمكن صرفه. ` +
         `استخدم تسوية مخزون بسبب "انتهاء الصلاحية" أو مرتجع مورد.`,
     );

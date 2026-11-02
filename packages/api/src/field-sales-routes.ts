@@ -234,7 +234,7 @@ function handleDomainError(c: Context, err: unknown) {
       {
         error: err.code,
         message: err.message,
-        messageEn: `Loading ${err.requested.toString()} of item "${err.itemId}" from warehouse "${err.warehouseId}" would take its stock (${err.onHand.toString()}) below zero.`,
+        messageEn: `Loading ${err.requested.toString()} of item "${err.labels?.item ?? err.itemId}" from warehouse "${err.labels?.warehouse ?? err.warehouseId}" would take its stock (${err.onHand.toString()}) below zero.`,
         itemId: err.itemId,
         warehouseId: err.warehouseId,
       },

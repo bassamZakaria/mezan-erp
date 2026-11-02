@@ -1,3 +1,4 @@
+import { messageEnOf } from "./observability/error-message-backfill.js";
 import { sharedFieldRefusal } from "./branch-policy.js";
 import { postingRefusalResponse } from "./posting-refusal.js";
 import { Hono, type Context } from "hono";
@@ -152,7 +153,7 @@ function handleDomainError(c: Context, err: unknown) {
   const postingRefusal = postingRefusalResponse(c, err);
   if (postingRefusal) return postingRefusal;
   if (err instanceof InvalidCustomerError) {
-    return c.json({ error: err.code, message: err.message, reasons: err.reasons }, 422);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, reasons: err.reasons }, 422);
   }
   if (
     err instanceof AccountNotFoundError ||
@@ -161,8 +162,7 @@ function handleDomainError(c: Context, err: unknown) {
     err instanceof NoFiscalPeriodForDateError ||
     err instanceof PeriodNotOpenForPostingError
   ) {
-    const messageEn = (err as Error & { messageEn?: string }).messageEn;
-    return c.json({ error: err.code, message: err.message, ...(messageEn ? { messageEn } : {}) }, 422);
+    return c.json({ error: err.code, message: err.message, messageEn: messageEnOf(err, 422) }, 422);
   }
   throw err;
 }
@@ -346,7 +346,7 @@ export function createCustomersRouter(
   function receivablesMissing(c: Context, filter: CustomerListFilter): Response | null {
     if (!filter.overLimit || receivables) return null;
     return c.json(
-      { error: "RECEIVABLES_NOT_CONFIGURED", message: "تصفية العملاء المتجاوزين لحد الائتمان غير مُفعّلة على هذا الخادم." },
+      { error: "RECEIVABLES_NOT_CONFIGURED", message: "تصفية العملاء المتجاوزين لحد الائتمان غير مُفعّلة على هذا الخادم.", messageEn: "Filtering customers over their credit limit is not enabled on this server." },
       501,
     );
   }
@@ -436,10 +436,10 @@ export function createCustomersRouter(
     if (restrictedOnCreate) return restrictedOnCreate;
     const code = parsed.data.code ?? nextMasterCode((await repo.findAll()).map((row) => row.code), "C");
     if (await repo.findByCode(code)) {
-      return c.json({ error: "DUPLICATE_CUSTOMER_CODE", message: `كود العميل «${code}» مستخدم بالفعل.` }, 409);
+      return c.json({ error: "DUPLICATE_CUSTOMER_CODE", message: `كود العميل «${code}» مستخدم بالفعل.`, messageEn: `Customer code "${code}" is already in use.` }, 409);
     }
     if (await priceListMissing(parsed.data.priceListId)) {
-      return c.json({ error: "PRICE_LIST_NOT_FOUND", message: "قائمة الأسعار المحددة غير موجودة." }, 422);
+      return c.json({ error: "PRICE_LIST_NOT_FOUND", message: "قائمة الأسعار المحددة غير موجودة.", messageEn: "The selected price list was not found." }, 422);
     }
     const exemptionRefusal = await exemptionRateRefusal(parsed.data.taxExempt ?? false, parsed.data.taxExemptionRateId ?? null);
     if (exemptionRefusal) return c.json(exemptionRefusal, 422);
@@ -489,6 +489,7 @@ export function createCustomersRouter(
         {
           error: "WALK_IN_CUSTOMER_LOCKED",
           message: "«زبون عابر» تبيع له نقاط البيع — لا يُعطَّل ولا يُسجَّل له رقم ضريبي.",
+          messageEn: "\"Walk-in customer\" is used by point of sale; it cannot be deactivated or given a tax number.",
         },
         409,
       );
@@ -496,11 +497,11 @@ export function createCustomersRouter(
     if (parsed.data.code !== undefined && parsed.data.code !== current.code) {
       const clash = await repo.findByCode(parsed.data.code);
       if (clash) {
-        return c.json({ error: "DUPLICATE_CUSTOMER_CODE", message: `كود العميل «${parsed.data.code}» مستخدم بالفعل.` }, 409);
+        return c.json({ error: "DUPLICATE_CUSTOMER_CODE", message: `كود العميل «${parsed.data.code}» مستخدم بالفعل.`, messageEn: `Customer code "${parsed.data.code}" is already in use.` }, 409);
       }
     }
     if (await priceListMissing(parsed.data.priceListId)) {
-      return c.json({ error: "PRICE_LIST_NOT_FOUND", message: "قائمة الأسعار المحددة غير موجودة." }, 422);
+      return c.json({ error: "PRICE_LIST_NOT_FOUND", message: "قائمة الأسعار المحددة غير موجودة.", messageEn: "The selected price list was not found." }, 422);
     }
     const nextTaxExempt = parsed.data.taxExempt ?? current.taxExempt;
     const namedExemptionRate = parsed.data.taxExemptionRateId;

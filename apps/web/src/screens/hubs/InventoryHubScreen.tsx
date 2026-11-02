@@ -8,6 +8,7 @@ import type { ScreenKey } from "../../router/screens";
 import { useAppTranslation, type AppTranslationKey } from "../../i18n";
 import { EMPTY } from "../../lib/empty";
 import { useMaySeeItemCost } from "../../data/item-cost";
+import { errorMessage } from "../../lib/error-message";
 
 /**
  * NO QUICK ACTIONS. Every destination this overview used to repeat is a chip
@@ -38,7 +39,7 @@ export function InventoryHubScreen() {
       title={t("inventoryHub.title")}
       description={t("inventoryHub.description")}
       loading={isLoading}
-      error={isError ? t("inventoryHub.loadFailed") : null}
+      error={isError ? errorMessage(itemCountsQuery.error ?? stockLevelsQuery.error, t("inventoryHub.loadFailed")) : null}
       stats={[
         ...(readsItems
           ? [

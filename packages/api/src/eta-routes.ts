@@ -216,11 +216,11 @@ function handleError(c: Context, err: unknown): Response {
   // Not configured for the network yet: the document stays queued, which is a
   // state, not a failure.
   if (err instanceof EtaOfflineError) return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, ...(err instanceof EtaClientSecretNeedsReentryError ? { reason: err.reason } : {}) }, 202);
-  if (err instanceof EtaSignerNotConfiguredError) return c.json({ error: err.code, message: err.message }, 422);
-  if (err instanceof EtaSigningFailedError) return c.json({ error: err.code, message: err.message }, 422);
+  if (err instanceof EtaSignerNotConfiguredError) return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 422);
+  if (err instanceof EtaSigningFailedError) return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 422);
   // No UUID service means no receipt can be issued at all — a configuration
   // gap, not a bad request, and it must not read as one.
-  if (err instanceof EtaReceiptUuidUnavailableError) return c.json({ error: err.code, message: err.message }, 501);
+  if (err instanceof EtaReceiptUuidUnavailableError) return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 501);
   // A till whose device is not registered must be told so, loudly — not have a
   // receipt filed with a blank serial the authority will not accept.
   if (err instanceof EtaDeviceSerialNotRegisteredError) return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
@@ -243,12 +243,12 @@ function handleError(c: Context, err: unknown): Response {
   ) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 422);
   }
-  if (err instanceof EtaMissingExchangeRateError) return c.json({ error: err.code, message: err.message }, 422);
-  if (err instanceof EtaReceiptChainConflictError) return c.json({ error: err.code, message: err.message }, 409);
+  if (err instanceof EtaMissingExchangeRateError) return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 422);
+  if (err instanceof EtaReceiptChainConflictError) return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
   // ENH-011b: blocked before transmit — every failing rule, not just the
   // first, so a "Fix & Requeue" pass clears the batch in one read.
   if (err instanceof EtaPrevalidationFailedError) {
-    return c.json({ error: err.code, message: err.message, findings: err.findings }, 422);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, findings: err.findings }, 422);
   }
   throw err;
 }
@@ -436,7 +436,7 @@ export function createEtaRoutes(
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     const branchId = c.req.param("branchId");
     const branch = await deps.branches.findById(branchId);
-    if (!branch) return c.json({ error: "BRANCH_NOT_FOUND", message: `Branch ${branchId} does not exist` }, 404);
+    if (!branch) return c.json({ error: "BRANCH_NOT_FOUND", message: `الفرع "${branchId}" غير موجود.`, messageEn: `Branch "${branchId}" was not found.` }, 404);
     const current = (await deps.branchCodes.list()).find((m) => m.branchId === branchId) ?? null;
     const { posClientSecret, posPresharedKey, ...patch } = parsed.data;
     const etaBranchCode = patch.etaBranchCode.trim();
@@ -517,7 +517,7 @@ export function createEtaRoutes(
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     const itemId = c.req.param("itemId");
     const item = await deps.items.findById(itemId);
-    if (!item) return c.json({ error: "ITEM_NOT_FOUND", message: `Item ${itemId} does not exist` }, 404);
+    if (!item) return c.json({ error: "ITEM_NOT_FOUND", message: `الصنف "${itemId}" غير موجود.`, messageEn: `Item "${itemId}" was not found.` }, 404);
     const patch = parsed.data;
     const next: Item = {
       ...item,
@@ -569,10 +569,10 @@ export function createEtaRoutes(
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     const unitCode = c.req.param("unitCode");
     const unit = await deps.units.findByCode(unitCode);
-    if (!unit) return c.json({ error: "UNIT_NOT_FOUND", message: `Unit ${unitCode} does not exist` }, 404);
+    if (!unit) return c.json({ error: "UNIT_NOT_FOUND", message: `الوحدة "${unitCode}" غير موجودة.`, messageEn: `Unit "${unitCode}" was not found.` }, 404);
     const etaUnitCode = parsed.data.etaUnitCode.trim().toUpperCase();
     if (!isEtaUnitCode(etaUnitCode)) {
-      return c.json({ error: "UNKNOWN_ETA_UNIT_CODE", message: `${etaUnitCode} is not an authority unit code` }, 400);
+      return c.json({ error: "UNKNOWN_ETA_UNIT_CODE", message: `"${etaUnitCode}" ليس من أكواد الوحدات المعتمدة لدى المصلحة.`, messageEn: `"${etaUnitCode}" is not one of the Tax Authority's unit codes.` }, 400);
     }
     await deps.unitMappings.save({ unitCode: unit.code, etaUnitCode });
     return c.json({
@@ -679,7 +679,7 @@ export function createEtaRoutes(
       const printed = await deps.issueDocumentReceipt(kind, c.req.param("docId"));
       if (!printed) {
         return c.json(
-          { error: "ETA_RECEIPT_NOT_APPLICABLE", message: "المستند غير مؤكد أو ليس بيعاً لمستهلك، فلا يصدر له إيصال." },
+          { error: "ETA_RECEIPT_NOT_APPLICABLE", message: "المستند غير مؤكد أو ليس بيعاً لمستهلك، فلا يصدر له إيصال.", messageEn: "The document is not confirmed or is not a sale to a consumer, so no receipt is issued for it." },
           422,
         );
       }
@@ -697,7 +697,7 @@ export function createEtaRoutes(
       const printed = await deps.reissueDocumentReceipt(kind, c.req.param("docId"));
       if (!printed) {
         return c.json(
-          { error: "ETA_RECEIPT_NOT_APPLICABLE", message: "لا يوجد لهذا المستند إيصال رفضته المصلحة، فلا يوجد ما يُصحَّح." },
+          { error: "ETA_RECEIPT_NOT_APPLICABLE", message: "لا يوجد لهذا المستند إيصال رفضته المصلحة، فلا يوجد ما يُصحَّح.", messageEn: "This document has no receipt rejected by the authority, so there is nothing to correct." },
           422,
         );
       }
@@ -710,7 +710,7 @@ export function createEtaRoutes(
   app.get("/receipts/:internalId", gate("accounting.eta.view"), async (c) => {
     const printed = await service.receiptForPrint(c.req.param("internalId"));
     if (!printed) {
-      return c.json({ error: "ETA_SUBMISSION_NOT_FOUND", message: "لا يوجد إيصال إلكتروني بهذا الرقم." }, 404);
+      return c.json({ error: "ETA_SUBMISSION_NOT_FOUND", message: "لا يوجد إيصال إلكتروني بهذا الرقم.", messageEn: "There is no electronic receipt with this number." }, 404);
     }
     return c.json({
       submission: serializeSubmission(printed.submission, { payload: true }),
@@ -729,7 +729,7 @@ export function createEtaRoutes(
   app.get("/submissions/:id", gate("accounting.eta.view"), async (c) => {
     const submission = await service.findById(c.req.param("id"));
     if (!submission) {
-      return c.json({ error: "ETA_SUBMISSION_NOT_FOUND", message: `الإرسال \"${c.req.param("id")}\" غير موجود.` }, 404);
+      return c.json({ error: "ETA_SUBMISSION_NOT_FOUND", message: `طلب الإرسال إلى المصلحة "${c.req.param("id")}" غير موجود.`, messageEn: `The submission to the Tax Authority "${c.req.param("id")}" was not found.` }, 404);
     }
     return c.json(serializeSubmission(submission, { payload: true }));
   });
@@ -796,7 +796,7 @@ export function createEtaRoutes(
     if (!deps.rebuildSubmission) return c.json({ error: "NOT_CONFIGURED" }, 404);
     const submission = await service.findById(c.req.param("id"));
     if (!submission) {
-      return c.json({ error: "ETA_SUBMISSION_NOT_FOUND", message: `الإرسال \"${c.req.param("id")}\" غير موجود.` }, 404);
+      return c.json({ error: "ETA_SUBMISSION_NOT_FOUND", message: `طلب الإرسال إلى المصلحة "${c.req.param("id")}" غير موجود.`, messageEn: `The submission to the Tax Authority "${c.req.param("id")}" was not found.` }, 404);
     }
     const rebuilt = await deps.rebuildSubmission(submission);
     if (!rebuilt) {
@@ -804,6 +804,7 @@ export function createEtaRoutes(
         {
           error: "ETA_REQUEUE_NOT_AVAILABLE",
           message: "لا يمكن إعادة بناء هذا المستند — تحقّق من أنه فاتورة أو إشعار قائم وأن العميل له رقم ضريبي.",
+          messageEn: "This document cannot be rebuilt. Check that it is an existing invoice or notice and that the customer has a tax number.",
         },
         422,
       );
@@ -828,12 +829,13 @@ export function createEtaRoutes(
       readonly outcome: EtaBulkRequeueOutcome;
       readonly submission?: ReturnType<typeof serializeSubmission>;
       readonly message?: string;
+      readonly messageEn?: string;
     }> = [];
     for (const id of parsed.data.ids) {
       try {
         const submission = await service.findById(id);
         if (!submission) {
-          results.push({ id, outcome: EtaBulkRequeueOutcome.Error, message: "الإرسال غير موجود." });
+          results.push({ id, outcome: EtaBulkRequeueOutcome.Error, message: "طلب الإرسال إلى المصلحة غير موجود.", messageEn: "The submission to the Tax Authority was not found." });
           continue;
         }
         if (deps.rebuildSubmission) {
@@ -844,11 +846,11 @@ export function createEtaRoutes(
         results.push({ id, outcome: EtaBulkRequeueOutcome.Submitted, submission: serializeSubmission(submitted) });
       } catch (err) {
         if (err instanceof EtaOfflineError || err instanceof EtaSubmissionInFlightError) {
-          results.push({ id, outcome: EtaBulkRequeueOutcome.Queued, message: err.message });
+          results.push({ id, outcome: EtaBulkRequeueOutcome.Queued, message: err.message, messageEn: err.messageEn });
         } else if (err instanceof EtaPrevalidationFailedError) {
-          results.push({ id, outcome: EtaBulkRequeueOutcome.Blocked, message: err.message });
+          results.push({ id, outcome: EtaBulkRequeueOutcome.Blocked, message: err.message, messageEn: err.messageEn });
         } else if (err instanceof Error) {
-          results.push({ id, outcome: EtaBulkRequeueOutcome.Error, message: err.message });
+          results.push({ id, outcome: EtaBulkRequeueOutcome.Error, message: err.message, messageEn: (err as { messageEn?: string }).messageEn });
         } else {
           throw err;
         }

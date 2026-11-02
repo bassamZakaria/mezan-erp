@@ -23,8 +23,10 @@ export interface PosSessionRecord {
 
 export class PosSessionAlreadyOpenError extends Error {
   readonly code = "POS_SESSION_ALREADY_OPEN";
+  readonly messageEn: string;
   constructor(readonly scope: "terminal" | "cashier") {
     super(scope === "terminal" ? "يوجد وردية مفتوحة على هذا الجهاز بالفعل" : "لديك وردية مفتوحة على جهاز آخر بالفعل");
+    this.messageEn = scope === "terminal" ? "A shift is already open on this terminal." : "You already have a shift open on another terminal.";
     this.name = "PosSessionAlreadyOpenError";
   }
 }

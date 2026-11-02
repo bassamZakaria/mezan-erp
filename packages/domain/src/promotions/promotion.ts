@@ -5,6 +5,7 @@
  */
 
 import { Money, Qty } from "../money/index.js";
+import type { BilingualReason } from "../collections/errors.js";
 import { InvalidPromotionError } from "./errors.js";
 
 export type PromotionType = "percentage" | "fixed_amount" | "special_price" | "buy_x_get_y" | "bundle";
@@ -100,64 +101,64 @@ export type PromotionDraft = Omit<Promotion, "id" | "createdAt">;
  * day/hour bounds. Shared by create and update so both enforce the same
  * invariants.
  */
-export function collectPromotionValidationReasons(draft: PromotionDraft): string[] {
-  const reasons: string[] = [];
+export function collectPromotionValidationReasons(draft: PromotionDraft): BilingualReason[] {
+  const reasons: BilingualReason[] = [];
 
-  if (draft.code.trim() === "") reasons.push("كود العرض مطلوب.");
-  if (draft.nameAr.trim() === "") reasons.push("اسم العرض بالعربية مطلوب.");
-  if (draft.startDate > draft.endDate) reasons.push("تاريخ البداية يجب ألا يتجاوز تاريخ النهاية.");
+  if (draft.code.trim() === "") reasons.push({ ar: "كود العرض مطلوب.", en: "The promotion code is required." });
+  if (draft.nameAr.trim() === "") reasons.push({ ar: "اسم العرض بالعربية مطلوب.", en: "The Arabic promotion name is required." });
+  if (draft.startDate > draft.endDate) reasons.push({ ar: "تاريخ البداية يجب ألا يتجاوز تاريخ النهاية.", en: "The start date must not be after the end date." });
 
   if (draft.type === "percentage") {
     if (draft.percentValue === null || draft.percentValue < 0 || draft.percentValue > 100) {
-      reasons.push("نسبة الخصم يجب أن تكون بين 0 و 100.");
+      reasons.push({ ar: "نسبة الخصم يجب أن تكون بين 0 و 100.", en: "The discount percentage must be between 0 and 100." });
     }
   }
 
   if (draft.type === "fixed_amount" || draft.type === "special_price" || draft.type === "bundle") {
     if (draft.amountValue === null || draft.amountValue.scaled < 0n) {
-      reasons.push("قيمة العرض مطلوبة ويجب ألا تكون سالبة.");
+      reasons.push({ ar: "قيمة العرض مطلوبة ويجب ألا تكون سالبة.", en: "The promotion value is required and must not be negative." });
     }
   }
 
   if (draft.type === "buy_x_get_y") {
-    if (draft.buyQty === null || draft.buyQty <= 0) reasons.push("كمية الشراء (X) يجب أن تكون أكبر من صفر.");
-    if (draft.getQty === null || draft.getQty <= 0) reasons.push("الكمية المجانية (Y) يجب أن تكون أكبر من صفر.");
+    if (draft.buyQty === null || draft.buyQty <= 0) reasons.push({ ar: "كمية الشراء (X) يجب أن تكون أكبر من صفر.", en: "The buy quantity (X) must be greater than zero." });
+    if (draft.getQty === null || draft.getQty <= 0) reasons.push({ ar: "الكمية المجانية (Y) يجب أن تكون أكبر من صفر.", en: "The free quantity (Y) must be greater than zero." });
   }
 
   if (draft.type === "bundle" && draft.bundleComponents.length === 0) {
-    reasons.push("عرض الحزمة يتطلب مكوناً واحداً على الأقل.");
+    reasons.push({ ar: "عرض الحزمة يتطلب مكوناً واحداً على الأقل.", en: "A bundle promotion needs at least one component." });
   }
 
   if (draft.minInvoiceValue !== null && draft.type === "special_price") {
-    reasons.push('الحد الأدنى لقيمة الفاتورة لا يتوافق مع نوع "السعر الخاص".');
+    reasons.push({ ar: 'الحد الأدنى لقيمة الفاتورة لا يتوافق مع نوع "السعر الخاص".', en: 'The minimum invoice value is not compatible with the "special price" type.' });
   }
 
   if (draft.minQty !== null && draft.minQty.scaled <= 0n) {
-    reasons.push("الحد الأدنى للكمية يجب أن يكون أكبر من صفر.");
+    reasons.push({ ar: "الحد الأدنى للكمية يجب أن يكون أكبر من صفر.", en: "The minimum quantity must be greater than zero." });
   }
 
   if (draft.maxDiscountAmount !== null && draft.maxDiscountAmount.scaled <= 0n) {
-    reasons.push("الحد الأقصى للخصم يجب أن يكون أكبر من صفر.");
+    reasons.push({ ar: "الحد الأقصى للخصم يجب أن يكون أكبر من صفر.", en: "The maximum discount must be greater than zero." });
   }
 
   // A buy-X-get-Y promotion gives away UNITS, not a sum; capping the money
   // without cutting the free units would let the document exceed its own cap.
   if (draft.maxDiscountAmount !== null && draft.type === "buy_x_get_y") {
-    reasons.push('الحد الأقصى للخصم لا يتوافق مع نوع "اشترِ X واحصل على Y" — الخصم فيه أصناف مجانية لا مبلغ.');
+    reasons.push({ ar: 'الحد الأقصى للخصم لا يتوافق مع نوع "اشترِ X واحصل على Y" — الخصم فيه أصناف مجانية لا مبلغ.', en: 'The maximum discount is not compatible with the "buy X get Y" type — its discount is free items, not an amount.' });
   }
 
   if (draft.scope.type !== "all" && draft.scope.ids.length === 0) {
-    reasons.push("نطاق العرض يتطلب تحديد صنف أو تصنيف واحد على الأقل.");
+    reasons.push({ ar: "نطاق العرض يتطلب تحديد صنف أو تصنيف واحد على الأقل.", en: "The promotion scope needs at least one item or category." });
   }
 
   if (draft.dayHourRestriction) {
     const { days, startHour, endHour } = draft.dayHourRestriction;
     const isValidHour = (h: number) => Number.isInteger(h) && h >= 0 && h <= 23;
     if (!isValidHour(startHour) || !isValidHour(endHour)) {
-      reasons.push("ساعات تقييد العرض يجب أن تكون بين 0 و 23.");
+      reasons.push({ ar: "ساعات تقييد العرض يجب أن تكون بين 0 و 23.", en: "The promotion restriction hours must be between 0 and 23." });
     }
     if (days.some((d) => !Number.isInteger(d) || d < 0 || d > 6)) {
-      reasons.push("أيام تقييد العرض يجب أن تكون بين 0 (الأحد) و 6 (السبت).");
+      reasons.push({ ar: "أيام تقييد العرض يجب أن تكون بين 0 (الأحد) و 6 (السبت).", en: "The promotion restriction days must be between 0 (Sunday) and 6 (Saturday)." });
     }
   }
 

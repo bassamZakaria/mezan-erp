@@ -110,6 +110,9 @@ describe("registerHonoOverLanClient — a code and the host, never the English s
     // The detail is still carried for a log and for a screen with no catalog
     // entry — but `code` is present, so no screen has to fall back to it.
     expect(body["code"]).toBe("TIMEOUT");
+    expect(String(body["message"])).toContain("لا يوجد رد من الجهاز الرئيسي");
+    expect(String(body["messageEn"])).toContain("No answer from the main machine");
+    expect(body["detail"]).toContain("30000ms");
     expect(body["message"]).not.toContain("تعذّر الوصول إلى الجهاز الرئيسي. Could not reach");
   });
 });

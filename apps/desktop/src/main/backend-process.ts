@@ -52,6 +52,7 @@ import type { DesktopLicense } from "./license.js";
 const STARTING_BODY = JSON.stringify({
   error: "BACKEND_STARTING",
   message: "جارٍ تشغيل قاعدة البيانات. ستفتح الشاشة تلقائياً خلال ثوانٍ.",
+  messageEn: "The database is starting. The screen will open on its own in a few seconds.",
 });
 
 const DEAD_BODY = JSON.stringify({
@@ -59,6 +60,9 @@ const DEAD_BODY = JSON.stringify({
   message:
     "توقّف محرّك قاعدة البيانات ولم تنجح إعادة تشغيله. أغلق ميزان وأعد فتحه، " +
     "وإذا تكرّر الأمر أرسل سجل الأخطاء إلى الدعم.",
+  messageEn:
+    "The database engine stopped and could not be restarted. Close Mezan and open it again; " +
+    "if it keeps happening, send the error log to support.",
 });
 
 export const BACKEND_CRASH_MESSAGE_AR =

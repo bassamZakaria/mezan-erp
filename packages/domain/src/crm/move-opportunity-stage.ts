@@ -26,7 +26,9 @@ export function moveOpportunityStage(opportunity: Opportunity, stage: PipelineSt
   let lostNote: string | null = null;
   if (stage.isLossStage) {
     if (!loss?.reason || !isOpportunityLostReason(loss.reason)) {
-      throw new InvalidOpportunityError(["سبب الخسارة مطلوب عند إغلاق الفرصة كخاسرة"]);
+      throw new InvalidOpportunityError([
+        { ar: "سبب الخسارة مطلوب عند إغلاق الفرصة كخاسرة", en: "A lost reason is required when closing the opportunity as lost" },
+      ]);
     }
     lostReason = loss.reason;
     const note = loss.note?.trim() ?? "";

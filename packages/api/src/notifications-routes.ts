@@ -123,13 +123,13 @@ export function createNotificationsRoutes(
     const ctx = authContextOf(c);
     if (!can(ctx, "admin.settings.edit")) {
       return c.json(
-        { error: "PERMISSION_DENIED", permission: "admin.settings.edit", message: "إرسال الإشعارات المعلّقة يتطلب صلاحية تعديل الإعدادات." },
+        { error: "PERMISSION_DENIED", permission: "admin.settings.edit", message: "إرسال الإشعارات المعلّقة يتطلب صلاحية تعديل الإعدادات.", messageEn: "Sending pending notifications requires the edit settings permission." },
         403,
       );
     }
     if (!options.drain) {
       return c.json(
-        { error: "NOTIFICATION_TRANSPORT_UNAVAILABLE", message: "لا توجد قناة إرسال خارجية موصولة على هذا الخادم." },
+        { error: "NOTIFICATION_TRANSPORT_UNAVAILABLE", message: "لا توجد قناة إرسال خارجية موصولة على هذا الخادم.", messageEn: "No external delivery channel is connected on this server." },
         503,
       );
     }
@@ -150,7 +150,7 @@ export function createNotificationsRoutes(
     const ctx = authContextOf(c);
     if (!can(ctx, SETTINGS_EDIT_PERMISSION)) {
       return c.json(
-        { error: "PERMISSION_DENIED", permission: SETTINGS_EDIT_PERMISSION, message: "عرض الإشعارات المعلّقة يتطلب صلاحية تعديل الإعدادات." },
+        { error: "PERMISSION_DENIED", permission: SETTINGS_EDIT_PERMISSION, message: "عرض الإشعارات المعلّقة يتطلب صلاحية تعديل الإعدادات.", messageEn: "Viewing pending notifications requires the edit settings permission." },
         403,
       );
     }

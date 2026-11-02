@@ -19,6 +19,7 @@ const positiveDecimalString = nonNegativeMoneyString;
 export const dataMigrationRowErrorSchema = z.object({
   rowNumber: z.number().int().positive(),
   reasons: z.array(z.string()),
+  reasonsEn: z.array(z.string()).optional(),
 });
 
 /** Response for every `/data-migration/*​/preview` and `/data-migration/*​/commit` route. */

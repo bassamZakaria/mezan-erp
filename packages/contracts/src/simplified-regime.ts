@@ -29,10 +29,12 @@ export const recordSimplifiedRegimeSchema = z
   })
   .refine((value) => value.state === "not_elected" || (value.electedOn != null && value.form110Reference != null), {
     message: "تاريخ ورقم نموذج 1/10 المقدَّم مطلوبان لتسجيل الاختيار",
+    params: { messageEn: "The date and number of the filed Form 1/10 are required to record the election." },
     path: ["form110Reference"],
   })
   .refine((value) => value.state !== "withdrawn" || (value.withdrawnOn != null && value.form111Reference != null), {
     message: "تاريخ ورقم نموذج 1/11 المقدَّم مطلوبان لتسجيل التخارج",
+    params: { messageEn: "The date and number of the filed Form 1/11 are required to record the withdrawal." },
     path: ["form111Reference"],
   });
 export type RecordSimplifiedRegimeDTO = z.infer<typeof recordSimplifiedRegimeSchema>;

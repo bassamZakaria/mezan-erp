@@ -68,7 +68,7 @@ export function createWarehousesRoutes(
     const limit = c.get("entitlements")?.limits?.warehouses;
     if (limit !== undefined && (await store.findAll()).length >= limit) {
       return c.json(
-        { error: "WAREHOUSE_LIMIT_REACHED", message: "وصلتم إلى الحد الأقصى للمستودعات في باقتكم" },
+        { error: "WAREHOUSE_LIMIT_REACHED", message: "وصلتم إلى الحد الأقصى للمستودعات في باقتكم", messageEn: "You have reached the maximum number of warehouses in your plan" },
         409,
       );
     }
@@ -78,7 +78,7 @@ export function createWarehousesRoutes(
       return c.json(warehouse, 201);
     } catch (err) {
       if (err instanceof InvalidWarehouseError) {
-        return c.json({ error: err.code, message: err.message }, 422);
+        return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 422);
       }
       throw err;
     }
@@ -103,7 +103,7 @@ export function createWarehousesRoutes(
       return c.json(next);
     } catch (err) {
       if (err instanceof InvalidWarehouseError) {
-        return c.json({ error: err.code, message: err.message }, 422);
+        return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 422);
       }
       throw err;
     }

@@ -119,14 +119,14 @@ function lineCodes(
   itemId: string,
   unitCode: string,
   tax: LineTaxIdentity,
-  missing: Set<string>,
+  missing: Map<string, string>,
 ): Pick<EtaReceiptLineInput, "internalCode" | "itemType" | "itemCode" | "unitType" | "taxSubType" | "taxRate"> {
   const item = lookups.items.get(itemId) ?? null;
   const unit = unitCode !== "" ? unitCode : (item?.baseUnitCode ?? "");
   const unitType = lookups.unitByCode.get(unit) ?? unit;
-  if (!item?.etaItemCode) missing.add(`كود الصنف لدى المصلحة (${item?.code ?? itemId})`);
-  if (!isEtaUnitCode(unitType)) missing.add(`ربط الوحدة (${unit || "—"})`);
-  if (isZeroRatedLineUnclassified(lookups.taxRates, tax)) missing.add(`ضريبة البند بنسبة 0% غير مسماة (${item?.code ?? itemId})`);
+  if (!item?.etaItemCode) missing.set(`كود الصنف لدى المصلحة (${item?.code ?? itemId})`, `the item code registered with the authority (${item?.code ?? itemId})`);
+  if (!isEtaUnitCode(unitType)) missing.set(`ربط الوحدة (${unit || "—"})`, `the unit mapping (${unit || "—"})`);
+  if (isZeroRatedLineUnclassified(lookups.taxRates, tax)) missing.set(`ضريبة البند بنسبة 0% غير مسماة (${item?.code ?? itemId})`, `the 0% line tax has no zero-rating name (${item?.code ?? itemId})`);
   return {
     internalCode: item?.code ?? itemId,
     // EXTERNAL CONTRACT: the authority's coding schemes on a receipt line are
@@ -182,7 +182,7 @@ export function buildPosReceiptInput(args: PosReceiptBuildArgs): EtaUnchainedRec
   const totals = args.totals ?? salesInvoiceTotals(invoice);
   const byLine = new Map(totals.lines.map((l) => [l.lineId, l]));
   const figures: ExTaxLine[] = [];
-  const missing = new Set<string>();
+  const missing = new Map<string, string>();
   const lines = invoice.lines.map((line) => {
     const lt = byLine.get(line.lineId);
     const f: ExTaxLine = lt
@@ -196,7 +196,7 @@ export function buildPosReceiptInput(args: PosReceiptBuildArgs): EtaUnchainedRec
       f,
     );
   });
-  if (missing.size > 0) throw new EtaReceiptNotReadyError([...missing]);
+  if (missing.size > 0) throw new EtaReceiptNotReadyError([...missing].map(([ar, en]) => ({ ar, en })));
   return {
     internalId: args.receiptNumber ?? invoice.docNo ?? invoice.id,
     issueDateTime: args.issuedAt,
@@ -265,13 +265,13 @@ export function buildRefundReceiptInput(args: RefundReceiptBuildArgs): EtaUnchai
   const totals = salesInvoiceTotals(invoice);
   const byLine = new Map(totals.lines.map((l) => [l.lineId, l]));
   const figures: ExTaxLine[] = [];
-  const missing = new Set<string>();
+  const missing = new Map<string, string>();
   const lines = args.returnLines.map((ret) => {
     const sold = soldLineOf(invoice, ret);
     const lt = sold ? byLine.get(sold.lineId) : undefined;
     const known =
       lineTaxPercent(lookups.taxRates, ret) ?? (sold ? lineTaxPercent(lookups.taxRates, { taxRateId: sold.taxRateId, taxRatePercent: sold.taxRatePercent }) : null);
-    if (known === null) missing.add(`نسبة ضريبة البند غير معروفة (${ret.itemId})`);
+    if (known === null) missing.set(`نسبة ضريبة البند غير معروفة (${ret.itemId})`, `the line tax rate is unknown (${ret.itemId})`);
     const rate = known ?? 0;
     let f: ExTaxLine;
     if (sold && lt && sold.baseQty.scaled !== 0n) {
@@ -293,7 +293,7 @@ export function buildRefundReceiptInput(args: RefundReceiptBuildArgs): EtaUnchai
     const tax = { taxRateId: ret.taxRateId ?? sold?.taxRateId ?? null, taxRatePercent: rate };
     return receiptLine(lineCodes(lookups, ret.itemId, baseUnit, tax, missing), sold?.itemNameAr ?? ret.itemId, ret.qty, f);
   });
-  if (missing.size > 0) throw new EtaReceiptNotReadyError([...missing]);
+  if (missing.size > 0) throw new EtaReceiptNotReadyError([...missing].map(([ar, en]) => ({ ar, en })));
   return {
     internalId: args.receiptNumber,
     issueDateTime: args.issuedAt,

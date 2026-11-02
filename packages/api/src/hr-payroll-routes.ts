@@ -1,4 +1,5 @@
-import { createMemoryKeyedLock, LockBusyError, LOCK_BUSY_AR, type KeyedLock } from "./keyed-lock.js";
+import { messageEnOf } from "./observability/error-message-backfill.js";
+import { createMemoryKeyedLock, LockBusyError, LOCK_BUSY_AR, LOCK_BUSY_EN, type KeyedLock } from "./keyed-lock.js";
 import { postingRefusalResponse } from "./posting-refusal.js";
 import { createBankFileRoutes, type BankFileRoutesDeps } from "./hr-bank-file-routes.js";
 import { readReversalRequest, reversalRefusalResponse, requireReversalReason } from "./document-reversal.js";
@@ -345,7 +346,7 @@ export function serializeRun(r: PayrollRun) {
 }
 
 function withMessageEn(err: { readonly code: string; readonly message: string; readonly messageEn?: string }) {
-  return { error: err.code, message: err.message, ...(err.messageEn ? { messageEn: err.messageEn } : {}) };
+  return { error: err.code, message: err.message, messageEn: messageEnOf(err) };
 }
 
 function handleDomainError(c: Context, err: unknown): Response {
@@ -373,7 +374,7 @@ function handleDomainError(c: Context, err: unknown): Response {
     return c.json(withMessageEn(err), 404);
   }
   if (err instanceof TreasuryDisbursementUnavailableError) {
-    return c.json({ error: err.code, message: "لم يتم إعداد مسار الصرف من الخزينة." }, 409);
+    return c.json({ error: err.code, message: "صرف الرواتب من الخزينة غير متاح على هذا الإصدار.", messageEn: "Paying salaries from the treasury is not available in this build." }, 409);
   }
   if (err instanceof PayrollFxRateMissingError) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, currency: err.currency, date: err.asOfDate }, 422);
@@ -691,7 +692,7 @@ export function createHrPayrollRoutes(deps: HrPayrollRoutesDeps, resolveAuthCont
       }
       return c.json(serializeAdvance(advance));
     } catch (err) {
-      if (err instanceof LockBusyError) return c.json({ error: "RESOURCE_BUSY", message: LOCK_BUSY_AR }, 409);
+      if (err instanceof LockBusyError) return c.json({ error: "RESOURCE_BUSY", message: LOCK_BUSY_AR, messageEn: LOCK_BUSY_EN }, 409);
       return handleDomainError(c, err);
     }
   });
@@ -720,7 +721,7 @@ export function createHrPayrollRoutes(deps: HrPayrollRoutesDeps, resolveAuthCont
       const parsed = createGarnishmentSchema.safeParse(await c.req.json().catch(() => ({})));
       if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
       if (!(await deps.employees.findById(parsed.data.employeeId))) {
-        return c.json({ error: "EMPLOYEE_NOT_FOUND", message: "الموظف غير موجود." }, 404);
+        return c.json({ error: "EMPLOYEE_NOT_FOUND", message: "الموظف غير موجود.", messageEn: "The employee was not found." }, 404);
       }
       try {
         const record = createGarnishment({
@@ -839,7 +840,7 @@ export function createHrPayrollRoutes(deps: HrPayrollRoutesDeps, resolveAuthCont
       });
       if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
       if (Money.fromMajor(parsed.data.monthlyWageCeiling).scaled <= Money.fromMajor(parsed.data.monthlyWageFloor).scaled) {
-        return c.json({ error: "INVALID_INSURANCE_LIMITS", message: "الحد الأقصى للأجر التأميني يجب أن يزيد عن الحد الأدنى." }, 422);
+        return c.json({ error: "INVALID_INSURANCE_LIMITS", message: "الحد الأقصى للأجر التأميني يجب أن يزيد عن الحد الأدنى.", messageEn: "The maximum insurable wage must be greater than the minimum." }, 422);
       }
       const previous = await statutoryOverrides.findByYear(parsed.data.year);
       const override: SocialInsuranceYearOverride = {
@@ -889,7 +890,7 @@ export function createHrPayrollRoutes(deps: HrPayrollRoutesDeps, resolveAuthCont
     // that decision belongs to whoever answers for the books.
     app.put("/payroll/statutory-flag", gate("hr.payroll.view"), async (c) => {
       if (!getAuthContext(c)?.permissions.has("*")) {
-        return c.json({ error: "TENANT_ADMIN_REQUIRED", message: "تفعيل احتساب الضريبة والتأمينات يقتصر على مدير النظام." }, 403);
+        return c.json({ error: "TENANT_ADMIN_REQUIRED", message: "تفعيل احتساب الضريبة والتأمينات يقتصر على مدير النظام.", messageEn: "Only the system administrator can turn on tax and insurance calculation." }, 403);
       }
       const parsed = setPayrollStatutoryFlagSchema.safeParse(await c.req.json().catch(() => ({})));
       if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
@@ -898,6 +899,7 @@ export function createHrPayrollRoutes(deps: HrPayrollRoutesDeps, resolveAuthCont
           {
             error: "ACKNOWLEDGEMENT_REQUIRED",
             message: "يجب الإقرار بأن الأرقام القانونية غير مُتحقَّق منها قبل تفعيل احتسابها.",
+            messageEn: "You must acknowledge that the statutory figures are unverified before turning on their calculation.",
           },
           422,
         );
@@ -953,9 +955,9 @@ export function createHrPayrollRoutes(deps: HrPayrollRoutesDeps, resolveAuthCont
 
     app.get("/payroll/provisions/:kind/preview", gate("hr.payroll.view"), async (c) => {
       const kind = parseKind(c.req.param("kind"));
-      if (!kind) return c.json({ error: "UNKNOWN_PROVISION", message: "نوع المخصص غير معروف." }, 404);
+      if (!kind) return c.json({ error: "UNKNOWN_PROVISION", message: "نوع المخصص غير معروف.", messageEn: "Unknown provision type." }, 404);
       const asOfDate = c.req.query("asOfDate") ?? (await tenantToday(c));
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(asOfDate)) return c.json({ error: "VALIDATION_ERROR", message: "تاريخ غير صالح." }, 400);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(asOfDate)) return c.json({ error: "VALIDATION_ERROR", message: "تاريخ غير صالح.", messageEn: "Invalid date." }, 400);
       const { definition, postedBalance, computedTotal } = await provisionState(kind, asOfDate);
       return c.json({
         kind,
@@ -971,10 +973,10 @@ export function createHrPayrollRoutes(deps: HrPayrollRoutesDeps, resolveAuthCont
 
     app.post("/payroll/provisions/:kind", gate("hr.payroll.approve"), async (c) => {
       const kind = parseKind(c.req.param("kind"));
-      if (!kind) return c.json({ error: "UNKNOWN_PROVISION", message: "نوع المخصص غير معروف." }, 404);
+      if (!kind) return c.json({ error: "UNKNOWN_PROVISION", message: "نوع المخصص غير معروف.", messageEn: "Unknown provision type." }, 404);
       const body = (await c.req.json().catch(() => ({}))) as { asOfDate?: string };
       const asOfDate = body.asOfDate ?? (await tenantToday(c));
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(asOfDate)) return c.json({ error: "VALIDATION_ERROR", message: "تاريخ غير صالح." }, 400);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(asOfDate)) return c.json({ error: "VALIDATION_ERROR", message: "تاريخ غير صالح.", messageEn: "Invalid date." }, 400);
       const { definition, postedBalance, computedTotal } = await provisionState(kind, asOfDate);
       try {
         const result = await postHrProvision({ kind, asOfDate, computedTotal, postedBalance }, { gl: deps.gl });
@@ -996,7 +998,7 @@ export function createHrPayrollRoutes(deps: HrPayrollRoutesDeps, resolveAuthCont
           err instanceof PeriodNotOpenForPostingError ||
           err instanceof UnbalancedEntryError
         ) {
-          return c.json({ error: err.code, message: err.message }, 422);
+          return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 422);
         }
         throw err;
       }
@@ -1004,7 +1006,7 @@ export function createHrPayrollRoutes(deps: HrPayrollRoutesDeps, resolveAuthCont
 
     app.get("/payroll/provisions/:kind/postings", gate("hr.payroll.view"), async (c) => {
       const kind = parseKind(c.req.param("kind"));
-      if (!kind) return c.json({ error: "UNKNOWN_PROVISION", message: "نوع المخصص غير معروف.", messageEn: "Unknown provision kind." }, 404);
+      if (!kind) return c.json({ error: "UNKNOWN_PROVISION", message: "نوع المخصص غير معروف.", messageEn: "Unknown provision type." }, 404);
       const postings = await listHrProvisionPostings(kind, { ledger: deps.gl.ledger });
       const latestStanding = postings.find((posting) => posting.entry.status === "posted")?.asOfDate ?? null;
       const { liabilityAccountId } = getHrProvisionDefinition(kind);
@@ -1026,7 +1028,7 @@ export function createHrPayrollRoutes(deps: HrPayrollRoutesDeps, resolveAuthCont
 
     app.post("/payroll/provisions/:kind/:asOfDate/reverse", gate(ReversalPermission.HrLeaveProvision), requireReversalReason, async (c) => {
       const kind = parseKind(c.req.param("kind"));
-      if (!kind) return c.json({ error: "UNKNOWN_PROVISION", message: "نوع المخصص غير معروف.", messageEn: "Unknown provision kind." }, 404);
+      if (!kind) return c.json({ error: "UNKNOWN_PROVISION", message: "نوع المخصص غير معروف.", messageEn: "Unknown provision type." }, 404);
       const asOfDate = c.req.param("asOfDate");
       if (!/^\d{4}-\d{2}-\d{2}$/.test(asOfDate)) return c.json({ error: "VALIDATION_ERROR", message: "تاريخ غير صالح.", messageEn: "Invalid date." }, 400);
       try {

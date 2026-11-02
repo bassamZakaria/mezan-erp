@@ -168,7 +168,7 @@ describe("تقرير الاستثناءات الأمنية", () => {
     for (const path of ["/exceptions", "/post-posting-changes", "/after-hours"]) {
       const res = await ambiguous.fetch(req(`${path}?from=2026-03-01&to=2026-03-31&actor=${encodeURIComponent("كاتب المبيعات")}`));
       expect(res.status, path).toBe(422);
-      expect(await res.json(), path).toEqual({ error: "VALIDATION_ERROR", errors: [{ field: "actor", message: "أكثر من مستخدم بهذا الاسم، اختر من القائمة" }] });
+      expect(await res.json(), path).toEqual({ error: "VALIDATION_ERROR", errors: [{ field: "actor", message: "أكثر من مستخدم بهذا الاسم، اختر من القائمة", messageEn: "More than one user has this name; pick one from the list." }] });
     }
   });
 

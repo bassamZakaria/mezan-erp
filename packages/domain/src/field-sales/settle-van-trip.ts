@@ -1,3 +1,4 @@
+import type { ReasonInput } from "../bilingual-reasons.js";
 import { Money, Qty } from "../money/index.js";
 import {
   VanTripStatus,
@@ -25,12 +26,15 @@ export interface SettleVanTripDeps {
 }
 
 function validateCount(cmd: SettleVanTripCommand): void {
-  const reasons: string[] = [];
-  if (cmd.countedCash.scaled < 0n) reasons.push("النقدية المعدودة لا تكون سالبة");
+  const reasons: ReasonInput[] = [];
+  if (cmd.countedCash.scaled < 0n) reasons.push({ ar: "النقدية المعدودة لا تكون سالبة", en: "The counted cash cannot be negative" });
   const seen = new Set<string>();
   for (const line of cmd.stockCounts) {
-    if (line.countedQty.isNegative()) reasons.push(`الكمية المعدودة للصنف "${line.itemId}" لا تكون سالبة`);
-    if (seen.has(line.itemId)) reasons.push(`الصنف "${line.itemId}" معدود أكثر من مرة`);
+    if (line.countedQty.isNegative()) reasons.push({
+        ar: `الكمية المعدودة للصنف "${line.itemId}" لا تكون سالبة`,
+        en: `The counted quantity of item "${line.itemId}" cannot be negative`,
+      });
+    if (seen.has(line.itemId)) reasons.push({ ar: `الصنف "${line.itemId}" معدود أكثر من مرة`, en: `Item "${line.itemId}" is counted more than once` });
     seen.add(line.itemId);
   }
   if (reasons.length > 0) throw new InvalidVanTripCountError(reasons);

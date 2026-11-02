@@ -326,23 +326,26 @@ export interface AllocateInput {
  * balance, then persists the allocation and bumps the invoice's allocated total.
  * Pure orchestration over the two repository ports.
  */
+const INVOICE_KIND_LABEL_AR: Readonly<Record<AllocationInvoiceKind, string>> = { sales: "مبيعات", purchase: "مشتريات" };
+
 export async function allocate(
   input: AllocateInput,
   deps: { allocations: AllocationRepository; invoices: AllocatableInvoiceRepository; returns?: InvoiceReturnCreditPort },
 ): Promise<{ allocation: VoucherAllocation; invoice: AllocatableInvoice }> {
   if (input.amount.scaled <= 0n) {
-    throw new AllocationExceedsError("مبلغ التخصيص يجب أن يكون أكبر من صفر.");
+    throw new AllocationExceedsError("مبلغ التخصيص يجب أن يكون أكبر من صفر.", "The allocation amount must be greater than zero.");
   }
   if (await deps.allocations.findById(input.allocationId)) throw new AllocationIdTakenError(input.allocationId);
   const invoice = await deps.invoices.findById(input.invoiceId);
   if (!invoice) throw new InvoiceNotFoundError(input.invoiceId);
   if (invoice.kind !== input.expectedKind) {
     throw new AllocationMismatchError(
-      `نوع الفاتورة (${invoice.kind}) لا يطابق نوع السند (${input.expectedKind}).`,
+      `نوع الفاتورة (${INVOICE_KIND_LABEL_AR[invoice.kind]}) لا يطابق نوع السند (${INVOICE_KIND_LABEL_AR[input.expectedKind]}).`,
+      `The invoice type (${invoice.kind}) does not match the voucher type (${input.expectedKind}).`,
     );
   }
   if (invoice.partyId !== input.voucherPartyId) {
-    throw new AllocationMismatchError("الفاتورة تخص طرفاً مختلفاً عن طرف السند.");
+    throw new AllocationMismatchError("الفاتورة تخص طرفاً مختلفاً عن طرف السند.", "The invoice belongs to a different party than the voucher.");
   }
 
   const existing = await deps.allocations.listByVoucher(input.voucherId);
@@ -350,6 +353,7 @@ export async function allocate(
   if (input.amount.scaled > unallocated.scaled) {
     throw new AllocationExceedsError(
       `مبلغ التخصيص (${input.amount.toString()}) يتجاوز المتبقي غير المخصص من السند (${unallocated.toString()}).`,
+      `The allocation amount (${input.amount.toString()}) exceeds the voucher's unallocated remainder (${unallocated.toString()}).`,
     );
   }
   const returned = (await returnedByInvoice(deps.returns, [invoice])).get(invoice.id) ?? Money.zero();
@@ -359,10 +363,14 @@ export async function allocate(
   if (input.amount.scaled > settled.capacity.scaled) {
     throw new AllocationExceedsError(
       `مبلغ التخصيص (${input.amount.toString()}) يتجاوز المتبقي على الفاتورة (${settled.capacity.toString()}).`,
+      `The allocation amount (${input.amount.toString()}) exceeds the invoice's remaining balance (${settled.capacity.toString()}).`,
     );
   }
   if (settled.relief.scaled <= 0n) {
-    throw new AllocationExceedsError("مبلغ التخصيص أصغر من أن يسدد أي جزء من الفاتورة بسعر الصرف.");
+    throw new AllocationExceedsError(
+      "مبلغ التخصيص أصغر من أن يسدد أي جزء من الفاتورة بسعر الصرف.",
+      "The allocation amount is too small to settle any part of the invoice at the exchange rate.",
+    );
   }
   const date = input.date ? laterDay(input.date, invoice.date) : null;
   const event = { ref: input.allocationId, day: date ?? input.now.slice(0, 10), at: input.now };

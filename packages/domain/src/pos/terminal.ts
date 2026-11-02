@@ -1,4 +1,5 @@
 import type { PosPaymentMethod } from "./payment-method.js";
+import { splitReasons, type ReasonInput } from "../bilingual-reasons.js";
 
 export const POS_TERMINAL_KINDS = ["retail", "restaurant"] as const;
 export type PosTerminalKind = (typeof POS_TERMINAL_KINDS)[number];
@@ -55,8 +56,13 @@ export interface PosTerminal {
 
 export class InvalidPosTerminalError extends Error {
   readonly code = "INVALID_POS_TERMINAL";
-  constructor(readonly reasons: readonly string[]) {
-    super(reasons.join("، "));
+  readonly reasons: readonly string[];
+  readonly messageEn: string;
+  constructor(reasons: readonly ReasonInput[]) {
+    const split = splitReasons(reasons, "The POS terminal data is invalid.");
+    super(split.ar.join("، "));
+    this.reasons = split.ar;
+    this.messageEn = split.en;
     this.name = "InvalidPosTerminalError";
   }
 }
@@ -99,53 +105,53 @@ export function normalizeEscposAddress(raw: string): string | null {
   return `${host}:${port}`;
 }
 
-function normalizePrinter(printer: PosPrinterConfig | undefined, reasons: string[]): PosPrinterConfig {
+function normalizePrinter(printer: PosPrinterConfig | undefined, reasons: ReasonInput[]): PosPrinterConfig {
   const config = printer ?? { kind: "system", address: null, paperWidthMm: 80 };
-  if (!POS_PRINTER_KINDS.includes(config.kind)) reasons.push("نوع الطابعة غير معروف");
-  if (!POS_PAPER_WIDTHS.includes(config.paperWidthMm)) reasons.push("عرض ورق الإيصال 58 أو 80 مم فقط");
+  if (!POS_PRINTER_KINDS.includes(config.kind)) reasons.push({ ar: "نوع الطابعة غير معروف", en: "The printer type is not recognised" });
+  if (!POS_PAPER_WIDTHS.includes(config.paperWidthMm)) reasons.push({ ar: "عرض ورق الإيصال 58 أو 80 مم فقط", en: "The receipt paper width must be 58 or 80 mm only" });
   const address = blankToNull(config.address);
   if (config.kind === "escpos-tcp") {
     if (address === null) {
-      reasons.push("طابعة الشبكة تحتاج عنوانها، مثل 192.168.1.100:9100");
+      reasons.push({ ar: "طابعة الشبكة تحتاج عنوانها، مثل 192.168.1.100:9100", en: "A network printer needs its address, such as 192.168.1.100:9100" });
       return { ...config, address: null };
     }
     const normalized = normalizeEscposAddress(address);
-    if (normalized === null) reasons.push("عنوان طابعة الشبكة غير صالح — اكتبه بالشكل 192.168.1.100:9100");
+    if (normalized === null) reasons.push({ ar: "عنوان طابعة الشبكة غير صالح — اكتبه بالشكل 192.168.1.100:9100", en: "The network printer address is not valid — write it in the form 192.168.1.100:9100" });
     return { ...config, address: normalized ?? address };
   }
-  if (address !== null && address.length > 120) reasons.push("اسم طابعة النظام أطول من اللازم");
+  if (address !== null && address.length > 120) reasons.push({ ar: "اسم طابعة النظام أطول من اللازم", en: "The system printer name is too long" });
   return { ...config, address };
 }
 
 /** Builds a terminal from its input, checking only what needs no other record. */
 export function buildPosTerminal(id: string, input: PosTerminalInput, current?: PosTerminal): PosTerminal {
-  const reasons: string[] = [];
+  const reasons: ReasonInput[] = [];
   const code = input.code.trim().toUpperCase();
-  if (!CODE_PATTERN.test(code)) reasons.push("كود الجهاز حروف لاتينية كبيرة وأرقام فقط (حتى 20 حرفاً)، مثل POS-001");
-  if (input.name.trim() === "") reasons.push("اسم الجهاز مطلوب");
+  if (!CODE_PATTERN.test(code)) reasons.push({ ar: "كود الجهاز حروف لاتينية كبيرة وأرقام فقط (حتى 20 حرفاً)، مثل POS-001", en: "The terminal code must be capital Latin letters and digits only (up to 20 characters), such as POS-001" });
+  if (input.name.trim() === "") reasons.push({ ar: "اسم الجهاز مطلوب", en: "The terminal name is required" });
   const kind = input.kind ?? current?.kind ?? "retail";
-  if (!POS_TERMINAL_KINDS.includes(kind)) reasons.push("نوع الجهاز غير معروف");
-  if (input.branchId.trim() === "") reasons.push("الفرع مطلوب");
-  if (input.warehouseId.trim() === "") reasons.push("المستودع مطلوب");
-  if (input.drawerTreasuryAccountId.trim() === "") reasons.push("حساب الدرج النقدي مطلوب");
+  if (!POS_TERMINAL_KINDS.includes(kind)) reasons.push({ ar: "نوع الجهاز غير معروف", en: "The terminal type is not recognised" });
+  if (input.branchId.trim() === "") reasons.push({ ar: "الفرع مطلوب", en: "The branch is required" });
+  if (input.warehouseId.trim() === "") reasons.push({ ar: "المستودع مطلوب", en: "The warehouse is required" });
+  if (input.drawerTreasuryAccountId.trim() === "") reasons.push({ ar: "حساب الدرج النقدي مطلوب", en: "The cash drawer account is required" });
 
   const seen = new Set<string>();
   for (const method of input.methods) {
-    if (seen.has(method.methodId)) reasons.push("طريقة الدفع مكررة على الجهاز");
+    if (seen.has(method.methodId)) reasons.push({ ar: "طريقة الدفع مكررة على الجهاز", en: "The payment method is duplicated on the terminal" });
     seen.add(method.methodId);
   }
-  if (input.methods.length === 0) reasons.push("فعّل طريقة دفع واحدة على الأقل");
-  if (!seen.has(input.defaultMethodId)) reasons.push("طريقة الدفع الافتراضية يجب أن تكون من الطرق المفعّلة على الجهاز");
+  if (input.methods.length === 0) reasons.push({ ar: "فعّل طريقة دفع واحدة على الأقل", en: "Enable at least one payment method" });
+  if (!seen.has(input.defaultMethodId)) reasons.push({ ar: "طريقة الدفع الافتراضية يجب أن تكون من الطرق المفعّلة على الجهاز", en: "The default payment method must be one of the methods enabled on the terminal" });
 
   const etaDeviceSerial = blankToNull(input.etaDeviceSerial);
   if (etaDeviceSerial !== null && !SERIAL_PATTERN.test(etaDeviceSerial)) {
-    reasons.push("الرقم التسلسلي لجهاز نقطة البيع حروف لاتينية وأرقام فقط");
+    reasons.push({ ar: "الرقم التسلسلي لجهاز نقطة البيع حروف لاتينية وأرقام فقط", en: "The POS device serial number must be Latin letters and digits only" });
   }
   const etaPosClientId = blankToNull(input.etaPosClientId);
   const etaPosOsVersion = blankToNull(input.etaPosOsVersion);
   const etaPosModelFramework = blankToNull(input.etaPosModelFramework);
   if ((etaPosClientId ?? etaPosOsVersion ?? etaPosModelFramework) !== null && etaDeviceSerial === null) {
-    reasons.push("بيانات جهاز الفاتورة الإلكترونية لا تُسجَّل إلا مع الرقم التسلسلي للجهاز");
+    reasons.push({ ar: "بيانات جهاز الفاتورة الإلكترونية لا تُسجَّل إلا مع الرقم التسلسلي للجهاز", en: "The e-invoice device data can only be recorded together with the device serial number" });
   }
 
   const printer = normalizePrinter(input.printer ?? current?.printer, reasons);
@@ -211,65 +217,65 @@ export function resolveTerminalMethodAccount(
 }
 
 export function assertPosTerminalReferences(terminal: PosTerminal, refs: PosTerminalReferences): void {
-  const reasons: string[] = [];
-  if (!refs.branchExists) reasons.push("الفرع المحدد غير موجود");
-  if (!refs.warehouse) reasons.push("المستودع المحدد غير موجود");
+  const reasons: ReasonInput[] = [];
+  if (!refs.branchExists) reasons.push({ ar: "الفرع المحدد غير موجود", en: "The selected branch does not exist" });
+  if (!refs.warehouse) reasons.push({ ar: "المستودع المحدد غير موجود", en: "The selected warehouse does not exist" });
   else {
-    if (refs.warehouse.branchId !== terminal.branchId) reasons.push("المستودع لا يتبع فرع الجهاز");
-    if (!refs.warehouse.active) reasons.push("المستودع المحدد غير نشط");
+    if (refs.warehouse.branchId !== terminal.branchId) reasons.push({ ar: "المستودع لا يتبع فرع الجهاز", en: "The warehouse does not belong to the terminal's branch" });
+    if (!refs.warehouse.active) reasons.push({ ar: "المستودع المحدد غير نشط", en: "The selected warehouse is inactive" });
   }
 
   const drawer = refs.accounts.get(terminal.drawerTreasuryAccountId);
-  if (!drawer) reasons.push("حساب الدرج النقدي غير موجود");
+  if (!drawer) reasons.push({ ar: "حساب الدرج النقدي غير موجود", en: "The cash drawer account does not exist" });
   else {
-    if (drawer.type !== "cash") reasons.push("حساب الدرج لازم يكون حساب نقدي — تُقفل عليه جرد الوردية");
-    if (drawer.branchId !== terminal.branchId) reasons.push("حساب الدرج لا يتبع فرع الجهاز");
-    if (drawer.status !== "active") reasons.push("حساب الدرج غير نشط");
+    if (drawer.type !== "cash") reasons.push({ ar: "حساب الدرج يجب أن يكون حساباً نقدياً — عليه يُقفَل جرد الوردية.", en: "The drawer account must be a cash account — the shift count is closed against it" });
+    if (drawer.branchId !== terminal.branchId) reasons.push({ ar: "حساب الدرج لا يتبع فرع الجهاز", en: "The drawer account does not belong to the terminal's branch" });
+    if (drawer.status !== "active") reasons.push({ ar: "حساب الدرج غير نشط", en: "The drawer account is inactive" });
   }
   if (terminal.active && refs.drawerSharedWith.length > 0) {
-    reasons.push(`الدرج مستخدم على جهاز نشط آخر (${refs.drawerSharedWith.join("، ")}) — لكل جهاز درج مستقل حتى يُطابَق نقد كل وردية`);
+    reasons.push({ ar: `الدرج مستخدم على جهاز نشط آخر (${refs.drawerSharedWith.join("، ")}) — لكل جهاز درج مستقل حتى يُطابَق نقد كل وردية`, en: `The drawer is used on another active terminal (${refs.drawerSharedWith.join(", ")}) — each terminal needs its own drawer so each shift's cash can be reconciled` });
   }
 
   for (const entry of terminal.methods) {
     const method = refs.methods.get(entry.methodId);
     if (!method) {
-      reasons.push("طريقة دفع غير موجودة");
+      reasons.push({ ar: "طريقة دفع غير موجودة", en: "Payment method does not exist" });
       continue;
     }
-    if (!method.active) reasons.push(`طريقة الدفع «${method.nameAr}» معطّلة`);
+    if (!method.active) reasons.push({ ar: `طريقة الدفع «${method.nameAr}» معطّلة`, en: `The payment method "${method.nameEn ?? method.nameAr}" is disabled` });
     if ((method.kind === "cash" || method.kind === "on_account") && entry.treasuryAccountId !== null) {
       reasons.push(
         method.kind === "cash"
-          ? "الدفع النقدي يدخل درج الجهاز نفسه — لا يُختار له حساب آخر"
-          : "البيع الآجل لا يُربط بحساب خزينة",
+          ? { ar: "الدفع النقدي يدخل درج الجهاز نفسه — لا يُختار له حساب آخر", en: "Cash payment goes into the terminal's own drawer — another account cannot be chosen for it" }
+          : { ar: "البيع الآجل لا يُربط بحساب خزينة", en: "A sale on account is not linked to a treasury account" },
       );
       continue;
     }
     const accountId = resolveTerminalMethodAccount(terminal, entry, method);
     if (method.kind === "cash" || method.kind === "on_account") continue;
     if (accountId === null) {
-      reasons.push(`حدد الحساب الذي تستقبل عليه «${method.nameAr}» — لا يوجد له حساب افتراضي`);
+      reasons.push({ ar: `حدد الحساب الذي تستقبل عليه «${method.nameAr}» — لا يوجد له حساب افتراضي`, en: `Choose the account that "${method.nameEn ?? method.nameAr}" receives into — it has no default account` });
       continue;
     }
     const account = refs.accounts.get(accountId);
-    if (!account) reasons.push(`حساب «${method.nameAr}» غير موجود`);
+    if (!account) reasons.push({ ar: `حساب «${method.nameAr}» غير موجود`, en: `The account for "${method.nameEn ?? method.nameAr}" does not exist` });
     else {
-      if (account.status !== "active") reasons.push(`حساب «${method.nameAr}» غير نشط`);
+      if (account.status !== "active") reasons.push({ ar: `حساب «${method.nameAr}» غير نشط`, en: `The account for "${method.nameEn ?? method.nameAr}" is inactive` });
       if (method.accountType !== null && account.type !== method.accountType) {
-        reasons.push(`«${method.nameAr}» تستقبل على حساب ${method.accountType === "bank" ? "بنكي" : "نقدي"} فقط`);
+        reasons.push({ ar: `«${method.nameAr}» تستقبل على حساب ${method.accountType === "bank" ? "بنكي" : "نقدي"} فقط`, en: `"${method.nameEn ?? method.nameAr}" can only receive into a ${method.accountType === "bank" ? "bank" : "cash"} account` });
       }
       // A bank account may be central (the acquirer settles to one company account); a cash box may not.
       if (account.type === "cash" && account.branchId !== terminal.branchId) {
-        reasons.push(`«${method.nameAr}» تستقبل على خزينة نقدية من فرع آخر — اختر خزينة من فرع الجهاز`);
+        reasons.push({ ar: `«${method.nameAr}» تستقبل على خزينة نقدية من فرع آخر — اختر خزينة من فرع الجهاز`, en: `"${method.nameEn ?? method.nameAr}" receives into a cash box from another branch — choose a cash box from the terminal's branch` });
       }
       if (accountId === terminal.drawerTreasuryAccountId) {
-        reasons.push(`«${method.nameAr}» لا تُحصَّل في درج النقدية — وإلا زاد النقد المتوقع عند إقفال الوردية`);
+        reasons.push({ ar: `«${method.nameAr}» لا تُحصَّل في درج النقدية — وإلا زاد النقد المتوقع عند إقفال الوردية`, en: `"${method.nameEn ?? method.nameAr}" is not collected in the cash drawer — otherwise the expected cash at shift close would be overstated` });
       }
     }
   }
 
   if (refs.serialTakenBy !== null) {
-    reasons.push(`الرقم التسلسلي مسجَّل بالفعل على الجهاز ${refs.serialTakenBy} — لكل جهاز رقمه لدى المصلحة`);
+    reasons.push({ ar: `الرقم التسلسلي مسجَّل بالفعل على الجهاز ${refs.serialTakenBy} — لكل جهاز رقمه لدى المصلحة`, en: `The serial number is already registered on terminal ${refs.serialTakenBy} — each terminal has its own number with the tax authority` });
   }
   if (reasons.length > 0) throw new InvalidPosTerminalError(reasons);
 }

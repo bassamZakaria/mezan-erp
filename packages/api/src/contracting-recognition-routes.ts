@@ -110,27 +110,27 @@ function handleDomainError(c: Context, err: unknown) {
   const postingRefusal = postingRefusalResponse(c, err);
   if (postingRefusal) return postingRefusal;
   if (err instanceof RecognitionRunNotFoundError) {
-    return c.json({ error: err.code, message: err.message }, 404);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 404);
   }
   if (err instanceof InvalidRecognitionRunError) {
-    return c.json({ error: err.code, message: err.message, reasons: err.reasons }, 422);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, reasons: err.reasons }, 422);
   }
   if (err instanceof RecognitionRunAlreadyPostedError) {
-    return c.json({ error: err.code, message: err.message, periodEnd: err.periodEnd, docNo: err.docNo }, 409);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, periodEnd: err.periodEnd, docNo: err.docNo }, 409);
   }
   if (err instanceof RecognitionPreviousPeriodMissingError) {
-    return c.json({ error: err.code, message: err.message, previousPeriodEnd: err.previousPeriodEnd }, 409);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, previousPeriodEnd: err.previousPeriodEnd }, 409);
   }
   if (err instanceof RecognitionRunNotLatestError) {
-    return c.json({ error: err.code, message: err.message, latestPeriodEnd: err.latestPeriodEnd }, 409);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, latestPeriodEnd: err.latestPeriodEnd }, 409);
   }
   if (err instanceof RecognitionRunAlreadyReversedError) {
-    return c.json({ error: err.code, message: err.message }, 409);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
   }
   // The fiscal-period and VAT gates live inside the GL engine; a closed month
   // is a refusal the accountant has to read, never a 500.
   if (err instanceof PeriodNotOpenForPostingError || err instanceof NoFiscalPeriodForDateError) {
-    return c.json({ error: "FISCAL_PERIOD_CLOSED", message: err.message }, 409);
+    return c.json({ error: "FISCAL_PERIOD_CLOSED", message: err.message, messageEn: err.messageEn }, 409);
   }
   throw err;
 }
@@ -146,7 +146,7 @@ export function createContractingRecognitionRoutes(
   app.get("/preview", gate(VIEW), async (c) => {
     const contractId = c.req.query("contractId");
     if (!contractId) {
-      return c.json({ error: "VALIDATION_ERROR", message: "العقد مطلوب." }, 400);
+      return c.json({ error: "VALIDATION_ERROR", message: "العقد مطلوب.", messageEn: "The contract is required." }, 400);
     }
     const periodEnd = c.req.query("periodEnd") ?? service.defaultPeriodEnd();
     try {
@@ -193,7 +193,7 @@ export function createContractingRecognitionRoutes(
 
   app.get("/runs/:id", gate(VIEW), async (c) => {
     const run = await service.findRun(c.req.param("id"));
-    if (!run) return c.json({ error: "RECOGNITION_RUN_NOT_FOUND", message: "تشغيل الاعتراف بالإيراد غير موجود." }, 404);
+    if (!run) return c.json({ error: "RECOGNITION_RUN_NOT_FOUND", message: "تشغيل الاعتراف بالإيراد غير موجود.", messageEn: "The revenue recognition run does not exist." }, 404);
     return c.json(serializeRun(run));
   });
 

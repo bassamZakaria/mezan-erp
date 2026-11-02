@@ -1,5 +1,6 @@
 import type { GateableActionType } from "../workflow/action-types.js";
 import { InvalidLeaveRequestError, InvalidLeaveRequestTransitionError } from "./errors.js";
+import type { ReasonInput } from "../bilingual-reasons.js";
 
 /**
  * LeaveRequest — docs/archive/catalog/06-crm-hr.md "طلبات الإجازات". The leave-type
@@ -105,13 +106,13 @@ export interface CreateLeaveRequestCommand {
   readonly reason?: string | null;
 }
 
-function validate(command: Pick<CreateLeaveRequestCommand, "employeeId" | "startDate" | "endDate">): string[] {
-  const reasons: string[] = [];
-  if (command.employeeId.trim().length === 0) reasons.push("الموظف مطلوب");
-  if (command.startDate.trim().length === 0) reasons.push("تاريخ البداية مطلوب");
-  if (command.endDate.trim().length === 0) reasons.push("تاريخ النهاية مطلوب");
+function validate(command: Pick<CreateLeaveRequestCommand, "employeeId" | "startDate" | "endDate">): ReasonInput[] {
+  const reasons: ReasonInput[] = [];
+  if (command.employeeId.trim().length === 0) reasons.push({ ar: "الموظف مطلوب", en: "The employee is required" });
+  if (command.startDate.trim().length === 0) reasons.push({ ar: "تاريخ البداية مطلوب", en: "The start date is required" });
+  if (command.endDate.trim().length === 0) reasons.push({ ar: "تاريخ النهاية مطلوب", en: "The end date is required" });
   if (command.startDate && command.endDate && command.endDate < command.startDate) {
-    reasons.push("تاريخ النهاية لا يمكن أن يسبق تاريخ البداية");
+    reasons.push({ ar: "تاريخ النهاية لا يمكن أن يسبق تاريخ البداية", en: "The end date cannot be before the start date" });
   }
   return reasons;
 }

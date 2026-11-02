@@ -115,7 +115,7 @@ export function createSalesHistoricalImportRoutes(
       });
     } catch (err) {
       if (err instanceof InvalidSalesInvoiceError) {
-        return c.json({ error: err.code, message: err.message, reasons: err.reasons }, 422);
+        return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, reasons: err.reasons }, 422);
       }
       throw err;
     }
@@ -148,10 +148,10 @@ export function createSalesHistoricalImportRoutes(
       const refusal = postingRefusalResponse(c, err);
       if (refusal) return refusal;
       if (err instanceof InvalidSalesInvoiceError) {
-        return c.json({ error: err.code, message: err.message, reasons: err.reasons }, 422);
+        return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, reasons: err.reasons }, 422);
       }
       if (err instanceof NoFiscalPeriodForDateError || err instanceof PeriodNotOpenForPostingError) {
-        return c.json({ error: err.code, message: `${err.message} لم يُستورد أي مستند من الملف.` }, 422);
+        return c.json({ error: err.code, message: `${err.message} لم يُستورد أي مستند من الملف.`, messageEn: `${err.messageEn} No document from the file was imported.` }, 422);
       }
       throw err;
     }

@@ -47,18 +47,18 @@ export function assertValidSchedule(input: {
   readonly endDate: string | null;
 }): void {
   if (!isValidDateString(input.startDate)) {
-    throw new InvalidRecurringJournalScheduleError("تاريخ البداية غير صالح.");
+    throw new InvalidRecurringJournalScheduleError("تاريخ البداية غير صالح.", "The start date is not valid.");
   }
   if (input.endDate !== null) {
     if (!isValidDateString(input.endDate)) {
-      throw new InvalidRecurringJournalScheduleError("تاريخ النهاية غير صالح.");
+      throw new InvalidRecurringJournalScheduleError("تاريخ النهاية غير صالح.", "The end date is not valid.");
     }
     if (input.endDate < input.startDate) {
-      throw new InvalidRecurringJournalScheduleError("تاريخ النهاية لا يمكن أن يسبق تاريخ البداية.");
+      throw new InvalidRecurringJournalScheduleError("تاريخ النهاية لا يمكن أن يسبق تاريخ البداية.", "The end date cannot be before the start date.");
     }
   }
   if (!Number.isInteger(input.dayOfPeriod) || input.dayOfPeriod < 1 || input.dayOfPeriod > 31) {
-    throw new InvalidRecurringJournalScheduleError("يوم الاستحقاق يجب أن يكون رقماً من 1 إلى 31.");
+    throw new InvalidRecurringJournalScheduleError("يوم الاستحقاق يجب أن يكون رقماً من 1 إلى 31.", "The due day must be a number from 1 to 31.");
   }
   if (input.frequency === RecurringJournalFrequency.Yearly) {
     if (
@@ -67,9 +67,9 @@ export function assertValidSchedule(input: {
       input.yearlyMonth < 1 ||
       input.yearlyMonth > 12
     ) {
-      throw new InvalidRecurringJournalScheduleError("القالب السنوي يتطلب شهراً من 1 إلى 12.");
+      throw new InvalidRecurringJournalScheduleError("القالب السنوي يتطلب شهراً من 1 إلى 12.", "A yearly template requires a month from 1 to 12.");
     }
   } else if (input.yearlyMonth !== null) {
-    throw new InvalidRecurringJournalScheduleError("شهر الاستحقاق السنوي لا يُستخدم إلا مع التكرار السنوي.");
+    throw new InvalidRecurringJournalScheduleError("شهر الاستحقاق السنوي لا يُستخدم إلا مع التكرار السنوي.", "The yearly due month is only used with yearly recurrence.");
   }
 }

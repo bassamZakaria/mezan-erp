@@ -439,7 +439,7 @@ export function createReorderRoutes(deps: ReorderRoutesDeps, resolveAuthContext:
         });
       }
     } catch (err) {
-      if (err instanceof InvalidPurchaseDocumentError) return c.json(body(err.code, err.message, err.message), 422);
+      if (err instanceof InvalidPurchaseDocumentError) return c.json(body(err.code, err.message, err.messageEn), 422);
       throw err;
     }
     const result: CreateReorderOrdersResultDTO = {

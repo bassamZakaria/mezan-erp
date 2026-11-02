@@ -56,8 +56,10 @@ export const NO_SIMPLIFIED_REGIME: SimplifiedRegimeElection = {
 
 export class InvalidSimplifiedRegimeRecordError extends Error {
   readonly code = "INVALID_SIMPLIFIED_REGIME_RECORD";
-  constructor(readonly field: string, message: string) {
+  readonly messageEn: string;
+  constructor(readonly field: string, message: string, messageEn: string) {
     super(message);
+    this.messageEn = messageEn;
     this.name = "InvalidSimplifiedRegimeRecordError";
   }
 }
@@ -84,16 +86,16 @@ function irrevocableUntilOf(electedOn: string, years: number): string {
 
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 
-function requireDay(value: string | null | undefined, field: string, what: string): string {
+function requireDay(value: string | null | undefined, field: string, what: string, whatEn: string): string {
   if (!value || !DAY.test(value)) {
-    throw new InvalidSimplifiedRegimeRecordError(field, what);
+    throw new InvalidSimplifiedRegimeRecordError(field, what, whatEn);
   }
   return value;
 }
 
-function requireText(value: string | null | undefined, field: string, what: string): string {
+function requireText(value: string | null | undefined, field: string, what: string, whatEn: string): string {
   const trimmed = (value ?? "").trim();
-  if (trimmed === "") throw new InvalidSimplifiedRegimeRecordError(field, what);
+  if (trimmed === "") throw new InvalidSimplifiedRegimeRecordError(field, what, whatEn);
   return trimmed;
 }
 
@@ -115,8 +117,8 @@ export function recordSimplifiedRegime(
     return { ...NO_SIMPLIFIED_REGIME, notes: cmd.notes ?? null, recordedAt, recordedBy };
   }
 
-  const electedOn = requireDay(cmd.electedOn, "electedOn", "تاريخ تقديم نموذج 1/10 مطلوب.");
-  const form110Reference = requireText(cmd.form110Reference, "form110Reference", "رقم نموذج 1/10 المقدَّم مطلوب.");
+  const electedOn = requireDay(cmd.electedOn, "electedOn", "تاريخ تقديم نموذج 1/10 مطلوب.", "The date Form 1/10 was filed is required.");
+  const form110Reference = requireText(cmd.form110Reference, "form110Reference", "رقم نموذج 1/10 المقدَّم مطلوب.", "The reference number of the filed Form 1/10 is required.");
   const inForce = schedule ?? simplifiedRegimeScheduleOn(electedOn);
   const years = inForce?.irrevocableYears.value ?? 5;
 
@@ -137,8 +139,8 @@ export function recordSimplifiedRegime(
   return {
     ...base,
     state: "withdrawn",
-    withdrawnOn: requireDay(cmd.withdrawnOn, "withdrawnOn", "تاريخ تقديم نموذج 1/11 مطلوب."),
-    form111Reference: requireText(cmd.form111Reference, "form111Reference", "رقم نموذج 1/11 المقدَّم مطلوب."),
+    withdrawnOn: requireDay(cmd.withdrawnOn, "withdrawnOn", "تاريخ تقديم نموذج 1/11 مطلوب.", "The date Form 1/11 was filed is required."),
+    form111Reference: requireText(cmd.form111Reference, "form111Reference", "رقم نموذج 1/11 المقدَّم مطلوب.", "The reference number of the filed Form 1/11 is required."),
   };
 }
 

@@ -1,4 +1,6 @@
 import { InvalidDocumentError } from "../documents/errors.js";
+import { DOCUMENT_STATUS_LABELS_AR, DOCUMENT_STATUS_LABELS_EN, type DocumentStatus } from "../documents/status.js";
+import { getVoucherTypeDefinition, isVoucherType } from "./voucher-types.js";
 
 /**
  * Messages here reach the UI verbatim: the api serves `message: err.message`
@@ -26,6 +28,7 @@ export class InvalidVoucherError extends Error {
  */
 export class CashBalanceWouldGoNegativeError extends Error {
   readonly code = "CASH_BALANCE_NEGATIVE";
+  readonly messageEn: string;
   constructor(
     readonly treasuryAccountId: string,
     readonly currentBalance: string,
@@ -36,6 +39,9 @@ export class CashBalanceWouldGoNegativeError extends Error {
       `لا يمكن تأكيد السند: ${accountType === "cash" ? "الخزينة النقدية" : "الحساب البنكي"} ` +
         `"${treasuryAccountId}" سيصبح رصيده سالباً (الرصيد الحالي ${currentBalance}، والمبلغ المطلوب صرفه ${amount}).`,
     );
+    this.messageEn =
+      `The voucher cannot be confirmed: ${accountType === "cash" ? "cash box" : "bank account"} ` +
+      `"${treasuryAccountId}" would go negative (current balance ${currentBalance}, amount to pay out ${amount}).`;
     this.name = "CashBalanceWouldGoNegativeError";
   }
 }
@@ -43,8 +49,11 @@ export class CashBalanceWouldGoNegativeError extends Error {
 /** Raised when an allocation targets a voucher whose type cannot be allocated. */
 export class VoucherNotAllocatableError extends Error {
   readonly code = "VOUCHER_NOT_ALLOCATABLE";
+  readonly messageEn: string;
   constructor(readonly voucherId: string, readonly voucherType: string) {
-    super(`السند "${voucherId}" من نوع "${voucherType}" لا يقبل التخصيص على الفواتير.`);
+    const def = isVoucherType(voucherType) ? getVoucherTypeDefinition(voucherType) : null;
+    super(`السند "${voucherId}" من نوع "${def?.labelAr ?? voucherType}" لا يقبل التخصيص على الفواتير.`);
+    this.messageEn = `Voucher "${voucherId}" of type "${def?.labelEn ?? voucherType}" cannot be allocated to invoices.`;
     this.name = "VoucherNotAllocatableError";
   }
 }
@@ -52,8 +61,17 @@ export class VoucherNotAllocatableError extends Error {
 /** Raised when allocating against a voucher that is not confirmed. */
 export class VoucherNotConfirmedError extends Error {
   readonly code = "VOUCHER_NOT_CONFIRMED";
+  readonly messageEn: string;
   constructor(readonly voucherId: string, readonly status: string) {
-    super(`السند "${voucherId}" حالته "${status}" وليس مؤكداً، فلا يمكن تخصيصه.`);
+    const known = status in DOCUMENT_STATUS_LABELS_AR ? (status as DocumentStatus) : null;
+    super(
+      known
+        ? `السند "${voucherId}" حالته "${DOCUMENT_STATUS_LABELS_AR[known]}" وليس مؤكداً، فلا يمكن تخصيصه.`
+        : `السند "${voucherId}" غير موجود، فلا يمكن تخصيصه.`,
+    );
+    this.messageEn = known
+      ? `Voucher "${voucherId}" is "${DOCUMENT_STATUS_LABELS_EN[known]}", not confirmed, so it cannot be allocated.`
+      : `Voucher "${voucherId}" was not found, so it cannot be allocated.`;
     this.name = "VoucherNotConfirmedError";
   }
 }
@@ -77,8 +95,10 @@ export class VoucherReversedError extends Error {
 /** Raised when an operation references an invoice id that does not exist. */
 export class InvoiceNotFoundError extends Error {
   readonly code = "INVOICE_NOT_FOUND";
+  readonly messageEn: string;
   constructor(readonly invoiceId: string) {
     super(`تعذّر العثور على فاتورة مفتوحة بالرقم "${invoiceId}".`);
+    this.messageEn = `No open invoice numbered "${invoiceId}" was found.`;
     this.name = "InvoiceNotFoundError";
   }
 }
@@ -86,8 +106,10 @@ export class InvoiceNotFoundError extends Error {
 /** Raised when an operation references an allocation id that does not exist. */
 export class AllocationNotFoundError extends Error {
   readonly code = "ALLOCATION_NOT_FOUND";
+  readonly messageEn: string;
   constructor(readonly allocationId: string) {
     super(`تعذّر العثور على التخصيص "${allocationId}".`);
+    this.messageEn = `Allocation "${allocationId}" was not found.`;
     this.name = "AllocationNotFoundError";
   }
 }
@@ -95,8 +117,10 @@ export class AllocationNotFoundError extends Error {
 /** Raised when the invoice's kind (sales/purchase) or party does not match the voucher. */
 export class AllocationMismatchError extends Error {
   readonly code: string = "ALLOCATION_MISMATCH";
-  constructor(message: string) {
+  readonly messageEn: string;
+  constructor(message: string, messageEn = "The invoice does not match the voucher.") {
     super(message);
+    this.messageEn = messageEn;
     this.name = "AllocationMismatchError";
   }
 }
@@ -131,8 +155,10 @@ export class VoucherTreasuryCurrencyMismatchError extends InvalidDocumentError {
  */
 export class AllocationExceedsError extends Error {
   readonly code = "ALLOCATION_EXCEEDS";
-  constructor(message: string) {
+  readonly messageEn: string;
+  constructor(message: string, messageEn: string) {
     super(message);
+    this.messageEn = messageEn;
     this.name = "AllocationExceedsError";
   }
 }
@@ -150,8 +176,10 @@ export class AllocationIdTakenError extends Error {
 /** Raised when reversing an allocation that is already reversed. */
 export class AllocationAlreadyReversedError extends Error {
   readonly code = "ALLOCATION_ALREADY_REVERSED";
+  readonly messageEn: string;
   constructor(readonly allocationId: string) {
     super(`التخصيص "${allocationId}" معكوس بالفعل.`);
+    this.messageEn = `Allocation "${allocationId}" has already been reversed.`;
     this.name = "AllocationAlreadyReversedError";
   }
 }

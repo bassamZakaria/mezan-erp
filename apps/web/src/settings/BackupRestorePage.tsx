@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Button, Card, StatusPill, TextInput, useFormat } from "@mezan/ui";
 import { useApi } from "../data/ApiContext";
 import { sessionHolds } from "../data/session";
+import { pickMessage } from "../data/server-message";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import {
   backupBridge,
@@ -101,7 +102,7 @@ const DRILL_TRIGGER_KEYS: Record<DrillTrigger, AppTranslationKey> = {
 };
 
 export function BackupRestorePage() {
-  const { t } = useAppTranslation();
+  const { t, locale } = useAppTranslation();
   const countPhrase = useCountPhrase();
   const fmt = useFormat();
   const { session } = useApi();
@@ -136,7 +137,7 @@ export function BackupRestorePage() {
     if (!api || !token) return;
     const [result, current] = await Promise.all([api.list(token), api.status?.(token)]);
     if (isBackupFailure(result)) {
-      setError(result.message);
+      setError(pickMessage(result, locale));
       return;
     }
     setEntries([...result.entries]);
@@ -144,7 +145,7 @@ export function BackupRestorePage() {
     setArchivesEncrypted(result.archivesEncrypted !== false);
     if (current && !isBackupFailure(current)) setStatus(current);
     setError(null);
-  }, [api, token]);
+  }, [api, token, locale]);
 
   function checkLabel(check: DrillCheck | null): string {
     return check ? t(DRILL_CHECK_KEYS[check] ?? "backupDrill.check.crashed") : "—";
@@ -194,7 +195,7 @@ export function BackupRestorePage() {
     setError(null);
     try {
       const result = await api.create(token);
-      if (isBackupFailure(result)) setError(result.message);
+      if (isBackupFailure(result)) setError(pickMessage(result, locale));
       else setNotice(t("backup.created"));
       await refresh();
     } finally {
@@ -214,7 +215,7 @@ export function BackupRestorePage() {
     setError(null);
     try {
       const result = await api.revertToPreUpdate(token);
-      if (isBackupFailure(result)) setError(result.message);
+      if (isBackupFailure(result)) setError(pickMessage(result, locale));
       else setNotice(t("backup.restoredRelaunching"));
     } finally {
       setRunning(null);
@@ -228,7 +229,7 @@ export function BackupRestorePage() {
     setError(null);
     try {
       const result = await api.exportPortable(token, passphrase);
-      if (isBackupFailure(result)) setError(result.message);
+      if (isBackupFailure(result)) setError(pickMessage(result, locale));
       else {
         setNotice(t("backup.portableDone", { path: result.filePath }));
         // The passphrase leaves the screen the moment it has been used.
@@ -247,7 +248,7 @@ export function BackupRestorePage() {
     setError(null);
     try {
       const result = await api.drill(token);
-      if (isBackupFailure(result)) setError(result.message);
+      if (isBackupFailure(result)) setError(pickMessage(result, locale));
       else if (result.drill.outcome === DrillOutcome.Pass) setNotice(t("backupDrill.donePass"));
       else if (result.drill.outcome === DrillOutcome.Warn) setError(t("backupDrill.doneWarn"));
       else setError(t("backupDrill.doneFail", { check: checkLabel(result.drill.failedCheck) }));
@@ -266,7 +267,7 @@ export function BackupRestorePage() {
     try {
       const result = await call.call(api, token);
       if (isBackupFailure(result)) {
-        if (result.code !== "CANCELLED") setError(result.message);
+        if (result.code !== "CANCELLED") setError(pickMessage(result, locale));
       }
       await refresh();
     } finally {
@@ -282,7 +283,7 @@ export function BackupRestorePage() {
     try {
       const result = await api.restore(token, entry.fileName);
       if (isBackupFailure(result)) {
-        setError(result.message);
+        setError(pickMessage(result, locale));
         return;
       }
       // The app relaunches itself a moment after this reply, so this notice is

@@ -48,7 +48,7 @@ export function straightLineMonthlyAmount(
   asset: Pick<Asset, "acquisitionCost" | "salvageValue" | "usefulLifeMonths">,
 ): Money {
   if (asset.usefulLifeMonths <= 0) {
-    throw new InvalidAssetError(["العمر الإنتاجي للأصل يجب أن يكون أكبر من صفر"]);
+    throw new InvalidAssetError([{ ar: "العمر الإنتاجي للأصل يجب أن يكون أكبر من صفر", en: "The asset's useful life must be greater than zero" }]);
   }
   return Money.fromScaled(depreciableBase(asset).scaled / BigInt(asset.usefulLifeMonths));
 }

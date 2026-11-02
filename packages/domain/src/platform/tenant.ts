@@ -1,3 +1,4 @@
+import type { BilingualReason } from "../collections/errors.js";
 import { normalizeEmail } from "../users/save-user.js";
 import { isValidSlug } from "./slug.js";
 import { isoTimestamp } from "./validation.js";
@@ -7,7 +8,7 @@ import {
   TenantCodeTakenError,
   TenantNotFoundError,
 } from "./errors.js";
-import { CompanyNameProblem, companyNameProblem, companyNameProblemAr } from "./company-name.js";
+import { CompanyNameProblem, companyNameProblem, companyNameProblemAr, companyNameProblemEn } from "./company-name.js";
 
 export enum TenantStatusCode {
   Provisioning = "provisioning",
@@ -141,7 +142,7 @@ const FILE_SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 // handed to the next company once a tenant is released; an id never is, so a
 // reused code can never open another company's books.
 export function tenantDbFile(tenantId: string): string {
-  if (!FILE_SAFE_ID.test(tenantId)) throw new InvalidTenantError(["معرّف المنشأة لا يصلح اسمًا لملف قاعدة البيانات"]);
+  if (!FILE_SAFE_ID.test(tenantId)) throw new InvalidTenantError([{ ar: "معرّف المنشأة لا يصلح اسمًا لملف قاعدة البيانات", en: "The company ID cannot be used as a database file name" }]);
   return `tenants/${tenantId}.db`;
 }
 
@@ -151,26 +152,26 @@ const SCHEMA_SAFE_ID = /^[a-z0-9-]{1,61}$/;
 // it) is named by its id. Ids admitted here carry no `_`, so mapping `-` to `_`
 // can never give two distinct ids one schema.
 export function tenantSchema(tenantId: string): string {
-  if (!SCHEMA_SAFE_ID.test(tenantId)) throw new InvalidTenantError(["معرّف المنشأة لا يصلح اسمًا لمخطط قاعدة البيانات"]);
+  if (!SCHEMA_SAFE_ID.test(tenantId)) throw new InvalidTenantError([{ ar: "معرّف المنشأة لا يصلح اسمًا لمخطط قاعدة البيانات", en: "The company ID cannot be used as a database schema name" }]);
   return `t_${tenantId.replace(/-/g, "_")}`;
 }
 
-function validate(cmd: CreateTenantCommand): string[] {
-  const reasons: string[] = [];
-  if (cmd.id.trim() === "") reasons.push("المعرّف مطلوب");
-  else if (!FILE_SAFE_ID.test(cmd.id)) reasons.push("معرّف المنشأة لا يصلح اسمًا لملف قاعدة البيانات");
-  if (!isValidSlug(cmd.code)) reasons.push("الرمز يجب أن يكون من 3 إلى 32 حرفًا إنجليزيًا صغيرًا أو رقمًا أو شرطة داخلية");
+function validate(cmd: CreateTenantCommand): BilingualReason[] {
+  const reasons: BilingualReason[] = [];
+  if (cmd.id.trim() === "") reasons.push({ ar: "المعرّف مطلوب", en: "The ID is required" });
+  else if (!FILE_SAFE_ID.test(cmd.id)) reasons.push({ ar: "معرّف المنشأة لا يصلح اسمًا لملف قاعدة البيانات", en: "The company ID cannot be used as a database file name" });
+  if (!isValidSlug(cmd.code)) reasons.push({ ar: "الرمز يجب أن يكون من 3 إلى 32 حرفًا إنجليزيًا صغيرًا أو رقمًا أو شرطة داخلية", en: "The code must be 3 to 32 characters of lowercase English letters, digits or hyphens" });
   const nameProblem = companyNameProblem(cmd.nameAr);
-  if (nameProblem === CompanyNameProblem.Empty) reasons.push("الاسم بالعربية مطلوب");
-  else if (nameProblem) reasons.push(companyNameProblemAr(nameProblem));
-  if (normalizeEmail(cmd.ownerEmail) === "") reasons.push("بريد المالك مطلوب");
+  if (nameProblem === CompanyNameProblem.Empty) reasons.push({ ar: "الاسم بالعربية مطلوب", en: "The Arabic name is required" });
+  else if (nameProblem) reasons.push({ ar: companyNameProblemAr(nameProblem), en: companyNameProblemEn(nameProblem) });
+  if (normalizeEmail(cmd.ownerEmail) === "") reasons.push({ ar: "بريد المالك مطلوب", en: "The owner email is required" });
   return reasons;
 }
 
 export async function createTenant(cmd: CreateTenantCommand, repo: TenantRepository): Promise<Tenant> {
   const now = isoTimestamp(cmd.now);
   const reasons = validate(cmd);
-  if (!now) reasons.push("الطابع الزمني الحالي غير صالح (يجب أن يكون بصيغة ISO-8601)");
+  if (!now) reasons.push({ ar: "الطابع الزمني الحالي غير صالح (يجب أن يكون بصيغة ISO-8601)", en: "The current timestamp is invalid (it must be ISO-8601)" });
   if (!now || reasons.length > 0) throw new InvalidTenantError(reasons);
   if (await repo.findByCode(cmd.code)) throw new TenantCodeTakenError(cmd.code);
   const tenant: Tenant = {
@@ -209,7 +210,7 @@ async function transition(
   from?: readonly TenantStatus[],
 ): Promise<Tenant> {
   const now = isoTimestamp(cmd.now);
-  if (!now) throw new InvalidTenantError(["الطابع الزمني الحالي غير صالح (يجب أن يكون بصيغة ISO-8601)"]);
+  if (!now) throw new InvalidTenantError([{ ar: "الطابع الزمني الحالي غير صالح (يجب أن يكون بصيغة ISO-8601)", en: "The current timestamp is invalid (it must be ISO-8601)" }]);
   const current = await repo.findById(cmd.id);
   if (!current) throw new TenantNotFoundError(cmd.id);
   if (!TRANSITIONS[current.status].includes(to) || (from !== undefined && !from.includes(current.status))) {
@@ -237,7 +238,7 @@ export function releasedTenantCode(id: string): string {
 
 export async function releaseTenant(cmd: TenantTransitionCommand, repo: TenantRepository): Promise<Tenant> {
   const now = isoTimestamp(cmd.now);
-  if (!now) throw new InvalidTenantError(["الطابع الزمني الحالي غير صالح (يجب أن يكون بصيغة ISO-8601)"]);
+  if (!now) throw new InvalidTenantError([{ ar: "الطابع الزمني الحالي غير صالح (يجب أن يكون بصيغة ISO-8601)", en: "The current timestamp is invalid (it must be ISO-8601)" }]);
   const current = await repo.findById(cmd.id);
   if (!current) throw new TenantNotFoundError(cmd.id);
   if (current.status !== TenantStatusCode.Provisioning) throw new InvalidTenantTransitionError(current.status, TenantStatusCode.Archived);
@@ -261,10 +262,10 @@ export enum OwnerContactProof {
 // inbox the owner has not shown they hold. Null means nothing changes.
 export function tenantWithOwnerContact(tenant: Tenant, owner: TenantOwnerAccount, proof: OwnerContactProof, now: string): Tenant | null {
   const at = isoTimestamp(now);
-  if (!at) throw new InvalidTenantError(["الطابع الزمني الحالي غير صالح (يجب أن يكون بصيغة ISO-8601)"]);
+  if (!at) throw new InvalidTenantError([{ ar: "الطابع الزمني الحالي غير صالح (يجب أن يكون بصيغة ISO-8601)", en: "The current timestamp is invalid (it must be ISO-8601)" }]);
   if (tenant.ownerUserId !== null && tenant.ownerUserId !== owner.id) return null;
   const email = normalizeEmail(owner.email);
-  if (email === "") throw new InvalidTenantError(["بريد المالك مطلوب"]);
+  if (email === "") throw new InvalidTenantError([{ ar: "بريد المالك مطلوب", en: "The owner email is required" }]);
   const settled = email === tenant.ownerEmail || proof === OwnerContactProof.OwnerActed;
   const next: Tenant = {
     ...tenant,
@@ -284,7 +285,7 @@ export function tenantWithOwnerContact(tenant: Tenant, owner: TenantOwnerAccount
 
 export function tenantNeedingOwner(tenant: Tenant, now: string): Tenant | null {
   const at = isoTimestamp(now);
-  if (!at) throw new InvalidTenantError(["الطابع الزمني الحالي غير صالح (يجب أن يكون بصيغة ISO-8601)"]);
+  if (!at) throw new InvalidTenantError([{ ar: "الطابع الزمني الحالي غير صالح (يجب أن يكون بصيغة ISO-8601)", en: "The current timestamp is invalid (it must be ISO-8601)" }]);
   if (tenant.ownerNeeded === true || tenant.pendingOwner) return null;
   return { ...tenant, ownerNeeded: true, updatedAt: at };
 }
@@ -292,9 +293,9 @@ export function tenantNeedingOwner(tenant: Tenant, now: string): Tenant | null {
 function successorOf(successor: TenantOwnerAccount, now: string): { readonly at: string; readonly email: string } {
   const at = isoTimestamp(now);
   const email = normalizeEmail(successor.email);
-  const reasons: string[] = [];
-  if (!at) reasons.push("الطابع الزمني الحالي غير صالح (يجب أن يكون بصيغة ISO-8601)");
-  if (email === "") reasons.push("بريد المالك مطلوب");
+  const reasons: BilingualReason[] = [];
+  if (!at) reasons.push({ ar: "الطابع الزمني الحالي غير صالح (يجب أن يكون بصيغة ISO-8601)", en: "The current timestamp is invalid (it must be ISO-8601)" });
+  if (email === "") reasons.push({ ar: "بريد المالك مطلوب", en: "The owner email is required" });
   if (!at || reasons.length > 0) throw new InvalidTenantError(reasons);
   return { at, email };
 }
@@ -325,14 +326,14 @@ export function tenantWithPendingOwner(
 }
 
 function pendingOf(tenant: Tenant): PendingOwner {
-  if (!tenant.pendingOwner) throw new InvalidTenantError(["لا يوجد مالك بانتظار التأكيد لهذه المنشأة"]);
+  if (!tenant.pendingOwner) throw new InvalidTenantError([{ ar: "لا يوجد مالك بانتظار التأكيد لهذه المنشأة", en: "This company has no owner awaiting confirmation" }]);
   return tenant.pendingOwner;
 }
 
 export function tenantWithPendingOwnerDeclined(tenant: Tenant, now: string): Tenant {
   pendingOf(tenant);
   const at = isoTimestamp(now);
-  if (!at) throw new InvalidTenantError(["الطابع الزمني الحالي غير صالح (يجب أن يكون بصيغة ISO-8601)"]);
+  if (!at) throw new InvalidTenantError([{ ar: "الطابع الزمني الحالي غير صالح (يجب أن يكون بصيغة ISO-8601)", en: "The current timestamp is invalid (it must be ISO-8601)" }]);
   return { ...tenant, pendingOwner: null, updatedAt: at };
 }
 
@@ -344,7 +345,7 @@ export enum PendingOwnerLink {
 export function tenantWithPendingOwnerLink(tenant: Tenant, link: PendingOwnerLink, tokenHash: string | null, now: string): Tenant {
   const pending = pendingOf(tenant);
   const at = isoTimestamp(now);
-  if (!at) throw new InvalidTenantError(["الطابع الزمني الحالي غير صالح (يجب أن يكون بصيغة ISO-8601)"]);
+  if (!at) throw new InvalidTenantError([{ ar: "الطابع الزمني الحالي غير صالح (يجب أن يكون بصيغة ISO-8601)", en: "The current timestamp is invalid (it must be ISO-8601)" }]);
   const next: PendingOwner = link === PendingOwnerLink.Reissued ? { ...pending, requestedAt: at, expiresAt: pendingOwnerExpiresAt(at), tokenHash } : { ...pending, tokenHash: null };
   return { ...tenant, pendingOwner: next, updatedAt: at };
 }
@@ -355,11 +356,11 @@ export function tenantWithOwnerRecordDue(tenant: Tenant, due: OwnerRecordDue | n
 
 export function tenantWithBooksReview(tenant: Tenant, review: TenantBooksReview | null, now: string): Tenant {
   const at = isoTimestamp(now);
-  if (!at) throw new InvalidTenantError(["الطابع الزمني الحالي غير صالح (يجب أن يكون بصيغة ISO-8601)"]);
+  if (!at) throw new InvalidTenantError([{ ar: "الطابع الزمني الحالي غير صالح (يجب أن يكون بصيغة ISO-8601)", en: "The current timestamp is invalid (it must be ISO-8601)" }]);
   return { ...tenant, booksReview: review, updatedAt: at };
 }
 
 export function tenantWithPendingOwnerConfirmed(tenant: Tenant, now: string): Tenant {
-  if (!tenant.pendingOwner) throw new InvalidTenantError(["لا يوجد مالك بانتظار التأكيد لهذه المنشأة"]);
+  if (!tenant.pendingOwner) throw new InvalidTenantError([{ ar: "لا يوجد مالك بانتظار التأكيد لهذه المنشأة", en: "This company has no owner awaiting confirmation" }]);
   return tenantHandedTo(tenant, { id: tenant.pendingOwner.userId, email: tenant.pendingOwner.email }, now);
 }

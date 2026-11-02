@@ -81,21 +81,28 @@ const BLOCKED_HOSTS = new Set(["localhost", "metadata", "metadata.google.interna
  * The checks that need no network: https, no credentials in the address, a host name that is not
  * a private alias. The address the name resolves to is vetted again before every delivery.
  */
-export function webhookTargetProblem(raw: string): string | null {
+export interface WebhookTargetProblem {
+  readonly message: string;
+  readonly messageEn: string;
+}
+
+const INTERNAL_TARGET_PROBLEM: WebhookTargetProblem = { message: "لا يمكن إرسال webhook إلى عنوان داخلي.", messageEn: "A webhook cannot be sent to an internal address." };
+
+export function webhookTargetProblem(raw: string): WebhookTargetProblem | null {
   let url: URL;
   try {
     url = new URL(raw);
   } catch {
-    return "عنوان الاستقبال غير صالح.";
+    return { message: "عنوان الاستقبال غير صالح.", messageEn: "The receiving address is not valid." };
   }
-  if (url.protocol !== "https:") return "يجب أن يبدأ عنوان الاستقبال بـ https://";
-  if (url.username !== "" || url.password !== "") return "لا يُقبل اسم مستخدم أو كلمة مرور داخل عنوان الاستقبال.";
+  if (url.protocol !== "https:") return { message: "يجب أن يبدأ عنوان الاستقبال بـ https://", messageEn: "The receiving address must start with https://" };
+  if (url.username !== "" || url.password !== "") {
+    return { message: "لا يُقبل اسم مستخدم أو كلمة مرور داخل عنوان الاستقبال.", messageEn: "A user name or password inside the receiving address is not accepted." };
+  }
   const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "");
-  if (host === "" || BLOCKED_HOSTS.has(host) || BLOCKED_HOST_SUFFIXES.some((suffix) => host.endsWith(suffix))) {
-    return "لا يمكن إرسال webhook إلى عنوان داخلي.";
-  }
-  if (host.includes(":")) return "عناوين IPv6 المباشرة غير مسموح بها؛ استخدم اسم مضيف.";
-  if (isPrivateIpv4Literal(host)) return "لا يمكن إرسال webhook إلى عنوان داخلي.";
+  if (host === "" || BLOCKED_HOSTS.has(host) || BLOCKED_HOST_SUFFIXES.some((suffix) => host.endsWith(suffix))) return INTERNAL_TARGET_PROBLEM;
+  if (host.includes(":")) return { message: "عناوين IPv6 المباشرة غير مسموح بها؛ استخدم اسم مضيف.", messageEn: "Raw IPv6 addresses are not allowed; use a host name." };
+  if (isPrivateIpv4Literal(host)) return INTERNAL_TARGET_PROBLEM;
   return null;
 }
 

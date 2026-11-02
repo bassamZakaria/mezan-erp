@@ -1,10 +1,15 @@
+import { splitReasons, type ReasonInput } from "../bilingual-reasons.js";
+
 /** Raised when a promotion draft fails validation; `reasons` lists every failure, in Arabic, for the UI to show verbatim. */
 export class InvalidPromotionError extends Error {
   readonly code = "INVALID_PROMOTION";
   readonly messageEn: string;
-  constructor(readonly reasons: readonly string[]) {
-    super(`بيانات العرض غير صالحة: ${reasons.join("، ")}`);
-    this.messageEn = `Invalid promotion: ${reasons.join("; ")}`;
+  readonly reasons: readonly string[];
+  constructor(reasons: readonly ReasonInput[]) {
+    const split = splitReasons(reasons, "it failed validation");
+    super(`بيانات العرض غير صالحة: ${split.ar.join("، ")}`);
+    this.reasons = split.ar;
+    this.messageEn = `Invalid promotion: ${split.en}`;
     this.name = "InvalidPromotionError";
   }
 }

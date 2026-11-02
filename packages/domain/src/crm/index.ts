@@ -9,6 +9,7 @@ export type {
 export {
   LEAD_STATUS_DEFINITIONS,
   getLeadStatusLabel,
+  getLeadStatusLabelEn,
   LEAD_SOURCE_DEFINITIONS,
   getLeadSourceLabel,
   ALLOWED_LEAD_TRANSITIONS,

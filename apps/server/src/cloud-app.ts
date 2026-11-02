@@ -594,12 +594,12 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
 
   root.onError((err, c) => {
     log.error({ event: LogEvent.UnhandledError, method: c.req.method, route: c.req.path, err }, "unhandled error");
-    if (err instanceof NulCharacterError) return c.json({ error: err.code, message: err.messageAr, messageEn: err.message }, 400);
+    if (err instanceof NulCharacterError) return c.json({ error: err.code, message: err.messageAr, messageEn: err.messageEn }, 400);
     if (err instanceof DatabaseBusyError) {
       c.header("retry-after", "2");
       return c.json({ error: AuditBoundaryRefusal.ConnectionBusy, message: "قاعدة البيانات مشغولة الآن، فلم يُحفظ أي تغيير. حاول مرة أخرى بعد قليل.", messageEn: "The database is busy, so nothing was saved. Try again shortly." }, 503);
     }
-    return answerTenantDbFileRefusal(c, err) ?? c.json({ error: "INTERNAL", message: "حدث خطأ غير متوقع" }, 500);
+    return answerTenantDbFileRefusal(c, err) ?? c.json({ error: "INTERNAL", message: "حدث خطأ غير متوقع", messageEn: "An unexpected error occurred" }, 500);
   });
 
   const builtIndexHtml = await readIndexHtmlIfPresent(env.webDist);
@@ -640,7 +640,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
     root.get("/assets/*", (c) => c.text("Not found", 404));
     root.notFound(shellPage);
   } else {
-    root.notFound((c) => c.json({ error: "NOT_FOUND", message: "لا توجد حزمة واجهة مبنية" }, 404));
+    root.notFound((c) => c.json({ error: "NOT_FOUND", message: "لا توجد حزمة واجهة مبنية", messageEn: "No built front-end bundle exists" }, 404));
   }
 
   if (tenantDatabases) await stampSchemaVersion(platform.stores.db);

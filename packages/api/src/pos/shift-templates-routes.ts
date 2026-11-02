@@ -32,12 +32,15 @@ export function createShiftTemplatesRoutes(deps: ShiftTemplatesRoutesDeps, resol
 
   async function check(template: ShiftTemplate): Promise<void> {
     if (template.branchId !== null && !(await deps.branches.findById(template.branchId))) {
-      throw new InvalidShiftTemplateError(["الفرع المحدد غير موجود"]);
+      throw new InvalidShiftTemplateError([{ ar: "الفرع المحدد غير موجود", en: "The selected branch does not exist" }]);
     }
     const clash = overlappingShiftTemplate(template, await deps.shiftTemplates.list());
     if (clash) {
       throw new InvalidShiftTemplateError([
-        `تتداخل مع «${clash.nameAr}» (${clash.fromTime}–${clash.toTime}) — كل عملية تُحسب على وردية واحدة`,
+        {
+          ar: `تتداخل مع «${clash.nameAr}» (${clash.fromTime}–${clash.toTime}) — كل عملية تُحسب على وردية واحدة`,
+          en: `It overlaps "${clash.nameEn ?? clash.nameAr}" (${clash.fromTime}–${clash.toTime}) — each transaction is counted on a single shift`,
+        },
       ]);
     }
   }
@@ -59,7 +62,7 @@ export function createShiftTemplatesRoutes(deps: ShiftTemplatesRoutesDeps, resol
 
   app.put("/:id", gate("admin.settings.edit"), async (c) => {
     const current = await deps.shiftTemplates.findById(c.req.param("id"));
-    if (!current) return c.json({ error: "NOT_FOUND", message: "الوردية غير موجودة" }, 404);
+    if (!current) return c.json({ error: "NOT_FOUND", message: "الوردية غير موجودة", messageEn: "The shift was not found" }, 404);
     const parsed = updateShiftTemplateSchema.safeParse(await readJson(c));
     if (!parsed.success) return validationError(c, parsed.error);
     try {

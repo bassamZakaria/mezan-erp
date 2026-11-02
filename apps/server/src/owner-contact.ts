@@ -76,6 +76,7 @@ type AssigningBackend = Pick<BackendHandle, "companyAdmins" | "recordOwnerAssign
 
 export class OwnerCandidateNotFoundError extends Error {
   readonly code = PlatformRefusalCode.OwnerCandidateNotFound;
+  readonly messageEn = "The selected account is not an active administrator of this company.";
 
   constructor() {
     super("الحساب المختار ليس مديرًا نشطًا في هذه المنشأة");
@@ -85,6 +86,7 @@ export class OwnerCandidateNotFoundError extends Error {
 
 export class NoPendingOwnerError extends Error {
   readonly code = PlatformRefusalCode.NoPendingOwner;
+  readonly messageEn = "This company has no owner waiting for confirmation.";
 
   constructor() {
     super("لا يوجد مالك بانتظار التأكيد لهذه المنشأة");
@@ -94,6 +96,7 @@ export class NoPendingOwnerError extends Error {
 
 export class PendingOwnerExpiredError extends Error {
   readonly code = PlatformRefusalCode.PendingOwnerExpired;
+  readonly messageEn = "The time to confirm the ownership hand-over has run out. Send the confirmation link again or cancel the request.";
 
   constructor() {
     super("انتهت مهلة تأكيد نقل الملكية. أرسل رابط التأكيد من جديد أو ألغِ الطلب.");
@@ -113,6 +116,7 @@ export class PlatformMailNotConfiguredError extends Error {
 
 export class OwnerRecordDueError extends Error {
   readonly code = "TENANT_OWNER_RECORD_DUE";
+  readonly messageEn = "The previous owner's record has not been written to the company's data yet. Try again in a moment.";
   readonly retryable = true;
 
   constructor(readonly cause?: unknown) {

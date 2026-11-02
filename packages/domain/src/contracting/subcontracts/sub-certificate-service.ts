@@ -34,6 +34,7 @@ import type {
 import {
   EDITABLE_SUB_CERTIFICATE_STATUSES,
   getSubCertificateStatusLabel,
+  getSubCertificateStatusLabelEn,
   isLiveSubCertificate,
   type SubCertificate,
   type SubCertificateDerivedStatus,
@@ -42,9 +43,11 @@ import {
   type SubCertificateWorkLine,
   type SubcontractStore,
 } from "./sub-certificate.js";
-import { payabilityRefusals } from "./subcontract-service.js";
-import type { Subcontract, SubcontractLine } from "./subcontract.js";
+import { payabilityRefusalReasons, payabilityRefusals } from "./subcontract-service.js";
+import { getSubcontractStatusLabel, getSubcontractStatusLabelEn, type Subcontract, type SubcontractLine } from "./subcontract.js";
 import { tenantTodayIso } from "../../dates.js";
+import type { BilingualReason } from "../../collections/errors.js";
+import type { ReasonInput } from "../../bilingual-reasons.js";
 
 /**
  * مستخلص مقاول باطن — the use cases and the ledger behind them (design §03
@@ -65,6 +68,7 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 /** «خصم مواد مصروفة للمقاول» — the sub side's name for the shared `employerMaterials` row. */
 const EMPLOYER_MATERIALS_LABEL_AR = "خصم مواد مصروفة للمقاول";
+const EMPLOYER_MATERIALS_LABEL = { ar: EMPLOYER_MATERIALS_LABEL_AR, en: "Materials issued by the employer" };
 
 export interface SubCertificateActor {
   readonly userId: string;
@@ -146,22 +150,22 @@ export interface SubCertificatePreview {
   readonly employerMaterialsPrefill: Money;
 }
 
-function moneyOf(reasons: string[], label: string, value: string | null | undefined, fallback = Money.zero()): Money {
+function moneyOf(reasons: ReasonInput[], label: BilingualReason, value: string | null | undefined, fallback = Money.zero()): Money {
   if (value === null || value === undefined || value === "") return fallback;
   try {
     return Money.fromMajor(value);
   } catch {
-    reasons.push(`${label} يجب أن يكون رقمًا`);
+    reasons.push({ ar: `${label.ar} يجب أن يكون رقمًا`, en: `${label.en} must be a number` });
     return fallback;
   }
 }
 
-function qtyOf(reasons: string[], label: string, value: string | null | undefined): Qty {
+function qtyOf(reasons: ReasonInput[], label: BilingualReason, value: string | null | undefined): Qty {
   if (value === null || value === undefined || value === "") return Qty.zero();
   try {
     return Qty.fromMajor(value);
   } catch {
-    reasons.push(`${label} يجب أن تكون رقمًا`);
+    reasons.push({ ar: `${label.ar} يجب أن تكون رقمًا`, en: `${label.en} must be a number` });
     return Qty.zero();
   }
 }
@@ -199,7 +203,7 @@ export class SubCertificateService {
     const routing = this.deps.routing ? await this.deps.routing.get() : null;
     const accountId = routedAccountId(routing, key);
     if (accountId === null) {
-      throw new InvalidSubCertificateError([`لم يُحدَّد حساب لتوجيه "${key}" في جدول توجيه الحسابات.`]);
+      throw new InvalidSubCertificateError([{ ar: `لم يُحدَّد حساب لتوجيه "${key}" في جدول توجيه الحسابات.`, en: `No account has been set for routing "${key}" in the account routing table.` }]);
     }
     return accountId;
   }
@@ -261,7 +265,7 @@ export class SubCertificateService {
 
   private async requireSubcontract(subcontractId: string): Promise<Subcontract> {
     const subcontract = await this.deps.store.findById(subcontractId);
-    if (!subcontract) throw new InvalidSubCertificateError([`عقد الباطن "${subcontractId}" غير موجود`]);
+    if (!subcontract) throw new InvalidSubCertificateError([{ ar: `عقد الباطن "${subcontractId}" غير موجود`, en: `Subcontract "${subcontractId}" was not found` }]);
     return subcontract;
   }
 
@@ -337,7 +341,7 @@ export class SubCertificateService {
     previous: SubCertificate | null,
     inputs: readonly SubCertificateWorkLineInput[],
     ceiling: ReadonlyMap<string, Qty>,
-    reasons: string[],
+    reasons: ReasonInput[],
     stamped: readonly SubCertificateWorkLine[],
   ): SubCertificateWorkLine[] {
     const byId = new Map(inputs.map((i) => [i.subcontractLineId, i]));
@@ -345,12 +349,12 @@ export class SubCertificateService {
     const previousById = new Map((previous?.workLines ?? []).map((l) => [l.boqLineId, l]));
     for (const input of inputs) {
       if (!lines.some((l) => l.id === input.subcontractLineId)) {
-        reasons.push(`البند "${input.subcontractLineId}" غير موجود في بنود عقد الباطن`);
+        reasons.push({ ar: `البند "${input.subcontractLineId}" غير موجود في بنود عقد الباطن`, en: `Line item "${input.subcontractLineId}" was not found in the subcontract lines` });
       }
     }
     return lines.map((line, index) => {
       const input = byId.get(line.id);
-      const thisPeriodQty = qtyOf(reasons, `كمية البند "${line.code}"`, input?.thisPeriodQty);
+      const thisPeriodQty = qtyOf(reasons, { ar: `كمية البند "${line.code}"`, en: `Quantity of line item "${line.code}"` }, input?.thisPeriodQty);
       const prior = previousById.get(line.id);
       const previousCumulativeQty = prior?.cumulativeQty ?? Qty.zero();
       const previousCumulativeValue = prior?.cumulativeValue ?? Money.zero();
@@ -390,16 +394,16 @@ export class SubCertificateService {
   private quantityRefusals(
     workLines: readonly SubCertificateWorkLine[],
     peerCertified: ReadonlyMap<string, Qty>,
-  ): string[] {
-    const reasons: string[] = [];
+  ): BilingualReason[] {
+    const reasons: BilingualReason[] = [];
     for (const line of workLines) {
       if (line.cumulativeQty.isNegative()) {
-        reasons.push(`الكمية التراكمية للبند "${line.code} — ${line.descriptionAr}" سالبة.`);
+        reasons.push({ ar: `الكمية التراكمية للبند "${line.code} — ${line.descriptionAr}" سالبة.`, en: `The cumulative quantity of line item "${line.code} — ${line.descriptionAr}" is negative.` });
         continue;
       }
       if (line.cumulativeQty.compare(line.contractedQty) > 0) {
         reasons.push(
-          `البند "${line.code} — ${line.descriptionAr}": الكمية التراكمية ${qtyText(line.cumulativeQty)} تتجاوز كمية عقد الباطن ${qtyText(line.contractedQty)}.`,
+          { ar: `البند "${line.code} — ${line.descriptionAr}": الكمية التراكمية ${qtyText(line.cumulativeQty)} تتجاوز كمية عقد الباطن ${qtyText(line.contractedQty)}.`, en: `Line item "${line.code} — ${line.descriptionAr}": the cumulative quantity ${qtyText(line.cumulativeQty)} exceeds the subcontract quantity ${qtyText(line.contractedQty)}.` },
         );
         continue;
       }
@@ -408,8 +412,8 @@ export class SubCertificateService {
       if (line.cumulativeQty.compare(available) > 0) {
         reasons.push(
           peer.isZero()
-            ? `لا يجوز اعتماد كمية للمقاول تتجاوز ما اعتمده الاستشاري على البند "${line.code} — ${line.descriptionAr}": الكمية التراكمية للباطن ${qtyText(line.cumulativeQty)} والمعتمد للعميل ${qtyText(line.clientCertifiedCumulativeQty)}.`
-            : `لا يجوز اعتماد كمية للمقاول تتجاوز المتاح على البند "${line.code} — ${line.descriptionAr}": المعتمد للعميل ${qtyText(line.clientCertifiedCumulativeQty)}، ومعتمد لمقاولي باطن آخرين ${qtyText(peer)}، فالمتاح ${qtyText(available)} والكمية التراكمية لهذا المقاول ${qtyText(line.cumulativeQty)}.`,
+            ? { ar: `لا يجوز اعتماد كمية للمقاول تتجاوز ما اعتمده الاستشاري على البند "${line.code} — ${line.descriptionAr}": الكمية التراكمية للباطن ${qtyText(line.cumulativeQty)} والمعتمد للعميل ${qtyText(line.clientCertifiedCumulativeQty)}.`, en: `The contractor's quantity cannot exceed what the consultant certified on line item "${line.code} — ${line.descriptionAr}": the subcontractor's cumulative quantity ${qtyText(line.cumulativeQty)} and the client-certified ${qtyText(line.clientCertifiedCumulativeQty)}.` }
+            : { ar: `لا يجوز اعتماد كمية للمقاول تتجاوز المتاح على البند "${line.code} — ${line.descriptionAr}": المعتمد للعميل ${qtyText(line.clientCertifiedCumulativeQty)}، ومعتمد لمقاولي باطن آخرين ${qtyText(peer)}، فالمتاح ${qtyText(available)} والكمية التراكمية لهذا المقاول ${qtyText(line.cumulativeQty)}.`, en: `The contractor's quantity cannot exceed what is available on line item "${line.code} — ${line.descriptionAr}": client-certified ${qtyText(line.clientCertifiedCumulativeQty)}, certified for other subcontractors ${qtyText(peer)}, so ${qtyText(available)} is available and this contractor's cumulative quantity is ${qtyText(line.cumulativeQty)}.` },
         );
       }
     }
@@ -433,13 +437,13 @@ export class SubCertificateService {
     };
     executionDate: string;
   }> {
-    const reasons: string[] = [];
-    if (!ISO_DATE.test(input.periodFrom)) reasons.push("تاريخ بداية الفترة مطلوب بصيغة YYYY-MM-DD");
-    if (!ISO_DATE.test(input.periodTo)) reasons.push("تاريخ نهاية الفترة مطلوب بصيغة YYYY-MM-DD");
+    const reasons: ReasonInput[] = [];
+    if (!ISO_DATE.test(input.periodFrom)) reasons.push({ ar: "تاريخ بداية الفترة مطلوب بصيغة YYYY-MM-DD", en: "The period start date is required in the form YYYY-MM-DD" });
+    if (!ISO_DATE.test(input.periodTo)) reasons.push({ ar: "تاريخ نهاية الفترة مطلوب بصيغة YYYY-MM-DD", en: "The period end date is required in the form YYYY-MM-DD" });
     const executionDate = input.executionDate ?? input.periodTo;
-    if (!ISO_DATE.test(executionDate)) reasons.push("تاريخ التنفيذ مطلوب بصيغة YYYY-MM-DD");
+    if (!ISO_DATE.test(executionDate)) reasons.push({ ar: "تاريخ التنفيذ مطلوب بصيغة YYYY-MM-DD", en: "The execution date is required in the form YYYY-MM-DD" });
     if (ISO_DATE.test(input.periodFrom) && ISO_DATE.test(input.periodTo) && input.periodTo < input.periodFrom) {
-      reasons.push("تاريخ نهاية الفترة يسبق تاريخ بدايتها");
+      reasons.push({ ar: "تاريخ نهاية الفترة يسبق تاريخ بدايتها", en: "The period end date is before its start date" });
     }
     if (reasons.length > 0) throw new InvalidSubCertificateError(reasons);
 
@@ -454,10 +458,10 @@ export class SubCertificateService {
       stamped,
     );
     const manual = {
-      penaltiesCumulative: moneyOf(reasons, "غرامة التأخير", input.penaltiesCumulative),
-      suspendedCumulative: moneyOf(reasons, "التعليات", input.suspendedCumulative),
-      employerMaterialsCumulative: moneyOf(reasons, EMPLOYER_MATERIALS_LABEL_AR, input.employerMaterialsCumulative),
-      waterElectricityCumulative: moneyOf(reasons, "استهلاك المياه والكهرباء", input.waterElectricityCumulative),
+      penaltiesCumulative: moneyOf(reasons, { ar: "غرامة التأخير", en: "Late penalty" }, input.penaltiesCumulative),
+      suspendedCumulative: moneyOf(reasons, { ar: "التعليات", en: "Suspended amounts" }, input.suspendedCumulative),
+      employerMaterialsCumulative: moneyOf(reasons, EMPLOYER_MATERIALS_LABEL, input.employerMaterialsCumulative),
+      waterElectricityCumulative: moneyOf(reasons, { ar: "استهلاك المياه والكهرباء", en: "Water and electricity consumption" }, input.waterElectricityCumulative),
     };
     if (reasons.length > 0) throw new InvalidSubCertificateError(reasons);
 
@@ -536,7 +540,7 @@ export class SubCertificateService {
           await this.peerCertifiedByClientLine(subcontract.contractId, subcontract.id),
         ),
         ...(await this.deductionRefusals(composed.computed, subcontract)),
-      ],
+      ].map((reason) => reason.ar),
       employerMaterialsPrefill: await this.materialsPrefill(subcontract.id),
     };
   }
@@ -545,7 +549,7 @@ export class SubCertificateService {
     const subcontract = await this.requireSubcontract(cmd.subcontractId);
     if (subcontract.status !== "active") {
       throw new InvalidSubCertificateError([
-        `لا يمكن إصدار مستخلص إلا على عقد باطن ساري — حالة العقد "${subcontract.status}".`,
+        { ar: `لا يمكن إصدار مستخلص إلا على عقد باطن ساري — حالة العقد "${getSubcontractStatusLabel(subcontract.status)}".`, en: `A certificate can only be issued on an active subcontract — the subcontract status is "${getSubcontractStatusLabelEn(subcontract.status)}".` },
       ]);
     }
     const all = await this.deps.store.listCertificatesBySubcontract(subcontract.id);
@@ -557,7 +561,7 @@ export class SubCertificateService {
     const serial = all.reduce((max, row) => Math.max(max, row.serial), 0) + 1;
     if (previous?.isFinal) {
       throw new InvalidSubCertificateError([
-        `المستخلص الختامي رقم ${previous.serial} أقفل كميات عقد الباطن — لا يجوز إصدار مستخلص بعده.`,
+        { ar: `المستخلص الختامي رقم ${previous.serial} أقفل كميات عقد الباطن — لا يجوز إصدار مستخلص بعده.`, en: `Final certificate no. ${previous.serial} closed the subcontract quantities — no certificate may be issued after it.` },
       ]);
     }
     const composed = await this.compose(cmd.id, subcontract, previous, cmd, []);
@@ -615,7 +619,7 @@ export class SubCertificateService {
     const current = await this.require(idOrDocNo);
     if (!EDITABLE_SUB_CERTIFICATE_STATUSES.includes(current.status)) {
       throw new InvalidSubCertificateError([
-        `لا يمكن تعديل مستخلص حالته "${getSubCertificateStatusLabel(current.status)}" — التصحيح يكون بكمية على المستخلص التالي.`,
+        { ar: `لا يمكن تعديل مستخلص حالته "${getSubCertificateStatusLabel(current.status)}" — التصحيح يكون بكمية على المستخلص التالي.`, en: `A certificate that is "${getSubCertificateStatusLabelEn(current.status)}" cannot be edited — correct it with a quantity on the next certificate.` },
       ]);
     }
     await this.assertNoLaterCertificate(current);
@@ -674,8 +678,8 @@ export class SubCertificateService {
   ): Promise<SubCertificateView> {
     const current = await this.moveable(idOrDocNo, "draft", "measured");
     const on = measuredAt ?? this.today();
-    this.assertSignatureDate("تاريخ الحصر", on, [
-      ["تاريخ نهاية الفترة", current.periodTo],
+    this.assertSignatureDate({ ar: "تاريخ الحصر", en: "Measurement date" }, on, [
+      [{ ar: "تاريخ نهاية الفترة", en: "Period end date" }, current.periodTo],
     ]);
     await this.refuseAll(current);
     const next: SubCertificate = {
@@ -697,14 +701,15 @@ export class SubCertificateService {
   ): Promise<SubCertificateView> {
     const current = await this.moveable(idOrDocNo, "measured", "certified");
     const on = certifiedAt ?? this.today();
-    this.assertSignatureDate("تاريخ الاعتماد الفني", on, [
-      ["تاريخ نهاية الفترة", current.periodTo],
-      ["تاريخ الحصر", current.measuredAt],
+    this.assertSignatureDate({ ar: "تاريخ الاعتماد الفني", en: "Technical certification date" }, on, [
+      [{ ar: "تاريخ نهاية الفترة", en: "Period end date" }, current.periodTo],
+      [{ ar: "تاريخ الحصر", en: "Measurement date" }, current.measuredAt],
     ]);
     if (!(await this.waived(actor)) && current.preparedBy !== null && current.preparedBy === actor.userId) {
       throw new SubCertificateSegregationError(
         actor.userId,
         "لا يجوز اعتماد مستخلص الباطن من نفس الشخص الذي أعدّه. إذا كانت المنشأة شخصًا واحدًا، فعّل «وضع المشغّل الواحد» من الإعدادات العامة ← المقاولات.",
+        "A subcontractor certificate cannot be certified by the same person who prepared it. If the company is one person, enable \"Single-operator mode\" in General settings → Contracting.",
       );
     }
     await this.refuseAll(current);
@@ -726,28 +731,30 @@ export class SubCertificateService {
    */
   async approve(idOrDocNo: string, approvedAt: string, actor: SubCertificateActor): Promise<SubCertificateView> {
     const current = await this.moveable(idOrDocNo, "certified", "approved_for_payment");
-    this.assertSignatureDate("تاريخ الاعتماد للصرف", approvedAt, [
-      ["تاريخ نهاية الفترة", current.periodTo],
-      ["تاريخ الحصر", current.measuredAt],
-      ["تاريخ الاعتماد الفني", current.certifiedAt],
+    this.assertSignatureDate({ ar: "تاريخ الاعتماد للصرف", en: "Payment approval date" }, approvedAt, [
+      [{ ar: "تاريخ نهاية الفترة", en: "Period end date" }, current.periodTo],
+      [{ ar: "تاريخ الحصر", en: "Measurement date" }, current.measuredAt],
+      [{ ar: "تاريخ الاعتماد الفني", en: "Technical certification date" }, current.certifiedAt],
     ]);
     if (!(await this.waived(actor))) {
       if (current.preparedBy !== null && current.preparedBy === actor.userId) {
         throw new SubCertificateSegregationError(
           actor.userId,
           "لا يجوز اعتماد مستخلص الباطن للصرف من نفس الشخص الذي أعدّه. إذا كانت المنشأة شخصًا واحدًا، فعّل «وضع المشغّل الواحد» من الإعدادات العامة ← المقاولات.",
+        "A subcontractor certificate cannot be approved for payment by the same person who prepared it. If the company is one person, enable \"Single-operator mode\" in General settings → Contracting.",
         );
       }
       if (current.certifiedBy !== null && current.certifiedBy === actor.userId) {
         throw new SubCertificateSegregationError(
           actor.userId,
           "لا يجوز اعتماد مستخلص الباطن للصرف من نفس الشخص الذي اعتمد الحصر فنيًا. إذا كانت المنشأة شخصًا واحدًا، فعّل «وضع المشغّل الواحد» من الإعدادات العامة ← المقاولات.",
+        "A subcontractor certificate cannot be approved for payment by the same person who certified the measurement technically. If the company is one person, enable \"Single-operator mode\" in General settings → Contracting.",
         );
       }
     }
     const invoicing = this.deps.invoicing;
     if (!invoicing) {
-      throw new InvalidSubCertificateError(["إصدار فاتورة مستخلص الباطن غير مُفعّل على هذا الخادم."]);
+      throw new InvalidSubCertificateError([{ ar: "إصدار فاتورة مستخلص الباطن غير مُفعّل على هذا الخادم.", en: "Issuing the subcontractor certificate invoice is not enabled on this server." }]);
     }
     const subcontract = await this.requireSubcontract(current.subcontractId);
     await this.assertPayable(subcontract);
@@ -837,7 +844,7 @@ export class SubCertificateService {
     if (current.status !== "draft" && current.status !== "measured") {
       throw new InvalidSubCertificateTransitionError(current.status, "cancelled");
     }
-    if (reasonAr.trim() === "") throw new InvalidSubCertificateError(["سبب إلغاء المستخلص مطلوب"]);
+    if (reasonAr.trim() === "") throw new InvalidSubCertificateError([{ ar: "سبب إلغاء المستخلص مطلوب", en: "The certificate cancellation reason is required" }]);
     await this.assertNoLaterCertificate(current);
     const next: SubCertificate = {
       ...current,
@@ -879,21 +886,26 @@ export class SubCertificateService {
    * the shape every backdated approval takes.
    */
   private assertSignatureDate(
-    label: string,
+    label: BilingualReason,
     value: string,
-    mustNotPrecede: readonly (readonly [string, string | null])[],
+    mustNotPrecede: readonly (readonly [BilingualReason, string | null])[],
   ): void {
-    const reasons: string[] = [];
+    const reasons: ReasonInput[] = [];
     if (!ISO_DATE.test(value)) {
-      throw new InvalidSubCertificateError([`${label} مطلوب بصيغة YYYY-MM-DD`]);
+      throw new InvalidSubCertificateError([
+        { ar: `${label.ar} مطلوب بصيغة YYYY-MM-DD`, en: `${label.en} is required in the form YYYY-MM-DD` },
+      ]);
     }
     for (const [earlierLabel, earlier] of mustNotPrecede) {
       if (earlier !== null && value < earlier) {
-        reasons.push(`${label} (${value}) يسبق ${earlierLabel} (${earlier}).`);
+        reasons.push({
+          ar: `${label.ar} (${value}) يسبق ${earlierLabel.ar} (${earlier}).`,
+          en: `${label.en} (${value}) is before ${earlierLabel.en} (${earlier}).`,
+        });
       }
     }
     const today = this.today();
-    if (value > today) reasons.push(`${label} (${value}) في المستقبل.`);
+    if (value > today) reasons.push({ ar: `${label.ar} (${value}) في المستقبل.`, en: `${label.en} (${value}) is in the future.` });
     if (reasons.length > 0) throw new InvalidSubCertificateError(reasons);
   }
 
@@ -909,7 +921,7 @@ export class SubCertificateService {
   }
 
   /** Re-reads the client's certified cumulative and the sub's own lines, and reports every refusal. */
-  private async refuseQuantities(certificate: SubCertificate): Promise<string[]> {
+  private async refuseQuantities(certificate: SubCertificate): Promise<BilingualReason[]> {
     const subcontract = await this.requireSubcontract(certificate.subcontractId);
     const ceiling = await this.clientCeiling(subcontract.contractId);
     const byLineId = new Map(subcontract.lines.map((l) => [l.id, l]));
@@ -932,11 +944,11 @@ export class SubCertificateService {
   private async deductionRefusals(
     computed: CertificateComputation,
     subcontract: Subcontract,
-  ): Promise<string[]> {
-    const reasons: string[] = [];
+  ): Promise<BilingualReason[]> {
+    const reasons: BilingualReason[] = [];
     if (computed.netPayableThisCertificate.scaled < 0n) {
       reasons.push(
-        `إجمالي خصومات هذا المستخلص يتجاوز قيمة أعماله: صافي المستحق ${computed.netPayableThisCertificate.toString()}.`,
+        { ar: `إجمالي خصومات هذا المستخلص يتجاوز قيمة أعماله: صافي المستحق ${computed.netPayableThisCertificate.toString()}.`, en: `The total deductions of this certificate exceed the value of its work: net payable ${computed.netPayableThisCertificate.toString()}.` },
       );
     }
     if (this.deps.consumptions) {
@@ -945,7 +957,7 @@ export class SubCertificateService {
         computed.deductions.find((d) => d.key === "employerMaterials")?.cumulative ?? Money.zero();
       if (claimed.scaled > issued.scaled) {
         reasons.push(
-          `${EMPLOYER_MATERIALS_LABEL_AR} ${claimed.toString()} يتجاوز قيمة ما صُرف فعلًا لهذا المقاول من مستودع الموقع ${issued.toString()}.`,
+          { ar: `${EMPLOYER_MATERIALS_LABEL_AR} ${claimed.toString()} يتجاوز قيمة ما صُرف فعلًا لهذا المقاول من مستودع الموقع ${issued.toString()}.`, en: `Materials issued by the employer ${claimed.toString()} exceed the value actually issued to this subcontractor from the site store ${issued.toString()}.` },
         );
       }
     }
@@ -953,7 +965,7 @@ export class SubCertificateService {
     const ceiling = percentOf(computed.netCertified, subcontract.penaltyCapPercent);
     if (penalties.scaled > ceiling.scaled) {
       reasons.push(
-        `غرامة التأخير ${penalties.toString()} تتجاوز سقف ${subcontract.penaltyCapPercent}٪ من القيمة المعتمدة (${ceiling.toString()}).`,
+        { ar: `غرامة التأخير ${penalties.toString()} تتجاوز سقف ${subcontract.penaltyCapPercent}٪ من القيمة المعتمدة (${ceiling.toString()}).`, en: `Late penalty ${penalties.toString()} exceeds the ${subcontract.penaltyCapPercent}% cap on the certified value (${ceiling.toString()}).` },
       );
     }
     return reasons;
@@ -971,9 +983,10 @@ export class SubCertificateService {
   private async assertPayable(subcontract: Subcontract): Promise<void> {
     if (!this.deps.suppliers) return;
     const supplier = await this.deps.suppliers.find(subcontract.supplierId);
-    const reasons = payabilityRefusals(subcontract.supplierId, supplier).map(
-      (r) => `لا يمكن اعتماد مستخلص الباطن للصرف: ${r}`,
-    );
+    const reasons = payabilityRefusalReasons(subcontract.supplierId, supplier).map((r) => ({
+      ar: `لا يمكن اعتماد مستخلص الباطن للصرف: ${r.ar}`,
+      en: `The subcontractor certificate cannot be approved for payment: ${r.en}`,
+    }));
     if (reasons.length > 0) throw new InvalidSubCertificateError(reasons);
   }
 

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ApiError } from "../data/hooks";
+import { ServerUnreachableError } from "../data/transport";
 import { errorMessage } from "./error-message";
 
 const FALLBACK = "تعذر حفظ الفاتورة.";
@@ -13,6 +14,12 @@ describe("errorMessage", () => {
   it("hides an internal failure behind the caller's Arabic fallback", () => {
     expect(errorMessage(new TypeError("Failed to fetch"), FALLBACK)).toBe(FALLBACK);
     expect(errorMessage(new Error("Cannot read properties of undefined"), FALLBACK)).toBe(FALLBACK);
+  });
+
+  it("shows the unreachable-server message instead of the fallback", () => {
+    const err = new ServerUnreachableError(new TypeError("Failed to fetch"));
+    expect(errorMessage(err, FALLBACK)).toBe(err.message);
+    expect(errorMessage(err, FALLBACK)).not.toBe(FALLBACK);
   });
 
   it("never renders an object, a string or a null as if it were a message", () => {

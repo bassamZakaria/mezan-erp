@@ -34,6 +34,7 @@ import type { ScreenKey } from "../router/screens";
 import { YearEndCloseCard } from "./YearEndCloseCard";
 import { EMPTY } from "../lib/empty";
 import { useUrlNumber, useUrlParam } from "../lib/url-state";
+import { errorMessage } from "../lib/error-message";
 
 /**
  * الفترات المالية (Fiscal Periods) — docs/archive/catalog/04 §"الفترات المالية".
@@ -195,7 +196,7 @@ export function FiscalPeriodsScreen() {
     <div className="w-full">
       {query.isError ? (
         <Card className="mb-[18px] p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">{t("fiscalPeriods.financialPeriodsCouldNotBe")}</p>
+          <p className="text-[13px] font-semibold text-danger-ink">{errorMessage(query.error, t("fiscalPeriods.financialPeriodsCouldNotBe"))}</p>
           <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
             {t("common.retry")}
           </Button>

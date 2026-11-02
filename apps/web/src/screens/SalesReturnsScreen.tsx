@@ -479,7 +479,7 @@ export function SalesReturnsScreen() {
 
           {sourceLinesQuery.isError ? (
             <div role="alert" className="flex flex-wrap items-center justify-between gap-2 rounded-[8px] bg-danger-soft px-3 py-2 text-[12.5px] text-danger">
-              <span>{t("returns.sourceLinesFailed")}</span>
+              <span>{errorMessage(sourceLinesQuery.error, t("returns.sourceLinesFailed"))}</span>
               <Button size="sm" onClick={() => void sourceLinesQuery.refetch()}>
                 {t("common.retry")}
               </Button>

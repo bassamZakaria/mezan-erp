@@ -111,6 +111,7 @@ export {
   leaseBeforeTheTurn,
   LockBusyError,
   LOCK_BUSY_AR,
+  LOCK_BUSY_EN,
   type KeyedLock,
   type LeaseStore,
 } from "./keyed-lock.js";

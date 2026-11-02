@@ -10,6 +10,7 @@ import type { LicenseStateView } from "@mezan/api";
 import { defaultMachineIdReader, type MachineIdReader } from "./machine-fingerprint.js";
 import {
   checkinMessageAr,
+  checkinMessageEn,
   type CheckinDecision,
   type LicenseGuardStore,
 } from "./license-checkin.js";
@@ -62,6 +63,10 @@ const DEV_WRITABLE_STATE: LicenseStateView = {
 export const NO_PUBLIC_KEY_MESSAGE_AR =
   "هذه النسخة من ميزان بُنيت بدون مفتاح المورّد، ولا يمكنها التحقق من أي ملف ترخيص. " +
   "المشكلة في النسخة نفسها وليست في ترخيصك. تواصل مع الدعم للحصول على نسخة صحيحة.";
+
+export const NO_PUBLIC_KEY_MESSAGE_EN =
+  "This copy of Mezan was built without the vendor key and cannot verify any licence file. " +
+  "The problem is with the copy itself, not your licence. Contact support for a correct copy.";
 
 /** Facts about the licence the rest of the process needs, beyond the gate view. */
 export interface LicenseIdentity {
@@ -157,6 +162,7 @@ export async function decideLicense(input: DecideLicenseInput): Promise<DesktopL
           ...UNLICENSED_STATE,
           reason: "NO_PUBLIC_KEY",
           messageAr: NO_PUBLIC_KEY_MESSAGE_AR,
+          messageEn: NO_PUBLIC_KEY_MESSAGE_EN,
         },
         verified: false,
         identity: UNKNOWN_IDENTITY,
@@ -279,6 +285,7 @@ export function reevaluateLicenseState(
       usable: true,
       reason: "REVOKED",
       messageAr: checkinMessageAr("revoked", 0),
+      messageEn: checkinMessageEn("revoked", 0),
       blocking: true,
     };
   }
@@ -290,6 +297,7 @@ export function reevaluateLicenseState(
       usable: true,
       reason: "GUARD_TAMPERED",
       messageAr: checkinMessageAr("tampered", 0),
+      messageEn: checkinMessageEn("tampered", 0),
       blocking: true,
     };
   }
@@ -301,6 +309,7 @@ export function reevaluateLicenseState(
       usable: true,
       reason: "CHECKIN_OVERDUE",
       messageAr: checkinMessageAr(verdict, daysSince),
+      messageEn: checkinMessageEn(verdict, daysSince),
       daysSince,
       blocking,
     };

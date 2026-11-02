@@ -139,7 +139,7 @@ export function createPosTerminalsRoutes(deps: PosTerminalsRoutesDeps, resolveAu
   app.get("/:id", gate("pos.terminal.view"), async (c) => {
     const terminal = await findByIdOrCode(c.req.param("id"));
     if (!terminal || withinScope([terminal], branchScopeOf(c), (t) => t.branchId).length === 0) {
-      return c.json({ error: "NOT_FOUND", message: "الجهاز غير موجود" }, 404);
+      return c.json({ error: "NOT_FOUND", message: "الجهاز غير موجود", messageEn: "The terminal does not exist" }, 404);
     }
     const [dto] = await serialize([terminal]);
     return c.json(dto);
@@ -154,7 +154,7 @@ export function createPosTerminalsRoutes(deps: PosTerminalsRoutesDeps, resolveAu
       if (secretWithoutDevice(terminal, etaPosClientSecret, etaPosPresharedKey)) return refuseSecretWithoutDevice(c);
       if (!branchInScope(c, terminal.branchId)) return refuseBranch(c);
       if (await deps.terminals.findByCode(terminal.code)) {
-        return c.json({ error: "DUPLICATE_POS_TERMINAL_CODE", message: `كود الجهاز «${terminal.code}» مستخدم بالفعل` }, 409);
+        return c.json({ error: "DUPLICATE_POS_TERMINAL_CODE", message: `كود الجهاز «${terminal.code}» مستخدم بالفعل`, messageEn: `Terminal code "${terminal.code}" is already in use` }, 409);
       }
       await checkReferences(terminal);
       await atomically(deps.transactor, async () => {
@@ -173,7 +173,7 @@ export function createPosTerminalsRoutes(deps: PosTerminalsRoutesDeps, resolveAu
   app.put("/:id", gate("pos.terminal.manage"), async (c) => {
     const current = await findByIdOrCode(c.req.param("id"));
     if (!current || withinScope([current], branchScopeOf(c), (t) => t.branchId).length === 0) {
-      return c.json({ error: "NOT_FOUND", message: "الجهاز غير موجود" }, 404);
+      return c.json({ error: "NOT_FOUND", message: "الجهاز غير موجود", messageEn: "The terminal does not exist" }, 404);
     }
     const parsed = updatePosTerminalSchema.safeParse(await readJson(c));
     if (!parsed.success) return validationError(c, parsed.error);
@@ -183,7 +183,7 @@ export function createPosTerminalsRoutes(deps: PosTerminalsRoutesDeps, resolveAu
       if (secretWithoutDevice(next, etaPosClientSecret, etaPosPresharedKey)) return refuseSecretWithoutDevice(c);
       if (!branchInScope(c, next.branchId)) return refuseBranch(c);
       if (next.code !== current.code && (await deps.terminals.findByCode(next.code))) {
-        return c.json({ error: "DUPLICATE_POS_TERMINAL_CODE", message: `كود الجهاز «${next.code}» مستخدم بالفعل` }, 409);
+        return c.json({ error: "DUPLICATE_POS_TERMINAL_CODE", message: `كود الجهاز «${next.code}» مستخدم بالفعل`, messageEn: `Terminal code "${next.code}" is already in use` }, 409);
       }
       await checkReferences(next);
       await atomically(deps.transactor, async () => {
@@ -205,7 +205,7 @@ export function createPosTerminalsRoutes(deps: PosTerminalsRoutesDeps, resolveAu
   }
 
   function refuseBranch(c: Context): Response {
-    return c.json({ error: "BRANCH_OUT_OF_SCOPE", message: "لا يمكنك إضافة جهاز في فرع خارج نطاق صلاحياتك" }, 403);
+    return c.json({ error: "BRANCH_OUT_OF_SCOPE", message: "لا يمكنك إضافة جهاز في فرع خارج نطاق صلاحياتك", messageEn: "You cannot add a terminal in a branch outside your permissions" }, 403);
   }
 
   function secretWithoutDevice(terminal: PosTerminal, ...secrets: (string | undefined)[]): boolean {
@@ -214,7 +214,7 @@ export function createPosTerminalsRoutes(deps: PosTerminalsRoutesDeps, resolveAu
 
   function refuseSecretWithoutDevice(c: Context): Response {
     return c.json(
-      { error: "INVALID_POS_TERMINAL", message: "أسرار جهاز الفاتورة الإلكترونية لا تُحفظ إلا مع الرقم التسلسلي للجهاز" },
+      { error: "INVALID_POS_TERMINAL", message: "أسرار جهاز الفاتورة الإلكترونية لا تُحفظ إلا مع الرقم التسلسلي للجهاز", messageEn: "E-invoice terminal secrets can only be saved together with the terminal serial number" },
       422,
     );
   }

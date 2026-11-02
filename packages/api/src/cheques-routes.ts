@@ -1,3 +1,4 @@
+import { messageEnOf } from "./observability/error-message-backfill.js";
 import { reversalRefusalResponse } from "./document-reversal.js";
 import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
@@ -116,7 +117,7 @@ function handleDomainError(c: Context, err: unknown): Response {
   const postingRefusal = reversalRefusalResponse(c, err);
   if (postingRefusal) return postingRefusal;
   const refuse = (e: Error & { code: string; messageEn?: string }, status: 404 | 409 | 422) =>
-    c.json({ error: e.code, message: e.message, ...(e.messageEn ? { messageEn: e.messageEn } : {}) }, status);
+    c.json({ error: e.code, message: e.message, messageEn: messageEnOf(e, status) }, status);
   if (err instanceof ChequeNotFoundError || err instanceof InvoiceNotFoundError) {
     return refuse(err, 404);
   }

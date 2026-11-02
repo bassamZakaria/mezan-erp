@@ -1,4 +1,5 @@
-import { getLeadStatusLabel, type LeadStatus } from "./lead.js";
+import { splitReasons, type ReasonInput } from "../bilingual-reasons.js";
+import { getLeadStatusLabel, getLeadStatusLabelEn, type LeadStatus } from "./lead.js";
 /** Raised when an operation references a lead id that does not exist. */
 export class LeadNotFoundError extends Error {
   readonly code = "LEAD_NOT_FOUND";
@@ -13,8 +14,13 @@ export class LeadNotFoundError extends Error {
 /** Raised when a new-lead command fails validation (e.g. an empty name). */
 export class InvalidLeadError extends Error {
   readonly code = "INVALID_LEAD";
-  constructor(readonly reasons: readonly string[]) {
-    super(reasons.join("، "));
+  readonly messageEn: string;
+  readonly reasons: readonly string[];
+  constructor(reasons: readonly ReasonInput[]) {
+    const split = splitReasons(reasons, "Validation failed");
+    super(split.ar.join("، "));
+    this.reasons = split.ar;
+    this.messageEn = split.en;
     this.name = "InvalidLeadError";
   }
 }
@@ -22,11 +28,13 @@ export class InvalidLeadError extends Error {
 /** Raised when a lead status transition is not allowed by the lead state machine. */
 export class InvalidLeadTransitionError extends Error {
   readonly code = "INVALID_LEAD_TRANSITION";
+  readonly messageEn: string;
   constructor(
     readonly from: LeadStatus,
     readonly to: LeadStatus,
   ) {
     super(`لا يمكن نقل العميل المحتمل من "${getLeadStatusLabel(from)}" إلى "${getLeadStatusLabel(to)}".`);
+    this.messageEn = `A lead cannot move from "${getLeadStatusLabelEn(from)}" to "${getLeadStatusLabelEn(to)}".`;
     this.name = "InvalidLeadTransitionError";
   }
 }
@@ -34,8 +42,13 @@ export class InvalidLeadTransitionError extends Error {
 /** Raised when a new-opportunity command fails validation (e.g. an empty title or an out-of-range probability). */
 export class InvalidOpportunityError extends Error {
   readonly code = "INVALID_OPPORTUNITY";
-  constructor(readonly reasons: readonly string[]) {
-    super(reasons.join("، "));
+  readonly messageEn: string;
+  readonly reasons: readonly string[];
+  constructor(reasons: readonly ReasonInput[]) {
+    const split = splitReasons(reasons, "Validation failed");
+    super(split.ar.join("، "));
+    this.reasons = split.ar;
+    this.messageEn = split.en;
     this.name = "InvalidOpportunityError";
   }
 }
@@ -98,8 +111,13 @@ export class ActivityNotFoundError extends Error {
 /** Raised when a new-activity command fails validation (e.g. an empty subject). */
 export class InvalidActivityError extends Error {
   readonly code = "INVALID_ACTIVITY";
-  constructor(readonly reasons: readonly string[]) {
-    super(reasons.join("، "));
+  readonly messageEn: string;
+  readonly reasons: readonly string[];
+  constructor(reasons: readonly ReasonInput[]) {
+    const split = splitReasons(reasons, "Validation failed");
+    super(split.ar.join("، "));
+    this.reasons = split.ar;
+    this.messageEn = split.en;
     this.name = "InvalidActivityError";
   }
 }

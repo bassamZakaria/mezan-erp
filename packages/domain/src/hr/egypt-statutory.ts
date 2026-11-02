@@ -1,5 +1,6 @@
 import { Money } from "../money/index.js";
 import { StatutoryRulesUnavailableError } from "./errors.js";
+import type { ReasonInput } from "../bilingual-reasons.js";
 
 /**
  * Egyptian statutory payroll rules as VERSIONED DATED DATA.
@@ -450,12 +451,12 @@ export function resolveEgyptStatutoryRules(onDate: string, overrides: readonly S
   const overtime = inForce(EGYPT_OVERTIME_TABLES, onDate);
   const endOfService = inForce(EGYPT_END_OF_SERVICE_TABLES, onDate);
 
-  const missing: string[] = [];
-  if (!incomeTax) missing.push("شرائح ضريبة كسب العمل");
-  if (!hasLimits(socialInsurance)) missing.push(`حدود الأجر التأميني لسنة ${onDate.slice(0, 4)}`);
-  if (!levies) missing.push("الرسوم المستقطعة من الأجر");
-  if (!overtime) missing.push("معاملات الأجر الإضافي");
-  if (!endOfService) missing.push("قواعد مكافأة نهاية الخدمة");
+  const missing: ReasonInput[] = [];
+  if (!incomeTax) missing.push({ ar: "شرائح ضريبة كسب العمل", en: "income tax brackets" });
+  if (!hasLimits(socialInsurance)) missing.push({ ar: `حدود الأجر التأميني لسنة ${onDate.slice(0, 4)}`, en: `insurable wage limits for ${onDate.slice(0, 4)}` });
+  if (!levies) missing.push({ ar: "الرسوم المستقطعة من الأجر", en: "payroll levies" });
+  if (!overtime) missing.push({ ar: "معاملات الأجر الإضافي", en: "overtime multipliers" });
+  if (!endOfService) missing.push({ ar: "قواعد مكافأة نهاية الخدمة", en: "end-of-service gratuity rules" });
   if (missing.length > 0 || !incomeTax || !hasLimits(socialInsurance) || !levies || !overtime || !endOfService) {
     throw new StatutoryRulesUnavailableError(onDate, missing);
   }
@@ -466,14 +467,14 @@ export function resolveEgyptStatutoryRules(onDate: string, overrides: readonly S
 /** The overtime row in force on one attendance day; each worked day is priced by the law of its own date. */
 export function resolveOvertimeTable(onDate: string, tables: readonly OvertimeTable[] = EGYPT_OVERTIME_TABLES): OvertimeTable {
   const table = inForce(tables, onDate);
-  if (!table) throw new StatutoryRulesUnavailableError(onDate, ["معاملات الأجر الإضافي"]);
+  if (!table) throw new StatutoryRulesUnavailableError(onDate, [{ ar: "معاملات الأجر الإضافي", en: "overtime multipliers" }]);
   return table;
 }
 
 /** The end-of-service row in force on a date; a settlement needs only this one. */
 export function resolveEndOfServiceTable(onDate: string): EndOfServiceTable {
   const table = inForce(EGYPT_END_OF_SERVICE_TABLES, onDate);
-  if (!table) throw new StatutoryRulesUnavailableError(onDate, ["قواعد مكافأة نهاية الخدمة"]);
+  if (!table) throw new StatutoryRulesUnavailableError(onDate, [{ ar: "قواعد مكافأة نهاية الخدمة", en: "end-of-service gratuity rules" }]);
   return table;
 }
 

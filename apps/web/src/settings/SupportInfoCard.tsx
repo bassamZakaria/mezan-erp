@@ -3,6 +3,7 @@ import { Button, Card } from "@mezan/ui";
 import { useApi } from "../data/ApiContext";
 import { isDesktopHost, useDesktopLicence } from "../data/hooks";
 import { useAppVersion } from "../data/hub-hooks";
+import { pickMessage } from "../data/server-message";
 import { useAppTranslation } from "../i18n";
 
 /**
@@ -80,19 +81,19 @@ interface SupportBridge {
   saveDiagnostic?(
     sessionToken: string,
     body: string,
-  ): Promise<{ ok: true; path: string | null } | { ok: false; code: string; message: string }>;
+  ): Promise<{ ok: true; path: string | null } | { ok: false; code: string; message: string; messageEn?: string }>;
   saveLogs?(
     sessionToken: string,
     diagnostic: string,
-  ): Promise<{ ok: true; path: string | null } | { ok: false; code: string; message: string }>;
+  ): Promise<{ ok: true; path: string | null } | { ok: false; code: string; message: string; messageEn?: string }>;
   reveal?(
     sessionToken: string,
     target: "key-card" | "plaintext-archive" | "log",
-  ): Promise<{ ok: true; path: string | null } | { ok: false; code: string; message: string }>;
+  ): Promise<{ ok: true; path: string | null } | { ok: false; code: string; message: string; messageEn?: string }>;
   remove?(
     sessionToken: string,
     target: "key-card" | "plaintext-archive",
-  ): Promise<{ ok: true; path: string | null } | { ok: false; code: string; message: string }>;
+  ): Promise<{ ok: true; path: string | null } | { ok: false; code: string; message: string; messageEn?: string }>;
 }
 
 function supportBridge(): SupportBridge | undefined {
@@ -100,7 +101,7 @@ function supportBridge(): SupportBridge | undefined {
 }
 
 export function SupportInfoCard() {
-  const { t } = useAppTranslation();
+  const { t, locale } = useAppTranslation();
   const { session } = useApi();
   const appVersion = useAppVersion();
   const licence = useDesktopLicence();
@@ -194,7 +195,7 @@ export function SupportInfoCard() {
       if (result.ok) {
         if (result.path) setNotice(t("support.diagnosticSaved", { path: result.path }));
       } else if (result.code !== "CANCELLED") {
-        setError(result.message);
+        setError(pickMessage(result, locale));
       }
     } catch {
       // An unregistered IPC channel rejects with an English
@@ -220,7 +221,7 @@ export function SupportInfoCard() {
       if (result.ok) {
         if (result.path) setNotice(t("support.logsSaved", { path: result.path }));
       } else if (result.code !== "CANCELLED") {
-        setError(result.message);
+        setError(pickMessage(result, locale));
       }
     } catch {
       setError(t("support.logsFailed"));
@@ -240,7 +241,7 @@ export function SupportInfoCard() {
     setNotice(null);
     try {
       const result = await bridge.reveal(token, "log");
-      if (!result.ok) setError(result.message);
+      if (!result.ok) setError(pickMessage(result, locale));
     } catch {
       setError(t("support.logsOpenFailed"));
     }
@@ -328,7 +329,7 @@ export function SupportInfoCard() {
  * copying it and every archive taken on this machine is unopenable on any other.
  */
 export function PlaintextKeyRiskBanner() {
-  const { t } = useAppTranslation();
+  const { t, locale } = useAppTranslation();
   const { session } = useApi();
   const licence = useDesktopLicence();
   const [confirming, setConfirming] = useState<"key-card" | "plaintext-archive" | null>(null);
@@ -370,7 +371,7 @@ export function PlaintextKeyRiskBanner() {
       if (!result) {
         setError(t("keyRisk.failed"));
       } else if (!result.ok) {
-        setError(result.message);
+        setError(pickMessage(result, locale));
       } else if (action === "remove") {
         setGone((prev) => [...prev, target]);
         setConfirming(null);

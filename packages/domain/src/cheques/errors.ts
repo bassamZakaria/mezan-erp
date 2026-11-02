@@ -1,5 +1,11 @@
 /** Cheque-register domain errors. Stable `code`s so the api/UI can branch. */
 
+import { getChequeStatusLabel, type ChequeStatus } from "./cheque.js";
+
+function chequeLabel(status: string, locale: "ar" | "en"): string {
+  return getChequeStatusLabel(status as ChequeStatus, locale);
+}
+
 export class ChequeNotFoundError extends Error {
   readonly code = "CHEQUE_NOT_FOUND";
   readonly messageEn: string;
@@ -34,8 +40,8 @@ export class InvalidChequeTransitionError extends Error {
   readonly code = "INVALID_CHEQUE_TRANSITION";
   readonly messageEn: string;
   constructor(readonly chequeId: string, readonly from: string, readonly to: string) {
-    super(`الشيك "${chequeId}" لا يمكن أن ينتقل من "${from}" إلى "${to}".`);
-    this.messageEn = `Cheque "${chequeId}" cannot move from "${from}" to "${to}".`;
+    super(`الشيك "${chequeId}" لا يمكن أن ينتقل من "${chequeLabel(from, "ar")}" إلى "${chequeLabel(to, "ar")}".`);
+    this.messageEn = `Cheque "${chequeId}" cannot move from "${chequeLabel(from, "en")}" to "${chequeLabel(to, "en")}".`;
     this.name = "InvalidChequeTransitionError";
   }
 }

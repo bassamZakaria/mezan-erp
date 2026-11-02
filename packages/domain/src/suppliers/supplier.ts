@@ -1,5 +1,6 @@
+import type { BilingualReason } from "../collections/errors.js";
 import { Money } from "../money/index.js";
-import { validatePartnerBase, type PartnerBase } from "../partners/partner-base.js";
+import { validatePartnerBaseBilingual, type PartnerBase } from "../partners/partner-base.js";
 
 /**
  * Supplier — docs/archive/catalog/02-purchases.md "الموردون (Suppliers)". Master list
@@ -25,8 +26,15 @@ export interface Supplier extends PartnerBase {
 
 export class InvalidSupplierError extends Error {
   readonly code = "INVALID_SUPPLIER";
-  constructor(readonly reasons: readonly string[]) {
+  readonly messageEn: string;
+  readonly reasonsEn: readonly string[];
+  constructor(
+    readonly reasons: readonly string[],
+    reasonsEn?: readonly string[],
+  ) {
     super(reasons.join("، "));
+    this.reasonsEn = reasonsEn ?? [];
+    this.messageEn = reasonsEn && reasonsEn.length > 0 ? reasonsEn.join("; ") : "The supplier data is invalid.";
     this.name = "InvalidSupplierError";
   }
 }
@@ -54,8 +62,15 @@ export interface CreateSupplierInput {
   readonly bankAccount?: string | null;
 }
 
-function validate(supplier: Supplier): string[] {
-  return validatePartnerBase(supplier);
+function validate(supplier: Supplier): BilingualReason[] {
+  return validatePartnerBaseBilingual(supplier);
+}
+
+function toInvalidSupplierError(reasons: readonly BilingualReason[]): InvalidSupplierError {
+  return new InvalidSupplierError(
+    reasons.map((reason) => reason.ar),
+    reasons.map((reason) => reason.en),
+  );
 }
 
 /** Constructs a `Supplier`, applying the catalog's add-dialog defaults (30-day terms, EGP). */
@@ -82,7 +97,7 @@ export function createSupplier(input: CreateSupplierInput): Supplier {
     bankAccount: input.bankAccount ?? null,
   };
   const reasons = validate(supplier);
-  if (reasons.length > 0) throw new InvalidSupplierError(reasons);
+  if (reasons.length > 0) throw toInvalidSupplierError(reasons);
   return supplier;
 }
 
@@ -90,6 +105,6 @@ export function createSupplier(input: CreateSupplierInput): Supplier {
 export function updateSupplier(current: Supplier, patch: Partial<Omit<Supplier, "id">>): Supplier {
   const next: Supplier = { ...current, ...patch };
   const reasons = validate(next);
-  if (reasons.length > 0) throw new InvalidSupplierError(reasons);
+  if (reasons.length > 0) throw toInvalidSupplierError(reasons);
   return next;
 }

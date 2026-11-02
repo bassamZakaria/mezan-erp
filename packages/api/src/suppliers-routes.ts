@@ -81,7 +81,7 @@ function handleDomainError(c: Context, err: unknown) {
   const postingRefusal = postingRefusalResponse(c, err);
   if (postingRefusal) return postingRefusal;
   if (err instanceof InvalidSupplierError) {
-    return c.json({ error: err.code, message: err.message, reasons: err.reasons }, 422);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, reasons: err.reasons }, 422);
   }
   throw err;
 }
@@ -217,7 +217,7 @@ export function createSuppliersRouter(
     if (restrictedOnCreate) return restrictedOnCreate;
     const code = parsed.data.code ?? nextMasterCode((await repo.findAll()).map((row) => row.code), "S");
     if (await repo.findByCode(code)) {
-      return c.json({ error: "DUPLICATE_SUPPLIER_CODE", message: `كود المورد «${code}» مستخدم بالفعل.` }, 409);
+      return c.json({ error: "DUPLICATE_SUPPLIER_CODE", message: `كود المورد «${code}» مستخدم بالفعل.`, messageEn: `Supplier code "${code}" is already in use.` }, 409);
     }
     try {
       const { openingBalance, ...fields } = parsed.data;
@@ -254,7 +254,7 @@ export function createSuppliersRouter(
     if (parsed.data.code !== undefined && parsed.data.code !== current.code) {
       const clash = await repo.findByCode(parsed.data.code);
       if (clash) {
-        return c.json({ error: "DUPLICATE_SUPPLIER_CODE", message: `كود المورد «${parsed.data.code}» مستخدم بالفعل.` }, 409);
+        return c.json({ error: "DUPLICATE_SUPPLIER_CODE", message: `كود المورد «${parsed.data.code}» مستخدم بالفعل.`, messageEn: `Supplier code "${parsed.data.code}" is already in use.` }, 409);
       }
     }
     try {

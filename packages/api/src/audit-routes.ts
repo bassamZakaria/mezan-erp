@@ -85,7 +85,7 @@ export function createAuditRoutes(
     const verifier = store as Partial<AuditChainVerifyPort>;
     if (typeof verifier.verifyChain !== "function") {
       return c.json(
-        { error: "UNSUPPORTED", message: "لا يمكن التحقق من سلسلة السجل على هذا المصدر." },
+        { error: "UNSUPPORTED", message: "لا يمكن التحقق من سلسلة السجل على هذا المصدر.", messageEn: "The log chain cannot be verified on this source." },
         501,
       );
     }

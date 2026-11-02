@@ -242,16 +242,16 @@ function handleDomainError(c: Context, err: unknown) {
   const postingRefusal = postingRefusalResponse(c, err);
   if (postingRefusal) return postingRefusal;
   if (err instanceof ProgressCertificateNotFoundError) {
-    return c.json({ error: err.code, message: err.message }, 404);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 404);
   }
   if (err instanceof InvalidProgressCertificateError) {
-    return c.json({ error: err.code, message: err.message, reasons: err.reasons }, 422);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, reasons: err.reasons }, 422);
   }
   if (err instanceof CertificateQuantityError) {
-    return c.json({ error: err.code, message: err.message, reasons: err.reasons }, 422);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, reasons: err.reasons }, 422);
   }
   if (err instanceof CertificateDateOrderError) {
-    return c.json({ error: err.code, message: err.message, reasons: err.reasons }, 422);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, reasons: err.reasons }, 422);
   }
   /**
    * The GL engine's own refusals. They are a CLOSED period or a FILED VAT
@@ -262,16 +262,16 @@ function handleDomainError(c: Context, err: unknown) {
     err instanceof PeriodNotOpenForPostingError ||
     err instanceof NoFiscalPeriodForDateError
   ) {
-    return c.json({ error: (err as { code?: string }).code ?? "PERIOD_REFUSED", message: err.message }, 409);
+    return c.json({ error: (err as { code?: string }).code ?? "PERIOD_REFUSED", message: err.message, messageEn: err.messageEn }, 409);
   }
   if (err instanceof CertificateSegregationError) {
-    return c.json({ error: err.code, message: err.message }, 409);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
   }
   if (err instanceof LaterCertificateExistsError) {
-    return c.json({ error: err.code, message: err.message, laterDocNo: err.laterDocNo }, 409);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, laterDocNo: err.laterDocNo }, 409);
   }
   if (err instanceof InvalidProgressCertificateTransitionError) {
-    return c.json({ error: err.code, message: err.message, from: err.from, to: err.to }, 409);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, from: err.from, to: err.to }, 409);
   }
   throw err;
 }
@@ -326,7 +326,7 @@ export function createContractingCertificatesRoutes(
   app.get("/internal", gate(VIEW), async (c) => {
     const contractId = c.req.query("contractId");
     if (!contractId) {
-      return c.json({ error: "VALIDATION_ERROR", message: "معرّف العقد مطلوب." }, 400);
+      return c.json({ error: "VALIDATION_ERROR", message: "معرّف العقد مطلوب.", messageEn: "The contract ID is required." }, 400);
     }
     try {
       return c.json(serializeInternal(await service.internalCertificate(contractId)));

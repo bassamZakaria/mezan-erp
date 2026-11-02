@@ -231,7 +231,7 @@ export class RecognitionService {
     const contract =
       (await this.deps.contracts.findContractById(idOrDocNo)) ??
       (await this.deps.contracts.findContractByDocNo(idOrDocNo));
-    if (!contract) throw new InvalidRecognitionRunError([`العقد "${idOrDocNo}" غير موجود.`]);
+    if (!contract) throw new InvalidRecognitionRunError([{ ar: `العقد "${idOrDocNo}" غير موجود.`, en: `Contract "${idOrDocNo}" was not found.` }]);
     return contract;
   }
 
@@ -252,7 +252,7 @@ export class RecognitionService {
   async preview(contractIdOrDocNo: string, periodEnd: string): Promise<RecognitionPreview> {
     const contract = await this.requireContract(contractIdOrDocNo);
     if (!isMonthEnd(periodEnd)) {
-      throw new InvalidRecognitionRunError(["تاريخ نهاية الفترة يجب أن يكون آخر يوم في الشهر."]);
+      throw new InvalidRecognitionRunError([{ ar: "تاريخ نهاية الفترة يجب أن يكون آخر يوم في الشهر.", en: "The period end date must be the last day of the month." }]);
     }
 
     const liveRuns = await this.liveRuns(contract.id);
@@ -395,19 +395,19 @@ export class RecognitionService {
       throw new RecognitionRunAlreadyPostedError(contract.id, command.periodEnd, preview.existingRunDocNo ?? "");
     }
     if (contract.status === "draft") {
-      throw new InvalidRecognitionRunError(["لا يمكن الاعتراف بالإيراد على عقد ما زال مسودة."]);
+      throw new InvalidRecognitionRunError([{ ar: "لا يمكن الاعتراف بالإيراد على عقد ما زال مسودة.", en: "Revenue cannot be recognised on a contract that is still a draft." }]);
     }
     const estimatedTotalCost = estimatedTotalCostAsOf(contract, command.periodEnd);
     if (estimatedTotalCost === null || estimatedTotalCost.scaled <= 0n) {
-      throw new InvalidRecognitionRunError(["لا يمكن الاعتراف بالإيراد دون تقدير التكلفة الكلية."]);
+      throw new InvalidRecognitionRunError([{ ar: "لا يمكن الاعتراف بالإيراد دون تقدير التكلفة الكلية.", en: "Revenue cannot be recognised without an estimate of the total cost." }]);
     }
     if (contract.activatedAt !== null && contract.activatedAt > command.periodEnd) {
-      throw new InvalidRecognitionRunError(["لم يكن العقد سارياً في نهاية هذه الفترة."]);
+      throw new InvalidRecognitionRunError([{ ar: "لم يكن العقد سارياً في نهاية هذه الفترة.", en: "The contract was not in force at the end of this period." }]);
     }
     const liveRuns = await this.liveRuns(contract.id);
     if (liveRuns.some((r) => r.periodEnd > command.periodEnd)) {
       throw new InvalidRecognitionRunError([
-        `لا يمكن تشغيل فترة سابقة لآخر تشغيل (${liveRuns[liveRuns.length - 1]!.periodEnd}).`,
+        { ar: `لا يمكن تشغيل فترة سابقة لآخر تشغيل (${liveRuns[liveRuns.length - 1]!.periodEnd}).`, en: `A period earlier than the latest run cannot be run (${liveRuns[liveRuns.length - 1]!.periodEnd}).` },
       ]);
     }
     if (this.previousPeriodMissing(contract, command.periodEnd, liveRuns)) {
@@ -601,7 +601,7 @@ export class RecognitionService {
   /** Every contract that has started, with its last run and this period's figures. */
   async status(periodEnd: string): Promise<RecognitionPreview[]> {
     if (!isMonthEnd(periodEnd)) {
-      throw new InvalidRecognitionRunError(["تاريخ نهاية الفترة يجب أن يكون آخر يوم في الشهر."]);
+      throw new InvalidRecognitionRunError([{ ar: "تاريخ نهاية الفترة يجب أن يكون آخر يوم في الشهر.", en: "The period end date must be the last day of the month." }]);
     }
     const contracts = await this.deps.contracts.listContracts();
     const live = contracts.filter((c) => c.status !== "draft");

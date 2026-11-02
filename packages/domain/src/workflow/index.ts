@@ -2,6 +2,7 @@
 
 export {
   GATEABLE_ACTION_TYPES,
+  actionTypeLabels,
   isGateableActionType,
   type GateableActionType,
   type GateableActionTypeDef,
@@ -15,6 +16,10 @@ export {
   resubmit,
   reopenForModification,
   WorkflowError,
+  wrongApproverMessages,
+  APPROVAL_STATUS_LABELS,
+  type RoleLabel,
+  type WorkflowErrorDetail,
   type GateStep,
   type GateConfig,
   type ApprovalRequest,

@@ -90,6 +90,7 @@ export async function updateAccount(
       throw new AccountHasPostingsError(
         accountId,
         becomesHeader ? "تحويله إلى حساب رئيسي" : "تغيير نوعه",
+        becomesHeader ? "turned into a header account" : "changed to another type",
       );
     }
   }

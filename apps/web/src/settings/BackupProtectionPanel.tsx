@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Button, Checkbox, Segmented, StatusPill, TextInput, useFormat, type PillTone } from "@mezan/ui";
+import { pickMessage } from "../data/server-message";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import {
   BackupFailureCode,
@@ -57,7 +58,7 @@ interface BackupProtectionPanelProps {
  * first time needs no password; replacing it needs the user's current one, and the main process proves it.
  */
 export function BackupProtectionPanel({ sessionToken, recovery, onSaved }: BackupProtectionPanelProps) {
-  const { t } = useAppTranslation();
+  const { t, locale } = useAppTranslation();
   const fmt = useFormat();
   const api = backupBridge();
   const changing = recovery.mode !== null;
@@ -95,7 +96,7 @@ export function BackupProtectionPanel({ sessionToken, recovery, onSaved }: Backu
     try {
       const result = await saveKeyCard(sessionToken);
       if (isBackupFailure(result)) {
-        if (result.code !== BackupFailureCode.Cancelled) setError(result.message);
+        if (result.code !== BackupFailureCode.Cancelled) setError(pickMessage(result, locale));
         return;
       }
       setKeyCardPath(result.filePath);
@@ -116,7 +117,7 @@ export function BackupProtectionPanel({ sessionToken, recovery, onSaved }: Backu
         ...(changing ? { password } : {}),
       });
       if (isBackupFailure(result)) {
-        setError(result.message);
+        setError(pickMessage(result, locale));
         if (result.code === BackupFailureCode.WrongPassword) setPassword("");
         if (result.code === BackupFailureCode.KeyCardNotSaved) setKeyCardPath(null);
         return;

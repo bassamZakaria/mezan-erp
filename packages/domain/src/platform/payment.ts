@@ -1,3 +1,4 @@
+import type { BilingualReason } from "../collections/errors.js";
 import type { Money } from "../money/money.js";
 import { renewSubscription, type Subscription, type SubscriptionRepository } from "./subscription.js";
 import { isoTimestamp } from "./validation.js";
@@ -77,21 +78,21 @@ export async function recordPayment(
   const paidAt = isoTimestamp(cmd.paidAt);
   const reference = cmd.reference.trim();
   const idempotencyKey = cmd.idempotencyKey.trim();
-  const reasons: string[] = [];
+  const reasons: BilingualReason[] = [];
   if (cmd.id.trim() === "" || cmd.tenantId.trim() === "" || cmd.subscriptionId.trim() === "") {
-    reasons.push("المعرّف ومعرّف المنشأة ومعرّف الاشتراك مطلوبة");
+    reasons.push({ ar: "المعرّف ومعرّف المنشأة ومعرّف الاشتراك مطلوبة", en: "The ID, company ID and subscription ID are required" });
   }
-  if (cmd.amount.scaled <= 0n) reasons.push("المبلغ يجب أن يكون أكبر من صفر");
-  if (reference === "") reasons.push("المرجع مطلوب");
-  if (idempotencyKey === "") reasons.push("مفتاح منع التكرار مطلوب");
-  if (!paidAt) reasons.push("تاريخ السداد غير صالح (يجب أن يكون بصيغة ISO-8601)");
-  if (!now) reasons.push("الطابع الزمني الحالي غير صالح (يجب أن يكون بصيغة ISO-8601)");
+  if (cmd.amount.scaled <= 0n) reasons.push({ ar: "المبلغ يجب أن يكون أكبر من صفر", en: "The amount must be greater than zero" });
+  if (reference === "") reasons.push({ ar: "المرجع مطلوب", en: "The reference is required" });
+  if (idempotencyKey === "") reasons.push({ ar: "مفتاح منع التكرار مطلوب", en: "The idempotency key is required" });
+  if (!paidAt) reasons.push({ ar: "تاريخ السداد غير صالح (يجب أن يكون بصيغة ISO-8601)", en: "The payment date is invalid (it must be ISO-8601)" });
+  if (!now) reasons.push({ ar: "الطابع الزمني الحالي غير صالح (يجب أن يكون بصيغة ISO-8601)", en: "The current timestamp is invalid (it must be ISO-8601)" });
   if (!now || !paidAt || reasons.length > 0) throw new InvalidPaymentError(reasons);
 
   const subscription = await subscriptions.findById(cmd.subscriptionId);
   if (!subscription) throw new SubscriptionNotFoundError(cmd.subscriptionId);
   if (subscription.tenantId !== cmd.tenantId) {
-    throw new InvalidPaymentError([`الاشتراك "${cmd.subscriptionId}" لا يخص المنشأة "${cmd.tenantId}"`]);
+    throw new InvalidPaymentError([{ ar: `الاشتراك "${cmd.subscriptionId}" لا يخص المنشأة "${cmd.tenantId}"`, en: `Subscription "${cmd.subscriptionId}" does not belong to company "${cmd.tenantId}"` }]);
   }
 
   const run = async (): Promise<RecordPaymentResult> => {

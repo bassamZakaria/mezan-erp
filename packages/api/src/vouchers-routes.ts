@@ -1,3 +1,4 @@
+import { messageEnOf } from "./observability/error-message-backfill.js";
 import type { DocumentApprovalDTO } from "@mezan/contracts";
 import { mountResubmitRoute, serializeApproval } from "./document-resubmit.js";
 import { postingRefusalResponse } from "./posting-refusal.js";
@@ -232,7 +233,7 @@ function handleDomainError(c: Context, err: unknown): Response {
   const postingRefusal = postingRefusalResponse(c, err);
   if (postingRefusal) return postingRefusal;
   const refuse = (e: Error & { code: string; messageEn?: string }, status: 404 | 409 | 422) =>
-    c.json({ error: e.code, message: e.message, ...(e.messageEn ? { messageEn: e.messageEn } : {}) }, status);
+    c.json({ error: e.code, message: e.message, messageEn: messageEnOf(e, status) }, status);
   if (err instanceof CashBalanceWouldGoNegativeError) {
     return refuse(err, 422);
   }
@@ -270,7 +271,7 @@ function handleDomainError(c: Context, err: unknown): Response {
     return refuse(err, 409);
   }
   if (err instanceof DuplicateChequeNumberError) {
-    return c.json({ error: err.code, message: `رقم الشيك «${err.chequeNumber}» مسجّل بالفعل في سجل الشيكات.` }, 409);
+    return c.json({ error: err.code, message: `رقم الشيك «${err.chequeNumber}» مسجّل بالفعل في سجل الشيكات.`, messageEn: `Cheque number "${err.chequeNumber}" is already recorded in the cheque register.` }, 409);
   }
   throw err;
 }
@@ -637,6 +638,8 @@ export function createVouchersRoutes(
             error: "WITHHOLDING_NOT_ALLOWED_UNDER_SIMPLIFIED_REGIME",
             message:
               "المنشأة مسجّلة في النظام الضريبي المبسط (قانون ٦ لسنة ٢٠٢٥) وهي معفاة من الخصم والتحصيل، فلا يجوز خصم ضريبة على هذا السند.",
+            messageEn:
+              "The company is registered under the simplified tax regime (Law 6 of 2025), which is exempt from withholding tax, so no tax may be withheld on this voucher.",
           },
           422,
         );
@@ -718,6 +721,8 @@ export function createVouchersRoutes(
             error: "WITHHOLDING_NOT_ALLOWED_UNDER_SIMPLIFIED_REGIME",
             message:
               "المنشأة مسجّلة في النظام الضريبي المبسط (قانون ٦ لسنة ٢٠٢٥) وهي معفاة من الخصم والتحصيل، فلا يجوز خصم ضريبة على هذا السند.",
+            messageEn:
+              "The company is registered under the simplified tax regime (Law 6 of 2025), which is exempt from withholding tax, so no tax may be withheld on this voucher.",
           },
           422,
         );

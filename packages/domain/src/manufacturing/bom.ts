@@ -1,3 +1,4 @@
+import type { BilingualReason } from "../collections/errors.js";
 /**
  * قائمة المواد (Bill of Materials) — the versioned recipe for a finished product
  * (docs/archive/catalog/07 §BOMs): raw-material lines with waste %, plus standard labour
@@ -159,17 +160,17 @@ export function bomCostEstimate(bom: Bom, resolveUnitCost: (itemId: string) => M
 // --- use-cases --------------------------------------------------------------
 
 function validateLines(command: CreateBomCommand): BomLine[] {
-  const reasons: string[] = [];
-  if (command.productItemId.trim() === "") reasons.push("المنتج النهائي مطلوب");
+  const reasons: BilingualReason[] = [];
+  if (command.productItemId.trim() === "") reasons.push({ ar: "المنتج التام مطلوب", en: "The finished product is required" });
   if (command.standardQty.isZero() || command.standardQty.isNegative()) {
-    reasons.push("كمية الدفعة القياسية يجب أن تكون أكبر من صفر");
+    reasons.push({ ar: "كمية الدفعة القياسية يجب أن تكون أكبر من صفر", en: "The standard batch quantity must be greater than zero" });
   }
-  if (command.lines.length === 0) reasons.push("مطلوب سطر واحد على الأقل من المواد الخام");
+  if (command.lines.length === 0) reasons.push({ ar: "مطلوب بند واحد على الأقل من المواد الخام", en: "At least one raw-material line is required" });
   const lines = command.lines.map<BomLine>((l, i) => {
-    if (l.itemId.trim() === "") reasons.push(`السطر ${i}: الصنف مطلوب`);
-    if (l.qty.isZero() || l.qty.isNegative()) reasons.push(`السطر ${i}: الكمية يجب أن تكون أكبر من صفر`);
+    if (l.itemId.trim() === "") reasons.push({ ar: `البند ${i + 1}: الصنف مطلوب`, en: `Item ${i + 1}: the item is required` });
+    if (l.qty.isZero() || l.qty.isNegative()) reasons.push({ ar: `البند ${i + 1}: الكمية يجب أن تكون أكبر من صفر`, en: `Item ${i + 1}: the quantity must be greater than zero` });
     const waste = l.wastePercent ?? 0;
-    if (waste < 0) reasons.push(`السطر ${i}: نسبة الهدر يجب ألا تكون سالبة`);
+    if (waste < 0) reasons.push({ ar: `البند ${i + 1}: نسبة الهدر يجب ألا تكون سالبة`, en: `Item ${i + 1}: the waste percentage cannot be negative` });
     return {
       itemId: l.itemId,
       qty: l.qty,

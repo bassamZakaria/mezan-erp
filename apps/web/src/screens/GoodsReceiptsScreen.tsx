@@ -35,6 +35,7 @@ import { EMPTY_LOT, LotFields, lotIsComplete, lotPayload, tracksLots, type LotTr
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 import { formQtyOf } from "./return-source-lines";
 import { trimQty } from "./enh/count-mode/format";
+import { errorMessage } from "../lib/error-message";
 
 const INVOICING_KEY: Record<GoodsReceiptInvoicingStatusDTO, AppTranslationKey> = {
   [GoodsReceiptInvoicingStatusDTO.NotInvoiced]: "goodsReceipts.notInvoiced",
@@ -867,7 +868,7 @@ export function GoodsReceiptsScreen() {
     <>
       {query.isError ? (
         <Card className="mb-[18px] p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">{t("goodsReceipts.loadFailed")}</p>
+          <p className="text-[13px] font-semibold text-danger-ink">{errorMessage(query.error, t("goodsReceipts.loadFailed"))}</p>
           <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
             {t("common.retry")}
           </Button>

@@ -104,17 +104,17 @@ function handleDomainError(c: Context, err: unknown): Response {
   const postingRefusal = postingRefusalResponse(c, err);
   if (postingRefusal) return postingRefusal;
   if (err instanceof RfqNotFoundError || err instanceof RfqQuoteNotFoundError) {
-    return c.json({ error: err.code, message: err.message }, 404);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 404);
   }
   if (
     err instanceof RfqNotDraftError ||
     err instanceof RfqNotSentError ||
     err instanceof RfqNotOpenError
   ) {
-    return c.json({ error: err.code, message: err.message }, 409);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
   }
   if (err instanceof InvalidRfqError || err instanceof InvalidPurchaseDocumentError) {
-    return c.json({ error: err.code, message: err.message, reasons: err.reasons }, 422);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, reasons: err.reasons }, 422);
   }
   throw err;
 }

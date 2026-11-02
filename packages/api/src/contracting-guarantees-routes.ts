@@ -141,22 +141,22 @@ function handleDomainError(c: Context, err: unknown) {
   const postingRefusal = postingRefusalResponse(c, err);
   if (postingRefusal) return postingRefusal;
   if (err instanceof GuaranteeNotFoundError) {
-    return c.json({ error: err.code, message: err.message }, 404);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 404);
   }
   if (err instanceof GuaranteeChargeAccountNotFoundError) {
-    return c.json({ error: err.code, message: err.message, accountId: err.accountId }, 422);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, accountId: err.accountId }, 422);
   }
   if (err instanceof InvalidGuaranteeError) {
-    return c.json({ error: err.code, message: err.message, reasons: err.reasons }, 422);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, reasons: err.reasons }, 422);
   }
   if (err instanceof GuaranteeBankAccountInvalidError) {
-    return c.json({ error: err.code, message: err.message }, 422);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 422);
   }
   if (err instanceof GuaranteeAmountExceedsValueError) {
-    return c.json({ error: err.code, message: err.message, requested: err.requested, available: err.available }, 422);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, requested: err.requested, available: err.available }, 422);
   }
   if (err instanceof GuaranteeNotDraftError) {
-    return c.json({ error: err.code, message: err.message, status: err.status }, 409);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, status: err.status }, 409);
   }
   if (err instanceof GuaranteeNothingToReverseError || err instanceof GuaranteePostingFromDocumentError) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
@@ -164,11 +164,11 @@ function handleDomainError(c: Context, err: unknown) {
   const reversalRefusal = reversalRefusalResponse(c, err);
   if (reversalRefusal) return reversalRefusal;
   if (err instanceof InvalidGuaranteeTransitionError) {
-    return c.json({ error: err.code, message: err.message, from: err.from, to: err.to }, 409);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, from: err.from, to: err.to }, 409);
   }
   // A closed month is a refusal the accountant has to read, never a 500.
   if (err instanceof PeriodNotOpenForPostingError || err instanceof NoFiscalPeriodForDateError) {
-    return c.json({ error: "FISCAL_PERIOD_CLOSED", message: err.message }, 409);
+    return c.json({ error: "FISCAL_PERIOD_CLOSED", message: err.message, messageEn: err.messageEn }, 409);
   }
   throw err;
 }
@@ -256,7 +256,7 @@ export function createContractingGuaranteesRoutes(
 
   app.get("/:id", gate(VIEW), async (c) => {
     const guarantee = await service.find(c.req.param("id"));
-    if (!guarantee) return c.json({ error: "GUARANTEE_NOT_FOUND", message: "خطاب الضمان غير موجود." }, 404);
+    if (!guarantee) return c.json({ error: "GUARANTEE_NOT_FOUND", message: "خطاب الضمان غير موجود.", messageEn: "The letter of guarantee was not found." }, 404);
     return c.json(serialize(guarantee, service.asOf()));
   });
 
@@ -264,7 +264,7 @@ export function createContractingGuaranteesRoutes(
     const parsed = updateGuaranteeSchema.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     const existing = await service.find(c.req.param("id"));
-    if (!existing) return c.json({ error: "GUARANTEE_NOT_FOUND", message: "خطاب الضمان غير موجود." }, 404);
+    if (!existing) return c.json({ error: "GUARANTEE_NOT_FOUND", message: "خطاب الضمان غير موجود.", messageEn: "The letter of guarantee was not found." }, 404);
     try {
       const body = parsed.data;
       const guarantee = await service.updateDraft(existing.id, {
@@ -290,7 +290,7 @@ export function createContractingGuaranteesRoutes(
 
   async function act(c: Context, run: (id: string) => Promise<LetterOfGuarantee>): Promise<Response> {
     const existing = await service.find(c.req.param("id") ?? "");
-    if (!existing) return c.json({ error: "GUARANTEE_NOT_FOUND", message: "خطاب الضمان غير موجود." }, 404);
+    if (!existing) return c.json({ error: "GUARANTEE_NOT_FOUND", message: "خطاب الضمان غير موجود.", messageEn: "The letter of guarantee was not found." }, 404);
     try {
       return c.json(serialize(await run(existing.id), service.asOf()));
     } catch (err) {

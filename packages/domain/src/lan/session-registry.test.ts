@@ -41,6 +41,15 @@ describe("connectDevice / disconnectDevice (pure transitions)", () => {
     }
   });
 
+  it("words a one-seat licence and a one-seat account in the singular", () => {
+    const seat = new SeatLimitExceededError(1, 1);
+    expect(seat.messageEn).toMatch(/^The licence allows 1 device and 1 is connected\./);
+    const user = new UserSeatLimitExceededError("u1", 1);
+    expect(user.message).toContain("من جهاز واحد،");
+    expect(user.messageEn).toMatch(/^This account is already connected from 1 device, /);
+    expect(new UserSeatLimitExceededError("u1", 11).message).toContain("من 11 جهازًا،");
+  });
+
   it("frees a slot on disconnect, allowing a new device to connect", () => {
     let state = emptySeatSessions(1, 1);
     state = connectDevice(state, { userId: "u1", deviceId: "till-1", at: 1 });

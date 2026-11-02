@@ -4931,11 +4931,12 @@ describe("createBackend — party balances no invoice carries, and one figure pe
       ],
     }, await admin(app));
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { errors: { rowNumber: number; reasons: string[] }[] };
+    const body = (await res.json()) as { errors: { rowNumber: number; reasons: string[]; reasonsEn: string[] }[] };
     expect(body.errors.map((e) => e.rowNumber)).toEqual([1, 2]);
     expect(body.errors[0]!.reasons[0]).toContain("3210");
-    expect(body.errors[0]!.reasons[0]).toContain("customer opening balances");
-    expect(body.errors[1]!.reasons[0]).toContain("supplier opening balances");
+    expect(body.errors[0]!.reasonsEn[0]).toContain("3210");
+    expect(body.errors[0]!.reasonsEn[0]).toContain("customer opening balances");
+    expect(body.errors[1]!.reasonsEn[0]).toContain("supplier opening balances");
   });
 
   it("D204: an opening balance is on the party's aging row, the ladder ties to its control account, and owed is that row", async () => {

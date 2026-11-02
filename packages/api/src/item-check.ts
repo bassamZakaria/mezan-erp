@@ -43,6 +43,7 @@ export async function refuseUnknownItems(
     {
       error: "ITEM_NOT_FOUND",
       message: `أصناف غير موجودة في دليل الأصناف: ${unknown.join("، ")}`,
+      messageEn: `Items not found in the item catalog: ${unknown.join(", ")}`,
       itemIds: unknown,
     },
     422,

@@ -26,7 +26,7 @@ describe("gl errors", () => {
     expect(err.code).toBe("JOURNAL_ENTRY_NOT_DRAFT");
     expect(err.entryId).toBe("je-1");
     expect(err.status).toBe("posted");
-    expect(err.message).toBe('القيد "je-1" حالته "posted" وليس مسودة، فلا يمكن ترحيله.');
+    expect(err.message).toBe('القيد "je-1" حالته "مُرحَّل" وليس مسودة، فلا يمكن ترحيله.');
   });
 
   it("JournalEntryNotPostedError carries the id, status and an Arabic message", () => {
@@ -35,7 +35,7 @@ describe("gl errors", () => {
     expect(err.code).toBe("JOURNAL_ENTRY_NOT_POSTED");
     expect(err.entryId).toBe("je-1");
     expect(err.status).toBe("draft");
-    expect(err.message).toBe('القيد "je-1" حالته "draft" وليس مُرحَّلاً، فلا يمكن عكسه.');
+    expect(err.message).toBe('القيد "je-1" حالته "مسودة" وليس مُرحَّلاً، فلا يمكن عكسه.');
   });
 
   it("JournalEntryAlreadyReversedError carries both entry ids and an Arabic message", () => {

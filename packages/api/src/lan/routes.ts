@@ -173,7 +173,7 @@ export function createLanRoutes(options: LanRoutesOptions) {
     const userId = callerUserId(c);
     if (!userId) {
       return c.json(
-        { error: "SESSION_EXPIRED", message: "انتهت الجلسة. سجّل الدخول من جديد." },
+        { error: "SESSION_EXPIRED", message: "انتهت الجلسة. سجّل الدخول من جديد.", messageEn: "Your session has ended. Sign in again." },
         401,
       );
     }
@@ -197,8 +197,8 @@ export function createLanRoutes(options: LanRoutesOptions) {
             error: err.code,
             seats: err.seats,
             connected: err.connected,
-            message: `اكتمل عدد الأجهزة التي يسمح بها الترخيص (${err.connected} من ${err.seats}). افصل جهازاً من «الأجهزة المتصلة» قبل توصيل جهاز آخر.`,
-            messageEn: err.message,
+            message: err.message,
+            messageEn: err.messageEn,
           },
           409,
         );
@@ -208,8 +208,8 @@ export function createLanRoutes(options: LanRoutesOptions) {
           {
             error: err.code,
             maxSeatsPerUser: err.maxSeatsPerUser,
-            message: `هذا الحساب متصل بالفعل من ${err.maxSeatsPerUser} جهاز، وهو الحد الأقصى للحساب الواحد. افصل أحد أجهزته من «الأجهزة المتصلة» ثم أعد المحاولة، أو استخدم حساباً آخر على هذا الجهاز.`,
-            messageEn: err.message,
+            message: err.message,
+            messageEn: err.messageEn,
           },
           409,
         );
@@ -234,7 +234,7 @@ export function createLanRoutes(options: LanRoutesOptions) {
       return c.body(null, 204);
     } catch (err) {
       if (err instanceof DeviceSessionNotFoundError) {
-        return c.json({ error: err.code, message: err.message }, 404);
+        return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 404);
       }
       throw err;
     }
@@ -264,6 +264,7 @@ export function createLanRoutes(options: LanRoutesOptions) {
         {
           error: "TOO_MANY_STREAMS",
           message: "هذا الجهاز يفتح عدداً كبيراً من الاتصالات المباشرة. أعد تشغيل البرنامج على الجهاز.",
+          messageEn: "This device is opening too many direct connections. Restart the program on the device.",
         },
         429,
       );

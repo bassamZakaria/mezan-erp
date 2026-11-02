@@ -1,3 +1,4 @@
+import type { BilingualReason } from "../collections/errors.js";
 import { isoTimestamp } from "./validation.js";
 import { InvalidSubscriptionError } from "./errors.js";
 
@@ -71,10 +72,10 @@ export interface RequestStorageCommand {
 export async function requestStorage(cmd: RequestStorageCommand, repo: StorageRequestRepository): Promise<StorageRequest> {
   const now = isoTimestamp(cmd.now);
   const note = cmd.note?.trim() || null;
-  const reasons: string[] = [];
-  if (!now) reasons.push("الطابع الزمني الحالي غير صالح (يجب أن يكون بصيغة ISO-8601)");
-  if (!(STORAGE_REQUEST_STEPS_MB as readonly number[]).includes(cmd.extraMb)) reasons.push("المساحة المطلوبة غير متاحة");
-  if (note !== null && note.length > MAX_STORAGE_REQUEST_NOTE) reasons.push(`الملاحظة لا تزيد على ${MAX_STORAGE_REQUEST_NOTE} حرف`);
+  const reasons: BilingualReason[] = [];
+  if (!now) reasons.push({ ar: "الطابع الزمني الحالي غير صالح (يجب أن يكون بصيغة ISO-8601)", en: "The current timestamp is invalid (it must be ISO-8601)" });
+  if (!(STORAGE_REQUEST_STEPS_MB as readonly number[]).includes(cmd.extraMb)) reasons.push({ ar: "المساحة المطلوبة غير متاحة", en: "The requested storage is not available" });
+  if (note !== null && note.length > MAX_STORAGE_REQUEST_NOTE) reasons.push({ ar: `الملاحظة لا تزيد على ${MAX_STORAGE_REQUEST_NOTE} حرف`, en: `The note cannot exceed ${MAX_STORAGE_REQUEST_NOTE} characters` });
   if (!now || reasons.length > 0) throw new InvalidSubscriptionError(reasons);
   const request: StorageRequest = {
     id: cmd.id,
@@ -111,7 +112,7 @@ export async function decideStorageRequest(
   grant: (request: StorageRequest) => Promise<void>,
 ): Promise<StorageRequest> {
   const now = isoTimestamp(cmd.now);
-  if (!now) throw new InvalidSubscriptionError(["الطابع الزمني الحالي غير صالح (يجب أن يكون بصيغة ISO-8601)"]);
+  if (!now) throw new InvalidSubscriptionError([{ ar: "الطابع الزمني الحالي غير صالح (يجب أن يكون بصيغة ISO-8601)", en: "The current timestamp is invalid (it must be ISO-8601)" }]);
   const before = await repo.findById(cmd.id);
   if (!before) throw new StorageRequestRefusedError(StorageRequestRefusal.NotFound, "طلب المساحة غير موجود", "Storage request not found");
   const after: StorageRequest = {

@@ -85,13 +85,13 @@ function handleDomainError(c: Context, err: unknown) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
   }
   if (err instanceof WritedownRunNotFoundError) {
-    return c.json({ error: err.code, message: err.message }, 404);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 404);
   }
   if (err instanceof DuplicateWritedownPeriodError || err instanceof WritedownRunNotDraftError) {
-    return c.json({ error: err.code, message: err.message }, 409);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
   }
   if (err instanceof NoSlowMovingStockError) {
-    return c.json({ error: err.code, message: err.message }, 422);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 422);
   }
   throw err;
 }
@@ -127,6 +127,7 @@ export function createInventoryWritedownRoutes(
           {
             error: "AGING_WRITEDOWN_DISABLED",
             message: "مخصص هبوط المخزون الراكد غير مُفعَّل في إعدادات سياسة المخزون.",
+            messageEn: "The slow-moving stock write-down provision is not enabled in the inventory policy settings.",
           },
           422,
         );

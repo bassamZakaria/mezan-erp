@@ -6,7 +6,7 @@
  * silently duplicated for the same action type, then hands off to the port.
  */
 
-import { isGateableActionType, type GateableActionType } from "./action-types.js";
+import { actionTypeLabels, isGateableActionType, type GateableActionType } from "./action-types.js";
 import type { GateStep } from "./gate.js";
 
 export interface WorkflowConfigRecord {
@@ -28,24 +28,30 @@ export interface WorkflowConfigRepository {
 
 export class UnknownActionTypeError extends Error {
   readonly code = "UNKNOWN_ACTION_TYPE" as const;
+  readonly messageEn: string;
   constructor(readonly actionType: string) {
-    super(`"${actionType}" is not one of the 27 gateable action types.`);
+    super(`"${actionType}" ليس من أنواع الإجراءات القابلة للاعتماد.`);
+    this.messageEn = `"${actionType}" is not an action type that can require approval.`;
     this.name = "UnknownActionTypeError";
   }
 }
 
 export class EmptyStepsError extends Error {
   readonly code = "EMPTY_STEPS" as const;
+  readonly messageEn: string;
   constructor() {
-    super("A workflow config needs at least one step.");
+    super("إعداد سير الاعتماد يتطلب خطوة واحدة على الأقل.");
+    this.messageEn = "A workflow config needs at least one step.";
     this.name = "EmptyStepsError";
   }
 }
 
 export class InvalidStepRoleError extends Error {
   readonly code = "INVALID_STEP_ROLE" as const;
+  readonly messageEn: string;
   constructor(readonly index: number) {
-    super(`Step ${index + 1} needs an approver role.`);
+    super(`الخطوة ${index + 1} تتطلب دور معتمِد.`);
+    this.messageEn = `Step ${index + 1} needs an approver role.`;
     this.name = "InvalidStepRoleError";
   }
 }
@@ -76,24 +82,31 @@ export class InvalidStepRoleError extends Error {
  */
 export class UnknownStepRoleError extends Error {
   readonly code = "UNKNOWN_STEP_ROLE" as const;
+  readonly messageEn: string;
   constructor(readonly index: number, readonly role: string) {
-    super(`Step ${index + 1} names an approver role that does not exist: "${role}".`);
+    super(`الخطوة ${index + 1} تسمّي دور معتمِد غير موجود: "${role}".`);
+    this.messageEn = `Step ${index + 1} names an approver role that does not exist: "${role}".`;
     this.name = "UnknownStepRoleError";
   }
 }
 
 export class DuplicateWorkflowConfigError extends Error {
   readonly code = "DUPLICATE_WORKFLOW_CONFIG" as const;
+  readonly messageEn: string;
   constructor(readonly actionType: string) {
-    super(`A workflow config for "${actionType}" already exists.`);
+    const label = actionTypeLabels(actionType);
+    super(`يوجد بالفعل إعداد اعتماد لنوع الإجراء "${label.ar}".`);
+    this.messageEn = `A workflow config for "${label.en}" already exists.`;
     this.name = "DuplicateWorkflowConfigError";
   }
 }
 
 export class WorkflowConfigNotFoundError extends Error {
   readonly code = "WORKFLOW_CONFIG_NOT_FOUND" as const;
+  readonly messageEn: string;
   constructor(readonly id: string) {
-    super(`Workflow config "${id}" not found.`);
+    super(`تعذّر العثور على إعداد الاعتماد "${id}".`);
+    this.messageEn = `Workflow config "${id}" not found.`;
     this.name = "WorkflowConfigNotFoundError";
   }
 }

@@ -1,4 +1,5 @@
 import { Money, Qty, allocate } from "../../money/index.js";
+import type { ReasonInput } from "../../bilingual-reasons.js";
 import { routedAccountId, type AccountRoutingRepository } from "../../accounts/account-routing.js";
 import { postJournalEntry, reverseJournalEntry, ReversalDateBeforeOriginalError, type JournalPostingDeps } from "../../gl/index.js";
 import { UnbookedStockVarianceError } from "../../documents/errors.js";
@@ -174,14 +175,14 @@ export class SiteService {
     return routedAccountId(routing, key) ?? fallback;
   }
 
-  private async requireSiteWarehouse(id: string, field: string): Promise<Warehouse> {
+  private async requireSiteWarehouse(id: string, field: string, fieldEn: string): Promise<Warehouse> {
     const warehouse = await this.deps.warehouses.findById(id);
-    if (!warehouse) throw new InvalidSiteDocumentError([`${field}: مستودع الموقع غير موجود`]);
+    if (!warehouse) throw new InvalidSiteDocumentError([{ ar: `${field}: مستودع الموقع غير موجود`, en: `${fieldEn}: the site warehouse was not found` }]);
     if (warehouse.type !== "SITE") {
-      throw new InvalidSiteDocumentError([`${field}: يجب اختيار مستودع موقع`]);
+      throw new InvalidSiteDocumentError([{ ar: `${field}: يجب اختيار مستودع موقع`, en: `${fieldEn}: a site warehouse must be selected` }]);
     }
     if (!warehouse.projectId) {
-      throw new InvalidSiteDocumentError([`${field}: مستودع الموقع بلا مشروع`]);
+      throw new InvalidSiteDocumentError([{ ar: `${field}: مستودع الموقع بلا مشروع`, en: `${fieldEn}: the site warehouse has no project` }]);
     }
     if (!(await this.deps.projects.findById(warehouse.projectId))) {
       throw new ProjectNotFoundError(warehouse.projectId);
@@ -216,23 +217,23 @@ export class SiteService {
   // --- إذن صرف للموقع ---
 
   async createIssueDraft(command: CreateSiteIssueCommand): Promise<SiteIssue> {
-    const reasons: string[] = [];
-    if (!ISO_DATE.test(command.date)) reasons.push("التاريخ مطلوب بصيغة YYYY-MM-DD");
-    if (command.issuedByUserId.trim() === "") reasons.push("لا بد من معرفة من أصدر إذن الصرف");
-    if (command.lines.length === 0) reasons.push("إذن الصرف يحتاج سطراً واحداً على الأقل");
+    const reasons: ReasonInput[] = [];
+    if (!ISO_DATE.test(command.date)) reasons.push({ ar: "التاريخ مطلوب بصيغة YYYY-MM-DD", en: "The date is required in YYYY-MM-DD format" });
+    if (command.issuedByUserId.trim() === "") reasons.push({ ar: "لا بد من معرفة من أصدر إذن الصرف", en: "The person who issued the issue note must be identified" });
+    if (command.lines.length === 0) reasons.push({ ar: "إذن الصرف يحتاج سطراً واحداً على الأقل", en: "An issue note needs at least one line" });
     command.lines.forEach((line, i) => {
-      if (line.itemId.trim() === "") reasons.push(`السطر ${i + 1}: الصنف مطلوب`);
-      if (line.qty.isZero() || line.qty.isNegative()) reasons.push(`السطر ${i + 1}: الكمية يجب أن تكون رقماً موجباً`);
+      if (line.itemId.trim() === "") reasons.push({ ar: `السطر ${i + 1}: الصنف مطلوب`, en: `Line ${i + 1}: the item is required` });
+      if (line.qty.isZero() || line.qty.isNegative()) reasons.push({ ar: `السطر ${i + 1}: الكمية يجب أن تكون رقماً موجباً`, en: `Line ${i + 1}: the quantity must be a positive number` });
     });
     if (reasons.length > 0) throw new InvalidSiteDocumentError(reasons);
 
-    const destination = await this.requireSiteWarehouse(command.toWarehouseId, "مستودع الموقع");
+    const destination = await this.requireSiteWarehouse(command.toWarehouseId, "مستودع الموقع", "Site warehouse");
     const source = await this.deps.warehouses.findById(command.fromWarehouseId);
-    if (!source) throw new InvalidSiteDocumentError(["المستودع المصدر غير موجود"]);
+    if (!source) throw new InvalidSiteDocumentError([{ ar: "المستودع المصدر غير موجود", en: "The source warehouse was not found" }]);
     if (source.type === "SITE" || source.type === "TRANSIT") {
-      throw new InvalidSiteDocumentError(["الصرف للموقع يكون من مستودع رئيسي وليس من مستودع موقع أو مواد في الطريق"]);
+      throw new InvalidSiteDocumentError([{ ar: "الصرف للموقع يكون من مستودع رئيسي وليس من مستودع موقع أو مواد في الطريق", en: "Issues to site must come from a main warehouse, not from a site warehouse or materials in transit" }]);
     }
-    if (source.id === destination.id) throw new InvalidSiteDocumentError(["المستودع المصدر والمستودع المستلم واحد"]);
+    if (source.id === destination.id) throw new InvalidSiteDocumentError([{ ar: "المستودع المصدر والمستودع المستلم واحد", en: "The source and receiving warehouses are the same" }]);
 
     const issue: SiteIssue = {
       id: command.id,
@@ -260,7 +261,7 @@ export class SiteService {
       throw new SiteDocumentStatusError("إذن الصرف صُرف بالفعل ولا يُصرف مرتين.");
     }
     const source = await this.deps.warehouses.findById(issue.fromWarehouseId);
-    if (!source) throw new InvalidSiteDocumentError(["المستودع المصدر غير موجود"]);
+    if (!source) throw new InvalidSiteDocumentError([{ ar: "المستودع المصدر غير موجود", en: "The source warehouse was not found" }]);
 
     return this.run(async () => {
       const transit = await this.transitWarehouseFor(source.branchId);
@@ -323,7 +324,7 @@ export class SiteService {
       throw new SiteDocumentStatusError("تم استلام إذن الصرف بالكامل.");
     }
     if (command.receivedByUserId.trim() === "") {
-      throw new InvalidSiteDocumentError(["لا بد من معرفة من استلم بالموقع"]);
+      throw new InvalidSiteDocumentError([{ ar: "لا بد من معرفة من استلم بالموقع", en: "The person who received on site must be identified" }]);
     }
     // The control, enforced on the USER id rather than on a role: an admin
     // wildcard grants every permission, and would otherwise walk straight
@@ -332,35 +333,35 @@ export class SiteService {
       throw new SiteReceiptSelfReceiptError(command.receivedByUserId);
     }
 
-    const reasons: string[] = [];
+    const reasons: ReasonInput[] = [];
     if (!ISO_DATE.test(command.date)) {
-      reasons.push("التاريخ مطلوب بصيغة YYYY-MM-DD");
+      reasons.push({ ar: "التاريخ مطلوب بصيغة YYYY-MM-DD", en: "The date is required in YYYY-MM-DD format" });
     } else {
       // A receipt signed BEFORE the material left the store is the signature of
       // a back-dated cover-up, not a clerical slip: the transit leg cannot be
       // closed before it opened, and nothing may be received in the future.
       const today = this.today();
       if (command.date < issue.date) {
-        reasons.push(`تاريخ الاستلام (${command.date}) يسبق تاريخ إذن الصرف (${issue.date})`);
+        reasons.push({ ar: `تاريخ الاستلام (${command.date}) يسبق تاريخ إذن الصرف (${issue.date})`, en: `The receipt date (${command.date}) is earlier than the issue note date (${issue.date})` });
       }
       if (command.date > today) {
-        reasons.push(`تاريخ الاستلام (${command.date}) بعد تاريخ اليوم (${today})`);
+        reasons.push({ ar: `تاريخ الاستلام (${command.date}) بعد تاريخ اليوم (${today})`, en: `The receipt date (${command.date}) is after today's date (${today})` });
       }
     }
-    if (command.lines.length === 0) reasons.push("الاستلام يحتاج سطراً واحداً على الأقل");
+    if (command.lines.length === 0) reasons.push({ ar: "الاستلام يحتاج سطراً واحداً على الأقل", en: "A receipt needs at least one line" });
     const outstanding = await this.outstandingOf(issue);
     command.lines.forEach((line, i) => {
       if (line.qtyReceived.isZero() || line.qtyReceived.isNegative()) {
-        reasons.push(`السطر ${i + 1}: الكمية يجب أن تكون رقماً موجباً`);
+        reasons.push({ ar: `السطر ${i + 1}: الكمية يجب أن تكون رقماً موجباً`, en: `Line ${i + 1}: the quantity must be a positive number` });
         return;
       }
       const cap = outstanding.get(line.itemId);
       if (cap === undefined) {
-        reasons.push(`السطر ${i + 1}: الصنف غير مدرج في إذن الصرف`);
+        reasons.push({ ar: `السطر ${i + 1}: الصنف غير مدرج في إذن الصرف`, en: `Line ${i + 1}: the item is not on the issue note` });
         return;
       }
       if (line.qtyReceived.compare(cap) > 0) {
-        reasons.push(`السطر ${i + 1}: الكمية المستلمة (${line.qtyReceived.toString()}) تتجاوز المتبقي بالطريق (${cap.toString()})`);
+        reasons.push({ ar: `السطر ${i + 1}: الكمية المستلمة (${line.qtyReceived.toString()}) تتجاوز المتبقي بالطريق (${cap.toString()})`, en: `Line ${i + 1}: the received quantity (${line.qtyReceived.toString()}) exceeds what remains in transit (${cap.toString()})` });
       }
     });
     if (reasons.length > 0) throw new InvalidSiteDocumentError(reasons);
@@ -401,7 +402,10 @@ export class SiteService {
     const outstanding = await this.outstandingOf(issue);
     const overruns = receipt.lines
       .filter((l) => l.qtyReceived.compare(outstanding.get(l.itemId) ?? Qty.zero()) > 0)
-      .map((l) => `الصنف ${l.itemId}: الكمية المستلمة تتجاوز المتبقي بالطريق`);
+      .map((l) => ({
+        ar: `الصنف ${l.itemId}: الكمية المستلمة تتجاوز المتبقي بالطريق`,
+        en: `Item ${l.itemId}: the received quantity exceeds what remains in transit`,
+      }));
     if (overruns.length > 0) throw new InvalidSiteDocumentError(overruns);
 
     return this.run(async () => {
@@ -434,19 +438,19 @@ export class SiteService {
   // --- استهلاك مواد ---
 
   async createConsumptionDraft(command: CreateMaterialConsumptionCommand): Promise<MaterialConsumption> {
-    const reasons: string[] = [];
-    if (!ISO_DATE.test(command.date)) reasons.push("التاريخ مطلوب بصيغة YYYY-MM-DD");
-    if (command.lines.length === 0) reasons.push("مستند الاستهلاك يحتاج سطراً واحداً على الأقل");
+    const reasons: ReasonInput[] = [];
+    if (!ISO_DATE.test(command.date)) reasons.push({ ar: "التاريخ مطلوب بصيغة YYYY-MM-DD", en: "The date is required in YYYY-MM-DD format" });
+    if (command.lines.length === 0) reasons.push({ ar: "مستند الاستهلاك يحتاج سطراً واحداً على الأقل", en: "A consumption document needs at least one line" });
     command.lines.forEach((line, i) => {
-      if (line.itemId.trim() === "") reasons.push(`السطر ${i + 1}: الصنف مطلوب`);
-      if (line.qty.isZero() || line.qty.isNegative()) reasons.push(`السطر ${i + 1}: الكمية يجب أن تكون رقماً موجباً`);
+      if (line.itemId.trim() === "") reasons.push({ ar: `السطر ${i + 1}: الصنف مطلوب`, en: `Line ${i + 1}: the item is required` });
+      if (line.qty.isZero() || line.qty.isNegative()) reasons.push({ ar: `السطر ${i + 1}: الكمية يجب أن تكون رقماً موجباً`, en: `Line ${i + 1}: the quantity must be a positive number` });
     });
     if (reasons.length > 0) throw new InvalidSiteDocumentError(reasons);
 
-    const warehouse = await this.requireSiteWarehouse(command.warehouseId, "مستودع الصرف");
+    const warehouse = await this.requireSiteWarehouse(command.warehouseId, "مستودع الصرف", "Issuing warehouse");
     const boqLineId = command.boqLineId?.trim() ? command.boqLineId.trim() : null;
     if (boqLineId && this.deps.boqLines && !(await this.deps.boqLines.exists(boqLineId))) {
-      throw new InvalidSiteDocumentError([`بند جدول الكميات "${boqLineId}" غير موجود`]);
+      throw new InvalidSiteDocumentError([{ ar: `بند جدول الكميات "${boqLineId}" غير موجود`, en: `Bill of quantities line "${boqLineId}" was not found` }]);
     }
     // Consumption with no BOQ line is invisible to انحراف الاستهلاك — it has no
     // theoretical quantity to be compared against — so on a project running
@@ -457,7 +461,7 @@ export class SiteService {
       (await this.deps.worksContracts.hasActiveContract(warehouse.projectId as string))
     ) {
       throw new InvalidSiteDocumentError([
-        "بند جدول الكميات مطلوب — المشروع يعمل تحت عقد سارٍ، والاستهلاك بلا بند لا يظهر في تقرير انحراف الاستهلاك",
+        { ar: "بند جدول الكميات مطلوب — المشروع يعمل تحت عقد سارٍ، والاستهلاك بلا بند لا يظهر في تقرير انحراف الاستهلاك", en: "A bill of quantities line is required — the project runs under an active contract, and consumption without a line does not appear in the consumption variance report" },
       ]);
     }
 
@@ -659,13 +663,13 @@ export class SiteService {
   // --- عهدة المواد المرتجعة ---
 
   async issueCustody(command: IssueCustodyCommand): Promise<CustodyItem> {
-    const reasons: string[] = [];
-    if (!ISO_DATE.test(command.issuedDate)) reasons.push("تاريخ الصرف مطلوب بصيغة YYYY-MM-DD");
-    if (command.descriptionAr.trim() === "") reasons.push("وصف العهدة مطلوب");
-    if (command.qtyOut.isZero() || command.qtyOut.isNegative()) reasons.push("الكمية يجب أن تكون رقماً موجباً");
+    const reasons: ReasonInput[] = [];
+    if (!ISO_DATE.test(command.issuedDate)) reasons.push({ ar: "تاريخ الصرف مطلوب بصيغة YYYY-MM-DD", en: "The issue date is required in YYYY-MM-DD format" });
+    if (command.descriptionAr.trim() === "") reasons.push({ ar: "وصف العهدة مطلوب", en: "A custody description is required" });
+    if (command.qtyOut.isZero() || command.qtyOut.isNegative()) reasons.push({ ar: "الكمية يجب أن تكون رقماً موجباً", en: "The quantity must be a positive number" });
     if (reasons.length > 0) throw new InvalidSiteDocumentError(reasons);
 
-    const warehouse = await this.requireSiteWarehouse(command.warehouseId, "مستودع الموقع");
+    const warehouse = await this.requireSiteWarehouse(command.warehouseId, "مستودع الموقع", "Site warehouse");
 
     const item: CustodyItem = {
       id: command.id,
@@ -686,14 +690,14 @@ export class SiteService {
   async returnCustody(id: string, command: ReturnCustodyCommand): Promise<CustodyItem> {
     const item = await this.deps.custody.findById(id);
     if (!item) throw new SiteDocumentNotFoundError(id);
-    if (!ISO_DATE.test(command.date)) throw new InvalidSiteDocumentError(["تاريخ الارتجاع مطلوب بصيغة YYYY-MM-DD"]);
+    if (!ISO_DATE.test(command.date)) throw new InvalidSiteDocumentError([{ ar: "تاريخ الارتجاع مطلوب بصيغة YYYY-MM-DD", en: "The return date is required in YYYY-MM-DD format" }]);
     if (command.qty.isZero() || command.qty.isNegative()) {
-      throw new InvalidSiteDocumentError(["الكمية يجب أن تكون رقماً موجباً"]);
+      throw new InvalidSiteDocumentError([{ ar: "الكمية يجب أن تكون رقماً موجباً", en: "The quantity must be a positive number" }]);
     }
     const nextReturned = item.qtyReturned.add(command.qty);
     if (nextReturned.compare(item.qtyOut) > 0) {
       throw new InvalidSiteDocumentError([
-        `الكمية المرتجعة (${nextReturned.toString()}) تتجاوز الكمية المصروفة (${item.qtyOut.toString()})`,
+        { ar: `الكمية المرتجعة (${nextReturned.toString()}) تتجاوز الكمية المصروفة (${item.qtyOut.toString()})`, en: `The returned quantity (${nextReturned.toString()}) exceeds the issued quantity (${item.qtyOut.toString()})` },
       ]);
     }
     const updated: CustodyItem = { ...item, qtyReturned: nextReturned };
@@ -704,16 +708,16 @@ export class SiteService {
   // --- تشغيل المعدات ---
 
   async createEquipmentLogDraft(command: CreateEquipmentLogCommand): Promise<EquipmentLog> {
-    const reasons: string[] = [];
-    if (!ISO_DATE.test(command.date)) reasons.push("التاريخ مطلوب بصيغة YYYY-MM-DD");
-    if (command.hours.isZero() || command.hours.isNegative()) reasons.push("عدد الساعات يجب أن يكون رقماً موجباً");
+    const reasons: ReasonInput[] = [];
+    if (!ISO_DATE.test(command.date)) reasons.push({ ar: "التاريخ مطلوب بصيغة YYYY-MM-DD", en: "The date is required in YYYY-MM-DD format" });
+    if (command.hours.isZero() || command.hours.isNegative()) reasons.push({ ar: "عدد الساعات يجب أن يكون رقماً موجباً", en: "The number of hours must be a positive number" });
     if (reasons.length > 0) throw new InvalidSiteDocumentError(reasons);
 
     if (!(await this.deps.projects.findById(command.projectId))) {
       throw new ProjectNotFoundError(command.projectId);
     }
     const asset = await this.deps.assets.findById(command.assetId);
-    if (!asset) throw new InvalidSiteDocumentError([`الأصل "${command.assetId}" غير موجود`]);
+    if (!asset) throw new InvalidSiteDocumentError([{ ar: `الأصل "${command.assetId}" غير موجود`, en: `Asset "${command.assetId}" was not found` }]);
 
     // INVARIANT: the rate is the ASSET's سعر الساعة الداخلي and nothing else.
     // A per-log override let whoever typed the log set the number that becomes
@@ -721,7 +725,7 @@ export class SiteService {
     // revenue — with no approval anywhere. Changing the rate is an edit of the
     // asset register, gated and audited there.
     if (!asset.internalHourlyRate || asset.internalHourlyRate.scaled <= 0n) {
-      throw new InvalidSiteDocumentError(["سعر الساعة الداخلي غير محدد على هذه المعدة — حدّده على الأصل أولاً"]);
+      throw new InvalidSiteDocumentError([{ ar: "سعر الساعة الداخلي غير محدد على هذه المعدة — حدّده على الأصل أولاً", en: "The internal hourly rate is not set on this equipment — set it on the asset first" }]);
     }
     // INVARIANT: the rate is the one effective on the LOG's date, not today's.
     // Pricing last month's hours at a rate changed yesterday restates the WIP,
@@ -731,12 +735,12 @@ export class SiteService {
       history.length === 0 ? asset.internalHourlyRate : resolveInternalHourlyRate(history, command.date);
     if (!hourlyRate || hourlyRate.scaled <= 0n) {
       throw new InvalidSiteDocumentError([
-        `لا يوجد سعر ساعة داخلي سارٍ للمعدة في ${command.date} — أقدم سعر مسجل يبدأ في ${history[0]?.effectiveFrom ?? "—"}`,
+        { ar: `لا يوجد سعر ساعة داخلي سارٍ للمعدة في ${command.date} — أقدم سعر مسجل يبدأ في ${history[0]?.effectiveFrom ?? "—"}`, en: `No internal hourly rate is in effect for the equipment on ${command.date} — the earliest recorded rate starts on ${history[0]?.effectiveFrom ?? "—"}` },
       ]);
     }
     const boqLineId = command.boqLineId?.trim() ? command.boqLineId.trim() : null;
     if (boqLineId && this.deps.boqLines && !(await this.deps.boqLines.exists(boqLineId))) {
-      throw new InvalidSiteDocumentError([`بند جدول الكميات "${boqLineId}" غير موجود`]);
+      throw new InvalidSiteDocumentError([{ ar: `بند جدول الكميات "${boqLineId}" غير موجود`, en: `Bill of quantities line "${boqLineId}" was not found` }]);
     }
 
     const log: EquipmentLog = {

@@ -1,3 +1,5 @@
+import { splitReasons, type ReasonInput } from "../bilingual-reasons.js";
+import type { BilingualReason } from "../collections/errors.js";
 /**
  * Warehouse — docs/archive/catalog/09 §"إدارة المستودعات (Warehouses)". Warehouses
  * model *purpose*, not just a name: the catalog's "Full warehouse-type
@@ -56,8 +58,13 @@ export interface Warehouse {
 
 export class InvalidWarehouseError extends Error {
   readonly code = "INVALID_WAREHOUSE";
-  constructor(reasons: readonly string[]) {
-    super(`Invalid warehouse: ${reasons.join("; ")}`);
+  readonly reasons: string[];
+  readonly messageEn: string;
+  constructor(reasons: readonly ReasonInput[]) {
+    const split = splitReasons(reasons, "the details are not valid");
+    super(`بيانات المستودع غير صالحة: ${split.ar.join("؛ ")}`);
+    this.reasons = [...split.ar];
+    this.messageEn = `Invalid warehouse: ${split.en}`;
     this.name = "InvalidWarehouseError";
   }
 }
@@ -75,23 +82,23 @@ export interface CreateWarehouseInput {
   readonly custodianUserId?: string | null;
 }
 
-function validate(warehouse: Warehouse): string[] {
-  const reasons: string[] = [];
-  if (warehouse.id.trim() === "") reasons.push("id is required");
+function validate(warehouse: Warehouse): BilingualReason[] {
+  const reasons: BilingualReason[] = [];
+  if (warehouse.id.trim() === "") reasons.push({ ar: "معرّف المستودع مطلوب", en: "The warehouse ID is required" });
   if (!/^[A-Z0-9_-]{1,20}$/.test(warehouse.code)) {
-    reasons.push("code must be 1-20 uppercase alphanumeric/-/_ characters");
+    reasons.push({ ar: "كود المستودع يجب أن يتكوّن من 1 إلى 20 حرفاً لاتينياً كبيراً أو رقماً أو الرمزين - و _", en: "The warehouse code must be 1 to 20 characters: capital Latin letters, digits, hyphens or underscores" });
   }
-  if (warehouse.name.trim() === "") reasons.push("name is required");
-  if (warehouse.branchId.trim() === "") reasons.push("branchId is required");
+  if (warehouse.name.trim() === "") reasons.push({ ar: "اسم المستودع مطلوب", en: "The warehouse name is required" });
+  if (warehouse.branchId.trim() === "") reasons.push({ ar: "الفرع مطلوب", en: "The branch is required" });
   if (!WAREHOUSE_TYPES.includes(warehouse.type)) {
-    reasons.push(`type must be one of ${WAREHOUSE_TYPES.join(", ")}`);
+    reasons.push({ ar: `نوع المستودع يجب أن يكون أحد الأنواع: ${WAREHOUSE_TYPE_DEFINITIONS.map((d) => d.labelAr).join("، ")}.`, en: "The warehouse type must be main, transit, returns, production, van or site." });
   }
   if (warehouse.type === "SITE") {
-    if (!warehouse.projectId) reasons.push("مستودع الموقع يتطلب تحديد المشروع");
-    if (!warehouse.custodianUserId) reasons.push("مستودع الموقع يتطلب تحديد أمين العهدة");
+    if (!warehouse.projectId) reasons.push({ ar: "مستودع الموقع يتطلب تحديد المشروع", en: "A site warehouse requires a project" });
+    if (!warehouse.custodianUserId) reasons.push({ ar: "مستودع الموقع يتطلب تحديد أمين العهدة", en: "A site warehouse requires a custodian" });
   } else {
-    if (warehouse.projectId) reasons.push("المشروع لا يُسجَّل إلا على مستودع موقع");
-    if (warehouse.custodianUserId) reasons.push("أمين العهدة لا يُسجَّل إلا على مستودع موقع");
+    if (warehouse.projectId) reasons.push({ ar: "المشروع لا يُسجَّل إلا على مستودع موقع", en: "A project can only be set on a site warehouse" });
+    if (warehouse.custodianUserId) reasons.push({ ar: "أمين العهدة لا يُسجَّل إلا على مستودع موقع", en: "A custodian can only be set on a site warehouse" });
   }
   return reasons;
 }

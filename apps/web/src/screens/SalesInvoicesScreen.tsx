@@ -59,6 +59,7 @@ import { ClassifyLineTaxAction } from "./ClassifyLineTaxAction";
 import { NameJournalLineTaxAction } from "./NameJournalLineTaxAction";
 import { DraftLineEditAction } from "./DraftLineEditAction";
 import { CancelDraftSalesInvoiceAction } from "./CancelDraftSalesInvoiceAction";
+import { pickMessage } from "../data/server-message";
 import { ConfirmRecalculationNotice, confirmAcknowledgementOf, twoDecimals } from "./ConfirmRecalculationNotice";
 import { VoidReasonNotice, VoidSalesInvoiceAction } from "./VoidSalesInvoiceAction";
 import { UnnamedTaxNotice } from "./UnnamedTaxNotice";
@@ -1615,7 +1616,7 @@ function InvoiceDetailView({
                       ? { receiptPaymentMethod: detailReceiptPaymentMethod }
                       : {}),
                   });
-                  setTaxRecalculatedNotice(confirmed.taxRecalculated?.message ?? null);
+                  setTaxRecalculatedNotice(confirmed.taxRecalculated ? pickMessage(confirmed.taxRecalculated, locale) : null);
                 } catch (err) {
                   setDetailConfirmError(errorMessage(err, t("common.failed")));
                 }
@@ -2067,7 +2068,7 @@ function InvoiceDetailView({
 /* ------------------------------------------------------------------ */
 
 export function SalesInvoicesScreen() {
-  const { t } = useAppTranslation();
+  const { t, locale } = useAppTranslation();
   const countPhrase = useCountPhrase();
   const [statusFilter, setStatusFilter] = useUrlParam("status", "all") as [
     InvoiceFilterKey,
@@ -2167,7 +2168,7 @@ export function SalesInvoicesScreen() {
       // already moved this invoice wins silently.
       const confirmed = await listConfirm.mutateAsync({ id: row.id, expectedVersion: row.version, ...(acknowledgeTaxRecalculation ? { acknowledgeTaxRecalculation } : {}) });
       setRowRerate(null);
-      setRowNotice(confirmed.taxRecalculated?.message ?? null);
+      setRowNotice(confirmed.taxRecalculated ? pickMessage(confirmed.taxRecalculated, locale) : null);
     } catch (err) {
       if (err instanceof SalesTaxRecalculationPendingError) setRowRerate({ row, message: err.message, recalculated: err.recalculatedGrandTotal });
       else {

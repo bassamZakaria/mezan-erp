@@ -1,5 +1,6 @@
 import { InvalidJobTitleError } from "./errors.js";
 import type { JobTitle, JobTitleRepository } from "./job-title.js";
+import type { ReasonInput } from "../bilingual-reasons.js";
 
 export interface CreateJobTitleCommand {
   readonly id: string;
@@ -8,10 +9,10 @@ export interface CreateJobTitleCommand {
   readonly nameAr?: string | null;
 }
 
-function validate(command: CreateJobTitleCommand): string[] {
-  const reasons: string[] = [];
-  if (command.departmentId.trim().length === 0) reasons.push("القسم مطلوب");
-  if (command.name.trim().length === 0) reasons.push("اسم المسمى الوظيفي مطلوب");
+function validate(command: CreateJobTitleCommand): ReasonInput[] {
+  const reasons: ReasonInput[] = [];
+  if (command.departmentId.trim().length === 0) reasons.push({ ar: "القسم مطلوب", en: "The department is required" });
+  if (command.name.trim().length === 0) reasons.push({ ar: "اسم المسمى الوظيفي مطلوب", en: "The job title name is required" });
   return reasons;
 }
 

@@ -1,5 +1,6 @@
 import { InvalidDepartmentError } from "./errors.js";
 import type { Department, DepartmentRepository } from "./department.js";
+import type { ReasonInput } from "../bilingual-reasons.js";
 
 export interface CreateDepartmentCommand {
   readonly id: string;
@@ -12,11 +13,11 @@ export interface CreateDepartmentCommand {
   readonly standardWorkHours?: number | null;
 }
 
-function validate(command: CreateDepartmentCommand): string[] {
-  const reasons: string[] = [];
-  if (command.code.trim().length === 0) reasons.push("كود القسم مطلوب");
-  if (command.name.trim().length === 0) reasons.push("اسم القسم مطلوب");
-  if (command.parentDepartmentId === command.id) reasons.push("لا يمكن أن يكون القسم أباً لنفسه");
+function validate(command: CreateDepartmentCommand): ReasonInput[] {
+  const reasons: ReasonInput[] = [];
+  if (command.code.trim().length === 0) reasons.push({ ar: "كود القسم مطلوب", en: "The department code is required" });
+  if (command.name.trim().length === 0) reasons.push({ ar: "اسم القسم مطلوب", en: "The department name is required" });
+  if (command.parentDepartmentId === command.id) reasons.push({ ar: "لا يمكن أن يكون القسم أباً لنفسه", en: "A department cannot be its own parent" });
   return reasons;
 }
 
@@ -26,7 +27,7 @@ export async function createDepartment(command: CreateDepartmentCommand, repo: D
   if (reasons.length > 0) throw new InvalidDepartmentError(reasons);
 
   const existing = await repo.findByCode(command.code);
-  if (existing) throw new InvalidDepartmentError([`كود القسم "${command.code}" مستخدم بالفعل`]);
+  if (existing) throw new InvalidDepartmentError([{ ar: `كود القسم "${command.code}" مستخدم بالفعل`, en: `The department code "${command.code}" is already in use` }]);
 
   const department: Department = {
     id: command.id,

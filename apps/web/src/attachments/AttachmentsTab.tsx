@@ -7,6 +7,7 @@ import { useApi } from "../data/ApiContext";
 import { useEntitlements } from "../data/hooks";
 import { useAttachments, useDeleteAttachment, useDownloadAttachment, useUploadAttachment } from "../data/attachment-hooks";
 import { useAppTranslation } from "../i18n";
+import { errorMessage } from "../lib/error-message";
 
 /**
  * المرفقات — the reusable attachments tab. Any DocumentDetail drops this in
@@ -103,7 +104,7 @@ export function AttachmentsTab({ entityType, entityId }: AttachmentsTabProps) {
         contentBase64,
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : t("attachments.uploadFailed"));
+      setError(errorMessage(err, t("attachments.uploadFailed")));
     }
   }
 
@@ -115,7 +116,7 @@ export function AttachmentsTab({ entityType, entityId }: AttachmentsTabProps) {
       const content = await download.mutateAsync(id);
       triggerBrowserDownload(fileName, mimeType, content.contentBase64);
     } catch (err) {
-      setError(err instanceof Error ? err.message : t("attachments.downloadFailed"));
+      setError(errorMessage(err, t("attachments.downloadFailed")));
     } finally {
       setPendingId(null);
     }
@@ -168,7 +169,7 @@ export function AttachmentsTab({ entityType, entityId }: AttachmentsTabProps) {
         <div className="rounded-md border border-border p-[18px] text-center text-[12.5px] text-ink-muted">{t("common.loading")}</div>
       ) : query.isError ? (
         <div className="rounded-md border border-border p-[18px] text-center text-[12.5px] text-ink-muted">
-          {t("attachments.couldNotBeLoaded")}
+          {errorMessage(query.error, t("attachments.couldNotBeLoaded"))}
           <Button size="sm" className="ms-[10px]" onClick={() => void query.refetch()}>
             {t("common.retry")}
           </Button>

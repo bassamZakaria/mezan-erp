@@ -1,6 +1,7 @@
 import type { ConfirmSalesInvoiceDTO } from "@mezan/contracts";
 import type { SalesInvoiceDTO } from "../data/hooks";
 import { useAppTranslation } from "../i18n";
+import { pickMessage } from "../data/server-message";
 
 export function twoDecimals(amount: string): string {
   const point = amount.indexOf(".");
@@ -12,12 +13,12 @@ export function confirmAcknowledgementOf(invoice: SalesInvoiceDTO): Pick<Confirm
 }
 
 export function ConfirmRecalculationNotice({ invoice }: { invoice: SalesInvoiceDTO }) {
-  const { t } = useAppTranslation();
+  const { t, locale } = useAppTranslation();
   const preview = invoice.confirmPreview;
   if (!preview) return null;
   return (
     <div role="status" className="rounded-md border border-warning bg-warning-soft px-[12px] py-[10px] text-[12.5px] text-warning-ink">
-      <p className="font-semibold">{preview.message}</p>
+      <p className="font-semibold">{pickMessage(preview, locale)}</p>
       <p>
         {t("confirmPreview.totals", {
           recalculated: twoDecimals(preview.totals.grandTotal),

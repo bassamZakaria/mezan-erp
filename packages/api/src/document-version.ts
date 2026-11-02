@@ -29,6 +29,12 @@ export function staleDocumentMessage(userName: string | null): string {
     : "تم تعديل هذا المستند قبل قليل — أعد التحميل";
 }
 
+export function staleDocumentMessageEn(userName: string | null): string {
+  return userName
+    ? `This document was just modified by ${userName}. Reload it.`
+    : "This document was just modified. Reload it.";
+}
+
 export interface DocumentVersionGuard {
   readonly versions: DocumentVersionPort;
   /** Turns the winning editor's user id into the name the refusal names. */
@@ -56,6 +62,7 @@ export async function refuseStaleDocument(
     {
       error: DOCUMENT_VERSION_CONFLICT,
       message: staleDocumentMessage(name ?? current.lastModifiedBy),
+      messageEn: staleDocumentMessageEn(name ?? current.lastModifiedBy),
       expectedVersion,
       currentVersion: current.version,
     },

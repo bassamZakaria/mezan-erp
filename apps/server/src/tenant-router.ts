@@ -160,7 +160,7 @@ export function requireOriginSecret(secret?: string): MiddlewareHandler {
   return async (c, next) => {
     if (!secret) return next();
     if (!safeEqual(c.req.header("x-mezan-origin") ?? "", secret)) {
-      return c.json({ error: "ORIGIN_REQUIRED", message: "الوصول غير مسموح من هذا المصدر" }, 403);
+      return c.json({ error: "ORIGIN_REQUIRED", message: "الوصول غير مسموح من هذا المصدر", messageEn: "Access is not allowed from this origin" }, 403);
     }
     return next();
   };
@@ -533,10 +533,10 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
 
   app.onError((err, c) => {
     if (err instanceof Error && err.message === "TENANT_NOT_FOUND") {
-      return c.json({ error: "TENANT_NOT_FOUND", message: "المنشأة غير موجودة" }, 404);
+      return c.json({ error: "TENANT_NOT_FOUND", message: "المنشأة غير موجودة", messageEn: "The company does not exist" }, 404);
     }
     log.error({ event: LogEvent.UnhandledError, method: c.req.method, route: c.req.path, err }, "unhandled error");
-    return answerTenantDbFileRefusal(c, err) ?? c.json({ error: "INTERNAL", message: "حدث خطأ غير متوقع" }, 500);
+    return answerTenantDbFileRefusal(c, err) ?? c.json({ error: "INTERNAL", message: "حدث خطأ غير متوقع", messageEn: "An unexpected error occurred" }, 500);
   });
 
   /**
@@ -572,7 +572,7 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
     if (subPath === UNLOCK) {
       const unlock = unlockAccountRequestSchema.safeParse(body);
       if (!unlock.success) return c.json({ error: "VALIDATION_ERROR", details: unlock.error.flatten() }, 400);
-      return c.json({ error: SignInRefusal.InvalidUnlockCode, message: "رمز فكّ القفل غير صحيح أو انتهت صلاحيته." }, 400);
+      return c.json({ error: SignInRefusal.InvalidUnlockCode, message: "رمز فكّ القفل غير صحيح أو انتهت صلاحيته.", messageEn: "The unlock code is incorrect or has expired." }, 400);
     }
     const parsed = loginRequestSchema.safeParse(body);
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
@@ -600,7 +600,7 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
     const failed = await unknownEmails.failed(needle, source, false);
     if (failed.verdict === SignInVerdict.Locked) return locked();
     if (failed.verdict === SignInVerdict.Wait) return waitFor(failed.retryAfterSeconds);
-    return c.json({ error: "INVALID_CREDENTIALS", message: "البريد الإلكتروني أو كلمة المرور غير صحيحة." }, 401);
+    return c.json({ error: "INVALID_CREDENTIALS", message: "البريد الإلكتروني أو كلمة المرور غير صحيحة.", messageEn: "The email or password is incorrect." }, 401);
   }
 
   async function withTenantCode(answer: Response, code: string): Promise<Response> {
@@ -616,7 +616,7 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
     const tenant = code ? await options.platform.stores.tenants.findByCode(code) : await tenantOfSignInEmail(c.req.raw);
     if (byEmail && !tenant) return unknownSignInEmail(c, subPath, source);
     if (!tenant || !tenantIsServed(tenant)) {
-      return c.json({ error: "TENANT_NOT_FOUND", message: "المنشأة غير موجودة" }, 404);
+      return c.json({ error: "TENANT_NOT_FOUND", message: "المنشأة غير موجودة", messageEn: "The company does not exist" }, 404);
     }
     annotateRequest({ tenantId: tenant.id });
     const door = doorTo(await opened(tenant.id));
@@ -653,7 +653,7 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
       return answer;
     }
     if (code) return dispatch(c, subPath, source, code);
-    if (!signInDoor) return c.json({ error: "TENANT_REQUIRED", message: "حدّد رمز المنشأة" }, 400);
+    if (!signInDoor) return c.json({ error: "TENANT_REQUIRED", message: "حدّد رمز المنشأة", messageEn: "Specify the company code" }, 400);
 
     // SECURITY: one bucket for every sign-in found by email, known or not, held
     // below each company's own so a company's 429 is never the first to answer.

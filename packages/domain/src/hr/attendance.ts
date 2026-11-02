@@ -1,6 +1,7 @@
 import { InvalidAttendanceEntryError } from "./errors.js";
 import type { Holiday } from "./holiday.js";
 import { listHolidaysForYear } from "./holiday.js";
+import type { ReasonInput } from "../bilingual-reasons.js";
 
 /**
  * Attendance — docs/archive/catalog/06-crm-hr.md "الحضور والانصراف". One row per
@@ -98,7 +99,7 @@ export const DEFAULT_WEEKLY_OFF_DAYS: readonly number[] = [5, 6];
 
 function minutesOfDay(time: string): number {
   const match = TIME_PATTERN.exec(time);
-  if (!match) throw new InvalidAttendanceEntryError([`الوقت "${time}" غير صالح، الصيغة المطلوبة HH:MM`]);
+  if (!match) throw new InvalidAttendanceEntryError([{ ar: `الوقت "${time}" غير صالح، الصيغة المطلوبة HH:MM`, en: `The time "${time}" is invalid; the required format is HH:MM` }]);
   return Number(match[1]) * 60 + Number(match[2]);
 }
 
@@ -186,13 +187,13 @@ export interface RecordAttendanceCommand {
   readonly holidayCompensation?: HolidayWorkCompensation;
 }
 
-function validate(command: Pick<RecordAttendanceCommand, "employeeId" | "date" | "checkIn" | "checkOut">): string[] {
-  const reasons: string[] = [];
-  if (command.employeeId.trim().length === 0) reasons.push("الموظف مطلوب");
-  if (!DATE_PATTERN.test(command.date)) reasons.push("التاريخ مطلوب بصيغة YYYY-MM-DD");
-  if (command.checkIn && !TIME_PATTERN.test(command.checkIn)) reasons.push("وقت الحضور غير صالح، الصيغة المطلوبة HH:MM");
-  if (command.checkOut && !TIME_PATTERN.test(command.checkOut)) reasons.push("وقت الانصراف غير صالح، الصيغة المطلوبة HH:MM");
-  if (command.checkOut && !command.checkIn) reasons.push("لا يمكن تسجيل الانصراف بدون حضور");
+function validate(command: Pick<RecordAttendanceCommand, "employeeId" | "date" | "checkIn" | "checkOut">): ReasonInput[] {
+  const reasons: ReasonInput[] = [];
+  if (command.employeeId.trim().length === 0) reasons.push({ ar: "الموظف مطلوب", en: "The employee is required" });
+  if (!DATE_PATTERN.test(command.date)) reasons.push({ ar: "التاريخ مطلوب بصيغة YYYY-MM-DD", en: "The date is required in the format YYYY-MM-DD" });
+  if (command.checkIn && !TIME_PATTERN.test(command.checkIn)) reasons.push({ ar: "وقت الحضور غير صالح، الصيغة المطلوبة HH:MM", en: "The check-in time is invalid; the required format is HH:MM" });
+  if (command.checkOut && !TIME_PATTERN.test(command.checkOut)) reasons.push({ ar: "وقت الانصراف غير صالح، الصيغة المطلوبة HH:MM", en: "The check-out time is invalid; the required format is HH:MM" });
+  if (command.checkOut && !command.checkIn) reasons.push({ ar: "لا يمكن تسجيل الانصراف بدون حضور", en: "A check-out cannot be recorded without a check-in" });
   return reasons;
 }
 

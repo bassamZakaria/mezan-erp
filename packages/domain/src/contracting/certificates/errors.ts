@@ -1,10 +1,23 @@
+import { splitReasons, type ReasonInput } from "../../bilingual-reasons.js";
 import { getProgressCertificateStatusLabel, type ProgressCertificateStatus } from "./certificate.js";
+
+export const PROGRESS_CERTIFICATE_STATUS_EN: Readonly<Record<ProgressCertificateStatus, string>> = {
+  draft: "Draft",
+  measured: "Measured",
+  certified: "Certified",
+  approved_for_payment: "Approved for payment",
+  invoiced: "Invoiced",
+  cancelled: "Cancelled",
+  voided: "Voided",
+};
 
 /** Raised when a certificate id or docNo does not exist. */
 export class ProgressCertificateNotFoundError extends Error {
   readonly code = "CERTIFICATE_NOT_FOUND";
+  readonly messageEn: string;
   constructor(readonly certificateId: string) {
     super(`المستخلص "${certificateId}" غير موجود.`);
+    this.messageEn = `Progress certificate "${certificateId}" was not found.`;
     this.name = "ProgressCertificateNotFoundError";
   }
 }
@@ -12,8 +25,13 @@ export class ProgressCertificateNotFoundError extends Error {
 /** Raised when a certificate or one of its lines fails validation. Reasons are Arabic. */
 export class InvalidProgressCertificateError extends Error {
   readonly code = "INVALID_CERTIFICATE";
-  constructor(readonly reasons: readonly string[]) {
-    super(reasons.join("، "));
+  readonly messageEn: string;
+  readonly reasons: readonly string[];
+  constructor(reasons: readonly ReasonInput[]) {
+    const split = splitReasons(reasons, "The progress certificate failed validation.");
+    super(split.ar.join("، "));
+    this.reasons = split.ar;
+    this.messageEn = split.en;
     this.name = "InvalidProgressCertificateError";
   }
 }
@@ -21,6 +39,7 @@ export class InvalidProgressCertificateError extends Error {
 /** Raised when a status move is not one the lifecycle allows. */
 export class InvalidProgressCertificateTransitionError extends Error {
   readonly code = "INVALID_CERTIFICATE_TRANSITION";
+  readonly messageEn: string;
   constructor(
     readonly from: ProgressCertificateStatus,
     readonly to: ProgressCertificateStatus,
@@ -28,6 +47,7 @@ export class InvalidProgressCertificateTransitionError extends Error {
     super(
       `لا يمكن نقل المستخلص من "${getProgressCertificateStatusLabel(from)}" إلى "${getProgressCertificateStatusLabel(to)}".`,
     );
+    this.messageEn = `A progress certificate cannot move from "${PROGRESS_CERTIFICATE_STATUS_EN[from]}" to "${PROGRESS_CERTIFICATE_STATUS_EN[to]}".`;
     this.name = "InvalidProgressCertificateTransitionError";
   }
 }
@@ -39,6 +59,7 @@ export class InvalidProgressCertificateTransitionError extends Error {
  */
 export class LaterCertificateExistsError extends Error {
   readonly code = "LATER_CERTIFICATE_EXISTS";
+  readonly messageEn: string;
   constructor(
     readonly certificateId: string,
     readonly laterDocNo: string,
@@ -47,6 +68,7 @@ export class LaterCertificateExistsError extends Error {
     super(
       `لا يمكن تعديل هذا المستخلص أو نقل حالته لوجود مستخلص لاحق رقم ${laterSerial} (${laterDocNo}) مبني عليه.`,
     );
+    this.messageEn = `This progress certificate cannot be edited or moved to another status because a later certificate no. ${laterSerial} (${laterDocNo}) is built on it.`;
     this.name = "LaterCertificateExistsError";
   }
 }
@@ -54,11 +76,14 @@ export class LaterCertificateExistsError extends Error {
 /** Raised when the same person would hold two of the three signatures (design §06). */
 export class CertificateSegregationError extends Error {
   readonly code = "CERTIFICATE_SEGREGATION_REFUSED";
+  readonly messageEn: string;
   constructor(
     readonly userId: string,
     message: string,
+    messageEn = "The same person cannot hold more than one of the three signatures on a progress certificate.",
   ) {
     super(message);
+    this.messageEn = messageEn;
     this.name = "CertificateSegregationError";
   }
 }
@@ -66,8 +91,13 @@ export class CertificateSegregationError extends Error {
 /** Raised when a quantity would exceed what the contract carries as of the execution date. */
 export class CertificateQuantityError extends Error {
   readonly code = "CERTIFICATE_QUANTITY_REFUSED";
-  constructor(readonly reasons: readonly string[]) {
-    super(reasons.join("، "));
+  readonly messageEn: string;
+  readonly reasons: readonly string[];
+  constructor(reasons: readonly ReasonInput[]) {
+    const split = splitReasons(reasons, "A certified quantity exceeds what the contract carries as of the execution date.");
+    super(split.ar.join("، "));
+    this.reasons = split.ar;
+    this.messageEn = split.en;
     this.name = "CertificateQuantityError";
   }
 }
@@ -79,8 +109,13 @@ export class CertificateQuantityError extends Error {
  */
 export class CertificateDateOrderError extends Error {
   readonly code = "CERTIFICATE_DATE_ORDER_REFUSED";
-  constructor(readonly reasons: readonly string[]) {
-    super(reasons.join("، "));
+  readonly messageEn: string;
+  readonly reasons: readonly string[];
+  constructor(reasons: readonly ReasonInput[]) {
+    const split = splitReasons(reasons, "The certificate dates are not in a valid order.");
+    super(split.ar.join("، "));
+    this.reasons = split.ar;
+    this.messageEn = split.en;
     this.name = "CertificateDateOrderError";
   }
 }

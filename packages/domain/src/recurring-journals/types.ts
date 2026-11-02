@@ -108,15 +108,19 @@ export interface RecurringJournalSkip {
 
 export class RecurringJournalTemplateNotFoundError extends Error {
   readonly code = "RECURRING_JOURNAL_TEMPLATE_NOT_FOUND";
+  readonly messageEn: string;
   constructor(readonly templateId: string) {
     super(`لا يوجد قالب قيد متكرر بالمعرّف "${templateId}".`);
+    this.messageEn = `No recurring journal template with id "${templateId}" was found.`;
   }
 }
 
 export class InvalidRecurringJournalScheduleError extends Error {
   readonly code = "INVALID_RECURRING_JOURNAL_SCHEDULE";
-  constructor(message: string) {
+  readonly messageEn: string;
+  constructor(message: string, messageEn: string) {
     super(message);
+    this.messageEn = messageEn;
   }
 }
 

@@ -1,5 +1,5 @@
 import { useRef, useState, type RefObject } from "react";
-import { Button, Card, StatusPill, buildDataMigrationTemplate, parseDataMigrationFile, downloadReportExport, type DataMigrationStepSpec } from "@mezan/ui";
+import { Button, Card, ENGLISH_LOCALE, StatusPill, buildDataMigrationTemplate, parseDataMigrationFile, downloadReportExport, type DataMigrationStepSpec } from "@mezan/ui";
 import {
   useDataMigrationStatus,
   useDataMigrationPreview,
@@ -58,7 +58,7 @@ function StepShell({
   isCommitting: boolean;
   previewSummary: string | null;
   refusal: string | null;
-  errors: readonly { rowNumber: number; reasons: readonly string[] }[];
+  errors: readonly { rowNumber: number; reasons: readonly string[]; reasonsEn?: readonly string[] }[];
   canCommit: boolean;
   onCommit: () => void;
 }) {
@@ -121,7 +121,7 @@ function StepShell({
                   {errors.map((err, i) => (
                     <tr key={i} className="border-b border-border last:border-0">
                       <td className="mz-num p-[6px_8px]">{err.rowNumber}</td>
-                      <td className="p-[6px_8px]">{err.reasons.join(t("dataMigration.reasonSeparator"))}</td>
+                      <td className="p-[6px_8px]">{(locale === ENGLISH_LOCALE && err.reasonsEn ? err.reasonsEn : err.reasons).join(t("dataMigration.reasonSeparator"))}</td>
                     </tr>
                   ))}
                 </tbody>

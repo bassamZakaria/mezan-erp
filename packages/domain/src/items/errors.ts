@@ -1,8 +1,12 @@
+import { splitReasons, type ReasonInput } from "../bilingual-reasons.js";
+
 /** Raised when an item code already exists (codes are unique across the catalog). */
 export class DuplicateItemCodeError extends Error {
   readonly code = "DUPLICATE_ITEM_CODE";
+  readonly messageEn: string;
   constructor(readonly itemCode: string) {
     super(`كود الصنف «${itemCode}» مستخدم بالفعل.`);
+    this.messageEn = `Item code "${itemCode}" is already in use.`;
     this.name = "DuplicateItemCodeError";
   }
 }
@@ -27,9 +31,12 @@ export class ItemNotFoundError extends Error {
 export class InvalidItemError extends Error {
   readonly code = "INVALID_ITEM";
   readonly messageEn: string;
-  constructor(readonly reasons: readonly string[]) {
-    super(`بيانات الصنف غير صالحة: ${reasons.join("، ")}`);
-    this.messageEn = `Invalid item: ${reasons.join("; ")}`;
+  readonly reasons: readonly string[];
+  constructor(reasons: readonly ReasonInput[]) {
+    const split = splitReasons(reasons, "it failed validation");
+    super(`بيانات الصنف غير صالحة: ${split.ar.join("، ")}`);
+    this.reasons = split.ar;
+    this.messageEn = `Invalid item: ${split.en}`;
     this.name = "InvalidItemError";
   }
 }
@@ -68,9 +75,12 @@ export class ItemUnitNotFoundError extends Error {
 export class InvalidItemUnitError extends Error {
   readonly code = "INVALID_ITEM_UNIT";
   readonly messageEn: string;
-  constructor(readonly reasons: readonly string[]) {
-    super(`بيانات وحدة الصنف غير صالحة: ${reasons.join("، ")}`);
-    this.messageEn = `Invalid item unit: ${reasons.join("; ")}`;
+  readonly reasons: readonly string[];
+  constructor(reasons: readonly ReasonInput[]) {
+    const split = splitReasons(reasons, "it failed validation");
+    super(`بيانات وحدة الصنف غير صالحة: ${split.ar.join("، ")}`);
+    this.reasons = split.ar;
+    this.messageEn = `Invalid item unit: ${split.en}`;
     this.name = "InvalidItemUnitError";
   }
 }
@@ -112,9 +122,12 @@ export class ItemCategoryNotFoundError extends Error {
 export class InvalidItemCategoryError extends Error {
   readonly code = "INVALID_ITEM_CATEGORY";
   readonly messageEn: string;
-  constructor(readonly reasons: readonly string[]) {
-    super(`بيانات فئة الصنف غير صالحة: ${reasons.join("، ")}`);
-    this.messageEn = `Invalid item category: ${reasons.join("; ")}`;
+  readonly reasons: readonly string[];
+  constructor(reasons: readonly ReasonInput[]) {
+    const split = splitReasons(reasons, "it failed validation");
+    super(`بيانات فئة الصنف غير صالحة: ${split.ar.join("، ")}`);
+    this.reasons = split.ar;
+    this.messageEn = `Invalid item category: ${split.en}`;
     this.name = "InvalidItemCategoryError";
   }
 }
@@ -159,9 +172,12 @@ export class ItemSpecificationNotFoundError extends Error {
 export class InvalidItemSpecificationError extends Error {
   readonly code = "INVALID_ITEM_SPECIFICATION";
   readonly messageEn: string;
-  constructor(readonly reasons: readonly string[]) {
-    super(`بيانات مواصفة الصنف غير صالحة: ${reasons.join("، ")}`);
-    this.messageEn = `Invalid item specification: ${reasons.join("; ")}`;
+  readonly reasons: readonly string[];
+  constructor(reasons: readonly ReasonInput[]) {
+    const split = splitReasons(reasons, "it failed validation");
+    super(`بيانات مواصفة الصنف غير صالحة: ${split.ar.join("، ")}`);
+    this.reasons = split.ar;
+    this.messageEn = `Invalid item specification: ${split.en}`;
     this.name = "InvalidItemSpecificationError";
   }
 }

@@ -8,6 +8,7 @@
  * auto-filled from the PO's outstanding quantities.
  */
 
+import type { ReasonInput } from "../bilingual-reasons.js";
 import { Money, Qty } from "../money/index.js";
 import { extend, occurredAtFromDocumentDate, type CostLayer, type CostLayerRepository } from "../inventory/index.js";
 import { NextNumberService } from "../numbering/index.js";
@@ -408,14 +409,14 @@ export async function createGoodsReceipt(
 }
 
 function validateLines(lines: readonly GoodsReceiptLine[], projectId: string | null = null): void {
-  const reasons: string[] = [];
-  if (lines.length === 0) reasons.push("at least one line is required");
+  const reasons: ReasonInput[] = [];
+  if (lines.length === 0) reasons.push({ ar: "يلزم بند واحد على الأقل", en: "At least one line is required" });
   lines.forEach((line, i) => {
-    if (line.itemId.trim() === "") reasons.push(`line ${i}: an item is required`);
-    if (line.qty.isZero() || line.qty.isNegative()) reasons.push(`line ${i}: qty must be positive`);
-    if (line.unitCost.scaled < 0n) reasons.push(`line ${i}: unit cost must not be negative`);
+    if (line.itemId.trim() === "") reasons.push({ ar: `البند ${i + 1}: الصنف مطلوب`, en: `Line ${i + 1}: an item is required.` });
+    if (line.qty.isZero() || line.qty.isNegative()) reasons.push({ ar: `البند ${i + 1}: الكمية يجب أن تكون موجبة`, en: `Line ${i + 1}: the quantity must be greater than zero.` });
+    if (line.unitCost.scaled < 0n) reasons.push({ ar: `البند ${i + 1}: تكلفة الوحدة لا يجوز أن تكون سالبة`, en: `Line ${i + 1}: the unit cost cannot be negative.` });
     if (line.costCategory && !projectId) {
-      reasons.push(`line ${i}: costCategory requires the receipt's projectId`);
+      reasons.push({ ar: `البند ${i + 1}: فئة التكلفة تتطلب تحديد المشروع على الاستلام.`, en: `Line ${i + 1}: a cost category needs a project on the receipt.` });
     }
   });
   if (reasons.length > 0) throw new InvalidPurchaseDocumentError(reasons);
@@ -426,15 +427,15 @@ async function createAdHocGoodsReceipt(
   command: CreateGoodsReceiptCommand,
   deps: CreateGoodsReceiptDeps,
 ): Promise<GoodsReceipt> {
-  const reasons: string[] = [];
+  const reasons: ReasonInput[] = [];
   if (!command.supplierId || command.supplierId.trim() === "") {
-    reasons.push("a supplier is required for an ad-hoc (PO-less) receipt");
+    reasons.push({ ar: "المورد مطلوب لاستلام بدون أمر شراء", en: "A supplier is required for a receipt without a purchase order" });
   }
   if (!command.warehouseId || command.warehouseId.trim() === "") {
-    reasons.push("a warehouse is required for an ad-hoc (PO-less) receipt");
+    reasons.push({ ar: "المستودع مطلوب لاستلام بدون أمر شراء", en: "A warehouse is required for a receipt without a purchase order" });
   }
   if (!command.lines || command.lines.length === 0) {
-    reasons.push("lines are required for an ad-hoc (PO-less) receipt");
+    reasons.push({ ar: "البنود مطلوبة لاستلام بدون أمر شراء", en: "Lines are required for a receipt without a purchase order" });
   }
   if (reasons.length > 0) throw new InvalidPurchaseDocumentError(reasons);
 
@@ -749,11 +750,11 @@ export async function setGoodsReceiptLots(
   const receipt = await deps.receipts.findById(id);
   if (!receipt) throw new GoodsReceiptNotFoundError(id);
   if (receipt.status !== "draft") throw new PurchaseDocumentNotDraftError(id, receipt.status);
-  const reasons: string[] = [];
+  const reasons: ReasonInput[] = [];
   const byIndex = new Map<number, GoodsReceiptLotInput>();
   for (const lot of lots) {
     if (!Number.isInteger(lot.lineIndex) || lot.lineIndex < 0 || lot.lineIndex >= receipt.lines.length) {
-      reasons.push(`line ${lot.lineIndex}: no such line on the receipt`);
+      reasons.push({ ar: `البند ${lot.lineIndex + 1}: لا يوجد هذا البند في الاستلام.`, en: `Line ${lot.lineIndex + 1}: there is no such line on the receipt.` });
       continue;
     }
     byIndex.set(lot.lineIndex, lot);

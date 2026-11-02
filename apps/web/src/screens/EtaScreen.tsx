@@ -63,6 +63,7 @@ import {
   useUpdateEtaConfig,
 } from "../data/hooks";
 import { useApi } from "../data/ApiContext";
+import { pickLocalized } from "../data/server-message";
 import { sessionHolds } from "../data/session";
 import { errorMessage } from "../lib/error-message";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
@@ -181,7 +182,7 @@ export function EtaScreen() {
   if (configQuery.isError || submissionsQuery.isError) {
     return (
       <Card className="p-[18px_20px]">
-        <p className="text-[13px] font-semibold text-danger-ink">{t("eta.eInvoicingDataCouldNot")}</p>
+        <p className="text-[13px] font-semibold text-danger-ink">{errorMessage(configQuery.error ?? submissionsQuery.error, t("eta.eInvoicingDataCouldNot"))}</p>
         <Button size="sm" className="mt-[10px]" onClick={() => { void configQuery.refetch(); void submissionsQuery.refetch(); }}>
           {t("common.retry")}
         </Button>
@@ -986,7 +987,7 @@ function ReceiptQueueCard() {
   if (query.isError) {
     return (
       <Card className="mb-[14px] p-[12px_16px]">
-        <p className="text-[12.5px] text-danger-ink">{et("receiptsLoadFailed")}</p>
+        <p className="text-[12.5px] text-danger-ink">{errorMessage(query.error, et("receiptsLoadFailed"))}</p>
       </Card>
     );
   }
@@ -1027,7 +1028,7 @@ function ReceiptQueueCard() {
 
 function SubmissionsTab({ statusKeys }: { statusKeys: Record<EtaSubmissionStatusDTO, AppTranslationKey> }) {
   const receiptSummaryOpen = useBranchGate().allows(BranchGatedAction.EtaReceiptsSummary);
-  const { t } = useAppTranslation();
+  const { t, locale } = useAppTranslation();
   const et = useEtaStrings();
   const pt = useEtaPrevalidationStrings();
   const configQuery = useEtaConfig();
@@ -1269,10 +1270,10 @@ function SubmissionsTab({ statusKeys }: { statusKeys: Record<EtaSubmissionStatus
         const warnings = findings.length - blocking;
         const first = blockers[0] ?? findings[0]!;
         return (
-          <div className="flex flex-col gap-[4px]" title={findings.map((f) => f.messageAr).join(" / ")}>
+          <div className="flex flex-col gap-[4px]" title={findings.map((f) => pickLocalized(f.messageAr, f.messageEn, locale)).join(" / ")}>
             {blocking > 0 ? <StatusPill label={`${pt("findingsBlocking")} (${blocking})`} tone="danger" /> : null}
             {warnings > 0 ? <StatusPill label={`${pt("findingsWarning")} (${warnings})`} tone="warning" /> : null}
-            {blocking > 0 ? <span className="max-w-[36ch] text-[11.5px] text-danger-ink">{first.messageAr}</span> : null}
+            {blocking > 0 ? <span className="max-w-[36ch] text-[11.5px] text-danger-ink">{pickLocalized(first.messageAr, first.messageEn, locale)}</span> : null}
             <a
               href={fixHrefFor(first, s.internalId)}
               className="text-[11.5px] font-semibold text-brand hover:underline"
@@ -1360,7 +1361,7 @@ function SubmissionsTab({ statusKeys }: { statusKeys: Record<EtaSubmissionStatus
                       {reason ? (
                         <>
                           {" — "}
-                          <span>{reason.messageAr}</span>{" "}
+                          <span>{pickLocalized(reason.messageAr, reason.messageEn, locale)}</span>{" "}
                           <a href={fixHrefFor(reason, held?.internalId ?? id)} className="font-semibold text-brand hover:underline">
                             {pt("fixLink")}
                           </a>
@@ -1506,7 +1507,7 @@ function SubmissionsTab({ statusKeys }: { statusKeys: Record<EtaSubmissionStatus
  * accountant works down one worklist instead of opening every submission.
  */
 function ReadinessTab() {
-  const { t } = useAppTranslation();
+  const { t, locale } = useAppTranslation();
   const pt = useEtaPrevalidationStrings();
   const submissionsQuery = useEtaSubmissions();
   const requeueMutation = useRequeueEtaSubmission();
@@ -1560,7 +1561,7 @@ function ReadinessTab() {
                     label={f.severity === EtaPrevalidationSeverity.Blocking ? pt("findingsBlocking") : pt("findingsWarning")}
                     tone={f.severity === EtaPrevalidationSeverity.Blocking ? "danger" : "warning"}
                   />
-                  <span className="text-ink">{f.messageAr}</span>
+                  <span className="text-ink">{pickLocalized(f.messageAr, f.messageEn, locale)}</span>
                   <EtaFindingClassifyAction documentNumber={s.internalId} lineId={classifiableLineOf(f, s.documentType)} />
                   <a href={fixHrefFor(f, s.internalId)} className="font-semibold text-brand hover:underline">
                     {pt("fixLink")}

@@ -1,4 +1,5 @@
 import { Money } from "../money/index.js";
+import type { ReasonInput } from "../bilingual-reasons.js";
 import { InvalidOpportunityError } from "./errors.js";
 import type { OpportunityLostReason } from "./lost-reason.js";
 
@@ -60,13 +61,13 @@ export interface CreateOpportunityCommand {
   readonly ownerUserId?: string | null;
 }
 
-function validate(title: string, probability: number): string[] {
-  const reasons: string[] = [];
+function validate(title: string, probability: number): ReasonInput[] {
+  const reasons: ReasonInput[] = [];
   if (title.trim().length === 0) {
-    reasons.push("العنوان مطلوب");
+    reasons.push({ ar: "العنوان مطلوب", en: "The title is required" });
   }
   if (probability < 0 || probability > 100) {
-    reasons.push("الاحتمالية يجب أن تكون بين 0 و100");
+    reasons.push({ ar: "الاحتمالية يجب أن تكون بين 0 و100", en: "The probability must be between 0 and 100" });
   }
   return reasons;
 }

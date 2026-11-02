@@ -162,12 +162,14 @@ export const lineTaxClassificationSchema = z.object({
   journalLinesNamed: z.number().int().nonnegative(),
   filing: z.nativeEnum(TaxClassificationFilingOutcomeCode),
   filingMessage: z.string().optional(),
+  filingMessageEn: z.string().optional(),
 });
 
 export const etaReceiptRetrySchema = z.object({
   documentId: z.string().min(1),
   filing: z.nativeEnum(TaxClassificationFilingOutcomeCode).nullable(),
   filingMessage: z.string().optional(),
+  filingMessageEn: z.string().optional(),
 });
 export type EtaReceiptRetryDTO = z.infer<typeof etaReceiptRetrySchema>;
 

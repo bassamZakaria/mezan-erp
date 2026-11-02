@@ -62,7 +62,7 @@ export function collectInstallment(
     throw new InstallmentPlanNotCollectableError(plan.id, plan.status);
   }
   if (cmd.amount.scaled <= 0n) {
-    throw new InstallmentLineNotCollectableError(plan.id, "قيمة التحصيل يجب أن تكون أكبر من صفر.");
+    throw new InstallmentLineNotCollectableError(plan.id, "قيمة التحصيل يجب أن تكون أكبر من صفر.", "The collection amount must be greater than zero.");
   }
 
   const targets =
@@ -73,12 +73,13 @@ export function collectInstallment(
   if (cmd.installmentNo !== undefined) {
     const line = targets[0];
     if (!line) {
-      throw new InstallmentLineNotCollectableError(plan.id, `القسط رقم ${cmd.installmentNo} غير موجود في هذه الخطة.`);
+      throw new InstallmentLineNotCollectableError(plan.id, `القسط رقم ${cmd.installmentNo} غير موجود في هذه الخطة.`, `Installment no. ${cmd.installmentNo} does not exist in this plan.`);
     }
     if (!COLLECTABLE_LINE_STATUSES.has(line.status)) {
       throw new InstallmentLineNotCollectableError(
         plan.id,
         `القسط رقم ${line.no} لا يقبل التحصيل — حالته ${line.status === "paid" ? "مسدد" : "ملغي"}.`,
+        `Installment no. ${line.no} cannot be collected — its status is ${line.status === "paid" ? "paid" : "cancelled"}.`,
       );
     }
   }

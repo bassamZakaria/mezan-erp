@@ -1,3 +1,4 @@
+import type { BilingualReason } from "../collections/errors.js";
 import { isKnownModule } from "./module-catalog.js";
 import { dedupeModules, type PlanRepository } from "./plan.js";
 import { isCount, isoTimestamp } from "./validation.js";
@@ -325,14 +326,14 @@ export const MAX_GRACE_DAYS = 365;
 
 const isBoundedCount = (n: number, max: number): boolean => isCount(n, 0) && n <= max;
 
-function validateExtras(s: Pick<Subscription, "addOnModules" | "extraSeats" | "extraBranches" | "extraWarehouses" | "extraStorageMb" | "graceDays">): string[] {
-  const reasons: string[] = [];
-  for (const m of s.addOnModules) if (!isKnownModule(m)) reasons.push(`وحدة إضافية غير معروفة "${m}"`);
-  if (!isBoundedCount(s.extraSeats, MAX_EXTRA_CAPACITY)) reasons.push(`عدد المقاعد الإضافية يجب أن يكون رقمًا صحيحًا من 0 إلى ${MAX_EXTRA_CAPACITY}`);
-  if (!isBoundedCount(s.extraBranches, MAX_EXTRA_CAPACITY)) reasons.push(`عدد الفروع الإضافية يجب أن يكون رقمًا صحيحًا من 0 إلى ${MAX_EXTRA_CAPACITY}`);
-  if (!isBoundedCount(s.extraWarehouses, MAX_EXTRA_CAPACITY)) reasons.push(`عدد المخازن الإضافية يجب أن يكون رقمًا صحيحًا من 0 إلى ${MAX_EXTRA_CAPACITY}`);
-  if (!isBoundedCount(s.extraStorageMb ?? 0, MAX_EXTRA_STORAGE_MB)) reasons.push(`المساحة الإضافية يجب أن تكون رقمًا صحيحًا بالميجابايت من 0 إلى ${MAX_EXTRA_STORAGE_MB}`);
-  if (!isBoundedCount(s.graceDays, MAX_GRACE_DAYS)) reasons.push(`أيام السماح يجب أن تكون رقمًا صحيحًا من 0 إلى ${MAX_GRACE_DAYS}`);
+function validateExtras(s: Pick<Subscription, "addOnModules" | "extraSeats" | "extraBranches" | "extraWarehouses" | "extraStorageMb" | "graceDays">): BilingualReason[] {
+  const reasons: BilingualReason[] = [];
+  for (const m of s.addOnModules) if (!isKnownModule(m)) reasons.push({ ar: `وحدة إضافية غير معروفة "${m}"`, en: `Unknown add-on module "${m}"` });
+  if (!isBoundedCount(s.extraSeats, MAX_EXTRA_CAPACITY)) reasons.push({ ar: `عدد المقاعد الإضافية يجب أن يكون رقمًا صحيحًا من 0 إلى ${MAX_EXTRA_CAPACITY}`, en: `The number of extra seats must be a whole number from 0 to ${MAX_EXTRA_CAPACITY}` });
+  if (!isBoundedCount(s.extraBranches, MAX_EXTRA_CAPACITY)) reasons.push({ ar: `عدد الفروع الإضافية يجب أن يكون رقمًا صحيحًا من 0 إلى ${MAX_EXTRA_CAPACITY}`, en: `The number of extra branches must be a whole number from 0 to ${MAX_EXTRA_CAPACITY}` });
+  if (!isBoundedCount(s.extraWarehouses, MAX_EXTRA_CAPACITY)) reasons.push({ ar: `عدد المستودعات الإضافية يجب أن يكون رقمًا صحيحًا من 0 إلى ${MAX_EXTRA_CAPACITY}`, en: `The number of extra warehouses must be a whole number from 0 to ${MAX_EXTRA_CAPACITY}` });
+  if (!isBoundedCount(s.extraStorageMb ?? 0, MAX_EXTRA_STORAGE_MB)) reasons.push({ ar: `المساحة الإضافية يجب أن تكون رقمًا صحيحًا بالميجابايت من 0 إلى ${MAX_EXTRA_STORAGE_MB}`, en: `The extra storage must be a whole number of MB from 0 to ${MAX_EXTRA_STORAGE_MB}` });
+  if (!isBoundedCount(s.graceDays, MAX_GRACE_DAYS)) reasons.push({ ar: `أيام السماح يجب أن تكون رقمًا صحيحًا من 0 إلى ${MAX_GRACE_DAYS}`, en: `The grace days must be a whole number from 0 to ${MAX_GRACE_DAYS}` });
   return reasons;
 }
 
@@ -354,9 +355,9 @@ export async function startSubscription(
   const extraBranches = cmd.extraBranches ?? 0;
   const extraWarehouses = cmd.extraWarehouses ?? 0;
   const graceDays = cmd.graceDays ?? DEFAULT_GRACE_DAYS;
-  const reasons: string[] = [];
-  if (cmd.id.trim() === "" || cmd.tenantId.trim() === "") reasons.push("المعرّف ومعرّف المنشأة مطلوبان");
-  if (!now) reasons.push("الطابع الزمني الحالي غير صالح (يجب أن يكون بصيغة ISO-8601)");
+  const reasons: BilingualReason[] = [];
+  if (cmd.id.trim() === "" || cmd.tenantId.trim() === "") reasons.push({ ar: "المعرّف ومعرّف المنشأة مطلوبان", en: "The ID and company ID are required" });
+  if (!now) reasons.push({ ar: "الطابع الزمني الحالي غير صالح (يجب أن يكون بصيغة ISO-8601)", en: "The current timestamp is invalid (it must be ISO-8601)" });
   reasons.push(...validateExtras({ addOnModules, extraSeats, extraBranches, extraWarehouses, graceDays }));
   if (!now || reasons.length > 0) throw new InvalidSubscriptionError(reasons);
   const plan = await activePlan(cmd.planId, plans);
@@ -404,7 +405,7 @@ function assertFrom(s: Subscription, allowed: readonly SubscriptionStatus[], to:
 
 function requireNow(cmd: SubscriptionCommand): string {
   const now = isoTimestamp(cmd.now);
-  if (!now) throw new InvalidSubscriptionError(["الطابع الزمني الحالي غير صالح (يجب أن يكون بصيغة ISO-8601)"]);
+  if (!now) throw new InvalidSubscriptionError([{ ar: "الطابع الزمني الحالي غير صالح (يجب أن يكون بصيغة ISO-8601)", en: "The current timestamp is invalid (it must be ISO-8601)" }]);
   return now;
 }
 
@@ -436,7 +437,7 @@ export async function setBillingAnchorDay(cmd: SetBillingAnchorDayCommand, repo:
   const s = await load(cmd.id, repo);
   const now = requireNow(cmd);
   if (!Number.isInteger(cmd.day) || cmd.day < 1 || cmd.day > 31) {
-    throw new InvalidSubscriptionError(["يوم الفوترة يجب أن يكون رقمًا صحيحًا من 1 إلى 31"]);
+    throw new InvalidSubscriptionError([{ ar: "يوم الفوترة يجب أن يكون رقمًا صحيحًا من 1 إلى 31", en: "The billing day must be a whole number from 1 to 31" }]);
   }
   assertFrom(s, [SubscriptionStatusKind.Trialing, SubscriptionStatusKind.Active, SubscriptionStatusKind.PastDue, SubscriptionStatusKind.Suspended], s.status);
   const next: Subscription = { ...s, billingAnchorDay: cmd.day, billingAnchorNeedsReview: false, updatedAt: now };
@@ -484,7 +485,7 @@ export async function markPastDue(cmd: SubscriptionCommand, repo: SubscriptionRe
   const now = requireNow(cmd);
   assertFrom(s, [SubscriptionStatusKind.Active], SubscriptionStatusKind.PastDue);
   if (now < s.currentPeriodEnd) {
-    throw new InvalidSubscriptionError([`الفترة الحالية لم تنتهِ بعد (تنتهي في ${s.currentPeriodEnd})`]);
+    throw new InvalidSubscriptionError([{ ar: `الفترة الحالية لم تنتهِ بعد (تنتهي في ${s.currentPeriodEnd})`, en: `The current period has not ended yet (it ends on ${s.currentPeriodEnd})` }]);
   }
   const next: Subscription = { ...s, status: SubscriptionStatusKind.PastDue, updatedAt: now };
   await repo.save(next);

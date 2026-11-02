@@ -2,6 +2,7 @@ export {
   BARCODE_SYMBOLOGIES,
   createDefaultBarcodeConfig,
   validateBarcodeConfig,
+  validateBarcodeConfigBilingual,
   updateBarcodeConfig,
   parseEmbeddedBarcode,
   InvalidBarcodeConfigError,

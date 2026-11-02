@@ -45,6 +45,7 @@ export type PairingResponse =
       readonly hostUrl: string;
       readonly code: "REFUSED" | "TIMEOUT" | "UNREACHABLE";
       readonly message: string;
+      readonly messageEn?: string;
     }
   | {
       readonly kind: "confirm";
@@ -53,9 +54,9 @@ export type PairingResponse =
       readonly fingerprintSha256: string;
       readonly deviceLabel: string;
     }
-  | { readonly kind: "confirm"; readonly ok: false; readonly message: string }
+  | { readonly kind: "confirm"; readonly ok: false; readonly message: string; readonly messageEn?: string }
   | { readonly kind: "relocate"; readonly ok: true; readonly found: string; readonly applied: boolean }
-  | { readonly kind: "relocate"; readonly ok: false; readonly message: string }
+  | { readonly kind: "relocate"; readonly ok: false; readonly message: string; readonly messageEn?: string }
   | {
       readonly kind: "selftest";
       readonly reachable: boolean;

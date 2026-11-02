@@ -1,70 +1,89 @@
+import { statusWord } from "../status-words.js";
 import type { Qty } from "../money/index.js";
+import { splitReasons, type ReasonInput } from "../bilingual-reasons.js";
 
 /** Typed errors for the purchase chain (docs/archive/catalog/02). Each carries a stable
  *  machine `code` the API maps to an HTTP status. */
 
 export class PurchaseOrderNotFoundError extends Error {
   readonly code = "PURCHASE_ORDER_NOT_FOUND";
+  readonly messageEn: string;
   constructor(readonly id: string) {
     super(`أمر الشراء "${id}" غير موجود.`);
+    this.messageEn = `Purchase order "${id}" was not found.`;
     this.name = "PurchaseOrderNotFoundError";
   }
 }
 
 export class GoodsReceiptNotFoundError extends Error {
   readonly code = "GOODS_RECEIPT_NOT_FOUND";
+  readonly messageEn: string;
   constructor(readonly id: string) {
     super(`إذن الاستلام "${id}" غير موجود.`);
+    this.messageEn = `Goods receipt "${id}" was not found.`;
     this.name = "GoodsReceiptNotFoundError";
   }
 }
 
 export class PurchaseInvoiceNotFoundError extends Error {
   readonly code = "PURCHASE_INVOICE_NOT_FOUND";
+  readonly messageEn: string;
   constructor(readonly id: string) {
     super(`فاتورة المشتريات "${id}" غير موجودة.`);
+    this.messageEn = `Purchase invoice "${id}" was not found.`;
     this.name = "PurchaseInvoiceNotFoundError";
   }
 }
 
 export class InvalidPurchaseDocumentError extends Error {
   readonly code = "INVALID_PURCHASE_DOCUMENT";
-  constructor(readonly reasons: readonly string[]) {
-    super(`مستند مشتريات غير صالح: ${reasons.join("، ")}`);
+  readonly messageEn: string;
+  readonly reasons: readonly string[];
+  constructor(reasons: readonly ReasonInput[]) {
+    const split = splitReasons(reasons, "it failed validation");
+    super(`مستند مشتريات غير صالح: ${split.ar.join("، ")}`);
+    this.reasons = split.ar;
+    this.messageEn = `Invalid purchase document: ${split.en}`;
     this.name = "InvalidPurchaseDocumentError";
   }
 }
 
 export class PurchaseDocumentNotDraftError extends Error {
   readonly code = "PURCHASE_DOCUMENT_NOT_DRAFT";
+  readonly messageEn: string;
   constructor(
     readonly id: string,
     readonly status: string,
   ) {
-    super(`مستند المشتريات "${id}" حالته "${status}" وليس مسودة.`);
+    super(`مستند المشتريات "${id}" حالته "${statusWord(status).ar}" وليس مسودة.`);
+    this.messageEn = `Purchase document "${id}" is "${statusWord(status).en}", not a draft.`;
     this.name = "PurchaseDocumentNotDraftError";
   }
 }
 
 export class PurchaseOrderNotReceivableError extends Error {
   readonly code = "PURCHASE_ORDER_NOT_RECEIVABLE";
+  readonly messageEn: string;
   constructor(
     readonly id: string,
     readonly status: string,
   ) {
     super(
-      `أمر الشراء "${id}" حالته "${status}" — لا يمكن الاستلام إلا على أمر مُرسَل أو مستلَم جزئياً.`,
+      `أمر الشراء "${id}" حالته "${statusWord(status).ar}" — لا يمكن الاستلام إلا على أمر مُرسَل أو مستلَم جزئياً.`,
     );
+    this.messageEn = `Purchase order "${id}" is "${statusWord(status).en}" — goods can only be received against a sent or partially received order.`;
     this.name = "PurchaseOrderNotReceivableError";
   }
 }
 
 export class ReceiptRequiredError extends Error {
   readonly code = "PURCHASE_RECEIPT_REQUIRED";
+  readonly messageEn: string;
   constructor() {
     super(
       "سياسة «إلزام إذن الاستلام قبل الفاتورة» مفعّلة: لا يمكن إنشاء فاتورة مشتريات بدون إذن استلام مؤكد.",
     );
+    this.messageEn = "The \"require a goods receipt before the invoice\" policy is on: a purchase invoice cannot be created without a confirmed goods receipt.";
     this.name = "ReceiptRequiredError";
   }
 }
@@ -91,10 +110,12 @@ export class OverReceiptError extends Error {
 
 export class PurchaseOrderRequiredError extends Error {
   readonly code = "PURCHASE_ORDER_REQUIRED";
+  readonly messageEn: string;
   constructor() {
     // The message reaches an Arabic UI verbatim (the API forwards `message`),
     // so the refusal names the setting the tenant can change.
     super("سياسة «إلزام أمر الشراء قبل الاستلام» مفعّلة: لا يمكن إنشاء إذن استلام بدون أمر شراء مؤكد.");
+    this.messageEn = "The \"require a purchase order before receiving\" policy is on: a goods receipt cannot be created without a confirmed purchase order.";
     this.name = "PurchaseOrderRequiredError";
   }
 }
@@ -182,57 +203,72 @@ export class InvoiceExceedsReceiptError extends Error {
 
 export class RfqNotFoundError extends Error {
   readonly code = "RFQ_NOT_FOUND";
+  readonly messageEn: string;
   constructor(readonly id: string) {
     super(`طلب عرض السعر "${id}" غير موجود.`);
+    this.messageEn = `Request for quotation "${id}" was not found.`;
     this.name = "RfqNotFoundError";
   }
 }
 
 export class InvalidRfqError extends Error {
   readonly code = "INVALID_RFQ";
-  constructor(readonly reasons: readonly string[]) {
-    super(`طلب عرض سعر غير صالح: ${reasons.join("، ")}`);
+  readonly messageEn: string;
+  readonly reasons: readonly string[];
+  constructor(reasons: readonly ReasonInput[]) {
+    const split = splitReasons(reasons, "it failed validation");
+    super(`طلب عرض سعر غير صالح: ${split.ar.join("، ")}`);
+    this.reasons = split.ar;
+    this.messageEn = `Invalid request for quotation: ${split.en}`;
     this.name = "InvalidRfqError";
   }
 }
 
 export class RfqNotDraftError extends Error {
   readonly code = "RFQ_NOT_DRAFT";
+  readonly messageEn: string;
   constructor(
     readonly id: string,
     readonly status: string,
   ) {
-    super(`طلب عرض السعر "${id}" حالته "${status}" وليس مسودة.`);
+    super(`طلب عرض السعر "${id}" حالته "${statusWord(status).ar}" وليس مسودة.`);
+    this.messageEn = `Request for quotation "${id}" is "${statusWord(status).en}", not a draft.`;
     this.name = "RfqNotDraftError";
   }
 }
 
 export class RfqNotSentError extends Error {
   readonly code = "RFQ_NOT_SENT";
+  readonly messageEn: string;
   constructor(
     readonly id: string,
     readonly status: string,
   ) {
-    super(`طلب عرض السعر "${id}" حالته "${status}" — لا تُسجَّل العروض إلا على طلب مُرسَل.`);
+    super(`طلب عرض السعر "${id}" حالته "${statusWord(status).ar}" — لا تُسجَّل العروض إلا على طلب مُرسَل.`);
+    this.messageEn = `Request for quotation "${id}" is "${statusWord(status).en}" — quotes can only be recorded against a sent request.`;
     this.name = "RfqNotSentError";
   }
 }
 
 export class RfqNotOpenError extends Error {
   readonly code = "RFQ_NOT_OPEN";
+  readonly messageEn: string;
   constructor(
     readonly id: string,
     readonly status: string,
   ) {
-    super(`طلب عرض السعر "${id}" حالته "${status}" ولا يمكن إغلاقه أو إلغاؤه منها.`);
+    super(`طلب عرض السعر "${id}" حالته "${statusWord(status).ar}" ولا يمكن إغلاقه أو إلغاؤه منها.`);
+    this.messageEn = `Request for quotation "${id}" is "${statusWord(status).en}" and cannot be closed or cancelled from that status.`;
     this.name = "RfqNotOpenError";
   }
 }
 
 export class RfqQuoteNotFoundError extends Error {
   readonly code = "RFQ_QUOTE_NOT_FOUND";
+  readonly messageEn: string;
   constructor(readonly id: string) {
     super(`عرض السعر "${id}" غير موجود.`);
+    this.messageEn = `Quote "${id}" was not found.`;
     this.name = "RfqQuoteNotFoundError";
   }
 }

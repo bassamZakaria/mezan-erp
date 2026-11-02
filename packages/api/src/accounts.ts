@@ -1,3 +1,4 @@
+import { messageEnOf } from "./observability/error-message-backfill.js";
 import { Hono, type Context } from "hono";
 import {
   createAccount,
@@ -57,7 +58,7 @@ function serialize(account: Account) {
 function handleDomainError(c: Context, err: unknown) {
   if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
   const refuse = (e: Error & { code: string; messageEn?: string }, status: 404 | 409 | 422) =>
-    c.json({ error: e.code, message: e.message, ...(e.messageEn ? { messageEn: e.messageEn } : {}) }, status);
+    c.json({ error: e.code, message: e.message, messageEn: messageEnOf(e, status) }, status);
   if (err instanceof AccountNotFoundError) {
     return refuse(err, 404);
   }

@@ -2,6 +2,7 @@ import { Money } from "../money/index.js";
 import type { Asset, AssetRepository, AssetScope } from "./asset.js";
 import type { AssetCategoryRepository, DepreciationMethod } from "./asset-category.js";
 import { AssetCategoryNotFoundError, DuplicateAssetCodeError, InvalidAssetError } from "./errors.js";
+import type { BilingualReason } from "../collections/errors.js";
 
 export interface CreateAssetCommand {
   readonly id: string;
@@ -46,12 +47,12 @@ export async function createAsset(command: CreateAssetCommand, deps: CreateAsset
   }
 
   const scope = command.scope ?? "general";
-  const reasons: string[] = [];
+  const reasons: BilingualReason[] = [];
   if (scope === "branch" && !command.branchId) {
-    reasons.push("الأصول ذات النطاق (فرع) تتطلب تحديد الفرع");
+    reasons.push({ ar: "الأصل المرتبط بفرع يتطلب تحديد الفرع", en: "Branch-scoped assets require a branch" });
   }
   if (scope === "warehouse" && !command.warehouseId) {
-    reasons.push("الأصول ذات النطاق (مخزن) تتطلب تحديد المخزن");
+    reasons.push({ ar: "الأصل المرتبط بمستودع يتطلب تحديد المستودع", en: "Warehouse-scoped assets require a warehouse" });
   }
   if (reasons.length > 0) throw new InvalidAssetError(reasons);
 

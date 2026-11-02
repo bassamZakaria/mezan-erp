@@ -30,18 +30,23 @@ export type SubCertificateDerivedStatus = SubCertificateStatus | "paid";
 export const SUB_CERTIFICATE_STATUS_DEFINITIONS: readonly {
   code: SubCertificateDerivedStatus;
   labelAr: string;
+  labelEn: string;
 }[] = [
-  { code: "draft", labelAr: "مسودة" },
-  { code: "measured", labelAr: "حصر معتمد" },
-  { code: "certified", labelAr: "معتمد فنيًا" },
-  { code: "approved_for_payment", labelAr: "معتمد للصرف" },
-  { code: "invoiced", labelAr: "مفوتر" },
-  { code: "paid", labelAr: "مدفوع" },
-  { code: "cancelled", labelAr: "ملغي" },
+  { code: "draft", labelAr: "مسودة", labelEn: "draft" },
+  { code: "measured", labelAr: "حصر معتمد", labelEn: "measured" },
+  { code: "certified", labelAr: "معتمد فنيًا", labelEn: "technically certified" },
+  { code: "approved_for_payment", labelAr: "معتمد للصرف", labelEn: "approved for payment" },
+  { code: "invoiced", labelAr: "مفوتر", labelEn: "invoiced" },
+  { code: "paid", labelAr: "مدفوع", labelEn: "paid" },
+  { code: "cancelled", labelAr: "ملغي", labelEn: "cancelled" },
 ] as const;
 
 export function getSubCertificateStatusLabel(status: SubCertificateDerivedStatus): string {
   return SUB_CERTIFICATE_STATUS_DEFINITIONS.find((d) => d.code === status)?.labelAr ?? status;
+}
+
+export function getSubCertificateStatusLabelEn(status: SubCertificateDerivedStatus): string {
+  return SUB_CERTIFICATE_STATUS_DEFINITIONS.find((d) => d.code === status)?.labelEn ?? status;
 }
 
 /** Statuses whose lines a preparer may still re-enter. After certify nothing changes. */

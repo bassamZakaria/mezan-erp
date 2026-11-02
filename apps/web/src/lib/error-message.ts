@@ -1,20 +1,13 @@
 import { ApiError } from "../data/hooks";
+import { ServerUnreachableError } from "../data/transport";
 
 /**
- * What a screen shows when something fails.
- *
- * WHY THIS EXISTS. Thirty-six catch blocks fell back to `String(err)` or to a
- * raw `Error.message`, so a transport failure or a programming slip put English
- * — `TypeError: Failed to fetch`, `[object Object]` — into an Arabic-first UI,
- * on screens that post money.
- *
- * The rule: only an `ApiError` carries text a person should read. The server
- * writes its domain refusals in Arabic precisely so they can be shown verbatim
- * («الفترة مقفلة»، «الكمية تتجاوز المتاح»), and everything else is internal.
- * An internal failure gets the caller's own Arabic fallback instead, which
- * names the operation the screen was attempting.
+ * Only an `ApiError` or a `ServerUnreachableError` carries text a person should
+ * read; its message is already in the page's language (ApiError is built from
+ * the server's `message`/`messageEn`). Anything else is internal and gets the
+ * caller's own fallback, so `TypeError: Failed to fetch` never reaches a screen.
  */
 export function errorMessage(err: unknown, fallback: string): string {
-  if (err instanceof ApiError && err.message.trim() !== "") return err.message;
+  if ((err instanceof ApiError || err instanceof ServerUnreachableError) && err.message.trim() !== "") return err.message;
   return fallback;
 }

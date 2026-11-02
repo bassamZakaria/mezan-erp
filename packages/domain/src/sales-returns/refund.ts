@@ -19,8 +19,10 @@ import { salesReturnGrandTotal, type SalesReturnDocument } from "./sales-return-
 
 export class SalesReturnNotRefundableError extends Error {
   readonly code = "SALES_RETURN_NOT_REFUNDABLE";
-  constructor(message: string) {
+  readonly messageEn: string;
+  constructor(message: string, messageEn = "This sales return cannot be refunded.") {
     super(message);
+    this.messageEn = messageEn;
     this.name = "SalesReturnNotRefundableError";
   }
 }
@@ -101,18 +103,19 @@ export function assertRefundable(
   amount: Money,
 ): void {
   if (!isStandingReturn(doc)) {
-    throw new SalesReturnNotRefundableError("لا يمكن رد مبلغ إلا على مرتجع مؤكد.");
+    throw new SalesReturnNotRefundableError("لا يمكن رد مبلغ إلا على مرتجع مؤكد.", "A refund can only be made against a confirmed return.");
   }
   if (amount.scaled <= 0n) {
-    throw new SalesReturnNotRefundableError("قيمة الرد يجب أن تكون أكبر من صفر.");
+    throw new SalesReturnNotRefundableError("قيمة الرد يجب أن تكون أكبر من صفر.", "The refund amount must be greater than zero.");
   }
   const due = refundDue(doc, refunds);
   if (due.scaled === 0n) {
-    throw new SalesReturnNotRefundableError("تم رد كامل قيمة هذا المرتجع بالفعل.");
+    throw new SalesReturnNotRefundableError("تم رد كامل قيمة هذا المرتجع بالفعل.", "This return has already been refunded in full.");
   }
   if (amount.scaled > due.scaled) {
     throw new SalesReturnNotRefundableError(
       `قيمة الرد (${amount.toString()}) تتجاوز المتبقي على المرتجع (${due.toString()}).`,
+      `The refund amount (${amount.toString()}) exceeds the remaining balance on the return (${due.toString()}).`,
     );
   }
 }

@@ -1,3 +1,4 @@
+import type { BilingualReason } from "../collections/errors.js";
 /**
  * Data-migration import — items (docs/archive/catalog/09 "نقل البيانات"). Mirrors
  * `import-customers.ts` / `import-suppliers.ts`, but items have no single
@@ -6,10 +7,10 @@
  * `Item` itself and reuses `collectItemFieldErrors` — the exact field rules
  * the single-item create path enforces — to avoid drifting from them.
  */
-import { collectItemFieldErrors } from "../items/validation.js";
+import { itemFieldReasons } from "../items/validation.js";
 import type { AlternateUnit, CostingMethod, EtaCodeType, Item, ItemType } from "../items/item.js";
 import { Money } from "../money/index.js";
-import type { ImportRowError } from "./row-errors.js";
+import { importRowError, type ImportRowError } from "./row-errors.js";
 import { itemTypeTracksStock } from "../items/item-type.js";
 
 export interface ItemImportRowInput {
@@ -89,15 +90,15 @@ export function previewItemImport(
   const seenCodes = new Set<string>();
 
   for (const row of rows) {
-    const reasons: string[] = [];
+    const reasons: BilingualReason[] = [];
     const code = row.code.trim();
-    if (code === "") reasons.push("كود الصنف مطلوب");
-    else if (existingCodes.has(code)) reasons.push(`كود الصنف "${code}" مستخدم بالفعل`);
-    else if (seenCodes.has(code)) reasons.push(`كود الصنف "${code}" مكرر داخل الملف`);
+    if (code === "") reasons.push({ ar: "كود الصنف مطلوب", en: "The item code is required" });
+    else if (existingCodes.has(code)) reasons.push({ ar: `كود الصنف "${code}" مستخدم بالفعل`, en: `Item code "${code}" is already in use` });
+    else if (seenCodes.has(code)) reasons.push({ ar: `كود الصنف "${code}" مكرر داخل الملف`, en: `Item code "${code}" is duplicated in the file` });
     const candidate = buildCandidate(row, idFactory(row));
-    reasons.push(...collectItemFieldErrors(candidate));
+    reasons.push(...itemFieldReasons(candidate));
     if (reasons.length > 0) {
-      errors.push({ rowNumber: row.rowNumber, reasons });
+      errors.push(importRowError(row.rowNumber, reasons));
       continue;
     }
     seenCodes.add(code);

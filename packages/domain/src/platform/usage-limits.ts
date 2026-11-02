@@ -38,7 +38,7 @@ export enum UsageRefusalCode {
 const LIMIT_NOUN: Readonly<Record<LimitKind, { readonly ar: string; readonly en: string }>> = {
   [LimitKind.Seats]: { ar: "مستخدمين نشطين", en: "active users" },
   [LimitKind.Branches]: { ar: "فروع", en: "branches" },
-  [LimitKind.Warehouses]: { ar: "مخازن", en: "warehouses" },
+  [LimitKind.Warehouses]: { ar: "مستودعات", en: "warehouses" },
   [LimitKind.SalesInvoicesPerMonth]: { ar: "فاتورة مبيعات في الشهر", en: "sales invoices a month" },
   [LimitKind.StorageMb]: { ar: "مساحة للمرفقات", en: "of attachment storage" },
 };
@@ -135,7 +135,7 @@ export function locationOverLimitRefusal(
   plan: PlanLabel & { readonly code: string },
 ): LocationOverLimitRefusal {
   const noun = LIMIT_NOUN[kind];
-  const what = kind === LimitKind.Branches ? { ar: "الفرع", en: "branch" } : { ar: "المخزن", en: "warehouse" };
+  const what = kind === LimitKind.Branches ? { ar: "الفرع", en: "branch" } : { ar: "المستودع", en: "warehouse" };
   return {
     error: UsageRefusalCode.LocationOverLimit,
     limit: kind,

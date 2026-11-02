@@ -48,14 +48,14 @@ describe("vouchers errors", () => {
     const err = new VoucherNotAllocatableError("v-1", "other_expense");
     expect(err.name).toBe("VoucherNotAllocatableError");
     expect(err.code).toBe("VOUCHER_NOT_ALLOCATABLE");
-    expect(err.message).toBe('السند "v-1" من نوع "other_expense" لا يقبل التخصيص على الفواتير.');
+    expect(err.message).toBe('السند "v-1" من نوع "مصروف آخر" لا يقبل التخصيص على الفواتير.');
   });
 
   it("VoucherNotConfirmedError names the voucher and its status", () => {
     const err = new VoucherNotConfirmedError("v-1", "draft");
     expect(err.name).toBe("VoucherNotConfirmedError");
     expect(err.code).toBe("VOUCHER_NOT_CONFIRMED");
-    expect(err.message).toBe('السند "v-1" حالته "draft" وليس مؤكداً، فلا يمكن تخصيصه.');
+    expect(err.message).toBe('السند "v-1" حالته "مسودة" وليس مؤكداً، فلا يمكن تخصيصه.');
   });
 
   it("InvoiceNotFoundError carries the invoice id", () => {
@@ -82,7 +82,7 @@ describe("vouchers errors", () => {
   });
 
   it("AllocationExceedsError carries a free-form message", () => {
-    const err = new AllocationExceedsError("المبلغ يتجاوز الرصيد المتبقي على السند");
+    const err = new AllocationExceedsError("المبلغ يتجاوز الرصيد المتبقي على السند", "The amount exceeds the voucher remainder");
     expect(err.name).toBe("AllocationExceedsError");
     expect(err.code).toBe("ALLOCATION_EXCEEDS");
     expect(err.message).toBe("المبلغ يتجاوز الرصيد المتبقي على السند");

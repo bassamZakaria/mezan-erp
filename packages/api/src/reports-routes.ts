@@ -1,3 +1,4 @@
+import { issueText } from "./observability/error-message-backfill.js";
 import { Hono, type Context } from "hono";
 import { z } from "zod";
 import {
@@ -482,6 +483,7 @@ const drillWindowSchema = z
   })
   .refine((w) => w.fromDate === undefined || w.fromDate <= w.asOfDate, {
     message: "تاريخ البداية بعد تاريخ النهاية",
+    params: { messageEn: "The start date is after the end date" },
     path: ["fromDate"],
   });
 
@@ -1179,7 +1181,7 @@ export function createReportsRoutes(
     return {
       ok: false,
       response: c.json(
-        { error: "VALIDATION_ERROR", errors: parsed.error.issues.map((issue) => ({ field: issue.path.join(".") || "_root", message: issue.message })) },
+        { error: "VALIDATION_ERROR", errors: parsed.error.issues.map((issue) => ({ field: issue.path.join(".") || "_root", ...issueText(issue) })) },
         400,
       ),
     };
@@ -1289,8 +1291,8 @@ export function createReportsRoutes(
         {
           error: "VALIDATION_ERROR",
           errors: [
-            ...(ISO_DATE.test(params.dateFrom) ? [] : [{ path: "dateFrom", messageAr: "تاريخ غير صالح" }]),
-            ...(ISO_DATE.test(params.dateTo) ? [] : [{ path: "dateTo", messageAr: "تاريخ غير صالح" }]),
+            ...(ISO_DATE.test(params.dateFrom) ? [] : [{ field: "dateFrom", message: "تاريخ غير صالح", messageEn: "Invalid date" }]),
+            ...(ISO_DATE.test(params.dateTo) ? [] : [{ field: "dateTo", message: "تاريخ غير صالح", messageEn: "Invalid date" }]),
           ],
         },
         400,

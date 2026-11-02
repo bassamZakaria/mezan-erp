@@ -73,7 +73,7 @@ export function taxClassificationRefusal(c: Context, err: unknown): Response | n
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 422);
   }
   if (err instanceof JournalTaxTagUnsupportedError) {
-    return c.json({ error: err.code, message: err.message }, 422);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 422);
   }
   const postingRefused = postingRefusalResponse(c, err);
   if (postingRefused) return postingRefused;

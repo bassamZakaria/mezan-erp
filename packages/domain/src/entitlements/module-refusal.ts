@@ -16,6 +16,26 @@ export const MODULE_NAME_AR: Readonly<Record<string, string>> = {
   projects: "المشروعات",
   notifications: "التنبيهات",
   pos: "نقاط البيع",
+  integrations: "التكامل وواجهة البرمجة",
+};
+
+export const MODULE_NAME_EN: Readonly<Record<string, string>> = {
+  sales: "Sales",
+  purchases: "Purchases",
+  inventory: "Inventory",
+  accounting: "Accounting",
+  treasury: "Treasury",
+  installments: "Installments",
+  financial_papers: "Financial papers",
+  crm: "CRM",
+  hr: "Human resources",
+  manufacturing: "Manufacturing",
+  assets: "Fixed assets",
+  field: "Field sales",
+  projects: "Projects",
+  notifications: "Notifications",
+  pos: "Point of sale",
+  integrations: "Integrations and API",
 };
 
 // INVARIANT: the ONE sentence for a module the licence does not carry. The
@@ -34,4 +54,15 @@ export function moduleNotLicensedMessageAr(moduleId: string, planNameAr: string 
   return planNameAr
     ? `وحدة ${nameAr} ليست ضمن باقة «${planNameAr}». يمكنكم إضافتها بترقية الباقة من صفحة الاشتراك.`
     : `وحدة ${nameAr} غير مُفعّلة في ترخيص هذه النسخة. تواصل مع الدعم لإضافتها إلى الاشتراك.`;
+}
+
+export function moduleNotLicensedMessageEn(moduleId: string, planNameEn: string | undefined, namesEn: Readonly<Record<string, string>> = MODULE_NAME_EN): string {
+  const parent = parentOf(moduleId);
+  const subject =
+    parent !== null
+      ? `The ${SUB_MODULE_NAMES[moduleId]?.en ?? moduleId} part of ${namesEn[parent] ?? parent}`
+      : `The ${namesEn[moduleId] ?? moduleId} module`;
+  return planNameEn
+    ? `${subject} is not in the "${planNameEn}" plan. You can add it by upgrading the plan from the subscription page.`
+    : `${subject} is not enabled in this copy's licence. Contact support to add it to the subscription.`;
 }

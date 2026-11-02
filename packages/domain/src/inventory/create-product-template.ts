@@ -1,3 +1,4 @@
+import type { ReasonInput } from "../bilingual-reasons.js";
 import type { CostingMethod } from "../items/item.js";
 import type { Money } from "../money/index.js";
 import { DuplicateProductTemplateCodeError, InvalidProductTemplateError } from "./errors.js";
@@ -35,12 +36,12 @@ function buildCandidate(command: CreateProductTemplateCommand): ProductTemplate 
   };
 }
 
-function collectFieldErrors(candidate: ProductTemplate): string[] {
-  const reasons: string[] = [];
-  if (candidate.code.trim() === "") reasons.push("كود القالب مطلوب");
-  if (candidate.nameAr.trim() === "") reasons.push("اسم المنتج مطلوب");
-  if (candidate.baseUnitCode.trim() === "") reasons.push("وحدة القياس الأساسية مطلوبة");
-  if (candidate.taxRatePercent < 0 || candidate.taxRatePercent > 100) reasons.push("نسبة الضريبة يجب أن تكون بين 0 و100");
+function collectFieldErrors(candidate: ProductTemplate): ReasonInput[] {
+  const reasons: ReasonInput[] = [];
+  if (candidate.code.trim() === "") reasons.push({ ar: "كود القالب مطلوب", en: "The template code is required" });
+  if (candidate.nameAr.trim() === "") reasons.push({ ar: "اسم المنتج مطلوب", en: "The product name is required" });
+  if (candidate.baseUnitCode.trim() === "") reasons.push({ ar: "وحدة القياس الأساسية مطلوبة", en: "The base unit of measure is required" });
+  if (candidate.taxRatePercent < 0 || candidate.taxRatePercent > 100) reasons.push({ ar: "نسبة الضريبة يجب أن تكون بين 0 و100", en: "The tax rate must be between 0 and 100" });
   return reasons;
 }
 

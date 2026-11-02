@@ -232,7 +232,7 @@ function esealPortFromExternalSigner(signer: EtaSignerPort, now: () => string): 
         return { signatureType: "I", value, signedAt: now() };
       } catch (err) {
         if (err instanceof EtaSignerNotConfiguredError) throw new EtaSigningUnavailableError();
-        if (err instanceof EtaSigningFailedError) throw new EtaSigningUnavailableError(err.message);
+        if (err instanceof EtaSigningFailedError) throw new EtaSigningUnavailableError(err.message, err.messageEn);
         throw err;
       }
     },

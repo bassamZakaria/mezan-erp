@@ -1,11 +1,28 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createElectronTransport, createHttpTransport, resolveDefaultTransport } from "./transport";
+import { createElectronTransport, createHttpTransport, resolveDefaultTransport, ServerUnreachableError } from "./transport";
 
 describe("createHttpTransport", () => {
   const originalFetch = globalThis.fetch;
 
   afterEach(() => {
     globalThis.fetch = originalFetch;
+  });
+
+  it("turns an unreachable server into a readable sentence instead of the browser's «Failed to fetch»", async () => {
+    globalThis.fetch = vi.fn(async () => {
+      throw new TypeError("Failed to fetch");
+    }) as typeof fetch;
+    const failure = createHttpTransport()("/x");
+    await expect(failure).rejects.toBeInstanceOf(ServerUnreachableError);
+    await expect(failure).rejects.not.toThrow("Failed to fetch");
+  });
+
+  it("lets an aborted request stay an abort", async () => {
+    const abort = new DOMException("aborted", "AbortError");
+    globalThis.fetch = vi.fn(async () => {
+      throw abort;
+    }) as typeof fetch;
+    await expect(createHttpTransport()("/x")).rejects.toBe(abort);
   });
 
   it("prefixes the path with the base URL and forwards init", async () => {

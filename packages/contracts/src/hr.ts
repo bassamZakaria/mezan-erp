@@ -360,6 +360,7 @@ export const attendanceImportIssueSchema = z.enum(["unmatched_badge", "odd_punch
 export const attendanceImportRowErrorSchema = z.object({
   rowNumber: z.number().int().nonnegative(),
   reasons: z.array(z.string()),
+  reasonsEn: z.array(z.string()).optional(),
 });
 
 export const attendanceImportGroupSchema = z.object({

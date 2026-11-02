@@ -47,7 +47,7 @@ export function createSignupRoutes(options: SignupRoutesOptions): Hono {
 
   function tooManyRequests(c: Context, retryAfterSeconds: number): Response {
     c.header("retry-after", String(retryAfterSeconds));
-    return c.json({ error: "TOO_MANY_REQUESTS", message: "محاولات كثيرة جدًا، حاول لاحقًا" }, 429);
+    return c.json({ error: "TOO_MANY_REQUESTS", message: "محاولات كثيرة جدًا، حاول لاحقًا", messageEn: "Too many attempts. Try again later" }, 429);
   }
 
   app.get("/status", (c) => {
@@ -79,7 +79,7 @@ export function createSignupRoutes(options: SignupRoutesOptions): Hono {
     const parsed = ownerHandOverRequestSchema.safeParse(await c.req.json().catch(() => null));
     const confirmed = parsed.success ? await router.confirmPendingOwnerByToken(parsed.data.token) : null;
     if (!confirmed) {
-      return c.json({ error: "OWNER_HANDOVER_LINK_INVALID", message: "رابط التأكيد غير صالح أو سبق استخدامه." }, 400);
+      return c.json({ error: "OWNER_HANDOVER_LINK_INVALID", message: "رابط التأكيد غير صالح أو سبق استخدامه.", messageEn: "The confirmation link is invalid or was already used." }, 400);
     }
     return c.json({ confirmed: true });
   });

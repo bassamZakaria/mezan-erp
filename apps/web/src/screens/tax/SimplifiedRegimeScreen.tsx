@@ -183,7 +183,7 @@ export function SimplifiedRegimeScreen() {
 
       {query.isError ? (
         <Card className="mb-[18px] p-[16px_18px]">
-          <p className="text-[13px] font-semibold text-danger-ink">{t("simplifiedRegime.api.loadFailed")}</p>
+          <p className="text-[13px] font-semibold text-danger-ink">{errorMessage(query.error, t("simplifiedRegime.api.loadFailed"))}</p>
           <Button size="sm" className="mt-[10px]" onClick={() => void query.refetch()}>
             {t("common.retry")}
           </Button>

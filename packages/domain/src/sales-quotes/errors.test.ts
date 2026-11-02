@@ -7,12 +7,15 @@ import {
 
 describe("InvalidSalesQuoteError", () => {
   it("carries its reasons and joins them into the message", () => {
-    const err = new InvalidSalesQuoteError(["العميل مطلوب.", "الفرع مطلوب."]);
+    const err = new InvalidSalesQuoteError([
+      { ar: "العميل مطلوب.", en: "The customer is required." },
+      { ar: "الفرع مطلوب.", en: "The branch is required." },
+    ]);
     expect(err.code).toBe("INVALID_SALES_QUOTE");
     expect(err.name).toBe("InvalidSalesQuoteError");
     expect(err.reasons).toEqual(["العميل مطلوب.", "الفرع مطلوب."]);
     expect(err.message).toBe("عرض السعر غير صالح: العميل مطلوب.، الفرع مطلوب.");
-    expect(err.messageEn).toBe("Invalid sales quote: العميل مطلوب.; الفرع مطلوب.");
+    expect(err.messageEn).toBe("Invalid sales quote: The customer is required; The branch is required");
     expect(err).toBeInstanceOf(Error);
   });
 });

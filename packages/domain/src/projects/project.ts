@@ -12,14 +12,15 @@ export type ProjectStatus = "planned" | "active" | "on_hold" | "completed" | "ca
 export interface ProjectStatusDefinition {
   readonly code: ProjectStatus;
   readonly labelAr: string;
+  readonly labelEn: string;
 }
 
 export const PROJECT_STATUS_DEFINITIONS: readonly ProjectStatusDefinition[] = [
-  { code: "planned", labelAr: "مخطط" },
-  { code: "active", labelAr: "نشط" },
-  { code: "on_hold", labelAr: "متوقف مؤقتاً" },
-  { code: "completed", labelAr: "مكتمل" },
-  { code: "cancelled", labelAr: "ملغي" },
+  { code: "planned", labelAr: "مخطط", labelEn: "planned" },
+  { code: "active", labelAr: "نشط", labelEn: "active" },
+  { code: "on_hold", labelAr: "متوقف مؤقتاً", labelEn: "on hold" },
+  { code: "completed", labelAr: "مكتمل", labelEn: "completed" },
+  { code: "cancelled", labelAr: "ملغي", labelEn: "cancelled" },
 ] as const;
 
 /**
@@ -46,6 +47,10 @@ export function canTransitionProject(from: ProjectStatus, to: ProjectStatus): bo
 
 export function getProjectStatusLabel(status: ProjectStatus): string {
   return PROJECT_STATUS_DEFINITIONS.find((d) => d.code === status)?.labelAr ?? status;
+}
+
+export function getProjectStatusLabelEn(status: ProjectStatus): string {
+  return PROJECT_STATUS_DEFINITIONS.find((d) => d.code === status)?.labelEn ?? status;
 }
 
 export interface Project {

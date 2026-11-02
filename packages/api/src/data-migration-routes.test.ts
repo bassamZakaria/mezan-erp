@@ -264,7 +264,7 @@ describe("data-migration-routes — treasury accounts", () => {
     const res = await app.fetch(req("/treasury-accounts/commit", [{ code: "CASH-1", name: "صندوق" }]));
     const body = (await res.json()) as { errors: { rowNumber: number; reasons: string[] }[] };
     expect(res.status).toBe(422);
-    expect(body.errors).toEqual([{ rowNumber: 1, reasons: [expect.stringMatching(/نقدية والبنوك/)] }]);
+    expect(body.errors).toEqual([{ rowNumber: 1, reasons: [expect.stringMatching(/نقدية والبنوك/)], reasonsEn: [expect.stringMatching(/cash-and-bank/)] }]);
     expect(await treasuryAccounts.list()).toEqual([]);
   });
 });
@@ -531,13 +531,13 @@ describe("data-migration-routes — ميزان المراجعة الافتتاح
     ];
     const preview = await app.fetch(req("/opening-trial-balance/preview", rows, "admin.settings.view"));
     expect(preview.status).toBe(200);
-    const body = (await preview.json()) as { validCount: number; errors: { rowNumber: number; reasons: string[] }[] };
+    const body = (await preview.json()) as { validCount: number; errors: { rowNumber: number; reasons: string[]; reasonsEn: string[] }[] };
     expect(body.errors.map((e) => e.rowNumber)).toEqual([1, 2]);
     expect(body.errors[0]!.reasons[0]).toContain("أرصدة العملاء الافتتاحية");
-    expect(body.errors[0]!.reasons[0]).toContain("customer opening balances");
+    expect(body.errors[0]!.reasonsEn[0]).toContain("customer opening balances");
     expect(body.errors[0]!.reasons[0]).toContain("3210");
     expect(body.errors[1]!.reasons[0]).toContain("أرصدة الموردين الافتتاحية");
-    expect(body.errors[1]!.reasons[0]).toContain("supplier opening balances");
+    expect(body.errors[1]!.reasonsEn[0]).toContain("supplier opening balances");
     expect(body.validCount).toBe(1);
 
     const commit = await app.fetch(req("/opening-trial-balance/commit", rows, "accounting.journal.create"));

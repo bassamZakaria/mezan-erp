@@ -64,7 +64,7 @@ export function createTaxGroupsRoutes(
     try {
       validateTaxGroup(group);
     } catch (err) {
-      if (err instanceof InvalidTaxGroupError) return c.json({ error: err.code, message: err.message }, 422);
+      if (err instanceof InvalidTaxGroupError) return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 422);
       throw err;
     }
     // Every member must be a real tax rate: a group pointing at a rate that
@@ -73,7 +73,7 @@ export function createTaxGroupsRoutes(
     const missing = group.members.filter((member) => !known.has(member.taxRateId));
     if (missing.length > 0) {
       return c.json(
-        { error: "TAX_RATE_NOT_FOUND", message: `Unknown tax rates: ${missing.map((m) => m.taxRateId).join(", ")}` },
+        { error: "TAX_RATE_NOT_FOUND", message: `نسب ضريبية غير موجودة: ${missing.map((m) => m.taxRateId).join("، ")}`, messageEn: `Unknown tax rates: ${missing.map((m) => m.taxRateId).join(", ")}` },
         422,
       );
     }
@@ -94,7 +94,7 @@ export function createTaxGroupsRoutes(
     try {
       validateTaxGroup(group);
     } catch (err) {
-      if (err instanceof InvalidTaxGroupError) return c.json({ error: err.code, message: err.message }, 422);
+      if (err instanceof InvalidTaxGroupError) return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 422);
       throw err;
     }
     await repo.update(group);

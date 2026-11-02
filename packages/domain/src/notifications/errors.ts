@@ -1,9 +1,14 @@
+import { splitReasons, type ReasonInput } from "../bilingual-reasons.js";
+
 export class InvalidNotificationRuleError extends Error {
   readonly code = "INVALID_NOTIFICATION_RULE";
   readonly messageEn: string;
-  constructor(readonly reasons: readonly string[]) {
-    super(`قاعدة الإشعار غير صالحة: ${reasons.join("، ")}`);
-    this.messageEn = `Invalid notification rule: ${reasons.join("; ")}`;
+  readonly reasons: readonly string[];
+  constructor(reasons: readonly ReasonInput[]) {
+    const split = splitReasons(reasons, "it failed validation");
+    super(`قاعدة الإشعار غير صالحة: ${split.ar.join("، ")}`);
+    this.reasons = split.ar;
+    this.messageEn = `Invalid notification rule: ${split.en}`;
     this.name = "InvalidNotificationRuleError";
   }
 }

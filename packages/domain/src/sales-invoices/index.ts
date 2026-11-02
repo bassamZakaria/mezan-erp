@@ -21,6 +21,7 @@ export {
   invoiceRepOf,
   SALES_INVOICE_TERMINAL_STATUSES,
   SALES_INVOICE_STATUS_LABELS_AR,
+  SALES_INVOICE_STATUS_LABELS_EN,
   isSalesInvoiceActive,
   salesInvoiceVoidEntryId,
   isSalesInvoiceTerminal,

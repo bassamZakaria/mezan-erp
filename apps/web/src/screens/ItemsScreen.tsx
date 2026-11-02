@@ -62,6 +62,7 @@ import { useNavigation, useSubPage } from "../navigation";
 import { EMPTY } from "../lib/empty";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 import { EntityHistoryPanel } from "./enh/audit-ledger/EntityHistoryPanel";
+import { errorMessage } from "../lib/error-message";
 
 const TYPE_KEY: Record<ItemTypeDTO, AppTranslationKey> = {
   stock: "items.stockProduct",
@@ -1635,7 +1636,7 @@ export function ItemsScreen() {
     <div className="w-full">
       {query.isError ? (
         <Card className="mb-[18px] p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">{t("items.itemsCouldNotBeLoaded")}</p>
+          <p className="text-[13px] font-semibold text-danger-ink">{errorMessage(query.error, t("items.itemsCouldNotBeLoaded"))}</p>
           <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
             {t("common.retry")}
           </Button>

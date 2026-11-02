@@ -81,24 +81,24 @@ export function createLandedCostDocumentType(
 
     validate(doc) {
       if (doc.lines.length === 0) {
-        throw new InvalidDocumentError(DOC_TYPE, doc.id, "مستند التكلفة الإضافية يتطلب بنداً واحداً على الأقل.");
+        throw new InvalidDocumentError(DOC_TYPE, doc.id, "مستند التكلفة الإضافية يتطلب بنداً واحداً على الأقل.", "A landed cost document needs at least one line.");
       }
       for (const line of doc.lines) {
         if (line.allocatedAmount.scaled <= 0n) {
           throw new InvalidDocumentError(
             DOC_TYPE,
             doc.id,
-            `بند الصنف "${line.itemId}": المبلغ الموزّع يجب أن يكون أكبر من صفر.`,
+            `بند الصنف "${line.itemId}": المبلغ الموزّع يجب أن يكون أكبر من صفر.`, `Item "${line.itemId}": the allocated amount must be greater than zero.`,
           );
         }
         if ((line.projectId ?? null) !== (doc.lines[0]?.projectId ?? null)) {
-          throw new InvalidDocumentError(DOC_TYPE, doc.id, "كل بنود مستند التكلفة الإضافية يجب أن تنتمي لنفس المشروع.");
+          throw new InvalidDocumentError(DOC_TYPE, doc.id, "كل بنود مستند التكلفة الإضافية يجب أن تنتمي لنفس المشروع.", "All landed cost lines must belong to the same project.");
         }
         if (line.costCategory && !line.projectId) {
           throw new InvalidDocumentError(
             DOC_TYPE,
             doc.id,
-            `بند الصنف "${line.itemId}": فئة التكلفة تتطلب مشروعاً (projectId) على المستند.`,
+            `بند الصنف "${line.itemId}": فئة التكلفة تتطلب مشروعاً (projectId) على المستند.`, `Item "${line.itemId}": a cost category requires a project (projectId) on the document.`,
           );
         }
       }
@@ -155,6 +155,7 @@ export function createLandedCostDocumentType(
       return buildEffects({
         blocked: doc.lines.length === 0,
         blockedReason: doc.lines.length === 0 ? "لا يوجد بنود لتوزيع التكلفة عليها." : undefined,
+        blockedReasonEn: doc.lines.length === 0 ? "There are no lines to allocate the cost to." : undefined,
         effects: [
           {
             kind: "stock",

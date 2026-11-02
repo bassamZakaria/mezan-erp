@@ -12,9 +12,9 @@ describe("domainRefusalOf", () => {
     expect(domainRefusalOf(err)).toEqual({ code: "APPROVAL_REQUEST_UNTRUSTED", message: err.message, messageEn: err.messageEn });
   });
 
-  it("passes a domain refusal that has no English message", () => {
+  it("gives a domain refusal that has no English message the generic English sentence", () => {
     const err = new InvalidVoucherError("v-1", "سند غير صالح");
-    expect(domainRefusalOf(err)).toEqual({ code: err.code, message: err.message });
+    expect(domainRefusalOf(err)).toEqual({ code: err.code, message: err.message, messageEn: "The operation could not be carried out with this data." });
   });
 
   it.each([

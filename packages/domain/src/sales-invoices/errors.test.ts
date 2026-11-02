@@ -8,12 +8,15 @@ import {
 
 describe("InvalidSalesInvoiceError", () => {
   it("carries its reasons and joins them into the message", () => {
-    const err = new InvalidSalesInvoiceError(["العميل مطلوب.", "المستودع مطلوب."]);
+    const err = new InvalidSalesInvoiceError([
+      { ar: "العميل مطلوب.", en: "The customer is required." },
+      { ar: "المستودع مطلوب.", en: "The warehouse is required." },
+    ]);
     expect(err.code).toBe("INVALID_SALES_INVOICE");
     expect(err.name).toBe("InvalidSalesInvoiceError");
     expect(err.reasons).toEqual(["العميل مطلوب.", "المستودع مطلوب."]);
     expect(err.message).toBe("فاتورة المبيعات غير صالحة: العميل مطلوب.، المستودع مطلوب.");
-    expect(err.messageEn).toBe("Invalid sales invoice: العميل مطلوب.; المستودع مطلوب.");
+    expect(err.messageEn).toBe("Invalid sales invoice: The customer is required; The warehouse is required");
     expect(err).toBeInstanceOf(Error);
   });
 });

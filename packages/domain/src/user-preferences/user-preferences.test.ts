@@ -98,7 +98,7 @@ describe("createDefaultUserPreferences", () => {
       createdAt: "2026-01-01T00:00:00.000Z",
       updatedAt: "2026-01-01T00:00:00.000Z",
     });
-    expect(validateUserPreferences(prefs)).toEqual([]);
+    expect(reasonsEn(prefs)).toEqual([]);
   });
 
   it("scopes strictly to the given userId — two users never share the same default object", () => {
@@ -112,27 +112,30 @@ describe("createDefaultUserPreferences", () => {
   });
 });
 
+const reasonsEn = (prefs: Parameters<typeof validateUserPreferences>[0]): string[] =>
+  validateUserPreferences(prefs).map((r) => r.en);
+
 describe("validateUserPreferences", () => {
   it("rejects an empty or overlong layout name", () => {
     const prefs = { ...preferencesFor("u1"), layoutName: "   " };
-    expect(validateUserPreferences(prefs)).toContain("layoutName must not be empty");
+    expect(reasonsEn(prefs)).toContain("The layout name is required");
 
     const tooLong = { ...preferencesFor("u1"), layoutName: "x".repeat(61) };
-    expect(validateUserPreferences(tooLong)[0]).toMatch(/at most 60/);
+    expect(reasonsEn(tooLong)[0]).toMatch(/at most 60/);
   });
 
   it("rejects a dashboard column count outside 1..4", () => {
     const prefs = { ...preferencesFor("u1"), dashboard: { columns: 0, widgets: [] } };
-    expect(validateUserPreferences(prefs)).toContain("dashboard.columns must be between 1 and 4");
+    expect(reasonsEn(prefs)).toContain("The number of dashboard columns must be between 1 and 4");
     const prefs2 = { ...preferencesFor("u1"), dashboard: { columns: 5, widgets: [] } };
-    expect(validateUserPreferences(prefs2)).toContain("dashboard.columns must be between 1 and 4");
+    expect(reasonsEn(prefs2)).toContain("The number of dashboard columns must be between 1 and 4");
     const ok = { ...preferencesFor("u1"), dashboard: { columns: 4, widgets: [] } };
-    expect(validateUserPreferences(ok)).toEqual([]);
+    expect(reasonsEn(ok)).toEqual([]);
   });
 
   it("rejects duplicate pinnedScreens ids", () => {
     const prefs = { ...preferencesFor("u1"), pinnedScreens: [pin({ id: "p1" }), pin({ id: "p1", order: 1 })] };
-    expect(validateUserPreferences(prefs).some((r) => r.includes("duplicate pinnedScreens"))).toBe(true);
+    expect(reasonsEn(prefs).some((r) => r.includes("pinned screens are repeated"))).toBe(true);
   });
 
   it("rejects duplicate dashboard widget ids", () => {
@@ -140,7 +143,7 @@ describe("validateUserPreferences", () => {
       ...preferencesFor("u1"),
       dashboard: { columns: 3, widgets: [widget({ id: "w1" }), widget({ id: "w1", order: 1 })] },
     };
-    expect(validateUserPreferences(prefs).some((r) => r.includes("duplicate dashboard widget"))).toBe(true);
+    expect(reasonsEn(prefs).some((r) => r.includes("dashboard widgets are repeated"))).toBe(true);
   });
 
   it("rejects a table view with every column hidden", () => {
@@ -161,7 +164,7 @@ describe("validateUserPreferences", () => {
       ],
     };
     expect(
-      validateUserPreferences(prefs).some((r) => r.includes("must keep at least one visible column")),
+      reasonsEn(prefs).some((r) => r.includes("must keep at least one visible column")),
     ).toBe(true);
   });
 
@@ -170,7 +173,7 @@ describe("validateUserPreferences", () => {
       ...preferencesFor("u1"),
       pinnedScreens: Array.from({ length: 21 }, (_, i) => pin({ id: `p${i}`, order: i })),
     };
-    expect(validateUserPreferences(prefs).some((r) => r.includes("pinnedScreens must be at most"))).toBe(true);
+    expect(reasonsEn(prefs).some((r) => r.includes("You can pin at most"))).toBe(true);
   });
 
   it("rejects more shortcut tiles than SHORTCUT_TILES_LIMIT", () => {
@@ -178,12 +181,12 @@ describe("validateUserPreferences", () => {
       ...preferencesFor("u1"),
       shortcutTiles: Array.from({ length: 13 }, (_, i) => tile({ id: `s${i}`, order: i })),
     };
-    expect(validateUserPreferences(prefs).some((r) => r.includes("shortcutTiles must be at most"))).toBe(true);
+    expect(reasonsEn(prefs).some((r) => r.includes("You can add at most"))).toBe(true);
   });
 
   it("rejects duplicate shortcutTiles ids", () => {
     const prefs = { ...preferencesFor("u1"), shortcutTiles: [tile({ id: "s1" }), tile({ id: "s1", order: 1 })] };
-    expect(validateUserPreferences(prefs).some((r) => r.includes("duplicate shortcutTiles"))).toBe(true);
+    expect(reasonsEn(prefs).some((r) => r.includes("shortcut tiles are repeated"))).toBe(true);
   });
 
   it("rejects two table views claiming the same tableId", () => {
@@ -196,7 +199,7 @@ describe("validateUserPreferences", () => {
       density: null,
     } as const;
     const prefs = { ...preferencesFor("u1"), tableViews: [view, view] };
-    expect(validateUserPreferences(prefs).some((r) => r.includes("duplicate tableViews tableIds"))).toBe(true);
+    expect(reasonsEn(prefs).some((r) => r.includes("more than one saved view entry"))).toBe(true);
   });
 
   it("rejects duplicate column keys WITHIN one table view", () => {
@@ -216,7 +219,7 @@ describe("validateUserPreferences", () => {
         },
       ],
     };
-    expect(validateUserPreferences(prefs).some((r) => r.includes("duplicate column keys in table"))).toBe(true);
+    expect(reasonsEn(prefs).some((r) => r.includes("columns are repeated in table"))).toBe(true);
   });
 
   it("accepts a table view with at least one visible column", () => {
@@ -236,7 +239,7 @@ describe("validateUserPreferences", () => {
         },
       ],
     };
-    expect(validateUserPreferences(prefs)).toEqual([]);
+    expect(reasonsEn(prefs)).toEqual([]);
   });
 });
 
@@ -327,7 +330,7 @@ describe("updateUserPreferences — partial patch semantics", () => {
       expect.unreachable();
     } catch (err) {
       expect(err).toBeInstanceOf(InvalidUserPreferencesError);
-      expect((err as InvalidUserPreferencesError).reasons).toContain("layoutName must not be empty");
+      expect((err as InvalidUserPreferencesError).reasons).toContain("اسم التخطيط مطلوب");
     }
   });
 });

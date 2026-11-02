@@ -8,6 +8,7 @@ import {
 } from "@mezan/ui";
 import type { ItemDTO } from "@mezan/contracts";
 import { buildLabelBatch, LABEL_TEMPLATES, Money, type LabelBatchLineInput, type LabelTemplateCode } from "@mezan/domain";
+import { pickLocalized } from "../data/server-message";
 import { ItemPicker } from "./ItemPicker";
 import { useAppTranslation } from "../i18n";
 import { codedLabel } from "../domain-labels";
@@ -66,7 +67,7 @@ function LabelTile({ line, template }: { line: SelectedLine; template: (typeof L
 }
 
 export function LabelPrintingScreen() {
-  const { t } = useAppTranslation();
+  const { t, locale } = useAppTranslation();
   const [lines, setLines] = useState<SelectedLine[]>([]);
   const [templateCode, setTemplateCode] = useState<LabelTemplateCode>("THERMAL_40x30");
 
@@ -187,7 +188,7 @@ export function LabelPrintingScreen() {
                     </td>
                     <td className="p-[8px_10px]">
                       <div className="mz-num text-ink">{line.barcode || "—"}</div>
-                      {line.messageAr ? <div className="mt-[3px] text-[11px] font-semibold text-danger-ink">{line.messageAr}</div> : null}
+                      {line.messageAr ? <div className="mt-[3px] text-[11px] font-semibold text-danger-ink">{pickLocalized(line.messageAr, line.messageEn, locale)}</div> : null}
                     </td>
                     <td className="p-[8px_10px] text-end">
                       <span className="mz-num">{line.price.toString()}</span>

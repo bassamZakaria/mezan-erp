@@ -36,9 +36,9 @@ describe("checkBarcodeFit", () => {
 
   it("a blank or whitespace-only barcode always fits — nothing to print", () => {
     const template = getLabelTemplate("THERMAL_40x30");
-    expect(checkBarcodeFit("", template)).toEqual({ fits: true, requiredWidthMm: 0, messageAr: null });
-    expect(checkBarcodeFit("   ", template)).toEqual({ fits: true, requiredWidthMm: 0, messageAr: null });
-    expect(checkBarcodeFit("\t\n", template)).toEqual({ fits: true, requiredWidthMm: 0, messageAr: null });
+    expect(checkBarcodeFit("", template)).toEqual({ fits: true, requiredWidthMm: 0, messageAr: null, messageEn: null });
+    expect(checkBarcodeFit("   ", template)).toEqual({ fits: true, requiredWidthMm: 0, messageAr: null, messageEn: null });
+    expect(checkBarcodeFit("\t\n", template)).toEqual({ fits: true, requiredWidthMm: 0, messageAr: null, messageEn: null });
   });
 
   it("the same long barcode that fails the smallest preset fits the largest one", () => {

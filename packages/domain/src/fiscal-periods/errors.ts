@@ -4,8 +4,10 @@ import { FISCAL_PERIOD_STATUS_LABEL, FISCAL_PERIOD_TRANSITION_REFUSAL, fiscalPer
 /** Raised when an operation references a fiscal period id that does not exist. */
 export class FiscalPeriodNotFoundError extends Error {
   readonly code = "FISCAL_PERIOD_NOT_FOUND";
+  readonly messageEn: string;
   constructor(readonly periodId: string) {
     super(`الفترة المحاسبية "${periodId}" غير موجودة.`);
+    this.messageEn = `Fiscal period "${periodId}" not found.`;
     this.name = "FiscalPeriodNotFoundError";
   }
 }
@@ -13,11 +15,13 @@ export class FiscalPeriodNotFoundError extends Error {
 /** Raised when a (year, periodNumber) pair already has a generated period. */
 export class DuplicateFiscalPeriodError extends Error {
   readonly code = "DUPLICATE_FISCAL_PERIOD";
+  readonly messageEn: string;
   constructor(
     readonly year: number,
     readonly periodNumber: number,
   ) {
     super(`الفترة المحاسبية ${year}-${String(periodNumber).padStart(2, "0")} موجودة بالفعل.`);
+    this.messageEn = `Fiscal period ${year}-${String(periodNumber).padStart(2, "0")} already exists.`;
     this.name = "DuplicateFiscalPeriodError";
   }
 }

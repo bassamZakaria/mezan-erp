@@ -11,6 +11,7 @@
  * Its lines are auto-filled from the confirmed receipt (create-from auto-fill).
  */
 
+import type { ReasonInput } from "../bilingual-reasons.js";
 import { InvoiceDocumentKind } from "../documents/invoice-document-kind.js";
 import { allocate, Money, Qty } from "../money/index.js";
 import type { CostCategory } from "../contracting/cost-category.js";
@@ -442,18 +443,18 @@ function normalizeLines(
 }
 
 function validate(lines: readonly PurchaseInvoiceLine[], supplierId: string, projectId: string | null = null): void {
-  const reasons: string[] = [];
-  if (supplierId.trim() === "") reasons.push("a supplier is required");
-  if (lines.length === 0) reasons.push("at least one line is required");
+  const reasons: ReasonInput[] = [];
+  if (supplierId.trim() === "") reasons.push({ ar: "المورد مطلوب", en: "A supplier is required" });
+  if (lines.length === 0) reasons.push({ ar: "يلزم بند واحد على الأقل", en: "At least one line is required" });
   lines.forEach((line, i) => {
     if (line.kind === "inventory" && (line.itemId === null || line.itemId.trim() === "")) {
-      reasons.push(`line ${i}: an inventory line requires an item`);
+      reasons.push({ ar: `البند ${i + 1}: بند المخزون يتطلب صنفاً`, en: `Line ${i + 1}: a stock line needs an item.` });
     }
-    if (line.qty.isZero() || line.qty.isNegative()) reasons.push(`line ${i}: qty must be positive`);
-    if (line.unitCost.scaled < 0n) reasons.push(`line ${i}: unit cost must not be negative`);
-    if (line.taxRatePercent < 0) reasons.push(`line ${i}: tax rate must not be negative`);
+    if (line.qty.isZero() || line.qty.isNegative()) reasons.push({ ar: `البند ${i + 1}: الكمية يجب أن تكون موجبة`, en: `Line ${i + 1}: the quantity must be greater than zero.` });
+    if (line.unitCost.scaled < 0n) reasons.push({ ar: `البند ${i + 1}: تكلفة الوحدة لا يجوز أن تكون سالبة`, en: `Line ${i + 1}: the unit cost cannot be negative.` });
+    if (line.taxRatePercent < 0) reasons.push({ ar: `البند ${i + 1}: نسبة الضريبة لا يجوز أن تكون سالبة`, en: `Line ${i + 1}: the tax rate cannot be negative.` });
     if (line.costCategory && !projectId) {
-      reasons.push(`line ${i}: costCategory requires the invoice's projectId`);
+      reasons.push({ ar: `البند ${i + 1}: فئة التكلفة تتطلب تحديد المشروع على الفاتورة.`, en: `Line ${i + 1}: a cost category needs a project on the invoice.` });
     }
   });
   if (reasons.length > 0) throw new InvalidPurchaseDocumentError(reasons);
@@ -524,7 +525,10 @@ export async function createPurchaseInvoice(
     if (!receipt) throw new GoodsReceiptNotFoundError(command.receiptId);
     if (receipt.status !== "confirmed") {
       throw new InvalidPurchaseDocumentError([
-        `goods receipt "${command.receiptId}" is "${receipt.status}"; only a confirmed receipt can be invoiced`,
+        {
+          ar: `لا يمكن فوترة إذن الاستلام ${receipt.number}؛ لا تُفوتر إلا الاستلامات المؤكدة.`,
+          en: `Goods receipt ${receipt.number} cannot be invoiced; only a confirmed receipt can be invoiced.`,
+        },
       ]);
     }
     if (goodsReceiptInvoicingStatus(receipt) === GoodsReceiptInvoicingStatus.Invoiced) throw new GoodsReceiptAlreadyInvoicedError(command.receiptId, GoodsReceiptInvoicedRefusal.SecondInvoice);
@@ -885,7 +889,10 @@ export async function confirmPurchaseInvoice(
       const found = await deps.exchangeRates?.findRate(invoice.currency, invoice.date);
       if (!found) {
         throw new InvalidPurchaseDocumentError([
-          `لا يوجد سعر صرف معتمد للعملة ${invoice.currency} بتاريخ ${invoice.date}؛ لا يمكن ترحيل الفاتورة.`,
+          {
+            ar: `لا يوجد سعر صرف معتمد للعملة ${invoice.currency} بتاريخ ${invoice.date}؛ لا يمكن ترحيل الفاتورة.`,
+            en: `There is no approved exchange rate for ${invoice.currency} on ${invoice.date}; the invoice cannot be posted.`,
+          },
         ]);
       }
       fx = { rate: found.rate, baseCurrency };

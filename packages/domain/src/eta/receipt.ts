@@ -18,6 +18,7 @@
  *     recompute or re-mint one — see `EtaService.enqueueReceipt`.
  */
 
+import type { BilingualReason } from "../collections/errors.js";
 import { ETA_RECEIPT_REPORTING_WINDOW_HOURS, type EtaConfig } from "./config.js";
 import {
   EtaBuyerIdentityRequiredError,
@@ -253,13 +254,13 @@ function scaled5(value: string): bigint {
 }
 
 /** Seller data the SDK's core-field validator requires; refused before the UUID is minted. */
-function sellerReadiness(input: EtaReceiptInput, config: EtaConfig): string[] {
-  const reasons: string[] = [];
-  if (!/^\d{9}$/.test(config.taxRegistrationNumber ?? "")) reasons.push("رقم التسجيل الضريبي (9 أرقام)");
-  if (!present(config.activityCode)) reasons.push("كود النشاط");
-  if (!config.address) reasons.push("عنوان المنشأة");
-  if (!present(input.seller.companyTradeName)) reasons.push("الاسم التجاري للمنشأة");
-  if (!present(input.seller.branchCode)) reasons.push("كود الفرع لدى المصلحة");
+function sellerReadiness(input: EtaReceiptInput, config: EtaConfig): BilingualReason[] {
+  const reasons: BilingualReason[] = [];
+  if (!/^\d{9}$/.test(config.taxRegistrationNumber ?? "")) reasons.push({ ar: "رقم التسجيل الضريبي (9 أرقام)", en: "the tax registration number (9 digits)" });
+  if (!present(config.activityCode)) reasons.push({ ar: "كود النشاط", en: "the activity code" });
+  if (!config.address) reasons.push({ ar: "عنوان المنشأة", en: "the company address" });
+  if (!present(input.seller.companyTradeName)) reasons.push({ ar: "الاسم التجاري للمنشأة", en: "the company trade name" });
+  if (!present(input.seller.branchCode)) reasons.push({ ar: "كود الفرع لدى المصلحة", en: "the branch code registered with the authority" });
   return reasons;
 }
 
@@ -487,6 +488,8 @@ export interface EtaReceiptUuidPort {
 
 export class EtaReceiptUuidUnavailableError extends Error {
   readonly code = "ETA_RECEIPT_UUID_UNAVAILABLE";
+  readonly messageEn =
+    "The e-receipt cannot be issued: the UUID calculation service is not configured in this deployment.";
   constructor() {
     super(
       "لا يمكن إصدار إيصال إلكتروني: لم تُهيَّأ خدمة حساب المعرِّف (UUID). " +

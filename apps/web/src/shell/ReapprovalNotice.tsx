@@ -1,3 +1,4 @@
+import { pickLocalized } from "../data/server-message";
 import { useState } from "react";
 import { useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import { ApprovalStatusCode, type ApprovalStandingDTO } from "@mezan/contracts";
@@ -29,12 +30,12 @@ export function ReapprovalNotice({
   readonly pending: boolean;
   readonly onRequestAgain: () => void;
 }) {
-  const { t } = useAppTranslation();
+  const { t, locale } = useAppTranslation();
   const standing = useApprovalStanding(requestId).data;
   if (!standing || standing.status !== ApprovalStatusCode.ReapprovalRequired) return null;
   return (
     <div data-testid="reapproval-notice" role="alert" className="mt-[8px] flex flex-wrap items-center justify-between gap-[10px] rounded-md border border-warning bg-warning-soft px-[14px] py-[10px] text-start text-[12.5px] text-warning-ink">
-      <span className="min-w-0 flex-1 font-semibold">{standing.reason ?? t("approvals.reapproval.reason")}</span>
+      <span className="min-w-0 flex-1 font-semibold">{pickLocalized(standing.reason, standing.reasonEn, locale) ?? t("approvals.reapproval.reason")}</span>
       <Button variant="primary" size="sm" disabled={pending} onClick={onRequestAgain}>
         {t("approvals.reapproval.requestAgain")}
       </Button>

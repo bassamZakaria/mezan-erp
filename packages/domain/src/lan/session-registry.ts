@@ -27,6 +27,7 @@
  * wrapper for callers that want a single shared instance to call methods on
  * (mirrors `EventBus` in events/event-bus.ts).
  */
+import { ArabicCase, CountedNoun, CountLocale, countPhrase } from "../text/counted-noun.js";
 
 export interface DeviceSession {
   /** Server-derived seat key (`userId` + `deviceId`), never a caller-chosen id. */
@@ -51,14 +52,15 @@ export interface SeatSessionsState {
 
 export class SeatLimitExceededError extends Error {
   readonly code = "SEAT_LIMIT_EXCEEDED";
+  readonly messageEn: string;
   constructor(
     readonly seats: number,
     readonly connected: number,
   ) {
-    super(
-      `Seat limit reached: ${connected}/${seats} devices already connected. ` +
-        "Disconnect a device before connecting another.",
-    );
+    super(`اكتمل عدد الأجهزة التي يسمح بها الترخيص (${connected} من ${seats}). افصل جهازاً من «الأجهزة المتصلة» قبل توصيل جهاز آخر.`);
+    this.messageEn =
+      `The licence allows ${countPhrase(CountLocale.En, seats, CountedNoun.Device)} and ${connected} ${connected === 1 ? "is" : "are"} connected. ` +
+      'Disconnect a device from "Connected devices" before connecting another.';
     this.name = "SeatLimitExceededError";
   }
 }
@@ -72,22 +74,28 @@ export class SeatLimitExceededError extends Error {
  */
 export class UserSeatLimitExceededError extends Error {
   readonly code = "USER_SEAT_LIMIT_EXCEEDED";
+  readonly messageEn: string;
   constructor(
     readonly userId: string,
     readonly maxSeatsPerUser: number,
   ) {
     super(
-      `This account already holds ${maxSeatsPerUser} concurrent device session(s), ` +
-        "the per-account limit. Disconnect one of its devices before connecting another.",
+      `هذا الحساب متصل بالفعل من ${countPhrase(CountLocale.Ar, maxSeatsPerUser, CountedNoun.Device, { grammaticalCase: ArabicCase.Oblique })}، وهو الحد الأقصى للحساب الواحد. ` +
+        "افصل أحد أجهزته من «الأجهزة المتصلة» ثم أعد المحاولة، أو استخدم حساباً آخر على هذا الجهاز.",
     );
+    this.messageEn =
+      `This account is already connected from ${countPhrase(CountLocale.En, maxSeatsPerUser, CountedNoun.Device)}, the limit for one account. ` +
+      'Disconnect one of its devices from "Connected devices" and try again, or use another account on this device.';
     this.name = "UserSeatLimitExceededError";
   }
 }
 
 export class DeviceSessionNotFoundError extends Error {
   readonly code = "DEVICE_SESSION_NOT_FOUND";
+  readonly messageEn: string;
   constructor(readonly sessionId: string) {
-    super(`No connected device session '${sessionId}'`);
+    super(`لا توجد جلسة جهاز متصلة بالمعرّف '${sessionId}'.`);
+    this.messageEn = `No connected device session '${sessionId}'`;
     this.name = "DeviceSessionNotFoundError";
   }
 }

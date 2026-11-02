@@ -1,3 +1,4 @@
+import { messageEnOf } from "./observability/error-message-backfill.js";
 import { postingRefusalResponse } from "./posting-refusal.js";
 import { Hono, type Context } from "hono";
 import {
@@ -372,7 +373,7 @@ function serializeConfigInstance(i: ConfigInstance) {
 }
 
 function withMessageEn(err: { readonly code: string; readonly message: string; readonly messageEn?: string }) {
-  return { error: err.code, message: err.message, ...(err.messageEn ? { messageEn: err.messageEn } : {}) };
+  return { error: err.code, message: err.message, messageEn: messageEnOf(err) };
 }
 
 function handleDomainError(c: Context, err: unknown): Response {
@@ -412,15 +413,15 @@ function handleDomainError(c: Context, err: unknown): Response {
  */
 async function warehouseRefusals(
   deps: ManufacturingRoutesDeps,
-  ids: { readonly label: string; readonly id: string }[],
-): Promise<string[]> {
+  ids: { readonly label: { readonly ar: string; readonly en: string }; readonly id: string }[],
+): Promise<{ ar: string; en: string }[]> {
   const registry = deps.warehouses;
   if (!registry) return [];
-  const reasons: string[] = [];
+  const reasons: { ar: string; en: string }[] = [];
   for (const { label, id } of ids) {
     const warehouse = await registry.findById(id);
-    if (!warehouse) reasons.push(`${label} "${id}" غير مسجّل كمستودع`);
-    else if (!warehouse.active) reasons.push(`${label} "${warehouse.name}" غير مفعّل`);
+    if (!warehouse) reasons.push({ ar: `${label.ar} "${id}" غير مسجّل كمستودع`, en: `${label.en} "${id}" is not registered as a warehouse` });
+    else if (!warehouse.active) reasons.push({ ar: `${label.ar} "${warehouse.name}" غير مفعّل`, en: `${label.en} "${warehouse.name}" is not active` });
   }
   return reasons;
 }
@@ -575,9 +576,9 @@ export function createManufacturingRoutes(
     const stationId = await resolveWorkStation(body.stationId, stationDeps);
     let operatorId: string | null = null;
     if (body.operatorId) {
-      if (!deps.operators) throw new InvalidManufacturingDocumentError(["سجل الموظفين غير متاح لتحديد المشغّل."]);
+      if (!deps.operators) throw new InvalidManufacturingDocumentError([{ ar: "سجل الموظفين غير متاح لتحديد المشغّل.", en: "The employee registry is not available to identify the operator." }]);
       const operator = await deps.operators.findById(body.operatorId);
-      if (!operator) throw new InvalidManufacturingDocumentError([`المشغّل "${body.operatorId}" غير موجود.`]);
+      if (!operator) throw new InvalidManufacturingDocumentError([{ ar: `المشغّل "${body.operatorId}" غير موجود.`, en: `Operator "${body.operatorId}" was not found.` }]);
       operatorId = operator.id;
     }
     return { stationId, operatorId };
@@ -773,9 +774,9 @@ export function createManufacturingRoutes(
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     try {
       const refusals = await warehouseRefusals(deps, [
-        { label: "مستودع المواد الخام", id: parsed.data.sourceWarehouseId },
-        { label: "مستودع التشغيل", id: parsed.data.wipWarehouseId },
-        { label: "مستودع المنتج التام", id: parsed.data.destinationWarehouseId },
+        { label: { ar: "مستودع المواد الخام", en: "The raw-materials warehouse" }, id: parsed.data.sourceWarehouseId },
+        { label: { ar: "مستودع التشغيل", en: "The work-in-progress warehouse" }, id: parsed.data.wipWarehouseId },
+        { label: { ar: "مستودع المنتج التام", en: "The finished-goods warehouse" }, id: parsed.data.destinationWarehouseId },
       ]);
       if (refusals.length > 0) throw new InvalidManufacturingDocumentError(refusals);
       const order = await createWorkOrder(
@@ -1021,9 +1022,9 @@ export function createManufacturingRoutes(
       if (!product) throw new ConfigurableProductNotFoundError(parsed.data.configurableProductId);
       const map = await costMap(product.materials.map((m) => m.itemId));
       const refusals = await warehouseRefusals(deps, [
-        { label: "مستودع المواد الخام", id: parsed.data.sourceWarehouseId },
-        { label: "مستودع التشغيل", id: parsed.data.wipWarehouseId },
-        { label: "مستودع المنتج التام", id: parsed.data.destinationWarehouseId },
+        { label: { ar: "مستودع المواد الخام", en: "The raw-materials warehouse" }, id: parsed.data.sourceWarehouseId },
+        { label: { ar: "مستودع التشغيل", en: "The work-in-progress warehouse" }, id: parsed.data.wipWarehouseId },
+        { label: { ar: "مستودع المنتج التام", en: "The finished-goods warehouse" }, id: parsed.data.destinationWarehouseId },
       ]);
       if (refusals.length > 0) throw new InvalidManufacturingDocumentError(refusals);
       const { instance } = await createConfigInstance(

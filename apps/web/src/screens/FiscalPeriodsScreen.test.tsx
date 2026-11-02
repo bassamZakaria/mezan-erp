@@ -160,7 +160,7 @@ describe("FiscalPeriodsScreen", () => {
   it("shows an error banner with a retry action when periods fail to load", async () => {
     const transport = stubTransport({ "GET /fiscal-periods": () => ({ status: 500, body: { error: "INTERNAL" } }) });
     renderWithProviders(<FiscalPeriodsScreen />, { transport, initialSession: testAdminSession });
-    expect(await screen.findByText("تعذّر تحميل الفترات المالية.")).toBeInTheDocument();
+    expect(await screen.findByText(/تعذّر تحميل الفترات المالية\./)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "إعادة المحاولة" })).toBeInTheDocument();
   });
 

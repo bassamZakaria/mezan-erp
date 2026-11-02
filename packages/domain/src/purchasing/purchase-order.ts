@@ -6,6 +6,7 @@
  * it, with ملغي (cancelled) as the cancel path.
  */
 
+import type { ReasonInput } from "../bilingual-reasons.js";
 import { Money, Qty } from "../money/index.js";
 import { extend } from "../inventory/index.js";
 import { NextNumberService } from "../numbering/index.js";
@@ -130,16 +131,16 @@ export function deriveReceivedStatus(lines: readonly PurchaseOrderLine[]): Purch
 }
 
 function validate(command: CreatePurchaseOrderCommand): void {
-  const reasons: string[] = [];
-  if (command.supplierId.trim() === "") reasons.push("a supplier is required");
-  if (command.warehouseId.trim() === "") reasons.push("a warehouse is required");
-  if (command.branchId.trim() === "") reasons.push("a branch is required");
-  if (command.date.trim() === "") reasons.push("a date is required");
-  if (command.lines.length === 0) reasons.push("at least one line is required");
+  const reasons: ReasonInput[] = [];
+  if (command.supplierId.trim() === "") reasons.push({ ar: "المورد مطلوب", en: "A supplier is required" });
+  if (command.warehouseId.trim() === "") reasons.push({ ar: "المستودع مطلوب", en: "A warehouse is required" });
+  if (command.branchId.trim() === "") reasons.push({ ar: "الفرع مطلوب", en: "A branch is required" });
+  if (command.date.trim() === "") reasons.push({ ar: "التاريخ مطلوب", en: "A date is required" });
+  if (command.lines.length === 0) reasons.push({ ar: "يلزم بند واحد على الأقل", en: "At least one line is required" });
   command.lines.forEach((line, i) => {
-    if (line.itemId.trim() === "") reasons.push(`line ${i}: an item is required`);
-    if (line.qty.isZero() || line.qty.isNegative()) reasons.push(`line ${i}: qty must be positive`);
-    if (line.unitPrice.scaled < 0n) reasons.push(`line ${i}: unit price must not be negative`);
+    if (line.itemId.trim() === "") reasons.push({ ar: `البند ${i + 1}: الصنف مطلوب`, en: `Line ${i + 1}: an item is required.` });
+    if (line.qty.isZero() || line.qty.isNegative()) reasons.push({ ar: `البند ${i + 1}: الكمية يجب أن تكون موجبة`, en: `Line ${i + 1}: the quantity must be greater than zero.` });
+    if (line.unitPrice.scaled < 0n) reasons.push({ ar: `البند ${i + 1}: سعر الوحدة لا يجوز أن يكون سالباً`, en: `Line ${i + 1}: the unit price cannot be negative.` });
   });
   if (reasons.length > 0) throw new InvalidPurchaseDocumentError(reasons);
 }
@@ -192,7 +193,10 @@ export async function confirmPurchaseOrder(
   if (!order) throw new PurchaseOrderNotFoundError(id);
   if (order.status !== "draft") {
     throw new InvalidPurchaseDocumentError([
-      `purchase order "${id}" is "${order.status}"; only a draft can be sent`,
+      {
+        ar: `لا يمكن إرسال أمر الشراء ${order.number}؛ المسودة وحدها يمكن إرسالها.`,
+        en: `Purchase order ${order.number} cannot be sent; only a draft can be sent.`,
+      },
     ]);
   }
   const sent: PurchaseOrder = { ...order, status: "sent" };
@@ -218,7 +222,10 @@ export async function cancelPurchaseOrder(
   if (!order) throw new PurchaseOrderNotFoundError(id);
   if (order.status === "fully_received" || order.status === "cancelled") {
     throw new InvalidPurchaseDocumentError([
-      `purchase order "${id}" is "${order.status}" and cannot be cancelled`,
+      {
+        ar: `لا يمكن إلغاء أمر الشراء ${order.number} لأنه مستلم بالكامل أو ملغى بالفعل.`,
+        en: `Purchase order ${order.number} cannot be cancelled because it is already fully received or cancelled.`,
+      },
     ]);
   }
   const cancelled: PurchaseOrder = { ...order, status: "cancelled" };

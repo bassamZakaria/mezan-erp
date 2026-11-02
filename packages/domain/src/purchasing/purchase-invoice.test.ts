@@ -272,7 +272,7 @@ describe("createPurchaseInvoice — both input shapes", () => {
         { id: "pi-1", supplierId: "sup-2", date: "2026-08-23", branchId: "MAIN", warehouseId: WH, lines: [{ itemId: null, kind: "inventory", qty: Qty.fromMajor("1"), unitCost: Money.fromMajor("1") }] },
         { invoices, numbering },
       ),
-    ).rejects.toThrow(/an inventory line requires an item/);
+    ).rejects.toThrow(/بند المخزون يتطلب صنفاً/);
   });
 });
 

@@ -73,6 +73,7 @@ export {
   SUPPLIER_ADVANCES_ROUTING_KEY,
   SubcontractService,
   payabilityRefusals,
+  payabilityRefusalReasons,
   type CreateSubcontractCommand,
   type SubcontractActor,
   type SubcontractLineInput,

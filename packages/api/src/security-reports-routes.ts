@@ -1,3 +1,4 @@
+import { issueText } from "./observability/error-message-backfill.js";
 import { Hono, type Context, type MiddlewareHandler } from "hono";
 import {
   DEFAULT_SETTINGS,
@@ -341,18 +342,18 @@ function zoneFormatter(timeZone: string): { readonly formatter: Intl.DateTimeFor
   }
 }
 
-function respondValidation(c: Context, errors: readonly { field: string; message: string }[]): Response {
+function respondValidation(c: Context, errors: readonly { field: string; message: string; messageEn?: string }[]): Response {
   return c.json({ error: "VALIDATION_ERROR", errors }, 400);
 }
 
 function refuseAmbiguousActor(c: Context, field: string): Response {
-  return c.json({ error: "VALIDATION_ERROR", errors: [{ field, message: "أكثر من مستخدم بهذا الاسم، اختر من القائمة" }] }, 422);
+  return c.json({ error: "VALIDATION_ERROR", errors: [{ field, message: "أكثر من مستخدم بهذا الاسم، اختر من القائمة", messageEn: "More than one user has this name; pick one from the list." }] }, 422);
 }
 
 function flatten(issues: readonly { path: (string | number)[]; message: string }[]) {
   return issues.map((issue) => ({
     field: issue.path.length > 0 ? issue.path.join(".") : "_root",
-    message: issue.message,
+    ...issueText(issue),
   }));
 }
 
@@ -461,7 +462,7 @@ export function createSecurityReportsRoutes(
     const from = parsed.data.from ?? fallback.from;
     const to = parsed.data.to ?? fallback.to;
     if (from > to) {
-      return respondValidation(c, [{ field: "from", message: "تاريخ البداية يجب ألا يتجاوز تاريخ النهاية." }]);
+      return respondValidation(c, [{ field: "from", message: "تاريخ البداية يجب ألا يتجاوز تاريخ النهاية.", messageEn: "The start date must not be after the end date." }]);
     }
     const bounds = utcBounds(from, to);
     const actor = await actorFilterId(parsed.data.actor);
@@ -664,7 +665,7 @@ export function createSecurityReportsRoutes(
     const from = parsed.data.from ?? fallback.from;
     const to = parsed.data.to ?? fallback.to;
     if (from > to) {
-      return respondValidation(c, [{ field: "from", message: "تاريخ البداية يجب ألا يتجاوز تاريخ النهاية." }]);
+      return respondValidation(c, [{ field: "from", message: "تاريخ البداية يجب ألا يتجاوز تاريخ النهاية.", messageEn: "The start date must not be after the end date." }]);
     }
     const bounds = utcBounds(from, to);
     const actor = await actorFilterId(parsed.data.actor);
@@ -833,7 +834,7 @@ export function createSecurityReportsRoutes(
     const from = parsed.data.from ?? fallback.from;
     const to = parsed.data.to ?? fallback.to;
     if (from > to) {
-      return respondValidation(c, [{ field: "from", message: "تاريخ البداية يجب ألا يتجاوز تاريخ النهاية." }]);
+      return respondValidation(c, [{ field: "from", message: "تاريخ البداية يجب ألا يتجاوز تاريخ النهاية.", messageEn: "The start date must not be after the end date." }]);
     }
     const bounds = utcBounds(from, to);
     const actor = await actorFilterId(parsed.data.actor);
@@ -1261,7 +1262,7 @@ export function createSecurityReportsRoutes(
       const from = parsed.data.from ?? fallback.from;
       const to = parsed.data.to ?? fallback.to;
       if (from > to) {
-        return respondValidation(c, [{ field: "from", message: "تاريخ البداية يجب ألا يتجاوز تاريخ النهاية." }]);
+        return respondValidation(c, [{ field: "from", message: "تاريخ البداية يجب ألا يتجاوز تاريخ النهاية.", messageEn: "The start date must not be after the end date." }]);
       }
       const bounds = utcBounds(from, to);
 

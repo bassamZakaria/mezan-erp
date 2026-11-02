@@ -847,8 +847,12 @@ app.whenReady().then(async () => {
         }),
       );
       if (res.ok) return { outcome: PasswordCheckOutcome.Confirmed, message: null };
-      const body = (await res.json().catch(() => ({}))) as { message?: unknown };
-      return { outcome: PasswordCheckOutcome.Refused, message: typeof body.message === "string" ? body.message : null };
+      const body = (await res.json().catch(() => ({}))) as { message?: unknown; messageEn?: unknown };
+      return {
+        outcome: PasswordCheckOutcome.Refused,
+        message: typeof body.message === "string" ? body.message : null,
+        messageEn: typeof body.messageEn === "string" ? body.messageEn : null,
+      };
     },
   });
   // Registered before the socket is opened, and reading `lanHost` through a

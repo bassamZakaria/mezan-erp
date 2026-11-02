@@ -1,3 +1,4 @@
+import { messageEnOf } from "./observability/error-message-backfill.js";
 import { postingRefusalResponse } from "./posting-refusal.js";
 import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
@@ -166,8 +167,7 @@ function serializeActivity(activity: Activity) {
 }
 
 function withMessageEn(err: { code: string; message: string }) {
-  const messageEn = (err as { messageEn?: string }).messageEn;
-  return { error: err.code, message: err.message, ...(messageEn ? { messageEn } : {}) };
+  return { error: err.code, message: err.message, messageEn: messageEnOf(err) };
 }
 
 function handleDomainError(c: Context, err: unknown): Response {
@@ -215,7 +215,7 @@ export function createCrmRoutes(deps: CrmRoutesDeps, resolveAuthContext: AuthCon
     }
     if (requested !== null && deps.owners && !(await deps.owners.has(requested))) {
       return {
-        refusal: c.json({ error: "OWNER_NOT_ELIGIBLE", message: "المسؤول المختار غير موجود أو لا يملك صلاحية العمل على فرص البيع." }, 422),
+        refusal: c.json({ error: "OWNER_NOT_ELIGIBLE", message: "المسؤول المختار غير موجود أو لا يملك صلاحية العمل على فرص البيع.", messageEn: "The selected owner does not exist or lacks permission to work on sales opportunities." }, 422),
       };
     }
     return { owner: requested };
@@ -292,7 +292,7 @@ export function createCrmRoutes(deps: CrmRoutesDeps, resolveAuthContext: AuthCon
       const existing = (await deps.customers.findAll()).map((row) => row.code);
       const code = parsed.data.customer?.code ?? nextMasterCode(existing, "C");
       if (existing.includes(code)) {
-        return c.json({ error: "DUPLICATE_CUSTOMER_CODE", message: `كود العميل «${code}» مستخدم بالفعل.` }, 409);
+        return c.json({ error: "DUPLICATE_CUSTOMER_CODE", message: `كود العميل «${code}» مستخدم بالفعل.`, messageEn: `Customer code "${code}" is already in use.` }, 409);
       }
       customer = { id: parsed.data.customer?.id ?? randomUUID(), code };
     }

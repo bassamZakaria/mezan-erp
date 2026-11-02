@@ -150,14 +150,14 @@ export function createPlatformAuth(deps: PlatformAuthDeps): PlatformAuth {
       if (!caller) return c.json({ error: "UNAUTHENTICATED" }, 401);
       if (role && caller.role !== role) {
         await onRefused?.(c, { id: caller.userId, role: caller.role });
-        return c.json({ error: "OWNER_ONLY", message: "هذا الإجراء لمالك المنصة فقط" }, 403);
+        return c.json({ error: "OWNER_ONLY", message: "هذا الإجراء لمالك المنصة فقط", messageEn: "This action is for the platform owner only" }, 403);
       }
       // SECURITY: a console session that has changed address since its
       // password was entered may read, but changes nothing until the
       // password is entered again (POST /auth/step-up).
       if (!READ_METHODS.has(c.req.method) && (await sessions.needsStepUp(caller.token))) {
         await security(c, PlatformSecurityAction.StepUpRequired, "WARNING", { userId: caller.userId, method: c.req.method, path: new URL(c.req.url).pathname });
-        return c.json({ error: STEP_UP_REQUIRED, message: "تغيّر عنوان اتصالك منذ تسجيل الدخول. أعد إدخال كلمة المرور لتأكيد هذا الإجراء." }, 403);
+        return c.json({ error: STEP_UP_REQUIRED, message: "تغيّر عنوان اتصالك منذ تسجيل الدخول. أعد إدخال كلمة المرور لتأكيد هذا الإجراء.", messageEn: "Your connection address has changed since you signed in. Re-enter your password to confirm this action." }, 403);
       }
       c.set("platformUser", { id: caller.userId, role: caller.role });
       await next();
@@ -185,7 +185,7 @@ export function createPlatformAuth(deps: PlatformAuthDeps): PlatformAuth {
         return lockedOut(c, lockedFor);
       }
       await security(c, "PLATFORM_LOGIN_FAILED", "WARNING", { email: parsed.data.email });
-      return c.json({ error: "INVALID_CREDENTIALS", message: "بيانات الدخول غير صحيحة" }, 401);
+      return c.json({ error: "INVALID_CREDENTIALS", message: "بيانات الدخول غير صحيحة", messageEn: "The sign-in details are incorrect" }, 401);
     }
     await throttle.succeed(key);
     await security(c, "PLATFORM_LOGIN_SUCCEEDED", "INFO", { userId: user.id, email: user.email });

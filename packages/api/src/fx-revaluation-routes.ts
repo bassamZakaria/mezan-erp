@@ -103,10 +103,10 @@ function handleError(c: Context, err: unknown): Response {
   const reversalRefusal = reversalRefusalResponse(c, err);
   if (reversalRefusal) return reversalRefusal;
   if (err instanceof FxRateMissingError) {
-    return c.json({ error: err.code, message: err.message, currency: err.currency }, 422);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, currency: err.currency }, 422);
   }
   if (err instanceof NoFiscalPeriodForDateError || err instanceof PeriodNotOpenForPostingError) {
-    return c.json({ error: err.code, message: err.message }, 422);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 422);
   }
   throw err;
 }

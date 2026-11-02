@@ -155,8 +155,8 @@ describe("the seat is a server identity, not a caller-supplied one (S54 review f
     expect(r3.status).toBe(409);
     const refusal = (await r3.json()) as { error: string; maxSeatsPerUser: number; message: string; messageEn: string };
     expect(refusal).toMatchObject({ error: "USER_SEAT_LIMIT_EXCEEDED", maxSeatsPerUser: 2 });
-    expect(refusal.message).toBe("هذا الحساب متصل بالفعل من 2 جهاز، وهو الحد الأقصى للحساب الواحد. افصل أحد أجهزته من «الأجهزة المتصلة» ثم أعد المحاولة، أو استخدم حساباً آخر على هذا الجهاز.");
-    expect(refusal.messageEn).toContain("already holds 2 concurrent device session");
+    expect(refusal.message).toBe("هذا الحساب متصل بالفعل من جهازين، وهو الحد الأقصى للحساب الواحد. افصل أحد أجهزته من «الأجهزة المتصلة» ثم أعد المحاولة، أو استخدم حساباً آخر على هذا الجهاز.");
+    expect(refusal.messageEn).toContain("already connected from 2 devices");
 
     // A different, legitimate account can still connect — the tenant's other
     // 8 seats were never touched by the capped account.
@@ -186,7 +186,7 @@ describe("LAN seat enforcement over HTTP", () => {
       connected: 2,
     });
     expect(full.message).toBe("اكتمل عدد الأجهزة التي يسمح بها الترخيص (2 من 2). افصل جهازاً من «الأجهزة المتصلة» قبل توصيل جهاز آخر.");
-    expect(full.messageEn).toContain("Seat limit reached");
+    expect(full.messageEn).toContain("The licence allows 2 devices and 2 are connected");
   });
 
   it("frees a slot on disconnect, and the freed slot is immediately reusable", async () => {

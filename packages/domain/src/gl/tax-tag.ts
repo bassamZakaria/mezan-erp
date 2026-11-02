@@ -11,6 +11,7 @@ import { assertVatNotFiled, type JournalPostingDeps } from "./post.js";
 
 export class JournalTaxTagUnsupportedError extends Error {
   readonly code = "JOURNAL_TAX_TAG_UNSUPPORTED";
+  readonly messageEn = "The ledger does not support tagging the tax on a posted journal entry.";
   constructor() {
     super("دفتر الأستاذ لا يدعم تسمية ضريبة قيد مرحّل.");
     this.name = "JournalTaxTagUnsupportedError";

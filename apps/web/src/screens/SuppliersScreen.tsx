@@ -46,6 +46,7 @@ import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 import { EMPTY } from "../lib/empty";
 import { EntityHistoryPanel } from "./enh/audit-ledger/EntityHistoryPanel";
+import { errorMessage } from "../lib/error-message";
 
 /**
  * الموردون (Suppliers) — docs/archive/catalog/02-purchases.md "الموردون". The mirror
@@ -104,7 +105,7 @@ function SupplierAgingCard({ supplierId }: { supplierId: string }) {
       <p className="mt-[4px] max-w-[80ch] text-[11.5px] leading-[1.8] text-ink-faint">{t("suppliers.aging.description")}</p>
       {agingQuery.isError ? (
         <div className="mt-[12px]">
-          <TabError message={t("suppliers.aging.loadFailed")} onRetry={() => agingQuery.refetch()} />
+          <TabError message={errorMessage(agingQuery.error, t("suppliers.aging.loadFailed"))} onRetry={() => agingQuery.refetch()} />
         </div>
       ) : (
         <div className="mt-[14px] overflow-x-auto">
@@ -160,7 +161,7 @@ function SupplierInvoicesTab({ supplierId }: { supplierId: string }) {
   const queries = [query, newestQuery, countsQuery, statsQuery];
 
   if (queries.some((q) => q.isError)) {
-    return <TabError message={t("suppliers.invoices.loadFailed")} onRetry={() => queries.forEach((q) => void q.refetch())} />;
+    return <TabError message={errorMessage(queries.find((q) => q.isError)?.error, t("suppliers.invoices.loadFailed"))} onRetry={() => queries.forEach((q) => void q.refetch())} />;
   }
   if (queries.some((q) => q.isLoading)) return <p className="p-[18px] text-[12.5px] text-ink-muted">{t("suppliers.invoices.loading")}</p>;
   const total = countsQuery.data?.all ?? 0;
@@ -552,7 +553,7 @@ export function SuppliersScreen() {
     <>
       {query.isError ? (
         <Card className="mb-[18px] p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">{t("suppliers.loadFailed")}</p>
+          <p className="text-[13px] font-semibold text-danger-ink">{errorMessage(query.error, t("suppliers.loadFailed"))}</p>
           <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
             {t("common.retry")}
           </Button>

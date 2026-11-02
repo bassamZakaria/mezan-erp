@@ -1,3 +1,4 @@
+import type { BilingualReason } from "../collections/errors.js";
 import { FREE_SUB_MODULES, parentOf } from "../entitlements/sub-modules.js";
 import { Money } from "../money/money.js";
 import { isKnownModule } from "./module-catalog.js";
@@ -115,29 +116,29 @@ export function defaultFreePlan(plans: readonly Plan[]): Plan | null {
   return pick(free.filter((p) => p.isPublic)) ?? pick(free);
 }
 
-function validate(plan: Omit<Plan, "status" | "createdAt">): string[] {
-  const reasons: string[] = [];
-  if (plan.id.trim() === "") reasons.push("المعرّف مطلوب");
-  if (!isValidSlug(plan.code)) reasons.push("الرمز يجب أن يكون من 3 إلى 32 حرفًا إنجليزيًا صغيرًا أو رقمًا أو شرطة داخلية");
-  if (plan.nameAr.trim() === "") reasons.push("الاسم بالعربية مطلوب");
-  if (plan.nameEn.trim() === "") reasons.push("الاسم بالإنجليزية مطلوب");
-  if (plan.modules.length === 0) reasons.push("يجب اختيار وحدة واحدة على الأقل");
-  for (const m of plan.modules) if (!isKnownModule(m)) reasons.push(`وحدة غير معروفة "${m}"`);
-  if (!isCount(plan.seatsIncluded, 1)) reasons.push("عدد المقاعد يجب أن يكون رقمًا صحيحًا لا يقل عن 1");
-  if (!isCount(plan.branchesIncluded, 1)) reasons.push("عدد الفروع يجب أن يكون رقمًا صحيحًا لا يقل عن 1");
-  if (!isCount(plan.warehousesIncluded, 1)) reasons.push("عدد المخازن يجب أن يكون رقمًا صحيحًا لا يقل عن 1");
-  if (plan.priceMonthly.scaled < 0n) reasons.push("السعر الشهري لا يمكن أن يكون سالبًا");
-  if (plan.priceYearly.scaled < 0n) reasons.push("السعر السنوي لا يمكن أن يكون سالبًا");
-  if (!isCount(plan.trialDays, 0)) reasons.push("عدد أيام التجربة يجب أن يكون رقمًا صحيحًا لا يقل عن 0");
-  if (!Number.isInteger(plan.sortOrder)) reasons.push("ترتيب العرض يجب أن يكون رقمًا صحيحًا");
-  if (!Object.values(PlanKind).includes(plan.kind)) reasons.push("نوع الباقة غير معروف");
+function validate(plan: Omit<Plan, "status" | "createdAt">): BilingualReason[] {
+  const reasons: BilingualReason[] = [];
+  if (plan.id.trim() === "") reasons.push({ ar: "المعرّف مطلوب", en: "The ID is required" });
+  if (!isValidSlug(plan.code)) reasons.push({ ar: "الرمز يجب أن يكون من 3 إلى 32 حرفًا إنجليزيًا صغيرًا أو رقمًا أو شرطة داخلية", en: "The code must be 3 to 32 characters of lowercase English letters, digits or hyphens" });
+  if (plan.nameAr.trim() === "") reasons.push({ ar: "الاسم بالعربية مطلوب", en: "The Arabic name is required" });
+  if (plan.nameEn.trim() === "") reasons.push({ ar: "الاسم بالإنجليزية مطلوب", en: "The English name is required" });
+  if (plan.modules.length === 0) reasons.push({ ar: "يجب اختيار وحدة واحدة على الأقل", en: "Select at least one module" });
+  for (const m of plan.modules) if (!isKnownModule(m)) reasons.push({ ar: `وحدة غير معروفة "${m}"`, en: `Unknown module "${m}"` });
+  if (!isCount(plan.seatsIncluded, 1)) reasons.push({ ar: "عدد المقاعد يجب أن يكون رقمًا صحيحًا لا يقل عن 1", en: "The number of seats must be a whole number of at least 1" });
+  if (!isCount(plan.branchesIncluded, 1)) reasons.push({ ar: "عدد الفروع يجب أن يكون رقمًا صحيحًا لا يقل عن 1", en: "The number of branches must be a whole number of at least 1" });
+  if (!isCount(plan.warehousesIncluded, 1)) reasons.push({ ar: "عدد المستودعات يجب أن يكون رقمًا صحيحًا لا يقل عن 1", en: "The number of warehouses must be a whole number of at least 1" });
+  if (plan.priceMonthly.scaled < 0n) reasons.push({ ar: "السعر الشهري لا يمكن أن يكون سالبًا", en: "The monthly price cannot be negative" });
+  if (plan.priceYearly.scaled < 0n) reasons.push({ ar: "السعر السنوي لا يمكن أن يكون سالبًا", en: "The yearly price cannot be negative" });
+  if (!isCount(plan.trialDays, 0)) reasons.push({ ar: "عدد أيام التجربة يجب أن يكون رقمًا صحيحًا لا يقل عن 0", en: "The number of trial days must be a whole number of at least 0" });
+  if (!Number.isInteger(plan.sortOrder)) reasons.push({ ar: "ترتيب العرض يجب أن يكون رقمًا صحيحًا", en: "The display order must be a whole number" });
+  if (!Object.values(PlanKind).includes(plan.kind)) reasons.push({ ar: "نوع الباقة غير معروف", en: "The plan type is not recognised" });
   for (const [kind, value] of Object.entries(plan.quotas)) {
-    if (!QUOTA_KINDS.includes(kind as QuotaKind)) reasons.push(`حد استخدام غير معروف "${kind}"`);
-    else if (!isCount(value as number, kind === QuotaKind.StorageMb ? 1 : 0)) reasons.push(kind === QuotaKind.StorageMb ? "مساحة المرفقات يجب أن تكون رقمًا صحيحًا لا يقل عن 1 ميجابايت" : "حد الاستخدام يجب أن يكون رقمًا صحيحًا لا يقل عن 0");
+    if (!QUOTA_KINDS.includes(kind as QuotaKind)) reasons.push({ ar: `حد استخدام غير معروف "${kind}"`, en: `Unknown usage limit "${kind}"` });
+    else if (!isCount(value as number, kind === QuotaKind.StorageMb ? 1 : 0)) reasons.push(kind === QuotaKind.StorageMb ? { ar: "مساحة المرفقات يجب أن تكون رقمًا صحيحًا لا يقل عن 1 ميجابايت", en: "The attachment storage must be a whole number of at least 1 MB" } : { ar: "حد الاستخدام يجب أن يكون رقمًا صحيحًا لا يقل عن 0", en: "The usage limit must be a whole number of at least 0" });
   }
   if (plan.kind === PlanKind.Free) {
-    if (plan.priceMonthly.scaled !== 0n || plan.priceYearly.scaled !== 0n) reasons.push("الباقة المجانية سعرها صفر");
-    if (plan.trialDays !== 0) reasons.push("الباقة المجانية لا تحتاج أيام تجربة");
+    if (plan.priceMonthly.scaled !== 0n || plan.priceYearly.scaled !== 0n) reasons.push({ ar: "الباقة المجانية سعرها صفر", en: "The free plan must be priced at zero" });
+    if (plan.trialDays !== 0) reasons.push({ ar: "الباقة المجانية لا تحتاج أيام تجربة", en: "The free plan does not need trial days" });
   }
   return reasons;
 }
@@ -164,7 +165,7 @@ export async function createPlan(cmd: CreatePlanCommand, repo: PlanRepository): 
     sortOrder: cmd.sortOrder,
   };
   const reasons = validate(draft);
-  if (!now) reasons.push("الطابع الزمني الحالي غير صالح (يجب أن يكون بصيغة ISO-8601)");
+  if (!now) reasons.push({ ar: "الطابع الزمني الحالي غير صالح (يجب أن يكون بصيغة ISO-8601)", en: "The current timestamp is invalid (it must be ISO-8601)" });
   if (!now || reasons.length > 0) throw new InvalidPlanError(reasons);
   if (await repo.findByCode(cmd.code)) throw new PlanCodeTakenError(cmd.code);
   const candidate: Plan = { ...draft, status: "active", createdAt: now };

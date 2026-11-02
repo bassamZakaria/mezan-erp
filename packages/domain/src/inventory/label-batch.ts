@@ -23,6 +23,7 @@ export interface LabelBatchLineInput {
 export interface LabelBatchLine extends LabelBatchLineInput {
   readonly fits: boolean;
   readonly messageAr: string | null;
+  readonly messageEn: string | null;
 }
 
 export interface LabelBatch {
@@ -39,7 +40,7 @@ export function buildLabelBatch(templateCode: LabelTemplateCode, inputs: readonl
   const template = getLabelTemplate(templateCode);
   const lines: LabelBatchLine[] = inputs.map((input) => {
     const fit = checkBarcodeFit(input.barcode, template);
-    return { ...input, fits: fit.fits, messageAr: fit.messageAr };
+    return { ...input, fits: fit.fits, messageAr: fit.messageAr, messageEn: fit.messageEn };
   });
   const totalLabelCount = lines.reduce((sum, l) => sum + Math.max(0, Math.trunc(l.copies)), 0);
   const hasBlockingIssues = lines.some((l) => !l.fits);

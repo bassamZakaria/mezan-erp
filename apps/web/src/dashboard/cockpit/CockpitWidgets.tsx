@@ -17,6 +17,7 @@ import { entityName } from "../../lib/entity-names";
 import { majorOf, scaledOf, toMajorNumber } from "../../lib/money";
 import { useCashForecast } from "../../screens/enh/cash-forecast/hooks";
 import { MicroBeam, type BeamDirection, type DeltaTone } from "../KpiStrip";
+import { errorMessage } from "../../lib/error-message";
 
 export function drillHref(screen: ScreenKey, params: Readonly<Record<string, string | null | undefined>> = {}): string {
   const query = new URLSearchParams();
@@ -305,7 +306,7 @@ export function CockpitRunway({ companyWide }: { readonly companyWide: boolean }
   return (
     <TileShell title={title} href={href} footer={companyWide ? t("cockpit.branch.companyWide") : undefined}>
       {forecast.isError ? (
-        <p className="text-sm text-danger-ink">{t("cockpit.runway.unavailable")}</p>
+        <p className="text-sm text-danger-ink">{errorMessage(forecast.error, t("cockpit.runway.unavailable"))}</p>
       ) : !data ? (
         <p className="text-sm text-ink-faint">{t("cockpit.loading")}</p>
       ) : (

@@ -32,6 +32,7 @@ import { useAppTranslation } from "../../../i18n";
 import { useSubPage } from "../../../navigation";
 import { majorOf } from "../../../lib/money";
 import { monthEndIsoOf } from "../../../lib/dates";
+import { errorMessage } from "../../../lib/error-message";
 
 /**
  * الاعتراف بالإيراد — the monthly EAS 48 cost-to-cost run (design D-03, D-12).
@@ -249,7 +250,7 @@ export function RevenueRecognitionScreen() {
       ) : null}
       {statusQuery.isError ? (
         <Card className="mb-[18px] p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">{t("revenueRecognition.api.statusFailed")}</p>
+          <p className="text-[13px] font-semibold text-danger-ink">{errorMessage(statusQuery.error, t("revenueRecognition.api.statusFailed"))}</p>
           <Button size="sm" className="mt-[10px]" onClick={() => void statusQuery.refetch()}>
             {t("common.retry")}
           </Button>

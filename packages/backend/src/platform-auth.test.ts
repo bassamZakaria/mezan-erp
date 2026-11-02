@@ -81,7 +81,7 @@ describe("createPlatformAuth", () => {
       }),
     );
     expect(res.status).toBe(401);
-    expect(await json(res)).toEqual({ error: "INVALID_CREDENTIALS", message: "بيانات الدخول غير صحيحة" });
+    expect(await json(res)).toEqual({ error: "INVALID_CREDENTIALS", message: "بيانات الدخول غير صحيحة", messageEn: "The sign-in details are incorrect" });
     const rows = await platform.audit.query("security");
     expect(rows.some((r) => r.action === "PLATFORM_LOGIN_FAILED")).toBe(true);
   });
@@ -173,7 +173,7 @@ describe("createPlatformAuth", () => {
 
     const supportRes = await testApp.fetch(new Request("http://x/owner-only", { headers: supportHeaders }));
     expect(supportRes.status).toBe(403);
-    expect(await json(supportRes)).toEqual({ error: "OWNER_ONLY", message: "هذا الإجراء لمالك المنصة فقط" });
+    expect(await json(supportRes)).toEqual({ error: "OWNER_ONLY", message: "هذا الإجراء لمالك المنصة فقط", messageEn: "This action is for the platform owner only" });
   });
 
   it("refuses a session whose roleCode is not a platform role, e.g. a tenant-style session", async () => {

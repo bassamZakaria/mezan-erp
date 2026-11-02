@@ -17,21 +17,23 @@ const BARCODE_MM_PER_CHAR = 1.5;
 const BARCODE_MARGIN_MM = 6;
 
 export const BARCODE_FIT_ERROR_AR = "الباركود لا يناسب هذا القالب";
+export const BARCODE_FIT_ERROR_EN = "The barcode does not fit this template";
 
 export interface BarcodeFitResult {
   readonly fits: boolean;
   /** Estimated printed width of the barcode alone, in mm. */
   readonly requiredWidthMm: number;
   readonly messageAr: string | null;
+  readonly messageEn: string | null;
 }
 
 /** Pure — estimates whether `barcode` prints legibly on `template`. Empty/blank barcodes always fit (nothing to print). */
 export function checkBarcodeFit(barcode: string, template: LabelTemplate): BarcodeFitResult {
   const trimmed = barcode.trim();
   if (trimmed === "") {
-    return { fits: true, requiredWidthMm: 0, messageAr: null };
+    return { fits: true, requiredWidthMm: 0, messageAr: null, messageEn: null };
   }
   const requiredWidthMm = trimmed.length * BARCODE_MM_PER_CHAR + BARCODE_MARGIN_MM;
   const fits = requiredWidthMm <= template.widthMm;
-  return { fits, requiredWidthMm, messageAr: fits ? null : BARCODE_FIT_ERROR_AR };
+  return { fits, requiredWidthMm, messageAr: fits ? null : BARCODE_FIT_ERROR_AR, messageEn: fits ? null : BARCODE_FIT_ERROR_EN };
 }

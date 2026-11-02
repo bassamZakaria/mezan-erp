@@ -4446,13 +4446,13 @@ async function composeBackend(options: CreateBackendOptions, db: SqlDb, sqlite: 
   });
   /** An invoice collect or pay route's cap for base money dated `date` (D221); a missing rate is refused in that module's own terms. */
   const previewSettlement =
-    (refuse: (message: string) => Error) =>
+    (refuse: (message: string, messageEn: string) => Error) =>
     async (invoiceId: string, amount: Money, date: string) => {
       try {
         const split = await settlementPreviewer.settlementPreview(invoiceId, { amount, currency: "EGP", fxRate: null, date });
         return { relief: split.relief, capacity: split.capacity };
       } catch (err) {
-        if (err instanceof SettlementRateMissingError) throw refuse(err.message);
+        if (err instanceof SettlementRateMissingError) throw refuse(err.message, err.messageEn);
         throw err;
       }
     };
@@ -4597,13 +4597,18 @@ async function composeBackend(options: CreateBackendOptions, db: SqlDb, sqlite: 
    */
   const baseTreasuryOnlyAr = (currency: string) =>
     `حساب الخزينة بعملة ${currency}، والتحصيل والسداد من الفاتورة بالعملة الأساسية؛ اختر حساب خزينة بالعملة الأساسية أو سجّل سنداً بعملة الحساب.`;
+  const baseTreasuryOnlyEn = (currency: string) =>
+    `The treasury account is in ${currency}, and collecting or paying from an invoice is in the base currency; choose a base-currency treasury account or record a voucher in the account's currency.`;
   const collectFromCustomer: InstallmentCollectPort = async (input) => {
     const treasury = await treasuryAccounts.findById(input.treasuryAccountId);
     if (!treasury?.glAccountId) {
-      throw new InvalidSalesInvoicePaymentError("حساب الخزينة غير موجود أو بلا حساب دفتري.");
+      throw new InvalidSalesInvoicePaymentError(
+        "حساب الخزينة غير موجود أو بلا حساب دفتري.",
+        "The treasury account does not exist or has no ledger account.",
+      );
     }
     if (treasury.currency !== BASE_CURRENCY) {
-      throw new InvalidSalesInvoicePaymentError(baseTreasuryOnlyAr(treasury.currency));
+      throw new InvalidSalesInvoicePaymentError(baseTreasuryOnlyAr(treasury.currency), baseTreasuryOnlyEn(treasury.currency));
     }
     const voucherId = `COLL:${input.invoiceId}:${randomUUID()}`;
     const service = new VoucherService({
@@ -5011,10 +5016,12 @@ async function composeBackend(options: CreateBackendOptions, db: SqlDb, sqlite: 
       pay: async (input) => {
         const treasury = await treasuryAccounts.findById(input.treasuryAccountId);
         if (!treasury?.glAccountId) {
-          throw new InvalidPurchaseDocumentError(["حساب الخزينة غير موجود أو بلا حساب دفتري."]);
+          throw new InvalidPurchaseDocumentError([
+            { ar: "حساب الخزينة غير موجود أو بلا حساب دفتري.", en: "The treasury account does not exist or has no ledger account." },
+          ]);
         }
         if (treasury.currency !== BASE_CURRENCY) {
-          throw new InvalidPurchaseDocumentError([baseTreasuryOnlyAr(treasury.currency)]);
+          throw new InvalidPurchaseDocumentError([{ ar: baseTreasuryOnlyAr(treasury.currency), en: baseTreasuryOnlyEn(treasury.currency) }]);
         }
         const voucherId = `PAY:${input.invoiceId}:${randomUUID()}`;
         const service = new VoucherService({
@@ -5059,7 +5066,7 @@ async function composeBackend(options: CreateBackendOptions, db: SqlDb, sqlite: 
         const posted = await vouchers.documents.findById(voucherId);
         return { voucherId, voucherNo: posted?.docNo ?? null };
       },
-      settlementPreview: previewSettlement((message) => new InvalidPurchaseDocumentError([message])),
+      settlementPreview: previewSettlement((message, messageEn) => new InvalidPurchaseDocumentError([{ ar: message, en: messageEn }])),
       // Mounts POST /purchases/receipts/:id/cancel and /invoices/:id/cancel,
       // which 404 without it. app.ts derives the GL reversal port from this
       // being present, so omitting it silently disables both.
@@ -5160,7 +5167,7 @@ async function composeBackend(options: CreateBackendOptions, db: SqlDb, sqlite: 
         receipts: etaReceipts,
         returnsOf: async (invoiceId) => (await salesReturnStore.listByLineRef?.("sourceInvoiceId", [invoiceId], { status: "confirmed" })) ?? [],
       }),
-      settlementPreview: previewSettlement((message) => new InvalidSalesInvoicePaymentError(message)),
+      settlementPreview: previewSettlement((message, messageEn) => new InvalidSalesInvoicePaymentError(message, messageEn)),
       pricing: {
         listPriceFor: async (customerId: string, itemId: string, qty: Qty) => {
           // تفعيل قوائم الأسعار (settings §"الرقابة الائتمانية"): with price

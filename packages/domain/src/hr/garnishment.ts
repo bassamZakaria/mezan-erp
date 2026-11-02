@@ -1,6 +1,7 @@
 import { Money } from "../money/index.js";
 import { InvalidGarnishmentError } from "./errors.js";
 import type { Garnishment, GarnishmentKind, GarnishmentProvider } from "./payroll-run.js";
+import type { ReasonInput } from "../bilingual-reasons.js";
 
 export type { GarnishmentKind } from "./payroll-run.js";
 
@@ -76,18 +77,18 @@ export interface CreateGarnishmentCommand {
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
-function validate(command: CreateGarnishmentCommand): string[] {
-  const reasons: string[] = [];
-  if (command.employeeId.trim().length === 0) reasons.push("الموظف مطلوب");
-  if (command.reference.trim().length === 0) reasons.push("رقم السند أو الحكم مطلوب");
-  if (command.labelAr.trim().length === 0) reasons.push("بيان الحجز مطلوب");
-  if (!DATE_PATTERN.test(command.startDate)) reasons.push("تاريخ البداية مطلوب بصيغة YYYY-MM-DD");
-  if (command.endDate && !DATE_PATTERN.test(command.endDate)) reasons.push("تاريخ النهاية غير صالح");
-  if (command.endDate && command.endDate < command.startDate) reasons.push("تاريخ النهاية قبل تاريخ البداية");
-  if (command.totalAmount.scaled <= 0n) reasons.push("إجمالي مبلغ الحجز يجب أن يكون أكبر من صفر");
-  if (command.monthlyAmount.scaled <= 0n) reasons.push("القسط الشهري يجب أن يكون أكبر من صفر");
-  if (command.monthlyAmount.scaled > command.totalAmount.scaled) reasons.push("القسط الشهري لا يمكن أن يتجاوز إجمالي مبلغ الحجز");
-  if (command.currency.trim().length === 0) reasons.push("العملة مطلوبة");
+function validate(command: CreateGarnishmentCommand): ReasonInput[] {
+  const reasons: ReasonInput[] = [];
+  if (command.employeeId.trim().length === 0) reasons.push({ ar: "الموظف مطلوب", en: "The employee is required" });
+  if (command.reference.trim().length === 0) reasons.push({ ar: "رقم السند أو الحكم مطلوب", en: "The reference number of the order or ruling is required" });
+  if (command.labelAr.trim().length === 0) reasons.push({ ar: "بيان الحجز مطلوب", en: "The garnishment description is required" });
+  if (!DATE_PATTERN.test(command.startDate)) reasons.push({ ar: "تاريخ البداية مطلوب بصيغة YYYY-MM-DD", en: "The start date is required in the format YYYY-MM-DD" });
+  if (command.endDate && !DATE_PATTERN.test(command.endDate)) reasons.push({ ar: "تاريخ النهاية غير صالح", en: "The end date is invalid" });
+  if (command.endDate && command.endDate < command.startDate) reasons.push({ ar: "تاريخ النهاية قبل تاريخ البداية", en: "The end date is before the start date" });
+  if (command.totalAmount.scaled <= 0n) reasons.push({ ar: "إجمالي مبلغ الحجز يجب أن يكون أكبر من صفر", en: "The total garnishment amount must be greater than zero" });
+  if (command.monthlyAmount.scaled <= 0n) reasons.push({ ar: "القسط الشهري يجب أن يكون أكبر من صفر", en: "The monthly installment must be greater than zero" });
+  if (command.monthlyAmount.scaled > command.totalAmount.scaled) reasons.push({ ar: "القسط الشهري لا يمكن أن يتجاوز إجمالي مبلغ الحجز", en: "The monthly installment cannot exceed the total garnishment amount" });
+  if (command.currency.trim().length === 0) reasons.push({ ar: "العملة مطلوبة", en: "The currency is required" });
   return reasons;
 }
 

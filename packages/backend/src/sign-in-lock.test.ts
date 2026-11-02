@@ -737,7 +737,7 @@ describe("a second person signing in on a device somebody else is signed in on",
     const displaced = await profileOf(h, first.token, second.deviceSecret);
     expect(displaced.status).toBe(401);
     expect(displaced.headers.get("x-mezan-session-ended")).toBe("displaced");
-    expect(await displaced.json()).toEqual({ error: "SESSION_DISPLACED", message: "سجّل مستخدم آخر الدخول على هذا الجهاز، فانتهت جلستك هنا. سجّل الدخول من جديد للمتابعة." });
+    expect(await displaced.json()).toEqual({ error: "SESSION_DISPLACED", message: "سجّل مستخدم آخر الدخول على هذا الجهاز، فانتهت جلستك هنا. سجّل الدخول من جديد للمتابعة.", messageEn: "Another user signed in on this device, so your session here has ended. Sign in again to continue." });
     expect((await profileOf(h, second.token, second.deviceSecret)).status).toBe(200);
 
     const neverIssued = await profileOf(h, "a-token-nobody-issued", second.deviceSecret);

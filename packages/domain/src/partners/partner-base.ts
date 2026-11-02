@@ -1,3 +1,4 @@
+import type { BilingualReason } from "../collections/errors.js";
 import type { Money } from "../money/index.js";
 
 /**
@@ -54,22 +55,35 @@ export const MAX_PARTNER_OPENING_BALANCE_SCALED = BigInt(Number.MAX_SAFE_INTEGER
  * are surfaced as-is in the Arabic RTL UI (`InvalidCustomerError`/`InvalidSupplierError`
  * build their `.message` by joining this array) — see `packages/domain/src/customers/customer.ts`.
  */
-export function validatePartnerBase(partner: PartnerBase): string[] {
-  const reasons: string[] = [];
-  if (partner.id.trim() === "") reasons.push("المعرف مطلوب");
+export function validatePartnerBaseBilingual(partner: PartnerBase): BilingualReason[] {
+  const reasons: BilingualReason[] = [];
+  if (partner.id.trim() === "") reasons.push({ ar: "المعرف مطلوب", en: "The id is required" });
   if (!/^[A-Za-z0-9_-]{1,30}$/.test(partner.code)) {
-    reasons.push("الكود يجب أن يتكون من 1 إلى 30 حرفًا/رقمًا أو - أو _");
+    reasons.push({
+      ar: "الكود يجب أن يتكون من 1 إلى 30 حرفًا/رقمًا أو - أو _",
+      en: "The code must be 1 to 30 characters: letters, digits, - or _",
+    });
   }
-  if (partner.nameAr.trim() === "") reasons.push("الاسم بالعربية مطلوب");
+  if (partner.nameAr.trim() === "") reasons.push({ ar: "الاسم بالعربية مطلوب", en: "The Arabic name is required" });
   if (!Number.isInteger(partner.paymentTermsDays) || partner.paymentTermsDays < 0) {
-    reasons.push("مدة السداد يجب أن تكون رقمًا صحيحًا غير سالب");
+    reasons.push({
+      ar: "مدة السداد يجب أن تكون رقمًا صحيحًا غير سالب",
+      en: "The payment term must be a non-negative whole number",
+    });
   }
-  if (partner.currency.trim() === "") reasons.push("العملة مطلوبة");
+  if (partner.currency.trim() === "") reasons.push({ ar: "العملة مطلوبة", en: "The currency is required" });
   if (
     partner.openingBalance.scaled > MAX_PARTNER_OPENING_BALANCE_SCALED ||
     partner.openingBalance.scaled < -MAX_PARTNER_OPENING_BALANCE_SCALED
   ) {
-    reasons.push("الرصيد الافتتاحي أكبر من أن يُسجَّل — راجع الرقم المُدخل");
+    reasons.push({
+      ar: "الرصيد الافتتاحي أكبر من أن يُسجَّل — راجع الرقم المُدخل",
+      en: "The opening balance is too large to record — check the number entered",
+    });
   }
   return reasons;
+}
+
+export function validatePartnerBase(partner: PartnerBase): string[] {
+  return validatePartnerBaseBilingual(partner).map((reason) => reason.ar);
 }

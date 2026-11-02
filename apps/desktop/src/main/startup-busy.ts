@@ -20,6 +20,8 @@ const BUSY_BODY = JSON.stringify({
   error: "STARTUP_BUSY",
   message:
     "جارٍ أخذ نسخة احتياطية من قاعدة البيانات قبل تحديثها. لا تغلق البرنامج — ستفتح الشاشة تلقائياً عند الانتهاء.",
+  messageEn:
+    "A backup of the database is being taken before the update. Do not close the program; the screen will open on its own when it finishes.",
 });
 
 export function registerStartupBusy(): void {

@@ -3,7 +3,7 @@ import { routedAccountId, type AccountRoutingRepository } from "../../accounts/a
 import type { NextNumberService } from "../../numbering/index.js";
 import type { AuditSink } from "../../audit/index.js";
 import { recordTransition } from "../audit.js";
-import type { BoqLine, WorksContract, WorksContractStore } from "../contracts/contract.js";
+import { getWorksContractStatusLabel, getWorksContractStatusLabelEn, type BoqLine, type WorksContract, type WorksContractStore } from "../contracts/contract.js";
 import {
   computeSubcontractClientValue,
   computeSubcontractValue,
@@ -29,6 +29,7 @@ import {
   canTransitionSubcontract,
   getSubcontractRetentionReleaseKindLabel,
   getSubcontractStatusLabel,
+  getSubcontractStatusLabelEn,
   type Subcontract,
   type SubcontractAdvancePayment,
   type SubcontractKind,
@@ -39,6 +40,8 @@ import {
   type SubcontractStatus,
 } from "./subcontract.js";
 import { tenantTodayIso } from "../../dates.js";
+import type { BilingualReason } from "../../collections/errors.js";
+import type { ReasonInput } from "../../bilingual-reasons.js";
 
 /**
  * عقد الباطن — the use cases and the ledger behind the two that post
@@ -173,35 +176,35 @@ export interface SubcontractView {
   readonly payabilityRefusals: readonly string[];
 }
 
-function moneyOf(reasons: string[], label: string, value: string | null | undefined, fallback = Money.zero()): Money {
+function moneyOf(reasons: ReasonInput[], label: BilingualReason, value: string | null | undefined, fallback = Money.zero()): Money {
   if (value === null || value === undefined || value === "") return fallback;
   try {
     return Money.fromMajor(value);
   } catch {
-    reasons.push(`${label} يجب أن يكون رقمًا`);
+    reasons.push({ ar: `${label.ar} يجب أن يكون رقمًا`, en: `${label.en} must be a number` });
     return fallback;
   }
 }
 
-function qtyOf(reasons: string[], label: string, value: string | null | undefined): Qty {
+function qtyOf(reasons: ReasonInput[], label: BilingualReason, value: string | null | undefined): Qty {
   if (value === null || value === undefined || value === "") return Qty.zero();
   try {
     return Qty.fromMajor(value);
   } catch {
-    reasons.push(`${label} يجب أن تكون رقمًا`);
+    reasons.push({ ar: `${label.ar} يجب أن تكون رقمًا`, en: `${label.en} must be a number` });
     return Qty.zero();
   }
 }
 
 function percentOfInput(
-  reasons: string[],
-  label: string,
+  reasons: ReasonInput[],
+  label: BilingualReason,
   value: string | null | undefined,
   fallback: string,
 ): string {
   if (value === null || value === undefined || value === "") return fallback;
   if (!PERCENT.test(value)) {
-    reasons.push(`${label} يجب أن تكون نسبة عشرية موجبة`);
+    reasons.push({ ar: `${label.ar} يجب أن تكون نسبة عشرية موجبة`, en: `${label.en} must be a positive decimal percentage` });
     return fallback;
   }
   return value;
@@ -218,7 +221,7 @@ export class SubcontractService {
     const routing = this.deps.routing ? await this.deps.routing.get() : null;
     const accountId = routedAccountId(routing, key);
     if (accountId === null) {
-      throw new InvalidSubcontractError([`لم يُحدَّد حساب لتوجيه "${key}" في جدول توجيه الحسابات.`]);
+      throw new InvalidSubcontractError([{ ar: `لم يُحدَّد حساب لتوجيه "${key}" في جدول توجيه الحسابات.`, en: `No account has been set for routing "${key}" in the account routing table.` }]);
     }
     return accountId;
   }
@@ -303,7 +306,7 @@ export class SubcontractService {
 
   private async requireContract(contractId: string): Promise<WorksContract> {
     const contract = await this.deps.contracts.findContractById(contractId);
-    if (!contract) throw new InvalidSubcontractError([`العقد "${contractId}" غير موجود`]);
+    if (!contract) throw new InvalidSubcontractError([{ ar: `العقد "${contractId}" غير موجود`, en: `Contract "${contractId}" was not found` }]);
     return contract;
   }
 
@@ -318,32 +321,32 @@ export class SubcontractService {
     boqLines: readonly BoqLine[],
     inputs: readonly SubcontractLineInput[],
   ): SubcontractLine[] {
-    const reasons: string[] = [];
+    const reasons: ReasonInput[] = [];
     const byId = new Map(boqLines.map((l) => [l.id, l]));
     const seen = new Set<string>();
     const lines = inputs.map((input, index) => {
       const client = byId.get(input.clientBoqLineId);
       if (!client) {
-        reasons.push(`البند "${input.clientBoqLineId}" غير موجود في جدول كميات العقد`);
+        reasons.push({ ar: `البند "${input.clientBoqLineId}" غير موجود في جدول كميات العقد`, en: `Line item "${input.clientBoqLineId}" was not found in the contract bill of quantities` });
       }
       if (client && seen.has(client.id)) {
-        reasons.push(`البند "${client.code}" مكرر في بنود عقد الباطن`);
+        reasons.push({ ar: `البند "${client.code}" مكرر في بنود عقد الباطن`, en: `Line item "${client.code}" is duplicated in the subcontract lines` });
       }
       if (client) seen.add(client.id);
-      const qty = qtyOf(reasons, `كمية البند "${client?.code ?? input.clientBoqLineId}"`, input.qty);
-      const unitRate = moneyOf(reasons, `فئة البند "${client?.code ?? input.clientBoqLineId}"`, input.unitRate);
+      const qty = qtyOf(reasons, { ar: `كمية البند "${client?.code ?? input.clientBoqLineId}"`, en: `Quantity of line item "${client?.code ?? input.clientBoqLineId}"` }, input.qty);
+      const unitRate = moneyOf(reasons, { ar: `فئة البند "${client?.code ?? input.clientBoqLineId}"`, en: `Rate of line item "${client?.code ?? input.clientBoqLineId}"` }, input.unitRate);
       if (qty.isZero() || qty.isNegative()) {
-        reasons.push(`البند "${client?.code ?? input.clientBoqLineId}": الكمية يجب أن تكون رقمًا موجبًا`);
+        reasons.push({ ar: `البند "${client?.code ?? input.clientBoqLineId}": الكمية يجب أن تكون رقمًا موجبًا`, en: `Line item "${client?.code ?? input.clientBoqLineId}": the quantity must be a positive number` });
       }
       if (unitRate.scaled < 0n) {
-        reasons.push(`البند "${client?.code ?? input.clientBoqLineId}": الفئة يجب ألا تكون سالبة`);
+        reasons.push({ ar: `البند "${client?.code ?? input.clientBoqLineId}": الفئة يجب ألا تكون سالبة`, en: `Line item "${client?.code ?? input.clientBoqLineId}": the rate must not be negative` });
       }
       // The sub's quantity may not exceed what the client contract carries on
       // the same line: a package let for more than was sold is a loss the
       // moment it is certified.
       if (client && qty.compare(client.qty) > 0) {
         reasons.push(
-          `البند "${client.code} — ${client.descriptionAr}": كمية الباطن ${qty.toString()} تتجاوز الكمية التعاقدية مع العميل ${client.qty.toString()}`,
+          { ar: `البند "${client.code} — ${client.descriptionAr}": كمية الباطن ${qty.toString()} تتجاوز الكمية التعاقدية مع العميل ${client.qty.toString()}`, en: `Line item "${client.code} — ${client.descriptionAr}": the subcontract quantity ${qty.toString()} exceeds the quantity contracted with the client ${client.qty.toString()}` },
         );
       }
       const clientUnitRate = client?.unitRate ?? Money.zero();
@@ -361,7 +364,7 @@ export class SubcontractService {
         estimatedUnitCost:
           input.estimatedUnitCost === null || input.estimatedUnitCost === undefined || input.estimatedUnitCost === ""
             ? null
-            : moneyOf(reasons, "التكلفة التقديرية للوحدة", input.estimatedUnitCost),
+            : moneyOf(reasons, { ar: "التكلفة التقديرية للوحدة", en: "Estimated unit cost" }, input.estimatedUnitCost),
         sortOrder: index + 1,
       } satisfies SubcontractLine;
     });
@@ -369,39 +372,39 @@ export class SubcontractService {
     return lines;
   }
 
-  private terms(reasons: string[], input: SubcontractTermsInput, current?: Subcontract) {
+  private terms(reasons: ReasonInput[], input: SubcontractTermsInput, current?: Subcontract) {
     return {
-      retentionPercent: percentOfInput(reasons, "نسبة المحتجزات", input.retentionPercent, current?.retentionPercent ?? "5"),
+      retentionPercent: percentOfInput(reasons, { ar: "نسبة المحتجزات", en: "Retention percentage" }, input.retentionPercent, current?.retentionPercent ?? "5"),
       retentionCapPercent:
         input.retentionCapPercent === undefined
           ? (current?.retentionCapPercent ?? null)
           : input.retentionCapPercent === null || input.retentionCapPercent === ""
             ? null
-            : percentOfInput(reasons, "سقف المحتجزات", input.retentionCapPercent, "10"),
-      advancePercent: percentOfInput(reasons, "نسبة الدفعة المقدمة", input.advancePercent, current?.advancePercent ?? "0"),
+            : percentOfInput(reasons, { ar: "سقف المحتجزات", en: "Retention cap" }, input.retentionCapPercent, "10"),
+      advancePercent: percentOfInput(reasons, { ar: "نسبة الدفعة المقدمة", en: "Advance payment percentage" }, input.advancePercent, current?.advancePercent ?? "0"),
       advanceRecoveryPercent: percentOfInput(
         reasons,
-        "نسبة خصم الدفعة المقدمة",
+        { ar: "نسبة خصم الدفعة المقدمة", en: "Advance payment recovery percentage" },
         input.advanceRecoveryPercent,
         current?.advanceRecoveryPercent ?? "0",
       ),
       withholdingTaxPercent: percentOfInput(
         reasons,
-        "نسبة ضريبة الخصم والتحصيل",
+        { ar: "نسبة ضريبة الخصم والتحصيل", en: "Withholding and collection tax percentage" },
         input.withholdingTaxPercent,
         current?.withholdingTaxPercent ?? "1",
       ),
-      deemedWagePercent: percentOfInput(reasons, "نسبة الأجر الافتراضي", input.deemedWagePercent, current?.deemedWagePercent ?? "20"),
+      deemedWagePercent: percentOfInput(reasons, { ar: "نسبة الأجر الافتراضي", en: "Deemed wage percentage" }, input.deemedWagePercent, current?.deemedWagePercent ?? "20"),
       socialInsuranceRatePercent: percentOfInput(
         reasons,
-        "نسبة التأمينات الاجتماعية",
+        { ar: "نسبة التأمينات الاجتماعية", en: "Social insurance percentage" },
         input.socialInsuranceRatePercent,
         current?.socialInsuranceRatePercent ?? "18.75",
       ),
       withholdSocialInsurance: input.withholdSocialInsurance ?? current?.withholdSocialInsurance ?? false,
       socialInsuranceNote:
         input.socialInsuranceNote !== undefined ? input.socialInsuranceNote : (current?.socialInsuranceNote ?? null),
-      penaltyCapPercent: percentOfInput(reasons, "سقف غرامة التأخير", input.penaltyCapPercent, current?.penaltyCapPercent ?? "10"),
+      penaltyCapPercent: percentOfInput(reasons, { ar: "سقف غرامة التأخير", en: "Late penalty cap" }, input.penaltyCapPercent, current?.penaltyCapPercent ?? "10"),
       paymentTermDays: input.paymentTermDays ?? current?.paymentTermDays ?? 30,
       defectsLiabilityMonths: input.defectsLiabilityMonths ?? current?.defectsLiabilityMonths ?? 12,
       vatBasis: input.vatBasis ?? current?.vatBasis ?? ("standard" as const),
@@ -411,18 +414,18 @@ export class SubcontractService {
   // ----- use cases ---------------------------------------------------------
 
   async create(cmd: CreateSubcontractCommand, actor: SubcontractActor): Promise<SubcontractView> {
-    const reasons: string[] = [];
-    if (cmd.titleAr.trim() === "") reasons.push("اسم عقد الباطن مطلوب");
-    if (cmd.supplierId.trim() === "") reasons.push("مقاول الباطن مطلوب");
+    const reasons: ReasonInput[] = [];
+    if (cmd.titleAr.trim() === "") reasons.push({ ar: "اسم عقد الباطن مطلوب", en: "The subcontract name is required" });
+    if (cmd.supplierId.trim() === "") reasons.push({ ar: "مقاول الباطن مطلوب", en: "The subcontractor is required" });
     for (const [label, value] of [
-      ["تاريخ التوقيع", cmd.signedDate],
-      ["تاريخ البدء", cmd.startDate],
-      ["تاريخ الانتهاء المخطط", cmd.plannedEndDate],
+      [{ ar: "تاريخ التوقيع", en: "Signing date" }, cmd.signedDate],
+      [{ ar: "تاريخ البدء", en: "Start date" }, cmd.startDate],
+      [{ ar: "تاريخ الانتهاء المخطط", en: "Planned end date" }, cmd.plannedEndDate],
     ] as const) {
-      if (!ISO_DATE.test(value)) reasons.push(`${label} مطلوب بصيغة YYYY-MM-DD`);
+      if (!ISO_DATE.test(value)) reasons.push({ ar: `${label.ar} مطلوب بصيغة YYYY-MM-DD`, en: `${label.en} is required in the form YYYY-MM-DD` });
     }
     if (ISO_DATE.test(cmd.startDate) && ISO_DATE.test(cmd.plannedEndDate) && cmd.plannedEndDate < cmd.startDate) {
-      reasons.push("تاريخ الانتهاء المخطط يسبق تاريخ البدء");
+      reasons.push({ ar: "تاريخ الانتهاء المخطط يسبق تاريخ البدء", en: "The planned end date is before the start date" });
     }
     const terms = this.terms(reasons, cmd);
     if (reasons.length > 0) throw new InvalidSubcontractError(reasons);
@@ -430,11 +433,11 @@ export class SubcontractService {
     const contract = await this.requireContract(cmd.contractId);
     if (contract.status === "completed" || contract.status === "terminated") {
       throw new InvalidSubcontractError([
-        `لا يمكن إبرام عقد باطن تحت عقد حالته "${contract.status}".`,
+        { ar: `لا يمكن إبرام عقد باطن تحت عقد حالته "${getWorksContractStatusLabel(contract.status)}".`, en: `A subcontract cannot be let under a contract that is "${getWorksContractStatusLabelEn(contract.status)}".` },
       ]);
     }
     if (this.deps.suppliers && !(await this.deps.suppliers.find(cmd.supplierId))) {
-      throw new InvalidSubcontractError([`المورد "${cmd.supplierId}" غير موجود`]);
+      throw new InvalidSubcontractError([{ ar: `المورد "${cmd.supplierId}" غير موجود`, en: `Supplier "${cmd.supplierId}" was not found` }]);
     }
     const boqLines = await this.deps.contracts.listBoqLines(contract.id);
     const lines = this.buildLines(cmd.id, boqLines, cmd.lines ?? []);
@@ -475,21 +478,21 @@ export class SubcontractService {
     const current = await this.require(idOrDocNo);
     if (current.status !== "draft") {
       throw new InvalidSubcontractError([
-        `لا يمكن تعديل عقد باطن حالته "${getSubcontractStatusLabel(current.status)}" — التعديل يكون بأمر تغيير على البنود.`,
+        { ar: `لا يمكن تعديل عقد باطن حالته "${getSubcontractStatusLabel(current.status)}" — التعديل يكون بأمر تغيير على البنود.`, en: `A subcontract that is "${getSubcontractStatusLabelEn(current.status)}" cannot be edited — changes are made by a variation order on the lines.` },
       ]);
     }
-    const reasons: string[] = [];
+    const reasons: ReasonInput[] = [];
     for (const [label, value] of [
-      ["تاريخ التوقيع", cmd.signedDate],
-      ["تاريخ البدء", cmd.startDate],
-      ["تاريخ الانتهاء المخطط", cmd.plannedEndDate],
+      [{ ar: "تاريخ التوقيع", en: "Signing date" }, cmd.signedDate],
+      [{ ar: "تاريخ البدء", en: "Start date" }, cmd.startDate],
+      [{ ar: "تاريخ الانتهاء المخطط", en: "Planned end date" }, cmd.plannedEndDate],
     ] as const) {
-      if (value !== undefined && !ISO_DATE.test(value)) reasons.push(`${label} مطلوب بصيغة YYYY-MM-DD`);
+      if (value !== undefined && !ISO_DATE.test(value)) reasons.push({ ar: `${label.ar} مطلوب بصيغة YYYY-MM-DD`, en: `${label.en} is required in the form YYYY-MM-DD` });
     }
     const terms = this.terms(reasons, cmd, current);
     if (reasons.length > 0) throw new InvalidSubcontractError(reasons);
     if (cmd.supplierId && this.deps.suppliers && !(await this.deps.suppliers.find(cmd.supplierId))) {
-      throw new InvalidSubcontractError([`المورد "${cmd.supplierId}" غير موجود`]);
+      throw new InvalidSubcontractError([{ ar: `المورد "${cmd.supplierId}" غير موجود`, en: `Supplier "${cmd.supplierId}" was not found` }]);
     }
     const next: Subcontract = {
       ...current,
@@ -513,7 +516,7 @@ export class SubcontractService {
     const current = await this.require(idOrDocNo);
     if (current.status !== "draft") {
       throw new InvalidSubcontractError([
-        `لا يمكن تعديل بنود عقد باطن حالته "${getSubcontractStatusLabel(current.status)}".`,
+        { ar: `لا يمكن تعديل بنود عقد باطن حالته "${getSubcontractStatusLabel(current.status)}".`, en: `The lines of a subcontract that is "${getSubcontractStatusLabelEn(current.status)}" cannot be edited.` },
       ]);
     }
     const boqLines = await this.deps.contracts.listBoqLines(current.contractId);
@@ -529,16 +532,16 @@ export class SubcontractService {
    */
   async activate(idOrDocNo: string, activatedAt: string): Promise<SubcontractView> {
     const current = await this.moveable(idOrDocNo, "active");
-    if (!ISO_DATE.test(activatedAt)) throw new InvalidSubcontractError(["تاريخ السريان مطلوب بصيغة YYYY-MM-DD"]);
+    if (!ISO_DATE.test(activatedAt)) throw new InvalidSubcontractError([{ ar: "تاريخ السريان مطلوب بصيغة YYYY-MM-DD", en: "The effective date is required in the form YYYY-MM-DD" }]);
     if (current.lines.length === 0) {
-      throw new InvalidSubcontractError(["لا يمكن تفعيل عقد باطن بلا بنود."]);
+      throw new InvalidSubcontractError([{ ar: "لا يمكن تفعيل عقد باطن بلا بنود.", en: "A subcontract with no lines cannot be activated." }]);
     }
     if (current.kind === "labour_only" && !current.disguisedEmploymentReviewed) {
       throw new InvalidSubcontractError([
-        "عقد عمالة بالمقاولة يحتاج إقرارًا بمراجعة تكييفه الضريبي والتأميني قبل التفعيل.",
+        { ar: "عقد عمالة بالمقاولة يحتاج إقرارًا بمراجعة تكييفه الضريبي والتأميني قبل التفعيل.", en: "A labour-only subcontract needs a declaration that its tax and insurance classification has been reviewed before activation." },
       ]);
     }
-    await this.assertPayable(current, "تفعيل عقد الباطن");
+    await this.assertPayable(current, { ar: "تفعيل عقد الباطن", en: "activate the subcontract" });
     const next: Subcontract = { ...current, status: "active", activatedAt };
     await this.deps.store.save(next);
     return this.view(next);
@@ -546,13 +549,13 @@ export class SubcontractService {
 
   async complete(idOrDocNo: string, completedAt: string): Promise<SubcontractView> {
     const current = await this.moveable(idOrDocNo, "completed");
-    if (!ISO_DATE.test(completedAt)) throw new InvalidSubcontractError(["تاريخ الإنهاء مطلوب بصيغة YYYY-MM-DD"]);
+    if (!ISO_DATE.test(completedAt)) throw new InvalidSubcontractError([{ ar: "تاريخ الإنهاء مطلوب بصيغة YYYY-MM-DD", en: "The completion date is required in the form YYYY-MM-DD" }]);
     const open = (await this.deps.store.listCertificatesBySubcontract(current.id)).filter(
       (c) => isLiveSubCertificate(c) && c.status !== "invoiced" && c.status !== "approved_for_payment",
     );
     if (open.length > 0) {
       throw new InvalidSubcontractError([
-        `لا يمكن إنهاء عقد الباطن ومستخلصات قيد الاعتماد قائمة: ${open.map((c) => c.docNo).join("، ")}.`,
+        { ar: `لا يمكن إنهاء عقد الباطن ومستخلصات قيد الاعتماد قائمة: ${open.map((c) => c.docNo).join("، ")}.`, en: `The subcontract cannot be completed while certificates awaiting approval remain: ${open.map((c) => c.docNo).join(", ")}.` },
       ]);
     }
     const next: Subcontract = { ...current, status: "completed", completedAt };
@@ -562,7 +565,7 @@ export class SubcontractService {
 
   async terminate(idOrDocNo: string, terminatedAt: string, reason: string | null): Promise<SubcontractView> {
     const current = await this.moveable(idOrDocNo, "terminated");
-    if (!ISO_DATE.test(terminatedAt)) throw new InvalidSubcontractError(["تاريخ الفسخ مطلوب بصيغة YYYY-MM-DD"]);
+    if (!ISO_DATE.test(terminatedAt)) throw new InvalidSubcontractError([{ ar: "تاريخ الفسخ مطلوب بصيغة YYYY-MM-DD", en: "The termination date is required in the form YYYY-MM-DD" }]);
     const next: Subcontract = {
       ...current,
       status: "terminated",
@@ -591,30 +594,30 @@ export class SubcontractService {
     const current = await this.require(idOrDocNo);
     if (current.status === "completed" || current.status === "terminated") {
       throw new InvalidSubcontractError([
-        `لا يمكن ربط دفعة مقدمة بعقد باطن حالته "${getSubcontractStatusLabel(current.status)}".`,
+        { ar: `لا يمكن ربط دفعة مقدمة بعقد باطن حالته "${getSubcontractStatusLabel(current.status)}".`, en: `An advance payment cannot be linked to a subcontract that is "${getSubcontractStatusLabelEn(current.status)}".` },
       ]);
     }
     if (!this.deps.vouchers) {
-      throw new InvalidSubcontractError(["ربط الدفعات المقدمة غير مُفعّل على هذا الخادم."]);
+      throw new InvalidSubcontractError([{ ar: "ربط الدفعات المقدمة غير مُفعّل على هذا الخادم.", en: "Linking advance payments is not enabled on this server." }]);
     }
     if (current.advances.some((a) => a.voucherId === voucherId)) {
-      throw new InvalidSubcontractError([`السند "${voucherId}" مرتبط بالفعل بهذا العقد.`]);
+      throw new InvalidSubcontractError([{ ar: `السند "${voucherId}" مرتبط بالفعل بهذا العقد.`, en: `Voucher "${voucherId}" is already linked to this subcontract.` }]);
     }
     const voucher = await this.deps.vouchers.find(voucherId);
-    if (!voucher) throw new InvalidSubcontractError([`السند "${voucherId}" غير موجود`]);
+    if (!voucher) throw new InvalidSubcontractError([{ ar: `السند "${voucherId}" غير موجود`, en: `Voucher "${voucherId}" was not found` }]);
     const advanceAccount = await this.routed(SUPPLIER_ADVANCES_ROUTING_KEY);
-    const reasons: string[] = [];
-    if (voucher.status !== "confirmed") reasons.push(`السند "${voucher.docNo ?? voucherId}" غير مؤكد`);
-    if (voucher.direction !== "payment") reasons.push(`السند "${voucher.docNo ?? voucherId}" ليس سند صرف`);
+    const reasons: ReasonInput[] = [];
+    if (voucher.status !== "confirmed") reasons.push({ ar: `السند "${voucher.docNo ?? voucherId}" غير مؤكد`, en: `Voucher "${voucher.docNo ?? voucherId}" is not confirmed` });
+    if (voucher.direction !== "payment") reasons.push({ ar: `السند "${voucher.docNo ?? voucherId}" ليس سند صرف`, en: `Voucher "${voucher.docNo ?? voucherId}" is not a payment voucher` });
     if (voucher.supplierId !== null && voucher.supplierId !== current.supplierId) {
-      reasons.push(`السند "${voucher.docNo ?? voucherId}" مُحرَّر لمورد آخر`);
+      reasons.push({ ar: `السند "${voucher.docNo ?? voucherId}" مُحرَّر لمورد آخر`, en: `Voucher "${voucher.docNo ?? voucherId}" was issued to a different supplier` });
     }
     if (voucher.counterpartyGlAccountId !== advanceAccount) {
       reasons.push(
-        `السند "${voucher.docNo ?? voucherId}" لم يُرحَّل إلى حساب سلف الموردين ${advanceAccount} — الدفعة المقدمة أصل يُسترد، لا سدادًا لفاتورة`,
+        { ar: `السند "${voucher.docNo ?? voucherId}" لم يُرحَّل إلى حساب سلف الموردين ${advanceAccount} — الدفعة المقدمة أصل يُسترد، لا سدادًا لفاتورة`, en: `Voucher "${voucher.docNo ?? voucherId}" was not posted to the supplier advances account ${advanceAccount} — an advance payment is a recoverable asset, not the settlement of an invoice` },
       );
     }
-    if (voucher.amount.scaled <= 0n) reasons.push("قيمة الدفعة المقدمة يجب أن تكون موجبة");
+    if (voucher.amount.scaled <= 0n) reasons.push({ ar: "قيمة الدفعة المقدمة يجب أن تكون موجبة", en: "The advance payment amount must be positive" });
     if (reasons.length > 0) throw new InvalidSubcontractError(reasons);
 
     const advance: SubcontractAdvancePayment = {
@@ -651,21 +654,22 @@ export class SubcontractService {
     actor: SubcontractActor,
   ): Promise<SubcontractView> {
     const current = await this.require(idOrDocNo);
-    const reasons: string[] = [];
-    if (!ISO_DATE.test(input.date)) reasons.push("تاريخ الإفراج مطلوب بصيغة YYYY-MM-DD");
-    const amount = moneyOf(reasons, "قيمة الإفراج", input.amount);
-    if (amount.scaled <= 0n) reasons.push("قيمة الإفراج يجب أن تكون موجبة");
+    const reasons: ReasonInput[] = [];
+    if (!ISO_DATE.test(input.date)) reasons.push({ ar: "تاريخ الإفراج مطلوب بصيغة YYYY-MM-DD", en: "The release date is required in the form YYYY-MM-DD" });
+    const amount = moneyOf(reasons, { ar: "قيمة الإفراج", en: "The release amount" }, input.amount);
+    if (amount.scaled <= 0n) reasons.push({ ar: "قيمة الإفراج يجب أن تكون موجبة", en: "The release amount must be positive" });
     if (reasons.length > 0) throw new InvalidSubcontractError(reasons);
     const invoicing = this.deps.retentionInvoicing;
     if (!invoicing) {
-      throw new InvalidSubcontractError(["الإفراج عن محتجزات مقاولي الباطن غير مُفعّل على هذا الخادم."]);
+      throw new InvalidSubcontractError([{ ar: "الإفراج عن محتجزات مقاولي الباطن غير مُفعّل على هذا الخادم.", en: "Releasing subcontractor retention is not enabled on this server." }]);
     }
-    await this.assertPayable(current, "الإفراج عن محتجزات مقاول الباطن");
+    await this.assertPayable(current, { ar: "الإفراج عن محتجزات مقاول الباطن", en: "release subcontractor retention" });
 
     const position = (await this.view(current)).retention;
     if (amount.scaled > position.balance.scaled) {
       throw new SubcontractRetentionError(
         `لا يمكن الإفراج عن ${amount.toString()}: رصيد المحتجزات المتاح لمقاول الباطن ${position.balance.toString()} فقط.`,
+        `Cannot release ${amount.toString()}: the retention balance available to the subcontractor is only ${position.balance.toString()}.`,
       );
     }
 
@@ -727,10 +731,13 @@ export class SubcontractService {
   }
 
   /** The gate, reused by the certificate service at every posting step. */
-  async assertPayable(subcontract: Subcontract, action: string): Promise<void> {
+  async assertPayable(subcontract: Subcontract, action: BilingualReason): Promise<void> {
     if (!this.deps.suppliers) return;
     const supplier = await this.deps.suppliers.find(subcontract.supplierId);
-    const reasons = payabilityRefusals(subcontract.supplierId, supplier).map((r) => `لا يمكن ${action}: ${r}`);
+    const reasons = payabilityRefusalReasons(subcontract.supplierId, supplier).map((r) => ({
+      ar: `لا يمكن ${action.ar}: ${r.ar}`,
+      en: `Cannot ${action.en}: ${r.en}`,
+    }));
     if (reasons.length > 0) throw new SubcontractorNotPayableError(subcontract.supplierId, reasons);
   }
 }
@@ -741,17 +748,32 @@ export class SubcontractService {
  * screen can show both at once instead of making the user discover them one
  * save at a time.
  */
+export function payabilityRefusalReasons(
+  supplierId: string,
+  supplier: { readonly nameAr: string; readonly taxNumber: string | null; readonly bankAccount: string | null } | null,
+): BilingualReason[] {
+  if (!supplier) {
+    return [{ ar: `مقاول الباطن "${supplierId}" غير موجود.`, en: `Subcontractor "${supplierId}" was not found.` }];
+  }
+  const reasons: BilingualReason[] = [];
+  if (!supplier.taxNumber || supplier.taxNumber.trim() === "") {
+    reasons.push({
+      ar: `مقاول الباطن "${supplier.nameAr}" بلا رقم ضريبي — ضريبة الخصم والتحصيل تُورَّد باسمه.`,
+      en: `Subcontractor "${supplier.nameAr}" has no tax number — withholding and collection tax is remitted under it.`,
+    });
+  }
+  if (!supplier.bankAccount || supplier.bankAccount.trim() === "") {
+    reasons.push({
+      ar: `مقاول الباطن "${supplier.nameAr}" بلا حساب بنكي.`,
+      en: `Subcontractor "${supplier.nameAr}" has no bank account.`,
+    });
+  }
+  return reasons;
+}
+
 export function payabilityRefusals(
   supplierId: string,
   supplier: { readonly nameAr: string; readonly taxNumber: string | null; readonly bankAccount: string | null } | null,
 ): string[] {
-  if (!supplier) return [`مقاول الباطن "${supplierId}" غير موجود.`];
-  const reasons: string[] = [];
-  if (!supplier.taxNumber || supplier.taxNumber.trim() === "") {
-    reasons.push(`مقاول الباطن "${supplier.nameAr}" بلا رقم ضريبي — ضريبة الخصم والتحصيل تُورَّد باسمه.`);
-  }
-  if (!supplier.bankAccount || supplier.bankAccount.trim() === "") {
-    reasons.push(`مقاول الباطن "${supplier.nameAr}" بلا حساب بنكي.`);
-  }
-  return reasons;
+  return payabilityRefusalReasons(supplierId, supplier).map((reason) => reason.ar);
 }

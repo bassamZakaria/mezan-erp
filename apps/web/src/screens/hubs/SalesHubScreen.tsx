@@ -7,6 +7,7 @@ import { DocumentReadPermission, sessionMayRead } from "../../data/document-read
 import { useAppTranslation } from "../../i18n";
 import { DateAndDoc, HubActions, type HubAction } from "./hub-parts";
 import { EMPTY } from "../../lib/empty";
+import { errorMessage } from "../../lib/error-message";
 
 /**
  * المبيعات hub — KPI tiles + quick actions + recent activity, all computed
@@ -49,7 +50,7 @@ export function SalesHubScreen() {
       title={t("salesHub.title")}
       description={t("salesHub.description")}
       loading={isLoading}
-      error={isError ? t("salesHub.loadFailed") : null}
+      error={isError ? errorMessage(countsQuery.error ?? statsQuery.error ?? recentQuery.error ?? quotesQuery.error ?? customerCountsQuery.error, t("salesHub.loadFailed")) : null}
       actions={<HubActions actions={quickActions} />}
       stats={[
         { key: "invoices", label: t("salesHub.stat.invoices"), value: countsQuery.data?.all ?? 0, sub: t("salesHub.stat.invoicesSub") },

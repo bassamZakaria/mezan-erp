@@ -1,6 +1,7 @@
 import { Button, Card, StatusPill, formatTime, type Locale } from "@mezan/ui";
 import { useSystemStatus, type ServiceStateDTO } from "../../data/hub-hooks";
 import { useAppTranslation, type AppTranslationKey } from "../../i18n";
+import { errorMessage } from "../../lib/error-message";
 
 /**
  * حالة النظام (/status). Mezan is a local-first, fully-offline desktop app —
@@ -54,7 +55,7 @@ export function SystemStatusScreen({ nested = false }: { readonly nested?: boole
 
       {query.isError ? (
         <Card className="p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">{t("systemStatus.couldNotRunTheSystem")}</p>
+          <p className="text-[13px] font-semibold text-danger-ink">{errorMessage(query.error, t("systemStatus.couldNotRunTheSystem"))}</p>
         </Card>
       ) : (
         <Card className="flex items-center gap-[10px] p-[14px_18px]">

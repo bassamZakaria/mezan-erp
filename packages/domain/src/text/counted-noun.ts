@@ -6,6 +6,7 @@ export enum CountedNoun {
   User = "user",
   Branch = "branch",
   Warehouse = "warehouse",
+  Device = "device",
 }
 
 export enum CountLocale {
@@ -35,6 +36,7 @@ const ARABIC_FORMS: Record<CountedNoun, ArabicNounForms> = {
   [CountedNoun.User]: { singular: "مستخدم", one: "مستخدم واحد", dual: "مستخدمان", dualOblique: "مستخدمين", plural: "مستخدمين", tamyeez: "مستخدمًا" },
   [CountedNoun.Branch]: { singular: "فرع", one: "فرع واحد", dual: "فرعان", dualOblique: "فرعين", plural: "فروع", tamyeez: "فرعًا" },
   [CountedNoun.Warehouse]: { singular: "مستودع", one: "مستودع واحد", dual: "مستودعان", dualOblique: "مستودعين", plural: "مستودعات", tamyeez: "مستودعًا" },
+  [CountedNoun.Device]: { singular: "جهاز", one: "جهاز واحد", dual: "جهازان", dualOblique: "جهازين", plural: "أجهزة", tamyeez: "جهازًا" },
 };
 
 const ENGLISH_FORMS: Record<CountedNoun, { readonly one: string; readonly other: string }> = {
@@ -45,6 +47,7 @@ const ENGLISH_FORMS: Record<CountedNoun, { readonly one: string; readonly other:
   [CountedNoun.User]: { one: "user", other: "users" },
   [CountedNoun.Branch]: { one: "branch", other: "branches" },
   [CountedNoun.Warehouse]: { one: "warehouse", other: "warehouses" },
+  [CountedNoun.Device]: { one: "device", other: "devices" },
 };
 
 const AR_RULES = new Intl.PluralRules("ar");

@@ -9,6 +9,7 @@ import { useEntityName } from "../lib/entity-names";
 import { majorOf } from "../lib/money";
 import { EMPTY } from "../lib/empty";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
+import { errorMessage } from "../lib/error-message";
 
 /**
  * أرصدة المخزون (Stock Balance) — docs/archive/catalog/03. Read-only cross-warehouse
@@ -172,7 +173,7 @@ export function StockBalanceScreen() {
   if (balanceQuery.isError) {
     return (
       <Card className="p-[18px_20px]">
-        <p className="text-[13px] font-semibold text-danger-ink">{t("stockBalance.loadFailed")}</p>
+        <p className="text-[13px] font-semibold text-danger-ink">{errorMessage(balanceQuery.error, t("stockBalance.loadFailed"))}</p>
         <Button size="sm" className="mt-[10px]" onClick={() => balanceQuery.refetch()}>
           {t("common.retry")}
         </Button>

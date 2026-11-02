@@ -57,13 +57,13 @@ function handleDomainError(c: Context, err: unknown): Response {
   const postingRefusal = postingRefusalResponse(c, err);
   if (postingRefusal) return postingRefusal;
   if (err instanceof NoFiscalPeriodForDateError || err instanceof PeriodNotOpenForPostingError) {
-    return c.json({ error: err.code, message: err.message }, 422);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 422);
   }
   if (err instanceof JournalEntryNotFoundError) {
-    return c.json({ error: err.code, message: err.message }, 404);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 404);
   }
   if (err instanceof JournalEntryNotPostedError || err instanceof JournalEntryAlreadyReversedError) {
-    return c.json({ error: err.code, message: err.message }, 409);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
   }
   throw err;
 }
@@ -105,7 +105,7 @@ export function createOpeningBalanceDuplicatesRoutes(
     if (refusal) return refusal;
     const kind = c.req.param("kind");
     if (kind !== "customer" && kind !== "supplier") {
-      return c.json({ error: "INVALID_PARTY_KIND", message: "النوع يجب أن يكون عميل أو مورد." }, 400);
+      return c.json({ error: "INVALID_PARTY_KIND", message: "النوع يجب أن يكون عميل أو مورد.", messageEn: "The type must be customer or supplier." }, 400);
     }
     const partyId = c.req.param("partyId");
     try {

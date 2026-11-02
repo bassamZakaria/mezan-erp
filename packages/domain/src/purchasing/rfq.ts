@@ -9,6 +9,7 @@
  * workflow only) — pure domain, ports only (docs/archive/plan.md §3.2).
  */
 
+import type { ReasonInput } from "../bilingual-reasons.js";
 import { Money, Qty } from "../money/index.js";
 import { extend } from "../inventory/index.js";
 import { NextNumberService } from "../numbering/index.js";
@@ -142,14 +143,14 @@ function nowIso(deps: { now?: () => string }): string {
 }
 
 function validateCreate(command: CreateRfqCommand): void {
-  const reasons: string[] = [];
-  if (command.branchId.trim() === "") reasons.push("a branch is required");
-  if (command.warehouseId.trim() === "") reasons.push("a warehouse is required");
-  if (command.date.trim() === "") reasons.push("a date is required");
-  if (command.lines.length === 0) reasons.push("at least one line is required");
+  const reasons: ReasonInput[] = [];
+  if (command.branchId.trim() === "") reasons.push({ ar: "الفرع مطلوب", en: "A branch is required" });
+  if (command.warehouseId.trim() === "") reasons.push({ ar: "المستودع مطلوب", en: "A warehouse is required" });
+  if (command.date.trim() === "") reasons.push({ ar: "التاريخ مطلوب", en: "A date is required" });
+  if (command.lines.length === 0) reasons.push({ ar: "يلزم بند واحد على الأقل", en: "At least one line is required" });
   command.lines.forEach((line, i) => {
-    if (line.itemId.trim() === "") reasons.push(`line ${i}: an item is required`);
-    if (line.qty.isZero() || line.qty.isNegative()) reasons.push(`line ${i}: qty must be positive`);
+    if (line.itemId.trim() === "") reasons.push({ ar: `البند ${i + 1}: الصنف مطلوب`, en: `Line ${i + 1}: an item is required.` });
+    if (line.qty.isZero() || line.qty.isNegative()) reasons.push({ ar: `البند ${i + 1}: الكمية يجب أن تكون موجبة`, en: `Line ${i + 1}: the quantity must be greater than zero.` });
   });
   if (reasons.length > 0) throw new InvalidRfqError(reasons);
 }
@@ -214,16 +215,16 @@ export async function closeRfq(id: string, deps: Pick<RfqDeps, "rfqs">): Promise
 }
 
 function validateQuote(command: RecordRfqQuoteCommand, rfq: PurchaseRfq): void {
-  const reasons: string[] = [];
-  if (command.supplierId.trim() === "") reasons.push("a supplier is required");
-  if (command.lines.length === 0) reasons.push("at least one quote line is required");
+  const reasons: ReasonInput[] = [];
+  if (command.supplierId.trim() === "") reasons.push({ ar: "المورد مطلوب", en: "A supplier is required" });
+  if (command.lines.length === 0) reasons.push({ ar: "يلزم بند واحد على الأقل في عرض السعر", en: "At least one quote line is required" });
   const rfqItemIds = new Set(rfq.lines.map((l) => l.itemId));
   command.lines.forEach((line, i) => {
-    if (line.itemId.trim() === "") reasons.push(`line ${i}: an item is required`);
+    if (line.itemId.trim() === "") reasons.push({ ar: `البند ${i + 1}: الصنف مطلوب`, en: `Line ${i + 1}: an item is required.` });
     else if (!rfqItemIds.has(line.itemId)) {
-      reasons.push(`line ${i}: item "${line.itemId}" is not on this RFQ`);
+      reasons.push({ ar: `البند ${i + 1}: الصنف "${line.itemId}" ليس في طلب عرض السعر هذا`, en: `Line ${i + 1}: item "${line.itemId}" is not on this request for quotation.` });
     }
-    if (line.unitPrice.scaled < 0n) reasons.push(`line ${i}: unit price must not be negative`);
+    if (line.unitPrice.scaled < 0n) reasons.push({ ar: `البند ${i + 1}: سعر الوحدة لا يجوز أن يكون سالباً`, en: `Line ${i + 1}: the unit price cannot be negative.` });
   });
   if (reasons.length > 0) throw new InvalidRfqError(reasons);
 }
@@ -332,7 +333,10 @@ export async function convertRfqToPurchaseOrder(
     const priced = chosen.lines.find((l) => l.itemId === line.itemId);
     if (!priced) {
       throw new InvalidRfqError([
-        `supplier "${command.supplierId}" did not quote item "${line.itemId}"`,
+        {
+          ar: `المورد "${command.supplierId}" لم يسعّر الصنف "${line.itemId}"`,
+          en: `supplier "${command.supplierId}" did not quote item "${line.itemId}"`,
+        },
       ]);
     }
     return {

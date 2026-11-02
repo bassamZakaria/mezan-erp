@@ -60,6 +60,7 @@ import { customerFilterFromUrl } from "../data/list-queries";
 import { useNavigation } from "../navigation";
 import { majorOf } from "../lib/money";
 import { EMPTY } from "../lib/empty";
+import { errorMessage } from "../lib/error-message";
 
 /**
  * العملاء (Customers) — docs/archive/catalog/01-sales.md "العملاء (Customers —
@@ -148,7 +149,7 @@ function CustomerInstallmentsTab({ customerId }: { customerId: string }) {
   // than one customer's instalments, so it belongs to this customer if any
   // line does. Same shape as the warehouse on a return.
   const plans = (query.data ?? []).filter((p) => p.lines.some((l) => l.customerId === customerId));
-  if (query.isError) return <TabError message={t("customers.invoices.loadFailed")} onRetry={() => query.refetch()} />;
+  if (query.isError) return <TabError message={errorMessage(query.error, t("customers.invoices.loadFailed"))} onRetry={() => query.refetch()} />;
   if (plans.length === 0) return <TabMessage title={t("customers.tab.installments")} body={t("customers.installments.empty")} />;
   return (
     <div className="overflow-x-auto">
@@ -182,7 +183,7 @@ function CustomerReturnsTab({ customerId }: { customerId: string }) {
   const { t } = useAppTranslation();
   const query = useSalesReturns();
   const returns = (query.data ?? []).filter((r) => r.lines.some((l) => l.customerId === customerId));
-  if (query.isError) return <TabError message={t("customers.invoices.loadFailed")} onRetry={() => query.refetch()} />;
+  if (query.isError) return <TabError message={errorMessage(query.error, t("customers.invoices.loadFailed"))} onRetry={() => query.refetch()} />;
   if (returns.length === 0) return <TabMessage title={t("customers.tab.returns")} body={t("customers.returns.empty")} />;
   return (
     <div className="overflow-x-auto">
@@ -238,7 +239,7 @@ function CustomerInvoicesTab({ customerId }: { customerId: string }) {
   if (query.isError || countsQuery.isError || stats.isError) {
     return (
       <TabError
-        message={t("customers.invoices.loadFailed")}
+        message={errorMessage(query.error ?? countsQuery.error ?? stats.error, t("customers.invoices.loadFailed"))}
         onRetry={() => {
           void query.refetch();
           void countsQuery.refetch();
@@ -838,7 +839,7 @@ export function CustomersScreen() {
     <>
       {query.isError ? (
         <Card className="mb-[18px] p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">{t("customers.loadFailed")}</p>
+          <p className="text-[13px] font-semibold text-danger-ink">{errorMessage(query.error, t("customers.loadFailed"))}</p>
           <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
             {t("common.retry")}
           </Button>

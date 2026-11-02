@@ -15,7 +15,7 @@ import { callerSource, type CloudSource } from "./client-source.js";
 import { platformRateLimiter, type RateLimiter } from "./rate-limit.js";
 import type { TenantDoor, TenantRouter } from "./tenant-router.js";
 import { publicApiOpenApiDocument } from "./public-api-openapi.js";
-import { annotateRequest, createLogger } from "@mezan/api";
+import { annotateRequest, bilingualText, createLogger, genericText } from "@mezan/api";
 
 const log = createLogger("api-v1");
 
@@ -209,7 +209,8 @@ export function createPublicApiRoutes(deps: PublicApiDeps): Hono {
     try {
       parsed = text === "" ? null : JSON.parse(text);
     } catch {
-      parsed = { error: "INTERNAL", message: text };
+      const said = bilingualText(text, genericText(answer.status));
+      parsed = { error: "INTERNAL", message: said.ar, messageEn: said.en };
     }
     return { status: answer.status, body: parsed, text };
   }

@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { READ_ONLY_CLOSE, ReadOnlyFields } from "../shell/ReadOnlyForm";
 import { Card, DocumentDetail, Button, StatusPill, IconButton } from "@mezan/ui";
-import { validateBarcodeConfig, type BarcodeConfig, type EmbeddedBarcodeRule } from "@mezan/domain";
+import { validateBarcodeConfigBilingual, type BarcodeConfig, type EmbeddedBarcodeRule } from "@mezan/domain";
 import type { BarcodeConfigDTO } from "@mezan/contracts";
 import { useBarcodeConfig, useUpdateBarcodeConfig, useParseBarcode } from "../data/barcode-config-hooks";
 import { NumberField, SelectField, TextField, ToggleField } from "./form-controls";
+import { pickLocalized } from "../data/server-message";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
 /**
@@ -103,7 +104,7 @@ export function BarcodeConfigPage() {
 }
 
 function BarcodeConfigPageContent() {
-  const { t } = useAppTranslation();
+  const { t, locale } = useAppTranslation();
   const query = useBarcodeConfig();
   const updateMutation = useUpdateBarcodeConfig();
   const parseMutation = useParseBarcode();
@@ -141,7 +142,7 @@ function BarcodeConfigPageContent() {
 
   async function handleSave() {
     if (!draft) return;
-    const reasons = validateBarcodeConfig(draft as BarcodeConfig);
+    const reasons = validateBarcodeConfigBilingual(draft as BarcodeConfig).map((reason) => pickLocalized(reason.ar, reason.en, locale) ?? reason.ar);
     if (reasons.length > 0) {
       setError(reasons.join(t("barcode.reasonSeparator")));
       return;

@@ -13,11 +13,14 @@ export enum AccessExpiryProblem {
 
 export class InvalidAccessExpiryError extends Error {
   readonly code = "INVALID_ACCESS_EXPIRY";
+  readonly messageEn: string;
   constructor(
     readonly problem: AccessExpiryProblem,
     message: string,
+    messageEn: string,
   ) {
     super(message);
+    this.messageEn = messageEn;
     this.name = "InvalidAccessExpiryError";
   }
 }
@@ -50,18 +53,19 @@ export function accessExpiryProblem(rule: AccessExpiryRule, nowMs: number): Inva
   if (rule.accessExpiresAt === null) {
     const template = timeBoxedTemplateForRoleCode(rule.roleCode);
     return template
-      ? new InvalidAccessExpiryError(AccessExpiryProblem.RequiredForRole, "هذا الدور مؤقت: حدّد تاريخ انتهاء الوصول للمستخدم.")
+      ? new InvalidAccessExpiryError(AccessExpiryProblem.RequiredForRole, "هذا الدور مؤقت: حدّد تاريخ انتهاء الوصول للمستخدم.", "This role is time-limited: set an access expiry date for the user.")
       : null;
   }
   const at = Date.parse(rule.accessExpiresAt);
-  if (Number.isNaN(at)) return new InvalidAccessExpiryError(AccessExpiryProblem.Unparseable, "تاريخ انتهاء الوصول غير صالح.");
+  if (Number.isNaN(at)) return new InvalidAccessExpiryError(AccessExpiryProblem.Unparseable, "تاريخ انتهاء الوصول غير صالح.", "The access expiry date is invalid.");
   if (rule.isCompanyAdmin) {
-    return new InvalidAccessExpiryError(AccessExpiryProblem.OnCompanyAdmin, "لا يُحدَّد تاريخ انتهاء وصول لمدير الشركة.");
+    return new InvalidAccessExpiryError(AccessExpiryProblem.OnCompanyAdmin, "لا يُحدَّد تاريخ انتهاء وصول لمدير الشركة.", "An access expiry date cannot be set for a company administrator.");
   }
   if (timeBoxedTemplateForRoleCode(rule.roleCode) && at - nowMs > EXTERNAL_AUDITOR_MAX_ACCESS_DAYS * DAY_MS) {
     return new InvalidAccessExpiryError(
       AccessExpiryProblem.TooLong,
       `الوصول المؤقت لا يتجاوز ${arabicDays(EXTERNAL_AUDITOR_MAX_ACCESS_DAYS, ArabicCase.Oblique)} من اليوم.`,
+      `Time-limited access cannot exceed ${EXTERNAL_AUDITOR_MAX_ACCESS_DAYS} days from today.`,
     );
   }
   return null;

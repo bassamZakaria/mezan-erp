@@ -92,27 +92,33 @@ export interface Form41FilingRepository {
 
 export class Form41PeriodAlreadyFiledError extends Error {
   readonly code = "WITHHOLDING_PERIOD_ALREADY_FILED";
+  readonly messageEn: string;
   constructor(readonly filingId: string, readonly date: string) {
     super(
       `لا يمكن الترحيل بتاريخ ${date}: إقرار الخصم والتحصيل (نموذج 41) عن هذا الربع (${filingId}) قد قُدّم بالفعل. ` +
         `عدّل الإقرار أولاً إن كان لا بد من التغيير.`,
     );
+    this.messageEn = `Cannot post on ${date}: the withholding and collection return (Form 41) for this quarter (${filingId}) has already been filed. Amend the return first if a change is needed.`;
     this.name = "Form41PeriodAlreadyFiledError";
   }
 }
 
 export class DuplicateForm41FilingError extends Error {
   readonly code = "WITHHOLDING_PERIOD_ALREADY_HAS_FILING";
+  readonly messageEn: string;
   constructor(readonly filingId: string) {
     super(`هذا الربع لديه إقرار خصم وتحصيل مسجَّل بالفعل (${filingId}).`);
+    this.messageEn = `This quarter already has a withholding and collection return recorded (${filingId}).`;
     this.name = "DuplicateForm41FilingError";
   }
 }
 
 export class Form41FilingNotFoundError extends Error {
   readonly code = "WITHHOLDING_FILING_NOT_FOUND";
+  readonly messageEn: string;
   constructor(readonly filingId: string) {
     super(`إقرار الخصم والتحصيل "${filingId}" غير موجود.`);
+    this.messageEn = `Withholding and collection return "${filingId}" was not found.`;
     this.name = "Form41FilingNotFoundError";
   }
 }

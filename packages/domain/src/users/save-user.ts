@@ -5,22 +5,27 @@ import { accessExpiryProblem } from "./access-expiry.js";
 
 export class InvalidUserError extends Error {
   readonly code = "INVALID_USER";
-  constructor(message: string) {
+  readonly messageEn: string;
+  constructor(message: string, messageEn: string) {
     super(message);
+    this.messageEn = messageEn;
     this.name = "InvalidUserError";
   }
 }
 
 export class DuplicateUserEmailError extends Error {
   readonly code = "DUPLICATE_USER_EMAIL";
+  readonly messageEn: string;
   constructor(readonly email: string) {
     super(`يوجد مستخدم بالفعل بالبريد الإلكتروني "${email}"`);
+    this.messageEn = `A user with the email "${email}" already exists`;
     this.name = "DuplicateUserEmailError";
   }
 }
 
 export class EmailDomainNotAllowedError extends Error {
   readonly code = "EMAIL_DOMAIN_NOT_ALLOWED";
+  readonly messageEn: string;
   constructor(
     readonly email: string,
     readonly allowedDomains: readonly string[],
@@ -28,30 +33,37 @@ export class EmailDomainNotAllowedError extends Error {
     super(
       `نطاق البريد الإلكتروني غير مسموح. النطاقات المسموحة: ${allowedDomains.join("، ")}`,
     );
+    this.messageEn = `The email domain is not allowed. Allowed domains: ${allowedDomains.join(", ")}`;
     this.name = "EmailDomainNotAllowedError";
   }
 }
 
 export class UnknownRoleError extends Error {
   readonly code = "UNKNOWN_ROLE";
+  readonly messageEn: string;
   constructor(readonly roleId: string) {
     super(`الدور "${roleId}" غير موجود`);
+    this.messageEn = `Role "${roleId}" was not found`;
     this.name = "UnknownRoleError";
   }
 }
 
 export class UserNotFoundError extends Error {
   readonly code = "USER_NOT_FOUND";
+  readonly messageEn: string;
   constructor(readonly userId: string) {
     super(`المستخدم "${userId}" غير موجود`);
+    this.messageEn = `User "${userId}" was not found`;
     this.name = "UserNotFoundError";
   }
 }
 
 export class LastCompanyAdminError extends Error {
   readonly code = "LAST_COMPANY_ADMIN";
+  readonly messageEn: string;
   constructor(readonly userId: string) {
     super("لا يمكن تعطيل أو تنزيل آخر مدير شركة نشط. عيّن مديرًا آخر أولاً.");
+    this.messageEn = "The last active company administrator cannot be disabled or demoted. Assign another administrator first.";
     this.name = "LastCompanyAdminError";
   }
 }
@@ -172,24 +184,25 @@ export async function saveUser(
   opts?: SaveUserOptions,
 ): Promise<User> {
   if (cmd.nameAr.trim() === "") {
-    throw new InvalidUserError("الاسم الكامل مطلوب.");
+    throw new InvalidUserError("الاسم الكامل مطلوب.", "Full name is required.");
   }
   const email = normalizeEmail(cmd.email);
   if (email === "") {
-    throw new InvalidUserError("البريد الإلكتروني مطلوب.");
+    throw new InvalidUserError("البريد الإلكتروني مطلوب.", "Email is required.");
   }
   if (!EMAIL_PATTERN.test(email)) {
-    throw new InvalidUserError("البريد الإلكتروني غير صالح.");
+    throw new InvalidUserError("البريد الإلكتروني غير صالح.", "Email is not valid.");
   }
   const domainRefusal = emailDomainRefusal(email, opts?.allowedEmailDomains);
   if (domainRefusal) throw domainRefusal;
   if (cmd.isCompanyAdmin === (cmd.roleId !== null)) {
     throw new InvalidUserError(
       "يجب أن يكون للمستخدم دور واحد فقط أو صلاحية مدير الشركة، وليس كليهما.",
+      "A user must have exactly one role or company-administrator access, not both.",
     );
   }
   if (isScopeEmpty(cmd.branchScope)) {
-    throw new InvalidUserError("يجب اختيار فرع واحد على الأقل.");
+    throw new InvalidUserError("يجب اختيار فرع واحد على الأقل.", "Select at least one branch.");
   }
 
   const role = cmd.roleId ? await uow.roles.findById(cmd.roleId) : null;
@@ -220,7 +233,7 @@ export async function saveUser(
     ? await hasher.hash(cmd.password)
     : prior?.passwordHash;
   if (!passwordHash) {
-    throw new InvalidUserError("كلمة المرور مطلوبة لإنشاء المستخدم.");
+    throw new InvalidUserError("كلمة المرور مطلوبة لإنشاء المستخدم.", "A password is required to create the user.");
   }
 
   const mustChangePassword = cmd.password ? (cmd.passwordIsTemporary ?? true) : (prior?.mustChangePassword ?? false);

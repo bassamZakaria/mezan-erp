@@ -7,6 +7,7 @@ import { useNavigation } from "../../navigation";
 import type { ScreenKey } from "../../router/screens";
 import { useAppTranslation, type AppTranslationKey } from "../../i18n";
 import { useMaySeeItemCost } from "../../data/item-cost";
+import { errorMessage } from "../../lib/error-message";
 
 /**
  * لوحة الإنتاج (docs/archive/catalog/07 §"لوحة الإنتاج") — the reference app's
@@ -176,7 +177,7 @@ export function ProductionDashboardScreen() {
 
       {query.isError ? (
         <Card className="p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">{t("production.couldNotLoadTheProduction")}</p>
+          <p className="text-[13px] font-semibold text-danger-ink">{errorMessage(query.error, t("production.couldNotLoadTheProduction"))}</p>
           <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
             {t("common.retry")}
           </Button>

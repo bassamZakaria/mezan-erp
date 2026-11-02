@@ -3,6 +3,7 @@ import { Button, ConfirmDialog } from "@mezan/ui";
 import { TenantWireStatus, type OwnerCandidateDTO, type TenantDTO } from "@mezan/contracts";
 import { useAppTranslation } from "../i18n";
 import { OwnerContactChip } from "./chips";
+import { PlatformApiError } from "./api";
 import { useAssignOwnerMutation, useConfirmPendingOwnerMutation, useDeclinePendingOwnerMutation, useOwnerCandidates, useResendPendingOwnerMutation } from "./hooks";
 
 function canAssignOwner(tenant: TenantDTO): boolean {
@@ -122,7 +123,7 @@ export function TenantOwnerCard({
           {candidates.isPending ? <p className="mt-[6px] text-[12.5px] text-ink-muted">{t("platform.tenantDetail.owner.loading")}</p> : null}
           {candidates.isError ? (
             <p role="alert" className="mt-[6px] text-[12.5px] text-danger-ink">
-              {t("platform.tenantDetail.owner.loadFailed")}
+              {candidates.error instanceof PlatformApiError && candidates.error.message.trim() ? candidates.error.message : t("platform.tenantDetail.owner.loadFailed")}
             </p>
           ) : null}
           {candidates.data && candidates.data.length === 0 ? <p className="mt-[6px] text-[12.5px] text-ink-muted">{t("platform.tenantDetail.owner.none")}</p> : null}

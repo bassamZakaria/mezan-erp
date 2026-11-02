@@ -15,7 +15,7 @@ const ENVELOPE = { type: "object", required: ["data"], properties: { data: {} } 
 const ERROR = {
   type: "object",
   required: ["error"],
-  properties: { error: { type: "string", enum: Object.values(PublicApiRefusal) }, message: { type: "string" } },
+  properties: { error: { type: "string", enum: Object.values(PublicApiRefusal) }, message: { type: "string" }, messageEn: { type: "string" } },
   additionalProperties: true,
 } as const;
 

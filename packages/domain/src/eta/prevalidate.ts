@@ -348,11 +348,13 @@ export function hasBlockingEtaFindings(findings: readonly EtaPrevalidationFindin
  */
 export class EtaPrevalidationFailedError extends Error {
   readonly code = "ETA_PREVALIDATION_FAILED";
+  readonly messageEn: string;
   constructor(readonly findings: readonly EtaPrevalidationFinding[]) {
     super(
       `لا يمكن إرسال المستند قبل إصلاح: ${findings.map((f) => f.messageAr).join("، ")} ` +
         `Cannot submit before fixing: ${findings.map((f) => f.messageEn).join("; ")}`,
     );
+    this.messageEn = `Cannot submit before fixing: ${findings.map((f) => f.messageEn).join("; ")}`;
     this.name = "EtaPrevalidationFailedError";
   }
 }

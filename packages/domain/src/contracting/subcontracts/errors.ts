@@ -1,11 +1,14 @@
-import { getSubCertificateStatusLabel, type SubCertificateStatus } from "./sub-certificate.js";
-import { getSubcontractStatusLabel, type SubcontractStatus } from "./subcontract.js";
+import { getSubCertificateStatusLabel, getSubCertificateStatusLabelEn, type SubCertificateStatus } from "./sub-certificate.js";
+import { getSubcontractStatusLabel, getSubcontractStatusLabelEn, type SubcontractStatus } from "./subcontract.js";
+import { splitReasons, type ReasonInput } from "../../bilingual-reasons.js";
 
 /** Raised when a subcontract id or docNo does not exist. */
 export class SubcontractNotFoundError extends Error {
   readonly code = "SUBCONTRACT_NOT_FOUND";
+  readonly messageEn: string;
   constructor(readonly subcontractId: string) {
     super(`عقد الباطن "${subcontractId}" غير موجود.`);
+    this.messageEn = `Subcontract "${subcontractId}" was not found.`;
     this.name = "SubcontractNotFoundError";
   }
 }
@@ -13,8 +16,13 @@ export class SubcontractNotFoundError extends Error {
 /** Raised when a subcontract or one of its lines fails validation. Reasons are Arabic. */
 export class InvalidSubcontractError extends Error {
   readonly code = "INVALID_SUBCONTRACT";
-  constructor(readonly reasons: readonly string[]) {
-    super(reasons.join("، "));
+  readonly reasons: readonly string[];
+  readonly messageEn: string;
+  constructor(reasons: readonly ReasonInput[]) {
+    const split = splitReasons(reasons, "The subcontract data is invalid.");
+    super(split.ar.join("، "));
+    this.reasons = split.ar;
+    this.messageEn = split.en;
     this.name = "InvalidSubcontractError";
   }
 }
@@ -22,6 +30,7 @@ export class InvalidSubcontractError extends Error {
 /** Raised when a subcontract status move is not one the lifecycle allows. */
 export class InvalidSubcontractTransitionError extends Error {
   readonly code = "INVALID_SUBCONTRACT_TRANSITION";
+  readonly messageEn: string;
   constructor(
     readonly from: SubcontractStatus,
     readonly to: SubcontractStatus,
@@ -29,6 +38,7 @@ export class InvalidSubcontractTransitionError extends Error {
     super(
       `لا يمكن نقل عقد الباطن من "${getSubcontractStatusLabel(from)}" إلى "${getSubcontractStatusLabel(to)}".`,
     );
+    this.messageEn = `A subcontract cannot move from "${getSubcontractStatusLabelEn(from)}" to "${getSubcontractStatusLabelEn(to)}".`;
     this.name = "InvalidSubcontractTransitionError";
   }
 }
@@ -40,33 +50,46 @@ export class InvalidSubcontractTransitionError extends Error {
  */
 export class SubcontractorNotPayableError extends Error {
   readonly code = "SUBCONTRACTOR_NOT_PAYABLE";
+  readonly reasons: readonly string[];
+  readonly messageEn: string;
   constructor(
     readonly supplierId: string,
-    readonly reasons: readonly string[],
+    reasons: readonly ReasonInput[],
   ) {
-    super(reasons.join("، "));
+    const split = splitReasons(reasons, "The subcontractor is not yet payable.");
+    super(split.ar.join("، "));
+    this.reasons = split.ar;
+    this.messageEn = split.en;
     this.name = "SubcontractorNotPayableError";
   }
 }
 
 export class SubCertificateNotFoundError extends Error {
   readonly code = "SUB_CERTIFICATE_NOT_FOUND";
+  readonly messageEn: string;
   constructor(readonly certificateId: string) {
     super(`مستخلص مقاول الباطن "${certificateId}" غير موجود.`);
+    this.messageEn = `Subcontractor certificate "${certificateId}" was not found.`;
     this.name = "SubCertificateNotFoundError";
   }
 }
 
 export class InvalidSubCertificateError extends Error {
   readonly code = "INVALID_SUB_CERTIFICATE";
-  constructor(readonly reasons: readonly string[]) {
-    super(reasons.join("، "));
+  readonly reasons: readonly string[];
+  readonly messageEn: string;
+  constructor(reasons: readonly ReasonInput[]) {
+    const split = splitReasons(reasons, "The subcontractor certificate data is invalid.");
+    super(split.ar.join("، "));
+    this.reasons = split.ar;
+    this.messageEn = split.en;
     this.name = "InvalidSubCertificateError";
   }
 }
 
 export class InvalidSubCertificateTransitionError extends Error {
   readonly code = "INVALID_SUB_CERTIFICATE_TRANSITION";
+  readonly messageEn: string;
   constructor(
     readonly from: SubCertificateStatus,
     readonly to: SubCertificateStatus,
@@ -74,6 +97,7 @@ export class InvalidSubCertificateTransitionError extends Error {
     super(
       `لا يمكن نقل مستخلص الباطن من "${getSubCertificateStatusLabel(from)}" إلى "${getSubCertificateStatusLabel(to)}".`,
     );
+    this.messageEn = `A subcontractor certificate cannot move from "${getSubCertificateStatusLabelEn(from)}" to "${getSubCertificateStatusLabelEn(to)}".`;
     this.name = "InvalidSubCertificateTransitionError";
   }
 }
@@ -81,6 +105,7 @@ export class InvalidSubCertificateTransitionError extends Error {
 /** Every later certificate's «سابق» column was read off this one. */
 export class LaterSubCertificateExistsError extends Error {
   readonly code = "LATER_SUB_CERTIFICATE_EXISTS";
+  readonly messageEn: string;
   constructor(
     readonly certificateId: string,
     readonly laterDocNo: string,
@@ -89,6 +114,7 @@ export class LaterSubCertificateExistsError extends Error {
     super(
       `لا يمكن تعديل هذا المستخلص أو نقل حالته لوجود مستخلص لاحق رقم ${laterSerial} (${laterDocNo}) مبني عليه.`,
     );
+    this.messageEn = `This certificate cannot be edited or have its status changed because a later certificate no. ${laterSerial} (${laterDocNo}) is built on it.`;
     this.name = "LaterSubCertificateExistsError";
   }
 }
@@ -96,11 +122,14 @@ export class LaterSubCertificateExistsError extends Error {
 /** Raised when the same person would hold two of the three signatures (design §06). */
 export class SubCertificateSegregationError extends Error {
   readonly code = "SUB_CERTIFICATE_SEGREGATION_REFUSED";
+  readonly messageEn: string;
   constructor(
     readonly userId: string,
     message: string,
+    messageEn: string,
   ) {
     super(message);
+    this.messageEn = messageEn;
     this.name = "SubCertificateSegregationError";
   }
 }
@@ -112,8 +141,13 @@ export class SubCertificateSegregationError extends Error {
  */
 export class SubCertificateQuantityError extends Error {
   readonly code = "SUB_CERTIFICATE_QUANTITY_REFUSED";
-  constructor(readonly reasons: readonly string[]) {
-    super(reasons.join("، "));
+  readonly reasons: readonly string[];
+  readonly messageEn: string;
+  constructor(reasons: readonly ReasonInput[]) {
+    const split = splitReasons(reasons, "The certified quantity is not allowed.");
+    super(split.ar.join("، "));
+    this.reasons = split.ar;
+    this.messageEn = split.en;
     this.name = "SubCertificateQuantityError";
   }
 }
@@ -121,8 +155,10 @@ export class SubCertificateQuantityError extends Error {
 /** Raised when a retention release would exceed the balance actually held. */
 export class SubcontractRetentionError extends Error {
   readonly code = "SUBCONTRACT_RETENTION_REFUSED";
-  constructor(message: string) {
+  readonly messageEn: string;
+  constructor(message: string, messageEn: string) {
     super(message);
+    this.messageEn = messageEn;
     this.name = "SubcontractRetentionError";
   }
 }
@@ -135,8 +171,13 @@ export class SubcontractRetentionError extends Error {
  */
 export class SubCertificateDeductionError extends Error {
   readonly code = "SUB_CERTIFICATE_DEDUCTION_REFUSED";
-  constructor(readonly reasons: readonly string[]) {
-    super(reasons.join("، "));
+  readonly reasons: readonly string[];
+  readonly messageEn: string;
+  constructor(reasons: readonly ReasonInput[]) {
+    const split = splitReasons(reasons, "The deductions block is not payable.");
+    super(split.ar.join("، "));
+    this.reasons = split.ar;
+    this.messageEn = split.en;
     this.name = "SubCertificateDeductionError";
   }
 }

@@ -8,6 +8,7 @@ import {
   useLanStatus,
 } from "../data/hooks";
 import { CopyableValue, PlaintextKeyRiskBanner } from "../settings/SupportInfoCard";
+import { pickLocalized, pickMessage } from "../data/server-message";
 import { useAppTranslation } from "../i18n";
 // lan-ux
 import { useConfirmAction } from "../lib/use-confirm-action";
@@ -74,7 +75,7 @@ export function LicenceStatusNotice() {
   const failureMessage = licence.error
     ? licence.error.message
     : licence.data && !licence.data.ok
-      ? licence.data.message
+      ? pickMessage(licence.data, locale)
       : null;
   if (failureMessage) {
     return (
@@ -99,7 +100,7 @@ export function LicenceStatusNotice() {
       {data.code === "LIC-OK" ? null : (
         <Card className="mb-[14px] border-warning bg-warning-soft p-[14px]">
           <div className="text-[13px] font-semibold text-ink">{t("licence.problem")}</div>
-          <p className="mt-1 text-[12.5px] text-ink">{data.messageAr}</p>
+          <p className="mt-1 text-[12.5px] text-ink">{pickLocalized(data.messageAr, data.messageEn, locale)}</p>
           {data.expiresAt ? (
             <p className="mt-1 text-[12px] text-ink-muted">
               {t("licence.expiryDate")}{" "}
@@ -218,7 +219,7 @@ function VerbatimFact({
  * lan-host.ts) reads as unknown, not as `https://0.0.0.0:4173`.
  */
 function LanAddress() {
-  const { t } = useAppTranslation();
+  const { t, locale } = useAppTranslation();
   const desktop = isDesktopHost();
   const licence = useDesktopLicence();
   const [copied, setCopied] = useState<"address" | "fingerprint" | null>(null);
@@ -231,7 +232,7 @@ function LanAddress() {
   } else if (!licence.data) {
     body = line(t("common.loading"));
   } else if (!licence.data.ok) {
-    body = line(licence.data.message, true);
+    body = line(pickMessage(licence.data, locale), true);
   } else if (!licence.data.lan.listening) {
     // lan-ux (N-5): four faults, four different fixes. «الشبكة المحلية غير
     // مشغّلة» named none of them and the distinguishing reason went to a
@@ -368,7 +369,7 @@ function ReachabilityTest() {
  * anybody having to know an IP address at all.
  */
 function ClientHostAddress() {
-  const { t } = useAppTranslation();
+  const { t, locale } = useAppTranslation();
   const [hostUrl, setHostUrl] = useState<string | null>(null);
   const [typed, setTyped] = useState("");
   const [busy, setBusy] = useState(false);
@@ -391,7 +392,7 @@ function ClientHostAddress() {
     const res = await pairing({ kind: "relocate", accept: address }).catch(() => null);
     setBusy(false);
     if (res?.kind === "relocate" && res.ok) setNotice(t("devices.hostUrl.saved"));
-    else setNotice(res?.kind === "relocate" ? res.message : t("devices.hostUrl.failed"));
+    else setNotice(res?.kind === "relocate" ? pickMessage(res, locale) : t("devices.hostUrl.failed"));
   }
 
   return (
@@ -422,7 +423,7 @@ function ClientHostAddress() {
                   setTyped(res.found);
                   setNotice(t("devices.hostUrl.found", { address: res.found }));
                 } else {
-                  setNotice(res?.kind === "relocate" ? res.message : t("devices.hostUrl.failed"));
+                  setNotice(res?.kind === "relocate" ? pickMessage(res, locale) : t("devices.hostUrl.failed"));
                 }
               })
               .catch(() => {

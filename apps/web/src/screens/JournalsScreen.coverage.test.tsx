@@ -225,7 +225,7 @@ describe("JournalsScreen — deep links and load failures", () => {
   it("offers a retry when the register cannot be loaded", async () => {
     const listPath = { current: "" };
     renderScreen({ listStatus: 500, listPath });
-    expect(await screen.findByText("تعذّر تحميل القيود المحاسبية.")).toBeInTheDocument();
+    expect(await screen.findByText(/تعذّر الاتصال بالخادم/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "إعادة المحاولة" }));
     await waitFor(() => expect(listPath.current).not.toBe(""));
   });

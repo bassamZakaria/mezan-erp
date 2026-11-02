@@ -1,3 +1,4 @@
+import { splitReasons, type ReasonInput } from "../bilingual-reasons.js";
 /** Typed errors for the manufacturing module (docs/archive/catalog/07). Each carries a
  *  stable machine `code` the API maps to an HTTP status. */
 
@@ -7,6 +8,14 @@ const WORK_ORDER_STAGE_AR: Readonly<Record<string, string>> = {
   materials_issued: "صرف المواد",
   product_received: "استلام المنتج",
   completed: "مكتمل",
+};
+
+const WORK_ORDER_STAGE_EN: Readonly<Record<string, string>> = {
+  not_started: "Not started",
+  started: "Started",
+  materials_issued: "Materials issued",
+  product_received: "Product received",
+  completed: "Completed",
 };
 
 function workOrderStageAr(stage: string): string {
@@ -41,7 +50,7 @@ function formulaFragmentAr(message: string): string {
   if ((m = message.match(/^unknown function "(.*)"$/))) return `دالة غير معروفة "${quoted(m)}"`;
   if ((m = message.match(/^unknown variable "(.*)"$/))) return `متغيّر غير معروف "${quoted(m)}"`;
   if ((m = message.match(/^(.+)\(\) expects (\d+) argument\(s\), got (\d+)$/))) {
-    return `الدالة ${m[1]}() تتطلب ${m[2]} وسيطاً، ووُرد ${m[3]}`;
+    return `عدد وسائط الدالة ${m[1]}() يجب أن يكون ${m[2]}، والمُدخَل ${m[3]}`;
   }
 
   return message;
@@ -90,9 +99,12 @@ export class ConfigInstanceNotFoundError extends Error {
 export class InvalidManufacturingDocumentError extends Error {
   readonly code = "INVALID_MANUFACTURING_DOCUMENT";
   readonly messageEn: string;
-  constructor(readonly reasons: readonly string[]) {
-    super(`بيانات مستند التصنيع غير صالحة: ${reasons.join("، ")}`);
-    this.messageEn = `Invalid manufacturing document: ${reasons.join("; ")}`;
+  readonly reasons: readonly string[];
+  constructor(reasons: readonly ReasonInput[]) {
+    const split = splitReasons(reasons, "it failed validation");
+    super(`بيانات مستند التصنيع غير صالحة: ${split.ar.join("، ")}`);
+    this.reasons = split.ar;
+    this.messageEn = `Invalid manufacturing document: ${split.en}`;
     this.name = "InvalidManufacturingDocumentError";
   }
 }
@@ -109,7 +121,7 @@ export class WorkOrderStageError extends Error {
     readonly stage: string,
   ) {
     super(`لا يمكن تنفيذ الإجراء "${action}" وأمر التصنيع في مرحلة "${workOrderStageAr(stage)}".`);
-    this.messageEn = `Action "${action}" is not allowed while the work order is at stage "${stage}".`;
+    this.messageEn = `Action "${action}" is not allowed while the work order is at stage "${WORK_ORDER_STAGE_EN[stage] ?? stage}".`;
     this.name = "WorkOrderStageError";
   }
 }

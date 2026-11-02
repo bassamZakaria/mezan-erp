@@ -35,20 +35,23 @@ export interface CreditCheckResult {
   /** projectedBalance − creditLimit, floored at zero. */
   readonly overBy: Money;
   readonly message: string | null;
+  readonly messageEn: string | null;
 }
 
 export function checkCustomerCredit(input: CreditCheckInput): CreditCheckResult {
   const projectedBalance = input.currentBalance.add(input.newExposure);
 
   if (!input.enabled || input.creditLimit.scaled <= 0n || projectedBalance.scaled <= input.creditLimit.scaled) {
-    return { status: "ok", projectedBalance, overBy: Money.zero(), message: null };
+    return { status: "ok", projectedBalance, overBy: Money.zero(), message: null, messageEn: null };
   }
 
   const overBy = Money.fromScaled(projectedBalance.scaled - input.creditLimit.scaled);
   const message = `تجاوز الحد الائتماني بمبلغ ${overBy.toString()} — الحد ${input.creditLimit.toString()}، الرصيد المتوقع بعد هذه الفاتورة ${projectedBalance.toString()}.`;
 
+  const messageEn = `Credit limit exceeded by ${overBy.toString()} — limit ${input.creditLimit.toString()}, projected balance after this invoice ${projectedBalance.toString()}.`;
+
   if (input.mode === "BLOCK") {
-    return { status: "blocked", projectedBalance, overBy, message };
+    return { status: "blocked", projectedBalance, overBy, message, messageEn };
   }
-  return { status: "warning", projectedBalance, overBy, message };
+  return { status: "warning", projectedBalance, overBy, message, messageEn };
 }

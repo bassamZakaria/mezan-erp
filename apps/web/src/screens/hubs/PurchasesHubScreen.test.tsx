@@ -133,7 +133,7 @@ describe("PurchasesHubScreen", () => {
       </TestNavigation>,
       { transport, initialSession: testAdminSession },
     );
-    expect(await screen.findByRole("alert")).toHaveTextContent("تعذّر تحميل بيانات المشتريات.");
+    expect(await screen.findByRole("alert")).toHaveTextContent("تعذّر تحميل أوامر الشراء. (رمز 500)");
     await waitFor(() => expect(screen.queryByText("INTERNAL")).not.toBeInTheDocument());
   });
 

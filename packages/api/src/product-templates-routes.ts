@@ -1,3 +1,4 @@
+import { messageEnOf } from "./observability/error-message-backfill.js";
 import { postingRefusalResponse } from "./posting-refusal.js";
 import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
@@ -93,8 +94,7 @@ function serializeVariant(variant: ProductTemplateVariant) {
 }
 
 function withMessageEn(err: { code: string; message: string }) {
-  const messageEn = (err as { messageEn?: string }).messageEn;
-  return { error: err.code, message: err.message, ...(messageEn ? { messageEn } : {}) };
+  return { error: err.code, message: err.message, messageEn: messageEnOf(err) };
 }
 
 function handleDomainError(c: Context, err: unknown) {
@@ -181,7 +181,7 @@ export function createProductTemplatesRoutes(
       const nameAr = fromRegistry?.nameAr ?? parsed.data.nameAr;
       const values = parsed.data.values ?? fromRegistry?.values;
       if (!nameAr || !values) {
-        return c.json({ error: "VALIDATION_ERROR", message: "اسم الخاصية وقيمها مطلوبة." }, 400);
+        return c.json({ error: "VALIDATION_ERROR", message: "اسم الخاصية وقيمها مطلوبة.", messageEn: "The attribute name and its values are required." }, 400);
       }
       const template = await addTemplateAttribute(
         {

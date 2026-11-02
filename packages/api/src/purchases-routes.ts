@@ -1,3 +1,4 @@
+import { messageEnOf } from "./observability/error-message-backfill.js";
 import { postingRefusalResponse } from "./posting-refusal.js";
 import { Hono, type Context } from "hono";
 import {
@@ -393,13 +394,13 @@ function handleDomainError(c: Context, err: unknown): Response {
     err instanceof GoodsReceiptNotFoundError ||
     err instanceof PurchaseInvoiceNotFoundError
   ) {
-    return c.json({ error: err.code, message: err.message }, 404);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 404);
   }
   if (
     err instanceof PurchaseDocumentNotDraftError ||
     err instanceof PurchaseOrderNotReceivableError
   ) {
-    return c.json({ error: err.code, message: err.message }, 409);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
   }
   if (
     err instanceof InvalidPurchaseDocumentError ||
@@ -428,7 +429,7 @@ function handleDomainError(c: Context, err: unknown): Response {
   // sales, voucher and journal routes all map these; leaving them out here made
   // a closed period answer 500 on this one module alone (D20).
   if (err instanceof InvalidJournalEntryError) {
-    return c.json({ error: err.code, message: err.message, ...(err.messageEn ? { messageEn: err.messageEn } : {}) }, 422);
+    return c.json({ error: err.code, message: err.message, messageEn: messageEnOf(err, 422) }, 422);
   }
   if (
     err instanceof AccountNotFoundError ||
@@ -446,7 +447,7 @@ function handleDomainError(c: Context, err: unknown): Response {
     err instanceof InvalidDocumentError ||
     err instanceof AllocationMismatchError
   ) {
-    return c.json({ error: err.code, message: err.message }, 422);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 422);
   }
   throw err;
 }
@@ -648,7 +649,7 @@ export function createPurchasesRoutes(
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
     const orderCurrencyRefusal = await deps.currencyCheck?.(parsed.data.currency);
-    if (orderCurrencyRefusal) return c.json({ error: "CURRENCY_NOT_ALLOWED", message: orderCurrencyRefusal }, 422);
+    if (orderCurrencyRefusal) return c.json({ error: "CURRENCY_NOT_ALLOWED", message: orderCurrencyRefusal.message, messageEn: orderCurrencyRefusal.messageEn }, 422);
     const orderItemRefusal = await refuseUnknownItems(c, deps.itemCheck, parsed.data.lines.map((l) => l.itemId));
     if (orderItemRefusal) return orderItemRefusal;
     const orderPartyRefusal = await refuseUnknownMasterData(c, deps.masterData, [
@@ -1299,7 +1300,7 @@ export function createPurchasesRoutes(
     }
     if (!deps.pay) {
       return c.json(
-        { error: "PAYMENT_UNAVAILABLE", message: "السداد يتطلب سند صرف؛ وحدة الخزينة غير مفعّلة." },
+        { error: "PAYMENT_UNAVAILABLE", message: "السداد يتطلب سند صرف؛ وحدة الخزينة غير مفعّلة.", messageEn: "Payment requires a payment voucher; the treasury module is not enabled." },
         503,
       );
     }
@@ -1366,7 +1367,7 @@ export function createPurchasesRoutes(
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
     const invoiceCurrencyRefusal = await deps.currencyCheck?.(parsed.data.currency);
-    if (invoiceCurrencyRefusal) return c.json({ error: "CURRENCY_NOT_ALLOWED", message: invoiceCurrencyRefusal }, 422);
+    if (invoiceCurrencyRefusal) return c.json({ error: "CURRENCY_NOT_ALLOWED", message: invoiceCurrencyRefusal.message, messageEn: invoiceCurrencyRefusal.messageEn }, 422);
     // Only caller-supplied lines are checked: an expense or freight line carries
     // no item at all, and a from-receipt build reuses ids already in the books.
     const invoiceItemRefusal = await refuseUnknownItems(
@@ -1413,6 +1414,7 @@ export function createPurchasesRoutes(
               permission: "purchases.receipt.edit_cost",
               items: restated.map((l) => l.itemId),
               message: "تكلفة الفاتورة تختلف عن تكلفة الاستلام، وتعديلها يتطلب صلاحية تعديل تكلفة الاستلام.",
+              messageEn: "The invoice cost differs from the receipt cost, and changing it requires permission to edit the receipt cost.",
             },
             403,
           );
@@ -1479,7 +1481,7 @@ export function createPurchasesRoutes(
 
   app.post("/invoices/:id/lines/:lineId/classify-tax", gate("purchases.invoice.classify_tax"), async (c) => {
     if (!deps.taxTags || !deps.taxRates) {
-      return c.json({ error: "TAX_CLASSIFICATION_NOT_CONFIGURED", message: "تصنيف ضريبة البنود غير مُفعّل على هذا الخادم." }, 501);
+      return c.json({ error: "TAX_CLASSIFICATION_NOT_CONFIGURED", message: "تصنيف ضريبة البنود غير مُفعّل على هذا الخادم.", messageEn: "Line tax classification is not enabled on this server." }, 501);
     }
     const existing = await visibleInvoice(c);
     if (!existing) return c.json(NOT_FOUND_BODY, 404);
@@ -1514,10 +1516,10 @@ export function createPurchasesRoutes(
   app.post("/invoices/:id/lines/:lineId/journal-tax", gate("purchases.invoice.classify_tax"), async (c) => {
     const ctx = getAuthContext(c);
     if (!ctx || !can(ctx, "accounting.journal.view")) {
-      return c.json({ error: "FORBIDDEN", message: "تسمية ضريبة سطر القيد تتطلب صلاحية عرض قيود اليومية." }, 403);
+      return c.json({ error: "FORBIDDEN", message: "تسمية ضريبة سطر القيد تتطلب صلاحية عرض قيود اليومية.", messageEn: "Naming the tax of a journal line requires permission to view journal entries." }, 403);
     }
     if (!deps.taxTags || !deps.taxRates) {
-      return c.json({ error: "TAX_CLASSIFICATION_NOT_CONFIGURED", message: "تصنيف ضريبة البنود غير مُفعّل على هذا الخادم." }, 501);
+      return c.json({ error: "TAX_CLASSIFICATION_NOT_CONFIGURED", message: "تصنيف ضريبة البنود غير مُفعّل على هذا الخادم.", messageEn: "Line tax classification is not enabled on this server." }, 501);
     }
     const existing = await visibleInvoice(c);
     if (!existing) return c.json(NOT_FOUND_BODY, 404);

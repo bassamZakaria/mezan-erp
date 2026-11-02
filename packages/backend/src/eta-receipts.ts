@@ -107,14 +107,21 @@ export interface EtaReceiptIssuerDeps {
 export interface EtaReceiptCorrection {
   readonly outcome: TaxClassificationFilingOutcome;
   readonly message?: string;
+  readonly messageEn?: string;
 }
 
 const ARABIC_TEXT = /[\u0600-\u06FF]/;
 const RECEIPT_FAILURE_FALLBACK = "راجع تسجيل جهاز الإيصالات واتصاله بالمنظومة ثم أعد المحاولة.";
+const RECEIPT_FAILURE_FALLBACK_EN = "Check the receipt device's registration and its connection to the system, then try again.";
 
 function receiptFailureReason(error: unknown): string {
   const message = error instanceof Error ? error.message : "";
   return ARABIC_TEXT.test(message) ? message : RECEIPT_FAILURE_FALLBACK;
+}
+
+function receiptFailureReasonEn(error: unknown): string {
+  const messageEn = (error as { readonly messageEn?: unknown } | null)?.messageEn;
+  return typeof messageEn === "string" && messageEn !== "" ? messageEn : RECEIPT_FAILURE_FALLBACK_EN;
 }
 
 // INVARIANT: the classification has already committed when this runs, so a
@@ -128,12 +135,14 @@ export function createAfterTaxClassified(deps: {
   const log = deps.log ?? ((message: string, error: unknown) => etaLog.error({ err: error }, message));
   return async (invoiceId) => {
     const failures: string[] = [];
+    const failuresEn: string[] = [];
     let correction: EtaReceiptCorrection | null = null;
     try {
       correction = await deps.receipts.correctInvoiceReceiptAfterClassification(invoiceId);
     } catch (error) {
       log(`[eta] could not issue the receipt of ${invoiceId} after its tax was classified`, error);
       failures.push(receiptFailureReason(error));
+      failuresEn.push(receiptFailureReasonEn(error));
     }
     for (const returned of await deps.returnsOf(invoiceId)) {
       if (!isStandingReturn(returned)) continue;
@@ -143,10 +152,15 @@ export function createAfterTaxClassified(deps: {
       } catch (error) {
         log(`[eta] could not issue the refund receipt of ${returned.id} after its tax was classified`, error);
         failures.push(`تعذّر إصدار إيصال المرتجع ${returned.docNo ?? returned.id}: ${receiptFailureReason(error)}`);
+        failuresEn.push(`The refund receipt of ${returned.docNo ?? returned.id} could not be issued: ${receiptFailureReasonEn(error)}`);
       }
     }
     if (failures.length === 0) return correction;
-    return { outcome: TaxClassificationFilingOutcome.ReissueFailed, message: [correction?.message, ...failures].filter(Boolean).join(" ") };
+    return {
+      outcome: TaxClassificationFilingOutcome.ReissueFailed,
+      message: [correction?.message, ...failures].filter(Boolean).join(" "),
+      messageEn: [correction?.messageEn, ...failuresEn].filter(Boolean).join(" "),
+    };
   };
 }
 
@@ -460,7 +474,7 @@ export function createEtaReceiptIssuer(deps: EtaReceiptIssuerDeps): EtaReceiptIs
           return { outcome: TaxClassificationFilingOutcome.Reissued };
         }
       } catch (error) {
-        if (error instanceof EtaReissueWindowExpiredError) return { outcome: TaxClassificationFilingOutcome.ReissueRefused, message: error.message };
+        if (error instanceof EtaReissueWindowExpiredError) return { outcome: TaxClassificationFilingOutcome.ReissueRefused, message: error.message, messageEn: error.messageEn };
         throw error;
       }
       const invoice = await deps.invoices.findById(invoiceId);

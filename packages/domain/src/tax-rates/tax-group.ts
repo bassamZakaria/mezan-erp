@@ -1,5 +1,6 @@
 import { InvalidTaxGroupError } from "./errors.js";
 import type { TaxRateStatus } from "./tax-rate.js";
+import type { ReasonInput } from "../bilingual-reasons.js";
 
 /**
  * مجموعات الضرائب — a named set of tax rates applied together (R6.4).
@@ -37,20 +38,20 @@ export interface TaxGroupRepository {
   update(group: TaxGroup): Promise<void>;
 }
 
-export function collectTaxGroupErrors(group: TaxGroup): string[] {
-  const reasons: string[] = [];
-  if (group.code.trim() === "") reasons.push("كود المجموعة مطلوب");
-  if (group.nameAr.trim() === "") reasons.push("اسم المجموعة مطلوب");
+export function collectTaxGroupErrors(group: TaxGroup): ReasonInput[] {
+  const reasons: ReasonInput[] = [];
+  if (group.code.trim() === "") reasons.push({ ar: "كود المجموعة مطلوب", en: "The group code is required" });
+  if (group.nameAr.trim() === "") reasons.push({ ar: "اسم المجموعة مطلوب", en: "The group name is required" });
   // A group with no members is not a group; it would silently apply no tax at
   // all to every line that chose it.
-  if (group.members.length === 0) reasons.push("المجموعة يجب أن تحتوي على ضريبة واحدة على الأقل");
+  if (group.members.length === 0) reasons.push({ ar: "المجموعة يجب أن تحتوي على ضريبة واحدة على الأقل", en: "The group must contain at least one tax" });
 
   const seen = new Set<string>();
   for (const member of group.members) {
-    if (member.taxRateId.trim() === "") reasons.push("معرف الضريبة مطلوب");
+    if (member.taxRateId.trim() === "") reasons.push({ ar: "معرف الضريبة مطلوب", en: "The tax id is required" });
     // The same rate twice would double-charge it with nothing on screen
     // explaining why the total is wrong.
-    else if (seen.has(member.taxRateId)) reasons.push(`الضريبة ${member.taxRateId} مكررة داخل المجموعة`);
+    else if (seen.has(member.taxRateId)) reasons.push({ ar: `الضريبة ${member.taxRateId} مكررة داخل المجموعة`, en: `The tax ${member.taxRateId} is duplicated within the group` });
     seen.add(member.taxRateId);
   }
   return reasons;

@@ -8,6 +8,7 @@ import { useAppTranslation, type AppTranslationKey } from "../../i18n";
 import { WEB_TRANSLATION_KEYS } from "../../i18n/catalog";
 import { pathForRoute } from "../../routing";
 import type { ScreenKey } from "../../router/screens";
+import { errorMessage } from "../../lib/error-message";
 
 /**
  * The drill-down panel a report cell opens (A5).
@@ -117,7 +118,7 @@ export function ReportDrillDownPanel({
         <p className="p-[21px] text-[12.5px] text-ink-muted">{t("reportDrill.loading")}</p>
       ) : query.isError ? (
         <p role="alert" className="p-[21px] text-[12.5px] text-danger-ink">
-          {t("reportDrill.failed")}
+          {errorMessage(query.error, t("reportDrill.failed"))}
         </p>
       ) : data ? (
         <div className="flex flex-col gap-[18px] p-[21px]">

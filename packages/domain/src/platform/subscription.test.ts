@@ -206,10 +206,9 @@ describe("lifecycle", () => {
 
   it("changePlan on a cancelled subscription rejects, naming both states", async () => {
     const repo = await started("cancelled");
-    await expect(changePlan({ id: "S1", planId: "P1", now: LATER }, repo, plans(plan())))
-      .rejects.toThrow(/cancelled/);
-    await expect(changePlan({ id: "S1", planId: "P1", now: LATER }, repo, plans(plan())))
-      .rejects.toThrow(/active/);
+    const err = await changePlan({ id: "S1", planId: "P1", now: LATER }, repo, plans(plan())).catch((e: unknown) => e);
+    expect((err as { messageEn: string }).messageEn).toMatch(/cancelled/);
+    expect((err as { messageEn: string }).messageEn).toMatch(/active/);
   });
 
   it("reports a missing subscription", async () => {

@@ -66,7 +66,7 @@ export type SavePdfResult =
   | { readonly ok: true; readonly path: string }
   /** The operator dismissed the save dialog — not an error, and not a toast. */
   | { readonly ok: false; readonly cancelled: true }
-  | { readonly ok: false; readonly cancelled: false; readonly message: string };
+  | { readonly ok: false; readonly cancelled: false; readonly message: string; readonly messageEn?: string };
 
 /**
  * BACKUP AND RESTORE, over IPC rather than HTTP.
@@ -173,6 +173,7 @@ export interface BackupFailure {
   readonly code: BackupFailureCode;
   /** Arabic, ready to render. Never show `code` to a user. */
   readonly message: string;
+  readonly messageEn?: string;
 }
 
 export type BackupCreateResult = { readonly ok: true; readonly entry: BackupEntryDTO } | BackupFailure;
@@ -422,6 +423,7 @@ export interface LicenceCheckinResult {
   readonly daysSince: number;
   /** Arabic, ready to render. */
   readonly messageAr: string;
+  readonly messageEn?: string;
 }
 
 /**
@@ -504,6 +506,7 @@ export interface LicenceStatusDTO {
   readonly code: LicenceCode;
   /** Arabic, ready to render as-is. */
   readonly messageAr: string;
+  readonly messageEn?: string;
   /** The VERIFIED state the write gate is running under — never a second reading. */
   readonly state: LicenceStateDTO;
   /** Machine reason behind `state` (`CHECKIN_OVERDUE`, `MACHINE_NOT_BOUND`, …), or null. */
@@ -553,6 +556,7 @@ export interface LicenceStatusFailure {
   readonly code: "UNAUTHORIZED" | "UNAVAILABLE";
   /** Arabic, ready to render. Never show `code` to a user on its own. */
   readonly message: string;
+  readonly messageEn?: string;
 }
 
 export type LicenceStatusResult = LicenceStatusDTO | LicenceStatusFailure;
@@ -583,6 +587,7 @@ export type LicenceImportResult =
       readonly code: "UNAUTHORIZED" | "CANCELLED" | "UNREADABLE" | "FAILED";
       /** Arabic, ready to render. */
       readonly message: string;
+      readonly messageEn?: string;
     };
 
 /**
@@ -646,6 +651,7 @@ export type SupportActionResult =
       readonly code: "UNAUTHORIZED" | "CANCELLED" | "NOT_FOUND" | "FAILED";
       /** Arabic, ready to render. */
       readonly message: string;
+      readonly messageEn?: string;
     };
 
 /**
@@ -759,6 +765,7 @@ export type PairingProbeResult =
       readonly code: "REFUSED" | "TIMEOUT" | "UNREACHABLE";
       /** Arabic, ready to render. */
       readonly message: string;
+      readonly messageEn?: string;
     };
 
 export type PairingConfirmResult =
@@ -769,7 +776,7 @@ export type PairingConfirmResult =
       readonly fingerprintSha256: string;
       readonly deviceLabel: string;
     }
-  | { readonly kind: "confirm"; readonly ok: false; readonly message: string };
+  | { readonly kind: "confirm"; readonly ok: false; readonly message: string; readonly messageEn?: string };
 
 export type PairingRelocateResult =
   | {
@@ -780,7 +787,7 @@ export type PairingRelocateResult =
       /** True once it has been written and the app is about to relaunch. */
       readonly applied: boolean;
     }
-  | { readonly kind: "relocate"; readonly ok: false; readonly message: string };
+  | { readonly kind: "relocate"; readonly ok: false; readonly message: string; readonly messageEn?: string };
 
 export interface PairingSelfTestResult {
   readonly kind: "selftest";

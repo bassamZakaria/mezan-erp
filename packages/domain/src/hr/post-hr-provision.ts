@@ -40,6 +40,7 @@ export type HrProvisionKind = "leave";
 export interface HrProvisionDefinition {
   readonly kind: HrProvisionKind;
   readonly labelAr: string;
+  readonly labelEn: string;
   readonly expenseAccountId: string;
   readonly liabilityAccountId: string;
   readonly sourceDocType: string;
@@ -49,6 +50,7 @@ export const HR_PROVISION_DEFINITIONS: readonly HrProvisionDefinition[] = [
   {
     kind: "leave",
     labelAr: "مخصص التزام الإجازات",
+    labelEn: "Leave obligation provision",
     // Leave that is paid out is wages, so it accrues against the salary
     // expense account rather than an account of its own.
     expenseAccountId: "5120",
@@ -59,7 +61,7 @@ export const HR_PROVISION_DEFINITIONS: readonly HrProvisionDefinition[] = [
 
 export function getHrProvisionDefinition(kind: HrProvisionKind): HrProvisionDefinition {
   const definition = HR_PROVISION_DEFINITIONS.find((d) => d.kind === kind);
-  if (!definition) throw new InvalidPayrollRunError([`نوع مخصص غير معروف: ${kind}`]);
+  if (!definition) throw new InvalidPayrollRunError([{ ar: "نوع المخصص غير معروف.", en: "Unknown provision type." }]);
   return definition;
 }
 
@@ -94,7 +96,7 @@ export async function postHrProvision(cmd: PostHrProvisionCommand, deps: PostHrP
   const definition = getHrProvisionDefinition(cmd.kind);
   const movement = hrProvisionMovement(cmd.computedTotal, cmd.postedBalance);
   if (movement.scaled === 0n) {
-    throw new InvalidPayrollRunError([`${definition.labelAr} مطابق للمُقيَّد بالفعل — لا يوجد فرق يُرحَّل.`]);
+    throw new InvalidPayrollRunError([{ ar: `${definition.labelAr} مطابق للمُقيَّد بالفعل — لا يوجد فرق يُرحَّل.`, en: `${definition.labelEn} already matches the amount recorded — there is no difference to post.` }]);
   }
 
   const growing = movement.scaled > 0n;

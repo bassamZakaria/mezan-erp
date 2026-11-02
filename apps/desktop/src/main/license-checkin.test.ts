@@ -9,6 +9,7 @@ import {
   attemptCheckin,
   checkinFailureMessageAr,
   checkinMessageAr,
+  checkinMessageEn,
   createLicenseGuardStore,
   decideCheckin,
   guardFilePath,
@@ -142,6 +143,13 @@ describe("the online check-in window", () => {
     expect(checkinMessageAr("read-only", 9)).toContain("تصديرها");
     expect(checkinMessageAr("blocked", 40)).toContain("40");
     expect(checkinMessageAr("revoked", 0)).toContain("إلغاء");
+  });
+
+  it("says the same, in English, with singular and plural days", () => {
+    expect(checkinMessageEn("read-only", 9)).toContain("9 days");
+    expect(checkinMessageEn("blocked", 1)).toContain("for 1 day.");
+    expect(checkinMessageEn("revoked", 0)).toContain("revoked");
+    expect(checkinMessageEn("ok", 0)).toBe("The licence is valid.");
   });
 });
 

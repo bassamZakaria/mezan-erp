@@ -1,6 +1,6 @@
 import type { Context, MiddlewareHandler } from "hono";
 import {
-  hasModule, hasReadOnlyModule, moduleNotLicensedMessageAr, parentOf, SUB_MODULE_NAMES, moduleReadOnlyRefusal, MODULE_NAME_AR as DOMAIN_MODULE_NAME_AR, MODULES,
+  hasModule, hasReadOnlyModule, moduleNotLicensedMessageAr, moduleNotLicensedMessageEn, parentOf, SUB_MODULE_NAMES, moduleReadOnlyRefusal, MODULE_NAME_AR as DOMAIN_MODULE_NAME_AR, MODULE_NAME_EN, MODULES,
   type Entitlements, type ModuleReadOnlyRefusal, type PlanLabel,
 } from "@mezan/domain";
 import { POS_MODULE_ROUTES } from "./pos/route-prefixes.js";
@@ -162,7 +162,7 @@ export function readOnlyModuleOutcome(
 }
 
 /** The 403 body a permission gate answers with when its permission's module isn't licensed. */
-export function moduleRefusal(moduleId: string): { error: "MODULE_NOT_LICENSED"; module: string; message: string } {
+export function moduleRefusal(moduleId: string): { error: "MODULE_NOT_LICENSED"; module: string; message: string; messageEn: string } {
   const parent = parentOf(moduleId);
   if (parent !== null) {
     const parentAr = MODULES.find((m) => m.id === parent)?.labelAr ?? parent;
@@ -170,6 +170,7 @@ export function moduleRefusal(moduleId: string): { error: "MODULE_NOT_LICENSED";
       error: "MODULE_NOT_LICENSED",
       module: moduleId,
       message: `جزء ${SUB_MODULE_NAMES[moduleId]?.ar ?? moduleId} من ${parentAr} غير مفعّل في باقتكم`,
+      messageEn: `The ${SUB_MODULE_NAMES[moduleId]?.en ?? moduleId} part of ${MODULE_NAME_EN[parent] ?? parent} is not enabled in your plan.`,
     };
   }
   const labelAr = MODULES.find((m) => m.id === moduleId)?.labelAr ?? moduleId;
@@ -177,6 +178,7 @@ export function moduleRefusal(moduleId: string): { error: "MODULE_NOT_LICENSED";
     error: "MODULE_NOT_LICENSED",
     module: moduleId,
     message: `وحدة ${labelAr} غير مفعّلة في باقتكم`,
+    messageEn: `The ${MODULE_NAME_EN[moduleId] ?? moduleId} module is not enabled in your plan.`,
   };
 }
 
@@ -202,6 +204,7 @@ export function createModuleGate(resolveEntitlements: EntitlementsResolver) {
             error: "MODULE_NOT_LICENSED",
             module: moduleId,
             message: moduleNotLicensedMessageAr(moduleId, entitlements?.planNameAr, MODULE_NAME_AR),
+            messageEn: moduleNotLicensedMessageEn(moduleId, entitlements?.planNameEn),
           },
           403,
         );

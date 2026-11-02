@@ -51,6 +51,7 @@ import {
   PayrollRunNotFoundError,
 } from "./errors.js";
 import { PayrollExclusionReason, inServiceDuring, payrollCapabilities, payrollEligibility, type PayrollWindow } from "./payroll-population.js";
+import type { ReasonInput } from "../bilingual-reasons.js";
 
 /**
  * The payroll calculation engine (docs/archive/catalog/06 "الرواتب").
@@ -136,9 +137,9 @@ export async function createPayrollRun(
   cmd: CreatePayrollRunCommand,
   deps: Pick<PayrollCalculationDeps, "runs" | "numbering">,
 ): Promise<PayrollRun> {
-  const reasons: string[] = [];
-  if (!Number.isInteger(cmd.year) || cmd.year < 1900) reasons.push("السنة مطلوبة");
-  if (!Number.isInteger(cmd.month) || cmd.month < 1 || cmd.month > 12) reasons.push("الشهر يجب أن يكون بين 1 و 12");
+  const reasons: ReasonInput[] = [];
+  if (!Number.isInteger(cmd.year) || cmd.year < 1900) reasons.push({ ar: "السنة مطلوبة", en: "The year is required" });
+  if (!Number.isInteger(cmd.month) || cmd.month < 1 || cmd.month > 12) reasons.push({ ar: "الشهر يجب أن يكون بين 1 و 12", en: "The month must be between 1 and 12" });
   if (reasons.length > 0) throw new InvalidPayrollRunError(reasons);
 
   const branchId = cmd.branchId ?? null;

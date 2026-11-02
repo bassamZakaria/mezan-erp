@@ -1,3 +1,4 @@
+import { splitReasons, type ReasonInput } from "../bilingual-reasons.js";
 /**
  * وردية — a named time-of-day period. A reporting taxonomy only: the POS
  * reports bucket sales and cash movements by it, and HR assigns it to people.
@@ -17,8 +18,13 @@ export interface ShiftTemplate {
 
 export class InvalidShiftTemplateError extends Error {
   readonly code = "INVALID_SHIFT_TEMPLATE";
-  constructor(readonly reasons: readonly string[]) {
-    super(reasons.join("، "));
+  readonly reasons: readonly string[];
+  readonly messageEn: string;
+  constructor(reasons: readonly ReasonInput[]) {
+    const split = splitReasons(reasons, "The shift template is invalid.");
+    super(split.ar.join("، "));
+    this.reasons = split.ar;
+    this.messageEn = split.en;
     this.name = "InvalidShiftTemplateError";
   }
 }
@@ -50,13 +56,13 @@ export function buildShiftTemplate(id: string, input: ShiftTemplateInput): Shift
     branchId: input.branchId?.trim() ? input.branchId.trim() : null,
     active: input.active ?? true,
   };
-  const reasons: string[] = [];
-  if (template.nameAr === "") reasons.push("اسم الوردية مطلوب");
+  const reasons: ReasonInput[] = [];
+  if (template.nameAr === "") reasons.push({ ar: "اسم الوردية مطلوب", en: "The shift name is required" });
   const from = minutesOfDay(template.fromTime);
   const to = minutesOfDay(template.toTime);
-  if (from === null) reasons.push("وقت البداية بالشكل 08:00");
-  if (to === null) reasons.push("وقت النهاية بالشكل 16:00");
-  if (from !== null && to !== null && from === to) reasons.push("البداية والنهاية لا تتساويان");
+  if (from === null) reasons.push({ ar: "وقت البداية بالشكل 08:00", en: "The start time must be in the form 08:00" });
+  if (to === null) reasons.push({ ar: "وقت النهاية بالشكل 16:00", en: "The end time must be in the form 16:00" });
+  if (from !== null && to !== null && from === to) reasons.push({ ar: "البداية والنهاية لا تتساويان", en: "The start and end cannot be the same" });
   if (reasons.length > 0) throw new InvalidShiftTemplateError(reasons);
   return template;
 }

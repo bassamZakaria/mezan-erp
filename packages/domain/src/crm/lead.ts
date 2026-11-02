@@ -13,19 +13,24 @@ export type LeadSource = "website" | "referral" | "phone" | "social" | "other";
 export interface LeadStatusDefinition {
   readonly code: LeadStatus;
   readonly labelAr: string;
+  readonly labelEn: string;
 }
 
 export const LEAD_STATUS_DEFINITIONS: readonly LeadStatusDefinition[] = [
-  { code: "new", labelAr: "جديد" },
-  { code: "contacted", labelAr: "تم التواصل" },
-  { code: "qualified", labelAr: "مؤهل" },
-  { code: "converted", labelAr: "محول" },
-  { code: "lost", labelAr: "خسارة" },
-  { code: "unqualified", labelAr: "غير مؤهل" },
+  { code: "new", labelAr: "جديد", labelEn: "new" },
+  { code: "contacted", labelAr: "تم التواصل", labelEn: "contacted" },
+  { code: "qualified", labelAr: "مؤهل", labelEn: "qualified" },
+  { code: "converted", labelAr: "محول", labelEn: "converted" },
+  { code: "lost", labelAr: "خسارة", labelEn: "lost" },
+  { code: "unqualified", labelAr: "غير مؤهل", labelEn: "unqualified" },
 ] as const;
 
 export function getLeadStatusLabel(status: LeadStatus): string {
   return LEAD_STATUS_DEFINITIONS.find((d) => d.code === status)?.labelAr ?? status;
+}
+
+export function getLeadStatusLabelEn(status: LeadStatus): string {
+  return LEAD_STATUS_DEFINITIONS.find((d) => d.code === status)?.labelEn ?? status;
 }
 
 export interface LeadSourceDefinition {

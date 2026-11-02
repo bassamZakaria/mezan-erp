@@ -8,6 +8,7 @@ const RESERVED_TENANT_CODES: ReadonlySet<string> = new Set(["platform", "tenants
 const RELEASED_CODE_PREFIX = "released-";
 
 export const RESERVED_TENANT_CODE_MESSAGE = "رمز المنشأة محجوز للنظام. اختر رمزًا آخر.";
+export const RESERVED_TENANT_CODE_MESSAGE_EN = "This company code is reserved by the system. Choose another code.";
 
 // SECURITY: these names are addresses, folders and codes the platform itself
 // uses. A company signing up under one could shadow a platform route on its

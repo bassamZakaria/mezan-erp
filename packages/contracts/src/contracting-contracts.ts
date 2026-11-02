@@ -252,6 +252,7 @@ export const boqImportReviewRowSchema = z.object({
   rowNumber: z.number(),
   accepted: z.boolean(),
   problems: z.array(z.string()),
+  problemsEn: z.array(z.string()).optional(),
   code: z.string(),
   descriptionAr: z.string(),
   unit: z.string(),

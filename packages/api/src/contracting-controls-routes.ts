@@ -208,20 +208,20 @@ function handleDomainError(c: Context, err: unknown) {
   const postingRefusal = postingRefusalResponse(c, err);
   if (postingRefusal) return postingRefusal;
   if (err instanceof RetentionReleaseNotFoundError) {
-    return c.json({ error: err.code, message: err.message }, 404);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 404);
   }
   if (err instanceof InvalidRetentionReleaseError) {
-    return c.json({ error: err.code, message: err.message, reasons: err.reasons }, 422);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, reasons: err.reasons }, 422);
   }
   if (err instanceof RetentionReleaseExceedsBalanceError) {
-    return c.json({ error: err.code, message: err.message, requested: err.requested, cap: err.cap }, 422);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, requested: err.requested, cap: err.cap }, 422);
   }
   if (err instanceof InvalidRetentionReleaseTransitionError) {
-    return c.json({ error: err.code, message: err.message, from: err.from, to: err.to }, 409);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, from: err.from, to: err.to }, 409);
   }
   // A closed month is a refusal the accountant has to read, never a 500.
   if (err instanceof PeriodNotOpenForPostingError || err instanceof NoFiscalPeriodForDateError) {
-    return c.json({ error: "FISCAL_PERIOD_CLOSED", message: err.message }, 409);
+    return c.json({ error: "FISCAL_PERIOD_CLOSED", message: err.message, messageEn: err.messageEn }, 409);
   }
   throw err;
 }
@@ -441,7 +441,7 @@ export function createContractingRetentionRoutes(
 
   app.get("/headroom", gate(VIEW), async (c) => {
     const contractId = c.req.query("contractId");
-    if (!contractId) return c.json({ error: "VALIDATION_ERROR", message: "العقد مطلوب." }, 400);
+    if (!contractId) return c.json({ error: "VALIDATION_ERROR", message: "العقد مطلوب.", messageEn: "The contract is required." }, 400);
     const kind = (c.req.query("kind") ?? "provisional") as RetentionReleaseKind;
     try {
       const headroom = await service.releaseHeadroom(contractId, kind);

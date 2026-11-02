@@ -1,25 +1,52 @@
+import { splitReasons, type ReasonInput } from "../bilingual-reasons.js";
+const TENANT_STATUS_LABELS: Readonly<Record<string, { readonly ar: string; readonly en: string }>> = {
+  provisioning: { ar: "قيد التجهيز", en: "provisioning" },
+  active: { ar: "نشطة", en: "active" },
+  suspended: { ar: "موقوفة", en: "suspended" },
+  archived: { ar: "مؤرشفة", en: "archived" },
+};
+
+const SUBSCRIPTION_STATUS_LABELS: Readonly<Record<string, { readonly ar: string; readonly en: string }>> = {
+  trialing: { ar: "تجريبي", en: "trial" },
+  active: { ar: "نشط", en: "active" },
+  past_due: { ar: "متأخر السداد", en: "past due" },
+  suspended: { ar: "موقوف", en: "suspended" },
+  cancelled: { ar: "ملغى", en: "cancelled" },
+};
+
+export function subscriptionStatusLabel(status: string): { readonly ar: string; readonly en: string } {
+  return SUBSCRIPTION_STATUS_LABELS[status] ?? { ar: status, en: status };
+}
+
 export class InvalidTenantError extends Error {
   readonly code = "INVALID_TENANT";
   readonly messageEn: string;
-  constructor(readonly reasons: string[]) {
-    super(`بيانات المنشأة غير صالحة: ${reasons.join("، ")}`);
-    this.messageEn = `Invalid tenant: ${reasons.join("; ")}`;
+  readonly reasons: readonly string[];
+  constructor(reasons: readonly ReasonInput[]) {
+    const split = splitReasons(reasons, "the company failed validation");
+    super(`بيانات المنشأة غير صالحة: ${split.ar.join("، ")}`);
+    this.reasons = split.ar;
+    this.messageEn = `Invalid company: ${split.en}`;
     this.name = "InvalidTenantError";
   }
 }
 
 export class TenantNotFoundError extends Error {
   readonly code = "TENANT_NOT_FOUND";
+  readonly messageEn: string;
   constructor(readonly id: string) {
     super(`المنشأة "${id}" غير موجودة`);
+    this.messageEn = `Company "${id}" was not found`;
     this.name = "TenantNotFoundError";
   }
 }
 
 export class TenantCodeTakenError extends Error {
   readonly code = "TENANT_CODE_TAKEN";
+  readonly messageEn: string;
   constructor(readonly tenantCode: string) {
     super(`رمز المنشأة "${tenantCode}" مستخدم بالفعل`);
+    this.messageEn = `Company code "${tenantCode}" is already in use`;
     this.name = "TenantCodeTakenError";
   }
 }
@@ -35,8 +62,10 @@ export class OwnerEmailInAnotherCompanyError extends Error {
 
 export class InvalidTenantTransitionError extends Error {
   readonly code = "INVALID_TENANT_TRANSITION";
+  readonly messageEn: string;
   constructor(readonly from: string, readonly to: string) {
-    super(`لا يمكن نقل المنشأة من الحالة "${from}" إلى "${to}"`);
+    super(`لا يمكن نقل المنشأة من الحالة "${TENANT_STATUS_LABELS[from]?.ar ?? from}" إلى "${TENANT_STATUS_LABELS[to]?.ar ?? to}"`);
+    this.messageEn = `A company cannot move from status "${TENANT_STATUS_LABELS[from]?.en ?? from}" to "${TENANT_STATUS_LABELS[to]?.en ?? to}"`;
     this.name = "InvalidTenantTransitionError";
   }
 }
@@ -44,33 +73,42 @@ export class InvalidTenantTransitionError extends Error {
 export class InvalidPlanError extends Error {
   readonly code = "INVALID_PLAN";
   readonly messageEn: string;
-  constructor(readonly reasons: string[]) {
-    super(`بيانات الباقة غير صالحة: ${reasons.join("، ")}`);
-    this.messageEn = `Invalid plan: ${reasons.join("; ")}`;
+  readonly reasons: readonly string[];
+  constructor(reasons: readonly ReasonInput[]) {
+    const split = splitReasons(reasons, "the plan failed validation");
+    super(`بيانات الباقة غير صالحة: ${split.ar.join("، ")}`);
+    this.reasons = split.ar;
+    this.messageEn = `Invalid plan: ${split.en}`;
     this.name = "InvalidPlanError";
   }
 }
 
 export class PlanNotFoundError extends Error {
   readonly code = "PLAN_NOT_FOUND";
+  readonly messageEn: string;
   constructor(readonly id: string) {
     super(`الباقة "${id}" غير موجودة`);
+    this.messageEn = `Plan "${id}" was not found`;
     this.name = "PlanNotFoundError";
   }
 }
 
 export class PlanCodeTakenError extends Error {
   readonly code = "PLAN_CODE_TAKEN";
+  readonly messageEn: string;
   constructor(readonly planCode: string) {
     super(`رمز الباقة "${planCode}" مستخدم بالفعل`);
+    this.messageEn = `Plan code "${planCode}" is already in use`;
     this.name = "PlanCodeTakenError";
   }
 }
 
 export class PlanRetiredError extends Error {
   readonly code = "PLAN_RETIRED";
+  readonly messageEn: string;
   constructor(readonly id: string) {
     super(`الباقة "${id}" متوقفة ولا تقبل اشتراكات جديدة`);
+    this.messageEn = `Plan "${id}" is retired and does not accept new subscriptions`;
     this.name = "PlanRetiredError";
   }
 }
@@ -78,33 +116,42 @@ export class PlanRetiredError extends Error {
 export class InvalidSubscriptionError extends Error {
   readonly code = "INVALID_SUBSCRIPTION";
   readonly messageEn: string;
-  constructor(readonly reasons: string[]) {
-    super(`بيانات الاشتراك غير صالحة: ${reasons.join("، ")}`);
-    this.messageEn = `Invalid subscription: ${reasons.join("; ")}`;
+  readonly reasons: readonly string[];
+  constructor(reasons: readonly ReasonInput[]) {
+    const split = splitReasons(reasons, "the subscription failed validation");
+    super(`بيانات الاشتراك غير صالحة: ${split.ar.join("، ")}`);
+    this.reasons = split.ar;
+    this.messageEn = `Invalid subscription: ${split.en}`;
     this.name = "InvalidSubscriptionError";
   }
 }
 
 export class SubscriptionNotFoundError extends Error {
   readonly code = "SUBSCRIPTION_NOT_FOUND";
+  readonly messageEn: string;
   constructor(readonly id: string) {
     super(`الاشتراك "${id}" غير موجود`);
+    this.messageEn = `Subscription "${id}" was not found`;
     this.name = "SubscriptionNotFoundError";
   }
 }
 
 export class TenantAlreadySubscribedError extends Error {
   readonly code = "TENANT_ALREADY_SUBSCRIBED";
+  readonly messageEn: string;
   constructor(readonly tenantId: string) {
     super(`المنشأة "${tenantId}" لديها اشتراك ساري بالفعل`);
+    this.messageEn = `Company "${tenantId}" already has an active subscription`;
     this.name = "TenantAlreadySubscribedError";
   }
 }
 
 export class InvalidSubscriptionTransitionError extends Error {
   readonly code = "INVALID_SUBSCRIPTION_TRANSITION";
+  readonly messageEn: string;
   constructor(readonly from: string, readonly to: string) {
-    super(`لا يمكن نقل الاشتراك من الحالة "${from}" إلى "${to}"`);
+    super(`لا يمكن نقل الاشتراك من الحالة "${SUBSCRIPTION_STATUS_LABELS[from]?.ar ?? from}" إلى "${SUBSCRIPTION_STATUS_LABELS[to]?.ar ?? to}"`);
+    this.messageEn = `A subscription cannot move from status "${SUBSCRIPTION_STATUS_LABELS[from]?.en ?? from}" to "${SUBSCRIPTION_STATUS_LABELS[to]?.en ?? to}"`;
     this.name = "InvalidSubscriptionTransitionError";
   }
 }
@@ -112,9 +159,12 @@ export class InvalidSubscriptionTransitionError extends Error {
 export class InvalidPaymentError extends Error {
   readonly code = "INVALID_PAYMENT";
   readonly messageEn: string;
-  constructor(readonly reasons: string[]) {
-    super(`بيانات الدفعة غير صالحة: ${reasons.join("، ")}`);
-    this.messageEn = `Invalid payment: ${reasons.join("; ")}`;
+  readonly reasons: readonly string[];
+  constructor(reasons: readonly ReasonInput[]) {
+    const split = splitReasons(reasons, "the payment failed validation");
+    super(`بيانات الدفعة غير صالحة: ${split.ar.join("، ")}`);
+    this.reasons = split.ar;
+    this.messageEn = `Invalid payment: ${split.en}`;
     this.name = "InvalidPaymentError";
   }
 }
@@ -151,25 +201,32 @@ export class PaymentReferenceAlreadyRecordedError extends Error {
 export class InvalidPlatformUserError extends Error {
   readonly code = "INVALID_PLATFORM_USER";
   readonly messageEn: string;
-  constructor(readonly reasons: string[]) {
-    super(`بيانات مستخدم المنصة غير صالحة: ${reasons.join("، ")}`);
-    this.messageEn = `Invalid platform user: ${reasons.join("; ")}`;
+  readonly reasons: readonly string[];
+  constructor(reasons: readonly ReasonInput[]) {
+    const split = splitReasons(reasons, "the platform user failed validation");
+    super(`بيانات مستخدم المنصة غير صالحة: ${split.ar.join("، ")}`);
+    this.reasons = split.ar;
+    this.messageEn = `Invalid platform user: ${split.en}`;
     this.name = "InvalidPlatformUserError";
   }
 }
 
 export class PlatformUserEmailTakenError extends Error {
   readonly code = "PLATFORM_USER_EMAIL_TAKEN";
+  readonly messageEn: string;
   constructor(readonly email: string) {
     super(`البريد "${email}" مستخدم بالفعل`);
+    this.messageEn = `Email "${email}" is already in use`;
     this.name = "PlatformUserEmailTakenError";
   }
 }
 
 export class PlatformUserNotFoundError extends Error {
   readonly code = "PLATFORM_USER_NOT_FOUND";
+  readonly messageEn: string;
   constructor(readonly id: string) {
     super(`مستخدم المنصة "${id}" غير موجود`);
+    this.messageEn = `Platform user "${id}" was not found`;
     this.name = "PlatformUserNotFoundError";
   }
 }

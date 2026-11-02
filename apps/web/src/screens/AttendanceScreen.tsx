@@ -3,7 +3,7 @@ import { useCountPhrase } from "../lib/count-phrase";
 import { BranchGatedAction } from "../branch-restriction";
 import { useBranchGate } from "../shell/useBranchGate";
 import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from "react";
-import { Button, Card, DocumentList, EmptyState, IconButton, SidePanel, StatusPill, type DocumentListColumn } from "@mezan/ui";
+import { Button, Card, DocumentList, EmptyState, ENGLISH_LOCALE, IconButton, SidePanel, StatusPill, type DocumentListColumn } from "@mezan/ui";
 import type {
   AttendanceEntryDTO,
   AttendanceImportCommitResultDTO,
@@ -642,7 +642,7 @@ export function AttendanceScreen() {
 
               {importResult.unmatchedBadges.length > 0 ? (
                 <div role="alert" className="rounded-md border border-warning bg-warning-soft px-[12px] py-[10px] text-[12.5px] text-warning-ink">
-                  {t("attendance.import.unmatchedBadges")}: {importResult.unmatchedBadges.join("، ")}
+                  {t("attendance.import.unmatchedBadges")}: {importResult.unmatchedBadges.join(t("dataMigration.reasonSeparator"))}
                 </div>
               ) : null}
 
@@ -652,7 +652,7 @@ export function AttendanceScreen() {
                   <ul className="mt-[4px] list-inside list-disc">
                     {importResult.parseErrors.map((e) => (
                       <li key={e.rowNumber}>
-                        {e.rowNumber}: {e.reasons.join("، ")}
+                        {e.rowNumber}: {(locale === ENGLISH_LOCALE && e.reasonsEn ? e.reasonsEn : e.reasons).join(t("dataMigration.reasonSeparator"))}
                       </li>
                     ))}
                   </ul>

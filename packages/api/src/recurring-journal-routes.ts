@@ -1,3 +1,4 @@
+import { messageEnOf } from "./observability/error-message-backfill.js";
 import { BranchRecordKind, recordsInBranchGrant } from "./branch-policy.js";
 import { postingRefusalResponse } from "./posting-refusal.js";
 import { reversalRefusalResponse, requireReversalReason } from "./document-reversal.js";
@@ -169,28 +170,28 @@ function handleDomainError(c: Context, err: unknown): Response {
   const postingRefusal = postingRefusalResponse(c, err);
   if (postingRefusal) return postingRefusal;
   if (err instanceof RecurringJournalTemplateNotFoundError) {
-    return c.json({ error: err.code, message: err.message }, 404);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 404);
   }
   if (err instanceof JournalEntryNotFoundError) {
-    return c.json({ error: err.code, message: err.message }, 404);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 404);
   }
   if (err instanceof InvalidJournalEntryError) {
-    return c.json({ error: err.code, message: err.message, ...(err.messageEn ? { messageEn: err.messageEn } : {}) }, 400);
+    return c.json({ error: err.code, message: err.message, messageEn: messageEnOf(err, 400) }, 400);
   }
   if (err instanceof InvalidRecurringJournalScheduleError) {
-    return c.json({ error: err.code, message: err.message }, 400);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 400);
   }
   if (err instanceof ReversalDateBeforeOriginalError) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 422);
   }
   if (err instanceof JournalEntryAlreadyReversedError || err instanceof JournalEntryNotPostedError) {
-    return c.json({ error: err.code, message: err.message }, 409);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
   }
   if (err instanceof RecurringJournalPeriodAlreadyGeneratedError || err instanceof RecurringJournalPeriodAlreadySkippedError) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
   }
   if (err instanceof UnbalancedEntryError) {
-    return c.json({ error: err.code, message: err.message, totalDebit: err.totalDebit.toString(), totalCredit: err.totalCredit.toString() }, 422);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, totalDebit: err.totalDebit.toString(), totalCredit: err.totalCredit.toString() }, 422);
   }
   if (err instanceof PartyRequiredOnControlAccountError || err instanceof InvalidJournalPartyError) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, accountId: err.accountId }, 422);
@@ -202,7 +203,7 @@ function handleDomainError(c: Context, err: unknown): Response {
     err instanceof NoFiscalPeriodForDateError ||
     err instanceof PeriodNotOpenForPostingError
   ) {
-    return c.json({ error: err.code, message: err.message }, 422);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 422);
   }
   throw err;
 }

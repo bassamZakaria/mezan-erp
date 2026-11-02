@@ -500,6 +500,46 @@ export function checkinMessageAr(verdict: CheckinVerdict, daysSince: number): st
   return "الترخيص سارٍ.";
 }
 
+const englishDays = (days: number): string => `${days} ${days === 1 ? "day" : "days"}`;
+
+export function checkinMessageEn(verdict: CheckinVerdict, daysSince: number): string {
+  if (verdict === "revoked") {
+    return "This licence has been revoked. The program is read-only — your data stays available to view, print and export. Contact support.";
+  }
+  if (verdict === "tampered") {
+    return (
+      "The licence record on this device could not be verified and may have been changed. " +
+      "The program is read-only — your data stays available to view, print and export. Contact support."
+    );
+  }
+  if (verdict === "read-only") {
+    return (
+      `The licence has not been verified online for ${englishDays(daysSince)}. ` +
+      `You can view, print and export your data, but no new entries can be posted until it is verified. ` +
+      `Connect to the internet or contact support.`
+    );
+  }
+  if (verdict === "blocked") {
+    return (
+      `The licence has not been verified online for ${englishDays(daysSince)}. ` +
+      `Your data stays available to view, print and export, but no new entries can be posted. ` +
+      `Connect to the internet and press "Check now", or contact support for a new licence file.`
+    );
+  }
+  return "The licence is valid.";
+}
+
+export function checkinFailureMessageEn(failure: CheckinFailure): string {
+  switch (failure) {
+    case "NO_ENDPOINT":
+      return "The licence cannot be checked from this copy: no licensing service address was set when it was built. Contact support.";
+    case "UNREACHABLE":
+      return "The licensing service could not be reached. Make sure this device is online, then try again.";
+    case "BAD_ANSWER":
+      return "The licensing service sent an invalid reply, which was not accepted. Try again, and contact support if it repeats.";
+  }
+}
+
 /**
  * The THREE causes a check-in can fail for, each with its own sentence.
  *

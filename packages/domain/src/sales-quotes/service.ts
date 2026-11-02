@@ -11,6 +11,7 @@
 
 import { Money, Qty } from "../money/index.js";
 import type { DocumentNumberingHook } from "../documents/hooks.js";
+import type { BilingualReason } from "../collections/errors.js";
 import { resolveDocumentLineTax, ZeroRatingCause, type TaxRate, type TaxRateRepository, type ZeroRating } from "../tax-rates/index.js";
 import type { SalesQuote, SalesQuoteDiscount, SalesQuoteLine } from "./sales-quote.js";
 import { assertTransition } from "./status.js";
@@ -110,7 +111,10 @@ export class SalesQuoteService {
       const effects = this.effectsOf(existing);
       if (effects.blocked) {
         throw new InvalidSalesQuoteError([
-          effects.blockedReason ?? "العرض غير قابل للإرسال في حالته الحالية.",
+          {
+            ar: effects.blockedReason ?? "العرض غير قابل للإرسال في حالته الحالية.",
+            en: effects.blockedReasonEn ?? "The quote cannot be sent in its current state.",
+          },
         ]);
       }
 
@@ -243,20 +247,20 @@ export class SalesQuoteService {
   }
 
   private validate(quote: SalesQuote): void {
-    const reasons: string[] = [];
-    if (quote.customerId.trim() === "") reasons.push("العميل مطلوب.");
-    if (quote.branchId.trim() === "") reasons.push("الفرع مطلوب.");
-    if (quote.lines.length === 0) reasons.push("العرض يتطلب بنداً واحداً على الأقل.");
+    const reasons: BilingualReason[] = [];
+    if (quote.customerId.trim() === "") reasons.push({ ar: "العميل مطلوب.", en: "The customer is required." });
+    if (quote.branchId.trim() === "") reasons.push({ ar: "الفرع مطلوب.", en: "The branch is required." });
+    if (quote.lines.length === 0) reasons.push({ ar: "العرض يتطلب بنداً واحداً على الأقل.", en: "The quote needs at least one line." });
     for (const line of quote.lines) {
-      if (line.itemId.trim() === "") reasons.push("كل بند يجب أن يستهدف صنفاً.");
+      if (line.itemId.trim() === "") reasons.push({ ar: "كل بند يجب أن يستهدف صنفاً.", en: "Every line must target an item." });
       if (line.qty.isNegative() || line.qty.isZero()) {
-        reasons.push(`الصنف "${line.itemNameAr}": الكمية يجب أن تكون أكبر من صفر.`);
+        reasons.push({ ar: `الصنف "${line.itemNameAr}": الكمية يجب أن تكون أكبر من صفر.`, en: `Item "${line.itemNameAr}": the quantity must be greater than zero.` });
       }
       if (line.unitPrice.scaled < 0n) {
-        reasons.push(`الصنف "${line.itemNameAr}": السعر لا يقبل قيمة سالبة.`);
+        reasons.push({ ar: `الصنف "${line.itemNameAr}": السعر لا يقبل قيمة سالبة.`, en: `Item "${line.itemNameAr}": the price cannot be negative.` });
       }
       if (line.discountPercent < 0 || line.discountPercent > 100) {
-        reasons.push(`الصنف "${line.itemNameAr}": نسبة الخصم يجب أن تكون بين 0 و 100.`);
+        reasons.push({ ar: `الصنف "${line.itemNameAr}": نسبة الخصم يجب أن تكون بين 0 و 100.`, en: `Item "${line.itemNameAr}": the discount percentage must be between 0 and 100.` });
       }
     }
     if (reasons.length > 0) throw new InvalidSalesQuoteError(reasons);

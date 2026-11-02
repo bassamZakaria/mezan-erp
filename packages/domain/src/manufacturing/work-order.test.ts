@@ -378,7 +378,7 @@ describe("work order — return refuses more than is outstanding", () => {
     await issueWorkOrderMaterials(wo.id, deps); // 20 of m1 issued
     await expect(
       returnWorkOrderMaterials(wo.id, [{ itemId: "m1", qty: Qty.fromMajor("20.000001") }], deps),
-    ).rejects.toThrow(/القائم فقط 20\.000000/);
+    ).rejects.toThrow(/المتبقي في مستودع التشغيل 20\.000000/);
 
     const unchanged = await workOrders.findById(wo.id);
     expect(unchanged?.materialCost.toString()).toBe("250.000000");
@@ -392,7 +392,7 @@ describe("work order — return refuses more than is outstanding", () => {
     await startWorkOrder(wo.id, deps);
     await issueWorkOrderMaterials(wo.id, deps);
     const twelve = { itemId: "m1", qty: Qty.fromMajor("12") };
-    await expect(returnWorkOrderMaterials(wo.id, [twelve, twelve], deps)).rejects.toThrow(/إرجاع 24\.000000.*القائم فقط 20\.000000/);
+    await expect(returnWorkOrderMaterials(wo.id, [twelve, twelve], deps)).rejects.toThrow(/إرجاع 24\.000000.*المتبقي في مستودع التشغيل 20\.000000/);
 
     const unchanged = await workOrders.findById(wo.id);
     expect(unchanged?.materialCost.toString()).toBe("250.000000");

@@ -432,7 +432,7 @@ describe("PurchaseReturnsScreen", () => {
     await screen.findByRole("heading", { name: "مرتجع مشتريات جديد" });
 
     const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent("تعذّر قراءة ما تبقّى من بنود الفاتورة");
+    expect(alert).toHaveTextContent("خطأ داخلي");
     for (const name of ["إضافة بند", "حفظ كمسودة", "حفظ وتأكيد"]) expect(screen.getByRole("button", { name })).toBeDisabled();
 
     fail = false;

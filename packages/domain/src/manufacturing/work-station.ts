@@ -1,3 +1,4 @@
+import type { BilingualReason } from "../collections/errors.js";
 /**
  * محطات العمل (Work Stations) — the shop-floor positions a work order's
  * material issues and product receipts happen AT (R9.1).
@@ -49,11 +50,11 @@ export async function createWorkStation(
   command: CreateWorkStationCommand,
   deps: WorkStationDeps,
 ): Promise<WorkStation> {
-  const reasons: string[] = [];
-  if (command.code.trim() === "") reasons.push("محطة العمل تحتاج كوداً.");
-  if (command.nameAr.trim() === "") reasons.push("محطة العمل تحتاج اسماً بالعربية.");
+  const reasons: BilingualReason[] = [];
+  if (command.code.trim() === "") reasons.push({ ar: "محطة العمل تحتاج كوداً.", en: "A work station needs a code." });
+  if (command.nameAr.trim() === "") reasons.push({ ar: "محطة العمل تحتاج اسماً بالعربية.", en: "A work station needs an Arabic name." });
   if (command.code.trim() !== "" && (await deps.stations.findByCode(command.code.trim()))) {
-    reasons.push(`كود محطة العمل "${command.code.trim()}" مستخدم بالفعل.`);
+    reasons.push({ ar: `كود محطة العمل "${command.code.trim()}" مستخدم بالفعل.`, en: `Work station code "${command.code.trim()}" is already in use.` });
   }
   if (reasons.length > 0) throw new InvalidManufacturingDocumentError(reasons);
 
@@ -76,7 +77,7 @@ export async function setWorkStationStatus(
   deps: WorkStationDeps,
 ): Promise<WorkStation> {
   const station = await deps.stations.findById(id);
-  if (!station) throw new InvalidManufacturingDocumentError([`محطة العمل "${id}" غير موجودة.`]);
+  if (!station) throw new InvalidManufacturingDocumentError([{ ar: `محطة العمل "${id}" غير موجودة.`, en: `Work station "${id}" was not found.` }]);
   const updated: WorkStation = { ...station, status };
   await deps.stations.update(updated);
   return updated;
@@ -94,9 +95,9 @@ export async function resolveWorkStation(
 ): Promise<string | null> {
   if (!stationId) return null;
   const station = await deps.stations.findById(stationId);
-  if (!station) throw new InvalidManufacturingDocumentError([`محطة العمل "${stationId}" غير موجودة.`]);
+  if (!station) throw new InvalidManufacturingDocumentError([{ ar: `محطة العمل "${stationId}" غير موجودة.`, en: `Work station "${stationId}" was not found.` }]);
   if (station.status !== "active") {
-    throw new InvalidManufacturingDocumentError([`محطة العمل "${station.nameAr}" غير مفعّلة.`]);
+    throw new InvalidManufacturingDocumentError([{ ar: `محطة العمل "${station.nameAr}" غير مفعّلة.`, en: `Work station "${station.nameEn ?? station.nameAr}" is not active.` }]);
   }
   return station.id;
 }

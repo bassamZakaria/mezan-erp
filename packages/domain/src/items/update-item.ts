@@ -2,7 +2,7 @@ import type { Account } from "../accounts/index.js";
 import type { Money } from "../money/index.js";
 import { ItemStatusCode, type AlternateUnit, type CostingMethod, type EtaCodeType, type Item, type ItemRepository, type ItemStatus, type ItemType, type ItemSpecificationValue } from "./item.js";
 import { InvalidItemError, ItemNotFoundError, ItemPriceRequiredError, ItemStatusNotSettableError } from "./errors.js";
-import { collectItemFieldErrors, validateGlAccountRefs } from "./validation.js";
+import { itemFieldReasons, glAccountRefReasons } from "./validation.js";
 
 /**
  * Every field but `code` (docs/archive/catalog/03: the item code is auto-generated
@@ -97,7 +97,7 @@ export async function updateItem(
     status: awaitedPricing ? (priced ? releasedStatus : ItemStatusCode.PendingPricing) : (command.status ?? current.status),
   };
 
-  const reasons = [...collectItemFieldErrors(updated), ...validateGlAccountRefs(updated, accounts)];
+  const reasons = [...itemFieldReasons(updated), ...glAccountRefReasons(updated, accounts)];
   if (reasons.length > 0) throw new InvalidItemError(reasons);
 
   await repo.update(updated);

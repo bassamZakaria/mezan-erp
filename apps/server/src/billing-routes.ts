@@ -118,7 +118,7 @@ function allowed(grant: SessionGrant, permission: string): boolean {
 function unavailable(c: Context, err: unknown): Response {
   if (err instanceof CardCheckoutUnavailableError) return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
   if (err instanceof SubscriptionNotFoundError || err instanceof TenantNotFoundError || err instanceof PlanNotFoundError) {
-    return c.json({ error: err.code, message: err.message }, 404);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 404);
   }
   if (err instanceof Error && (err as { code?: unknown }).code === "PAYMENT_PROVIDER_ERROR") {
     log.error({ err }, "the payment provider could not be reached");
@@ -203,18 +203,18 @@ export function createTenantBillingRoutes(options: TenantBillingRoutesOptions): 
 
   app.onError((err, c) => {
     log.error({ event: LogEvent.UnhandledError, method: c.req.method, route: c.req.path, err }, "unhandled error");
-    return answerTenantDbFileRefusal(c, err) ?? c.json({ error: "INTERNAL", message: "حدث خطأ غير متوقع" }, 500);
+    return answerTenantDbFileRefusal(c, err) ?? c.json({ error: "INTERNAL", message: "حدث خطأ غير متوقع", messageEn: "An unexpected error occurred" }, 500);
   });
 
   async function resolveCaller(c: Context): Promise<Caller | Response> {
     const code = resolveTenantCode(c.req.raw, { tenantDomain: env.tenantDomain, trustForwardedHost: env.trustProxy, allowTenantHeader: true });
-    if (!code) return c.json({ error: "TENANT_REQUIRED", message: "حدّد رمز المنشأة" }, 400);
+    if (!code) return c.json({ error: "TENANT_REQUIRED", message: "حدّد رمز المنشأة", messageEn: "Specify the company code" }, 400);
     const tenant = await platform.stores.tenants.findByCode(code);
     if (!tenant || tenant.status === TenantStatusCode.Archived || tenant.status === TenantStatusCode.Provisioning) {
-      return c.json({ error: "TENANT_NOT_FOUND", message: "المنشأة غير موجودة" }, 404);
+      return c.json({ error: "TENANT_NOT_FOUND", message: "المنشأة غير موجودة", messageEn: "The company does not exist" }, 404);
     }
     const token = readSessionToken(c);
-    if (!token) return c.json({ error: "UNAUTHENTICATED", message: "سجّل الدخول أولًا" }, 401);
+    if (!token) return c.json({ error: "UNAUTHENTICATED", message: "سجّل الدخول أولًا", messageEn: "Sign in first" }, 401);
     const source = callerSource(c);
     const door = await router.callerDoor(code);
     const deviceSecret = c.req.header(DEVICE_SECRET_HEADER) ?? null;
@@ -225,11 +225,11 @@ export function createTenantBillingRoutes(options: TenantBillingRoutesOptions): 
     // absorb the change unrecorded.
     await door.fetch(new Request("http://tenant/profile", { headers: { authorization: `Bearer ${token}`, ...device } }), source);
     const grant = await door.findSession(token, source, deviceSecret);
-    if (!grant) return c.json({ error: "UNAUTHENTICATED", message: "انتهت الجلسة، سجّل الدخول مرة أخرى" }, 401);
+    if (!grant) return c.json({ error: "UNAUTHENTICATED", message: "انتهت الجلسة، سجّل الدخول مرة أخرى", messageEn: "Your session has ended. Sign in again." }, 401);
     return { tenant, grant, token, source, door, device };
   }
 
-  const forbidden = (c: Context) => c.json({ error: "FORBIDDEN", message: "ليست لديك صلاحية إدارة الاشتراك" }, 403);
+  const forbidden = (c: Context) => c.json({ error: "FORBIDDEN", message: "ليست لديك صلاحية إدارة الاشتراك", messageEn: "You do not have permission to manage the subscription" }, 403);
 
   /** What this tenant's own backend counts against its plan, on its own day. Forwarded with the caller's token, so it is the caller's own read. */
   async function planUsage(caller: Caller): Promise<PlanUsage> {
@@ -320,7 +320,7 @@ export function createTenantBillingRoutes(options: TenantBillingRoutesOptions): 
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     const nowIso = now().toISOString();
     const view = await resolveTenantPlan(platform, caller.tenant.id, nowIso);
-    if (!view.plan) return c.json({ error: "SUBSCRIPTION_NOT_FOUND", message: "لا يوجد اشتراك فعّال لهذه المنشأة" }, 404);
+    if (!view.plan) return c.json({ error: "SUBSCRIPTION_NOT_FOUND", message: "لا يوجد اشتراك فعّال لهذه المنشأة", messageEn: "This company has no active subscription" }, 404);
     const entitled = [
       ...view.plan.modules,
       ...(view.subscription?.addOnModules ?? []),
@@ -374,7 +374,7 @@ export function createTenantBillingRoutes(options: TenantBillingRoutesOptions): 
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     const nowIso = now().toISOString();
     const view = await resolveTenantPlan(platform, caller.tenant.id, nowIso);
-    if (!view.plan || !view.subscription) return c.json({ error: "SUBSCRIPTION_NOT_FOUND", message: "لا يوجد اشتراك فعّال لهذه المنشأة" }, 404);
+    if (!view.plan || !view.subscription) return c.json({ error: "SUBSCRIPTION_NOT_FOUND", message: "لا يوجد اشتراك فعّال لهذه المنشأة", messageEn: "This company has no active subscription" }, 404);
     if (view.plan.quotas[QuotaKind.StorageMb] === undefined) {
       return c.json(
         { error: StorageRequestRefusal.NoStorageLimit, message: "باقتكم بلا حد لمساحة المرفقات، فلا حاجة لطلب مساحة إضافية.", messageEn: "Your plan has no attachment storage limit, so there is nothing to request." },
@@ -406,7 +406,7 @@ export function createTenantBillingRoutes(options: TenantBillingRoutesOptions): 
       return c.json(serializeStorageRequestForTenant(request), 201);
     } catch (err) {
       if (err instanceof StorageRequestRefusedError) return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
-      if (err instanceof InvalidSubscriptionError) return c.json({ error: "VALIDATION_ERROR", message: err.message }, 400);
+      if (err instanceof InvalidSubscriptionError) return c.json({ error: "VALIDATION_ERROR", message: err.message, messageEn: err.messageEn }, 400);
       throw err;
     }
   });
@@ -439,7 +439,7 @@ export function createTenantBillingRoutes(options: TenantBillingRoutesOptions): 
     if (caller instanceof Response) return caller;
     if (!allowed(caller.grant, "admin.settings.view")) return forbidden(c);
     const checkout = service ? await service.find(c.req.param("id")) : null;
-    if (!checkout || checkout.tenantId !== caller.tenant.id) return c.json({ error: "NOT_FOUND", message: "عملية الدفع غير موجودة" }, 404);
+    if (!checkout || checkout.tenantId !== caller.tenant.id) return c.json({ error: "NOT_FOUND", message: "عملية الدفع غير موجودة", messageEn: "The payment does not exist" }, 404);
     return c.json(serializeCardCheckoutForTenant(checkout));
   });
 

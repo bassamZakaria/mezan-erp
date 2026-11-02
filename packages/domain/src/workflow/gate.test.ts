@@ -74,6 +74,8 @@ describe("the gate names an approver ROLE, not a permission", () => {
       decide(started.request, { actorId: "bob", actorRoles: ["CLERK"], decision: "approve" }),
     );
     expect(err.code).toBe("WRONG_APPROVER");
+    expect(err.requiredRole).toBe(oneStep.steps[0]?.role);
+    expect(err.messageEn).toBe("You do not hold the role this step needs to be decided on.");
   });
 
   it("a gate with no approver configured (empty steps) grants immediately rather than silently blocking or silently passing an unauthenticated actor", () => {
@@ -115,6 +117,9 @@ describe("decide() on a non-pending request", () => {
       decide(started.request, { actorId: "bob", actorRoles: ["*"], decision: "approve" }),
     );
     expect(err.code).toBe("NOT_PENDING");
+    expect(err.requestStatus).toBe("approved");
+    expect(err.message).toBe("حالة هذا الطلب «معتمد» وليس قيد الانتظار، فلا يمكن البتّ فيه.");
+    expect(err.messageEn).toBe("This request is approved, not pending, so it cannot be decided on.");
   });
 });
 

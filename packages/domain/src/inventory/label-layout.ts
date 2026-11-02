@@ -1,3 +1,5 @@
+import { splitReasons, type ReasonInput } from "../bilingual-reasons.js";
+import type { BilingualReason } from "../collections/errors.js";
 /**
  * تخطيطات الملصقات (label layouts) — docs/archive/catalog/03 §"طباعة الباركود
  * والملصقات". A layout is the printable geometry of one label sheet: how many
@@ -76,24 +78,33 @@ export type UpdateLabelLayoutCommand = Partial<Omit<CreateLabelLayoutCommand, "i
 
 export class LabelLayoutNotFoundError extends Error {
   readonly code = "LABEL_LAYOUT_NOT_FOUND";
+  readonly messageEn: string;
   constructor(readonly id: string) {
-    super(`Label layout "${id}" was not found.`);
+    super(`تعذّر العثور على تخطيط الملصقات "${id}".`);
+    this.messageEn = `Label layout "${id}" was not found.`;
     this.name = "LabelLayoutNotFoundError";
   }
 }
 
 export class DuplicateLabelLayoutCodeError extends Error {
   readonly code = "DUPLICATE_LABEL_LAYOUT_CODE";
+  readonly messageEn: string;
   constructor(readonly layoutCode: string) {
-    super(`Label layout code "${layoutCode}" already exists.`);
+    super(`كود تخطيط الملصقات "${layoutCode}" مستخدم بالفعل — اختر كوداً آخر.`);
+    this.messageEn = `Label layout code "${layoutCode}" already exists.`;
     this.name = "DuplicateLabelLayoutCodeError";
   }
 }
 
 export class InvalidLabelLayoutError extends Error {
   readonly code = "INVALID_LABEL_LAYOUT";
-  constructor(readonly reasons: readonly string[]) {
-    super(`Invalid label layout: ${reasons.join("; ")}`);
+  readonly messageEn: string;
+  readonly reasons: string[];
+  constructor(reasons: readonly ReasonInput[]) {
+    const split = splitReasons(reasons, "the details are not valid");
+    super(`تخطيط الملصقات غير صالح: ${split.ar.join("؛ ")}`);
+    this.reasons = [...split.ar];
+    this.messageEn = `Invalid label layout: ${split.en}`;
     this.name = "InvalidLabelLayoutError";
   }
 }
@@ -104,22 +115,22 @@ const CODE_PATTERN = /^[A-Z0-9_-]{1,20}$/;
 const PAGE_WIDTH_MM: Record<LabelPageSize, number> = { A4: 210, A5: 148 };
 const PAGE_HEIGHT_MM: Record<LabelPageSize, number> = { A4: 297, A5: 210 };
 
-function validate(layout: LabelLayout): string[] {
-  const reasons: string[] = [];
-  if (layout.id.trim() === "") reasons.push("id is required");
+function validate(layout: LabelLayout): BilingualReason[] {
+  const reasons: BilingualReason[] = [];
+  if (layout.id.trim() === "") reasons.push({ ar: "معرّف تخطيط الملصق مطلوب", en: "The label layout ID is required" });
   if (!CODE_PATTERN.test(layout.code)) {
-    reasons.push("code must be 1-20 uppercase alphanumeric/-/_ characters");
+    reasons.push({ ar: "كود التخطيط يجب أن يتكوّن من 1 إلى 20 حرفاً لاتينياً كبيراً أو رقماً أو الرمزين - و _", en: "The layout code must be 1 to 20 characters: capital Latin letters, digits, hyphens or underscores" });
   }
-  if (layout.nameAr.trim() === "") reasons.push("nameAr is required");
-  if (!Number.isInteger(layout.columns) || layout.columns < 1) reasons.push("columns must be a positive integer");
-  if (!Number.isInteger(layout.rows) || layout.rows < 1) reasons.push("rows must be a positive integer");
-  if (layout.labelWidthMm <= 0) reasons.push("labelWidthMm must be greater than zero");
-  if (layout.labelHeightMm <= 0) reasons.push("labelHeightMm must be greater than zero");
-  if (layout.columnGapMm < 0 || layout.rowGapMm < 0) reasons.push("gaps cannot be negative");
-  if (layout.marginBlockMm < 0 || layout.marginInlineMm < 0) reasons.push("margins cannot be negative");
-  if (layout.barcodeHeightMm < 0) reasons.push("barcodeHeightMm cannot be negative");
+  if (layout.nameAr.trim() === "") reasons.push({ ar: "الاسم العربي للتخطيط مطلوب", en: "The Arabic layout name is required" });
+  if (!Number.isInteger(layout.columns) || layout.columns < 1) reasons.push({ ar: "عدد الأعمدة يجب أن يكون عدداً صحيحاً موجباً", en: "The number of columns must be a whole number greater than zero" });
+  if (!Number.isInteger(layout.rows) || layout.rows < 1) reasons.push({ ar: "عدد الصفوف يجب أن يكون عدداً صحيحاً موجباً", en: "The number of rows must be a whole number greater than zero" });
+  if (layout.labelWidthMm <= 0) reasons.push({ ar: "عرض الملصق يجب أن يكون أكبر من صفر", en: "Label width must be greater than zero" });
+  if (layout.labelHeightMm <= 0) reasons.push({ ar: "ارتفاع الملصق يجب أن يكون أكبر من صفر", en: "Label height must be greater than zero" });
+  if (layout.columnGapMm < 0 || layout.rowGapMm < 0) reasons.push({ ar: "المسافات بين الملصقات لا يمكن أن تكون سالبة", en: "The gaps between labels cannot be negative" });
+  if (layout.marginBlockMm < 0 || layout.marginInlineMm < 0) reasons.push({ ar: "الهوامش لا يمكن أن تكون سالبة", en: "Margins cannot be negative" });
+  if (layout.barcodeHeightMm < 0) reasons.push({ ar: "ارتفاع الباركود لا يمكن أن يكون سالباً", en: "Barcode height cannot be negative" });
   if (layout.showBarcode && layout.barcodeHeightMm >= layout.labelHeightMm) {
-    reasons.push("barcodeHeightMm must be smaller than labelHeightMm");
+    reasons.push({ ar: "ارتفاع الباركود يجب أن يكون أصغر من ارتفاع الملصق", en: "Barcode height must be smaller than label height" });
   }
 
   const usedWidth =
@@ -129,10 +140,10 @@ function validate(layout: LabelLayout): string[] {
   const usedHeight =
     layout.rows * layout.labelHeightMm + (layout.rows - 1) * layout.rowGapMm + 2 * layout.marginBlockMm;
   if (usedWidth > PAGE_WIDTH_MM[layout.pageSize] + 0.001) {
-    reasons.push(`the grid is ${usedWidth.toFixed(1)}mm wide — wider than the ${layout.pageSize} page`);
+    reasons.push({ ar: `عرض الشبكة ${usedWidth.toFixed(1)} مم — أكبر من عرض صفحة ${layout.pageSize}`, en: `The label grid is ${usedWidth.toFixed(1)} mm wide, which is wider than a ${layout.pageSize} page` });
   }
   if (usedHeight > PAGE_HEIGHT_MM[layout.pageSize] + 0.001) {
-    reasons.push(`the grid is ${usedHeight.toFixed(1)}mm tall — taller than the ${layout.pageSize} page`);
+    reasons.push({ ar: `ارتفاع الشبكة ${usedHeight.toFixed(1)} مم — أكبر من ارتفاع صفحة ${layout.pageSize}`, en: `The label grid is ${usedHeight.toFixed(1)} mm tall, which is taller than a ${layout.pageSize} page` });
   }
   return reasons;
 }

@@ -12,6 +12,7 @@ import {
 } from "../data/hr-payroll-hooks";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useConfirmAction } from "../lib/use-confirm-action";
+import { errorMessage } from "../lib/error-message";
 
 /**
  * الجداول القانونية للرواتب — what payroll computes against, whether each figure
@@ -200,7 +201,7 @@ export function PayrollStatutoryScreen() {
   if (query.isError) {
     return (
       <Card className="p-[18px_20px]">
-        <p className="text-[13px] font-semibold text-danger-ink">{t("statutory.couldNotLoad")}</p>
+        <p className="text-[13px] font-semibold text-danger-ink">{errorMessage(query.error, t("statutory.couldNotLoad"))}</p>
         <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
           {t("common.retry")}
         </Button>

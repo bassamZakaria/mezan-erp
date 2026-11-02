@@ -12,7 +12,8 @@ import {
 } from "@mezan/ui";
 import type { SequenceListItemDTO } from "@mezan/contracts";
 import { useSequences, useUpdateSequence, useResetSequenceCounter } from "../data/platform-hooks";
-import { ApiError, useBranches } from "../data/hooks";
+import { useBranches } from "../data/hooks";
+import { errorMessage } from "../lib/error-message";
 import { TextField, NumberField, ToggleField } from "./form-controls";
 import { sequenceLabel } from "../domain-labels";
 import { useAppTranslation } from "../i18n";
@@ -103,7 +104,7 @@ export function SequencesPage() {
       });
       closePanel();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : t("sequences.error.saveFailed"));
+      setError(errorMessage(err, t("sequences.error.saveFailed")));
     }
   }
 
@@ -249,7 +250,7 @@ function CounterAdjustPanel({
     try {
       await onConfirm(value);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : t("sequences.error.counterFailed"));
+      setError(errorMessage(err, t("sequences.error.counterFailed")));
     }
   }
 

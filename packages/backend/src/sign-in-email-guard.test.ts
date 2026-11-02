@@ -32,6 +32,10 @@ describe("withSignInEmailGuard", () => {
     expect(await uow.users.findById("u2")).toBeNull();
   });
 
+  it("says in English, too, that the email belongs to another company", () => {
+    expect(new EmailInAnotherCompanyError("taken@example.com").messageEn).toContain("another company");
+  });
+
   it("claims inside a transaction too, and a rollback never drops an email the company still holds", async () => {
     const { guard, held } = listGuard(["taken@example.com"]);
     const uow = withSignInEmailGuard(createSqliteUnitOfWork(), guard);

@@ -320,7 +320,7 @@ describe("createTenantRouter", () => {
       const { router } = await newRouter(platform);
       const res = await router.app.fetch(new Request("http://ignored/tenant"));
       expect(res.status).toBe(400);
-      expect(await res.json()).toEqual({ error: "TENANT_REQUIRED", message: "حدّد رمز المنشأة" });
+      expect(await res.json()).toEqual({ error: "TENANT_REQUIRED", message: "حدّد رمز المنشأة", messageEn: "Specify the company code" });
     });
 
     it("refuses with 404 TENANT_NOT_FOUND for an unknown code", async () => {
@@ -328,7 +328,7 @@ describe("createTenantRouter", () => {
       const { router } = await newRouter(platform);
       const res = await router.app.fetch(new Request("http://ignored/tenant", { headers: { [TENANT_HEADER]: "ghost" } }));
       expect(res.status).toBe(404);
-      expect(await res.json()).toEqual({ error: "TENANT_NOT_FOUND", message: "المنشأة غير موجودة" });
+      expect(await res.json()).toEqual({ error: "TENANT_NOT_FOUND", message: "المنشأة غير موجودة", messageEn: "The company does not exist" });
     });
 
     it.each(["old", "new"])("refuses with 404 TENANT_NOT_FOUND for tenant %s (archived/provisioning)", async (code) => {
@@ -567,7 +567,7 @@ describe("createTenantRouter", () => {
 
       const res = await router.app.fetch(new Request("http://ignored/tenant", { headers: { [TENANT_HEADER]: "cyag" } }));
       expect(res.status).toBe(500);
-      expect(await res.json()).toEqual({ error: "INTERNAL", message: "حدث خطأ غير متوقع" });
+      expect(await res.json()).toEqual({ error: "INTERNAL", message: "حدث خطأ غير متوقع", messageEn: "An unexpected error occurred" });
     });
 
     it("maps a TENANT_NOT_FOUND thrown from opening the backend to the 404 body", async () => {
@@ -585,7 +585,7 @@ describe("createTenantRouter", () => {
 
       const res = await router.app.fetch(new Request("http://ignored/tenant", { headers: { [TENANT_HEADER]: "cyag" } }));
       expect(res.status).toBe(404);
-      expect(await res.json()).toEqual({ error: "TENANT_NOT_FOUND", message: "المنشأة غير موجودة" });
+      expect(await res.json()).toEqual({ error: "TENANT_NOT_FOUND", message: "المنشأة غير موجودة", messageEn: "The company does not exist" });
     });
   });
 
@@ -622,7 +622,7 @@ describe("createTenantRouter", () => {
       const status = await router.app.fetch(new Request("http://ignored/bootstrap/status", { headers: { [TENANT_HEADER]: "susp" } }));
 
       expect(res.status).toBe(409);
-      expect(await res.json()).toEqual({ error: "TENANT_ALREADY_PROVISIONED", message: "تم إعداد هذه المنشأة بالفعل. سجّل الدخول بحسابك." });
+      expect(await res.json()).toEqual({ error: "TENANT_ALREADY_PROVISIONED", message: "تم إعداد هذه المنشأة بالفعل. سجّل الدخول بحسابك.", messageEn: "This company has already been set up. Sign in with your account." });
       const statusBody = (await status.json()) as Record<string, unknown>;
       expect(statusBody).toMatchObject({ claimed: true });
       expect(statusBody).not.toHaveProperty("users");

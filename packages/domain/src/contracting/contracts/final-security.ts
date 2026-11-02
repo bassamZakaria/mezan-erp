@@ -1,5 +1,6 @@
 import { Money } from "../../money/index.js";
 import { percentOf } from "../certificates/amounts.js";
+import type { BilingualReason } from "../../collections/errors.js";
 import type { WorksContract } from "./contract.js";
 
 /**
@@ -85,8 +86,11 @@ export function finalSecurityStatusOf(
   };
 }
 
-/** The Arabic refusal a shortfall produces; null when the letter covers the requirement. */
-export function finalSecurityShortfallReason(status: FinalSecurityStatus | null): string | null {
+/** The bilingual refusal a shortfall produces; null when the letter covers the requirement. */
+export function finalSecurityShortfallReason(status: FinalSecurityStatus | null): BilingualReason | null {
   if (status === null || status.shortfall.scaled <= 0n) return null;
-  return `تأمين نهائي ناقص: المطلوب ${minor(status.required)}، القائم ${minor(status.covered)}`;
+  return {
+    ar: `تأمين نهائي ناقص: المطلوب ${minor(status.required)}، القائم ${minor(status.covered)}`,
+    en: `Final security is insufficient: required ${minor(status.required)}, covered ${minor(status.covered)}`,
+  };
 }

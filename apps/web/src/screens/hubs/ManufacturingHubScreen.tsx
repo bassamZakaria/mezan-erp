@@ -5,6 +5,7 @@ import { useNavigation } from "../../navigation";
 import type { ScreenKey } from "../../router/screens";
 import { useAppTranslation, type AppTranslationKey } from "../../i18n";
 import { useMaySeeItemCost } from "../../data/item-cost";
+import { errorMessage } from "../../lib/error-message";
 
 /**
  * التصنيع hub — the manufacturing-domain landing page. Its KPI tiles reuse
@@ -50,7 +51,7 @@ export function ManufacturingHubScreen() {
       title={t("manufacturingHub.title")}
       description={t("manufacturingHub.description")}
       loading={dashboardQuery.isLoading}
-      error={dashboardQuery.isError ? t("manufacturingHub.loadFailed") : null}
+      error={dashboardQuery.isError ? errorMessage(dashboardQuery.error, t("manufacturingHub.loadFailed")) : null}
       stats={[
         { key: "orders", label: t("manufacturingHub.stat.activeOrders"), value: dashboard?.kpis.activeWorkOrders ?? 0, sub: t("manufacturingHub.stat.activeOrdersSub") },
         ...(showCost ? [{ key: "wip", label: t("manufacturingHub.stat.wip"), value: <Money value={num(dashboard?.kpis.wipValue)} />, sub: t("manufacturingHub.stat.wipSub") }] : []),

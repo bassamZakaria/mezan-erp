@@ -109,11 +109,11 @@ describe("ProductionDashboardScreen", () => {
       "GET /manufacturing/work-stations": () => ({ body: stations }),
     });
     renderWithProviders(<ProductionDashboardScreen />, { transport, initialSession: testAdminSession });
-    expect(await screen.findByText("تعذّر تحميل لوحة الإنتاج.")).toBeInTheDocument();
+    expect(await screen.findByText("تعذّر تحميل لوحة الإنتاج. (رمز 500)")).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByText("INTERNAL")).not.toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "إعادة المحاولة" }));
     expect(await screen.findByText("WO-000001")).toBeInTheDocument();
-    await waitFor(() => expect(screen.queryByText("تعذّر تحميل لوحة الإنتاج.")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByText("تعذّر تحميل لوحة الإنتاج. (رمز 500)")).not.toBeInTheDocument());
   });
 
   it("renders the registered work stations, and the empty hint when there are none", async () => {

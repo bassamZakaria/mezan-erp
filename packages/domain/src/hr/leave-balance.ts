@@ -3,6 +3,7 @@ import type { EmployeeDirectory } from "../hr-shared/employee-ref.js";
 import { InvalidLeaveAccrualBatchError, InvalidLeaveBalanceError, LeaveBalanceExceededError } from "./errors.js";
 import { accrualDaysPerPeriod, type LeaveAccrualFrequency, type LeavePolicy, type LeavePolicyRepository } from "./leave-policy.js";
 import { isUnpaidLeaveType, type LeaveRequestRepository, type LeaveType } from "./leave-request.js";
+import type { ReasonInput } from "../bilingual-reasons.js";
 
 /**
  * Leave balances + accrual batches — docs/archive/catalog/06-crm-hr.md
@@ -56,13 +57,13 @@ export interface CreateLeaveBalanceCommand {
   readonly used?: Qty;
 }
 
-function validateBalance(balance: Pick<LeaveBalance, "employeeId" | "year" | "entitled" | "carriedOver" | "used">): string[] {
-  const reasons: string[] = [];
-  if (balance.employeeId.trim().length === 0) reasons.push("الموظف مطلوب");
-  if (!Number.isInteger(balance.year) || balance.year < 2000) reasons.push("السنة غير صالحة");
-  if (balance.entitled.isNegative()) reasons.push("الرصيد المستحق لا يمكن أن يكون سالباً");
-  if (balance.carriedOver.isNegative()) reasons.push("الرصيد المرحّل لا يمكن أن يكون سالباً");
-  if (balance.used.isNegative()) reasons.push("الرصيد المستخدم لا يمكن أن يكون سالباً");
+function validateBalance(balance: Pick<LeaveBalance, "employeeId" | "year" | "entitled" | "carriedOver" | "used">): ReasonInput[] {
+  const reasons: ReasonInput[] = [];
+  if (balance.employeeId.trim().length === 0) reasons.push({ ar: "الموظف مطلوب", en: "The employee is required" });
+  if (!Number.isInteger(balance.year) || balance.year < 2000) reasons.push({ ar: "السنة غير صالحة", en: "The year is invalid" });
+  if (balance.entitled.isNegative()) reasons.push({ ar: "الرصيد المستحق لا يمكن أن يكون سالباً", en: "The entitled balance cannot be negative" });
+  if (balance.carriedOver.isNegative()) reasons.push({ ar: "الرصيد المرحّل لا يمكن أن يكون سالباً", en: "The carried-over balance cannot be negative" });
+  if (balance.used.isNegative()) reasons.push({ ar: "الرصيد المستخدم لا يمكن أن يكون سالباً", en: "The used balance cannot be negative" });
   return reasons;
 }
 
@@ -172,11 +173,11 @@ export interface RunLeaveAccrualResult {
   readonly created: boolean;
 }
 
-function validateRun(command: RunLeaveAccrualCommand, periodKey: string): string[] {
-  const reasons: string[] = [];
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(command.runDate)) reasons.push("تاريخ التشغيل مطلوب بصيغة YYYY-MM-DD");
+function validateRun(command: RunLeaveAccrualCommand, periodKey: string): ReasonInput[] {
+  const reasons: ReasonInput[] = [];
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(command.runDate)) reasons.push({ ar: "تاريخ التشغيل مطلوب بصيغة YYYY-MM-DD", en: "The run date is required in the format YYYY-MM-DD" });
   const valid = command.frequency === "monthly" ? MONTHLY_PERIOD.test(periodKey) : ANNUAL_PERIOD.test(periodKey);
-  if (!valid) reasons.push("فترة الاستحقاق غير صالحة");
+  if (!valid) reasons.push({ ar: "فترة الاستحقاق غير صالحة", en: "The accrual period is invalid" });
   return reasons;
 }
 

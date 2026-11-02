@@ -253,7 +253,7 @@ describe("AttachmentsTab", () => {
       },
     });
     renderWithProviders(<AttachmentsTab entityType="item" entityId="ITEM-1" />, { transport, initialSession: testAdminSession });
-    expect(await screen.findByText("تعذّر تحميل المرفقات")).toBeInTheDocument();
+    expect(await screen.findByText(/تعذّر تحميل المرفقات/)).toBeInTheDocument();
     const callsBeforeRetry = calls;
 
     fail = false;

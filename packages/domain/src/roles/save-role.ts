@@ -14,14 +14,17 @@ import type { Role } from "./role.js";
 
 export class UnknownPermissionError extends Error {
   readonly code = "UNKNOWN_PERMISSION";
+  readonly messageEn: string;
   constructor(readonly permission: string) {
     super(`صلاحية غير معروفة: ${permission}`);
+    this.messageEn = `Unknown permission: ${permission}`;
     this.name = "UnknownPermissionError";
   }
 }
 
 export class UnlicensedPermissionError extends Error {
   readonly code = "UNLICENSED_PERMISSION";
+  readonly messageEn: string;
   constructor(
     readonly permission: string,
     /** The catalog module that is not licensed — for `"*"`, the first one it would unlock. */
@@ -32,54 +35,70 @@ export class UnlicensedPermissionError extends Error {
         ? `صلاحية المدير الكامل "*" تشمل كل الوحدات، والوحدة "${module}" غير مرخصة لهذا المستأجر`
         : `الصلاحية "${permission}" تابعة لوحدة غير مرخصة لهذا المستأجر`,
     );
+    this.messageEn =
+      permission === WILDCARD_PERMISSION
+        ? `The full-administrator permission "*" covers every module, and the module "${module}" is not licensed for this tenant`
+        : `The permission "${permission}" belongs to a module that is not licensed for this tenant`;
     this.name = "UnlicensedPermissionError";
   }
 }
 
 export class PlatformOnlyPermissionError extends Error {
   readonly code = "PLATFORM_ONLY_PERMISSION";
+  readonly messageEn: string;
   constructor(readonly permission: string) {
     super(`الصلاحية "${permission}" مخصصة لمدير المنصة ولا يمكن منحها من داخل المنشأة`);
+    this.messageEn = `The permission "${permission}" is reserved for the platform administrator and cannot be granted from within a company`;
     this.name = "PlatformOnlyPermissionError";
   }
 }
 
 export class UngrantablePermissionError extends Error {
   readonly code = "PRIVILEGE_ESCALATION_DENIED";
+  readonly messageEn: string;
   constructor(readonly permission: string) {
     super(`لا يمكنك منح صلاحية لا تملكها: "${permission}"`);
+    this.messageEn = `You cannot grant a permission you do not hold: "${permission}"`;
     this.name = "UngrantablePermissionError";
   }
 }
 
 export class DuplicateRoleCodeError extends Error {
   readonly code = "DUPLICATE_ROLE_CODE";
+  readonly messageEn: string;
   constructor(readonly roleCode: string) {
     super(`يوجد دور بالفعل بالكود "${roleCode}"`);
+    this.messageEn = `A role with code "${roleCode}" already exists`;
     this.name = "DuplicateRoleCodeError";
   }
 }
 
 export class SystemRoleImmutableError extends Error {
   readonly code = "SYSTEM_ROLE_IMMUTABLE";
+  readonly messageEn: string;
   constructor(readonly roleId: string) {
     super(`الدور "${roleId}" هو دور نظام ولا يمكن تعديله`);
+    this.messageEn = `Role "${roleId}" is a system role and cannot be modified`;
     this.name = "SystemRoleImmutableError";
   }
 }
 
 export class RoleNotFoundError extends Error {
   readonly code = "ROLE_NOT_FOUND";
+  readonly messageEn: string;
   constructor(readonly roleId: string) {
     super(`الدور "${roleId}" غير موجود`);
+    this.messageEn = `Role "${roleId}" was not found`;
     this.name = "RoleNotFoundError";
   }
 }
 
 export class RoleInUseError extends Error {
   readonly code = "ROLE_IN_USE";
+  readonly messageEn: string;
   constructor(readonly roleId: string) {
     super(`الدور "${roleId}" مُسند إلى مستخدم واحد أو أكثر ولا يمكن حذفه`);
+    this.messageEn = `Role "${roleId}" is assigned to one or more users and cannot be deleted`;
     this.name = "RoleInUseError";
   }
 }

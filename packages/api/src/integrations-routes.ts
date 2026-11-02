@@ -71,21 +71,24 @@ enum IntegrationEntity {
   Delivery = "INTEGRATION_WEBHOOK_DELIVERY",
 }
 
-const MESSAGES: Readonly<Record<IntegrationRefusal, string>> = {
-  [IntegrationRefusal.ValidationError]: "البيانات المرسلة غير صالحة.",
-  [IntegrationRefusal.NotFound]: "السجل غير موجود.",
-  [IntegrationRefusal.ScopeExceedsGrant]: "لا يمكن منح مفتاح صلاحية لا تملكها أنت.",
-  [IntegrationRefusal.KeyAlreadyRevoked]: "هذا المفتاح مُلغى بالفعل.",
-  [IntegrationRefusal.TooManyKeys]: `بلغت الحد الأقصى للمفاتيح الفعّالة (${MAX_ACTIVE_API_KEYS}). ألغِ مفتاحاً غير مستخدم أولاً.`,
-  [IntegrationRefusal.TooManyWebhooks]: `بلغت الحد الأقصى لاشتراكات webhook (${MAX_WEBHOOKS}).`,
-  [IntegrationRefusal.TargetRefused]: "عنوان الاستقبال مرفوض.",
-  [IntegrationRefusal.UnknownEvent]: "حدث غير معروف في قائمة الأحداث.",
-  [IntegrationRefusal.DeliveryNotRedeliverable]: "لا يمكن إعادة إرسال هذا التسليم.",
-  [IntegrationRefusal.WebhookInactive]: "الاشتراك موقوف؛ فعّله أولاً.",
+const MESSAGES: Readonly<Record<IntegrationRefusal, { readonly ar: string; readonly en: string }>> = {
+  [IntegrationRefusal.ValidationError]: { ar: "البيانات المرسلة غير صالحة.", en: "The submitted data is not valid." },
+  [IntegrationRefusal.NotFound]: { ar: "السجل غير موجود.", en: "The record was not found." },
+  [IntegrationRefusal.ScopeExceedsGrant]: { ar: "لا يمكن منح مفتاح صلاحية لا تملكها أنت.", en: "A key cannot be granted a permission you do not hold yourself." },
+  [IntegrationRefusal.KeyAlreadyRevoked]: { ar: "هذا المفتاح مُلغى بالفعل.", en: "This key is already revoked." },
+  [IntegrationRefusal.TooManyKeys]: {
+    ar: `بلغت الحد الأقصى للمفاتيح الفعّالة (${MAX_ACTIVE_API_KEYS}). ألغِ مفتاحاً غير مستخدم أولاً.`,
+    en: `You have reached the maximum of ${MAX_ACTIVE_API_KEYS} active keys. Revoke an unused key first.`,
+  },
+  [IntegrationRefusal.TooManyWebhooks]: { ar: `بلغت الحد الأقصى لاشتراكات webhook (${MAX_WEBHOOKS}).`, en: `You have reached the maximum of ${MAX_WEBHOOKS} webhook subscriptions.` },
+  [IntegrationRefusal.TargetRefused]: { ar: "عنوان الاستقبال مرفوض.", en: "The receiving address was refused." },
+  [IntegrationRefusal.UnknownEvent]: { ar: "حدث غير معروف في قائمة الأحداث.", en: "The event list contains an unknown event." },
+  [IntegrationRefusal.DeliveryNotRedeliverable]: { ar: "لا يمكن إعادة إرسال هذا التسليم.", en: "This delivery cannot be sent again." },
+  [IntegrationRefusal.WebhookInactive]: { ar: "الاشتراك موقوف؛ فعّله أولاً.", en: "The subscription is paused; turn it on first." },
 };
 
 function refuse(c: Context, error: IntegrationRefusal, status: 400 | 403 | 404 | 409 | 422, extra: Record<string, unknown> = {}) {
-  return c.json({ error, message: MESSAGES[error], ...extra }, status);
+  return c.json({ error, message: MESSAGES[error].ar, messageEn: MESSAGES[error].en, ...extra }, status);
 }
 
 export function hashApiKeyToken(token: string): string {
@@ -295,7 +298,7 @@ export function createIntegrationsRoutes(deps: IntegrationsRoutesDeps, resolveAu
     const parsed = createWebhookSchema.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return refuse(c, IntegrationRefusal.ValidationError, 400, { details: parsed.error.flatten() });
     const problem = webhookTargetProblem(parsed.data.url);
-    if (problem) return c.json({ error: IntegrationRefusal.TargetRefused, message: problem }, 422);
+    if (problem) return c.json({ error: IntegrationRefusal.TargetRefused, message: problem.message, messageEn: problem.messageEn }, 422);
     const events = [...new Set(parsed.data.events)];
     const unknown = unknownWebhookEvents(events);
     if (unknown.length > 0) return refuse(c, IntegrationRefusal.UnknownEvent, 422, { events: unknown });
@@ -333,7 +336,7 @@ export function createIntegrationsRoutes(deps: IntegrationsRoutesDeps, resolveAu
     if (!parsed.success) return refuse(c, IntegrationRefusal.ValidationError, 400, { details: parsed.error.flatten() });
     if (parsed.data.url !== undefined) {
       const problem = webhookTargetProblem(parsed.data.url);
-      if (problem) return c.json({ error: IntegrationRefusal.TargetRefused, message: problem }, 422);
+      if (problem) return c.json({ error: IntegrationRefusal.TargetRefused, message: problem.message, messageEn: problem.messageEn }, 422);
     }
     const events = parsed.data.events ? [...new Set(parsed.data.events)] : existing.events;
     const unknown = unknownWebhookEvents(events);

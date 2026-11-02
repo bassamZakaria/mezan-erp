@@ -57,7 +57,7 @@ export function createAccountRoutingRoutes(
       // An unknown key is a caller mistake, not a new slot: silently storing
       // it would leave a mapping nothing ever reads.
       if (!isAccountRoutingKey(key)) {
-        return c.json({ error: "UNKNOWN_ROUTING_KEY", message: `Unknown account-routing key "${key}".` }, 422);
+        return c.json({ error: "UNKNOWN_ROUTING_KEY", message: `مفتاح توجيه الحسابات "${key}" غير معروف.`, messageEn: `Unknown account-routing key "${key}".` }, 422);
       }
       if (accountId === null) delete overrides[key];
       else overrides[key] = accountId;

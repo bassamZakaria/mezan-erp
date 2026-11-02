@@ -1,3 +1,4 @@
+import { messageEnOf } from "./observability/error-message-backfill.js";
 import { postingRefusalResponse } from "./posting-refusal.js";
 import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
@@ -166,7 +167,7 @@ export interface SalesInvoiceRoutesDeps {
   readonly taxTags?: SalesInvoiceServiceDeps["taxTags"];
   readonly taxFiling?: SalesInvoiceServiceDeps["taxFiling"];
   readonly taxDependents?: SalesInvoiceServiceDeps["taxDependents"];
-  readonly afterTaxClassified?: (invoiceId: string) => Promise<{ readonly outcome: TaxClassificationFilingOutcome; readonly message?: string } | null>;
+  readonly afterTaxClassified?: (invoiceId: string) => Promise<{ readonly outcome: TaxClassificationFilingOutcome; readonly message?: string; readonly messageEn?: string } | null>;
   /**
    * The tenant's discount ceiling (settings §"الرقابة الائتمانية"). Optional
    * for the same reason every cross-aggregate check here is: a caller that does
@@ -388,7 +389,7 @@ function serializeCreditWarning(warning: CreditCheckResult | null) {
     status: warning.status,
     projectedBalance: warning.projectedBalance.toString(),
     overBy: warning.overBy.toString(),
-    message: warning.message,
+    message: warning.message, messageEn: warning.messageEn,
   };
 }
 
@@ -530,9 +531,10 @@ function serialize(
   };
 }
 
+const SALES_TAX_RECALCULATED_NOTICE_EN = "The tax on the invoice lines was recalculated under the current VAT setting — check the total before handing it to the customer.";
+
 function withMessageEn(err: { code: string; message: string }) {
-  const messageEn = (err as { messageEn?: string }).messageEn;
-  return { error: err.code, message: err.message, ...(messageEn ? { messageEn } : {}) };
+  return { error: err.code, message: err.message, messageEn: messageEnOf(err) };
 }
 
 export interface SalesInvoiceSourceDocument {
@@ -547,6 +549,7 @@ function confirmPreviewBody(preview: { readonly invoice: SalesInvoice; readonly 
   return {
     taxRecalculated: true as const,
     message: SALES_TAX_RECALCULATED_NOTICE_AR,
+    messageEn: SALES_TAX_RECALCULATED_NOTICE_EN,
     lines: preview.invoice.lines.map((line) => ({ lineId: line.lineId, taxRatePercent: line.taxRatePercent, taxRateId: line.taxRateId ?? null })),
     totals: {
       taxableTotal: preview.totals.taxableTotal.toString(),
@@ -612,22 +615,22 @@ function handleDomainError(c: Context, err: unknown): Response {
     return c.json(withMessageEn(err), 409);
   }
   if (err instanceof InvalidSalesInvoicePaymentError) {
-    return c.json({ error: err.code, message: err.message }, 422);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 422);
   }
   if (err instanceof InvalidDocumentError) {
-    return c.json({ error: err.code, message: err.message, ...(err.messageEn ? { messageEn: err.messageEn } : {}) }, 422);
+    return c.json({ error: err.code, message: err.message, messageEn: messageEnOf(err, 422) }, 422);
   }
   if (err instanceof CreditLimitExceededError) {
-    return c.json({ error: err.code, message: err.message, customerId: err.customerId }, 422);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, customerId: err.customerId }, 422);
   }
   if (err instanceof UnbalancedEntryError) {
     return c.json(
-      { error: err.code, message: err.message, totalDebit: err.totalDebit.toString(), totalCredit: err.totalCredit.toString() },
+      { error: err.code, message: err.message, messageEn: err.messageEn, totalDebit: err.totalDebit.toString(), totalCredit: err.totalCredit.toString() },
       422,
     );
   }
   if (err instanceof InvalidJournalEntryError) {
-    return c.json({ error: err.code, message: err.message, ...(err.messageEn ? { messageEn: err.messageEn } : {}) }, 422);
+    return c.json({ error: err.code, message: err.message, messageEn: messageEnOf(err, 422) }, 422);
   }
   if (
     err instanceof AccountNotFoundError ||
@@ -640,7 +643,7 @@ function handleDomainError(c: Context, err: unknown): Response {
     err instanceof UncostedDeficitIssueError ||
     err instanceof ExpiredStockError
   ) {
-    return c.json({ error: err.code, message: err.message }, 422);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 422);
   }
   throw err;
 }
@@ -795,6 +798,7 @@ export function createSalesInvoicesRoutes(
         error: "GL_ACCOUNT_NOT_POSTABLE",
         accounts: bad,
         message: `حساب دفتري غير صالح للترحيل: ${bad.join("، ")}. راجع دليل الحسابات أو ربط الأصناف بحساباتها.`,
+        messageEn: `Ledger account not valid for posting: ${bad.join(", ")}. Review the chart of accounts or the items' account mapping.`,
       },
       422,
     );
@@ -808,7 +812,7 @@ export function createSalesInvoicesRoutes(
     const d = parsed.data;
     if (deps.users && ownVisibilityOnly(c) && (await ownSalespersonIdOf(c)) === NO_SUCH_ACTOR) return c.json(NOT_LINKED_TO_EMPLOYEE_BODY, 422);
     const currencyRefusal = await deps.currencyCheck?.(d.currency);
-    if (currencyRefusal) return c.json({ error: "CURRENCY_NOT_ALLOWED", message: currencyRefusal }, 422);
+    if (currencyRefusal) return c.json({ error: "CURRENCY_NOT_ALLOWED", message: currencyRefusal.message, messageEn: currencyRefusal.messageEn }, 422);
     const ownEmployeeId = !d.salespersonId && ownVisibilityOnly(c) ? await ownSalespersonIdOf(c) : NO_SUCH_ACTOR;
     const reps = await resolveInvoiceReps(deps.employees, {
       salespersonId: d.salespersonId ?? (ownEmployeeId === NO_SUCH_ACTOR ? null : ownEmployeeId),
@@ -966,6 +970,7 @@ export function createSalesInvoicesRoutes(
             error: "PERMISSION_DENIED",
             permission: "sales.price.override",
             message: "سعر صفري أو خصم كامل يحتاج صلاحية تعديل السعر.",
+            messageEn: "A zero price or a full discount needs the edit-price permission.",
           },
           403,
         );
@@ -1027,6 +1032,7 @@ export function createSalesInvoicesRoutes(
             error: "PERMISSION_DENIED",
             permission: "sales.discount.approve",
             message: `الخصم يتجاوز الحد المسموح (${ceiling}%) ويحتاج اعتماداً.`,
+            messageEn: `The discount exceeds the allowed limit (${ceiling}%) and needs approval.`,
           },
           403,
         );
@@ -1302,7 +1308,7 @@ export function createSalesInvoicesRoutes(
 
   app.post("/:id/lines/:lineId/classify-tax", gate("sales.invoice.classify_tax"), async (c) => {
     if (!deps.taxTags || !deps.taxRates) {
-      return c.json({ error: "TAX_CLASSIFICATION_NOT_CONFIGURED", message: "تصنيف ضريبة البنود غير مُفعّل على هذا الخادم." }, 501);
+      return c.json({ error: "TAX_CLASSIFICATION_NOT_CONFIGURED", message: "تصنيف ضريبة البنود غير مُفعّل على هذا الخادم.", messageEn: "Line tax classification is not enabled on this server." }, 501);
     }
     const svc = service(c);
     const invoice = await visibleInvoice(c, svc);
@@ -1330,6 +1336,7 @@ export function createSalesInvoicesRoutes(
           journalLinesNamed: result.journalLinesNamed,
           filing: correction?.outcome ?? result.filing,
           ...(correction?.message ? { filingMessage: correction.message } : {}),
+          ...(correction?.messageEn ? { filingMessageEn: correction.messageEn } : {}),
         }),
       );
     } catch (err) {
@@ -1348,10 +1355,10 @@ export function createSalesInvoicesRoutes(
   app.post("/:id/lines/:lineId/journal-tax", gate("sales.invoice.classify_tax"), async (c) => {
     const ctx = getAuthContext(c);
     if (!ctx || !can(ctx, JOURNAL_VIEW_PERMISSION)) {
-      return c.json({ error: "FORBIDDEN", message: "تسمية ضريبة سطر القيد تتطلب صلاحية عرض قيود اليومية." }, 403);
+      return c.json({ error: "FORBIDDEN", message: "تسمية ضريبة سطر القيد تتطلب صلاحية عرض قيود اليومية.", messageEn: "Naming the tax of a journal line requires permission to view journal entries." }, 403);
     }
     if (!deps.taxTags || !deps.taxRates) {
-      return c.json({ error: "TAX_CLASSIFICATION_NOT_CONFIGURED", message: "تصنيف ضريبة البنود غير مُفعّل على هذا الخادم." }, 501);
+      return c.json({ error: "TAX_CLASSIFICATION_NOT_CONFIGURED", message: "تصنيف ضريبة البنود غير مُفعّل على هذا الخادم.", messageEn: "Line tax classification is not enabled on this server." }, 501);
     }
     const svc = service(c);
     const invoice = await visibleInvoice(c, svc);
@@ -1380,6 +1387,7 @@ export function createSalesInvoicesRoutes(
           journalLinesNamed: result.journalLinesNamed,
           filing: correction?.outcome ?? result.filing,
           ...(correction?.message ? { filingMessage: correction.message } : {}),
+          ...(correction?.messageEn ? { filingMessageEn: correction.messageEn } : {}),
         }),
       );
     } catch (err) {
@@ -1396,6 +1404,7 @@ export function createSalesInvoicesRoutes(
         documentId: invoice.id,
         filing: correction?.outcome ?? null,
         ...(correction?.message ? { filingMessage: correction.message } : {}),
+          ...(correction?.messageEn ? { filingMessageEn: correction.messageEn } : {}),
       }),
     );
   });
@@ -1445,7 +1454,7 @@ export function createSalesInvoicesRoutes(
         ...(etaReceiptError ? { etaReceiptError } : {}),
         held: result.held,
         priceFloorHeld: result.held && result.invoice.workflowRequestId === priceFloorRequestIdOf(result.invoice.id),
-        ...(result.taxRecalculated ? { taxRecalculated: { message: SALES_TAX_RECALCULATED_NOTICE_AR } } : {}),
+        ...(result.taxRecalculated ? { taxRecalculated: { message: SALES_TAX_RECALCULATED_NOTICE_AR, messageEn: SALES_TAX_RECALCULATED_NOTICE_EN } } : {}),
         creditWarning: serializeCreditWarning(result.creditWarning),
         // Lines charged under the customer's own price list (D35). Empty when
         // no list applies, so a tenant that prices freely sees nothing new.
@@ -1493,7 +1502,7 @@ export function createSalesInvoicesRoutes(
   app.get("/:id/print-context", gateAny("sales.invoice.view", "sales.invoice.view_all", "sales.invoice.view_own"), async (c) => {
     const invoice = await visibleInvoice(c, service(c));
     if (!invoice) return c.json(NOT_FOUND_BODY, 404);
-    if (!deps.printContext) return c.json({ error: "PRINT_CONTEXT_UNAVAILABLE", message: "بيانات الطباعة غير متاحة على هذا الخادم." }, 501);
+    if (!deps.printContext) return c.json({ error: "PRINT_CONTEXT_UNAVAILABLE", message: "بيانات الطباعة غير متاحة على هذا الخادم.", messageEn: "Print data is not available on this server." }, 501);
     return c.json(await deps.printContext(invoice));
   });
 
@@ -1583,8 +1592,8 @@ export function createSalesInvoicesRoutes(
         version: await documentVersionOf(deps.versionGuard, edited.id),
       });
     } catch (err) {
-      if (err instanceof SalesInvoiceNotDraftError) return c.json({ error: err.code, message: err.message }, 409);
-      if (err instanceof SalesInvoiceLineNotFoundError) return c.json({ error: err.code, message: err.message }, 404);
+      if (err instanceof SalesInvoiceNotDraftError) return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
+      if (err instanceof SalesInvoiceLineNotFoundError) return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 404);
       return handleDomainError(c, err);
     }
   });
@@ -1634,7 +1643,7 @@ export function createSalesInvoicesRoutes(
       // itself — the two can never both stand.
       const { voided, reversal } = await deps.repo.transaction(async () => {
         const current = await deps.repo.findById(requested.id);
-        if (!current) throw new SalesInvoiceVoidRefusal(404, { error: "NOT_FOUND", message: "الفاتورة غير موجودة." });
+        if (!current) throw new SalesInvoiceVoidRefusal(404, { error: "NOT_FOUND", message: "الفاتورة غير موجودة.", messageEn: "The invoice does not exist." });
         assertSalesInvoiceTransition(current.id, current.status, "reversed");
         if (date < current.date) throw new ReversalDateBeforeOriginalError(current.id, date, current.date);
         // INVARIANT: an e-invoice or e-receipt the authority is judging or has
@@ -1682,12 +1691,14 @@ export function createSalesInvoicesRoutes(
           throw new SalesInvoiceVoidRefusal(409, {
             error: SalesInvoiceVoidRefusalCode.HasCollections,
             message: "لا يمكن إلغاء فاتورة حُصّلت مبالغ عليها — اعكس التحصيل أولاً.",
+            messageEn: "An invoice with collected payments cannot be voided — reverse the collection first.",
           });
         }
         if ((await creditFor(current.id)).scaled !== 0n) {
           throw new SalesInvoiceVoidRefusal(409, {
             error: SalesInvoiceVoidRefusalCode.HasReturns,
             message: "لا يمكن إلغاء فاتورة صدر عليها مرتجع مؤكد. ألغِ المرتجع أولاً من صفحته («إلغاء المرتجع» مع ذكر السبب) ثم ألغِ الفاتورة، أو صحّح الفاتورة بمرتجع عن باقي كمياتها.",
+            messageEn: "An invoice with a confirmed return cannot be voided. Cancel the return first from its page («Cancel return» with a reason), then void the invoice, or correct the invoice with a return for its remaining quantities.",
           });
         }
         const journalEntryId = current.journalEntryId;
@@ -1695,6 +1706,7 @@ export function createSalesInvoicesRoutes(
           throw new SalesInvoiceVoidRefusal(409, {
             error: SalesInvoiceVoidRefusalCode.NotPosted,
             message: "الفاتورة ليس لها قيد يومية لعكسه.",
+            messageEn: "The invoice has no journal entry to reverse.",
           });
         }
         const stockLines = current.lines.filter((l) => l.isStock && !l.baseQty.isZero());
@@ -1703,6 +1715,7 @@ export function createSalesInvoicesRoutes(
           throw new SalesInvoiceVoidRefusal(503, {
             error: SalesInvoiceVoidRefusalCode.StockRestoreUnavailable,
             message: "إلغاء الفاتورة يتطلب إرجاع المخزون؛ وحدة المخزون غير مفعّلة.",
+            messageEn: "Voiding the invoice requires returning stock; the inventory module is not enabled.",
           });
         }
 
@@ -1794,7 +1807,7 @@ export function createSalesInvoicesRoutes(
     }
     if (!deps.collect) {
       return c.json(
-        { error: "COLLECTION_UNAVAILABLE", message: "التحصيل يتطلب سند قبض؛ وحدة الخزينة غير مفعّلة." },
+        { error: "COLLECTION_UNAVAILABLE", message: "التحصيل يتطلب سند قبض؛ وحدة الخزينة غير مفعّلة.", messageEn: "Collection requires a receipt voucher; the treasury module is not enabled." },
         503,
       );
     }
@@ -1813,7 +1826,7 @@ export function createSalesInvoicesRoutes(
       if (existing?.fxRate && deps.settlementPreview && amount.scaled > 0n) {
         const preview = await deps.settlementPreview(id, amount, date);
         if (amount.scaled > preview.capacity.scaled) {
-          throw new InvalidSalesInvoicePaymentError("الدفعة تتجاوز الرصيد المتبقي للفاتورة.");
+          throw new InvalidSalesInvoicePaymentError("الدفعة تتجاوز الرصيد المتبقي للفاتورة.", "The payment exceeds the invoice's remaining balance.");
         }
         relief = preview.relief;
       }

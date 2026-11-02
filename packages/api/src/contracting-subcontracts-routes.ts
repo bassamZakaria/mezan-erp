@@ -318,13 +318,13 @@ function handleDomainError(c: Context, err: unknown) {
   const postingRefusal = postingRefusalResponse(c, err);
   if (postingRefusal) return postingRefusal;
   if (err instanceof SubcontractNotFoundError || err instanceof SubCertificateNotFoundError) {
-    return c.json({ error: err.code, message: err.message }, 404);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 404);
   }
   if (err instanceof InvalidSubcontractError || err instanceof InvalidSubCertificateError) {
-    return c.json({ error: err.code, message: err.message, reasons: err.reasons }, 422);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, reasons: err.reasons }, 422);
   }
   if (err instanceof SubCertificateQuantityError || err instanceof SubCertificateDeductionError) {
-    return c.json({ error: err.code, message: err.message, reasons: err.reasons }, 422);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, reasons: err.reasons }, 422);
   }
   // A closed period or a filed VAT return is a state conflict, not a server
   // fault: the caller has to reopen the period or change the date.
@@ -332,22 +332,22 @@ function handleDomainError(c: Context, err: unknown) {
     err instanceof PeriodNotOpenForPostingError ||
     err instanceof NoFiscalPeriodForDateError
   ) {
-    return c.json({ error: err.code, message: err.message }, 409);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
   }
   if (err instanceof SubcontractorNotPayableError) {
-    return c.json({ error: err.code, message: err.message, reasons: err.reasons }, 422);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, reasons: err.reasons }, 422);
   }
   if (err instanceof SubcontractRetentionError) {
-    return c.json({ error: err.code, message: err.message }, 422);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 422);
   }
   if (err instanceof SubCertificateSegregationError) {
-    return c.json({ error: err.code, message: err.message }, 409);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
   }
   if (err instanceof LaterSubCertificateExistsError) {
-    return c.json({ error: err.code, message: err.message, laterDocNo: err.laterDocNo }, 409);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, laterDocNo: err.laterDocNo }, 409);
   }
   if (err instanceof InvalidSubcontractTransitionError || err instanceof InvalidSubCertificateTransitionError) {
-    return c.json({ error: err.code, message: err.message, from: err.from, to: err.to }, 409);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, from: err.from, to: err.to }, 409);
   }
   throw err;
 }

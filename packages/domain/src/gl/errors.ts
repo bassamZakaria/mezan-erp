@@ -1,3 +1,4 @@
+import { statusWord } from "../status-words.js";
 /**
  * Messages here reach the UI verbatim: the api serves `message: err.message`
  * and screens render it directly, so every message must be Arabic.
@@ -24,11 +25,13 @@ export class JournalEntryNotFoundError extends Error {
 /** Raised when trying to post an entry that is not in the مسودة (draft) state. */
 export class JournalEntryNotDraftError extends Error {
   readonly code = "JOURNAL_ENTRY_NOT_DRAFT";
+  readonly messageEn: string;
   constructor(
     readonly entryId: string,
     readonly status: string,
   ) {
-    super(`القيد "${entryId}" حالته "${status}" وليس مسودة، فلا يمكن ترحيله.`);
+    super(`القيد "${entryId}" حالته "${statusWord(status).ar}" وليس مسودة، فلا يمكن ترحيله.`);
+    this.messageEn = `Journal entry "${entryId}" is "${statusWord(status).en}", not a draft, so it cannot be posted.`;
     this.name = "JournalEntryNotDraftError";
   }
 }
@@ -45,8 +48,8 @@ export class JournalEntryNotPostedError extends Error {
     readonly entryId: string,
     readonly status: string,
   ) {
-    super(`القيد "${entryId}" حالته "${status}" وليس مُرحَّلاً، فلا يمكن عكسه.`);
-    this.messageEn = `Journal entry "${entryId}" is "${status}", not posted, so it cannot be reversed.`;
+    super(`القيد "${entryId}" حالته "${statusWord(status).ar}" وليس مُرحَّلاً، فلا يمكن عكسه.`);
+    this.messageEn = `Journal entry "${entryId}" is "${statusWord(status).en}", not posted, so it cannot be reversed.`;
     this.name = "JournalEntryNotPostedError";
   }
 }
@@ -68,8 +71,10 @@ export class JournalEntryAlreadyReversedError extends Error {
 /** Raised when a journal line targets an inactive (غير نشط) account — posting is blocked. */
 export class InactiveAccountError extends Error {
   readonly code = "INACTIVE_ACCOUNT";
+  readonly messageEn: string;
   constructor(readonly accountId: string) {
     super(`الحساب "${accountId}" غير نشط، فلا يمكن الترحيل إليه.`);
+    this.messageEn = `Account "${accountId}" is inactive and cannot be posted to.`;
     this.name = "InactiveAccountError";
   }
 }

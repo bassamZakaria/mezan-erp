@@ -1,6 +1,6 @@
 export { CLOUD_ONLY_MODULES, MODULE_CATALOG, isCloudOnlyModule, isKnownModule, type LicensableId, type ModuleId } from "./module-catalog.js";
 export * from "./errors.js";
-export { isValidSlug, isReservedTenantCode, RESERVED_TENANT_CODE_MESSAGE } from "./slug.js";
+export { isValidSlug, isReservedTenantCode, RESERVED_TENANT_CODE_MESSAGE, RESERVED_TENANT_CODE_MESSAGE_EN } from "./slug.js";
 export { COMPANY_NAME_MAX_LENGTH, CompanyNameProblem, companyNameProblem, companyNameProblemAr } from "./company-name.js";
 export {
   createTenant, activateTenant, suspendTenant, resumeTenant, archiveTenant, releaseTenant, releasedTenantCode, tenantWithOwnerContact, tenantHandedTo, tenantNeedingOwner, tenantWithPendingOwner, tenantWithPendingOwnerConfirmed, tenantWithPendingOwnerDeclined, tenantWithPendingOwnerLink, tenantWithOwnerRecordDue, tenantWithBooksReview,

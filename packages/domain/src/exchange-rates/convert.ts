@@ -11,11 +11,13 @@ const SCALE = 1_000_000n; // 10^6, the Money scale
  */
 export class FxRateMissingError extends Error {
   readonly code = "FX_RATE_MISSING";
+  readonly messageEn: string;
   constructor(
     readonly currency: string,
     readonly asOfDate: string,
   ) {
-    super(`No exchange rate for ${currency} on/before ${asOfDate}.`);
+    super(`لا يوجد سعر صرف للعملة ${currency} في ${asOfDate} أو قبله.`);
+    this.messageEn = `No exchange rate for ${currency} on/before ${asOfDate}.`;
     this.name = "FxRateMissingError";
   }
 }

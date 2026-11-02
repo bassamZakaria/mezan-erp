@@ -15,12 +15,12 @@ afterEach(() => {
   for (const h of handles.splice(0)) h.close();
 });
 
-function newApp() {
+function newApp(extra: Partial<Parameters<typeof createWorkflowRoutes>[0]> = {}) {
   const configs: SqliteWorkflowConfigStoreHandle = createSqliteWorkflowConfigStore();
   const requests: SqliteApprovalRequestStoreHandle = createSqliteApprovalRequestStore();
   handles.push(configs, requests);
   const sessions = createSessionRegistry();
-  const app = createWorkflowRoutes({ configs, requests }, createSessionAuthContextResolver(sessions));
+  const app = createWorkflowRoutes({ configs, requests, ...extra }, createSessionAuthContextResolver(sessions));
 
   /**
    * A request carrying a REAL session. The approver role a step matches on is
@@ -232,6 +232,35 @@ describe("approval request routes", () => {
    * is satisfied by the role the session grant carries, and by nothing else
    * that happens to be spelled the same.
    */
+  it("names the role a step needs, in each language, when the caller does not hold it", async () => {
+    const { app, req } = newApp({ roleLabel: async (code) => (code === "FINANCE_MANAGER" ? { ar: "المدير المالي", en: "Finance manager" } : null) });
+    await app.fetch(
+      (await req("/configs", {
+        method: "POST",
+        permissions: "workflow.config.manage",
+        body: JSON.stringify({ actionType: "SALES_INVOICE_CONFIRM", steps: [{ role: "FINANCE_MANAGER" }] }),
+      })),
+    );
+    const submitted = (await (
+      await app.fetch((await req("/requests", { method: "POST", userId: "alice", permissions: "workflow.view", body: JSON.stringify({ actionType: "SALES_INVOICE_CONFIRM" }) })))
+    ).json()) as { id: string };
+    const refused = await app.fetch(
+      (await req(`/requests/${submitted.id}/decide`, {
+        method: "POST",
+        userId: "clerk-1",
+        permissions: "workflow.view,workflow.approve",
+        roleCode: "CLERK",
+        body: JSON.stringify({ decision: "approve" }),
+      })),
+    );
+    expect(refused.status).toBe(409);
+    expect(await refused.json()).toEqual({
+      error: "WRONG_APPROVER",
+      message: "تتطلب هذه الخطوة دور «المدير المالي»، وهو ليس من أدوارك.",
+      messageEn: 'This step needs the "Finance manager" role, which you do not hold.',
+    });
+  });
+
   it("matches a step's role against the caller's ROLE, never a permission of the same name", async () => {
     const { app, req } = newApp();
     await app.fetch(
@@ -260,7 +289,7 @@ describe("approval request routes", () => {
       })),
     );
     expect(impostor.status).toBe(409);
-    expect(await impostor.json()).toMatchObject({ error: "WRONG_APPROVER" });
+    expect(await impostor.json()).toMatchObject({ error: "WRONG_APPROVER", messageEn: "You do not hold the role this step needs to be decided on." });
 
     // The same step, decided by the holder of the ROLE, goes through.
     const approver = await app.fetch(

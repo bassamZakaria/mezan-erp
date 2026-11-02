@@ -74,7 +74,7 @@ import {
 import type { GateableActionType } from "../workflow/index.js";
 import type { CreditControlMode } from "../settings/settings.js";
 import { checkCustomerCredit, CreditLimitExceededError, type CreditCheckResult } from "../credit-control/index.js";
-import { SALES_INVOICE_STATUS_LABELS_AR, SALES_INVOICE_ACTIVE_STATUSES, SalesInvoiceStatusCode } from "./sales-invoice.js";
+import { SALES_INVOICE_STATUS_LABELS_AR, SALES_INVOICE_STATUS_LABELS_EN, SALES_INVOICE_ACTIVE_STATUSES, SalesInvoiceStatusCode } from "./sales-invoice.js";
 import type {
   SalesInvoice,
   SalesInvoiceDiscount,
@@ -84,6 +84,7 @@ import type {
 } from "./sales-invoice.js";
 import { assertTransition } from "./status.js";
 import { DocumentChangedError } from "../documents/errors.js";
+import type { BilingualReason } from "../collections/errors.js";
 import { approvalLabel, displayAmount } from "../documents/approval-label.js";
 import { SalesInvoiceField } from "./ports.js";
 import { salesInvoiceTotals, salesInvoiceBaseGrandTotal, type SalesInvoiceTotals } from "./totals.js";
@@ -452,7 +453,10 @@ export class SalesInvoiceService {
     const effects = this.effectsOf(existing);
     if (effects.blocked) {
       throw new InvalidSalesInvoiceError([
-        effects.blockedReason ?? "الفاتورة غير قابلة للتأكيد في حالتها الحالية.",
+        {
+          ar: effects.blockedReason ?? "الفاتورة غير قابلة للتأكيد في حالتها الحالية.",
+          en: effects.blockedReasonEn ?? "The invoice cannot be confirmed in its current state.",
+        },
       ]);
     }
 
@@ -588,7 +592,10 @@ export class SalesInvoiceService {
       const freshEffects = this.effectsOf(fresh);
       if (freshEffects.blocked) {
         throw new InvalidSalesInvoiceError([
-          freshEffects.blockedReason ?? "الفاتورة غير قابلة للتأكيد في حالتها الحالية.",
+          {
+            ar: freshEffects.blockedReason ?? "الفاتورة غير قابلة للتأكيد في حالتها الحالية.",
+            en: freshEffects.blockedReasonEn ?? "The invoice cannot be confirmed in its current state.",
+          },
         ]);
       }
 
@@ -702,7 +709,10 @@ export class SalesInvoiceService {
     const found = await this.deps.exchangeRates?.findRate(invoice.currency, invoice.date);
     if (!found) {
       throw new InvalidSalesInvoiceError([
-        `لا يوجد سعر صرف معتمد للعملة ${invoice.currency} بتاريخ ${invoice.date}؛ لا يمكن ترحيل الفاتورة.`,
+        {
+          ar: `لا يوجد سعر صرف معتمد للعملة ${invoice.currency} بتاريخ ${invoice.date}؛ لا يمكن ترحيل الفاتورة.`,
+          en: `There is no approved exchange rate for ${invoice.currency} on ${invoice.date}; the invoice cannot be posted.`,
+        },
       ]);
     }
     return { rate: found.rate };
@@ -746,7 +756,11 @@ export class SalesInvoiceService {
       newExposure,
     });
     if (result.status === "blocked") {
-      throw new CreditLimitExceededError(invoice.customerId, result.message ?? "تجاوز الحد الائتماني للعميل.");
+      throw new CreditLimitExceededError(
+        invoice.customerId,
+        result.message ?? "تجاوز الحد الائتماني للعميل.",
+        result.messageEn ?? "The customer's credit limit is exceeded.",
+      );
     }
     return result.status === "warning" ? result : null;
   }
@@ -813,14 +827,15 @@ export class SalesInvoiceService {
     if (existing.status !== "confirmed" && existing.status !== "partially_paid") {
       throw new InvalidSalesInvoicePaymentError(
         `لا يمكن تسجيل دفعة على فاتورة في حالة ${SALES_INVOICE_STATUS_LABELS_AR[existing.status]}.`,
+      `A payment cannot be recorded on an invoice that is ${SALES_INVOICE_STATUS_LABELS_EN[existing.status]}.`,
       );
     }
     if (amount.scaled <= 0n) {
-      throw new InvalidSalesInvoicePaymentError("قيمة الدفعة يجب أن تكون أكبر من صفر.");
+      throw new InvalidSalesInvoicePaymentError("قيمة الدفعة يجب أن تكون أكبر من صفر.", "The payment amount must be greater than zero.");
     }
     const grandTotal = salesInvoiceBaseGrandTotal(this.totalsOf(existing), existing.fxRate);
     if (existing.amountPaid.scaled + returnedCredit.scaled + amount.scaled > grandTotal.scaled) {
-      throw new InvalidSalesInvoicePaymentError("الدفعة تتجاوز الرصيد المتبقي للفاتورة.");
+      throw new InvalidSalesInvoicePaymentError("الدفعة تتجاوز الرصيد المتبقي للفاتورة.", "The payment exceeds the invoice's remaining balance.");
     }
     return existing;
   }
@@ -932,10 +947,10 @@ export class SalesInvoiceService {
     const stale = invoice.lines.filter((line) => line.taxRateId !== null && isSystemTaxRate(line.taxRateId));
     if (stale.length === 0) return;
     throw new InvalidSalesInvoiceError(
-      stale.map(
-        (line) =>
-          `الصنف "${line.itemNameAr}": مسجّل تحت «${SYSTEM_NOT_SUBJECT_TAX_RATE.name}»، وهي ضريبة يسمّيها النظام للمنشأة التي أوقفت ضريبة القيمة المضافة. الضريبة مفعّلة الآن — اختر ضريبة البند ثم أكّد.`,
-      ),
+      stale.map((line) => ({
+        ar: `الصنف "${line.itemNameAr}": مسجّل تحت «${SYSTEM_NOT_SUBJECT_TAX_RATE.name}»، وهي ضريبة يسمّيها النظام للمنشأة التي أوقفت ضريبة القيمة المضافة. الضريبة مفعّلة الآن — اختر ضريبة البند ثم أكّد.`,
+        en: `Item "${line.itemNameAr}": it is filed under "Not subject to VAT", the tax the system assigns to a company that has switched VAT off. VAT is now on — choose the line's tax, then confirm.`,
+      })),
     );
   }
 
@@ -1212,47 +1227,71 @@ export class SalesInvoiceService {
   }
 
   private validate(invoice: SalesInvoice): void {
-    const reasons: string[] = [];
-    if (invoice.customerId.trim() === "") reasons.push("العميل مطلوب.");
-    if (invoice.warehouseId.trim() === "") reasons.push("المستودع مطلوب.");
-    if (invoice.arAccountId.trim() === "") reasons.push("حساب المدينون مطلوب.");
-    if (invoice.lines.length === 0) reasons.push("الفاتورة تتطلب بنداً واحداً على الأقل.");
+    const reasons: BilingualReason[] = [];
+    if (invoice.customerId.trim() === "") reasons.push({ ar: "العميل مطلوب.", en: "The customer is required." });
+    if (invoice.warehouseId.trim() === "") reasons.push({ ar: "المستودع مطلوب.", en: "The warehouse is required." });
+    if (invoice.arAccountId.trim() === "") reasons.push({ ar: "حساب المدينين مطلوب.", en: "The receivables account is required." });
+    if (invoice.lines.length === 0) reasons.push({ ar: "الفاتورة تتطلب بنداً واحداً على الأقل.", en: "The invoice needs at least one line." });
     for (const line of invoice.lines) {
-      if (line.itemId.trim() === "") reasons.push("كل بند يجب أن يستهدف صنفاً.");
+      if (line.itemId.trim() === "") reasons.push({ ar: "كل بند يجب أن يستهدف صنفاً.", en: "Every line needs an item." });
       if (line.itemId === RETENTION_RELEASE_ITEM_ID && !isRetentionRelease(invoice)) {
-        reasons.push(`الصنف "${line.itemNameAr}": صنف الإفراج عن المحتجزات يصدر على مستند الإفراج وحده، ولا يُباع على فاتورة عادية.`);
+        reasons.push({
+          ar: `الصنف "${line.itemNameAr}": صنف الإفراج عن المحتجزات يصدر على مستند الإفراج وحده، ولا يُباع على فاتورة عادية.`,
+          en: `Item "${line.itemNameAr}": the retention-release item is issued only on a release document and cannot be sold on an ordinary invoice.`,
+        });
       }
       if (line.qty.isNegative() || line.qty.isZero()) {
-        reasons.push(`الصنف "${line.itemNameAr}": الكمية يجب أن تكون أكبر من صفر.`);
+        reasons.push({
+          ar: `الصنف "${line.itemNameAr}": الكمية يجب أن تكون أكبر من صفر.`,
+          en: `Item "${line.itemNameAr}": the quantity must be greater than zero.`,
+        });
       }
       if (line.unitPrice.scaled < 0n) {
-        reasons.push(`الصنف "${line.itemNameAr}": السعر لا يقبل قيمة سالبة.`);
+        reasons.push({
+          ar: `الصنف "${line.itemNameAr}": السعر لا يقبل قيمة سالبة.`,
+          en: `Item "${line.itemNameAr}": the price cannot be negative.`,
+        });
       }
       if (!Number.isFinite(line.unitFactor) || line.unitFactor <= 0) {
-        reasons.push(`الصنف "${line.itemNameAr}": معامل تحويل الوحدة يجب أن يكون أكبر من صفر.`);
+        reasons.push({
+          ar: `الصنف "${line.itemNameAr}": معامل تحويل الوحدة يجب أن يكون أكبر من صفر.`,
+          en: `Item "${line.itemNameAr}": the unit conversion factor must be greater than zero.`,
+        });
       }
       if (line.baseQty.isNegative() || line.baseQty.isZero()) {
-        reasons.push(`الصنف "${line.itemNameAr}": الكمية بالوحدة الأساسية يجب أن تكون أكبر من صفر.`);
+        reasons.push({
+          ar: `الصنف "${line.itemNameAr}": الكمية بالوحدة الأساسية يجب أن تكون أكبر من صفر.`,
+          en: `Item "${line.itemNameAr}": the quantity in the base unit must be greater than zero.`,
+        });
       }
       if (line.discountType === "amount") {
         if (line.discountAmount.scaled < 0n) {
-          reasons.push(`الصنف "${line.itemNameAr}": قيمة الخصم لا تقبل قيمة سالبة.`);
+          reasons.push({
+          ar: `الصنف "${line.itemNameAr}": قيمة الخصم لا تقبل قيمة سالبة.`,
+          en: `Item "${line.itemNameAr}": the discount amount cannot be negative.`,
+        });
         }
       } else if (line.discountPercent < 0 || line.discountPercent > 100) {
-        reasons.push(`الصنف "${line.itemNameAr}": نسبة الخصم يجب أن تكون بين 0 و 100.`);
+        reasons.push({
+          ar: `الصنف "${line.itemNameAr}": نسبة الخصم يجب أن تكون بين 0 و 100.`,
+          en: `Item "${line.itemNameAr}": the discount percentage must be between 0 and 100.`,
+        });
       }
       if (line.isStock && (!line.cogsAccountId || !line.inventoryAccountId)) {
-        reasons.push(`الصنف "${line.itemNameAr}": بند مخزون يتطلب حسابي التكلفة والمخزون.`);
+        reasons.push({
+          ar: `الصنف "${line.itemNameAr}": بند مخزون يتطلب حسابي التكلفة والمخزون.`,
+          en: `Item "${line.itemNameAr}": a stock line needs both a cost account and an inventory account.`,
+        });
       }
     }
     // The invoice-level discount was unchecked while every line-level one was.
     // A negative amount is applied as a literal subtraction, so it INFLATES the
     // total rather than reducing it — 950 became 1,140 in the scenario suite.
     if (invoice.discount.type === "amount" && invoice.discount.amount.scaled < 0n) {
-      reasons.push("خصم الفاتورة لا يقبل قيمة سالبة.");
+      reasons.push({ ar: "خصم الفاتورة لا يقبل قيمة سالبة.", en: "The invoice discount cannot be negative." });
     }
     if (invoice.discount.type === "percent" && (invoice.discount.percent < 0 || invoice.discount.percent > 100)) {
-      reasons.push("نسبة خصم الفاتورة يجب أن تكون بين 0 و 100.");
+      reasons.push({ ar: "نسبة خصم الفاتورة يجب أن تكون بين 0 و 100.", en: "The invoice discount percentage must be between 0 and 100." });
     }
     if (reasons.length > 0) throw new InvalidSalesInvoiceError(reasons);
   }
@@ -1447,6 +1486,7 @@ export async function applyAllocatedSettlement(
     if (settled.scaled <= 0n) return existing;
     throw new InvalidSalesInvoicePaymentError(
       `لا يمكن تسجيل دفعة على فاتورة في حالة ${SALES_INVOICE_STATUS_LABELS_AR[existing.status]}.`,
+      `A payment cannot be recorded on an invoice that is ${SALES_INVOICE_STATUS_LABELS_EN[existing.status]}.`,
     );
   }
 

@@ -70,16 +70,16 @@ function advanceDate(iso: string, frequency: InstallmentFrequency, periods: numb
 
 export function generateInstallmentSchedule(input: GenerateInstallmentScheduleInput): GeneratedSchedule {
   if (input.installmentCount < 1) {
-    throw new InvalidInstallmentScheduleError("عدد الأقساط يجب أن يكون 1 على الأقل.");
+    throw new InvalidInstallmentScheduleError("عدد الأقساط يجب أن يكون 1 على الأقل.", "The number of installments must be at least 1.");
   }
   if (input.invoiceTotal.scaled < 0n) {
-    throw new InvalidInstallmentScheduleError("إجمالي الفاتورة لا يمكن أن يكون سالباً.");
+    throw new InvalidInstallmentScheduleError("إجمالي الفاتورة لا يمكن أن يكون سالباً.", "The invoice total cannot be negative.");
   }
   if (input.downPayment.scaled < 0n) {
-    throw new InvalidInstallmentScheduleError("الدفعة المقدمة لا يمكن أن تكون سالبة.");
+    throw new InvalidInstallmentScheduleError("الدفعة المقدمة لا يمكن أن تكون سالبة.", "The down payment cannot be negative.");
   }
   if (input.downPayment.scaled > input.invoiceTotal.scaled) {
-    throw new InvalidInstallmentScheduleError("الدفعة المقدمة لا يمكن أن تتجاوز إجمالي الفاتورة.");
+    throw new InvalidInstallmentScheduleError("الدفعة المقدمة لا يمكن أن تتجاوز إجمالي الفاتورة.", "The down payment cannot exceed the invoice total.");
   }
 
   const remaining = input.invoiceTotal.add(input.downPayment.negate());

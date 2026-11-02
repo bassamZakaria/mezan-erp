@@ -4,6 +4,7 @@ import { getEmployeeStatusLabel, type EmployeeStatus } from "./employee.js";
 import { getLeaveRequestStatusLabel, type LeaveRequestStatus } from "./leave-request.js";
 import { getPayrollRunStatusLabel, type PayrollRunStatus } from "./payroll-run.js";
 import { getEmployeeAdvanceStatusLabel, type EmployeeAdvanceStatus } from "./advance.js";
+import { splitReasons, type ReasonInput } from "../bilingual-reasons.js";
 
 /** Raised when an operation references a department id/code that does not exist. */
 export class DepartmentNotFoundError extends Error {
@@ -19,8 +20,13 @@ export class DepartmentNotFoundError extends Error {
 /** Raised when a department create/update command fails validation. */
 export class InvalidDepartmentError extends Error {
   readonly code = "INVALID_DEPARTMENT";
-  constructor(readonly reasons: readonly string[]) {
-    super(reasons.join("، "));
+  readonly reasons: readonly string[];
+  readonly messageEn: string;
+  constructor(reasons: readonly ReasonInput[]) {
+    const split = splitReasons(reasons, "The department data is invalid.");
+    super(split.ar.join("، "));
+    this.reasons = split.ar;
+    this.messageEn = split.en;
     this.name = "InvalidDepartmentError";
   }
 }
@@ -39,8 +45,13 @@ export class JobTitleNotFoundError extends Error {
 /** Raised when a job-title create/update command fails validation. */
 export class InvalidJobTitleError extends Error {
   readonly code = "INVALID_JOB_TITLE";
-  constructor(readonly reasons: readonly string[]) {
-    super(reasons.join("، "));
+  readonly reasons: readonly string[];
+  readonly messageEn: string;
+  constructor(reasons: readonly ReasonInput[]) {
+    const split = splitReasons(reasons, "The job title data is invalid.");
+    super(split.ar.join("، "));
+    this.reasons = split.ar;
+    this.messageEn = split.en;
     this.name = "InvalidJobTitleError";
   }
 }
@@ -59,13 +70,13 @@ export class EmployeeNotFoundError extends Error {
 /** Raised when a new-employee/edit command fails validation. */
 export class InvalidEmployeeError extends Error {
   readonly code = "INVALID_EMPLOYEE";
-  readonly messageEn?: string;
-  constructor(
-    readonly reasons: readonly string[],
-    reasonsEn?: readonly string[],
-  ) {
-    super(reasons.join("، "));
-    if (reasonsEn) this.messageEn = reasonsEn.join("; ");
+  readonly reasons: readonly string[];
+  readonly messageEn: string;
+  constructor(reasons: readonly ReasonInput[]) {
+    const split = splitReasons(reasons, "The employee data is invalid.");
+    super(split.ar.join("، "));
+    this.reasons = split.ar;
+    this.messageEn = split.en;
     this.name = "InvalidEmployeeError";
   }
 }
@@ -132,8 +143,13 @@ export class ContractNotFoundError extends Error {
 /** Raised when a new-contract command fails validation. */
 export class InvalidContractError extends Error {
   readonly code = "INVALID_CONTRACT";
-  constructor(readonly reasons: readonly string[]) {
-    super(reasons.join("، "));
+  readonly reasons: readonly string[];
+  readonly messageEn: string;
+  constructor(reasons: readonly ReasonInput[]) {
+    const split = splitReasons(reasons, "The contract data is invalid.");
+    super(split.ar.join("، "));
+    this.reasons = split.ar;
+    this.messageEn = split.en;
     this.name = "InvalidContractError";
   }
 }
@@ -163,8 +179,13 @@ export class HolidayNotFoundError extends Error {
 /** Raised when a new-holiday/edit command fails validation. */
 export class InvalidHolidayError extends Error {
   readonly code = "INVALID_HOLIDAY";
-  constructor(readonly reasons: readonly string[]) {
-    super(reasons.join("، "));
+  readonly reasons: readonly string[];
+  readonly messageEn: string;
+  constructor(reasons: readonly ReasonInput[]) {
+    const split = splitReasons(reasons, "The holiday data is invalid.");
+    super(split.ar.join("، "));
+    this.reasons = split.ar;
+    this.messageEn = split.en;
     this.name = "InvalidHolidayError";
   }
 }
@@ -183,8 +204,13 @@ export class LeaveRequestNotFoundError extends Error {
 /** Raised when a new-leave-request command fails validation (e.g. end before start). */
 export class InvalidLeaveRequestError extends Error {
   readonly code = "INVALID_LEAVE_REQUEST";
-  constructor(readonly reasons: readonly string[]) {
-    super(reasons.join("، "));
+  readonly reasons: readonly string[];
+  readonly messageEn: string;
+  constructor(reasons: readonly ReasonInput[]) {
+    const split = splitReasons(reasons, "The leave request data is invalid.");
+    super(split.ar.join("، "));
+    this.reasons = split.ar;
+    this.messageEn = split.en;
     this.name = "InvalidLeaveRequestError";
   }
 }
@@ -192,11 +218,13 @@ export class InvalidLeaveRequestError extends Error {
 /** Raised when a leave-request status transition is not allowed by its state machine. */
 export class InvalidLeaveRequestTransitionError extends Error {
   readonly code = "INVALID_LEAVE_REQUEST_TRANSITION";
+  readonly messageEn: string;
   constructor(
     readonly from: LeaveRequestStatus,
     readonly to: LeaveRequestStatus,
   ) {
     super(`لا يمكن نقل طلب الإجازة من "${getLeaveRequestStatusLabel(from)}" إلى "${getLeaveRequestStatusLabel(to)}".`);
+    this.messageEn = `A leave request cannot move from "${from}" to "${to}".`;
     this.name = "InvalidLeaveRequestTransitionError";
   }
 }
@@ -204,8 +232,13 @@ export class InvalidLeaveRequestTransitionError extends Error {
 /** Raised when an attendance record/correction command fails validation. */
 export class InvalidAttendanceEntryError extends Error {
   readonly code = "INVALID_ATTENDANCE_ENTRY";
-  constructor(readonly reasons: readonly string[]) {
-    super(reasons.join("، "));
+  readonly reasons: readonly string[];
+  readonly messageEn: string;
+  constructor(reasons: readonly ReasonInput[]) {
+    const split = splitReasons(reasons, "The attendance entry data is invalid.");
+    super(split.ar.join("، "));
+    this.reasons = split.ar;
+    this.messageEn = split.en;
     this.name = "InvalidAttendanceEntryError";
   }
 }
@@ -243,6 +276,7 @@ export class DuplicateAttendanceEntryError extends Error {
  */
 export class LeaveBalanceExceededError extends Error {
   readonly code = "LEAVE_BALANCE_EXCEEDED";
+  readonly messageEn: string;
   constructor(
     readonly requestedDays: number,
     readonly availableDays: number,
@@ -251,6 +285,7 @@ export class LeaveBalanceExceededError extends Error {
       `الرصيد المتاح ${arabicDays(availableDays)} لا يغطي الطلب (${arabicDays(requestedDays)}). ` +
         "عدّل الطلب أو زد الرصيد قبل الاعتماد.",
     );
+    this.messageEn = `The available balance of ${availableDays} day(s) does not cover the request (${requestedDays} day(s)). Adjust the request or increase the balance before approving.`;
     this.name = "LeaveBalanceExceededError";
   }
 }
@@ -258,8 +293,13 @@ export class LeaveBalanceExceededError extends Error {
 /** Raised when a leave-policy create/update command fails validation. */
 export class InvalidLeavePolicyError extends Error {
   readonly code = "INVALID_LEAVE_POLICY";
-  constructor(readonly reasons: readonly string[]) {
-    super(reasons.join("، "));
+  readonly reasons: readonly string[];
+  readonly messageEn: string;
+  constructor(reasons: readonly ReasonInput[]) {
+    const split = splitReasons(reasons, "The leave policy data is invalid.");
+    super(split.ar.join("، "));
+    this.reasons = split.ar;
+    this.messageEn = split.en;
     this.name = "InvalidLeavePolicyError";
   }
 }
@@ -300,8 +340,13 @@ export class UnknownLeavePolicyPresetError extends Error {
 /** Raised when a leave-balance create/adjust command fails validation. */
 export class InvalidLeaveBalanceError extends Error {
   readonly code = "INVALID_LEAVE_BALANCE";
-  constructor(readonly reasons: readonly string[]) {
-    super(reasons.join("، "));
+  readonly reasons: readonly string[];
+  readonly messageEn: string;
+  constructor(reasons: readonly ReasonInput[]) {
+    const split = splitReasons(reasons, "The leave balance data is invalid.");
+    super(split.ar.join("، "));
+    this.reasons = split.ar;
+    this.messageEn = split.en;
     this.name = "InvalidLeaveBalanceError";
   }
 }
@@ -320,8 +365,13 @@ export class LeaveBalanceNotFoundError extends Error {
 /** Raised when an accrual-run command fails validation. */
 export class InvalidLeaveAccrualBatchError extends Error {
   readonly code = "INVALID_LEAVE_ACCRUAL_BATCH";
-  constructor(readonly reasons: readonly string[]) {
-    super(reasons.join("، "));
+  readonly reasons: readonly string[];
+  readonly messageEn: string;
+  constructor(reasons: readonly ReasonInput[]) {
+    const split = splitReasons(reasons, "The leave accrual run data is invalid.");
+    super(split.ar.join("، "));
+    this.reasons = split.ar;
+    this.messageEn = split.en;
     this.name = "InvalidLeaveAccrualBatchError";
   }
 }
@@ -340,8 +390,13 @@ export class EmployeeAdvanceNotFoundError extends Error {
 /** Raised when an advance request/recovery command fails validation. */
 export class InvalidEmployeeAdvanceError extends Error {
   readonly code = "INVALID_EMPLOYEE_ADVANCE";
-  constructor(readonly reasons: readonly string[]) {
-    super(reasons.join("، "));
+  readonly reasons: readonly string[];
+  readonly messageEn: string;
+  constructor(reasons: readonly ReasonInput[]) {
+    const split = splitReasons(reasons, "The employee advance data is invalid.");
+    super(split.ar.join("، "));
+    this.reasons = split.ar;
+    this.messageEn = split.en;
     this.name = "InvalidEmployeeAdvanceError";
   }
 }
@@ -349,11 +404,13 @@ export class InvalidEmployeeAdvanceError extends Error {
 /** Raised when an advance status transition is not allowed by its state machine. */
 export class InvalidEmployeeAdvanceTransitionError extends Error {
   readonly code = "INVALID_EMPLOYEE_ADVANCE_TRANSITION";
+  readonly messageEn: string;
   constructor(
     readonly from: EmployeeAdvanceStatus,
     readonly to: EmployeeAdvanceStatus,
   ) {
     super(`لا يمكن نقل السلفة من "${getEmployeeAdvanceStatusLabel(from)}" إلى "${getEmployeeAdvanceStatusLabel(to)}".`);
+    this.messageEn = `An advance cannot move from "${from}" to "${to}".`;
     this.name = "InvalidEmployeeAdvanceTransitionError";
   }
 }
@@ -372,8 +429,13 @@ export class PayrollRunNotFoundError extends Error {
 /** Raised when a payroll-run create command fails validation. */
 export class InvalidPayrollRunError extends Error {
   readonly code = "INVALID_PAYROLL_RUN";
-  constructor(readonly reasons: readonly string[]) {
-    super(reasons.join("، "));
+  readonly reasons: readonly string[];
+  readonly messageEn: string;
+  constructor(reasons: readonly ReasonInput[]) {
+    const split = splitReasons(reasons, "The payroll run data is invalid.");
+    super(split.ar.join("، "));
+    this.reasons = split.ar;
+    this.messageEn = split.en;
     this.name = "InvalidPayrollRunError";
   }
 }
@@ -467,11 +529,13 @@ export class HrProvisionLaterPostingError extends Error {
 /** Raised when a payroll-run status transition is not allowed by its state machine. */
 export class InvalidPayrollRunTransitionError extends Error {
   readonly code = "INVALID_PAYROLL_RUN_TRANSITION";
+  readonly messageEn: string;
   constructor(
     readonly from: PayrollRunStatus,
     readonly to: PayrollRunStatus,
   ) {
     super(`لا يمكن نقل مسير الرواتب من "${getPayrollRunStatusLabel(from)}" إلى "${getPayrollRunStatusLabel(to)}".`);
+    this.messageEn = `A payroll run cannot move from "${from}" to "${to}".`;
     this.name = "InvalidPayrollRunTransitionError";
   }
 }
@@ -529,6 +593,7 @@ export class PayrollFxRateMissingError extends Error {
  */
 export class TreasuryDisbursementHeldError extends Error {
   readonly code = "TREASURY_DISBURSEMENT_HELD";
+  readonly messageEn = "The disbursement voucher is awaiting approval; the payout is not complete until it is approved.";
   constructor(readonly voucherId: string) {
     super("سند الصرف بانتظار الموافقة — لن يُعتبر الصرف تماً قبل اعتماده.");
     this.name = "TreasuryDisbursementHeldError";
@@ -549,8 +614,13 @@ export class TreasuryDisbursementUnavailableError extends Error {
 /** Raised when a payroll component fails its own validation (code, Arabic name). */
 export class InvalidPayrollComponentError extends Error {
   readonly code = "INVALID_PAYROLL_COMPONENT";
-  constructor(readonly reasons: readonly string[]) {
-    super(reasons.join("، "));
+  readonly reasons: readonly string[];
+  readonly messageEn: string;
+  constructor(reasons: readonly ReasonInput[]) {
+    const split = splitReasons(reasons, "The payroll component data is invalid.");
+    super(split.ar.join("، "));
+    this.reasons = split.ar;
+    this.messageEn = split.en;
     this.name = "InvalidPayrollComponentError";
   }
 }
@@ -558,8 +628,10 @@ export class InvalidPayrollComponentError extends Error {
 /** Raised when an operation references a payroll-component id that does not exist. */
 export class PayrollComponentNotFoundError extends Error {
   readonly code = "PAYROLL_COMPONENT_NOT_FOUND";
+  readonly messageEn: string;
   constructor(readonly componentId: string) {
     super(`مكوّن الرواتب غير موجود: ${componentId}`);
+    this.messageEn = `Payroll component "${componentId}" was not found.`;
     this.name = "PayrollComponentNotFoundError";
   }
 }
@@ -567,8 +639,10 @@ export class PayrollComponentNotFoundError extends Error {
 /** Raised when a payroll component reuses a code the registry already holds. */
 export class DuplicatePayrollComponentError extends Error {
   readonly code = "DUPLICATE_PAYROLL_COMPONENT";
+  readonly messageEn: string;
   constructor(readonly componentCode: string) {
     super(`كود مكوّن الرواتب مستخدم بالفعل: ${componentCode}`);
+    this.messageEn = `Payroll component code "${componentCode}" is already in use.`;
     this.name = "DuplicatePayrollComponentError";
   }
 }
@@ -576,8 +650,13 @@ export class DuplicatePayrollComponentError extends Error {
 /** Raised when a garnishment command fails validation. */
 export class InvalidGarnishmentError extends Error {
   readonly code = "INVALID_GARNISHMENT";
-  constructor(readonly reasons: readonly string[]) {
-    super(reasons.join("، "));
+  readonly reasons: readonly string[];
+  readonly messageEn: string;
+  constructor(reasons: readonly ReasonInput[]) {
+    const split = splitReasons(reasons, "The garnishment data is invalid.");
+    super(split.ar.join("، "));
+    this.reasons = split.ar;
+    this.messageEn = split.en;
     this.name = "InvalidGarnishmentError";
   }
 }
@@ -585,6 +664,7 @@ export class InvalidGarnishmentError extends Error {
 /** Raised when an operation references a garnishment id that does not exist. */
 export class GarnishmentNotFoundError extends Error {
   readonly code = "GARNISHMENT_NOT_FOUND";
+  readonly messageEn = "The garnishment was not found.";
   constructor(readonly garnishmentId: string) {
     super("سند الحجز غير موجود.");
     this.name = "GarnishmentNotFoundError";
@@ -599,13 +679,18 @@ export class GarnishmentNotFoundError extends Error {
  */
 export class StatutoryRulesUnavailableError extends Error {
   readonly code = "STATUTORY_RULES_UNAVAILABLE";
+  readonly missing: readonly string[];
+  readonly messageEn: string;
   constructor(
     readonly onDate: string,
-    readonly missing: readonly string[],
+    missingTables: readonly ReasonInput[],
   ) {
+    const split = splitReasons(missingTables, "A required statutory table is missing", ", ");
     super(
-      `لا توجد قواعد قانونية سارية بتاريخ ${onDate}: ${missing.join("، ")}. أدخل حدود الأجر التأميني للسنة من شاشة الجداول القانونية قبل احتساب المسير.`,
+      `لا توجد قواعد قانونية سارية بتاريخ ${onDate}: ${split.ar.join("، ")}. أدخل الجداول الناقصة من شاشة الجداول القانونية قبل احتساب المسير.`,
     );
+    this.missing = split.ar;
+    this.messageEn = `No statutory rules are in force on ${onDate}: ${split.en}. Enter the missing tables in the statutory tables screen before calculating payroll.`;
     this.name = "StatutoryRulesUnavailableError";
   }
 }
@@ -613,8 +698,10 @@ export class StatutoryRulesUnavailableError extends Error {
 /** Raised when end-of-service is requested for an employee whose service has not ended. */
 export class EmployeeStillEmployedError extends Error {
   readonly code = "EMPLOYEE_STILL_EMPLOYED";
+  readonly messageEn: string;
   constructor(readonly employeeId: string) {
     super("لا تُحتسب مستحقات نهاية الخدمة إلا بعد إنهاء خدمة الموظف.");
+    this.messageEn = "End-of-service benefits can only be calculated after the employee's service has ended.";
     this.name = "EmployeeStillEmployedError";
   }
 }

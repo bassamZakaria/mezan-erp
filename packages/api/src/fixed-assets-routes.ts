@@ -1,3 +1,4 @@
+import { messageEnOf } from "./observability/error-message-backfill.js";
 import { BranchRecordKind, recordsInBranchGrant } from "./branch-policy.js";
 import { postingRefusalResponse } from "./posting-refusal.js";
 import { randomUUID } from "node:crypto";
@@ -193,7 +194,7 @@ function handleDomainError(c: Context, err: unknown) {
   const postingRefusal = postingRefusalResponse(c, err);
   if (postingRefusal) return postingRefusal;
   const refuse = (e: Error & { code: string; messageEn?: string }, status: 404 | 409 | 422) =>
-    c.json({ error: e.code, message: e.message, ...(e.messageEn ? { messageEn: e.messageEn } : {}) }, status);
+    c.json({ error: e.code, message: e.message, messageEn: messageEnOf(e, status) }, status);
   if (err instanceof AssetCategoryNotFoundError || err instanceof AssetNotFoundError || err instanceof DepreciationRunNotFoundError) {
     return refuse(err, 404);
   }
@@ -423,7 +424,7 @@ export function createFixedAssetsRoutes(
     if (!asset) return c.json({ error: "ASSET_NOT_FOUND" }, 404);
     const next = parsed.data.hourlyRate === null ? null : Money.fromMajor(parsed.data.hourlyRate);
     if (next !== null && next.scaled < 0n) {
-      return c.json({ error: "VALIDATION_ERROR", message: "سعر الساعة الداخلي لا يمكن أن يكون سالبًا" }, 422);
+      return c.json({ error: "VALIDATION_ERROR", message: "سعر الساعة الداخلي لا يمكن أن يكون سالبًا", messageEn: "The internal hourly rate cannot be negative" }, 422);
     }
     const effectiveFrom = await tenantDay(c, parsed.data.effectiveFrom ?? new Date().toISOString());
     const updated: Asset = { ...asset, internalHourlyRate: next };

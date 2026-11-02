@@ -68,7 +68,7 @@ export function createExchangeRatesRoutes(
     // Locked is terminal, the same way a locked fiscal period is: approving
     // back down from it would undo the lock (D25).
     if (rate.status === "locked") {
-      return c.json({ error: "RATE_LOCKED", message: "سعر الصرف مقفل ولا يمكن تعديل حالته." }, 409);
+      return c.json({ error: "RATE_LOCKED", message: "سعر الصرف مقفل ولا يمكن تعديل حالته.", messageEn: "The exchange rate is locked and its status cannot be changed." }, 409);
     }
     const next: ExchangeRate = { ...rate, status: "approved" };
     await repo.update(next);

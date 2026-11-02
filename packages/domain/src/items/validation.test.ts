@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { Money } from "../money/index.js";
 import type { Account } from "../accounts/index.js";
-import { validateAlternateUnits, validateGlAccountRefs, collectItemFieldErrors } from "./validation.js";
+import { itemFieldReasons, validateAlternateUnits, validateGlAccountRefs, collectItemFieldErrors } from "./validation.js";
 import type { Item } from "./item.js";
 
 function baseItem(overrides: Partial<Item> = {}): Item {
@@ -245,5 +245,12 @@ describe("collectItemFieldErrors", () => {
       baseItem({ nameAr: "", baseUnitCode: "", taxRatePercent: -1, reorderPoint: -1 }),
     );
     expect(reasons.length).toBeGreaterThanOrEqual(4);
+  });
+});
+
+describe("itemFieldReasons", () => {
+  it("pairs every Arabic reason with an English one", () => {
+    const reasons = itemFieldReasons(baseItem({ nameAr: " ", baseUnitCode: " " }));
+    expect(reasons.map((r) => r.en)).toEqual(["The Arabic item name is required", "The base unit is required"]);
   });
 });

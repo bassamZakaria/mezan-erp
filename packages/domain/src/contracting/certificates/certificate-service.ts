@@ -1,4 +1,6 @@
 import { Money, Qty } from "../../money/index.js";
+import type { BilingualReason } from "../../collections/errors.js";
+import type { ReasonInput } from "../../bilingual-reasons.js";
 import type { AccountRepository } from "../../accounts/account.js";
 import {
   DEFAULT_ACCOUNT_ROUTING_OPTIONS,
@@ -16,7 +18,7 @@ import {
   type JournalPostingDeps,
 } from "../../gl/index.js";
 import type { BoqUnit } from "../contracts/boq-unit.js";
-import type { BoqLine, WorksContract, WorksContractStore } from "../contracts/contract.js";
+import { getWorksContractStatusLabel, getWorksContractStatusLabelEn, type BoqLine, type WorksContract, type WorksContractStore } from "../contracts/contract.js";
 import {
   approvalDates,
   computeApprovedVariationsValue,
@@ -51,6 +53,7 @@ import {
   InvalidProgressCertificateError,
   InvalidProgressCertificateTransitionError,
   LaterCertificateExistsError,
+  PROGRESS_CERTIFICATE_STATUS_EN,
   ProgressCertificateNotFoundError,
 } from "./errors.js";
 import { tenantTodayIso } from "../../dates.js";
@@ -305,22 +308,22 @@ export interface InternalCertificateReport {
 const ACTUAL_COST_NOTE =
   "التكلفة الفعلية على مستوى المشروع؛ الربط بالبند يتطلب بُعد البند على التكلفة.";
 
-function moneyOf(reasons: string[], label: string, value: string | null | undefined, fallback = Money.zero()): Money {
+function moneyOf(reasons: ReasonInput[], label: BilingualReason, value: string | null | undefined, fallback = Money.zero()): Money {
   if (value === null || value === undefined || value === "") return fallback;
   try {
     return Money.fromMajor(value);
   } catch {
-    reasons.push(`${label} يجب أن يكون رقمًا`);
+    reasons.push({ ar: `${label.ar} يجب أن يكون رقمًا`, en: `${label.en} must be a number` });
     return fallback;
   }
 }
 
-function qtyOf(reasons: string[], label: string, value: string | null | undefined): Qty {
+function qtyOf(reasons: ReasonInput[], label: BilingualReason, value: string | null | undefined): Qty {
   if (value === null || value === undefined || value === "") return Qty.zero();
   try {
     return Qty.fromMajor(value);
   } catch {
-    reasons.push(`${label} يجب أن تكون رقمًا`);
+    reasons.push({ ar: `${label.ar} يجب أن تكون رقمًا`, en: `${label.en} must be a number` });
     return Qty.zero();
   }
 }
@@ -339,6 +342,7 @@ function addDays(date: string, days: number): string {
 
 interface DatedStep {
   readonly labelAr: string;
+  readonly labelEn: string;
   readonly date: string | null;
 }
 
@@ -347,19 +351,25 @@ interface DatedStep {
  * them is in the future. Every refusal names BOTH dates: «تاريخ الاعتماد
  * (٢٠٢٤-٠١-٠١) يسبق…» is actionable, "invalid date" is not.
  */
-function dateOrderRefusals(steps: readonly DatedStep[], today: string): string[] {
-  const reasons: string[] = [];
-  const known = steps.filter((s): s is { labelAr: string; date: string } => s.date !== null && s.date !== "");
+function dateOrderRefusals(steps: readonly DatedStep[], today: string): BilingualReason[] {
+  const reasons: BilingualReason[] = [];
+  const known = steps.filter((s): s is DatedStep & { date: string } => s.date !== null && s.date !== "");
   for (let i = 1; i < known.length; i++) {
-    const earlier = known[i - 1] as { labelAr: string; date: string };
-    const later = known[i] as { labelAr: string; date: string };
+    const earlier = known[i - 1] as DatedStep & { date: string };
+    const later = known[i] as DatedStep & { date: string };
     if (later.date < earlier.date) {
-      reasons.push(`${later.labelAr} (${later.date}) يسبق ${earlier.labelAr} (${earlier.date}).`);
+      reasons.push({
+        ar: `${later.labelAr} (${later.date}) يسبق ${earlier.labelAr} (${earlier.date}).`,
+        en: `${later.labelEn} (${later.date}) is earlier than ${earlier.labelEn} (${earlier.date}).`,
+      });
     }
   }
   for (const step of known.slice(1)) {
     if (step.date > today) {
-      reasons.push(`${step.labelAr} (${step.date}) يقع في المستقبل بعد تاريخ اليوم (${today}).`);
+      reasons.push({
+        ar: `${step.labelAr} (${step.date}) يقع في المستقبل بعد تاريخ اليوم (${today}).`,
+        en: `${step.labelEn} (${step.date}) is in the future, after today's date (${today}).`,
+      });
     }
   }
   return reasons;
@@ -443,7 +453,7 @@ export class CertificateService {
 
   private async requireContract(contractId: string): Promise<WorksContract> {
     const contract = await this.deps.contracts.findContractById(contractId);
-    if (!contract) throw new InvalidProgressCertificateError([`العقد "${contractId}" غير موجود`]);
+    if (!contract) throw new InvalidProgressCertificateError([{ ar: `العقد "${contractId}" غير موجود`, en: `Contract "${contractId}" was not found` }]);
     return contract;
   }
 
@@ -514,7 +524,7 @@ export class CertificateService {
     asOfExecution: ReadonlyMap<string, Qty>,
     previous: ProgressCertificate | null,
     inputs: readonly CertificateWorkLineInput[],
-    reasons: string[],
+    reasons: ReasonInput[],
     stamped: readonly CertificateWorkLine[],
   ): CertificateWorkLine[] {
     const byId = new Map(inputs.map((i) => [i.boqLineId, i]));
@@ -522,12 +532,12 @@ export class CertificateService {
     const previousById = new Map((previous?.workLines ?? []).map((l) => [l.boqLineId, l]));
     for (const input of inputs) {
       if (!boqLines.some((l) => l.id === input.boqLineId)) {
-        reasons.push(`البند "${input.boqLineId}" غير موجود في جدول الكميات`);
+        reasons.push({ ar: `البند "${input.boqLineId}" غير موجود في جدول الكميات`, en: `Line item "${input.boqLineId}" is not in the bill of quantities` });
       }
     }
     return boqLines.map((line, index) => {
       const input = byId.get(line.id);
-      const thisPeriodQty = qtyOf(reasons, `كمية البند "${line.code}"`, input?.thisPeriodQty);
+      const thisPeriodQty = qtyOf(reasons, { ar: `كمية البند "${line.code}"`, en: `The quantity of line item "${line.code}"` }, input?.thisPeriodQty);
       const prior = previousById.get(line.id);
       const previousCumulativeQty = prior?.cumulativeQty ?? Qty.zero();
       const previousCumulativeValue = prior?.cumulativeValue ?? Money.zero();
@@ -562,14 +572,14 @@ export class CertificateService {
     materialsOnSitePercent: string,
     previous: ProgressCertificate | null,
     inputs: readonly CertificateMaterialLineInput[],
-    reasons: string[],
+    reasons: ReasonInput[],
   ): CertificateMaterialLine[] {
     const priorByKey = new Map((previous?.materialLines ?? []).map((l) => [l.materialKey, l]));
     const seen = new Map<string, CertificateMaterialLineInput>();
     for (const input of inputs) {
       const key = input.materialKey.trim();
-      if (key === "") reasons.push("كل سطر تشوينات يحتاج مفتاحًا ثابتًا للمادة");
-      else if (seen.has(key)) reasons.push(`مفتاح التشوينات "${key}" مكرر`);
+      if (key === "") reasons.push({ ar: "كل سطر تشوينات يحتاج مفتاحًا ثابتًا للمادة", en: "Every materials-on-site line needs a stable material key" });
+      else if (seen.has(key)) reasons.push({ ar: `مفتاح التشوينات "${key}" مكرر`, en: `The materials-on-site key "${key}" is duplicated` });
       else seen.set(key, input);
     }
     // Carried forward automatically: a material certified last month stays on
@@ -588,16 +598,16 @@ export class CertificateService {
     return [...seen.values()].map((input, index) => {
       const key = input.materialKey.trim();
       const prior = priorByKey.get(key);
-      const qty = qtyOf(reasons, `كمية التشوينات "${input.descriptionAr}"`, input.qty);
+      const qty = qtyOf(reasons, { ar: `كمية التشوينات "${input.descriptionAr}"`, en: `The materials-on-site quantity "${input.descriptionAr}"` }, input.qty);
       // The rate is stamped by the FIRST certificate that carried the material,
       // exactly as a work line's rate is. Re-reading a re-typed rate here
       // restated the earlier certificate's cumulative value — money the
       // consultant had already signed for.
-      const unitRate = prior?.unitRate ?? moneyOf(reasons, `فئة التشوينات "${input.descriptionAr}"`, input.unitRate);
+      const unitRate = prior?.unitRate ?? moneyOf(reasons, { ar: `فئة التشوينات "${input.descriptionAr}"`, en: `The materials-on-site rate "${input.descriptionAr}"` }, input.unitRate);
       const previousCumulativeQty = prior?.cumulativeQty ?? Qty.zero();
       const cumulativeQty = previousCumulativeQty.add(qty);
       if (cumulativeQty.isNegative()) {
-        reasons.push(`الكمية التراكمية للتشوينات "${input.descriptionAr}" سالبة`);
+        reasons.push({ ar: `الكمية التراكمية للتشوينات "${input.descriptionAr}" سالبة`, en: `The cumulative materials-on-site quantity "${input.descriptionAr}" is negative` });
       }
       const value = percentOf(extendQty(cumulativeQty, unitRate), materialsOnSitePercent);
       return {
@@ -625,24 +635,29 @@ export class CertificateService {
     workLines: readonly CertificateWorkLine[],
     asOfNow: ReadonlyMap<string, Qty>,
     executionDate: string,
-  ): string[] {
-    const reasons: string[] = [];
+  ): BilingualReason[] {
+    const reasons: BilingualReason[] = [];
     for (const line of workLines) {
       if (line.cumulativeQty.isNegative()) {
-        reasons.push(`الكمية التراكمية للبند "${line.code} — ${line.descriptionAr}" سالبة.`);
+        reasons.push({
+          ar: `الكمية التراكمية للبند "${line.code} — ${line.descriptionAr}" سالبة.`,
+          en: `The cumulative quantity of line item "${line.code} — ${line.descriptionAr}" is negative.`,
+        });
         continue;
       }
       if (line.cumulativeQty.compare(line.contractedQty) <= 0) continue;
       const now = asOfNow.get(line.boqLineId) ?? Qty.zero();
       if (now.scaled > line.contractedQty.scaled && line.cumulativeQty.compare(now) <= 0) {
-        reasons.push(
-          `البند "${line.code} — ${line.descriptionAr}": الكمية التراكمية ${qtyText(line.cumulativeQty)} تتجاوز الكمية التعاقدية ${qtyText(line.contractedQty)} في تاريخ التنفيذ ${executionDate} — أمر التغيير الذي يرفعها اعتُمد بعد هذا التاريخ.`,
-        );
+        reasons.push({
+          ar: `البند "${line.code} — ${line.descriptionAr}": الكمية التراكمية ${qtyText(line.cumulativeQty)} تتجاوز الكمية التعاقدية ${qtyText(line.contractedQty)} في تاريخ التنفيذ ${executionDate} — أمر التغيير الذي يرفعها اعتُمد بعد هذا التاريخ.`,
+          en: `Line item "${line.code} — ${line.descriptionAr}": the cumulative quantity ${qtyText(line.cumulativeQty)} exceeds the contracted quantity ${qtyText(line.contractedQty)} on the execution date ${executionDate} — the variation order that raises it was approved after that date.`,
+        });
         continue;
       }
-      reasons.push(
-        `البند "${line.code} — ${line.descriptionAr}": الكمية التراكمية ${qtyText(line.cumulativeQty)} تتجاوز الكمية التعاقدية ${qtyText(line.contractedQty)}.`,
-      );
+      reasons.push({
+        ar: `البند "${line.code} — ${line.descriptionAr}": الكمية التراكمية ${qtyText(line.cumulativeQty)} تتجاوز الكمية التعاقدية ${qtyText(line.contractedQty)}.`,
+        en: `Line item "${line.code} — ${line.descriptionAr}": the cumulative quantity ${qtyText(line.cumulativeQty)} exceeds the contracted quantity ${qtyText(line.contractedQty)}.`,
+      });
     }
     return reasons;
   }
@@ -666,13 +681,13 @@ export class CertificateService {
     executionDate: string;
     asOfNow: ReadonlyMap<string, Qty>;
   }> {
-    const reasons: string[] = [];
-    if (!ISO_DATE.test(input.periodFrom)) reasons.push("تاريخ بداية الفترة مطلوب بصيغة YYYY-MM-DD");
-    if (!ISO_DATE.test(input.periodTo)) reasons.push("تاريخ نهاية الفترة مطلوب بصيغة YYYY-MM-DD");
+    const reasons: ReasonInput[] = [];
+    if (!ISO_DATE.test(input.periodFrom)) reasons.push({ ar: "تاريخ بداية الفترة مطلوب بصيغة YYYY-MM-DD", en: "The period start date is required in YYYY-MM-DD format" });
+    if (!ISO_DATE.test(input.periodTo)) reasons.push({ ar: "تاريخ نهاية الفترة مطلوب بصيغة YYYY-MM-DD", en: "The period end date is required in YYYY-MM-DD format" });
     const executionDate = input.executionDate ?? input.periodTo;
-    if (!ISO_DATE.test(executionDate)) reasons.push("تاريخ التنفيذ مطلوب بصيغة YYYY-MM-DD");
+    if (!ISO_DATE.test(executionDate)) reasons.push({ ar: "تاريخ التنفيذ مطلوب بصيغة YYYY-MM-DD", en: "The execution date is required in YYYY-MM-DD format" });
     if (ISO_DATE.test(input.periodFrom) && ISO_DATE.test(input.periodTo) && input.periodTo < input.periodFrom) {
-      reasons.push("تاريخ نهاية الفترة يسبق تاريخ بدايتها");
+      reasons.push({ ar: "تاريخ نهاية الفترة يسبق تاريخ بدايتها", en: "The period end date is earlier than its start date" });
     }
     if (reasons.length > 0) throw new InvalidProgressCertificateError(reasons);
 
@@ -694,10 +709,10 @@ export class CertificateService {
       reasons,
     );
     const manual = {
-      penaltiesCumulative: moneyOf(reasons, "غرامة التأخير", input.penaltiesCumulative),
-      suspendedCumulative: moneyOf(reasons, "التعليات", input.suspendedCumulative),
-      employerMaterialsCumulative: moneyOf(reasons, "استهلاك عهدة المواد", input.employerMaterialsCumulative),
-      waterElectricityCumulative: moneyOf(reasons, "استهلاك المياه والكهرباء", input.waterElectricityCumulative),
+      penaltiesCumulative: moneyOf(reasons, { ar: "غرامة التأخير", en: "Late penalty" }, input.penaltiesCumulative),
+      suspendedCumulative: moneyOf(reasons, { ar: "التعليات", en: "The suspended amount" }, input.suspendedCumulative),
+      employerMaterialsCumulative: moneyOf(reasons, { ar: "استهلاك عهدة المواد", en: "The employer materials consumption" }, input.employerMaterialsCumulative),
+      waterElectricityCumulative: moneyOf(reasons, { ar: "استهلاك المياه والكهرباء", en: "The water and electricity consumption" }, input.waterElectricityCumulative),
     };
     if (reasons.length > 0) throw new InvalidProgressCertificateError(reasons);
 
@@ -768,7 +783,7 @@ export class CertificateService {
       workLines: composed.workLines,
       materialLines: composed.materialLines,
       computed: composed.computed,
-      refusals: this.quantityRefusals(composed.workLines, composed.asOfNow, composed.executionDate),
+      refusals: this.quantityRefusals(composed.workLines, composed.asOfNow, composed.executionDate).map((reason) => reason.ar),
       serial:
         existing?.serial ??
         (await this.deps.store.listByContract(contract.id)).reduce((max, row) => Math.max(max, row.serial), 0) + 1,
@@ -780,7 +795,10 @@ export class CertificateService {
     const contract = await this.requireContract(cmd.contractId);
     if (contract.status !== "active") {
       throw new InvalidProgressCertificateError([
-        `لا يمكن إصدار مستخلص إلا على عقد ساري — حالة العقد "${contract.status}".`,
+        {
+          ar: `لا يمكن إصدار مستخلص إلا على عقد ساري — حالة العقد "${getWorksContractStatusLabel(contract.status)}".`,
+          en: `A certificate can only be issued on an active contract — the contract status is "${getWorksContractStatusLabelEn(contract.status)}".`,
+        },
       ]);
     }
     const all = await this.deps.store.listByContract(contract.id);
@@ -794,7 +812,10 @@ export class CertificateService {
     const nextSerial = all.reduce((max, row) => Math.max(max, row.serial), 0) + 1;
     if (previous?.isFinal) {
       throw new InvalidProgressCertificateError([
-        `المستخلص الختامي رقم ${previous.serial} أقفل كميات هذا العقد — لا يجوز إصدار مستخلص بعده.`,
+        {
+          ar: `المستخلص الختامي رقم ${previous.serial} أقفل كميات هذا العقد — لا يجوز إصدار مستخلص بعده.`,
+          en: `Final certificate no. ${previous.serial} closed this contract's quantities — no certificate may be issued after it.`,
+        },
       ]);
     }
     const composed = await this.compose(cmd.id, contract, previous, cmd, []);
@@ -851,7 +872,10 @@ export class CertificateService {
     const current = await this.require(idOrDocNo);
     if (!EDITABLE_CERTIFICATE_STATUSES.includes(current.status)) {
       throw new InvalidProgressCertificateError([
-        `لا يمكن تعديل مستخلص حالته "${getProgressCertificateStatusLabel(current.status)}" — التصحيح يكون بكمية على المستخلص التالي.`,
+        {
+          ar: `لا يمكن تعديل مستخلص حالته "${getProgressCertificateStatusLabel(current.status)}" — التصحيح يكون بكمية على المستخلص التالي.`,
+          en: `A certificate with status "${PROGRESS_CERTIFICATE_STATUS_EN[current.status]}" cannot be edited — correct it with a quantity on the next certificate.`,
+        },
       ]);
     }
     await this.assertNoLaterCertificate(current);
@@ -910,10 +934,10 @@ export class CertificateService {
   async measure(idOrDocNo: string, actor: CertificateActor, measuredAt?: string | null): Promise<CertificateView> {
     const current = await this.moveable(idOrDocNo, "draft", "measured");
     const date = measuredAt ?? this.today();
-    if (!ISO_DATE.test(date)) throw new InvalidProgressCertificateError(["تاريخ الحصر مطلوب بصيغة YYYY-MM-DD"]);
+    if (!ISO_DATE.test(date)) throw new InvalidProgressCertificateError([{ ar: "تاريخ الحصر مطلوب بصيغة YYYY-MM-DD", en: "The measurement date is required in YYYY-MM-DD format" }]);
     this.assertDates([
-      { labelAr: "نهاية الفترة", date: current.periodTo },
-      { labelAr: "تاريخ الحصر", date },
+      { labelAr: "نهاية الفترة", labelEn: "Period end", date: current.periodTo },
+      { labelAr: "تاريخ الحصر", labelEn: "Measurement date", date },
     ]);
     const refusals = await this.refuseQuantities(current);
     if (refusals.length > 0) throw new CertificateQuantityError(refusals);
@@ -932,14 +956,14 @@ export class CertificateService {
   async certify(idOrDocNo: string, actor: CertificateActor, certifiedAt?: string | null): Promise<CertificateView> {
     const current = await this.moveable(idOrDocNo, "measured", "certified");
     if (!(await this.waived(actor)) && current.preparedBy !== null && current.preparedBy === actor.userId) {
-      throw new CertificateSegregationError(actor.userId, "لا يجوز اعتماد المستخلص من نفس الشخص الذي أعدّه. إذا كانت المنشأة شخصًا واحدًا، فعّل «وضع المشغّل الواحد» من الإعدادات العامة ← المقاولات.");
+      throw new CertificateSegregationError(actor.userId, "لا يجوز اعتماد المستخلص من نفس الشخص الذي أعدّه. إذا كانت المنشأة شخصًا واحدًا، فعّل «وضع المشغّل الواحد» من الإعدادات العامة ← المقاولات.", "A certificate cannot be certified by the person who prepared it. If the business is a single person, turn on single-operator mode under General settings > Contracting.");
     }
     const date = certifiedAt ?? this.today();
-    if (!ISO_DATE.test(date)) throw new InvalidProgressCertificateError(["تاريخ اعتماد الاستشاري مطلوب بصيغة YYYY-MM-DD"]);
+    if (!ISO_DATE.test(date)) throw new InvalidProgressCertificateError([{ ar: "تاريخ اعتماد الاستشاري مطلوب بصيغة YYYY-MM-DD", en: "The consultant certification date is required in YYYY-MM-DD format" }]);
     this.assertDates([
-      { labelAr: "نهاية الفترة", date: current.periodTo },
-      { labelAr: "تاريخ الحصر", date: current.measuredAt },
-      { labelAr: "تاريخ اعتماد الاستشاري", date },
+      { labelAr: "نهاية الفترة", labelEn: "Period end", date: current.periodTo },
+      { labelAr: "تاريخ الحصر", labelEn: "Measurement date", date: current.measuredAt },
+      { labelAr: "تاريخ اعتماد الاستشاري", labelEn: "Consultant certification date", date },
     ]);
     const refusals = await this.refuseQuantities(current);
     if (refusals.length > 0) throw new CertificateQuantityError(refusals);
@@ -989,27 +1013,28 @@ export class CertificateService {
    */
   async approve(idOrDocNo: string, approvedAt: string, actor: CertificateActor): Promise<CertificateView> {
     const current = await this.moveable(idOrDocNo, "certified", "approved_for_payment");
-    if (!ISO_DATE.test(approvedAt)) throw new InvalidProgressCertificateError(["تاريخ الاعتماد مطلوب بصيغة YYYY-MM-DD"]);
+    if (!ISO_DATE.test(approvedAt)) throw new InvalidProgressCertificateError([{ ar: "تاريخ الاعتماد مطلوب بصيغة YYYY-MM-DD", en: "The approval date is required in YYYY-MM-DD format" }]);
     this.assertDates([
-      { labelAr: "نهاية الفترة", date: current.periodTo },
-      { labelAr: "تاريخ الحصر", date: current.measuredAt },
-      { labelAr: "تاريخ اعتماد الاستشاري", date: current.certifiedAt },
-      { labelAr: "تاريخ اعتماد الصرف", date: approvedAt },
+      { labelAr: "نهاية الفترة", labelEn: "Period end", date: current.periodTo },
+      { labelAr: "تاريخ الحصر", labelEn: "Measurement date", date: current.measuredAt },
+      { labelAr: "تاريخ اعتماد الاستشاري", labelEn: "Consultant certification date", date: current.certifiedAt },
+      { labelAr: "تاريخ اعتماد الصرف", labelEn: "Payment approval date", date: approvedAt },
     ]);
     if (!(await this.waived(actor))) {
       if (current.preparedBy !== null && current.preparedBy === actor.userId) {
-        throw new CertificateSegregationError(actor.userId, "لا يجوز اعتماد المستخلص للصرف من نفس الشخص الذي أعدّه. إذا كانت المنشأة شخصًا واحدًا، فعّل «وضع المشغّل الواحد» من الإعدادات العامة ← المقاولات.");
+        throw new CertificateSegregationError(actor.userId, "لا يجوز اعتماد المستخلص للصرف من نفس الشخص الذي أعدّه. إذا كانت المنشأة شخصًا واحدًا، فعّل «وضع المشغّل الواحد» من الإعدادات العامة ← المقاولات.", "A certificate cannot be approved for payment by the person who prepared it. If the business is a single person, turn on single-operator mode under General settings > Contracting.");
       }
       if (current.certifiedBy !== null && current.certifiedBy === actor.userId) {
         throw new CertificateSegregationError(
           actor.userId,
           "لا يجوز اعتماد المستخلص للصرف من نفس الاستشاري الذي اعتمد الحصر. إذا كانت المنشأة شخصًا واحدًا، فعّل «وضع المشغّل الواحد» من الإعدادات العامة ← المقاولات.",
+          "A certificate cannot be approved for payment by the consultant who certified the measurement. If the business is a single person, turn on single-operator mode under General settings > Contracting.",
         );
       }
     }
     const invoicing = this.deps.invoicing;
     if (!invoicing) {
-      throw new InvalidProgressCertificateError(["إصدار فاتورة المستخلص غير مُفعّل على هذا الخادم."]);
+      throw new InvalidProgressCertificateError([{ ar: "إصدار فاتورة المستخلص غير مُفعّل على هذا الخادم.", en: "Issuing the certificate invoice is not enabled on this server." }]);
     }
     const refusals = await this.refuseQuantities(current);
     if (refusals.length > 0) throw new CertificateQuantityError(refusals);
@@ -1101,7 +1126,7 @@ export class CertificateService {
       throw new InvalidProgressCertificateTransitionError(current.status, "cancelled");
     }
     if (reasonAr.trim() === "") {
-      throw new InvalidProgressCertificateError(["سبب إلغاء المستخلص مطلوب."]);
+      throw new InvalidProgressCertificateError([{ ar: "سبب إلغاء المستخلص مطلوب.", en: "A cancellation reason is required." }]);
     }
     await this.assertNoLaterCertificate(current);
     const next: ProgressCertificate = {
@@ -1135,20 +1160,20 @@ export class CertificateService {
       throw new InvalidProgressCertificateTransitionError(current.status, "voided");
     }
     if (!ISO_DATE.test(input.date)) {
-      throw new InvalidProgressCertificateError(["تاريخ الإلغاء مطلوب بصيغة YYYY-MM-DD"]);
+      throw new InvalidProgressCertificateError([{ ar: "تاريخ الإلغاء مطلوب بصيغة YYYY-MM-DD", en: "The cancellation date is required in YYYY-MM-DD format" }]);
     }
     if (input.reasonAr.trim() === "") {
-      throw new InvalidProgressCertificateError(["سبب إلغاء المستخلص المعتمد مطلوب."]);
+      throw new InvalidProgressCertificateError([{ ar: "سبب إلغاء المستخلص المعتمد مطلوب.", en: "A reason for voiding an approved certificate is required." }]);
     }
     this.assertDates([
-      { labelAr: "تاريخ اعتماد الصرف", date: current.approvedAt },
-      { labelAr: "تاريخ الإلغاء", date: input.date },
+      { labelAr: "تاريخ اعتماد الصرف", labelEn: "Payment approval date", date: current.approvedAt },
+      { labelAr: "تاريخ الإلغاء", labelEn: "Cancellation date", date: input.date },
     ]);
     await this.assertNoLaterCertificate(current);
 
     const invoicing = this.deps.invoicing;
     if (!invoicing?.voidInvoice) {
-      throw new InvalidProgressCertificateError(["إلغاء فاتورة المستخلص غير مُفعّل على هذا الخادم."]);
+      throw new InvalidProgressCertificateError([{ ar: "إلغاء فاتورة المستخلص غير مُفعّل على هذا الخادم.", en: "Voiding the certificate invoice is not enabled on this server." }]);
     }
     if (current.invoiceId) {
       const status = await invoicing.status(current.invoiceId);
@@ -1158,7 +1183,10 @@ export class CertificateService {
       const collected = (status?.amountPaid.scaled ?? 0n) - current.postedDeductionsTotal.scaled;
       if (collected > 0n) {
         throw new InvalidProgressCertificateError([
-          `لا يمكن إلغاء مستخلص حُصّل جزء من فاتورته (${Money.fromScaled(collected).toString()}) — اعكس التحصيل أولًا.`,
+          {
+            ar: `لا يمكن إلغاء مستخلص حُصّل جزء من فاتورته (${Money.fromScaled(collected).toString()}) — اعكس التحصيل أولًا.`,
+            en: `A certificate whose invoice is partly collected (${Money.fromScaled(collected).toString()}) cannot be voided — reverse the collection first.`,
+          },
         ]);
       }
     }
@@ -1221,7 +1249,7 @@ export class CertificateService {
   }
 
   /** Re-derives the contracted quantities as of the execution date and reports every refusal. */
-  private async refuseQuantities(certificate: ProgressCertificate): Promise<string[]> {
+  private async refuseQuantities(certificate: ProgressCertificate): Promise<BilingualReason[]> {
     const contract = await this.requireContract(certificate.contractId);
     const ctx = await this.contractContext(contract, certificate.executionDate);
     const lines = certificate.workLines.map((line) => ({
@@ -1426,15 +1454,21 @@ export class CertificateService {
    * contract with certificates still in flight — or with none of them final —
    * is refused rather than quietly closed with quantities still open.
    */
-  async completionRefusal(contractId: string): Promise<string | null> {
+  async completionRefusal(contractId: string): Promise<BilingualReason | null> {
     const rows = (await this.deps.store.listByContract(contractId)).filter(isLiveCertificate);
     if (rows.length === 0) return null;
     const open = rows.filter((r) => r.status !== "invoiced" && r.status !== "approved_for_payment");
     if (open.length > 0) {
-      return `لا يمكن إنهاء العقد ومستخلصات قيد الاعتماد قائمة: ${open.map((r) => r.docNo).join("، ")}.`;
+      return {
+        ar: `لا يمكن إنهاء العقد ومستخلصات قيد الاعتماد قائمة: ${open.map((r) => r.docNo).join("، ")}.`,
+        en: `The contract cannot be completed while certificates are still pending approval: ${open.map((r) => r.docNo).join(", ")}.`,
+      };
     }
     if (!rows.some((r) => r.isFinal)) {
-      return "لا يمكن إنهاء العقد قبل اعتماد المستخلص الختامي الذي يقفل الكميات.";
+      return {
+        ar: "لا يمكن إنهاء العقد قبل اعتماد المستخلص الختامي الذي يقفل الكميات.",
+        en: "The contract cannot be completed before the final certificate that locks the quantities is approved.",
+      };
     }
     return null;
   }

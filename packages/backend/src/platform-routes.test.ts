@@ -265,7 +265,7 @@ describe("createPlatformRoutes", () => {
     const res = await rig.app.fetch(req(`/tenants/${body.tenant.id}/release`, rig.ownerToken, { method: "POST" }));
 
     expect(res.status).toBe(409);
-    expect(await json(res)).toEqual({ error: "TENANT_NOT_PROVISIONING", message: "المنشأة ليست قيد التجهيز" });
+    expect(await json(res)).toEqual({ error: "TENANT_NOT_PROVISIONING", message: "المنشأة ليست قيد التجهيز", messageEn: "The company is not being provisioned" });
     expect(rig.released).toEqual([]);
     expect((await rig.platform.stores.tenants.findById(body.tenant.id))?.code).toBe("acme");
   });
@@ -504,7 +504,7 @@ describe("createPlatformRoutes", () => {
 
     expect(res.status).toBe(503);
     expect(res.headers.get("retry-after")).toBe("5");
-    expect(await json(res)).toEqual({ error: "TENANT_OWNER_RECORD_DUE", message: "سجل المالك السابق لم يُكتب بعد في بيانات المنشأة. أعد المحاولة بعد لحظات." });
+    expect(await json(res)).toEqual({ error: "TENANT_OWNER_RECORD_DUE", message: "سجل المالك السابق لم يُكتب بعد في بيانات المنشأة. أعد المحاولة بعد لحظات.", messageEn: "The previous owner record has not been written to the company data yet. Try again in a moment." });
   });
 
   it("refuses a transition that is not legal with 409", async () => {

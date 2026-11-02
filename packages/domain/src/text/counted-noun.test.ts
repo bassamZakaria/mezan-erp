@@ -27,6 +27,13 @@ describe("countPhrase", () => {
     expect(countPhrase(CountLocale.Ar, 10, CountedNoun.Warehouse)).toBe("10 مستودعات");
   });
 
+  it("agrees a device count in both languages, oblique after a preposition", () => {
+    const ar = (n: number) => countPhrase(CountLocale.Ar, n, CountedNoun.Device, { grammaticalCase: ArabicCase.Oblique });
+    expect([1, 2, 3, 11, 100].map(ar)).toEqual(["جهاز واحد", "جهازين", "3 أجهزة", "11 جهازًا", "100 جهاز"]);
+    expect(countPhrase(CountLocale.Ar, 2, CountedNoun.Device)).toBe("جهازان");
+    expect([1, 2, 3, 11, 100].map((n) => countPhrase(CountLocale.En, n, CountedNoun.Device))).toEqual(["1 device", "2 devices", "3 devices", "11 devices", "100 devices"]);
+  });
+
   it("counts a whole day quantity in agreement and a fractional one with the singular noun", () => {
     expect(arabicDayQuantity(3)).toBe("3 أيام");
     expect(arabicDayQuantity(1)).toBe("يوم واحد");

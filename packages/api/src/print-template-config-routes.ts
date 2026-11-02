@@ -121,7 +121,7 @@ export function createPrintTemplateConfigRoutes(
         {
           error: "VALIDATION_ERROR",
           details: parsed.error.flatten(),
-          ...(logoTooLarge ? { message: "حجم الشعار أكبر من المسموح به. استخدم صورة أصغر." } : {}),
+          ...(logoTooLarge ? { message: "حجم الشعار أكبر من المسموح به. استخدم صورة أصغر.", messageEn: "The logo is larger than allowed. Use a smaller image." } : {}),
         },
         400,
       );

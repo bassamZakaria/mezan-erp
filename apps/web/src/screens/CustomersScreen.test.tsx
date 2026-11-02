@@ -579,7 +579,7 @@ describe("CustomersScreen", () => {
       "GET /reports/aging/customers": () => ({ body: { rows: [], groups: [], grandTotals: {}, reconciliation: null } }),
     });
     renderWithProviders(<CustomersScreen />, { transport, initialSession: testAdminSession });
-    expect(await screen.findByText("تعذّر تحميل العملاء.")).toBeInTheDocument();
+    expect(await screen.findByText(/تعذّر تحميل العملاء\./)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "إعادة المحاولة" })).toBeInTheDocument();
   });
 
@@ -753,7 +753,7 @@ describe("CustomersScreen", () => {
     fireEvent.click(await screen.findByText("شركة الأمل للتجارة"));
     fireEvent.click(screen.getByRole("tab", { name: "الفواتير" }));
 
-    expect(await screen.findByText("تعذّر تحميل فواتير العميل.")).toBeInTheDocument();
+    expect(await screen.findByText(/تعذّر تحميل فواتير المبيعات\./)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "إعادة المحاولة" }));
     // Retry must actually re-fire the request, not just clear the banner —
     // a retry button that only reset local state would leave this blank forever.
@@ -792,7 +792,7 @@ describe("CustomersScreen", () => {
     expect(await screen.findByText("لا توجد خطط تقسيط لهذا العميل")).toBeInTheDocument();
     // The invoices/installments/returns tabs share one error message key —
     // its absence here proves the empty state isn't an error banner in disguise (D123-shaped bug).
-    expect(screen.queryByText("تعذّر تحميل فواتير العميل.")).not.toBeInTheDocument();
+    expect(screen.queryByText(/تعذّر تحميل فواتير المبيعات\./)).not.toBeInTheDocument();
   });
 
   it("scopes the returns tab to this customer's own return lines and computes qty × price + tax", async () => {
@@ -1143,7 +1143,7 @@ describe("CustomersScreen", () => {
     fireEvent.click(await screen.findByText("شركة الأمل للتجارة"));
     fireEvent.click(screen.getByRole("tab", { name: "التقسيط" }));
 
-    expect(await screen.findByText("تعذّر تحميل فواتير العميل.")).toBeInTheDocument();
+    expect(await screen.findByText(/تعذّر تحميل خطط الأقساط\./)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "إعادة المحاولة" }));
     expect(await screen.findByText("500.00")).toBeInTheDocument();
   });
@@ -1161,7 +1161,7 @@ describe("CustomersScreen", () => {
     fireEvent.click(await screen.findByText("شركة الأمل للتجارة"));
     fireEvent.click(screen.getByRole("tab", { name: "المرتجعات" }));
 
-    expect(await screen.findByText("تعذّر تحميل فواتير العميل.")).toBeInTheDocument();
+    expect(await screen.findByText(/تعذّر تحميل مرتجعات المبيعات\./)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "إعادة المحاولة" }));
     // The returns tab has no docNo column — its rows are keyed by date/status/amount.
     expect(await screen.findByText("2026-08-05")).toBeInTheDocument();
@@ -1262,7 +1262,7 @@ describe("CustomersScreen", () => {
     fireEvent.click(await screen.findByText("شركة الأمل للتجارة"));
     fireEvent.click(screen.getByRole("tab", { name: "كشف حساب" }));
 
-    expect(await screen.findByText("تعذّر تحميل حركة حساب العميل.")).toBeInTheDocument();
+    expect(await screen.findByText(/تعذّر تحميل حركة حساب العميل\./)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "إعادة المحاولة" }));
     expect((await screen.findAllByText("رصيد افتتاحي")).length).toBe(2);
   });

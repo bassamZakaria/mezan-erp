@@ -1,3 +1,4 @@
+import { messageEnOf } from "./observability/error-message-backfill.js";
 import type { KeyedLock } from "./keyed-lock.js";
 import { PayBasis } from "@mezan/domain";
 import { EmployeeRefStatus } from "@mezan/domain";
@@ -120,7 +121,7 @@ import { DuplicateRecordIdError } from "@mezan/domain";
  * them in its own step: without them `createHrRoutes` simply does not mount the
  * attendance/leave-policy/balance/accrual/admin-leave surface.
  */
-type HrTimeLeaveDeps = Pick<HrTimeLeaveRoutesDeps, "attendance" | "leavePolicies" | "leaveBalances" | "leaveAccrualBatches" | "workflow" | "audit">;
+type HrTimeLeaveDeps = Pick<HrTimeLeaveRoutesDeps, "attendance" | "leavePolicies" | "leaveBalances" | "leaveAccrualBatches" | "workflow" | "audit" | "roleLabel">;
 
 /**
  * The payroll/advance stores are OPTIONAL for the same reason: without them
@@ -317,7 +318,7 @@ function serializeLeaveRequest(r: LeaveRequest) {
 }
 
 function withMessageEn(err: { readonly code: string; readonly message: string; readonly messageEn?: string }) {
-  return { error: err.code, message: err.message, ...(err.messageEn ? { messageEn: err.messageEn } : {}) };
+  return { error: err.code, message: err.message, messageEn: messageEnOf(err) };
 }
 
 function handleDomainError(c: Context, err: unknown): Response {
@@ -778,7 +779,7 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
     // A gratuity is a statutory figure: with the tenant's switch off it is not
     // computed at all, the same as tax and insurance on the payslip.
     if (!(await deps.payroll?.statutoryFlag?.get())?.enabled) {
-      return c.json({ error: "STATUTORY_DISABLED", message: "احتساب المستحقات القانونية غير مفعّل لهذه المنشأة." }, 409);
+      return c.json({ error: "STATUTORY_DISABLED", message: "احتساب المستحقات القانونية غير مفعّل لهذه المنشأة.", messageEn: "Statutory entitlement calculation is not enabled for this company." }, 409);
     }
     const employee = await deps.employees.findById(c.req.param("id"));
     if (!employee) return c.json({ error: "EMPLOYEE_NOT_FOUND" }, 404);
@@ -787,7 +788,7 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
     // The last contract, running or terminated — an employee who has left has no
     // active one, so filtering to active would answer 409 for every real case.
     const contract = [...contracts].sort((a, b) => (a.startDate < b.startDate ? 1 : a.startDate > b.startDate ? -1 : 0))[0];
-    if (!contract) return c.json({ error: "CONTRACT_NOT_FOUND", message: "لا يوجد عقد لهذا الموظف." }, 404);
+    if (!contract) return c.json({ error: "CONTRACT_NOT_FOUND", message: "لا يوجد عقد لهذا الموظف.", messageEn: "This employee has no contract." }, 404);
 
     const lastWorkingDay = c.req.query("lastWorkingDay") ?? employee.terminatedAt?.slice(0, 10) ?? (await tenantToday(c));
 
@@ -844,7 +845,7 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
       });
     } catch (err) {
       if (err instanceof EmployeeStillEmployedError || err instanceof StatutoryRulesUnavailableError) {
-        return c.json({ error: err.code, message: err.message }, 422);
+        return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 422);
       }
       return handleDomainError(c, err);
     }
@@ -977,12 +978,12 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
     // alone only ever creates the caller's OWN request.
     const ctx = getAuthContext(c);
     if (onBehalfOf !== null && onBehalfOf !== callerEmployeeId && !(ctx !== undefined && can(ctx, "hr.leave.approve"))) {
-      return c.json({ error: "PERMISSION_DENIED", permission: "hr.leave.approve", message: "لا يمكن تقديم طلب إجازة نيابة عن موظف آخر بدون صلاحية اعتماد الإجازات." }, 403);
+      return c.json({ error: "PERMISSION_DENIED", permission: "hr.leave.approve", message: "لا يمكن تقديم طلب إجازة نيابة عن موظف آخر بدون صلاحية اعتماد الإجازات.", messageEn: "You cannot submit a leave request on behalf of another employee without the leave approval permission." }, 403);
     }
     const employeeId = onBehalfOf ?? callerEmployeeId;
     if (!employeeId) return c.json({ error: "USER_NOT_LINKED_TO_EMPLOYEE" }, 409);
     if (onBehalfOf !== null && !(await deps.employees.findById(onBehalfOf))) {
-      return c.json({ error: "EMPLOYEE_NOT_FOUND", message: "الموظف غير موجود." }, 404);
+      return c.json({ error: "EMPLOYEE_NOT_FOUND", message: "الموظف غير موجود.", messageEn: "The employee was not found." }, 404);
     }
 
     try {
@@ -1004,7 +1005,7 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
     const ctx = getAuthContext(c);
     const isApprover = ctx !== undefined && can(ctx, "hr.leave.approve");
     if (!isApprover && (!employeeId || current.employeeId !== employeeId)) {
-      return c.json({ error: "PERMISSION_DENIED", message: "لا يمكن إلغاء طلب إجازة موظف آخر." }, 403);
+      return c.json({ error: "PERMISSION_DENIED", message: "لا يمكن إلغاء طلب إجازة موظف آخر.", messageEn: "You cannot cancel another employee's leave request." }, 403);
     }
     try {
       const wasApproved = current.status === "approved";

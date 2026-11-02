@@ -55,19 +55,19 @@ export const installmentPlanDocumentType: DocumentTypeDefinition<InstallmentLine
 
   validate(doc) {
     if (doc.lines.length === 0) {
-      throw new InvalidDocumentError(DOC_TYPE, doc.id, "خطة الأقساط تتطلب قسطاً واحداً على الأقل.");
+      throw new InvalidDocumentError(DOC_TYPE, doc.id, "خطة الأقساط تتطلب قسطاً واحداً على الأقل.", "An installment plan needs at least one installment.");
     }
     const invoiceId = doc.lines[0]?.sourceInvoiceId;
     let previousDue = "";
     for (const line of doc.lines) {
       if (line.sourceInvoiceId !== invoiceId) {
-        throw new InvalidDocumentError(DOC_TYPE, doc.id, "كل أقساط الخطة يجب أن تنتمي لنفس الفاتورة.");
+        throw new InvalidDocumentError(DOC_TYPE, doc.id, "كل أقساط الخطة يجب أن تنتمي لنفس الفاتورة.", "All installments of the plan must belong to the same invoice.");
       }
       if (line.amount.scaled <= 0n) {
-        throw new InvalidDocumentError(DOC_TYPE, doc.id, `القسط رقم ${line.no}: القيمة يجب أن تكون أكبر من صفر.`);
+        throw new InvalidDocumentError(DOC_TYPE, doc.id, `القسط رقم ${line.no}: القيمة يجب أن تكون أكبر من صفر.`, `Installment no. ${line.no}: the amount must be greater than zero.`);
       }
       if (line.dueDate < previousDue) {
-        throw new InvalidDocumentError(DOC_TYPE, doc.id, "تواريخ استحقاق الأقساط يجب أن تكون متتالية تصاعدياً.");
+        throw new InvalidDocumentError(DOC_TYPE, doc.id, "تواريخ استحقاق الأقساط يجب أن تكون متتالية تصاعدياً.", "Installment due dates must be in ascending order.");
       }
       previousDue = line.dueDate;
     }
@@ -92,6 +92,7 @@ export const installmentPlanDocumentType: DocumentTypeDefinition<InstallmentLine
     return buildEffects({
       blocked: doc.lines.length === 0,
       blockedReason: doc.lines.length === 0 ? "لا يوجد أقساط في الخطة." : undefined,
+      blockedReasonEn: doc.lines.length === 0 ? "The plan has no installments." : undefined,
       effects: [
         {
           kind: "info",

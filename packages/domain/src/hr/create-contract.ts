@@ -3,6 +3,7 @@ import { ContractStatus } from "./contract.js";
 import type { Money } from "../money/index.js";
 import { InvalidContractError, ContractNotActiveError } from "./errors.js";
 import type { Contract, ContractLineItem, ContractRepository, ContractType, LeaveEntitlementOverrides, PayFrequency } from "./contract.js";
+import type { ReasonInput } from "../bilingual-reasons.js";
 
 export interface CreateContractCommand {
   readonly id: string;
@@ -21,15 +22,15 @@ export interface CreateContractCommand {
   readonly deductions?: readonly ContractLineItem[];
 }
 
-function validate(command: Pick<CreateContractCommand, "employeeId" | "startDate" | "type" | "endDate">): string[] {
-  const reasons: string[] = [];
-  if (command.employeeId.trim().length === 0) reasons.push("الموظف مطلوب");
-  if (command.startDate.trim().length === 0) reasons.push("تاريخ البداية مطلوب");
+function validate(command: Pick<CreateContractCommand, "employeeId" | "startDate" | "type" | "endDate">): ReasonInput[] {
+  const reasons: ReasonInput[] = [];
+  if (command.employeeId.trim().length === 0) reasons.push({ ar: "الموظف مطلوب", en: "The employee is required" });
+  if (command.startDate.trim().length === 0) reasons.push({ ar: "تاريخ البداية مطلوب", en: "The start date is required" });
   if (command.type === "indefinite" && command.endDate) {
-    reasons.push("العقد غير محدد المدة لا يحتوي على تاريخ انتهاء");
+    reasons.push({ ar: "العقد غير محدد المدة لا يحتوي على تاريخ انتهاء", en: "An open-ended contract cannot have an end date" });
   }
   if (command.endDate && command.startDate && command.endDate < command.startDate) {
-    reasons.push("تاريخ الانتهاء لا يمكن أن يسبق تاريخ البداية");
+    reasons.push({ ar: "تاريخ الانتهاء لا يمكن أن يسبق تاريخ البداية", en: "The end date cannot be before the start date" });
   }
   return reasons;
 }

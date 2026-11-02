@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Button, Checkbox, TextInput } from "@mezan/ui";
+import { pickMessage } from "../data/server-message";
 import { useAppTranslation } from "../i18n";
 import { backupBridge, isBackupFailure, megabytes } from "./backup-bridge";
 
@@ -10,7 +11,7 @@ interface PortableImportPanelProps {
 }
 
 export function PortableImportPanel({ sessionToken, firstRun = false }: PortableImportPanelProps) {
-  const { t } = useAppTranslation();
+  const { t, locale } = useAppTranslation();
   const api = backupBridge();
   const [picked, setPicked] = useState<{ pickId: string; fileName: string; sizeBytes: number } | null>(null);
   const [passphrase, setPassphrase] = useState("");
@@ -31,7 +32,7 @@ export function PortableImportPanel({ sessionToken, firstRun = false }: Portable
     try {
       const result = await pickPortable(sessionToken);
       if (isBackupFailure(result)) {
-        if (result.code !== "CANCELLED") setError(result.message);
+        if (result.code !== "CANCELLED") setError(pickMessage(result, locale));
         return;
       }
       setPicked({ pickId: result.pickId, fileName: result.fileName, sizeBytes: result.sizeBytes });
@@ -48,7 +49,7 @@ export function PortableImportPanel({ sessionToken, firstRun = false }: Portable
     try {
       const result = await importPortable(sessionToken, picked.pickId, passphrase);
       if (isBackupFailure(result)) {
-        setError(result.message);
+        setError(pickMessage(result, locale));
         if (result.code === "NOT_FOUND") setPicked(null);
         return;
       }

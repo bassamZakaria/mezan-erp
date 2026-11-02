@@ -5,6 +5,7 @@ import { useGoodsReceipts, useHoldsScreenRequest, usePurchaseInvoiceCounts, useP
 import { useAppTranslation } from "../../i18n";
 import { DateAndDoc, HubActions, type HubAction } from "./hub-parts";
 import { EMPTY } from "../../lib/empty";
+import { errorMessage } from "../../lib/error-message";
 
 /**
  * المشتريات hub — KPI tiles + quick actions + recent activity over the real
@@ -63,7 +64,7 @@ export function PurchasesHubScreen() {
       title={t("purchasesHub.title")}
       description={t("purchasesHub.description")}
       loading={isLoading}
-      error={isError ? t("purchasesHub.loadFailed") : null}
+      error={isError ? errorMessage(ordersQuery.error ?? receiptsQuery.error ?? invoicesQuery.error ?? invoiceCountsQuery.error ?? suppliersQuery.error, t("purchasesHub.loadFailed")) : null}
       actions={<HubActions actions={quickActions} />}
       stats={[
         ...(readsOrders ? [{ key: "orders", label: t("purchasesHub.stat.openOrders"), value: openOrders, sub: t("purchasesHub.stat.openOrdersSub") }] : []),

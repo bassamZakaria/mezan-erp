@@ -41,6 +41,15 @@ export const DOCUMENT_STATUS_LABELS_AR: Readonly<Record<DocumentStatus, string>>
   reversed: "معكوس",
 };
 
+export const DOCUMENT_STATUS_LABELS_EN: Readonly<Record<DocumentStatus, string>> = {
+  draft: "draft",
+  pending: "pending approval",
+  confirmed: "confirmed",
+  posted: "posted",
+  cancelled: "cancelled",
+  reversed: "reversed",
+};
+
 /** Statuses in which a document is live in the ledger / sub-ledgers (its effects have been applied). */
 export const ACTIVE_STATUSES: ReadonlySet<DocumentStatus> = new Set(["confirmed", "posted"]);
 

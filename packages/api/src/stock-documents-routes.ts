@@ -217,6 +217,7 @@ function warehouseScopeRefusal(c: Context, warehouseIds: readonly string[]): Res
       error: "WAREHOUSE_OUT_OF_SCOPE",
       warehouseId: offending,
       message: `المستودع "${offending}" خارج نطاق المستودعات المصرّح لك بها.`,
+      messageEn: `Warehouse "${offending}" is outside the warehouses you are allowed to use.`,
     },
     403,
   );
@@ -233,32 +234,32 @@ function handleDocumentError(c: Context, err: unknown): Response {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, itemId: err.itemId }, 422);
   }
   if (err instanceof DocumentNotFoundError || err instanceof PhysicalCountNotFoundError) {
-    return c.json({ error: err.code, message: err.message }, 404);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 404);
   }
   if (err instanceof InvalidDocumentTransitionError) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
   }
   if (err instanceof InvalidPhysicalCountStatusError) {
-    return c.json({ error: err.code, message: err.message }, 409);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
   }
   if (
     err instanceof InvalidDocumentError ||
     err instanceof InvalidPhysicalCountError ||
     err instanceof InvalidStockMovementError
   ) {
-    return c.json({ error: err.code, message: err.message }, 400);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 400);
   }
   if (err instanceof NegativeStockError) {
     return c.json(
-      { error: err.code, message: err.message, onHand: err.onHand.toString(), requested: err.requested.toString() },
+      { error: err.code, message: err.message, messageEn: err.messageEn, onHand: err.onHand.toString(), requested: err.requested.toString() },
       422,
     );
   }
   if (err instanceof UncostedDeficitIssueError) {
-    return c.json({ error: err.code, message: err.message, requested: err.requested.toString() }, 422);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, requested: err.requested.toString() }, 422);
   }
   if (err instanceof SameWarehouseTransferError) {
-    return c.json({ error: err.code, message: err.message }, 422);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 422);
   }
   return handleFrameworkDocumentError(c, err);
 }

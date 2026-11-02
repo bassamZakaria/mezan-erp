@@ -54,6 +54,7 @@ export interface DocumentEffects {
   /** True when confirming is not currently allowed (e.g. unbalanced). */
   readonly blocked: boolean;
   readonly blockedReason?: string;
+  readonly blockedReasonEn?: string;
 }
 
 /** Small builder so document types compose effect lists without boilerplate. */
@@ -64,6 +65,7 @@ export function buildEffects(input: {
   totalCredit?: Money;
   blocked?: boolean;
   blockedReason?: string;
+  blockedReasonEn?: string;
 }): DocumentEffects {
   return {
     effects: input.effects,
@@ -72,5 +74,6 @@ export function buildEffects(input: {
     totalCredit: input.totalCredit,
     blocked: input.blocked ?? false,
     blockedReason: input.blockedReason,
+    blockedReasonEn: input.blockedReasonEn,
   };
 }

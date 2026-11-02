@@ -7,6 +7,7 @@ import { useCountPhrase } from "../lib/count-phrase";
 import { entitlementModuleLabel } from "../domain-labels";
 import { usePublicPlans, useSiteContact } from "../signup/signup-api";
 import { contactHref, contactLinkProps } from "./site";
+import { errorMessage } from "../lib/error-message";
 
 enum PlanCode {
   Free = "free",
@@ -143,7 +144,7 @@ export function PricingSection() {
         </p>
       ) : plansQuery.isError ? (
         <div className="mt-[24px] flex flex-wrap items-center gap-[12px]" role="alert">
-          <p className="text-[14px] text-ink">{t("landing.pricing.failed")}</p>
+          <p className="text-[14px] text-ink">{errorMessage(plansQuery.error, t("landing.pricing.failed"))}</p>
           <Button onClick={() => void plansQuery.refetch()}>{t("landing.pricing.retry")}</Button>
         </div>
       ) : (

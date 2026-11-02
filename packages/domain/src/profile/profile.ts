@@ -13,8 +13,10 @@ import type { SecretHasher, User } from "../users/user.js";
 
 export class IncorrectPasswordError extends Error {
   readonly code = CurrentSecretRefusal.IncorrectPassword;
+  readonly messageEn: string;
   constructor() {
     super("كلمة المرور الحالية غير صحيحة.");
+    this.messageEn = "The current password is incorrect.";
     this.name = "IncorrectPasswordError";
   }
 }
@@ -36,8 +38,8 @@ export async function updateOwnProfile(
 ): Promise<User> {
   const user = await uow.users.findById(userId);
   if (!user) throw new UserNotFoundError(userId);
-  if (cmd.nameAr.trim() === "") throw new InvalidUserError("الاسم بالعربية مطلوب.");
-  if (cmd.email.trim() === "") throw new InvalidUserError("البريد الإلكتروني مطلوب.");
+  if (cmd.nameAr.trim() === "") throw new InvalidUserError("الاسم بالعربية مطلوب.", "Arabic name is required.");
+  if (cmd.email.trim() === "") throw new InvalidUserError("البريد الإلكتروني مطلوب.", "Email is required.");
 
   const existingByEmail = await uow.users.findByEmail(cmd.email);
   if (existingByEmail && existingByEmail.id !== userId) {
@@ -73,10 +75,10 @@ export async function changeOwnPassword(
   const valid = await hasher.verify(cmd.currentPassword, user.passwordHash);
   if (!valid) throw new IncorrectPasswordError();
   if (cmd.newPassword.length < 8) {
-    throw new InvalidUserError("يجب ألا تقل كلمة المرور الجديدة عن 8 أحرف.");
+    throw new InvalidUserError("يجب ألا تقل كلمة المرور الجديدة عن 8 أحرف.", "The new password must be at least 8 characters.");
   }
   if (cmd.newPassword === cmd.currentPassword) {
-    throw new InvalidUserError("اختر كلمة مرور جديدة تختلف عن الحالية.");
+    throw new InvalidUserError("اختر كلمة مرور جديدة تختلف عن الحالية.", "Choose a new password that is different from the current one.");
   }
   const passwordHash = await hasher.hash(cmd.newPassword);
   await uow.users.save({ ...user, passwordHash, mustChangePassword: false });

@@ -50,10 +50,14 @@ export function createExternalCommandSigner(deps: ExternalCommandSignerDeps): Et
       if (command === "") throw new EtaSignerNotConfiguredError();
       const result = await deps.run(command, config.signingCommandArgs, canonicalJson);
       if (result.code !== 0) {
-        throw new EtaSigningFailedError(result.stderr.trim() || `انتهى برنامج التوقيع بالرمز ${result.code}.`);
+        const stderr = result.stderr.trim();
+        throw new EtaSigningFailedError(
+          stderr || `انتهى برنامج التوقيع بالرمز ${result.code}.`,
+          stderr || `The signing program exited with code ${result.code}.`,
+        );
       }
       const signature = result.stdout.trim();
-      if (signature === "") throw new EtaSigningFailedError("لم يُرجع برنامج التوقيع أي توقيع.");
+      if (signature === "") throw new EtaSigningFailedError("لم يُرجع برنامج التوقيع أي توقيع.", "The signing program returned no signature.");
       return signature;
     },
   };

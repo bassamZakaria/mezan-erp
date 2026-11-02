@@ -92,16 +92,16 @@ describe("createRfq", () => {
     const rfqs = new InMemoryRfqs();
     await expect(
       createRfq({ ...rfqBase(), branchId: "" }, { rfqs, numbering: makeNumbering(), now }),
-    ).rejects.toThrow(/branch/);
+    ).rejects.toThrow(/الفرع/);
     await expect(
       createRfq({ ...rfqBase(), warehouseId: "" }, { rfqs, numbering: makeNumbering(), now }),
-    ).rejects.toThrow(/warehouse/);
+    ).rejects.toThrow(/المستودع/);
     await expect(
       createRfq({ ...rfqBase(), date: "" }, { rfqs, numbering: makeNumbering(), now }),
-    ).rejects.toThrow(/date/);
+    ).rejects.toThrow(/التاريخ/);
     await expect(
       createRfq({ ...rfqBase(), lines: [] }, { rfqs, numbering: makeNumbering(), now }),
-    ).rejects.toThrow(/at least one line/);
+    ).rejects.toThrow(/يلزم بند واحد على الأقل/);
   });
 
   it("rejects a zero or negative line qty", async () => {
@@ -111,7 +111,7 @@ describe("createRfq", () => {
         { ...rfqBase(), lines: [{ itemId: "item-A", qty: Qty.zero() }] },
         { rfqs, numbering: makeNumbering(), now },
       ),
-    ).rejects.toThrow(/qty must be positive/);
+    ).rejects.toThrow(/الكمية يجب أن تكون موجبة/);
   });
 
   it("rejects a duplicate id", async () => {
@@ -257,19 +257,19 @@ describe("recordRfqQuote", () => {
     ).rejects.toThrow(InvalidRfqError);
     await expect(
       recordRfqQuote({ id: "q-2", rfqId: "rfq-1", supplierId: "sup-1", lines: [] }, { rfqs, quotes, now }),
-    ).rejects.toThrow(/at least one quote line/);
+    ).rejects.toThrow(/يلزم بند واحد على الأقل في عرض السعر/);
     await expect(
       recordRfqQuote(
         { id: "q-3", rfqId: "rfq-1", supplierId: "sup-1", lines: [{ itemId: "item-ZZZ", unitPrice: Money.fromMajor("1.00") }] },
         { rfqs, quotes, now },
       ),
-    ).rejects.toThrow(/not on this RFQ/);
+    ).rejects.toThrow(/ليس في طلب عرض السعر هذا/);
     await expect(
       recordRfqQuote(
         { id: "q-4", rfqId: "rfq-1", supplierId: "sup-1", lines: [{ itemId: "item-A", unitPrice: Money.fromMajor("-1.00") }] },
         { rfqs, quotes, now },
       ),
-    ).rejects.toThrow(/must not be negative/);
+    ).rejects.toThrow(/لا يجوز أن يكون سالباً/);
   });
 
   it("404s on a missing RFQ", async () => {

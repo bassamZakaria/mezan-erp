@@ -38,13 +38,16 @@ export function createPosPaymentMethodsRoutes(deps: PosPaymentMethodsRoutesDeps,
     return methods.map((m) => ({ ...m, usedBy: used.get(m.id) ?? [] }));
   }
 
-  async function defaultAccountProblem(method: PosPaymentMethod): Promise<string | null> {
+  async function defaultAccountProblem(method: PosPaymentMethod): Promise<{ message: string; messageEn: string } | null> {
     if (method.defaultTreasuryAccountId === null) return null;
     const account = await deps.treasuryAccounts.findById(method.defaultTreasuryAccountId);
-    if (!account) return "الحساب الافتراضي غير موجود";
-    if (account.status !== "active") return "الحساب الافتراضي غير نشط";
+    if (!account) return { message: "الحساب الافتراضي غير موجود", messageEn: "The default account was not found" };
+    if (account.status !== "active") return { message: "الحساب الافتراضي غير نشط", messageEn: "The default account is not active" };
     if (method.accountType !== null && account.type !== method.accountType) {
-      return `الحساب الافتراضي يجب أن يكون ${method.accountType === "bank" ? "بنكياً" : "نقدياً"}`;
+      return {
+        message: `الحساب الافتراضي يجب أن يكون ${method.accountType === "bank" ? "بنكياً" : "نقدياً"}`,
+        messageEn: `The default account must be a ${method.accountType === "bank" ? "bank" : "cash"} account`,
+      };
     }
     return null;
   }
@@ -62,10 +65,10 @@ export function createPosPaymentMethodsRoutes(deps: PosPaymentMethodsRoutesDeps,
     try {
       const method = createPosPaymentMethod({ id: `PM-${randomUUID()}`, ...parsed.data });
       if (await deps.paymentMethods.findByCode(method.code)) {
-        return c.json({ error: "DUPLICATE_POS_PAYMENT_METHOD_CODE", message: `الكود «${method.code}» مستخدم لطريقة أخرى` }, 409);
+        return c.json({ error: "DUPLICATE_POS_PAYMENT_METHOD_CODE", message: `الكود «${method.code}» مستخدم لطريقة أخرى`, messageEn: `The code "${method.code}" is used by another method` }, 409);
       }
       const problem = await defaultAccountProblem(method);
-      if (problem) return c.json({ error: "INVALID_POS_PAYMENT_METHOD", message: problem }, 422);
+      if (problem) return c.json({ error: "INVALID_POS_PAYMENT_METHOD", message: problem.message, messageEn: problem.messageEn }, 422);
       await deps.paymentMethods.save(method);
       const [dto] = await serialize([method]);
       return c.json(dto, 201);
@@ -76,13 +79,13 @@ export function createPosPaymentMethodsRoutes(deps: PosPaymentMethodsRoutesDeps,
 
   app.put("/:id", gate("pos.settings.edit"), async (c) => {
     const current = await deps.paymentMethods.findById(c.req.param("id"));
-    if (!current) return c.json({ error: "NOT_FOUND", message: "طريقة الدفع غير موجودة" }, 404);
+    if (!current) return c.json({ error: "NOT_FOUND", message: "طريقة الدفع غير موجودة", messageEn: "The payment method was not found" }, 404);
     const parsed = updatePosPaymentMethodSchema.safeParse(await readJson(c));
     if (!parsed.success) return validationError(c, parsed.error);
     try {
       const next = updatePosPaymentMethod(current, parsed.data);
       const problem = await defaultAccountProblem(next);
-      if (problem) return c.json({ error: "INVALID_POS_PAYMENT_METHOD", message: problem }, 422);
+      if (problem) return c.json({ error: "INVALID_POS_PAYMENT_METHOD", message: problem.message, messageEn: problem.messageEn }, 422);
       if (current.active && !next.active) {
         const usedBy = (await usage(true)).get(current.id) ?? [];
         if (usedBy.length > 0) {
@@ -90,6 +93,7 @@ export function createPosPaymentMethodsRoutes(deps: PosPaymentMethodsRoutesDeps,
             {
               error: "POS_PAYMENT_METHOD_IN_USE",
               message: `الطريقة مفعّلة على الأجهزة ${usedBy.join("، ")} — أزلها من إعدادات تلك الأجهزة أولاً`,
+              messageEn: `The method is enabled on the terminals ${usedBy.join(", ")}. Remove it from those terminals' settings first.`,
             },
             409,
           );
@@ -105,7 +109,7 @@ export function createPosPaymentMethodsRoutes(deps: PosPaymentMethodsRoutesDeps,
 
   app.delete("/:id", gate("pos.settings.edit"), async (c) => {
     const current = await deps.paymentMethods.findById(c.req.param("id"));
-    if (!current) return c.json({ error: "NOT_FOUND", message: "طريقة الدفع غير موجودة" }, 404);
+    if (!current) return c.json({ error: "NOT_FOUND", message: "طريقة الدفع غير موجودة", messageEn: "The payment method was not found" }, 404);
     try {
       assertPosPaymentMethodDeletable(current, (await usage()).get(current.id) ?? []);
       await deps.paymentMethods.delete(current.id);

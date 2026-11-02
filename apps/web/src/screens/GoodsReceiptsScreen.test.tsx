@@ -232,7 +232,7 @@ describe("GoodsReceiptsScreen", () => {
 
     expect(await screen.findByText("لا توجد إيصالات استلام مطابقة")).toBeInTheDocument();
     expect(screen.getByText("سجّل إذن استلام لإدخال البضاعة إلى المستودع قبل استلام فاتورة المورد.")).toBeInTheDocument();
-    expect(screen.queryByText("تعذّر تحميل إيصالات الاستلام.")).not.toBeInTheDocument();
+    expect(screen.queryByText(/تعذّر تحميل إيصالات الاستلام\./)).not.toBeInTheDocument();
   });
 
   it("renders an Arabic load-failed banner instead of the raw server error", async () => {
@@ -242,7 +242,7 @@ describe("GoodsReceiptsScreen", () => {
     });
     renderScreen(transport);
 
-    expect(await screen.findByText("تعذّر تحميل إيصالات الاستلام.")).toBeInTheDocument();
+    expect(await screen.findByText(/تعذّر تحميل إيصالات الاستلام\./)).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByText(/INTERNAL/)).not.toBeInTheDocument());
     expect(document.body.textContent).not.toMatch(/internal/i);
   });

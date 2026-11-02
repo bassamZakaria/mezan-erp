@@ -1,3 +1,4 @@
+import { issueText } from "./observability/error-message-backfill.js";
 import { Hono, type Context } from "hono";
 import {
   Money,
@@ -170,11 +171,11 @@ export function createSimplifiedRegimeRoutes(
   app.put("/", gate("admin.settings.edit"), async (c) => {
     const parsed = recordSimplifiedRegimeSchema.safeParse(await c.req.json());
     if (!parsed.success) {
-      // The schema's refinements carry the Arabic reason (the Form 1/10 or 1/11
+      // The schema's refinements carry the reason in both languages (the Form 1/10 or 1/11
       // date and number); zod's own messages are English and stay in `details`.
-      const reason = parsed.error.issues.find((issue) => issue.code === "custom")?.message;
+      const reason = parsed.error.issues.find((issue) => issue.code === "custom");
       return c.json(
-        { error: "VALIDATION_ERROR", ...(reason ? { message: reason } : {}), details: parsed.error.flatten() },
+        { error: "VALIDATION_ERROR", ...(reason ? issueText(reason) : {}), details: parsed.error.flatten() },
         400,
       );
     }
@@ -198,7 +199,7 @@ export function createSimplifiedRegimeRoutes(
       return c.json(election);
     } catch (err) {
       if (err instanceof InvalidSimplifiedRegimeRecordError) {
-        return c.json({ error: err.code, field: err.field, message: err.message }, 400);
+        return c.json({ error: err.code, field: err.field, message: err.message, messageEn: err.messageEn }, 400);
       }
       throw err;
     }

@@ -531,13 +531,13 @@ describe("ItemsScreen", () => {
       onItemsGet: () => (fail ? { status: 500, body: { error: "INTERNAL" } } : undefined),
     });
 
-    expect(await screen.findByText("تعذّر تحميل الأصناف.")).toBeInTheDocument();
+    expect(await screen.findByText(/تعذّر تحميل الأصناف\./)).toBeInTheDocument();
 
     fail = false;
     await user.click(screen.getByRole("button", { name: "إعادة المحاولة" }));
 
     expect(await screen.findByText("أرز أبيض مصري 5 كجم")).toBeInTheDocument();
-    await waitFor(() => expect(screen.queryByText("تعذّر تحميل الأصناف.")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByText(/تعذّر تحميل الأصناف\./)).not.toBeInTheDocument());
   });
 
   it("does NOT show the empty-list message when the load failed — the banner is the only story (D123)", async () => {
@@ -545,7 +545,7 @@ describe("ItemsScreen", () => {
       onItemsGet: () => ({ status: 500, body: { error: "INTERNAL" } }),
     });
 
-    expect(await screen.findByText("تعذّر تحميل الأصناف.")).toBeInTheDocument();
+    expect(await screen.findByText(/تعذّر تحميل الأصناف\./)).toBeInTheDocument();
     // "The load failed" and "there are no items" are opposite facts. Saying
     // the second while the first is true tells the operator their catalogue
     // is gone.

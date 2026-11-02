@@ -48,6 +48,7 @@ import {
   type PostedTransfer,
   type PostedTransferFilter,
 } from "./posted-stock-documents.js";
+import type { ReasonInput } from "../bilingual-reasons.js";
 import { getAdjustmentReasonDefinition, type AdjustmentReason } from "./reasons.js";
 import { assertLotDetails } from "../expiry/lot-tracking.js";
 import { ExpiryWriteOffExceedsExpiredError, expiredQtyAtHead } from "../expiry/write-off.js";
@@ -483,7 +484,7 @@ export class StockLedgerService {
     takesBackSourceDocId?: string;
   }): Promise<{ signedValue: Money; difference: Money; unitCost: Money; consumed: readonly ConsumedSlice[] }> {
     if (input.qty.isNegative() || input.qty.isZero()) {
-      throw new InvalidStockMovementError(["الكمية يجب أن تكون رقماً موجباً"]);
+      throw new InvalidStockMovementError([{ ar: "الكمية يجب أن تكون رقماً موجباً", en: "The quantity must be a positive number" }]);
     }
     await this.assertNotBeforeRevaluation(input.itemId, input.warehouseId, input.occurredAt);
     const snap = await this.loadSnapshot(input.itemId, input.warehouseId);
@@ -494,7 +495,7 @@ export class StockLedgerService {
 
     if (input.direction === "IN") {
       if (!input.unitCost) {
-        throw new InvalidStockMovementError(["حركة الإدخال تتطلب تكلفة الوحدة"]);
+        throw new InvalidStockMovementError([{ ar: "حركة الإدخال تتطلب تكلفة الوحدة", en: "A receipt movement requires the unit cost" }]);
       }
       unitCost = input.unitCost;
       change = changeStockPosition(snap, { kind: StockChangeKind.Addition, qty: input.qty, unitCost, stated: input.value ?? extend(input.qty, unitCost) });
@@ -832,16 +833,16 @@ export class StockLedgerService {
    */
   async postIssue(command: PostIssueCommand): Promise<PostIssueResult> {
     if (command.lines.length === 0) {
-      throw new InvalidStockMovementError(["إذن الصرف يحتاج سطراً واحداً على الأقل"]);
+      throw new InvalidStockMovementError([{ ar: "إذن الصرف يحتاج سطراً واحداً على الأقل", en: "An issue note needs at least one line" }]);
     }
     for (let i = 0; i < command.lines.length; i++) {
       const line = command.lines[i] as IssueLine;
       if (line.qty.isNegative() || line.qty.isZero()) {
-        throw new InvalidStockMovementError([`السطر ${i}: الكمية يجب أن تكون رقماً موجباً`]);
+        throw new InvalidStockMovementError([{ ar: `البند ${i + 1}: الكمية يجب أن تكون رقماً موجباً`, en: `Line ${i + 1}: the quantity must be a positive number` }]);
       }
     }
     if (command.costCategory && !command.projectId) {
-      throw new InvalidStockMovementError(["فئة التكلفة تتطلب اختيار مشروع"]);
+      throw new InvalidStockMovementError([{ ar: "فئة التكلفة تتطلب اختيار مشروع", en: "A cost category requires choosing a project" }]);
     }
     const occurredAt = command.occurredAt ?? this.now();
     await this.assertPeriodOpen(occurredAt);
@@ -938,7 +939,7 @@ export class StockLedgerService {
       throw new SameWarehouseTransferError(command.fromWarehouseId);
     }
     if (command.lines.length === 0) {
-      throw new InvalidStockMovementError(["التحويل يحتاج سطراً واحداً على الأقل"]);
+      throw new InvalidStockMovementError([{ ar: "التحويل يحتاج سطراً واحداً على الأقل", en: "A transfer needs at least one line" }]);
     }
     const occurredAt = command.occurredAt ?? this.now();
     await this.assertPeriodOpen(occurredAt);
@@ -1038,15 +1039,15 @@ export class StockLedgerService {
    */
   async postReceipt(command: PostReceiptCommand): Promise<PostReceiptResult> {
     if (command.lines.length === 0) {
-      throw new InvalidStockMovementError(["إذن الاستلام يحتاج سطراً واحداً على الأقل"]);
+      throw new InvalidStockMovementError([{ ar: "إذن الاستلام يحتاج سطراً واحداً على الأقل", en: "A receipt note needs at least one line" }]);
     }
     for (let i = 0; i < command.lines.length; i++) {
       const line = command.lines[i] as ReceiptLine;
       if (line.qty.isNegative() || line.qty.isZero()) {
-        throw new InvalidStockMovementError([`السطر ${i}: الكمية يجب أن تكون رقماً موجباً`]);
+        throw new InvalidStockMovementError([{ ar: `البند ${i + 1}: الكمية يجب أن تكون رقماً موجباً`, en: `Line ${i + 1}: the quantity must be a positive number` }]);
       }
       if (line.unitCost.scaled < 0n) {
-        throw new InvalidStockMovementError([`السطر ${i}: تكلفة الوحدة لا يمكن أن تكون سالبة`]);
+        throw new InvalidStockMovementError([{ ar: `البند ${i + 1}: تكلفة الوحدة لا يمكن أن تكون سالبة`, en: `Line ${i + 1}: the unit cost cannot be negative` }]);
       }
     }
     const occurredAt = command.occurredAt ?? this.now();
@@ -1090,7 +1091,7 @@ export class StockLedgerService {
         const mine = layers.filter((l) => l.sourceDocId === command.sourceDocId);
         if (mine.length === 0) {
           throw new InvalidStockMovementError([
-            `بضاعة المستند "${command.sourceDocId}" من الصنف "${pos.itemId}" صُرفت بالكامل، فلا يمكن عكس استلامها`,
+            { ar: `بضاعة المستند "${command.sourceDocId}" من الصنف "${pos.itemId}" صُرفت بالكامل، فلا يمكن عكس استلامها`, en: `The goods of document "${command.sourceDocId}" for item "${pos.itemId}" have been fully issued, so their receipt cannot be reversed` },
           ]);
         }
         const received = (await this.getMovementsOfDocument(command.sourceDocId)).filter(
@@ -1099,13 +1100,13 @@ export class StockLedgerService {
         const receivedQty = Qty.sum(received.map((m) => m.qty));
         if (!receivedQty.isZero() && Qty.sum(mine.map((layer) => layer.originalQty)).compare(receivedQty) < 0) {
           throw new InvalidStockMovementError([
-            `بضاعة المستند "${command.sourceDocId}" من الصنف "${pos.itemId}" غطّت كمية بيعت قبل وصولها، فلا يمكن عكس استلامها. صحّحها بمرتجع مشتريات.`,
+            { ar: `بضاعة المستند "${command.sourceDocId}" من الصنف "${pos.itemId}" غطّت كمية بيعت قبل وصولها، فلا يمكن عكس استلامها. صحّحها بمرتجع مشتريات.`, en: `The goods of document "${command.sourceDocId}" for item "${pos.itemId}" covered a quantity sold before it arrived, so their receipt cannot be reversed. Correct it with a purchase return.` },
           ]);
         }
         for (const layer of mine) {
           if (layer.remainingQty.compare(layer.originalQty) !== 0) {
             throw new InvalidStockMovementError([
-              `طبقة التكلفة "${layer.id}" للصنف "${pos.itemId}" سُحب منها بالفعل، فلا يمكن عكس "${command.sourceDocId}"`,
+              { ar: `طبقة التكلفة "${layer.id}" للصنف "${pos.itemId}" سُحب منها بالفعل، فلا يمكن عكس "${command.sourceDocId}"`, en: `Cost layer "${layer.id}" for item "${pos.itemId}" has already been drawn from, so "${command.sourceDocId}" cannot be reversed` },
             ]);
           }
         }
@@ -1239,7 +1240,7 @@ export class StockLedgerService {
   }): Promise<LandedCostAbsorption> {
     if (line.valueDelta.scaled <= 0n) {
       throw new InvalidStockMovementError([
-        `قيمة التكلفة الإضافية للصنف "${line.itemId}" يجب أن تكون موجبة`,
+        { ar: `قيمة التكلفة الإضافية للصنف "${line.itemId}" يجب أن تكون موجبة`, en: `The landed cost value for item "${line.itemId}" must be positive` },
       ]);
     }
     return this.runInTransaction(async () => {
@@ -1474,22 +1475,25 @@ export class StockLedgerService {
   }
 
   private validateAdjustment(command: PostAdjustmentCommand): void {
-    const reasons: string[] = [];
-    if (command.lines.length === 0) reasons.push("an adjustment needs at least one line");
+    const reasons: ReasonInput[] = [];
+    if (command.lines.length === 0) reasons.push({ ar: "تسوية المخزون تتطلب بنداً واحداً على الأقل.", en: "A stock adjustment needs at least one line." });
     const def = getAdjustmentReasonDefinition(command.reason);
+    const directionAr = { IN: "إضافة", OUT: "صرف", EITHER: "إضافة أو صرف" } as const;
+    const directionEn = { IN: "stock in", OUT: "stock out", EITHER: "stock in or out" } as const;
     for (let i = 0; i < command.lines.length; i++) {
       const line = command.lines[i] as AdjustmentLine;
       if (def.direction !== "EITHER" && line.direction !== def.direction) {
-        reasons.push(
-          `line ${i}: reason "${command.reason}" requires direction ${def.direction}, got ${line.direction}`,
-        );
+        reasons.push({
+          ar: `البند ${i + 1}: سبب التسوية «${def.labelAr}» يتطلب اتجاه ${directionAr[def.direction]}، والبند ${directionAr[line.direction]}.`,
+          en: `Line ${i + 1}: the adjustment reason "${def.labelEn}" requires ${directionEn[def.direction]}, but the line is ${directionEn[line.direction]}.`,
+        });
       }
       if (line.direction === "IN" && !line.unitCost) {
-        reasons.push(`line ${i}: an IN line requires a unitCost`);
+        reasons.push({ ar: `البند ${i + 1}: بند الإضافة للمخزون يتطلب تكلفة الوحدة.`, en: `Line ${i + 1}: a stock-in line needs a unit cost.` });
       }
     }
     if (command.costCategory && !command.projectId) {
-      reasons.push("a cost category requires a projectId");
+      reasons.push({ ar: "فئة التكلفة تتطلب تحديد المشروع.", en: "A cost category needs a project." });
     }
     if (reasons.length > 0) throw new InvalidStockMovementError(reasons);
   }

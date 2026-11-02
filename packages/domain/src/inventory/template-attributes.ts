@@ -53,13 +53,13 @@ export interface AddTemplateAttributeCommand {
 export async function addTemplateAttribute(cmd: AddTemplateAttributeCommand, deps: TemplateDeps): Promise<ProductTemplate> {
   const template = await loadTemplate(cmd.templateId, deps.templates);
 
-  if (cmd.nameAr.trim() === "") throw new InvalidProductTemplateError(["اسم الخاصية مطلوب"]);
+  if (cmd.nameAr.trim() === "") throw new InvalidProductTemplateError([{ ar: "اسم الخاصية مطلوب", en: "The attribute name is required" }]);
   if (template.attributes.some((a) => a.nameAr === cmd.nameAr)) throw new DuplicateAttributeNameError(cmd.nameAr);
 
   const trimmedValues = cmd.values.map((v) => v.trim()).filter((v) => v !== "");
-  if (trimmedValues.length === 0) throw new InvalidProductTemplateError(["يجب إدخال قيمة واحدة على الأقل للخاصية"]);
+  if (trimmedValues.length === 0) throw new InvalidProductTemplateError([{ ar: "يجب إدخال قيمة واحدة على الأقل للخاصية", en: "At least one attribute value is required" }]);
   const uniqueValues = new Set(trimmedValues);
-  if (uniqueValues.size !== trimmedValues.length) throw new InvalidProductTemplateError(["قيم الخاصية تحتوي على تكرار"]);
+  if (uniqueValues.size !== trimmedValues.length) throw new InvalidProductTemplateError([{ ar: "قيم الخاصية تحتوي على تكرار", en: "The attribute values contain duplicates" }]);
 
   const attribute: ProductTemplateAttribute = {
     id: cmd.attributeId,
@@ -84,7 +84,7 @@ export async function addAttributeValue(cmd: AddAttributeValueCommand, deps: Tem
   const attribute = findAttribute(template, cmd.attributeId);
 
   const value = cmd.value.trim();
-  if (value === "") throw new InvalidProductTemplateError(["قيمة الخاصية مطلوبة"]);
+  if (value === "") throw new InvalidProductTemplateError([{ ar: "قيمة الخاصية مطلوبة", en: "The attribute value is required" }]);
   if (attribute.values.includes(value)) throw new DuplicateAttributeValueError(value);
 
   const updatedAttribute: ProductTemplateAttribute = { ...attribute, values: [...attribute.values, value] };

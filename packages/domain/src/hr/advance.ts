@@ -1,4 +1,5 @@
 import { Money, allocate } from "../money/index.js";
+import type { ReasonInput } from "../bilingual-reasons.js";
 import { InvalidEmployeeAdvanceError, InvalidEmployeeAdvanceTransitionError } from "./errors.js";
 
 /**
@@ -185,14 +186,14 @@ export interface CreateEmployeeAdvanceCommand {
   readonly now?: () => string;
 }
 
-function validate(command: CreateEmployeeAdvanceCommand): string[] {
-  const reasons: string[] = [];
-  if (command.employeeId.trim().length === 0) reasons.push("الموظف مطلوب");
-  if (command.amount.scaled <= 0n) reasons.push("مبلغ السلفة يجب أن يكون أكبر من صفر");
+function validate(command: CreateEmployeeAdvanceCommand): ReasonInput[] {
+  const reasons: ReasonInput[] = [];
+  if (command.employeeId.trim().length === 0) reasons.push({ ar: "الموظف مطلوب", en: "The employee is required" });
+  if (command.amount.scaled <= 0n) reasons.push({ ar: "مبلغ السلفة يجب أن يكون أكبر من صفر", en: "The advance amount must be greater than zero" });
   if (!Number.isInteger(command.installmentCount) || command.installmentCount < 1) {
-    reasons.push("عدد الأقساط يجب أن يكون رقماً صحيحاً أكبر من صفر");
+    reasons.push({ ar: "عدد الأقساط يجب أن يكون رقماً صحيحاً أكبر من صفر", en: "The number of installments must be a whole number greater than zero" });
   }
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(command.firstDeductionDate)) reasons.push("تاريخ أول خصم مطلوب");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(command.firstDeductionDate)) reasons.push({ ar: "تاريخ أول خصم مطلوب", en: "The first deduction date is required" });
   return reasons;
 }
 
@@ -280,7 +281,10 @@ export function applyAdvanceRecovery(advance: EmployeeAdvance, amount: Money, no
   }
   if (amount.scaled > advanceOutstanding(advance).scaled) {
     throw new InvalidEmployeeAdvanceError([
-      `مبلغ الاسترداد (${amount.toString()}) يتجاوز المتبقي على السلفة (${advanceOutstanding(advance).toString()}).`,
+      {
+        ar: `مبلغ الاسترداد (${amount.toString()}) يتجاوز المتبقي على السلفة (${advanceOutstanding(advance).toString()}).`,
+        en: `The recovery amount (${amount.toString()}) exceeds the remaining balance of the advance (${advanceOutstanding(advance).toString()}).`,
+      },
     ]);
   }
 
@@ -314,7 +318,10 @@ export function reverseAdvanceRecovery(advance: EmployeeAdvance, amount: Money):
   if (amount.scaled <= 0n) return advance;
   if (amount.scaled > advanceRecovered(advance).scaled) {
     throw new InvalidEmployeeAdvanceError([
-      `مبلغ عكس الاسترداد (${amount.toString()}) يتجاوز ما تم استرداده من السلفة (${advanceRecovered(advance).toString()}).`,
+      {
+        ar: `مبلغ عكس الاسترداد (${amount.toString()}) يتجاوز ما تم استرداده من السلفة (${advanceRecovered(advance).toString()}).`,
+        en: `The recovery reversal amount (${amount.toString()}) exceeds what has been recovered from the advance (${advanceRecovered(advance).toString()}).`,
+      },
     ]);
   }
   let remaining = amount.scaled;

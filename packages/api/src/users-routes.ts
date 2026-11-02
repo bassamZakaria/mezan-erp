@@ -85,27 +85,27 @@ function serializeUser(user: User) {
 
 function userErrorResponse(c: Context, err: unknown) {
   if (err instanceof InvalidUserError) {
-    return c.json({ error: err.code, message: err.message }, 400);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 400);
   }
   if (err instanceof InvalidAccessExpiryError) {
-    return c.json({ error: err.code, problem: err.problem, message: err.message }, 400);
+    return c.json({ error: err.code, problem: err.problem, message: err.message, messageEn: err.messageEn }, 400);
   }
   if (err instanceof DuplicateUserEmailError) {
-    return c.json({ error: err.code, message: err.message }, 409);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
   }
   if (err instanceof EmailDomainNotAllowedError) {
-    return c.json({ error: err.code, message: err.message }, 422);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 422);
   }
   if (err instanceof UnknownRoleError) {
-    return c.json({ error: err.code, message: err.message }, 400);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 400);
   }
   if (err instanceof UserNotFoundError) {
-    return c.json({ error: err.code, message: err.message }, 404);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 404);
   }
   // 409, not 400: the request is well formed and the caller is allowed to
   // deactivate users — it is the tenant's state that forbids this one (D117).
   if (err instanceof LastCompanyAdminError) {
-    return c.json({ error: err.code, message: err.message }, 409);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
   }
   if (err instanceof UserErasureRefusedError) {
     return c.json({ error: err.code, reason: err.reason, message: err.message, messageEn: err.messageEn }, 409);
@@ -355,6 +355,7 @@ export function createUsersRoutes(
         error: "PRIVILEGE_ESCALATION_DENIED",
         scopes: [...scopes],
         message: "لا يمكنك منح نطاق أوسع من نطاقك.",
+        messageEn: "You cannot grant a scope wider than your own.",
       },
       403,
     );
@@ -366,6 +367,7 @@ export function createUsersRoutes(
         error: "PRIVILEGE_ESCALATION_DENIED",
         permissions: [...permissions],
         message: "لا يمكنك منح صلاحيات لا تملكها.",
+        messageEn: "You cannot grant permissions you do not hold.",
       },
       403,
     );
@@ -385,6 +387,7 @@ export function createUsersRoutes(
         conflicts,
         message:
           "الدور المطلوب إسناده يجمع بين طرفي فصل مهام لا يجوز الجمع بينهما لهذا المستخدم. أرسل acknowledge مع سبب لحفظه رغم ذلك.",
+          messageEn: "The role being assigned combines two sides of a segregation of duties that this user may not hold together. Send acknowledge with a reason to save it anyway.",
       },
       409,
     );
@@ -433,6 +436,7 @@ export function createUsersRoutes(
       {
         error: "PRIVILEGE_ESCALATION_DENIED",
         message: "لا يمكنك تعديل حساب صلاحياته أوسع من صلاحياتك.",
+        messageEn: "You cannot modify an account whose permissions are wider than yours.",
       },
       403,
     );
@@ -492,7 +496,7 @@ export function createUsersRoutes(
     const activeCount = (await uow.users.list()).filter((u) => u.status === "active").length;
     if (activeCount >= entitlements.seats) {
       return c.json(
-        { error: "SEAT_LIMIT_REACHED", message: "وصلتم إلى الحد الأقصى للمستخدمين في باقتكم" },
+        { error: "SEAT_LIMIT_REACHED", message: "وصلتم إلى الحد الأقصى للمستخدمين في باقتكم", messageEn: "You have reached the maximum number of users in your plan" },
         409,
       );
     }
@@ -587,7 +591,7 @@ export function createUsersRoutes(
       c.header("retry-after", String(lockedFor));
       return c.json(tooManyAttempts(lockedFor), 429);
     }
-    return c.json({ error: CurrentSecretRefusal.IncorrectPassword, message: "كلمة المرور الحالية غير صحيحة." }, 403);
+    return c.json({ error: CurrentSecretRefusal.IncorrectPassword, message: "كلمة المرور الحالية غير صحيحة.", messageEn: "The current password is incorrect." }, 403);
   }
 
   function auditOwnCredentialChange(c: Context, before: User, after: User, change: CredentialChange) {

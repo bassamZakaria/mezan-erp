@@ -1,3 +1,4 @@
+import { messageEnOf } from "./observability/error-message-backfill.js";
 import { BranchRecordKind, recordsInBranchGrant } from "./branch-policy.js";
 import { Hono, type Context } from "hono";
 import {
@@ -278,7 +279,7 @@ export function createInstallmentsRoutes(
       return c.json(serializePlan(doc), 201);
     } catch (err) {
       if (err instanceof InvalidInstallmentScheduleError) {
-        return c.json({ error: err.code, message: err.message }, 422);
+        return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 422);
       }
       return handleDocumentError(c, err);
     }
@@ -313,7 +314,7 @@ export function createInstallmentsRoutes(
     if (collectBranchRefusal) return collectBranchRefusal;
     if (!deps.collect) {
       return c.json(
-        { error: "INSTALLMENT_COLLECTION_UNAVAILABLE", message: "تحصيل الأقساط غير متاح — الخزينة غير موصولة." },
+        { error: "INSTALLMENT_COLLECTION_UNAVAILABLE", message: "تحصيل الأقساط غير متاح — الخزينة غير موصولة.", messageEn: "Installment collection is unavailable because treasury is not connected." },
         503,
       );
     }
@@ -350,7 +351,7 @@ export function createInstallmentsRoutes(
         err instanceof InstallmentLineNotCollectableError ||
         err instanceof InstallmentOverpaymentError
       ) {
-        return c.json({ error: err.code, message: err.message }, 422);
+        return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 422);
       }
       return handleDocumentError(c, err);
     }
@@ -473,8 +474,8 @@ export function createInstallmentsRoutes(
       return c.json(serializeFollowUp(updated));
     } catch (err) {
       if (err instanceof FollowUpNotFoundError)
-        return c.json({ error: err.code, message: err.message, ...(err.messageEn ? { messageEn: err.messageEn } : {}) }, 404);
-      if (err instanceof InvalidFollowUpTransitionError) return c.json({ error: err.code, message: err.message }, 409);
+        return c.json({ error: err.code, message: err.message, messageEn: messageEnOf(err, 404) }, 404);
+      if (err instanceof InvalidFollowUpTransitionError) return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
       throw err;
     }
   });
@@ -488,8 +489,8 @@ export function createInstallmentsRoutes(
       return c.json(serializeFollowUp(updated));
     } catch (err) {
       if (err instanceof FollowUpNotFoundError)
-        return c.json({ error: err.code, message: err.message, ...(err.messageEn ? { messageEn: err.messageEn } : {}) }, 404);
-      if (err instanceof InvalidFollowUpTransitionError) return c.json({ error: err.code, message: err.message }, 409);
+        return c.json({ error: err.code, message: err.message, messageEn: messageEnOf(err, 404) }, 404);
+      if (err instanceof InvalidFollowUpTransitionError) return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
       throw err;
     }
   });

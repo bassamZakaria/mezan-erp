@@ -35,7 +35,7 @@ export interface GateableActionTypeDef {
 export const GATEABLE_ACTION_TYPES = [
   // Sales (4)
   { code: "SALES_INVOICE_CONFIRM", labelAr: "تأكيد فاتورة المبيعات", labelEn: "Confirm sales invoice", category: "sales" },
-  { code: "SALES_RETURN_CONFIRM", labelAr: "تأكيد مردودات المبيعات", labelEn: "Confirm sales return", category: "sales" },
+  { code: "SALES_RETURN_CONFIRM", labelAr: "تأكيد مرتجع المبيعات", labelEn: "Confirm sales return", category: "sales" },
   { code: "SALES_QUOTE_SEND", labelAr: "إرسال عرض سعر", labelEn: "Send quotation", category: "sales", enforced: false },
   { code: "SALES_PRICE_FLOOR_OVERRIDE", labelAr: "اعتماد بيع دون الحد الأدنى للسعر", labelEn: "Approve a sale below the price floor", category: "sales" },
 
@@ -43,7 +43,7 @@ export const GATEABLE_ACTION_TYPES = [
   { code: "PURCHASE_ORDER_CONFIRM", labelAr: "تأكيد أمر الشراء", labelEn: "Confirm purchase order", category: "purchases", enforced: false },
   { code: "PURCHASE_INVOICE_CONFIRM", labelAr: "تأكيد فاتورة المشتريات", labelEn: "Confirm purchase invoice", category: "purchases", enforced: false },
   { code: "PURCHASE_RECEIPT_CONFIRM", labelAr: "تأكيد سند استلام البضاعة", labelEn: "Confirm goods receipt", category: "purchases", enforced: false },
-  { code: "PURCHASE_RETURN_CONFIRM", labelAr: "تأكيد مردودات المشتريات", labelEn: "Confirm purchase return", category: "purchases" },
+  { code: "PURCHASE_RETURN_CONFIRM", labelAr: "تأكيد مرتجع المشتريات", labelEn: "Confirm purchase return", category: "purchases" },
   { code: "PURCHASE_LANDED_COST_CONFIRM", labelAr: "تأكيد سند التكاليف الإضافية", labelEn: "Confirm landed-cost voucher", category: "purchases" },
 
   // Treasury (3)
@@ -83,6 +83,11 @@ export type GateableActionType = (typeof GATEABLE_ACTION_TYPES)[number]["code"];
 const ACTION_CODES: ReadonlySet<string> = new Set(
   GATEABLE_ACTION_TYPES.map((a) => a.code),
 );
+
+export function actionTypeLabels(code: string): { readonly ar: string; readonly en: string } {
+  const def = GATEABLE_ACTION_TYPES.find((a) => a.code === code);
+  return def ? { ar: def.labelAr, en: def.labelEn } : { ar: code, en: code };
+}
 
 export function isGateableActionType(code: string): code is GateableActionType {
   return ACTION_CODES.has(code);

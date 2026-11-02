@@ -178,7 +178,7 @@ export function displacedSessionRefusal(c: Parameters<MiddlewareHandler>[0]): Re
   if (!sessionWasDisplaced(c)) return null;
   c.header(SESSION_ENDED_HEADER, SessionEnded.Displaced);
   return c.json(
-    { error: "SESSION_DISPLACED", message: "سجّل مستخدم آخر الدخول على هذا الجهاز، فانتهت جلستك هنا. سجّل الدخول من جديد للمتابعة." },
+    { error: "SESSION_DISPLACED", message: "سجّل مستخدم آخر الدخول على هذا الجهاز، فانتهت جلستك هنا. سجّل الدخول من جديد للمتابعة.", messageEn: "Another user signed in on this device, so your session here has ended. Sign in again to continue." },
     401,
   );
 }
@@ -187,7 +187,7 @@ export function unauthenticated(c: Parameters<MiddlewareHandler>[0]) {
   const displaced = displacedSessionRefusal(c);
   if (displaced) return displaced;
   return c.json(
-    { error: "SESSION_EXPIRED", message: "انتهت الجلسة. سجّل الدخول من جديد." },
+    { error: "SESSION_EXPIRED", message: "انتهت الجلسة. سجّل الدخول من جديد.", messageEn: "The session has ended. Sign in again." },
     401,
   );
 }

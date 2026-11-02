@@ -91,7 +91,7 @@ function requireCaller(resolveAuthContext: AuthContextResolver): MiddlewareHandl
     if (!ctx.userId || ctx.userId === "anonymous") {
       const displaced = displacedSessionRefusal(c);
       if (displaced) return displaced;
-      return c.json({ error: "UNAUTHENTICATED", message: "تسجيل الدخول مطلوب." }, 401);
+      return c.json({ error: "UNAUTHENTICATED", message: "تسجيل الدخول مطلوب.", messageEn: "Sign-in is required." }, 401);
     }
     c.set("authContext", ctx);
     await next();
@@ -124,7 +124,7 @@ function toPatch(data: PatchUserPreferencesDTO | PutUserPreferencesDTO): UserPre
 
 function preferencesError(c: Context, err: unknown) {
   if (err instanceof InvalidUserPreferencesError) {
-    return c.json({ error: err.code, message: err.message, reasons: err.reasons }, 422);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, reasons: err.reasons }, 422);
   }
   throw err;
 }
@@ -205,7 +205,7 @@ export function createPreferencesRoutes(
     const targetId = c.req.param("userId");
     const { preferences, stored } = await load(targetId);
     const user = await deps.uow.users.findById(targetId);
-    if (!user && !stored) return c.json({ error: "NOT_FOUND", message: "المستخدم غير موجود." }, 404);
+    if (!user && !stored) return c.json({ error: "NOT_FOUND", message: "المستخدم غير موجود.", messageEn: "The user does not exist." }, 404);
     return c.json({ ...serialize(preferences, stored), fullName: user?.nameAr ?? null, readOnly: true });
   });
 

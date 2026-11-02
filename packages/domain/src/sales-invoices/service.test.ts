@@ -463,7 +463,7 @@ describe("SalesInvoiceService.createDraft — validation", () => {
   });
 
   it("requires an AR account", async () => {
-    await expectReason({ arAccountId: "" }, "حساب المدينون مطلوب.");
+    await expectReason({ arAccountId: "" }, "حساب المدينين مطلوب.");
   });
 
   it("requires at least one line", async () => {

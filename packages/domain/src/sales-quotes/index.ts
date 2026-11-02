@@ -12,6 +12,7 @@ export {
   type SalesQuoteDiscount,
   type SalesQuoteDiscountType,
   SALES_QUOTE_STATUS_LABELS_AR,
+  SALES_QUOTE_STATUS_LABELS_EN,
   isQuoteExpired,
 } from "./sales-quote.js";
 

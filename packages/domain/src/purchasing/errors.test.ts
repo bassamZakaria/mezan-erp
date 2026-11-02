@@ -54,7 +54,8 @@ describe("purchasing errors", () => {
     const err = new PurchaseDocumentNotDraftError("doc-1", "confirmed");
     expect(err.code).toBe("PURCHASE_DOCUMENT_NOT_DRAFT");
     expect(err.status).toBe("confirmed");
-    expect(err.message).toContain("confirmed");
+    expect(err.message).toContain("مؤكد");
+    expect(err.messageEn).toContain("confirmed");
   });
 
   it("PurchaseOrderNotReceivableError names the id and status", () => {

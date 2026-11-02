@@ -1,3 +1,4 @@
+import { messageEnOf } from "./observability/error-message-backfill.js";
 import { postingRefusalResponse } from "./posting-refusal.js";
 import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
@@ -194,8 +195,7 @@ function serialize(quote: SalesQuote, totals: SalesQuoteTotals) {
 }
 
 function withMessageEn(err: { code: string; message: string }) {
-  const messageEn = (err as { messageEn?: string }).messageEn;
-  return { error: err.code, message: err.message, ...(messageEn ? { messageEn } : {}) };
+  return { error: err.code, message: err.message, messageEn: messageEnOf(err) };
 }
 
 function handleDomainError(c: Context, err: unknown): Response {
@@ -306,17 +306,17 @@ export function createSalesQuotesRoutes(
   async function refuseUnlinkableOpportunity(c: Context, opportunityId: string | null, customerId: string): Promise<Response | null> {
     if (opportunityId === null) return null;
     if (!deps.opportunities) {
-      return c.json({ error: "OPPORTUNITY_LINK_UNAVAILABLE", message: "ربط عرض السعر بفرصة بيع غير مُفعّل على هذا الخادم." }, 422);
+      return c.json({ error: "OPPORTUNITY_LINK_UNAVAILABLE", message: "ربط عرض السعر بفرصة بيع غير مُفعّل على هذا الخادم.", messageEn: "Linking a quote to a sales opportunity is not enabled on this server." }, 422);
     }
     const found = await deps.opportunities.findById(opportunityId);
     if (!found || visibleOpportunities(c, [found]).length === 0) {
-      return c.json({ error: "OPPORTUNITY_NOT_FOUND", message: "فرصة البيع المختارة غير موجودة." }, 422);
+      return c.json({ error: "OPPORTUNITY_NOT_FOUND", message: "فرصة البيع المختارة غير موجودة.", messageEn: "The selected sales opportunity does not exist." }, 422);
     }
     if (found.customerId !== customerId) {
-      return c.json({ error: "OPPORTUNITY_CUSTOMER_MISMATCH", message: "عميل عرض السعر يختلف عن عميل فرصة البيع." }, 422);
+      return c.json({ error: "OPPORTUNITY_CUSTOMER_MISMATCH", message: "عميل عرض السعر يختلف عن عميل فرصة البيع.", messageEn: "The quote customer differs from the sales opportunity customer." }, 422);
     }
     if (found.status === "lost") {
-      return c.json({ error: "OPPORTUNITY_CLOSED", message: "فرصة البيع مغلقة كخاسرة؛ أعد فتحها قبل إنشاء عرض سعر لها." }, 422);
+      return c.json({ error: "OPPORTUNITY_CLOSED", message: "فرصة البيع مغلقة كخاسرة؛ أعد فتحها قبل إنشاء عرض سعر لها.", messageEn: "The sales opportunity is closed as lost; reopen it before creating a quote for it." }, 422);
     }
     return null;
   }
@@ -629,7 +629,7 @@ export function createSalesQuotesRoutes(
   app.post("/:id/convert-to-invoice", gate("sales.invoice.create"), async (c) => {
     if (!deps.invoice) {
       return c.json(
-        { error: "CONVERT_NOT_CONFIGURED", message: "تحويل عروض الأسعار لفواتير غير مُفعّل على هذا الخادم." },
+        { error: "CONVERT_NOT_CONFIGURED", message: "تحويل عروض الأسعار لفواتير غير مُفعّل على هذا الخادم.", messageEn: "Converting quotes to invoices is not enabled on this server." },
         501,
       );
     }
@@ -652,6 +652,7 @@ export function createSalesQuotesRoutes(
         {
           error: "VALIDATION_ERROR",
           message: `بيانات الحساب المحاسبي مفقودة لبند/بنود: ${missing.map((l) => l.itemNameAr).join("، ")}`,
+          messageEn: `The ledger accounts are missing for these lines: ${missing.map((l) => l.itemNameAr).join(", ")}`,
         },
         400,
       );
@@ -715,7 +716,10 @@ export function createSalesQuotesRoutes(
         const message = outcome.alreadyConverted
           ? "عرض السعر حُوِّل بالفعل إلى فاتورة مبيعات؛ افتح فاتورته من صفحة العرض بدلاً من تحويله مرة أخرى."
           : "لا يمكن تحويل عرض السعر إلا بعد قبوله من العميل.";
-        return c.json({ error: "INVALID_QUOTE_STATUS", message }, 409);
+        const messageEn = outcome.alreadyConverted
+          ? "The quote has already been converted to a sales invoice; open its invoice from the quote page instead of converting it again."
+          : "A quote can only be converted after the customer accepts it.";
+        return c.json({ error: "INVALID_QUOTE_STATUS", message, messageEn }, 409);
       }
       if (outcome.refusal) return quotaRefusalResponse(c, outcome.refusal);
       const { invoice, converted } = outcome;

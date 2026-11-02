@@ -201,14 +201,14 @@ describe("SalesQuotesScreen", () => {
         { transport, initialSession: testAdminSession },
       );
 
-      expect(await screen.findByText("تعذّر تحميل عروض الأسعار.")).toBeInTheDocument();
+      expect(await screen.findByText("تعذّر تحميل عروض الأسعار. (رمز 500)")).toBeInTheDocument();
       await waitFor(() => expect(screen.queryByText("لا توجد عروض أسعار — أنشئ عرضاً جديداً")).not.toBeInTheDocument());
 
       fail = false;
       await user.click(screen.getByRole("button", { name: "إعادة المحاولة" }));
 
       expect(await screen.findByText("SQ-000001")).toBeInTheDocument();
-      await waitFor(() => expect(screen.queryByText("تعذّر تحميل عروض الأسعار.")).not.toBeInTheDocument());
+      await waitFor(() => expect(screen.queryByText("تعذّر تحميل عروض الأسعار. (رمز 500)")).not.toBeInTheDocument());
     },
   );
 

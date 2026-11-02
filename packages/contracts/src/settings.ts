@@ -111,6 +111,7 @@ export const testEmailResultSchema = z.object({
   ok: z.boolean(),
   stage: z.nativeEnum(SmtpStage),
   message: z.string(),
+  messageEn: z.string().optional(),
 });
 
 /** GET /settings/currencies — the currencies a document may be denominated in. */

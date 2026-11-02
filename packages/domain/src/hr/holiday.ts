@@ -1,4 +1,5 @@
 import { InvalidHolidayError } from "./errors.js";
+import type { ReasonInput } from "../bilingual-reasons.js";
 
 /**
  * Holiday — docs/archive/catalog/06-crm-hr.md "الإجازات الرسمية". Company-wide public
@@ -35,10 +36,10 @@ export interface CreateHolidayCommand {
   readonly recurringAnnual?: boolean;
 }
 
-function validate(command: Pick<CreateHolidayCommand, "date" | "nameEn">): string[] {
-  const reasons: string[] = [];
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(command.date)) reasons.push("التاريخ مطلوب بصيغة YYYY-MM-DD");
-  if (command.nameEn.trim().length === 0) reasons.push("الاسم بالإنجليزية مطلوب");
+function validate(command: Pick<CreateHolidayCommand, "date" | "nameEn">): ReasonInput[] {
+  const reasons: ReasonInput[] = [];
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(command.date)) reasons.push({ ar: "التاريخ مطلوب بصيغة YYYY-MM-DD", en: "The date is required in the format YYYY-MM-DD" });
+  if (command.nameEn.trim().length === 0) reasons.push({ ar: "الاسم بالإنجليزية مطلوب", en: "The English name is required" });
   return reasons;
 }
 

@@ -92,8 +92,10 @@ const BASE_CURRENCY = "EGP";
 
 export class EtaMissingExchangeRateError extends Error {
   readonly code = "ETA_MISSING_EXCHANGE_RATE";
+  readonly messageEn: string;
   constructor(readonly currency: string) {
     super(`مستند بعملة ${currency} يتطلب سعر صرف مقابل الجنيه قبل الإرسال للمصلحة.`);
+    this.messageEn = `A document in ${currency} needs an exchange rate against the Egyptian pound before it is sent to the Tax Authority.`;
     this.name = "EtaMissingExchangeRateError";
   }
 }

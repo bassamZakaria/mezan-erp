@@ -1,3 +1,4 @@
+import { splitReasons, type ReasonInput } from "../bilingual-reasons.js";
 /** Raised when a tax code already exists (codes are unique across tax rates). */
 export class DuplicateTaxCodeError extends Error {
   readonly code = "DUPLICATE_TAX_CODE";
@@ -169,8 +170,13 @@ export class InvalidTaxRateError extends Error {
 /** Raised when a tax group is structurally invalid (R6.4). */
 export class InvalidTaxGroupError extends Error {
   readonly code = "INVALID_TAX_GROUP";
-  constructor(readonly reasons: readonly string[]) {
-    super(reasons.join("، "));
+  readonly reasons: readonly string[];
+  readonly messageEn: string;
+  constructor(reasons: readonly ReasonInput[]) {
+    const split = splitReasons(reasons, "The tax group is invalid.");
+    super(split.ar.join("، "));
+    this.reasons = split.ar;
+    this.messageEn = split.en;
     this.name = "InvalidTaxGroupError";
   }
 }

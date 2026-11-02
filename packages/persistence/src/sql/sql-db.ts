@@ -40,6 +40,7 @@ export interface SqlDb {
 export class NulCharacterError extends Error {
   readonly code = "NUL_CHARACTER_REFUSED";
   readonly messageAr = "يحتوي الطلب على حرف غير مسموح به، فلم يُحفظ أي تغيير.";
+  readonly messageEn = "The request contains a character that is not allowed, so nothing was saved.";
   constructor() {
     super("The request contains a character that is not allowed, so nothing was saved.");
   }

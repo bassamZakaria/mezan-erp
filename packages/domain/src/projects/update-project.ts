@@ -1,18 +1,19 @@
 import type { Project, ProjectStatus } from "./project.js";
 import { canTransitionProject, PROJECT_STATUS_DEFINITIONS } from "./project.js";
 import { InvalidProjectError, InvalidProjectTransitionError } from "./errors.js";
+import type { ReasonInput } from "../bilingual-reasons.js";
 
 function isValidStatus(status: ProjectStatus): boolean {
   return PROJECT_STATUS_DEFINITIONS.some((d) => d.code === status);
 }
 
-function validate(project: Project): string[] {
-  const reasons: string[] = [];
+function validate(project: Project): ReasonInput[] {
+  const reasons: ReasonInput[] = [];
   if (project.nameAr.trim().length === 0) {
-    reasons.push("اسم المشروع مطلوب");
+    reasons.push({ ar: "اسم المشروع مطلوب", en: "The project name is required" });
   }
   if (!isValidStatus(project.status)) {
-    reasons.push("حالة المشروع غير صالحة");
+    reasons.push({ ar: "حالة المشروع غير صالحة", en: "The project status is not valid" });
   }
   return reasons;
 }
@@ -20,7 +21,7 @@ function validate(project: Project): string[] {
 /** Applies a patch to an existing project, re-validating the result. Code, id and costCenterId are immutable. */
 export function updateProject(current: Project, patch: Partial<Omit<Project, "id" | "code" | "costCenterId">>): Project {
   const next: Project = { ...current, ...patch };
-  if (!isValidStatus(next.status)) throw new InvalidProjectError(["حالة المشروع غير صالحة"]);
+  if (!isValidStatus(next.status)) throw new InvalidProjectError([{ ar: "حالة المشروع غير صالحة", en: "The project status is not valid" }]);
   if (!canTransitionProject(current.status, next.status)) {
     throw new InvalidProjectTransitionError(current.status, next.status);
   }

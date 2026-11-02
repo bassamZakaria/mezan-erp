@@ -1,5 +1,6 @@
 import { InvalidPayrollComponentError } from "./errors.js";
 import type { PayslipLineKind } from "./payroll-run.js";
+import type { ReasonInput } from "../bilingual-reasons.js";
 
 /**
  * مكوّنات الرواتب — the tenant's registry of earning, deduction and
@@ -59,10 +60,10 @@ export interface CreatePayrollComponentCommand {
   readonly active?: boolean;
 }
 
-function validate(component: Pick<PayrollComponent, "code" | "nameAr">): string[] {
-  const reasons: string[] = [];
-  if (component.code.trim().length === 0) reasons.push("كود المكوّن مطلوب");
-  if (component.nameAr.trim().length === 0) reasons.push("اسم المكوّن بالعربية مطلوب");
+function validate(component: Pick<PayrollComponent, "code" | "nameAr">): ReasonInput[] {
+  const reasons: ReasonInput[] = [];
+  if (component.code.trim().length === 0) reasons.push({ ar: "كود المكوّن مطلوب", en: "The component code is required" });
+  if (component.nameAr.trim().length === 0) reasons.push({ ar: "اسم المكوّن بالعربية مطلوب", en: "The Arabic component name is required" });
   return reasons;
 }
 

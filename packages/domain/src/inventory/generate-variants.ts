@@ -1,3 +1,4 @@
+import type { ReasonInput } from "../bilingual-reasons.js";
 import type { Account } from "../accounts/index.js";
 import { createItem, type Item, type ItemRepository } from "../items/index.js";
 import {
@@ -49,20 +50,20 @@ export interface GenerateVariantsResult {
 }
 
 function validateSelectionValues(template: ProductTemplate, values: Readonly<Record<string, string>>): void {
-  const reasons: string[] = [];
+  const reasons: ReasonInput[] = [];
   const attributeIds = new Set(template.attributes.map((a) => a.id));
   const givenIds = Object.keys(values);
 
   for (const attr of template.attributes) {
     const chosen = values[attr.id];
     if (chosen === undefined) {
-      reasons.push(`القيمة مفقودة للخاصية "${attr.nameAr}"`);
+      reasons.push({ ar: `القيمة مفقودة للخاصية "${attr.nameAr}"`, en: `A value is missing for attribute "${attr.nameAr}"` });
     } else if (!attr.values.includes(chosen)) {
-      reasons.push(`القيمة "${chosen}" غير معرّفة للخاصية "${attr.nameAr}"`);
+      reasons.push({ ar: `القيمة "${chosen}" غير معرّفة للخاصية "${attr.nameAr}"`, en: `Value "${chosen}" is not defined for attribute "${attr.nameAr}"` });
     }
   }
   for (const id of givenIds) {
-    if (!attributeIds.has(id)) reasons.push(`خاصية غير معروفة: "${id}"`);
+    if (!attributeIds.has(id)) reasons.push({ ar: `خاصية غير معروفة: "${id}"`, en: `Unknown attribute: "${id}"` });
   }
   if (reasons.length > 0) throw new InvalidVariantSelectionError(reasons);
 }

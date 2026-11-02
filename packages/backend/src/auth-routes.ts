@@ -398,6 +398,7 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
       {
         error: "TENANT_ALREADY_PROVISIONED",
         message: "تم إعداد هذه المنشأة بالفعل. سجّل الدخول بحسابك.",
+        messageEn: "This company has already been set up. Sign in with your account.",
       },
       409,
     );
@@ -514,7 +515,7 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
     const signedIn = current !== null && current.status === UserStatusCode.Active && current.passwordHash === user?.passwordHash ? current : null;
     if (verified && signedIn === null) {
       await security(c, "LOGIN_FAILED", AuditSeverityCode.Warning, { username: needle, accountChangedDuringCheck: true });
-      return c.json({ error: "INVALID_CREDENTIALS", message: "البريد الإلكتروني أو كلمة المرور غير صحيحة." }, 401);
+      return c.json({ error: "INVALID_CREDENTIALS", message: "البريد الإلكتروني أو كلمة المرور غير صحيحة.", messageEn: "The email or password is incorrect." }, 401);
     }
     if (signedIn === null) {
       const { failure, unlock } = await atomically(async () => {
@@ -534,7 +535,7 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
         return lockedOut(c, failure.retryAfterSeconds);
       }
       await security(c, "LOGIN_FAILED", AuditSeverityCode.Warning, { username: needle });
-      return c.json({ error: "INVALID_CREDENTIALS", message: "البريد الإلكتروني أو كلمة المرور غير صحيحة." }, 401);
+      return c.json({ error: "INVALID_CREDENTIALS", message: "البريد الإلكتروني أو كلمة المرور غير صحيحة.", messageEn: "The email or password is incorrect." }, 401);
     }
     return admit(c, signedIn, needle, origin);
   });
@@ -584,7 +585,7 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
     const grant = token ? await deps.sessions.find(token, origin, c.req.header(DEVICE_SECRET_HEADER) ?? null) : null;
     const user = grant ? await deps.uow.users.findById(grant.userId) : null;
     if (!token || !user || user.status !== UserStatusCode.Active) {
-      return c.json({ error: "UNAUTHENTICATED", message: "انتهت الجلسة، سجّل الدخول مرة أخرى." }, 401);
+      return c.json({ error: "UNAUTHENTICATED", message: "انتهت الجلسة، سجّل الدخول مرة أخرى.", messageEn: "Your session has ended. Sign in again." }, 401);
     }
     if ("idToken" in parsed.data) {
       const identity = firebase ? await firebase.verify(parsed.data.idToken).catch(() => null) : null;
@@ -608,7 +609,7 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
       const failure = await atomically(() => guard.failed(user.email, origin, true));
       await security(c, "STEP_UP_FAILED", AuditSeverityCode.Warning, { userId: user.id });
       if (failure.verdict === SignInVerdict.Locked || failure.verdict === SignInVerdict.Wait) return refused(c, failure);
-      return c.json({ error: CurrentSecretRefusal.IncorrectPassword, message: "كلمة المرور غير صحيحة." }, 403);
+      return c.json({ error: CurrentSecretRefusal.IncorrectPassword, message: "كلمة المرور غير صحيحة.", messageEn: "The password is incorrect." }, 403);
     }
     await deps.sessions.confirmStepUp(token);
     await security(c, "STEP_UP_CONFIRMED", AuditSeverityCode.Info, { userId: user.id });
@@ -626,7 +627,7 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
     if (!(await guard.redeemUnlockCode(needle, parsed.data.code))) {
       if (bucket !== null) await sources.fail(bucket);
       await security(c, "ACCOUNT_UNLOCK_REFUSED", AuditSeverityCode.Warning, { username: needle });
-      return c.json({ error: SignInRefusal.InvalidUnlockCode, message: "رمز فكّ القفل غير صحيح أو انتهت صلاحيته." }, 400);
+      return c.json({ error: SignInRefusal.InvalidUnlockCode, message: "رمز فكّ القفل غير صحيح أو انتهت صلاحيته.", messageEn: "The unlock code is incorrect or has expired." }, 400);
     }
     const user = await deps.uow.users.findByEmail(needle);
     await security(c, "ACCOUNT_UNLOCKED_BY_CODE", AuditSeverityCode.Warning, { username: needle, userId: user?.id });
@@ -643,7 +644,7 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
     if (account === null) {
       if (bucket !== null) await sources.fail(bucket);
       await security(c, "ACCOUNT_UNLOCK_REFUSED", AuditSeverityCode.Warning, { byLink: true });
-      return c.json({ error: SignInRefusal.InvalidUnlockLink, message: "رابط فكّ القفل غير صالح، أو انتهت صلاحيته، أو استُخدم من قبل." }, 400);
+      return c.json({ error: SignInRefusal.InvalidUnlockLink, message: "رابط فكّ القفل غير صالح، أو انتهت صلاحيته، أو استُخدم من قبل.", messageEn: "The unlock link is invalid, has expired, or was already used." }, 400);
     }
     const user = await deps.uow.users.findByEmail(account);
     await security(c, "ACCOUNT_UNLOCKED_BY_LINK", AuditSeverityCode.Warning, { username: account, userId: user?.id });
@@ -684,7 +685,7 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
     if (!user || user.status !== UserStatusCode.Active || user.erasedAt) {
       if (bucket !== null) await sources.fail(bucket);
       await security(c, "PASSWORD_RESET_REFUSED", AuditSeverityCode.Warning, {});
-      return c.json({ error: SignInRefusal.InvalidResetLink, message: "رابط إعادة تعيين كلمة المرور غير صالح، أو انتهت صلاحيته، أو استُخدم من قبل." }, 400);
+      return c.json({ error: SignInRefusal.InvalidResetLink, message: "رابط إعادة تعيين كلمة المرور غير صالح، أو انتهت صلاحيته، أو استُخدم من قبل.", messageEn: "The password reset link is invalid, has expired, or was already used." }, 400);
     }
     const passwordHash = await deps.hasher.hash(parsed.data.password);
     const saved = await atomically(async () => {
@@ -693,7 +694,7 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
       await deps.uow.users.save({ ...current, passwordHash, mustChangePassword: false });
       return true;
     });
-    if (!saved) return c.json({ error: SignInRefusal.InvalidResetLink, message: "رابط إعادة تعيين كلمة المرور غير صالح، أو انتهت صلاحيته، أو استُخدم من قبل." }, 400);
+    if (!saved) return c.json({ error: SignInRefusal.InvalidResetLink, message: "رابط إعادة تعيين كلمة المرور غير صالح، أو انتهت صلاحيته، أو استُخدم من قبل.", messageEn: "The password reset link is invalid, has expired, or was already used." }, 400);
     await deps.sessions.revokeUser(user.id);
     await guard.unlock(user.email);
     await security(c, "PASSWORD_RESET_BY_LINK", AuditSeverityCode.Warning, { userId: user.id });
@@ -871,10 +872,10 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
       // wizard sends the person to the login screen, which is where they belong
       // once the account exists.
       if (err instanceof DuplicateUserEmailError) {
-        return c.json({ error: err.code, message: err.message }, 409);
+        return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
       }
       if (err instanceof InvalidUserError) {
-        return c.json({ error: err.code, message: err.message }, 400);
+        return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 400);
       }
       throw err;
     }

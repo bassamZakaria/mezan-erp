@@ -302,7 +302,7 @@ export {
   type LabelTemplate,
 } from "./label-template.js";
 
-export { checkBarcodeFit, BARCODE_FIT_ERROR_AR, type BarcodeFitResult } from "./barcode-fit.js";
+export { checkBarcodeFit, BARCODE_FIT_ERROR_AR, BARCODE_FIT_ERROR_EN, type BarcodeFitResult } from "./barcode-fit.js";
 
 export {
   buildLabelBatch,

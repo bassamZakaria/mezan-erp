@@ -1,3 +1,4 @@
+import { messageEnOf } from "./observability/error-message-backfill.js";
 import { postingRefusalResponse } from "./posting-refusal.js";
 import { Hono, type Context } from "hono";
 import {
@@ -52,8 +53,7 @@ function serialize(project: Project) {
 }
 
 function withMessageEn(err: { readonly code: string; readonly message: string }) {
-  const messageEn = (err as { readonly messageEn?: string }).messageEn;
-  return { error: err.code, message: err.message, ...(messageEn ? { messageEn } : {}) };
+  return { error: err.code, message: err.message, messageEn: messageEnOf(err) };
 }
 
 function handleDomainError(c: Context, err: unknown) {
@@ -67,10 +67,10 @@ function handleDomainError(c: Context, err: unknown) {
     return c.json(withMessageEn(err), 409);
   }
   if (err instanceof InvalidProjectError) {
-    return c.json({ error: err.code, message: err.message, reasons: err.reasons }, 422);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, reasons: err.reasons }, 422);
   }
   if (err instanceof InvalidProjectTransitionError) {
-    return c.json({ error: err.code, message: err.message, from: err.from, to: err.to }, 409);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, from: err.from, to: err.to }, 409);
   }
   throw err;
 }

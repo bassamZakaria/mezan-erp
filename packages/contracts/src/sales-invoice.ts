@@ -336,6 +336,7 @@ export const salesInvoiceSchema = z.object({
     .object({
       taxRecalculated: z.literal(true),
       message: z.string(),
+      messageEn: z.string().optional(),
       lines: z.array(z.object({ lineId: z.string(), taxRatePercent: z.number(), taxRateId: z.string().nullable() })),
       totals: z.object({ taxableTotal: moneyString, taxTotal: moneyString, grandTotal: moneyString }),
     })

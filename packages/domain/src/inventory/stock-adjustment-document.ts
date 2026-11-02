@@ -63,7 +63,7 @@ export function adjustmentHeaderOf(doc: StockAdjustmentDocument): {
   costCategory: CostCategory | null;
 } {
   const first = doc.lines[0];
-  if (!first) throw new InvalidDocumentError(DOC_TYPE, doc.id, "التسوية تتطلب بنداً واحداً على الأقل.");
+  if (!first) throw new InvalidDocumentError(DOC_TYPE, doc.id, "التسوية تتطلب بنداً واحداً على الأقل.", "An adjustment needs at least one line.");
   return {
     warehouseId: first.warehouseId,
     reason: first.reason,
@@ -83,42 +83,42 @@ export const stockAdjustmentDocumentType: DocumentTypeDefinition<StockAdjustment
   validate(doc) {
     const { lines } = doc;
     if (lines.length === 0) {
-      throw new InvalidDocumentError(DOC_TYPE, doc.id, "التسوية تتطلب بنداً واحداً على الأقل.");
+      throw new InvalidDocumentError(DOC_TYPE, doc.id, "التسوية تتطلب بنداً واحداً على الأقل.", "An adjustment needs at least one line.");
     }
     const { warehouseId, reason, projectId, costCategory } = adjustmentHeaderOf(doc);
     if (!ADJUSTMENT_REASONS.includes(reason)) {
-      throw new InvalidDocumentError(DOC_TYPE, doc.id, `سبب تسوية غير معروف: "${reason}".`);
+      throw new InvalidDocumentError(DOC_TYPE, doc.id, `سبب تسوية غير معروف: "${reason}".`, `Unknown adjustment reason: "${reason}".`);
     }
     if (costCategory && !projectId) {
-      throw new InvalidDocumentError(DOC_TYPE, doc.id, "فئة التكلفة تتطلب اختيار مشروع.");
+      throw new InvalidDocumentError(DOC_TYPE, doc.id, "فئة التكلفة تتطلب اختيار مشروع.", "A cost category requires a project to be selected.");
     }
     const def = getAdjustmentReasonDefinition(reason);
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i] as StockAdjustmentDocLine;
       if (line.warehouseId !== warehouseId) {
-        throw new InvalidDocumentError(DOC_TYPE, doc.id, `بند ${i}: كل بنود التسوية يجب أن تكون لنفس المستودع.`);
+        throw new InvalidDocumentError(DOC_TYPE, doc.id, `بند ${i + 1}: كل بنود التسوية يجب أن تكون لنفس المستودع.`, `Line ${i + 1}: all adjustment lines must be for the same warehouse.`);
       }
       if (line.reason !== reason) {
-        throw new InvalidDocumentError(DOC_TYPE, doc.id, `بند ${i}: كل بنود التسوية يجب أن تحمل نفس السبب.`);
+        throw new InvalidDocumentError(DOC_TYPE, doc.id, `بند ${i + 1}: كل بنود التسوية يجب أن تحمل نفس السبب.`, `Line ${i + 1}: all adjustment lines must carry the same reason.`);
       }
       if ((line.projectId ?? null) !== projectId) {
-        throw new InvalidDocumentError(DOC_TYPE, doc.id, `بند ${i}: كل بنود التسوية يجب أن تحمل نفس المشروع.`);
+        throw new InvalidDocumentError(DOC_TYPE, doc.id, `بند ${i + 1}: كل بنود التسوية يجب أن تحمل نفس المشروع.`, `Line ${i + 1}: all adjustment lines must carry the same project.`);
       }
       if ((line.costCategory ?? null) !== costCategory) {
-        throw new InvalidDocumentError(DOC_TYPE, doc.id, `بند ${i}: كل بنود التسوية يجب أن تحمل نفس فئة التكلفة.`);
+        throw new InvalidDocumentError(DOC_TYPE, doc.id, `بند ${i + 1}: كل بنود التسوية يجب أن تحمل نفس فئة التكلفة.`, `Line ${i + 1}: all adjustment lines must carry the same cost category.`);
       }
       if (line.qty.isZero() || line.qty.isNegative()) {
-        throw new InvalidDocumentError(DOC_TYPE, doc.id, `بند ${i}: الكمية يجب أن تكون موجبة.`);
+        throw new InvalidDocumentError(DOC_TYPE, doc.id, `بند ${i + 1}: الكمية يجب أن تكون موجبة.`, `Line ${i + 1}: the quantity must be positive.`);
       }
       if (def.direction !== "EITHER" && line.direction !== def.direction) {
         throw new InvalidDocumentError(
           DOC_TYPE,
           doc.id,
-          `بند ${i}: السبب "${def.labelAr}" يتطلب اتجاه ${def.direction === "IN" ? "زيادة" : "نقصان"}.`,
+          `بند ${i + 1}: السبب "${def.labelAr}" يتطلب اتجاه ${def.direction === "IN" ? "زيادة" : "نقصان"}.`, `Line ${i + 1}: the reason "${def.labelAr}" requires a ${def.direction === "IN" ? "increase" : "decrease"} direction.`,
         );
       }
       if (line.direction === "IN" && !line.unitCost) {
-        throw new InvalidDocumentError(DOC_TYPE, doc.id, `بند ${i}: بند الزيادة يتطلب سعر تكلفة.`);
+        throw new InvalidDocumentError(DOC_TYPE, doc.id, `بند ${i + 1}: بند الزيادة يتطلب سعر تكلفة.`, `Line ${i + 1}: an increase line requires a unit cost.`);
       }
     }
   },
@@ -151,6 +151,7 @@ export const stockAdjustmentDocumentType: DocumentTypeDefinition<StockAdjustment
         effects: [],
         blocked: true,
         blockedReason: "التسوية تتطلب بنداً واحداً على الأقل.",
+        blockedReasonEn: "An adjustment needs at least one line.",
       });
     }
     const { warehouseId, reason } = adjustmentHeaderOf(doc);

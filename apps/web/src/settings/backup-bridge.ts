@@ -58,7 +58,7 @@ export type BackupEntry = {
   readable: boolean;
 };
 
-export type BackupFailure = { ok: false; code: string; message: string };
+export type BackupFailure = { ok: false; code: string; message: string; messageEn?: string };
 
 export type DrillRecord = {
   id: string;

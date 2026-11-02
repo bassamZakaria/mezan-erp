@@ -10,6 +10,7 @@ import type {
   OvertimeEligibility,
   WorkerCategory,
 } from "./employee.js";
+import type { ReasonInput } from "../bilingual-reasons.js";
 
 export interface CreateEmployeeCommand {
   readonly id: string;
@@ -45,14 +46,14 @@ export interface CreateEmployeeCommand {
   readonly emergencyContact?: EmergencyContact | null;
 }
 
-function validate(command: Pick<CreateEmployeeCommand, "firstName" | "lastName" | "branchId" | "hireDate" | "priorServiceYears">): string[] {
-  const reasons: string[] = [];
-  if (command.firstName.trim().length === 0) reasons.push("الاسم الأول مطلوب");
-  if (command.lastName.trim().length === 0) reasons.push("اسم العائلة مطلوب");
-  if (command.branchId.trim().length === 0) reasons.push("الفرع مطلوب");
-  if (command.hireDate.trim().length === 0) reasons.push("تاريخ التعيين مطلوب");
+function validate(command: Pick<CreateEmployeeCommand, "firstName" | "lastName" | "branchId" | "hireDate" | "priorServiceYears">): ReasonInput[] {
+  const reasons: ReasonInput[] = [];
+  if (command.firstName.trim().length === 0) reasons.push({ ar: "الاسم الأول مطلوب", en: "The first name is required" });
+  if (command.lastName.trim().length === 0) reasons.push({ ar: "اسم العائلة مطلوب", en: "The last name is required" });
+  if (command.branchId.trim().length === 0) reasons.push({ ar: "الفرع مطلوب", en: "The branch is required" });
+  if (command.hireDate.trim().length === 0) reasons.push({ ar: "تاريخ التعيين مطلوب", en: "The hire date is required" });
   if (command.priorServiceYears !== undefined && command.priorServiceYears < 0) {
-    reasons.push("سنوات الخدمة السابقة لا يمكن أن تكون سالبة");
+    reasons.push({ ar: "سنوات الخدمة السابقة لا يمكن أن تكون سالبة", en: "Prior years of service cannot be negative" });
   }
   return reasons;
 }

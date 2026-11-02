@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { BrandMark, Button, Card, TextInput } from "@mezan/ui";
+import { pickMessage } from "../data/server-message";
 import { useAppTranslation } from "../i18n";
 import {
   fingerprintGroups,
@@ -64,7 +65,7 @@ function Fingerprint({ value, tone }: { value: string; tone?: "danger" | "succes
 }
 
 export function PairHostScreen() {
-  const { t } = useAppTranslation();
+  const { t, locale } = useAppTranslation();
   const navigate = useNavigate();
   const [params] = useSearchParams();
 
@@ -126,8 +127,8 @@ export function PairHostScreen() {
     setBusy(false);
     setSearchedForHost(true);
     if (res?.kind === "relocate" && res.ok) setRelocated(res.found);
-    else if (res?.kind === "relocate") setError(res.message);
-  }, []);
+    else if (res?.kind === "relocate") setError(pickMessage(res, locale));
+  }, [locale]);
 
   useEffect(() => {
     if (mode === "unreachable" && supported && !searchedForHost) void findMovedHost();
@@ -143,7 +144,7 @@ export function PairHostScreen() {
       return;
     }
     if (!res.ok) {
-      setError(res.message);
+      setError(pickMessage(res, locale));
       return;
     }
     setCandidate({ hostUrl: res.hostUrl, presentedFingerprint: res.presentedFingerprint });
@@ -168,7 +169,7 @@ export function PairHostScreen() {
       // The app restarts itself into client mode; nothing else here runs.
       return;
     }
-    setError(res?.kind === "confirm" ? res.message : t("pair.confirmFailed"));
+    setError(res?.kind === "confirm" ? pickMessage(res, locale) : t("pair.confirmFailed"));
   }
 
   async function acceptMove() {

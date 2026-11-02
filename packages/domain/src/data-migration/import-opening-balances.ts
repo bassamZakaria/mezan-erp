@@ -1,3 +1,4 @@
+import type { BilingualReason } from "../collections/errors.js";
 /**
  * Data-migration import — item opening balances (docs/archive/catalog/09 "نقل
  * البيانات"). There is no separate opening-balance entity: an opening
@@ -10,7 +11,7 @@
  * id is I/O, so it's the API layer's job; this only checks the row shape.
  */
 import { Money, Qty } from "../money/index.js";
-import type { ImportRowError } from "./row-errors.js";
+import { importRowError, type ImportRowError } from "./row-errors.js";
 
 export interface OpeningBalanceImportRowInput {
   readonly rowNumber: number;
@@ -32,14 +33,14 @@ export function previewOpeningBalanceImport(
   const seenCodes = new Set<string>();
 
   for (const row of rows) {
-    const reasons: string[] = [];
+    const reasons: BilingualReason[] = [];
     const itemCode = row.itemCode.trim();
-    if (itemCode === "") reasons.push("كود الصنف مطلوب");
-    else if (seenCodes.has(itemCode)) reasons.push(`كود الصنف "${itemCode}" مكرر داخل الملف`);
-    if (row.qty.isZero() || row.qty.isNegative()) reasons.push("الكمية يجب أن تكون موجبة");
-    if (row.unitCost.scaled < 0n) reasons.push("سعر التكلفة لا يمكن أن يكون سالبًا");
+    if (itemCode === "") reasons.push({ ar: "كود الصنف مطلوب", en: "The item code is required" });
+    else if (seenCodes.has(itemCode)) reasons.push({ ar: `كود الصنف "${itemCode}" مكرر داخل الملف`, en: `Item code "${itemCode}" is duplicated in the file` });
+    if (row.qty.isZero() || row.qty.isNegative()) reasons.push({ ar: "الكمية يجب أن تكون موجبة", en: "The quantity must be positive" });
+    if (row.unitCost.scaled < 0n) reasons.push({ ar: "سعر التكلفة لا يمكن أن يكون سالبًا", en: "The cost price cannot be negative" });
     if (reasons.length > 0) {
-      errors.push({ rowNumber: row.rowNumber, reasons });
+      errors.push(importRowError(row.rowNumber, reasons));
       continue;
     }
     seenCodes.add(itemCode);

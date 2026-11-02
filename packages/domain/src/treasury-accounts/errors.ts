@@ -46,11 +46,14 @@ export class NegativeCashBalanceError extends Error {
  */
 export class InvalidGuaranteeFacilityLimitError extends Error {
   readonly code = "INVALID_GUARANTEE_FACILITY_LIMIT";
+  readonly messageEn: string;
   constructor(
     readonly accountId: string,
     readonly reason: string,
+    reasonEn: string,
   ) {
     super(reason);
+    this.messageEn = reasonEn;
     this.name = "InvalidGuaranteeFacilityLimitError";
   }
 }
@@ -65,11 +68,14 @@ export class InvalidGuaranteeFacilityLimitError extends Error {
  */
 export class InvalidOpeningBalanceError extends Error {
   readonly code = "INVALID_OPENING_BALANCE";
+  readonly messageEn: string;
   constructor(
     readonly accountId: string,
     readonly reason: string,
+    reasonEn: string,
   ) {
     super(reason);
+    this.messageEn = reasonEn;
     this.name = "InvalidOpeningBalanceError";
   }
 }

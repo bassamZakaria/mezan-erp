@@ -1,3 +1,4 @@
+import type { BilingualReason } from "../collections/errors.js";
 import { isEventCode, type EventCode } from "../events/catalog.js";
 import { InvalidNotificationRuleError, NotificationRuleNotFoundError } from "./errors.js";
 import {
@@ -28,33 +29,33 @@ export interface SaveNotificationRuleCommand {
 }
 
 function validate(cmd: SaveNotificationRuleCommand): EventCode {
-  const reasons: string[] = [];
+  const reasons: BilingualReason[] = [];
 
-  if (cmd.name.trim() === "") reasons.push("اسم القاعدة مطلوب.");
-  if (!isEventCode(cmd.eventCode)) reasons.push(`الحدث "${cmd.eventCode}" غير معروف.`);
+  if (cmd.name.trim() === "") reasons.push({ ar: "اسم القاعدة مطلوب.", en: "The rule name is required." });
+  if (!isEventCode(cmd.eventCode)) reasons.push({ ar: `الحدث "${cmd.eventCode}" غير معروف.`, en: `Event "${cmd.eventCode}" is not recognised.` });
 
   if (!NOTIFICATION_RECIPIENT_TYPES.includes(cmd.recipientType)) {
-    reasons.push(`نوع المستلم "${cmd.recipientType}" غير معروف.`);
+    reasons.push({ ar: `نوع المستلم "${cmd.recipientType}" غير معروف.`, en: `Recipient type "${cmd.recipientType}" is not recognised.` });
   }
-  if (cmd.recipientValue.trim() === "") reasons.push("قيمة المستلم مطلوبة.");
+  if (cmd.recipientValue.trim() === "") reasons.push({ ar: "قيمة المستلم مطلوبة.", en: "The recipient value is required." });
 
   if (!NOTIFICATION_PRIORITIES.includes(cmd.priority)) {
-    reasons.push(`الأولوية "${cmd.priority}" غير معروفة.`);
+    reasons.push({ ar: `الأولوية "${cmd.priority}" غير معروفة.`, en: `Priority "${cmd.priority}" is not recognised.` });
   }
 
   if (cmd.channels.length === 0) {
-    reasons.push("يجب اختيار قناة إرسال واحدة على الأقل.");
+    reasons.push({ ar: "يجب اختيار قناة إرسال واحدة على الأقل.", en: "Choose at least one delivery channel." });
   }
   for (const channel of cmd.channels) {
-    if (!NOTIFICATION_CHANNELS.includes(channel)) reasons.push(`قناة الإرسال "${channel}" غير معروفة.`);
+    if (!NOTIFICATION_CHANNELS.includes(channel)) reasons.push({ ar: `قناة الإرسال "${channel}" غير معروفة.`, en: `Delivery channel "${channel}" is not recognised.` });
   }
 
   if (cmd.condition) {
-    if (cmd.condition.field.trim() === "") reasons.push("حقل الشرط مطلوب عند وجود شرط.");
+    if (cmd.condition.field.trim() === "") reasons.push({ ar: "حقل الشرط مطلوب عند وجود شرط.", en: "The condition field is required when a condition is set." });
     if (!CONDITION_OPERATORS.includes(cmd.condition.operator)) {
-      reasons.push(`عامل الشرط "${cmd.condition.operator}" غير معروف.`);
+      reasons.push({ ar: `عامل الشرط "${cmd.condition.operator}" غير معروف.`, en: `Condition operator "${cmd.condition.operator}" is not recognised.` });
     }
-    if (cmd.condition.value.trim() === "") reasons.push("قيمة الشرط مطلوبة عند وجود شرط.");
+    if (cmd.condition.value.trim() === "") reasons.push({ ar: "قيمة الشرط مطلوبة عند وجود شرط.", en: "The condition value is required when a condition is set." });
   }
 
   if (reasons.length > 0) throw new InvalidNotificationRuleError(reasons);

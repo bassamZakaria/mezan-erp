@@ -20,13 +20,13 @@ export function terminateEmployee(employee: Employee, effectiveDate: string, lat
 
 export function withTerminationDate(employee: Employee, effectiveDate: string, latestAllowed: string = effectiveDate): Employee {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(effectiveDate) || Number.isNaN(Date.parse(`${effectiveDate}T00:00:00.000Z`))) {
-    throw new InvalidEmployeeError(["تاريخ إنهاء الخدمة مطلوب بصيغة YYYY-MM-DD"], ["The termination date is required as YYYY-MM-DD"]);
+    throw new InvalidEmployeeError([{ ar: "تاريخ إنهاء الخدمة مطلوب بصيغة YYYY-MM-DD", en: "The termination date is required as YYYY-MM-DD" }]);
   }
   if (effectiveDate > latestAllowed) {
-    throw new InvalidEmployeeError([`تاريخ إنهاء الخدمة لا يمكن أن يكون بعد ${latestAllowed}`], [`The termination date cannot be after ${latestAllowed}`]);
+    throw new InvalidEmployeeError([{ ar: `تاريخ إنهاء الخدمة لا يمكن أن يكون بعد ${latestAllowed}`, en: `The termination date cannot be after ${latestAllowed}` }]);
   }
   if (effectiveDate < employee.hireDate) {
-    throw new InvalidEmployeeError(["تاريخ إنهاء الخدمة لا يمكن أن يسبق تاريخ التعيين"], ["The termination date cannot be before the hire date"]);
+    throw new InvalidEmployeeError([{ ar: "تاريخ إنهاء الخدمة لا يمكن أن يسبق تاريخ التعيين", en: "The termination date cannot be before the hire date" }]);
   }
   return { ...employee, status: EmployeeRefStatus.Terminated, terminatedAt: effectiveDate };
 }
@@ -45,7 +45,7 @@ export function rehireEmployee(employee: Employee, hireDate: string): Employee {
     throw new InvalidEmployeeTransitionError(employee.status, EmployeeRefStatus.Active);
   }
   if (!/^\d{4}-\d{2}-\d{2}$/.test(hireDate)) {
-    throw new InvalidEmployeeError(["تاريخ إعادة التعيين مطلوب بصيغة YYYY-MM-DD"]);
+    throw new InvalidEmployeeError([{ ar: "تاريخ إعادة التعيين مطلوب بصيغة YYYY-MM-DD", en: "The re-hire date is required in the format YYYY-MM-DD" }]);
   }
   const servedUntil = employee.terminatedAt ?? hireDate;
   return {

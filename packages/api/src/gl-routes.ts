@@ -1,3 +1,4 @@
+import { messageEnOf } from "./observability/error-message-backfill.js";
 import { postingRefusalResponse } from "./posting-refusal.js";
 import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
@@ -216,7 +217,7 @@ function handleDomainError(c: Context, err: unknown): Response {
     return c.json(
       {
         error: err.code,
-        message: err.message,
+        message: err.message, messageEn: err.messageEn,
         totalDebit: err.totalDebit.toString(),
         totalCredit: err.totalCredit.toString(),
       },
@@ -224,7 +225,7 @@ function handleDomainError(c: Context, err: unknown): Response {
     );
   }
   if (err instanceof InvalidJournalEntryError) {
-    return c.json({ error: err.code, message: err.message, ...(err.messageEn ? { messageEn: err.messageEn } : {}) }, 400);
+    return c.json({ error: err.code, message: err.message, messageEn: messageEnOf(err, 400) }, 400);
   }
   if (err instanceof PartyRequiredOnControlAccountError || err instanceof InvalidJournalPartyError) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, accountId: err.accountId }, 422);
@@ -233,19 +234,19 @@ function handleDomainError(c: Context, err: unknown): Response {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 422);
   }
   if (err instanceof DuplicateVatFilingError) {
-    return c.json({ error: err.code, message: err.message }, 409);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
   }
   if (err instanceof VatFilingNotFoundError) {
-    return c.json({ error: err.code, message: err.message }, 404);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 404);
   }
   if (err instanceof YearAlreadyClosedError) {
-    return c.json({ error: err.code, message: err.message }, 409);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
   }
   if (err instanceof YearNotClosedError || err instanceof FollowingYearClosedError) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
   }
   if (err instanceof NothingToCloseError) {
-    return c.json({ error: err.code, message: err.message }, 422);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 422);
   }
   if (
     err instanceof AccountNotFoundError ||
@@ -254,17 +255,17 @@ function handleDomainError(c: Context, err: unknown): Response {
     err instanceof NoFiscalPeriodForDateError ||
     err instanceof PeriodNotOpenForPostingError
   ) {
-    return c.json({ error: err.code, message: err.message }, 422);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 422);
   }
   if (err instanceof JournalEntryNotFoundError) {
-    return c.json({ error: err.code, message: err.message }, 404);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 404);
   }
   if (
     err instanceof JournalEntryNotDraftError ||
     err instanceof JournalEntryNotPostedError ||
     err instanceof JournalEntryAlreadyReversedError
   ) {
-    return c.json({ error: err.code, message: err.message }, 409);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
   }
   throw err;
 }
@@ -467,7 +468,7 @@ export function createGlRoutes(
     if (refusal) return refusal;
     const year = Number(c.req.param("year"));
     if (!Number.isInteger(year) || year < 1900 || year > 9999) {
-      return c.json({ error: "VALIDATION_ERROR", message: "سنة غير صالحة." }, 400);
+      return c.json({ error: "VALIDATION_ERROR", message: "سنة غير صالحة.", messageEn: "Invalid year." }, 400);
     }
     const entry = await standingYearClose(deps.ledger, year);
     const followingClosed = (await standingYearClose(deps.ledger, year + 1)) !== null;
@@ -486,7 +487,7 @@ export function createGlRoutes(
     if (refusal) return refusal;
     const year = Number(c.req.param("year"));
     if (!Number.isInteger(year) || year < 1900 || year > 9999) {
-      return c.json({ error: "VALIDATION_ERROR", message: "سنة غير صالحة." }, 400);
+      return c.json({ error: "VALIDATION_ERROR", message: "سنة غير صالحة.", messageEn: "Invalid year." }, 400);
     }
     try {
       const plan = await planYearEndClose(

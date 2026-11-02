@@ -125,7 +125,7 @@ export function createSettingsRoutes(
       return c.json(maskSecrets(next));
     } catch (err) {
       if (err instanceof InvalidSettingsError) {
-        return c.json({ error: err.code, message: err.message }, 422);
+        return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 422);
       }
       throw err;
     }

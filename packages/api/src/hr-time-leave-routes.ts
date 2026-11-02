@@ -1,3 +1,4 @@
+import { messageEnOf } from "./observability/error-message-backfill.js";
 import { BranchRecordKind, BranchRefusalCode, branchRefusal, recordInBranchGrant, recordsInBranchGrant } from "./branch-policy.js";
 import { atomically, type ConfigTransactor } from "./config-transactor.js";
 import { postingRefusalResponse } from "./posting-refusal.js";
@@ -42,6 +43,8 @@ import {
   LeaveRequestNotFoundError,
   UnknownLeavePolicyPresetError,
   WorkflowError,
+  wrongApproverMessages,
+  type RoleLabel,
   type AttendanceEntry,
   type AttendanceImportDayGroup,
   type AttendanceRepository,
@@ -105,6 +108,7 @@ export interface HrTimeLeaveRoutesDeps {
     readonly configs: Pick<WorkflowConfigRepository, "findByActionType">;
     readonly requests: ApprovalRequestRepository;
   };
+  readonly roleLabel?: (code: string) => Promise<RoleLabel | null>;
   /** Best-effort forensic trail for the attendance-device import commit; absent sink writes nothing rather than failing the request. */
   readonly audit?: AuditSink;
 }
@@ -194,7 +198,7 @@ function serializeLeaveRequest(r: LeaveRequest) {
 }
 
 function withMessageEn(err: { readonly code: string; readonly message: string; readonly messageEn?: string }) {
-  return { error: err.code, message: err.message, ...(err.messageEn ? { messageEn: err.messageEn } : {}) };
+  return { error: err.code, message: err.message, messageEn: messageEnOf(err) };
 }
 
 function handleTimeLeaveError(c: Context, err: unknown): Response {
@@ -244,7 +248,7 @@ export function createHrTimeLeaveRoutes(deps: HrTimeLeaveRoutesDeps, resolveAuth
     const from = c.req.query("from");
     const to = c.req.query("to");
     if (!from || !to) {
-      return c.json({ error: "VALIDATION_ERROR", message: "from و to مطلوبتان." }, 400);
+      return c.json({ error: "VALIDATION_ERROR", message: "تاريخ البداية وتاريخ النهاية مطلوبان.", messageEn: "The start date and the end date are required." }, 400);
     }
     // No employee named = the WHOLE workforce. The screen's summary tiles used
     // to render `?? 0` in that state, so four zeros sat above a table of forty
@@ -656,8 +660,12 @@ export function createHrTimeLeaveRoutes(deps: HrTimeLeaveRoutesDeps, resolveAuth
       if (next.status === "approved") await consumeBalance(next);
       return c.json({ held: false, workflowRequestId: outcome.workflowRequestId, request: serializeLeaveRequest(next) });
     } catch (err) {
-      if (err instanceof ApprovalRequestNotFoundError) return c.json({ error: err.code, message: err.message }, 404);
-      if (err instanceof WorkflowError) return c.json({ error: err.code, message: err.message }, 409);
+      if (err instanceof ApprovalRequestNotFoundError) return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 404);
+      if (err instanceof WorkflowError && err.code === "WRONG_APPROVER" && err.requiredRole && deps.roleLabel) {
+        const refusal = wrongApproverMessages(await deps.roleLabel(err.requiredRole));
+        return c.json({ error: err.code, message: refusal.message, messageEn: refusal.messageEn }, 409);
+      }
+      if (err instanceof WorkflowError) return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
       return handleTimeLeaveError(c, err);
     }
   }

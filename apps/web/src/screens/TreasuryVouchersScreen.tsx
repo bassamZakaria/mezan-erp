@@ -94,6 +94,7 @@ import { EMPTY } from "../lib/empty";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 import { VoucherReversalNotice } from "./VoucherReversalNotice";
 import { ResubmitErrorNotice, ResubmitFamily, ResubmitForApprovalAction, resubmitRowMenuItems, useResubmitForApproval } from "./ResubmitForApprovalAction";
+import { errorMessage } from "../lib/error-message";
 
 /** السندات النقدية (Treasury Vouchers) — docs/archive/catalog/04, on the real `/vouchers` API. */
 
@@ -465,7 +466,7 @@ export function TreasuryVouchersScreen() {
     <div className="w-full">
       {query.isError ? (
         <Card className="mb-[18px] p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">{t("vouchers.vouchersCouldNotBeLoaded")}</p>
+          <p className="text-[13px] font-semibold text-danger-ink">{errorMessage(query.error, t("vouchers.vouchersCouldNotBeLoaded"))}</p>
           <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
             {t("common.retry")}
           </Button>
@@ -778,7 +779,7 @@ function VoucherDetailView({
         <Button onClick={onBack}>{t("common.back")}</Button>
         {query.isError ? (
           <Card className="mt-[16px] p-[18px_20px]">
-            <p className="text-[13px] font-semibold text-danger-ink">{t("vouchers.theVoucherCouldNotBe2")}</p>
+            <p className="text-[13px] font-semibold text-danger-ink">{errorMessage(query.error, t("vouchers.theVoucherCouldNotBe2"))}</p>
           </Card>
         ) : null}
       </div>

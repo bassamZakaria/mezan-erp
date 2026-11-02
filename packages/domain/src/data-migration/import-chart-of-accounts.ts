@@ -1,3 +1,4 @@
+import type { BilingualReason } from "../collections/errors.js";
 /**
  * Data-migration import — دليل الحسابات (P-5).
  *
@@ -7,7 +8,7 @@
  * id and writing the rows is I/O and belongs to the API layer.
  */
 import type { AccountType, NaturalBalance } from "../accounts/account.js";
-import type { ImportRowError } from "./row-errors.js";
+import { importRowError, type ImportRowError } from "./row-errors.js";
 
 export interface ChartOfAccountsImportRowInput {
   readonly rowNumber: number;
@@ -94,7 +95,7 @@ export function previewChartOfAccountsImport(
   );
 
   for (const row of rows) {
-    const reasons: string[] = [];
+    const reasons: BilingualReason[] = [];
     const code = row.code.trim();
     const nameAr = row.nameAr.trim();
     const typeText = row.type.trim();
@@ -102,32 +103,32 @@ export function previewChartOfAccountsImport(
     const naturalText = (row.naturalBalance ?? "").trim();
     const headerText = (row.isHeader ?? "").trim().toLowerCase();
 
-    if (code === "") reasons.push("كود الحساب مطلوب");
-    else if (seen.has(code)) reasons.push(`كود الحساب "${code}" مكرر داخل الملف`);
-    else if (existingCodes.has(code)) reasons.push(`الحساب بالكود "${code}" مسجل بالفعل`);
+    if (code === "") reasons.push({ ar: "كود الحساب مطلوب", en: "The account code is required" });
+    else if (seen.has(code)) reasons.push({ ar: `كود الحساب "${code}" مكرر داخل الملف`, en: `Account code "${code}" is duplicated in the file` });
+    else if (existingCodes.has(code)) reasons.push({ ar: `الحساب بالكود "${code}" مسجل بالفعل`, en: `An account with the code "${code}" is already registered` });
 
-    if (nameAr === "") reasons.push("اسم الحساب مطلوب");
+    if (nameAr === "") reasons.push({ ar: "اسم الحساب مطلوب", en: "The account name is required" });
 
     const type = TYPE_BY_TEXT[typeText] ?? TYPE_BY_TEXT[typeText.toLowerCase()];
-    if (typeText === "") reasons.push("نوع الحساب مطلوب");
-    else if (!type) reasons.push(`نوع الحساب "${typeText}" غير معروف — استخدم: أصول، التزامات، حقوق ملكية، إيرادات، مصروفات`);
+    if (typeText === "") reasons.push({ ar: "نوع الحساب مطلوب", en: "The account type is required" });
+    else if (!type) reasons.push({ ar: `نوع الحساب "${typeText}" غير معروف — استخدم: أصول، التزامات، حقوق ملكية، إيرادات، مصروفات`, en: `Account type "${typeText}" is not recognised — use: assets, liabilities, equity, revenue, expenses` });
 
     let naturalBalance: NaturalBalance | undefined;
     if (naturalText !== "") {
       naturalBalance = NATURAL_BY_TEXT[naturalText] ?? NATURAL_BY_TEXT[naturalText.toLowerCase()];
-      if (!naturalBalance) reasons.push(`الرصيد الطبيعي "${naturalText}" غير معروف — استخدم: مدين أو دائن`);
+      if (!naturalBalance) reasons.push({ ar: `الرصيد الطبيعي "${naturalText}" غير معروف — استخدم: مدين أو دائن`, en: `Natural balance "${naturalText}" is not recognised — use debit or credit` });
     } else if (type) {
       naturalBalance = NATURAL_BY_TYPE[type];
     }
 
     if (parentCode !== "") {
-      if (parentCode === code) reasons.push("لا يمكن أن يكون الحساب أباً لنفسه");
+      if (parentCode === code) reasons.push({ ar: "لا يمكن أن يكون الحساب أباً لنفسه", en: "An account cannot be its own parent" });
       else {
         const inFile = rows.some((r) => r.code.trim() === parentCode);
         const inChart = existingCodes.has(parentCode);
-        if (!inFile && !inChart) reasons.push(`الحساب الأب "${parentCode}" غير موجود في الملف ولا في دليل الحسابات`);
+        if (!inFile && !inChart) reasons.push({ ar: `الحساب الأب "${parentCode}" غير موجود في الملف ولا في دليل الحسابات`, en: `Parent account "${parentCode}" is in neither the file nor the chart of accounts` });
         else if (!inFile && !existingHeaderCodes.has(parentCode)) {
-          reasons.push(`الحساب الأب "${parentCode}" حساب تفصيلي ولا يقبل حسابات فرعية`);
+          reasons.push({ ar: `الحساب الأب "${parentCode}" حساب تفصيلي ولا يقبل حسابات فرعية`, en: `Parent account "${parentCode}" is a detail account and cannot have sub-accounts` });
         }
       }
     }
@@ -138,16 +139,16 @@ export function previewChartOfAccountsImport(
     else if (FALSE_TEXT.has(headerText)) isHeader = false;
     else {
       isHeader = false;
-      reasons.push(`قيمة "رئيسي" غير مفهومة: "${row.isHeader}" — استخدم نعم أو لا`);
+      reasons.push({ ar: `قيمة "رئيسي" غير مفهومة: "${row.isHeader}" — استخدم نعم أو لا`, en: `The "header" value "${row.isHeader}" is not understood — use yes or no` });
     }
     // A parent inside the same file that is declared as a detail account would
     // be rejected by the chart the moment its child is written.
     if (!isHeader && parentedCodes.has(code)) {
-      reasons.push(`الحساب "${code}" له حسابات فرعية في الملف، فيجب أن يكون حساباً رئيسياً`);
+      reasons.push({ ar: `الحساب "${code}" له حسابات فرعية في الملف، فيجب أن يكون حساباً رئيسياً`, en: `Account "${code}" has sub-accounts in the file, so it must be a header account` });
     }
 
     if (reasons.length > 0 || !type || !naturalBalance) {
-      errors.push({ rowNumber: row.rowNumber, reasons: reasons.length > 0 ? reasons : ["صف غير صالح"] });
+      errors.push(importRowError(row.rowNumber, reasons.length > 0 ? reasons : [{ ar: "صف غير صالح", en: "Invalid row" }]));
       continue;
     }
     seen.add(code);

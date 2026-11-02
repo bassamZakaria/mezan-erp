@@ -182,7 +182,7 @@ describe("domain errors are bilingual (D280)", () => {
     ["VanTripExpectationChangedError", new VanTripExpectationChangedError("trip-1")],
     ["VanTripRecountLockedError", new VanTripRecountLockedError("trip-1")],
     ["VanBusyError", new VanBusyError("wh-van", "trip-0")],
-    ["InvalidVanTripCountError", new InvalidVanTripCountError(["سالب"])],
+    ["InvalidVanTripCountError", new InvalidVanTripCountError([{ ar: "سالب", en: "negative" }])],
     // items
     ["ItemNotFoundError", new ItemNotFoundError("itm-1")],
     ["InvalidItemError", new InvalidItemError(["اسم الصنف بالعربية مطلوب"])],

@@ -1,6 +1,7 @@
 import { Qty } from "../money/index.js";
 import { InvalidLeavePolicyError, UnknownLeavePolicyPresetError } from "./errors.js";
 import type { LeaveType } from "./leave-request.js";
+import type { ReasonInput } from "../bilingual-reasons.js";
 
 /**
  * Leave policies — docs/archive/catalog/06-crm-hr.md "سياسات الإجازات"
@@ -77,11 +78,11 @@ export interface CreateLeavePolicyCommand {
   readonly presetCode?: string | null;
 }
 
-function validate(policy: Pick<LeavePolicy, "entitlementDays" | "maxCarryOverDays" | "carryOver">): string[] {
-  const reasons: string[] = [];
-  if (policy.entitlementDays.isNegative()) reasons.push("الرصيد الأساسي لا يمكن أن يكون سالباً");
-  if (policy.maxCarryOverDays && policy.maxCarryOverDays.isNegative()) reasons.push("حد الترحيل لا يمكن أن يكون سالباً");
-  if (!policy.carryOver && policy.maxCarryOverDays) reasons.push("لا يمكن تحديد حد ترحيل بدون تفعيل الترحيل");
+function validate(policy: Pick<LeavePolicy, "entitlementDays" | "maxCarryOverDays" | "carryOver">): ReasonInput[] {
+  const reasons: ReasonInput[] = [];
+  if (policy.entitlementDays.isNegative()) reasons.push({ ar: "الرصيد الأساسي لا يمكن أن يكون سالباً", en: "The base entitlement cannot be negative" });
+  if (policy.maxCarryOverDays && policy.maxCarryOverDays.isNegative()) reasons.push({ ar: "حد الترحيل لا يمكن أن يكون سالباً", en: "The carry-over limit cannot be negative" });
+  if (!policy.carryOver && policy.maxCarryOverDays) reasons.push({ ar: "لا يمكن تحديد حد ترحيل بدون تفعيل الترحيل", en: "A carry-over limit cannot be set without enabling carry-over" });
   return reasons;
 }
 

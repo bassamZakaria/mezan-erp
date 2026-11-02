@@ -85,7 +85,7 @@ const DEFAULT_HOST_PORT = 4173;
 
 type ProbeRefusalCode = "REFUSED" | "TIMEOUT" | "UNREACHABLE";
 
-function probeFailureMessage(err: unknown): { code: ProbeRefusalCode; message: string } {
+function probeFailureMessage(err: unknown): { code: ProbeRefusalCode; message: string; messageEn: string } {
   if (err instanceof HostProbeError) {
     switch (err.code) {
       case "REFUSED":
@@ -93,23 +93,29 @@ function probeFailureMessage(err: unknown): { code: ProbeRefusalCode; message: s
           code: "REFUSED",
           message:
             "الجهاز موجود على الشبكة لكنه لا يستقبل اتصالات على هذا المنفذ. تأكد أن برنامج مزان مفتوح على الجهاز الرئيسي.",
+          messageEn:
+            "The machine is on the network but is not accepting connections on this port. Check that Mezan is open on the main machine.",
         };
       case "TIMEOUT":
         return {
           code: "TIMEOUT",
           message:
             "لا يوجد رد من هذا العنوان. غالباً جدار الحماية على الجهاز الرئيسي يحجب الاتصال، أو الجهاز نائم أو على شبكة أخرى.",
+          messageEn:
+            "No answer from this address. The firewall on the main machine is probably blocking the connection, or it is asleep or on another network.",
         };
       default:
         return {
           code: "UNREACHABLE",
           message: "تعذّر الوصول إلى هذا العنوان. تأكد من كتابته بشكل صحيح ومن أن الجهازين على نفس الشبكة.",
+          messageEn: "That address could not be reached. Check that it is typed correctly and that both machines are on the same network.",
         };
     }
   }
   return {
     code: "UNREACHABLE",
     message: "تعذّر الوصول إلى هذا العنوان. تأكد من كتابته بشكل صحيح ومن أن الجهازين على نفس الشبكة.",
+    messageEn: "That address could not be reached. Check that it is typed correctly and that both machines are on the same network.",
   };
 }
 
@@ -143,8 +149,8 @@ export function registerPairingOverIpc(deps: PairingIpcDeps): void {
         subject: probed.subject,
       };
     } catch (err) {
-      const { code, message } = probeFailureMessage(err);
-      return { kind: "probe", ok: false, hostUrl, code, message };
+      const { code, message, messageEn } = probeFailureMessage(err);
+      return { kind: "probe", ok: false, hostUrl, code, message, messageEn };
     }
   }
 
@@ -160,6 +166,9 @@ export function registerPairingOverIpc(deps: PairingIpcDeps): void {
         message:
           "هذا الجهاز يحتفظ بدفاتر خاصة به بالفعل، ولا يمكن تحويله إلى محطة متصلة — سيصبح ما فيه غير مقروء لأحد. " +
           "احتفظ بنسخة احتياطية وابدأ من تثبيت جديد إذا كان هذا فعلاً ما تريده.",
+        messageEn:
+          "This machine already holds its own books and cannot be turned into a connected till — what is on it would become unreadable to everyone. " +
+          "Keep a backup and start from a fresh install if that is really what you want.",
       };
     }
 
@@ -175,6 +184,7 @@ export function registerPairingOverIpc(deps: PairingIpcDeps): void {
         kind: "confirm",
         ok: false,
         message: "تعذّر الوصول إلى الجهاز الرئيسي في لحظة الاقتران. حاول مرة أخرى.",
+        messageEn: "The main machine could not be reached at the moment of pairing. Try again.",
       };
     }
     if (probed.fingerprintSha256.replace(/[^0-9A-F]/g, "") !== input.fingerprintSha256.toUpperCase().replace(/[^0-9A-F]/g, "")) {
@@ -183,6 +193,8 @@ export function registerPairingOverIpc(deps: PairingIpcDeps): void {
         ok: false,
         message:
           "تغيّرت شهادة الجهاز الرئيسي أثناء الاقتران. لم يتم حفظ أي شيء. أعد المقارنة من البداية.",
+        messageEn:
+          "The main machine's certificate changed during pairing. Nothing was saved. Start the comparison again.",
       };
     }
 
@@ -195,7 +207,7 @@ export function registerPairingOverIpc(deps: PairingIpcDeps): void {
       });
     } catch (err) {
       console.error("[pair] could not write the pairing", err);
-      return { kind: "confirm", ok: false, message: "تعذّر حفظ إعدادات الاقتران على هذا الجهاز." };
+      return { kind: "confirm", ok: false, message: "تعذّر حفظ إعدادات الاقتران على هذا الجهاز.", messageEn: "The pairing settings could not be saved on this machine." };
     }
 
     // The empty database this launch created is MOVED ASIDE, not deleted. It
@@ -220,7 +232,7 @@ export function registerPairingOverIpc(deps: PairingIpcDeps): void {
   async function relocate(accept: string | null): Promise<PairingRelocateResult> {
     const role = await readClientConfig(deps.dbPath);
     if (role.role !== "client") {
-      return { kind: "relocate", ok: false, message: "هذا الجهاز ليس محطة متصلة." };
+      return { kind: "relocate", ok: false, message: "هذا الجهاز ليس محطة متصلة.", messageEn: "This machine is not a connected till." };
     }
     const pinned = role.config.fingerprintSha256;
 
@@ -231,7 +243,7 @@ export function registerPairingOverIpc(deps: PairingIpcDeps): void {
         return { kind: "relocate", ok: true, found: updated.hostUrl, applied: true };
       } catch (err) {
         console.error("[pair] could not re-point this client", err);
-        return { kind: "relocate", ok: false, message: "تعذّر حفظ العنوان الجديد على هذا الجهاز." };
+        return { kind: "relocate", ok: false, message: "تعذّر حفظ العنوان الجديد على هذا الجهاز.", messageEn: "The new address could not be saved on this machine." };
       }
     }
 
@@ -258,6 +270,8 @@ export function registerPairingOverIpc(deps: PairingIpcDeps): void {
       ok: false,
       message:
         "لم يُعثر على الجهاز الرئيسي على هذه الشبكة. تأكد أنه مشغّل وأن الجهازين على نفس الشبكة، ثم أعد المحاولة.",
+      messageEn:
+        "The main machine was not found on this network. Check that it is on and that both machines are on the same network, then try again.",
     };
   }
 

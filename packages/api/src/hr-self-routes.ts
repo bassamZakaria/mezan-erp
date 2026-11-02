@@ -1,4 +1,5 @@
-import { createMemoryKeyedLock, LockBusyError, LOCK_BUSY_AR, type KeyedLock } from "./keyed-lock.js";
+import { messageEnOf } from "./observability/error-message-backfill.js";
+import { createMemoryKeyedLock, LockBusyError, LOCK_BUSY_AR, LOCK_BUSY_EN, type KeyedLock } from "./keyed-lock.js";
 import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
 import {
@@ -124,7 +125,7 @@ function notLinked(c: Context): Response {
 }
 
 function domainRefusal(c: Context, err: { readonly code: string; readonly message: string; readonly messageEn?: string }, status: 409 | 422): Response {
-  return c.json({ error: err.code, message: err.message, ...(err.messageEn ? { messageEn: err.messageEn } : {}) }, status);
+  return c.json({ error: err.code, message: err.message, messageEn: messageEnOf(err) }, status);
 }
 
 function bilingual(c: Context, status: 400 | 404 | 409 | 422, error: string, message: string, messageEn: string): Response {
@@ -584,7 +585,7 @@ export function createHrSelfRoutes(deps: HrSelfRoutesDeps, resolveAuthContext: A
       return { entry: serializeAttendance(entry), selfieAttachmentId };
       }), 201);
     } catch (err) {
-      if (err instanceof LockBusyError) return c.json({ error: "RESOURCE_BUSY", message: LOCK_BUSY_AR }, 409);
+      if (err instanceof LockBusyError) return c.json({ error: "RESOURCE_BUSY", message: LOCK_BUSY_AR, messageEn: LOCK_BUSY_EN }, 409);
       if (err instanceof ClockPunchRefusedError) return refusal(c, err);
       if (err instanceof InvalidAttendanceEntryError) return domainRefusal(c, err, 422);
       throw err;

@@ -6,6 +6,7 @@ import { useAppTranslation } from "../../../i18n";
 import { majorOf } from "../../../lib/money";
 import { EMPTY } from "../../../lib/empty";
 import { trimScale } from "./certificate-common";
+import { errorMessage } from "../../../lib/error-message";
 
 /**
  * مستخلص تنفيذي — the one document in the Egyptian set that never leaves the
@@ -57,7 +58,7 @@ export function InternalCertificateScreen() {
       {!contract ? (
         <EmptyState title={t("internalCertificate.pickPrompt")} description={t("internalCertificate.pickHint")} />
       ) : report.isLoading ? null : !report.data ? (
-        <EmptyState title={t("internalCertificate.loadFailed")} description={t("internalCertificate.pickHint")} />
+        <EmptyState title={t("internalCertificate.loadFailed")} description={errorMessage(report.error, t("internalCertificate.pickHint"))} />
       ) : (
         <>
           <Card className="mb-[16px] p-[16px_18px]">

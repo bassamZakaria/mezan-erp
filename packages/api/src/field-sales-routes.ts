@@ -1,3 +1,4 @@
+import { messageEnOf } from "./observability/error-message-backfill.js";
 import { postingRefusalResponse } from "./posting-refusal.js";
 import { Hono, type Context } from "hono";
 import { randomUUID } from "node:crypto";
@@ -196,8 +197,7 @@ function serializeVan(van: Van) {
 }
 
 function withMessageEn(err: { code: string; message: string }) {
-  const messageEn = (err as { messageEn?: string }).messageEn;
-  return { error: err.code, message: err.message, ...(messageEn ? { messageEn } : {}) };
+  return { error: err.code, message: err.message, messageEn: messageEnOf(err) };
 }
 
 function handleDomainError(c: Context, err: unknown) {
@@ -382,7 +382,7 @@ export function createFieldSalesRoutes(
       let branchId = body.branchId;
       if (body.vanId) {
         if (!deps.vans) {
-          return c.json({ error: "VAN_REGISTRY_UNAVAILABLE", message: "سجل المركبات غير مفعّل." }, 503);
+          return c.json({ error: "VAN_REGISTRY_UNAVAILABLE", message: "سجل المركبات غير مفعّل.", messageEn: "The vehicle register is not enabled." }, 503);
         }
         const van = await deps.vans.findById(body.vanId);
         if (!van) throw new VanNotFoundError(body.vanId);
@@ -397,7 +397,7 @@ export function createFieldSalesRoutes(
       }
       if (!vanWarehouseId || !vanTreasuryAccountId || !branchId) {
         return c.json(
-          { error: "VAN_REQUIRED", message: "اختر المركبة، أو حدّد المستودع والخزينة والفرع." },
+          { error: "VAN_REQUIRED", message: "اختر المركبة، أو حدّد المستودع والخزينة والفرع.", messageEn: "Choose the vehicle, or specify the warehouse, treasury and branch." },
           422,
         );
       }

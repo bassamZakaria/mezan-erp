@@ -124,16 +124,16 @@ export function createPurchaseReturnsRoutes(
   function refuseInconsistentLine(
     line: { supplierId: string; itemId: string },
     invoice: SourceInvoice | undefined,
-  ): { error: string; message: string } | null {
+  ): { error: string; message: string; messageEn: string } | null {
     if (invoice === undefined) return null;
     if (!invoice) {
-      return { error: "SOURCE_INVOICE_NOT_FOUND", message: "الفاتورة المصدر غير موجودة أو غير مؤكدة." };
+      return { error: "SOURCE_INVOICE_NOT_FOUND", message: "الفاتورة المصدر غير موجودة أو غير مؤكدة.", messageEn: "The source invoice does not exist or is not confirmed." };
     }
     if (invoice.supplierId !== line.supplierId) {
-      return { error: "RETURN_SUPPLIER_MISMATCH", message: "مورد المرتجع لا يطابق مورد الفاتورة المصدر." };
+      return { error: "RETURN_SUPPLIER_MISMATCH", message: "مورد المرتجع لا يطابق مورد الفاتورة المصدر.", messageEn: "The return supplier does not match the supplier on the source invoice." };
     }
     if (!invoice.lines.some((il) => il.itemId === line.itemId)) {
-      return { error: "RETURN_ITEM_NOT_ON_INVOICE", message: "الصنف غير موجود في الفاتورة المصدر." };
+      return { error: "RETURN_ITEM_NOT_ON_INVOICE", message: "الصنف غير موجود في الفاتورة المصدر.", messageEn: "The item is not on the source invoice." };
     }
     return null;
   }
@@ -247,10 +247,10 @@ export function createPurchaseReturnsRoutes(
 
   app.get("/source-lines/:invoiceId", gate("purchases.return.create"), async (c) => {
     if (!invoices) {
-      return c.json({ error: "INVOICE_LOOKUP_UNAVAILABLE", message: "قراءة بنود الفاتورة المصدر تتطلب وحدة فواتير المشتريات." }, 503);
+      return c.json({ error: "INVOICE_LOOKUP_UNAVAILABLE", message: "قراءة بنود الفاتورة المصدر تتطلب وحدة فواتير المشتريات.", messageEn: "Reading the source invoice lines requires the purchase invoices module." }, 503);
     }
     const invoice = await lookupInvoice(c, new Map(), c.req.param("invoiceId"));
-    if (!invoice) return c.json({ error: "SOURCE_INVOICE_NOT_FOUND", message: "الفاتورة المصدر غير موجودة أو غير مؤكدة." }, 404);
+    if (!invoice) return c.json({ error: "SOURCE_INVOICE_NOT_FOUND", message: "الفاتورة المصدر غير موجودة أو غير مؤكدة.", messageEn: "The source invoice does not exist or is not confirmed." }, 404);
     return c.json(
       returnSourceLinesSchema.parse({
         sourceInvoiceId: invoice.id,
@@ -311,6 +311,7 @@ export function createPurchaseReturnsRoutes(
             {
               error: "RETURN_FIGURES_REQUIRED",
               message: "تعذّر قراءة الفاتورة المصدر؛ يجب إرسال تكلفة البند وضريبته والكمية المتاحة للإرجاع.",
+              messageEn: "The source invoice could not be read; the line cost, its tax and the quantity available to return must be sent.",
             },
             422,
           );
@@ -337,6 +338,7 @@ export function createPurchaseReturnsRoutes(
           {
             error: "RETURN_LINE_NOT_ON_INVOICE",
             message: "أحد بنود المرتجع غير موجود في الفاتورة المصدر.",
+            messageEn: "One of the return lines is not on the source invoice.",
             unmatched: built.unmatched.map((u) => ({ itemId: u.itemId, sourceLineId: u.sourceLineId ?? null })),
           },
           422,

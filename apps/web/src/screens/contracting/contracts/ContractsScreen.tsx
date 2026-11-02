@@ -15,6 +15,7 @@ import {
   type DocumentListColumn,
   type EntityPickerOption,
   type PillTone,
+  ENGLISH_LOCALE,
 } from "@mezan/ui";
 import { can, createAuthContext } from "@mezan/domain";
 import type {
@@ -937,7 +938,7 @@ function BoqTab({ contract, mayManage }: { contract: WorksContractDTO; mayManage
                       {r.accepted ? (
                         <StatusPill label={t("boq.rowAccepted")} tone="success" />
                       ) : (
-                        <span className="text-danger-ink">{r.problems.join("، ")}</span>
+                        <span className="text-danger-ink">{(locale === ENGLISH_LOCALE && r.problemsEn ? r.problemsEn : r.problems).join(t("dataMigration.reasonSeparator"))}</span>
                       )}
                     </td>
                   </tr>

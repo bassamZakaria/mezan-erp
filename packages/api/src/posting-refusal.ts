@@ -1,3 +1,4 @@
+import { messageEnOf } from "./observability/error-message-backfill.js";
 import type { Context, MiddlewareHandler } from "hono";
 import { CLIENT_SUPPLIED_ID_REFUSAL_CODE, CLIENT_SUPPLIED_ID_REFUSAL_MESSAGE, CLIENT_SUPPLIED_ID_REFUSAL_MESSAGE_EN } from "@mezan/contracts";
 import { AllocationExceedsError, DocumentChangedError, InvalidJournalEntryError, UnbalancedEntryError, earliestOpenDayFrom, type FiscalPeriodRepository, type FiscalPeriodStatus, NoFiscalPeriodForDateError, PeriodNotOpenForPostingError, PostingBeforeRevaluationError, ReservedJournalEntryIdError, StockMovementBeforeRevaluationError, StockPlanDateRequiredError, VatPeriodAlreadyFiledError } from "@mezan/domain";
@@ -78,7 +79,7 @@ export function postingRefusalResponse(c: Context, err: unknown): Response | nul
 /** INVARIANT: asked only by the app's last net. A route that maps a journal refusal keeps its own status; one that maps none still answers the user in Arabic rather than a 500. */
 export function journalRefusalResponse(c: Context, err: unknown): Response | null {
   if (err instanceof InvalidJournalEntryError) {
-    return c.json({ error: err.code, message: err.message, ...(err.messageEn ? { messageEn: err.messageEn } : {}) }, 422);
+    return c.json({ error: err.code, message: err.message, messageEn: messageEnOf(err, 422) }, 422);
   }
   if (err instanceof UnbalancedEntryError) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, totalDebit: err.totalDebit.toString(), totalCredit: err.totalCredit.toString() }, 422);

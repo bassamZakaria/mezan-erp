@@ -90,7 +90,7 @@ describe("InventoryHubScreen", () => {
 
   it("shows the Arabic error message when a query fails", async () => {
     renderScreen({ "GET /items/counts": () => ({ status: 500, body: { error: "INTERNAL" } }) });
-    expect(await screen.findByRole("alert")).toHaveTextContent("تعذّر تحميل بيانات المخزون.");
+    expect(await screen.findByRole("alert")).toHaveTextContent("تعذّر تحميل الأصناف. (رمز 500)");
     await waitFor(() => expect(screen.queryByText("INTERNAL")).not.toBeInTheDocument());
   });
 });

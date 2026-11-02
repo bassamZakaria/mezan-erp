@@ -250,6 +250,7 @@ export function createFinancialReportsRoutes(
             {
               field: outputVatAccountId ? "inputVatAccountId" : "outputVatAccountId",
               message: "حدد حسابي ضريبة المخرجات والمدخلات",
+              messageEn: "Select the output tax and input tax accounts",
             },
           ],
         },

@@ -21,6 +21,7 @@ import { useAppTranslation } from "../i18n";
 import { useEntityName } from "../lib/entity-names";
 import { EMPTY } from "../lib/empty";
 import { useCreateShiftTemplate, useShiftTemplates, useUpdateShiftTemplate } from "../screens/pos/master/hooks";
+import { errorMessage } from "../lib/error-message";
 
 interface Draft {
   nameAr: string;
@@ -110,7 +111,7 @@ export function ShiftTemplatesPage() {
       else await updateTemplate.mutateAsync({ id: panel.template.id, body: bodyOf(draft) });
       setPanel(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : t("pos.common.saveFailed"));
+      setError(errorMessage(err, t("pos.common.saveFailed")));
     } finally {
       setSaving(false);
     }
@@ -133,7 +134,7 @@ export function ShiftTemplatesPage() {
         }),
       });
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : t("pos.common.saveFailed"));
+      setActionError(errorMessage(err, t("pos.common.saveFailed")));
       return RowActionOutcome.Refused;
     } finally {
       setPendingId(null);

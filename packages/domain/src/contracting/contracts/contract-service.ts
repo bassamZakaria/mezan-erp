@@ -7,6 +7,7 @@ import { isBoqUnit, type BoqUnit } from "./boq-unit.js";
 import {
   canTransitionWorksContract,
   getWorksContractStatusLabel,
+  getWorksContractStatusLabelEn,
   VAT_TRANSITIONAL_CUTOFF_DATE,
   type BoqLine,
   type BoqLineAdjustment,
@@ -46,6 +47,8 @@ import {
   VariationOrderNotFoundError,
 } from "./errors.js";
 import { tenantTodayIso } from "../../dates.js";
+import type { BilingualReason } from "../../collections/errors.js";
+import type { ReasonInput } from "../../bilingual-reasons.js";
 
 const PERCENT_RE = /^\d+(\.\d{1,6})?$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -71,7 +74,7 @@ export interface WorksContractServiceDeps {
    * the contract may complete. Absent, completion is allowed — the port exists
    * so the certificate slice tightens this without editing the contract.
    */
-  readonly completionGuard?: (contractId: string) => Promise<string | null>;
+  readonly completionGuard?: (contractId: string) => Promise<BilingualReason | null>;
   /**
    * سجل خطابات الضمان. A Law 182/2018 contract's 5% تأمين نهائي is a letter on
    * the register, so without it the check cannot be answered and a public
@@ -202,37 +205,37 @@ export function defaultVatBasis(signedDate: string): VatBasis {
   return signedDate < VAT_TRANSITIONAL_CUTOFF_DATE ? "transitional" : "standard";
 }
 
-function requirePercent(reasons: string[], label: string, value: string | null | undefined): void {
+function requirePercent(reasons: ReasonInput[], label: BilingualReason, value: string | null | undefined): void {
   if (value === null || value === undefined) return;
   if (!PERCENT_RE.test(value)) {
-    reasons.push(`${label} يجب أن تكون نسبة رقمية`);
+    reasons.push({ ar: `${label.ar} يجب أن تكون نسبة رقمية`, en: `${label.en} must be a numeric percentage` });
     return;
   }
-  if (Number.parseFloat(value) > 100) reasons.push(`${label} لا يمكن أن تتجاوز 100%`);
+  if (Number.parseFloat(value) > 100) reasons.push({ ar: `${label.ar} لا يمكن أن تتجاوز 100%`, en: `${label.en} cannot exceed 100%` });
 }
 
-function requireDate(reasons: string[], label: string, value: string | null | undefined): void {
-  if (value === null || value === undefined || !DATE_RE.test(value)) reasons.push(`${label} مطلوب بصيغة YYYY-MM-DD`);
+function requireDate(reasons: ReasonInput[], label: BilingualReason, value: string | null | undefined): void {
+  if (value === null || value === undefined || !DATE_RE.test(value)) reasons.push({ ar: `${label.ar} مطلوب بصيغة YYYY-MM-DD`, en: `${label.en} is required in the form YYYY-MM-DD` });
 }
 
-function moneyOrNull(reasons: string[], label: string, value: string | null | undefined): Money | null {
+function moneyOrNull(reasons: ReasonInput[], label: BilingualReason, value: string | null | undefined): Money | null {
   if (value === null || value === undefined || value === "") return null;
   try {
     return Money.fromMajor(value);
   } catch {
-    reasons.push(`${label} يجب أن يكون رقمًا`);
+    reasons.push({ ar: `${label.ar} يجب أن يكون رقمًا`, en: `${label.en} must be a number` });
     return null;
   }
 }
 
-function qtyOrNull(reasons: string[], label: string, value: string | null | undefined): Qty | null {
+function qtyOrNull(reasons: ReasonInput[], label: BilingualReason, value: string | null | undefined): Qty | null {
   if (value === null || value === undefined || value === "") return null;
   try {
     const qty = Qty.fromMajor(value);
-    if (qty.isNegative()) reasons.push(`${label} لا يمكن أن تكون سالبة`);
+    if (qty.isNegative()) reasons.push({ ar: `${label.ar} لا يمكن أن تكون سالبة`, en: `${label.en} cannot be negative` });
     return qty;
   } catch {
-    reasons.push(`${label} يجب أن تكون رقمًا`);
+    reasons.push({ ar: `${label.ar} يجب أن تكون رقمًا`, en: `${label.en} must be a number` });
     return null;
   }
 }
@@ -261,37 +264,37 @@ function mergeTerms(current: WorksContractTerms, patch: WorksContractTermsInput)
   };
 }
 
-function validateTerms(terms: WorksContractTerms): string[] {
-  const reasons: string[] = [];
-  requirePercent(reasons, "نسبة الممارسة", terms.tenderDiscountPercent);
-  requirePercent(reasons, "نسبة المحتجزات الضمانية", terms.retentionPercent);
-  requirePercent(reasons, "سقف المحتجزات", terms.retentionCapPercent);
-  requirePercent(reasons, "نسبة الدفعة المقدمة", terms.advancePercent);
-  requirePercent(reasons, "نسبة خصم الدفعة المقدمة", terms.advanceRecoveryPercent);
-  requirePercent(reasons, "نسبة التشوينات", terms.materialsOnSitePercent);
-  requirePercent(reasons, "نسبة الأجر الافتراضي", terms.deemedWagePercent);
-  requirePercent(reasons, "نسبة التأمينات الاجتماعية", terms.socialInsuranceRatePercent);
-  requirePercent(reasons, "نسبة ضريبة الخصم والتحصيل", terms.withholdingTaxPercent);
-  requirePercent(reasons, "نسبة الدمغات والرسوم", terms.stampDutyPercent);
-  requirePercent(reasons, "نسبة غرامة التأخير", terms.latePenaltyPercentPerPeriod);
-  requirePercent(reasons, "سقف غرامة التأخير", terms.latePenaltyCapPercent);
-  requirePercent(reasons, "نسبة التأمين النهائي", terms.finalSecurityPercent);
-  requirePercent(reasons, "نسبة الإفراج عند التسليم الابتدائي", terms.provisionalReleasePercent);
-  if (!Number.isInteger(terms.paymentTermDays) || terms.paymentTermDays < 0) reasons.push("مهلة السداد يجب أن تكون عددًا صحيحًا موجبًا");
-  if (!Number.isInteger(terms.defectsLiabilityMonths) || terms.defectsLiabilityMonths < 0) reasons.push("فترة الضمان يجب أن تكون عددًا صحيحًا موجبًا");
+function validateTerms(terms: WorksContractTerms): ReasonInput[] {
+  const reasons: ReasonInput[] = [];
+  requirePercent(reasons, { ar: "نسبة الممارسة", en: "Tender discount percentage" }, terms.tenderDiscountPercent);
+  requirePercent(reasons, { ar: "نسبة المحتجزات الضمانية", en: "Guarantee retention percentage" }, terms.retentionPercent);
+  requirePercent(reasons, { ar: "سقف المحتجزات", en: "Retention cap" }, terms.retentionCapPercent);
+  requirePercent(reasons, { ar: "نسبة الدفعة المقدمة", en: "Advance payment percentage" }, terms.advancePercent);
+  requirePercent(reasons, { ar: "نسبة خصم الدفعة المقدمة", en: "Advance payment recovery percentage" }, terms.advanceRecoveryPercent);
+  requirePercent(reasons, { ar: "نسبة التشوينات", en: "Materials-on-site percentage" }, terms.materialsOnSitePercent);
+  requirePercent(reasons, { ar: "نسبة الأجر الافتراضي", en: "Deemed wage percentage" }, terms.deemedWagePercent);
+  requirePercent(reasons, { ar: "نسبة التأمينات الاجتماعية", en: "Social insurance percentage" }, terms.socialInsuranceRatePercent);
+  requirePercent(reasons, { ar: "نسبة ضريبة الخصم والتحصيل", en: "Withholding and collection tax percentage" }, terms.withholdingTaxPercent);
+  requirePercent(reasons, { ar: "نسبة الدمغات والرسوم", en: "Stamp duty and fees percentage" }, terms.stampDutyPercent);
+  requirePercent(reasons, { ar: "نسبة غرامة التأخير", en: "Late penalty percentage" }, terms.latePenaltyPercentPerPeriod);
+  requirePercent(reasons, { ar: "سقف غرامة التأخير", en: "Late penalty cap" }, terms.latePenaltyCapPercent);
+  requirePercent(reasons, { ar: "نسبة التأمين النهائي", en: "Final security percentage" }, terms.finalSecurityPercent);
+  requirePercent(reasons, { ar: "نسبة الإفراج عند التسليم الابتدائي", en: "Provisional handover release percentage" }, terms.provisionalReleasePercent);
+  if (!Number.isInteger(terms.paymentTermDays) || terms.paymentTermDays < 0) reasons.push({ ar: "مهلة السداد يجب أن تكون عددًا صحيحًا موجبًا", en: "The payment term must be a positive whole number" });
+  if (!Number.isInteger(terms.defectsLiabilityMonths) || terms.defectsLiabilityMonths < 0) reasons.push({ ar: "فترة الضمان يجب أن تكون عددًا صحيحًا موجبًا", en: "The defects liability period must be a positive whole number" });
   return reasons;
 }
 
-function parseUnit(reasons: string[], value: string, code: string): BoqUnit {
+function parseUnit(reasons: ReasonInput[], value: string, code: string): BoqUnit {
   if (isBoqUnit(value)) return value;
-  reasons.push(`وحدة غير معروفة في البند "${code}"`);
+  reasons.push({ ar: `وحدة غير معروفة في البند "${code}"`, en: `Unknown unit on line item "${code}"` });
   return "piece";
 }
 
-function parseCategory(reasons: string[], value: string | null | undefined, code: string): CostCategory | null {
+function parseCategory(reasons: ReasonInput[], value: string | null | undefined, code: string): CostCategory | null {
   if (value === null || value === undefined || value === "") return null;
   if (isCostCategory(value)) return value;
-  reasons.push(`فئة تكلفة غير معروفة في البند "${code}"`);
+  reasons.push({ ar: `فئة تكلفة غير معروفة في البند "${code}"`, en: `Unknown cost category on line item "${code}"` });
   return null;
 }
 
@@ -310,22 +313,22 @@ export class WorksContractService {
   }
 
   async create(cmd: CreateWorksContractCommand): Promise<WorksContractView> {
-    const reasons: string[] = [];
-    if (cmd.titleAr.trim().length === 0) reasons.push("اسم العقد مطلوب");
-    requireDate(reasons, "تاريخ التوقيع", cmd.signedDate);
-    requireDate(reasons, "تاريخ البدء", cmd.startDate);
-    requireDate(reasons, "تاريخ الانتهاء المخطط", cmd.plannedEndDate);
+    const reasons: ReasonInput[] = [];
+    if (cmd.titleAr.trim().length === 0) reasons.push({ ar: "اسم العقد مطلوب", en: "The contract name is required" });
+    requireDate(reasons, { ar: "تاريخ التوقيع", en: "Signing date" }, cmd.signedDate);
+    requireDate(reasons, { ar: "تاريخ البدء", en: "Start date" }, cmd.startDate);
+    requireDate(reasons, { ar: "تاريخ الانتهاء المخطط", en: "Planned end date" }, cmd.plannedEndDate);
     if (DATE_RE.test(cmd.startDate) && DATE_RE.test(cmd.plannedEndDate) && cmd.plannedEndDate < cmd.startDate) {
-      reasons.push("تاريخ الانتهاء المخطط يسبق تاريخ البدء");
+      reasons.push({ ar: "تاريخ الانتهاء المخطط يسبق تاريخ البدء", en: "The planned end date is before the start date" });
     }
     const currency = cmd.currency ?? "EGP";
-    if (currency !== "EGP") reasons.push("العملة المدعومة حاليًا هي الجنيه المصري فقط");
-    if (!(await this.deps.projects.findById(cmd.projectId))) reasons.push(`المشروع "${cmd.projectId}" غير موجود`);
-    if (!(await this.deps.customers.findById(cmd.customerId))) reasons.push(`العميل "${cmd.customerId}" غير موجود`);
+    if (currency !== "EGP") reasons.push({ ar: "العملة المدعومة حاليًا هي الجنيه المصري فقط", en: "The only currency currently supported is the Egyptian pound" });
+    if (!(await this.deps.projects.findById(cmd.projectId))) reasons.push({ ar: `المشروع "${cmd.projectId}" غير موجود`, en: `Project "${cmd.projectId}" was not found` });
+    if (!(await this.deps.customers.findById(cmd.customerId))) reasons.push({ ar: `العميل "${cmd.customerId}" غير موجود`, en: `Customer "${cmd.customerId}" was not found` });
 
     const terms = mergeTerms(defaultWorksContractTerms(cmd.contractType, cmd.signedDate), cmd);
     reasons.push(...validateTerms(terms));
-    const estimatedTotalCost = moneyOrNull(reasons, "التكلفة التقديرية للعقد", cmd.estimatedTotalCost);
+    const estimatedTotalCost = moneyOrNull(reasons, { ar: "التكلفة التقديرية للعقد", en: "Contract estimated cost" }, cmd.estimatedTotalCost);
     if (reasons.length > 0) throw new InvalidWorksContractError(reasons);
 
     return this.deps.store.transaction(async () => {
@@ -360,13 +363,13 @@ export class WorksContractService {
 
   async update(idOrDocNo: string, cmd: UpdateWorksContractCommand, actor: WorksContractActor): Promise<WorksContractView> {
     const current = await this.require(idOrDocNo);
-    const reasons: string[] = [];
+    const reasons: ReasonInput[] = [];
 
     if (current.status === "completed" || current.status === "terminated") {
       throw new WorksContractNotDraftError(
         current.id,
         current.status,
-        `لا يمكن تعديل عقد حالته "${getWorksContractStatusLabel(current.status)}".`,
+        `لا يمكن تعديل عقد حالته "${getWorksContractStatusLabel(current.status)}".`, `A contract that is "${getWorksContractStatusLabelEn(current.status)}" cannot be edited.`,
       );
     }
 
@@ -404,20 +407,20 @@ export class WorksContractService {
         throw new WorksContractNotDraftError(
           current.id,
           current.status,
-          "الشروط التجارية تُجمَّد بتفعيل العقد — المسموح بعد التفعيل هو التكلفة التقديرية وتاريخ الانتهاء المخطط والملاحظات فقط.",
+          "الشروط التجارية تُجمَّد بتفعيل العقد — المسموح بعد التفعيل هو التكلفة التقديرية وتاريخ الانتهاء المخطط والملاحظات فقط.", "Commercial terms are frozen once the contract is activated — only the estimated cost, planned end date and notes may be changed after activation.",
         );
       }
     }
 
-    if (cmd.titleAr !== undefined && cmd.titleAr.trim().length === 0) reasons.push("اسم العقد مطلوب");
-    if (cmd.signedDate !== undefined) requireDate(reasons, "تاريخ التوقيع", cmd.signedDate);
-    if (cmd.startDate !== undefined) requireDate(reasons, "تاريخ البدء", cmd.startDate);
-    if (cmd.plannedEndDate !== undefined) requireDate(reasons, "تاريخ الانتهاء المخطط", cmd.plannedEndDate);
+    if (cmd.titleAr !== undefined && cmd.titleAr.trim().length === 0) reasons.push({ ar: "اسم العقد مطلوب", en: "The contract name is required" });
+    if (cmd.signedDate !== undefined) requireDate(reasons, { ar: "تاريخ التوقيع", en: "Signing date" }, cmd.signedDate);
+    if (cmd.startDate !== undefined) requireDate(reasons, { ar: "تاريخ البدء", en: "Start date" }, cmd.startDate);
+    if (cmd.plannedEndDate !== undefined) requireDate(reasons, { ar: "تاريخ الانتهاء المخطط", en: "Planned end date" }, cmd.plannedEndDate);
     if (cmd.projectId !== undefined && !(await this.deps.projects.findById(cmd.projectId))) {
-      reasons.push(`المشروع "${cmd.projectId}" غير موجود`);
+      reasons.push({ ar: `المشروع "${cmd.projectId}" غير موجود`, en: `Project "${cmd.projectId}" was not found` });
     }
     if (cmd.customerId !== undefined && !(await this.deps.customers.findById(cmd.customerId))) {
-      reasons.push(`العميل "${cmd.customerId}" غير موجود`);
+      reasons.push({ ar: `العميل "${cmd.customerId}" غير موجود`, en: `Customer "${cmd.customerId}" was not found` });
     }
 
     const terms = mergeTerms(current, cmd);
@@ -426,10 +429,10 @@ export class WorksContractService {
     let estimatedTotalCost = current.estimatedTotalCost;
     const revisions: BudgetRevision[] = [...current.budgetRevisions];
     if (cmd.estimatedTotalCost !== undefined) {
-      const next = moneyOrNull(reasons, "التكلفة التقديرية للعقد", cmd.estimatedTotalCost);
+      const next = moneyOrNull(reasons, { ar: "التكلفة التقديرية للعقد", en: "Contract estimated cost" }, cmd.estimatedTotalCost);
       const changed = (next?.toString() ?? null) !== (current.estimatedTotalCost?.toString() ?? null);
       if (changed) {
-        if (!cmd.reason || cmd.reason.trim().length === 0) reasons.push("تغيير التكلفة التقديرية يتطلب ذكر السبب");
+        if (!cmd.reason || cmd.reason.trim().length === 0) reasons.push({ ar: "تغيير التكلفة التقديرية يتطلب ذكر السبب", en: "A change to the estimated cost requires a reason" });
         else {
           revisions.push({
             date: this.today(),
@@ -466,10 +469,10 @@ export class WorksContractService {
   async activate(idOrDocNo: string, activatedAt: string): Promise<WorksContractView> {
     const current = await this.require(idOrDocNo);
     if (!canTransitionWorksContract(current.status, "active")) throw new InvalidWorksContractTransitionError(current.status, "active");
-    const reasons: string[] = [];
-    requireDate(reasons, "تاريخ التفعيل", activatedAt);
+    const reasons: ReasonInput[] = [];
+    requireDate(reasons, { ar: "تاريخ التفعيل", en: "Activation date" }, activatedAt);
     const lines = await this.deps.store.listBoqLines(current.id);
-    if (lines.length === 0) reasons.push("لا يمكن تفعيل عقد بلا بنود في جدول الكميات");
+    if (lines.length === 0) reasons.push({ ar: "لا يمكن تفعيل عقد بلا بنود في جدول الكميات", en: "A contract with no lines in the bill of quantities cannot be activated" });
     // INVARIANT: one LIVE works contract per project. Every per-project read —
     // the WIP balance, أصل العقد, the recognition run, the project P&L — is
     // keyed on the projectId alone, so a second active contract on the same
@@ -480,7 +483,7 @@ export class WorksContractService {
     );
     if (live) {
       reasons.push(
-        `المشروع مرتبط بعقد سارٍ بالفعل (${live.docNo}) — لا يمكن تفعيل عقد ثانٍ على نفس المشروع قبل إنهائه أو فسخه.`,
+        { ar: `المشروع مرتبط بعقد سارٍ بالفعل (${live.docNo}) — لا يمكن تفعيل عقد ثانٍ على نفس المشروع قبل إنهائه أو فسخه.`, en: `The project is already linked to an active contract (${live.docNo}) — a second contract cannot be activated on the same project before it is completed or terminated.` },
       );
     }
     const shortfall = finalSecurityShortfallReason(
@@ -496,8 +499,8 @@ export class WorksContractService {
   async complete(idOrDocNo: string, completedAt: string): Promise<WorksContractView> {
     const current = await this.require(idOrDocNo);
     if (!canTransitionWorksContract(current.status, "completed")) throw new InvalidWorksContractTransitionError(current.status, "completed");
-    const reasons: string[] = [];
-    requireDate(reasons, "تاريخ الإنهاء", completedAt);
+    const reasons: ReasonInput[] = [];
+    requireDate(reasons, { ar: "تاريخ الإنهاء", en: "Completion date" }, completedAt);
     const refusal = await this.deps.completionGuard?.(current.id);
     if (refusal) reasons.push(refusal);
     if (reasons.length > 0) throw new InvalidWorksContractError(reasons);
@@ -509,8 +512,8 @@ export class WorksContractService {
   async terminate(idOrDocNo: string, terminatedAt: string, reason: string | null): Promise<WorksContractView> {
     const current = await this.require(idOrDocNo);
     if (!canTransitionWorksContract(current.status, "terminated")) throw new InvalidWorksContractTransitionError(current.status, "terminated");
-    const reasons: string[] = [];
-    requireDate(reasons, "تاريخ الفسخ", terminatedAt);
+    const reasons: ReasonInput[] = [];
+    requireDate(reasons, { ar: "تاريخ الفسخ", en: "Termination date" }, terminatedAt);
     if (reasons.length > 0) throw new InvalidWorksContractError(reasons);
     const contract: WorksContract = {
       ...current,
@@ -611,12 +614,12 @@ export class WorksContractService {
 
   async createVariationOrder(cmd: CreateVariationOrderCommand, actor: WorksContractActor): Promise<VariationOrderView> {
     const contract = await this.require(cmd.contractId);
-    const reasons: string[] = [];
-    if (contract.status !== "active") reasons.push("لا يمكن إصدار أمر تغيير إلا على عقد ساري");
-    requireDate(reasons, "تاريخ أمر التغيير", cmd.date);
-    if (cmd.titleAr.trim().length === 0) reasons.push("عنوان أمر التغيير مطلوب");
-    if (cmd.reason.trim().length === 0) reasons.push("سبب أمر التغيير مطلوب");
-    if (cmd.lines.length === 0) reasons.push("أمر التغيير بلا بنود");
+    const reasons: ReasonInput[] = [];
+    if (contract.status !== "active") reasons.push({ ar: "لا يمكن إصدار أمر تغيير إلا على عقد ساري", en: "A variation order can only be issued on an active contract" });
+    requireDate(reasons, { ar: "تاريخ أمر التغيير", en: "Variation order date" }, cmd.date);
+    if (cmd.titleAr.trim().length === 0) reasons.push({ ar: "عنوان أمر التغيير مطلوب", en: "The variation order title is required" });
+    if (cmd.reason.trim().length === 0) reasons.push({ ar: "سبب أمر التغيير مطلوب", en: "The variation order reason is required" });
+    if (cmd.lines.length === 0) reasons.push({ ar: "أمر التغيير بلا بنود", en: "The variation order has no lines" });
     if (reasons.length > 0) throw new InvalidWorksContractError(reasons);
 
     const boqLines = await this.deps.store.listBoqLines(contract.id);
@@ -647,12 +650,12 @@ export class WorksContractService {
   async updateVariationOrder(idOrDocNo: string, cmd: UpdateVariationOrderCommand): Promise<VariationOrderView> {
     const current = await this.requireVariationOrder(idOrDocNo);
     if (current.status !== "draft") {
-      throw new InvalidWorksContractError([`لا يمكن تعديل أمر تغيير حالته "${current.status === "approved" ? "معتمد" : "مرفوض"}".`]);
+      throw new InvalidWorksContractError([{ ar: `لا يمكن تعديل أمر تغيير حالته "${current.status === "approved" ? "معتمد" : "مرفوض"}".`, en: `A variation order that is "${current.status === "approved" ? "approved" : "rejected"}" cannot be edited.` }]);
     }
-    const reasons: string[] = [];
-    if (cmd.date !== undefined) requireDate(reasons, "تاريخ أمر التغيير", cmd.date);
-    if (cmd.titleAr !== undefined && cmd.titleAr.trim().length === 0) reasons.push("عنوان أمر التغيير مطلوب");
-    if (cmd.lines !== undefined && cmd.lines.length === 0) reasons.push("أمر التغيير بلا بنود");
+    const reasons: ReasonInput[] = [];
+    if (cmd.date !== undefined) requireDate(reasons, { ar: "تاريخ أمر التغيير", en: "Variation order date" }, cmd.date);
+    if (cmd.titleAr !== undefined && cmd.titleAr.trim().length === 0) reasons.push({ ar: "عنوان أمر التغيير مطلوب", en: "The variation order title is required" });
+    if (cmd.lines !== undefined && cmd.lines.length === 0) reasons.push({ ar: "أمر التغيير بلا بنود", en: "The variation order has no lines" });
     if (reasons.length > 0) throw new InvalidWorksContractError(reasons);
 
     const boqLines = await this.deps.store.listBoqLines(current.contractId);
@@ -676,10 +679,10 @@ export class WorksContractService {
   async approveVariationOrder(idOrDocNo: string, approvedAt: string, actor: WorksContractActor): Promise<VariationOrderView> {
     const current = await this.requireVariationOrder(idOrDocNo);
     const contract = await this.require(current.contractId);
-    const reasons: string[] = [];
-    if (current.status !== "draft") reasons.push("أمر التغيير لم يعد مسودة");
-    if (contract.status !== "active") reasons.push("لا يمكن اعتماد أمر تغيير إلا على عقد ساري");
-    requireDate(reasons, "تاريخ الاعتماد", approvedAt);
+    const reasons: ReasonInput[] = [];
+    if (current.status !== "draft") reasons.push({ ar: "أمر التغيير لم يعد مسودة", en: "The variation order is no longer a draft" });
+    if (contract.status !== "active") reasons.push({ ar: "لا يمكن اعتماد أمر تغيير إلا على عقد ساري", en: "A variation order can only be approved on an active contract" });
+    requireDate(reasons, { ar: "تاريخ الاعتماد", en: "Approval date" }, approvedAt);
     /**
      * INVARIANT: the approval is BOUNDED by the order's own date and today.
      * `approvedAt` is what every ceiling and every «أوامر تغيير متأخرة
@@ -690,10 +693,10 @@ export class WorksContractService {
     if (DATE_RE.test(approvedAt)) {
       const today = this.today();
       if (approvedAt < current.date) {
-        reasons.push(`تاريخ الاعتماد (${approvedAt}) لا يجوز أن يسبق تاريخ أمر التغيير (${current.date}).`);
+        reasons.push({ ar: `تاريخ الاعتماد (${approvedAt}) لا يجوز أن يسبق تاريخ أمر التغيير (${current.date}).`, en: `The approval date (${approvedAt}) cannot be before the variation order date (${current.date}).` });
       }
       if (approvedAt > today) {
-        reasons.push(`تاريخ الاعتماد (${approvedAt}) لا يجوز أن يكون في المستقبل (اليوم ${today}).`);
+        reasons.push({ ar: `تاريخ الاعتماد (${approvedAt}) لا يجوز أن يكون في المستقبل (اليوم ${today}).`, en: `The approval date (${approvedAt}) cannot be in the future (today is ${today}).` });
       }
     }
     if (reasons.length > 0) throw new InvalidWorksContractError(reasons);
@@ -757,8 +760,8 @@ export class WorksContractService {
 
   async rejectVariationOrder(idOrDocNo: string, reason: string, actor: WorksContractActor): Promise<VariationOrderView> {
     const current = await this.requireVariationOrder(idOrDocNo);
-    if (current.status !== "draft") throw new InvalidWorksContractError(["أمر التغيير لم يعد مسودة"]);
-    if (reason.trim().length === 0) throw new InvalidWorksContractError(["سبب الرفض مطلوب"]);
+    if (current.status !== "draft") throw new InvalidWorksContractError([{ ar: "أمر التغيير لم يعد مسودة", en: "The variation order is no longer a draft" }]);
+    if (reason.trim().length === 0) throw new InvalidWorksContractError([{ ar: "سبب الرفض مطلوب", en: "The rejection reason is required" }]);
     if (!actor.wildcardAdmin && current.createdBy !== null && current.createdBy === actor.userId) {
       throw new SelfApprovalError(actor.userId);
     }
@@ -816,30 +819,30 @@ export class WorksContractService {
   }
 
   private buildBoqLines(contractId: string, inputs: readonly BoqLineInput[]): BoqLine[] {
-    const reasons: string[] = [];
+    const reasons: ReasonInput[] = [];
     const seen = new Set<string>();
     const lines = inputs.map((input, index) => {
       const code = input.code.trim();
-      if (code.length === 0) reasons.push(`كود البند مطلوب في السطر ${index + 1}`);
-      else if (seen.has(code)) reasons.push(`كود البند "${code}" مكرر`);
+      if (code.length === 0) reasons.push({ ar: `كود البند مطلوب في السطر ${index + 1}`, en: `The line item code is required on line ${index + 1}` });
+      else if (seen.has(code)) reasons.push({ ar: `كود البند "${code}" مكرر`, en: `Line item code "${code}" is duplicated` });
       seen.add(code);
-      if (input.descriptionAr.trim().length === 0) reasons.push(`وصف البند مطلوب في السطر ${index + 1}`);
+      if (input.descriptionAr.trim().length === 0) reasons.push({ ar: `وصف البند مطلوب في السطر ${index + 1}`, en: `The line item description is required on line ${index + 1}` });
       const unit = parseUnit(reasons, input.unit, code);
       const costCategory = parseCategory(reasons, input.costCategory, code);
       let qty = Qty.zero();
       try {
         qty = Qty.fromMajor(input.qty);
       } catch {
-        reasons.push(`الكمية غير رقمية في البند "${code}"`);
+        reasons.push({ ar: `الكمية غير رقمية في البند "${code}"`, en: `The quantity is not numeric on line item "${code}"` });
       }
-      if (qty.isNegative()) reasons.push(`الكمية لا يمكن أن تكون سالبة في البند "${code}"`);
+      if (qty.isNegative()) reasons.push({ ar: `الكمية لا يمكن أن تكون سالبة في البند "${code}"`, en: `The quantity cannot be negative on line item "${code}"` });
       let unitRate = Money.zero();
       try {
         unitRate = Money.fromMajor(input.unitRate);
       } catch {
-        reasons.push(`الفئة غير رقمية في البند "${code}"`);
+        reasons.push({ ar: `الفئة غير رقمية في البند "${code}"`, en: `The rate is not numeric on line item "${code}"` });
       }
-      if (unitRate.scaled < 0n) reasons.push(`الفئة لا يمكن أن تكون سالبة في البند "${code}"`);
+      if (unitRate.scaled < 0n) reasons.push({ ar: `الفئة لا يمكن أن تكون سالبة في البند "${code}"`, en: `The rate cannot be negative on line item "${code}"` });
       const section = (input.section ?? "").trim();
       const line: BoqLine = {
         id: input.id ?? `${contractId}-B${index + 1}`,
@@ -850,13 +853,13 @@ export class WorksContractService {
         unit,
         qty,
         unitRate,
-        estimatedUnitCost: moneyOrNull(reasons, `التكلفة التقديرية للبند "${code}"`, input.estimatedUnitCost),
+        estimatedUnitCost: moneyOrNull(reasons, { ar: `التكلفة التقديرية للبند "${code}"`, en: `Estimated cost of line item "${code}"` }, input.estimatedUnitCost),
         section: section.length === 0 ? null : section,
         sortOrder: index + 1,
         origin: "base",
         variationOrderId: null,
         costCategory,
-        theoreticalQtyPerUnit: qtyOrNull(reasons, `الكمية النظرية للبند "${code}"`, input.theoreticalQtyPerUnit),
+        theoreticalQtyPerUnit: qtyOrNull(reasons, { ar: `الكمية النظرية للبند "${code}"`, en: `Theoretical quantity of line item "${code}"` }, input.theoreticalQtyPerUnit),
         theoreticalItemId: input.theoreticalItemId ?? null,
       };
       return line;
@@ -870,7 +873,7 @@ export class WorksContractService {
     inputs: readonly VariationOrderLineInput[],
     boqLines: readonly BoqLine[],
   ): VariationOrderLine[] {
-    const reasons: string[] = [];
+    const reasons: ReasonInput[] = [];
     const existingCodes = new Set(boqLines.map((l) => l.code));
     const lines = inputs.map((input, index) => {
       let newLine: NewBoqLineSpec | null = null;
@@ -880,26 +883,26 @@ export class WorksContractService {
       if (input.kind === "add") {
         const spec = input.newLine;
         if (!spec) {
-          reasons.push(`بند الإضافة رقم ${index + 1} بلا بيانات بند`);
+          reasons.push({ ar: `بند الإضافة رقم ${index + 1} بلا بيانات بند`, en: `Addition line ${index + 1} has no line item data` });
         } else {
           const code = spec.code.trim();
-          if (code.length === 0) reasons.push(`كود البند مطلوب في بند الإضافة رقم ${index + 1}`);
-          else if (existingCodes.has(code)) reasons.push(`كود البند "${code}" موجود بالفعل في جدول الكميات`);
+          if (code.length === 0) reasons.push({ ar: `كود البند مطلوب في بند الإضافة رقم ${index + 1}`, en: `The line item code is required on addition line ${index + 1}` });
+          else if (existingCodes.has(code)) reasons.push({ ar: `كود البند "${code}" موجود بالفعل في جدول الكميات`, en: `Line item code "${code}" already exists in the bill of quantities` });
           else existingCodes.add(code);
-          if (spec.descriptionAr.trim().length === 0) reasons.push(`وصف البند مطلوب في بند الإضافة رقم ${index + 1}`);
+          if (spec.descriptionAr.trim().length === 0) reasons.push({ ar: `وصف البند مطلوب في بند الإضافة رقم ${index + 1}`, en: `The line item description is required on addition line ${index + 1}` });
           const unit = parseUnit(reasons, spec.unit, code);
           const costCategory = parseCategory(reasons, spec.costCategory, code);
           let qty = Qty.zero();
           try {
             qty = Qty.fromMajor(spec.qty);
           } catch {
-            reasons.push(`الكمية غير رقمية في البند "${code}"`);
+            reasons.push({ ar: `الكمية غير رقمية في البند "${code}"`, en: `The quantity is not numeric on line item "${code}"` });
           }
           let unitRate = Money.zero();
           try {
             unitRate = Money.fromMajor(spec.unitRate);
           } catch {
-            reasons.push(`الفئة غير رقمية في البند "${code}"`);
+            reasons.push({ ar: `الفئة غير رقمية في البند "${code}"`, en: `The rate is not numeric on line item "${code}"` });
           }
           const section = (spec.section ?? "").trim();
           newLine = {
@@ -909,22 +912,22 @@ export class WorksContractService {
             unit,
             qty,
             unitRate,
-            estimatedUnitCost: moneyOrNull(reasons, `التكلفة التقديرية للبند "${code}"`, spec.estimatedUnitCost),
+            estimatedUnitCost: moneyOrNull(reasons, { ar: `التكلفة التقديرية للبند "${code}"`, en: `Estimated cost of line item "${code}"` }, spec.estimatedUnitCost),
             section: section.length === 0 ? null : section,
             costCategory,
           };
         }
       } else {
         boqLineId = input.boqLineId ?? null;
-        if (!boqLineId) reasons.push(`بند التعديل رقم ${index + 1} لا يشير إلى بند في جدول الكميات`);
-        else if (!boqLines.some((l) => l.id === boqLineId)) reasons.push(`البند "${boqLineId}" غير موجود في جدول الكميات`);
+        if (!boqLineId) reasons.push({ ar: `بند التعديل رقم ${index + 1} لا يشير إلى بند في جدول الكميات`, en: `Amendment line ${index + 1} does not refer to a line in the bill of quantities` });
+        else if (!boqLines.some((l) => l.id === boqLineId)) reasons.push({ ar: `البند "${boqLineId}" غير موجود في جدول الكميات`, en: `Line item "${boqLineId}" was not found in the bill of quantities` });
         if (input.qtyDelta === null || input.qtyDelta === undefined || input.qtyDelta === "") {
-          reasons.push(`فرق الكمية مطلوب في بند التعديل رقم ${index + 1}`);
+          reasons.push({ ar: `فرق الكمية مطلوب في بند التعديل رقم ${index + 1}`, en: `The quantity difference is required on amendment line ${index + 1}` });
         } else {
           try {
             qtyDelta = Qty.fromMajor(input.qtyDelta);
           } catch {
-            reasons.push(`فرق الكمية غير رقمي في بند التعديل رقم ${index + 1}`);
+            reasons.push({ ar: `فرق الكمية غير رقمي في بند التعديل رقم ${index + 1}`, en: `The quantity difference is not numeric on amendment line ${index + 1}` });
           }
         }
       }
@@ -936,7 +939,7 @@ export class WorksContractService {
         boqLineId,
         newLine,
         qtyDelta,
-        unitRateOverride: moneyOrNull(reasons, `فئة البند في بند التغيير رقم ${index + 1}`, input.unitRateOverride),
+        unitRateOverride: moneyOrNull(reasons, { ar: `فئة البند في بند التغيير رقم ${index + 1}`, en: `Rate of the line item on variation line ${index + 1}` }, input.unitRateOverride),
         sortOrder: index + 1,
       };
       return line;

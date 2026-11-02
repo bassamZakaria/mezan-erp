@@ -65,6 +65,7 @@ import {
   CardPaymentNotApplicableError,
   isReservedTenantCode,
   RESERVED_TENANT_CODE_MESSAGE,
+  RESERVED_TENANT_CODE_MESSAGE_EN,
   AuditSeverityCode,
   OwnerEmailInAnotherCompanyError,
 } from "@mezan/domain";
@@ -135,7 +136,7 @@ import {
   type EnvSettingKey,
   type EnvSettingsDTO,
 } from "@mezan/contracts";
-import { connectionTurn, createLogger } from "@mezan/api";
+import { connectionTurn, createLogger, messageEnOf } from "@mezan/api";
 import { OwnerPasswordResetOutcome } from "./owner-password-reset-outcome.js";
 import type { PlatformHandle } from "./create-platform.js";
 import type { PlatformAuth } from "./platform-auth.js";
@@ -455,15 +456,16 @@ const DB_FILE_RETRY_AFTER_SECONDS = 5;
 const SERVER_OWNER_RETRY_CODE = "TENANT_OWNER_RECORD_DUE";
 const OWNER_RETRY_AFTER_SECONDS = 5;
 
-function asServerDomainFailure(err: unknown): { readonly code: string; readonly message: string; readonly tenantId?: string } | null {
+function asServerDomainFailure(err: unknown): { readonly code: string; readonly message: string; readonly messageEn?: string; readonly tenantId?: string } | null {
   if (!(err instanceof Error)) return null;
   const shape = err as unknown as Record<string, unknown>;
   if (typeof shape.code !== "string" || !SERVER_DOMAIN_ERROR_CODES.has(shape.code)) return null;
-  return { code: shape.code, message: err.message, ...(typeof shape.tenantId === "string" ? { tenantId: shape.tenantId } : {}) };
+  return { code: shape.code, message: err.message, messageEn: messageEnOf(err), ...(typeof shape.tenantId === "string" ? { tenantId: shape.tenantId } : {}) };
 }
 
 export class TenantOwnerAccountNotFoundError extends Error {
   readonly code = "TENANT_OWNER_ACCOUNT_NOT_FOUND";
+  readonly messageEn = "The company has no active administrator account under its owner's email.";
 
   constructor(readonly outcome?: OwnerPasswordResetOutcome) {
     super("لا يوجد في المنشأة حساب مدير نشط ببريد مالكها.");
@@ -528,7 +530,7 @@ function domainErrorResponse(c: Context, err: unknown): Response {
   }
   if (err instanceof PlatformAuditUnavailableError) {
     platformLog.error({ err: err.cause }, "the platform audit trail is unavailable");
-    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 503);
+    return c.json({ error: err.code, message: err.message, messageEn: (err as { messageEn?: string }).messageEn ?? "The previous owner record has not been written to the company data yet. Try again in a moment." }, 503);
   }
   const dbFileRefusal = tenantDbFileRefusalOf(err) ?? tenantDbFileRefusalOf(err instanceof Error ? err.cause : undefined);
   if (dbFileRefusal) {
@@ -540,16 +542,15 @@ function domainErrorResponse(c: Context, err: unknown): Response {
   if (inFlight) return c.json({ error: TENANT_CODE_PROVISIONING, ...inFlight }, 409);
   const serverFailure = asServerDomainFailure(err);
   if (serverFailure) {
-    return c.json({ error: serverFailure.code, message: serverFailure.message, ...(serverFailure.tenantId ? { tenantId: serverFailure.tenantId } : {}) }, 422);
+    return c.json({ error: serverFailure.code, message: serverFailure.message, messageEn: serverFailure.messageEn, ...(serverFailure.tenantId ? { tenantId: serverFailure.tenantId } : {}) }, 422);
   }
   if (err instanceof Error && (err as { code?: unknown }).code === SERVER_OWNER_RETRY_CODE) {
     platformLog.error({ err }, "the server owner was busy; the caller was asked to retry");
     c.header("Retry-After", String(OWNER_RETRY_AFTER_SECONDS));
-    return c.json({ error: SERVER_OWNER_RETRY_CODE, message: err.message }, 503);
+    return c.json({ error: SERVER_OWNER_RETRY_CODE, message: err.message, messageEn: (err as { messageEn?: string }).messageEn ?? "The previous owner record has not been written to the company data yet. Try again in a moment." }, 503);
   }
   if (err instanceof Error && SERVER_OWNER_CONFLICT_CODES.has(String((err as { code?: unknown }).code))) {
-    const messageEn = (err as { messageEn?: unknown }).messageEn;
-    return c.json({ error: (err as unknown as { code: string }).code, message: err.message, ...(typeof messageEn === "string" ? { messageEn } : {}) }, 409);
+    return c.json({ error: (err as unknown as { code: string }).code, message: err.message, messageEn: messageEnOf(err, 409) }, 409);
   }
   if (err instanceof Error && (err as { code?: unknown }).code === "PAYMENT_PROVIDER_ERROR") {
     platformLog.error({ err }, "the payment provider could not be reached");
@@ -564,7 +565,7 @@ function domainErrorResponse(c: Context, err: unknown): Response {
     err instanceof SubscriptionNotFoundError ||
     err instanceof PlatformUserNotFoundError
   ) {
-    return c.json({ error: err.code, message: err.message }, 404);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 404);
   }
   if (
     err instanceof InvalidTenantError ||
@@ -598,7 +599,7 @@ function domainErrorResponse(c: Context, err: unknown): Response {
     err instanceof TenantAlreadySubscribedError ||
     err instanceof PlanRetiredError
   ) {
-    return c.json({ error: err.code, message: err.message }, 409);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
   }
   if (err instanceof FreePlanRequiredError || err instanceof OwnerEmailInAnotherCompanyError) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
@@ -730,7 +731,7 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
   app.post("/tenants", requireOwner, async (c) => {
     const parsed = createTenantRequestSchema.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
-    if (isReservedTenantCode(parsed.data.code)) return c.json({ error: "TENANT_CODE_RESERVED", message: RESERVED_TENANT_CODE_MESSAGE }, 422);
+    if (isReservedTenantCode(parsed.data.code)) return c.json({ error: "TENANT_CODE_RESERVED", message: RESERVED_TENANT_CODE_MESSAGE, messageEn: RESERVED_TENANT_CODE_MESSAGE_EN }, 422);
     const platformUser = c.get("platformUser")!;
     try {
       const result = await provisionTenant({ ...parsed.data, actorId: platformUser.id }, activationRecordedAs(c, "TENANT_PROVISIONED"));
@@ -794,7 +795,7 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
     try {
       const tenant = await requireTenant(c.req.param("id"));
       if (tenant.status !== TenantStatusCode.Provisioning) {
-        return c.json({ error: "TENANT_NOT_PROVISIONING", message: "المنشأة ليست قيد التجهيز" }, 409);
+        return c.json({ error: "TENANT_NOT_PROVISIONING", message: "المنشأة ليست قيد التجهيز", messageEn: "The company is not being provisioned" }, 409);
       }
       if (!provisionRetry) throw new Error("provisionRetry dependency is not configured");
       const result = await provisionRetry({ tenantId: tenant.id, actorId: c.get("platformUser")!.id, ...parsed.data }, activationRecordedAs(c, "TENANT_PROVISION_RETRIED"));
@@ -810,7 +811,7 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
     try {
       const tenant = await requireTenant(c.req.param("id"));
       if (tenant.status !== TenantStatusCode.Provisioning) {
-        return c.json({ error: "TENANT_NOT_PROVISIONING", message: "المنشأة ليست قيد التجهيز" }, 409);
+        return c.json({ error: "TENANT_NOT_PROVISIONING", message: "المنشأة ليست قيد التجهيز", messageEn: "The company is not being provisioned" }, 409);
       }
       if (!releaseTenant) throw new Error("releaseTenant dependency is not configured");
       const released = await releaseTenant({ tenant, actorId: c.get("platformUser")!.id });
@@ -822,7 +823,7 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
   });
 
   const isLive = (tenant: Tenant): boolean => tenant.status === TenantStatusCode.Active || tenant.status === TenantStatusCode.Suspended;
-  const TENANT_NOT_LIVE_FOR_OWNER = { error: PlatformRefusalCode.TenantNotLive, message: "لا يُعيَّن مالك إلا لمنشأة نشطة أو موقوفة" } as const;
+  const TENANT_NOT_LIVE_FOR_OWNER = { error: PlatformRefusalCode.TenantNotLive, message: "لا يُعيَّن مالك إلا لمنشأة نشطة أو موقوفة", messageEn: "An owner can be assigned only to an active or suspended company" } as const;
 
   app.get("/tenants/:id/owner/candidates", requireOwner, async (c) => {
     try {
@@ -1097,7 +1098,7 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
       const tenant = await requireTenant(tenantId);
       if (tenant.status !== TenantStatusCode.Active && tenant.status !== TenantStatusCode.Suspended) {
         await ownerPasswordResetRefused(c, tenant.id, PlatformRefusalCode.TenantNotLive);
-        return c.json({ error: PlatformRefusalCode.TenantNotLive, message: "لا تُعاد تعيين كلمة مرور المالك إلا لمنشأة نشطة أو موقوفة" }, 409);
+        return c.json({ error: PlatformRefusalCode.TenantNotLive, message: "لا تُعاد تعيين كلمة مرور المالك إلا لمنشأة نشطة أو موقوفة", messageEn: "The owner's password can be reset only for an active or suspended company" }, 409);
       }
       if (!resetOwnerPassword) throw new Error("resetOwnerPassword dependency is not configured");
       const intent: { account: OwnerPasswordResetAccount | null } = { account: null };
@@ -1124,7 +1125,7 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
     } catch (err) {
       if (err instanceof TenantOwnerAccountNotFoundError) {
         await ownerPasswordResetRefused(c, tenantId, err.code, undefined, err.outcome);
-        return c.json({ error: err.code, message: err.message }, 409);
+        return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
       }
       return domainErrorResponse(c, err);
     }

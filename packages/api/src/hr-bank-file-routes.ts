@@ -1,3 +1,4 @@
+import { messageEnOf } from "./observability/error-message-backfill.js";
 import { createHash } from "node:crypto";
 import { Hono, type Context, type MiddlewareHandler } from "hono";
 import {
@@ -61,7 +62,7 @@ const REASON_TO_WIRE: Record<BankFileExceptionReason, BankFileExceptionReasonDTO
 };
 
 function withMessageEn(err: { readonly code: string; readonly message: string; readonly messageEn?: string }) {
-  return { error: err.code, message: err.message, ...(err.messageEn ? { messageEn: err.messageEn } : {}) };
+  return { error: err.code, message: err.message, messageEn: messageEnOf(err) };
 }
 
 function refusal(c: Context, err: unknown): Response | null {

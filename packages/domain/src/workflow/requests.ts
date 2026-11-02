@@ -57,6 +57,7 @@ export interface ApprovalRequestRepository {
  */
 export class ApprovalRequestRejectedError extends Error {
   readonly code = "APPROVAL_REQUEST_REJECTED" as const;
+  readonly messageEn = "The approval request for this document was rejected, so it cannot be confirmed.";
   constructor(readonly id: string) {
     super("طلب الموافقة على هذا المستند مرفوض، ولا يمكن تأكيده.");
     this.name = "ApprovalRequestRejectedError";
@@ -93,8 +94,10 @@ export class ApprovalRequestReapprovalRequiredError extends Error {
 
 export class ApprovalRequestNotFoundError extends Error {
   readonly code = "APPROVAL_REQUEST_NOT_FOUND" as const;
+  readonly messageEn: string;
   constructor(readonly id: string) {
-    super(`Approval request "${id}" not found.`);
+    super(`تعذّر العثور على طلب الاعتماد "${id}".`);
+    this.messageEn = `Approval request "${id}" not found.`;
     this.name = "ApprovalRequestNotFoundError";
   }
 }

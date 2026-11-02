@@ -18,6 +18,7 @@
 export interface AttendanceImportRowError {
   readonly rowNumber: number;
   readonly reasons: readonly string[];
+  readonly reasonsEn: readonly string[];
 }
 
 /** One punch, after CSV parsing but before employee matching. */
@@ -137,17 +138,17 @@ function parseDirection(raw: string | undefined): "in" | "out" | null {
  */
 export function parseAttendanceDeviceCsv(csvText: string): AttendanceImportParseResult {
   const lines = csvText.split(/\r\n|\r|\n/).filter((l) => l.trim() !== "");
-  if (lines.length === 0) return { punches: [], errors: [{ rowNumber: 0, reasons: ["الملف فارغ"] }] };
+  if (lines.length === 0) return { punches: [], errors: [{ rowNumber: 0, reasons: ["الملف فارغ"], reasonsEn: ["The file is empty"] }] };
 
   const header = splitCsvLine(lines[0] as string);
   const columns = resolveColumns(header);
   if (columns.badge === undefined) {
-    return { punches: [], errors: [{ rowNumber: 1, reasons: ['لم يتم التعرف على عمود الشارة/كود الموظف (badge/code)'] }] };
+    return { punches: [], errors: [{ rowNumber: 1, reasons: ['لم يتم التعرف على عمود الشارة/كود الموظف (badge/code)'], reasonsEn: ["The badge / employee code column was not recognized (badge/code)"] }] };
   }
   if (columns.datetime === undefined && (columns.date === undefined || columns.clock === undefined)) {
     return {
       punches: [],
-      errors: [{ rowNumber: 1, reasons: ["لم يتم التعرف على عمود التاريخ والوقت (datetime، أو date + time منفصلين)"] }],
+      errors: [{ rowNumber: 1, reasons: ["لم يتم التعرف على عمود التاريخ والوقت (datetime، أو date + time منفصلين)"], reasonsEn: ["The date and time column was not recognized (datetime, or separate date + time)"] }],
     };
   }
 
@@ -159,7 +160,11 @@ export function parseAttendanceDeviceCsv(csvText: string): AttendanceImportParse
     const fields = splitCsvLine(lines[i] as string);
     const badgeId = (fields[columns.badge] ?? "").trim();
     const reasons: string[] = [];
-    if (badgeId === "") reasons.push("الشارة/كود الموظف مطلوب");
+    const reasonsEn: string[] = [];
+    if (badgeId === "") {
+      reasons.push("الشارة/كود الموظف مطلوب");
+      reasonsEn.push("The badge / employee code is required");
+    }
 
     let date: string | null = null;
     let time: string | null = null;
@@ -170,16 +175,23 @@ export function parseAttendanceDeviceCsv(csvText: string): AttendanceImportParse
         time = parsed.time;
       } else {
         reasons.push('صيغة التاريخ/الوقت غير صالحة، الصيغة المتوقعة "YYYY-MM-DD HH:MM"');
+        reasonsEn.push('The date/time format is invalid; the expected format is "YYYY-MM-DD HH:MM"');
       }
     } else {
       date = parseDateOnly((fields[columns.date as number] ?? "").trim());
       time = parseClockOnly((fields[columns.clock as number] ?? "").trim());
-      if (!date) reasons.push("التاريخ غير صالح");
-      if (!time) reasons.push("الوقت غير صالح");
+      if (!date) {
+        reasons.push("التاريخ غير صالح");
+        reasonsEn.push("The date is invalid");
+      }
+      if (!time) {
+        reasons.push("الوقت غير صالح");
+        reasonsEn.push("The time is invalid");
+      }
     }
 
     if (reasons.length > 0) {
-      errors.push({ rowNumber, reasons });
+      errors.push({ rowNumber, reasons, reasonsEn });
       continue;
     }
 

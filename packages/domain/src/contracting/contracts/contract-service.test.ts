@@ -407,7 +407,7 @@ describe("completion", () => {
       numbering: new NextNumberService(sequences),
       projects: { findById: async (id) => ({ id }) as never },
       customers: { findById: async (id) => ({ id }) as never },
-      completionGuard: async () => "لا يمكن إنهاء العقد قبل اعتماد المستخلص الختامي",
+      completionGuard: async () => ({ ar: "لا يمكن إنهاء العقد قبل اعتماد المستخلص الختامي", en: "The contract cannot be completed before the final certificate is approved." }),
     });
     expect((await guarded.get("CTR-1")).canComplete).toBe(false);
     await expect(guarded.complete("CTR-1", "2026-12-31")).rejects.toThrow(

@@ -173,6 +173,7 @@ export function createSequencesRoutes(
         {
           error: "COUNTER_ROLLBACK_REJECTED",
           message: "لا يمكن إنقاص العداد — قد يؤدي ذلك لتكرار رقم مستند سبق إصداره.",
+          messageEn: "The counter cannot be decreased — doing so could repeat a document number that was already issued.",
           currentValue: current,
         },
         422,

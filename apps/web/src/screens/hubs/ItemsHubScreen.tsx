@@ -5,6 +5,7 @@ import { useItemSpecifications } from "../../data/item-catalog-hooks";
 import { useNavigation } from "../../navigation";
 import type { ScreenKey } from "../../router/screens";
 import { useAppTranslation, type AppTranslationKey } from "../../i18n";
+import { errorMessage } from "../../lib/error-message";
 
 /**
  * الأصناف overview — the workspace at a glance, so this workspace opens the
@@ -81,7 +82,7 @@ export function ItemsHubScreen() {
       title={t("itemsHub.title")}
       description={t("itemsHub.description")}
       loading={isLoading}
-      error={isError ? t("itemsHub.loadFailed") : null}
+      error={isError ? errorMessage(countsQuery.error, t("itemsHub.loadFailed")) : null}
       stats={[
         { key: "items", label: t("itemsHub.stat.items"), value: counts.all ?? 0, sub: t("itemsHub.stat.itemsSub") },
         { key: "active", label: t("itemsHub.stat.active"), value: counts.active ?? 0, sub: t("itemsHub.stat.activeSub") },

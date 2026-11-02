@@ -1,3 +1,4 @@
+import type { BilingualReason } from "../collections/errors.js";
 import type { SecretHasher } from "../users/user.js";
 import { normalizeEmail } from "../users/save-user.js";
 import { isoTimestamp } from "./validation.js";
@@ -39,13 +40,13 @@ export async function createPlatformUser(
 ): Promise<PlatformUser> {
   const email = normalizeEmail(cmd.email);
   const now = isoTimestamp(cmd.now);
-  const reasons: string[] = [];
-  if (cmd.id.trim() === "") reasons.push("المعرّف مطلوب");
-  if (email === "") reasons.push("البريد الإلكتروني مطلوب");
+  const reasons: BilingualReason[] = [];
+  if (cmd.id.trim() === "") reasons.push({ ar: "المعرّف مطلوب", en: "The ID is required" });
+  if (email === "") reasons.push({ ar: "البريد الإلكتروني مطلوب", en: "The email is required" });
   if (cmd.password.length < MIN_PLATFORM_PASSWORD_LENGTH) {
-    reasons.push(`كلمة المرور يجب ألا تقل عن ${MIN_PLATFORM_PASSWORD_LENGTH} حرفًا`);
+    reasons.push({ ar: `كلمة المرور يجب ألا تقل عن ${MIN_PLATFORM_PASSWORD_LENGTH} حرفًا`, en: `The password must be at least ${MIN_PLATFORM_PASSWORD_LENGTH} characters` });
   }
-  if (!now) reasons.push("الطابع الزمني الحالي غير صالح (يجب أن يكون بصيغة ISO-8601)");
+  if (!now) reasons.push({ ar: "الطابع الزمني الحالي غير صالح (يجب أن يكون بصيغة ISO-8601)", en: "The current timestamp is invalid (it must be ISO-8601)" });
   if (!now || reasons.length > 0) throw new InvalidPlatformUserError(reasons);
   if (await repo.findByEmail(email)) throw new PlatformUserEmailTakenError(email);
   const user: PlatformUser = {
@@ -103,13 +104,13 @@ export async function deactivatePlatformUser(
   cmd: DeactivatePlatformUserCommand,
   repo: PlatformUserRepository,
 ): Promise<PlatformUser> {
-  if (cmd.id === cmd.actorId) throw new InvalidPlatformUserError(["لا يمكنك تعطيل حسابك"]);
+  if (cmd.id === cmd.actorId) throw new InvalidPlatformUserError([{ ar: "لا يمكنك تعطيل حسابك", en: "You cannot disable your own account" }]);
   const user = await repo.findById(cmd.id);
   if (!user) throw new PlatformUserNotFoundError(cmd.id);
   if (user.role === "owner" && user.status === "active") {
     const users = await repo.list();
     const activeOwners = users.filter((u) => u.role === "owner" && u.status === "active");
-    if (activeOwners.length <= 1) throw new InvalidPlatformUserError(["لا يمكن تعطيل آخر مالك للمنصة"]);
+    if (activeOwners.length <= 1) throw new InvalidPlatformUserError([{ ar: "لا يمكن تعطيل آخر مالك للمنصة", en: "The last platform owner cannot be disabled" }]);
   }
   const next: PlatformUser = { ...user, status: "inactive" };
   await repo.save(next);

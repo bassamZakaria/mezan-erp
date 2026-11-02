@@ -214,7 +214,7 @@ export function createCookieSessions(options: CookieSessionOptions): CookieSessi
         const tokenHeld = token === null || (stored !== undefined && csrf !== undefined && tokensMatch(csrf, csrfFor(stored)));
         if (!fromThisOrigin(c, options.trustProxy) || !tokenHeld) {
           await refuse(c, CookieSecurityAction.CsrfRefused, { origin: c.req.header("origin") ?? null, fetchSite: c.req.header("sec-fetch-site") ?? null, tenant: code ?? null });
-          return c.json({ error: CookieRefusal.Csrf, message: "تعذّر التحقق من مصدر الطلب. أعد تحميل الصفحة ثم حاول مرة أخرى." }, 403);
+          return c.json({ error: CookieRefusal.Csrf, message: "تعذّر التحقق من مصدر الطلب. أعد تحميل الصفحة ثم حاول مرة أخرى.", messageEn: "The request origin could not be verified. Reload the page and try again." }, 403);
         }
       }
       withHeaders(c, (headers) => {

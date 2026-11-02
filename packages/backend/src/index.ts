@@ -20,7 +20,7 @@ export {
   type SeedStores,
   type SeedAdminSecrets,
 } from "./seed.js";
-export { createAuth, createAuthRoutes, type AuthMount, type AuthRoutesDeps, type FirebaseIdentity, type FirebaseVerifier } from "./auth-routes.js";
+export { createAuth, createAuthRoutes, type AuthMount, type AuthRoutesDeps, FirebaseUnavailableError, type FirebaseIdentity, type FirebaseVerifier } from "./auth-routes.js";
 export { createDashboardRoutes, type DashboardDeps } from "./dashboard-routes.js";
 export { createHrTreasuryDisbursementPort } from "./hr-treasury-disbursement.js";
 export { createPlatform, ensurePlatformTables, PLATFORM_SEED_PLANS, type CreatePlatformOptions, type PlatformHandle } from "./create-platform.js";

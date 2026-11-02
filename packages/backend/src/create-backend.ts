@@ -1011,8 +1011,11 @@ function firebaseSetPasswordMail(email: string, link: string, signInLink: string
 const STORED_UNLOCK_SECRET = /[A-Z2-7]{16}|https?:\/\//;
 
 export interface FirebaseAccounts extends FirebaseVerifier {
-  /** Creates the account when it is missing and returns a one-time link to set its password; null when the server holds no Firebase admin key. */
-  setPasswordLink(email: string, displayName: string): Promise<string | null>;
+  /**
+   * SECURITY: replaces whatever password the address held and ends its Firebase sessions before returning the link,
+   * so a reset or a reassigned address leaves nothing the previous holder can use. Creates the account when missing.
+   */
+  setPasswordLink(email: string, displayName: string): Promise<string>;
 }
 
 export interface CreateBackendOptions {
@@ -3947,13 +3950,17 @@ async function composeBackend(options: CreateBackendOptions, db: SqlDb, sqlite: 
     mailUserOutsideTheTurn(user.email, "ميزان — إعادة تعيين كلمة المرور / Mezan password reset", passwordResetMail(options.passwordResetLink(token)));
   };
   const firebase = options.firebase;
-  const mailFirebaseSetPasswordLink = (user: User): void => {
+  const issueFirebaseSetPasswordLink = async (email: string, displayName: string): Promise<void> => {
     if (!firebase) return;
-    void outsideTheTurn(async () => {
-      const link = await firebase.setPasswordLink(user.email, user.nameAr || user.nameEn || user.email);
-      if (link === null) return backendLog.warn({ area: "auth" }, "no Firebase admin key: the set-password link was not sent");
-      mailUserOutsideTheTurn(user.email, "ميزان — اختر كلمة المرور / Set your Mezan password", firebaseSetPasswordMail(user.email, link, options.signInLink ?? null));
-    }).catch((err: unknown) => backendLog.error({ area: "auth", err }, "the Firebase set-password link could not be issued"));
+    try {
+      const link = await outsideTheTurn(() => firebase.setPasswordLink(email, displayName));
+      mailUserOutsideTheTurn(email, "ميزان — اختر كلمة المرور / Set your Mezan password", firebaseSetPasswordMail(email, link, options.signInLink ?? null));
+    } catch (err) {
+      backendLog.error({ area: "auth", err }, "the Firebase credential could not be replaced: the previous password may still sign in");
+    }
+  };
+  const mailFirebaseSetPasswordLink = (user: User): void => {
+    void issueFirebaseSetPasswordLink(user.email, user.nameAr || user.nameEn || user.email);
   };
   const mailInvitation = async ({ user, temporaryPassword }: { readonly user: User; readonly temporaryPassword: string }): Promise<void> => {
     if (firebase) return mailFirebaseSetPasswordLink(user);
@@ -4713,7 +4720,8 @@ async function composeBackend(options: CreateBackendOptions, db: SqlDb, sqlite: 
     onAccountLocked: notifyAccountLocked,
     passwordResetTokens,
     onPasswordResetRequested: mailPasswordResetLink,
-    firebase,
+    // REQUIRED: the check may reach Google; it must not hold the tenant's connection while it waits.
+    firebase: firebase ? { verify: (idToken: string) => outsideTheTurn(() => firebase.verify(idToken)) } : undefined,
     canMailUnlockCode: async () => (await securitySmtp()) !== null,
     audit: auditSink,
     resolveEntitlements: options.resolveEntitlements,
@@ -4840,9 +4848,12 @@ async function composeBackend(options: CreateBackendOptions, db: SqlDb, sqlite: 
     }),
     resolveAuthContext,
     security: { sessions, loginThrottle },
-    ...(options.onUserEmailChanged
+    ...(options.onUserEmailChanged || firebase
       ? {
           onUserEmailChanged: async (change) => {
+            // The new address needs a Firebase account of its own; the old one opens nothing once no user holds it.
+            await issueFirebaseSetPasswordLink(change.after, change.after);
+            if (!options.onUserEmailChanged) return;
             const announced = { ...change, actorCredentialIsOwn: !(await credentialResets.has(change.actorId)) };
             return outsideTheTurn(() => options.onUserEmailChanged!(announced));
           },
@@ -4863,9 +4874,9 @@ async function composeBackend(options: CreateBackendOptions, db: SqlDb, sqlite: 
     onUserCredentialSetByOther: async (userId, actorId) => {
       await credentialResets.mark(userId, new Date().toISOString(), actorId);
       const user = firebase ? await uow.users.findById(userId) : null;
-      if (user) mailFirebaseSetPasswordLink(user);
+      if (user) await issueFirebaseSetPasswordLink(user.email, user.nameAr || user.nameEn || user.email);
     },
-    ...(firebase ? { credentialsHeldByFirebase: (userId: string) => userId !== SEED_ADMIN_USER_ID } : {}),
+    ...(firebase ? { credentialsHeldByFirebase: () => true } : {}),
     onPermissionRefused,
     // The LAN routes need the SAME session registry the auth routes issue
     // into, or a disconnect revokes a token nobody is holding.

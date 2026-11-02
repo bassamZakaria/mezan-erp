@@ -159,6 +159,17 @@ describe("Firebase sign-in on the cloud edition", () => {
     expect(session.permissions).toEqual(["*"]);
   });
 
+  it("takes the old Firebase password away when support resets the owner", async () => {
+    const firebase = fakeFirebase();
+    const { h, mails } = await claimed({ firebase });
+    const account = await h.ownerAccount({ email: OWNER.email });
+    expect(account).not.toBeNull();
+    await h.resetOwnerPassword({ userId: account!.id, email: OWNER.email, password: "unused-Temp-123", onlyIfNeverSignedIn: false, actor: "platform:support" });
+    await settle();
+    expect(firebase.linksFor).toContain(OWNER.email);
+    expect(mails.find((m) => m.to === OWNER.email)?.body).toContain(SET_PASSWORD_LINK);
+  });
+
   it("confirms a step-up only with a fresh Firebase sign-in of the same user", async () => {
     const { h } = await claimed({ firebase: fakeFirebase() });
     const session = (await (await firebaseSignIn(h, token({ email: OWNER.email }))).json()) as { token: string };

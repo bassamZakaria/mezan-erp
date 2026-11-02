@@ -295,7 +295,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
     cmd: CreateTenantRequestDTO & { actorId: string; intendedPlanId?: string | null },
     activation: RecordedActivation,
   ): Promise<ProvisionResultDTO> =>
-    provisionResultDTOOf(await provisionTenant(cmd, { platform, router, now, activation }));
+    provisionResultDTOOf(await provisionTenant(cmd, { platform, router, now, activation }), router.credentialsInFirebase);
 
   const provisionRetryForRoutes = async (input: { tenantId: string; actorId: string } & ProvisionRetryRequestDTO, activation: RecordedActivation): Promise<ProvisionResultDTO> => {
     const tenant = await platform.stores.tenants.findById(input.tenantId);
@@ -318,7 +318,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
       },
       { platform, router, now, activation },
     );
-    return provisionResultDTOOf(provisioned);
+    return provisionResultDTOOf(provisioned, router.credentialsInFirebase);
   };
 
   const resetOwnerPasswordForRoutes = (input: { tenant: Tenant; actorId: string; recordIntent: (account: OwnerPasswordResetAccount) => Promise<void> }): Promise<OwnerPasswordResetResultDTO> =>

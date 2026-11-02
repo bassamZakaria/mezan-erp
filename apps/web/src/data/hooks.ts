@@ -328,6 +328,8 @@ import { DashboardRequest, ScreenRequest, ShellModuleRequest, ShellRequest, mayA
 import { ApprovalRequestScope, MAX_PAGE_SIZE, type ApprovalRequestCountsDTO, TenantResolveMode, type PlatformResolveDTO } from "@mezan/contracts";
 import { UserStatusCode } from "@mezan/domain";
 import { FIREBASE_SIGN_IN_PATH, useApi } from "./ApiContext";
+import { SIGN_IN_CONFIG_KEY, SIGN_IN_CONFIG_PATH, fetchSignInConfig } from "../login/firebase-sign-in";
+import { LookupHost, lookupHostOf } from "../login/lookup-host";
 import { sessionHolds, sessionMayAsk, sessionMayAskScreen } from "./session";
 import type { TransportResponse } from "./transport";
 import { BranchRefusalCode } from "@mezan/contracts";
@@ -591,15 +593,17 @@ export function platformLookupWorthRetrying(error: unknown): boolean {
 export function useSignInConfig(options: { enabled?: boolean } = {}): UseQueryResult<SignInConfigDTO, ApiError> {
   const { request } = useApi();
   return useQuery<SignInConfigDTO, ApiError>({
-    queryKey: ["platform", "sign-in-config"],
+    queryKey: SIGN_IN_CONFIG_KEY,
     enabled: options.enabled ?? true,
     staleTime: Infinity,
-    queryFn: async () => {
-      const res = await request("/platform/sign-in-config");
-      if (!res.ok) return { firebase: null };
-      return res.json<SignInConfigDTO>();
-    },
+    queryFn: () => fetchSignInConfig(() => request(SIGN_IN_CONFIG_PATH)),
   });
+}
+
+/** True on the cloud edition when Firebase holds the signed-in user's password and email. */
+export function useCredentialsInFirebase(): boolean {
+  const onCloud = lookupHostOf() === LookupHost.Cloud;
+  return useSignInConfig({ enabled: onCloud }).data?.firebase != null && onCloud;
 }
 
 export function usePlatformResolve(options: { enabled?: boolean } = {}): UseQueryResult<PlatformResolveDTO, ApiError> {

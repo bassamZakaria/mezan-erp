@@ -99,8 +99,7 @@ export interface AuthRoutesDeps {
   readonly passwordResetTokens?: PasswordResetTokens;
   // CONTRACT: delivers the one-time reset link to the user's own address. Absent — an install with no mail — and «نسيت كلمة المرور» issues nothing.
   readonly onPasswordResetRequested?: (event: { readonly user: User; readonly token: string }) => Promise<void>;
-  // SECURITY: present on the cloud edition only. Firebase then holds every credential: the password routes
-  // answer 410 for everyone but the seed admin, whose company-code sign-in stays for support.
+  // SECURITY: present on the cloud edition only. Firebase then holds every credential and the password routes answer 410.
   readonly firebase?: FirebaseVerifier;
 }
 
@@ -110,8 +109,15 @@ export interface FirebaseIdentity {
   readonly authTimeSeconds: number;
 }
 
+export class FirebaseUnavailableError extends Error {
+  constructor(cause: unknown) {
+    super("Firebase could not be reached to verify a sign-in", { cause });
+    this.name = "FirebaseUnavailableError";
+  }
+}
+
 export interface FirebaseVerifier {
-  /** Null for a token that is malformed, expired, revoked or issued for another project. */
+  /** Null for a token that is malformed, expired, revoked or issued for another project; throws FirebaseUnavailableError when Firebase cannot answer. */
   verify(idToken: string): Promise<FirebaseIdentity | null>;
 }
 
@@ -237,9 +243,9 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
   const guard = createSignInGuard({ throttle, sources, locks });
   const canMailUnlockCode = deps.canMailUnlockCode ?? (async () => false);
   const firebase = deps.firebase;
-  const passwordsClosed = (user: User | null) => firebase !== undefined && user?.id !== SEED_ADMIN_USER_ID;
+  const passwordsClosed = firebase !== undefined;
   const signInWithFirebase = (c: Context) =>
-    c.json({ error: FirebaseRefusal.SignInWithFirebase, message: "سجّل الدخول بالبريد الإلكتروني وكلمة المرور أو بحساب Google من صفحة الدخول." }, 410);
+    c.json({ error: FirebaseRefusal.SignInWithFirebase, message: "سجّل الدخول بالبريد الإلكتروني وكلمة المرور أو بحساب Google من صفحة الدخول.", messageEn: "Sign in with your email and password or your Google account on the sign-in page." }, 410);
   if (firebase) {
     for (const path of ["/auth/forgot-password", "/auth/reset-password", "/auth/unlock", "/auth/unlock-link"]) app.post(path, signInWithFirebase);
   }
@@ -262,9 +268,8 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
     // bought, and a caller the gate has no place for is answered here — it must
     // not reach the handler, which would hash for it under the connection's turn.
     await deps.audit?.settled?.();
-    const found = await deps.uow.users.findByEmail(needle);
-    if (passwordsClosed(found)) return;
-    const known = found !== null;
+    if (passwordsClosed) return;
+    const known = (await deps.uow.users.findByEmail(needle)) !== null;
     if ((await guard.check(needle, origin, known)).verdict !== SignInVerdict.Proceed) return;
     const checked = gate.admit(throttleSource(origin), async () => {
       await deps.audit?.settled?.();
@@ -481,8 +486,8 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
     // The email, and only the email. Matching the FULL NAME, as this did, made
     // "who can log in" a property of a field any admin may edit, and two people
     // who share a display name shared an account door.
+    if (passwordsClosed) return signInWithFirebase(c);
     const user = await deps.uow.users.findByEmail(needle);
-    if (passwordsClosed(user)) return signInWithFirebase(c);
     const held = await guard.check(needle, origin, user !== null);
     if (held.verdict !== SignInVerdict.Proceed) {
       await security(c, "LOGIN_BLOCKED", AuditSeverityCode.Warning, {
@@ -538,16 +543,22 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
     const parsed = firebaseSignInRequestSchema.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     const origin = requestOrigin(c);
-    const identity = await firebase.verify(parsed.data.idToken);
+    let identity: FirebaseIdentity | null;
+    try {
+      identity = await firebase.verify(parsed.data.idToken);
+    } catch (err) {
+      if (!(err instanceof FirebaseUnavailableError)) throw err;
+      authLog.error({ err }, "Firebase could not be reached to verify a sign-in");
+      return c.json({ error: "SIGN_IN_UNAVAILABLE", message: "تعذّر التحقق من الدخول الآن. أعد المحاولة بعد قليل." }, 503);
+    }
     const needle = identity?.email.trim().toLowerCase() ?? "";
     // SECURITY: an unverified address proves nothing about who holds the mailbox, so it opens nothing.
     const user = identity?.emailVerified ? await deps.uow.users.findByEmail(needle) : null;
     if (!user || user.status !== UserStatusCode.Active || user.id === SEED_ADMIN_USER_ID) {
-      await security(c, "LOGIN_FAILED", AuditSeverityCode.Warning, { username: needle, firebase: true, emailVerified: identity?.emailVerified ?? null });
+      // A token Firebase did not sign is noise, not an attempt on an account: it writes nothing to the tenant's log.
+      if (identity) await security(c, "LOGIN_FAILED", AuditSeverityCode.Warning, { username: needle, firebase: true, emailVerified: identity.emailVerified });
       return c.json({ error: "INVALID_CREDENTIALS", message: "البريد الإلكتروني أو كلمة المرور غير صحيحة." }, 401);
     }
-    const held = await guard.check(needle, origin, true);
-    if (held.verdict !== SignInVerdict.Proceed) return refused(c, held);
     // A temporary password is never imported into Firebase, so holding a Firebase credential already proves it was replaced.
     const signedIn = user.mustChangePassword
       ? await atomically(async () => {
@@ -574,10 +585,8 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
     if (!token || !user || user.status !== UserStatusCode.Active) {
       return c.json({ error: "UNAUTHENTICATED", message: "انتهت الجلسة، سجّل الدخول مرة أخرى." }, 401);
     }
-    const held = await guard.check(user.email, origin, true);
-    if (held.verdict !== SignInVerdict.Proceed) return refused(c, held);
     if ("idToken" in parsed.data) {
-      const identity = firebase ? await firebase.verify(parsed.data.idToken) : null;
+      const identity = firebase ? await firebase.verify(parsed.data.idToken).catch(() => null) : null;
       const sameUser = identity !== null && identity.emailVerified && identity.email.trim().toLowerCase() === user.email.trim().toLowerCase();
       if (!sameUser) {
         await security(c, "STEP_UP_FAILED", AuditSeverityCode.Warning, { userId: user.id, firebase: true });
@@ -591,7 +600,9 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
       await security(c, "STEP_UP_CONFIRMED", AuditSeverityCode.Info, { userId: user.id, firebase: true });
       return c.json({ ok: true });
     }
-    if (passwordsClosed(user)) return signInWithFirebase(c);
+    if (passwordsClosed) return signInWithFirebase(c);
+    const held = await guard.check(user.email, origin, true);
+    if (held.verdict !== SignInVerdict.Proceed) return refused(c, held);
     if (!(await deps.hasher.verify(parsed.data.password, user.passwordHash))) {
       const failure = await atomically(() => guard.failed(user.email, origin, true));
       await security(c, "STEP_UP_FAILED", AuditSeverityCode.Warning, { userId: user.id });

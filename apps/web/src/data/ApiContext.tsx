@@ -17,15 +17,14 @@ import {
 import { resolveDefaultTransport, SessionEndedReason, type Transport, type TransportResponse } from "./transport";
 import { publishLoaderApi } from "./api-bridge";
 import { serverMessage, type ServerErrorBody } from "./server-message";
-import { DEVICE_BINDING_HEADER, DeviceBinding, PasswordChangeRefusal, type FirebaseWebConfigDTO, type SignInConfigDTO } from "@mezan/contracts";
-import { FirebaseFailure, FirebaseSignInError, firebaseGoogleToken, firebasePasswordToken } from "../login/firebase-sign-in";
-import { StepUpDialog, StepUpRefusal, type StepUpPrompt } from "./StepUpDialog";
+import { DEVICE_BINDING_HEADER, DeviceBinding, PasswordChangeRefusal } from "@mezan/contracts";
+import { FirebaseFailure, FirebaseSignInError, SIGN_IN_CONFIG_KEY, SIGN_IN_CONFIG_PATH, fetchSignInConfig, firebaseGoogleToken, firebasePasswordToken } from "../login/firebase-sign-in";
+import { StepUpDialog, type StepUpAnswer, type StepUpPrompt } from "./StepUpDialog";
 
 const SIGN_IN_PATH = "/auth/login";
 export const FIREBASE_SIGN_IN_PATH = "/auth/firebase";
 const SESSION_ISSUING_PATHS: ReadonlySet<string> = new Set([SIGN_IN_PATH, FIREBASE_SIGN_IN_PATH, "/bootstrap/admin"]);
 const STEP_UP_PATH = "/auth/step-up";
-const SIGN_IN_CONFIG_PATH = "/platform/sign-in-config";
 const STEP_UP_STATUS = 403;
 const STEP_UP_REQUIRED = "STEP_UP_REQUIRED";
 
@@ -138,7 +137,6 @@ export function ApiProvider({ children, transport, initialSession }: ApiProvider
   }, [session, queryClient]);
 
   const [stepUp, setStepUp] = useState<StepUpPrompt | null>(null);
-  const signInConfig = useRef<Promise<FirebaseWebConfigDTO | null> | null>(null);
 
   const afterStepUp = useCallback(
     async (refused: TransportResponse, resend: () => Promise<TransportResponse>, headers: Headers, sentBy: Session): Promise<TransportResponse> => {
@@ -156,38 +154,44 @@ export function ApiProvider({ children, transport, initialSession }: ApiProvider
         return replayed;
       }
       if (body?.error !== STEP_UP_REQUIRED) return replayed;
-      signInConfig.current ??= resolvedTransport(SIGN_IN_CONFIG_PATH, { method: "GET" })
-        .then(async (answer) => (answer.ok ? (await answer.json<SignInConfigDTO>()).firebase : null))
+      const config = await queryClient
+        .fetchQuery({ queryKey: SIGN_IN_CONFIG_KEY, staleTime: Infinity, queryFn: () => fetchSignInConfig(() => resolvedTransport(SIGN_IN_CONFIG_PATH, { method: "GET" })) })
         .catch(() => null);
-      const firebase = await signInConfig.current;
+      const firebase = config?.firebase ?? null;
       const confirmed = await new Promise<boolean>((resolve) => {
-        const send = async (proof: { password: string } | { idToken: string }) => {
+        const send = async (proof: { password: string } | { idToken: string }): Promise<StepUpAnswer> => {
           const answer = await resolvedTransport(STEP_UP_PATH, { method: "POST", headers, body: JSON.stringify(proof) });
           if (answer.ok) {
             resolve(true);
             return null;
           }
           const answerBody = parsed(await answer.text());
-          return (answerBody && serverMessage(answerBody)) ?? "";
+          return { message: (answerBody && serverMessage(answerBody)) ?? "" };
         };
-        const throughFirebase = async (token: () => Promise<string>) => {
+        const throughFirebase = async (token: () => Promise<string>): Promise<StepUpAnswer> => {
           try {
             return await send({ idToken: await token() });
           } catch (err) {
-            return err instanceof FirebaseSignInError && err.failure === FirebaseFailure.Cancelled ? "" : StepUpRefusal.IdentityUnconfirmed;
+            return { failure: err instanceof FirebaseSignInError ? err.failure : FirebaseFailure.Other };
           }
         };
         setStepUp({
           message: serverMessage(body) ?? "",
           cancel: () => resolve(false),
-          confirm: (password) => (firebase ? throughFirebase(() => firebasePasswordToken(firebase, sentBy.email, password)) : send({ password })),
+          // The config could not be read: a password would be refused by a cloud that holds none.
+          confirm: (password) =>
+            config === null
+              ? Promise.resolve({ failure: FirebaseFailure.Network })
+              : firebase
+                ? throughFirebase(() => firebasePasswordToken(firebase, sentBy.email, password))
+                : send({ password }),
           ...(firebase ? { confirmWithGoogle: () => throughFirebase(() => firebaseGoogleToken(firebase, sentBy.email)) } : {}),
         });
       });
       setStepUp(null);
       return confirmed ? resend() : replayed;
     },
-    [resolvedTransport],
+    [resolvedTransport, queryClient],
   );
 
   const value = useMemo<ApiContextValue>(

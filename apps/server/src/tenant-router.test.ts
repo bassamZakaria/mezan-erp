@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { Hono } from "hono";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createBackend, createPlatform, type BackendHandle, type PlatformHandle } from "@mezan/backend";
+import { createBackend, createPlatform, type BackendHandle, type FirebaseAccounts, type PlatformHandle } from "@mezan/backend";
 import { createSessionRegistry, createSourceThrottle, type SourceThrottle } from "@mezan/api";
 import { createTenant, activateTenant, archiveTenant, suspendTenant, startSubscription, changePlan, LicenseReasonCode, tenantIsServed } from "@mezan/domain";
 import { bindTenantDatabase, openSqliteConnection } from "@mezan/persistence";
@@ -102,6 +102,7 @@ async function newRouter(
     ttlMs?: number;
     now?: () => Date;
     platformClaimGuard?: boolean;
+    firebase?: FirebaseAccounts;
   } = {},
 ): Promise<{ router: TenantRouter; opened: BackendHandle[] }> {
   const dataDir = await dataDirWithBooks(platform, "mezan-tenant-router-");
@@ -117,10 +118,12 @@ async function newRouter(
     idleMs: opts.idleMs,
     ttlMs: opts.ttlMs,
     sweepEveryMs: 0,
+    firebase: opts.firebase,
     now: opts.now ?? (() => new Date(T)),
     openBackend: async (_code, _dbPath, resolvers, hooks) => {
       const handle = await createBackend({
         dbPath: ":memory:",
+        firebase: opts.firebase,
         resolveEntitlements: () => resolvers.resolveEntitlements(),
         resolveLicenseState: () => resolvers.resolveLicenseState(),
         ...(opts.platformClaimGuard ? { claimedElsewhere: hooks.claimedElsewhere } : {}),
@@ -182,6 +185,48 @@ describe("createTenantRouter", () => {
       const tenant = await router.app.fetch(new Request("http://ignored/tenant", { headers: { [TENANT_HEADER]: "nile", authorization: `Bearer ${session.token ?? ""}` } }));
       expect(tenant.status).toBe(200);
       expect(await platform.stores.signInEmails.tenantOf("owner-cyag@example.com")).toBe("t-cyag");
+    }, 120_000);
+
+    it("signs in through Firebase on the company of the verified email, and opens no company for a token Firebase did not sign", async () => {
+      const verified = (email: string) => JSON.stringify({ email, emailVerified: true, authTimeSeconds: Math.floor(Date.now() / 1000) });
+      const firebase: FirebaseAccounts = {
+        async verify(idToken) {
+          try {
+            return JSON.parse(idToken) as { email: string; emailVerified: boolean; authTimeSeconds: number };
+          } catch {
+            return null;
+          }
+        },
+        async setPasswordLink() {
+          return "https://firebase.test/set-password";
+        },
+      };
+      const platform = await seedPlatform();
+      const { router, opened } = await newRouter(platform, { firebase });
+      for (const code of ["cyag", "nile"]) {
+        const backend = await router.backendFor(code);
+        const claimed = await backend.app.fetch(
+          new Request("http://tenant.internal/bootstrap/admin", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ nameAr: "المدير", email: `owner-${code}@example.com`, password: "pw-123456", companyName: "متجر الاختبار" }),
+          }),
+        );
+        expect(claimed.status).toBe(201);
+      }
+
+      const res = await post(router, "/auth/firebase", { idToken: verified("Owner-Nile@example.com") });
+      expect(res.status).toBe(200);
+      expect(((await res.json()) as { tenantCode?: string }).tenantCode).toBe("nile");
+
+      const openedBefore = opened.length;
+      const forged = await post(router, "/auth/firebase", { idToken: "forged" });
+      expect(forged.status).toBe(401);
+      const unverified = await post(router, "/auth/firebase", { idToken: JSON.stringify({ email: "owner-cyag@example.com", emailVerified: false, authTimeSeconds: 0 }) });
+      expect(unverified.status).toBe(401);
+      expect(await unverified.json()).toEqual(await forged.json());
+      expect(opened.length).toBe(openedBefore);
+      expect((await post(router, "/auth/login", { username: "owner-cyag@example.com", password: "pw-123456" }, "cyag")).status).toBe(410);
     }, 120_000);
 
     it("answers an email no company holds exactly as a company answers an unknown email", async () => {

@@ -38,8 +38,10 @@ export interface ProvisionTenantResult {
   readonly adminPassword: string | null;
 }
 
-export function provisionResultDTOOf(result: ProvisionTenantResult): ProvisionResultDTO {
-  return { tenant: tenantDTOOf(result.tenant), adminEmail: result.adminEmail, adminPassword: result.adminPassword };
+export function provisionResultDTOOf(result: ProvisionTenantResult, credentialsInFirebase = false): ProvisionResultDTO {
+  const base = { tenant: tenantDTOOf(result.tenant), adminEmail: result.adminEmail };
+  if (!credentialsInFirebase) return { ...base, adminPassword: result.adminPassword };
+  return { ...base, adminPassword: null, setPasswordLinkMailed: result.adminPassword !== null };
 }
 
 export class TenantProvisioningError extends Error {

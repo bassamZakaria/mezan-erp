@@ -5,6 +5,7 @@
 //     --mem-cost=16384 --parallelization=1 --block-size=8 --dk-len=64
 // users.json holds password hashes: delete it after the import.
 import { createHash } from "node:crypto";
+import { pathToFileURL } from "node:url";
 import pg from "pg";
 
 const SEED_ADMIN_USER_ID = "USER-ADMIN";
@@ -17,7 +18,8 @@ export function importRecord(row) {
   if (row.name_ar || row.name_en) record.displayName = row.name_ar || row.name_en;
   const hash = SCRYPT_HASH.exec(row.password_hash ?? "");
   // A temporary password is never carried over: that user sets one through «نسيت كلمة المرور».
-  if (hash && !row.must_change_password) {
+  // Postgres BIGINT reaches pg as a string: "0" is truthy.
+  if (hash && Number(row.must_change_password) === 0) {
     record.passwordHash = Buffer.from(hash[2], "hex").toString("base64");
     record.salt = Buffer.from(hash[1], "hex").toString("base64");
   }
@@ -53,4 +55,4 @@ async function main() {
   }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) await main();
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) await main();

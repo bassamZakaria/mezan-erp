@@ -4,7 +4,7 @@ import { BrandMark, Button, Copyright, TextInput, cn } from "@mezan/ui";
 import { TenantResolveMode } from "@mezan/contracts";
 import { AccountLockedError, ApiError, SignInRefusalCode, isDesktopHost, noPlatformInFront, platformLookupFailing, useBootstrapStatus, useForgotPassword, useLogin, usePlatformResolve, useSignInConfig, useTenantInfo, useUnlockAccount } from "../data/hooks";
 import type { FirebaseWebConfigDTO } from "@mezan/contracts";
-import { FirebaseFailure, FirebaseSignInError, firebaseGoogleToken, firebasePasswordToken, firebaseSendPasswordReset } from "./firebase-sign-in";
+import { FIREBASE_FAILURE_KEYS, FirebaseSignInError, firebaseGoogleToken, firebasePasswordToken, firebaseSendPasswordReset, prepareFirebase } from "./firebase-sign-in";
 import { holdsItsOwnBooks, lastTenantMode, LookupHost, lookupHostOf, rememberTenantMode } from "./lookup-host";
 import { useAppVersion } from "../data/hub-hooks";
 import { OWNER_HAND_OVER_NOTICE_KEYS } from "../data/owner-hand-over-notice";
@@ -72,16 +72,6 @@ export interface LoginScreenProps {
   onStartWizard: () => void;
 }
 
-const FIREBASE_FAILURE_KEYS: Readonly<Record<FirebaseFailure, AppTranslationKey | null>> = {
-  [FirebaseFailure.WrongCredentials]: "login.firebase.wrongCredentials",
-  [FirebaseFailure.TooManyAttempts]: "login.tooManyAttempts",
-  [FirebaseFailure.Disabled]: "login.firebase.disabled",
-  [FirebaseFailure.NotRegistered]: "login.firebase.notRegistered",
-  [FirebaseFailure.Cancelled]: null,
-  [FirebaseFailure.Network]: "login.firebase.network",
-  [FirebaseFailure.Other]: "login.error.generic",
-};
-
 // SECURITY: the face row is NOT the staff roster — only who has signed in HERE (`device-users.ts`); listing every employee to whoever opens the machine leaks the org chart.
 const SERVER_BUSY = 503;
 
@@ -112,7 +102,11 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
   const lookupFailing = lookupFailingNow || (lastLookupFailure !== null && !lookupAnswered);
   const hostMessage = lookupFailingNow ? hostMessageNow : lookupFailing ? (lastLookupFailure?.hostMessage ?? null) : null;
   const lookupHost = useMemo(() => lookupHostOf(), []);
-  const firebaseConfig = useSignInConfig({ enabled: lookupHost === LookupHost.Cloud }).data?.firebase ?? null;
+  const signInConfig = useSignInConfig({ enabled: lookupHost === LookupHost.Cloud });
+  const firebaseConfig = signInConfig.data?.firebase ?? null;
+  useEffect(() => {
+    if (firebaseConfig) prepareFirebase(firebaseConfig);
+  }, [firebaseConfig]);
   const [firebaseBusy, setFirebaseBusy] = useState(false);
   useEffect(() => {
     if (tenantMode !== undefined) rememberTenantMode(tenantMode);
@@ -293,8 +287,17 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
     if (!canSubmit) return;
     setError(null);
     setCompanyUnconfirmed(lookupFailing && tenantCode.trim() !== "" && !tenantInfo.isSuccess);
-    if (firebaseConfig) {
-      signInThroughFirebase(() => firebasePasswordToken(firebaseConfig, identity, password));
+    // On the cloud the sign-in waits for the config: guessing "no Firebase" would post a password the server refuses.
+    if (lookupHost === LookupHost.Cloud && !signInConfig.isSuccess) {
+      void signInConfig.refetch().then(({ data }) => (data ? signInWith(data.firebase) : setError(t("login.firebase.network"))));
+      return;
+    }
+    signInWith(firebaseConfig);
+  }
+
+  function signInWith(config: FirebaseWebConfigDTO | null) {
+    if (config) {
+      signInThroughFirebase(() => firebasePasswordToken(config, identity, password));
       return;
     }
     login.mutate({ username: identity, password, byEmail: resolvesByEmail }, signInOutcome);
@@ -309,7 +312,10 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
       .catch((err: unknown) => {
         const key = err instanceof FirebaseSignInError ? FIREBASE_FAILURE_KEYS[err.failure] : "login.error.generic";
         if (key) setError(t(key));
+        setErrorEndsWithTheWait(false);
+        setUnlockOffered(false);
         setPassword("");
+        passwordRef.current?.focus();
       })
       .finally(() => setFirebaseBusy(false));
   }
@@ -600,7 +606,7 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
         </p>
       ) : null}
 
-      {unlockOffered ? (
+      {unlockOffered && !firebaseConfig ? (
         <div className="mt-[12px] flex items-end gap-[8px]">
           <label className="flex-1 text-xs text-ink-muted">
             {t("login.unlock.code")}
@@ -632,7 +638,7 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
           <Button
             type="button"
             variant="default"
-            disabled={firebaseBusy || login.isPending || lockedForSeconds > 0}
+            disabled={firebaseBusy || login.isPending || lockedForSeconds > 0 || tenantCodeInvalid}
             onClick={() => signInThroughFirebase(() => firebaseGoogleToken(firebaseConfig, identity || undefined))}
             className="mt-[14px] w-full justify-center py-[12px]"
           >

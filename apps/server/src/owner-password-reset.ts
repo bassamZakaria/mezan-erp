@@ -47,5 +47,6 @@ export async function resetTenantOwnerPassword(
     }),
   );
   if (outcome !== OwnerPasswordResetOutcome.Reset) throw new TenantOwnerAccountNotFoundError(outcome);
+  if (deps.router.credentialsInFirebase) return { adminEmail: tenant.ownerEmail, signInEmail: account.email, adminPassword: null, setPasswordLinkMailed: true };
   return { adminEmail: tenant.ownerEmail, signInEmail: account.email, adminPassword };
 }

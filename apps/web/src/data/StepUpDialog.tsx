@@ -2,16 +2,16 @@ import { useId, useState, type FormEvent } from "react";
 import { Button } from "@mezan/ui";
 import { useAppTranslation } from "../i18n";
 import { PasswordInput } from "../login/PasswordInput";
+import { FIREBASE_FAILURE_KEYS, type FirebaseFailure } from "../login/firebase-sign-in";
 
-export enum StepUpRefusal {
-  IdentityUnconfirmed = "STEP_UP_IDENTITY_UNCONFIRMED",
-}
+/** Null: confirmed. */
+export type StepUpAnswer = null | { readonly message: string } | { readonly failure: FirebaseFailure };
 
 export interface StepUpPrompt {
   readonly message: string;
-  confirm(password: string): Promise<string | null>;
+  confirm(password: string): Promise<StepUpAnswer>;
   /** Present on the cloud edition, where Firebase holds the credential. */
-  confirmWithGoogle?(): Promise<string | null>;
+  confirmWithGoogle?(): Promise<StepUpAnswer>;
   cancel(): void;
 }
 
@@ -23,15 +23,15 @@ export function StepUpDialog({ prompt }: { prompt: StepUpPrompt }) {
   const [busy, setBusy] = useState(false);
   const ready = password.length > 0;
 
-  async function settle(attempt: Promise<string | null>) {
+  async function settle(attempt: Promise<StepUpAnswer>) {
     setBusy(true);
     setError(null);
-    const refusal = await attempt;
+    const answer = await attempt;
     setBusy(false);
-    if (refusal !== null) {
-      setError(refusal === StepUpRefusal.IdentityUnconfirmed ? t("login.firebase.wrongCredentials") : refusal);
-      setPassword("");
-    }
+    if (answer === null) return;
+    const key = "failure" in answer ? FIREBASE_FAILURE_KEYS[answer.failure] : null;
+    setError("failure" in answer ? (key ? t(key) : null) : answer.message);
+    setPassword("");
   }
 
   async function submit(event: FormEvent) {

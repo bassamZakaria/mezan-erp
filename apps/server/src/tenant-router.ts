@@ -17,7 +17,7 @@ import {
   tooManyAttempts,
   type SourceThrottle,
 } from "@mezan/api";
-import { createBackend, type BackendHandle, type CompanyAdminAccount, type FirebaseAccounts, type IntegrationsGateway, type PlatformHandle, type SignedInUser } from "@mezan/backend";
+import { createBackend, FirebaseUnavailableError, type BackendHandle, type CompanyAdminAccount, type FirebaseAccounts, type IntegrationsGateway, type PlatformHandle, type SignedInUser } from "@mezan/backend";
 import type { SessionGrant, SmtpConfig } from "@mezan/api";
 import {
   clearTenantBinding,
@@ -33,7 +33,7 @@ import {
   type TenantBooksIdentity,
 } from "@mezan/persistence";
 import type { CompanyOwnerPort, UserEmailChange } from "@mezan/api";
-import { loginRequestSchema, REFUSED_TENANT_BOOKS, type FirebaseWebConfigDTO, type SignInConfigDTO, unlockAccountRequestSchema, TenantBooksStanding, TenantResolveMode, type PlatformResolveDTO, type TenantBooksDTO } from "@mezan/contracts";
+import { FirebaseRefusal, loginRequestSchema, REFUSED_TENANT_BOOKS, type FirebaseWebConfigDTO, type SignInConfigDTO, unlockAccountRequestSchema, TenantBooksStanding, TenantResolveMode, type PlatformResolveDTO, type TenantBooksDTO } from "@mezan/contracts";
 import { schemaKey, SchemaKeyPurpose, type TenantDatabases } from "@mezan/persistence-postgres";
 import { EmailInAnotherCompanyError, type SignInEmailGuard, TenantBooksReview, tenantDbFile, tenantHandedTo, tenantSchema, tenantIsServed, TenantStatusCode, tenantWithBooksReview, tenantWithOwnerRecordDue, type Tenant } from "@mezan/domain";
 import { createBackendCache, type BackendCache } from "./backend-cache.js";
@@ -175,17 +175,11 @@ const UNLOCK = "/auth/unlock";
 const FIREBASE_SIGN_IN = "/auth/firebase";
 const RESOLVED_BY_EMAIL: ReadonlySet<string> = new Set([SIGN_IN, FIREBASE_SIGN_IN, FORGOT_PASSWORD, UNLOCK]);
 const SIGNS_IN: ReadonlySet<string> = new Set([SIGN_IN, FIREBASE_SIGN_IN]);
+// SECURITY: answered before any company is looked up, so a known and an unknown address get the same 410.
+const RETIRED_BY_FIREBASE: ReadonlySet<string> = new Set([SIGN_IN, FORGOT_PASSWORD, UNLOCK, "/auth/unlock-link", "/auth/reset-password"]);
+const FIREBASE_UNAVAILABLE_STATUS = 503;
 
-/** Only picks the company; the tenant's backend verifies the token before anything opens. */
-function unverifiedEmailOf(idToken: unknown): string {
-  if (typeof idToken !== "string") return "";
-  try {
-    const payload: unknown = JSON.parse(Buffer.from(idToken.split(".")[1] ?? "", "base64url").toString("utf8"));
-    return typeof payload === "object" && payload !== null && "email" in payload && typeof payload.email === "string" ? payload.email : "";
-  } catch {
-    return "";
-  }
-}
+
 const COUNTED_BY_EMAIL: ReadonlySet<number> = new Set([400, 401, 423]);
 const EMAIL_RESOLVED_FREE_ATTEMPTS = 20;
 const ACCOUNT_LOCKED_STATUS = 423;
@@ -218,6 +212,7 @@ export interface OpenTenant {
 
 export interface TenantRouter {
   readonly app: Hono;
+  readonly credentialsInFirebase: boolean;
   readonly postgres?: TenantPostgres;
   // SECURITY: the backend as THIS PROCESS acts on it (provisioning, backups,
   // seeding) — an in-process call with no address reads as the host's own
@@ -578,11 +573,17 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
   });
 
   /** `c.req.path`/`routePath` stay undecoded, unlike `c.req.param`, so an encoded segment (e.g. `%2F`) survives the forward. */
+  // SECURITY: the company is picked from a verified address, so a forged token costs the same everywhere and reaches no tenant.
+  async function verifiedEmailOf(idToken: unknown): Promise<string> {
+    const identity = typeof idToken === "string" && options.firebase ? await options.firebase.verify(idToken) : null;
+    return identity?.emailVerified ? identity.email : "";
+  }
+
   async function tenantOfSignInEmail(request: Request): Promise<Tenant | null> {
     const body: unknown = await request.clone().json().catch(() => null);
     const email =
       typeof body === "object" && body !== null && "idToken" in body
-        ? unverifiedEmailOf(body.idToken)
+        ? await verifiedEmailOf(body.idToken)
         : typeof body === "object" && body !== null && "username" in body && typeof body.username === "string"
           ? body.username
           : "";
@@ -597,9 +598,6 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
     if (subPath === FORGOT_PASSWORD) return c.json({ ok: true }, 202);
     const body: unknown = await c.req.raw.clone().json().catch(() => null);
     if (subPath === FIREBASE_SIGN_IN) {
-      const idToken = typeof body === "object" && body !== null && "idToken" in body && typeof body.idToken === "string" ? body.idToken : "";
-      // SECURITY: the same verification a known email gets, so the answer's timing says nothing about who has an account.
-      await options.firebase?.verify(idToken);
       await signInSources.fail(throttleSource(source) ?? source);
       return c.json({ error: "INVALID_CREDENTIALS", message: "البريد الإلكتروني أو كلمة المرور غير صحيحة." }, 401);
     }
@@ -647,7 +645,14 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
 
   async function dispatch(c: Context, subPath: string, source: CloudSource, code: string | null): Promise<Response> {
     const byEmail = code === null;
-    const tenant = code ? await options.platform.stores.tenants.findByCode(code) : await tenantOfSignInEmail(c.req.raw);
+    let tenant: Tenant | null;
+    try {
+      tenant = code ? await options.platform.stores.tenants.findByCode(code) : await tenantOfSignInEmail(c.req.raw);
+    } catch (err) {
+      if (!(err instanceof FirebaseUnavailableError)) throw err;
+      log.error({ err }, "Firebase could not be reached to verify a sign-in");
+      return c.json({ error: "SIGN_IN_UNAVAILABLE", message: "تعذّر التحقق من الدخول الآن. أعد المحاولة بعد قليل." }, FIREBASE_UNAVAILABLE_STATUS);
+    }
     if (byEmail && !tenant) return unknownSignInEmail(c, subPath, source);
     if (!tenant || !tenantIsServed(tenant)) {
       return c.json({ error: "TENANT_NOT_FOUND", message: "المنشأة غير موجودة" }, 404);
@@ -674,6 +679,16 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
     const subPath = c.req.path.slice(prefixLen) || "/";
     const source = callerSource(c);
     const code = resolveTenantCode(c.req.raw, resolverOptions);
+    if (options.firebase && c.req.method === "POST" && RETIRED_BY_FIREBASE.has(subPath)) {
+      return c.json(
+        {
+          error: FirebaseRefusal.SignInWithFirebase,
+          message: "سجّل الدخول بالبريد الإلكتروني وكلمة المرور أو بحساب Google من صفحة الدخول.",
+          messageEn: "Sign in with your email and password or your Google account on the sign-in page.",
+        },
+        410,
+      );
+    }
     const signInDoor = c.req.method === "POST" && RESOLVED_BY_EMAIL.has(subPath);
     const counted = throttleSource(source) ?? source;
     // SECURITY: a sign-in that names its company still feeds the email path's own
@@ -729,6 +744,7 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
 
   return {
     app,
+    credentialsInFirebase: options.firebase !== undefined,
     postgres: options.postgres,
     discardDatabase,
     backendFor: openFor,

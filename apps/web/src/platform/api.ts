@@ -122,7 +122,7 @@ export function PlatformApiProvider({ children, transport, initialSession }: Pla
               return null;
             }
             const answerBody = errorOf(await answer.text());
-            return (answerBody && serverMessage(answerBody)) ?? "";
+            return { message: (answerBody && serverMessage(answerBody)) ?? "" };
           },
         });
       });

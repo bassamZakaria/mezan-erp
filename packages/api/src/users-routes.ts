@@ -33,7 +33,7 @@ import {
   type ScopeSelection,
   type SecretHasher,
 } from "@mezan/domain";
-import { CurrentSecretRefusal, ErasureRetention, OwnerHandOverOutcome, createUserSchema, deactivateUserSchema, eraseUserSchema, updateUserSchema } from "@mezan/contracts";
+import { CurrentSecretRefusal, FirebaseRefusal, ErasureRetention, OwnerHandOverOutcome, createUserSchema, deactivateUserSchema, eraseUserSchema, updateUserSchema } from "@mezan/contracts";
 import { EMPTY_ERASURE_COUNTS, type UserErasurePort } from "./user-erasure.js";
 import {
   createPermissionGate,
@@ -748,6 +748,16 @@ export function createUsersRoutes(
     const change = credentialChange(fields);
     const actorId = getAuthContext(c)?.userId;
     const ownCredentials = actorId === id && (normalizeEmail(fields.email) !== before.email || change.passwordChanged);
+    if (ownCredentials && options.credentialsHeldByFirebase?.(id)) {
+      return c.json(
+        {
+          error: FirebaseRefusal.SignInWithFirebase,
+          message: "تُدار كلمة المرور من صفحة الدخول (نسيت كلمة المرور). ولتغيير بريدك الإلكتروني اطلب ذلك من مدير نظام آخر.",
+          messageEn: "Your password is managed on the sign-in page (Forgot password). To change your own email, ask another administrator.",
+        },
+        410,
+      );
+    }
     if (ownCredentials) {
       const unproven = await refuseOwnCredentialChange(c, before, { currentPassword });
       if (unproven) return unproven;

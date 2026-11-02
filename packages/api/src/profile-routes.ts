@@ -106,7 +106,14 @@ export function createProfileRoutes(
 ) {
   const app = new Hono();
   const changeInFirebase = (c: Context) =>
-    c.json({ error: FirebaseRefusal.SignInWithFirebase, message: "تُدار كلمة المرور من صفحة الدخول (نسيت كلمة المرور). ولتغيير البريد الإلكتروني اطلب ذلك من مدير النظام." }, 410);
+    c.json(
+      {
+        error: FirebaseRefusal.SignInWithFirebase,
+        message: "تُدار كلمة المرور من صفحة الدخول (نسيت كلمة المرور). ولتغيير البريد الإلكتروني اطلب ذلك من مدير النظام.",
+        messageEn: "Your password is managed on the sign-in page (Forgot password). To change your email, ask your administrator.",
+      },
+      410,
+    );
   const requireAuth = requireCaller(resolveAuthContext);
   const secrets = createPrecomputingHasher(hasher);
 

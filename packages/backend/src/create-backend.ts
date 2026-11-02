@@ -1681,6 +1681,10 @@ async function composeBackend(options: CreateBackendOptions, db: SqlDb, sqlite: 
     // zero and COGS was understated by the whole deficit (D101).
     fallbackUnitCost: async (itemId) => (await items.findById(itemId))?.costPrice ?? null,
     lotRequirement: lotRequirementFromItems(items),
+    stockLabels: async (itemId, warehouseId) => {
+      const [item, warehouse] = await Promise.all([items.findById(itemId), warehouses.findById(warehouseId)]);
+      return { item: item ? `${item.code} - ${item.nameAr}` : itemId, warehouse: warehouse?.name ?? warehouseId };
+    },
     batchTrail: store((s) => createSqliteBatchTrailStore(s), (d) => createBatchTrailStore(d)),
   });
   /**

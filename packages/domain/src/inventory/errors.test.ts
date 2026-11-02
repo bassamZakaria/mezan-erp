@@ -10,6 +10,7 @@ import {
   DuplicateWritedownPeriodError,
   EmptyVariantSelectionError,
   ExpiredStockError,
+  UncostedDeficitIssueError,
   InvalidProductTemplateError,
   InvalidStockMovementError,
   InvalidVariantSelectionError,
@@ -47,6 +48,16 @@ describe("ExpiredStockError", () => {
     expect(err.batchNo).toBe("B-100");
     expect(err.message).toContain("التشغيلة \"B-100\"");
     expect(err.message).toContain("2026-01-01");
+  });
+
+  it("shows the names it is given and keeps the ids as fields", () => {
+    const labels = { item: "P-001 - باراسيتامول", warehouse: "المخزن الرئيسي" };
+    const expired = new ExpiredStockError("item-1", "wh-1", null, "2026-01-01", labels);
+    expect(expired.message).toContain('الصنف "P-001 - باراسيتامول" في المستودع "المخزن الرئيسي"');
+    expect(expired.message).not.toContain("item-1");
+    expect([expired.itemId, expired.warehouseId]).toEqual(["item-1", "wh-1"]);
+    expect(new NegativeStockError("item-1", "wh-1", Qty.zero(), Qty.fromMajor("1"), labels).message).toContain('الصنف "P-001 - باراسيتامول" من المستودع "المخزن الرئيسي"');
+    expect(new UncostedDeficitIssueError("item-1", "wh-1", Qty.fromMajor("1"), labels).message).toContain('الصنف "P-001 - باراسيتامول" من المستودع "المخزن الرئيسي"');
   });
 
   it("omits the batch clause entirely when there is no batch", () => {

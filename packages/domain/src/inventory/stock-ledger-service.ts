@@ -25,6 +25,7 @@ import {
   UncostedDeficitIssueError,
   StockAdjustmentNotFoundError,
   StockAdjustmentAlreadyReversedError,
+  type StockLabels,
 } from "./errors.js";
 import {
   StockMovement,
@@ -132,6 +133,7 @@ export interface StockLedgerServiceDeps {
   readonly fallbackUnitCost?: (itemId: string) => Promise<Money | null> | Money | null;
   readonly lotRequirement?: LotRequirementLookup;
   readonly batchTrail?: BatchTrailRecorder;
+  readonly stockLabels?: (itemId: string, warehouseId: string) => Promise<StockLabels>;
 }
 
 export interface AdjustmentLine {
@@ -499,7 +501,7 @@ export class StockLedgerService {
     } else {
       const projected = snap.onHand.subtract(input.qty);
       if (projected.isNegative() && !(await this.negativeAllowedFor(input.sourceDocType))) {
-        throw new NegativeStockError(input.itemId, input.warehouseId, snap.onHand, input.qty);
+        throw new NegativeStockError(input.itemId, input.warehouseId, snap.onHand, input.qty, await this.labelsFor(input.itemId, input.warehouseId));
       }
       unitCost = unitCostOf(snap.totalValue, snap.onHand); // moving average
       // A POSITION WITH NOTHING BEHIND IT HAS NO AVERAGE (D101).
@@ -518,7 +520,7 @@ export class StockLedgerService {
           // cannot be found is not a reason to block the move. Every other
           // source takes value OUT of inventory, and that must not be free.
           if (input.sourceDocType !== "TRANSFER") {
-            throw new UncostedDeficitIssueError(input.itemId, input.warehouseId, input.qty);
+            throw new UncostedDeficitIssueError(input.itemId, input.warehouseId, input.qty, await this.labelsFor(input.itemId, input.warehouseId));
           }
         } else {
           unitCost = fallback.unitCost;
@@ -650,7 +652,12 @@ export class StockLedgerService {
     const head = layers.find((layer) => !layer.remainingQty.isZero());
     if (!head?.expiryDate) return;
     if (head.expiryDate >= occurredAt.slice(0, 10)) return;
-    throw new ExpiredStockError(itemId, warehouseId, head.batchNo ?? null, head.expiryDate);
+    throw new ExpiredStockError(itemId, warehouseId, head.batchNo ?? null, head.expiryDate, await this.labelsFor(itemId, warehouseId));
+  }
+
+  private async labelsFor(itemId: string, warehouseId: string): Promise<StockLabels | undefined> {
+    // A failed name lookup must not replace the stock refusal being raised.
+    return this.deps.stockLabels?.(itemId, warehouseId).catch(() => undefined);
   }
 
   /**

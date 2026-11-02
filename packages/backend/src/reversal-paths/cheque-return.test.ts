@@ -19,7 +19,7 @@ describe("a collected cheque the bank returns", () => {
     const collectionEntryId = cheque().collectionEntryId;
     const before = { bank: world.balance("1310"), underCollection: world.balance("1320"), receivable: world.balance("1105") };
     await expectJournalRouteClosed(world, collectionEntryId);
-    await expectRefusedInClosedPeriod(world, "fp-2026-10", () => world.request("POST", "/cheques/CHQ-DEMO-2/return", {}));
+    await expectRefusedInClosedPeriod(world, `fp-${entry(world, collectionEntryId).date.slice(0, 7)}`, (date) => world.request("POST", "/cheques/CHQ-DEMO-2/return", { date }));
     expect(cheque().status).toBe("collected");
 
     const returned = await world.request("POST", "/cheques/CHQ-DEMO-2/return", {});

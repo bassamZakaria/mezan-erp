@@ -143,7 +143,7 @@ export function ProvisionResultPanel({ result, onClose }: { result: ProvisionRes
       <div className="flex flex-col gap-[10px] rounded-md border border-border bg-surface-2 p-[14px]">
         <ResultRow label={t("platform.newTenant.result.code")} value={result.tenant.code} />
         <ResultRow label={t("platform.newTenant.result.adminEmail")} value={result.adminEmail} />
-        <TemporaryPasswordField label={t("platform.newTenant.result.adminPassword")} password={result.adminPassword} fallback={t("platform.newTenant.result.passwordKept")} />
+        <TemporaryPasswordField label={t("platform.newTenant.result.adminPassword")} password={result.adminPassword} fallback={t(result.setPasswordLinkMailed ? "platform.newTenant.result.setPasswordLinkMailed" : "platform.newTenant.result.passwordKept")} />
       </div>
       <p role="alert" className="text-[11.5px] font-semibold text-warning-ink">
         {t("platform.newTenant.result.oneTime")}

@@ -73,6 +73,39 @@ export interface CloudEnv {
   readonly secretsKey?: string;
   // Set: the platform and every tenant live in Postgres. Unset: SQLite files under `platformDir`.
   readonly postgres?: PostgresEnv;
+  // Set: Firebase holds every tenant user's credential (sign-in, Google, password reset). Unset: email + password in Mezan.
+  readonly firebase?: FirebaseEnv;
+}
+
+export interface FirebaseEnv {
+  readonly projectId: string;
+  readonly apiKey: string;
+  readonly authDomain: string;
+  readonly appId: string;
+  // SECRET: the service-account JSON. Without it sign-in works, but invitations and resets mail no set-password link.
+  readonly serviceAccountJson?: string;
+  readonly authEmulatorHost?: string;
+}
+
+function parseFirebase(env: Record<string, string | undefined>): FirebaseEnv | undefined {
+  const projectId = trimmedOrUndefined(env["MEZAN_FIREBASE_PROJECT_ID"]);
+  if (!projectId) return undefined;
+  const required = (name: string): string => {
+    const value = trimmedOrUndefined(env[name]);
+    if (!value) throw new Error(`MEZAN_FIREBASE_PROJECT_ID is set without ${name}`);
+    return value;
+  };
+  const serviceAccountJson = trimmedOrUndefined(env["MEZAN_FIREBASE_SERVICE_ACCOUNT"]);
+  // firebase-admin reads the bare variable on its own and then trusts unsigned tokens, so it counts as the emulator too.
+  const authEmulatorHost = trimmedOrUndefined(env["MEZAN_FIREBASE_AUTH_EMULATOR_HOST"]) ?? trimmedOrUndefined(env["FIREBASE_AUTH_EMULATOR_HOST"]);
+  return {
+    projectId,
+    apiKey: required("MEZAN_FIREBASE_API_KEY"),
+    authDomain: required("MEZAN_FIREBASE_AUTH_DOMAIN"),
+    appId: required("MEZAN_FIREBASE_APP_ID"),
+    ...(serviceAccountJson ? { serviceAccountJson } : {}),
+    ...(authEmulatorHost ? { authEmulatorHost } : {}),
+  };
 }
 
 export interface PostgresEnv {
@@ -408,6 +441,7 @@ export function parseEnv(env: Record<string, string | undefined> = process.env, 
     alertEmail: parseAlertEmail(env["MEZAN_ALERT_EMAIL"]),
     secretsKey: trimmedOrUndefined(env["MEZAN_SECRETS_KEY"]),
     postgres: parsePostgres(env),
+    firebase: parseFirebase(env),
   });
 }
 
@@ -421,6 +455,15 @@ export function bootRefusals(env: CloudEnv): string[] {
   }
   if (env.paymob.mode === PaymobMode.Test && !env.seedDemo) {
     refusals.push("MEZAN_PAYMOB_TEST_MODE=1 is only allowed with MEZAN_SEED_DEMO=1. Set the four MEZAN_PAYMOB_* keys for real card checkout, or leave it off.");
+  }
+  if (env.firebase?.authEmulatorHost) {
+    refusals.push("MEZAN_FIREBASE_AUTH_EMULATOR_HOST (or FIREBASE_AUTH_EMULATOR_HOST) accepts unsigned sign-in tokens; it is for local development and tests only.");
+  }
+  if (env.firebase && !env.firebase.serviceAccountJson) {
+    refusals.push("MEZAN_FIREBASE_PROJECT_ID needs MEZAN_FIREBASE_SERVICE_ACCOUNT: without it a password reset cannot take the old Firebase password away.");
+  }
+  if (env.firebase && (env.seedDemo || env.reviewTenant)) {
+    refusals.push("the demo and reviewer companies sign in with passwords; they cannot run beside MEZAN_FIREBASE_PROJECT_ID.");
   }
   if (env.reviewTenant && !env.supportEmail) refusals.push("a reviewer tenant needs MEZAN_SUPPORT_EMAIL for the account-deletion page.");
   if (env.seedDemo && (env.demoPassword ?? "").length < MIN_DEMO_PASSWORD_LENGTH) {

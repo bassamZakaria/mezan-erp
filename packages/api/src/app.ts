@@ -403,6 +403,8 @@ export interface CreateAppOptions {
   readonly companyOwner?: UsersRoutesOptions["owner"];
   readonly onUserCredentialSetByOther?: UsersRoutesOptions["onCredentialSetByOther"];
   readonly onUserCreated?: UsersRoutesOptions["onUserCreated"];
+  // SECURITY: the cloud edition. Firebase holds these users' passwords, so their in-app password and email changes answer 410.
+  readonly credentialsHeldByFirebase?: (userId: string) => boolean;
   /** Mounts `/audit` — the read-only audit query surface — when present. */
   readonly audit?: { readonly store: AuditQueryPort; readonly unrecorded?: SecurityEventFallback; readonly resolveAuthContext?: AuthContextResolver };
   /** Mounts `/label-layouts` when present — the sticker-sheet geometries the label screen renders. */
@@ -1919,6 +1921,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
       owner: options.companyOwner,
       onCredentialSetByOther: options.onUserCredentialSetByOther,
       onUserCreated: options.onUserCreated,
+      credentialsHeldByFirebase: options.credentialsHeldByFirebase,
       sessions: options.security?.sessions,
       loginThrottle: options.security?.loginThrottle,
       provisioning: { branches: options.branchStore, warehouses: options.warehouseStore, preferences: options.userPreferences },
@@ -1933,7 +1936,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
         : undefined,
     }),
   );
-  app.route("/profile", createProfileRoutes(uow, hasher, resolveAuth, options.auditSink));
+  app.route("/profile", createProfileRoutes(uow, hasher, resolveAuth, options.auditSink, options.credentialsHeldByFirebase));
   if (options.printTemplateConfig) {
     app.route(
       "/print-template-config",

@@ -33,7 +33,7 @@ import {
   type ScopeSelection,
   type SecretHasher,
 } from "@mezan/domain";
-import { CurrentSecretRefusal, ErasureRetention, OwnerHandOverOutcome, createUserSchema, deactivateUserSchema, eraseUserSchema, updateUserSchema } from "@mezan/contracts";
+import { CurrentSecretRefusal, FirebaseRefusal, ErasureRetention, OwnerHandOverOutcome, createUserSchema, deactivateUserSchema, eraseUserSchema, updateUserSchema } from "@mezan/contracts";
 import { EMPTY_ERASURE_COUNTS, type UserErasurePort } from "./user-erasure.js";
 import {
   createPermissionGate,
@@ -154,6 +154,8 @@ export interface UsersRoutesOptions {
   readonly onCredentialSetByOther?: (userId: string, actorId: string) => void | Promise<void>;
   // CONTRACT: called once per created user with the plaintext temporary password, so the cloud host can email the invitation; never logged or stored.
   readonly onUserCreated?: (created: { readonly user: User; readonly temporaryPassword: string }) => Promise<void>;
+  // The temporary password then signs in nowhere; the invitation carries a Firebase link instead, so it is not shown.
+  readonly credentialsHeldByFirebase?: (userId: string) => boolean;
   /**
    * The tenant's allowed email domains, read per request rather than captured
    * at mount: an admin who adds a domain in الإعدادات must not have to restart
@@ -722,7 +724,8 @@ export function createUsersRoutes(
         log.error({ errName: err instanceof Error ? err.name : typeof err }, "the user was created, but sending the invitation failed"),
       );
       if (generated) c.header("cache-control", "no-store");
-      return c.json(generated ? { ...serializeUser(user), temporaryPassword: generated } : serializeUser(user), 201);
+      const shown = generated && !options.credentialsHeldByFirebase?.(user.id) ? generated : null;
+      return c.json(shown ? { ...serializeUser(user), temporaryPassword: shown } : serializeUser(user), 201);
     } catch (err) {
       return userErrorResponse(c, err);
     }
@@ -749,6 +752,16 @@ export function createUsersRoutes(
     const change = credentialChange(fields);
     const actorId = getAuthContext(c)?.userId;
     const ownCredentials = actorId === id && (normalizeEmail(fields.email) !== before.email || change.passwordChanged);
+    if (ownCredentials && options.credentialsHeldByFirebase?.(id)) {
+      return c.json(
+        {
+          error: FirebaseRefusal.SignInWithFirebase,
+          message: "تُدار كلمة المرور من صفحة الدخول (نسيت كلمة المرور). ولتغيير بريدك الإلكتروني اطلب ذلك من مدير نظام آخر.",
+          messageEn: "Your password is managed on the sign-in page (Forgot password). To change your own email, ask another administrator.",
+        },
+        410,
+      );
+    }
     if (ownCredentials) {
       const unproven = await refuseOwnCredentialChange(c, before, { currentPassword });
       if (unproven) return unproven;

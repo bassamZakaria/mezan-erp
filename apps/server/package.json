@@ -13,6 +13,7 @@
     "@mezan/domain": "workspace:*",
     "@mezan/persistence": "workspace:*",
     "@mezan/persistence-postgres": "workspace:*",
+    "firebase-admin": "^13.10.0",
     "hono": "^4.13.7",
     "tar": "^7.5.22"
   },

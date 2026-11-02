@@ -13,7 +13,7 @@ import {
   type SecretHasher,
   type AuditSink,
 } from "@mezan/domain";
-import { updateProfileSchema, changePasswordSchema } from "@mezan/contracts";
+import { updateProfileSchema, changePasswordSchema, FirebaseRefusal } from "@mezan/contracts";
 import { displacedSessionRefusal, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
 import { createPrecomputingHasher } from "./precomputed-secrets.js";
 
@@ -102,8 +102,18 @@ export function createProfileRoutes(
   hasher: SecretHasher,
   resolveAuthContext: AuthContextResolver,
   audit?: AuditSink,
+  credentialsHeldByFirebase: (userId: string) => boolean = () => false,
 ) {
   const app = new Hono();
+  const changeInFirebase = (c: Context) =>
+    c.json(
+      {
+        error: FirebaseRefusal.SignInWithFirebase,
+        message: "تُدار كلمة المرور من صفحة الدخول (نسيت كلمة المرور). ولتغيير البريد الإلكتروني اطلب ذلك من مدير النظام.",
+        messageEn: "Your password is managed on the sign-in page (Forgot password). To change your email, ask your administrator.",
+      },
+      410,
+    );
   const requireAuth = requireCaller(resolveAuthContext);
   const secrets = createPrecomputingHasher(hasher);
 
@@ -167,6 +177,7 @@ export function createProfileRoutes(
     try {
       const before = await uow.users.findById(callerId);
       if (!before) return c.json({ error: "NOT_FOUND" }, 404);
+      if (credentialsHeldByFirebase(callerId) && !sameEmail(before.email, details.email)) return changeInFirebase(c);
       if (sameEmail(before.email, details.email)) {
         return c.json(serializeProfile(await updateOwnProfile(callerId, details, uow)));
       }
@@ -219,6 +230,7 @@ export function createProfileRoutes(
 
   app.post("/change-password", requireAuth, async (c) => {
     const callerId = resolveCallerId(c);
+    if (credentialsHeldByFirebase(callerId)) return changeInFirebase(c);
     const parsed = changePasswordSchema.safeParse(await c.req.json());
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);

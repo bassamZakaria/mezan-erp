@@ -174,3 +174,7 @@ Add a reading here only after driving it in the running app, and date it.
   users get a random temporary password and must change it at first sign-in (emailed on web, shown once on
   desktop). Existing test users and the demo seed use `Cyag@2026`, not forced to change. No 2FA for now.
   Mobile moves to password in a later lane (mobile sign-in is broken until then).
+- 2026-11-02 (owner, superseding 2026-10-30 for the cloud edition only, DEC-33): **the cloud signs in through
+  Firebase — email + password and Google.** Firebase holds every cloud password; Mezan's own password, reset,
+  unlock and change routes answer 410 there. Desktop and LAN tills keep email + password. Invitations and resets
+  mail a Firebase set-password link; existing users are imported with their passwords.

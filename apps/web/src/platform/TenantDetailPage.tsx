@@ -386,7 +386,7 @@ export function TenantDetailPage() {
                   <span dir="ltr" className="break-all text-[13px] font-semibold text-ink">{ownerPasswordReset.signInEmail}</span>
                 </div>
               )}
-              <TemporaryPasswordField label={t("platform.newTenant.result.adminPassword")} password={ownerPasswordReset.adminPassword} />
+              <TemporaryPasswordField label={t("platform.newTenant.result.adminPassword")} password={ownerPasswordReset.adminPassword} fallback={t("platform.newTenant.result.setPasswordLinkMailed")} />
             </div>
             <p role="status" className="text-[11.5px] font-semibold text-warning-ink">{t("platform.newTenant.result.oneTime")}</p>
             <div>
@@ -408,7 +408,7 @@ export function TenantDetailPage() {
           <div className="flex flex-col gap-[10px]">
             <p className="text-[12.5px] text-ink-muted">{t("platform.newTenant.result.hint")}</p>
             <div className="flex flex-col gap-[10px] rounded-md border border-border bg-surface-2 p-[14px]">
-              <TemporaryPasswordField label={t("platform.newTenant.result.adminPassword")} password={retryResult.adminPassword} fallback={t("platform.newTenant.result.passwordKept")} />
+              <TemporaryPasswordField label={t("platform.newTenant.result.adminPassword")} password={retryResult.adminPassword} fallback={t(retryResult.setPasswordLinkMailed ? "platform.newTenant.result.setPasswordLinkMailed" : "platform.newTenant.result.passwordKept")} />
             </div>
             <p role="alert" className="text-[11.5px] font-semibold text-warning-ink">{t("platform.newTenant.result.oneTime")}</p>
           </div>

@@ -278,6 +278,8 @@ export const provisionResultSchema = z.object({
   adminEmail: z.string().min(1),
   /** The owner's temporary password, changed at first sign-in. Null on a resumed provision — the admin already exists from an earlier call, and its password is not re-issued. */
   adminPassword: z.string().min(8).nullable(),
+  /** The cloud signs in through Firebase: the owner was mailed a set-password link and no password is shown. */
+  setPasswordLinkMailed: z.boolean().optional(),
 });
 
 /** Mirrors `MAX_EXTRA_CAPACITY` / `MAX_GRACE_DAYS` in `packages/domain/src/platform/subscription.ts`; `@mezan/contracts` may not import `@mezan/domain`. */
@@ -330,7 +332,8 @@ export enum PlatformPaymentRefusal {
 export const ownerPasswordResetResultSchema = z.object({
   adminEmail: z.string().min(1),
   signInEmail: z.string().min(1),
-  adminPassword: z.string().min(8),
+  adminPassword: z.string().min(8).nullable(),
+  setPasswordLinkMailed: z.boolean().optional(),
 });
 
 export enum SubscriptionStatusCode {

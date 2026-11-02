@@ -102,7 +102,8 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
   const lookupFailing = lookupFailingNow || (lastLookupFailure !== null && !lookupAnswered);
   const hostMessage = lookupFailingNow ? hostMessageNow : lookupFailing ? (lastLookupFailure?.hostMessage ?? null) : null;
   const lookupHost = useMemo(() => lookupHostOf(), []);
-  const signInConfig = useSignInConfig({ enabled: lookupHost === LookupHost.Cloud });
+  // Asked once the lookup has answered: a host with no platform in front signs in with its own passwords.
+  const signInConfig = useSignInConfig({ enabled: lookupHost === LookupHost.Cloud && lookupAnswered && !noPlatformInFront(platformResolve.error) });
   const firebaseConfig = signInConfig.data?.firebase ?? null;
   useEffect(() => {
     if (firebaseConfig) prepareFirebase(firebaseConfig);

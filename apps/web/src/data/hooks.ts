@@ -329,7 +329,6 @@ import { ApprovalRequestScope, MAX_PAGE_SIZE, type ApprovalRequestCountsDTO, Ten
 import { UserStatusCode } from "@mezan/domain";
 import { FIREBASE_SIGN_IN_PATH, useApi } from "./ApiContext";
 import { SIGN_IN_CONFIG_KEY, SIGN_IN_CONFIG_PATH, fetchSignInConfig } from "../login/firebase-sign-in";
-import { LookupHost, lookupHostOf } from "../login/lookup-host";
 import { sessionHolds, sessionMayAsk, sessionMayAskScreen } from "./session";
 import type { TransportResponse } from "./transport";
 import { BranchRefusalCode } from "@mezan/contracts";
@@ -602,8 +601,7 @@ export function useSignInConfig(options: { enabled?: boolean } = {}): UseQueryRe
 
 /** True on the cloud edition when Firebase holds the signed-in user's password and email. */
 export function useCredentialsInFirebase(): boolean {
-  const onCloud = lookupHostOf() === LookupHost.Cloud;
-  return useSignInConfig({ enabled: onCloud }).data?.firebase != null && onCloud;
+  return useApi().session?.credentialsInFirebase === true;
 }
 
 export function usePlatformResolve(options: { enabled?: boolean } = {}): UseQueryResult<PlatformResolveDTO, ApiError> {

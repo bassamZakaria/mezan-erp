@@ -185,6 +185,7 @@ async function toSession(user: User, deps: AuthRoutesDeps, origin: string | null
     branchScope: user.branchScope === ALL_SCOPE ? "*" : [...user.branchScope],
     warehouseScope: user.warehouseScope === ALL_SCOPE ? "*" : [...user.warehouseScope],
     tenantName: await tenantName(deps.settings),
+    ...(deps.firebase ? { credentialsInFirebase: true } : {}),
     // The client gets a token and nothing else it could forge with. The
     // permissions travel too, but only so the UI can hide what the user cannot
     // do — the server re-reads them from this session on every request and

@@ -108,6 +108,7 @@ describe("Firebase sign-in on the cloud edition", () => {
     expect(session.email).toBe(OWNER.email);
     expect(session.permissions).toEqual(["*"]);
     expect(session.token).toBeTruthy();
+    expect(session.credentialsInFirebase).toBe(true);
   });
 
   it.each([

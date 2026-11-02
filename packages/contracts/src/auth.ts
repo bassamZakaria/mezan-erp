@@ -134,6 +134,8 @@ export const sessionSchema = z.object({
   branchScope: scopeSelectionSchema,
   warehouseScope: scopeSelectionSchema,
   tenantName: z.string(),
+  /** True on the cloud edition, where Firebase holds this user's password and email; absent elsewhere. */
+  credentialsInFirebase: z.boolean().optional(),
   /**
    * The opaque session token. Every subsequent request carries it, and the
    * server resolves the caller's permissions from ITS copy of the grant — the

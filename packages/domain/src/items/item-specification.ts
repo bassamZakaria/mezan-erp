@@ -1,3 +1,4 @@
+import type { BilingualReason } from "../collections/errors.js";
 import {
   DuplicateItemSpecificationCodeError,
   InvalidItemSpecificationError,
@@ -90,27 +91,36 @@ const SPECIFICATION_TYPE_LABELS_AR: Readonly<Record<ItemSpecificationType, strin
   text: "نص",
 };
 
-function collectErrors(specification: ItemSpecification): string[] {
-  const reasons: string[] = [];
+function collectErrors(specification: ItemSpecification): BilingualReason[] {
+  const reasons: BilingualReason[] = [];
   if (!CODE_PATTERN.test(specification.code)) {
-    reasons.push("الكود يجب أن يتكون من 1 إلى 20 حرفًا/رقمًا إنجليزيًا كبيرًا أو -/_");
+    reasons.push({
+      ar: "الكود يجب أن يتكون من 1 إلى 20 حرفًا/رقمًا إنجليزيًا كبيرًا أو -/_",
+      en: "The code must be 1 to 20 uppercase English letters, digits, hyphens or underscores",
+    });
   }
-  if (specification.nameAr.trim() === "") reasons.push("اسم المواصفة بالعربية مطلوب");
+  if (specification.nameAr.trim() === "") reasons.push({ ar: "اسم المواصفة بالعربية مطلوب", en: "The Arabic specification name is required" });
 
   if (specification.type === "select") {
     if (specification.values.length === 0) {
-      reasons.push("مواصفة من نوع قائمة اختيار تحتاج قيمة واحدة مسموحة على الأقل");
+      reasons.push({
+        ar: "مواصفة من نوع قائمة اختيار تحتاج قيمة واحدة مسموحة على الأقل",
+        en: "A select-list specification needs at least one allowed value",
+      });
     }
     if (new Set(specification.values).size !== specification.values.length) {
-      reasons.push("القيم المسموحة يجب أن تكون فريدة");
+      reasons.push({ ar: "القيم المسموحة يجب أن تكون فريدة", en: "The allowed values must be unique" });
     }
-    if (specification.unit !== null) reasons.push("مواصفة من نوع قائمة اختيار لا يمكن أن تحمل وحدة قياس");
+    if (specification.unit !== null) reasons.push({ ar: "مواصفة من نوع قائمة اختيار لا يمكن أن تحمل وحدة قياس", en: "A select-list specification cannot carry a unit of measure" });
   } else {
     if (specification.values.length > 0) {
-      reasons.push(`مواصفة من نوع "${SPECIFICATION_TYPE_LABELS_AR[specification.type]}" لا يمكن أن تحمل قيمًا مسموحة`);
+      reasons.push({
+        ar: `مواصفة من نوع "${SPECIFICATION_TYPE_LABELS_AR[specification.type]}" لا يمكن أن تحمل قيمًا مسموحة`,
+        en: `A ${specification.type} specification cannot carry allowed values`,
+      });
     }
     if (specification.type === "text" && specification.unit !== null) {
-      reasons.push("مواصفة من نوع نص لا يمكن أن تحمل وحدة قياس");
+      reasons.push({ ar: "مواصفة من نوع نص لا يمكن أن تحمل وحدة قياس", en: "A text specification cannot carry a unit of measure" });
     }
   }
   return reasons;

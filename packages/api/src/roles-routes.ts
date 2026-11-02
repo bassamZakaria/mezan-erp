@@ -19,6 +19,7 @@ import {
   type Role,
   type SodConflictMatch,
   type UnitOfWork,
+  actionTypeLabels,
 } from "@mezan/domain";
 import { createRoleFromTemplateSchema, createRoleSchema, updateRoleSchema, type RoleFromTemplateResultDTO, type RoleTemplateDTO } from "@mezan/contracts";
 import {
@@ -44,22 +45,22 @@ function serializeRole(role: Role) {
 
 function roleErrorResponse(c: Context, err: unknown) {
   if (err instanceof UnknownPermissionError || err instanceof UnlicensedPermissionError) {
-    return c.json({ error: err.code, message: err.message, permission: err.permission }, 400);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, permission: err.permission }, 400);
   }
   if (err instanceof DuplicateRoleCodeError) {
-    return c.json({ error: err.code, message: err.message }, 409);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
   }
   if (err instanceof SystemRoleImmutableError) {
-    return c.json({ error: err.code, message: err.message }, 403);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 403);
   }
   if (err instanceof PlatformOnlyPermissionError || err instanceof UngrantablePermissionError) {
-    return c.json({ error: err.code, message: err.message, permission: err.permission }, 403);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, permission: err.permission }, 403);
   }
   if (err instanceof RoleNotFoundError) {
-    return c.json({ error: err.code, message: err.message }, 404);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 404);
   }
   if (err instanceof RoleInUseError) {
-    return c.json({ error: err.code, message: err.message }, 409);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
   }
   throw err;
 }
@@ -158,7 +159,7 @@ export function createRolesRoutes(
    */
   function refuseUnauthenticated(c: Context) {
     return c.json(
-      { error: "PRIVILEGE_ESCALATION_DENIED", message: "لا يمكنك منح صلاحيات لا تملكها." },
+      { error: "PRIVILEGE_ESCALATION_DENIED", message: "لا يمكنك منح صلاحيات لا تملكها.", messageEn: "You cannot grant permissions you do not have." },
       403,
     );
   }
@@ -172,6 +173,7 @@ export function createRolesRoutes(
         error: "PRIVILEGE_ESCALATION_DENIED",
         permissions: ungrantable,
         message: "لا يمكنك منح صلاحيات لا تملكها.",
+        messageEn: "You cannot grant permissions you do not have.",
       },
       403,
     );
@@ -305,6 +307,8 @@ export function createRolesRoutes(
         conflicts,
         message:
           "هذا الدور يجمع بين طرفي فصل مهام لا يجوز الجمع بينهما. أرسل acknowledge مع سبب لحفظه رغم ذلك.",
+        messageEn:
+          "This role combines two sides of a segregation-of-duties pair that must not be combined. Send acknowledge with a reason to save it anyway.",
       },
       409,
     );
@@ -317,7 +321,8 @@ export function createRolesRoutes(
         error: "ROLE_USED_BY_WORKFLOW",
         code,
         actionTypes: [...actionTypes],
-        message: `الدور "${code}" مستخدم في سلسلة موافقات (${actionTypes.join("، ")}) ولا يمكن حذفه أو تغيير رمزه.`,
+        message: `الدور "${code}" مستخدم في سلسلة موافقات (${actionTypes.map((type) => actionTypeLabels(type).ar).join("، ")}) ولا يمكن حذفه أو تغيير رمزه.`,
+        messageEn: `The role "${code}" is used by an approval chain (${actionTypes.map((type) => actionTypeLabels(type).en).join(", ")}) and cannot be deleted or have its code changed.`,
       },
       409,
     );
@@ -380,7 +385,7 @@ export function createRolesRoutes(
     const before = await uow.roles.findById(c.req.param("id"));
     // A missing role was a silent 204 that deleted nothing and audited a row
     // about an entity that never existed.
-    if (!before) return c.json({ error: "ROLE_NOT_FOUND", message: "الدور غير موجود." }, 404);
+    if (!before) return c.json({ error: "ROLE_NOT_FOUND", message: "الدور غير موجود.", messageEn: "The role was not found." }, 404);
     // The same guard `PUT` runs, and for the same reason: a role's EXISTING
     // permissions are authority, so removing the role is a privilege change on
     // anything that referenced it. `POST` and `PUT` both checked; `DELETE`

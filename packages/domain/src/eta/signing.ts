@@ -45,12 +45,10 @@ export interface EtaSigningPort {
 
 export class EtaSigningUnavailableError extends Error {
   readonly code = "ETA_SIGNING_UNAVAILABLE";
-  constructor(reason?: string) {
-    super(
-      reason ??
-        "لا توجد خدمة ختم إلكتروني موصولة، فبقيت الوثيقة في انتظار الختم ولم تُرسل. " +
-          "No e-seal signing agent is wired; the document is parked, not filed.",
-    );
+  readonly messageEn: string;
+  constructor(reason?: string, reasonEn?: string) {
+    super(reason ?? "لا توجد خدمة ختم إلكتروني موصولة، فبقيت الوثيقة في انتظار الختم ولم تُرسل.");
+    this.messageEn = reasonEn ?? reason ?? "No e-seal signing agent is wired; the document is parked, not filed.";
     this.name = "EtaSigningUnavailableError";
   }
 }

@@ -1,3 +1,4 @@
+import { splitReasons, type ReasonInput } from "../bilingual-reasons.js";
 /**
  * Fixed-assets domain errors (Asset Register, Asset Categories, Depreciation Runs). Stable `code`s so the api/UI can branch.
  * `message` is Arabic because the client shows it verbatim (D280); `messageEn` carries the English.
@@ -9,6 +10,17 @@ const RUN_STATUS_AR: Readonly<Record<string, string>> = {
   reversed: "معكوس",
   cancelled: "ملغى",
 };
+
+const RUN_STATUS_EN: Readonly<Record<string, string>> = {
+  draft: "draft",
+  posted: "posted",
+  reversed: "reversed",
+  cancelled: "cancelled",
+};
+
+function runStatusEn(status: string): string {
+  return RUN_STATUS_EN[status] ?? status;
+}
 
 function runStatusAr(status: string): string {
   return RUN_STATUS_AR[status] ?? status;
@@ -29,9 +41,12 @@ export class DuplicateAssetCategoryCodeError extends Error {
 export class InvalidAssetCategoryError extends Error {
   readonly code = "INVALID_ASSET_CATEGORY";
   readonly messageEn: string;
-  constructor(readonly reasons: readonly string[]) {
-    super(`بيانات فئة الأصول غير صالحة: ${reasons.join("، ")}`);
-    this.messageEn = `Invalid asset category: ${reasons.join("; ")}`;
+  readonly reasons: readonly string[];
+  constructor(reasons: readonly ReasonInput[]) {
+    const split = splitReasons(reasons, "the asset category failed validation");
+    super(`بيانات فئة الأصول غير صالحة: ${split.ar.join("، ")}`);
+    this.reasons = split.ar;
+    this.messageEn = `Invalid asset category: ${split.en}`;
     this.name = "InvalidAssetCategoryError";
   }
 }
@@ -62,9 +77,12 @@ export class DuplicateAssetCodeError extends Error {
 export class InvalidAssetError extends Error {
   readonly code = "INVALID_ASSET";
   readonly messageEn: string;
-  constructor(readonly reasons: readonly string[]) {
-    super(`بيانات الأصل غير صالحة: ${reasons.join("، ")}`);
-    this.messageEn = `Invalid asset: ${reasons.join("; ")}`;
+  readonly reasons: readonly string[];
+  constructor(reasons: readonly ReasonInput[]) {
+    const split = splitReasons(reasons, "the asset failed validation");
+    super(`بيانات الأصل غير صالحة: ${split.ar.join("، ")}`);
+    this.reasons = split.ar;
+    this.messageEn = `Invalid asset: ${split.en}`;
     this.name = "InvalidAssetError";
   }
 }
@@ -107,7 +125,7 @@ export class DepreciationRunNotDraftError extends Error {
   ) {
     const discard = action === DepreciationRunDraftAction.Discard;
     super(`لا يمكن ${discard ? "استبعاد" : "ترحيل"} تشغيل الإهلاك "${runId}" لأن حالته «${runStatusAr(status)}» وليست مسودة.`);
-    this.messageEn = `Depreciation run "${runId}" is "${status}", not a draft, and cannot be ${discard ? "discarded" : "posted"}.`;
+    this.messageEn = `Depreciation run "${runId}" is "${runStatusEn(status)}", not a draft, and cannot be ${discard ? "discarded" : "posted"}.`;
     this.name = "DepreciationRunNotDraftError";
   }
 }
@@ -121,7 +139,7 @@ export class DepreciationRunNotPostedError extends Error {
     readonly status: string,
   ) {
     super(`لا يمكن عكس تشغيل الإهلاك "${runId}" لأن حالته «${runStatusAr(status)}» وليس مُرحَّلاً.`);
-    this.messageEn = `Depreciation run "${runId}" is "${status}", not posted, and cannot be reversed.`;
+    this.messageEn = `Depreciation run "${runId}" is "${runStatusEn(status)}", not posted, and cannot be reversed.`;
     this.name = "DepreciationRunNotPostedError";
   }
 }

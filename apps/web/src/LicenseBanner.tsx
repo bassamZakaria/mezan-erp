@@ -1,6 +1,6 @@
 import { useCountPhrase } from "./lib/count-phrase";
 import { useState } from "react";
-import { Button, Checkbox } from "@mezan/ui";
+import { Button, Checkbox, type Locale } from "@mezan/ui";
 import { LicenseReasonCode, CountedNoun } from "@mezan/domain";
 import { useDesktopLicence } from "./data/hooks";
 import {
@@ -12,6 +12,7 @@ import {
 import { CopyableValue } from "./settings/SupportInfoCard";
 import { useStartRenewal, useTenantBilling } from "./billing/hooks";
 import { routePathForScreen } from "./routing";
+import { pickMessage } from "./data/server-message";
 import { useAppTranslation, type AppTranslationKey } from "./i18n";
 
 /**
@@ -209,7 +210,7 @@ export function LicenseBanner() {
   }
 
   const checkinNotice = checkinMessage(checkin.data?.outcome ?? null, t);
-  const importNotice = importMessage(importLicence.data ?? null, t);
+  const importNotice = importMessage(importLicence.data ?? null, t, locale);
 
   const actions = (
     <div className="mt-[10px] flex flex-wrap items-center gap-[10px]">
@@ -400,12 +401,13 @@ function checkinMessage(
 function importMessage(
   result:
     | { ok: true; status: { plan: string; seats: number; expiresAt: string | null }; accepted: boolean }
-    | { ok: false; code: string; message: string }
+    | { ok: false; code: string; message: string; messageEn?: string }
     | null,
   t: (key: AppTranslationKey, vars?: Record<string, string>) => string,
+  locale: Locale,
 ): string | null {
   if (result === null) return null;
-  if (!result.ok) return result.code === "CANCELLED" ? null : result.message;
+  if (!result.ok) return result.code === "CANCELLED" ? null : pickMessage(result, locale);
   if (!result.accepted) return t("licenceUi.importRefused");
   const expiry = result.status.expiresAt ? result.status.expiresAt.slice(0, 10) : null;
   return expiry

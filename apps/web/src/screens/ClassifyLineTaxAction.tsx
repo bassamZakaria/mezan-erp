@@ -6,6 +6,7 @@ import { useApi } from "../data/ApiContext";
 import { ClassifiableDocument, useClassifyLineTax, useRetryEtaReceipt, useVatEnabled } from "../data/hooks";
 import { DocumentReadPermission, sessionMayRead } from "../data/document-read-permissions";
 import { useNavigation } from "../navigation";
+import { pickLocalized } from "../data/server-message";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { SelectField } from "../settings/form-controls";
 
@@ -47,7 +48,7 @@ export interface ClassifyLineTaxActionProps {
 }
 
 export function ClassifyLineTaxAction({ document, documentId, posted, documentKind, line, lines, taxRates, openedExternally = false, onClosed }: ClassifyLineTaxActionProps) {
-  const { t } = useAppTranslation();
+  const { t, locale } = useAppTranslation();
   const { session } = useApi();
   const { navigate } = useNavigation();
   const classify = useClassifyLineTax(document);
@@ -99,7 +100,7 @@ export function ClassifyLineTaxAction({ document, documentId, posted, documentKi
     setError(null);
     try {
       const result = await classify.mutateAsync({ documentId, lineId: line.lineId, taxRateId, withLineIds: companions.map((other) => other.lineId) });
-      const outcome = outcomeOf(result.filing, result.filingMessage);
+      const outcome = outcomeOf(result.filing, pickLocalized(result.filingMessage, result.filingMessageEn, locale));
       if (!outcome) {
         closePanel();
         return;
@@ -120,7 +121,7 @@ export function ClassifyLineTaxAction({ document, documentId, posted, documentKi
     if (retryReceipt.isPending) return;
     try {
       const result = await retryReceipt.mutateAsync({ documentId });
-      setReceiptOutcome(outcomeOf(result.filing, result.filingMessage) ?? { text: t("classifyTax.outcome.nothingLeft"), failed: false });
+      setReceiptOutcome(outcomeOf(result.filing, pickLocalized(result.filingMessage, result.filingMessageEn, locale)) ?? { text: t("classifyTax.outcome.nothingLeft"), failed: false });
     } catch (err) {
       setReceiptOutcome({ text: err instanceof Error ? err.message : t("classifyTax.outcome.reissueFailed"), failed: true });
     }

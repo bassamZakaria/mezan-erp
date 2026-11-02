@@ -46,7 +46,7 @@ export function assertReturnTotalsWithinAvailable(docType: string, docId: string
       throw new InvalidDocumentError(
         docType,
         docId,
-        `بند الصنف "${itemId}": إجمالي كمية الإرجاع على بند الفاتورة نفسه (${requested.toString()}) يتجاوز المتاح للإرجاع (${available.toString()}).`,
+        `بند الصنف "${itemId}": إجمالي كمية الإرجاع على بند الفاتورة نفسه (${requested.toString()}) يتجاوز المتاح للإرجاع (${available.toString()}).`, `Item "${itemId}": the total return quantity against the same invoice line (${requested.toString()}) exceeds the quantity available to return (${available.toString()}).`,
       );
     }
   }
@@ -65,19 +65,19 @@ export function createReturnConfirmGuard<Line extends ReturnDocumentLine>(
     if (!sourceInvoiceId) return;
     const invoice = await findInvoice(sourceInvoiceId);
     if (!invoice) {
-      throw new InvalidDocumentError(docType, doc.id, "الفاتورة المصدر غير موجودة أو غير مؤكدة.");
+      throw new InvalidDocumentError(docType, doc.id, "الفاتورة المصدر غير موجودة أو غير مؤكدة.", "The source invoice does not exist or is not confirmed.");
     }
     const { overdrawn, unmatched } = overdrawnSourceLines(invoice.lines, doc.lines);
     const missing = unmatched[0];
     if (missing) {
-      throw new InvalidDocumentError(docType, doc.id, `بند الصنف "${missing.itemId}" غير موجود في الفاتورة المصدر.`);
+      throw new InvalidDocumentError(docType, doc.id, `بند الصنف "${missing.itemId}" غير موجود في الفاتورة المصدر.`, `Item "${missing.itemId}" is not on the source invoice.`);
     }
     const first = overdrawn[0];
     if (first) {
       throw new InvalidDocumentError(
         docType,
         doc.id,
-        `بند الصنف "${first.line.itemId}": كمية الإرجاع (${first.requested.toString()}) تتجاوز المتاح للإرجاع (${first.available.toString()}).`,
+        `بند الصنف "${first.line.itemId}": كمية الإرجاع (${first.requested.toString()}) تتجاوز المتاح للإرجاع (${first.available.toString()}).`, `Item "${first.line.itemId}": the return quantity (${first.requested.toString()}) exceeds the quantity available to return (${first.available.toString()}).`,
       );
     }
   };

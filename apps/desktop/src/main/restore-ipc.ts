@@ -200,6 +200,7 @@ export interface PasswordCheck {
   readonly outcome: PasswordCheckOutcome;
   /** Arabic, from the backend, when refused. */
   readonly message: string | null;
+  readonly messageEn?: string | null;
 }
 
 const KEY_CARD_SAVE_TTL_MS = 30 * 60 * 1000;
@@ -266,8 +267,24 @@ async function copyToSecondFolder(
   );
 }
 
-function failure(code: BackupFailure["code"], message: string): BackupFailure {
-  return { ok: false, code, message };
+const FAILURE_EN: Readonly<Record<BackupFailure["code"], string>> = {
+  UNAUTHORIZED: "You do not have permission to manage backups.",
+  UNAVAILABLE: "This is not available on this machine right now.",
+  NOT_FOUND: "The backup file was not found.",
+  INVALID_NAME: "The name, folder or file chosen is not valid for this operation.",
+  VERIFICATION_FAILED: "The backup could not be verified.",
+  WRONG_PASSPHRASE: "The backup passphrase is missing or wrong.",
+  CANCELLED: "Nothing was chosen.",
+  BUSY: "Another backup operation is running. Try again shortly.",
+  WEAK_PASSPHRASE: "The passphrase is too weak.",
+  WRONG_PASSWORD: "The password is incorrect.",
+  PASSWORD_REQUIRED: "Enter your password to confirm this change.",
+  KEY_CARD_NOT_SAVED: "Save the key file first, then confirm you moved it off this machine.",
+  FAILED: "The operation could not be completed.",
+};
+
+function failure(code: BackupFailure["code"], message: string, messageEn: string = FAILURE_EN[code]): BackupFailure {
+  return { ok: false, code, message, messageEn };
 }
 
 /** Who the SERVER says made this request. Never a name the caller asserts. */
@@ -838,10 +855,10 @@ export function registerRestoreOverIpc(deps: RestoreIpcDeps): void {
         }
         if (!deps.verifyPassword) return failure("UNAVAILABLE", "تعذّر التحقق من كلمة المرور على هذا الجهاز.");
         const check = await deps.verifyPassword(sessionToken as string, password).catch(
-          (): PasswordCheck => ({ outcome: PasswordCheckOutcome.Refused, message: null }),
+          (): PasswordCheck => ({ outcome: PasswordCheckOutcome.Refused, message: null, messageEn: null }),
         );
         if (check.outcome !== PasswordCheckOutcome.Confirmed) {
-          return failure("WRONG_PASSWORD", check.message ?? "كلمة المرور غير صحيحة.");
+          return failure("WRONG_PASSWORD", check.message ?? "كلمة المرور غير صحيحة.", check.messageEn ?? undefined);
         }
       }
 
@@ -1123,6 +1140,7 @@ export function registerClientBackupRefusalsOverIpc(hostUrl: string): void {
     ok: false,
     code: "UNAVAILABLE",
     message: `النسخ الاحتياطي يُدار من الجهاز الرئيسي (${hostUrl}). هذا الجهاز محطة متصلة ولا يحتفظ بقاعدة بيانات خاصة به.`,
+    messageEn: `Backups are managed from the main machine (${hostUrl}). This machine is a connected till and keeps no database of its own.`,
   };
   handleGuarded(MEZAN_BACKUP_LIST_CHANNEL, () => refusal);
   handleGuarded(MEZAN_BACKUP_CREATE_CHANNEL, () => refusal);

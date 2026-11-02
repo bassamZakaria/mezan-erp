@@ -1,3 +1,4 @@
+import type { BilingualReason } from "../collections/errors.js";
 import { isAttachmentEntityType, type Attachment, type AttachmentEntityType, type AttachmentRepository } from "./attachment.js";
 import { InvalidAttachmentError } from "./errors.js";
 
@@ -34,16 +35,25 @@ export function sanitizeAttachmentFileName(raw: string): string {
   return out.trim().slice(0, 200);
 }
 
-export function collectAttachmentErrors(command: CreateAttachmentCommand): string[] {
-  const reasons: string[] = [];
-  if (!isAttachmentEntityType(command.entityType)) reasons.push(`نوع الكيان غير معروف '${command.entityType}'`);
-  if (!command.entityId.trim()) reasons.push("معرّف الكيان مطلوب");
-  if (!sanitizeAttachmentFileName(command.fileName)) reasons.push("اسم الملف مطلوب");
-  if (command.bytes.byteLength === 0) reasons.push("لا يمكن إرفاق ملف فارغ");
+export function attachmentReasons(command: CreateAttachmentCommand): BilingualReason[] {
+  const reasons: BilingualReason[] = [];
+  if (!isAttachmentEntityType(command.entityType)) {
+    reasons.push({ ar: `نوع الكيان غير معروف '${command.entityType}'`, en: `Unknown entity type '${command.entityType}'` });
+  }
+  if (!command.entityId.trim()) reasons.push({ ar: "معرّف الكيان مطلوب", en: "The entity id is required" });
+  if (!sanitizeAttachmentFileName(command.fileName)) reasons.push({ ar: "اسم الملف مطلوب", en: "The file name is required" });
+  if (command.bytes.byteLength === 0) reasons.push({ ar: "لا يمكن إرفاق ملف فارغ", en: "An empty file cannot be attached" });
   if (command.bytes.byteLength > ATTACHMENT_MAX_BYTES) {
-    reasons.push(`حجم الملف ${command.bytes.byteLength} بايت، يتجاوز الحد الأقصى ${ATTACHMENT_MAX_BYTES} بايت`);
+    reasons.push({
+      ar: `حجم الملف ${command.bytes.byteLength} بايت، يتجاوز الحد الأقصى ${ATTACHMENT_MAX_BYTES} بايت`,
+      en: `The file is ${command.bytes.byteLength} bytes, which exceeds the maximum of ${ATTACHMENT_MAX_BYTES} bytes`,
+    });
   }
   return reasons;
+}
+
+export function collectAttachmentErrors(command: CreateAttachmentCommand): string[] {
+  return attachmentReasons(command).map((reason) => reason.ar);
 }
 
 export async function createAttachment(
@@ -51,7 +61,7 @@ export async function createAttachment(
   repo: AttachmentRepository,
   now: () => Date = () => new Date(),
 ): Promise<Attachment> {
-  const reasons = collectAttachmentErrors(command);
+  const reasons = attachmentReasons(command);
   if (reasons.length > 0) throw new InvalidAttachmentError(reasons);
 
   const id = command.id?.trim() || `ATT-${now().getTime().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;

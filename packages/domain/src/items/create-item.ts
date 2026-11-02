@@ -2,7 +2,7 @@ import type { Account } from "../accounts/index.js";
 import type { Money } from "../money/index.js";
 import { ItemStatusCode, type AlternateUnit, type CostingMethod, type EtaCodeType, type Item, type ItemRepository, type ItemStatus, type ItemType, type ItemSpecificationValue } from "./item.js";
 import { DuplicateItemCodeError, InvalidItemError } from "./errors.js";
-import { collectItemFieldErrors, validateGlAccountRefs } from "./validation.js";
+import { itemFieldReasons, glAccountRefReasons } from "./validation.js";
 import { itemTypeTracksStock } from "./item-type.js";
 
 export interface CreateItemCommand {
@@ -111,7 +111,7 @@ export function validateNewItem(
     throw new DuplicateItemCodeError(command.code);
   }
   const candidate = buildCandidate(command);
-  const reasons = [...collectItemFieldErrors(candidate), ...validateGlAccountRefs(candidate, accounts)];
+  const reasons = [...itemFieldReasons(candidate), ...glAccountRefReasons(candidate, accounts)];
   if (reasons.length > 0) throw new InvalidItemError(reasons);
 }
 

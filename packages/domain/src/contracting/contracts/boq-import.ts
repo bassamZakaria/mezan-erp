@@ -39,6 +39,7 @@ export interface BoqImportReviewRow {
   readonly rowNumber: number;
   readonly accepted: boolean;
   readonly problems: readonly string[];
+  readonly problemsEn: readonly string[];
   readonly value: BoqImportAcceptedRow | null;
   readonly raw: BoqImportRow;
 }
@@ -68,31 +69,36 @@ export function reviewBoqImport(
   const seen = new Set<string>();
   const reviewed: BoqImportReviewRow[] = rows.map((raw, index) => {
     const problems: string[] = [];
+    const problemsEn: string[] = [];
+    const flag = (ar: string, en: string) => {
+      problems.push(ar);
+      problemsEn.push(en);
+    };
     const code = (raw.code ?? "").toString().trim();
     const descriptionAr = (raw.descriptionAr ?? "").toString().trim();
 
-    if (code.length === 0) problems.push("كود البند مطلوب");
-    else if (taken.has(code) || seen.has(code)) problems.push(`كود البند "${code}" مكرر`);
-    if (descriptionAr.length === 0) problems.push("وصف البند مطلوب");
+    if (code.length === 0) flag("كود البند مطلوب", "The item code is required");
+    else if (taken.has(code) || seen.has(code)) flag(`كود البند "${code}" مكرر`, `The item code "${code}" is duplicated`);
+    if (descriptionAr.length === 0) flag("وصف البند مطلوب", "The item description is required");
 
     const unit = parseBoqUnit((raw.unit ?? "").toString());
-    if (!unit) problems.push(`وحدة غير معروفة: "${(raw.unit ?? "").toString().trim()}"`);
+    if (!unit) flag(`وحدة غير معروفة: "${(raw.unit ?? "").toString().trim()}"`, `Unknown unit: "${(raw.unit ?? "").toString().trim()}"`);
 
     const qty = decimalOrNull(raw.qty);
-    if (qty === null) problems.push("الكمية غير رقمية");
-    else if (qty.startsWith("-")) problems.push("الكمية لا يمكن أن تكون سالبة");
+    if (qty === null) flag("الكمية غير رقمية", "The quantity is not a number");
+    else if (qty.startsWith("-")) flag("الكمية لا يمكن أن تكون سالبة", "The quantity cannot be negative");
 
     const unitRate = decimalOrNull(raw.unitRate);
-    if (unitRate === null) problems.push("الفئة غير رقمية");
-    else if (unitRate.startsWith("-")) problems.push("الفئة لا يمكن أن تكون سالبة");
+    if (unitRate === null) flag("الفئة غير رقمية", "The unit rate is not a number");
+    else if (unitRate.startsWith("-")) flag("الفئة لا يمكن أن تكون سالبة", "The unit rate cannot be negative");
 
     const estimatedRaw = (raw.estimatedUnitCost ?? "").toString().trim();
     const estimated = estimatedRaw.length === 0 ? null : decimalOrNull(estimatedRaw);
-    if (estimatedRaw.length > 0 && estimated === null) problems.push("التكلفة التقديرية غير رقمية");
+    if (estimatedRaw.length > 0 && estimated === null) flag("التكلفة التقديرية غير رقمية", "The estimated cost is not a number");
 
     const categoryRaw = (raw.costCategory ?? "").toString().trim();
     const costCategory = categoryRaw.length === 0 ? null : categoryRaw;
-    if (costCategory !== null && !isCostCategory(costCategory)) problems.push(`فئة تكلفة غير معروفة: "${categoryRaw}"`);
+    if (costCategory !== null && !isCostCategory(costCategory)) flag(`فئة تكلفة غير معروفة: "${categoryRaw}"`, `Unknown cost category: "${categoryRaw}"`);
 
     const accepted = problems.length === 0;
     if (accepted && code.length > 0) seen.add(code);
@@ -102,6 +108,7 @@ export function reviewBoqImport(
       rowNumber: index + 1,
       accepted,
       problems,
+      problemsEn,
       raw,
       value:
         accepted && unit && qty !== null && unitRate !== null

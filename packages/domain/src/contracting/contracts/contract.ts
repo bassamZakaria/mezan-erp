@@ -40,11 +40,11 @@ export type VariationLineKind = "add" | "change";
 /** The date Law 157/2025 moved construction onto the standard VAT basis. */
 export const VAT_TRANSITIONAL_CUTOFF_DATE = "2025-07-18";
 
-export const WORKS_CONTRACT_STATUS_DEFINITIONS: readonly { code: WorksContractStatus; labelAr: string }[] = [
-  { code: "draft", labelAr: "مسودة" },
-  { code: "active", labelAr: "ساري" },
-  { code: "completed", labelAr: "منتهٍ" },
-  { code: "terminated", labelAr: "مفسوخ" },
+export const WORKS_CONTRACT_STATUS_DEFINITIONS: readonly { code: WorksContractStatus; labelAr: string; labelEn: string }[] = [
+  { code: "draft", labelAr: "مسودة", labelEn: "draft" },
+  { code: "active", labelAr: "ساري", labelEn: "active" },
+  { code: "completed", labelAr: "منتهٍ", labelEn: "completed" },
+  { code: "terminated", labelAr: "مفسوخ", labelEn: "terminated" },
 ] as const;
 
 export const WORKS_CONTRACT_TRANSITIONS: Readonly<Record<WorksContractStatus, readonly WorksContractStatus[]>> = {
@@ -56,6 +56,10 @@ export const WORKS_CONTRACT_TRANSITIONS: Readonly<Record<WorksContractStatus, re
 
 export function getWorksContractStatusLabel(status: WorksContractStatus): string {
   return WORKS_CONTRACT_STATUS_DEFINITIONS.find((d) => d.code === status)?.labelAr ?? status;
+}
+
+export function getWorksContractStatusLabelEn(status: WorksContractStatus): string {
+  return WORKS_CONTRACT_STATUS_DEFINITIONS.find((d) => d.code === status)?.labelEn ?? status;
 }
 
 export function canTransitionWorksContract(from: WorksContractStatus, to: WorksContractStatus): boolean {

@@ -122,7 +122,7 @@ export async function createConfigInstance(
   deps: CreateConfigInstanceDeps,
 ): Promise<CreateConfigInstanceResult> {
   if (command.qty.isZero() || command.qty.isNegative()) {
-    throw new InvalidManufacturingDocumentError(["الكمية يجب أن تكون أكبر من صفر"]);
+    throw new InvalidManufacturingDocumentError([{ ar: "الكمية يجب أن تكون أكبر من صفر", en: "The quantity must be greater than zero" }]);
   }
   const product = await deps.products.findById(command.configurableProductId);
   if (!product) throw new ConfigurableProductNotFoundError(command.configurableProductId);

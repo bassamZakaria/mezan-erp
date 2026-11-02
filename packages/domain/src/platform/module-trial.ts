@@ -45,7 +45,7 @@ export interface StartModuleTrialCommand {
 
 export async function startModuleTrial(cmd: StartModuleTrialCommand, repo: ModuleTrialRepository): Promise<ModuleTrial> {
   const now = isoTimestamp(cmd.now);
-  if (!now) throw new InvalidSubscriptionError(["الطابع الزمني الحالي غير صالح (يجب أن يكون بصيغة ISO-8601)"]);
+  if (!now) throw new InvalidSubscriptionError([{ ar: "الطابع الزمني الحالي غير صالح (يجب أن يكون بصيغة ISO-8601)", en: "The current timestamp is invalid (it must be ISO-8601)" }]);
   if (!isKnownModule(cmd.module)) {
     throw new ModuleTrialUnavailableError(cmd.module, `الوحدة "${cmd.module}" غير معروفة`, `Unknown module "${cmd.module}"`);
   }

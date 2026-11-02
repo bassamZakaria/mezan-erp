@@ -45,3 +45,12 @@ describe("fixed-assets errors are bilingual (D280)", () => {
     expect(new DepreciationRunNotPostedError("DR-1", "reversed").message).toContain("معكوس");
   });
 });
+
+describe("bilingual validation reasons", () => {
+  it("keeps Arabic reasons in message and reasons, English in messageEn", () => {
+    const err = new InvalidAssetError([{ ar: "سبب", en: "a reason" }, "سبب ثانٍ"]);
+    expect(err.reasons).toEqual(["سبب", "سبب ثانٍ"]);
+    expect(err.message).toContain("سبب، سبب ثانٍ");
+    expect(err.messageEn).toBe("Invalid asset: a reason; سبب ثانٍ");
+  });
+});

@@ -3,7 +3,7 @@ import type { BarcodeConfigDTO, UpdateBarcodeConfigDTO } from "@mezan/contracts"
 import { useApi } from "./ApiContext";
 import { useAppTranslation } from "../i18n";
 import { withSupportCode, type AppTranslate } from "./hooks";
-import { serverMessage, type ServerErrorBody } from "./server-message";
+import { serverReasons, type ServerReasonsBody } from "./server-message";
 
 /**
  * Barcode configuration hooks (docs' "barcode-config screen") — kept out of
@@ -27,11 +27,8 @@ async function readError(
   separator: string,
   t?: AppTranslate,
 ): Promise<string> {
-  const body = (await res.json<ServerErrorBody & { reasons?: string[] }>().catch(() => ({}))) as ServerErrorBody & {
-    reasons?: string[];
-  };
-  if (body.reasons && body.reasons.length > 0) return body.reasons.join(separator);
-  const message = serverMessage(body);
+  const body = (await res.json<ServerReasonsBody>().catch(() => ({}))) as ServerReasonsBody;
+  const message = serverReasons(body, separator);
   if (message !== undefined) return message;
   return withSupportCode(fallback, res.status, t);
 }

@@ -158,6 +158,7 @@ describe("sendTestEmail — the credential never comes back out", () => {
       ok: false,
       stage: "disabled",
       message: "البريد الإلكتروني غير مُفعَّل في الإعدادات.",
+      messageEn: "Email is not enabled in the settings.",
     });
     expect(server.connections()).toBe(0);
   });

@@ -19,6 +19,7 @@ export class LockBusyError extends Error {
 }
 
 export const LOCK_BUSY_AR = "هذا السجل قيد التعديل من طلب آخر الآن، أعد المحاولة بعد لحظات.";
+export const LOCK_BUSY_EN = "This record is being edited by another request right now. Try again in a moment.";
 
 export function createMemoryKeyedLock(): KeyedLock {
   const tails = new Map<string, Promise<unknown>>();
@@ -114,7 +115,7 @@ export function leaseBeforeTheTurn(options: LeaseBeforeTheTurnOptions) {
     const owner = randomUUID();
     const deadline = now() + waitMs;
     while (!(await options.inTurn(async () => options.store.tryAcquire(key, owner, now() + leaseMs, now())))) {
-      if (now() >= deadline) return c.json({ error: "RESOURCE_BUSY", message: LOCK_BUSY_AR }, 409);
+      if (now() >= deadline) return c.json({ error: "RESOURCE_BUSY", message: LOCK_BUSY_AR, messageEn: LOCK_BUSY_EN }, 409);
       await sleep(pollMs);
     }
     return () => void options.inTurn(async () => options.store.release(key, owner)).catch(() => undefined);

@@ -22,6 +22,16 @@ export function companyNameProblem(raw: string): CompanyNameProblem | null {
   return null;
 }
 
+const PROBLEM_EN: Record<CompanyNameProblem, string> = {
+  [CompanyNameProblem.Empty]: "The company name is required",
+  [CompanyNameProblem.TooLong]: `The company name is longer than ${COMPANY_NAME_MAX_LENGTH} characters`,
+  [CompanyNameProblem.ForbiddenCharacter]: "The company name contains characters that are not allowed",
+};
+
+export function companyNameProblemEn(problem: CompanyNameProblem): string {
+  return PROBLEM_EN[problem];
+}
+
 export function companyNameProblemAr(problem: CompanyNameProblem): string {
   return PROBLEM_AR[problem];
 }

@@ -1,3 +1,4 @@
+import type { BilingualReason } from "../collections/errors.js";
 /**
  * Data-migration import — ميزان المراجعة الافتتاحي (P-5).
  *
@@ -14,7 +15,7 @@
  * Pure: resolving an account CODE to its id is I/O and belongs to the API.
  */
 import { Money } from "../money/index.js";
-import type { ImportRowError } from "./row-errors.js";
+import { importRowError, type ImportRowError } from "./row-errors.js";
 
 export interface OpeningTrialBalanceRowInput {
   readonly rowNumber: number;
@@ -41,20 +42,20 @@ export function previewOpeningTrialBalanceImport(
   const seen = new Set<string>();
 
   for (const row of rows) {
-    const reasons: string[] = [];
+    const reasons: BilingualReason[] = [];
     const accountCode = row.accountCode.trim();
-    if (accountCode === "") reasons.push("كود الحساب مطلوب");
-    else if (seen.has(accountCode)) reasons.push(`كود الحساب "${accountCode}" مكرر داخل الملف`);
-    if (row.debit.scaled < 0n) reasons.push("الرصيد المدين لا يمكن أن يكون سالبًا");
-    if (row.credit.scaled < 0n) reasons.push("الرصيد الدائن لا يمكن أن يكون سالبًا");
+    if (accountCode === "") reasons.push({ ar: "كود الحساب مطلوب", en: "The account code is required" });
+    else if (seen.has(accountCode)) reasons.push({ ar: `كود الحساب "${accountCode}" مكرر داخل الملف`, en: `Account code "${accountCode}" is duplicated in the file` });
+    if (row.debit.scaled < 0n) reasons.push({ ar: "الرصيد المدين لا يمكن أن يكون سالبًا", en: "The debit balance cannot be negative" });
+    if (row.credit.scaled < 0n) reasons.push({ ar: "الرصيد الدائن لا يمكن أن يكون سالبًا", en: "The credit balance cannot be negative" });
     if (row.debit.scaled !== 0n && row.credit.scaled !== 0n) {
-      reasons.push("أدخل رصيداً مديناً أو دائناً — لا الاثنين معاً");
+      reasons.push({ ar: "أدخل رصيداً مديناً أو دائناً — لا الاثنين معاً", en: "Enter a debit or a credit balance — not both" });
     }
     if (row.debit.scaled === 0n && row.credit.scaled === 0n) {
-      reasons.push("أدخل رصيداً مديناً أو دائناً");
+      reasons.push({ ar: "أدخل رصيداً مديناً أو دائناً", en: "Enter a debit or a credit balance" });
     }
     if (reasons.length > 0) {
-      errors.push({ rowNumber: row.rowNumber, reasons });
+      errors.push(importRowError(row.rowNumber, reasons));
       continue;
     }
     seen.add(accountCode);

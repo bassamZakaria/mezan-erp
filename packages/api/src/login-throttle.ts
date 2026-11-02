@@ -107,6 +107,7 @@ export function signInBusy(seconds: number) {
     error: SignInRefusal.Busy,
     retryAfterSeconds: seconds,
     message: "الخادم مشغول الآن بطلبات دخول أخرى، ولم تُحتسب هذه المحاولة. أعد المحاولة بعد ثوانٍ.",
+    messageEn: "The server is busy with other sign-in requests right now, and this attempt was not counted. Try again in a few seconds.",
   };
 }
 
@@ -150,11 +151,17 @@ export function waitPhrase(seconds: number): string {
   return `${minutes} دقيقة`;
 }
 
+function waitPhraseEn(seconds: number): string {
+  if (seconds < 120) return `${seconds} seconds`;
+  return `${Math.ceil(seconds / 60)} minutes`;
+}
+
 export function tooManyAttempts(seconds: number) {
   return {
     error: SignInRefusal.TooManyAttempts,
     retryAfterSeconds: seconds,
     message: `محاولات دخول كثيرة. حاول بعد ${waitPhrase(seconds)}.`,
+    messageEn: `Too many sign-in attempts. Try again in ${waitPhraseEn(seconds)}.`,
   };
 }
 

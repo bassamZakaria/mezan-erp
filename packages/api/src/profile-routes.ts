@@ -58,16 +58,16 @@ function resolveCallerId(c: Context): string {
 
 function profileErrorResponse(c: Context, err: unknown) {
   if (err instanceof IncorrectPasswordError) {
-    return c.json({ error: err.code, message: err.message }, 403);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 403);
   }
   if (err instanceof InvalidUserError) {
-    return c.json({ error: err.code, message: err.message }, 400);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 400);
   }
   if (err instanceof DuplicateUserEmailError) {
-    return c.json({ error: err.code, message: err.message }, 409);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
   }
   if (err instanceof UserNotFoundError) {
-    return c.json({ error: err.code, message: err.message }, 404);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 404);
   }
   throw err;
 }
@@ -84,7 +84,7 @@ function requireCaller(resolveAuthContext: AuthContextResolver): MiddlewareHandl
     if (!ctx.userId || ctx.userId === "anonymous") {
       const displaced = displacedSessionRefusal(c);
       if (displaced) return displaced;
-      return c.json({ error: "UNAUTHENTICATED", message: "تسجيل الدخول مطلوب." }, 401);
+      return c.json({ error: "UNAUTHENTICATED", message: "تسجيل الدخول مطلوب.", messageEn: "Sign-in is required." }, 401);
     }
     c.set("authContext", ctx);
     await next();

@@ -36,7 +36,7 @@ export function transferHeaderOf(doc: StockTransferDocument): {
   toWarehouseId: string;
 } {
   const first = doc.lines[0];
-  if (!first) throw new InvalidDocumentError(DOC_TYPE, doc.id, "التحويل يتطلب بنداً واحداً على الأقل.");
+  if (!first) throw new InvalidDocumentError(DOC_TYPE, doc.id, "التحويل يتطلب بنداً واحداً على الأقل.", "A transfer needs at least one line.");
   return { fromWarehouseId: first.fromWarehouseId, toWarehouseId: first.toWarehouseId };
 }
 
@@ -51,19 +51,19 @@ export const stockTransferDocumentType: DocumentTypeDefinition<StockTransferDocL
   validate(doc) {
     const { lines } = doc;
     if (lines.length === 0) {
-      throw new InvalidDocumentError(DOC_TYPE, doc.id, "التحويل يتطلب بنداً واحداً على الأقل.");
+      throw new InvalidDocumentError(DOC_TYPE, doc.id, "التحويل يتطلب بنداً واحداً على الأقل.", "A transfer needs at least one line.");
     }
     const { fromWarehouseId, toWarehouseId } = transferHeaderOf(doc);
     if (fromWarehouseId === toWarehouseId) {
-      throw new InvalidDocumentError(DOC_TYPE, doc.id, "يجب أن يختلف مستودع المصدر عن مستودع الوجهة.");
+      throw new InvalidDocumentError(DOC_TYPE, doc.id, "يجب أن يختلف مستودع المصدر عن مستودع الوجهة.", "The source warehouse must differ from the destination warehouse.");
     }
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i] as StockTransferDocLine;
       if (line.fromWarehouseId !== fromWarehouseId || line.toWarehouseId !== toWarehouseId) {
-        throw new InvalidDocumentError(DOC_TYPE, doc.id, `بند ${i}: كل بنود التحويل يجب أن تكون بين نفس المستودعين.`);
+        throw new InvalidDocumentError(DOC_TYPE, doc.id, `بند ${i + 1}: كل بنود التحويل يجب أن تكون بين نفس المستودعين.`, `Line ${i + 1}: all transfer lines must be between the same two warehouses.`);
       }
       if (line.qty.isZero() || line.qty.isNegative()) {
-        throw new InvalidDocumentError(DOC_TYPE, doc.id, `بند ${i}: الكمية يجب أن تكون موجبة.`);
+        throw new InvalidDocumentError(DOC_TYPE, doc.id, `بند ${i + 1}: الكمية يجب أن تكون موجبة.`, `Line ${i + 1}: the quantity must be positive.`);
       }
     }
   },
@@ -91,6 +91,7 @@ export const stockTransferDocumentType: DocumentTypeDefinition<StockTransferDocL
         effects: [],
         blocked: true,
         blockedReason: "التحويل يتطلب بنداً واحداً على الأقل.",
+        blockedReasonEn: "A transfer needs at least one line.",
       });
     }
     const { fromWarehouseId, toWarehouseId } = transferHeaderOf(doc);

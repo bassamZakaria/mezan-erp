@@ -84,9 +84,13 @@ import {
  * figure reaches the SQLite writer and throws a RangeError there — a 500
  * where the caller should have been told what is wrong.
  */
-function assertStatementBalanceBound(statementId: string, label: string, amount: Money): void {
+function assertStatementBalanceBound(statementId: string, label: string, labelEn: string, amount: Money): void {
   if (amount.scaled > MAX_STATEMENT_BALANCE_SCALED || amount.scaled < -MAX_STATEMENT_BALANCE_SCALED) {
-    throw new InvalidStatementBalanceError(statementId, `${label} أكبر من أن يُسجَّل — راجع الرقم المُدخل.`);
+    throw new InvalidStatementBalanceError(
+      statementId,
+      `${label} أكبر من أن يُسجَّل — راجع الرقم المُدخل.`,
+      `The ${labelEn} is too large to be recorded — check the number entered.`,
+    );
   }
 }
 
@@ -334,8 +338,8 @@ export class BankReconciliationService {
 
   /** Import a CSV statement: persists the column mapping for the account, then the statement + its parsed lines. */
   async importStatement(cmd: ImportStatementCommand): Promise<{ statement: BankStatement; lines: readonly StatementLine[] }> {
-    assertStatementBalanceBound(cmd.id, "الرصيد الافتتاحي", cmd.openingBalance);
-    assertStatementBalanceBound(cmd.id, "الرصيد الختامي", cmd.closingBalance);
+    assertStatementBalanceBound(cmd.id, "الرصيد الافتتاحي", "opening balance", cmd.openingBalance);
+    assertStatementBalanceBound(cmd.id, "الرصيد الختامي", "closing balance", cmd.closingBalance);
     const account = await this.requireAccount(cmd.treasuryAccountId);
     const stamp = this.now();
     const mapping: StatementColumnMapping = { ...cmd.mapping, treasuryAccountId: cmd.treasuryAccountId, updatedAt: stamp };
@@ -437,8 +441,8 @@ export class BankReconciliationService {
     }
     if (opening === null) opening = closing!.add(linesTotal.negate());
     if (closing === null) closing = opening.add(linesTotal);
-    assertStatementBalanceBound(cmd.id, "الرصيد الافتتاحي", opening);
-    assertStatementBalanceBound(cmd.id, "الرصيد الختامي", closing);
+    assertStatementBalanceBound(cmd.id, "الرصيد الافتتاحي", "opening balance", opening);
+    assertStatementBalanceBound(cmd.id, "الرصيد الختامي", "closing balance", closing);
     const dates = parsed.rows.map((r) => r.date).sort();
     const stamp = this.now();
     const source = cmd.format === StatementFileFormat.Ofx ? BankStatementSource.Ofx : BankStatementSource.Mt940;

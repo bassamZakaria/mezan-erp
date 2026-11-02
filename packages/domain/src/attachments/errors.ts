@@ -1,3 +1,5 @@
+import { splitReasons, type ReasonInput } from "../bilingual-reasons.js";
+
 export class AttachmentNotFoundError extends Error {
   readonly code = "ATTACHMENT_NOT_FOUND";
   readonly messageEn: string;
@@ -12,10 +14,11 @@ export class InvalidAttachmentError extends Error {
   readonly code = "INVALID_ATTACHMENT";
   readonly reasons: readonly string[];
   readonly messageEn: string;
-  constructor(reasons: readonly string[]) {
-    super(`تم رفض المرفق: ${reasons.join("، ")}`);
-    this.messageEn = `Attachment rejected: ${reasons.join("; ")}`;
+  constructor(reasons: readonly ReasonInput[]) {
+    const split = splitReasons(reasons, "it failed validation");
+    super(`تم رفض المرفق: ${split.ar.join("، ")}`);
+    this.messageEn = `Attachment rejected: ${split.en}`;
     this.name = "InvalidAttachmentError";
-    this.reasons = reasons;
+    this.reasons = split.ar;
   }
 }

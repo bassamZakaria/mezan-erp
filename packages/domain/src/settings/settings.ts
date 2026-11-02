@@ -1,3 +1,5 @@
+import { splitReasons, type ReasonInput } from "../bilingual-reasons.js";
+import type { BilingualReason } from "../collections/errors.js";
 import { DEFAULT_STATEMENT_EMAIL_BODY, DEFAULT_STATEMENT_EMAIL_SUBJECT } from "../collections/statement.js";
 /**
  * Tenant Settings — the config bag documented in docs/archive/catalog/09 §"Settings —
@@ -171,8 +173,13 @@ const HEADER_BREAK = /[\u0000-\u001f\u007f]/;
 
 export class InvalidSettingsError extends Error {
   readonly code = "INVALID_SETTINGS";
-  constructor(reasons: readonly string[]) {
-    super(`Invalid settings: ${reasons.join("; ")}`);
+  readonly reasons: string[];
+  readonly messageEn: string;
+  constructor(reasons: readonly ReasonInput[]) {
+    const split = splitReasons(reasons, "the details are not valid");
+    super(`الإعدادات غير صالحة: ${split.ar.join("؛ ")}`);
+    this.reasons = [...split.ar];
+    this.messageEn = `Invalid settings: ${split.en}`;
     this.name = "InvalidSettingsError";
   }
 }
@@ -261,38 +268,38 @@ export const DEFAULT_SETTINGS: TenantSettings = {
   emailTemplateBody: DEFAULT_STATEMENT_EMAIL_BODY,
 };
 
-function validate(settings: TenantSettings): string[] {
-  const reasons: string[] = [];
+function validate(settings: TenantSettings): BilingualReason[] {
+  const reasons: BilingualReason[] = [];
 
   if (!/^[A-Z]{3}$/.test(settings.currency)) {
-    reasons.push("currency must be a 3-letter uppercase ISO 4217 code");
+    reasons.push({ ar: "العملة الأساسية يجب أن تكون رمز ISO 4217 من ثلاثة أحرف لاتينية كبيرة", en: "The base currency must be a 3-letter uppercase ISO 4217 code" });
   }
   for (const code of settings.secondaryCurrencies) {
     if (!/^[A-Z]{3}$/.test(code)) {
-      reasons.push(`secondaryCurrencies contains an invalid code: "${code}"`);
+      reasons.push({ ar: `العملات الثانوية تحتوي رمزاً غير صالح: "${code}"`, en: `The secondary currencies include an invalid code: "${code}"` });
     }
   }
   if (!LANGUAGES.includes(settings.language)) {
-    reasons.push(`language must be one of ${LANGUAGES.join(", ")}`);
+    reasons.push({ ar: "اللغة يجب أن تكون العربية أو الإنجليزية أو الألمانية.", en: "The language must be Arabic, English or German." });
   }
   if (!UI_DIRECTIONS.includes(settings.direction)) {
-    reasons.push(`direction must be one of ${UI_DIRECTIONS.join(", ")}`);
+    reasons.push({ ar: "اتجاه الواجهة يجب أن يكون من اليمين إلى اليسار أو من اليسار إلى اليمين.", en: "The interface direction must be right-to-left or left-to-right." });
   }
   if (!NUMERAL_SYSTEMS.includes(settings.dateNumerals)) {
-    reasons.push(`dateNumerals must be one of ${NUMERAL_SYSTEMS.join(", ")}`);
+    reasons.push({ ar: "أرقام التواريخ يجب أن تكون غربية (1، 2، 3) أو عربية (١، ٢، ٣).", en: "The date numerals must be Western (1, 2, 3) or Arabic-Indic (١, ٢, ٣)." });
   }
   const uniqueWeekendDays = new Set(settings.weekendDays);
   if (
     uniqueWeekendDays.size !== settings.weekendDays.length ||
     settings.weekendDays.some((d) => !Number.isInteger(d) || d < 0 || d > 6)
   ) {
-    reasons.push("weekendDays must be unique integers in 0..6");
+    reasons.push({ ar: "أيام العطلة الأسبوعية يجب أن تكون أعداداً صحيحة غير مكررة بين 0 و6", en: "The weekend days must be different whole numbers from 0 to 6" });
   }
   if (!Number.isInteger(settings.fiscalYearStartMonth) || settings.fiscalYearStartMonth < 1 || settings.fiscalYearStartMonth > 12) {
-    reasons.push("fiscalYearStartMonth must be an integer in 1..12");
+    reasons.push({ ar: "شهر بداية السنة المالية يجب أن يكون عدداً صحيحاً بين 1 و12", en: "The fiscal year start month must be a whole number from 1 to 12" });
   }
   if (!FX_RATE_MISSING_POLICIES.includes(settings.fxRateMissingPolicy)) {
-    reasons.push(`fxRateMissingPolicy must be one of ${FX_RATE_MISSING_POLICIES.join(", ")}`);
+    reasons.push({ ar: "سياسة غياب سعر الصرف يجب أن تكون إيقاف العملية أو السماح بالمتابعة.", en: "The missing exchange rate policy must be to stop the operation or to allow it to continue." });
   }
 
   if (
@@ -300,41 +307,41 @@ function validate(settings: TenantSettings): string[] {
     settings.hrContractExpiryWarningDays < 7 ||
     settings.hrContractExpiryWarningDays > 365
   ) {
-    reasons.push("hrContractExpiryWarningDays must be an integer in 7..365");
+    reasons.push({ ar: "أيام التنبيه قبل انتهاء عقد الموظف يجب أن تكون عدداً صحيحاً بين 7 و365", en: "The days of notice before an employee contract expires must be a whole number from 7 to 365" });
   }
   if (!PAYROLL_DAY_DIVISOR_BASES.includes(settings.payrollDayDivisorBasis)) {
-    reasons.push("payrollDayDivisorBasis must be FIXED_30 or CALENDAR_DAYS");
+    reasons.push({ ar: "أساس قسمة أجر اليوم يجب أن يكون ثلاثين يوماً ثابتة أو أيام الشهر الفعلية.", en: "The daily wage divisor must be a fixed 30 days or the actual days of the month." });
   }
   if (settings.standardDailyWorkHours <= 0 || settings.standardDailyWorkHours > 24) {
-    reasons.push("standardDailyWorkHours must be in (0, 24]");
+    reasons.push({ ar: "ساعات العمل اليومية القياسية يجب أن تكون أكبر من صفر وحتى 24", en: "The standard daily work hours must be more than 0 and at most 24" });
   }
 
   if (settings.defaultTaxRate < 0 || settings.defaultTaxRate > 100) {
-    reasons.push("defaultTaxRate must be in 0..100");
+    reasons.push({ ar: "نسبة الضريبة الافتراضية يجب أن تكون بين 0 و100", en: "The default tax rate must be between 0 and 100" });
   }
   if (!TAX_CALCULATION_MODES.includes(settings.taxCalculation)) {
-    reasons.push(`taxCalculation must be one of ${TAX_CALCULATION_MODES.join(", ")}`);
+    reasons.push({ ar: "طريقة احتساب الضريبة يجب أن تكون ضريبة مضافة على السعر أو ضريبة مشمولة في السعر.", en: "The tax calculation method must be tax added to the price or tax included in the price." });
   }
   if (!DEPRECIATION_PRORATE_MODES.includes(settings.depreciationProrate)) {
-    reasons.push(`depreciationProrate must be one of ${DEPRECIATION_PRORATE_MODES.join(", ")}`);
+    reasons.push({ ar: "طريقة تقسيم الإهلاك يجب أن تكون بالأيام أو بالشهر الكامل.", en: "The depreciation proration must be by day or by full month." });
   }
   if (!CREDIT_CONTROL_MODES.includes(settings.creditControlMode)) {
-    reasons.push(`creditControlMode must be one of ${CREDIT_CONTROL_MODES.join(", ")}`);
+    reasons.push({ ar: "وضع رقابة الائتمان يجب أن يكون تنبيهاً أو منعاً.", en: "The credit control mode must be warn or block." });
   }
 
   if (!Number.isInteger(settings.weekStartDay) || settings.weekStartDay < 0 || settings.weekStartDay > 6) {
-    reasons.push("weekStartDay must be an integer in 0..6");
+    reasons.push({ ar: "أول يوم في الأسبوع يجب أن يكون عدداً صحيحاً بين 0 و6", en: "The first day of the week must be a whole number from 0 to 6" });
   }
   for (const domain of settings.allowedEmailDomains) {
     if (!/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(domain)) {
-      reasons.push(`allowedEmailDomains contains an invalid domain: "${domain}"`);
+      reasons.push({ ar: `نطاقات البريد المسموحة تحتوي نطاقاً غير صالح: "${domain}"`, en: `The allowed email domains include an invalid domain: "${domain}"` });
     }
   }
   if (settings.multiCurrencyEnabled && settings.secondaryCurrencies.length === 0) {
-    reasons.push("multiCurrencyEnabled needs at least one additional currency");
+    reasons.push({ ar: "تعدد العملات يتطلب عملة إضافية واحدة على الأقل", en: "Multi-currency needs at least one additional currency" });
   }
   if (settings.secondaryCurrencies.includes(settings.currency)) {
-    reasons.push("secondaryCurrencies must not repeat the base currency");
+    reasons.push({ ar: "العملات الثانوية يجب ألا تكرر العملة الأساسية", en: "The secondary currencies must not include the base currency" });
   }
 
   if (
@@ -342,7 +349,7 @@ function validate(settings: TenantSettings): string[] {
     settings.agingWritedownMonths < 1 ||
     settings.agingWritedownMonths > 60
   ) {
-    reasons.push("agingWritedownMonths must be an integer in 1..60");
+    reasons.push({ ar: "عدد أشهر تقادم المخزون للتخفيض يجب أن يكون عدداً صحيحاً بين 1 و60", en: "The months before aged stock is written down must be a whole number from 1 to 60" });
   }
   if (
     !Number.isFinite(settings.overReceiptTolerancePercent) ||
@@ -350,37 +357,37 @@ function validate(settings: TenantSettings): string[] {
     settings.overReceiptTolerancePercent > 100 ||
     Math.abs(settings.overReceiptTolerancePercent * 100 - Math.round(settings.overReceiptTolerancePercent * 100)) > 1e-9
   ) {
-    reasons.push("overReceiptTolerancePercent must be in 0..100 with at most two decimals");
+    reasons.push({ ar: "نسبة التجاوز المسموح في الاستلام يجب أن تكون بين 0 و100 بحد أقصى خانتين عشريتين", en: "The over-receipt tolerance must be between 0 and 100 with at most two decimals" });
   }
   if (settings.maxLineDiscountPercent < 0 || settings.maxLineDiscountPercent > 100) {
-    reasons.push("maxLineDiscountPercent must be in 0..100");
+    reasons.push({ ar: "الحد الأقصى لخصم البند يجب أن يكون بين 0 و100", en: "The maximum line discount must be between 0 and 100" });
   }
   if (
     settings.contractingCbeCreditDiscountRatePercent !== null &&
     (settings.contractingCbeCreditDiscountRatePercent < 0 || settings.contractingCbeCreditDiscountRatePercent > 100)
   ) {
-    reasons.push("contractingCbeCreditDiscountRatePercent must be in 0..100");
+    reasons.push({ ar: "سعر الائتمان والخصم المعلن من البنك المركزي يجب أن يكون بين 0 و100.", en: "The CBE credit and discount rate must be between 0 and 100." });
   }
   if (settings.agingWritedownRatePercent < 0 || settings.agingWritedownRatePercent > 100) {
-    reasons.push("agingWritedownRatePercent must be in 0..100");
+    reasons.push({ ar: "نسبة تخفيض المخزون المتقادم يجب أن تكون بين 0 و100", en: "The aged stock write-down rate must be between 0 and 100" });
   }
   if (settings.agingWritedownEnabled && settings.agingWritedownRatePercent <= 0) {
-    reasons.push("agingWritedownEnabled needs a rate greater than 0");
+    reasons.push({ ar: "تفعيل تخفيض المخزون المتقادم يتطلب نسبة أكبر من صفر", en: "Aged stock write-down needs a rate greater than 0" });
   }
 
   if (!SMTP_SECURITIES.includes(settings.smtpSecurity)) {
-    reasons.push(`smtpSecurity must be one of ${SMTP_SECURITIES.join(", ")}`);
+    reasons.push({ ar: "تأمين اتصال البريد يجب أن يكون بدون تشفير أو STARTTLS أو TLS.", en: "The mail connection security must be none, STARTTLS or TLS." });
   }
   if (!Number.isInteger(settings.smtpPort) || settings.smtpPort < 1 || settings.smtpPort > 65535) {
-    reasons.push("smtpPort must be an integer in 1..65535");
+    reasons.push({ ar: "منفذ خادم البريد يجب أن يكون عدداً صحيحاً بين 1 و65535", en: "The mail server port must be a whole number from 1 to 65535" });
   }
-  if (HEADER_BREAK.test(settings.smtpFromName)) reasons.push("smtpFromName must not contain a line break or control character");
-  if (HEADER_BREAK.test(settings.smtpFromEmail)) reasons.push("smtpFromEmail must not contain a line break or control character");
-  if (HEADER_BREAK.test(settings.emailTemplateSubject)) reasons.push("emailTemplateSubject must not contain a line break or control character");
+  if (HEADER_BREAK.test(settings.smtpFromName)) reasons.push({ ar: "اسم مرسل البريد يجب ألا يحتوي فاصل سطر أو رمز تحكم", en: "The sender name must not contain a line break or control character" });
+  if (HEADER_BREAK.test(settings.smtpFromEmail)) reasons.push({ ar: "عنوان مرسل البريد يجب ألا يحتوي فاصل سطر أو رمز تحكم", en: "The sender address must not contain a line break or control character" });
+  if (HEADER_BREAK.test(settings.emailTemplateSubject)) reasons.push({ ar: "عنوان قالب البريد يجب ألا يحتوي فاصل سطر أو رمز تحكم", en: "The email subject must not contain a line break or control character" });
   if (settings.smtpEnabled) {
-    if (settings.smtpHost.trim() === "") reasons.push("smtpEnabled needs an SMTP host");
+    if (settings.smtpHost.trim() === "") reasons.push({ ar: "تفعيل البريد يتطلب عنوان خادم البريد", en: "Enabling email needs a mail server address" });
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(settings.smtpFromEmail)) {
-      reasons.push("smtpEnabled needs a valid sender address");
+      reasons.push({ ar: "تفعيل البريد يتطلب عنوان مرسل صالحاً", en: "Enabling email needs a valid sender address" });
     }
   }
 

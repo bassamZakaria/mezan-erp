@@ -555,9 +555,11 @@ describe("CertificateService", () => {
     expect(await h.service.completionRefusal(CONTRACT_ID)).toBeNull();
 
     await draft(h, "C1", "1000", { from: "2026-01-01", to: "2026-01-31" });
-    expect(await h.service.completionRefusal(CONTRACT_ID)).toMatch(/قيد الاعتماد/);
+    const pending = await h.service.completionRefusal(CONTRACT_ID);
+    expect(pending?.ar).toMatch(/قيد الاعتماد/);
+    expect(pending?.en).toMatch(/pending approval/);
     await fullyApprove(h, "C1", "2026-02-05");
-    expect(await h.service.completionRefusal(CONTRACT_ID)).toMatch(/المستخلص الختامي/);
+    expect((await h.service.completionRefusal(CONTRACT_ID))?.ar).toMatch(/المستخلص الختامي/);
 
     await h.service.create(
       {

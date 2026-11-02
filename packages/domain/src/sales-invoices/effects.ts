@@ -40,6 +40,11 @@ export function describeSalesInvoiceEffects(
       : !positiveTotal
         ? "إجمالي الفاتورة يجب أن يكون أكبر من صفر."
         : undefined,
+    blockedReasonEn: !hasLines
+      ? "The invoice has no lines."
+      : !positiveTotal
+        ? "The invoice total must be greater than zero."
+        : undefined,
     effects: [
       stockLines.length > 0
         ? {

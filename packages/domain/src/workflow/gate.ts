@@ -81,7 +81,14 @@ export interface Transition {
   readonly events: readonly WorkflowEvent[];
 }
 
+export interface WorkflowErrorDetail {
+  readonly requiredRole?: string;
+  readonly requestStatus?: ApprovalStatus;
+}
+
 export class WorkflowError extends Error {
+  readonly requiredRole?: string;
+  readonly requestStatus?: ApprovalStatus;
   constructor(
     readonly code:
       | "NOT_PENDING"
@@ -90,10 +97,35 @@ export class WorkflowError extends Error {
       | "NOT_MODIFIABLE"
       | "EMPTY_ACTION_TYPE_MISMATCH",
     message: string,
+    readonly messageEn: string,
+    detail: WorkflowErrorDetail = {},
   ) {
     super(message);
+    if (detail.requiredRole !== undefined) this.requiredRole = detail.requiredRole;
+    if (detail.requestStatus !== undefined) this.requestStatus = detail.requestStatus;
     this.name = "WorkflowError";
   }
+}
+
+export const APPROVAL_STATUS_LABELS: Readonly<Record<ApprovalStatusCode, { readonly ar: string; readonly en: string }>> = {
+  [ApprovalStatusCode.Pending]: { ar: "قيد الانتظار", en: "pending" },
+  [ApprovalStatusCode.Approved]: { ar: "معتمد", en: "approved" },
+  [ApprovalStatusCode.Rejected]: { ar: "مرفوض", en: "rejected" },
+  [ApprovalStatusCode.ModificationRequested]: { ar: "مُعاد للتعديل", en: "returned for changes" },
+  [ApprovalStatusCode.ReapprovalRequired]: { ar: "بحاجة إلى إعادة الاعتماد", en: "awaiting re-approval" },
+};
+
+export interface RoleLabel {
+  readonly ar: string;
+  readonly en: string;
+}
+
+export function wrongApproverMessages(role: RoleLabel | null | undefined): { readonly message: string; readonly messageEn: string } {
+  if (!role) return { message: "لا تملك الدور المطلوب للبتّ في هذه الخطوة.", messageEn: "You do not hold the role this step needs to be decided on." };
+  return {
+    message: `تتطلب هذه الخطوة دور «${role.ar}»، وهو ليس من أدوارك.`,
+    messageEn: `This step needs the "${role.en}" role, which you do not hold.`,
+  };
 }
 
 function hasAdminRole(roles: readonly string[] | undefined): boolean {
@@ -181,9 +213,12 @@ export function decide(
   input: DecisionInput,
 ): Transition {
   if (request.status !== "pending") {
+    const label = APPROVAL_STATUS_LABELS[request.status as ApprovalStatusCode];
     throw new WorkflowError(
       "NOT_PENDING",
-      `Request ${request.id} is ${request.status}, not pending`,
+      `حالة هذا الطلب «${label.ar}» وليس قيد الانتظار، فلا يمكن البتّ فيه.`,
+      `This request is ${label.en}, not pending, so it cannot be decided on.`,
+      { requestStatus: request.status },
     );
   }
 
@@ -209,6 +244,7 @@ export function decide(
     throw new WorkflowError(
       "SELF_APPROVAL",
       "لا يمكن لمن قدّم الطلب أن يبتّ فيه — يلزم شخص آخر للموافقة أو الرفض.",
+      "The person who submitted the request cannot decide on it — another person must approve or reject.",
     );
   }
 
@@ -246,11 +282,8 @@ export function decide(
   }
 
   if (!admin && (!step || !input.actorRoles.includes(step.role))) {
-    throw new WorkflowError(
-      "WRONG_APPROVER",
-      `Actor ${input.actorId} may not act on step ${request.currentStep} ` +
-        `(requires role ${step?.role ?? "<none>"})`,
-    );
+    const refusal = wrongApproverMessages(null);
+    throw new WorkflowError("WRONG_APPROVER", refusal.message, refusal.messageEn, step ? { requiredRole: step.role } : {});
   }
 
   const decisions = appendDecision(request, {
@@ -347,8 +380,8 @@ export function resubmit(
   if (request.status !== "modification_requested") {
     throw new WorkflowError(
       "NOT_MODIFIABLE",
-      `Request ${request.id} is ${request.status}; only ` +
-        `modification_requested requests can be resubmitted`,
+      "لا يمكن إعادة تقديم إلا الطلبات المعادة للتعديل.",
+      "Only requests returned for changes can be resubmitted.",
     );
   }
   const next: ApprovalRequest = {

@@ -14,6 +14,7 @@ import type { PrintTemplateConfigDTO, PrintTemplateOverrideDTO } from "@mezan/co
 import { usePrintTemplateConfig, useSavePrintTemplateConfig } from "../data/hooks";
 import { TextField, NumberField, SelectField, ToggleField, SectionCard, Field } from "./form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { errorMessage } from "../lib/error-message";
 
 /**
  * قوالب الطباعة (Print templates) — docs/archive/catalog/09 §"قوالب الطباعة": the
@@ -151,7 +152,7 @@ function PrintTemplatesPageContent() {
       statusTone={dirty ? "warning" : "neutral"}
       actions={
         <>
-          {save.isError ? <StatusPill label={t("printTemplates.couldNotSaveTheTemplate")} tone="danger" /> : null}
+          {save.isError ? <StatusPill label={errorMessage(save.error, t("printTemplates.couldNotSaveTheTemplate"))} tone="danger" /> : null}
           <Button variant="default" disabled={!dirty || save.isPending} onClick={() => setDraft(null)}>
             {t("printTemplates.discard")}
           </Button>

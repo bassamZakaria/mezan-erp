@@ -5,6 +5,7 @@ import { DocumentDetail, Button, Card, StatusPill } from "@mezan/ui";
 import { COMPANY_NAME_MAX_LENGTH, type TenantSettingsDTO, type UpdateTenantSettingsDTO } from "@mezan/contracts";
 import { companyNameError } from "../company-name";
 import { useSettings, useUpdateSettings, useSendTestEmail } from "../data/hooks";
+import { pickMessage } from "../data/server-message";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { MaintenancePanel } from "./MaintenancePanel";
 import { SupportInfoCard } from "./SupportInfoCard";
@@ -65,7 +66,7 @@ enum SettingsTab {
 }
 
 function SettingsForm({ initial }: { initial: TenantSettingsDTO }) {
-  const { t } = useAppTranslation();
+  const { t, locale } = useAppTranslation();
   const updateSettingsMutation = useUpdateSettings();
   const testEmail = useSendTestEmail();
   const [draft, setDraft] = useState<TenantSettingsDTO>(initial);
@@ -109,7 +110,7 @@ function SettingsForm({ initial }: { initial: TenantSettingsDTO }) {
     setTestResult(null);
     try {
       const result = await testEmail.mutateAsync({ to: testRecipient });
-      setTestResult({ ok: result.ok, message: result.message });
+      setTestResult({ ok: result.ok, message: pickMessage(result, locale) });
     } catch (err) {
       setTestResult({ ok: false, message: err instanceof Error ? err.message : "" });
     }

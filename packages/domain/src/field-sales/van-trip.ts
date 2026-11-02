@@ -23,17 +23,22 @@ export enum VanTripCrewRole {
 export interface VanTripStatusDefinition {
   readonly code: VanTripStatus;
   readonly labelAr: string;
+  readonly labelEn: string;
 }
 
 export const VAN_TRIP_STATUS_DEFINITIONS: readonly VanTripStatusDefinition[] = [
-  { code: VanTripStatus.Ongoing, labelAr: "جارية" },
-  { code: VanTripStatus.AwaitingApproval, labelAr: "بانتظار اعتماد التسوية" },
-  { code: VanTripStatus.Settled, labelAr: "مسواة" },
-  { code: VanTripStatus.Cancelled, labelAr: "ملغاة" },
+  { code: VanTripStatus.Ongoing, labelAr: "جارية", labelEn: "ongoing" },
+  { code: VanTripStatus.AwaitingApproval, labelAr: "بانتظار اعتماد التسوية", labelEn: "awaiting settlement approval" },
+  { code: VanTripStatus.Settled, labelAr: "مسواة", labelEn: "settled" },
+  { code: VanTripStatus.Cancelled, labelAr: "ملغاة", labelEn: "cancelled" },
 ] as const;
 
 export function getVanTripStatusLabel(status: VanTripStatus): string {
   return VAN_TRIP_STATUS_DEFINITIONS.find((d) => d.code === status)?.labelAr ?? status;
+}
+
+export function getVanTripStatusLabelEn(status: VanTripStatus): string {
+  return VAN_TRIP_STATUS_DEFINITIONS.find((d) => d.code === status)?.labelEn ?? status;
 }
 
 export interface VanTripCrewMember {

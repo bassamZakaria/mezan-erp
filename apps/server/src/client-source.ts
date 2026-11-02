@@ -121,7 +121,7 @@ export function requireCloudSource(options: ClientSourceOptions, reporter: Sourc
     if (!isResolvedSource(source)) {
       reporter.unresolved(c.req.path);
       c.header("retry-after", String(SOURCE_UNRESOLVED_RETRY_SECONDS));
-      return c.json({ error: SOURCE_UNRESOLVED, message: "تعذّر تحديد مصدر الطلب. حاول مرة أخرى بعد قليل." }, SOURCE_UNRESOLVED_STATUS);
+      return c.json({ error: SOURCE_UNRESOLVED, message: "تعذّر تحديد مصدر الطلب. حاول مرة أخرى بعد قليل.", messageEn: "The request origin could not be determined. Try again shortly." }, SOURCE_UNRESOLVED_STATUS);
     }
     c.set("cloudSource", source);
     return next();

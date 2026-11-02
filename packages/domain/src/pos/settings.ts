@@ -1,4 +1,5 @@
 import { Money } from "../money/index.js";
+import { splitReasons, type ReasonInput } from "../bilingual-reasons.js";
 
 export const POS_WALK_IN_CUSTOMER_ID = "CUST-POS-WALKIN";
 export const POS_WALK_IN_CUSTOMER_CODE = "WALKIN";
@@ -42,8 +43,13 @@ export function defaultPosSettings(): PosSettings {
 
 export class InvalidPosSettingsError extends Error {
   readonly code = "INVALID_POS_SETTINGS";
-  constructor(readonly reasons: readonly string[]) {
-    super(reasons.join("، "));
+  readonly reasons: readonly string[];
+  readonly messageEn: string;
+  constructor(reasons: readonly ReasonInput[]) {
+    const split = splitReasons(reasons, "The POS settings are invalid.");
+    super(split.ar.join("، "));
+    this.reasons = split.ar;
+    this.messageEn = split.en;
     this.name = "InvalidPosSettingsError";
   }
 }
@@ -104,32 +110,32 @@ export function updatePosSettings(current: PosSettings, patch: PosSettingsPatch)
     pricesIncludeTax: patch.pricesIncludeTax ?? current.pricesIncludeTax,
     mealSections: normalizeMealSections(patch.mealSections, current.mealSections),
   };
-  const reasons: string[] = [];
+  const reasons: ReasonInput[] = [];
   if (!Number.isInteger(next.receiptScreenSeconds) || next.receiptScreenSeconds < 0 || next.receiptScreenSeconds > 600) {
-    reasons.push("مدة عرض الإيصال بين 0 و600 ثانية");
+    reasons.push({ ar: "مدة عرض الإيصال بين 0 و600 ثانية", en: "The receipt display time must be between 0 and 600 seconds" });
   }
   if (!Number.isInteger(next.approvalExpiryMinutes) || next.approvalExpiryMinutes < 1 || next.approvalExpiryMinutes > 60) {
-    reasons.push("صلاحية طلب الاعتماد بين دقيقة و60 دقيقة");
+    reasons.push({ ar: "صلاحية طلب الاعتماد بين دقيقة و60 دقيقة", en: "The approval request validity must be between 1 and 60 minutes" });
   }
-  for (const [label, limit] of [
-    ["الكاشير", next.cashierDiscountLimit],
-    ["المدير", next.managerDiscountLimit],
+  for (const [label, labelEn, limit] of [
+    ["الكاشير", "cashier", next.cashierDiscountLimit],
+    ["المدير", "manager", next.managerDiscountLimit],
   ] as const) {
     if (!Number.isInteger(limit.percentBp) || limit.percentBp < 0 || limit.percentBp > 10000) {
-      reasons.push(`نسبة خصم ${label} بين 0 و100%`);
+      reasons.push({ ar: `نسبة خصم ${label} بين 0 و100%`, en: `The ${labelEn} discount percentage must be between 0 and 100%` });
     }
-    if (limit.amount.scaled < 0n) reasons.push(`مبلغ خصم ${label} لا يكون سالباً`);
+    if (limit.amount.scaled < 0n) reasons.push({ ar: `مبلغ خصم ${label} لا يكون سالباً`, en: `The ${labelEn} discount amount cannot be negative` });
   }
   if (next.managerDiscountLimit.percentBp < next.cashierDiscountLimit.percentBp) {
-    reasons.push("حد المدير (النسبة) لا يقل عن حد الكاشير");
+    reasons.push({ ar: "حد المدير (النسبة) لا يقل عن حد الكاشير", en: "The manager limit (percentage) cannot be lower than the cashier limit" });
   }
   if (next.managerDiscountLimit.amount.scaled < next.cashierDiscountLimit.amount.scaled) {
-    reasons.push("حد المدير (المبلغ) لا يقل عن حد الكاشير");
+    reasons.push({ ar: "حد المدير (المبلغ) لا يقل عن حد الكاشير", en: "The manager limit (amount) cannot be lower than the cashier limit" });
   }
   const names = new Set<string>();
   for (const section of next.mealSections) {
-    if (section.name === "") reasons.push("اسم قسم الوجبة مطلوب");
-    else if (names.has(section.name)) reasons.push(`قسم الوجبة «${section.name}» مكرر`);
+    if (section.name === "") reasons.push({ ar: "اسم قسم الوجبة مطلوب", en: "The meal section name is required" });
+    else if (names.has(section.name)) reasons.push({ ar: `قسم الوجبة «${section.name}» مكرر`, en: `The meal section "${section.name}" is duplicated` });
     names.add(section.name);
   }
   if (reasons.length > 0) throw new InvalidPosSettingsError(reasons);

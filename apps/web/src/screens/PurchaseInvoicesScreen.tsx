@@ -45,6 +45,7 @@ import { EMPTY_LOT, LotFields, lotIsComplete, lotPayload, tracksLots, type LotVa
 import { addDaysIso, todayIso } from "../lib/dates";
 import { EMPTY } from "../lib/empty";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
+import { errorMessage } from "../lib/error-message";
 
 
 /** Document states plus the payment states derived from the allocation sub-ledger. */
@@ -1077,7 +1078,7 @@ export function PurchaseInvoicesScreen() {
       ) : null}
       {query.isError ? (
         <Card className="mb-[18px] p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">{t("purchaseInvoices.loadFailed")}</p>
+          <p className="text-[13px] font-semibold text-danger-ink">{errorMessage(query.error, t("purchaseInvoices.loadFailed"))}</p>
           <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
             {t("common.retry")}
           </Button>

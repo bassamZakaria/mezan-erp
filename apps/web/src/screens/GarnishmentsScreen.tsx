@@ -19,6 +19,7 @@ import { useCreateGarnishment, useGarnishments, useReleaseGarnishment } from "..
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { EMPTY } from "../lib/empty";
 import { todayIso } from "../lib/dates";
+import { errorMessage } from "../lib/error-message";
 
 /**
  * الحجز على الأجر — court-ordered and agreed deductions from wages.
@@ -186,7 +187,7 @@ export function GarnishmentsScreen() {
     <div className="w-full">
       {query.isError ? (
         <Card className="mb-[18px] p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">{t("garnishments.couldNotLoad")}</p>
+          <p className="text-[13px] font-semibold text-danger-ink">{errorMessage(query.error, t("garnishments.couldNotLoad"))}</p>
           <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
             {t("common.retry")}
           </Button>

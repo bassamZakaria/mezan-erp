@@ -121,7 +121,7 @@ describe("StockBalanceScreen — cross-warehouse rollup", () => {
       "GET /inventory/stock-balance": () => ({ status: 500, body: { error: "INTERNAL" } }),
     });
     renderWithProviders(<StockBalanceScreen />, { transport, initialSession: testAdminSession });
-    expect(await screen.findByText("تعذّر تحميل أرصدة المخزون.")).toBeInTheDocument();
+    expect(await screen.findByText(/تعذّر تحميل رصيد المخزون\./)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "إعادة المحاولة" })).toBeInTheDocument();
   });
 

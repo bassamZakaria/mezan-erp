@@ -15,6 +15,8 @@
  * can be reset back to the shipped default server-side.
  */
 
+import { splitReasons, type ReasonInput } from "../bilingual-reasons.js";
+import type { BilingualReason } from "../collections/errors.js";
 import type { NumeralSystem } from "../settings/settings.js";
 
 /** A screen the user pinned to the rail. `route` is the shell's hash route. */
@@ -148,8 +150,13 @@ export const LAYOUT_NAME_MAX_LENGTH = 60;
 
 export class InvalidUserPreferencesError extends Error {
   readonly code = "INVALID_USER_PREFERENCES";
-  constructor(readonly reasons: readonly string[]) {
-    super(reasons.join("، "));
+  readonly messageEn: string;
+  readonly reasons: string[];
+  constructor(reasons: readonly ReasonInput[]) {
+    const split = splitReasons(reasons, "the user preferences are invalid");
+    super(split.ar.join("، "));
+    this.reasons = [...split.ar];
+    this.messageEn = split.en;
     this.name = "InvalidUserPreferencesError";
   }
 }
@@ -200,37 +207,37 @@ function duplicates(ids: readonly string[]): readonly string[] {
   return [...dupes];
 }
 
-export function validateUserPreferences(preferences: UserPreferences): readonly string[] {
-  const reasons: string[] = [];
+export function validateUserPreferences(preferences: UserPreferences): readonly BilingualReason[] {
+  const reasons: BilingualReason[] = [];
   const name = preferences.layoutName.trim();
-  if (name.length === 0) reasons.push("layoutName must not be empty");
+  if (name.length === 0) reasons.push({ ar: "اسم التخطيط مطلوب", en: "The layout name is required" });
   if (name.length > LAYOUT_NAME_MAX_LENGTH) {
-    reasons.push(`layoutName must be at most ${LAYOUT_NAME_MAX_LENGTH} characters`);
+    reasons.push({ ar: `اسم التخطيط يجب ألا يتجاوز ${LAYOUT_NAME_MAX_LENGTH} حرفاً`, en: `The layout name must be at most ${LAYOUT_NAME_MAX_LENGTH} characters` });
   }
   if (preferences.pinnedScreens.length > PINNED_SCREENS_LIMIT) {
-    reasons.push(`pinnedScreens must be at most ${PINNED_SCREENS_LIMIT} entries`);
+    reasons.push({ ar: `الشاشات المثبّتة يجب ألا تتجاوز ${PINNED_SCREENS_LIMIT} شاشة`, en: `You can pin at most ${PINNED_SCREENS_LIMIT} screens` });
   }
   if (preferences.shortcutTiles.length > SHORTCUT_TILES_LIMIT) {
-    reasons.push(`shortcutTiles must be at most ${SHORTCUT_TILES_LIMIT} entries`);
+    reasons.push({ ar: `بطاقات الاختصار يجب ألا تتجاوز ${SHORTCUT_TILES_LIMIT} بطاقة`, en: `You can add at most ${SHORTCUT_TILES_LIMIT} shortcut tiles` });
   }
   if (preferences.dashboard.columns < 1 || preferences.dashboard.columns > 4) {
-    reasons.push("dashboard.columns must be between 1 and 4");
+    reasons.push({ ar: "عدد أعمدة لوحة المعلومات يجب أن يكون بين 1 و4", en: "The number of dashboard columns must be between 1 and 4" });
   }
   const pinDupes = duplicates(preferences.pinnedScreens.map((pin) => pin.id));
-  if (pinDupes.length > 0) reasons.push(`duplicate pinnedScreens ids: ${pinDupes.join(", ")}`);
+  if (pinDupes.length > 0) reasons.push({ ar: `معرّفات الشاشات المثبّتة مكررة: ${pinDupes.join("، ")}`, en: `Some pinned screens are repeated: ${pinDupes.join(", ")}` });
   const widgetDupes = duplicates(preferences.dashboard.widgets.map((widget) => widget.id));
-  if (widgetDupes.length > 0) reasons.push(`duplicate dashboard widget ids: ${widgetDupes.join(", ")}`);
+  if (widgetDupes.length > 0) reasons.push({ ar: `معرّفات عناصر لوحة المعلومات مكررة: ${widgetDupes.join("، ")}`, en: `Some dashboard widgets are repeated: ${widgetDupes.join(", ")}` });
   const tileDupes = duplicates(preferences.shortcutTiles.map((tile) => tile.id));
-  if (tileDupes.length > 0) reasons.push(`duplicate shortcutTiles ids: ${tileDupes.join(", ")}`);
+  if (tileDupes.length > 0) reasons.push({ ar: `معرّفات بطاقات الاختصار مكررة: ${tileDupes.join("، ")}`, en: `Some shortcut tiles are repeated: ${tileDupes.join(", ")}` });
   const tableDupes = duplicates(preferences.tableViews.map((view) => view.tableId));
-  if (tableDupes.length > 0) reasons.push(`duplicate tableViews tableIds: ${tableDupes.join(", ")}`);
+  if (tableDupes.length > 0) reasons.push({ ar: `معرّفات الجداول في العروض المحفوظة مكررة: ${tableDupes.join("، ")}`, en: `Some tables have more than one saved view entry: ${tableDupes.join(", ")}` });
   for (const view of preferences.tableViews) {
     const columnDupes = duplicates(view.columns.map((column) => column.key));
     if (columnDupes.length > 0) {
-      reasons.push(`duplicate column keys in table '${view.tableId}': ${columnDupes.join(", ")}`);
+      reasons.push({ ar: `مفاتيح الأعمدة مكررة في الجدول '${view.tableId}': ${columnDupes.join("، ")}`, en: `Some columns are repeated in table '${view.tableId}': ${columnDupes.join(", ")}` });
     }
     if (view.columns.every((column) => !column.visible) && view.columns.length > 0) {
-      reasons.push(`table '${view.tableId}' must keep at least one visible column`);
+      reasons.push({ ar: `الجدول '${view.tableId}' يجب أن يُبقي عموداً ظاهراً واحداً على الأقل`, en: `Table '${view.tableId}' must keep at least one visible column` });
     }
   }
   return reasons;

@@ -59,11 +59,13 @@ export interface FxDifferenceAccounts {
 /** Raised when a foreign invoice is settled on a day with no approved rate for its currency. */
 export class SettlementRateMissingError extends Error {
   readonly code = "FX_RATE_MISSING";
+  readonly messageEn: string;
   constructor(
     readonly currency: string,
     readonly date: string,
   ) {
     super(`لا يوجد سعر صرف معتمد للعملة ${currency} بتاريخ ${date}؛ لا يمكن تسوية الفاتورة.`);
+    this.messageEn = `There is no approved exchange rate for ${currency} on ${date}; the invoice cannot be settled.`;
     this.name = "SettlementRateMissingError";
   }
 }

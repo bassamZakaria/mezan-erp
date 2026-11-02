@@ -1,4 +1,5 @@
 import { Money } from "../../money/index.js";
+import type { ReasonInput } from "../../bilingual-reasons.js";
 import type { AccountRepository } from "../../accounts/account.js";
 import { routedAccountId, type AccountRoutingRepository } from "../../accounts/account-routing.js";
 import type { ProjectRepository } from "../../projects/project.js";
@@ -156,12 +157,13 @@ export class GuaranteeService {
   private async bankGlAccountId(treasuryAccountId: string): Promise<string> {
     const treasury = await this.deps.treasuryAccounts.findById(treasuryAccountId);
     if (!treasury) {
-      throw new GuaranteeBankAccountInvalidError(treasuryAccountId, `حساب الخزينة "${treasuryAccountId}" غير موجود.`);
+      throw new GuaranteeBankAccountInvalidError(treasuryAccountId, `حساب الخزينة "${treasuryAccountId}" غير موجود.`, `Treasury account "${treasuryAccountId}" was not found.`);
     }
     if (treasury.glAccountId === null) {
       throw new GuaranteeBankAccountInvalidError(
         treasuryAccountId,
         `حساب الخزينة "${treasury.name}" ليس له حساب أستاذ، فلا يمكن ترحيل الغطاء النقدي عليه.`,
+        `Treasury account "${treasury.name}" has no ledger account, so the cash margin cannot be posted to it.`,
       );
     }
     return treasury.glAccountId;
@@ -183,36 +185,36 @@ export class GuaranteeService {
       percentOfContract: string | null;
     },
   ): Promise<void> {
-    const reasons: string[] = [];
-    if (!isGuaranteeKind(draft.kind)) reasons.push("نوع خطاب الضمان غير معروف.");
-    if (draft.beneficiaryNameAr.trim() === "") reasons.push("اسم المستفيد مطلوب.");
-    if (draft.faceValue.scaled <= 0n) reasons.push("القيمة الاسمية يجب أن تكون أكبر من صفر.");
-    if (!ISO_DATE.test(draft.issueDate)) reasons.push("تاريخ الإصدار غير صحيح.");
-    if (!ISO_DATE.test(draft.expiryDate)) reasons.push("تاريخ الانتهاء غير صحيح.");
+    const reasons: ReasonInput[] = [];
+    if (!isGuaranteeKind(draft.kind)) reasons.push({ ar: "نوع خطاب الضمان غير معروف.", en: "The letter of guarantee type is unknown." });
+    if (draft.beneficiaryNameAr.trim() === "") reasons.push({ ar: "اسم المستفيد مطلوب.", en: "The beneficiary name is required." });
+    if (draft.faceValue.scaled <= 0n) reasons.push({ ar: "القيمة الاسمية يجب أن تكون أكبر من صفر.", en: "The face value must be greater than zero." });
+    if (!ISO_DATE.test(draft.issueDate)) reasons.push({ ar: "تاريخ الإصدار غير صحيح.", en: "The issue date is not valid." });
+    if (!ISO_DATE.test(draft.expiryDate)) reasons.push({ ar: "تاريخ الانتهاء غير صحيح.", en: "The expiry date is not valid." });
     if (ISO_DATE.test(draft.issueDate) && ISO_DATE.test(draft.expiryDate) && draft.expiryDate <= draft.issueDate) {
-      reasons.push("تاريخ الانتهاء يجب أن يكون بعد تاريخ الإصدار.");
+      reasons.push({ ar: "تاريخ الانتهاء يجب أن يكون بعد تاريخ الإصدار.", en: "The expiry date must be after the issue date." });
     }
-    if (!DECIMAL.test(draft.cashMarginPercent)) reasons.push("نسبة الغطاء النقدي غير صحيحة.");
+    if (!DECIMAL.test(draft.cashMarginPercent)) reasons.push({ ar: "نسبة الغطاء النقدي غير صحيحة.", en: "The cash margin percentage is not valid." });
     if (draft.percentOfContract !== null && !DECIMAL.test(draft.percentOfContract)) {
-      reasons.push("نسبة الخطاب من قيمة العقد غير صحيحة.");
+      reasons.push({ ar: "نسبة الخطاب من قيمة العقد غير صحيحة.", en: "The letter's percentage of the contract value is not valid." });
     }
-    if (draft.cashMarginAmount.scaled < 0n) reasons.push("قيمة الغطاء النقدي لا يمكن أن تكون سالبة.");
+    if (draft.cashMarginAmount.scaled < 0n) reasons.push({ ar: "قيمة الغطاء النقدي لا يمكن أن تكون سالبة.", en: "The cash margin amount cannot be negative." });
     if (draft.cashMarginAmount.scaled > draft.faceValue.scaled) {
-      reasons.push("قيمة الغطاء النقدي لا يمكن أن تتجاوز القيمة الاسمية للخطاب.");
+      reasons.push({ ar: "قيمة الغطاء النقدي لا يمكن أن تتجاوز القيمة الاسمية للخطاب.", en: "The cash margin amount cannot exceed the face value of the letter." });
     }
     // A letter with neither a project nor a tender reference belongs to nothing
     // — the register's whole purpose is reporting exposure BY project and BY bank.
     if (draft.projectId === null && (draft.tenderRef === null || draft.tenderRef.trim() === "")) {
-      reasons.push("يجب ربط الخطاب بمشروع أو بمرجع مناقصة.");
+      reasons.push({ ar: "يجب ربط الخطاب بمشروع أو بمرجع مناقصة.", en: "The letter must be linked to a project or a tender reference." });
     }
     if (draft.projectId !== null && this.deps.projects) {
       if (!(await this.deps.projects.findById(draft.projectId))) {
-        reasons.push(`المشروع "${draft.projectId}" غير موجود.`);
+        reasons.push({ ar: `المشروع "${draft.projectId}" غير موجود.`, en: `Project "${draft.projectId}" was not found.` });
       }
     }
     if (draft.contractId !== null && this.deps.contracts) {
       if (!(await this.deps.contracts.exists(draft.contractId))) {
-        reasons.push(`العقد "${draft.contractId}" غير موجود.`);
+        reasons.push({ ar: `العقد "${draft.contractId}" غير موجود.`, en: `Contract "${draft.contractId}" was not found.` });
       }
     }
     if (reasons.length > 0) throw new InvalidGuaranteeError(reasons);
@@ -222,12 +224,14 @@ export class GuaranteeService {
       throw new GuaranteeBankAccountInvalidError(
         draft.bankTreasuryAccountId,
         `حساب الخزينة "${draft.bankTreasuryAccountId}" غير موجود.`,
+        `Treasury account "${draft.bankTreasuryAccountId}" was not found.`,
       );
     }
     if (treasury.type !== "bank") {
       throw new GuaranteeBankAccountInvalidError(
         draft.bankTreasuryAccountId,
         `خطاب الضمان يصدر عن حساب بنكي — "${treasury.name}" حساب نقدي.`,
+        `A letter of guarantee is issued from a bank account — "${treasury.name}" is a cash account.`,
       );
     }
   }
@@ -371,12 +375,12 @@ export class GuaranteeService {
   async reduce(id: string, command: ReduceGuaranteeCommand): Promise<LetterOfGuarantee> {
     const current = await this.require(id);
     if (!isGuaranteeOutstanding(current)) throw new InvalidGuaranteeTransitionError(current.status, "reduced");
-    if (command.amount.scaled <= 0n) throw new InvalidGuaranteeError(["قيمة التخفيض يجب أن تكون أكبر من صفر."]);
+    if (command.amount.scaled <= 0n) throw new InvalidGuaranteeError([{ ar: "قيمة التخفيض يجب أن تكون أكبر من صفر.", en: "The reduction amount must be greater than zero." }]);
     if (command.amount.scaled > current.currentValue.scaled) {
       throw new GuaranteeAmountExceedsValueError(id, command.amount.toString(), current.currentValue.toString());
     }
-    if (command.reason.trim() === "") throw new InvalidGuaranteeError(["سبب التخفيض مطلوب."]);
-    this.assertEventDate("تاريخ التخفيض", command.date, current);
+    if (command.reason.trim() === "") throw new InvalidGuaranteeError([{ ar: "سبب التخفيض مطلوب.", en: "A reduction reason is required." }]);
+    this.assertEventDate("تاريخ التخفيض", "reduction date", command.date, current);
 
     const [memoDebit, memoCredit] = await Promise.all([
       this.routed("contracting.memo_debit", "9100"),
@@ -430,7 +434,7 @@ export class GuaranteeService {
   async restore(id: string, command: ReduceGuaranteeCommand): Promise<LetterOfGuarantee> {
     const current = await this.require(id);
     if (!isGuaranteeOutstanding(current)) throw new InvalidGuaranteeTransitionError(current.status, "reduced");
-    if (command.amount.scaled <= 0n) throw new InvalidGuaranteeError(["قيمة الاسترجاع يجب أن تكون أكبر من صفر."]);
+    if (command.amount.scaled <= 0n) throw new InvalidGuaranteeError([{ ar: "قيمة الاسترجاع يجب أن تكون أكبر من صفر.", en: "The restoration amount must be greater than zero." }]);
     if (current.currentValue.scaled + command.amount.scaled > current.faceValue.scaled) {
       throw new GuaranteeAmountExceedsValueError(
         id,
@@ -438,8 +442,8 @@ export class GuaranteeService {
         Money.fromScaled(current.faceValue.scaled - current.currentValue.scaled).toString(),
       );
     }
-    if (command.reason.trim() === "") throw new InvalidGuaranteeError(["سبب الاسترجاع مطلوب."]);
-    this.assertEventDate("تاريخ الاسترجاع", command.date, current);
+    if (command.reason.trim() === "") throw new InvalidGuaranteeError([{ ar: "سبب الاسترجاع مطلوب.", en: "A restoration reason is required." }]);
+    this.assertEventDate("تاريخ الاسترجاع", "restoration date", command.date, current);
 
     const [memoDebit, memoCredit] = await Promise.all([
       this.routed("contracting.memo_debit", "9100"),
@@ -512,8 +516,8 @@ export class GuaranteeService {
         this.memoLine(restrictedCash, current.cashMarginAmount, "credit", current, "إفراج عن غطاء نقدي مقيد"),
       );
     }
-    if (lines.length === 0) throw new InvalidGuaranteeError(["لا يوجد ما يُفرَج عنه في هذا الخطاب."]);
-    this.assertEventDate("تاريخ الإفراج", command.date, current);
+    if (lines.length === 0) throw new InvalidGuaranteeError([{ ar: "لا يوجد ما يُفرَج عنه في هذا الخطاب.", en: "There is nothing to release on this letter." }]);
+    this.assertEventDate("تاريخ الإفراج", "release date", command.date, current);
 
     const docNo = current.docNo ?? current.id;
     await this.post(`${GUARANTEE_DOC_TYPE}:RELEASE:${current.id}`, command.date, `إفراج عن خطاب ضمان ${docNo}`, docNo, current, lines);
@@ -546,7 +550,7 @@ export class GuaranteeService {
     if (!isGuaranteeOutstanding(current)) throw new InvalidGuaranteeTransitionError(current.status, "called");
 
     const amount = command.amount ?? current.currentValue;
-    if (amount.scaled <= 0n) throw new InvalidGuaranteeError(["قيمة المصادرة يجب أن تكون أكبر من صفر."]);
+    if (amount.scaled <= 0n) throw new InvalidGuaranteeError([{ ar: "قيمة المصادرة يجب أن تكون أكبر من صفر.", en: "The forfeiture amount must be greater than zero." }]);
     if (amount.scaled > current.currentValue.scaled) {
       throw new GuaranteeAmountExceedsValueError(id, amount.toString(), current.currentValue.toString());
     }
@@ -560,7 +564,7 @@ export class GuaranteeService {
     const chargeAccountId = command.chargeAccountId ?? defaultCharge;
     const chargeAccount = await this.deps.accounts.findById(chargeAccountId);
     if (!chargeAccount) throw new GuaranteeChargeAccountNotFoundError(chargeAccountId);
-    this.assertEventDate("تاريخ المصادرة", command.date, current);
+    this.assertEventDate("تاريخ المصادرة", "forfeiture date", command.date, current);
 
     const bankGl = await this.bankGlAccountId(current.bankTreasuryAccountId);
     const lines: JournalLineInput[] = [
@@ -672,15 +676,20 @@ export class GuaranteeService {
     return issueEntry ? { action: "ISSUE", entry: issueEntry, sourceRef: null, restored: { ...current, status: "draft", currentValue: current.faceValue } } : null;
   }
 
-  private assertEventDate(labelAr: string, date: string, guarantee: LetterOfGuarantee): void {
-    const reasons: string[] = [];
-    if (!ISO_DATE.test(date)) reasons.push(`${labelAr} مطلوب بصيغة YYYY-MM-DD.`);
+  private assertEventDate(labelAr: string, labelEn: string, date: string, guarantee: LetterOfGuarantee): void {
+    const reasons: ReasonInput[] = [];
+    if (!ISO_DATE.test(date)) reasons.push({ ar: `${labelAr} مطلوب بصيغة YYYY-MM-DD.`, en: `The ${labelEn} is required in YYYY-MM-DD format.` });
     else {
       if (date < guarantee.issueDate) {
-        reasons.push(`${labelAr} (${date}) لا يجوز أن يسبق تاريخ إصدار الخطاب (${guarantee.issueDate}).`);
+        reasons.push({
+          ar: `${labelAr} (${date}) لا يجوز أن يسبق تاريخ إصدار الخطاب (${guarantee.issueDate}).`,
+          en: `The ${labelEn} (${date}) cannot be earlier than the letter's issue date (${guarantee.issueDate}).`,
+        });
       }
       const today = this.today();
-      if (date > today) reasons.push(`${labelAr} (${date}) لا يجوز أن يكون في المستقبل (اليوم ${today}).`);
+      if (date > today) {
+        reasons.push({ ar: `${labelAr} (${date}) لا يجوز أن يكون في المستقبل (اليوم ${today}).`, en: `The ${labelEn} (${date}) cannot be in the future (today is ${today}).` });
+      }
     }
     if (reasons.length > 0) throw new InvalidGuaranteeError(reasons);
   }

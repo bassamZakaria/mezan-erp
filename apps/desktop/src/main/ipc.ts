@@ -2,7 +2,7 @@ import { writeFile } from "node:fs/promises";
 import { BrowserWindow, dialog } from "electron";
 import { handleGuarded } from "./ipc-guard.js";
 import type { BridgeFetchResult, FetchLike } from "./backend-bridge.js";
-import { LanClientError, MAX_RESPONSE_BYTES, tooLargeResponse } from "./lan-client.js";
+import { LanClientError, MAX_RESPONSE_BYTES, tooLargeResponse, type LanClientErrorCode } from "./lan-client.js";
 import {
   FETCH_TO_FILE_UNSUPPORTED_STATUS,
   MEZAN_FETCH_CHANNEL,
@@ -17,6 +17,33 @@ import {
   type SavePdfOptions,
   type SavePdfResult,
 } from "../shared/ipc-contract.js";
+
+const HOST_SENTENCES: Readonly<Record<LanClientErrorCode, (host: string) => { ar: string; en: string }>> = {
+  UNREACHABLE: (host) => ({
+    ar: `الجهاز الرئيسي على ${host} لا يستقبل اتصالات. تأكد أن برنامج مزان مفتوح على ذلك الجهاز.`,
+    en: `The main machine at ${host} is not accepting connections. Check that Mezan is running on it.`,
+  }),
+  TIMEOUT: (host) => ({
+    ar: `لا يوجد رد من الجهاز الرئيسي على ${host}. غالباً الجهاز مطفأ أو نائم، أو جدار الحماية يحجب الاتصال، أو الجهازان على شبكتين مختلفتين.`,
+    en: `No answer from the main machine at ${host}. It is probably off or asleep, a firewall is blocking the connection, or the two machines are on different networks.`,
+  }),
+  PIN_MISMATCH: (host) => ({
+    ar: `الجهاز الذي ردّ على ${host} ليس الجهاز الرئيسي المسجَّل على هذه المحطة. لم يُرسَل أي شيء.`,
+    en: `The machine answering at ${host} is not the main machine this connected till was paired with. Nothing was sent.`,
+  }),
+  NO_SEAT: (host) => ({
+    ar: `لا توجد مقاعد شاغرة في ترخيص الجهاز الرئيسي على ${host}. افصل جهازاً آخر من شاشة «الأجهزة المتصلة» أو زد عدد المقاعد.`,
+    en: `No free seats on the main machine's licence at ${host}. Disconnect another device from the connected-devices screen, or add seats.`,
+  }),
+  VERSION_MISMATCH: (host) => ({
+    ar: `إصدار البرنامج على هذه المحطة يختلف عن إصدار الجهاز الرئيسي على ${host}. حدِّث الجهاز الرئيسي أولاً ثم هذه المحطة.`,
+    en: `This connected till is on a different version from the main machine at ${host}. Update the main machine first, then this one.`,
+  }),
+};
+
+function hostUnreachableSentence(code: LanClientErrorCode, host: string): { ar: string; en: string } {
+  return (HOST_SENTENCES[code] ?? HOST_SENTENCES.UNREACHABLE)(host);
+}
 
 /**
  * Registers the single IPC handler that carries every renderer request into
@@ -149,6 +176,7 @@ export function registerHonoOverLanClient(
         // (`lan.error.*`); what it cannot do is invent the code, so the pair
         // travels and the prose does not.
         const lan = err instanceof LanClientError ? err : null;
+        const hostSentence = hostUnreachableSentence(lan?.code ?? "UNREACHABLE", lan?.host ?? hostUrl ?? "");
         return {
           status: 502,
           headers: { "content-type": "application/json; charset=UTF-8" },
@@ -158,9 +186,9 @@ export function registerHonoOverLanClient(
             host: lan?.host ?? hostUrl,
             ...(lan?.presentedFingerprint ? { presentedFingerprint: lan.presentedFingerprint } : {}),
             ...(expectedFingerprint ? { expectedFingerprint } : {}),
-            // Kept for a log and for a screen that has no catalog entry yet;
-            // the renderer prefers `code` and only falls back to this.
-            message: err instanceof Error ? err.message : String(err),
+            message: hostSentence.ar,
+            messageEn: hostSentence.en,
+            detail: err instanceof Error ? err.message : String(err),
           }),
         };
       }
@@ -224,6 +252,7 @@ export function registerSavePdfOverIpc(): void {
           cancelled: false,
           // Arabic-first: the operator reads this, not the stack behind it.
           message: `تعذّر حفظ ملف PDF. ${err instanceof Error ? err.message : String(err)}`,
+          messageEn: `The PDF file could not be saved. ${err instanceof Error ? err.message : String(err)}`,
         };
       }
     },

@@ -108,31 +108,42 @@ export interface PhysicalCountCompletionGate {
 
 export class PhysicalCountNotFoundError extends Error {
   readonly code = "PHYSICAL_COUNT_NOT_FOUND";
+  readonly messageEn: string;
   constructor(readonly id: string) {
-    super(`Physical count "${id}" was not found.`);
+    super(`تعذّر العثور على الجرد "${id}".`);
+    this.messageEn = `Physical count "${id}" was not found.`;
     this.name = "PhysicalCountNotFoundError";
   }
 }
 
 export class InvalidPhysicalCountError extends Error {
   readonly code = "INVALID_PHYSICAL_COUNT";
-  constructor(readonly id: string, message: string) {
+  readonly messageEn: string;
+  constructor(readonly id: string, message: string, messageEn = "The physical count is invalid.") {
     super(message);
+    this.messageEn = messageEn;
     this.name = "InvalidPhysicalCountError";
   }
 }
 
+const PHYSICAL_COUNT_STATUS_LABELS: Readonly<Record<PhysicalCountStatus, { readonly ar: string; readonly en: string }>> = {
+  IN_PROGRESS: { ar: "قيد العدّ", en: "in progress" },
+  COMPLETED: { ar: "مكتمل", en: "completed" },
+  ADJUSTMENT_GENERATED: { ar: "تم إنشاء التسوية", en: "adjustment created" },
+  CANCELLED: { ar: "ملغى", en: "cancelled" },
+};
+
 /** Raised when an action requires a status the count isn't currently in. */
 export class InvalidPhysicalCountStatusError extends Error {
   readonly code = "INVALID_PHYSICAL_COUNT_STATUS";
+  readonly messageEn: string;
   constructor(
     readonly id: string,
     readonly status: PhysicalCountStatus,
     readonly expected: readonly PhysicalCountStatus[],
   ) {
-    super(
-      `Physical count "${id}" is "${status}"; this action requires one of: ${expected.join(", ")}.`,
-    );
+    super(`الجرد "${id}" في حالة «${PHYSICAL_COUNT_STATUS_LABELS[status].ar}»؛ هذا الإجراء يتطلب إحدى الحالات: ${expected.map((e) => `«${PHYSICAL_COUNT_STATUS_LABELS[e].ar}»`).join("، ")}.`);
+    this.messageEn = `Physical count "${id}" is ${PHYSICAL_COUNT_STATUS_LABELS[status].en}; this action requires one of these statuses: ${expected.map((e) => PHYSICAL_COUNT_STATUS_LABELS[e].en).join(", ")}.`;
     this.name = "InvalidPhysicalCountStatusError";
   }
 }
@@ -199,7 +210,7 @@ export class PhysicalCountService {
   /** Open a new count session, snapshotting each item's current system qty. */
   async start(cmd: StartPhysicalCountCommand): Promise<PhysicalCount> {
     if (cmd.itemIds.length === 0) {
-      throw new InvalidPhysicalCountError(cmd.id, "الجرد يتطلب صنفاً واحداً على الأقل.");
+      throw new InvalidPhysicalCountError(cmd.id, "الجرد يتطلب صنفاً واحداً على الأقل.", "A physical count needs at least one item.");
     }
     const lines: PhysicalCountLine[] = [];
     for (const itemId of cmd.itemIds) {
@@ -233,7 +244,7 @@ export class PhysicalCountService {
       throw new InvalidPhysicalCountStatusError(id, count.status, ["IN_PROGRESS"]);
     }
     if (count.zoned) {
-      throw new InvalidPhysicalCountError(id, "هذا الجرد مقسّم إلى مناطق: تُسجَّل الكميات بالمسح من شاشة الجرد بالباركود فقط.");
+      throw new InvalidPhysicalCountError(id, "هذا الجرد مقسّم إلى مناطق: تُسجَّل الكميات بالمسح من شاشة الجرد بالباركود فقط.", "This count is divided into zones: quantities are recorded only by scanning from the barcode count screen.");
     }
     const byItem = new Map(entries.map((e) => [e.itemId, e.countedQty] as const));
     const lines = count.lines.map((line) => {
@@ -271,7 +282,7 @@ export class PhysicalCountService {
       throw new InvalidPhysicalCountStatusError(id, count.status, ["IN_PROGRESS"]);
     }
     if (count.lines.some((l) => l.countedQty === null)) {
-      throw new InvalidPhysicalCountError(id, "لا يمكن إنهاء الجرد قبل إدخال الكميات المعدودة لكل الأصناف.");
+      throw new InvalidPhysicalCountError(id, "لا يمكن إنهاء الجرد قبل إدخال الكميات المعدودة لكل الأصناف.", "The count cannot be finished before the counted quantity is entered for every item.");
     }
     await this.deps.completionGate?.assertCompletable(count);
     const next: PhysicalCount = { ...count, status: "COMPLETED", completedAt: this.now() };

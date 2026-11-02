@@ -83,13 +83,16 @@ export class HeaderAccountHasChildrenError extends Error {
  */
 export class AccountHasPostingsError extends Error {
   readonly code = "ACCOUNT_HAS_POSTINGS";
+  readonly messageEn: string;
   constructor(
     readonly accountId: string,
     readonly attemptedChange: string,
+    attemptedChangeEn = attemptedChange,
   ) {
     super(
       `الحساب "${accountId}" عليه حركات مرحّلة، ولا يمكن ${attemptedChange}. صحّح بقيد عكسي بدلاً من تعديل الحساب.`,
     );
+    this.messageEn = `Account "${accountId}" has posted movements, so it cannot be ${attemptedChangeEn}. Correct it with a reversing entry instead of editing the account.`;
     this.name = "AccountHasPostingsError";
   }
 }

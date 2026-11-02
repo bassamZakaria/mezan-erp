@@ -1,3 +1,4 @@
+import { messageEnOf } from "./observability/error-message-backfill.js";
 import type { Context } from "hono";
 import {
   LandedCostDateBeforeStockMovementError,
@@ -29,7 +30,7 @@ import { reversalRefusalResponse } from "./document-reversal.js";
 export function handleDocumentError(c: Context, err: unknown): Response {
   if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
   const refuse = (e: Error & { code: string; messageEn?: string }, status: 404 | 409 | 422 | 500) =>
-    c.json({ error: e.code, message: e.message, ...(e.messageEn ? { messageEn: e.messageEn } : {}) }, status);
+    c.json({ error: e.code, message: e.message, messageEn: messageEnOf(e, status) }, status);
   const postingRefusal = reversalRefusalResponse(c, err);
   if (postingRefusal) return postingRefusal;
   if (err instanceof DocumentNotFoundError) {
@@ -73,15 +74,15 @@ export function handleDocumentError(c: Context, err: unknown): Response {
   }
   if (err instanceof NegativeStockError) {
     return c.json(
-      { error: err.code, message: err.message, onHand: err.onHand.toString(), requested: err.requested.toString() },
+      { error: err.code, message: err.message, messageEn: err.messageEn, onHand: err.onHand.toString(), requested: err.requested.toString() },
       422,
     );
   }
   if (err instanceof UncostedDeficitIssueError) {
-    return c.json({ error: err.code, message: err.message, requested: err.requested.toString() }, 422);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, requested: err.requested.toString() }, 422);
   }
   if (err instanceof InvalidStockMovementError) {
-    return c.json({ error: err.code, message: err.message }, 400);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 400);
   }
   throw err;
 }

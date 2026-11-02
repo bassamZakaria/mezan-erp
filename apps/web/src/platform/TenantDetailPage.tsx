@@ -201,7 +201,7 @@ export function TenantDetailPage() {
 
   const summary = tenantQuery.data;
   if (!summary) {
-    return <div className="p-8 text-center text-sm text-ink-muted">{tenantQuery.isError ? t("platform.tenantDetail.notFound") : t("common.loading")}</div>;
+    return <div className="p-8 text-center text-sm text-ink-muted">{tenantQuery.isError ? (tenantQuery.error instanceof PlatformApiError && tenantQuery.error.message.trim() ? tenantQuery.error.message : t("platform.tenantDetail.notFound")) : t("common.loading")}</div>;
   }
 
   const { tenant, subscription, plan, licenseState, entitlements, payments } = summary;

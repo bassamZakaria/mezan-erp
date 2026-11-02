@@ -172,6 +172,7 @@ function serializeReview(review: BoqImportReview) {
       rowNumber: r.rowNumber,
       accepted: r.accepted,
       problems: r.problems,
+      problemsEn: r.problemsEn,
       code: (r.raw.code ?? "").toString(),
       descriptionAr: (r.raw.descriptionAr ?? "").toString(),
       unit: r.value ? r.value.unit : (r.raw.unit ?? "").toString(),
@@ -230,19 +231,19 @@ function handleDomainError(c: Context, err: unknown) {
   const postingRefusal = postingRefusalResponse(c, err);
   if (postingRefusal) return postingRefusal;
   if (err instanceof WorksContractNotFoundError || err instanceof VariationOrderNotFoundError) {
-    return c.json({ error: err.code, message: err.message }, 404);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 404);
   }
   if (err instanceof InvalidWorksContractError) {
-    return c.json({ error: err.code, message: err.message, reasons: err.reasons }, 422);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, reasons: err.reasons }, 422);
   }
   if (err instanceof WorksContractNotDraftError) {
-    return c.json({ error: err.code, message: err.message, status: err.status }, 409);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, status: err.status }, 409);
   }
   if (err instanceof InvalidWorksContractTransitionError) {
-    return c.json({ error: err.code, message: err.message, from: err.from, to: err.to }, 409);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, from: err.from, to: err.to }, 409);
   }
   if (err instanceof SelfApprovalError) {
-    return c.json({ error: err.code, message: err.message }, 403);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 403);
   }
   throw err;
 }

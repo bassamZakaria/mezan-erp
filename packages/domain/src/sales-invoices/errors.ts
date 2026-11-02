@@ -1,14 +1,18 @@
-import { SALES_INVOICE_STATUS_LABELS_AR } from "./sales-invoice.js";
+import { SALES_INVOICE_STATUS_LABELS_AR, SALES_INVOICE_STATUS_LABELS_EN } from "./sales-invoice.js";
 /** Sales-invoice errors. Stable `code`s so the api/UI can branch on them. */
 
+import { splitReasons, type ReasonInput } from "../bilingual-reasons.js";
 import type { SalesInvoiceStatus } from "./sales-invoice.js";
 
 export class InvalidSalesInvoiceError extends Error {
   readonly code = "INVALID_SALES_INVOICE";
   readonly messageEn: string;
-  constructor(readonly reasons: readonly string[]) {
-    super(`فاتورة المبيعات غير صالحة: ${reasons.join("، ")}`);
-    this.messageEn = `Invalid sales invoice: ${reasons.join("; ")}`;
+  readonly reasons: readonly string[];
+  constructor(reasons: readonly ReasonInput[]) {
+    const split = splitReasons(reasons, "it failed validation");
+    super(`فاتورة المبيعات غير صالحة: ${split.ar.join("، ")}`);
+    this.reasons = split.ar;
+    this.messageEn = `Invalid sales invoice: ${split.en}`;
     this.name = "InvalidSalesInvoiceError";
   }
 }
@@ -25,12 +29,14 @@ export class SalesInvoiceNotFoundError extends Error {
 
 export class InvalidSalesInvoiceTransitionError extends Error {
   readonly code = "INVALID_SALES_INVOICE_TRANSITION";
+  readonly messageEn: string;
   constructor(
     readonly invoiceId: string,
     readonly from: SalesInvoiceStatus,
     readonly to: SalesInvoiceStatus,
   ) {
     super(`لا يمكن نقل الفاتورة ${invoiceId} من "${SALES_INVOICE_STATUS_LABELS_AR[from]}" إلى "${SALES_INVOICE_STATUS_LABELS_AR[to]}".`);
+    this.messageEn = `Invoice ${invoiceId} cannot move from "${SALES_INVOICE_STATUS_LABELS_EN[from]}" to "${SALES_INVOICE_STATUS_LABELS_EN[to]}".`;
     this.name = "InvalidSalesInvoiceTransitionError";
   }
 }
@@ -38,30 +44,36 @@ export class InvalidSalesInvoiceTransitionError extends Error {
 /** A payment was recorded that would exceed the invoice's outstanding balance. */
 export class InvalidSalesInvoicePaymentError extends Error {
   readonly code = "INVALID_SALES_INVOICE_PAYMENT";
-  constructor(message: string) {
+  readonly messageEn: string;
+  constructor(message: string, messageEn = "The payment on this invoice is not valid.") {
     super(message);
+    this.messageEn = messageEn;
     this.name = "InvalidSalesInvoicePaymentError";
   }
 }
 
 export class SalesInvoiceNotDraftError extends Error {
   readonly code = "SALES_INVOICE_NOT_DRAFT";
+  readonly messageEn: string;
   constructor(
     readonly invoiceId: string,
     readonly status: SalesInvoiceStatus,
   ) {
     super(`لا يُعدَّل بند فاتورة في حالة "${SALES_INVOICE_STATUS_LABELS_AR[status]}" — التعديل للمسودة وحدها؛ الفاتورة المرحّلة تُصحَّح بمرتجع.`);
+    this.messageEn = `A sales invoice line cannot be edited when the invoice is "${SALES_INVOICE_STATUS_LABELS_EN[status]}" — only drafts can be edited; correct a posted invoice with a return.`;
     this.name = "SalesInvoiceNotDraftError";
   }
 }
 
 export class SalesInvoiceLineNotFoundError extends Error {
   readonly code = "SALES_INVOICE_LINE_NOT_FOUND";
+  readonly messageEn: string;
   constructor(
     readonly invoiceId: string,
     readonly lineId: string,
   ) {
     super(`البند ${lineId} غير موجود على الفاتورة ${invoiceId}.`);
+    this.messageEn = `Line ${lineId} was not found on invoice ${invoiceId}.`;
     this.name = "SalesInvoiceLineNotFoundError";
   }
 }

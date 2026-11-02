@@ -8,7 +8,7 @@ import {
 } from "@mezan/domain";
 
 export function validationError(c: Context, error: ZodError): Response {
-  return c.json({ error: "VALIDATION_ERROR", message: "البيانات المرسلة غير مكتملة أو غير صالحة", details: error.flatten() }, 400);
+  return c.json({ error: "VALIDATION_ERROR", message: "البيانات المرسلة غير مكتملة أو غير صالحة", messageEn: "The submitted data is incomplete or invalid", details: error.flatten() }, 400);
 }
 
 export function posDomainError(c: Context, err: unknown): Response {
@@ -18,7 +18,7 @@ export function posDomainError(c: Context, err: unknown): Response {
     err instanceof InvalidPosSettingsError ||
     err instanceof InvalidShiftTemplateError
   ) {
-    return c.json({ error: err.code, message: err.message, reasons: err.reasons }, 422);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, reasons: err.reasons }, 422);
   }
   throw err;
 }

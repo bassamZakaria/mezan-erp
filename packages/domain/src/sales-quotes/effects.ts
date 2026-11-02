@@ -27,6 +27,11 @@ export function describeQuoteEffects(quote: SalesQuote, totals: SalesQuoteTotals
       : !positiveTotal
         ? "إجمالي العرض يجب أن يكون أكبر من صفر."
         : undefined,
+    blockedReasonEn: !hasLines
+      ? "The quote has no lines."
+      : !positiveTotal
+        ? "The quote total must be greater than zero."
+        : undefined,
     effects: [
       {
         kind: "balance",

@@ -101,7 +101,8 @@ describe("write-down run errors", () => {
     const err = new WritedownRunNotDraftError("run-1", "posted");
     expect(err.code).toBe("WRITEDOWN_RUN_NOT_DRAFT");
     expect(err.status).toBe("posted");
-    expect(err.message).toContain("posted");
+    expect(err.message).toContain("مُرحَّل");
+    expect(err.messageEn).toContain("posted");
   });
 
   it("DuplicateWritedownPeriodError includes the warehouse clause only when scoped", () => {

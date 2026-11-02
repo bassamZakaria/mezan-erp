@@ -1,5 +1,6 @@
 import type { Money, Qty } from "../money/index.js";
 import { InvalidPriceListError } from "./errors.js";
+import type { ReasonInput } from "../bilingual-reasons.js";
 
 /**
  * Price lists — master data (docs/archive/catalog/01 "قوائم الأسعار"). A price list
@@ -44,24 +45,24 @@ export interface PriceList {
  * create-price-list.ts).
  */
 export function assertValidPriceListShape(nameAr: string, lines: readonly PriceListLine[]): void {
-  const reasons: string[] = [];
+  const reasons: ReasonInput[] = [];
 
   if (nameAr.trim().length === 0) {
-    reasons.push("اسم قائمة الأسعار مطلوب.");
+    reasons.push({ ar: "اسم قائمة الأسعار مطلوب.", en: "The price list name is required." });
   }
 
   const seen = new Set<string>();
   for (const line of lines) {
     const key = `${line.itemId}@${line.minQty.scaled.toString()}`;
     if (seen.has(key)) {
-      reasons.push(`شريحة مكررة للصنف "${line.itemId}" عند الحد الأدنى للكمية ${line.minQty.toString()}.`);
+      reasons.push({ ar: `شريحة مكررة للصنف "${line.itemId}" عند الحد الأدنى للكمية ${line.minQty.toString()}.`, en: `Duplicate tier for item "${line.itemId}" at minimum quantity ${line.minQty.toString()}.` });
     }
     seen.add(key);
     if (line.minQty.scaled < 0n) {
-      reasons.push(`الحد الأدنى للكمية للصنف "${line.itemId}" لا يمكن أن يكون سالباً.`);
+      reasons.push({ ar: `الحد الأدنى للكمية للصنف "${line.itemId}" لا يمكن أن يكون سالباً.`, en: `The minimum quantity for item "${line.itemId}" cannot be negative.` });
     }
     if (line.price.scaled < 0n) {
-      reasons.push(`سعر السطر للصنف "${line.itemId}" لا يمكن أن يكون سالباً.`);
+      reasons.push({ ar: `سعر السطر للصنف "${line.itemId}" لا يمكن أن يكون سالباً.`, en: `The line price for item "${line.itemId}" cannot be negative.` });
     }
   }
 

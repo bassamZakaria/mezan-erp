@@ -54,7 +54,7 @@ export function createBranchesRoutes(
     const limit = c.get("entitlements")?.limits?.branches;
     if (limit !== undefined && existing.length >= limit) {
       return c.json(
-        { error: "BRANCH_LIMIT_REACHED", message: "وصلتم إلى الحد الأقصى للفروع في باقتكم" },
+        { error: "BRANCH_LIMIT_REACHED", message: "وصلتم إلى الحد الأقصى للفروع في باقتكم", messageEn: "You have reached the maximum number of branches in your plan" },
         409,
       );
     }
@@ -65,7 +65,7 @@ export function createBranchesRoutes(
     } catch (err) {
       if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
       if (err instanceof InvalidBranchError) {
-        return c.json({ error: err.code, message: err.message }, 422);
+        return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 422);
       }
       throw err;
     }
@@ -86,7 +86,7 @@ export function createBranchesRoutes(
       return c.json(next);
     } catch (err) {
       if (err instanceof InvalidBranchError) {
-        return c.json({ error: err.code, message: err.message }, 422);
+        return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 422);
       }
       throw err;
     }

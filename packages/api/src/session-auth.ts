@@ -793,7 +793,7 @@ export function stepUpGate(sessions: SessionRegistry): MiddlewareHandler {
     const token = readSessionToken(c);
     if (!token || !(await sessions.needsStepUp(token))) return next();
     return c.json(
-      { error: STEP_UP_REQUIRED, message: "تغيّر عنوان اتصالك منذ تسجيل الدخول. أعد إدخال كلمة المرور لتأكيد هذا الإجراء." },
+      { error: STEP_UP_REQUIRED, message: "تغيّر عنوان اتصالك منذ تسجيل الدخول. أعد إدخال كلمة المرور لتأكيد هذا الإجراء.", messageEn: "Your connection address has changed since you signed in. Re-enter your password to confirm this action." },
       403,
     );
   };

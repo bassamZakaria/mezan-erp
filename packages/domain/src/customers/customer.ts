@@ -1,5 +1,6 @@
+import type { BilingualReason } from "../collections/errors.js";
 import { Money } from "../money/index.js";
-import { validatePartnerBase, type PartnerBase } from "../partners/partner-base.js";
+import { validatePartnerBaseBilingual, type PartnerBase } from "../partners/partner-base.js";
 
 /**
  * Customer — docs/archive/catalog/01-sales.md "العملاء (Customers — Customer master)".
@@ -41,8 +42,15 @@ export interface Customer extends PartnerBase {
 
 export class InvalidCustomerError extends Error {
   readonly code = "INVALID_CUSTOMER";
-  constructor(readonly reasons: readonly string[]) {
+  readonly messageEn: string;
+  readonly reasonsEn: readonly string[];
+  constructor(
+    readonly reasons: readonly string[],
+    reasonsEn?: readonly string[],
+  ) {
     super(reasons.join("، "));
+    this.reasonsEn = reasonsEn ?? [];
+    this.messageEn = reasonsEn && reasonsEn.length > 0 ? reasonsEn.join("; ") : "The customer data is invalid.";
     this.name = "InvalidCustomerError";
   }
 }
@@ -75,15 +83,22 @@ export interface CreateCustomerInput {
   readonly nationalId?: string | null;
 }
 
-function validate(customer: Customer): string[] {
-  const reasons = validatePartnerBase(customer);
+function validate(customer: Customer): BilingualReason[] {
+  const reasons = validatePartnerBaseBilingual(customer);
   if (!ETA_BUYER_TYPES.includes(customer.etaBuyerType)) {
-    reasons.push("نوع عميل الفاتورة الإلكترونية غير صالح");
+    reasons.push({ ar: "نوع عميل الفاتورة الإلكترونية غير صالح", en: "The e-invoice buyer type is invalid" });
   }
   if (customer.creditLimit.scaled < 0n) {
-    reasons.push("حد الائتمان لا يمكن أن يكون سالبًا");
+    reasons.push({ ar: "حد الائتمان لا يمكن أن يكون سالبًا", en: "The credit limit cannot be negative" });
   }
   return reasons;
+}
+
+function toInvalidCustomerError(reasons: readonly BilingualReason[]): InvalidCustomerError {
+  return new InvalidCustomerError(
+    reasons.map((reason) => reason.ar),
+    reasons.map((reason) => reason.en),
+  );
 }
 
 /** Constructs a `Customer`, applying the catalog's add-dialog defaults (30-day terms, EGP, no credit limit). */
@@ -115,7 +130,7 @@ export function createCustomer(input: CreateCustomerInput): Customer {
     nationalId: input.nationalId ?? null,
   };
   const reasons = validate(customer);
-  if (reasons.length > 0) throw new InvalidCustomerError(reasons);
+  if (reasons.length > 0) throw toInvalidCustomerError(reasons);
   return customer;
 }
 
@@ -123,6 +138,6 @@ export function createCustomer(input: CreateCustomerInput): Customer {
 export function updateCustomer(current: Customer, patch: Partial<Omit<Customer, "id">>): Customer {
   const next: Customer = { ...current, ...patch };
   const reasons = validate(next);
-  if (reasons.length > 0) throw new InvalidCustomerError(reasons);
+  if (reasons.length > 0) throw toInvalidCustomerError(reasons);
   return next;
 }

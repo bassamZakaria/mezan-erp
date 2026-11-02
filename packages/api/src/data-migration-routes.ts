@@ -1,3 +1,4 @@
+import { bilingualText } from "./observability/error-message-backfill.js";
 import { randomUUID } from "node:crypto";
 import { importRowLimit } from "./import-limit.js";
 import { Hono, type Context } from "hono";
@@ -41,7 +42,6 @@ import {
   type DocumentService,
   type StockAdjustmentDocLine,
   type OpeningBalanceImportRowInput,
-  type ImportRowError,
   createAccount,
   previewChartOfAccountsImport,
   orderChartOfAccountsRows,
@@ -114,6 +114,22 @@ import { callerUserId, createPermissionGate, getAuthContext, maySeeItemCost, typ
 export interface DataMigrationRowError {
   readonly rowNumber: number;
   readonly reasons: readonly string[];
+  readonly reasonsEn?: readonly string[];
+}
+
+class RowReasons {
+  private readonly ar: string[] = [];
+  private readonly en: string[] = [];
+  add(ar: string, en: string): void {
+    this.ar.push(ar);
+    this.en.push(en);
+  }
+  get length(): number {
+    return this.ar.length;
+  }
+  error(rowNumber: number): DataMigrationRowError {
+    return { rowNumber, reasons: this.ar, reasonsEn: this.en };
+  }
 }
 
 export interface DataMigrationStepResult {
@@ -135,6 +151,12 @@ function errorMessage(err: unknown): string {
     return err.message;
   }
   return String(err);
+}
+
+function errorReasons(err: unknown): { reasons: string[]; reasonsEn: string[] } {
+  const ar = errorMessage(err);
+  const en = err instanceof Error ? (err as { messageEn?: string }).messageEn : undefined;
+  return { reasons: [ar], reasonsEn: [en && en.trim() !== "" ? en : ar] };
 }
 
 /**
@@ -161,7 +183,7 @@ async function runStep<TRow, TItem>(
       if ("reasons" in result) errors.push(result);
       else built.push(result);
     } catch (err) {
-      errors.push({ rowNumber, reasons: [errorMessage(err)] });
+      errors.push({ rowNumber, ...errorReasons(err) });
     }
   }
 
@@ -190,8 +212,8 @@ function optNum(row: Record<string, unknown>, key: string): number | undefined {
   return Number.isFinite(n) ? n : undefined;
 }
 
-function checkDuplicateInBatch(code: string, seenCodes: Set<string>, reasons: string[]): void {
-  if (seenCodes.has(code)) reasons.push(`الكود "${code}" مكرر في نفس الملف`);
+function checkDuplicateInBatch(code: string, seenCodes: Set<string>, reasons: RowReasons): void {
+  if (seenCodes.has(code)) reasons.add(`الكود "${code}" مكرر في نفس الملف`, `The code "${code}" is duplicated in the same file`);
   else seenCodes.add(code);
 }
 
@@ -318,14 +340,14 @@ export function createDataMigrationRoutes(
         const code = str(row, "code");
         const nameAr = str(row, "nameAr");
         const nameEn = optStr(row, "nameEn");
-        const reasons: string[] = [];
-        if (!code) reasons.push("كود القسم مطلوب");
-        if (!nameAr) reasons.push("اسم القسم مطلوب");
+        const reasons = new RowReasons();
+        if (!code) reasons.add("كود القسم مطلوب", "The department code is required");
+        if (!nameAr) reasons.add("اسم القسم مطلوب", "The department name is required");
         if (code) {
-          if (existingCodes.has(code)) reasons.push(`القسم بالكود "${code}" مسجل بالفعل`);
+          if (existingCodes.has(code)) reasons.add(`القسم بالكود "${code}" مسجل بالفعل`, `A department with the code "${code}" is already registered`);
           checkDuplicateInBatch(code, seenCodes, reasons);
         }
-        if (reasons.length > 0) return { rowNumber, reasons };
+        if (reasons.length > 0) return reasons.error(rowNumber);
         const id = randomId();
         // `name` is the department's required primary name field (mirrors the
         // real hr/master-data `CreateDepartmentCommand` — English/primary
@@ -355,19 +377,19 @@ export function createDataMigrationRoutes(
         const nameAr = str(row, "nameAr");
         const departmentCode = str(row, "departmentCode");
         const hireDate = str(row, "hireDate");
-        const reasons: string[] = [];
-        if (!code) reasons.push("كود الموظف مطلوب");
-        if (!nameAr) reasons.push("اسم الموظف مطلوب");
-        if (!hireDate) reasons.push("تاريخ التعيين مطلوب");
+        const reasons = new RowReasons();
+        if (!code) reasons.add("كود الموظف مطلوب", "The employee code is required");
+        if (!nameAr) reasons.add("اسم الموظف مطلوب", "The employee name is required");
+        if (!hireDate) reasons.add("تاريخ التعيين مطلوب", "The hire date is required");
         const department = departmentCode ? departments.find((d) => d.code === departmentCode) : undefined;
-        if (departmentCode && !department) reasons.push(`القسم بالكود "${departmentCode}" غير موجود — استورد الأقسام أولاً`);
+        if (departmentCode && !department) reasons.add(`القسم بالكود "${departmentCode}" غير موجود — استورد الأقسام أولاً`, `No department with the code "${departmentCode}" exists; import the departments first`);
         if (code) {
-          if (existingCodes.has(code)) reasons.push(`الموظف بالكود "${code}" مسجل بالفعل`);
+          if (existingCodes.has(code)) reasons.add(`الموظف بالكود "${code}" مسجل بالفعل`, `An employee with the code "${code}" is already registered`);
           checkDuplicateInBatch(code, seenCodes, reasons);
         }
         const branchId = await resolveDefaultBranchId(deps.branches, optStr(row, "branchCode"));
-        if (!branchId) reasons.push("لا يوجد فرع لربط الموظف به — أضف فرعًا أولاً");
-        if (reasons.length > 0) return { rowNumber, reasons };
+        if (!branchId) reasons.add("لا يوجد فرع لربط الموظف به — أضف فرعًا أولاً", "There is no branch to link the employee to; add a branch first");
+        if (reasons.length > 0) return reasons.error(rowNumber);
         const id = randomId();
         // The real `CreateEmployeeCommand` (hr/master-data) requires
         // firstName/lastName rather than one Arabic display name — split the
@@ -408,13 +430,13 @@ export function createDataMigrationRoutes(
     const existing = await deps.treasuryAccounts.list();
     const existingCodes = new Set(existing.map((a) => a.code));
     const ledgerAccounts = deps.accounts ? { accounts: deps.accounts, cashAndBankParentAccountId: deps.cashAndBankParentAccountId } : null;
-    let leafHeaderRefusal: string | null = null;
+    let leafHeaderRefusal: { ar: string; en: string } | null = null;
     if (ledgerAccounts && rows.some((row) => !optStr(row, "glAccountId"))) {
       try {
         await cashAndBankHeader(ledgerAccounts);
       } catch (err) {
         if (!(err instanceof InvalidParentAccountError)) throw err;
-        leafHeaderRefusal = err.message;
+        leafHeaderRefusal = { ar: err.message, en: err.messageEn };
       }
     }
     let persisting = 0;
@@ -425,34 +447,34 @@ export function createDataMigrationRoutes(
         const name = str(row, "name");
         const typeRaw = str(row, "type").toLowerCase();
         const type = typeRaw === "bank" ? "bank" : "cash";
-        const reasons: string[] = [];
-        if (!code) reasons.push("كود حساب الخزينة مطلوب");
-        if (!name) reasons.push("اسم حساب الخزينة مطلوب");
+        const reasons = new RowReasons();
+        if (!code) reasons.add("كود حساب الخزينة مطلوب", "The treasury account code is required");
+        if (!name) reasons.add("اسم حساب الخزينة مطلوب", "The treasury account name is required");
         const branchId = await resolveDefaultBranchId(deps.branches, optStr(row, "branchCode"));
-        if (!branchId) reasons.push("لا يوجد فرع لربط الحساب به — أضف فرعًا أولاً");
+        if (!branchId) reasons.add("لا يوجد فرع لربط الحساب به — أضف فرعًا أولاً", "There is no branch to link the account to; add a branch first");
         if (code) {
-          if (existingCodes.has(code)) reasons.push(`حساب الخزينة بالكود "${code}" مسجل بالفعل`);
+          if (existingCodes.has(code)) reasons.add(`حساب الخزينة بالكود "${code}" مسجل بالفعل`, `A treasury account with the code "${code}" is already registered`);
           checkDuplicateInBatch(code, seenCodes, reasons);
         }
         const openingBalanceStr = optStr(row, "openingBalance");
         if (openingBalanceStr !== undefined && type === "cash") {
           try {
-            if (Money.fromMajor(openingBalanceStr).scaled < 0n) reasons.push("لا يمكن أن يكون الرصيد الافتتاحي لحساب نقدي سالبًا");
+            if (Money.fromMajor(openingBalanceStr).scaled < 0n) reasons.add("لا يمكن أن يكون الرصيد الافتتاحي لحساب نقدي سالبًا", "The opening balance of a cash account cannot be negative");
           } catch {
-            reasons.push("الرصيد الافتتاحي رقم غير صالح");
+            reasons.add("الرصيد الافتتاحي رقم غير صالح", "The opening balance is not a valid number");
           }
         }
         const glAccountId = optStr(row, "glAccountId");
-        if (!glAccountId && leafHeaderRefusal) reasons.push(leafHeaderRefusal);
+        if (!glAccountId && leafHeaderRefusal) reasons.add(leafHeaderRefusal.ar, leafHeaderRefusal.en);
         if (glAccountId && ledgerAccounts) {
           try {
             await assertTreasuryLedgerAccount({ glAccountId }, ledgerAccounts);
           } catch (err) {
             if (!(err instanceof InvalidTreasuryLedgerAccountError)) throw err;
-            reasons.push(err.message);
+            reasons.add(err.message, err.messageEn);
           }
         }
-        if (reasons.length > 0) return { rowNumber, reasons };
+        if (reasons.length > 0) return reasons.error(rowNumber);
         const id = randomId();
         return {
           id,
@@ -501,7 +523,7 @@ export function createDataMigrationRoutes(
     } catch (err) {
       const conflict = err instanceof DuplicateAccountCodeError || err instanceof DuplicateTreasuryAccountCodeError;
       if (!conflict && !(err instanceof InvalidParentAccountError) && !(err instanceof InvalidTreasuryLedgerAccountError)) throw err;
-      return c.json({ validCount: 0, errors: [{ rowNumber: persisting, reasons: [err.message] }] }, conflict ? 409 : 422);
+      return c.json({ validCount: 0, message: err.message, messageEn: err.messageEn, errors: [{ rowNumber: persisting, reasons: [err.message], reasonsEn: [err.messageEn] }] }, conflict ? 409 : 422);
     }
     return c.json(result, commit && result.errors.length === 0 ? 201 : 200);
   }
@@ -518,14 +540,14 @@ export function createDataMigrationRoutes(
       async (row, rowNumber, seenCodes) => {
         const code = str(row, "code");
         const nameAr = str(row, "nameAr");
-        const reasons: string[] = [];
-        if (!code) reasons.push("كود المورد مطلوب");
-        if (!nameAr) reasons.push("اسم المورد مطلوب");
+        const reasons = new RowReasons();
+        if (!code) reasons.add("كود المورد مطلوب", "The supplier code is required");
+        if (!nameAr) reasons.add("اسم المورد مطلوب", "The supplier name is required");
         if (code) {
-          if (existingCodes.has(code)) reasons.push(`المورد بالكود "${code}" مسجل بالفعل`);
+          if (existingCodes.has(code)) reasons.add(`المورد بالكود "${code}" مسجل بالفعل`, `A supplier with the code "${code}" is already registered`);
           checkDuplicateInBatch(code, seenCodes, reasons);
         }
-        if (reasons.length > 0) return { rowNumber, reasons };
+        if (reasons.length > 0) return reasons.error(rowNumber);
         const id = randomId();
         try {
           const supplier = createSupplier({
@@ -541,7 +563,7 @@ export function createDataMigrationRoutes(
           });
           return { id, item: supplier };
         } catch (err) {
-          return { rowNumber, reasons: [errorMessage(err)] };
+          return { rowNumber, ...errorReasons(err) };
         }
       },
       async (item) => {
@@ -572,14 +594,14 @@ export function createDataMigrationRoutes(
       async (row, rowNumber, seenCodes) => {
         const code = str(row, "code");
         const nameAr = str(row, "nameAr");
-        const reasons: string[] = [];
-        if (!code) reasons.push("كود العميل مطلوب");
-        if (!nameAr) reasons.push("اسم العميل مطلوب");
+        const reasons = new RowReasons();
+        if (!code) reasons.add("كود العميل مطلوب", "The customer code is required");
+        if (!nameAr) reasons.add("اسم العميل مطلوب", "The customer name is required");
         if (code) {
-          if (existingCodes.has(code)) reasons.push(`العميل بالكود "${code}" مسجل بالفعل`);
+          if (existingCodes.has(code)) reasons.add(`العميل بالكود "${code}" مسجل بالفعل`, `A customer with the code "${code}" is already registered`);
           checkDuplicateInBatch(code, seenCodes, reasons);
         }
-        if (reasons.length > 0) return { rowNumber, reasons };
+        if (reasons.length > 0) return reasons.error(rowNumber);
         const id = randomId();
         try {
           const creditLimitStr = optStr(row, "creditLimit");
@@ -596,7 +618,7 @@ export function createDataMigrationRoutes(
           });
           return { id, item: customer };
         } catch (err) {
-          return { rowNumber, reasons: [errorMessage(err)] };
+          return { rowNumber, ...errorReasons(err) };
         }
       },
       async (item) => {
@@ -630,15 +652,15 @@ export function createDataMigrationRoutes(
         const baseUnitCode = str(row, "baseUnitCode");
         const typeRaw = str(row, "type").toLowerCase();
         const type = typeRaw === "service" ? "service" : "stock";
-        const reasons: string[] = [];
-        if (!code) reasons.push("كود الصنف مطلوب");
-        if (!nameAr) reasons.push("اسم الصنف مطلوب");
-        if (!baseUnitCode) reasons.push("وحدة القياس الأساسية مطلوبة");
+        const reasons = new RowReasons();
+        if (!code) reasons.add("كود الصنف مطلوب", "The item code is required");
+        if (!nameAr) reasons.add("اسم الصنف مطلوب", "The item name is required");
+        if (!baseUnitCode) reasons.add("وحدة القياس الأساسية مطلوبة", "The base unit of measure is required");
         if (code) {
-          if (existingCodes.has(code)) reasons.push(`الصنف بالكود "${code}" مسجل بالفعل`);
+          if (existingCodes.has(code)) reasons.add(`الصنف بالكود "${code}" مسجل بالفعل`, `An item with the code "${code}" is already registered`);
           checkDuplicateInBatch(code, seenCodes, reasons);
         }
-        if (reasons.length > 0) return { rowNumber, reasons };
+        if (reasons.length > 0) return reasons.error(rowNumber);
         const id = randomId();
         const salePriceStr = optStr(row, "salePrice");
         const costPriceStr = maySeeItemCost(c) ? optStr(row, "costPrice") : undefined;
@@ -660,7 +682,7 @@ export function createDataMigrationRoutes(
             },
           };
         } catch (err) {
-          return { rowNumber, reasons: [errorMessage(err)] };
+          return { rowNumber, ...errorReasons(err) };
         }
       },
       async (item) => {
@@ -695,18 +717,18 @@ export function createDataMigrationRoutes(
         const unitCode = str(row, "unitCode");
         const unitName = optStr(row, "unitName") ?? unitCode;
         const factor = optNum(row, "factor");
-        const reasons: string[] = [];
-        if (!itemCode) reasons.push("كود الصنف مطلوب");
+        const reasons = new RowReasons();
+        if (!itemCode) reasons.add("كود الصنف مطلوب", "The item code is required");
         const item = byCode.get(itemCode);
-        if (itemCode && !item) reasons.push(`الصنف بالكود "${itemCode}" غير موجود — استورد الأصناف أولاً`);
-        if (!unitCode) reasons.push("كود الوحدة مطلوب");
-        if (factor === undefined || factor <= 0) reasons.push("معامل التحويل يجب أن يكون رقمًا أكبر من صفر");
+        if (itemCode && !item) reasons.add(`الصنف بالكود "${itemCode}" غير موجود — استورد الأصناف أولاً`, `No item with the code "${itemCode}" exists; import the items first`);
+        if (!unitCode) reasons.add("كود الوحدة مطلوب", "The unit code is required");
+        if (factor === undefined || factor <= 0) reasons.add("معامل التحويل يجب أن يكون رقمًا أكبر من صفر", "The conversion factor must be a number greater than zero");
         const batchKey = `${itemCode}::${unitCode}`;
         checkDuplicateInBatch(batchKey, seenCodes, reasons);
         if (item && item.alternateUnits.some((u) => u.code === unitCode)) {
-          reasons.push(`الوحدة "${unitCode}" مسجلة بالفعل على الصنف "${itemCode}"`);
+          reasons.add(`الوحدة "${unitCode}" مسجلة بالفعل على الصنف "${itemCode}"`, `The unit "${unitCode}" is already registered on the item "${itemCode}"`);
         }
-        if (reasons.length > 0) return { rowNumber, reasons };
+        if (reasons.length > 0) return reasons.error(rowNumber);
         const list = pendingByItemCode.get(itemCode) ?? [];
         list.push({ code: unitCode, name: unitName, factor: factor! });
         pendingByItemCode.set(itemCode, list);
@@ -752,16 +774,16 @@ export function createDataMigrationRoutes(
         const nameAr = str(row, "nameAr");
         const usefulLifeMonths = optNum(row, "defaultUsefulLifeMonths");
         const salvagePercent = optNum(row, "defaultSalvagePercent") ?? 0;
-        const reasons: string[] = [];
-        if (!code) reasons.push("كود التصنيف مطلوب");
-        if (!nameAr) reasons.push("اسم التصنيف مطلوب");
-        if (usefulLifeMonths === undefined || usefulLifeMonths <= 0) reasons.push("العمر الإنتاجي (بالأشهر) يجب أن يكون أكبر من صفر");
-        if (salvagePercent < 0 || salvagePercent > 100) reasons.push("نسبة القيمة التخريدية يجب أن تكون بين 0 و 100");
+        const reasons = new RowReasons();
+        if (!code) reasons.add("كود التصنيف مطلوب", "The category code is required");
+        if (!nameAr) reasons.add("اسم التصنيف مطلوب", "The category name is required");
+        if (usefulLifeMonths === undefined || usefulLifeMonths <= 0) reasons.add("العمر الإنتاجي (بالأشهر) يجب أن يكون أكبر من صفر", "The useful life (in months) must be greater than zero");
+        if (salvagePercent < 0 || salvagePercent > 100) reasons.add("نسبة القيمة التخريدية يجب أن تكون بين 0 و 100", "The salvage value percentage must be between 0 and 100");
         if (code) {
-          if (existingCodes.has(code)) reasons.push(`تصنيف الأصول بالكود "${code}" مسجل بالفعل`);
+          if (existingCodes.has(code)) reasons.add(`تصنيف الأصول بالكود "${code}" مسجل بالفعل`, `An asset category with the code "${code}" is already registered`);
           checkDuplicateInBatch(code, seenCodes, reasons);
         }
-        if (reasons.length > 0) return { rowNumber, reasons };
+        if (reasons.length > 0) return reasons.error(rowNumber);
         const id = randomId();
         return {
           id,
@@ -791,19 +813,19 @@ export function createDataMigrationRoutes(
         const categoryCode = str(row, "categoryCode");
         const acquisitionDate = str(row, "acquisitionDate");
         const acquisitionCostStr = optStr(row, "acquisitionCost");
-        const reasons: string[] = [];
-        if (!code) reasons.push("كود الأصل مطلوب");
-        if (!nameAr) reasons.push("اسم الأصل مطلوب");
+        const reasons = new RowReasons();
+        if (!code) reasons.add("كود الأصل مطلوب", "The asset code is required");
+        if (!nameAr) reasons.add("اسم الأصل مطلوب", "The asset name is required");
         const category = categories.find((cat) => cat.code === categoryCode);
-        if (!categoryCode) reasons.push("كود تصنيف الأصل مطلوب");
-        else if (!category) reasons.push(`تصنيف الأصول بالكود "${categoryCode}" غير موجود — استورد تصنيفات الأصول أولاً`);
-        if (!acquisitionDate) reasons.push("تاريخ الاقتناء مطلوب");
-        if (!acquisitionCostStr) reasons.push("تكلفة الاقتناء مطلوبة");
+        if (!categoryCode) reasons.add("كود تصنيف الأصل مطلوب", "The asset category code is required");
+        else if (!category) reasons.add(`تصنيف الأصول بالكود "${categoryCode}" غير موجود — استورد تصنيفات الأصول أولاً`, `No asset category with the code "${categoryCode}" exists; import the asset categories first`);
+        if (!acquisitionDate) reasons.add("تاريخ الاقتناء مطلوب", "The acquisition date is required");
+        if (!acquisitionCostStr) reasons.add("تكلفة الاقتناء مطلوبة", "The acquisition cost is required");
         if (code) {
-          if (existingCodes.has(code)) reasons.push(`الأصل بالكود "${code}" مسجل بالفعل`);
+          if (existingCodes.has(code)) reasons.add(`الأصل بالكود "${code}" مسجل بالفعل`, `An asset with the code "${code}" is already registered`);
           checkDuplicateInBatch(code, seenCodes, reasons);
         }
-        if (reasons.length > 0) return { rowNumber, reasons };
+        if (reasons.length > 0) return reasons.error(rowNumber);
         const id = randomId();
         try {
           return {
@@ -819,7 +841,7 @@ export function createDataMigrationRoutes(
             },
           };
         } catch (err) {
-          return { rowNumber, reasons: [errorMessage(err)] };
+          return { rowNumber, ...errorReasons(err) };
         }
       },
       async (item) => {
@@ -852,7 +874,7 @@ export function createDataMigrationRoutes(
         new Set(existing.map((a) => a.code)),
         new Set(existing.filter((a) => a.isHeader).map((a) => a.code)),
       );
-      const errors = preview.errors.map((e) => ({ rowNumber: e.rowNumber, reasons: e.reasons }));
+      const errors = preview.errors.map((e) => ({ rowNumber: e.rowNumber, reasons: e.reasons, ...(e.reasonsEn ? { reasonsEn: e.reasonsEn } : {}) }));
       if (!commit || errors.length > 0) {
         return c.json({ validCount: preview.valid.length, errors }, 200);
       }
@@ -882,7 +904,7 @@ export function createDataMigrationRoutes(
         if (deps.transact) await deps.transact.run(write);
         else await write();
       } catch (err) {
-        return c.json({ validCount: preview.valid.length, errors: [{ rowNumber: 0, reasons: [errorMessage(err)] }] }, 422);
+        return c.json({ validCount: preview.valid.length, errors: [{ rowNumber: 0, ...errorReasons(err) }] }, 422);
       }
       for (const id of createdIds) {
         const account = await coaAccounts!.findById(id);
@@ -902,10 +924,16 @@ export function createDataMigrationRoutes(
     app.post("/chart-of-accounts/commit", gate("accounting.coa.manage"), (c) => chartOfAccountsStep(c, true));
   }
 
-  function partyControlRowRefusal(code: string, kind: "customer" | "supplier"): string {
+  function partyControlRowRefusal(code: string, kind: "customer" | "supplier"): { ar: string; en: string } {
     return kind === "customer"
-      ? `الحساب "${code}" حساب مراقبة العملاء ولا يُستورد رصيده من الميزان: أدخل أرصدة العملاء الافتتاحية على بطاقة كل عميل (أو باستيراد فواتيرهم المفتوحة)، واجعل مقابلها في هذا الميزان على حساب 3210. / Account "${code}" is the customer control account and cannot be imported from the trial balance: enter customer balances through the customer opening balances (or by importing their open invoices), and offset them in this trial balance with account 3210.`
-      : `الحساب "${code}" حساب مراقبة الموردين ولا يُستورد رصيده من الميزان: أدخل أرصدة الموردين الافتتاحية على بطاقة كل مورد (أو باستيراد فواتيرهم المفتوحة)، واجعل مقابلها في هذا الميزان على حساب 3210. / Account "${code}" is the supplier control account and cannot be imported from the trial balance: enter supplier balances through the supplier opening balances (or by importing their open invoices), and offset them in this trial balance with account 3210.`;
+      ? {
+          ar: `الحساب "${code}" حساب مراقبة العملاء ولا يُستورد رصيده من الميزان: أدخل أرصدة العملاء الافتتاحية على بطاقة كل عميل (أو باستيراد فواتيرهم المفتوحة)، واجعل مقابلها في هذا الميزان على حساب 3210.`,
+          en: `Account "${code}" is the customer control account and cannot be imported from the trial balance: enter customer balances through the customer opening balances (or by importing their open invoices), and offset them in this trial balance with account 3210.`,
+        }
+      : {
+          ar: `الحساب "${code}" حساب مراقبة الموردين ولا يُستورد رصيده من الميزان: أدخل أرصدة الموردين الافتتاحية على بطاقة كل مورد (أو باستيراد فواتيرهم المفتوحة)، واجعل مقابلها في هذا الميزان على حساب 3210.`,
+          en: `Account "${code}" is the supplier control account and cannot be imported from the trial balance: enter supplier balances through the supplier opening balances (or by importing their open invoices), and offset them in this trial balance with account 3210.`,
+        };
   }
 
   // --- 11. ميزان المراجعة الافتتاحي (Opening trial balance) — P-5 ---
@@ -926,25 +954,26 @@ export function createDataMigrationRoutes(
      */
     async function openingDateFor(
       requested: string | undefined,
-    ): Promise<{ date: string; adjusted: boolean; noteAr: string | null } | { refusal: string }> {
+    ): Promise<{ date: string; adjusted: boolean; noteAr: string | null; noteEn: string | null } | { refusal: string; refusalEn: string }> {
       if (requested) {
         const period = await tbPeriods!.findByDate(requested);
-        if (!period) return { refusal: `لا توجد فترة مالية تشمل ${requested} — أنشئ الفترة أولاً.` };
-        if (period.status !== "open") return { refusal: `الفترة المالية التي تشمل ${requested} ليست مفتوحة للترحيل.` };
-        return { date: requested, adjusted: false, noteAr: null };
+        if (!period) return { refusal: `لا توجد فترة مالية تشمل ${requested} — أنشئ الفترة أولاً.`, refusalEn: `No fiscal period covers ${requested}; create the period first.` };
+        if (period.status !== "open") return { refusal: `الفترة المالية التي تشمل ${requested} ليست مفتوحة للترحيل.`, refusalEn: `The fiscal period covering ${requested} is not open for posting.` };
+        return { date: requested, adjusted: false, noteAr: null, noteEn: null };
       }
       const open = (await tbPeriods!.list())
         .filter((p) => p.status === "open")
         .sort((a, b) => a.startDate.localeCompare(b.startDate));
       const first = open[0];
-      if (!first) return { refusal: "لا توجد فترة مالية مفتوحة — أنشئ السنة المالية أولاً." };
+      if (!first) return { refusal: "لا توجد فترة مالية مفتوحة — أنشئ السنة المالية أولاً.", refusalEn: "No fiscal period is open; create the fiscal year first." };
       const preferred = dayBefore(first.startDate);
       const period = await tbPeriods!.findByDate(preferred);
-      if (period && period.status === "open") return { date: preferred, adjusted: false, noteAr: null };
+      if (period && period.status === "open") return { date: preferred, adjusted: false, noteAr: null, noteEn: null };
       return {
         date: first.startDate,
         adjusted: true,
         noteAr: `اليوم السابق لأول فترة مفتوحة (${preferred}) لا يقع في فترة مالية مفتوحة، فسيُرحَّل الرصيد الافتتاحي بتاريخ ${first.startDate}. افتح الفترة السابقة إن أردت ترحيله قبل بداية السنة.`,
+        noteEn: `The day before the first open period (${preferred}) does not fall in an open fiscal period, so the opening balance will be posted on ${first.startDate}. Open the earlier period if you want it posted before the start of the year.`,
       };
     }
 
@@ -959,7 +988,7 @@ export function createDataMigrationRoutes(
           credit: Money.fromMajor(str(row, "credit") || "0"),
         })),
       );
-      const errors = preview.errors.map((e) => ({ rowNumber: e.rowNumber, reasons: e.reasons }));
+      const errors: DataMigrationRowError[] = preview.errors.map((e) => ({ rowNumber: e.rowNumber, reasons: e.reasons, ...(e.reasonsEn ? { reasonsEn: e.reasonsEn } : {}) }));
 
       const byCode = new Map((await tbAccounts!.list()).map((a) => [a.code, a]));
       const partyControls = (await deps.partyControlAccounts?.()) ?? new Map<string, "customer" | "supplier">();
@@ -967,20 +996,21 @@ export function createDataMigrationRoutes(
       for (const row of preview.valid) {
         const account = byCode.get(row.accountCode);
         if (!account) {
-          errors.push({ rowNumber: row.rowNumber, reasons: [`الحساب بالكود "${row.accountCode}" غير موجود`] });
+          errors.push({ rowNumber: row.rowNumber, reasons: [`الحساب بالكود "${row.accountCode}" غير موجود`], reasonsEn: [`No account with the code "${row.accountCode}" exists`] });
           continue;
         }
         if (account.isHeader) {
-          errors.push({ rowNumber: row.rowNumber, reasons: [`الحساب "${row.accountCode}" حساب رئيسي ولا يقبل الترحيل`] });
+          errors.push({ rowNumber: row.rowNumber, reasons: [`الحساب "${row.accountCode}" حساب رئيسي ولا يقبل الترحيل`], reasonsEn: [`Account "${row.accountCode}" is a header account and cannot be posted to`] });
           continue;
         }
         if (account.status !== "active") {
-          errors.push({ rowNumber: row.rowNumber, reasons: [`الحساب "${row.accountCode}" غير نشط`] });
+          errors.push({ rowNumber: row.rowNumber, reasons: [`الحساب "${row.accountCode}" غير نشط`], reasonsEn: [`Account "${row.accountCode}" is not active`] });
           continue;
         }
         const partyKind = partyControls.get(account.id);
         if (partyKind) {
-          errors.push({ rowNumber: row.rowNumber, reasons: [partyControlRowRefusal(row.accountCode, partyKind)] });
+          const refusal = partyControlRowRefusal(row.accountCode, partyKind);
+          errors.push({ rowNumber: row.rowNumber, reasons: [refusal.ar], reasonsEn: [refusal.en] });
           continue;
         }
         lines.push({ accountId: account.id, debit: row.debit, credit: row.credit });
@@ -1003,7 +1033,9 @@ export function createDataMigrationRoutes(
           date: "refusal" in resolved ? null : resolved.date,
           dateAdjusted: "refusal" in resolved ? false : resolved.adjusted,
           dateNoteAr: "refusal" in resolved ? null : resolved.noteAr,
+          dateNoteEn: "refusal" in resolved ? null : resolved.noteEn,
           refusal: "refusal" in resolved ? resolved.refusal : null,
+          refusalEn: "refusal" in resolved ? resolved.refusalEn : null,
         });
       }
       if (errors.length > 0 || lines.length === 0) return c.json(summary, 422);
@@ -1015,6 +1047,7 @@ export function createDataMigrationRoutes(
               {
                 rowNumber: 0,
                 reasons: [`الميزان غير متوازن: المدين ${preview.totalDebit.toString()} والدائن ${preview.totalCredit.toString()} — الفرق ${preview.difference.toString()}`],
+                reasonsEn: [`The trial balance is not balanced: debit ${preview.totalDebit.toString()}, credit ${preview.totalCredit.toString()}, difference ${preview.difference.toString()}`],
               },
             ],
           },
@@ -1022,16 +1055,16 @@ export function createDataMigrationRoutes(
         );
       }
       if ("refusal" in resolved) {
-        return c.json({ ...summary, errors: [{ rowNumber: 0, reasons: [resolved.refusal] }] }, 422);
+        return c.json({ ...summary, errors: [{ rowNumber: 0, reasons: [resolved.refusal], reasonsEn: [resolved.refusalEn] }] }, 422);
       }
       const entryId = `OPENING-TB:${resolved.date}`;
       try {
         await tbPost!({ id: entryId, date: resolved.date, memo: "الرصيد الافتتاحي", lines });
       } catch (err) {
-        return c.json({ ...summary, errors: [{ rowNumber: 0, reasons: [errorMessage(err)] }] }, 422);
+        return c.json({ ...summary, errors: [{ rowNumber: 0, ...errorReasons(err) }] }, 422);
       }
       return c.json(
-        { ...summary, errors: [], date: resolved.date, dateAdjusted: resolved.adjusted, dateNoteAr: resolved.noteAr, createdIds: [entryId] },
+        { ...summary, errors: [], date: resolved.date, dateAdjusted: resolved.adjusted, dateNoteAr: resolved.noteAr, dateNoteEn: resolved.noteEn, createdIds: [entryId] },
         201,
       );
     }
@@ -1196,20 +1229,19 @@ export function createDataMigrationRoutes(
         return { response: c.json({ error: "WAREHOUSE_NOT_FOUND" }, 404) } as const;
       }
       const preview = previewOpeningBalanceImport(toOpeningBalanceRows(parsed.data.rows));
-      const errors: ImportRowError[] = [...preview.errors];
+      const errors: DataMigrationRowError[] = [...preview.errors];
       const lines: { itemId: string; qty: Qty; unitCost: Money }[] = [];
       for (const row of preview.valid) {
         const item = await deps.items.findByCode(row.itemCode);
         if (!item) {
-          errors.push({ rowNumber: row.rowNumber, reasons: [`الصنف بالكود "${row.itemCode}" غير موجود`] });
+          errors.push({ rowNumber: row.rowNumber, reasons: [`الصنف بالكود "${row.itemCode}" غير موجود`], reasonsEn: [`No item with the code "${row.itemCode}" exists`] });
           continue;
         }
         if (item.trackBatches || item.trackExpiry) {
           errors.push({
             rowNumber: row.rowNumber,
-            reasons: [
-              `الصنف "${row.itemCode}" يتتبع التشغيلات والصلاحية: أدخل رصيده الافتتاحي من شاشة تسويات المخزون مع رقم التشغيلة وتاريخ الصلاحية / Item "${row.itemCode}" tracks batches and expiry: enter its opening balance from the stock adjustments screen with the batch and expiry`,
-            ],
+            reasons: [`الصنف "${row.itemCode}" يتتبع التشغيلات والصلاحية: أدخل رصيده الافتتاحي من شاشة تسويات المخزون مع رقم التشغيلة وتاريخ الصلاحية`],
+            reasonsEn: [`Item "${row.itemCode}" tracks batches and expiry: enter its opening balance from the stock adjustments screen with the batch and expiry`],
           });
           continue;
         }
@@ -1252,8 +1284,8 @@ export function createDataMigrationRoutes(
         const { document } = await openingBalanceAdjustments!.confirm(draft.id, { actor: callerUserId(c) });
         return c.json({ validCount: resolved.lines.length, total, errors: [], createdIds: [document.id] }, 201);
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        return c.json({ error: "OPENING_BALANCE_IMPORT_FAILED", message }, 422);
+        const text = bilingualText(err instanceof Error ? err.message : String(err), { ar: "تعذّر استيراد الأرصدة الافتتاحية.", en: "The opening balances could not be imported." });
+        return c.json({ error: "OPENING_BALANCE_IMPORT_FAILED", message: text.ar, messageEn: text.en }, 422);
       }
     });
   }

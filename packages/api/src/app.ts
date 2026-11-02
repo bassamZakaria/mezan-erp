@@ -140,7 +140,7 @@ import { createSuppliersRouter, type SupplierPayablesSource } from "./suppliers-
 import { createItemsRouter } from "./items-routes.js";
 import { pendingPricingGuard } from "./pending-pricing-guard.js";
 import { validationMessages } from "./validation-message.js";
-import { InvalidDecimalLiteralError } from "@mezan/domain";
+import { InvalidDecimalLiteralError, ROLE_TEMPLATES } from "@mezan/domain";
 import {
   createItemCategoriesRoutes,
   createItemBrandsRoutes,
@@ -1370,12 +1370,19 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   if (options.crm) {
     app.route("/crm", createCrmRoutes({ ...options.crm, audit: options.crm.audit ?? options.auditSink }, resolveAuth));
   }
+  const roleLabelOf = async (code: string) => {
+    const role = (await uow.roles.list()).find((r) => r.code === code);
+    if (!role) return null;
+    return { ar: role.name, en: ROLE_TEMPLATES.find((t) => t.code === code)?.nameEn ?? role.name };
+  };
+
   if (options.hr) {
     app.route(
       "/hr",
       createHrRoutes(
         {
           ...options.hr,
+          roleLabel: options.hr.roleLabel ?? roleLabelOf,
           attachments: options.hr.attachments ?? options.attachments?.repo,
           printTemplates: options.hr.printTemplates ?? options.printTemplateConfig?.repo,
           tenantSettings: options.hr.tenantSettings ?? options.settingsStore,
@@ -1974,6 +1981,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
           // approval is matched on can never be freed and re-taken.
           roleExists: options.workflow.roleExists ?? (async (code) => (await uow.roles.list()).some((r) => r.code === code)),
           submitterName: options.workflow.submitterName ?? (async (userId) => (await uow.users.findById(userId))?.nameAr ?? null),
+          roleLabel: options.workflow.roleLabel ?? roleLabelOf,
         },
         resolveAuth,
       ),
@@ -2015,7 +2023,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     } catch {
       // A logger that throws must not turn a 500 into a crash.
     }
-    if (err instanceof NulCharacterError) return c.json({ error: err.code, message: err.messageAr, messageEn: err.message }, 400);
+    if (err instanceof NulCharacterError) return c.json({ error: err.code, message: err.messageAr, messageEn: err.messageEn }, 400);
     if (err instanceof ForeignWriteError || err instanceof DatabaseBusyError) {
       c.header("retry-after", "2");
       return c.json(

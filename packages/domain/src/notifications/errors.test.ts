@@ -7,12 +7,15 @@ import {
 
 describe("InvalidNotificationRuleError", () => {
   it("joins every reason into the message and keeps them on .reasons", () => {
-    const err = new InvalidNotificationRuleError(["name is required", "eventCode is required"]);
+    const err = new InvalidNotificationRuleError([
+      { ar: "اسم القاعدة مطلوب.", en: "The rule name is required." },
+      { ar: "الحدث غير معروف.", en: "The event is not recognised." },
+    ]);
     expect(err.code).toBe("INVALID_NOTIFICATION_RULE");
     expect(err.name).toBe("InvalidNotificationRuleError");
-    expect(err.reasons).toEqual(["name is required", "eventCode is required"]);
-    expect(err.message).toBe("قاعدة الإشعار غير صالحة: name is required، eventCode is required");
-    expect(err.messageEn).toBe("Invalid notification rule: name is required; eventCode is required");
+    expect(err.reasons).toEqual(["اسم القاعدة مطلوب.", "الحدث غير معروف."]);
+    expect(err.message).toBe("قاعدة الإشعار غير صالحة: اسم القاعدة مطلوب.، الحدث غير معروف.");
+    expect(err.messageEn).toBe("Invalid notification rule: The rule name is required; The event is not recognised");
   });
 });
 

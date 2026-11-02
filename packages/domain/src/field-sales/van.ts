@@ -1,3 +1,4 @@
+import { splitReasons, type ReasonInput } from "../bilingual-reasons.js";
 /**
  * المركبات — the van registry (R3.13). A van is the physical thing a rep
  * drives; the warehouse it carries stock in and the till it carries cash in
@@ -27,16 +28,23 @@ export interface Van {
 
 export class InvalidVanError extends Error {
   readonly code = "INVALID_VAN";
-  constructor(readonly reasons: readonly string[]) {
-    super(reasons.join("، "));
+  readonly messageEn: string;
+  readonly reasons: readonly string[];
+  constructor(reasons: readonly ReasonInput[]) {
+    const split = splitReasons(reasons, "Validation failed");
+    super(split.ar.join("، "));
+    this.reasons = split.ar;
+    this.messageEn = split.en;
     this.name = "InvalidVanError";
   }
 }
 
 export class VanNotFoundError extends Error {
   readonly code = "VAN_NOT_FOUND";
+  readonly messageEn: string;
   constructor(readonly vanId: string) {
     super(`المركبة "${vanId}" غير موجودة.`);
+    this.messageEn = `Van "${vanId}" was not found.`;
     this.name = "VanNotFoundError";
   }
 }
@@ -48,12 +56,17 @@ export class VanNotFoundError extends Error {
  */
 export class VanCascadeMismatchError extends Error {
   readonly code = "VAN_CASCADE_MISMATCH";
+  readonly messageEn: string;
   constructor(readonly vanId: string, readonly field: "warehouse" | "treasury") {
     super(
       field === "warehouse"
         ? `المستودع المحدد لا يخص المركبة "${vanId}".`
         : `الخزينة المحددة لا تخص المركبة "${vanId}".`,
     );
+    this.messageEn =
+      field === "warehouse"
+        ? `The selected warehouse does not belong to van "${vanId}".`
+        : `The selected treasury account does not belong to van "${vanId}".`;
     this.name = "VanCascadeMismatchError";
   }
 }
@@ -71,13 +84,13 @@ export interface CreateVanInput {
 }
 
 export function createVan(input: CreateVanInput): Van {
-  const reasons: string[] = [];
-  if (input.id.trim() === "") reasons.push("معرف المركبة مطلوب");
-  if (input.code.trim() === "") reasons.push("كود المركبة مطلوب");
-  if (input.nameAr.trim() === "") reasons.push("اسم المركبة بالعربية مطلوب");
-  if (input.branchId.trim() === "") reasons.push("الفرع مطلوب");
-  if (input.warehouseId.trim() === "") reasons.push("مستودع المركبة مطلوب");
-  if (input.treasuryAccountId.trim() === "") reasons.push("خزينة المركبة مطلوبة");
+  const reasons: ReasonInput[] = [];
+  if (input.id.trim() === "") reasons.push({ ar: "معرف المركبة مطلوب", en: "The van id is required" });
+  if (input.code.trim() === "") reasons.push({ ar: "كود المركبة مطلوب", en: "The van code is required" });
+  if (input.nameAr.trim() === "") reasons.push({ ar: "اسم المركبة بالعربية مطلوب", en: "The van's Arabic name is required" });
+  if (input.branchId.trim() === "") reasons.push({ ar: "الفرع مطلوب", en: "The branch is required" });
+  if (input.warehouseId.trim() === "") reasons.push({ ar: "مستودع المركبة مطلوب", en: "The van's warehouse is required" });
+  if (input.treasuryAccountId.trim() === "") reasons.push({ ar: "خزينة المركبة مطلوبة", en: "The van's treasury account is required" });
   if (reasons.length > 0) throw new InvalidVanError(reasons);
 
   return {

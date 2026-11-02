@@ -56,6 +56,7 @@ export function registerClientMaintenanceRefusalsOverIpc(hostUrl: string): void 
     daysSince: 0,
     messageAr:
       `الترخيص يُدار من الجهاز الرئيسي (${hostUrl}). نفّذ التحقّق من هناك — هذا الجهاز محطة متصلة ولا يحمل ترخيصاً خاصاً به.`,
+    messageEn: `The licence is managed from the main machine (${hostUrl}). Run the check from there — this machine is a connected till and holds no licence of its own.`,
   };
   refuse(MEZAN_LICENCE_CHECKIN_CHANNEL, (): LicenceCheckinResult => licence);
 
@@ -65,6 +66,7 @@ export function registerClientMaintenanceRefusalsOverIpc(hostUrl: string): void 
       ok: false,
       code: "FAILED",
       message: `ملف الترخيص يُثبَّت على الجهاز الرئيسي (${hostUrl})، وليس على المحطات المتصلة.`,
+      messageEn: `The licence file is installed on the main machine (${hostUrl}), not on connected tills.`,
     }),
   );
 
@@ -87,6 +89,7 @@ export function registerClientMaintenanceRefusalsOverIpc(hostUrl: string): void 
     ok: false,
     code: "UNAVAILABLE",
     message: `النسخ الاحتياطي يُدار من الجهاز الرئيسي (${hostUrl}). هذا الجهاز محطة متصلة ولا يحتفظ بقاعدة بيانات خاصة به.`,
+    messageEn: `Backups are managed from the main machine (${hostUrl}). This machine is a connected till and keeps no database of its own.`,
   };
   refuse(MEZAN_BACKUP_REVERT_CHANNEL, (): BackupFailure => backup);
   refuse(MEZAN_BACKUP_EXPORT_PORTABLE_CHANNEL, (): BackupFailure => backup);
@@ -95,6 +98,7 @@ export function registerClientMaintenanceRefusalsOverIpc(hostUrl: string): void 
     ok: false,
     code: "FAILED",
     message: `هذا الجهاز محطة متصلة ولا يحتفظ بقاعدة بيانات. نفّذ هذا من الجهاز الرئيسي (${hostUrl}).`,
+    messageEn: `This machine is a connected till and keeps no database. Do this from the main machine (${hostUrl}).`,
   };
   for (const channel of [
     MEZAN_SUPPORT_DIAGNOSTIC_CHANNEL,

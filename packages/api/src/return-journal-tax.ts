@@ -21,10 +21,10 @@ export async function handleReturnJournalTax<Line>(
 ): Promise<Response> {
   const ctx = getAuthContext(c);
   if (!ctx || !can(ctx, JOURNAL_VIEW_PERMISSION) || !viewPermissions.some((permission) => can(ctx, permission))) {
-    return c.json({ error: "FORBIDDEN", message: "تسمية ضريبة سطر القيد تتطلب صلاحية عرض المرتجع وصلاحية عرض قيود اليومية." }, 403);
+    return c.json({ error: "FORBIDDEN", message: "تسمية ضريبة سطر القيد تتطلب صلاحية عرض المرتجع وصلاحية عرض قيود اليومية.", messageEn: "Naming the tax of a journal line requires permission to view the return and permission to view journal entries." }, 403);
   }
   if (!port) {
-    return c.json({ error: "TAX_CLASSIFICATION_NOT_CONFIGURED", message: "تصنيف ضريبة البنود غير مُفعّل على هذا الخادم." }, 501);
+    return c.json({ error: "TAX_CLASSIFICATION_NOT_CONFIGURED", message: "تصنيف ضريبة البنود غير مُفعّل على هذا الخادم.", messageEn: "Line tax classification is not enabled on this server." }, 501);
   }
   const parsed = nameJournalLineTaxSchema.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) {

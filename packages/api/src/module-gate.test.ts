@@ -53,9 +53,10 @@ describe("module gate middleware", () => {
     const res = await app.fetch(new Request("http://x/pos/sales"));
 
     expect(res.status).toBe(403);
-    const body = (await res.json()) as { error: string; message: string };
+    const body = (await res.json()) as { error: string; message: string; messageEn: string };
     expect(body.error).toBe("MODULE_NOT_LICENSED");
     expect(body.message).toBe("وحدة نقاط البيع ليست ضمن باقة «الأعمال». يمكنكم إضافتها بترقية الباقة من صفحة الاشتراك.");
+    expect(body.messageEn).toBe('The Point of sale module is not in the "Business" plan. You can add it by upgrading the plan from the subscription page.');
     expect(body.message).not.toContain("ترخيص");
   });
 
@@ -120,6 +121,18 @@ describe("applyModuleGates over the real route prefixes", () => {
     expect(body.module).toBe("manufacturing");
     expect(body.message).toContain("التصنيع");
     expect(body.message).toMatch(/[؀-ۿ]/);
+  });
+
+  it("gives the same refusal in English, naming the module", async () => {
+    const res = await coreApp().fetch(new Request("http://x/manufacturing/work-orders"));
+    const body = (await res.json()) as { messageEn: string };
+    expect(body.messageEn).toBe("The Manufacturing module is not enabled in this copy's licence. Contact support to add it to the subscription.");
+  });
+
+  it("names the licensed part and its module in English", async () => {
+    const res = await coreApp().fetch(new Request("http://x/hr/payroll/runs"));
+    const body = (await res.json()) as { messageEn: string };
+    expect(body.messageEn).toMatch(/^The .+ part of Human resources is not enabled in this copy's licence\./);
   });
 
   it("refuses the bare collection route too, not just the wildcard below it", async () => {
@@ -211,6 +224,7 @@ describe("permission gate — module check via bound entitlements", () => {
       error: "MODULE_NOT_LICENSED",
       module: "hr.payroll",
       message: "جزء الرواتب من الموارد البشرية غير مفعّل في باقتكم",
+      messageEn: "The Payroll part of Human resources is not enabled in your plan.",
     });
   });
 

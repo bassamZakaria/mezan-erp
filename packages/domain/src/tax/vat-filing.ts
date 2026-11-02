@@ -60,16 +60,20 @@ export class VatPeriodAlreadyFiledError extends Error {
 
 export class DuplicateVatFilingError extends Error {
   readonly code = "VAT_PERIOD_ALREADY_HAS_FILING";
+  readonly messageEn: string;
   constructor(readonly filingId: string) {
     super(`هذه الفترة لديها إقرار مسجَّل بالفعل (${filingId}).`);
+    this.messageEn = `This period already has a recorded filing (${filingId}).`;
     this.name = "DuplicateVatFilingError";
   }
 }
 
 export class VatFilingNotFoundError extends Error {
   readonly code = "VAT_FILING_NOT_FOUND";
+  readonly messageEn: string;
   constructor(readonly filingId: string) {
     super(`الإقرار الضريبي "${filingId}" غير موجود.`);
+    this.messageEn = `VAT filing "${filingId}" was not found.`;
     this.name = "VatFilingNotFoundError";
   }
 }
@@ -95,12 +99,16 @@ export interface VatPeriodWindow {
 
 export class VatPeriodModeMismatchError extends Error {
   readonly code = "VAT_PERIOD_MODE_MISMATCH";
+  readonly messageEn: string;
   constructor(readonly expected: VatPeriodMode, readonly actual: VatPeriodMode) {
     super(
       expected === "quarterly"
         ? "النظام الضريبي المبسط يقتضي إقراراً ربع سنوي لضريبة القيمة المضافة؛ الفترة المُقدَّمة ليست ربع سنة."
         : "الفترة المُقدَّمة لا تطابق المدة الضريبية المسجَّلة لهذه المنشأة.",
     );
+    this.messageEn = expected === "quarterly"
+        ? "The simplified tax regime requires a quarterly VAT return; the submitted period is not a quarter."
+        : "The submitted period does not match this company's registered tax period.";
     this.name = "VatPeriodModeMismatchError";
   }
 }

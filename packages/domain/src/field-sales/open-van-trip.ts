@@ -1,3 +1,4 @@
+import type { ReasonInput } from "../bilingual-reasons.js";
 import { Money } from "../money/index.js";
 import type { Qty } from "../money/index.js";
 import { VanTripStatus, type VanTrip, type VanTripCrewRole, type VanTripRepository } from "./van-trip.js";
@@ -67,12 +68,15 @@ export interface OpenVanTripDeps {
 }
 
 export async function openVanTrip(cmd: OpenVanTripCommand, deps: OpenVanTripDeps): Promise<VanTrip> {
-  const reasons: string[] = [];
-  if (cmd.crew.length === 0) reasons.push("يجب إضافة عضو واحد على الأقل للطاقم");
+  const reasons: ReasonInput[] = [];
+  if (cmd.crew.length === 0) reasons.push({ ar: "يجب إضافة عضو واحد على الأقل للطاقم", en: "At least one crew member is required" });
   if (deps.employeeExists) {
     for (const member of cmd.crew) {
       if (!(await deps.employeeExists(member.employeeId))) {
-        reasons.push(`عضو الطاقم "${member.employeeId}" ليس موظفاً مسجلاً`);
+        reasons.push({
+          ar: `عضو الطاقم "${member.employeeId}" ليس موظفاً مسجلاً`,
+          en: `Crew member "${member.employeeId}" is not a registered employee`,
+        });
       }
     }
   }

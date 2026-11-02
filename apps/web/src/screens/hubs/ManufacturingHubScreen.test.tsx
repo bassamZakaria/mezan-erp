@@ -115,7 +115,7 @@ describe("ManufacturingHubScreen", () => {
       </TestNavigation>,
       { transport, initialSession: testAdminSession },
     );
-    expect(await screen.findByRole("alert")).toHaveTextContent("تعذّر تحميل بيانات التصنيع.");
+    expect(await screen.findByRole("alert")).toHaveTextContent("تعذّر تحميل لوحة الإنتاج. (رمز 500)");
     await waitFor(() => expect(screen.queryByText("INTERNAL")).not.toBeInTheDocument());
   });
 

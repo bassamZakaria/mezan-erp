@@ -31,12 +31,15 @@ describe("items errors", () => {
   });
 
   it("InvalidItemError joins every reason", () => {
-    const err = new InvalidItemError(["اسم الصنف بالعربية مطلوب", "نسبة الضريبة يجب أن تكون صفرًا أو رقمًا موجبًا"]);
+    const err = new InvalidItemError([
+      { ar: "اسم الصنف بالعربية مطلوب", en: "The Arabic item name is required" },
+      { ar: "نسبة الضريبة يجب أن تكون صفرًا أو رقمًا موجبًا", en: "The tax rate must be zero or a positive number" },
+    ]);
     expect(err.code).toBe("INVALID_ITEM");
     expect(err.reasons).toHaveLength(2);
     expect(err.message).toBe("بيانات الصنف غير صالحة: اسم الصنف بالعربية مطلوب، نسبة الضريبة يجب أن تكون صفرًا أو رقمًا موجبًا");
     expect(err.messageEn).toBe(
-      "Invalid item: اسم الصنف بالعربية مطلوب; نسبة الضريبة يجب أن تكون صفرًا أو رقمًا موجبًا",
+      "Invalid item: The Arabic item name is required; The tax rate must be zero or a positive number",
     );
   });
 
@@ -52,10 +55,10 @@ describe("items errors", () => {
   });
 
   it("InvalidItemUnitError joins reasons", () => {
-    const err = new InvalidItemUnitError(["وحدة غير صالحة"]);
+    const err = new InvalidItemUnitError([{ ar: "وحدة غير صالحة", en: "The unit is not valid" }]);
     expect(err.code).toBe("INVALID_ITEM_UNIT");
     expect(err.message).toBe("بيانات وحدة الصنف غير صالحة: وحدة غير صالحة");
-    expect(err.messageEn).toBe("Invalid item unit: وحدة غير صالحة");
+    expect(err.messageEn).toBe("Invalid item unit: The unit is not valid");
   });
 
   it("ItemUnitInUseError names the code and reference count", () => {

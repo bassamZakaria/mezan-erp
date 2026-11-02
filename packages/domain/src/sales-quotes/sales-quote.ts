@@ -90,3 +90,12 @@ export const SALES_QUOTE_STATUS_LABELS_AR: Record<SalesQuoteStatus, string> = {
   converted: "محول",
   cancelled: "ملغي",
 };
+
+export const SALES_QUOTE_STATUS_LABELS_EN: Record<SalesQuoteStatus, string> = {
+  draft: "draft",
+  sent: "sent",
+  accepted: "accepted",
+  rejected: "rejected",
+  converted: "converted",
+  cancelled: "cancelled",
+};

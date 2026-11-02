@@ -79,22 +79,22 @@ export const journalDocumentType: DocumentTypeDefinition<JournalDocLine> = {
   validate(doc) {
     const { lines } = doc;
     if (lines.length < 2) {
-      throw new InvalidDocumentError(DOC_TYPE, doc.id, "القيد يتطلب سطرين على الأقل.");
+      throw new InvalidDocumentError(DOC_TYPE, doc.id, "القيد يتطلب سطرين على الأقل.", "A journal entry needs at least two lines.");
     }
     for (const line of lines) {
       if (line.accountId.trim() === "") {
-        throw new InvalidDocumentError(DOC_TYPE, doc.id, "كل بند يجب أن يستهدف حساباً.");
+        throw new InvalidDocumentError(DOC_TYPE, doc.id, "كل بند يجب أن يستهدف حساباً.", "Every line needs an account.");
       }
       if (line.debit.scaled < 0n || line.credit.scaled < 0n) {
-        throw new InvalidDocumentError(DOC_TYPE, doc.id, `بند الحساب "${line.accountId}" لا يقبل مبلغاً سالباً.`);
+        throw new InvalidDocumentError(DOC_TYPE, doc.id, `بند الحساب "${line.accountId}" لا يقبل مبلغاً سالباً.`, `The line for account "${line.accountId}" cannot carry a negative amount.`);
       }
       const hasDebit = line.debit.scaled !== 0n;
       const hasCredit = line.credit.scaled !== 0n;
       if (hasDebit && hasCredit) {
-        throw new InvalidDocumentError(DOC_TYPE, doc.id, `بند الحساب "${line.accountId}" لا يكون مديناً ودائناً معاً.`);
+        throw new InvalidDocumentError(DOC_TYPE, doc.id, `بند الحساب "${line.accountId}" لا يكون مديناً ودائناً معاً.`, `The line for account "${line.accountId}" cannot be both debit and credit.`);
       }
       if (!hasDebit && !hasCredit) {
-        throw new InvalidDocumentError(DOC_TYPE, doc.id, `بند الحساب "${line.accountId}" يجب أن يحمل مبلغاً في المدين أو الدائن.`);
+        throw new InvalidDocumentError(DOC_TYPE, doc.id, `بند الحساب "${line.accountId}" يجب أن يحمل مبلغاً في المدين أو الدائن.`, `The line for account "${line.accountId}" must carry an amount in either debit or credit.`);
       }
     }
   },
@@ -129,6 +129,7 @@ export const journalDocumentType: DocumentTypeDefinition<JournalDocLine> = {
       totalCredit,
       blocked: !balanced,
       blockedReason: balanced ? undefined : "القيد غير متوازن: مجموع المدين لا يساوي مجموع الدائن.",
+      blockedReasonEn: balanced ? undefined : "The entry is unbalanced: total debits do not equal total credits.",
       effects: [
         {
           kind: "gl",

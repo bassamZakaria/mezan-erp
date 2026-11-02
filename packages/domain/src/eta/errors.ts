@@ -1,4 +1,5 @@
-import { getEtaStatusLabel, type EtaSubmissionStatus } from "./submission.js";
+import { splitReasons, type ReasonInput } from "../bilingual-reasons.js";
+import { getEtaStatusLabel, getEtaStatusLabelEn, type EtaSubmissionStatus } from "./submission.js";
 
 const ETA_ACTION_AR: Readonly<Record<string, string>> = {
   submit: "إرسال",
@@ -7,6 +8,15 @@ const ETA_ACTION_AR: Readonly<Record<string, string>> = {
   reject: "رفض",
   exclude: "استبعاد",
   requeue: "إعادة الطابور",
+};
+
+const ETA_ACTION_EN: Readonly<Record<string, string>> = {
+  submit: "submit",
+  refresh: "refresh the status of",
+  accept: "accept",
+  reject: "reject",
+  exclude: "exclude",
+  requeue: "requeue",
 };
 
 function etaActionAr(action: string): string {
@@ -41,7 +51,7 @@ export class InvalidEtaTransitionError extends Error {
     readonly action: string,
   ) {
     super(`لا يمكن ${etaActionAr(action)} تقديمًا للفاتورة الإلكترونية في حالة "${getEtaStatusLabel(from)}".`);
-    this.messageEn = `Cannot ${action} an ETA submission in status "${from}".`;
+    this.messageEn = `Cannot ${ETA_ACTION_EN[action] ?? action} an ETA submission in status "${getEtaStatusLabelEn(from)}".`;
     this.name = "InvalidEtaTransitionError";
   }
 }
@@ -149,9 +159,12 @@ export class EtaDeviceSerialUnknownError extends Error {
 export class EtaReceiptNotReadyError extends Error {
   readonly code = "ETA_RECEIPT_NOT_READY";
   readonly messageEn: string;
-  constructor(readonly reasons: readonly string[]) {
-    super(`لا يمكن إصدار الإيصال الإلكتروني قبل استكمال بيانات التسجيل: ${reasons.join("، ")}.`);
-    this.messageEn = `The e-receipt cannot be issued until its registration data is complete: ${reasons.join("; ")}.`;
+  readonly reasons: readonly string[];
+  constructor(reasons: readonly ReasonInput[]) {
+    const split = splitReasons(reasons, "some registration data is missing");
+    super(`لا يمكن إصدار الإيصال الإلكتروني قبل استكمال بيانات التسجيل: ${split.ar.join("، ")}.`);
+    this.reasons = split.ar;
+    this.messageEn = `The e-receipt cannot be issued until its registration data is complete: ${split.en}.`;
     this.name = "EtaReceiptNotReadyError";
   }
 }
@@ -237,6 +250,8 @@ export class EtaExclusionReasonRequiredError extends Error {
 /** التوقيع الإلكتروني غير مُهيّأ — no external signing program is configured. */
 export class EtaSignerNotConfiguredError extends Error {
   readonly code = "ETA_SIGNER_NOT_CONFIGURED";
+  readonly messageEn =
+    "Electronic signing is done with the taxpayer's signing device (token) and cannot be performed inside the app. Configure the external signing command in the e-invoicing settings before submitting.";
   constructor() {
     super(
       "التوقيع الإلكتروني يتم بجهاز التوقيع (التوكن) الخاص بالممول ولا يمكن تنفيذه داخل البرنامج. اضبط أمر التوقيع الخارجي في إعدادات الفاتورة الإلكترونية قبل الإرسال.",
@@ -248,8 +263,13 @@ export class EtaSignerNotConfiguredError extends Error {
 /** برنامج التوقيع رفض أو أخفق — the configured signing program did not return a signature. */
 export class EtaSigningFailedError extends Error {
   readonly code = "ETA_SIGNING_FAILED";
-  constructor(readonly detail: string) {
+  readonly messageEn: string;
+  constructor(
+    readonly detail: string,
+    readonly detailEn: string = detail,
+  ) {
     super(`تعذّر توقيع المستند: ${detail}`);
+    this.messageEn = `The document could not be signed: ${detailEn}`;
     this.name = "EtaSigningFailedError";
   }
 }

@@ -3,12 +3,15 @@ import { InvalidPromotionError, PromotionNotFoundError, DuplicatePromotionError,
 
 describe("InvalidPromotionError", () => {
   it("carries its reasons and joins them into the message", () => {
-    const err = new InvalidPromotionError(["كود العرض مطلوب.", "اسم العرض بالعربية مطلوب."]);
+    const err = new InvalidPromotionError([
+      { ar: "كود العرض مطلوب.", en: "The promotion code is required." },
+      { ar: "اسم العرض بالعربية مطلوب.", en: "The Arabic promotion name is required." },
+    ]);
     expect(err.code).toBe("INVALID_PROMOTION");
     expect(err.name).toBe("InvalidPromotionError");
     expect(err.reasons).toEqual(["كود العرض مطلوب.", "اسم العرض بالعربية مطلوب."]);
     expect(err.message).toBe("بيانات العرض غير صالحة: كود العرض مطلوب.، اسم العرض بالعربية مطلوب.");
-    expect(err.messageEn).toBe("Invalid promotion: كود العرض مطلوب.; اسم العرض بالعربية مطلوب.");
+    expect(err.messageEn).toBe("Invalid promotion: The promotion code is required; The Arabic promotion name is required");
     expect(err).toBeInstanceOf(Error);
   });
 });

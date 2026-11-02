@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+import { DEFAULT_LOCALE, ENGLISH_LOCALE, persistLocale } from "@mezan/ui";
 import { screen, fireEvent, within, waitFor } from "@testing-library/react";
 import type { OpenInvoiceDTO, PartyStatementDTO, PartyStatementLineDTO, PurchaseInvoiceDTO, SupplierDTO, VoucherAllocationDTO, VoucherDTO } from "@mezan/contracts";
 import { SuppliersScreen } from "./SuppliersScreen";
@@ -216,6 +217,23 @@ function statementTransport(statement: (id: string) => { status?: number; body: 
 }
 
 describe("SuppliersScreen", () => {
+  afterEach(() => {
+    persistLocale(DEFAULT_LOCALE);
+    document.documentElement.setAttribute("lang", DEFAULT_LOCALE);
+  });
+
+  it("shows the server's English reason, not its Arabic one, when the list fails to load on an English page", async () => {
+    persistLocale(ENGLISH_LOCALE);
+    document.documentElement.setAttribute("lang", ENGLISH_LOCALE);
+    const transport = stubTransport({
+      "GET /suppliers": () => ({ status: 409, body: { error: "PERIOD_LOCKED", message: "الفترة مقفلة", messageEn: "The period is locked" } }),
+      "GET /suppliers/counts": () => ({ body: { all: 0, active: 0, inactive: 0 } }),
+    });
+    renderWithProviders(<SuppliersScreen />, { transport, initialSession: testAdminSession });
+    expect(await screen.findByText("The period is locked")).toBeInTheDocument();
+    expect(screen.queryByText("الفترة مقفلة")).not.toBeInTheDocument();
+  });
+
   it("lists suppliers from the real backend", async () => {
     renderScreen();
     expect(screen.getByRole("heading", { name: "الموردون" })).toBeInTheDocument();
@@ -326,7 +344,7 @@ describe("SuppliersScreen", () => {
     });
     renderWithProviders(<SuppliersScreen />, { transport, initialSession: testAdminSession });
 
-    expect(await screen.findByText("تعذّر تحميل الموردين.")).toBeInTheDocument();
+    expect(await screen.findByText(/تعذّر تحميل الموردين\./)).toBeInTheDocument();
     // "The load failed" and "there are no suppliers" are different facts, and
     // the screen must not assert the second one while the first is true.
     expect(screen.queryByText("لا يوجد موردون مطابقون")).not.toBeInTheDocument();
@@ -344,7 +362,7 @@ describe("SuppliersScreen", () => {
     renderWithProviders(<SuppliersScreen />, { transport, initialSession: testAdminSession });
 
     expect(await screen.findByText("لا يوجد موردون مطابقون")).toBeInTheDocument();
-    await waitFor(() => expect(screen.queryByText("تعذّر تحميل الموردين.")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByText(/تعذّر تحميل الموردين\./)).not.toBeInTheDocument());
   });
 
   it("scopes the invoices tab to this supplier's own purchase invoices, excluding another supplier's, with real stats", async () => {
@@ -407,7 +425,7 @@ describe("SuppliersScreen", () => {
     fireEvent.click(await screen.findByText("جاري"));
     fireEvent.click(screen.getByRole("tab", { name: "فواتير المشتريات" }));
 
-    expect(await screen.findByText("تعذّر تحميل فواتير المشتريات.")).toBeInTheDocument();
+    expect(await screen.findByText(/تعذّر تحميل فواتير المشتريات\./)).toBeInTheDocument();
     fail = false;
     fireEvent.click(screen.getByRole("button", { name: "إعادة المحاولة" }));
     expect(await screen.findByText("PINV-000010")).toBeInTheDocument();
@@ -433,9 +451,9 @@ describe("SuppliersScreen", () => {
     fireEvent.click(await screen.findByText("جاري"));
     fireEvent.click(screen.getByRole("tab", { name: "كشف حساب المورد" }));
 
-    expect(await screen.findByText("تعذّر تحميل تقرير أعمار ديون الموردين.")).toBeInTheDocument();
+    expect(await screen.findByText(/تعذّر تحميل التقرير\./)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "إعادة المحاولة" }));
-    await waitFor(() => expect(screen.queryByText("تعذّر تحميل تقرير أعمار ديون الموردين.")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByText(/تعذّر تحميل التقرير\./)).not.toBeInTheDocument());
   });
 
   it("shows only 'عرض' on an inactive supplier's row menu, and opens the edit form via the active supplier's 'edit' item", async () => {
@@ -592,7 +610,7 @@ describe("SuppliersScreen", () => {
     fireEvent.click(await screen.findByText("جاري"));
     fireEvent.click(screen.getByRole("tab", { name: "كشف حساب المورد" }));
 
-    expect(await screen.findByText("تعذّر تحميل حركة حساب المورد.")).toBeInTheDocument();
+    expect(await screen.findByText(/تعذّر تحميل حركة حساب المورد\./)).toBeInTheDocument();
     fail = false;
     fireEvent.click(screen.getByRole("button", { name: "إعادة المحاولة" }));
     expect((await screen.findAllByText("رصيد افتتاحي")).length).toBe(2);

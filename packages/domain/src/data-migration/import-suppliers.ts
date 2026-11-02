@@ -1,10 +1,11 @@
+import type { BilingualReason } from "../collections/errors.js";
 /**
  * Data-migration import — suppliers (docs/archive/catalog/09 "نقل البيانات"). Mirror
  * of `import-customers.ts` for `createSupplier`.
  */
 import { createSupplier, InvalidSupplierError, type Supplier } from "../suppliers/supplier.js";
 import { Money } from "../money/index.js";
-import type { ImportRowError } from "./row-errors.js";
+import { importRowError, type ImportRowError } from "./row-errors.js";
 
 export interface SupplierImportRowInput {
   readonly rowNumber: number;
@@ -40,14 +41,14 @@ export function previewSupplierImport(
   const seenCodes = new Set<string>();
 
   for (const row of rows) {
-    const reasons: string[] = [];
+    const reasons: BilingualReason[] = [];
     const code = row.code.trim();
-    if (code === "") reasons.push("كود المورد مطلوب");
-    else if (existingCodes.has(code)) reasons.push(`كود المورد "${code}" مستخدم بالفعل`);
-    else if (seenCodes.has(code)) reasons.push(`كود المورد "${code}" مكرر داخل الملف`);
-    if (row.nameAr.trim() === "") reasons.push("اسم المورد مطلوب");
+    if (code === "") reasons.push({ ar: "كود المورد مطلوب", en: "The supplier code is required" });
+    else if (existingCodes.has(code)) reasons.push({ ar: `كود المورد "${code}" مستخدم بالفعل`, en: `Supplier code "${code}" is already in use` });
+    else if (seenCodes.has(code)) reasons.push({ ar: `كود المورد "${code}" مكرر داخل الملف`, en: `Supplier code "${code}" is duplicated in the file` });
+    if (row.nameAr.trim() === "") reasons.push({ ar: "اسم المورد مطلوب", en: "The supplier name is required" });
     if (reasons.length > 0) {
-      errors.push({ rowNumber: row.rowNumber, reasons });
+      errors.push(importRowError(row.rowNumber, reasons));
       continue;
     }
     seenCodes.add(code);
@@ -73,7 +74,7 @@ export function previewSupplierImport(
       valid.push({ rowNumber: row.rowNumber, supplier });
     } catch (err) {
       if (err instanceof InvalidSupplierError) {
-        errors.push({ rowNumber: row.rowNumber, reasons: err.reasons });
+        errors.push(importRowError(row.rowNumber, err.reasons.map((ar, i) => ({ ar, en: err.reasonsEn[i] ?? ar }))));
       } else {
         throw err;
       }

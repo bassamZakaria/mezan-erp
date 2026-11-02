@@ -1,4 +1,5 @@
 import { DuplicateAssetCategoryCodeError, InvalidAssetCategoryError } from "./errors.js";
+import type { BilingualReason } from "../collections/errors.js";
 
 /**
  * Fixed Assets — Asset Categories (docs/archive/catalog/07-mfg-projects-assets.md
@@ -65,13 +66,13 @@ export interface CreateAssetCategoryCommand {
   readonly lossOnDisposalAccountId?: string | null;
 }
 
-function validate(category: Pick<AssetCategory, "defaultSalvagePercent" | "defaultUsefulLifeMonths">): string[] {
-  const reasons: string[] = [];
+function validate(category: Pick<AssetCategory, "defaultSalvagePercent" | "defaultUsefulLifeMonths">): BilingualReason[] {
+  const reasons: BilingualReason[] = [];
   if (category.defaultSalvagePercent < 0 || category.defaultSalvagePercent > 100) {
-    reasons.push("نسبة القيمة التخريدية الافتراضية يجب أن تكون بين 0 و 100");
+    reasons.push({ ar: "نسبة القيمة التخريدية الافتراضية يجب أن تكون بين 0 و 100", en: "The default salvage percentage must be between 0 and 100" });
   }
   if (category.defaultUsefulLifeMonths <= 0) {
-    reasons.push("العمر الإنتاجي الافتراضي (بالأشهر) يجب أن يكون أكبر من صفر");
+    reasons.push({ ar: "العمر الإنتاجي الافتراضي (بالأشهر) يجب أن يكون أكبر من صفر", en: "The default useful life (in months) must be greater than zero" });
   }
   return reasons;
 }

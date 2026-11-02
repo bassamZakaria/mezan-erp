@@ -195,7 +195,7 @@ export function createAttachmentsRoutes(
 
     if (entityType !== undefined) {
       if (!isAttachmentEntityType(entityType)) {
-        return c.json({ error: "VALIDATION_ERROR", message: `Unknown entityType '${entityType}'.` }, 400);
+        return c.json({ error: "VALIDATION_ERROR", message: `نوع السجل "${entityType}" غير معروف للمرفقات.`, messageEn: `Unknown record type "${entityType}" for attachments.` }, 400);
       }
       const moduleRefused = viewModuleRefusal(c, entityType);
       if (moduleRefused) return moduleRefused;

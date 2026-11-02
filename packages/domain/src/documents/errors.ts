@@ -2,7 +2,7 @@
 
 import type { Money } from "../money/index.js";
 import type { ApprovalStatus } from "../workflow/index.js";
-import { DOCUMENT_STATUS_LABELS_AR, type DocumentStatus } from "./status.js";
+import { DOCUMENT_STATUS_LABELS_AR, DOCUMENT_STATUS_LABELS_EN, type DocumentStatus } from "./status.js";
 
 export class InvalidDocumentTransitionError extends Error {
   readonly code = "INVALID_DOCUMENT_TRANSITION";
@@ -14,7 +14,7 @@ export class InvalidDocumentTransitionError extends Error {
     readonly to: DocumentStatus,
   ) {
     super(`لا يمكن نقل المستند ${docId} من "${DOCUMENT_STATUS_LABELS_AR[from]}" إلى "${DOCUMENT_STATUS_LABELS_AR[to]}".`);
-    this.messageEn = `Document ${docId} cannot move from "${from}" to "${to}".`;
+    this.messageEn = `Document ${docId} cannot move from "${DOCUMENT_STATUS_LABELS_EN[from]}" to "${DOCUMENT_STATUS_LABELS_EN[to]}".`;
     this.name = "InvalidDocumentTransitionError";
   }
 }
@@ -34,11 +34,13 @@ export class ReversalNotReversibleError extends Error {
 
 export class DocumentNotFoundError extends Error {
   readonly code = "DOCUMENT_NOT_FOUND";
+  readonly messageEn: string;
   constructor(
     readonly docType: string,
     readonly docId: string,
   ) {
     super(`المستند ${docId} غير موجود.`);
+    this.messageEn = `Document ${docId} not found.`;
     this.name = "DocumentNotFoundError";
   }
 }
@@ -78,13 +80,15 @@ export class StockPlanDateRequiredError extends Error {
 /** A confirm was attempted but the document's own structural validation failed. */
 export class InvalidDocumentError extends Error {
   readonly code = "INVALID_DOCUMENT";
+  readonly messageEn: string;
   constructor(
     readonly docType: string,
     readonly docId: string,
     message: string,
-    readonly messageEn?: string,
+    messageEn?: string,
   ) {
     super(message);
+    this.messageEn = messageEn ?? `Document ${docId} failed validation.`;
     this.name = "InvalidDocumentError";
   }
 }

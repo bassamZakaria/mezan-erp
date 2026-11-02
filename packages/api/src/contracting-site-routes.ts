@@ -183,32 +183,32 @@ function handleDomainError(c: Context, err: unknown) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
   }
   if (err instanceof SiteDocumentNotFoundError || err instanceof ProjectNotFoundError) {
-    return c.json({ error: err.code, message: err.message }, 404);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 404);
   }
   if (err instanceof SiteReceiptSelfReceiptError || err instanceof SiteDocumentStatusError) {
-    return c.json({ error: err.code, message: err.message }, 409);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
   }
   if (err instanceof InvalidSiteDocumentError) {
-    return c.json({ error: err.code, message: err.message, reasons: err.reasons }, 422);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, reasons: err.reasons }, 422);
   }
   if (err instanceof NegativeStockError) {
     return c.json(
-      { error: err.code, message: err.message, onHand: err.onHand.toString(), requested: err.requested.toString() },
+      { error: err.code, message: err.message, messageEn: err.messageEn, onHand: err.onHand.toString(), requested: err.requested.toString() },
       422,
     );
   }
   if (err instanceof UncostedDeficitIssueError) {
-    return c.json({ error: err.code, message: err.message, requested: err.requested.toString() }, 422);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, requested: err.requested.toString() }, 422);
   }
   if (err instanceof ExpiredStockError) {
-    return c.json({ error: err.code, message: err.message, batchNo: err.batchNo, expiryDate: err.expiryDate }, 422);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, batchNo: err.batchNo, expiryDate: err.expiryDate }, 422);
   }
   if (err instanceof SameWarehouseTransferError || err instanceof InvalidStockMovementError) {
-    return c.json({ error: err.code, message: err.message }, 422);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 422);
   }
   // A closed month is a refusal the storekeeper has to read, never a 500.
   if (err instanceof PeriodNotOpenForPostingError || err instanceof NoFiscalPeriodForDateError) {
-    return c.json({ error: "FISCAL_PERIOD_CLOSED", message: err.message }, 409);
+    return c.json({ error: "FISCAL_PERIOD_CLOSED", message: err.message, messageEn: err.messageEn }, 409);
   }
   throw err;
 }
@@ -217,6 +217,7 @@ function handleDomainError(c: Context, err: unknown) {
 const UNIDENTIFIED = {
   error: "UNIDENTIFIED_ACTOR",
   message: "تعذّر تحديد هوية المستخدم — سجّل الدخول من جديد.",
+  messageEn: "The user identity could not be determined — sign in again.",
 } as const;
 
 export interface ContractingSiteRoutesDeps {
@@ -493,14 +494,14 @@ export function createContractingSiteRoutes(
 
   app.get("/consumption-by-boq-line", gate("projects.project.view"), async (c) => {
     const projectId = c.req.query("projectId");
-    if (!projectId) return c.json({ error: "VALIDATION_ERROR", message: "projectId مطلوب" }, 400);
+    if (!projectId) return c.json({ error: "VALIDATION_ERROR", message: "projectId مطلوب", messageEn: "projectId is required" }, 400);
     const rows = await service.consumptionByBoqLine(projectId);
     return c.json(withItemCost(c, rows.map(serializeConsumptionByBoqLine), ["cost"]));
   });
 
   app.get("/equipment-hours", gate("projects.project.view"), async (c) => {
     const projectId = c.req.query("projectId");
-    if (!projectId) return c.json({ error: "VALIDATION_ERROR", message: "projectId مطلوب" }, 400);
+    if (!projectId) return c.json({ error: "VALIDATION_ERROR", message: "projectId مطلوب", messageEn: "projectId is required" }, 400);
     const rows = await service.equipmentHours(projectId);
     return c.json(rows.map(serializeEquipmentHours));
   });

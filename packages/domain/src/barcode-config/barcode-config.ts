@@ -1,3 +1,4 @@
+import type { BilingualReason } from "../collections/errors.js";
 /**
  * Barcode configuration — tenant-wide settings for how item barcodes work.
  * Not barcode rendering/label printing (a separate concern): this covers the
@@ -53,8 +54,13 @@ export interface BarcodeConfig {
 
 export class InvalidBarcodeConfigError extends Error {
   readonly code = "INVALID_BARCODE_CONFIG";
-  constructor(readonly reasons: readonly string[]) {
+  readonly messageEn: string;
+  constructor(
+    readonly reasons: readonly string[],
+    reasonsEn?: readonly string[],
+  ) {
     super(reasons.join("، "));
+    this.messageEn = reasonsEn && reasonsEn.length > 0 ? reasonsEn.join("; ") : "The barcode configuration is invalid.";
     this.name = "InvalidBarcodeConfigError";
   }
 }
@@ -71,69 +77,78 @@ export function createDefaultBarcodeConfig(): BarcodeConfig {
 
 const DIGITS_ONLY = /^\d+$/;
 
-function validateRule(rule: EmbeddedBarcodeRule, reasons: string[]): void {
+function validateRule(rule: EmbeddedBarcodeRule, issues: BilingualReason[]): void {
   const label = rule.id || rule.nameAr || "قاعدة بدون معرف";
-  if (!DIGITS_ONLY.test(rule.prefix)) {
-    reasons.push(`قاعدة "${label}": البادئة يجب أن تتكون من أرقام فقط`);
-  }
-  if (rule.totalLength <= 0) {
-    reasons.push(`قاعدة "${label}": الطول الكلي يجب أن يكون أكبر من صفر`);
-  }
-  if (rule.itemCodeLength <= 0) {
-    reasons.push(`قاعدة "${label}": طول كود الصنف يجب أن يكون أكبر من صفر`);
-  }
-  if (rule.valueLength <= 0) {
-    reasons.push(`قاعدة "${label}": طول القيمة يجب أن يكون أكبر من صفر`);
-  }
-  if (rule.valueDecimals < 0) {
-    reasons.push(`قاعدة "${label}": عدد الخانات العشرية لا يمكن أن يكون سالبًا`);
-  }
+  const labelEn = rule.id || rule.nameAr || "rule without an id";
+  const add = (ar: string, en: string): void => {
+    issues.push({ ar: `قاعدة "${label}": ${ar}`, en: `Rule "${labelEn}": ${en}` });
+  };
+  if (!DIGITS_ONLY.test(rule.prefix)) add("البادئة يجب أن تتكون من أرقام فقط", "the prefix must contain digits only");
+  if (rule.totalLength <= 0) add("الطول الكلي يجب أن يكون أكبر من صفر", "the total length must be greater than zero");
+  if (rule.itemCodeLength <= 0) add("طول كود الصنف يجب أن يكون أكبر من صفر", "the item code length must be greater than zero");
+  if (rule.valueLength <= 0) add("طول القيمة يجب أن يكون أكبر من صفر", "the value length must be greater than zero");
+  if (rule.valueDecimals < 0) add("عدد الخانات العشرية لا يمكن أن يكون سالبًا", "the number of decimal places cannot be negative");
   if (rule.itemCodeStart < rule.prefix.length) {
-    reasons.push(`قاعدة "${label}": بداية كود الصنف يجب أن تكون بعد البادئة`);
+    add("بداية كود الصنف يجب أن تكون بعد البادئة", "the item code must start after the prefix");
   }
   if (rule.valueStart < rule.itemCodeStart + rule.itemCodeLength) {
-    reasons.push(`قاعدة "${label}": بداية القيمة يجب أن تكون بعد كود الصنف`);
+    add("بداية القيمة يجب أن تكون بعد كود الصنف", "the value must start after the item code");
   }
   if (rule.valueStart + rule.valueLength > rule.totalLength) {
-    reasons.push(`قاعدة "${label}": القيمة تتجاوز الطول الكلي للباركود`);
+    add("القيمة تتجاوز الطول الكلي للباركود", "the value exceeds the total barcode length");
   }
   if (rule.prefix.length + rule.itemCodeLength + rule.valueLength > rule.totalLength) {
-    reasons.push(`قاعدة "${label}": مجموع أطوال البادئة وكود الصنف والقيمة يتجاوز الطول الكلي`);
+    add(
+      "مجموع أطوال البادئة وكود الصنف والقيمة يتجاوز الطول الكلي",
+      "the combined lengths of the prefix, item code and value exceed the total length",
+    );
   }
 }
 
-/** Pure validation — returns Arabic reason strings, reports every violation instead of stopping at the first. */
-export function validateBarcodeConfig(config: BarcodeConfig): string[] {
-  const reasons: string[] = [];
+export function validateBarcodeConfigBilingual(config: BarcodeConfig): BilingualReason[] {
+  const issues: BilingualReason[] = [];
 
   if (!BARCODE_SYMBOLOGIES.includes(config.defaultSymbology)) {
-    reasons.push("نوع الباركود الافتراضي غير صالح");
+    issues.push({ ar: "نوع الباركود الافتراضي غير صالح", en: "The default barcode type is invalid" });
   }
   if (
     config.itemBarcodeMode === "AUTO" &&
     config.autoGeneratePrefix != null &&
     !DIGITS_ONLY.test(config.autoGeneratePrefix)
   ) {
-    reasons.push("بادئة الترقيم التلقائي يجب أن تتكون من أرقام فقط");
+    issues.push({
+      ar: "بادئة الترقيم التلقائي يجب أن تتكون من أرقام فقط",
+      en: "The auto-numbering prefix must contain digits only",
+    });
   }
 
   const seenIds = new Set<string>();
   for (const rule of config.embeddedRules) {
-    validateRule(rule, reasons);
+    validateRule(rule, issues);
     if (seenIds.has(rule.id)) {
-      reasons.push(`معرف القاعدة "${rule.id}" مكرر`);
+      issues.push({ ar: `معرف القاعدة "${rule.id}" مكرر`, en: `Rule id "${rule.id}" is duplicated` });
     }
     seenIds.add(rule.id);
   }
 
-  return reasons;
+  return issues;
+}
+
+/** Pure validation — returns Arabic reason strings, reports every violation instead of stopping at the first. */
+export function validateBarcodeConfig(config: BarcodeConfig): string[] {
+  return validateBarcodeConfigBilingual(config).map((issue) => issue.ar);
 }
 
 /** Merges a patch onto the current config and re-validates, throwing `InvalidBarcodeConfigError` on any violation. */
 export function updateBarcodeConfig(current: BarcodeConfig, patch: Partial<BarcodeConfig>): BarcodeConfig {
   const next: BarcodeConfig = { ...current, ...patch };
-  const reasons = validateBarcodeConfig(next);
-  if (reasons.length > 0) throw new InvalidBarcodeConfigError(reasons);
+  const issues = validateBarcodeConfigBilingual(next);
+  if (issues.length > 0) {
+    throw new InvalidBarcodeConfigError(
+      issues.map((issue) => issue.ar),
+      issues.map((issue) => issue.en),
+    );
+  }
   return next;
 }
 

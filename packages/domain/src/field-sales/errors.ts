@@ -1,4 +1,5 @@
-import { getVanTripStatusLabel, type VanTripStatus } from "./van-trip.js";
+import { splitReasons, type ReasonInput } from "../bilingual-reasons.js";
+import { getVanTripStatusLabel, getVanTripStatusLabelEn, type VanTripStatus } from "./van-trip.js";
 
 /** Raised when an operation references a van-trip id that does not exist. */
 export class VanTripNotFoundError extends Error {
@@ -14,8 +15,13 @@ export class VanTripNotFoundError extends Error {
 /** Raised when an open-van-trip command fails validation (e.g. empty crew). */
 export class InvalidVanTripError extends Error {
   readonly code = "INVALID_VAN_TRIP";
-  constructor(readonly reasons: readonly string[]) {
-    super(reasons.join("، "));
+  readonly messageEn: string;
+  readonly reasons: readonly string[];
+  constructor(reasons: readonly ReasonInput[]) {
+    const split = splitReasons(reasons, "Validation failed");
+    super(split.ar.join("، "));
+    this.reasons = split.ar;
+    this.messageEn = split.en;
     this.name = "InvalidVanTripError";
   }
 }
@@ -29,7 +35,7 @@ export class VanTripNotOngoingError extends Error {
     readonly currentStatus: VanTripStatus,
   ) {
     super(`رحلة التوزيع "${tripId}" ليست جارية (حالتها الحالية: «${getVanTripStatusLabel(currentStatus)}»).`);
-    this.messageEn = `Van trip "${tripId}" is not ongoing (current status: "${currentStatus}").`;
+    this.messageEn = `Van trip "${tripId}" is not ongoing (current status: "${getVanTripStatusLabelEn(currentStatus)}").`;
     this.name = "VanTripNotOngoingError";
   }
 }
@@ -53,7 +59,7 @@ export class VanTripNotAwaitingApprovalError extends Error {
     readonly currentStatus: VanTripStatus,
   ) {
     super(`رحلة التوزيع "${tripId}" ليست بانتظار اعتماد التسوية (حالتها الحالية: «${getVanTripStatusLabel(currentStatus)}»).`);
-    this.messageEn = `Van trip "${tripId}" is not awaiting settlement approval (current status: "${currentStatus}").`;
+    this.messageEn = `Van trip "${tripId}" is not awaiting settlement approval (current status: "${getVanTripStatusLabelEn(currentStatus)}").`;
     this.name = "VanTripNotAwaitingApprovalError";
   }
 }
@@ -114,9 +120,12 @@ export class VanReconciliationDocumentMismatchError extends Error {
 export class InvalidVanTripCountError extends Error {
   readonly code = "INVALID_VAN_TRIP_COUNT";
   readonly messageEn: string;
-  constructor(readonly reasons: readonly string[]) {
-    super(reasons.join("، "));
-    this.messageEn = "The settlement count is invalid: counted quantities and cash cannot be negative, and an item is counted once.";
+  readonly reasons: readonly string[];
+  constructor(reasons: readonly ReasonInput[]) {
+    const split = splitReasons(reasons, "Validation failed");
+    super(split.ar.join("، "));
+    this.reasons = split.ar;
+    this.messageEn = split.en;
     this.name = "InvalidVanTripCountError";
   }
 }

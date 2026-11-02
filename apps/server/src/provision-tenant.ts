@@ -46,12 +46,14 @@ export function provisionResultDTOOf(result: ProvisionTenantResult, credentialsI
 
 export class TenantProvisioningError extends Error {
   readonly code = "TENANT_PROVISIONING_FAILED";
+  readonly messageEn: string;
 
   constructor(
     readonly tenantId: string,
     readonly cause: unknown,
   ) {
     super(`تعذّر تجهيز المنشأة "${tenantId}"`);
+    this.messageEn = `The company "${tenantId}" could not be provisioned.`;
     this.name = "TenantProvisioningError";
   }
 }
@@ -59,6 +61,7 @@ export class TenantProvisioningError extends Error {
 /** A retry has no live subscription to resume and no plan in the request body to fall back to — nothing tells `startSubscription` what to start. */
 export class PlanRequiredError extends Error {
   readonly code = "PLAN_REQUIRED";
+  readonly messageEn = "Choose the plan to provision again.";
 
   constructor() {
     super("حدّد الباقة لإعادة التجهيز");
@@ -68,6 +71,7 @@ export class PlanRequiredError extends Error {
 
 export class ProvisioningSupersededError extends Error {
   readonly code = ProvisioningRefusalCode.Superseded;
+  readonly messageEn = "Another request has taken over provisioning this company.";
 
   constructor() {
     super("تولّى طلب آخر تجهيز هذه المنشأة");

@@ -5,10 +5,11 @@ import { pairing, pairingSupported } from "../lan/pairing-bridge";
 import { isDesktopHost } from "../data/hooks";
 import { useApi } from "../data/ApiContext";
 import { useUpdates } from "../data/update-hooks";
+import { pickLocalized } from "../data/server-message";
 import { useAppTranslation } from "../i18n";
 
 interface Bridge {
-  licence?: { checkin(token: string): Promise<{ messageAr: string }> };
+  licence?: { checkin(token: string): Promise<{ messageAr: string; messageEn?: string }> };
 }
 
 function bridge(): Bridge | undefined {
@@ -38,7 +39,7 @@ function bridge(): Bridge | undefined {
  * where none of these channels exist.
  */
 export function MaintenancePanel() {
-  const { t } = useAppTranslation();
+  const { t, locale } = useAppTranslation();
   const { session } = useApi();
   const updates = useUpdates();
   const [busy, setBusy] = useState<"backup" | "licence" | null>(null);
@@ -93,10 +94,10 @@ export function MaintenancePanel() {
     setNotice(null);
     try {
       const api = (globalThis as {
-        mezan?: { backup: { create(t: string): Promise<{ ok: boolean; message?: string }> } };
+        mezan?: { backup: { create(t: string): Promise<{ ok: boolean; message?: string; messageEn?: string }> } };
       }).mezan;
       const result = await api?.backup.create(token);
-      setNotice(result?.ok ? t("backup.created") : (result?.message ?? t("maintenance.backupFailed")));
+      setNotice(result?.ok ? t("backup.created") : (pickLocalized(result?.message, result?.messageEn, locale) ?? t("maintenance.backupFailed")));
     } catch {
       setNotice(t("maintenance.backupFailed"));
     } finally {
@@ -110,10 +111,7 @@ export function MaintenancePanel() {
     setNotice(null);
     try {
       const result = await bridge()?.licence?.checkin(token);
-      // The handler already produces Arabic prose carrying the day count and
-      // what to do; re-wording it here would put two different sentences in
-      // front of support for the same state.
-      setNotice(result?.messageAr ?? t("maintenance.licenceFailed"));
+      setNotice(result ? pickLocalized(result.messageAr, result.messageEn, locale) ?? t("maintenance.licenceFailed") : t("maintenance.licenceFailed"));
     } catch {
       setNotice(t("maintenance.licenceFailed"));
     } finally {

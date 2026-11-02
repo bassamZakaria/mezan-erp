@@ -82,6 +82,7 @@ import {
   RetentionReleaseNotFoundError,
 } from "./errors.js";
 import { tenantTodayIso } from "../../dates.js";
+import type { ReasonInput } from "../../bilingual-reasons.js";
 
 /**
  * تقارير الاستثناءات والإفراج عن المحتجزات — slice 5B (design §06).
@@ -935,7 +936,7 @@ export class ControlsService {
   /** The cap for a release NOT yet posted — the headroom a new or draft document has. */
   async releaseHeadroom(contractId: string, kind: RetentionReleaseKind): Promise<{ position: RetentionPosition; cap: Money }> {
     const contract = await this.deps.contracts.findContractById(contractId);
-    if (!contract) throw new InvalidRetentionReleaseError([`العقد "${contractId}" غير موجود`]);
+    if (!contract) throw new InvalidRetentionReleaseError([{ ar: `العقد "${contractId}" غير موجود`, en: `Contract "${contractId}" was not found` }]);
     const position = await this.retentionPosition(contract.projectId);
     return {
       position,
@@ -949,17 +950,17 @@ export class ControlsService {
   }
 
   async createRelease(cmd: CreateRetentionReleaseCommand): Promise<RetentionReleaseView> {
-    const reasons: string[] = [];
-    if (!ISO_DATE.test(cmd.date)) reasons.push("تاريخ الإفراج مطلوب بصيغة YYYY-MM-DD");
+    const reasons: ReasonInput[] = [];
+    if (!ISO_DATE.test(cmd.date)) reasons.push({ ar: "تاريخ الإفراج مطلوب بصيغة YYYY-MM-DD", en: "The release date is required in the form YYYY-MM-DD" });
     const contract = await this.deps.contracts.findContractById(cmd.contractId);
-    if (!contract) reasons.push(`العقد "${cmd.contractId}" غير موجود`);
+    if (!contract) reasons.push({ ar: `العقد "${cmd.contractId}" غير موجود`, en: `Contract "${cmd.contractId}" was not found` });
     let amount = Money.zero();
     try {
       amount = Money.fromMajor(cmd.amount);
     } catch {
-      reasons.push("قيمة الإفراج يجب أن تكون رقمًا");
+      reasons.push({ ar: "قيمة الإفراج يجب أن تكون رقمًا", en: "The release amount must be a number" });
     }
-    if (amount.scaled <= 0n) reasons.push("قيمة الإفراج يجب أن تكون أكبر من صفر");
+    if (amount.scaled <= 0n) reasons.push({ ar: "قيمة الإفراج يجب أن تكون أكبر من صفر", en: "The release amount must be greater than zero" });
     if (reasons.length > 0 || !contract) throw new InvalidRetentionReleaseError(reasons);
 
     const releaseEventDate = releaseEventDateOf(cmd.kind, contract);
@@ -999,19 +1000,19 @@ export class ControlsService {
     const current = await this.require(idOrDocNo);
     if (current.status !== "draft") throw new InvalidRetentionReleaseTransitionError(current.status, "draft");
     const contract = await this.deps.contracts.findContractById(current.contractId);
-    if (!contract) throw new InvalidRetentionReleaseError([`العقد "${current.contractId}" غير موجود`]);
-    const reasons: string[] = [];
+    if (!contract) throw new InvalidRetentionReleaseError([{ ar: `العقد "${current.contractId}" غير موجود`, en: `Contract "${current.contractId}" was not found` }]);
+    const reasons: ReasonInput[] = [];
     const date = cmd.date ?? current.date;
-    if (!ISO_DATE.test(date)) reasons.push("تاريخ الإفراج مطلوب بصيغة YYYY-MM-DD");
+    if (!ISO_DATE.test(date)) reasons.push({ ar: "تاريخ الإفراج مطلوب بصيغة YYYY-MM-DD", en: "The release date is required in the form YYYY-MM-DD" });
     let amount = current.amount;
     if (cmd.amount !== undefined) {
       try {
         amount = Money.fromMajor(cmd.amount);
       } catch {
-        reasons.push("قيمة الإفراج يجب أن تكون رقمًا");
+        reasons.push({ ar: "قيمة الإفراج يجب أن تكون رقمًا", en: "The release amount must be a number" });
       }
     }
-    if (amount.scaled <= 0n) reasons.push("قيمة الإفراج يجب أن تكون أكبر من صفر");
+    if (amount.scaled <= 0n) reasons.push({ ar: "قيمة الإفراج يجب أن تكون أكبر من صفر", en: "The release amount must be greater than zero" });
     if (reasons.length > 0) throw new InvalidRetentionReleaseError(reasons);
 
     const kind = cmd.kind ?? current.kind;
@@ -1045,10 +1046,10 @@ export class ControlsService {
     if (current.status !== "draft") throw new InvalidRetentionReleaseTransitionError(current.status, "released");
     const invoicing = this.deps.invoicing;
     if (!invoicing) {
-      throw new InvalidRetentionReleaseError(["إصدار مستند الإفراج عن المحتجزات غير مُفعّل على هذا الخادم."]);
+      throw new InvalidRetentionReleaseError([{ ar: "إصدار مستند الإفراج عن المحتجزات غير مُفعّل على هذا الخادم.", en: "Issuing retention release documents is not enabled on this server." }]);
     }
     const contract = await this.deps.contracts.findContractById(current.contractId);
-    if (!contract) throw new InvalidRetentionReleaseError([`العقد "${current.contractId}" غير موجود`]);
+    if (!contract) throw new InvalidRetentionReleaseError([{ ar: `العقد "${current.contractId}" غير موجود`, en: `Contract "${current.contractId}" was not found` }]);
 
     // Re-derived at release time: the handover may have been recorded, and the
     // balance may have moved, since the draft was written.
@@ -1061,7 +1062,7 @@ export class ControlsService {
     const waived = this.deps.segregationWaived ? await this.deps.segregationWaived(actor) : false;
     if (!waived && current.createdBy !== null && current.createdBy === actor.userId) {
       throw new InvalidRetentionReleaseError([
-        "لا يمكن لمن أنشأ مستند الإفراج أن يفرج عنه — يلزم مستخدم آخر.",
+        { ar: "لا يمكن لمن أنشأ مستند الإفراج أن يفرج عنه — يلزم مستخدم آخر.", en: "The person who created the release document cannot release it — another user is required." },
       ]);
     }
 
@@ -1073,12 +1074,12 @@ export class ControlsService {
     if (early && !waived) {
       if (approvedBy === null) {
         throw new InvalidRetentionReleaseError([
-          `الإفراج قبل ميعاد الاستحقاق (${releaseEventDate ?? "غير محدد"}) يحتاج اعتماد مستخدم ثانٍ.`,
+          { ar: `الإفراج قبل ميعاد الاستحقاق (${releaseEventDate ?? "غير محدد"}) يحتاج اعتماد مستخدم ثانٍ.`, en: `A release before the due date (${releaseEventDate ?? "not set"}) needs the approval of a second user.` },
         ]);
       }
       if (approvedBy === current.createdBy || approvedBy === actor.userId) {
         throw new InvalidRetentionReleaseError([
-          "معتمد الإفراج المبكر يجب أن يكون مستخدمًا غير مُنشئ المستند وغير المُفرِج.",
+          { ar: "معتمد الإفراج المبكر يجب أن يكون مستخدمًا غير مُنشئ المستند وغير المُفرِج.", en: "The approver of an early release must be a user other than the document creator and the releaser." },
         ]);
       }
     }
@@ -1164,6 +1165,9 @@ export class ControlsService {
       kind === "provisional"
         ? `قيمة الإفراج ${minor(amount)} تتجاوز الحد المسموح ${minor(cap)} — الإفراج عند التسليم الابتدائي محدود بنسبة ${contract.provisionalReleasePercent}٪ من إجمالي المحتجزات (${minor(position.held)}).`
         : `قيمة الإفراج ${minor(amount)} تتجاوز رصيد المحتجزات المتاح ${minor(cap)}.`,
+      kind === "provisional"
+        ? `The release amount ${minor(amount)} exceeds the permitted limit ${minor(cap)} — a release at provisional handover is limited to ${contract.provisionalReleasePercent}% of total retention (${minor(position.held)}).`
+        : `The release amount ${minor(amount)} exceeds the available retention balance ${minor(cap)}.`,
     );
   }
 
@@ -1186,19 +1190,19 @@ export class ControlsService {
     const contract =
       (await this.deps.contracts.findContractById(idOrDocNo)) ??
       (await this.deps.contracts.findContractByDocNo(idOrDocNo));
-    if (!contract) throw new InvalidRetentionReleaseError([`العقد "${idOrDocNo}" غير موجود`]);
-    const reasons: string[] = [];
+    if (!contract) throw new InvalidRetentionReleaseError([{ ar: `العقد "${idOrDocNo}" غير موجود`, en: `Contract "${idOrDocNo}" was not found` }]);
+    const reasons: ReasonInput[] = [];
     const provisional =
       input.provisionalHandoverDate !== undefined ? input.provisionalHandoverDate : contract.provisionalHandoverDate;
     const final = input.finalHandoverDate !== undefined ? input.finalHandoverDate : contract.finalHandoverDate;
-    if (provisional !== null && !ISO_DATE.test(provisional)) reasons.push("تاريخ التسليم الابتدائي مطلوب بصيغة YYYY-MM-DD");
-    if (final !== null && !ISO_DATE.test(final)) reasons.push("تاريخ التسليم النهائي مطلوب بصيغة YYYY-MM-DD");
+    if (provisional !== null && !ISO_DATE.test(provisional)) reasons.push({ ar: "تاريخ التسليم الابتدائي مطلوب بصيغة YYYY-MM-DD", en: "The provisional handover date is required in the form YYYY-MM-DD" });
+    if (final !== null && !ISO_DATE.test(final)) reasons.push({ ar: "تاريخ التسليم النهائي مطلوب بصيغة YYYY-MM-DD", en: "The final handover date is required in the form YYYY-MM-DD" });
     if (provisional !== null && final !== null && final < provisional) {
-      reasons.push("تاريخ التسليم النهائي يسبق تاريخ التسليم الابتدائي");
+      reasons.push({ ar: "تاريخ التسليم النهائي يسبق تاريخ التسليم الابتدائي", en: "The final handover date is before the provisional handover date" });
     }
     const percent = input.provisionalReleasePercent ?? contract.provisionalReleasePercent;
     if (!/^\d{1,3}(\.\d{1,6})?$/.test(percent) || Number.parseFloat(percent) > 100) {
-      reasons.push("نسبة الإفراج عند التسليم الابتدائي يجب أن تكون نسبة رقمية لا تتجاوز 100%");
+      reasons.push({ ar: "نسبة الإفراج عند التسليم الابتدائي يجب أن تكون نسبة رقمية لا تتجاوز 100%", en: "The provisional handover release percentage must be a numeric percentage not exceeding 100%" });
     }
     if (reasons.length > 0) throw new InvalidRetentionReleaseError(reasons);
     const next: WorksContract = {
@@ -1223,14 +1227,14 @@ export class ControlsService {
     const contract =
       (await this.deps.contracts.findContractById(contractIdOrDocNo)) ??
       (await this.deps.contracts.findContractByDocNo(contractIdOrDocNo));
-    if (!contract) throw new InvalidRetentionReleaseError([`العقد "${contractIdOrDocNo}" غير موجود`]);
+    if (!contract) throw new InvalidRetentionReleaseError([{ ar: `العقد "${contractIdOrDocNo}" غير موجود`, en: `Contract "${contractIdOrDocNo}" was not found` }]);
     const lines = await this.deps.contracts.listBoqLines(contract.id);
-    const reasons: string[] = [];
+    const reasons: ReasonInput[] = [];
     const patched: BoqLine[] = [];
     for (const row of rows) {
       const line = lines.find((l) => l.id === row.boqLineId);
       if (!line) {
-        reasons.push(`البند "${row.boqLineId}" غير موجود في جدول الكميات`);
+        reasons.push({ ar: `البند "${row.boqLineId}" غير موجود في جدول الكميات`, en: `Line item "${row.boqLineId}" was not found in the bill of quantities` });
         continue;
       }
       let perUnit: Qty | null = null;
@@ -1238,9 +1242,9 @@ export class ControlsService {
         try {
           perUnit = Qty.fromMajor(row.theoreticalQtyPerUnit);
         } catch {
-          reasons.push(`الكمية النظرية للبند "${line.code}" يجب أن تكون رقمًا`);
+          reasons.push({ ar: `الكمية النظرية للبند "${line.code}" يجب أن تكون رقمًا`, en: `The theoretical quantity of line item "${line.code}" must be a number` });
         }
-        if (perUnit?.isNegative()) reasons.push(`الكمية النظرية للبند "${line.code}" لا يمكن أن تكون سالبة`);
+        if (perUnit?.isNegative()) reasons.push({ ar: `الكمية النظرية للبند "${line.code}" لا يمكن أن تكون سالبة`, en: `The theoretical quantity of line item "${line.code}" cannot be negative` });
       }
       patched.push({ ...line, theoreticalQtyPerUnit: perUnit, theoreticalItemId: row.theoreticalItemId ?? null });
     }

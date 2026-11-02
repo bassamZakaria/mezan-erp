@@ -1,3 +1,4 @@
+import type { BilingualReason } from "../collections/errors.js";
 /**
  * Data-migration import — customers (docs/archive/catalog/09 "نقل البيانات"). A CSV
  * go-live upload of the customer master, one row per customer. Pure — no I/O:
@@ -7,7 +8,7 @@
  */
 import { createCustomer, InvalidCustomerError, type Customer, type EtaBuyerType } from "../customers/customer.js";
 import { Money } from "../money/index.js";
-import type { ImportRowError } from "./row-errors.js";
+import { importRowError, type ImportRowError } from "./row-errors.js";
 
 export interface CustomerImportRowInput {
   readonly rowNumber: number;
@@ -44,14 +45,14 @@ export function previewCustomerImport(
   const seenCodes = new Set<string>();
 
   for (const row of rows) {
-    const reasons: string[] = [];
+    const reasons: BilingualReason[] = [];
     const code = row.code.trim();
-    if (code === "") reasons.push("كود العميل مطلوب");
-    else if (existingCodes.has(code)) reasons.push(`كود العميل "${code}" مستخدم بالفعل`);
-    else if (seenCodes.has(code)) reasons.push(`كود العميل "${code}" مكرر داخل الملف`);
-    if (row.nameAr.trim() === "") reasons.push("اسم العميل مطلوب");
+    if (code === "") reasons.push({ ar: "كود العميل مطلوب", en: "The customer code is required" });
+    else if (existingCodes.has(code)) reasons.push({ ar: `كود العميل "${code}" مستخدم بالفعل`, en: `Customer code "${code}" is already in use` });
+    else if (seenCodes.has(code)) reasons.push({ ar: `كود العميل "${code}" مكرر داخل الملف`, en: `Customer code "${code}" is duplicated in the file` });
+    if (row.nameAr.trim() === "") reasons.push({ ar: "اسم العميل مطلوب", en: "The customer name is required" });
     if (reasons.length > 0) {
-      errors.push({ rowNumber: row.rowNumber, reasons });
+      errors.push(importRowError(row.rowNumber, reasons));
       continue;
     }
     seenCodes.add(code);
@@ -78,7 +79,7 @@ export function previewCustomerImport(
       valid.push({ rowNumber: row.rowNumber, customer });
     } catch (err) {
       if (err instanceof InvalidCustomerError) {
-        errors.push({ rowNumber: row.rowNumber, reasons: err.reasons });
+        errors.push(importRowError(row.rowNumber, err.reasons.map((ar, i) => ({ ar, en: err.reasonsEn[i] ?? ar }))));
       } else {
         throw err;
       }

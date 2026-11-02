@@ -127,16 +127,16 @@ describe("createPurchaseOrder", () => {
     const orders = new InMemoryPurchaseOrders();
     await expect(
       createPurchaseOrder({ ...poBase(), supplierId: "" }, { orders, numbering: makeNumbering(), now }),
-    ).rejects.toThrow(/supplier is required/);
+    ).rejects.toThrow(/المورد مطلوب/);
     await expect(
       createPurchaseOrder({ ...poBase(), warehouseId: "" }, { orders, numbering: makeNumbering(), now }),
-    ).rejects.toThrow(/warehouse is required/);
+    ).rejects.toThrow(/المستودع مطلوب/);
     await expect(
       createPurchaseOrder({ ...poBase(), branchId: "" }, { orders, numbering: makeNumbering(), now }),
-    ).rejects.toThrow(/branch is required/);
+    ).rejects.toThrow(/الفرع مطلوب/);
     await expect(
       createPurchaseOrder({ ...poBase(), date: "" }, { orders, numbering: makeNumbering(), now }),
-    ).rejects.toThrow(/date is required/);
+    ).rejects.toThrow(/التاريخ مطلوب/);
   });
 
   it("rejects a zero/negative line qty or a negative unit price", async () => {
@@ -146,13 +146,13 @@ describe("createPurchaseOrder", () => {
         { ...poBase(), lines: [{ itemId: "item-A", qty: Qty.zero(), unitPrice: Money.fromMajor("1") }] },
         { orders, numbering: makeNumbering(), now },
       ),
-    ).rejects.toThrow(/qty must be positive/);
+    ).rejects.toThrow(/الكمية يجب أن تكون موجبة/);
     await expect(
       createPurchaseOrder(
         { ...poBase(), lines: [{ itemId: "item-A", qty: Qty.fromMajor("1"), unitPrice: Money.fromMajor("-1") }] },
         { orders, numbering: makeNumbering(), now },
       ),
-    ).rejects.toThrow(/unit price must not be negative/);
+    ).rejects.toThrow(/سعر الوحدة لا يجوز أن يكون سالباً/);
   });
 
   it("rejects a duplicate purchase-order id", async () => {
@@ -169,7 +169,7 @@ describe("createPurchaseOrder", () => {
         { ...poBase(), lines: [{ itemId: "  ", qty: Qty.fromMajor("1"), unitPrice: Money.fromMajor("1") }] },
         { orders, numbering: makeNumbering(), now },
       ),
-    ).rejects.toThrow(/an item is required/);
+    ).rejects.toThrow(/الصنف مطلوب/);
   });
 });
 

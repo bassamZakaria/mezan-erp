@@ -68,16 +68,16 @@ export interface EvidencePackRoutesDeps {
 
 function periodOf(c: Context): EvidencePeriodDTO | Response {
   const parsed = evidencePeriodSchema.safeParse({ from: c.req.query("from"), to: c.req.query("to") });
-  if (!parsed.success) return c.json({ error: EvidencePackRefusal.InvalidPeriod, message: "حدّد فترة صحيحة: من تاريخ وإلى تاريخ.", details: parsed.error.flatten() }, 400);
+  if (!parsed.success) return c.json({ error: EvidencePackRefusal.InvalidPeriod, message: "حدّد فترة صحيحة: من تاريخ وإلى تاريخ.", messageEn: "Specify a valid period: a from date and a to date.", details: parsed.error.flatten() }, 400);
   return parsed.data;
 }
 
 function periodFromBody(c: Context, body: unknown): EvidencePeriodDTO | Response {
   const parsed = evidencePeriodSchema.safeParse(body);
-  if (!parsed.success) return c.json({ error: EvidencePackRefusal.InvalidPeriod, message: "حدّد فترة صحيحة: من تاريخ وإلى تاريخ.", details: parsed.error.flatten() }, 400);
+  if (!parsed.success) return c.json({ error: EvidencePackRefusal.InvalidPeriod, message: "حدّد فترة صحيحة: من تاريخ وإلى تاريخ.", messageEn: "Specify a valid period: a from date and a to date.", details: parsed.error.flatten() }, 400);
   const span = (Date.parse(`${parsed.data.to}T00:00:00Z`) - Date.parse(`${parsed.data.from}T00:00:00Z`)) / DAY_MS;
   if (span > EVIDENCE_PACK_MAX_SPAN_DAYS) {
-    return c.json({ error: EvidencePackRefusal.PeriodTooLong, message: `الفترة لا تتجاوز ${arabicDays(EVIDENCE_PACK_MAX_SPAN_DAYS, ArabicCase.Oblique)} في حزمة واحدة.` }, 400);
+    return c.json({ error: EvidencePackRefusal.PeriodTooLong, message: `الفترة لا تتجاوز ${arabicDays(EVIDENCE_PACK_MAX_SPAN_DAYS, ArabicCase.Oblique)} في حزمة واحدة.`, messageEn: `The period cannot exceed ${EVIDENCE_PACK_MAX_SPAN_DAYS} days in one pack.` }, 400);
   }
   return parsed.data;
 }
@@ -533,7 +533,7 @@ export function createEvidencePackRoutes(deps: EvidencePackRoutesDeps, resolveAu
           details: { from: period.from, to: period.to },
         }),
       ).catch(() => undefined);
-      return c.json({ error: EvidencePackRefusal.BuildFailed, message: "تعذّر إعداد حزمة الأدلة. أعد المحاولة أو راجع سجل الخادم." }, 500);
+      return c.json({ error: EvidencePackRefusal.BuildFailed, message: "تعذّر إعداد حزمة الأدلة. أعد المحاولة أو راجع سجل الخادم.", messageEn: "The evidence pack could not be prepared. Try again or check the server log." }, 500);
     }
   });
 

@@ -46,7 +46,7 @@ const INTERNAL_TARGET = "لا يمكن إرسال webhook إلى عنوان دا
 // second is DNS rebinding; every answer is vetted, and only the vetted address is dialled.
 async function resolveDeliverableDestination(rawUrl: string): Promise<PinnedDestination> {
   const problem = webhookTargetProblem(rawUrl);
-  if (problem) throw new WebhookDestinationRefusedError(problem);
+  if (problem) throw new WebhookDestinationRefusedError(problem.message);
   const url = new URL(rawUrl);
   const host = url.hostname.replace(/^\[|\]$/g, "");
   if (isIP(host) === 4) {

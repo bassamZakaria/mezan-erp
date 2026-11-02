@@ -41,6 +41,7 @@ import { majorOf } from "../../../lib/money";
 import { useUrlParam, useUrlSearch } from "../../../lib/url-state";
 import { EMPTY } from "../../../lib/empty";
 import { todayIso as localTodayIso } from "../../../lib/dates";
+import { errorMessage } from "../../../lib/error-message";
 
 /**
  * خطابات الضمان (design §05) — the register, its bank-facility tiles, the
@@ -584,7 +585,7 @@ export function GuaranteesScreen() {
     <div className="w-full">
       {listQuery.isError ? (
         <Card className="mb-[18px] p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">{t("guarantees.api.listFailed")}</p>
+          <p className="text-[13px] font-semibold text-danger-ink">{errorMessage(listQuery.error, t("guarantees.api.listFailed"))}</p>
           <Button size="sm" className="mt-[10px]" onClick={() => void listQuery.refetch()}>
             {t("common.retry")}
           </Button>

@@ -53,6 +53,7 @@ export interface LicenseStateView {
    * copy for `state` is correct.
    */
   readonly messageAr?: string;
+  readonly messageEn?: string;
   /**
    * Days since the last successful online check-in, when `reason` is
    * `CHECKIN_OVERDUE`. The blocking notice counts in days, not in states.
@@ -142,6 +143,11 @@ export function createWriteGate(
           "الترخيص غير فعّال حاليًا، والبرنامج في وضع القراءة فقط. كل بياناتك " +
             "متاحة للعرض والطباعة والتصدير، لكن لا يمكن حفظ أي حركة جديدة حتى " +
             "تجديد الترخيص.",
+        messageEn:
+          license.messageEn ??
+          "The licence is not active right now, so the program is read-only. All your data " +
+            "can still be viewed, printed and exported, but no new transaction can be saved " +
+            "until the licence is renewed.",
       },
       403,
     );

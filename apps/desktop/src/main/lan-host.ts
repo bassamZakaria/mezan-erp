@@ -433,6 +433,7 @@ export function startLanHost(options: LanHostOptions): LanHostHandle {
         {
           error: "TOO_MANY_REQUESTS",
           message: "طلبات كثيرة من هذا الجهاز. انتظر قليلاً ثم أعد المحاولة.",
+          messageEn: "Too many requests from this device. Wait a moment and try again.",
         },
         { status: 429, headers: { "retry-after": String(Math.ceil(RATE_WINDOW_MS / 1000)) } },
       );
@@ -443,7 +444,8 @@ export function startLanHost(options: LanHostOptions): LanHostHandle {
       return Response.json(
         {
           error: "OFF_SUBNET",
-          message: "هذا الجهاز ليس على شبكة المنشأة. This device is not on the company network.",
+          message: "هذا الجهاز ليس على شبكة المنشأة.",
+          messageEn: "This device is not on the company network.",
         },
         { status: 403 },
       );

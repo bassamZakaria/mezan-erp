@@ -3576,7 +3576,7 @@ export function useCancelDraftSalesInvoice() {
   });
 }
 
-export type ConfirmedSalesInvoiceDTO = SalesInvoiceDTO & { held: boolean; taxRecalculated?: { message: string } };
+export type ConfirmedSalesInvoiceDTO = SalesInvoiceDTO & { held: boolean; taxRecalculated?: { message: string; messageEn?: string } };
 
 export enum ClassifiableDocument {
   SalesInvoice = "sales-invoices",
@@ -7660,6 +7660,7 @@ export interface DesktopLicenceStatusDTO {
   readonly code: DesktopLicenceCode;
   /** Arabic, ready to render. */
   readonly messageAr: string;
+  readonly messageEn?: string;
   readonly plan: string;
   readonly seats: number;
   readonly expiresAt: string | null;
@@ -7710,6 +7711,7 @@ export interface DesktopLicenceFailureDTO {
   readonly ok: false;
   readonly code: string;
   readonly message: string;
+  readonly messageEn?: string;
 }
 
 export type DesktopLicenceResultDTO = DesktopLicenceStatusDTO | DesktopLicenceFailureDTO;

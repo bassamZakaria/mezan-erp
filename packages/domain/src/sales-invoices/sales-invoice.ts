@@ -284,3 +284,13 @@ export const SALES_INVOICE_STATUS_LABELS_AR: Record<SalesInvoiceStatus, string> 
   cancelled: "ملغي",
   reversed: "معكوس",
 };
+
+export const SALES_INVOICE_STATUS_LABELS_EN: Record<SalesInvoiceStatus, string> = {
+  draft: "draft",
+  pending: "pending approval",
+  confirmed: "confirmed",
+  partially_paid: "partially paid",
+  paid: "paid",
+  cancelled: "cancelled",
+  reversed: "reversed",
+};

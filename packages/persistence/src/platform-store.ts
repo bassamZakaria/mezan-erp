@@ -443,7 +443,7 @@ class SqlTenantStore implements TenantRepository {
         ],
       );
     } catch (err) {
-      if (isDbFileTaken(err)) throw new InvalidTenantError(["ملف قاعدة بيانات هذه المنشأة مسجّل لمنشأة أخرى"]);
+      if (isDbFileTaken(err)) throw new InvalidTenantError([{ ar: "ملف قاعدة بيانات هذه المنشأة مسجّل لمنشأة أخرى", en: "This company's database file is registered to another company" }]);
       throw err;
     }
   }

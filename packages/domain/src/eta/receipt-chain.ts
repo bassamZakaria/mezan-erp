@@ -44,11 +44,13 @@ export interface EtaReceiptChainRepository {
 
 export class EtaReceiptChainConflictError extends Error {
   readonly code = "ETA_RECEIPT_CHAIN_CONFLICT";
+  readonly messageEn: string;
   constructor(readonly serial: string) {
     super(
       `تعذّر إصدار الإيصال: تغيّرت سلسلة إيصالات الجهاز ${serial} أثناء الإصدار. أعد المحاولة. ` +
         `The receipt chain of device ${serial} moved while the receipt was being issued; retry.`,
     );
+    this.messageEn = `The receipt could not be issued: the receipt chain of device ${serial} changed while the receipt was being issued. Try again.`;
     this.name = "EtaReceiptChainConflictError";
   }
 }

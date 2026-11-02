@@ -120,9 +120,9 @@ function refusalResponse(c: Context, err: unknown): Response {
   if (err instanceof CountModeRefusalError) {
     return c.json({ error: err.code, reason: err.reason, message: err.message, messageEn: err.messageEn }, REFUSAL_STATUS[err.reason]);
   }
-  if (err instanceof PhysicalCountNotFoundError) return c.json({ error: err.code, message: err.message }, 404);
-  if (err instanceof InvalidPhysicalCountStatusError) return c.json({ error: err.code, message: err.message }, 409);
-  if (err instanceof InvalidPhysicalCountError) return c.json({ error: err.code, message: err.message }, 409);
+  if (err instanceof PhysicalCountNotFoundError) return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 404);
+  if (err instanceof InvalidPhysicalCountStatusError) return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
+  if (err instanceof InvalidPhysicalCountError) return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
   if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
   throw err;
 }
@@ -131,7 +131,7 @@ function warehouseRefusal(c: Context, warehouseId: string): Response | undefined
   const scope = sessionWarehouseScopeOf(c);
   if (!scope || scope.includes(warehouseId)) return undefined;
   return c.json(
-    { error: CountModeRouteError.WarehouseOutOfScope, warehouseId, message: `المستودع "${warehouseId}" خارج نطاق المستودعات المصرّح لك بها.` },
+    { error: CountModeRouteError.WarehouseOutOfScope, warehouseId, message: `المستودع "${warehouseId}" خارج نطاق المستودعات المصرّح لك بها.`, messageEn: `Warehouse "${warehouseId}" is outside the warehouses you are allowed to use.` },
     403,
   );
 }

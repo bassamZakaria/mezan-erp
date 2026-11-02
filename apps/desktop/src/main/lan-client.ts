@@ -65,13 +65,14 @@ export const MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
 
 const RESPONSE_TOO_LARGE_MESSAGE =
   "النتيجة كبيرة جداً على النقل. ضيّق نطاق التاريخ أو الفلتر ثم أعد المحاولة.";
+const RESPONSE_TOO_LARGE_MESSAGE_EN = "The result is too large to transfer. Narrow the date range or the filter, then try again.";
 
 /** guards Q-7 — the one refusal shape both the host's own IPC path and the LAN-client path return. */
 export function tooLargeResponse(): LanClientResponse {
   return {
     status: 413,
     headers: { "content-type": "application/json; charset=UTF-8" },
-    body: JSON.stringify({ error: "RESPONSE_TOO_LARGE", message: RESPONSE_TOO_LARGE_MESSAGE }),
+    body: JSON.stringify({ error: "RESPONSE_TOO_LARGE", message: RESPONSE_TOO_LARGE_MESSAGE, messageEn: RESPONSE_TOO_LARGE_MESSAGE_EN }),
   };
 }
 
@@ -623,6 +624,8 @@ export function withSeatClaim(forward: LanForward, config: ClientConfig): LanFor
             host: config.hostUrl,
             message:
               "لا توجد مقاعد شاغرة في ترخيص الجهاز الرئيسي. افصل جهازاً آخر من شاشة «الأجهزة المتصلة» أو زد عدد المقاعد.",
+            messageEn:
+              "No free seats on the main machine's licence. Disconnect another device from the connected-devices screen, or add seats.",
           }),
         };
       }
@@ -693,6 +696,7 @@ function unauthorized(): LanClientResponse {
     body: JSON.stringify({
       error: "UNAUTHORIZED",
       message: "انتهت الجلسة على الجهاز الرئيسي. سجّل الدخول من جديد.",
+      messageEn: "The session on the main machine has ended. Sign in again.",
     }),
   };
 }

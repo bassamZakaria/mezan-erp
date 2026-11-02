@@ -210,6 +210,7 @@ export class DocumentService<Line> {
         this.def.code,
         doc.id,
         effects.blockedReason ?? "Document cannot be confirmed in its current state.",
+        effects.blockedReasonEn,
       );
     }
   }

@@ -168,7 +168,7 @@ function handleDomainError(c: Context, err: unknown) {
     return c.json(
       {
         error: err.code,
-        message: err.message,
+        message: err.message, messageEn: err.messageEn,
         onHand: err.onHand.toString(),
         requested: err.requested.toString(),
       },
@@ -176,16 +176,16 @@ function handleDomainError(c: Context, err: unknown) {
     );
   }
   if (err instanceof UncostedDeficitIssueError) {
-    return c.json({ error: err.code, message: err.message, requested: err.requested.toString() }, 422);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, requested: err.requested.toString() }, 422);
   }
   if (err instanceof ExpiredStockError) {
-    return c.json({ error: err.code, message: err.message, batchNo: err.batchNo, expiryDate: err.expiryDate }, 422);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, batchNo: err.batchNo, expiryDate: err.expiryDate }, 422);
   }
   if (err instanceof SameWarehouseTransferError) {
-    return c.json({ error: err.code, message: err.message }, 422);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 422);
   }
   if (err instanceof InvalidStockMovementError) {
-    return c.json({ error: err.code, message: err.message }, 400);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 400);
   }
   throw err;
 }
@@ -208,6 +208,7 @@ function warehouseScopeRefusal(c: Context, warehouseIds: readonly string[]): Res
       error: "WAREHOUSE_OUT_OF_SCOPE",
       warehouseId: offending,
       message: `المستودع "${offending}" خارج نطاق المستودعات المصرّح لك بها.`,
+      messageEn: `The warehouse "${offending}" is outside the warehouses you are authorised to use.`,
     },
     403,
   );

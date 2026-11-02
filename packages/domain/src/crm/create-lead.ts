@@ -1,4 +1,5 @@
 import type { Money } from "../money/index.js";
+import type { ReasonInput } from "../bilingual-reasons.js";
 import { InvalidLeadError } from "./errors.js";
 import type { Lead, LeadRepository, LeadSource } from "./lead.js";
 
@@ -14,10 +15,10 @@ export interface CreateLeadCommand {
   readonly notes?: string | null;
 }
 
-function validate(command: CreateLeadCommand): string[] {
-  const reasons: string[] = [];
+function validate(command: CreateLeadCommand): ReasonInput[] {
+  const reasons: ReasonInput[] = [];
   if (command.name.trim().length === 0) {
-    reasons.push("الاسم مطلوب");
+    reasons.push({ ar: "الاسم مطلوب", en: "The name is required" });
   }
   return reasons;
 }

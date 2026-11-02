@@ -1,3 +1,5 @@
+import { pickLocalized } from "./server-message";
+
 /**
  * The transport is the ONE place the web app decides how to reach the shared
  * Hono app: over HTTP (dev/web, via the `/api` Vite middleware or apps/server)
@@ -77,10 +79,31 @@ function getBridge(): MezanBridge | undefined {
   return (globalThis as { mezan?: MezanBridge }).mezan;
 }
 
+export class ServerUnreachableError extends Error {
+  constructor(readonly cause: unknown) {
+    super(
+      pickLocalized(
+        "تعذّر الوصول إلى الخادم. تأكد من اتصالك بالإنترنت ثم حاول مرة أخرى.",
+        "The server could not be reached. Check your internet connection and try again.",
+      ),
+    );
+    this.name = "ServerUnreachableError";
+  }
+}
+
+async function reachServer(url: string, init: RequestInit): Promise<Response> {
+  try {
+    return await fetch(url, init);
+  } catch (err) {
+    if (err instanceof TypeError) throw new ServerUnreachableError(err);
+    throw err;
+  }
+}
+
 /** HTTP transport for the web/dev build — talks to the `/api` middleware (or a proxied apps/server). */
 export function createHttpTransport(baseUrl = "/api"): Transport {
   return async (path, init) => {
-    const res = await fetch(`${baseUrl}${path}`, { ...init, credentials: "same-origin" });
+    const res = await reachServer(`${baseUrl}${path}`, { ...init, credentials: "same-origin" });
     return {
       status: res.status,
       ok: res.ok,

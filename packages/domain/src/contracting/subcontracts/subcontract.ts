@@ -32,11 +32,11 @@ export type SubcontractStatus = "draft" | "active" | "completed" | "terminated";
 /** عمالة بالمقاولة is a different animal from a works package: it is the one that turns into disguised employment. */
 export type SubcontractKind = "works" | "labour_only";
 
-export const SUBCONTRACT_STATUS_DEFINITIONS: readonly { code: SubcontractStatus; labelAr: string }[] = [
-  { code: "draft", labelAr: "مسودة" },
-  { code: "active", labelAr: "ساري" },
-  { code: "completed", labelAr: "منتهٍ" },
-  { code: "terminated", labelAr: "مفسوخ" },
+export const SUBCONTRACT_STATUS_DEFINITIONS: readonly { code: SubcontractStatus; labelAr: string; labelEn: string }[] = [
+  { code: "draft", labelAr: "مسودة", labelEn: "draft" },
+  { code: "active", labelAr: "ساري", labelEn: "active" },
+  { code: "completed", labelAr: "منتهٍ", labelEn: "completed" },
+  { code: "terminated", labelAr: "مفسوخ", labelEn: "terminated" },
 ] as const;
 
 export const SUBCONTRACT_TRANSITIONS: Readonly<Record<SubcontractStatus, readonly SubcontractStatus[]>> = {
@@ -48,6 +48,10 @@ export const SUBCONTRACT_TRANSITIONS: Readonly<Record<SubcontractStatus, readonl
 
 export function getSubcontractStatusLabel(status: SubcontractStatus): string {
   return SUBCONTRACT_STATUS_DEFINITIONS.find((d) => d.code === status)?.labelAr ?? status;
+}
+
+export function getSubcontractStatusLabelEn(status: SubcontractStatus): string {
+  return SUBCONTRACT_STATUS_DEFINITIONS.find((d) => d.code === status)?.labelEn ?? status;
 }
 
 export function canTransitionSubcontract(from: SubcontractStatus, to: SubcontractStatus): boolean {

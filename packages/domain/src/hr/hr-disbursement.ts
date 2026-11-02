@@ -1,3 +1,4 @@
+import type { ReasonInput } from "../bilingual-reasons.js";
 import { Money } from "../money/index.js";
 import {
   advanceOutstanding,
@@ -86,9 +87,9 @@ function requirePort(port: TreasuryDisbursementPort | undefined): TreasuryDisbur
 }
 
 function validateInput(input: DisbursementInput): void {
-  const reasons: string[] = [];
-  if (input.treasuryAccountId.trim() === "") reasons.push("حساب الخزينة مطلوب");
-  if (input.branchId.trim() === "") reasons.push("الفرع مطلوب");
+  const reasons: ReasonInput[] = [];
+  if (input.treasuryAccountId.trim() === "") reasons.push({ ar: "حساب الخزينة مطلوب", en: "The treasury account is required" });
+  if (input.branchId.trim() === "") reasons.push({ ar: "الفرع مطلوب", en: "The branch is required" });
   if (reasons.length > 0) throw new InvalidEmployeeAdvanceError(reasons);
 }
 
@@ -151,10 +152,10 @@ export async function disbursePayrollRun(
     throw new InvalidPayrollRunTransitionError(run.status, "disbursed");
   }
   if (input.treasuryAccountId.trim() === "" || input.branchId.trim() === "") {
-    throw new InvalidPayrollRunError(["حساب الخزينة والفرع مطلوبان"]);
+    throw new InvalidPayrollRunError([{ ar: "حساب الخزينة والفرع مطلوبان", en: "The treasury account and the branch are required" }]);
   }
   if (run.totalNet.scaled <= 0n) {
-    throw new InvalidPayrollRunError(["صافي الرواتب يجب أن يكون أكبر من صفر للصرف"]);
+    throw new InvalidPayrollRunError([{ ar: "صافي الرواتب يجب أن يكون أكبر من صفر للصرف", en: "Net payroll must be greater than zero to disburse" }]);
   }
   const treasury = requirePort(deps.treasury);
 

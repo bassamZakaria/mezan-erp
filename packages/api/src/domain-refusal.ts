@@ -1,7 +1,8 @@
+import { messageEnOf } from "./observability/error-message-backfill.js";
 export interface DomainRefusal {
   readonly code: string;
   readonly message: string;
-  readonly messageEn?: string;
+  readonly messageEn: string;
 }
 
 export const INTERNAL_ERROR_MESSAGE_AR = "تعذّر إكمال العملية بسبب خطأ داخلي. حاول مرة أخرى، وإن تكرر الخطأ فتواصل مع الدعم.";
@@ -15,7 +16,7 @@ const FOREIGN_CODE_PREFIXES = ["SQLITE_", "ERR_", "EAI_", "CERT_", "UNABLE_", "D
 // domain refusal's message may reach the client.
 export function domainRefusalOf(err: unknown): DomainRefusal | null {
   if (!(err instanceof Error)) return null;
-  const { code, messageEn } = err as { code?: unknown; messageEn?: unknown };
+  const { code } = err as { code?: unknown };
   if (typeof code !== "string" || !DOMAIN_CODE.test(code) || FOREIGN_CODE_PREFIXES.some((prefix) => code.startsWith(prefix))) return null;
-  return { code, message: err.message, ...(typeof messageEn === "string" ? { messageEn } : {}) };
+  return { code, message: err.message, messageEn: messageEnOf(err) };
 }

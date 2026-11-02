@@ -45,7 +45,7 @@ export interface CreateActivityCommand {
 /** Creates and persists a new activity. New activities always start `pending`. */
 export async function createActivity(command: CreateActivityCommand, repo: ActivityRepository): Promise<Activity> {
   if (command.subject.trim().length === 0) {
-    throw new InvalidActivityError(["الموضوع مطلوب"]);
+    throw new InvalidActivityError([{ ar: "الموضوع مطلوب", en: "The subject is required" }]);
   }
 
   const activity: Activity = {

@@ -20,6 +20,12 @@ export const FOLLOW_UP_STATUS_LABELS_AR: Readonly<Record<FollowUpStatus, string>
   cancelled: "ملغاة",
 };
 
+export const FOLLOW_UP_STATUS_LABELS_EN: Readonly<Record<FollowUpStatus, string>> = {
+  pending: "pending",
+  completed: "completed",
+  cancelled: "cancelled",
+};
+
 export interface CollectionFollowUp {
   readonly id: string;
   readonly customerId: string;

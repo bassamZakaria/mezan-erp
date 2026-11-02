@@ -78,16 +78,20 @@ export interface DisposeAssetDeps {
 
 export class AssetAlreadyDisposedError extends Error {
   readonly code = "ASSET_ALREADY_DISPOSED";
+  readonly messageEn: string;
   constructor(readonly assetId: string) {
     super(`الأصل "${assetId}" تم التخلص منه بالفعل.`);
+    this.messageEn = `Asset "${assetId}" has already been disposed of.`;
     this.name = "AssetAlreadyDisposedError";
   }
 }
 
 export class InvalidAssetDisposalError extends Error {
   readonly code = "INVALID_ASSET_DISPOSAL";
-  constructor(message: string) {
+  readonly messageEn: string;
+  constructor(message: string, messageEn: string) {
     super(message);
+    this.messageEn = messageEn;
     this.name = "InvalidAssetDisposalError";
   }
 }
@@ -119,13 +123,13 @@ export async function disposeAsset(
 
   const proceeds = cmd.proceeds ?? Money.zero();
   if (proceeds.scaled < 0n) {
-    throw new InvalidAssetDisposalError("قيمة البيع لا يمكن أن تكون سالبة.");
+    throw new InvalidAssetDisposalError("قيمة البيع لا يمكن أن تكون سالبة.", "The sale proceeds cannot be negative.");
   }
   if (proceeds.scaled > 0n && !cmd.proceedsAccountId) {
-    throw new InvalidAssetDisposalError("حساب تحصيل قيمة البيع مطلوب.");
+    throw new InvalidAssetDisposalError("حساب تحصيل قيمة البيع مطلوب.", "The proceeds account is required.");
   }
   if (cmd.date < asset.acquisitionDate) {
-    throw new InvalidAssetDisposalError("تاريخ التخلص لا يمكن أن يسبق تاريخ الاقتناء.");
+    throw new InvalidAssetDisposalError("تاريخ التخلص لا يمكن أن يسبق تاريخ الاقتناء.", "The disposal date cannot be earlier than the acquisition date.");
   }
 
   const bookValue = Money.fromScaled(asset.acquisitionCost.scaled - asset.accumulatedDepreciation.scaled);

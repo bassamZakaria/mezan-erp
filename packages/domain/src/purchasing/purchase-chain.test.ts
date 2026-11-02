@@ -160,7 +160,7 @@ describe("Purchase Order", () => {
     const orders = new InMemoryPurchaseOrders();
     await expect(
       createPurchaseOrder({ ...poBase(), lines: [] }, { orders, numbering: makeNumbering(), now }),
-    ).rejects.toThrow(/at least one line/);
+    ).rejects.toThrow(/يلزم بند واحد على الأقل/);
   });
 });
 
@@ -307,19 +307,19 @@ describe("Goods Receipt", () => {
         { id: "gr-1", date: "2026-08-22", warehouseId: WH, lines: [{ itemId: "item-A", qty: Qty.fromMajor("1"), unitCost: Money.fromMajor("10.00") }] },
         { receipts: new InMemoryGoodsReceipts(), orders, numbering },
       ),
-    ).rejects.toThrow(/supplier is required/);
+    ).rejects.toThrow(/المورد مطلوب/);
     await expect(
       createGoodsReceipt(
         { id: "gr-2", date: "2026-08-22", supplierId: "sup-1", lines: [{ itemId: "item-A", qty: Qty.fromMajor("1"), unitCost: Money.fromMajor("10.00") }] },
         { receipts: new InMemoryGoodsReceipts(), orders, numbering },
       ),
-    ).rejects.toThrow(/warehouse is required/);
+    ).rejects.toThrow(/المستودع مطلوب/);
     await expect(
       createGoodsReceipt(
         { id: "gr-3", date: "2026-08-22", supplierId: "sup-1", warehouseId: WH },
         { receipts: new InMemoryGoodsReceipts(), orders, numbering },
       ),
-    ).rejects.toThrow(/lines are required/);
+    ).rejects.toThrow(/البنود مطلوبة/);
   });
 
   describe("cancelGoodsReceipt", () => {

@@ -128,7 +128,7 @@ describe("EtaScreen — top level", () => {
     });
     renderWithProviders(<EtaScreen />, { transport, initialSession: testAdminSession });
 
-    expect(await screen.findByText("تعذّر تحميل بيانات الفاتورة الإلكترونية.")).toBeInTheDocument();
+    expect(await screen.findByText(/تعذّر تحميل إعدادات الفاتورة الإلكترونية\./)).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByText(/INTERNAL/)).not.toBeInTheDocument());
 
     const before = calls.filter((c) => c.startsWith("GET /eta/config")).length;

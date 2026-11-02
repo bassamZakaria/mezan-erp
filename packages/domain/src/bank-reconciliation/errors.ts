@@ -60,11 +60,14 @@ export class LineNotMatchedError extends Error {
  */
 export class InvalidStatementBalanceError extends Error {
   readonly code = "INVALID_OPENING_BALANCE";
+  readonly messageEn: string;
   constructor(
     readonly statementId: string,
     readonly reason: string,
+    reasonEn: string,
   ) {
     super(reason);
+    this.messageEn = reasonEn;
     this.name = "InvalidStatementBalanceError";
   }
 }

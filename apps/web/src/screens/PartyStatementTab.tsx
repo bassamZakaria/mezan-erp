@@ -4,6 +4,7 @@ import type { PartyStatementEntryKindDTO, PartyStatementLineDTO } from "@mezan/c
 import { moneyToNumber, parseMoney, usePartyStatement } from "../data/partner-detail-hooks";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { BranchCaveatNote } from "./reports/BranchCaveatNote";
+import { errorMessage } from "../lib/error-message";
 
 type PartyKind = "customer" | "supplier";
 
@@ -75,7 +76,7 @@ export function PartyStatementTab({ kind, partyId }: { kind: PartyKind; partyId:
   if (query.isError) {
     return (
       <Card className="p-[18px_20px]">
-        <p className="text-[13px] font-semibold text-danger-ink">{t(key("loadFailed"))}</p>
+        <p className="text-[13px] font-semibold text-danger-ink">{errorMessage(query.error, t(key("loadFailed")))}</p>
         <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
           {t("common.retry")}
         </Button>

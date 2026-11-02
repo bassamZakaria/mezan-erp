@@ -32,7 +32,9 @@ import {
   applyCheckinAttempt,
   attemptCheckin,
   checkinFailureMessageAr,
+  checkinFailureMessageEn,
   checkinMessageAr,
+  checkinMessageEn,
   decideCheckin,
   type LicenseGuardStore,
 } from "./license-checkin.js";
@@ -41,12 +43,14 @@ const UNAUTHORIZED: LicenceStatusFailure = {
   ok: false,
   code: "UNAUTHORIZED",
   message: "سجّل الدخول لعرض حالة الترخيص وعنوان الشبكة المحلية.",
+  messageEn: "Sign in to view the licence status and the local network address.",
 };
 
 const UNAVAILABLE: LicenceStatusFailure = {
   ok: false,
   code: "UNAVAILABLE",
   message: "تعذّرت قراءة حالة الترخيص على هذا الجهاز.",
+  messageEn: "The licence status could not be read on this device.",
 };
 
 export interface LicenceIpcDeps {
@@ -160,6 +164,29 @@ const MESSAGE_AR: Record<LicenceCode, string> = {
   "LIC-NOTYET": "لم يبدأ سريان هذا الترخيص بعد.",
 };
 
+const MESSAGE_EN: Record<LicenceCode, string> = {
+  "LIC-OK": "The licence is valid.",
+  "LIC-GRACE":
+    "The licence has expired and you are now in the grace period. Renew it before the period ends so new entries can still be saved.",
+  "LIC-MISSING":
+    "There is no licence file on this device. All data stays available to view, print and export, but no new entries can be saved until you install a licence file.",
+  "LIC-MALFORMED": "The licence file cannot be read. Ask support for a new file and install it from this screen.",
+  "LIC-INVALID":
+    "The licence file signature is not valid, so it cannot be trusted. Ask support for the original licence file and install it from this screen.",
+  "LIC-EXPIRED":
+    "The licence has expired and so has its grace period. All data stays available to view, print and export, but no new entries can be saved until it is renewed.",
+  "LIC-CHECKIN":
+    "This licence has not been confirmed online for a while. Connect to the internet, then press \"Check now\".",
+  "LIC-REVOKED": "This licence has been revoked by the issuer. Contact support and quote the code shown.",
+  "LIC-NOKEY":
+    "This copy has no licence verification key, so it cannot accept any licence file. Contact support for a correct installation.",
+  "LIC-MACHINE":
+    "The licence file is bound to another device. Send this device's fingerprint shown here to support to get a licence file for this device, then install it with the \"Import licence file\" button.",
+  "LIC-CLOCK":
+    "This device's date is earlier than the program's last recorded run. Set the device date and time correctly, then restart the program.",
+  "LIC-NOTYET": "This licence is not valid yet.",
+};
+
 /**
  * `state.messageAr` wins where main/license.ts supplied one: it is set exactly
  * where the generic copy for a state would be WRONG — «جدّد الترخيص» for a build
@@ -176,6 +203,18 @@ function messageFor(
     return `لم يُؤكَّد هذا الترخيص عبر الإنترنت منذ ${arabicDays(daysSince, ArabicCase.Oblique)}. اتصل بالإنترنت ثم اضغط «تحقّق الآن».`;
   }
   return MESSAGE_AR[code];
+}
+
+function messageEnFor(
+  code: LicenceCode,
+  daysSince: number | null,
+  fromLicence: string | undefined,
+): string {
+  if (fromLicence) return fromLicence;
+  if (code === "LIC-CHECKIN" && daysSince !== null) {
+    return `This licence has not been confirmed online for ${daysSince} ${daysSince === 1 ? "day" : "days"}. Connect to the internet, then press "Check now".`;
+  }
+  return MESSAGE_EN[code];
 }
 
 /**
@@ -246,6 +285,7 @@ export function registerClientLicenceStatusOverIpc(config: {
       ok: true,
       code: "LIC-OK",
       messageAr: `هذا الجهاز يعمل كمحطة متصلة بالجهاز الرئيسي على ${config.hostUrl}. الترخيص وعدد المقاعد يُداران من الجهاز الرئيسي.`,
+      messageEn: `This device works as a connected till of the main machine at ${config.hostUrl}. The licence and seat count are managed from the main machine.`,
       state: "ACTIVE",
       reason: null,
       canWrite: true,
@@ -297,7 +337,7 @@ export function registerLicenceStatusOverIpc(deps: LicenceIpcDeps): void {
     const code = licenceCodeFor(state, reason);
     // The licence's own day count wins where it carries one — it came from the
     // same decision the write gate is running under.
-    const licenceState = licence.state as { daysSince?: number; messageAr?: string };
+    const licenceState = licence.state as { daysSince?: number; messageAr?: string; messageEn?: string };
     const daysSince = licenceState.daysSince ?? deps.daysSinceCheckin();
     const host = deps.lanHost();
     const keyCard = keyCardFilePath(deps.dbPath);
@@ -305,6 +345,7 @@ export function registerLicenceStatusOverIpc(deps: LicenceIpcDeps): void {
       ok: true,
       code,
       messageAr: messageFor(code, daysSince, licenceState.messageAr),
+      messageEn: messageEnFor(code, daysSince, licenceState.messageEn),
       state,
       reason,
       canWrite: licence.state.canWrite,
@@ -375,7 +416,7 @@ export function registerLicenceStatusOverIpc(deps: LicenceIpcDeps): void {
         typeof sessionToken === "string" && (await deps.sessions.find(sessionToken)) !== null;
       const unclaimed = signedIn ? false : ((await deps.tenantIsClaimed?.().catch(() => true)) === false);
       if (!signedIn && !unclaimed) {
-        return { ok: false, code: "UNAUTHORIZED", message: UNAUTHORIZED.message };
+        return { ok: false, code: "UNAUTHORIZED", message: UNAUTHORIZED.message, messageEn: UNAUTHORIZED.messageEn };
       }
 
       let chosen: string | undefined;
@@ -386,15 +427,15 @@ export function registerLicenceStatusOverIpc(deps: LicenceIpcDeps): void {
           filters: [{ name: "Mezan licence", extensions: ["mezan", "lic", "txt"] }],
         });
         if (picked.canceled) {
-          return { ok: false, code: "CANCELLED", message: "لم يتم اختيار أي ملف." };
+          return { ok: false, code: "CANCELLED", message: "لم يتم اختيار أي ملف.", messageEn: "No file was chosen." };
         }
         chosen = picked.filePaths[0];
       } catch (err) {
         console.error("[licence] the file picker could not be opened", err);
-        return { ok: false, code: "FAILED", message: "تعذّر فتح نافذة اختيار الملف." };
+        return { ok: false, code: "FAILED", message: "تعذّر فتح نافذة اختيار الملف.", messageEn: "The file picker could not be opened." };
       }
       if (!chosen) {
-        return { ok: false, code: "CANCELLED", message: "لم يتم اختيار أي ملف." };
+        return { ok: false, code: "CANCELLED", message: "لم يتم اختيار أي ملف.", messageEn: "No file was chosen." };
       }
 
       const target = licenceFilePath();
@@ -409,6 +450,7 @@ export function registerLicenceStatusOverIpc(deps: LicenceIpcDeps): void {
           ok: false,
           code: "UNREADABLE",
           message: "تعذّرت قراءة الملف المختار أو نسخه إلى مكانه. تأكد أنه ملف الترخيص الصحيح.",
+          messageEn: "The chosen file could not be read or copied into place. Check that it is the right licence file.",
         };
       }
 
@@ -418,7 +460,7 @@ export function registerLicenceStatusOverIpc(deps: LicenceIpcDeps): void {
         return { ok: true, status: await describe(licence), accepted: licence.state.canWrite };
       } catch (err) {
         console.error("[licence] the imported licence could not be verified", err);
-        return { ok: false, code: "FAILED", message: "تعذّر التحقق من ملف الترخيص بعد تثبيته." };
+        return { ok: false, code: "FAILED", message: "تعذّر التحقق من ملف الترخيص بعد تثبيته.", messageEn: "The licence file could not be verified after it was installed." };
       }
     },
   );
@@ -460,10 +502,10 @@ function registerSupportActionsOverIpc(deps: LicenceIpcDeps): void {
     MEZAN_SUPPORT_DIAGNOSTIC_CHANNEL,
     async (_event, sessionToken: unknown, body: unknown): Promise<SupportActionResult> => {
       if (!(await authorized(sessionToken))) {
-        return { ok: false, code: "UNAUTHORIZED", message: UNAUTHORIZED.message };
+        return { ok: false, code: "UNAUTHORIZED", message: UNAUTHORIZED.message, messageEn: UNAUTHORIZED.messageEn };
       }
       if (typeof body !== "string" || body === "") {
-        return { ok: false, code: "FAILED", message: "لا توجد بيانات تشخيص لحفظها." };
+        return { ok: false, code: "FAILED", message: "لا توجد بيانات تشخيص لحفظها.", messageEn: "There is no diagnostic data to save." };
       }
       try {
         const picked = await dialog.showSaveDialog({
@@ -475,13 +517,13 @@ function registerSupportActionsOverIpc(deps: LicenceIpcDeps): void {
           filters: [{ name: "JSON", extensions: ["json"] }],
         });
         if (picked.canceled || !picked.filePath) {
-          return { ok: false, code: "CANCELLED", message: "لم يتم حفظ الملف." };
+          return { ok: false, code: "CANCELLED", message: "لم يتم حفظ الملف.", messageEn: "The file was not saved." };
         }
         writeFileSync(picked.filePath, body, "utf8");
         return { ok: true, path: picked.filePath };
       } catch (err) {
         console.error("[support] the diagnostic file could not be written", err);
-        return { ok: false, code: "FAILED", message: "تعذّر حفظ ملف التشخيص." };
+        return { ok: false, code: "FAILED", message: "تعذّر حفظ ملف التشخيص.", messageEn: "The diagnostic file could not be saved." };
       }
     },
   );
@@ -490,10 +532,10 @@ function registerSupportActionsOverIpc(deps: LicenceIpcDeps): void {
     MEZAN_SUPPORT_SAVE_LOGS_CHANNEL,
     async (_event, sessionToken: unknown, diagnostic: unknown): Promise<SupportActionResult> => {
       if (!(await authorized(sessionToken))) {
-        return { ok: false, code: "UNAUTHORIZED", message: UNAUTHORIZED.message };
+        return { ok: false, code: "UNAUTHORIZED", message: UNAUTHORIZED.message, messageEn: UNAUTHORIZED.messageEn };
       }
       if (!deps.logs) {
-        return { ok: false, code: "NOT_FOUND", message: "لا يوجد سجل أخطاء على هذا الجهاز." };
+        return { ok: false, code: "NOT_FOUND", message: "لا يوجد سجل أخطاء على هذا الجهاز.", messageEn: "There is no error log on this device." };
       }
       try {
         const picked = await dialog.showSaveDialog({
@@ -505,7 +547,7 @@ function registerSupportActionsOverIpc(deps: LicenceIpcDeps): void {
           filters: [{ name: "Text", extensions: ["txt"] }],
         });
         if (picked.canceled || !picked.filePath) {
-          return { ok: false, code: "CANCELLED", message: "لم يتم حفظ الملف." };
+          return { ok: false, code: "CANCELLED", message: "لم يتم حفظ الملف.", messageEn: "The file was not saved." };
         }
         const lines = deps.logs.tail(SUPPORT_LOG_TAIL_LINES);
         const body = [
@@ -519,7 +561,7 @@ function registerSupportActionsOverIpc(deps: LicenceIpcDeps): void {
         return { ok: true, path: picked.filePath };
       } catch (err) {
         console.error("[support] the log bundle could not be written", err);
-        return { ok: false, code: "FAILED", message: "تعذّر حفظ السجلات." };
+        return { ok: false, code: "FAILED", message: "تعذّر حفظ السجلات.", messageEn: "The logs could not be saved." };
       }
     },
   );
@@ -528,17 +570,17 @@ function registerSupportActionsOverIpc(deps: LicenceIpcDeps): void {
     MEZAN_SUPPORT_REVEAL_CHANNEL,
     async (_event, sessionToken: unknown, target: unknown): Promise<SupportActionResult> => {
       if (!(await authorized(sessionToken))) {
-        return { ok: false, code: "UNAUTHORIZED", message: UNAUTHORIZED.message };
+        return { ok: false, code: "UNAUTHORIZED", message: UNAUTHORIZED.message, messageEn: UNAUTHORIZED.messageEn };
       }
       const revealTarget = target as SupportRevealTarget;
       const file = revealTarget === "log" ? resolveLog() : resolveTarget(target);
-      if (!file) return { ok: false, code: "NOT_FOUND", message: "الملف لم يعد موجوداً." };
+      if (!file) return { ok: false, code: "NOT_FOUND", message: "الملف لم يعد موجوداً.", messageEn: "The file no longer exists." };
       try {
         shell.showItemInFolder(file);
         return { ok: true, path: file };
       } catch (err) {
         console.error("[support] the file could not be revealed", err);
-        return { ok: false, code: "FAILED", message: "تعذّر فتح مجلد الملف." };
+        return { ok: false, code: "FAILED", message: "تعذّر فتح مجلد الملف.", messageEn: "The file's folder could not be opened." };
       }
     },
   );
@@ -547,7 +589,7 @@ function registerSupportActionsOverIpc(deps: LicenceIpcDeps): void {
     MEZAN_SUPPORT_DELETE_CHANNEL,
     async (_event, sessionToken: unknown, target: unknown): Promise<SupportActionResult> => {
       if (!(await authorized(sessionToken))) {
-        return { ok: false, code: "UNAUTHORIZED", message: UNAUTHORIZED.message };
+        return { ok: false, code: "UNAUTHORIZED", message: UNAUTHORIZED.message, messageEn: UNAUTHORIZED.messageEn };
       }
       const file = resolveTarget(target);
       if (!file) return { ok: true, path: null };
@@ -556,7 +598,7 @@ function registerSupportActionsOverIpc(deps: LicenceIpcDeps): void {
         return { ok: true, path: file };
       } catch (err) {
         console.error("[support] the file could not be deleted", err);
-        return { ok: false, code: "FAILED", message: "تعذّر حذف الملف. احذفه يدوياً من مكانه." };
+        return { ok: false, code: "FAILED", message: "تعذّر حذف الملف. احذفه يدوياً من مكانه.", messageEn: "The file could not be deleted. Delete it manually from where it is." };
       }
     },
   );
@@ -594,7 +636,7 @@ export function registerLicenceCheckinOverIpc(deps: {
     MEZAN_LICENCE_CHECKIN_CHANNEL,
     async (_event, sessionToken: unknown): Promise<LicenceCheckinResult> => {
       if (typeof sessionToken !== "string" || !(await deps.sessions.find(sessionToken))) {
-        return { reachedServer: false, revoked: false, daysSince: 0, messageAr: UNAUTHORIZED.message };
+        return { reachedServer: false, revoked: false, daysSince: 0, messageAr: UNAUTHORIZED.message, messageEn: UNAUTHORIZED.messageEn };
       }
 
       const before = deps.guard.read();
@@ -632,6 +674,7 @@ export function registerLicenceCheckinOverIpc(deps: {
           revoked: true,
           daysSince: verdict.daysSince,
           messageAr: checkinMessageAr("revoked", 0),
+          messageEn: checkinMessageEn("revoked", 0),
         };
       }
       if (!attempt.reachedServer) {
@@ -642,6 +685,9 @@ export function registerLicenceCheckinOverIpc(deps: {
           messageAr:
             `${checkinFailureMessageAr(attempt.failure ?? "UNREACHABLE")} ` +
             checkinMessageAr(verdict.verdict, verdict.daysSince),
+          messageEn:
+            `${checkinFailureMessageEn(attempt.failure ?? "UNREACHABLE")} ` +
+            checkinMessageEn(verdict.verdict, verdict.daysSince),
         };
       }
       return {
@@ -649,6 +695,7 @@ export function registerLicenceCheckinOverIpc(deps: {
         revoked: false,
         daysSince: verdict.daysSince,
         messageAr: "تم التحقق من الترخيص بنجاح.",
+        messageEn: "The licence was verified successfully.",
       };
     },
   );

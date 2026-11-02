@@ -54,19 +54,24 @@ export const ETA_REQUEUE_MODE: Readonly<Record<EtaSubmissionStatusCode, EtaReque
 export interface EtaSubmissionStatusDefinition {
   readonly code: EtaSubmissionStatus;
   readonly labelAr: string;
+  readonly labelEn: string;
 }
 
 export const ETA_SUBMISSION_STATUSES: readonly EtaSubmissionStatusDefinition[] = [
-  { code: "ready", labelAr: "جاهز" },
-  { code: "pending_signature", labelAr: "بانتظار التوقيع" },
-  { code: "submitted", labelAr: "مرسل" },
-  { code: "accepted", labelAr: "مقبول" },
-  { code: "error", labelAr: "أخطاء" },
-  { code: "excluded", labelAr: "مستبعد" },
+  { code: "ready", labelAr: "جاهز", labelEn: "ready" },
+  { code: "pending_signature", labelAr: "بانتظار التوقيع", labelEn: "awaiting signature" },
+  { code: "submitted", labelAr: "مرسل", labelEn: "submitted" },
+  { code: "accepted", labelAr: "مقبول", labelEn: "accepted" },
+  { code: "error", labelAr: "أخطاء", labelEn: "rejected with errors" },
+  { code: "excluded", labelAr: "مستبعد", labelEn: "excluded" },
 ] as const;
 
 export function getEtaStatusLabel(status: EtaSubmissionStatus): string {
   return ETA_SUBMISSION_STATUSES.find((s) => s.code === status)?.labelAr ?? status;
+}
+
+export function getEtaStatusLabelEn(status: EtaSubmissionStatus): string {
+  return ETA_SUBMISSION_STATUSES.find((s) => s.code === status)?.labelEn ?? status;
 }
 
 const ETA_DOCUMENT_TYPE_LABELS: Record<EtaDocumentType, string> = {

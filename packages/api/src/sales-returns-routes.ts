@@ -47,6 +47,7 @@ function lineNotOnInvoice(unmatched: readonly { readonly itemId: string; readonl
   return {
     error: "RETURN_LINE_NOT_ON_INVOICE" as const,
     message: "أحد بنود المرتجع غير موجود في الفاتورة المصدر.",
+    messageEn: "One of the return lines is not on the source invoice.",
     unmatched: unmatched.map((u) => ({ itemId: u.itemId, sourceLineId: u.sourceLineId ?? null })),
   };
 }
@@ -184,6 +185,7 @@ export function createSalesReturnsRoutes(
   const SOURCE_INVOICE_NOT_FOUND = {
     error: "SOURCE_INVOICE_NOT_FOUND",
     message: "الفاتورة المصدر غير موجودة أو غير مؤكدة.",
+    messageEn: "The source invoice does not exist or is not confirmed.",
   } as const;
 
   /**
@@ -223,7 +225,7 @@ export function createSalesReturnsRoutes(
     c: Context,
     line: { sourceInvoiceId: string; customerId: string; itemId: string; unitCost?: string },
     requestInvoices: Map<string, SourceInvoice>,
-  ): Promise<{ error: string; message: string } | null> {
+  ): Promise<{ error: string; message: string; messageEn: string } | null> {
     if (!invoices) return null;
     const invoice = await lookupInvoice(c, requestInvoices, line.sourceInvoiceId);
     if (!invoice) return SOURCE_INVOICE_NOT_FOUND;
@@ -231,12 +233,14 @@ export function createSalesReturnsRoutes(
       return {
         error: "RETURN_CUSTOMER_MISMATCH",
         message: "عميل المرتجع لا يطابق عميل الفاتورة المصدر.",
+        messageEn: "The return's customer does not match the source invoice's customer.",
       };
     }
     if (!invoice.lines.some((il) => il.itemId === line.itemId)) {
       return {
         error: "RETURN_ITEM_NOT_ON_INVOICE",
         message: "الصنف غير موجود في الفاتورة المصدر.",
+        messageEn: "The item is not on the source invoice.",
       };
     }
     return null;
@@ -432,7 +436,7 @@ export function createSalesReturnsRoutes(
 
   app.get("/source-lines/:invoiceId", gate("sales.return.create"), async (c) => {
     if (!invoices) {
-      return c.json({ error: "INVOICE_LOOKUP_UNAVAILABLE", message: "قراءة بنود الفاتورة المصدر تتطلب وحدة فواتير المبيعات." }, 503);
+      return c.json({ error: "INVOICE_LOOKUP_UNAVAILABLE", message: "قراءة بنود الفاتورة المصدر تتطلب وحدة فواتير المبيعات.", messageEn: "Reading the source invoice lines requires the sales invoices module." }, 503);
     }
     const invoice = await lookupInvoice(c, new Map(), c.req.param("invoiceId"));
     if (!invoice) return c.json(SOURCE_INVOICE_NOT_FOUND, 404);
@@ -494,7 +498,7 @@ export function createSalesReturnsRoutes(
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
     if (!invoices) {
-      return c.json({ error: "INVOICE_LOOKUP_UNAVAILABLE", message: "إنشاء مرتجع من فاتورة يتطلب وحدة فواتير المبيعات." }, 503);
+      return c.json({ error: "INVOICE_LOOKUP_UNAVAILABLE", message: "إنشاء مرتجع من فاتورة يتطلب وحدة فواتير المبيعات.", messageEn: "Creating a return from an invoice requires the sales invoices module." }, 503);
     }
     const invoice = await lookupInvoice(c, new Map(), parsed.data.sourceInvoiceId);
     if (!invoice) return c.json(SOURCE_INVOICE_NOT_FOUND, 404);
@@ -508,7 +512,7 @@ export function createSalesReturnsRoutes(
     );
     if (unmatched.length > 0) return c.json(lineNotOnInvoice(unmatched), 422);
     if (lines.length === 0) {
-      return c.json({ error: "NO_RETURNABLE_LINES", message: "لا توجد بنود قابلة للإرجاع بالكميات المطلوبة." }, 422);
+      return c.json({ error: "NO_RETURNABLE_LINES", message: "لا توجد بنود قابلة للإرجاع بالكميات المطلوبة.", messageEn: "There are no returnable lines for the requested quantities." }, 422);
     }
     const branchRefusal = refuseOutOfScopeBranches(c, lines.map((line) => line.branchId));
     if (branchRefusal) return branchRefusal;
@@ -598,13 +602,13 @@ export function createSalesReturnsRoutes(
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
     if (!refunds) {
-      return c.json({ error: "REFUND_UNAVAILABLE", message: "الاسترداد يتطلب سند صرف؛ وحدة الخزينة غير مفعّلة." }, 503);
+      return c.json({ error: "REFUND_UNAVAILABLE", message: "الاسترداد يتطلب سند صرف؛ وحدة الخزينة غير مفعّلة.", messageEn: "A refund requires a payment voucher; the treasury module is not enabled." }, 503);
     }
     const doc = await visibleReturn(c);
     if (!doc) return c.json(DOCUMENT_NOT_FOUND, 404);
     const id = doc.id;
     const customerId = doc.lines[0]?.customerId;
-    if (!customerId) return c.json({ error: "NO_CUSTOMER", message: "المرتجع بلا عميل." }, 422);
+    if (!customerId) return c.json({ error: "NO_CUSTOMER", message: "المرتجع بلا عميل.", messageEn: "The return has no customer." }, 422);
 
     const amount = Money.fromMajor(parsed.data.amount);
     try {
@@ -633,7 +637,7 @@ export function createSalesReturnsRoutes(
       });
     } catch (err) {
       if (err instanceof SalesReturnNotRefundableError) {
-        return c.json({ error: err.code, message: err.message }, 422);
+        return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 422);
       }
       if (err instanceof SalesReturnRefundTreasuryBranchError) {
         return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 422);

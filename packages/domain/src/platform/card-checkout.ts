@@ -2,6 +2,7 @@ import type { Money } from "../money/money.js";
 import type { PaymentProviderId } from "./payment-provider.js";
 import type { Plan } from "./plan.js";
 import { RENEWABLE_SUBSCRIPTION_STATES, type Subscription } from "./subscription.js";
+import { subscriptionStatusLabel } from "./errors.js";
 import type { Payment } from "./payment.js";
 import { moneyToPaymobCents } from "./paymob.js";
 
@@ -162,8 +163,8 @@ export class CardPaymentNotApplicableError extends Error {
 export function cardCheckoutAmount(plan: Plan, subscription: Subscription): Money {
   if (!RENEWABLE_SUBSCRIPTION_STATES.includes(subscription.status)) {
     throw new CardCheckoutUnavailableError(
-      [`حالة الاشتراك "${subscription.status}" لا تسمح بالتجديد`],
-      [`subscription status "${subscription.status}" cannot be renewed`],
+      [`حالة الاشتراك "${subscriptionStatusLabel(subscription.status).ar}" لا تسمح بالتجديد`],
+      [`subscription status "${subscriptionStatusLabel(subscription.status).en}" cannot be renewed`],
     );
   }
   const amount = subscription.billingCycle === "yearly" ? plan.priceYearly : plan.priceMonthly;

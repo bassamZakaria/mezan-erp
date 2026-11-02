@@ -2,7 +2,8 @@ import { useEffect, useState, type FormEvent } from "react";
 import { Button, Card, Chip, DocumentList, EmptyState, SidePanel, type DocumentListColumn } from "@mezan/ui";
 import type { LeaveBalanceDTO, LeaveTypeDTO } from "@mezan/contracts";
 import { SelectField, TextField } from "../settings/form-controls";
-import { ApiError, useEmployees, useLeaveBalances, useUpsertLeaveBalance } from "../data/hooks";
+import { errorMessage } from "../lib/error-message";
+import { useEmployees, useLeaveBalances, useUpsertLeaveBalance } from "../data/hooks";
 import { formatDays, LEAVE_TYPE_KEY, leaveTypeOptions } from "./hr-leave-labels";
 import { useAppTranslation } from "../i18n";
 import { employeeDisplayName } from "./hr-employee-name";
@@ -86,7 +87,7 @@ export function LeaveBalancesScreen() {
       });
       setFormOpen(false);
     } catch (err) {
-      setFormError(err instanceof ApiError ? err.message : t("leaveBalances.theLeaveBalanceCouldNot"));
+      setFormError(errorMessage(err, t("leaveBalances.theLeaveBalanceCouldNot")));
     }
   }
 

@@ -165,31 +165,31 @@ export function createSalesReturnDocumentType(
 
     validate(doc) {
       if (doc.lines.length === 0) {
-        throw new InvalidDocumentError(DOC_TYPE, doc.id, "المرتجع يتطلب بنداً واحداً على الأقل.");
+        throw new InvalidDocumentError(DOC_TYPE, doc.id, "المرتجع يتطلب بنداً واحداً على الأقل.", "A return needs at least one line.");
       }
       const invoiceId = doc.lines[0]?.sourceInvoiceId;
       for (const line of doc.lines) {
         if (line.sourceInvoiceId !== invoiceId) {
-          throw new InvalidDocumentError(DOC_TYPE, doc.id, "كل بنود المرتجع يجب أن تنتمي لنفس الفاتورة.");
+          throw new InvalidDocumentError(DOC_TYPE, doc.id, "كل بنود المرتجع يجب أن تنتمي لنفس الفاتورة.", "All return lines must belong to the same invoice.");
         }
         if ((line.branchId ?? null) !== (doc.lines[0]?.branchId ?? null)) {
-          throw new InvalidDocumentError(DOC_TYPE, doc.id, "كل بنود المرتجع يجب أن تُستلم في مستودعات فرع واحد؛ سجّل مرتجعاً لكل فرع.");
+          throw new InvalidDocumentError(DOC_TYPE, doc.id, "كل بنود المرتجع يجب أن تُستلم في مستودعات فرع واحد؛ سجّل مرتجعاً لكل فرع.", "All return lines must be received into the warehouses of one branch; record a separate return for each branch.");
         }
         if ((line.fxRate ?? null) !== (doc.lines[0]?.fxRate ?? null)) {
-          throw new InvalidDocumentError(DOC_TYPE, doc.id, "كل بنود المرتجع يجب أن تحمل سعر صرف الفاتورة نفسه.");
+          throw new InvalidDocumentError(DOC_TYPE, doc.id, "كل بنود المرتجع يجب أن تحمل سعر صرف الفاتورة نفسه.", "All return lines must carry the invoice's exchange rate.");
         }
         if (line.qty.isNegative() || line.qty.isZero()) {
-          throw new InvalidDocumentError(DOC_TYPE, doc.id, `بند الصنف "${line.itemId}": كمية الإرجاع يجب أن تكون أكبر من صفر.`);
+          throw new InvalidDocumentError(DOC_TYPE, doc.id, `بند الصنف "${line.itemId}": كمية الإرجاع يجب أن تكون أكبر من صفر.`, `Item "${line.itemId}": the return quantity must be greater than zero.`);
         }
         if (line.qty.compare(line.availableQty) > 0) {
           throw new InvalidDocumentError(
             DOC_TYPE,
             doc.id,
-            `بند الصنف "${line.itemId}": كمية الإرجاع (${line.qty.toString()}) تتجاوز المتاح للإرجاع (${line.availableQty.toString()}).`,
+            `بند الصنف "${line.itemId}": كمية الإرجاع (${line.qty.toString()}) تتجاوز المتاح للإرجاع (${line.availableQty.toString()}).`, `Item "${line.itemId}": the return quantity (${line.qty.toString()}) exceeds the quantity available to return (${line.availableQty.toString()}).`,
           );
         }
         if (line.unitPrice.scaled < 0n || line.unitCost.scaled < 0n || line.taxAmount.scaled < 0n) {
-          throw new InvalidDocumentError(DOC_TYPE, doc.id, `بند الصنف "${line.itemId}": القيم المالية لا يمكن أن تكون سالبة.`);
+          throw new InvalidDocumentError(DOC_TYPE, doc.id, `بند الصنف "${line.itemId}": القيم المالية لا يمكن أن تكون سالبة.`, `Item "${line.itemId}": monetary values cannot be negative.`);
         }
       }
       assertReturnTotalsWithinAvailable(DOC_TYPE, doc.id, doc.lines);
@@ -283,6 +283,7 @@ export function createSalesReturnDocumentType(
       return buildEffects({
         blocked: doc.lines.length === 0,
         blockedReason: doc.lines.length === 0 ? "لا يوجد بنود في المرتجع." : undefined,
+        blockedReasonEn: doc.lines.length === 0 ? "The return has no lines." : undefined,
         effects: [
           {
             kind: "stock",

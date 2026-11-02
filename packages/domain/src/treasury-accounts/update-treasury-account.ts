@@ -43,10 +43,10 @@ export interface UpdateTreasuryAccountCommand {
 function assertFacilityLimit(accountId: string, limit: Money | null): void {
   if (limit === null) return;
   if (limit.scaled < 0n) {
-    throw new InvalidGuaranteeFacilityLimitError(accountId, "حد تسهيلات خطابات الضمان لا يمكن أن يكون سالباً.");
+    throw new InvalidGuaranteeFacilityLimitError(accountId, "حد تسهيلات خطابات الضمان لا يمكن أن يكون سالباً.", "The guarantee facility limit cannot be negative.");
   }
   if (limit.scaled > MAX_GUARANTEE_FACILITY_LIMIT_SCALED) {
-    throw new InvalidGuaranteeFacilityLimitError(accountId, "حد تسهيلات خطابات الضمان أكبر من أن يُسجَّل — راجع الرقم المُدخل.");
+    throw new InvalidGuaranteeFacilityLimitError(accountId, "حد تسهيلات خطابات الضمان أكبر من أن يُسجَّل — راجع الرقم المُدخل.", "The guarantee facility limit is too large to be recorded — check the number entered.");
   }
 }
 
@@ -57,7 +57,7 @@ function assertFacilityLimit(accountId: string, limit: Money | null): void {
  */
 function assertOpeningBalanceBound(accountId: string, openingBalance: Money): void {
   if (openingBalance.scaled > MAX_OPENING_BALANCE_SCALED || openingBalance.scaled < -MAX_OPENING_BALANCE_SCALED) {
-    throw new InvalidOpeningBalanceError(accountId, "الرصيد الافتتاحي أكبر من أن يُسجَّل — راجع الرقم المُدخل.");
+    throw new InvalidOpeningBalanceError(accountId, "الرصيد الافتتاحي أكبر من أن يُسجَّل — راجع الرقم المُدخل.", "The opening balance is too large to be recorded — check the number entered.");
   }
 }
 

@@ -20,6 +20,8 @@ import {
   REAPPROVAL_REQUIRED_REASON_AR,
   REAPPROVAL_REQUIRED_REASON_EN,
   WorkflowError,
+  wrongApproverMessages,
+  type RoleLabel,
   PRICE_FLOOR_ACTION_TYPE,
   PRICE_FLOOR_APPROVE_PERMISSION,
   GATEABLE_ACTION_TYPES,
@@ -89,6 +91,7 @@ export interface WorkflowRoutesDeps {
   readonly roleExists?: ApproverRoleResolver;
   /** The user directory's name for a submitter, joined into each request the caller is already served. */
   readonly submitterName?: (userId: string) => Promise<string | null>;
+  readonly roleLabel?: (code: string) => Promise<RoleLabel | null>;
 }
 
 function serializeConfig(config: WorkflowConfigRecord) {
@@ -136,16 +139,16 @@ async function serializeRequest(deps: WorkflowRoutesDeps, request: ApprovalReque
 
 function configErrorResponse(c: Context, err: unknown) {
   if (err instanceof UnknownStepRoleError) {
-    return c.json({ error: err.code, message: `الخطوة ${err.index + 1}: الدور "${err.role}" غير موجود.` }, 400);
+    return c.json({ error: err.code, message: `الخطوة ${err.index + 1}: الدور "${err.role}" غير موجود.`, messageEn: `Step ${err.index + 1}: the role "${err.role}" was not found.` }, 400);
   }
   if (err instanceof UnknownActionTypeError || err instanceof EmptyStepsError || err instanceof InvalidStepRoleError) {
-    return c.json({ error: err.code, message: err.message }, 400);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 400);
   }
   if (err instanceof DuplicateWorkflowConfigError) {
-    return c.json({ error: err.code, message: err.message }, 409);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
   }
   if (err instanceof WorkflowConfigNotFoundError) {
-    return c.json({ error: err.code, message: err.message }, 404);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 404);
   }
   throw err;
 }
@@ -384,7 +387,7 @@ export function createWorkflowRoutes(
       );
     }
     if (!isGateableActionType(parsed.data.actionType)) {
-      return c.json({ error: "UNKNOWN_ACTION_TYPE", message: `"${parsed.data.actionType}" is not a gateable action type.` }, 400);
+      return c.json({ error: "UNKNOWN_ACTION_TYPE", message: `"${parsed.data.actionType}" ليس من العمليات التي يمكن إخضاعها للموافقة.`, messageEn: `"${parsed.data.actionType}" is not an action that can require approval.` }, 400);
     }
     const actionType = parsed.data.actionType;
     const ctx = await resolveAuthContext(c);
@@ -445,7 +448,7 @@ export function createWorkflowRoutes(
             {
               error: "HELD_DOCUMENT_NOT_RESOLVED",
               ...(refusal
-                ? { message: refusal.message, ...(refusal.messageEn ? { messageEn: refusal.messageEn } : {}), reason: refusal.code }
+                ? { message: refusal.message, messageEn: refusal.messageEn, reason: refusal.code }
                 : { message: INTERNAL_ERROR_MESSAGE_AR, messageEn: INTERNAL_ERROR_MESSAGE_EN }),
               request: await serializeRequest(deps, record),
             },
@@ -455,9 +458,13 @@ export function createWorkflowRoutes(
       }
       return c.json(await serializeRequest(deps, record));
     } catch (err) {
-      if (err instanceof ApprovalRequestNotFoundError) return c.json({ error: err.code, message: err.message }, 404);
+      if (err instanceof ApprovalRequestNotFoundError) return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 404);
       if (err instanceof ApprovalRequestReapprovalRequiredError) return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
-      if (err instanceof WorkflowError) return c.json({ error: err.code, message: err.message }, 409);
+      if (err instanceof WorkflowError && err.code === "WRONG_APPROVER" && err.requiredRole && deps.roleLabel) {
+        const refusal = wrongApproverMessages(await deps.roleLabel(err.requiredRole));
+        return c.json({ error: err.code, message: refusal.message, messageEn: refusal.messageEn }, 409);
+      }
+      if (err instanceof WorkflowError) return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
       throw err;
     }
   });

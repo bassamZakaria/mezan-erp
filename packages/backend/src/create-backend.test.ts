@@ -4994,11 +4994,9 @@ describe("createBackend — party balances no invoice carries, and one figure pe
       expect(await balanceAt(app, "5910", "2026-12-31")).toBe(7000);
     });
 
-    it("says at preview which lines the posting would refuse: no period, party control, project account, unknown code", async () => {
+    it("says at preview which lines the posting would refuse: party control, project account, unknown code", async () => {
       const app = await newBackend();
       const rows = [
-        { rowNumber: "2", entryRef: "OLD", date: "2019-03-31", accountCode: "5910", debit: "10", credit: "", description: "" },
-        { rowNumber: "3", entryRef: "OLD", date: "2019-03-31", accountCode: "3100", debit: "", credit: "10", description: "" },
         { rowNumber: "4", entryRef: "BAD", date: "2026-07-31", accountCode: "1105", debit: "10", credit: "", description: "" },
         { rowNumber: "5", entryRef: "BAD", date: "2026-07-31", accountCode: "1350", debit: "10", credit: "", description: "" },
         { rowNumber: "6", entryRef: "BAD", date: "2026-07-31", accountCode: "9999", debit: "", credit: "20", description: "" },
@@ -5006,10 +5004,38 @@ describe("createBackend — party balances no invoice carries, and one figure pe
       const preview = await post(app, "/data-migration/journal-entries/preview", { rows }, await admin(app));
       const body = (await preview.json()) as { entryCount: number; errors: { rowNumber: number; reasonsEn: string[] }[] };
       expect(body.entryCount).toBe(0);
-      expect(body.errors.map((e) => e.rowNumber)).toEqual([2, 4, 5, 6]);
-      expect(body.errors[0]!.reasonsEn[0]).toContain("No fiscal period covers 2019-03-31");
-      expect(body.errors[2]!.reasonsEn[0]).toContain("project account");
-      expect(body.errors[3]!.reasonsEn[0]).toContain('"9999"');
+      expect(body.errors.map((e) => e.rowNumber)).toEqual([4, 5, 6]);
+      expect(body.errors[1]!.reasonsEn[0]).toContain("project account");
+      expect(body.errors[2]!.reasonsEn[0]).toContain('"9999"');
+    });
+
+    it("creates the fiscal years a past date needs, with no gap to the books' first year, inside the same commit", async () => {
+      const app = await newBackend();
+      const rows = [
+        { rowNumber: "2", entryRef: "OLD", date: "2024-03-31", accountCode: "5910", debit: "10", credit: "", description: "" },
+        { rowNumber: "3", entryRef: "OLD", date: "2024-03-31", accountCode: "3100", debit: "", credit: "10", description: "" },
+      ];
+      const preview = (await (await post(app, "/data-migration/journal-entries/preview", { rows }, await admin(app))).json()) as { errors: unknown[]; fiscalYearsToCreate: number[] };
+      expect(preview.errors).toEqual([]);
+      expect(preview.fiscalYearsToCreate).toEqual([2024]);
+      expect((await post(app, "/data-migration/journal-entries/commit", { rows }, await admin(app))).status).toBe(201);
+      const years = new Set(((await get(app, "/fiscal-periods")) as { year: number }[]).map((p) => p.year));
+      expect([...years].sort()).toEqual(expect.arrayContaining([2024, 2025, 2026]));
+      expect(await balanceAt(app, "5910", "2024-03-31")).toBe(10);
+    });
+
+    it("still refuses a date whose period exists but is closed — it never reopens anything", async () => {
+      const app = await newBackend();
+      const periods = (await get(app, "/fiscal-periods")) as { id: string; year: number; periodNumber: number }[];
+      const january = periods.find((p) => p.year === 2026 && p.periodNumber === 1)!;
+      expect((await post(app, `/fiscal-periods/${january.id}/close`, { overrideReason: "إقفال يناير قبل الاستيراد" }, await admin(app))).status).toBeLessThan(300);
+      const rows = [
+        { rowNumber: "2", entryRef: "JAN", date: "2026-01-31", accountCode: "5910", debit: "10", credit: "", description: "" },
+        { rowNumber: "3", entryRef: "JAN", date: "2026-01-31", accountCode: "3100", debit: "", credit: "10", description: "" },
+      ];
+      const commit = await post(app, "/data-migration/journal-entries/commit", { rows }, await admin(app));
+      expect(commit.status).toBe(422);
+      expect(JSON.stringify(await commit.json())).toContain("not open for posting");
     });
   });
 

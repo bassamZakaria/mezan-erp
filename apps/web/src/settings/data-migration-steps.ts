@@ -252,6 +252,27 @@ export const STEPS: StepDef[] = [
       ],
     },
   },
+  // Historical entries, each on its own date — so past months report as they
+  // happened instead of arriving as one opening balance.
+  {
+    kind: "master",
+    id: DataMigrationMasterStep.JournalEntries,
+    statusKey: "journalEntries",
+    title: "dm.step.journal-entries.title",
+    help: "dm.step.journal-entries.help",
+    spec: {
+      id: "journal-entries",
+      sheetName: "dm.sheet.journal-entries",
+      columns: [
+        { key: "entryRef", header: "dm.col.entryRef", example: "JE-2025-07" },
+        { key: "date", header: "dm.col.date", example: "2025-07-31" },
+        { key: "accountCode", header: "dm.col.accountCode", example: "5910" },
+        { key: "debit", header: "dm.col.debit", example: "7000.00" },
+        { key: "credit", header: "dm.col.credit", example: "" },
+        { key: "description", header: "dm.col.description", example: "dm.eg.journalLine" },
+      ],
+    },
+  },
   {
     kind: "master",
     id: DataMigrationMasterStep.OpenCustomerInvoices,

@@ -5675,6 +5675,30 @@ async function composeBackend(options: CreateBackendOptions, db: SqlDb, sqlite: 
       cashAndBankParentAccountId: resolveCashAndBankParentAccountId,
       fiscalPeriods,
       partyControlAccounts: resolvePartyControlAccounts,
+      postImportedJournalEntries: async (entries) => {
+        const deps = { ...salesInvoiceGl, partyControlAccounts: await resolvePartyControlAccounts() };
+        // One transaction for the whole file: every month lands, or none does.
+        await ledger.transaction(async () => {
+          for (const entry of entries) {
+            await postJournalEntry(
+              {
+                id: entry.id,
+                date: entry.date,
+                memo: entry.memo,
+                source: "manual",
+                sourceDocType: "IMPORTED_JOURNAL",
+                lines: entry.lines.map((l) => ({ accountId: l.accountId, debit: l.debit, credit: l.credit, memo: l.memo })),
+              },
+              deps,
+              { mintedBySystem: true },
+            );
+          }
+        });
+      },
+      journalEntryExists: async (id) => (await ledger.findById(id)) !== null,
+      projectRequiredAccountIds: async () => projectRequiredAccountIds,
+      countImportedJournalEntries: async () =>
+        ledger.count ? ledger.count({ sourceDocTypes: ["IMPORTED_JOURNAL"] }) : (await ledger.list({ sourceDocTypes: ["IMPORTED_JOURNAL"] })).length,
       postOpeningEntry: async (entry) => {
         try {
           await postJournalEntry(

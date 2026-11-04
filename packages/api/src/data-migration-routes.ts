@@ -46,6 +46,7 @@ import {
   previewChartOfAccountsImport,
   orderChartOfAccountsRows,
   previewOpeningTrialBalanceImport,
+  previewJournalEntriesImport,
   dayBefore,
   previewHistoricalSalesImport,
   importHistoricalSalesDocuments,
@@ -268,6 +269,23 @@ export interface DataMigrationRoutesDeps {
    * (D212) — and the preview must say so before the operator commits (D225).
    */
   readonly partyControlAccounts?: () => Promise<ReadonlyMap<string, "customer" | "supplier">>;
+  /**
+   * القيود اليومية — historical journal entries, each on its own date. ALL the
+   * entries of one file post inside ONE transaction: a migration that lands
+   * half its months is worse than one that lands none. Requires `accounts`
+   * and `fiscalPeriods` too.
+   */
+  readonly postImportedJournalEntries?: (entries: readonly {
+    readonly id: string;
+    readonly date: string;
+    readonly memo: string;
+    readonly lines: readonly { readonly accountId: string; readonly debit: Money; readonly credit: Money; readonly memo: string | null }[];
+  }[]) => Promise<void>;
+  /** Whether an entry id is already on the ledger — a re-uploaded file must not post twice. */
+  readonly journalEntryExists?: (id: string) => Promise<boolean>;
+  /** Accounts every line of which must name a project; an imported line names none. */
+  readonly projectRequiredAccountIds?: () => Promise<ReadonlySet<string>>;
+  readonly countImportedJournalEntries?: () => Promise<number>;
   readonly postOpeningEntry?: (entry: {
     readonly id: string;
     readonly date: string;
@@ -992,6 +1010,7 @@ export function createDataMigrationRoutes(
 
       const byCode = new Map((await tbAccounts!.list()).map((a) => [a.code, a]));
       const partyControls = (await deps.partyControlAccounts?.()) ?? new Map<string, "customer" | "supplier">();
+      const tbProjectRequired = (await deps.projectRequiredAccountIds?.()) ?? new Set<string>();
       const lines: { accountId: string; debit: Money; credit: Money }[] = [];
       for (const row of preview.valid) {
         const account = byCode.get(row.accountCode);
@@ -1011,6 +1030,17 @@ export function createDataMigrationRoutes(
         if (partyKind) {
           const refusal = partyControlRowRefusal(row.accountCode, partyKind);
           errors.push({ rowNumber: row.rowNumber, reasons: [refusal.ar], reasonsEn: [refusal.en] });
+          continue;
+        }
+        // The commit's posting refuses a line on a project account that names no
+        // project, and a trial balance row names none — so the preview must say so
+        // rather than show a clean file the commit then refuses.
+        if (tbProjectRequired.has(account.id)) {
+          errors.push({
+            rowNumber: row.rowNumber,
+            reasons: [`الحساب "${row.accountCode}" حساب مشروعات — كل سطر عليه يجب أن يحمل مشروعاً، وميزان المراجعة الافتتاحي لا يحمل مشروعاً. اختر حساباً آخر.`],
+            reasonsEn: [`Account "${row.accountCode}" is a project account: every line on it must name a project, and an opening trial balance names none. Choose another account.`],
+          });
           continue;
         }
         lines.push({ accountId: account.id, debit: row.debit, credit: row.credit });
@@ -1070,6 +1100,96 @@ export function createDataMigrationRoutes(
     }
     app.post("/opening-trial-balance/preview", gate("admin.settings.view"), (c) => openingTrialBalanceStep(c, false));
     app.post("/opening-trial-balance/commit", gate("accounting.journal.create"), (c) => openingTrialBalanceStep(c, true));
+  }
+
+  // --- القيود اليومية (Historical journal entries) ---
+  const jeAccounts = deps.accounts;
+  const jePeriods = deps.fiscalPeriods;
+  const jePost = deps.postImportedJournalEntries;
+  if (jeAccounts && jePeriods && jePost) {
+    async function journalEntriesStep(c: Context, commit: boolean) {
+      const body = (await c.req.json()) as { rows?: unknown };
+      const rows = rowsOf(body);
+      const preview = previewJournalEntriesImport(
+        rows.map((row, i) => ({
+          rowNumber: Number(str(row, "rowNumber")) || i + 2,
+          entryRef: str(row, "entryRef"),
+          date: str(row, "date"),
+          accountCode: str(row, "accountCode"),
+          debit: str(row, "debit"),
+          credit: str(row, "credit"),
+          description: str(row, "description"),
+        })),
+      );
+      const errors: DataMigrationRowError[] = preview.errors.map((e) => ({ rowNumber: e.rowNumber, reasons: [...e.reasons], ...(e.reasonsEn ? { reasonsEn: [...e.reasonsEn] } : {}) }));
+      const byCode = new Map((await jeAccounts!.list()).map((a) => [a.code, a]));
+      const partyControls = (await deps.partyControlAccounts?.()) ?? new Map<string, "customer" | "supplier">();
+      const projectRequired = (await deps.projectRequiredAccountIds?.()) ?? new Set<string>();
+      const periodStatus = new Map<string, string | null>();
+
+      const postable: { id: string; date: string; memo: string; lines: { accountId: string; debit: Money; credit: Money; memo: string | null }[] }[] = [];
+      for (const entry of preview.entries) {
+        const lineErrors: DataMigrationRowError[] = [];
+        const lines: { accountId: string; debit: Money; credit: Money; memo: string | null }[] = [];
+        for (const line of entry.lines) {
+          const account = byCode.get(line.accountCode);
+          const refuse = (ar: string, en: string) => lineErrors.push({ rowNumber: line.rowNumber, reasons: [ar], reasonsEn: [en] });
+          if (!account) refuse(`الحساب بالكود "${line.accountCode}" غير موجود`, `No account with the code "${line.accountCode}" exists`);
+          else if (account.isHeader) refuse(`الحساب "${line.accountCode}" حساب رئيسي ولا يقبل الترحيل`, `Account "${line.accountCode}" is a header account and cannot be posted to`);
+          else if (account.status !== "active") refuse(`الحساب "${line.accountCode}" غير نشط`, `Account "${line.accountCode}" is not active`);
+          else if (partyControls.has(account.id)) {
+            const refusal = partyControlRowRefusal(line.accountCode, partyControls.get(account.id)!);
+            refuse(refusal.ar, refusal.en);
+          } else if (projectRequired.has(account.id)) {
+            refuse(
+              `الحساب "${line.accountCode}" حساب مشروعات — كل سطر عليه يجب أن يحمل مشروعاً، وملف القيود لا يحمل مشروعاً. اختر حساباً آخر.`,
+              `Account "${line.accountCode}" is a project account: every line on it must name a project, and the journal file names none. Choose another account.`,
+            );
+          } else lines.push({ accountId: account.id, debit: line.debit, credit: line.credit, memo: line.description });
+        }
+        const firstRow = entry.lines[0]!.rowNumber;
+        if (!periodStatus.has(entry.date)) periodStatus.set(entry.date, (await jePeriods!.findByDate(entry.date))?.status ?? null);
+        const status = periodStatus.get(entry.date);
+        if (status === null) {
+          lineErrors.push({ rowNumber: firstRow, reasons: [`لا توجد فترة مالية تشمل ${entry.date} — أنشئ السنة المالية أولاً من «الفترات المالية».`], reasonsEn: [`No fiscal period covers ${entry.date}; generate that fiscal year first under Fiscal periods.`] });
+        } else if (status !== "open") {
+          lineErrors.push({ rowNumber: firstRow, reasons: [`الفترة المالية التي تشمل ${entry.date} ليست مفتوحة للترحيل.`], reasonsEn: [`The fiscal period covering ${entry.date} is not open for posting.`] });
+        }
+        const id = `IMPORT-JE:${entry.entryRef}`;
+        if (deps.journalEntryExists && (await deps.journalEntryExists(id))) {
+          lineErrors.push({ rowNumber: firstRow, reasons: [`القيد "${entry.entryRef}" مستورد من قبل — لا يُستورد مرتين.`], reasonsEn: [`Entry "${entry.entryRef}" was already imported; it is never imported twice.`] });
+        }
+        if (lineErrors.length > 0) {
+          errors.push(...lineErrors);
+          continue;
+        }
+        postable.push({ id, date: entry.date, memo: entry.memo, lines });
+      }
+      errors.sort((a, b) => a.rowNumber - b.rowNumber);
+
+      const totalDebit = Money.sum(postable.flatMap((e) => e.lines.map((l) => l.debit)));
+      const summary = {
+        validCount: postable.length,
+        total: new Set(rows.map((row) => str(row, "entryRef").trim()).filter((ref) => ref !== "")).size,
+        entryCount: postable.length,
+        lineCount: postable.reduce((n, e) => n + e.lines.length, 0),
+        totalDebit: totalDebit.toString(),
+        totalCredit: totalDebit.toString(),
+        fromDate: postable.length > 0 ? postable.map((e) => e.date).sort()[0]! : null,
+        toDate: postable.length > 0 ? postable.map((e) => e.date).sort().at(-1)! : null,
+        errors,
+      };
+      if (!commit) return c.json(summary);
+      if (errors.length > 0 || postable.length === 0) return c.json(summary, 422);
+      try {
+        await jePost!(postable);
+      } catch (err) {
+        return c.json({ ...summary, errors: [{ rowNumber: 0, ...errorReasons(err) }] }, 422);
+      }
+      return c.json({ ...summary, createdIds: postable.map((e) => e.id) }, 201);
+    }
+    app.post("/journal-entries/preview", gate("admin.settings.view"), (c) => journalEntriesStep(c, false));
+    app.post("/journal-entries/commit", gate("accounting.journal.create"), (c) => journalEntriesStep(c, true));
   }
 
   // --- 12. فواتير العملاء المفتوحة (Open customer invoices) — P-5 ---
@@ -1210,6 +1330,7 @@ export function createDataMigrationRoutes(
       assetCategories: assetCategories.length,
       assets: assets.length,
       accounts: chartAccounts,
+      journalEntries: deps.countImportedJournalEntries ? await deps.countImportedJournalEntries() : 0,
       ...historical,
     });
   });

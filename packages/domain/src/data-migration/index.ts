@@ -20,3 +20,10 @@ export {
   type OpeningTrialBalanceRowInput,
   type OpeningTrialBalancePreview,
 } from "./import-opening-trial-balance.js";
+export {
+  previewJournalEntriesImport,
+  type JournalEntryImportRowInput,
+  type JournalEntryImportLine,
+  type JournalEntryImportEntry,
+  type JournalEntryImportPreview,
+} from "./import-journal-entries.js";

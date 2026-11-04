@@ -163,15 +163,24 @@ export function FiscalPeriodsScreen() {
     }
   }
 
-  async function generateNextYear() {
+  async function generateYear(year: number) {
     setActionError(null);
-    const nextYear = years.length > 0 ? Math.max(...years) + 1 : new Date().getFullYear();
     try {
-      await generateFiscalYear.mutateAsync({ year: nextYear });
-      setYear(nextYear);
+      await generateFiscalYear.mutateAsync({ year });
+      setYear(year);
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : t("fiscalPeriods.generateFailed", { year: String(nextYear) }));
+      setActionError(err instanceof Error ? err.message : t("fiscalPeriods.generateFailed", { year: String(year) }));
     }
+  }
+
+  function generateNextYear() {
+    return generateYear(years.length > 0 ? Math.max(...years) + 1 : new Date().getFullYear());
+  }
+
+  // A business bringing its history in (القيود اليومية) needs the years BEFORE
+  // its first one; without this the only way to get them was the API.
+  function generatePreviousYear() {
+    return generateYear(years.length > 0 ? Math.min(...years) - 1 : new Date().getFullYear() - 1);
   }
 
   const columns: DocumentListColumn<FiscalPeriodDTO>[] = [
@@ -217,6 +226,7 @@ export function FiscalPeriodsScreen() {
             options={(years.length > 0 ? years : [selectedYear]).map((y) => ({ value: String(y), label: String(y) }))}
           />
           <Button onClick={() => nav.navigate(CLOSE_WORKSPACE_SCREEN)}>{t("fiscalPeriods.openCloseWorkspace")}</Button>
+          <Button onClick={generatePreviousYear}>{t("fiscalPeriods.createPreviousYear")}</Button>
           <Button variant="primary" onClick={generateNextYear}>
             {t("fiscalPeriods.createNextYear")}
           </Button>

@@ -60,6 +60,7 @@ import {
   InvalidSalesInvoicePaymentError,
   InvalidPurchaseDocumentError,
   assertPeriodOpen,
+  generateFiscalYear,
   assertVatNotFiled,
   NoFiscalPeriodForDateError,
   postJournalEntry,
@@ -5675,10 +5676,23 @@ async function composeBackend(options: CreateBackendOptions, db: SqlDb, sqlite: 
       cashAndBankParentAccountId: resolveCashAndBankParentAccountId,
       fiscalPeriods,
       partyControlAccounts: resolvePartyControlAccounts,
-      postImportedJournalEntries: async (entries) => {
+      createsMissingFiscalYears: true,
+      postImportedJournalEntries: async (entries, options) => {
         const deps = { ...salesInvoiceGl, partyControlAccounts: await resolvePartyControlAccounts() };
-        // One transaction for the whole file: every month lands, or none does.
+        // One transaction for the whole file: every month lands, or none does —
+        // and so do the fiscal years created for them.
         await ledger.transaction(async () => {
+          const requested = options?.createFiscalYears ?? [];
+          if (requested.length > 0) {
+            // Fill every year from the earliest requested up to the books' first
+            // existing year, so the calendar never has a hole in it.
+            const existing = new Set((await fiscalPeriods.list()).map((p) => p.year));
+            const firstExisting = existing.size > 0 ? Math.min(...existing) : Infinity;
+            const last = Math.max(...requested, Number.isFinite(firstExisting) ? firstExisting - 1 : -Infinity);
+            for (let year = Math.min(...requested); year <= last; year += 1) {
+              if (!existing.has(year)) await generateFiscalYear(year, fiscalPeriods);
+            }
+          }
           for (const entry of entries) {
             await postJournalEntry(
               {

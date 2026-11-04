@@ -280,7 +280,15 @@ export interface DataMigrationRoutesDeps {
     readonly date: string;
     readonly memo: string;
     readonly lines: readonly { readonly accountId: string; readonly debit: Money; readonly credit: Money; readonly memo: string | null }[];
-  }[]) => Promise<void>;
+  }[], options?: { readonly createFiscalYears?: readonly number[] }) => Promise<void>;
+  /**
+   * When set, a date no fiscal period covers is not an error: the commit
+   * creates the missing year(s) — open, in the SAME transaction as the
+   * postings — because importing past months is exactly when a business has no
+   * periods for them yet. A period that exists but is closed or locked is
+   * still refused; this never reopens anything.
+   */
+  readonly createsMissingFiscalYears?: boolean;
   /** Whether an entry id is already on the ledger — a re-uploaded file must not post twice. */
   readonly journalEntryExists?: (id: string) => Promise<boolean>;
   /** Accounts every line of which must name a project; an imported line names none. */
@@ -1126,6 +1134,7 @@ export function createDataMigrationRoutes(
       const partyControls = (await deps.partyControlAccounts?.()) ?? new Map<string, "customer" | "supplier">();
       const projectRequired = (await deps.projectRequiredAccountIds?.()) ?? new Set<string>();
       const periodStatus = new Map<string, string | null>();
+      const yearsToCreate = new Set<number>();
 
       const postable: { id: string; date: string; memo: string; lines: { accountId: string; debit: Money; credit: Money; memo: string | null }[] }[] = [];
       for (const entry of preview.entries) {
@@ -1150,7 +1159,9 @@ export function createDataMigrationRoutes(
         const firstRow = entry.lines[0]!.rowNumber;
         if (!periodStatus.has(entry.date)) periodStatus.set(entry.date, (await jePeriods!.findByDate(entry.date))?.status ?? null);
         const status = periodStatus.get(entry.date);
-        if (status === null) {
+        if (status === null && deps.createsMissingFiscalYears) {
+          yearsToCreate.add(Number(entry.date.slice(0, 4)));
+        } else if (status === null) {
           lineErrors.push({ rowNumber: firstRow, reasons: [`لا توجد فترة مالية تشمل ${entry.date} — أنشئ السنة المالية أولاً من «الفترات المالية».`], reasonsEn: [`No fiscal period covers ${entry.date}; generate that fiscal year first under Fiscal periods.`] });
         } else if (status !== "open") {
           lineErrors.push({ rowNumber: firstRow, reasons: [`الفترة المالية التي تشمل ${entry.date} ليست مفتوحة للترحيل.`], reasonsEn: [`The fiscal period covering ${entry.date} is not open for posting.`] });
@@ -1177,12 +1188,14 @@ export function createDataMigrationRoutes(
         totalCredit: totalDebit.toString(),
         fromDate: postable.length > 0 ? postable.map((e) => e.date).sort()[0]! : null,
         toDate: postable.length > 0 ? postable.map((e) => e.date).sort().at(-1)! : null,
+        /** Fiscal years the commit will create because no period covers some entry's date. */
+        fiscalYearsToCreate: [...yearsToCreate].sort((a, b) => a - b),
         errors,
       };
       if (!commit) return c.json(summary);
       if (errors.length > 0 || postable.length === 0) return c.json(summary, 422);
       try {
-        await jePost!(postable);
+        await jePost!(postable, { createFiscalYears: [...yearsToCreate] });
       } catch (err) {
         return c.json({ ...summary, errors: [{ rowNumber: 0, ...errorReasons(err) }] }, 422);
       }

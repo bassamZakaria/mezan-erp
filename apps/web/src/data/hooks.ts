@@ -8017,6 +8017,8 @@ export interface DataMigrationStatusDTO {
   readonly assets: number;
   /** P-5 — how many accounts the chart already holds. */
   readonly accounts: number;
+  /** Historical journal entries already imported through the journal-entries step. */
+  readonly journalEntries: number;
   readonly salesInvoices: number;
   readonly salesReturns: number;
   readonly purchaseInvoices: number;

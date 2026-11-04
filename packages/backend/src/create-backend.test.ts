@@ -4939,6 +4939,80 @@ describe("createBackend — party balances no invoice carries, and one figure pe
     expect(body.errors[1]!.reasonsEn[0]).toContain("supplier opening balances");
   });
 
+  it("an opening trial balance preview refuses a project account the commit would refuse, in both languages", async () => {
+    const app = await newBackend();
+    const rows = [
+      { accountCode: "1350", debit: "55000", credit: "0" },
+      { accountCode: "3210", debit: "0", credit: "55000" },
+    ];
+    const preview = await post(app, "/data-migration/opening-trial-balance/preview", { rows }, await admin(app));
+    const body = (await preview.json()) as { errors: { rowNumber: number; reasons: string[]; reasonsEn: string[] }[] };
+    expect(body.errors.map((e) => e.rowNumber)).toEqual([1]);
+    expect(body.errors[0]!.reasons[0]).toContain("حساب مشروعات");
+    expect(body.errors[0]!.reasonsEn[0]).toContain("project account");
+    expect((await post(app, "/data-migration/opening-trial-balance/commit", { rows }, await admin(app))).status).toBe(422);
+  });
+
+  describe("data migration — historical journal entries", () => {
+    const july = [
+      { rowNumber: "2", entryRef: "FAC-07", date: "2026-07-31", accountCode: "3100", debit: "", credit: "7500.00", description: "تمويل يوليو" },
+      { rowNumber: "3", entryRef: "FAC-07", date: "2026-07-31", accountCode: "5910", debit: "7000.00", credit: "", description: "أجور" },
+      { rowNumber: "4", entryRef: "FAC-07", date: "2026-07-31", accountCode: "1510", debit: "500.00", credit: "", description: "عدد" },
+    ];
+    const august = [
+      { rowNumber: "5", entryRef: "FAC-08", date: "2026-08-31", accountCode: "3100", debit: "", credit: "1000", description: "تمويل أغسطس" },
+      { rowNumber: "6", entryRef: "FAC-08", date: "2026-08-31", accountCode: "5910", debit: "1000", credit: "", description: "أجور" },
+    ];
+    const balanceAt = async (app: App, account: string, date: string) =>
+      Number((await get(app, `/gl/accounts/${account}/ledger?asOf=${date}`)).balance.balance);
+
+    it("posts every entry on its own date, all in one go, and counts them on the status", async () => {
+      const app = await newBackend();
+      const preview = await post(app, "/data-migration/journal-entries/preview", { rows: [...july, ...august] }, await admin(app));
+      expect(await preview.json()).toMatchObject({ errors: [], entryCount: 2, lineCount: 5, totalDebit: "8500.000000", fromDate: "2026-07-31", toDate: "2026-08-31" });
+      const commit = await post(app, "/data-migration/journal-entries/commit", { rows: [...july, ...august] }, await admin(app));
+      expect(commit.status).toBe(201);
+      expect(((await commit.json()) as { createdIds: string[] }).createdIds).toEqual(["IMPORT-JE:FAC-07", "IMPORT-JE:FAC-08"]);
+      const entry = await get(app, "/gl/journal-entries/IMPORT-JE:FAC-07");
+      expect(entry).toMatchObject({ date: "2026-07-31", memo: "تمويل يوليو", status: "posted", sourceDocType: "IMPORTED_JOURNAL", reversibleFromJournal: true });
+      expect(await balanceAt(app, "5910", "2026-07-31")).toBe(7000);
+      expect(await balanceAt(app, "5910", "2026-08-31")).toBe(8000);
+      expect((await get(app, "/data-migration/status")).journalEntries).toBe(2);
+    });
+
+    it("refuses the whole file when one entry is bad, and never imports a reference twice", async () => {
+      const app = await newBackend();
+      const unbalanced = august.map((r, i) => (i === 1 ? { ...r, debit: "999" } : r));
+      const refused = await post(app, "/data-migration/journal-entries/commit", { rows: [...july, ...unbalanced] }, await admin(app));
+      expect(refused.status).toBe(422);
+      expect(await balanceAt(app, "5910", "2026-12-31")).toBe(0);
+
+      expect((await post(app, "/data-migration/journal-entries/commit", { rows: july }, await admin(app))).status).toBe(201);
+      const again = await post(app, "/data-migration/journal-entries/commit", { rows: july }, await admin(app));
+      expect(again.status).toBe(422);
+      expect(JSON.stringify(await again.json())).toContain("already imported");
+      expect(await balanceAt(app, "5910", "2026-12-31")).toBe(7000);
+    });
+
+    it("says at preview which lines the posting would refuse: no period, party control, project account, unknown code", async () => {
+      const app = await newBackend();
+      const rows = [
+        { rowNumber: "2", entryRef: "OLD", date: "2019-03-31", accountCode: "5910", debit: "10", credit: "", description: "" },
+        { rowNumber: "3", entryRef: "OLD", date: "2019-03-31", accountCode: "3100", debit: "", credit: "10", description: "" },
+        { rowNumber: "4", entryRef: "BAD", date: "2026-07-31", accountCode: "1105", debit: "10", credit: "", description: "" },
+        { rowNumber: "5", entryRef: "BAD", date: "2026-07-31", accountCode: "1350", debit: "10", credit: "", description: "" },
+        { rowNumber: "6", entryRef: "BAD", date: "2026-07-31", accountCode: "9999", debit: "", credit: "20", description: "" },
+      ];
+      const preview = await post(app, "/data-migration/journal-entries/preview", { rows }, await admin(app));
+      const body = (await preview.json()) as { entryCount: number; errors: { rowNumber: number; reasonsEn: string[] }[] };
+      expect(body.entryCount).toBe(0);
+      expect(body.errors.map((e) => e.rowNumber)).toEqual([2, 4, 5, 6]);
+      expect(body.errors[0]!.reasonsEn[0]).toContain("No fiscal period covers 2019-03-31");
+      expect(body.errors[2]!.reasonsEn[0]).toContain("project account");
+      expect(body.errors[3]!.reasonsEn[0]).toContain('"9999"');
+    });
+  });
+
   it("D204: an opening balance is on the party's aging row, the ladder ties to its control account, and owed is that row", async () => {
     const app = await newBackend();
     const customer = await authedPost(app, "/customers", {

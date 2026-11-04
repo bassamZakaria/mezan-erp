@@ -178,7 +178,7 @@ export class JournalReversalNotReversibleError extends Error {
   }
 }
 
-const JOURNAL_LIKE_SOURCE_DOC_TYPES: ReadonlySet<string> = new Set(["INITIAL_BALANCE"]);
+const JOURNAL_LIKE_SOURCE_DOC_TYPES: ReadonlySet<string> = new Set(["INITIAL_BALANCE", "IMPORTED_JOURNAL"]);
 
 export function assertReversibleFromJournal(entry: {
   readonly id: string;

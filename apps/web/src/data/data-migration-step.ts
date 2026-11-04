@@ -10,6 +10,7 @@ export enum DataMigrationMasterStep {
   Assets = "assets",
   ChartOfAccounts = "chart-of-accounts",
   OpeningTrialBalance = "opening-trial-balance",
+  JournalEntries = "journal-entries",
   OpenCustomerInvoices = "open-customer-invoices",
   OpenSupplierInvoices = "open-supplier-invoices",
 }

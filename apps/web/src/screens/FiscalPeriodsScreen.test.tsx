@@ -176,6 +176,16 @@ describe("FiscalPeriodsScreen", () => {
     fireEvent.click(combobox);
     expect(screen.getByRole("option", { name: String(nextYear) })).toHaveAttribute("aria-selected", "true");
   });
+  it("generates the year before the earliest one, so past months can be imported", async () => {
+    renderScreen();
+    await screen.findByText(`${MONTH_LABEL_AR[CURRENT_MONTH - 1]} ${CURRENT_YEAR}`);
+    const previousYear = CURRENT_YEAR - 1;
+    fireEvent.click(screen.getByRole("button", { name: "إنشاء السنة السابقة" }));
+    const combobox = await screen.findByRole("combobox", { name: "السنة المالية" });
+    expect(combobox).toHaveTextContent(String(previousYear));
+    expect(await screen.findByText(`يناير ${previousYear}`)).toBeInTheDocument();
+  });
+
   it("a close the pre-close checks refuse sends the user to the close workspace for that month", async () => {
     const currentId = `fp-${CURRENT_YEAR}-${pad2(CURRENT_MONTH)}`;
     renderScreen(periodsForYear(CURRENT_YEAR), [currentId]);

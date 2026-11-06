@@ -3,7 +3,7 @@
  * company on this machine and prove every record landed, before the same
  * files go anywhere near staging or production.
  *
- *   pnpm import:rehearsal --chart <accounts.xlsx> --journal <entries.xlsx> [--opening <tb.xlsx>] [--keep <dir>]
+ *   pnpm import:rehearsal --chart <accounts.xlsx> --journal <entries.xlsx> [--opening <tb.xlsx>] [--asset-categories <categories.xlsx> --assets <assets.xlsx>] [--keep <dir>]
  *
  * Every run starts from a brand-new SQLite database seeded exactly like a new
  * tenant (default chart of accounts, current fiscal year, nothing else), so a
@@ -15,7 +15,9 @@
  *   - the journal register lists every entry;
  *   - every account's ledger and trial-balance balance equals the file's sum;
  *   - the trial balance, balance sheet and income statement agree with each
- *     other and with the file.
+ *     other and with the file;
+ *   - every asset is in the register under its category's accounts, and the
+ *     register's cost per account equals that account's ledger balance.
  *
  * It exits non-zero on the first failed check, and writes a report next to
  * the database when `--keep` is given (the database stays there to inspect).
@@ -44,9 +46,11 @@ function arg(name: string): string | undefined {
 const chartFile = arg("chart");
 const journalFile = arg("journal");
 const openingFile = arg("opening");
+const categoriesFile = arg("asset-categories");
+const assetsFile = arg("assets");
 const keepDir = arg("keep");
 if (!journalFile && !openingFile) {
-  console.error("usage: pnpm import:rehearsal --chart <accounts.xlsx> --journal <entries.xlsx> [--opening <tb.xlsx>] [--keep <dir>]");
+  console.error("usage: pnpm import:rehearsal --chart <accounts.xlsx> --journal <entries.xlsx> [--opening <tb.xlsx>] [--asset-categories <categories.xlsx> --assets <assets.xlsx>] [--keep <dir>]");
   process.exit(2);
 }
 
@@ -241,10 +245,47 @@ async function main(): Promise<void> {
     }
   }
 
+  // Fixed assets: the register must carry every asset of the file, under the
+  // category's ledger accounts, and tie to those accounts' ledger balance.
+  if (categoriesFile) await importStep("asset-categories", categoriesFile);
+  if (assetsFile) {
+    const done = await importStep("assets", assetsFile);
+    if (done) {
+      const rows: Row[] = done.rows;
+      const accounts = ((await call("/accounts")).body as { id: string; code: string }[]) ?? [];
+      const codeOf = new Map(accounts.map((a) => [a.id, a.code]));
+      const categories = (await call("/assets/categories")).body as { id: string; code: string; defaultUsefulLifeMonths: number; assetAccountId: string | null }[];
+      const categoryById = new Map(categories.map((c) => [c.id, c]));
+      const registered = (await call("/assets")).body as { code: string; categoryId: string; acquisitionDate: string; acquisitionCost: string; depreciationStartDate: string; usefulLifeMonths: number; assetAccountId: string | null }[];
+      const byCode = new Map(registered.map((a) => [a.code, a]));
+      const wrong: string[] = [];
+      for (const r of rows) {
+        const a = byCode.get(r.code!);
+        const category = a ? categoryById.get(a.categoryId) : undefined;
+        const life = r.usefulLifeMonths ? Number(r.usefulLifeMonths) : category?.defaultUsefulLifeMonths;
+        if (!a || !category) wrong.push(`${r.code}: not registered`);
+        else if (category.code !== r.categoryCode || a.acquisitionDate !== r.acquisitionDate || cents(a.acquisitionCost) !== cents(r.acquisitionCost) || a.depreciationStartDate !== (r.depreciationStartDate || r.acquisitionDate) || a.usefulLifeMonths !== life || (a.assetAccountId ?? category.assetAccountId) !== category.assetAccountId || !category.assetAccountId) wrong.push(`${r.code}: differs (${JSON.stringify(a)})`);
+      }
+      check("every asset is registered with its category, date, cost, start date, useful life and the category's account", wrong.length === 0 && registered.length === rows.length, wrong.length === 0 ? `${rows.length} of ${rows.length} assets` : `${wrong.length} wrong, e.g. ${wrong.slice(0, 5).join(", ")}`);
+      const asOf = rows.map((r) => r.acquisitionDate!).sort().at(-1)!;
+      const tb = (await call(`/financial-reports/trial-balance?asOfDate=${asOf}`)).body;
+      const tbNet = new Map<string, number>((tb.rows as { code: string; debit: number; credit: number }[]).map((r) => [r.code, cents(r.debit) - cents(r.credit)]));
+      const registerByAccount = new Map<string, number>();
+      for (const a of registered) {
+        // An asset without its own account posts to its category's (dispose-asset.ts does the same).
+        const code = codeOf.get(a.assetAccountId ?? categoryById.get(a.categoryId)?.assetAccountId ?? "") ?? "?";
+        registerByAccount.set(code, (registerByAccount.get(code) ?? 0) + cents(a.acquisitionCost));
+      }
+      for (const [code, cost] of [...registerByAccount].sort()) {
+        check(`asset register ties to account ${code}`, tbNet.get(code) === cost, `register ${money(cost)} · ledger ${money(tbNet.get(code) ?? 0)} as of ${asOf}`);
+      }
+    }
+  }
+
   const failed = checks.filter((c) => !c.ok);
   console.log(`\n${failed.length === 0 ? "ALL CHECKS PASSED" : `${failed.length} CHECK(S) FAILED`} — ${checks.length} checks`);
   if (keepDir) {
-    writeFileSync(path.join(dir, "report.json"), JSON.stringify({ chartFile, journalFile, openingFile, checks }, null, 2));
+    writeFileSync(path.join(dir, "report.json"), JSON.stringify({ chartFile, journalFile, openingFile, categoriesFile, assetsFile, checks }, null, 2));
     console.log(`database and report kept in ${dir}`);
   } else {
     rmSync(dir, { recursive: true, force: true });

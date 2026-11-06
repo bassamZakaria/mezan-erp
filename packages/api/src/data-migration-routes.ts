@@ -793,6 +793,11 @@ export function createDataMigrationRoutes(
     const rows = rowsOf(await readBody(c));
     const existing = await deps.assetCategories.list();
     const existingCodes = new Set(existing.map((a) => a.code));
+    // Optional ledger links — without them a category posts to the defaults
+    // (1510 / 5400 / 1590), so a vehicles category would carry its assets on
+    // the equipment account and the register would not tie to 1520.
+    const chart = deps.accounts ? await deps.accounts.list() : [];
+    const accountByCode = new Map(chart.map((a) => [a.code, a]));
     const result = await runStep<Record<string, unknown>, CreateAssetCategoryCommand>(
       rows,
       async (row, rowNumber, seenCodes) => {
@@ -805,6 +810,19 @@ export function createDataMigrationRoutes(
         if (!nameAr) reasons.add("اسم التصنيف مطلوب", "The category name is required");
         if (usefulLifeMonths === undefined || usefulLifeMonths <= 0) reasons.add("العمر الإنتاجي (بالأشهر) يجب أن يكون أكبر من صفر", "The useful life (in months) must be greater than zero");
         if (salvagePercent < 0 || salvagePercent > 100) reasons.add("نسبة القيمة التخريدية يجب أن تكون بين 0 و 100", "The salvage value percentage must be between 0 and 100");
+        const linked: Record<string, string> = {};
+        for (const [column, field, labelAr, labelEn] of [
+          ["assetAccountCode", "assetAccountId", "حساب الأصل", "asset account"],
+          ["accumulatedDepreciationAccountCode", "accumulatedDepreciationAccountId", "حساب مجمع الإهلاك", "accumulated depreciation account"],
+          ["depreciationExpenseAccountCode", "depreciationExpenseAccountId", "حساب مصروف الإهلاك", "depreciation expense account"],
+        ] as const) {
+          const accountCode = optStr(row, column);
+          if (!accountCode) continue;
+          const account = accountByCode.get(accountCode);
+          if (!account) reasons.add(`${labelAr} بالكود "${accountCode}" غير موجود في دليل الحسابات`, `No ${labelEn} with the code "${accountCode}" exists in the chart of accounts`);
+          else if (account.isHeader) reasons.add(`${labelAr} "${accountCode}" حساب رئيسي ولا يقبل الترحيل`, `The ${labelEn} "${accountCode}" is a header account and cannot be posted to`);
+          else linked[field] = account.id;
+        }
         if (code) {
           if (existingCodes.has(code)) reasons.add(`تصنيف الأصول بالكود "${code}" مسجل بالفعل`, `An asset category with the code "${code}" is already registered`);
           checkDuplicateInBatch(code, seenCodes, reasons);
@@ -813,7 +831,7 @@ export function createDataMigrationRoutes(
         const id = randomId();
         return {
           id,
-          item: { id, code, nameAr, nameEn: optStr(row, "nameEn"), defaultUsefulLifeMonths: usefulLifeMonths!, defaultSalvagePercent: salvagePercent },
+          item: { id, code, nameAr, nameEn: optStr(row, "nameEn"), defaultUsefulLifeMonths: usefulLifeMonths!, defaultSalvagePercent: salvagePercent, ...linked },
         };
       },
       async (item) => {
@@ -847,6 +865,15 @@ export function createDataMigrationRoutes(
         else if (!category) reasons.add(`تصنيف الأصول بالكود "${categoryCode}" غير موجود — استورد تصنيفات الأصول أولاً`, `No asset category with the code "${categoryCode}" exists; import the asset categories first`);
         if (!acquisitionDate) reasons.add("تاريخ الاقتناء مطلوب", "The acquisition date is required");
         if (!acquisitionCostStr) reasons.add("تكلفة الاقتناء مطلوبة", "The acquisition cost is required");
+        // Optional depreciation terms; blank keeps the category's defaults and
+        // starts depreciation on the acquisition date (editable later, until
+        // the first depreciation posts).
+        const depreciationStartDate = optStr(row, "depreciationStartDate");
+        const usefulLifeMonths = optNum(row, "usefulLifeMonths");
+        const salvageValueStr = optStr(row, "salvageValue");
+        if (depreciationStartDate !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(depreciationStartDate)) reasons.add(`تاريخ بدء الإهلاك "${depreciationStartDate}" غير صحيح — استخدم الصيغة YYYY-MM-DD`, `The depreciation start date "${depreciationStartDate}" is not valid; use YYYY-MM-DD`);
+        if (optStr(row, "usefulLifeMonths") !== undefined && (usefulLifeMonths === undefined || !Number.isInteger(usefulLifeMonths) || usefulLifeMonths <= 0)) reasons.add("العمر الإنتاجي (بالأشهر) يجب أن يكون عدداً صحيحاً أكبر من صفر", "The useful life (in months) must be a whole number greater than zero");
+        if (salvageValueStr !== undefined && !/^\d+(\.\d+)?$/.test(salvageValueStr)) reasons.add(`القيمة التخريدية "${salvageValueStr}" ليست رقماً صحيحاً`, `The salvage value "${salvageValueStr}" is not a valid amount`);
         if (code) {
           if (existingCodes.has(code)) reasons.add(`الأصل بالكود "${code}" مسجل بالفعل`, `An asset with the code "${code}" is already registered`);
           checkDuplicateInBatch(code, seenCodes, reasons);
@@ -864,6 +891,9 @@ export function createDataMigrationRoutes(
               categoryId: category!.id,
               acquisitionDate,
               acquisitionCost: Money.fromMajor(acquisitionCostStr!),
+              ...(depreciationStartDate ? { depreciationStartDate } : {}),
+              ...(usefulLifeMonths !== undefined ? { usefulLifeMonths } : {}),
+              ...(salvageValueStr !== undefined ? { salvageValue: Money.fromMajor(salvageValueStr) } : {}),
             },
           };
         } catch (err) {

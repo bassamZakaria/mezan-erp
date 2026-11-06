@@ -7,6 +7,9 @@ import {
   Money,
   createAssetCategory,
   createAsset,
+  updateDepreciationTerms,
+  AssetDepreciationTermsLockedError,
+  InvalidDepreciationTermsError,
   createDepreciationRun,
   postDepreciationRun,
   discardDepreciationRun,
@@ -60,6 +63,7 @@ import {
   createDepreciationRunSchema,
   disposeAssetSchema,
   setInternalHourlyRateSchema,
+  updateDepreciationTermsSchema,
 } from "@mezan/contracts";
 import {
   createPermissionGate,
@@ -415,6 +419,47 @@ export function createFixedAssetsRoutes(
    * in force then — overwriting restates a month that has already been
    * reported, in WIP, in cost, and in recognised revenue.
    */
+  // شروط الإهلاك — start date, useful life and salvage value, editable until
+  // depreciation posts on the asset (see updateDepreciationTerms).
+  app.patch("/:id/depreciation-terms", gate("assets.manage"), async (c) => {
+    const parsed = updateDepreciationTermsSchema.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) {
+      return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    }
+    const asset = await deps.assets.findById(c.req.param("id"));
+    if (!asset) return c.json({ error: "ASSET_NOT_FOUND" }, 404);
+    const inOpenDraftRun = (await deps.runs.list()).some((run) => run.status === "draft" && run.lines.some((line) => line.assetId === asset.id));
+    try {
+      const updated = updateDepreciationTerms(
+        asset,
+        {
+          ...(parsed.data.depreciationStartDate !== undefined ? { depreciationStartDate: parsed.data.depreciationStartDate } : {}),
+          ...(parsed.data.usefulLifeMonths !== undefined ? { usefulLifeMonths: parsed.data.usefulLifeMonths } : {}),
+          ...(parsed.data.salvageValue !== undefined ? { salvageValue: Money.fromMajor(parsed.data.salvageValue) } : {}),
+        },
+        { inOpenDraftRun },
+      );
+      await deps.assets.update(updated);
+      await recordAdminEvent(deps.audit, c, {
+        module: "assets",
+        entityType: "ASSET",
+        entityId: asset.id,
+        action: "UPDATE_DEPRECIATION_TERMS",
+        severity: "WARNING",
+        details: {
+          code: asset.code,
+          before: { depreciationStartDate: asset.depreciationStartDate, usefulLifeMonths: asset.usefulLifeMonths, salvageValue: asset.salvageValue.toString() },
+          after: { depreciationStartDate: updated.depreciationStartDate, usefulLifeMonths: updated.usefulLifeMonths, salvageValue: updated.salvageValue.toString() },
+        },
+      });
+      return c.json(serializeAsset(updated));
+    } catch (err) {
+      if (err instanceof AssetDepreciationTermsLockedError) return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
+      if (err instanceof InvalidDepreciationTermsError) return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 422);
+      return handleDomainError(c, err);
+    }
+  });
+
   app.patch("/:id/internal-hourly-rate", gate("assets.manage"), async (c) => {
     const parsed = setInternalHourlyRateSchema.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) {

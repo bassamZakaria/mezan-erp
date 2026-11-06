@@ -63,7 +63,7 @@ export const AUDITED_MOUNTS: readonly AuditedMount[] = [
     prefix: "/hr",
     only: /^\/(advances\/[^/]+\/repay|payroll\/statutory-tables\/insurance-years\/[^/]+|payroll\/statutory-flag|self\/clock(\/credential)?|employees\/[^/]+\/clock-credential\/reset|attendance\/import\/commit|attendance\/(?!import)[^/]+|employees\/[^/]+\/correct-termination-date|employees\/[^/]+\/salary-payment|payroll\/runs\/[^/]+\/bank-file)$/,
   },
-  { prefix: "/assets", only: /^\/([^/]+\/internal-hourly-rate|depreciation\/runs\/[^/]+\/discard)$/ },
+  { prefix: "/assets", only: /^\/([^/]+\/internal-hourly-rate|[^/]+\/depreciation-terms|depreciation\/runs\/[^/]+\/discard)$/ },
   { prefix: "/revaluation", only: /^\/runs\/[^/]+\/reverse$/ },
   { prefix: "/inventory", only: /^(\/(adjustments|stock-adjustments)\/[^/]+\/reverse$|\/count-mode(\/|$)|\/expiry\/settings$)/ },
   { prefix: "/sales-invoices", only: /^\/[^/]+\/(void|lines\/[^/]+)$/ },

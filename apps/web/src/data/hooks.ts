@@ -66,6 +66,7 @@ import type {
   SalesInvoicePaymentDTO,
   DisposeAssetDTO,
   SetInternalHourlyRateDTO,
+  UpdateDepreciationTermsDTO,
   CreateBomDTO,
   CreateBranchDTO,
   CreateChequeDTO,
@@ -4112,6 +4113,21 @@ export function useSetInternalHourlyRate() {
         method: "PATCH",
         body: JSON.stringify(body),
       });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theAssetCouldNotBe")));
+      return res.json<AssetDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["assets"] }),
+  });
+}
+
+/** شروط الإهلاك — start date, useful life, salvage; refused (409) once depreciation has posted on the asset. */
+export function useUpdateDepreciationTerms() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<AssetDTO, ApiError, { id: string } & UpdateDepreciationTermsDTO>({
+    mutationFn: async ({ id, ...body }) => {
+      const res = await request(`/assets/${id}/depreciation-terms`, { method: "PATCH", body: JSON.stringify(body) });
       if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theAssetCouldNotBe")));
       return res.json<AssetDTO>();
     },

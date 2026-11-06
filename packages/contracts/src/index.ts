@@ -1288,6 +1288,8 @@ export {
   depreciationRunSchema,
   createDepreciationRunSchema,
   setInternalHourlyRateSchema,
+  updateDepreciationTermsSchema,
+  type UpdateDepreciationTermsDTO,
   type DepreciationMethodDTO,
   type AssetScopeDTO,
   type AssetStatusDTO,

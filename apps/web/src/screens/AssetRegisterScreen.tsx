@@ -29,6 +29,7 @@ import {
   useDisposeAsset,
   useProjects,
   useSetInternalHourlyRate,
+  useUpdateDepreciationTerms,
   type AssetListFilter,
 } from "../data/hooks";
 import { NumberField, SelectField, TextField } from "../settings/form-controls";
@@ -111,6 +112,62 @@ function validateDraft(draft: AssetDraft, existing: AssetDTO[]): { key: AppTrans
   if (draft.acquisitionCost === null || draft.acquisitionCost < 0) return { key: "asset.acquisitionCostRequired" };
   if (!Number.isFinite(draft.usefulLifeMonths) || draft.usefulLifeMonths <= 0) return { key: "asset.usefulLifeRequired" };
   return null;
+}
+
+/**
+ * شروط الإهلاك — when depreciation starts, over how long, and the salvage
+ * value. An asset registered from past records often has a purchase date but
+ * no start-of-use date yet; this is where it gets one. Editable until
+ * depreciation posts on the asset (the server refuses after that).
+ */
+function DepreciationTermsCard({ asset }: { asset: AssetDTO }) {
+  const { t } = useAppTranslation();
+  const update = useUpdateDepreciationTerms();
+  const [startDate, setStartDate] = useState(asset.depreciationStartDate);
+  const [lifeMonths, setLifeMonths] = useState(asset.usefulLifeMonths);
+  const [salvage, setSalvage] = useState<number | null>(toMajor(asset.salvageValue));
+  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  useEffect(() => {
+    setStartDate(asset.depreciationStartDate);
+    setLifeMonths(asset.usefulLifeMonths);
+    setSalvage(toMajor(asset.salvageValue));
+    setMessage(null);
+  }, [asset.id, asset.depreciationStartDate, asset.usefulLifeMonths, asset.salvageValue]);
+  const locked = toMajor(asset.accumulatedDepreciation) !== 0;
+  return (
+    <Card className="p-[13px_15px]">
+      <div className="text-[12.5px] font-bold text-ink">{t("asset.depreciationTerms")}</div>
+      <div className="mt-[8px] grid grid-cols-1 gap-[8px] sm:grid-cols-3">
+        <TextField label={t("asset.depreciationStartDate")} type="date" value={startDate} onChange={setStartDate} disabled={locked} />
+        <NumberField label={t("asset.usefulLifeMonths")} value={lifeMonths} onChange={setLifeMonths} min={1} step={1} disabled={locked} />
+        <div>
+          <div className="mb-[6px] text-[12.5px] font-semibold text-ink">{t("asset.residualValue")}</div>
+          <MoneyInput aria-label={t("asset.residualValue")} value={salvage} onChange={setSalvage} disabled={locked} />
+        </div>
+      </div>
+      <div className="mt-[8px] flex flex-wrap items-center gap-[10px]">
+        <Button
+          disabled={locked || update.isPending}
+          onClick={() => {
+            setMessage(null);
+            update
+              .mutateAsync({
+                id: asset.id,
+                depreciationStartDate: startDate,
+                usefulLifeMonths: lifeMonths,
+                salvageValue: (salvage ?? 0).toFixed(6),
+              })
+              .then(() => setMessage({ ok: true, text: t("asset.depreciationTermsSaved") }))
+              .catch((err: unknown) => setMessage({ ok: false, text: err instanceof ApiError ? err.message : t("asset.depreciationTermsNotSaved") }));
+          }}
+        >
+          {t("asset.saveDepreciationTerms")}
+        </Button>
+        <span className="text-[11.5px] text-ink-muted">{locked ? t("asset.depreciationTermsLocked") : t("asset.depreciationTermsHint")}</span>
+      </div>
+      {message ? <p className={`mt-[6px] text-[11.5px] font-semibold ${message.ok ? "text-success-ink" : "text-danger-ink"}`}>{message.text}</p> : null}
+    </Card>
+  );
 }
 
 export function AssetRegisterScreen() {
@@ -402,6 +459,7 @@ export function AssetRegisterScreen() {
                 <div className="mt-[5px] text-[14px] font-bold text-ink">{projectName(selected.projectId)}</div>
               </div>
             </Card>
+            <DepreciationTermsCard asset={selected} />
             <Card className="grid grid-cols-2 overflow-hidden">
               <div className="border-e border-b border-border p-[13px_15px]">
                 <div className="text-[11px] font-semibold text-ink-faint">{t("asset.acquisitionCost")}</div>

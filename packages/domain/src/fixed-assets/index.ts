@@ -77,3 +77,4 @@ export {
 } from "./errors.js";
 
 export { undoAssetDisposal, assetDisposalEntryId, AssetNotDisposedError, ASSET_DISPOSAL_DOC_TYPE, type UndoAssetDisposalDeps, type UndoAssetDisposalOptions } from "./undo-asset-disposal.js";
+export { updateDepreciationTerms, AssetDepreciationTermsLockedError, InvalidDepreciationTermsError, type DepreciationTermsChange } from "./update-depreciation-terms.js";

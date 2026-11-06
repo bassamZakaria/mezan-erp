@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { moneyString } from "./money-string.js";
+import { moneyString, nonNegativeMoneyString } from "./money-string.js";
 import { isoDateOrInstant } from "./iso-date.js";
 import { clientSuppliedId } from "./client-supplied-id.js";
 
@@ -175,6 +175,16 @@ export type CreateDepreciationRunDTO = z.infer<typeof createDepreciationRunSchem
  * because the number ends up in WIP, then in cost, then in the percentage of
  * completion, then in recognised revenue.
  */
+/** شروط الإهلاك — editable until depreciation posts on the asset. Every field is optional; at least one is sent. */
+export const updateDepreciationTermsSchema = z
+  .object({
+    depreciationStartDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "التاريخ مطلوب بصيغة YYYY-MM-DD").optional(),
+    usefulLifeMonths: z.number().int().positive().optional(),
+    salvageValue: nonNegativeMoneyString.optional(),
+  })
+  .refine((v) => v.depreciationStartDate !== undefined || v.usefulLifeMonths !== undefined || v.salvageValue !== undefined, "أرسل حقلاً واحداً على الأقل");
+export type UpdateDepreciationTermsDTO = z.infer<typeof updateDepreciationTermsSchema>;
+
 export const setInternalHourlyRateSchema = z.object({
   hourlyRate: moneyString.nullable(),
   /** `YYYY-MM-DD`; the tenant's today when omitted. Never the instant the edit was made. */

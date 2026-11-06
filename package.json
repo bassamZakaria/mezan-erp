@@ -11,6 +11,7 @@
     "smoke": "tsx scripts/smoke.ts",
     "evidence:verify": "tsx scripts/evidence-verify.ts",
     "check:seed": "tsx scripts/check-seed-coverage.ts",
+    "import:rehearsal": "tsx scripts/import-rehearsal.ts",
     "scenarios": "tsx scripts/run-scenarios.ts",
     "trails": "node scripts/build-trail-pack.mjs",
     "lint": "eslint . && pnpm run lint:rtl && pnpm run lint:tokens && pnpm run lint:controls && pnpm run lint:permission-labels && pnpm --filter @mezan/ui lint:theme",

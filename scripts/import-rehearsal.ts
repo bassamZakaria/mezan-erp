@@ -176,6 +176,68 @@ async function main(): Promise<void> {
       check("balance sheet balances", assets === funding && assets !== 0, `assets ${money(assets)} · liabilities + equity ${money(funding)} as of ${lastDate}`);
       const status = (await call("/data-migration/status")).body;
       check("the import step's count", status.journalEntries === byRef.size, `${status.journalEntries} registered`);
+
+      // 5. As if entered when it happened: month by month, every report that
+      //    filters by date sees exactly that month's records, and every
+      //    month-end balance is the running total of the file up to then.
+      const monthEnd = (ym: string) => {
+        const [y, m] = ym.split("-").map(Number) as [number, number];
+        return `${ym}-${String(new Date(Date.UTC(y, m, 0)).getUTCDate()).padStart(2, "0")}`;
+      };
+      const months = [...new Set(rows.map((r) => r.date!.slice(0, 7)))].sort();
+      const timelineFails: string[] = [];
+      const timeline: Record<string, unknown>[] = [];
+      for (const ym of months) {
+        const from = `${ym}-01`;
+        const to = monthEnd(ym);
+        const monthRows = rows.filter((r) => r.date!.startsWith(ym));
+        const monthEntries = new Set(monthRows.map((r) => r.entryRef!.trim())).size;
+        const monthExpense = monthRows.filter((r) => typeOf.get(r.accountCode!) === "expense").reduce((a, r) => a + cents(r.debit) - cents(r.credit), 0);
+        const monthRevenue = monthRows.filter((r) => typeOf.get(r.accountCode!) === "revenue").reduce((a, r) => a + cents(r.credit) - cents(r.debit), 0);
+        // journal register filtered to the month
+        let listedInMonth = 0;
+        for (let page = 1; ; page += 1) {
+          const batch = (await call(`/gl/journal-entries?fromDate=${from}&toDate=${to}&page=${page}&pageSize=200`)).body as { date: string }[];
+          listedInMonth += batch.filter((e) => e.date >= from && e.date <= to).length;
+          if (batch.length < 200) break;
+        }
+        // day book for the month
+        const dayBook = (await call(`/financial-reports/day-book?periodFrom=${from}&periodTo=${to}`)).body;
+        const dayBookDebit = cents(dayBook.grandTotals?.debit ?? (dayBook.rows as { debit?: number }[] | undefined)?.reduce((a, r) => a + (r.debit ?? 0), 0) ?? 0);
+        const fileDebit = monthRows.reduce((a, r) => a + cents(r.debit), 0);
+        // income statement for the month alone
+        const isMonth = (await call(`/financial-reports/income-statement?periodFrom=${from}&periodTo=${to}`)).body;
+        const isMonthNet = cents(isMonth.grandTotals?.amount ?? 0);
+        // trial balance at month end = running total of the file
+        const tbMonth = (await call(`/financial-reports/trial-balance?asOfDate=${to}`)).body;
+        const tbAt = new Map<string, number>((tbMonth.rows as { code: string; debit: number; credit: number }[]).map((r) => [r.code, cents(r.debit) - cents(r.credit)]));
+        const running = new Map<string, number>();
+        for (const r of rows) if (r.date! <= to) running.set(r.accountCode!, (running.get(r.accountCode!) ?? 0) + cents(r.debit) - cents(r.credit));
+        const tbOk = [...running].every(([c, v]) => tbAt.get(c) === v) && [...tbAt].every(([c, v]) => v === 0 || running.get(c) === v);
+        const ok = listedInMonth === monthEntries && dayBookDebit === fileDebit && isMonthNet === monthRevenue - monthExpense && tbOk;
+        timeline.push({ month: ym, entries: monthEntries, listed: listedInMonth, fileDebit: fileDebit / 100, dayBookDebit: dayBookDebit / 100, expense: monthExpense / 100, incomeStatementNet: isMonthNet / 100, trialBalanceMatchesRunningTotal: tbOk });
+        if (!ok) timelineFails.push(`${ym} (journal ${listedInMonth}/${monthEntries}, day book ${money(dayBookDebit)}/${money(fileDebit)}, income statement ${money(isMonthNet)}/${money(monthRevenue - monthExpense)}, trial balance ${tbOk ? "ok" : "differs"})`);
+        console.log(`        ${ym}: ${monthEntries} entries · expenses ${money(monthExpense)} · income statement ${money(isMonthNet)} · day book ${money(dayBookDebit)} · month-end trial balance ${tbOk ? "= running total" : "DIFFERS"}`);
+      }
+      check(`month by month (${months[0]} → ${months.at(-1)}): journal, day book, income statement and month-end trial balance match the file`, timelineFails.length === 0, timelineFails.length === 0 ? `${months.length} months` : timelineFails.join(" | "));
+      // nothing outside the file's dates
+      const before = (await call(`/gl/journal-entries?toDate=${new Date(Date.parse(firstDate) - 86400000).toISOString().slice(0, 10)}&pageSize=200`)).body as unknown[];
+      const after = (await call(`/gl/journal-entries?fromDate=${new Date(Date.parse(lastDate) + 86400000).toISOString().slice(0, 10)}&pageSize=200`)).body as unknown[];
+      check("no entry dated outside the file's period", before.length === 0 && after.length === 0, `${before.length} before ${firstDate}, ${after.length} after ${lastDate}`);
+      // entry numbers run in date order, as if keyed in day by day
+      const all: { entryNo: string; date: string }[] = [];
+      for (let page = 1; ; page += 1) {
+        const batch = (await call(`/gl/journal-entries?page=${page}&pageSize=200`)).body as { entryNo: string; date: string }[];
+        all.push(...batch);
+        if (batch.length < 200) break;
+      }
+      const byNo = [...all].sort((a, b) => a.entryNo.localeCompare(b.entryNo));
+      const outOfOrder = byNo.filter((e, i) => i > 0 && e.date < byNo[i - 1]!.date);
+      check("entry numbers run in date order", outOfOrder.length === 0, outOfOrder.length === 0 ? `${byNo[0]?.entryNo} (${byNo[0]?.date}) … ${byNo.at(-1)?.entryNo} (${byNo.at(-1)?.date})` : `${outOfOrder.length} out of order, e.g. ${outOfOrder[0]?.entryNo}`);
+      const periods = (await call("/fiscal-periods")).body as { year: number; status: string }[];
+      const years = [...new Set(periods.map((p) => p.year))].sort();
+      check("fiscal years cover every date and stay open", months.every((ym) => years.includes(Number(ym.slice(0, 4)))) && periods.every((p) => p.status === "open"), `years ${years.join(", ")}`);
+      if (keepDir) writeFileSync(path.join(dir, "timeline.json"), JSON.stringify(timeline, null, 2));
     }
   }
 

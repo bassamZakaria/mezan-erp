@@ -4953,6 +4953,44 @@ describe("createBackend — party balances no invoice carries, and one figure pe
     expect((await post(app, "/data-migration/opening-trial-balance/commit", { rows }, await admin(app))).status).toBe(422);
   });
 
+  describe("data migration — fixed assets carry their ledger accounts and depreciation terms", () => {
+    it("links a category to its accounts, registers an asset with its terms, and lets the start date move until depreciation posts", async () => {
+      const app = await newBackend();
+      const categories = await post(app, "/data-migration/asset-categories/commit", {
+        rows: [{ rowNumber: "2", code: "VEH", nameAr: "مركبات", defaultUsefulLifeMonths: "60", defaultSalvagePercent: "0", assetAccountCode: "1520", accumulatedDepreciationAccountCode: "1590", depreciationExpenseAccountCode: "5400" }],
+      }, await admin(app));
+      expect(categories.status).toBe(201);
+      const badLink = await post(app, "/data-migration/asset-categories/preview", {
+        rows: [{ rowNumber: "2", code: "X", nameAr: "س", defaultUsefulLifeMonths: "12", defaultSalvagePercent: "0", assetAccountCode: "1500" }],
+      }, await admin(app));
+      expect(JSON.stringify(await badLink.json())).toContain("header account");
+      const category = ((await get(app, "/assets/categories")) as { code: string; assetAccountId: string | null }[]).find((cat) => cat.code === "VEH");
+      expect(category?.assetAccountId).toBe("1520");
+
+      const assets = await post(app, "/data-migration/assets/commit", {
+        rows: [{ rowNumber: "2", code: "VEH-001", nameAr: "سوزوكي نقل", categoryCode: "VEH", acquisitionDate: "2026-07-31", acquisitionCost: "270000", depreciationStartDate: "2026-08-01", usefulLifeMonths: "120", salvageValue: "" }],
+      }, await admin(app));
+      expect(assets.status).toBe(201);
+      const asset = ((await get(app, "/assets")) as { id: string; code: string; depreciationStartDate: string; usefulLifeMonths: number }[]).find((a) => a.code === "VEH-001")!;
+      expect([asset.depreciationStartDate, asset.usefulLifeMonths]).toEqual(["2026-08-01", 120]);
+
+      const patch = (body: unknown) => app.request(`/assets/${asset.id}/depreciation-terms`, { method: "PATCH", headers: { ...(headersCache ?? {}), "content-type": "application/json" }, body: JSON.stringify(body) });
+      const headersCache = await admin(app);
+      const moved = await patch({ depreciationStartDate: "2026-09-01" });
+      expect(moved.status).toBe(200);
+      expect(((await moved.json()) as { depreciationStartDate: string }).depreciationStartDate).toBe("2026-09-01");
+
+      const run = await post(app, "/assets/depreciation/runs", { period: "2026-09" }, headersCache);
+      expect(run.status).toBe(201);
+      const runId = ((await run.json()) as { id: string }).id;
+      expect((await patch({ usefulLifeMonths: 60 })).status).toBe(409);
+      expect((await post(app, `/assets/depreciation/runs/${runId}/post`, {}, headersCache)).status).toBe(200);
+      const locked = await patch({ depreciationStartDate: "2026-10-01" });
+      expect(locked.status).toBe(409);
+      expect(JSON.stringify(await locked.json())).toContain("reverse the posted runs");
+    });
+  });
+
   describe("data migration — historical journal entries", () => {
     const july = [
       { rowNumber: "2", entryRef: "FAC-07", date: "2026-07-31", accountCode: "3100", debit: "", credit: "7500.00", description: "تمويل يوليو" },

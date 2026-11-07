@@ -417,14 +417,14 @@ describe("createCloudApp", () => {
 
     it("lets browsers keep content-hashed assets for a year, but always re-checks the app page that names them", async () => {
       const env = testEnv();
-      mkdirSync(path.join(env.webDist, "assets"));
-      writeFileSync(path.join(env.webDist, "assets", "index-AbC123.js"), "export {};");
+      mkdirSync(path.join(env.webDist, "static"));
+      writeFileSync(path.join(env.webDist, "static", "index-AbC123.js"), "export {};");
       writeFileSync(path.join(env.webDist, "favicon.svg"), "<svg/>");
       const app = await boot(env);
       const header = async (url: string) => (await app.root.fetch(new Request(`http://cloud.internal${url}`))).headers.get("cache-control");
 
-      expect(await header("/assets/index-AbC123.js")).toBe("public, max-age=31536000, immutable");
-      const gone = await app.root.fetch(new Request("http://cloud.internal/assets/index-OldHash.js"));
+      expect(await header("/static/index-AbC123.js")).toBe("public, max-age=31536000, immutable");
+      const gone = await app.root.fetch(new Request("http://cloud.internal/static/index-OldHash.js"));
       expect(gone.status).toBe(404);
       expect(gone.headers.get("cache-control")).toBeNull();
       expect(await header("/favicon.svg")).toBeNull();
@@ -432,12 +432,21 @@ describe("createCloudApp", () => {
       expect(await header("/sales-invoices")).toBe("no-cache");
     });
 
+    it("opens an Assets screen from a pasted link instead of answering it as a missing bundle file", async () => {
+      const app = await boot(testEnv());
+      const res = await app.root.fetch(new Request("http://cloud.internal/assets/asset-register"));
+
+      expect(res.status).toBe(200);
+      expect(res.headers.get("content-type")).toContain("text/html");
+      expect(res.headers.get("cache-control")).toBe("no-cache");
+    });
+
     it("keeps content-hashed assets out of shared caches while the demo gate stands in front of them", async () => {
       const env = testEnv();
-      mkdirSync(path.join(env.webDist, "assets"));
-      writeFileSync(path.join(env.webDist, "assets", "index-AbC123.js"), "export {};");
+      mkdirSync(path.join(env.webDist, "static"));
+      writeFileSync(path.join(env.webDist, "static", "index-AbC123.js"), "export {};");
       const app = await boot(env, { authMiddleware: async (_c: Context, next: () => Promise<void>) => next() });
-      const res = await app.root.fetch(new Request("http://cloud.internal/assets/index-AbC123.js"));
+      const res = await app.root.fetch(new Request("http://cloud.internal/static/index-AbC123.js"));
 
       expect(res.status).toBe(200);
       expect(res.headers.get("cache-control")).toBe("private, max-age=31536000, immutable");

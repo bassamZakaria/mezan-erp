@@ -17,14 +17,16 @@ export default defineConfig({
    * Absolute asset paths, served from a real origin.
    *
    * The desktop edition used to load the built bundle over file://, where "/"
-   * is the FILESYSTEM ROOT and every /assets/* request 404s. The fix is not a
+   * is the FILESYSTEM ROOT and every /static/* request 404s. The fix is not a
    * relative base — a relative base breaks the moment a route has depth
-   * (`/sell/quotes` would resolve `./assets/x.js` to `/sell/assets/x.js`) —
+   * (`/sell/quotes` would resolve `./static/x.js` to `/sell/static/x.js`) —
    * it is serving the renderer from an origin. main/renderer-protocol.ts
    * registers `app://` for exactly that, so "/" means the bundle root in both
    * editions and code-split chunks resolve the same way in each.
    */
   base: "/",
+  // CONTRACT: apps/server/src/cloud-app.ts caches and 404s /static/*, and scripts/check-color-tokens.mjs reads dist/static. Not "assets": the Assets screens route at /assets/<screen>.
+  build: { assetsDir: "static" },
   plugins: [react()],
   server: {
     proxy: {

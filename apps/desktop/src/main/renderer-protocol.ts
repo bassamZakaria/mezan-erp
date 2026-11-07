@@ -11,7 +11,7 @@ import { resolveRendererFile } from "./renderer-paths.js";
  *     Vite build emits exactly that;
  *   - `import()` of a route chunk is refused for the same reason, so the
  *     code-split build would never load a screen;
- *   - absolute asset paths (`/assets/index-x.js`, which is what Vite emits
+ *   - absolute asset paths (`/static/index-x.js`, which is what Vite emits
  *     with the default `base`) resolve against the FILESYSTEM ROOT rather than
  *     the app directory.
  *

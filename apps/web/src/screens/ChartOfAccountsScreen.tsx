@@ -29,10 +29,12 @@ import type {
   NaturalBalanceDTO,
   UpdateAccountRoutingDTO,
 } from "@mezan/contracts";
+import { accountPeriodBalance, currentFiscalYearRange } from "../lib/account-period-balance";
 import { buildAccountTree, hasChildAccounts, isDescendantOf, type AccountTreeNode } from "../lib/account-tree";
 import {
   useAccountLedger,
   useAccountRouting,
+  useFiscalPeriods,
   useAccounts,
   useCreateAccount,
   useUpdateAccount,
@@ -349,8 +351,13 @@ export function ChartOfAccountsScreen() {
 
   const selectedAccount = selectedAccountId ? accounts.find((a) => a.id === selectedAccountId) ?? null : null;
   const parentOfSelected = selectedAccount?.parentId ? accounts.find((a) => a.id === selectedAccount.parentId) ?? null : null;
-  // Movements/balance are stubbed server-side (GET /accounts/:id) until journal posting feeds the ledger — always zero today.
-  const balance = { opening: 0, movement: 0, closing: 0 };
+  // The three tiles come from the same posted ledger as the movements tab, split at the current fiscal year.
+  const selectedLedger = useAccountLedger(selectedAccountId ?? null);
+  const fiscalPeriods = useFiscalPeriods();
+  const balance = useMemo(
+    () => accountPeriodBalance(selectedLedger.data?.lines ?? [], currentFiscalYearRange(fiscalPeriods.data ?? [], new Date().toISOString().slice(0, 10))),
+    [selectedLedger.data, fiscalPeriods.data],
+  );
 
   function openCreateForm() {
     setEditingId(null);

@@ -37,6 +37,7 @@ interface RenderOptions {
   patchStatus?: (id: string) => { status?: number; body: unknown } | undefined;
   createStatus?: () => { status?: number; body: unknown } | undefined;
   ledger?: { lines: unknown[]; balance: unknown };
+  fiscalPeriods?: unknown[];
   auditEventsByAccount?: Record<string, AuditEventDTO[]>;
 }
 
@@ -48,6 +49,7 @@ function renderScreen(opts: RenderOptions = {}) {
       if (opts.ledger) return { body: opts.ledger };
       return { status: 404, body: { error: "NOT_FOUND" } };
     },
+    "GET /fiscal-periods": () => ({ body: opts.fiscalPeriods ?? [] }),
     "GET /audit": (_init, path) => {
       const entityId = new URL(path, "http://test").searchParams.get("entityId") ?? "";
       const events = opts.auditEventsByAccount?.[entityId] ?? [];
@@ -220,6 +222,33 @@ describe("ChartOfAccountsScreen — account routing tab", () => {
 });
 
 describe("ChartOfAccountsScreen — account movements", () => {
+  it("fills the opening / period / closing tiles from the posted ledger, split at the current fiscal year", async () => {
+    const user = userEvent.setup();
+    const thisYear = Number(new Date().toISOString().slice(0, 4));
+    const periods = [thisYear - 1, thisYear].flatMap((y) =>
+      Array.from({ length: 12 }, (_, i) => {
+        const m = String(i + 1).padStart(2, "0");
+        return { id: `${y}-${m}`, year: y, periodNumber: i + 1, startDate: `${y}-${m}-01`, endDate: `${y}-${m}-28`, status: "open" };
+      }),
+    );
+    renderScreen({
+      fiscalPeriods: periods,
+      ledger: {
+        lines: [
+          { entryId: "je-1", entryNo: "JE-000001", date: `${thisYear - 1}-07-31`, memo: null, debit: "7000.000000", credit: "0.000000" },
+          { entryId: "je-2", entryNo: "JE-000002", date: `${thisYear}-03-31`, memo: null, debit: "1250.500000", credit: "0.000000" },
+        ],
+        balance: { accountId: "1300-1", debit: "8250.500000", credit: "0.000000", balance: "8250.500000" },
+      },
+    });
+    await user.click(await screen.findByText("درج الفرع الرئيسي"));
+    const dialog = screen.getByRole("dialog");
+    const tile = (label: string) => within(dialog).getByText(label).parentElement!;
+    await waitFor(() => expect(tile("رصيد أول المدة")).toHaveTextContent("7,000"));
+    expect(tile("حركة الفترة")).toHaveTextContent("1,250.5");
+    expect(tile("رصيد نهاية المدة")).toHaveTextContent("8,250.5");
+  });
+
   it("shows an account's posted movements with a running balance, and its audit tab", async () => {
     const user = userEvent.setup();
     renderScreen({

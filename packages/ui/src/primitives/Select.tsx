@@ -54,9 +54,15 @@ const SIZE_CLASS: Record<SelectSize, string> = {
 interface MenuPosition {
   top: number;
   inlineStart: number;
-  width: number;
+  /** The trigger's width — the menu is never narrower than the field it opens from. */
+  minWidth: number;
+  /** Room from the trigger's start edge to the far viewport edge, capped, so a long option widens the menu instead of being cut. */
+  maxWidth: number;
   maxHeight: number;
 }
+
+const MENU_MAX_WIDTH = 440;
+const VIEWPORT_MARGIN = 8;
 
 const MENU_GAP = 6;
 const MENU_MAX_HEIGHT = 288;
@@ -74,7 +80,8 @@ function measure(trigger: HTMLElement): MenuPosition {
     // Measured physically, expressed logically, so the popup tracks the
     // trigger in both directions.
     inlineStart: rtl ? window.innerWidth - rect.right : rect.left,
-    width: rect.width,
+    minWidth: rect.width,
+    maxWidth: Math.max(rect.width, Math.min(MENU_MAX_WIDTH, (rtl ? rect.right : window.innerWidth - rect.left) - VIEWPORT_MARGIN)),
     maxHeight,
   };
 }
@@ -322,7 +329,9 @@ export function Select<TValue extends string = string>({
             style={{
               top: position.top,
               insetInlineStart: position.inlineStart,
-              width: position.width,
+              width: "max-content",
+              minWidth: position.minWidth,
+              maxWidth: position.maxWidth,
               maxHeight: position.maxHeight,
             }}
           >
@@ -363,9 +372,9 @@ export function Select<TValue extends string = string>({
                             )}
                           >
                             <span className="flex min-w-0 flex-col gap-[1px]">
-                              <span className={cn("truncate", isSelected && "font-semibold")}>{option.label}</span>
+                              <span className={cn("break-words", isSelected && "font-semibold")}>{option.label}</span>
                               {option.sublabel ? (
-                                <span className="truncate text-[11px] text-ink-faint">{option.sublabel}</span>
+                                <span className="break-words text-[11px] text-ink-faint">{option.sublabel}</span>
                               ) : null}
                             </span>
                             {isSelected ? <CheckIcon /> : null}

@@ -34,7 +34,7 @@ function newestSourceMtime() {
 }
 
 function builtCss() {
-  const dir = path.join(WEB, "dist/assets");
+  const dir = path.join(WEB, "dist/static");
   const find = () => (fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => f.endsWith(".css")) : []);
   // A stale stylesheet would fail a class that a just-added token does emit.
   const stale = () => {

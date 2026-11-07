@@ -634,15 +634,16 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
         return c.html(rawIndexHtml);
       });
     }
-    root.use("/assets/*", async (c, next) => {
+    // CONTRACT: build.assetsDir in apps/web/vite.config.ts. Not "assets": the Assets screens route at /assets/<screen>.
+    root.use("/static/*", async (c, next) => {
       await next();
-      // Vite names every file under assets/ by its content hash, so a new build is a new URL.
+      // Vite names every file under static/ by its content hash, so a new build is a new URL.
       // SECURITY: behind the demo gate a shared cache must not hand the bundle to someone who never passed it.
       const audience = options.authMiddleware ? "private" : "public";
       if (c.res.status === 200) c.res.headers.set("Cache-Control", `${audience}, max-age=31536000, immutable`);
     });
     root.use("/*", serveStatic({ root: env.webDist }));
-    root.get("/assets/*", (c) => c.text("Not found", 404));
+    root.get("/static/*", (c) => c.text("Not found", 404));
     root.notFound(shellPage);
   } else {
     root.notFound((c) => c.json({ error: "NOT_FOUND", message: "لا توجد حزمة واجهة مبنية", messageEn: "No built front-end bundle exists" }, 404));

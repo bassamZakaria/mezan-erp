@@ -89,7 +89,7 @@ export function SidePanel({ open, onClose, title, description, children, classNa
         aria-labelledby={titleId}
         aria-hidden={ariaHidden}
         className={cn(
-          "fixed inset-y-0 end-0 z-[61] w-[430px] max-w-[92vw] overflow-y-auto border-s border-border bg-surface shadow-2 transition-transform duration-200 ease-[cubic-bezier(.4,0,.2,1)]",
+          "fixed inset-y-0 end-0 z-[61] w-[max(430px,40vw)] max-w-full overflow-y-auto border-s border-border bg-surface shadow-2 transition-transform duration-200 ease-[cubic-bezier(.4,0,.2,1)]",
           // `translate-x` is physical, so the off-screen direction MUST follow
           // the document direction — a single sign leaves the closed panel
           // sitting inside the viewport in the other direction.

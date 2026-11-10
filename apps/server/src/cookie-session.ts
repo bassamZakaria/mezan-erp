@@ -125,7 +125,7 @@ export function createCookieSessions(options: CookieSessionOptions): CookieSessi
     // REQUIRED: as long as a tenant session may live, so the browser never
     // drops a secret its live session still needs.
     maxAgeSeconds: MAX_SESSION_MS / 1000,
-    signIn: ["/api/auth/login", "/api/bootstrap/admin"],
+    signIn: ["/api/auth/login", "/api/auth/firebase", "/api/bootstrap/admin"],
     signOut: "/api/auth/logout",
   };
   const platformJar: CookieJar = {

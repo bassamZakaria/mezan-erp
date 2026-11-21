@@ -82,7 +82,7 @@ jobs:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
           DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
-          DEPLOY_USER: ${{ github.ref == 'refs/heads/production' && 'deploy' || 'mezan-deploy' }}
+          DEPLOY_USER: ${{ github.ref == 'refs/heads/production' && 'mezan-prod-deploy' || 'mezan-deploy' }}
           REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.sha }}@${{ needs.image.outputs.digest }}
         run: |

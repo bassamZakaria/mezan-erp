@@ -140,9 +140,9 @@ After the first deploy, in a browser: sign in to a tenant, print an invoice and 
 
 ## 5. Update and rollback
 
-Push to `staging` or `production` → the **Release image** workflow pushes `ghcr.io/bassamzakaria/mezan-erp:<sha>` (linux/amd64). Its `deploy` job then runs `deploy.sh <sha>@sha256:<digest>` over SSH on that branch's own VPS (`staging` → the staging VPS, `production` → the production VPS; one stack per VPS), so every push to either branch goes live (about a minute of downtime). The deploy runs detached from the SSH session and logs to `/var/log/mezan-deploy.log`; re-sending the running tag succeeds without a restart.
+Push to `staging` or `production` → the **Release image** workflow pushes `ghcr.io/bassamzakaria/mezan-erp:<sha>` (linux/amd64). Its `deploy` job then runs `deploy.sh <sha>@sha256:<digest>` over SSH on that branch's own instance (`staging` → `/opt/mezan`, `production` → `/opt/mezan-prod`, both on 161.97.164.107), so every push to either branch goes live (about a minute of downtime). The deploy runs detached from the SSH session and logs to `/var/log/<instance>-deploy.log`; re-sending the running tag succeeds without a restart.
 
-**Automatic deploy (once per VPS):** a `deploy` user whose only key is GitHub's, forced to `ci-deploy.sh`; the workflow's short-lived `GITHUB_TOKEN` is the registry login, so no GitHub token is stored on the box. The user is `deploy` on the production VPS and `mezan-deploy` on the staging VPS (it shares the box with other apps): on staging, read `mezan-deploy` for `deploy` in the commands below and in `/home/deploy` paths.
+**Automatic deploy (once per VPS):** a `deploy` user whose only key is GitHub's, forced to `ci-deploy.sh`; the workflow's short-lived `GITHUB_TOKEN` is the registry login, so no GitHub token is stored on the box. Production and staging share one VPS (161.97.164.107): the user is `mezan-deploy` for staging (`/opt/mezan`) and `mezan-prod-deploy` for production (`/opt/mezan-prod`, script `/usr/local/bin/mezan-prod-ci-deploy`). Read that user for `deploy` in the commands below and in `/home/deploy` paths; the user name must match `DEPLOY_USER` in `.github/workflows/release-image.yml`.
 
 ```
 adduser --disabled-password --comment "" deploy
@@ -211,6 +211,30 @@ staging.example.com {
 
 6. Reload that Caddy, and remove a Mezan Caddy left from an earlier deploy: `docker rm -f mezan-caddy`. Proxy logs are that Caddy's, not `docker compose logs caddy`. Then check the secret reached the app through that Caddy: `curl -s https://<staging address>/api/session | grep -q ORIGIN_REQUIRED && echo 'origin secret mismatch'` must print nothing (repeat after rotating the secret: the health check alone does not catch it). On staging also set `MEZAN_ENV=staging` in `/srv/mezan/env` for the STAGING badge, and point `HEALTH_URL` in `/srv/mezan/health-staging.env` at the staging address.
 
+## Second instance on the same server
+
+Each instance is a folder name: `/opt/<name>` runs containers `<name>` and `<name>-postgres`
+on `/srv/<name>/` (env, shared.env, pg.env, restic.env, data, pg) and `/srv/<name>-predeploy`.
+`deploy.sh`, `backup/*.sh` and `ci-deploy.sh` read the name from where they are installed;
+`/opt/mezan` keeps every old path. For `mezan-prod`:
+
+0. First update `/opt/mezan` to these scripts (`deploy.sh`, `ci-deploy.sh` as `/usr/local/bin/mezan-ci-deploy`,
+   `backup/*.sh`) and check `grep -q mezan-images.lock /opt/mezan/deploy.sh`: an older deploy.sh prunes the
+   other instance's rollback image.
+1. Copy this folder from a checkout (`rsync -a deploy/contabo/ /opt/mezan-prod/`), never from `/opt/mezan`
+   (no `.env`, no override), to `/opt/mezan-prod` and fill `/srv/mezan-prod/` like a first deploy (its own keys and
+   its own `RESTIC_REPOSITORY` path, never another instance's).
+2. deploy.sh writes `MEZAN_INSTANCE=mezan-prod` and the `/srv/mezan-prod` paths into `/opt/mezan-prod/.env`,
+   so a plain `docker compose` there acts on mezan-prod only. Run deploy.sh once before any by-hand compose.
+3. `docker-compose.override.yml`: no Caddy (`profiles: ["own-caddy"]`), its own loopback port, and `edge`
+   subnets (IPv4 and IPv6) no other instance uses, e.g. `172.31.0.0/24` and `fd4d:657a:616f::/64`
+   under `config: !override` (without it Compose merges the lists). Never
+   join `mezan-proxy`: two containers answering to `mezan` there would split traffic between the instances.
+4. Timers: copy `backup/*.service|*.timer` as `mezan-prod-*` with `ExecStart=/opt/mezan-prod/backup/...`.
+5. CI: install `ci-deploy.sh` as `/usr/local/bin/<name>-ci-deploy` for that instance's own deploy user (`mezan-prod-deploy` for production), with its own sudoers line and key, and set that user as the branch's `DEPLOY_USER` in the workflow.
+6. Health: `mezan-health@<name>` reads `/srv/mezan/health-<name>.env`; point its `HEALTH_URL` at this
+   instance and retire any older timer only after the new one has pinged.
+
 ## Cutover to Postgres (once, on a box that ran the SQLite books)
 
 Done by hand, as root on the VPS, from a checkout of the commit you will deploy. **The SQLite books are carried over** by `deploy.sh --migrate-sqlite`: after it has stopped the app and copied `/srv/mezan/data` to `/srv/mezan-predeploy/<old tag>/`, it runs the new tag's migrator (`apps/server/src/sqlite-to-postgres-cli.ts migrate`) in a one-off container before the new tag starts. The migrator works on scratch copies, proves which audit chain key verifies each book, brings the copies to the new tag's shape, copies the platform and every active or suspended company (archived ones get no schema; a company still provisioning makes it refuse, naming it) with their ids, then compares row counts, row hashes and posted debit/credit per account on both sides and appends a `MIGRATED_FROM_SQLITE` event to each audit chain (recording the source file's SHA-256, the old chain head and the row counts) before verifying it. Any difference drops every schema it created and takes the normal failure path below. Without the flag the cutover starts Postgres **empty** (the owner is seeded afresh and every company signs up again); that path still works.
@@ -248,6 +272,8 @@ sudo rm /srv/mezan/data/env-overrides.json && cd /opt/mezan && sudo docker compo
 ```
 
 ## 6. Restore
+
+On a second instance read `<name>` for `mezan` (containers, `/opt`, `/srv`) everywhere below.
 
 ### Postgres (the books)
 

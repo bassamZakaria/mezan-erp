@@ -1,10 +1,11 @@
-name: mezan
+# MEZAN_INSTANCE: the folder name under /opt and /srv (deploy.sh sets it; a second instance also writes it, and its /srv paths, into its .env).
+name: ${MEZAN_INSTANCE:-mezan}
 
 services:
   mezan:
-    image: ${MEZAN_IMAGE:-ghcr.io/bassamzakaria/mezan-erp}:${MEZAN_IMAGE_TAG:?set MEZAN_IMAGE_TAG in /opt/mezan/.env (deploy.sh writes it)}
+    image: ${MEZAN_IMAGE:-ghcr.io/bassamzakaria/mezan-erp}:${MEZAN_IMAGE_TAG:?set MEZAN_IMAGE_TAG in /opt/<instance>/.env (deploy.sh writes it)}
     platform: linux/amd64
-    container_name: mezan
+    container_name: ${MEZAN_INSTANCE:-mezan}
     restart: unless-stopped
     # SECURITY: never publish this port. A Docker-published port bypasses ufw,
     # and a caller reaching the app directly writes its own X-Forwarded-For and
@@ -51,7 +52,7 @@ services:
 
   postgres:
     image: postgres:17.6
-    container_name: mezan-postgres
+    container_name: ${MEZAN_INSTANCE:-mezan}-postgres
     restart: unless-stopped
     # SECURITY: never publish this port. Only the app, on the internal db
     # network, reaches it.
@@ -125,7 +126,7 @@ services:
 
   caddy:
     image: caddy:2
-    container_name: mezan-caddy
+    container_name: ${MEZAN_INSTANCE:-mezan}-caddy
     restart: unless-stopped
     depends_on:
       - mezan

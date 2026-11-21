@@ -7,10 +7,12 @@
 # RCLONE_CONFIG, BACKUP_HEARTBEAT_URL, PRUNE_HEARTBEAT_URL).
 set -Eeuo pipefail
 
-ENV_FILE="${MEZAN_RESTIC_ENV_FILE:-/srv/mezan/restic.env}"
-DATA_DIR="${MEZAN_DATA_DIR:-/srv/mezan/data}"
+# /opt/<name>/backup/ serves the instance <name> (deploy.sh).
+INSTANCE="$(basename "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)")"
+ENV_FILE="${MEZAN_RESTIC_ENV_FILE:-/srv/$INSTANCE/restic.env}"
+DATA_DIR="${MEZAN_DATA_DIR:-/srv/$INSTANCE/data}"
 DISK_LIMIT_PERCENT=80
-HOST_TAG="mezan-vps"
+HOST_TAG="$INSTANCE-vps"
 
 log() { printf '[mezan-backup] %s\n' "$*"; }
 
@@ -79,7 +81,7 @@ case "${1:-}" in
 esac
 
 # prune takes restic's exclusive lock and restic fails at once on a held lock: the modes wait for each other instead.
-exec 9>/run/lock/mezan-restic.lock
+exec 9>"/run/lock/$INSTANCE-restic.lock"
 flock -w 7200 9 || { log "another backup job held the lock for 2 hours"; false; }
 
 case "${1:-}" in

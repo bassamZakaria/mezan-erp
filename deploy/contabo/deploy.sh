@@ -15,14 +15,20 @@
 # never gets ready restores that copy and goes back to the old tag.
 set -Eeuo pipefail
 
-COMPOSE_DIR="${MEZAN_COMPOSE_DIR:-/opt/mezan}"
-DATA_DIR="${MEZAN_DATA_DIR:-/srv/mezan/data}"
-PREDEPLOY_ROOT="${MEZAN_PREDEPLOY_DIR:-/srv/mezan-predeploy}"
-SHARED_ENV="${MEZAN_SHARED_ENV_FILE:-/srv/mezan/shared.env}"
-APP_ENV="${MEZAN_ENV_FILE:-/srv/mezan/env}"
-PG_ENV="${MEZAN_PG_ENV_FILE:-/srv/mezan/pg.env}"
-PG_DATA_DIR="${MEZAN_PG_DATA_DIR:-/srv/mezan/pg/data}"
+COMPOSE_DIR="${MEZAN_COMPOSE_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+# One server can hold several instances: /opt/<name> runs containers <name> and <name>-postgres on /srv/<name>.
+INSTANCE="$(basename "$COMPOSE_DIR")"
+[[ "$INSTANCE" =~ ^mezan(-[a-z0-9]+)?$ && ! "$INSTANCE" =~ ^mezan-(postgres|caddy|predeploy)$ ]] || { echo "refused: $COMPOSE_DIR is not /opt/mezan or /opt/mezan-<name>" >&2; exit 2; }
+APP_CONTAINER="$INSTANCE"
+PG_CONTAINER="$INSTANCE-postgres"
+DATA_DIR="${MEZAN_DATA_DIR:-/srv/$INSTANCE/data}"
+PREDEPLOY_ROOT="${MEZAN_PREDEPLOY_DIR:-/srv/$INSTANCE-predeploy}"
+SHARED_ENV="${MEZAN_SHARED_ENV_FILE:-/srv/$INSTANCE/shared.env}"
+APP_ENV="${MEZAN_ENV_FILE:-/srv/$INSTANCE/env}"
+PG_ENV="${MEZAN_PG_ENV_FILE:-/srv/$INSTANCE/pg.env}"
+PG_DATA_DIR="${MEZAN_PG_DATA_DIR:-/srv/$INSTANCE/pg/data}"
 PG_WAL_ARCHIVE_DIR="${MEZAN_PG_WAL_ARCHIVE_DIR:-$DATA_DIR/backups/pg-wal}"
+export MEZAN_INSTANCE="$INSTANCE" MEZAN_DATA_DIR="$DATA_DIR" MEZAN_SHARED_ENV_FILE="$SHARED_ENV" MEZAN_ENV_FILE="$APP_ENV" MEZAN_PG_ENV_FILE="$PG_ENV" MEZAN_PG_DATA_DIR="$PG_DATA_DIR" MEZAN_PG_WAL_ARCHIVE_DIR="$PG_WAL_ARCHIVE_DIR"
 PG_UID=999
 READY_TIMEOUT_SECONDS=120
 KEEP_PREDEPLOY_COPIES=3
@@ -35,7 +41,7 @@ TAG_FILE="$COMPOSE_DIR/.env"
 MIGRATE_SQLITE=0
 MIGRATION_REPORT=""
 MIGRATE_TIMEOUT_SECONDS=1800
-MIGRATE_CONTAINER=mezan-sqlite-migrate
+MIGRATE_CONTAINER="$INSTANCE-sqlite-migrate"
 MIGRATE_SCRATCH="$DATA_DIR/.migrate-scratch"
 
 log() { printf '[deploy %s] %s\n' "$(date -u +%H:%M:%S)" "$*"; }
@@ -46,7 +52,7 @@ COMPOSE_FILES=(-f "$COMPOSE_DIR/docker-compose.yml")
 compose() { docker compose --project-directory "$COMPOSE_DIR" "${COMPOSE_FILES[@]}" "$@"; }
 pg_user() { sed -n 's/^POSTGRES_USER=//p' "$PG_ENV" | tail -n 1; }
 pg_password() { sed -n 's/^POSTGRES_PASSWORD=//p' "$PG_ENV" | tail -n 1; }
-psql_in() { docker exec -i mezan-postgres psql -U "$(pg_user)" -d mezan -v ON_ERROR_STOP=1 -Atc "$1"; }
+psql_in() { docker exec -i "$PG_CONTAINER" psql -U "$(pg_user)" -d mezan -v ON_ERROR_STOP=1 -Atc "$1"; }
 
 book_schemas() { psql_in "SELECT nspname FROM pg_namespace WHERE nspname = 'platform' OR nspname ~ '^t_[a-z0-9_]+\$' ORDER BY 1"; }
 
@@ -68,9 +74,20 @@ trap on_exit EXIT
 
 tag_value() { [ -f "$TAG_FILE" ] || return 0; sed -n "s/^$1=//p" "$TAG_FILE" | tail -n 1; }
 
+# SECURITY: a plain `docker compose` in /opt/<name> reads only .env; without these lines it falls back to
+# project mezan and acts on the other instance's containers and books.
+pin_instance() {
+  [ "$INSTANCE" != mezan ] || return 0
+  { printf 'MEZAN_INSTANCE=%s\nMEZAN_DATA_DIR=%s\nMEZAN_SHARED_ENV_FILE=%s\nMEZAN_ENV_FILE=%s\nMEZAN_PG_ENV_FILE=%s\nMEZAN_PG_DATA_DIR=%s\nMEZAN_PG_WAL_ARCHIVE_DIR=%s\n' \
+      "$INSTANCE" "$DATA_DIR" "$SHARED_ENV" "$APP_ENV" "$PG_ENV" "$PG_DATA_DIR" "$PG_WAL_ARCHIVE_DIR"
+    [ ! -f "$TAG_FILE" ] || grep -vE '^MEZAN_(INSTANCE|DATA_DIR|SHARED_ENV_FILE|ENV_FILE|PG_ENV_FILE|PG_DATA_DIR|PG_WAL_ARCHIVE_DIR)=' "$TAG_FILE" || true; } > "$TAG_FILE.next"
+  mv "$TAG_FILE.next" "$TAG_FILE"
+}
+
 write_tags() {
   local current="$1" previous="$2"
-  printf 'MEZAN_IMAGE_TAG=%s\nMEZAN_PREVIOUS_IMAGE_TAG=%s\n' "$current" "$previous" > "$TAG_FILE.next"
+  # Keeps any other line (a second instance's MEZAN_INSTANCE and paths).
+  { [ ! -f "$TAG_FILE" ] || grep -vE '^MEZAN_(PREVIOUS_)?IMAGE_TAG=' "$TAG_FILE" || true; printf 'MEZAN_IMAGE_TAG=%s\nMEZAN_PREVIOUS_IMAGE_TAG=%s\n' "$current" "$previous"; } > "$TAG_FILE.next"
   mv "$TAG_FILE.next" "$TAG_FILE"
 }
 
@@ -102,6 +119,7 @@ preflight() {
   if grep -q '^MEZAN_' "$PG_ENV"; then die "$PG_ENV may hold only POSTGRES_* settings; MEZAN_DATABASE_URL and MEZAN_TENANT_DB_SECRET belong in $APP_ENV"; fi
   grep -Eq '^MEZAN_DATABASE_URL=postgres://mezan_app:[0-9a-f]{64}@postgres:5432/mezan$' "$APP_ENV" || die "MEZAN_DATABASE_URL in $APP_ENV must be postgres://mezan_app:<64 lower-case hex>@postgres:5432/mezan (the superuser is for this script only)"
   grep -Eq '^MEZAN_TENANT_DB_SECRET=[0-9a-f]{64}$' "$APP_ENV" || die "MEZAN_TENANT_DB_SECRET in $APP_ENV must be 64 lower-case hex characters"
+  pin_instance
   [ -f "$APP_ROLE_SQL" ] || die "$APP_ROLE_SQL is missing (copy deploy/contabo to $COMPOSE_DIR)"
   mkdir -p "$PG_DATA_DIR" "$PG_WAL_ARCHIVE_DIR"
   chown "$PG_UID:$PG_UID" "$PG_DATA_DIR" "$PG_WAL_ARCHIVE_DIR"
@@ -109,16 +127,19 @@ preflight() {
 }
 
 prune_images() {
-  # Keeps the running tag and the rollback tag; every deploy would otherwise leave one more image on disk.
-  local image="${MEZAN_IMAGE:-ghcr.io/bassamzakaria/mezan-erp}" keep1="${1%%@*}" keep2="${2%%@*}" tag
+  # Keeps the running and rollback tags of every instance beside this one; every deploy would otherwise leave one more image on disk.
+  local image="${MEZAN_IMAGE:-ghcr.io/bassamzakaria/mezan-erp}" keep tag
+  # Another instance between its pull and its write_tags holds fd 8 shared; its new tag is not in any .env yet.
+  flock -n -x 8 || { log "another instance is deploying; image cleanup skipped"; return 0; }
+  keep="$(printf '%s\n%s\n' "${1%%@*}" "${2%%@*}"; sed -n 's/^MEZAN_\(PREVIOUS_\)\{0,1\}IMAGE_TAG=\([^@]*\).*/\2/p' "$(dirname "$COMPOSE_DIR")"/*/.env 2>/dev/null || true)"
   docker image ls "$image" --format '{{.Tag}}' | while read -r tag; do
-    [ "$tag" = "$keep1" ] || [ "$tag" = "$keep2" ] || [ "$tag" = "<none>" ] || docker image rm "$image:$tag" >/dev/null || true
+    [ "$tag" = "<none>" ] || grep -qxF "$tag" <<<"$keep" || docker image rm "$image:$tag" >/dev/null || true
   done
   docker image prune -f >/dev/null
 }
 
 wait_ready() {
-  local container="${1:-mezan}" deadline=$((SECONDS + READY_TIMEOUT_SECONDS)) status
+  local container="${1:-$APP_CONTAINER}" deadline=$((SECONDS + READY_TIMEOUT_SECONDS)) status
   while [ "$SECONDS" -lt "$deadline" ]; do
     status="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$container" 2>/dev/null || echo missing)"
     [ "$status" = "healthy" ] && return 0
@@ -128,15 +149,15 @@ wait_ready() {
 }
 
 stop_cleanly() {
-  if ! docker inspect mezan >/dev/null 2>&1; then
-    log "no mezan container yet (first deploy)"
+  if ! docker inspect "$APP_CONTAINER" >/dev/null 2>&1; then
+    log "no $APP_CONTAINER container yet (first deploy)"
     return 0
   fi
   log "stopping the app (SIGTERM, up to 90 s)"
   compose stop mezan
   local exit_code
-  exit_code="$(docker inspect --format '{{.State.ExitCode}}' mezan)"
-  [ ! -e "$RUNNING_MARKER" ] || die "the app exited with code $exit_code and left $RUNNING_MARKER, so it did not close its databases; nothing was copied or changed. Read 'docker logs mezan', then 'compose start mezan' to resume the old version"
+  exit_code="$(docker inspect --format '{{.State.ExitCode}}' "$APP_CONTAINER")"
+  [ ! -e "$RUNNING_MARKER" ] || die "the app exited with code $exit_code and left $RUNNING_MARKER, so it did not close its databases; nothing was copied or changed. Read 'docker logs $APP_CONTAINER', then 'compose start mezan' to resume the old version"
   # The app writes the marker once it has booted and removes it only on a clean close, so a
   # failure with no marker is a version that died while booting and never served: a fix may replace it.
   [ "$exit_code" = "0" ] || log "the app exited with code $exit_code without ever finishing its boot (no $RUNNING_MARKER); going on"
@@ -145,7 +166,7 @@ stop_cleanly() {
 check_disk() {
   local files_kb pg_kb=0 free_kb
   files_kb="$(du -sk --exclude=backups --exclude=exports "$DATA_DIR" | cut -f1)"
-  if [ "$(docker inspect --format '{{.State.Running}}' mezan-postgres 2>/dev/null || true)" = "true" ]; then
+  if [ "$(docker inspect --format '{{.State.Running}}' "$PG_CONTAINER" 2>/dev/null || true)" = "true" ]; then
     pg_kb=$(( $(psql_in "SELECT pg_database_size('mezan')") / 1024 ))
   fi
   mkdir -p "$PREDEPLOY_ROOT"
@@ -169,7 +190,7 @@ dump_books() {
   list="$(book_schemas)"
   mkdir -p "$dir"
   for schema in $list; do
-    docker exec mezan-postgres pg_dump -U "$(pg_user)" -d mezan -Fc -n "$schema" > "$dir/$schema.dump"
+    docker exec "$PG_CONTAINER" pg_dump -U "$(pg_user)" -d mezan -Fc -n "$schema" > "$dir/$schema.dump"
   done
 }
 
@@ -208,7 +229,7 @@ ensure_app_role() {
   # SECURITY: Postgres stores a SCRAM verifier as given, so the plain password never reaches the server's statement log. Both travel on stdin, never on a command line.
   verifier="$(printf '%s' "$password" | scram_verifier)"
   { cat "$APP_ROLE_SQL"; printf "ALTER ROLE mezan_app LOGIN PASSWORD '%s';\n" "$verifier"; } \
-    | docker exec -i mezan-postgres psql -U "$(pg_user)" -d mezan -v ON_ERROR_STOP=1 -q >/dev/null
+    | docker exec -i "$PG_CONTAINER" psql -U "$(pg_user)" -d mezan -v ON_ERROR_STOP=1 -q >/dev/null
   user="$(sed -n 's|^MEZAN_DATABASE_URL=postgres://\([a-z_]*\):.*$|\1|p' "$APP_ENV" | tail -n 1)"
   [ "$(psql_in "SELECT rolsuper FROM pg_roles WHERE rolname = '$user'")" = "f" ] || die "the app's database user $user is a superuser or does not exist"
 }
@@ -216,7 +237,7 @@ ensure_app_role() {
 start_postgres() {
   log "starting Postgres"
   compose up -d postgres
-  wait_ready mezan-postgres || die "Postgres did not become healthy; read 'docker logs mezan-postgres'"
+  wait_ready "$PG_CONTAINER" || die "Postgres did not become healthy; read 'docker logs $PG_CONTAINER'"
   ensure_app_role
 }
 
@@ -229,8 +250,8 @@ restore_schema() {
   {
     printf "DO \$\$BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '%s') THEN CREATE ROLE %s NOLOGIN; END IF; END\$\$;\n" "$schema" "$schema"
     printf 'SET client_min_messages = warning;\nDROP SCHEMA IF EXISTS %s CASCADE;\n' "$schema"
-    docker exec -i mezan-postgres pg_restore -f - < "$dump"
-  } | docker exec -i mezan-postgres psql -U "$(pg_user)" -d mezan -v ON_ERROR_STOP=1 --single-transaction -q >/dev/null
+    docker exec -i "$PG_CONTAINER" pg_restore -f - < "$dump"
+  } | docker exec -i "$PG_CONTAINER" psql -U "$(pg_user)" -d mezan -v ON_ERROR_STOP=1 --single-transaction -q >/dev/null
 }
 
 restore_pg_dumps() {
@@ -246,7 +267,7 @@ restore_pg_dumps() {
     if [ "$(psql_in "SELECT count(*) FROM pg_roles WHERE rolname = '$schema'")" = "1" ]; then
       # The app granted it CONNECT; only the grantor can revoke that, and DROP ROLE refuses while it stands.
       printf 'DROP OWNED BY %s CASCADE;\nSET ROLE mezan_app;\nREVOKE ALL ON DATABASE mezan FROM %s;\nRESET ROLE;\nDROP ROLE %s;\n' "$schema" "$schema" "$schema" \
-        | docker exec -i mezan-postgres psql -U "$(pg_user)" -d mezan -v ON_ERROR_STOP=1 --single-transaction -q >/dev/null
+        | docker exec -i "$PG_CONTAINER" psql -U "$(pg_user)" -d mezan -v ON_ERROR_STOP=1 --single-transaction -q >/dev/null
     fi
   done
   # Platform last: it is the directory of the companies the boot opens.
@@ -328,7 +349,7 @@ fall_back() {
     log "rolled back to $old_tag on the pre-deploy copy; $new_tag needs fixing"
     exit 2
   fi
-  die "$old_tag is not ready either: the site is down. Read 'docker logs mezan' and README 'Restore'"
+  die "$old_tag is not ready either: the site is down. Read 'docker logs $APP_CONTAINER' and README 'Restore'"
 }
 
 deploy() {
@@ -386,7 +407,7 @@ deploy() {
   fi
 
   log "$new_tag did not become ready within ${READY_TIMEOUT_SECONDS} s; last log lines:"
-  docker logs --tail 40 mezan 2>&1 || true
+  docker logs --tail 40 "$APP_CONTAINER" 2>&1 || true
   fall_back "$label" "$new_tag" "$old_tag" "$old_previous"
 }
 
@@ -409,8 +430,10 @@ main() {
   fi
   [ $# -eq 1 ] || { echo "usage: $0 <image tag> | --rollback | --migrate-sqlite <image tag>" >&2; exit 64; }
   [ "$(id -u)" -eq 0 ] || die "run as root"
-  exec 9>/run/mezan-deploy.lock
+  exec 9>"/run/$INSTANCE-deploy.lock"
   flock -n 9 || die "another deploy is running"
+  exec 8>/run/lock/mezan-images.lock
+  flock -s 8
   preflight
   case "$1" in
     --rollback) [ "$MIGRATE_SQLITE" = 0 ] || { echo "usage: $0 <image tag> | --rollback | --migrate-sqlite <image tag>" >&2; exit 64; }; rollback ;;

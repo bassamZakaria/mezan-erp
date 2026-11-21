@@ -9,14 +9,16 @@
 set -Eeuo pipefail
 umask 077
 
-PG_ENV="${MEZAN_PG_ENV_FILE:-/srv/mezan/pg.env}"
-RESTIC_ENV="${MEZAN_RESTIC_ENV_FILE:-/srv/mezan/restic.env}"
-DATA_DIR="${MEZAN_DATA_DIR:-/srv/mezan/data}"
+# /opt/<name>/backup/ serves the instance <name> (deploy.sh).
+INSTANCE="$(basename "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)")"
+PG_ENV="${MEZAN_PG_ENV_FILE:-/srv/$INSTANCE/pg.env}"
+RESTIC_ENV="${MEZAN_RESTIC_ENV_FILE:-/srv/$INSTANCE/restic.env}"
+DATA_DIR="${MEZAN_DATA_DIR:-/srv/$INSTANCE/data}"
 DUMP_ROOT="$DATA_DIR/backups/pg-dump"
 BASE_ROOT="$DATA_DIR/backups/pg-base"
 KEEP_DUMPS=48
 KEEP_BASES=2
-CONTAINER=mezan-postgres
+CONTAINER="$INSTANCE-postgres"
 DATABASE=mezan
 
 log() { printf '[mezan-pg-backup] %s\n' "$*"; }

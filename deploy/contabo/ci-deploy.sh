@@ -6,14 +6,19 @@
 # Input: "<commit sha>@sha256:<digest>" as the SSH command, the workflow's short-lived GITHUB_TOKEN on stdin.
 set -euo pipefail
 
+# Installed as /usr/local/bin/<instance>-ci-deploy, it deploys /opt/<instance> (deploy.sh).
+self="/usr/local/bin/$(basename "$0")"
+instance="$(basename "$0" -ci-deploy)"
+[[ "$instance" =~ ^mezan(-[a-z0-9]+)?$ ]] || { echo "refused: install as /usr/local/bin/<instance>-ci-deploy" >&2; exit 2; }
+
 if [ "$(id -u)" -ne 0 ]; then
-  exec sudo -n /usr/local/bin/mezan-ci-deploy "${SSH_ORIGINAL_COMMAND:-}"
+  exec sudo -n "$self" "${SSH_ORIGINAL_COMMAND:-}"
 fi
 
 tag="${1:-}"
 [[ "$tag" =~ ^[0-9a-f]{40}@sha256:[0-9a-f]{64}$ ]] || { echo "refused: expected <commit sha>@sha256:<digest>" >&2; exit 2; }
 
-if [ "$(sed -n 's/^MEZAN_IMAGE_TAG=//p' /opt/mezan/.env 2>/dev/null | tail -n 1)" = "$tag" ]; then
+if [ "$(sed -n 's/^MEZAN_IMAGE_TAG=//p' "/opt/$instance/.env" 2>/dev/null | tail -n 1)" = "$tag" ]; then
   echo "$tag is already running"
   exit 0
 fi
@@ -26,10 +31,10 @@ docker login ghcr.io -u github-actions --password-stdin >/dev/null
 
 # Detached from the SSH session: a cancelled job or dropped connection must not
 # kill deploy.sh between stopping the app and starting (or rolling back) the new one.
-log=/var/log/mezan-deploy.log
+log="/var/log/$instance-deploy.log"
 touch "$log" && chmod 600 "$log"
 start=$(($(stat -c %s "$log") + 1))
-setsid bash -c 'trap "rm -rf \"$DOCKER_CONFIG\"" EXIT; /opt/mezan/deploy.sh "$1"' _ "$tag" >>"$log" 2>&1 </dev/null &
+setsid bash -c 'trap "rm -rf \"$DOCKER_CONFIG\"" EXIT; "/opt/$2/deploy.sh" "$1"' _ "$tag" "$instance" >>"$log" 2>&1 </dev/null &
 pid=$!
 trap - EXIT
 tail -c "+$start" -f --pid="$pid" "$log" || true
